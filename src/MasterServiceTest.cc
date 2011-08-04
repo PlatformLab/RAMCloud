@@ -612,7 +612,8 @@ class MasterServiceTest : public CppUnit::TestFixture {
     void
     test_recoverSegment()
     {
-        void* seg = xmemalign(8192, 8192);
+        const uint32_t segLen = 8192;
+        void* seg = xmemalign(segLen, segLen);
         uint32_t len; // number of bytes in a recovery segment
         Buffer value;
         bool ret;
@@ -634,30 +635,30 @@ class MasterServiceTest : public CppUnit::TestFixture {
         ////////////////////////////////////////////////////////////////////
 
         // Case 1a: Newer object already there; ignore object.
-        len = buildRecoverySegment(seg, 8192, 0, 2000, 1, "newer guy");
+        len = buildRecoverySegment(seg, segLen, 0, 2000, 1, "newer guy");
         service->recoverSegment(0, seg, len);
         verifyRecoveryObject(0, 2000, "newer guy");
-        len = buildRecoverySegment(seg, 8192, 0, 2000, 0, "older guy");
+        len = buildRecoverySegment(seg, segLen, 0, 2000, 0, "older guy");
         service->recoverSegment(0, seg, len);
         verifyRecoveryObject(0, 2000, "newer guy");
 
         // Case 1b: Older object already there; replace object.
-        len = buildRecoverySegment(seg, 8192, 0, 2001, 0, "older guy");
+        len = buildRecoverySegment(seg, segLen, 0, 2001, 0, "older guy");
         service->recoverSegment(0, seg, len);
         verifyRecoveryObject(0, 2001, "older guy");
-        len = buildRecoverySegment(seg, 8192, 0, 2001, 1, "newer guy");
+        len = buildRecoverySegment(seg, segLen, 0, 2001, 1, "newer guy");
         service->recoverSegment(0, seg, len);
         verifyRecoveryObject(0, 2001, "newer guy");
 
         // Case 2a: Equal/newer tombstone already there; ignore object.
         ObjectTombstone t1(0, 0, 2002, 1);
         LogEntryHandle logTomb1 = service->log.append(LOG_ENTRY_TYPE_OBJTOMB,
-            &t1, sizeof(t1), NULL, NULL, false);
+            &t1, sizeof(t1), false);
         ret = service->objectMap.replace(logTomb1);
         CPPUNIT_ASSERT_EQUAL(false, ret);
-        len = buildRecoverySegment(seg, 8192, 0, 2002, 1, "equal guy");
+        len = buildRecoverySegment(seg, segLen, 0, 2002, 1, "equal guy");
         service->recoverSegment(0, seg, len);
-        len = buildRecoverySegment(seg, 8192, 0, 2002, 0, "older guy");
+        len = buildRecoverySegment(seg, segLen, 0, 2002, 0, "older guy");
         service->recoverSegment(0, seg, len);
         CPPUNIT_ASSERT_EQUAL(logTomb1, service->objectMap.lookup(0, 2002));
         service->removeTombstones();
@@ -667,10 +668,10 @@ class MasterServiceTest : public CppUnit::TestFixture {
         // Case 2b: Lesser tombstone already there; add object, remove tomb.
         ObjectTombstone t2(0, 0, 2003, 10);
         LogEntryHandle logTomb2 = service->log.append(LOG_ENTRY_TYPE_OBJTOMB,
-            &t2, sizeof(t2), NULL, NULL, false);
+            &t2, sizeof(t2), false);
         ret = service->objectMap.replace(logTomb2);
         CPPUNIT_ASSERT_EQUAL(false, ret);
-        len = buildRecoverySegment(seg, 8192, 0, 2003, 11, "newer guy");
+        len = buildRecoverySegment(seg, segLen, 0, 2003, 11, "newer guy");
         service->recoverSegment(0, seg, len);
         verifyRecoveryObject(0, 2003, "newer guy");
         CPPUNIT_ASSERT(service->objectMap.lookup(0, 2003) != NULL);
@@ -680,7 +681,7 @@ class MasterServiceTest : public CppUnit::TestFixture {
 
         // Case 3: No tombstone, no object. Recovered object always added.
         CPPUNIT_ASSERT_EQUAL(NULL, service->objectMap.lookup(0, 2004));
-        len = buildRecoverySegment(seg, 8192, 0, 2004, 0, "only guy");
+        len = buildRecoverySegment(seg, segLen, 0, 2004, 0, "only guy");
         service->recoverSegment(0, seg, len);
         verifyRecoveryObject(0, 2004, "only guy");
 
@@ -699,30 +700,30 @@ class MasterServiceTest : public CppUnit::TestFixture {
         ////////////////////////////////////////////////////////////////////
 
         // Case 1a: Newer object already there; ignore tombstone.
-        len = buildRecoverySegment(seg, 8192, 0, 2005, 1, "newer guy");
+        len = buildRecoverySegment(seg, segLen, 0, 2005, 1, "newer guy");
         service->recoverSegment(0, seg, len);
         ObjectTombstone t3(0, 0, 2005, 0);
-        len = buildRecoverySegment(seg, 8192, &t3);
+        len = buildRecoverySegment(seg, segLen, &t3);
         service->recoverSegment(0, seg, len);
         verifyRecoveryObject(0, 2005, "newer guy");
 
         // Case 1b: Equal/older object already there; discard and add tombstone.
-        len = buildRecoverySegment(seg, 8192, 0, 2006, 0, "equal guy");
+        len = buildRecoverySegment(seg, segLen, 0, 2006, 0, "equal guy");
         service->recoverSegment(0, seg, len);
         verifyRecoveryObject(0, 2006, "equal guy");
         ObjectTombstone t4(0, 0, 2006, 0);
-        len = buildRecoverySegment(seg, 8192, &t4);
+        len = buildRecoverySegment(seg, segLen, &t4);
         service->recoverSegment(0, seg, len);
         service->removeTombstones();
         CPPUNIT_ASSERT_EQUAL(NULL, service->objectMap.lookup(0, 2006));
         CPPUNIT_ASSERT_THROW(client->read(0, 2006, &value),
                              ObjectDoesntExistException);
 
-        len = buildRecoverySegment(seg, 8192, 0, 2007, 0, "older guy");
+        len = buildRecoverySegment(seg, segLen, 0, 2007, 0, "older guy");
         service->recoverSegment(0, seg, len);
         verifyRecoveryObject(0, 2007, "older guy");
         ObjectTombstone t5(0, 0, 2007, 1);
-        len = buildRecoverySegment(seg, 8192, &t5);
+        len = buildRecoverySegment(seg, segLen, &t5);
         service->recoverSegment(0, seg, len);
         service->removeTombstones();
         CPPUNIT_ASSERT_EQUAL(NULL, service->objectMap.lookup(0, 2007));
@@ -731,26 +732,26 @@ class MasterServiceTest : public CppUnit::TestFixture {
 
         // Case 2a: Newer tombstone already there; ignore.
         ObjectTombstone t6(0, 0, 2008, 1);
-        len = buildRecoverySegment(seg, 8192, &t6);
+        len = buildRecoverySegment(seg, segLen, &t6);
         service->recoverSegment(0, seg, len);
         tomb1 = service->objectMap.lookup(0, 2008)->userData<ObjectTombstone>();
         CPPUNIT_ASSERT(tomb1 != NULL);
         CPPUNIT_ASSERT_EQUAL(1, tomb1->objectVersion);
         ObjectTombstone t7(0, 0, 2008, 0);
-        len = buildRecoverySegment(seg, 8192, &t7);
+        len = buildRecoverySegment(seg, segLen, &t7);
         service->recoverSegment(0, seg, len);
         tomb2 = service->objectMap.lookup(0, 2008)->userData<ObjectTombstone>();
         CPPUNIT_ASSERT_EQUAL(tomb1, tomb2);
 
         // Case 2b: Older tombstone already there; replace.
         ObjectTombstone t8(0, 0, 2009, 0);
-        len = buildRecoverySegment(seg, 8192, &t8);
+        len = buildRecoverySegment(seg, segLen, &t8);
         service->recoverSegment(0, seg, len);
         tomb1 = service->objectMap.lookup(0, 2009)->userData<ObjectTombstone>();
         CPPUNIT_ASSERT(tomb1 != NULL);
         CPPUNIT_ASSERT_EQUAL(0, tomb1->objectVersion);
         ObjectTombstone t9(0, 0, 2009, 1);
-        len = buildRecoverySegment(seg, 8192, &t9);
+        len = buildRecoverySegment(seg, segLen, &t9);
         service->recoverSegment(0, seg, len);
         tomb2 = service->objectMap.lookup(0, 2009)->userData<ObjectTombstone>();
         CPPUNIT_ASSERT_EQUAL(1, tomb2->objectVersion);
@@ -758,7 +759,7 @@ class MasterServiceTest : public CppUnit::TestFixture {
         // Case 3: No tombstone, no object. Recovered tombstone always added.
         CPPUNIT_ASSERT_EQUAL(NULL, service->objectMap.lookup(0, 2010));
         ObjectTombstone t10(0, 0, 2010, 0);
-        len = buildRecoverySegment(seg, 8192, &t10);
+        len = buildRecoverySegment(seg, segLen, &t10);
         service->recoverSegment(0, seg, len);
         CPPUNIT_ASSERT(service->objectMap.lookup(0, 2010) != NULL);
         CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJTOMB,

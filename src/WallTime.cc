@@ -45,6 +45,10 @@ static time_t baseTime = 0;
  */
 static uint64_t baseTsc = 0;
 
+#if TESTING
+uint32_t mockWallTimeValue = 0;
+#endif
+
 /**
  * Obtain a fast timestamp with seconds granularity. This stamp is an offset
  * from Jan 1 00:00:00 2011 UTC. A syscall is used only on the first invocation.
@@ -53,6 +57,11 @@ static uint64_t baseTsc = 0;
 uint32_t
 secondsTimestamp()
 {
+#if TESTING
+    if (mockWallTimeValue)
+        return mockWallTimeValue;
+#endif
+
 	if (baseTime == 0) {
 		baseTime = time(NULL);
 		baseTsc = rdtsc();

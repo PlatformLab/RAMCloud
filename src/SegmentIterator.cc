@@ -117,9 +117,11 @@ SegmentIterator::commonConstructor(bool ignoreCapacityMismatch)
         throw SegmentIteratorException(HERE, "id mismatch");
     id = header->segmentId;
 
-    type    = entry->type;
-    length  = entry->length;
-    blobPtr = reinterpret_cast<const char *>(baseAddress) + sizeof(*entry);
+    SegmentEntryHandle handle = reinterpret_cast<SegmentEntryHandle>(entry);
+
+    type    = handle->type();
+    length  = handle->length();
+    blobPtr = handle->userData<char*>(); 
 
     currentEntry = firstEntry = entry;
 }
@@ -189,9 +191,11 @@ SegmentIterator::next()
         return;
     }
 
-    type    = entry->type;
-    length  = entry->length;
-    blobPtr = (const void *)((uintptr_t)entry + sizeof(*entry));
+    SegmentEntryHandle handle = reinterpret_cast<SegmentEntryHandle>(entry);
+
+    type    = handle->type();
+    length  = handle->length();
+    blobPtr = handle->userData<char*>(); 
     currentEntry = entry;
 
     if (prefetching) {

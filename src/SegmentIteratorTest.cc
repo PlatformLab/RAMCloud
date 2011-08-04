@@ -186,8 +186,7 @@ class SegmentIteratorTest : public CppUnit::TestFixture {
         Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf));
 
         static char buf;
-        uint64_t offsetInSegment;
-        s.append(LOG_ENTRY_TYPE_OBJ, &buf, sizeof(buf), NULL, &offsetInSegment);
+        SegmentEntryHandle h = s.append(LOG_ENTRY_TYPE_OBJ, &buf, sizeof(buf));
         SegmentIterator si(&s);
 
         CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGHEADER, si.getType());
@@ -203,7 +202,8 @@ class SegmentIteratorTest : public CppUnit::TestFixture {
         si.next();
         CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJ, si.getType());
         CPPUNIT_ASSERT_EQUAL(sizeof(buf), si.getLength());
-        CPPUNIT_ASSERT(si.getLogTime() == LogTime(98765, offsetInSegment));
+        uint32_t segmentOffset = h->logTime().second;
+        CPPUNIT_ASSERT(si.getLogTime() == LogTime(98765, segmentOffset));
         CPPUNIT_ASSERT(si.getLogTime() > LogTime(98765, 0));
 
         si.currentEntry = NULL;
@@ -222,7 +222,7 @@ class SegmentIteratorTest : public CppUnit::TestFixture {
         memset(alignedBuf, 0, sizeof(alignedBuf));
         Segment s(1, 2, alignedBuf, sizeof(alignedBuf));
         SegmentIterator i(&s);
-        CPPUNIT_ASSERT_EQUAL(0xfc571e23, i.generateChecksum());
+        CPPUNIT_ASSERT_EQUAL(0x0bd2d711, i.generateChecksum());
     }
 
     void

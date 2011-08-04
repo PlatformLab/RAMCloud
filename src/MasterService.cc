@@ -1013,11 +1013,8 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
                 const Object* newObj = localObj;
 #else
                 // write to log (with lazy backup flush) & update hash table
-                uint64_t lengthInLog;
-                LogTime logTime;
-                LogEntryHandle newObjHandle = log.append(
-                    LOG_ENTRY_TYPE_OBJ, recoverObj, i.getLength(), &lengthInLog,
-                    &logTime, false, i.checksum());
+                LogEntryHandle newObjHandle = log.append(LOG_ENTRY_TYPE_OBJ,
+                    recoverObj, i.getLength(), false, i.checksum());
                 ++metrics->master.objectAppendCount;
                 metrics->master.liveObjectBytes +=
                     localObj->dataLength(i.getLength());
@@ -1026,7 +1023,7 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
                 Table& t(getTable(downCast<uint32_t>(recoverObj->id.tableId),
                                   recoverObj->id.objectId));
                 t.profiler.track(recoverObj->id.objectId,
-                                 downCast<uint32_t>(lengthInLog), logTime);
+                    newObjHandle->totalLength(), newObjHandle->logTime());
 #endif
 
 #ifndef PERF_DEBUG_RECOVERY_REC_SEG_NO_HT
@@ -1084,9 +1081,8 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
 
             if (recoverTomb->objectVersion >= minSuccessor) {
                 ++metrics->master.tombstoneAppendCount;
-                LogEntryHandle newTomb = log.append(
-                    LOG_ENTRY_TYPE_OBJTOMB, recoverTomb, sizeof(*recoverTomb),
-                    NULL, NULL, false, i.checksum());
+                LogEntryHandle newTomb = log.append(LOG_ENTRY_TYPE_OBJTOMB,
+                    recoverTomb, sizeof(*recoverTomb), false, i.checksum());
                 objectMap.replace(newTomb);
 
                 // nuke the old tombstone, if it existed
@@ -1144,13 +1140,9 @@ MasterService::remove(const RemoveRpc::Request& reqHdr,
 
     // Write the tombstone into the Log, update our tablet
     // counters, and remove from the hash table.
-    uint64_t lengthInLog;
-    LogTime logTime;
-
-    log.append(LOG_ENTRY_TYPE_OBJTOMB, &tomb, sizeof(tomb),
-        &lengthInLog, &logTime);
-    t.profiler.track(obj->id.objectId,
-                     downCast<uint32_t>(lengthInLog), logTime);
+    SegmentEntryHandle seh = log.append(
+        LOG_ENTRY_TYPE_OBJTOMB, &tomb, sizeof(tomb));
+    t.profiler.track(obj->id.objectId, seh->totalLength(), seh->logTime());
     objectMap.remove(reqHdr.tableId, reqHdr.id);
 }
 
@@ -1569,8 +1561,6 @@ MasterService::storeData(uint64_t tableId, uint64_t id,
     }
 
     uint64_t version = (obj != NULL) ? obj->version : VERSION_NONEXISTENT;
-    uint64_t lengthInLog;
-    LogTime logTime;
 
     try {
         rejectOperation(rejectRules, version);
@@ -1614,14 +1604,14 @@ MasterService::storeData(uint64_t tableId, uint64_t id,
         // Request an async append explicitly so that the tombstone
         // and the object are sent out together to the backups.
         bool sync = false;
-        log.append(LOG_ENTRY_TYPE_OBJTOMB, &tomb, sizeof(tomb), &lengthInLog,
-            &logTime, sync);
-        t.profiler.track(id, downCast<uint32_t>(lengthInLog), logTime);
+        LogEntryHandle tombHandle = log.append(
+            LOG_ENTRY_TYPE_OBJTOMB, &tomb, sizeof(tomb), sync);
+        t.profiler.track(id, tombHandle->totalLength(), tombHandle->logTime());
     }
 
     LogEntryHandle objHandle = log.append(LOG_ENTRY_TYPE_OBJ, newObject,
-        newObject->objectLength(dataLength), &lengthInLog, &logTime, !async);
-    t.profiler.track(id, downCast<uint32_t>(lengthInLog), logTime);
+        newObject->objectLength(dataLength), !async);
+    t.profiler.track(id, objHandle->totalLength(), objHandle->logTime());
     objectMap.replace(objHandle);
 
     *newVersion = newObject->version;

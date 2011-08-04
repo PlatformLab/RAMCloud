@@ -28,7 +28,7 @@ namespace RAMCloud {
 /**
  * Mmap the desired amount of space with gigabyte alignment (lower 30
  * bits of the address are 0). Also, ensure that all mappings are faulted
- * in by touching each one. This is used to give the log memory that's
+ * in by touching each page. This is used to give the log memory that's
  * well-aligned, which makes things like computing base addresses of
  * Segments from random pointers really easy if Segments are aligned as
  * well (to a power-of-two less than or equal to 1GB).

@@ -38,7 +38,7 @@ class LogCleaner {
     void clean();
     void halt();
 
-  private:
+  PRIVATE:
     typedef std::vector<SegmentEntryHandle> SegmentEntryHandleVector;
 
     // cleaner thread entry point
@@ -47,11 +47,7 @@ class LogCleaner {
     void getSegmentsToClean(SegmentVector&);
     void getSortedLiveEntries(SegmentVector& segments,
                               SegmentEntryHandleVector& liveEntries);
-    void segregateEntries(SegmentEntryHandleVector& liveEntries,
-                          SegmentEntryHandleVector* buckets,
-                          int numBuckets);
-    void moveLiveData(SegmentEntryHandleVector& data,
-                      SegmentVector& segmentsAdded);
+    void moveLiveData(SegmentEntryHandleVector& data);
 
     /// After cleaning, wake the cleaner again after this many microseconds.
     static const size_t CLEANER_POLL_USEC = 50000;
@@ -59,6 +55,12 @@ class LogCleaner {
     /// Don't bother cleaning unless so many bytes have been freed in the Log
     /// since the last cleaning operation.
     static const size_t MIN_CLEANING_DELTA = 2 * Segment::SEGMENT_SIZE;
+
+    /// Number of Segments to clean per pass. 
+    static const size_t SEGMENTS_PER_CLEANING_PASS = 10;
+
+    /// Maximum write cost we'll permit. Anything higher and we won't clean.
+    static const double MAXIMUM_CLEANABLE_WRITE_COST = 3.0;
 
     /// The number of bytes that have been freed in the Log since the last
     /// cleaning operation completed. This is used to avoid invoking the

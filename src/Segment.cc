@@ -148,18 +148,21 @@ Segment::commonConstructor(LogEntryType type,
         throw SegmentException(HERE, "segment capacity is too small");
     }
 
+    if (ffs(capacity) == 0 || ffs(capacity) > 31) {
+        throw SegmentException(HERE, "segment capacity must be power of two"
+            "between 1 and 2^31");
+    }
+
     if ((reinterpret_cast<uintptr_t>(baseAddress) % capacity) != 0)
         throw SegmentException(HERE, "segment memory not aligned to capacity");
 
     SegmentHeader segHdr = { logId, id, capacity };
     SegmentEntryHandle h = forceAppendWithEntry(LOG_ENTRY_TYPE_SEGHEADER,
-                                                &segHdr, sizeof(segHdr),
-                                                NULL, false);
+                                                &segHdr, sizeof(segHdr), false);
     assert(h != NULL);
     if (length) {
         SegmentEntryHandle h = forceAppendWithEntry(type,
-                                                    buffer, length,
-                                                    NULL, false);
+                                                    buffer, length, false);
         assert(h != NULL);
     }
     if (backup)
@@ -185,16 +188,6 @@ Segment::~Segment()
  *      Data to be appended to this Segment.
  * \param[in] length
  *      Length of the data to be appended in bytes.
- * \param[out] lengthInSegment
- *      If non-NULL, the actual number of bytes consumed by this append to
- *      the Segment is stored to this address. Note that this size includes
- *      all Log and Segment overheads, so it will be greater than the
- *      ``length'' parameter. 
- * \param[out] offsetInSegment
- *      If non-NULL, the offset in this Segment at which the operation was
- *      performed is returned here. Note that this offset does not correspond
- *      to where the contents of ``buffer'' was written, but to the preceding
- *      metadata for this operation.
  * \param[in] sync
  *      If true then this write to replicated to backups before return,
  *      otherwise the replication will happen on a subsequent append()
@@ -211,18 +204,14 @@ Segment::~Segment()
  */
 SegmentEntryHandle
 Segment::append(LogEntryType type, const void *buffer, uint32_t length,
-    uint64_t *lengthInSegment, uint64_t *offsetInSegment, bool sync,
-    Tub<SegmentChecksum::ResultType> expectedChecksum)
+    bool sync, Tub<SegmentChecksum::ResultType> expectedChecksum)
 {
     if (closed || type == LOG_ENTRY_TYPE_SEGFOOTER ||
       appendableBytes() < length)
         return NULL;
 
-    if (offsetInSegment != NULL)
-        *offsetInSegment = tail;
-
     return forceAppendWithEntry(type, buffer, length,
-        lengthInSegment, sync, true, expectedChecksum);
+        sync, true, expectedChecksum);
 }
 
 /**
@@ -232,11 +221,6 @@ Segment::append(LogEntryType type, const void *buffer, uint32_t length,
  *
  * \param[in] handle
  *      Handle to the object we want to append to this Segment.
- * \param[out] offsetInSegment
- *      If non-NULL, the offset in this Segment at which the operation was
- *      performed is returned here. Note that this offset does not correspond
- *      to where the contents of ``buffer'' was written, but to the preceding
- *      metadata for this operation.
  * \param[in] sync
  *      If true then this write to replicated to backups before return,
  *      otherwise the replication will happen on a subsequent append()
@@ -244,13 +228,11 @@ Segment::append(LogEntryType type, const void *buffer, uint32_t length,
  *      to true.
  */
 SegmentEntryHandle
-Segment::append(SegmentEntryHandle handle, uint64_t *offsetInSegment, bool sync)
+Segment::append(SegmentEntryHandle handle, bool sync)
 {
     return append(handle->type(),
                   handle->userData<void*>(),
                   handle->length(),
-                  NULL,
-                  offsetInSegment,
                   sync,
                   Tub<SegmentChecksum::ResultType>(handle->checksum()));
 }
@@ -338,7 +320,7 @@ Segment::close(bool sync)
     SegmentFooter footer = { checksum.getResult() };
 
     const void *p = forceAppendWithEntry(LOG_ENTRY_TYPE_SEGFOOTER, &footer,
-        sizeof(SegmentFooter), NULL, false, false);
+        sizeof(SegmentFooter), false, false);
     assert(p != NULL);
 
     // ensure that any future append() will fail
@@ -554,11 +536,6 @@ Segment::forceAppendBlob(const void *buffer, uint32_t length)
  *      Data to be appended to this Segment.
  * \param[in] length
  *      Length of the data to be appended in bytes.
- * \param[out] lengthOfAppend
- *      If non-NULL, the actual number of bytes consumed by this append to
- *      the Segment is stored to this address. Note that this size includes all
- *      Log and Segment overheads, so it will be greater than the ``length''
- *      parameter. 
  * \param[in] sync
  *      If true then this write to replicated to backups before return,
  *      otherwise the replication will happen on a subsequent append()
@@ -579,7 +556,7 @@ Segment::forceAppendBlob(const void *buffer, uint32_t length)
  */
 SegmentEntryHandle
 Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
-    uint32_t length, uint64_t *lengthOfAppend, bool sync, bool updateChecksum,
+    uint32_t length, bool sync, bool updateChecksum,
     Tub<SegmentChecksum::ResultType> expectedChecksum)
 {
     assert(!closed);
@@ -589,21 +566,42 @@ Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
     if (freeBytes < needBytes)
         return NULL;
 
-    SegmentEntry entry = { type, length, 0 };
+    SegmentEntry entry(type, length);
 #ifndef PERF_DEBUG_RECOVERY_NO_CKSUM
     if (updateChecksum) {
         CycleCounter<Metric> _(&metrics->master.segmentAppendChecksumTicks);
         SegmentChecksum entryChecksum;
         entryChecksum.update(&entry, sizeof(entry));
         entryChecksum.update(buffer, length);
-        entry.checksum = entryChecksum.getResult();
-        if (expectedChecksum && *expectedChecksum != entry.checksum) {
-            throw SegmentException(HERE, format("checksum didn't match "
-                "expected (wanted: 0x%08x, got 0x%08x)", *expectedChecksum,
-                entry.checksum));
+
+        // The incoming checksum will have had the mutableFields checksum
+        // XORed back out, so compare it now.
+        if (expectedChecksum) {
+            if (*expectedChecksum != entryChecksum.getResult()) {
+                throw SegmentException(HERE, format("checksum didn't match "
+                    "expected (wanted: 0x%08x, got 0x%08x)", *expectedChecksum,
+                    entryChecksum.getResult()));
+            }
         }
+
+        // The Segment checksum in the footer is computed without the
+        // mutableFields contents. When we check an existing Segment,
+        // we back out the mutableFields from the recorded checksum
+        // using XOR and recompute.
         prevChecksum = checksum;
-        checksum.update(&entry.checksum, sizeof(entry.checksum));
+        SegmentChecksum::ResultType r = entryChecksum.getResult();
+        checksum.update(&r, sizeof(r));
+
+        SegmentChecksum mutableFieldsChecksum;
+        entry.mutableFields.segmentCapacityExponent =
+            downCast<uint8_t>(ffs(capacity) - 1);
+        mutableFieldsChecksum.update(&entry.mutableFields,
+            sizeof(entry.mutableFields));
+
+        // XOR the mutableFields checksum in so that we can rip it back out
+        // if necessary.
+        entry.checksum = entryChecksum.getResult() ^
+                         mutableFieldsChecksum.getResult();
     }
 #endif
     const void* entryPointer;
@@ -615,9 +613,6 @@ Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
 
     if (sync)
         this->sync();
-
-    if (lengthOfAppend != NULL)
-        *lengthOfAppend = needBytes;
 
     SegmentEntryHandle handle =
         reinterpret_cast<SegmentEntryHandle>(entryPointer);

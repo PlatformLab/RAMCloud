@@ -23,6 +23,10 @@
 
 namespace RAMCloud {
 
+#if TESTING
+extern uint32_t mockWallTimeValue;
+#endif
+
 uint32_t secondsTimestamp(void);
 time_t secondsTimestampToUnix(uint32_t timestamp);
 

@@ -646,7 +646,7 @@ prefetch(const T* object)
 static inline bool
 isPowerOfTwo(uint64_t number)
 {
-    return ((number & (number - 1)) == 0);
+    return (number > 0 && (number & (number - 1)) == 0);
 }
 
 } // end RAMCloud

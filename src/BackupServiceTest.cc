@@ -123,9 +123,7 @@ class BackupServiceTest : public CppUnit::TestFixture {
     writeEntry(uint64_t masterId, uint64_t segmentId, LogEntryType type,
                uint32_t offset, const void *data, uint32_t bytes)
     {
-        SegmentEntry entry;
-        entry.type = type;
-        entry.length = bytes;
+        SegmentEntry entry(type, bytes);
         client->writeSegment(masterId, segmentId,
                              offset, &entry,
                              downCast<uint32_t>(sizeof(entry)));
@@ -581,7 +579,7 @@ class BackupServiceTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(NULL, result.logDigestBuffer);
     }
 
-    // Helper method for the LogDigest tests. This writes a propr Segment
+    // Helper method for the LogDigest tests. This writes a proper Segment
     // with a LogDigest containing the given IDs.
     void
     writeDigestedSegment(uint64_t masterId, uint64_t segmentId,
@@ -598,12 +596,12 @@ class BackupServiceTest : public CppUnit::TestFixture {
             for (uint32_t i = 0; i < digestIds.size(); i++)
                 src.addSegment(digestIds[i]);
 
-            uint64_t lengthInSegment, offsetInSegment;
-            s.append(LOG_ENTRY_TYPE_LOGDIGEST, digestBuf,
-                     downCast<uint32_t>(sizeof(digestBuf)),
-                &lengthInSegment, &offsetInSegment);
+            SegmentEntryHandle seh = s.append(LOG_ENTRY_TYPE_LOGDIGEST,
+                digestBuf, downCast<uint32_t>(sizeof(digestBuf)));
+            uint32_t segmentLength = seh->logTime().second +
+                seh->totalLength();
             client->writeSegment(masterId, segmentId, 0, s.getBaseAddress(),
-                downCast<uint32_t>(lengthInSegment + offsetInSegment));
+                segmentLength);
 
             free(segBuf);
     }
@@ -621,7 +619,7 @@ class BackupServiceTest : public CppUnit::TestFixture {
             CPPUNIT_ASSERT_EQUAL(LogDigest::getBytesFromCount(1),
                 result.logDigestBytes);
             CPPUNIT_ASSERT_EQUAL(88, result.logDigestSegmentId);
-            CPPUNIT_ASSERT_EQUAL(56, result.logDigestSegmentLen);
+            CPPUNIT_ASSERT_EQUAL(52, result.logDigestSegmentLen);
             LogDigest ld(result.logDigestBuffer, result.logDigestBytes);
             CPPUNIT_ASSERT_EQUAL(1, ld.getSegmentCount());
             CPPUNIT_ASSERT_EQUAL(0x3f17c2451f0cafUL, ld.getSegmentIds()[0]);
@@ -637,7 +635,7 @@ class BackupServiceTest : public CppUnit::TestFixture {
             CPPUNIT_ASSERT_EQUAL(LogDigest::getBytesFromCount(1),
                 result.logDigestBytes);
             CPPUNIT_ASSERT_EQUAL(89, result.logDigestSegmentId);
-            CPPUNIT_ASSERT_EQUAL(56, result.logDigestSegmentLen);
+            CPPUNIT_ASSERT_EQUAL(52, result.logDigestSegmentLen);
             LogDigest ld(result.logDigestBuffer, result.logDigestBytes);
             CPPUNIT_ASSERT_EQUAL(1, ld.getSegmentCount());
             CPPUNIT_ASSERT_EQUAL(0x5d8ec445d537e15UL, ld.getSegmentIds()[0]);
@@ -659,7 +657,7 @@ class BackupServiceTest : public CppUnit::TestFixture {
             BackupClient::StartReadingData::Result result;
             client->startReadingData(99, ProtoBuf::Tablets(), &result);
             CPPUNIT_ASSERT_EQUAL(88, result.logDigestSegmentId);
-            CPPUNIT_ASSERT_EQUAL(56, result.logDigestSegmentLen);
+            CPPUNIT_ASSERT_EQUAL(52, result.logDigestSegmentLen);
             CPPUNIT_ASSERT_EQUAL(LogDigest::getBytesFromCount(1),
                 result.logDigestBytes);
             LogDigest ld(result.logDigestBuffer, result.logDigestBytes);

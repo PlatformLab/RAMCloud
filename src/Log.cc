@@ -36,8 +36,11 @@ namespace RAMCloud {
  * \param[in] backup
  *      The BackupManager that will be used to make each of this Log's
  *      Segments durable.
- * \param[in] disableCleaner
- *      For purposes testing only: never run the cleaner.
+ * \param[in] cleanerOption
+ *      Cleaner option from the Log::CleanerOption enum. This lets the
+ *      user of this object specify whether to use a cleaner, as well as
+ *      whether to run it in a separate thread or inlined with the Log
+ *      code.
  * \throw LogException
  *      An exception is thrown if #logCapacity is not sufficient for
  *      a single segment's worth of log.
@@ -58,6 +61,7 @@ Log::Log(const Tub<uint64_t>& logId,
       freeList(),
       cleanableNewList(),
       cleanableList(),
+      cleaningIntoList(),
       cleanablePendingDigestList(),
       freePendingDigestAndReferenceList(),
       freePendingReferenceList(),
@@ -183,8 +187,9 @@ Log::allocateHead()
  *      The Segment identifier to check for liveness.
  */
 bool
-Log::isSegmentLive(uint64_t segmentId) const
+Log::isSegmentLive(uint64_t segmentId)
 {
+    boost::lock_guard<SpinLock> lock(listLock);
     return (activeIdMap.find(segmentId) != activeIdMap.end());
 }
 
@@ -216,16 +221,6 @@ Log::getSegmentId(const void *p)
  * \param[in] length
  *      Length of the data to be appended in bytes. This must be sufficiently
  *      small to fit within one Segment's worth of memory.
- * \param[out] lengthInLog
- *      If non-NULL, the actual number of bytes consumed by this append to
- *      the Log is stored to this address. Note that this size includes all
- *      Log and Segment overheads, so it will be greater than the ``length''
- *      parameter.
- * \param[out] logTime
- *      If non-NULL, return the LogTime of this append operation. This is
- *      simply a (segmentId, segmentOffset) tuple that describes a logical
- *      time for this append. All subsequent appends will have a later
- *      LogTime.
  * \param[in] sync
  *      If true then this write to replicated to backups before return,
  *      otherwise the replication will happen on a subsequent append()
@@ -245,43 +240,30 @@ Log::getSegmentId(const void *p)
  */
 LogEntryHandle
 Log::append(LogEntryType type, const void *buffer, const uint64_t length,
-    uint64_t *lengthInLog, LogTime *logTime, bool sync,
-    Tub<SegmentChecksum::ResultType> expectedChecksum)
+    bool sync, Tub<SegmentChecksum::ResultType> expectedChecksum)
 {
     if (length > maximumAppendableBytes)
         throw LogException(HERE, "append exceeded maximum possible length");
 
-    SegmentEntryHandle seh;
-    uint64_t segmentOffset;
+    SegmentEntryHandle seh = NULL;
 
-    if (head != NULL) {
-        seh = head->append(type, buffer,
-                           downCast<uint32_t>(length), lengthInLog,
-                           &segmentOffset, sync, expectedChecksum);
-        if (seh != NULL) {
-            // entry was appended to head segment
-            if (logTime != NULL)
-                *logTime = LogTime(head->getId(), segmentOffset);
-            stats.totalAppends++;
-            return seh;
+    do {
+        if (head != NULL) {
+            seh = head->append(type, buffer, downCast<uint32_t>(length),
+                sync, expectedChecksum);
         }
-    }
 
-    // either the head Segment is full, or we've never allocated one
-    allocateHead();
+        // if either the head Segment is full, or we've never allocated one,
+        // get a new head.
+        if (seh == NULL)
+            allocateHead();
+    } while (seh == NULL);
 
-    // append the entry
-    seh = head->append(type, buffer,
-                       downCast<uint32_t>(length), lengthInLog,
-                       &segmentOffset, sync, expectedChecksum);
-    assert(seh != NULL);
-    if (logTime != NULL)
-        *logTime = LogTime(head->getId(), segmentOffset);
+    stats.totalAppends++;
 
     if (cleanerOption == INLINED_CLEANER)
         cleaner.clean();
 
-    stats.totalAppends++;
     return seh;
 }
 
@@ -376,6 +358,9 @@ Log::sync()
 /**
  * Obtain the maximum number of bytes that can ever be appended to the
  * Log at once. Appends that exceed this maximum will throw an exception.
+ *
+ * XXX- Destroy this. It's not constant due to LogDigests anymore, so lets
+ *      just nuke it. Nobody needs to use it anyhow.
  */
 uint64_t
 Log::getMaximumAppendableBytes() const
@@ -434,7 +419,17 @@ Log::getNewActiveSegments(SegmentVector& out)
 }
 
 void
-Log::cleaningComplete(SegmentVector& live, SegmentVector& clean)
+Log::cleaningInto(Segment* segment)
+{
+    boost::lock_guard<SpinLock> lock(listLock);
+
+    cleaningIntoList.push_back(*segment); 
+    activeIdMap[segment->getId()] = segment;
+    activeBaseAddressMap[segment->getBaseAddress()] = segment;
+}
+
+void
+Log::cleaningComplete(SegmentVector& clean)
 {
     boost::lock_guard<SpinLock> lock(listLock);
 
@@ -442,8 +437,11 @@ Log::cleaningComplete(SegmentVector& live, SegmentVector& clean)
     //      should we create a list for them just so they're
     //      tracked?
 
-    foreach (Segment* s, live)
-        cleanablePendingDigestList.push_back(*s);
+    while (!cleaningIntoList.empty()) {
+        Segment& s = cleaningIntoList.front();
+        cleaningIntoList.pop_front();
+        cleanablePendingDigestList.push_back(s);
+    }
 
     foreach (Segment* s, clean) { 
         cleanableList.erase(cleanableList.iterator_to(*s));
@@ -510,6 +508,8 @@ Segment*
 Log::getSegmentFromAddress(const void* address)
 {
     const void *base = Segment::getSegmentBaseAddress(address, segmentCapacity);
+
+    boost::lock_guard<SpinLock> lock(listLock);
 
     if (head != NULL && base == head->getBaseAddress())
         return head;

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010, 2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -41,7 +41,7 @@ namespace RAMCloud {
  */
 LogCleaner::LogCleaner(Log* log, BackupManager *backup, bool startThread)
     : bytesFreedBeforeLastCleaning(0),
-      cleanableSegments(log->getNumberOfSegments()),
+      cleanableSegments(),
       log(log),
       backup(backup),
       thread()
@@ -69,7 +69,6 @@ LogCleaner::clean()
         return;
 
     SegmentVector segmentsToClean;
-    SegmentVector liveSegments;
     SegmentEntryHandleVector liveEntries;
 
     getSegmentsToClean(segmentsToClean);
@@ -77,8 +76,8 @@ LogCleaner::clean()
         return;
 
     getSortedLiveEntries(segmentsToClean, liveEntries);
-    moveLiveData(liveEntries, liveSegments);
-    log->cleaningComplete(segmentsToClean, liveSegments);
+    moveLiveData(liveEntries);
+    log->cleaningComplete(segmentsToClean);
 
     bytesFreedBeforeLastCleaning = logBytesFreed;
 }
@@ -121,7 +120,8 @@ LogCleaner::cleanerThreadEntry(LogCleaner* logCleaner)
 /**
  * CostBenefit comparison functor for a vector of Segment pointers.
  * This is used to sort our array of cleanable Segments based on each
- * one's associated cost-benefit calculation.
+ * one's associated cost-benefit calculation. Higher values (the better
+ * candidates) come first.
  */
 struct CostBenefitLessThan {
   public:
@@ -149,7 +149,7 @@ struct CostBenefitLessThan {
     bool
     operator()(const Segment* a, const Segment* b) const
     {
-        return costBenefit(a) < costBenefit(b);
+        return costBenefit(a) > costBenefit(b);
     }
 
   private:
@@ -157,8 +157,8 @@ struct CostBenefitLessThan {
 };
 
 /**
- * Comparison functor that is used to sort Segment Entries based on their
- * age (timestamp).
+ * Comparison functor that is used to sort Segment entries based on their
+ * age (timestamp). Older entries come first (i.e. those with lower timestamps).
  */
 struct SegmentEntryAgeLessThan {
   public:
@@ -200,15 +200,41 @@ LogCleaner::getSegmentsToClean(SegmentVector& segmentsToClean)
 
     log->getNewActiveSegments(cleanableSegments);
 
+    if (cleanableSegments.size() < SEGMENTS_PER_CLEANING_PASS)
+        return;
+
     std::sort(cleanableSegments.begin(),
               cleanableSegments.end(),
               CostBenefitLessThan());
 
-    // should we clean now?
+    // Calculate the write cost for the best candidate Segments, i.e.
+    // the number of bytes we need to write out in total to write however
+    // may new bytes of data that we can free up.  For us, this cost is
+    // (1 / 1 - u). LFS was twice as high because segments had to be read
+    // from disk before cleaning.
+    uint64_t totalLiveBytes = 0;
+    uint64_t totalCapacity = 0;
+    for (size_t i = 0; i < SEGMENTS_PER_CLEANING_PASS; i++) {
+        Segment* s = cleanableSegments[i];
+        assert(s != NULL);
+        totalLiveBytes += (s->getCapacity() - s->getFreeBytes());
+        totalCapacity += s->getCapacity();
+    }
+    double u = static_cast<double>(totalLiveBytes) /
+               static_cast<double>(totalCapacity);
+    double writeCost = 1 / (1 - u);
 
-    // okay, we're cleaning. how many segments? 
-    
-    // store pointers to the segs we're cleaning in the out vector
+    LOG(DEBUG, "writeCost is %.3f\n", writeCost);
+
+    if (writeCost > MAXIMUM_CLEANABLE_WRITE_COST) {
+        LOG(DEBUG, "writeCost (%.3f > %.3f) too high; not cleaning",
+            writeCost, MAXIMUM_CLEANABLE_WRITE_COST);
+        return;
+    }
+
+    // Ok, let's clean these suckers!
+    for (size_t i = 0; i < SEGMENTS_PER_CLEANING_PASS; i++)
+        segmentsToClean.push_back(cleanableSegments[i]);
 }
 
 /**
@@ -261,31 +287,27 @@ LogCleaner::getSortedLiveEntries(SegmentVector& segments,
  *
  * \param[in] liveData
  *      Vector of SegmentEntryHandles of recently live data to move.
- * \param[out] segmentsAdded
- *      Vector of Segment pointers. This is used to return any Segments
- *      created in moving the data.
  */
 void
-LogCleaner::moveLiveData(SegmentEntryHandleVector& liveData,
-                         SegmentVector& segmentsAdded)
+LogCleaner::moveLiveData(SegmentEntryHandleVector& liveData)
 {
     Segment* currentSegment = NULL;
+    SegmentVector segmentsAdded;
 
     // TODO: We shouldn't just stop using a Segment if it didn't fit the
     //       last object. We should keep considering them for future objects.
-    //       This is strictly better than leaving open space, even if we put
+    //       This is strictly better than leaving open space; even if we put
     //       in objects that are much newer (and hence more likely to be
-    //       freed soon). The worst case is the same (space is empty), but
-    //       we have the opportunity to get lucky and pack more data that
-    //       will stay alive.
+    //       freed soon). The worst case is the same space is soon empty, but
+    //       we have the opportunity to do better if we can pack in more data
+    //       that ends up staying alive longer.
 
     foreach (SegmentEntryHandle handle, liveData) {
-        uint64_t offsetInSegment;
         SegmentEntryHandle newHandle = NULL;
         
         do {
             if (currentSegment != NULL)
-                newHandle = currentSegment->append(handle, &offsetInSegment, false);
+                newHandle = currentSegment->append(handle, false);
 
             if (newHandle == NULL) {
                 currentSegment = new Segment(log,
@@ -295,6 +317,7 @@ LogCleaner::moveLiveData(SegmentEntryHandleVector& liveData,
                                              backup,
                                              LOG_ENTRY_TYPE_UNINIT, NULL, 0);
                 segmentsAdded.push_back(currentSegment);
+                log->cleaningInto(currentSegment);
             }
         } while (newHandle == NULL);
 

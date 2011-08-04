@@ -31,11 +31,46 @@ namespace RAMCloud {
 typedef Crc32C SegmentChecksum;
 
 struct SegmentEntry {
-    LogEntryType                type;
+    SegmentEntry(LogEntryType type, uint32_t entryLength)
+        : type(downCast<uint8_t>(type)),
+          mutableFields{0},
+          length(entryLength),
+          checksum(0)
+    {
+    }
+
+    /// LogEntryType (enum is 32-bit, but we downcast for lack of billions of
+    /// different types).
+    uint8_t                     type;
+
+    /// Log data is typically immutable - it absolutely never changes once
+    /// written, despite cleaning, recovery, etc. However, there are some
+    /// cases where we'd like to have a handful of bits that can change when
+    /// objects move between machines, segments, etc. We use the following to
+    /// enable SegmentEntry -> Segment base address calculations with variably
+    /// sized segments.
+    struct {
+        /// log_2(Capacity of Segment in bytes). That this, encodes a
+        /// power-of-two size of the Segment between 2^0 and 2^31.
+        uint8_t                 segmentCapacityExponent;
+    } mutableFields;
+
+    /// Length of the entry described in by this header in bytes.
     uint32_t                    length;
+
+    /// Checksum of the header and following entry data (with checksum and
+    /// mutableFields zeroed out) and then XORed with the checksum of the
+    /// mutableFields. This lets us back out the mutableFields value so it
+    /// can be changed without recomputing the entire checksum. Users never
+    /// see a checksum with the mutableFields included, since it's XORed out
+    /// again when the checksum is retrieved via the #SegmentEntryHandle.
+    /// This lets us compare checksums with entries of different mutableField
+    /// values (e.g. from different machines or Segments). If the mutableField
+    /// is corrupted, then we won't likely be able to back out to the correct
+    /// checksum and will therefore detect corruption anywhere in the entry.
     SegmentChecksum::ResultType checksum;
 } __attribute__((__packed__));
-static_assert(sizeof(SegmentEntry) == 12,
+static_assert(sizeof(SegmentEntry) == 10,
               "SegmentEntry has unexpected padding");
 
 struct SegmentHeader {
@@ -97,13 +132,10 @@ class Segment {
     SegmentEntryHandle append(LogEntryType type,
                              const void *buffer,
                              uint32_t length,
-                             uint64_t *lengthInSegment = NULL,
-                             uint64_t *offsetInSegment = NULL,
                              bool sync = true,
                              Tub<SegmentChecksum::ResultType> expectedChecksum =
                                 Tub<SegmentChecksum::ResultType>());
     SegmentEntryHandle append(SegmentEntryHandle handle,
-                              uint64_t *offsetInSegment,
                               bool sync);
     void               rollBack(SegmentEntryHandle handle);
     void               free(SegmentEntryHandle entry);
@@ -127,7 +159,8 @@ class Segment {
         assert(isPowerOfTwo(capacity));
         // Segments are always capacity aligned, which must be a power of two.
         uintptr_t addr = reinterpret_cast<uintptr_t>(p);
-        return reinterpret_cast<const void*>(addr & ~(capacity - 1));
+        uintptr_t wideCapacity = capacity;
+        return reinterpret_cast<const void*>(addr & ~(wideCapacity - 1));
     }
 
 #ifdef VALGRIND
@@ -150,7 +183,6 @@ class Segment {
     SegmentEntryHandle forceAppendWithEntry(LogEntryType type,
                              const void *buffer,
                              uint32_t length,
-                             uint64_t *lengthOfAppend = NULL,
                              bool sync = true,
                              bool updateChecksum = true,
                              Tub<SegmentChecksum::ResultType> expectedChecksum =
@@ -249,7 +281,7 @@ class _SegmentEntryHandle {
     LogEntryType
     type() const
     {
-        return getSegmentEntry()->type;
+        return static_cast<LogEntryType>(getSegmentEntry()->type);
     }
 
     /**
@@ -259,11 +291,21 @@ class _SegmentEntryHandle {
     SegmentChecksum::ResultType
     checksum() const
     {
-        return getSegmentEntry()->checksum;
+        return getSegmentEntry()->checksum ^ mutableFieldsChecksum();
     }
 
     /**
-     * Calculate a checksum from the stored SegmentEntry.
+     * Calculate a checksum from the stored SegmentEntry. This is the checksum
+     * of all non-mutable data in the entry. Note that it's not actually what's
+     * stored in the entry. We store this checksum XORed with the mutableFields
+     * checksum.
+     *
+     * When we check an entry's checksum, we do the following:
+     *  1) Compute the mutableFields CRC
+     *  2) XOR above with the stored checksum to get the immutable CRC
+     *  3) Compute the CRC over the whole entry with checksum and
+     *     mutableFields zeroed
+     *  4) Compare #3 and #2
      */
     SegmentChecksum::ResultType
     generateChecksum() const
@@ -271,6 +313,7 @@ class _SegmentEntryHandle {
         SegmentChecksum checksum;
         SegmentEntry temp = *getSegmentEntry();
         temp.checksum = 0;
+        memset(&temp.mutableFields, 0, sizeof(temp.mutableFields));
         checksum.update(&temp, sizeof(SegmentEntry));
         checksum.update(userData(), length());
         return checksum.getResult();
@@ -296,7 +339,9 @@ class _SegmentEntryHandle {
     logTime() const
     {
         uintptr_t entryAddress = reinterpret_cast<uintptr_t>(this);
-        uintptr_t segmentBase = entryAddress & ~(Segment::SEGMENT_SIZE - 1);
+        uintptr_t segmentBase  = reinterpret_cast<uintptr_t>(
+            Segment::getSegmentBaseAddress(reinterpret_cast<const void*>(this),
+                                           segmentSize()));
 
         const _SegmentEntryHandle* headerHandle =
             reinterpret_cast<const _SegmentEntryHandle*>(segmentBase);
@@ -307,6 +352,20 @@ class _SegmentEntryHandle {
         const SegmentHeader* header = headerHandle->userData<SegmentHeader>();
 
         return LogTime(header->segmentId, entryAddress - segmentBase);
+    }
+
+    /**
+     * Return the total length of the Segment this entry is a part of.
+     * The length is always an even positive power of two less than or
+     * equal to 2GB. Each SegmentEntry contains this value compressed
+     * into 5 bits in order to make calculating the Segment's base address
+     * possible (Segments are always aligned to their segment size).
+     */
+    uint32_t
+    segmentSize() const
+    {
+        int exp = getSegmentEntry()->mutableFields.segmentCapacityExponent;
+        return 1U << exp; 
     }
 
     /**
@@ -344,8 +403,8 @@ class _SegmentEntryHandle {
     }
 
   private:
-    /*
-     * ``this'' always points to a SegmentEntry structure.
+    /*/
+     * ``this'' always points to a SegmentEntry structure, so return it.
      */
     const SegmentEntry*
     getSegmentEntry() const
@@ -353,6 +412,25 @@ class _SegmentEntryHandle {
         if (this == NULL)
             throw Exception(HERE, "NULL SegmentEntryHandle dereference");
         return reinterpret_cast<const SegmentEntry*>(this);
+    }
+
+    /**
+     * Return the checksum associated with this entry's mutable fields.
+     *
+     * We need to be able to remove the mutable fields portion of the checksum
+     * so that we can modify it, if necessary, when moving an entry somewhere
+     * else. The way we do this is by generating it independently and XORing
+     * it into the checksum field with the full checksum (which covers
+     * everything but the checksum and mutable fields).
+     */
+    uint32_t
+    mutableFieldsChecksum() const 
+    {
+        SegmentChecksum checksum;
+        const SegmentEntry* entry = getSegmentEntry();
+        checksum.update(&entry->mutableFields,
+            sizeof(entry->mutableFields));
+        return checksum.getResult();
     }
 };
 

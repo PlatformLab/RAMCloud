@@ -143,4 +143,16 @@ TEST(CodeLocation, qualifiedFunction) {
     EXPECT_EQ("func", where.qualifiedFunction());
 }
 
+TEST(isPowerOfTwo, simple) {
+    for (uint64_t i = 1; i != 0; i <<= 1)
+        EXPECT_TRUE(isPowerOfTwo(i));
+
+    int total = 0;
+    for (uint64_t i = 0; i <= 1024; i++) {
+        if (isPowerOfTwo(i))
+            total++;
+    }
+    EXPECT_EQ(11, total);
+}
+
 }  // namespace RAMCloud
