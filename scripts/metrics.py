@@ -135,25 +135,25 @@ class u64(object):
 
 def parse(f, definitions):
     """Parse a RAMCloud log file into nested AttrDicts of metrics values."""
-    lines = None
+
+    # This implementation is a bit tricky because some log files can contain
+    # multiple overlapping metrics sections; combine all of the data from all
+    # of the sections.
+    values = []
+    nestingCount = 0
     for line in f:
         line = ' '.join(line[:-1].split(' ')[6:])
         if line == 'Metrics:':
-            lines = []
+            nestingCount += 1
         elif line == 'End of Metrics':
-            break
+            nestingCount -= 1
         else:
-            if lines is not None:
-                lines.append(line)
-    if not lines:
+            if nestingCount > 0 and line[0:9] == 'metrics->':
+                var, value = line.split(' = ')
+                var = var.split('metrics->')[1]
+                values.append((var, value))
+    if len(values) == 0:
         raise Exception, 'no metrics in %s' % f.name
-    values = []
-    for line in lines:
-        if line[0:9] != 'metrics->':
-            continue
-        var, value = line.split(' = ')
-        var = var.split('metrics->')[1]
-        values.append((var, value))
     return definitions.assign(values)
 
 def average(points):
