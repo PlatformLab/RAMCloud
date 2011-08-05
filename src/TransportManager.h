@@ -23,6 +23,7 @@
 #include "Common.h"
 #include "MockTransport.h"
 #include "MockTransportFactory.h"
+#include "SpinLock.h"
 #include "Transport.h"
 
 namespace RAMCloud {
@@ -160,6 +161,11 @@ class TransportManager {
      */
     std::vector<void*> registeredBases;
     std::vector<size_t> registeredSizes;
+
+    /**
+     * Used for mutual exclusion in multi-threaded environments.
+     */
+    SpinLock mutex;
 
     friend class TransportManagerTest;
     DISALLOW_COPY_AND_ASSIGN(TransportManager);

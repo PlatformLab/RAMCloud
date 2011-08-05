@@ -160,10 +160,13 @@ rc_openTable(struct rc_client* client, const char* name,
 }
 
 Status
-rc_ping(struct rc_client* client)
+rc_ping(struct rc_client* client, const char* serviceLocator,
+        uint64_t nonce, uint64_t timeoutNanoseconds,
+        uint64_t* result)
 {
     try {
-        client->client->ping();
+        *result = client->client->ping(serviceLocator, nonce,
+                                       timeoutNanoseconds);
     } catch (ClientException& e) {
         return e.status;
     }

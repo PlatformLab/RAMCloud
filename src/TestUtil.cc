@@ -21,7 +21,6 @@
 
 #include <string.h>
 #include "TestUtil.h"
-#include "BenchUtil.h"
 #include "Dispatch.h"
 #include "Rpc.h"
 
@@ -165,7 +164,8 @@ friendlyRegerror(int errorCode, const regex_t* storage)
  *      if used in a C string, such as backslashes or quotes.
  */
 void
-convertChar(char c, string *out) {
+TestUtil::convertChar(char c, string *out)
+{
     if ((c >= 0x20) && (c < 0x7f) && (c != '"') && (c != '\\'))
         out->append(&c, 1);
     else if (c == '\0')
@@ -174,6 +174,68 @@ convertChar(char c, string *out) {
         out->append("/n");
     else
         out->append(format("/x%02x", c & 0xff));
+}
+
+/**
+ * Fill a region of memory with random alphanumeric characters.
+ *
+ * \param buf
+ *      Address of the first byte to fill.
+ * \param size
+ *      Total number of bytes to fill.
+ */
+void
+TestUtil::fillPrintableRandom(void* buf, uint32_t size)
+{
+    static const uint8_t tab[256] = {
+        '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+        'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J',
+        'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T',
+        'U', 'V', 'W', 'X', 'Y', 'Z', 'a', 'b', 'c', 'd',
+        'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n',
+        'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x',
+        'y', 'z', '0', '1', '2', '3', '4', '5', '6', '7',
+        '8', '9', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H',
+        'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R',
+        'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'a', 'b',
+        'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l',
+        'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v',
+        'w', 'x', 'y', 'z', '0', '1', '2', '3', '4', '5',
+        '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F',
+        'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P',
+        'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
+        'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j',
+        'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't',
+        'u', 'v', 'w', 'x', 'y', 'z', '0', '1', '2', '3',
+        '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D',
+        'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N',
+        'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X',
+        'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h',
+        'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r',
+        's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '0', '1',
+        '2', '3', '4', '5', '6', '7'
+    };
+    fillRandom(buf, size);
+    uint8_t* b = static_cast<uint8_t*>(buf);
+    for (uint32_t i = 0; i < size; i++)
+        b[i] = tab[b[i]];
+}
+
+/**
+ * Fill a region of memory with random data.
+ *
+ * \param buf
+ *      Address of the first byte to fill.
+ * \param size
+ *      Total number of bytes to fill.
+ */
+void
+TestUtil::fillRandom(void* buf, uint32_t size)
+{
+    static int fd = open("/dev/urandom", O_RDONLY);
+    assert(fd >= 0);
+    ssize_t bytesRead = read(fd, buf, size);
+    assert(bytesRead == size);
 }
 
 /**
@@ -186,7 +248,7 @@ convertChar(char c, string *out) {
  *      The length of the data in buf.
  */
 string
-toString(const char *buf, uint32_t length)
+TestUtil::toString(const char *buf, uint32_t length)
 {
     string s;
     uint32_t i = 0;
@@ -244,7 +306,7 @@ toString(const char *buf, uint32_t length)
  *      are printed in decimal if they are small, otherwise hexadecimal.
  */
 string
-toString(Buffer* buffer)
+TestUtil::toString(Buffer* buffer)
 {
     uint32_t length = buffer->getTotalLength();
     const char* buf = static_cast<const char*>(buffer->getRange(0, length));
@@ -261,7 +323,7 @@ toString(Buffer* buffer)
  *         characters converted to something printable.
  */
 string
-bufferToDebugString(Buffer* buffer)
+TestUtil::bufferToDebugString(Buffer* buffer)
 {
     // The following declaration defines the maximum number of characters
     // to display from each chunk.
@@ -292,81 +354,75 @@ bufferToDebugString(Buffer* buffer)
 }
 
 /**
- * Fail the CPPUNIT test case if the given string doesn't match the given POSIX
+ * Fail a gtest test case if the given string doesn't match the given POSIX
  * regular expression.
  * \param pattern
  *      A POSIX regular expression.
  * \param subject
  *      The string that should match \a pattern.
+ * \return
+ *      A value that can be tested with EXPECT_TRUE.
  */
-void
-assertMatchesPosixRegex(const string& pattern, const string& subject)
+::testing::AssertionResult
+TestUtil::matchesPosixRegex(const string& pattern, const string& subject)
 {
     regex_t pregStorage;
     int r;
 
     r = regcomp(&pregStorage, pattern.c_str(), 0);
     if (r != 0) {
-        string errorMsg = "Pattern '";
-        errorMsg += pattern;
-        errorMsg += "' failed to compile: ";
-        errorMsg += friendlyRegerror(r, &pregStorage);
-        CPPUNIT_FAIL(errorMsg);
+        string message(format("Pattern '%s' failed to compile: %s",
+                pattern.c_str(),
+                friendlyRegerror(r, &pregStorage).c_str()));
+        regfree(&pregStorage);
+        return ::testing::AssertionFailure() << message;
     }
 
     r = regexec(&pregStorage, subject.c_str(), 0, NULL, 0);
     if (r != 0) {
-        string errorMsg = "Pattern '";
-        errorMsg += pattern;
-        errorMsg += "' did not match subject '";
-        errorMsg += subject;
-        errorMsg += "'";
+        string message(format("Pattern '%s' did not match subject '%s'",
+                pattern.c_str(), subject.c_str()));
         regfree(&pregStorage);
-        CPPUNIT_FAIL(errorMsg);
+        return ::testing::AssertionFailure() << message;
     }
-
     regfree(&pregStorage);
+    return ::testing::AssertionSuccess();
 }
 
 /**
- * Fail the CPPUNIT test case if the given string does match the given POSIX
+ * Fail a gtest test case if the given string matches the given POSIX
  * regular expression.
  * \param pattern
  *      A POSIX regular expression.
  * \param subject
- *      The string that should not match \a pattern.
+ *      The string that should *not* match \a pattern.
+ * \return
+ *      A value that can be tested with EXPECT_TRUE.
  */
-void
-assertNotMatchesPosixRegex(const string& pattern, const string& subject)
+::testing::AssertionResult
+TestUtil::doesNotMatchPosixRegex(const string& pattern, const string& subject)
 {
     regex_t pregStorage;
     int r;
-    bool fail = true;
-    string errorMsg;
 
     r = regcomp(&pregStorage, pattern.c_str(), 0);
     if (r != 0) {
-        errorMsg = "Pattern '";
-        errorMsg += pattern;
-        errorMsg += "' failed to compile: ";
-        errorMsg += friendlyRegerror(r, &pregStorage);
+        string message(format("Pattern '%s' failed to compile: %s",
+                pattern.c_str(),
+                friendlyRegerror(r, &pregStorage).c_str()));
+        regfree(&pregStorage);
+        return ::testing::AssertionFailure() << message;
     }
 
     r = regexec(&pregStorage, subject.c_str(), 0, NULL, 0);
-    if (r != 0) {
-        errorMsg = "Pattern '";
-        errorMsg += pattern;
-        errorMsg += "' did not match subject '";
-        errorMsg += subject;
-        errorMsg += "'";
+    if (r == 0) {
+        string message(format("Pattern '%s' matched subject '%s'",
+                pattern.c_str(), subject.c_str()));
         regfree(&pregStorage);
-        fail = false;
+        return ::testing::AssertionFailure() << message;
     }
-
     regfree(&pregStorage);
-
-    if (fail)
-        CPPUNIT_FAIL(errorMsg);
+    return ::testing::AssertionSuccess();
 }
 
 /**
@@ -380,7 +436,7 @@ assertNotMatchesPosixRegex(const string& pattern, const string& subject)
  *      Number of bytes of data to add to the buffer.
  */
 void
-fillLargeBuffer(Buffer* buffer, int size)
+TestUtil::fillLargeBuffer(Buffer* buffer, int size)
 {
     char chunk[200];
     buffer->reset();
@@ -396,6 +452,7 @@ fillLargeBuffer(Buffer* buffer, int size)
         }
         memcpy(new(buffer, APPEND) char[chunkLength], chunk, chunkLength);
         bytesLeft -= chunkLength;
+        i += 5;
     }
 }
 
@@ -414,7 +471,7 @@ fillLargeBuffer(Buffer* buffer, int size)
  *      what was wrong with the buffer.
  */
 string
-checkLargeBuffer(Buffer* buffer, int expectedLength)
+TestUtil::checkLargeBuffer(Buffer* buffer, int expectedLength)
 {
     int length = buffer->getTotalLength();
     if (length != expectedLength) {
@@ -461,7 +518,7 @@ checkLargeBuffer(Buffer* buffer, int expectedLength)
  *      A symbolic status value, such as "STATUS_OK", or "empty reply message"
  *      if the buffer didn't contain a valid RPC response.
  */
-const char *getStatus(Buffer* buffer)
+const char *TestUtil::getStatus(Buffer* buffer)
 {
     const RpcResponseCommon* responseCommon =
             buffer->getStart<RpcResponseCommon>();
@@ -482,7 +539,7 @@ const char *getStatus(Buffer* buffer)
  *      false if it doesn't.
  */
 bool
-waitForRpc(Transport::ClientRpc& rpc)
+TestUtil::waitForRpc(Transport::ClientRpc& rpc)
 {
     for (int i = 0; i < 1000; i++) {
         dispatch->poll();

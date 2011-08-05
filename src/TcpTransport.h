@@ -19,6 +19,7 @@
 #include <event.h>
 #include <queue>
 
+#include "BoostIntrusive.h"
 #include "Dispatch.h"
 #include "IpAddress.h"
 #include "Tub.h"
@@ -46,35 +47,42 @@ class TcpTransport : public Transport {
     }
     void registerMemory(void* base, size_t bytes) {}
 
+    class TcpServerRpc;
   PRIVATE:
-    friend class TcpTransportTest;
-    friend class AcceptHandler;
-    friend class RequestReadHandler;
+    class ServerSocketHandler;
     class IncomingMessage;
-    class ReplyReadHandler;
+    class ClientSocketHandler;
     class Socket;
     class TcpSession;
+    friend class TcpTransportTest;
+    friend class AcceptHandler;
+    friend class ServerSocketHandler;
     /**
      * Header for request and response messages: precedes the actual data
      * of the message in all transmissions.
      */
     struct Header {
-        /**
-         * The size in bytes of the payload (which follows immediately).
-         * Must be less than or equal to #MAX_RPC_LEN.
-         */
+        /// Unique identifier for this RPC: generated on the client, and
+        /// returned by the server in responses.  This field makes it
+        /// possible for a client to have multiple outstanding RPCs to
+        /// the same server.
+        uint64_t nonce;
+
+        /// The size in bytes of the payload (which follows immediately).
+        /// Must be less than or equal to #MAX_RPC_LEN.
         uint32_t len;
-    };
+    } __attribute__((packed));
 
     /**
      * Used to manage the receipt of a message (on either client or server)
      * using an event-based approach.
      */
     class IncomingMessage {
+      friend class ServerSocketHandler;
       friend class TcpTransportTest;
+      friend class TcpServerRpc;
       public:
-        explicit IncomingMessage(Buffer* buffer);
-        void reset(Buffer* buffer);
+        IncomingMessage(Buffer* buffer, TcpSession* session);
         bool readMessage(int fd);
       PRIVATE:
         Header header;
@@ -88,8 +96,22 @@ class TcpTransport : public Transport {
         /// received so far.
         uint32_t messageBytesReceived;
 
-        /// Holds the contents of the actual message (not including header).
+        /// The number of bytes of input message that we will actually retain
+        /// (normally this is the same as header.len, but it may be less
+        /// if header.len is illegally large or if the entire message is being
+        /// discarded).
+        uint32_t messageLength;
+
+        /// Buffer in which incoming message will be stored (not including
+        /// transport-specific header).  NULL means the message will be
+        /// discarded.
         Buffer *buffer;
+
+        /// Session that will find the buffer to use for this message once
+        /// the header has arrived (or NULL).
+        TcpSession* session;
+
+        DISALLOW_COPY_AND_ASSIGN(IncomingMessage);
     };
 
   public:
@@ -97,19 +119,28 @@ class TcpTransport : public Transport {
      * The TCP implementation of Transport::ServerRpc.
      */
     class TcpServerRpc : public Transport::ServerRpc {
+      friend class ServerSocketHandler;
       friend class TcpTransportTest;
       friend class TcpTransport;
       public:
+        virtual ~TcpServerRpc()
+        {
+            RAMCLOUD_TEST_LOG("deleted");
+        }
         void sendReply();
       PRIVATE:
-        TcpServerRpc(Socket* socket, int fd, Buffer* buffer)
-            : fd(fd), socket(socket), message(buffer) { }
+        TcpServerRpc(Socket* socket, int fd)
+            : fd(fd), socket(socket), message(&requestPayload, NULL),
+            queueEntries() { }
 
         int fd;                   /// File descriptor of the socket on
                                   /// which the request was received.
         Socket* socket;           /// Transport state corresponding to fd.
         IncomingMessage message;  /// Records state of partially-received
                                   /// request.
+        IntrusiveListHook queueEntries;
+                                  /// Used to link this RPC onto the
+                                  /// rpcsWaitingToReply list of the Socket.
 
         DISALLOW_COPY_AND_ASSIGN(TcpServerRpc);
     };
@@ -123,19 +154,35 @@ class TcpTransport : public Transport {
         friend class TcpTransport;
         friend class TcpSession;
         explicit TcpClientRpc(TcpSession* session, Buffer*request,
-                Buffer* reply)
-            : request(request), reply(reply), session(session) { }
+                Buffer* reply, uint64_t nonce)
+            : request(request), reply(reply), nonce(nonce),
+              session(session), sent(false), queueEntries()
+               { }
+      PROTECTED:
+        virtual void cancelCleanup();
       PRIVATE:
         Buffer* request;          /// Contains request message.
         Buffer* reply;            /// Client's buffer for response.
+        uint64_t nonce;           /// Unique identifier for this RPC; used
+                                  /// to pair the RPC with its response.
         TcpSession *session;      /// Session used for this RPC.
+        bool sent;                /// True means the request has been sent
+                                  /// and we are waiting for the response;
+                                  /// false means this RPC is queued on
+                                  /// rpcsWaitingToSend.
+        IntrusiveListHook queueEntries;
+                                  /// Used to link this RPC onto the
+                                  /// rpcsWaitingToSend and
+                                  /// rpcsWaitingForResponse lists of session.
         DISALLOW_COPY_AND_ASSIGN(TcpClientRpc);
     };
 
   PRIVATE:
     void closeSocket(int fd);
     static ssize_t recvCarefully(int fd, void* buffer, size_t length);
-    static void sendMessage(int fd, Buffer& payload);
+    static int sendMessage
+        (int fd, uint64_t nonce, Buffer& payload,
+            int bytesToSend);
 
     /**
      * An exception that is thrown when a socket has been closed by the peer.
@@ -152,7 +199,7 @@ class TcpTransport : public Transport {
     class AcceptHandler : public Dispatch::File {
       public:
         AcceptHandler(int fd, TcpTransport* transport);
-        virtual void handleFileEvent();
+        virtual void handleFileEvent(int events);
       PRIVATE:
         // Transport that manages this socket.
         TcpTransport* transport;
@@ -160,49 +207,58 @@ class TcpTransport : public Transport {
     };
 
     /**
-     * An event handler that reads incoming RPC requests for servers.
+     * An event handler that moves bytes to and from a server's socket.
      */
-    class RequestReadHandler : public Dispatch::File {
+    class ServerSocketHandler : public Dispatch::File {
       public:
-        RequestReadHandler(int fd, TcpTransport* transport);
-        virtual void handleFileEvent();
+        ServerSocketHandler(int fd, TcpTransport* transport, Socket* socket);
+        virtual void handleFileEvent(int events);
       PRIVATE:
         // The following variables are just copies of constructor arguments.
         int fd;
         TcpTransport* transport;
-        DISALLOW_COPY_AND_ASSIGN(RequestReadHandler);
+        Socket* socket;
+        DISALLOW_COPY_AND_ASSIGN(ServerSocketHandler);
     };
 
     /**
-     * An event handler that reads RPC responses for clients.
+     * An event handler that moves bytes to and from a client-side sockes.
      */
-    class ReplyReadHandler : public Dispatch::File {
+    class ClientSocketHandler : public Dispatch::File {
       public:
-        ReplyReadHandler(int fd, TcpSession* session);
-        virtual void handleFileEvent();
+        ClientSocketHandler(int fd, TcpSession* session);
+        virtual void handleFileEvent(int events);
       PRIVATE:
         // The following variables are just copies of constructor arguments.
         int fd;
         TcpSession* session;
-        DISALLOW_COPY_AND_ASSIGN(ReplyReadHandler);
+        DISALLOW_COPY_AND_ASSIGN(ClientSocketHandler);
     };
 
     /**
-     * The TCP implementation of Sessions.
+     * The TCP implementation of Sessions (stored on a client to manage its
+     * interactions with a particular server).
      */
     class TcpSession : public Session {
+      friend class ClientIncomingMessage;
       friend class TcpTransportTest;
       friend class TcpClientRpc;
-      friend class ReplyReadHandler;
+      friend class ClientSocketHandler;
       public:
         explicit TcpSession(const ServiceLocator& serviceLocator);
         ~TcpSession();
         ClientRpc* clientSend(Buffer* request, Buffer* reply)
             __attribute__((warn_unused_result));
+        Buffer* findRpc(Header& header);
         void release() {
             delete this;
         }
       PRIVATE:
+#if TESTING
+        TcpSession() : address(), fd(-1), serial(1), rpcsWaitingToSend(),
+            bytesLeftToSend(0), rpcsWaitingForResponse(), current(NULL),
+            message(), clientIoHandler(), errorInfo() { }
+#endif
         void close();
         static void tryReadReply(int fd, int16_t event, void *arg);
 
@@ -210,15 +266,29 @@ class TcpTransport : public Transport {
         int fd;                   /// File descriptor for the socket that
                                   /// connects to address  -1 means no socket
                                   /// open.
-        TcpClientRpc* current;    /// Only one RPC can be outstanding for
-                                  /// a session at a time; this identifies
-                                  /// the current RPC (NULL if there is none).
-        std::queue<TcpClientRpc*> waitingRpcs;
-                                  /// Holds requests that arrive when the
-                                  /// session is busy (current != NULL).
-        IncomingMessage message;  /// Records state of partially-received
+        uint64_t serial;          /// Used to generate nonces for RPCs: starts
+                                  /// at 1 and increments for each RPC.
+
+        INTRUSIVE_LIST_TYPEDEF(TcpClientRpc, queueEntries) ClientRpcList;
+        ClientRpcList rpcsWaitingToSend;
+                                  /// RPCs whose request messages have not yet
+                                  /// been transmitted.  The front RPC on this
+                                  /// list is currently being transmitted.
+        int bytesLeftToSend;      /// The number of (trailing) bytes in the
+                                  /// first RPC on rpcsWaitingToSend that still
+                                  /// need to be transmitted, once fd becomes
+                                  /// writable again.  -1 or 0 means there
+                                  /// are no RPCs waiting to be transmitted.
+        ClientRpcList rpcsWaitingForResponse;
+                                  /// RPCs whose request messages have been
+                                  /// transmitted, but whose responses have
+                                  /// not yet been received.
+        TcpClientRpc* current;    /// RPC for which we are currently receiving
+                                  /// a response (NULL if none).
+        Tub<IncomingMessage> message;
+                                  /// Records state of partially-received
                                   /// reply for current.
-        Tub<ReplyReadHandler> replyHandler;
+        Tub<ClientSocketHandler> clientIoHandler;
                                   /// Used to get notified when response data
                                   /// arrives.
         string errorInfo;         /// If the session is no longer usable,
@@ -245,15 +315,24 @@ class TcpTransport : public Transport {
     class Socket {
         public:
         Socket(int fd, TcpTransport *transport)
-                : rpc(NULL), busy(false), readHandler(fd, transport) { }
+                : rpc(NULL), ioHandler(fd, transport, this),
+                rpcsWaitingToReply(), bytesLeftToSend(0) { }
+        ~Socket();
         TcpServerRpc *rpc;        /// Incoming RPC that is in progress for
                                   /// this fd, or NULL if none.
-        bool busy;                /// True means we have received a request
-                                  /// and are in the middle of processing it,
-                                  /// so no additional requests should arrive.
-        RequestReadHandler readHandler;
+        ServerSocketHandler ioHandler;
                                   /// Used to get notified whenever data
                                   /// arrives on this fd.
+        INTRUSIVE_LIST_TYPEDEF(TcpServerRpc, queueEntries) ServerRpcList;
+        ServerRpcList rpcsWaitingToReply;
+                                  /// RPCs whose response messages have not yet
+                                  /// been transmitted.  The front RPC on this
+                                  /// list is currently being transmitted.
+        int bytesLeftToSend;      /// The number of (trailing) bytes in the
+                                  /// front RPC on rpcsWaitingToReply that still
+                                  /// need to be transmitted, once fd becomes
+                                  /// writable again.  -1 or 0 means there are
+                                  /// no RPCs waiting.
         DISALLOW_COPY_AND_ASSIGN(Socket);
     };
 
@@ -261,6 +340,10 @@ class TcpTransport : public Transport {
     /// information about file descriptor i (NULL means no client
     /// is currently connected).
     std::vector<Socket*> sockets;
+
+    /// Counts the number of nonzero-size partial messages sent by
+    /// sendMessage (for testing only).
+    static int messageChunks;
 
     DISALLOW_COPY_AND_ASSIGN(TcpTransport);
 };

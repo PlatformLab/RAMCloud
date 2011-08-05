@@ -18,106 +18,96 @@
 
 namespace RAMCloud {
 
-class ClientExceptionTest : public CppUnit::TestFixture {
-
-    CPPUNIT_TEST_SUITE(ClientExceptionTest);
-    CPPUNIT_TEST(test_constructor);
-    CPPUNIT_TEST(test_throwException_basics);
-    CPPUNIT_TEST(test_throwException_unknownStatus);
-    CPPUNIT_TEST(test_throwException_useSubclass);
-    CPPUNIT_TEST(test_toString);
-    CPPUNIT_TEST(test_toSymbol);
-    CPPUNIT_TEST_SUITE_END();
-
+class ClientExceptionTest : public ::testing::Test {
   public:
     ClientExceptionTest() { }
 
-    void test_constructor() {
-        ClientException e(HERE, STATUS_WRONG_VERSION);
-        CPPUNIT_ASSERT_EQUAL(STATUS_WRONG_VERSION, e.status);
-    }
-
-    // No tests for destructor: nothing to test.
-
-    void test_throwException_basics() {
-        // Try throwing all possible exceptions:
-        // * Make sure each exception is thrown
-        // * Check which exceptions also belong to interesting subclasses
-        //   such as RejectRulesException or InternalError.
-        string internal, reject;
-        for (int i = 0; i <= STATUS_MAX_VALUE; i++) {
-            string expected = "caught exception ";
-            expected += statusToSymbol(Status(i));
-            string got;
-            try {
-                ClientException::throwException(HERE, Status(i));
-            } catch (RejectRulesException& e) {
-                if (reject.length() != 0) {
-                    reject += " ";
-                }
-                reject += e.toSymbol();
-                got += "caught exception ";
-                got += e.toSymbol();
-            } catch (InternalError& e) {
-                if (internal.length() != 0) {
-                    internal += " ";
-                }
-                internal += e.toSymbol();
-                got += "caught exception ";
-                got += e.toSymbol();
-            } catch (ClientException& e) {
-                got += "caught exception ";
-                got += e.toSymbol();
-            }
-            CPPUNIT_ASSERT_EQUAL(expected, got);
-        }
-        CPPUNIT_ASSERT_EQUAL("STATUS_OBJECT_DOESNT_EXIST "
-                "STATUS_OBJECT_EXISTS STATUS_WRONG_VERSION", reject);
-        CPPUNIT_ASSERT_EQUAL("STATUS_MESSAGE_TOO_SHORT "
-                "STATUS_UNIMPLEMENTED_REQUEST STATUS_REQUEST_FORMAT_ERROR "
-                "STATUS_RESPONSE_FORMAT_ERROR", internal);
-    }
-    void test_throwException_useSubclass() {
-        // Make sure that a specific subclass is used, for at least one
-        // particular status value.
-        string msg = "no exception occurred";
-        try {
-            ClientException::throwException(HERE, STATUS_WRONG_VERSION);
-        } catch (WrongVersionException& e) {
-            msg = "WrongVersionException thrown";
-        } catch (ClientException& e) {
-            msg = "ClientException thrown";
-        }
-        CPPUNIT_ASSERT_EQUAL("WrongVersionException thrown", msg);
-    }
-    void test_throwException_unknownStatus() {
-        string msg = "no exception occurred";
-        Status status;
-        try {
-            ClientException::throwException(HERE, Status(STATUS_MAX_VALUE+1));
-        } catch (InternalError& e) {
-            msg = "InternalError thrown";
-            status = e.status;
-        } catch (ClientException& e) {
-            msg = "ClientException thrown";
-            status = e.status;
-        }
-        CPPUNIT_ASSERT_EQUAL("InternalError thrown", msg);
-        CPPUNIT_ASSERT_EQUAL(STATUS_MAX_VALUE+1, status);
-    }
-
-    void test_toString() {
-        ClientException e(HERE, STATUS_WRONG_VERSION);
-        CPPUNIT_ASSERT_EQUAL("object has wrong version", e.toString());
-    }
-
-    void test_toSymbol() {
-        ClientException e(HERE, STATUS_WRONG_VERSION);
-        CPPUNIT_ASSERT_EQUAL("STATUS_WRONG_VERSION", e.toSymbol());
-    }
-
     DISALLOW_COPY_AND_ASSIGN(ClientExceptionTest);
 };
-CPPUNIT_TEST_SUITE_REGISTRATION(ClientExceptionTest);
+
+TEST_F(ClientExceptionTest, constructor) {
+    ClientException e(HERE, STATUS_WRONG_VERSION);
+    EXPECT_EQ(STATUS_WRONG_VERSION, e.status);
+}
+
+// No tests for destructor: nothing to test.
+
+TEST_F(ClientExceptionTest, throwException_basics) {
+    // Try throwing all possible exceptions:
+    // * Make sure each exception is thrown
+    // * Check which exceptions also belong to interesting subclasses
+    //   such as RejectRulesException or InternalError.
+    string internal, reject;
+    for (int i = 0; i <= STATUS_MAX_VALUE; i++) {
+        string expected = "caught exception ";
+        expected += statusToSymbol(Status(i));
+        string got;
+        try {
+            ClientException::throwException(HERE, Status(i));
+        } catch (RejectRulesException& e) {
+            if (reject.length() != 0) {
+                reject += " ";
+            }
+            reject += e.toSymbol();
+            got += "caught exception ";
+            got += e.toSymbol();
+        } catch (InternalError& e) {
+            if (internal.length() != 0) {
+                internal += " ";
+            }
+            internal += e.toSymbol();
+            got += "caught exception ";
+            got += e.toSymbol();
+        } catch (ClientException& e) {
+            got += "caught exception ";
+            got += e.toSymbol();
+        }
+        EXPECT_EQ(expected, got);
+    }
+    EXPECT_EQ("STATUS_OBJECT_DOESNT_EXIST "
+            "STATUS_OBJECT_EXISTS STATUS_WRONG_VERSION", reject);
+    EXPECT_EQ("STATUS_MESSAGE_TOO_SHORT "
+            "STATUS_UNIMPLEMENTED_REQUEST STATUS_REQUEST_FORMAT_ERROR "
+            "STATUS_RESPONSE_FORMAT_ERROR STATUS_INTERNAL_ERROR",
+            internal);
+}
+TEST_F(ClientExceptionTest, throwException_useSubclass) {
+    // Make sure that a specific subclass is used, for at least one
+    // particular status value.
+    string msg = "no exception occurred";
+    try {
+        ClientException::throwException(HERE, STATUS_WRONG_VERSION);
+    } catch (WrongVersionException& e) {
+        msg = "WrongVersionException thrown";
+    } catch (ClientException& e) {
+        msg = "ClientException thrown";
+    }
+    EXPECT_EQ("WrongVersionException thrown", msg);
+}
+TEST_F(ClientExceptionTest, throwException_unknownStatus) {
+    string msg = "no exception occurred";
+    Status status;
+    try {
+        ClientException::throwException(HERE, Status(STATUS_MAX_VALUE+1));
+    } catch (InternalError& e) {
+        msg = "InternalError thrown";
+        status = e.status;
+    } catch (ClientException& e) {
+        msg = "ClientException thrown";
+        status = e.status;
+    }
+    EXPECT_EQ("InternalError thrown", msg);
+    EXPECT_EQ(STATUS_MAX_VALUE+1, status);
+}
+
+TEST_F(ClientExceptionTest, toString) {
+    ClientException e(HERE, STATUS_WRONG_VERSION);
+    EXPECT_STREQ("object has wrong version", e.toString());
+}
+
+TEST_F(ClientExceptionTest, toSymbol) {
+    ClientException e(HERE, STATUS_WRONG_VERSION);
+    EXPECT_STREQ("STATUS_WRONG_VERSION", e.toSymbol());
+}
 
 }  // namespace RAMCloud

@@ -14,6 +14,7 @@
  */
 
 #include "Common.h"
+#include "ShortMacros.h"
 #include "Table.h"
 #include "Will.h"
 

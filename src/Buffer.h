@@ -94,6 +94,7 @@ namespace RAMCloud {
  */
 // TODO(ongaro): Describe remaining interface to the memory allocator.
 class Buffer {
+  PRIVATE:
 
     /**
      * A block of memory used by the Buffer's special-purpose memory allocator.
@@ -140,7 +141,7 @@ class Buffer {
          */
         Allocation* next;
 
-      private:
+      PRIVATE:
 
         /**
          * The byte with the smallest index of #data in use by the prepend
@@ -174,7 +175,7 @@ class Buffer {
         void* allocateChunk(uint32_t size);
         void reset(uint32_t prependSize, uint32_t totalSize);
 
-      private:
+      PRIVATE:
 
         /**
          * Structure padding so that \a data is 8-byte aligned within an
@@ -222,7 +223,7 @@ class Buffer {
       friend void* ::operator new(size_t numBytes, Buffer* buffer,
                                   RAMCloud::MISC_T misc);
 
-      protected:
+      PROTECTED:
         /**
          * Add a chunk to the front of a buffer.
          * This is the same as Buffer's #prependChunk but is accessible from all
@@ -286,7 +287,7 @@ class Buffer {
             return chunk;
         }
 
-      protected:
+      PROTECTED:
         /**
          * Construct a chunk that does not release the memory it points to.
          * \param[in] data
@@ -319,7 +320,7 @@ class Buffer {
             return (this->_vptr == rawChunk._vptr);
         }
 
-      protected:
+      PROTECTED:
         /**
          * The first byte of data referenced by this Chunk.
          * \warning
@@ -338,7 +339,7 @@ class Buffer {
          */
         uint32_t length;
 
-      private:
+      PRIVATE:
         /**
          * The next Chunk in the list. This is for Buffer's use.
          */
@@ -373,7 +374,7 @@ class Buffer {
         uint32_t getTotalLength() const;
         uint32_t getNumberChunks() const;
 
-      private:
+      PRIVATE:
         /**
          * The current chunk over which we're iterating.
          * This starts out as #chunks and ends up at \c NULL.
@@ -464,7 +465,7 @@ class Buffer {
      */
     uint32_t getNumberChunks() const { return numberChunks; }
 
-  private:
+  PRIVATE:
     void convertChar(char c, string *out);
 
     /* For operator new's use only. */
@@ -543,7 +544,7 @@ class Buffer {
                               INITIAL_ALLOCATION_SIZE);
         }
         Allocation allocation;
-      private:
+      PRIVATE:
         // At least INITIAL_ALLOCATION_SIZE bytes of usable space must directly
         // follow the above Allocation.
         char allocationManagedSpace[INITIAL_ALLOCATION_SIZE];

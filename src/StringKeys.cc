@@ -21,7 +21,7 @@
 #include <unordered_set>
 #include <iostream>
 
-#include "BenchUtil.h"
+#include "Cycles.h"
 #include "RamCloud.h"
 #include "OptionParser.h"
 #include "ClientException.h"
@@ -125,9 +125,9 @@ try
     for (Enumerator e(count) ; e; ++e) {
         sk.read(table, e.key, e.keyLength(), response);
     }
-    uint64_t ns = cyclesToNanoseconds(counter.stop());
-    printf("Took %lu ns\n", ns);
-    printf("Read RTT %f ns\n", double(ns) / count);
+    double ns = Cycles::toSeconds(counter.stop()) * 1e09;
+    printf("Took %.0f ns\n", ns);
+    printf("Read RTT %.1f ns\n", ns / count);
 } catch (ClientException& e) {
     cerr << "RAMCloud Client exception: " << e.what() << endl;
     return -1;

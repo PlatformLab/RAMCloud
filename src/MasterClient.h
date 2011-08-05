@@ -85,7 +85,7 @@ class MasterClient : public Client {
         Create(MasterClient& client,
                uint32_t tableId, const void* buf, uint32_t length,
                uint64_t* version = NULL, bool async = false);
-        bool isReady() { return client.isReady(state); }
+        bool isReady() { return state.isReady(); }
         uint64_t operator()();
       private:
         MasterClient& client;
@@ -102,7 +102,7 @@ class MasterClient : public Client {
         Read(MasterClient& client,
              uint32_t tableId, uint64_t id, Buffer* value,
              const RejectRules* rejectRules, uint64_t* version);
-        bool isReady() { return client.isReady(state); }
+        bool isReady() { return state.isReady(); }
         void operator()();
       private:
         MasterClient& client;
@@ -119,7 +119,7 @@ class MasterClient : public Client {
                 uint64_t masterId, uint64_t partitionId,
                 const ProtoBuf::Tablets& tablets,
                 const char* backups, uint32_t backupsLen);
-        bool isReady() { return client.isReady(state); }
+        bool isReady() { return state.isReady(); }
         void operator()();
       private:
         MasterClient& client;
@@ -134,7 +134,7 @@ class MasterClient : public Client {
       public:
         MultiRead(MasterClient& client,
                   std::vector<ReadObject*>& requests);
-        bool isReady() { return client.isReady(state); }
+        bool isReady() { return state.isReady(); }
         void complete();
       private:
         MasterClient& client;
@@ -157,7 +157,7 @@ class MasterClient : public Client {
               uint32_t tableId, uint64_t id, const void* buf,
               uint32_t length, const RejectRules* rejectRules = NULL,
               uint64_t* version = NULL, bool async = false);
-        bool isReady() { return client.isReady(state); }
+        bool isReady() { return state.isReady(); }
         void operator()();
       private:
         MasterClient& client;
@@ -178,7 +178,7 @@ class MasterClient : public Client {
       public:
         RereplicateSegments(MasterClient& client,
                             uint64_t backupId);
-        bool isReady() { return client.isReady(state); }
+        bool isReady() { return state.isReady(); }
         void operator()();
       private:
         MasterClient& client;
@@ -193,7 +193,6 @@ class MasterClient : public Client {
     uint64_t create(uint32_t tableId, const void* buf, uint32_t length,
                     uint64_t* version = NULL, bool async = false);
     void fillWithTestData(uint32_t numObjects, uint32_t objectSize);
-    void ping();
     void read(uint32_t tableId, uint64_t id, Buffer* value,
               const RejectRules* rejectRules = NULL,
               uint64_t* version = NULL);

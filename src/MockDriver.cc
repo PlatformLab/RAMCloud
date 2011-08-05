@@ -109,9 +109,9 @@ MockDriver::sendPacket(const Address *addr,
 
     uint32_t take = 10;
     if (length < take) {
-        outputLog += toString(buf, length);
+        outputLog += TestUtil::toString(buf, length);
     } else {
-        outputLog += toString(buf, take);
+        outputLog += TestUtil::toString(buf, take);
         outputLog += format(" (+%u more)", length - take);
     }
 }

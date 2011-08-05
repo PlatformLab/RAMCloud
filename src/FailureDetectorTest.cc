@@ -19,7 +19,6 @@
 
 #include "TestUtil.h"
 
-#include "BenchUtil.h"
 #include "FailureDetector.h"
 #include "ServerList.pb.h"
 
@@ -439,29 +438,29 @@ class FailureDetectorTest : public CppUnit::TestFixture {
     test_tq_enqueue()
     {
         TimeoutQueue q(523);
-        mockTSCValue = nanosecondsToCycles(12 * 1000);
+        Cycles::mockTscValue = Cycles::fromNanoseconds(12 * 1000 + 100);
         q.enqueue("hello, there", 8734723);
         CPPUNIT_ASSERT_EQUAL(1, q.entries.size());
         CPPUNIT_ASSERT_EQUAL("hello, there", q.entries.front().locator);
         CPPUNIT_ASSERT_EQUAL(8734723, q.entries.front().nonce);
         CPPUNIT_ASSERT_EQUAL(12, q.entries.front().startUsec);
-        mockTSCValue = 0;
+        Cycles::mockTscValue = 0;
     }
 
     void
     test_tq_dequeue()
     {
         TimeoutQueue q(523);
-        mockTSCValue = nanosecondsToCycles(12 * 1000);
+        Cycles::mockTscValue = Cycles::fromNanoseconds(12 * 1000);
         q.enqueue("hello, there", 8734723);
         CPPUNIT_ASSERT_EQUAL(false, q.dequeue());
-        mockTSCValue += nanosecondsToCycles(522 * 1000);
+        Cycles::mockTscValue += Cycles::fromNanoseconds(522 * 1000);
         CPPUNIT_ASSERT_EQUAL(false, q.dequeue());
-        mockTSCValue += nanosecondsToCycles(1 * 1000);
+        Cycles::mockTscValue += Cycles::fromNanoseconds(1 * 1000);
         CPPUNIT_ASSERT_EQUAL(true, q.dequeue());
         CPPUNIT_ASSERT_EQUAL(false, q.dequeue());
         CPPUNIT_ASSERT_EQUAL(0, q.entries.size());
-        mockTSCValue = 0;
+        Cycles::mockTscValue = 0;
     }
 
     void
@@ -480,18 +479,18 @@ class FailureDetectorTest : public CppUnit::TestFixture {
     {
         TimeoutQueue q(523);
         CPPUNIT_ASSERT_EQUAL((uint64_t)-1, q.microsUntilNextTimeout());
-        mockTSCValue = nanosecondsToCycles(12 * 1000);
+        Cycles::mockTscValue = Cycles::fromNanoseconds(12 * 1000);
         q.enqueue("hi", 12347234);
         CPPUNIT_ASSERT_EQUAL(523, q.microsUntilNextTimeout());
-        mockTSCValue += nanosecondsToCycles(522 * 1000);
+        Cycles::mockTscValue += Cycles::fromNanoseconds(522 * 1000);
         CPPUNIT_ASSERT_EQUAL(1, q.microsUntilNextTimeout());
-        mockTSCValue += nanosecondsToCycles(1 * 1000);
+        Cycles::mockTscValue += Cycles::fromNanoseconds(1 * 1000);
         CPPUNIT_ASSERT_EQUAL(0, q.microsUntilNextTimeout());
-        mockTSCValue += nanosecondsToCycles(1000 * 1000);
+        Cycles::mockTscValue += Cycles::fromNanoseconds(1000 * 1000);
         CPPUNIT_ASSERT_EQUAL(0, q.microsUntilNextTimeout());
         q.dequeue();
         CPPUNIT_ASSERT_EQUAL((uint64_t)-1, q.microsUntilNextTimeout());
-        mockTSCValue = 0;
+        Cycles::mockTscValue = 0;
     }
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(FailureDetectorTest);

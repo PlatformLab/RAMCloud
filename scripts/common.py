@@ -25,19 +25,7 @@ import subprocess
 import sys
 import time
 
-__all__ = ['git_branch', 'obj_dir', 'sh', 'captureSh', 'Sandbox',
-           'scripts_path', 'top_path']
-
-scripts_path = os.path.dirname(os.path.abspath(__file__))
-top_path = os.path.abspath(scripts_path + '/..')
-
-try:
-    ld_library_path = os.environ['LD_LIBRARY_PATH'].split(':')
-except KeyError:
-    ld_library_path = []
-if '/usr/local/lib' not in ld_library_path:
-    ld_library_path.insert(0, '/usr/local/lib')
-os.environ['LD_LIBRARY_PATH'] = ':'.join(ld_library_path)
+__all__ = ['sh', 'captureSh', 'Sandbox']
 
 def sh(command, bg=False, **kwargs):
     """Execute a local command."""
@@ -63,16 +51,6 @@ def captureSh(command, **kwargs):
     else:
         return output
 
-try:
-    git_branch = re.search('^refs/heads/(.*)$',
-                           captureSh('git symbolic-ref -q HEAD 2>/dev/null'))
-except subprocess.CalledProcessError:
-    git_branch = None
-    obj_dir = 'obj'
-else:
-    git_branch = git_branch.group(1)
-    obj_dir = 'obj.%s' % git_branch
-
 class Sandbox(object):
     """A context manager for launching and cleaning up remote processes."""
     class Process(object):
@@ -92,7 +70,7 @@ class Sandbox(object):
             # Assumes scripts are at same path on remote machine
             sh_command = ['ssh', host,
                           '%s/regexec' % scripts_path, sonce,
-                          "'%s'" % command]
+                          os.getcwd(), "'%s'" % command]
             p = subprocess.Popen(sh_command, **kwargs)
             self.processes.append(self.Process(host, command,
                                                kwargs, sonce, p))
@@ -150,3 +128,9 @@ def delayedInterrupts():
         if quit:
             raise KeyboardInterrupt(
                 'Signal received while in delayed interrupts section')
+
+# This stuff has to be here, rather than at the beginning of the file,
+# because config needs some of the functions defined above.
+from config import *
+import config
+__all__.extend(config.__all__)

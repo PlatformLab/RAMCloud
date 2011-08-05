@@ -82,8 +82,8 @@ class Service {
 
     Service()
     {
-        std::fill(rpcsHandled, rpcsHandled + ILLEGAL_RPC_TYPE, 0);
-        std::fill(rpcsTime, rpcsTime + ILLEGAL_RPC_TYPE, 0);
+        std::fill(rpcsHandled, rpcsHandled + ILLEGAL_RPC_TYPE+1, 0);
+        std::fill(rpcsTime, rpcsTime + ILLEGAL_RPC_TYPE+1, 0);
     }
 
     virtual ~Service() {}

@@ -22,7 +22,7 @@
 #include "BackupStorage.h"
 #include "CoordinatorClient.h"
 #include "CoordinatorService.h"
-#include "Logging.h"
+#include "ShortMacros.h"
 #include "MasterService.h"
 #include "Tablets.pb.h"
 #include "TransportManager.h"

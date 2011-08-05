@@ -30,7 +30,7 @@
 #include "TestUtil.h"
 #include "RamCloud.h"
 #include "MasterService.h"
-#include "BenchUtil.h"
+#include "Cycles.h"
 #include "OptionParser.h"
 
 #include "MasterClient.h"
@@ -123,8 +123,8 @@ setup()
 {
     if (cpu != -1) {
         if (!RC::pinToCpu(cpu))
-            DIE("bench: Couldn't pin to core %d", cpu);
-        LOG(RC::DEBUG, "bench: Pinned to core %d", cpu);
+            RAMCLOUD_DIE("bench: Couldn't pin to core %d", cpu);
+        RAMCLOUD_LOG(RC::DEBUG, "bench: Pinned to core %d", cpu);
     }
 
     client = new RC::RamCloud(coordinatorLocator.c_str());
@@ -161,19 +161,19 @@ bench(const char *name, void (f)(void))
 {
     uint64_t start, end, cycles;
 
-    start = rdtsc();
+    start = RC::Cycles::rdtsc();
     f();
-    end = rdtsc();
+    end = RC::Cycles::rdtsc();
 
     cycles = end - start;
     printf("%s ns     %12lu\n", name,
-           RC::cyclesToNanoseconds(cycles));
+           RC::Cycles::toNanoseconds(cycles));
     printf("%s avgns  %12lu\n", name,
-           RC::cyclesToNanoseconds(cycles) / count);
+           RC::Cycles::toNanoseconds(cycles) / count);
     fprintf(stderr, "Avg. Latency %s avgns  %12lu\n", name,
-            RC::cyclesToNanoseconds(cycles) / count);
+            RC::Cycles::toNanoseconds(cycles) / count);
     // client->ping();
-    return RC::cyclesToNanoseconds(cycles);
+    return RC::Cycles::toNanoseconds(cycles);
 }
 
 #define BENCH(fname) bench(#fname, fname)

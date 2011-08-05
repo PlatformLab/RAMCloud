@@ -83,7 +83,7 @@ TEST_F(ServiceManagerTest, sanityCheck) {
     // Wait for the request to be processed for (but don't wait forever).
     for (int i = 0; i < 1000; i++) {
         dispatch->poll();
-        if (!service.log.empty())
+        if (!transport.outputLog.empty())
             break;
         usleep(1000);
     }
@@ -259,7 +259,7 @@ TEST_F(ServiceManagerTest, poll_basics) {
     waitUntilDone(1);
     manager->poll();
     EXPECT_EQ("serverReply: 0x20001 6", transport.outputLog);
-    EXPECT_EQ("0x20000 3", toString(
+    EXPECT_EQ("0x20000 3", TestUtil::toString(
               &manager->busyThreads[0]->rpc->requestPayload));
 
     // Allow the remaining requests to complete.
@@ -316,7 +316,7 @@ TEST_F(ServiceManagerTest, workerMain_goToSleep) {
 
     // Update dispatch->currentTime. When the worker sees this it should
     // go to sleep.
-    dispatch->currentTime = rdtsc();
+    dispatch->currentTime = Cycles::rdtsc();
     for (int i = 0; i < 1000; i++) {
         usleep(100);
         if (worker->state.load() == Worker::SLEEPING) {
@@ -345,7 +345,7 @@ TEST_F(ServiceManagerTest, workerMain_futexError) {
     // Wait for the worker to go to sleep, then make sure it logged
     // an error message.
     usleep(1000);
-    dispatch->currentTime = rdtsc();
+    dispatch->currentTime = Cycles::rdtsc();
     for (int i = 0; i < 1000; i++) {
         usleep(100);
         if (worker->state.load() == Worker::SLEEPING) {

@@ -166,7 +166,7 @@ struct MultiReadRpc {
 
 struct PingRpc {
     static const RpcOpcode opcode = RpcOpcode::PING;
-    static const RpcServiceType service = MASTER_SERVICE;
+    static const RpcServiceType service = PING_SERVICE;
     struct Request {
         RpcRequestCommon common;
         uint64_t nonce;             // The nonce may be used to identify
@@ -182,7 +182,7 @@ struct PingRpc {
 
 struct ProxyPingRpc {
     static const RpcOpcode opcode = PROXY_PING;
-    static const RpcServiceType service = MASTER_SERVICE;
+    static const RpcServiceType service = PING_SERVICE;
     struct Request {
         RpcRequestCommon common;
         uint64_t timeoutNanoseconds;   // Number of nanoseconds to wait for a
@@ -490,6 +490,7 @@ struct BackupGetRecoveryDataRpc {
     };
 };
 
+// Note: this RPC is supported by the coordinator service as well as backups.
 struct BackupQuiesceRpc {
     static const RpcOpcode opcode = BACKUP_QUIESCE;
     static const RpcServiceType service = BACKUP_SERVICE;
@@ -577,7 +578,7 @@ struct BackupWriteRpc {
  * Version number that indicates "object doesn't exist": this
  * version will never be used in an actual object.
  */
-#define VERSION_NONEXISTENT 0
+#define VERSION_NONEXISTENT 0U
 
 } // namespace RAMCloud
 

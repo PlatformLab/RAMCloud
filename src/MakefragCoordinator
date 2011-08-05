@@ -8,6 +8,6 @@ COORDINATOR_OBJFILES := $(COORDINATOR_OBJFILES) $(SHARED_OBJFILES)
 
 $(OBJDIR)/coordinator: $(COORDINATOR_OBJFILES) $(OBJDIR)/CoordinatorMain.o
 	@mkdir -p $(@D)
-	$(CXX) $(CXXFLAGS) -o $@ $^
+	$(CXX) $(LIBS) -o $@ $^
 
 all: $(OBJDIR)/coordinator

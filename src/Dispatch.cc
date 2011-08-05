@@ -14,9 +14,12 @@
  */
 
 #include <sys/epoll.h>
-#include "BenchUtil.h"
+
+#include "ShortMacros.h"
 #include "Common.h"
+#include "Cycles.h"
 #include "Dispatch.h"
+#include "Fence.h"
 #include "Initialize.h"
 #include "Metrics.h"
 #include "NoOp.h"
@@ -62,12 +65,13 @@ Dispatch::init() {
  * Constructor for Dispatch objects.
  */
 Dispatch::Dispatch()
-    : currentTime(rdtsc())
+    : currentTime(Cycles::rdtsc())
     , pollers()
     , files()
     , epollFd(-1)
     , epollThread()
     , readyFd(-1)
+    , readyEvents(0)
     , fileInvocationSerial(0)
     , timers()
     , earliestTriggerTime(0)
@@ -108,7 +112,7 @@ Dispatch::~Dispatch()
         if (files[i] != NULL) {
             files[i]->owner = NULL;
             files[i]->active = false;
-            files[i]->event = FileEvent::NONE;
+            files[i]->events = 0;
             files[i] = NULL;
         }
     }
@@ -131,21 +135,30 @@ void
 Dispatch::poll()
 {
     assert(isDispatchThread());
-    currentTime = rdtsc();
+    currentTime = Cycles::rdtsc();
     if (lockNeeded.load() != 0) {
         // Someone wants us locked. Indicate that we are locked,
         // then wait for the lock to be released.
+        Fence::leave();
         locked.store(1);
         while (lockNeeded.load() != 0) {
             // Empty loop body.
         }
         locked.store(0);
+        Fence::enter();
     }
     for (uint32_t i = 0; i < pollers.size(); i++) {
         pollers[i]->poll();
     }
     if (readyFd >= 0) {
         int fd = readyFd;
+
+        // Make sure that the read of readyEvents doesn't get reordered either
+        // before we see readyFd or after we change it (otherwise could
+        // read the wrong value).
+        __asm__ __volatile__("lfence");
+        int events = readyEvents;
+        __asm__ __volatile__("lfence");
         readyFd = -1;
         File* file = files[fd];
         if (file) {
@@ -155,7 +168,7 @@ Dispatch::poll()
             }
             fileInvocationSerial = id;
             file->invocationId = id;
-            file->handleFileEvent();
+            file->handleFileEvent(events);
 
             // Must reenable the event for this file, since it was automatically
             // disabled by epoll.  However, it's possible that the handler
@@ -165,7 +178,7 @@ Dispatch::poll()
             // handler was created for the same fd.
             if ((files[fd] == file) && (file->invocationId == id)) {
                 file->invocationId = 0;
-                file->setEvent(file->event);
+                file->setEvents(file->events);
             }
         }
     }
@@ -243,19 +256,19 @@ Dispatch::Poller::~Poller()
  * \param fd
  *      File descriptor of interest. Note: at most one Dispatch::File
  *      may be created for a single file descriptor.
- * \param event
+ * \param events
  *      Invoke the object when any of the events specified by this
- *      parameter occur. If this is NONE then the file handler starts
- *      off inactive; it will not trigger until setEvent has been
- *      called.
+ *      parameter occur (OR-ed combination of FileEvent values). If this
+ *      is 0 then the file handler starts off inactive; it will not
+ *      trigger until setEvents has been called.
  * \param dispatch
  *      Dispatch object that will manage this file handler (defaults
  *      to the global #RAMCloud::dispatch object).
  */
-Dispatch::File::File(int fd, Dispatch::FileEvent event, Dispatch* dispatch)
+Dispatch::File::File(int fd, int events, Dispatch* dispatch)
         : owner(dispatch)
         , fd(fd)
-        , event(NONE)
+        , events(0)
         , active(false)
         , invocationId(0)
 {
@@ -298,8 +311,8 @@ Dispatch::File::File(int fd, Dispatch::FileEvent event, Dispatch* dispatch)
                     "for a file descriptor");
     }
     owner->files[fd] = this;
-    if (event != NONE) {
-        setEvent(event);
+    if (events != 0) {
+        setEvents(events);
     }
 }
 
@@ -326,10 +339,11 @@ Dispatch::File::~File()
 /**
  * Specify the events of interest for this file handler.
  *
- * \param event
- *      Indicates the conditions under which this object should be invoked.
+ * \param events
+ *      Indicates the conditions under which this object should be invoked
+ *      (OR-ed combination of FileEvent values).
  */
-void Dispatch::File::setEvent(FileEvent event)
+void Dispatch::File::setEvents(int events)
 {
     if (owner == NULL) {
         // Dispatch object has already been deleted; don't do anything.
@@ -341,7 +355,7 @@ void Dispatch::File::setEvent(FileEvent event)
     // The following statement is not needed, but without it valgrind
     // will generate false errors about uninitialized data.
     epollEvent.data.u64 = 0;
-    this->event = event;
+    this->events = events;
     if (invocationId != 0) {
         // Don't communicate anything to epoll while a call to
         // operator() is in progress (don't want another instance of
@@ -350,14 +364,12 @@ void Dispatch::File::setEvent(FileEvent event)
         // completes.
         return;
     }
-    if (event == READABLE) {
-        epollEvent.events = EPOLLIN|EPOLLONESHOT;
-    } else if (event == WRITABLE) {
-        epollEvent.events = EPOLLOUT|EPOLLONESHOT;
-    } else if (event == READABLE_OR_WRITABLE) {
-        epollEvent.events = EPOLLIN|EPOLLOUT|EPOLLONESHOT;
-    } else  {
-        epollEvent.events = 0;
+    epollEvent.events = 0;
+    if (events & READABLE) {
+        epollEvent.events |= EPOLLIN|EPOLLONESHOT;
+    }
+    if (events & WRITABLE) {
+        epollEvent.events |= EPOLLOUT|EPOLLONESHOT;
     }
     epollEvent.data.fd = fd;
     if (sys->epoll_ctl(owner->epollFd,
@@ -399,6 +411,13 @@ void Dispatch::epollThreadMain(Dispatch* owner) {
         // polling loop using a shared memory location.
         for (int i = 0; i < count; i++) {
             int fd = events[i].data.fd;
+            int readyEvents = 0;
+            if (events[i].events & EPOLLIN) {
+                readyEvents |= READABLE;
+            }
+            if (events[i].events & EPOLLOUT) {
+                readyEvents |= WRITABLE;
+            }
             if (fd == -1) {
                 // This is a special value associated with exitPipeFd[0],
                 // and indicates that this thread should exit.
@@ -412,14 +431,19 @@ void Dispatch::epollThreadMain(Dispatch* owner) {
                 // CPU to any other runnable threads.
                 sched_yield();
             }
+            owner->readyEvents = readyEvents;
+            // The following line guarantees that the modification of
+            // owner->readyEvents will be visible in memory before the
+            // modification of readyFd.
+            __asm__ __volatile__("sfence");
             owner->readyFd = events[i].data.fd;
         }
     }
 }
 
 /**
- * Construct a timer but do not start it: it will not fire until one of
- * the #startXXX methods is invoked.
+ * Construct a timer but do not start it: it will not fire until #start
+ * is invoked.
  *
  * \param dispatch
  *      Dispatch object that will manage this timer (defaults to the
@@ -438,12 +462,12 @@ Dispatch::Timer::Timer(Dispatch* dispatch)
  *      global #RAMCloud::dispatch object).
  * \param cycles
  *      Time at which the timer should trigger, measured in cycles (the units
- *      returned by #rdtsc) from Dispatch::currentTime.
+ *      returned by #Cycles::rdtsc).
  */
 Dispatch::Timer::Timer(uint64_t cycles, Dispatch* dispatch)
         : owner(dispatch), triggerTime(0), slot(-1)
 {
-    startCycles(cycles);
+    start(cycles);
 }
 
 /**
@@ -465,12 +489,12 @@ bool Dispatch::Timer::isRunning()
 /**
  * Start this timer running.
  *
- * \param cycles
- *      Time at which the timer should trigger, measured in cycles (the units
- *      returned by #rdtsc) from Dispatch::currentTime.  If the timer was
- *      already running the old trigger time is forgotten
+ * \param rdtscTime
+ *      The timer will trigger when #Cycles::rdtsc() returns a value at least this
+ *      large.  If the timer was already running, the old trigger time is
+ *      forgotten.
  */
-void Dispatch::Timer::startCycles(uint64_t cycles)
+void Dispatch::Timer::start(uint64_t rdtscTime)
 {
     if (owner == NULL) {
         // Our Dispatch no longer exists, so there's nothing to do here.
@@ -478,7 +502,7 @@ void Dispatch::Timer::startCycles(uint64_t cycles)
     }
     CHECK_LOCK;
 
-    triggerTime = owner->currentTime + cycles;
+    triggerTime = rdtscTime;
     if (slot < 0) {
         slot = downCast<unsigned>(owner->timers.size());
         owner->timers.push_back(this);
@@ -489,47 +513,8 @@ void Dispatch::Timer::startCycles(uint64_t cycles)
 }
 
 /**
- * Start this timer running.
- *
- * \param micros
- *      Time at which the timer should trigger, measured in microseconds from
- *      Dispatch::currentTime.  If the timer was already running the old
- *      trigger time is forgotten
- */
-void Dispatch::Timer::startMicros(uint64_t micros)
-{
-    startCycles(nanosecondsToCycles(1000*micros));
-}
-
-/**
- * Start this timer running.
- *
- * \param millis
- *      Time at which the timer should trigger, measured in milliseconds from
- *      Dispatch::currentTime.  If the timer was already running the old
- *      trigger time is forgotten
- */
-void Dispatch::Timer::startMillis(uint64_t millis)
-{
-    startCycles(nanosecondsToCycles(1000*1000*millis));
-}
-
-/**
- * Start this timer running.
- *
- * \param seconds
- *      Time at which the timer should trigger, measured in seconds from
- *      Dispatch::currentTime.  If the timer was already running the old
- *      trigger time is forgotten
- */
-void Dispatch::Timer::startSeconds(uint64_t seconds)
-{
-    startCycles(nanosecondsToCycles(1000*1000*1000*seconds));
-}
-
-/**
  * Stop this timer, if it was running. After this call, the timer won't
- * trigger until a #startXXX method is invoked again.
+ * trigger until #start is invoked again.
  */
 void Dispatch::Timer::stop()
 {
@@ -592,10 +577,16 @@ Dispatch::Lock::Lock(Dispatch* dispatch)
     while (dispatch->locked.load() != 0) {
         // Empty loop.
     }
+
+    // The following statements ensure that the preceding load completes
+    // before the following store (reordering could cause deadlock).
+    Fence::sfence();
+    Fence::lfence();
     dispatch->lockNeeded.store(1);
     while (dispatch->locked.load() == 0) {
         // Empty loop: spin-wait for the dispatch thread to lock itself.
     }
+    Fence::enter();
 }
 
 /**
@@ -610,6 +601,7 @@ Dispatch::Lock::~Lock()
         return;
     }
 
+    Fence::leave();
     dispatch->lockNeeded.store(0);
     thisThreadHasDispatchLock = false;
 }

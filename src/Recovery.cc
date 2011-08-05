@@ -17,6 +17,7 @@
 #include "Dispatch.h"
 #include "BackupClient.h"
 #include "Buffer.h"
+#include "ShortMacros.h"
 #include "MasterClient.h"
 #include "Tub.h"
 #include "ProtoBuf.h"
@@ -49,10 +50,12 @@ struct MasterStartTask {
         if (recoveryMasterIndex ==
             static_cast<uint32_t>(recovery.masterHosts.server_size())) {
             // TODO(ongaro): this is not ok in a real system
-            DIE("not enough recovery masters to complete recovery");
+            DIE("not enough recovery masters to complete recovery "
+                "(only %d available)", recoveryMasterIndex);
         }
         masterHost = &recovery.masterHosts.server(recoveryMasterIndex++);
         auto locator = masterHost->service_locator().c_str();
+        LOG(NOTICE, "Initiating recovery with recovery master %s", locator);
         try {
             masterClient.construct(transportManager.getSession(locator));
             rpc.construct(*masterClient,

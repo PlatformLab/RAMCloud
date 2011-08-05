@@ -64,7 +64,7 @@ mmapGigabyteAligned(size_t length, int extraFlags, int fd = -1)
 
         if (base != MAP_FAILED) {
             if (munmap(base, length)) {
-                LOG(ERROR, "couldn't munmap undesirable mapping!");
+                RAMCLOUD_LOG(ERROR, "couldn't munmap undesirable mapping!");
                 return MAP_FAILED;
             }
         }
@@ -73,7 +73,7 @@ mmapGigabyteAligned(size_t length, int extraFlags, int fd = -1)
     }
 
     if (i == maxTries) {
-        LOG(ERROR, "Couldn't mmap gigabyte-aligned region");
+        RAMCLOUD_LOG(ERROR, "Couldn't mmap gigabyte-aligned region");
         return MAP_FAILED;
     }
 
@@ -84,7 +84,7 @@ mmapGigabyteAligned(size_t length, int extraFlags, int fd = -1)
     // pages before it knows that it can actually give us the entire range?).
     if (mlock(block, length)) {
         munmap(block, length);
-        LOG(ERROR, "Couldn't pin down the memory!");
+        RAMCLOUD_LOG(ERROR, "Couldn't pin down the memory!");
         return MAP_FAILED;
     }
 
@@ -181,14 +181,21 @@ struct LargeBlockOfMemory {
         unlink(path);
         close(fd);
 
-        LOG(NOTICE, "Mmapped %lu-byte region from [%s] at %p\n",
-            length, path, reinterpret_cast<void*>(block));
+        RAMCLOUD_LOG(NOTICE,
+                     "Mmapped %lu-byte region from [%s] at %p\n",
+                     length, path, reinterpret_cast<void*>(block));
+
+        // Fault in each mapping.
+        uint64_t pageSize = sysconf(_SC_PAGESIZE);
+        for (uint64_t i = 0; i < length; i += pageSize)
+            reinterpret_cast<uint8_t*>(block)[i] = 0;
     }
 
     ~LargeBlockOfMemory()
     {
         if (block != NULL && munmap(block, length) != 0)
-            LOG(WARNING, "munmap of large block failed with %d", errno);
+            RAMCLOUD_LOG(WARNING, "munmap of large block failed with %d",
+                         errno);
     }
 
     void swap(LargeBlockOfMemory<T>& other) {

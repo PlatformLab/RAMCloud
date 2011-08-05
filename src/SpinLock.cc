@@ -14,6 +14,7 @@
  */
 
 #include "Common.h"
+#include "Fence.h"
 #include "SpinLock.h"
 
 namespace RAMCloud {
@@ -27,6 +28,7 @@ void SpinLock::lock()
     while (mutex.exchange(1) != 0) {
         /* Empty loop body. */
     }
+    Fence::enter();
 }
 
 /**
@@ -39,7 +41,12 @@ void SpinLock::lock()
  */
 bool SpinLock::try_lock()
 {
-    return (mutex.exchange(1) == 0);
+    int old = mutex.exchange(1);
+    if (old == 0) {
+        Fence::enter();
+        return true;
+    }
+    return false;
 }
 
 /**
@@ -48,6 +55,7 @@ bool SpinLock::try_lock()
  */
 void SpinLock::unlock()
 {
+    Fence::leave();
     mutex.store(0);
 }
 

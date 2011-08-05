@@ -15,7 +15,7 @@
 
 /**
  * \file
- * In gcc 4.4.4 the cstdatomic header file omitted the bodies for
+ * In gcc 4.4.4 the atomic header file omitted the bodies for
  * several functions. This header file supplies them.  Gcc is fixed
  * in later releases.
  */

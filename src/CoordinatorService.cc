@@ -17,6 +17,7 @@
 
 #include "BackupClient.h"
 #include "CoordinatorService.h"
+#include "ShortMacros.h"
 #include "MasterClient.h"
 #include "ProtoBuf.h"
 #include "Recovery.h"
@@ -78,10 +79,6 @@ CoordinatorService::dispatch(RpcOpcode opcode,
         case TabletsRecoveredRpc::opcode:
             callHandler<TabletsRecoveredRpc, CoordinatorService,
                         &CoordinatorService::tabletsRecovered>(rpc);
-            break;
-        case PingRpc::opcode:
-            callHandler<PingRpc, CoordinatorService,
-                        &CoordinatorService::ping>(rpc);
             break;
         case BackupQuiesceRpc::opcode:
             callHandler<BackupQuiesceRpc, CoordinatorService,
@@ -235,6 +232,9 @@ CoordinatorService::enlistServer(const EnlistServerRpc::Request& reqHdr,
     server.set_server_type(serverType);
     server.set_server_id(serverId);
     server.set_service_locator(serviceLocator);
+    LOG(NOTICE, "Enlisting new %s at %s (server id %ld)",
+            (serverType == ProtoBuf::MASTER) ? "master" : "backup",
+            serviceLocator, serverId);
 
     if (server.server_type() == ProtoBuf::MASTER) {
         // create empty will
@@ -306,7 +306,7 @@ CoordinatorService::hintServerDown(const HintServerDownRpc::Request& reqHdr,
 
     // reqHdr, respHdr, and rpc are off-limits now
 
-    LOG(DEBUG, "Hint server down: %s", serviceLocator.c_str());
+    LOG(NOTICE, "Hint server down: %s", serviceLocator.c_str());
 
     // is it a master?
     for (int32_t i = 0; i < masterList.server_size(); i++) {
@@ -328,7 +328,7 @@ CoordinatorService::hintServerDown(const HintServerDownRpc::Request& reqHdr,
                     tablet.set_state(ProtoBuf::Tablets_Tablet::RECOVERING);
             }
 
-            LOG(DEBUG, "Trying partition recovery on %lu with %u masters "
+            LOG(NOTICE, "Trying partition recovery on %lu with %u masters "
                 "and %u backups", serverId, masterList.server_size(),
                 backupList.server_size());
 
@@ -448,33 +448,6 @@ CoordinatorService::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
             }
         }
     }
-}
-
-/**
- * Top-level server method to handle the PING request.
- *
- * For debugging it print out statistics on the RPCs that it has
- * handled and instructs all the machines in the RAMCloud to do
- * so also (by pinging them all).
- *
- * \copydetails Service::ping
- */
-void
-CoordinatorService::ping(const PingRpc::Request& reqHdr,
-                         PingRpc::Response& respHdr,
-                         Rpc& rpc)
-{
-    // dump out all the RPC stats for all the hosts so far
-    foreach (const ProtoBuf::ServerList::Entry& server,
-             backupList.server())
-        BackupClient(transportManager.getSession(
-            server.service_locator().c_str())).ping();
-    foreach (const ProtoBuf::ServerList::Entry& server,
-             masterList.server())
-        MasterClient(transportManager.getSession(
-            server.service_locator().c_str())).ping();
-
-    Service::ping(reqHdr, respHdr, rpc);
 }
 
 /**

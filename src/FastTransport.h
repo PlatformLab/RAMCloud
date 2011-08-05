@@ -22,9 +22,9 @@
 
 #include <vector>
 
-#include "BenchUtil.h"
 #include "BoostIntrusive.h"
 #include "Common.h"
+#include "Cycles.h"
 #include "Dispatch.h"
 #include "Driver.h"
 #include "Transport.h"
@@ -75,6 +75,7 @@ namespace RAMCloud {
  * datagram protocols (Drivers).  See Transport for more information.
  */
 class FastTransport : public Transport {
+  PRIVATE:
     class Session;
     class ServerSession;
     class ClientSession;
@@ -97,8 +98,10 @@ class FastTransport : public Transport {
      * will block until the response is complete and valid.
      */
     class ClientRpc : public Transport::ClientRpc {
-      private:
-        ClientRpc(FastTransport* transport,
+      PROTECTED:
+        virtual void cancelCleanup();
+      PRIVATE:
+        ClientRpc(ClientSession* session,
                   Buffer* request, Buffer* response);
 
         /// Contains an RPC request payload including the RPC header.
@@ -107,13 +110,13 @@ class FastTransport : public Transport {
         /// The destination Buffer for the RPC response.
         Buffer* const responseBuffer;
 
-        /// The Transport on which to send/receive the RPC.
-        FastTransport* const transport;
+        /// The ClientSession on which to send/receive the RPC.
+        ClientSession* const session;
 
         /// Entries to allow this RPC to be placed in a channel queue.
         IntrusiveListHook channelQueueEntries;
 
-      private:
+      PRIVATE:
         friend class FastTransport;
         friend class ClientSession;
         friend class FastTransportTest;
@@ -136,7 +139,7 @@ class FastTransport : public Transport {
         void setup(ServerSession* session, uint8_t channelId);
         void sendReply();
 
-      private:
+      PRIVATE:
         void maybeDequeue();
 
         /// The ServerSession this RPC is being handled on, const after setup().
@@ -154,7 +157,7 @@ class FastTransport : public Transport {
         DISALLOW_COPY_AND_ASSIGN(ServerRpc);
     };
 
-  private:
+  PRIVATE:
     /**
      * Max number of concurrent RPCs per Session.
      *
@@ -216,7 +219,7 @@ class FastTransport : public Transport {
 #endif
         static uint64_t value = 0;
         if (value == 0)
-            value = nanosecondsToCycles(TIMEOUT_NS);
+            value = Cycles::fromNanoseconds(TIMEOUT_NS);
         return value;
     }
 
@@ -233,7 +236,7 @@ class FastTransport : public Transport {
 #endif
         static uint64_t value = 0;
         if (value == 0)
-            value = nanosecondsToCycles(SESSION_TIMEOUT_NS);
+            value = Cycles::fromNanoseconds(SESSION_TIMEOUT_NS);
         return value;
     }
 
@@ -461,7 +464,7 @@ class FastTransport : public Transport {
         void reset();
         void init(uint16_t totalFrags, Buffer* dataBuffer);
         bool processReceivedData(Driver::Received* received);
-      private:
+      PRIVATE:
         /// The transport to which this message belongs.  Set by setup().
         FastTransport* transport;
 
@@ -512,7 +515,7 @@ class FastTransport : public Transport {
           public:
             explicit Timer(InboundMessage* const inboundMsg);
             virtual void handleTimerEvent();
-          private:
+          PRIVATE:
             /// The InboundMessage this timer sendAcks on or resets if fired.
             InboundMessage* const inboundMsg;
 
@@ -557,7 +560,7 @@ class FastTransport : public Transport {
         void send();
         bool processReceivedAck(Driver::Received* received);
 
-      private:
+      PRIVATE:
         void sendOneData(uint32_t fragNumber, bool forceRequestAck = false);
 
         /// Transport this message is associated with.
@@ -624,7 +627,7 @@ class FastTransport : public Transport {
           public:
             explicit Timer(OutboundMessage* const outboundMsg);
             virtual void handleTimerEvent();
-          private:
+          PRIVATE:
             /// Message this timer resends packets for or closes when fired.
             OutboundMessage* const outboundMsg;
 
@@ -655,7 +658,7 @@ class FastTransport : public Transport {
      * associated with.
      */
     class Session {
-      protected:
+      PROTECTED:
         /// Used to trash the token field; shouldn't be seen on the wire.
         static const uint64_t INVALID_TOKEN;
 
@@ -750,7 +753,7 @@ class FastTransport : public Transport {
         /// The FastTransport this session is associated with.
         FastTransport* const transport;
 
-      protected:
+      PROTECTED:
         /**
          * Authentication token provided by the server. For ClientSession
          * this to identifes the client to the server, for ServerSession
@@ -760,7 +763,7 @@ class FastTransport : public Transport {
          */
         uint64_t token;
 
-      private:
+      PRIVATE:
         friend class PollerTest;
         DISALLOW_COPY_AND_ASSIGN(Session);
     };
@@ -794,7 +797,7 @@ class FastTransport : public Transport {
          */
         uint32_t nextFree;
 
-      private:
+      PRIVATE:
         /**
          * The state assoicated with an ongoing RPC.
          */
@@ -869,7 +872,7 @@ class FastTransport : public Transport {
                                     ///< RPC.
             } state;
 
-          private:
+          PRIVATE:
             DISALLOW_COPY_AND_ASSIGN(ServerChannel);
         };
 
@@ -910,8 +913,8 @@ class FastTransport : public Transport {
         ClientSession(FastTransport* transport, uint32_t sessionId);
         ~ClientSession();
 
+        void cancelRpc(ClientRpc* rpc);
         ClientRpc* clientSend(Buffer* request, Buffer* response);
-
         void close();
         void connect();
         bool expire();
@@ -934,7 +937,7 @@ class FastTransport : public Transport {
          */
         uint32_t nextFree;
 
-      private:
+      PRIVATE:
         /**
          * The state associated with an ongoing RPC.
          */
@@ -1006,7 +1009,7 @@ class FastTransport : public Transport {
                 RECEIVING,  ///< InboundMessage is receiving.
             } state;
 
-          private:
+          PRIVATE:
             DISALLOW_COPY_AND_ASSIGN(ClientChannel);
         };
 
@@ -1022,7 +1025,7 @@ class FastTransport : public Transport {
              * to a SessionOpenRequest.
              */
             ClientSession* session;
-          private:
+          PRIVATE:
             DISALLOW_COPY_AND_ASSIGN(Timer);
         };
 
@@ -1036,7 +1039,7 @@ class FastTransport : public Transport {
 
         /**
          * Queue of ClientRpcs currently awaiting service.  This session
-         * pops Rpcs from this queue and processes them channels as they
+         * pops Rpcs from this queue and processes them as channels
          * become free.
          */
         ChannelQueue channelQueue;
@@ -1062,6 +1065,7 @@ class FastTransport : public Transport {
         void processReceivedData(ClientChannel* channel,
                                  Driver::Received* received);
         void processSessionOpenResponse(Driver::Received* received);
+        void reassignChannel(ClientChannel* channel);
 
         template <typename T> friend class SessionTable;
         friend class FastTransportTest;
@@ -1218,7 +1222,7 @@ class FastTransport : public Transport {
             return downCast<uint32_t>(sessions.size());
         }
 
-      private:
+      PRIVATE:
         /**
          * If firstFree == TAIL then no Sessions in the table are free,
          * otherwise firstFree is the offset of the first Session in the

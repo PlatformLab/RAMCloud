@@ -84,7 +84,7 @@ class Object {
     uint32_t timestamp;         // see WallTime.cc
     char data[0];
 
-  private:
+  PRIVATE:
     Object() : id(-1, -1), version(-1), timestamp(secondsTimestamp()) { }
 
     // to use default constructor in arrays
@@ -109,7 +109,7 @@ class ObjectTombstone {
     uint64_t segmentId;
     uint64_t objectVersion;
 
-  private:
+  PRIVATE:
     ObjectTombstone(uint64_t segmentId, uint64_t tableId,
                     uint64_t objectId, uint64_t objectVersion)
         : id(tableId, objectId),

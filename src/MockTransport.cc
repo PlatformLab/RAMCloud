@@ -93,7 +93,7 @@ MockTransport::MockSession::clientSend(Buffer* payload, Buffer* response)
         transport->outputLog.append(" | ");
     }
     transport->outputLog.append("clientSend: ");
-    transport->outputLog.append(toString(payload));
+    transport->outputLog.append(TestUtil::toString(payload));
     return new(response, MISC) MockClientRpc(transport, response);
 }
 
@@ -144,7 +144,7 @@ MockTransport::MockServerRpc::sendReply()
         transport->outputLog.append(" | ");
     }
     transport->outputLog.append("serverReply: ");
-    transport->outputLog.append(toString(&replyPayload));
+    transport->outputLog.append(TestUtil::toString(&replyPayload));
     const RpcResponseCommon* responseHeader =
         replyPayload.getStart<RpcResponseCommon>();
     transport->status = (responseHeader != NULL) ? responseHeader->status :

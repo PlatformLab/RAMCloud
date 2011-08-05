@@ -149,6 +149,8 @@ def parse(f, definitions):
         raise Exception, 'no metrics in %s' % f.name
     values = []
     for line in lines:
+        if line[0:9] != 'metrics->':
+            continue
         var, value = line.split(' = ')
         var = var.split('metrics->')[1]
         values.append((var, value))
@@ -485,10 +487,19 @@ def parseRecovery(recovery_dir, definitions=None):
     data.coordinator = parse(open(glob('%s/coordinator.*.log' %
                                        recovery_dir)[0]),
                              definitions)
-    data.masters = [parse(open(f), definitions)
-                    for f in sorted(glob('%s/newMaster.*.log' % recovery_dir))]
     data.backups = [parse(open(f), definitions)
                     for f in sorted(glob('%s/backup.*.log' % recovery_dir))]
+    # Server logs can contain both master and backup data; duplicate the
+    # raw log data to provide separate copies for masters and backups
+    servers = [parse(open(f), definitions)
+               for f in sorted(glob('%s/server.*.log' % recovery_dir))]
+    data.masters = []
+    for d in servers:
+        if d.backup.totalSegmentCount > 0:
+            data.backups.append(d)
+        if d.master.liveObjectCount > 0:
+            data.masters.append(d)
+        
     data.client = AttrDict()
     for line in open(glob('%s/client.*.log' % recovery_dir)[0]):
         m = re.search(r'\bRecovery completed in (\d+) ns\b', line)

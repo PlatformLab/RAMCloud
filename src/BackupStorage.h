@@ -21,7 +21,6 @@
 #include <boost/pool/pool.hpp>
 #include <boost/dynamic_bitset.hpp>
 
-#include "BenchUtil.h"
 #include "Segment.h"
 
 namespace RAMCloud {

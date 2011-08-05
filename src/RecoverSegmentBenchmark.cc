@@ -13,8 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "BenchUtil.h"
 #include "ClientException.h"
+#include "Cycles.h"
 #include "Logging.h"
 #include "MasterService.h"
 #include "Tablets.pb.h"
@@ -87,19 +87,19 @@ class RecoverSegmentBenchmark {
         /*
          * Now run a fake recovery.
          */
-        uint64_t before = rdtsc();
+        uint64_t before = Cycles::rdtsc();
         for (int i = 0; i < numSegments; i++) {
             Segment *s = segments[i];
             service->recoverSegment(s->getId(), s->getBaseAddress(),
                 s->getCapacity());
         }
-        uint64_t ticks = rdtsc() - before;
+        uint64_t ticks = Cycles::rdtsc() - before;
 
         uint64_t totalObjectBytes = numObjects * objectBytes;
         uint64_t totalSegmentBytes = numSegments * Segment::SEGMENT_SIZE;
         printf("Recovery of %d %dKB Segments with %d byte Objects took %lu "
             "milliseconds\n", numSegments, Segment::SEGMENT_SIZE / 1024,
-            objectBytes, RAMCloud::cyclesToNanoseconds(ticks) / 1000 / 1000);
+            objectBytes, RAMCloud::Cycles::toNanoseconds(ticks) / 1000 / 1000);
         printf("Actual total object count: %lu (%lu bytes in Objects, %.2f%% "
             "overhead)\n", numObjects, totalObjectBytes,
             100.0 *

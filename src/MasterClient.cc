@@ -204,24 +204,6 @@ MasterClient::create(uint32_t tableId, const void* buf, uint32_t length,
 }
 
 /**
- * Test that a server exists and is responsive.
- *
- * This operation issues a no-op RPC request, which causes
- * communication with the given server but doesn't actually do
- * anything on the server.
- *
- * \exception InternalError
- */
-void
-MasterClient::ping()
-{
-    Buffer req, resp;
-    allocHeader<PingRpc>(req);
-    sendRecv<PingRpc>(session, req, resp);
-    checkStatus(HERE);
-}
-
-/**
  * Recover a set of tablets on behalf of a crashed master.
  *
  * \param masterId

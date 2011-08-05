@@ -109,7 +109,10 @@ def load_so():
     id                  = ctypes.c_uint64
     len                 = ctypes.c_uint32
     name                = ctypes.c_char_p
+    nanoseconds         = ctypes.c_uint64
+    nonce               = ctypes.c_uint64
     rejectRules         = POINTER(RejectRules)
+    serviceLocator      = ctypes.c_char_p
     status              = ctypes.c_int
     table               = ctypes.c_uint32
     version             = ctypes.c_uint64
@@ -136,7 +139,8 @@ def load_so():
     so.rc_openTable.argtypes = [client, name, POINTER(table)]
     so.rc_openTable.restype  = status
 
-    so.rc_ping.argtypes = [client]
+    so.rc_ping.argtypes = [client, serviceLocator, nonce, nanoseconds,
+                           POINTER(nonce)]
     so.rc_ping.restype  = status
 
     so.rc_read.argtypes = [client, table, id, rejectRules, POINTER(version),
@@ -241,9 +245,12 @@ class RAMCloud(object):
         self.handle_error(s)
         return handle.value
 
-    def ping(self):
-        s = so.rc_ping(self.client)
+    def ping(self, serviceLocator, nonce, nanoseconds):
+        result = ctypes.c_uint64();
+        s = so.rc_ping(self.client, serviceLocator, nonce, nanoseconds,
+                       ctypes.byref(result))
         self.handle_error(s)
+        return result
 
     def read(self, table_id, id, want_version=None):
         if want_version:

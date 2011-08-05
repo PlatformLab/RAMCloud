@@ -16,7 +16,6 @@ TESTS_SRCFILES := \
 		  src/BackupManagerTest.cc \
 		  src/BackupServiceTest.cc \
 		  src/BackupStorageTest.cc \
-		  src/BenchUtilTest.cc \
 		  src/BoostIntrusiveTest.cc \
 		  src/BufferTest.cc \
 		  src/ClientExceptionTest.cc \
@@ -24,6 +23,7 @@ TESTS_SRCFILES := \
 		  src/CommonTest.cc \
 		  src/CoordinatorServiceTest.cc \
 		  src/Crc32CTest.cc \
+		  src/CyclesTest.cc \
 		  src/DispatchTest.cc \
 		  src/FailureDetectorTest.cc \
 		  src/FastTransportTest.cc \
@@ -40,6 +40,7 @@ TESTS_SRCFILES := \
 		  src/MockTransport.cc \
 		  src/ObjectFinderTest.cc \
 		  src/OptionParserTest.cc \
+		  src/PingServiceTest.cc \
 		  src/ProtoBufTest.cc \
 		  src/Recovery.cc \
 		  src/RecoverySegmentIteratorTest.cc \
@@ -98,12 +99,20 @@ $(OBJDIR)/test: $(TESTS_OBJFILES) $(OBJDIR)/gtest.a
 	@mkdir -p $(@D)
 	$(CXX) $(TESTS_LIB) -o $@ $^
 
-# TODO(ongaro) The unit tests don't actually call HashTableBenchmark, Echo,
-# Telnet, or RecoverSegmentBenchmark. I just wanted to make sure it continues to build over time.
-test: $(OBJDIR)/test $(OBJDIR)/HashTableBenchmark $(OBJDIR)/Echo $(OBJDIR)/Telnet $(OBJDIR)/Bench $(OBJDIR)/Perf $(OBJDIR)/RecoverSegmentBenchmark $(OBJDIR)/TransportSmack $(OBJDIR)/WillBenchmark $(OBJDIR)/LogCleanerBenchmark
-	$(OBJDIR)/test
+# The unit tests don't actually call all of these programs, but
+# they are included here to make sure they continue to build.
+test: $(OBJDIR)/test \
+      $(OBJDIR)/Bench \
+      $(OBJDIR)/Cperf \
+      $(OBJDIR)/Echo \
+      $(OBJDIR)/HashTableBenchmark \
+      $(OBJDIR)/Perf \
+      $(OBJDIR)/RecoverSegmentBenchmark \
+      $(OBJDIR)/Telnet \
+      $(OBJDIR)/TransportSmack \
+      $(OBJDIR)/WillBenchmark
 
-all: $(OBJDIR)/Perf
+all: $(OBJDIR)/Perf $(OBJDIR)/Cperf
 
 ftest: $(OBJDIR)/test
 	scripts/forking_test_runner.py
@@ -124,21 +133,25 @@ $(OBJDIR)/RecoverSegmentBenchmark: $(OBJDIR)/RecoverSegmentBenchmark.o $(SHARED_
 	@mkdir -p $(@D)
 	$(CXX) $(LIBS) -o $@ $^
 
-$(OBJDIR)/Bench: $(OBJDIR)/Bench.o $(OBJDIR)/TestUtil.o $(OBJDIR)/libramcloud.a
+$(OBJDIR)/Bench: $(OBJDIR)/Bench.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
-	$(CXX) $(TESTS_LIB) -o $@ $^
+	$(CXX) $(LIBS) -o $@ $^
 
 $(OBJDIR)/Perf: $(OBJDIR)/Perf.o $(SERVER_OBJFILES)
 	@mkdir -p $(@D)
-	$(CXX) $(CXXFLAGS) -o $@ $^
+	$(CXX) $(LIBS) -o $@ $^
+
+$(OBJDIR)/Cperf: $(OBJDIR)/Cperf.o $(OBJDIR)/libramcloud.a
+	@mkdir -p $(@D)
+	$(CXX) $(LIBS) -o $@ $^
 
 $(OBJDIR)/TransportBench: $(OBJDIR)/TransportBench.o $(OBJDIR)/Metrics.o $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
 	$(CXX) $(TESTS_LIB) -o $@ $^
 
-$(OBJDIR)/TransportSmack: $(OBJDIR)/TransportSmack.o $(OBJDIR)/Service.o $(OBJDIR)/Metrics.o $(OBJDIR)/libramcloud.a
+$(OBJDIR)/TransportSmack: $(OBJDIR)/TransportSmack.o $(OBJDIR)/Service.o $(OBJDIR)/Metrics.o $(OBJDIR)/OptionParser.o $(OBJDIR)/TestUtil.o  $(OBJDIR)/gtest.a $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
-	$(CXX) $(LIBS) -o $@ $^
+	$(CXX) $(TESTS_LIB) -o $@ $^
 
 $(OBJDIR)/WillBenchmark: $(OBJDIR)/WillBenchmark.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
 	@mkdir -p $(@D)

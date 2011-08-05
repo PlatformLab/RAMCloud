@@ -47,7 +47,7 @@ class BackupClient : public Client {
                         uint64_t segmentId,
                         uint64_t partitionId,
                         Buffer& responseBuffer);
-        bool isReady() { return client.isReady(state); }
+        bool isReady() { return state.isReady(); }
         void operator()();
         BackupClient& client;
         Buffer requestBuffer;
@@ -115,7 +115,7 @@ class BackupClient : public Client {
         StartReadingData(BackupClient& client,
                          uint64_t masterId,
                          const ProtoBuf::Tablets& partitions);
-        bool isReady() { return client.isReady(state); }
+        bool isReady() { return state.isReady(); }
         void operator()(Result* result);
         BackupClient& client;
         Buffer requestBuffer;
@@ -143,7 +143,7 @@ class BackupClient : public Client {
                      const void *buf,
                      uint32_t length,
                      BackupWriteRpc::Flags flags = BackupWriteRpc::NONE);
-        bool isReady() { return client.isReady(state); }
+        bool isReady() { return state.isReady(); }
         void operator()();
       private:
         BackupClient& client;
@@ -176,13 +176,12 @@ class BackupClient : public Client {
                              : BackupWriteRpc::OPEN);
     }
 
-    void ping();
     void quiesce();
 
     class RecoveryComplete {
       public:
         RecoveryComplete(BackupClient& client, uint64_t masterId);
-        bool isReady() { return client.isReady(state); }
+        bool isReady() { return state.isReady(); }
         void operator()();
       private:
         BackupClient& client;

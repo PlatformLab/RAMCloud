@@ -20,14 +20,13 @@ namespace RAMCloud {
 
 /**
  * This class implements integers with atomic operations that are safe
- * for inter-thread synchronization.  Any operation that modifies the
- * value uses "sfence" to ensure that all other memory modifications made
- * by the thread will be visible to other threads.  Any operation reading
- * the value uses "lfence" to ensure that any memory modifications made
- * by other threads will be visible to the reading thread after the read.
+ * for inter-thread synchronization.  Note: these operations do not deal
+ * with instruction reordering issues; they simply provide basic atomic
+ * reading and writing.   Proper synchronization also requires the use of
+ * facilities such as those provided by the \c Fence class.
  *
  * As of 6/2011 this class is significantly faster than the C++ atomic_int
- * class, because it makes more economical use of memory fences.
+ * class, because the C++ facilities incorporate expensive fence operations.
  */
 class AtomicInt {
   public:
@@ -47,8 +46,8 @@ class AtomicInt {
      */
     void add(int increment)
     {
-        __asm__ __volatile__("sfence; lock; addl %1,%0" :
-                "=m" (value) : "r" (increment));
+        __asm__ __volatile__("lock; addl %1,%0" : "=m" (value) :
+                "r" (increment));
     }
 
     /**
@@ -65,9 +64,8 @@ class AtomicInt {
      */
     int compareExchange(int test, int newValue)
     {
-        __asm__ __volatile__("sfence; lock; cmpxchgl %0,%1; lfence" :
-                "=r" (newValue), "=m" (value), "=a" (test) :
-                "0" (newValue), "2" (test));
+        __asm__ __volatile__("lock; cmpxchgl %0,%1" : "=r" (newValue),
+                "=m" (value), "=a" (test) : "0" (newValue), "2" (test));
         return test;
     }
 
@@ -82,8 +80,8 @@ class AtomicInt {
      */
     int exchange(int newValue)
     {
-        __asm__ __volatile__("sfence; xchg %0,%1; lfence" :
-                "=r" (newValue), "=m" (value) : "0" (newValue));
+        __asm__ __volatile__("xchg %0,%1" : "=r" (newValue), "=m" (value) :
+                "0" (newValue));
         return newValue;
     }
 
@@ -92,7 +90,7 @@ class AtomicInt {
      */
     void inc()
     {
-        __asm__ __volatile__("sfence; lock; incl %0" : "=m" (value));
+        __asm__ __volatile__("lock; incl %0" : "=m" (value));
     }
 
     /**
@@ -100,9 +98,7 @@ class AtomicInt {
      */
     int load()
     {
-        int result = value;
-        __asm__ __volatile__("lfence");
-        return result;
+        return value;
     }
 
     /**
@@ -163,7 +159,6 @@ class AtomicInt {
      */
     void store(int newValue)
     {
-        __asm__ __volatile__("sfence");
         value = newValue;
     }
 

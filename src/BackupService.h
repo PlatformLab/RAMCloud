@@ -23,7 +23,7 @@
 #ifndef RAMCLOUD_BACKUPSERVICE_H
 #define RAMCLOUD_BACKUPSERVICE_H
 
-#include <cstdatomic>
+#include <atomic>
 #include <boost/thread.hpp>
 #include <boost/scoped_ptr.hpp>
 #include <boost/pool/pool.hpp>
@@ -36,6 +36,7 @@
 #include "BackupStorage.h"
 #include "CoordinatorClient.h"
 #include "CycleCounter.h"
+#include "Fence.h"
 #include "LogTypes.h"
 #include "Metrics.h"
 #include "Rpc.h"
@@ -81,6 +82,9 @@ class BackupService : public Service {
         /// Decrement the value referred to by #value.
         ~ReferenceDecrementer()
         {
+            // The following statement is really only needed when value
+            // is an AtomicInt.
+            Fence::leave();
             --value;
         }
 
@@ -114,8 +118,10 @@ class BackupService : public Service {
         {
             Lock _(mutex);
             if (allocatedChunks)
-                LOG(WARNING, "Backup segment pool destroyed with %u chunks "
-                             "still allocated", allocatedChunks);
+                RAMCLOUD_LOG(WARNING,
+                             "Backup segment pool destroyed with "
+                             "%u chunks still allocated",
+                             allocatedChunks);
         }
 
         // See boost::pool<>.
@@ -294,9 +300,10 @@ class BackupService : public Service {
             int lastThreadCount = 0;
             while (storageOpCount > 0) {
                 if (storageOpCount != lastThreadCount) {
-                    LOG(DEBUG, "Waiting for storage threads to terminate "
-                        "for a segment, %d threads still running",
-                        static_cast<int>(storageOpCount));
+                    RAMCLOUD_LOG(DEBUG,
+                                 "Waiting for storage threads to terminate "
+                                 "for a segment, %d threads still running",
+                                 static_cast<int>(storageOpCount));
                     lastThreadCount = storageOpCount;
                 }
                 condition.wait(lock);

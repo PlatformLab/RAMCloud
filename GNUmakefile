@@ -55,7 +55,7 @@ endif
 # -Wunreachable-code
 # Failed deconstructor inlines are generating noise
 # -Winline
-LIBS := -lpcrecpp -lboost_program_options -lprotobuf -lrt \
+LIBS := $(EXTRALIBS) -lpcrecpp -lboost_program_options -lprotobuf -lrt \
         -lpthread -lboost_thread -lssl
 INCLUDES := -I$(TOP)/src -I$(TOP)/$(OBJDIR) -I$(GTEST_DIR)/include
 
@@ -68,15 +68,15 @@ ifeq ($(YIELD),yes)
 COMFLAGS += -DYIELD=1
 endif
 
-CFLAGS_BASE := $(COMFLAGS) -std=gnu0x $(LIBS) $(INCLUDES)
+CFLAGS_BASE := $(COMFLAGS) -std=gnu0x $(INCLUDES)
 CFLAGS_NOWERROR := $(CFLAGS_BASE) $(CWARNS)
 CFLAGS := $(CFLAGS_BASE) -Werror $(CWARNS)
 
-CXXFLAGS_BASE := $(COMFLAGS) -std=c++0x $(LIBS) $(INCLUDES)
+CXXFLAGS_BASE := $(COMFLAGS) -std=c++0x $(INCLUDES) $(EXTRACXXFLAGS)
 CXXFLAGS_NOWERROR := $(CXXFLAGS_BASE) $(CXXWARNS)
-CXXFLAGS := $(CXXFLAGS_BASE) -Werror $(CXXWARNS) $(EXTRACXXFLAGS)
+CXXFLAGS := $(CXXFLAGS_BASE) -Werror $(CXXWARNS)
 ifeq ($(COMPILER),intel)
-CXXFLAGS = $(CXXFLAGS_BASE) $(CXXWARNS) $(EXTRACXXFLAGS)
+CXXFLAGS = $(CXXFLAGS_BASE) $(CXXWARNS)
 endif
 
 CC := gcc
@@ -145,7 +145,6 @@ test: python-test
 include src/Makefrag
 include src/MakefragClient
 include src/MakefragServer
-include src/MakefragBackup
 include src/MakefragCoordinator
 include src/MakefragTest
 include src/misc/Makefrag

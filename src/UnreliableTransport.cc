@@ -25,7 +25,9 @@ UnreliableTransport::UnreliableTransport(Driver* driver)
     , clientPendingList()
     , serverRpcPool()
     , serverPendingList()
+#ifdef INFINIBAND
     , infinibandAddressHandleCache()
+#endif
 {
     struct IncomingPacketHandler : Driver::IncomingPacketHandler {
         explicit IncomingPacketHandler(UnreliableTransport& t) : t(t) {}
@@ -135,6 +137,7 @@ UnreliableTransport::UnreliableServerRpc::UnreliableServerRpc(
 void
 UnreliableTransport::UnreliableServerRpc::sendReply()
 {
+#ifdef INFINIBAND
     // Hack to cache Infiniband address handles in a hash table. Otherwise we
     // have to create a new address handle on each response, and that's
     // currently an expensive task (it adds about 50 us to an RTT).
@@ -159,12 +162,15 @@ UnreliableTransport::UnreliableServerRpc::sendReply()
         else
             ah = infAddress->getHandle();
     }
+#endif
 
     Header header = { 0, 0, nonce };
     t.sendPacketized(clientAddress, header, replyPayload);
 
+#ifdef INFINIBAND
     if (infAddress != NULL)
         infAddress->ah = NULL; // leak address handles since they are cached
+#endif
 
     t.serverRpcPool.destroy(this);
     ++metrics->transport.transmit.messageCount;

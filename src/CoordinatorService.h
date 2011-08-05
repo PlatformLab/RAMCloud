@@ -39,7 +39,7 @@ class CoordinatorService : public Service {
     void dispatch(RpcOpcode opcode,
                   Rpc& rpc);
 
-  private:
+  PRIVATE:
     void createTable(const CreateTableRpc::Request& reqHdr,
                      CreateTableRpc::Response& respHdr,
                      Rpc& rpc);
@@ -68,10 +68,6 @@ class CoordinatorService : public Service {
     void tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
                           TabletsRecoveredRpc::Response& respHdr,
                           Rpc& rpc);
-
-    void ping(const PingRpc::Request& reqHdr,
-              PingRpc::Response& respHdr,
-              Rpc& rpc);
 
     void quiesce(const BackupQuiesceRpc::Request& reqHdr,
                  BackupQuiesceRpc::Response& respHdr,

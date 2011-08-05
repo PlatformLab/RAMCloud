@@ -15,10 +15,11 @@
 
 /**
  * \file
- * Makes sure a given number of hosts have registered with the coordinator.
+ * Makes sure a given number of servers have registered with the coordinator.
  */
 
-#include "BenchUtil.h"
+#include "Cycles.h"
+#include "ShortMacros.h"
 #include "OptionParser.h"
 #include "RamCloud.h"
 
@@ -28,13 +29,13 @@ int
 main(int argc, char *argv[])
 try
 {
-    OptionsDescription clientOptions("EnsureHosts");
+    OptionsDescription clientOptions("EnsureServers");
     int number = 0;
     int timeout = 10;
     clientOptions.add_options()
         ("number,n",
          ProgramOptions::value<int>(&number),
-             "The number of hosts desired.")
+             "The number of servers desired.")
         ("timeout,t",
          ProgramOptions::value<int>(&timeout),
              "The number of seconds for which to wait.");
@@ -45,7 +46,8 @@ try
         optionParser.options.getCoordinatorLocator().c_str());
 
 
-    uint64_t quitTime = rdtsc() + nanosecondsToCycles(1000000000UL * timeout);
+    uint64_t quitTime = Cycles::rdtsc() + Cycles::fromNanoseconds(
+        1000000000UL * timeout);
     int actual = -1;
     do {
         ProtoBuf::ServerList serverList;
@@ -60,7 +62,7 @@ try
         if (number == actual)
             return 0;
         usleep(10000);
-    } while (rdtsc() < quitTime);
+    } while (Cycles::rdtsc() < quitTime);
     return (actual - number);
 } catch (const ClientException& e) {
     fprintf(stderr, "RAMCloud exception: %s\n", e.str().c_str());

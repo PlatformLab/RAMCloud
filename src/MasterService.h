@@ -170,10 +170,11 @@ class MasterService : public Service {
                             "left for the hash table!");
         }
 
-        LOG(NOTICE, "Master to allocate %lu bytes total, %lu of which for the "
-            "hash table", masterBytes, hashTableBytes);
-        LOG(NOTICE, "Master will have %lu segments and %lu lines in the hash "
-            "table", numSegments, numHashTableLines);
+        RAMCLOUD_LOG(NOTICE,
+                     "Master to allocate %lu bytes total, %lu of which for the "
+                     "hash table", masterBytes, hashTableBytes);
+        RAMCLOUD_LOG(NOTICE, "Master will have %lu segments and %lu lines in "
+                     "the hash table", numSegments, numHashTableLines);
 
         config->logBytes = logBytes;
         config->hashTableBytes = hashTableBytes;
@@ -185,13 +186,10 @@ class MasterService : public Service {
      */
     enum { REC_REQ_NOT_STARTED, REC_REQ_WAITING, REC_REQ_FAILED, REC_REQ_OK };
 
-  private:
+  PRIVATE:
     void create(const CreateRpc::Request& reqHdr,
                 CreateRpc::Response& respHdr,
                 Rpc& rpc);
-    void ping(const PingRpc::Request& reqHdr,
-              PingRpc::Response& respHdr,
-              Rpc& rpc);
     void fillWithTestData(const FillWithTestDataRpc::Request& reqHdr,
                           FillWithTestDataRpc::Response& respHdr,
                           Rpc& rpc);

@@ -14,6 +14,7 @@
  */
 
 #include "CoordinatorClient.h"
+#include "ShortMacros.h"
 #include "ProtoBuf.h"
 
 namespace RAMCloud {
@@ -173,7 +174,7 @@ CoordinatorClient::getServerList(ServerType type,
 
 /**
  * List all live servers.
- * Used in ensureHosts.
+ * Used in ensureServers.
  * \param[out] serverList
  *      An empty ServerList that will be filled with current servers.
  */
@@ -254,26 +255,6 @@ CoordinatorClient::hintServerDown(string serviceLocator)
 }
 
 /**
- * \copydoc MasterClient::ping
- */
-void
-CoordinatorClient::ping()
-{
-    Buffer req;
-    Buffer resp;
-    allocHeader<PingRpc>(req);
-
-    // Temporary hack: reset the service type to COORDINATOR (eventually
-    // ping should be in its own service).
-
-    RpcRequestCommon* common = const_cast<RpcRequestCommon*>(
-            req.getStart<RpcRequestCommon>());
-    common->service = COORDINATOR_SERVICE;
-    sendRecv<PingRpc>(session, req, resp);
-    checkStatus(HERE);
-}
-
-/**
  * Have all backups flush their dirty segments to storage.
  * This is useful for measuring recovery performance accurately.
  */
@@ -282,7 +263,12 @@ CoordinatorClient::quiesce()
 {
     Buffer req;
     Buffer resp;
-    allocHeader<BackupQuiesceRpc>(req);
+    BackupQuiesceRpc::Request& reqHdr(
+        allocHeader<BackupQuiesceRpc>(req));
+    // By default this RPC is since the backup service; retarget it
+    // for the coordinator service (which will forward it on to all
+    // backups).
+    reqHdr.common.service = COORDINATOR_SERVICE;
     sendRecv<BackupQuiesceRpc>(session, req, resp);
     checkStatus(HERE);
 }

@@ -86,16 +86,16 @@ class Logger {
 
     /**
      * Return whether the current logging configuration includes messages of
-     * the given level. This is separate from #LOG in case there's some
+     * the given level. This is separate from #RAMCLOUD_LOG in case there's some
      * non-trivial work that goes into calculating a log message, and it's not
      * possible or convenient to include that work as an expression in the
-     * argument list to #LOG.
+     * argument list to #RAMCLOUD_LOG.
      */
     bool isLogging(LogModule module, LogLevel level) {
         return (level <= logLevels[module]);
     }
 
-  private:
+  PRIVATE:
     /**
      * The stream on which to log messages.
      */
@@ -116,40 +116,40 @@ extern Logger logger;
 
 } // end RAMCloud
 
-#define CURRENT_LOG_MODULE RAMCloud::DEFAULT_LOG_MODULE
+#define RAMCLOUD_CURRENT_LOG_MODULE RAMCloud::DEFAULT_LOG_MODULE
 
 /**
  * Log a message for the system administrator.
- * The #CURRENT_LOG_MODULE macro should be set to the LogModule to which the
- * message pertains.
+ * The #RAMCLOUD_CURRENT_LOG_MODULE macro should be set to the LogModule to
+ * which the message pertains.
  * \param[in] level
  *      The level of importance of the message (LogLevel).
  * \param[in] format
  *      A printf-style format string for the message. It should not have a line
- *      break at the end, as LOG will add one.
+ *      break at the end, as RAMCLOUD_LOG will add one.
  * \param[in] ...
  *      The arguments to the format string.
  */
-#define LOG(level, format, ...) do { \
-    if (RAMCloud::logger.isLogging(CURRENT_LOG_MODULE, level)) \
-        RAMCloud::logger.logMessage(CURRENT_LOG_MODULE, level, HERE, \
+#define RAMCLOUD_LOG(level, format, ...) do { \
+    if (RAMCloud::logger.isLogging(RAMCLOUD_CURRENT_LOG_MODULE, level)) \
+        RAMCloud::logger.logMessage(RAMCLOUD_CURRENT_LOG_MODULE, level, HERE, \
                                     format "\n", ##__VA_ARGS__); \
-    TEST_LOG(format, ##__VA_ARGS__); \
+    RAMCLOUD_TEST_LOG(format, ##__VA_ARGS__); \
 } while (0)
 
 /**
  * Log an ERROR message and throw a #RAMCloud::FatalError.
- * The #CURRENT_LOG_MODULE macro should be set to the LogModule to which the
- * message pertains.
+ * The #RAMCLOUD_CURRENT_LOG_MODULE macro should be set to the LogModule to
+ * which the message pertains.
  * \param[in] format_
- *      See #LOG().
+ *      See #RAMCLOUD_LOG().
  * \param[in] ...
- *      See #LOG().
+ *      See #RAMCLOUD_LOG().
  * \throw FatalError
  *      Always thrown.
  */
-#define DIE(format_, ...) do { \
-    LOG(RAMCloud::ERROR, format_, ##__VA_ARGS__); \
+#define RAMCLOUD_DIE(format_, ...) do { \
+    RAMCLOUD_LOG(RAMCloud::ERROR, format_, ##__VA_ARGS__); \
     throw RAMCloud::FatalError(HERE, \
                                RAMCloud::format(format_, ##__VA_ARGS__)); \
 } while (0)
@@ -159,9 +159,10 @@ namespace RAMCloud {
 /**
  * A module for capturing "test log entries" to facilitate unit testing.
  *
- * TEST_LOG calls can be removed by disabling TESTING.  Further, test logging
- * can be run time toggled using enable() and disable() to prevent unit tests
- * which aren't interested in the test log from accumulating the log in RAM.
+ * RAMCLOUD_TEST_LOG calls can be removed by disabling TESTING.  Further, test
+ * logging can be run time toggled using enable() and disable() to prevent unit
+ * tests which aren't interested in the test log from accumulating the log in
+ * RAM.
  *
  * The easiest interface is to simply instantiate Enable at the beginning of a
  * test method.
@@ -171,7 +172,7 @@ namespace RAMCloud {
  * void
  * FooClass::methodToTest()
  * {
- *     TEST_LOG("log message");
+ *     RAMCLOUD_TEST_LOG("log message");
  * }
  *
  * void
@@ -255,10 +256,10 @@ namespace TestLog {
  * \param[in] ...
  *      The arguments to the format string.
  */
-#define TEST_LOG(format, ...) \
+#define RAMCLOUD_TEST_LOG(format, ...) \
     RAMCloud::TestLog::log(HERE, format, ##__VA_ARGS__)
 #else
-#define TEST_LOG(format, ...)
+#define RAMCLOUD_TEST_LOG(format, ...)
 #endif
 
 #endif  // RAMCLOUD_LOGGING_H

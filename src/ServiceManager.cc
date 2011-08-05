@@ -13,8 +13,10 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "BenchUtil.h"
+#include "Cycles.h"
+#include "Fence.h"
 #include "Initialize.h"
+#include "ShortMacros.h"
 #include "ServiceManager.h"
 
 namespace RAMCloud {
@@ -149,6 +151,17 @@ ServiceManager::handleRpc(Transport::ServerRpc* rpc)
         serviceInfo->waitingRpcs.push(rpc);
         return;
     }
+    // Temporary code to test how much faster things would be without threads.
+#if 0
+    if ((header->opcode == RpcOpcode::READ) &&
+            (header->service == MASTER_SERVICE)) {
+        Service::Rpc serviceRpc(NULL, rpc->requestPayload, rpc->replyPayload);
+        services[MASTER_SERVICE]->service.handleRpc(serviceRpc);
+        rpc->sendReply();
+        return;
+    }
+#endif
+
     serviceInfo->requestsRunning++;
 
     // Find a thread to execute the RPC, and hand off the RPC.
@@ -196,6 +209,7 @@ ServiceManager::poll()
         if (state == Worker::WORKING) {
             continue;
         }
+        Fence::enter();
 
         // The worker is either post-processing or idle; in either case, if
         // there is an RPC that we haven't yet responded to, respond now.
@@ -241,14 +255,14 @@ ServiceManager::poll()
  */
 Transport::ServerRpc*
 ServiceManager::waitForRpc(double timeoutSeconds) {
-    uint64_t start = rdtsc();
+    uint64_t start = Cycles::rdtsc();
     while (true) {
         if (!extraRpcs.empty()) {
             Transport::ServerRpc* result = extraRpcs.front();
             extraRpcs.pop();
             return result;
         }
-        if (cyclesToSeconds(rdtsc() - start) > timeoutSeconds) {
+        if (Cycles::toSeconds(Cycles::rdtsc() - start) > timeoutSeconds) {
             return NULL;
         }
         dispatch->poll();
@@ -267,7 +281,7 @@ ServiceManager::waitForRpc(double timeoutSeconds) {
 void
 ServiceManager::workerMain(Worker* worker)
 try {
-    uint64_t pollCycles = nanosecondsToCycles(1000*pollMicros);
+    uint64_t pollCycles = Cycles::fromNanoseconds(1000*pollMicros);
     while (true) {
         uint64_t stopPollingTime = dispatch->currentTime + pollCycles;
 
@@ -295,6 +309,7 @@ try {
             }
             // Empty loop body.
         }
+        Fence::enter();
         if (worker->rpc == WORKER_EXIT)
             break;
 
@@ -303,6 +318,7 @@ try {
         worker->serviceInfo->service.handleRpc(rpc);
 
         // Pass the RPC back to ServiceManager for completion.
+        Fence::leave();
         worker->state.store(Worker::POLLING);
     }
     TEST_LOG("exiting");
@@ -356,6 +372,7 @@ Worker::handoff(Transport::ServerRpc* newRpc)
 {
     assert(rpc == NULL);
     rpc = newRpc;
+    Fence::leave();
     int prevState = state.exchange(WORKING);
     if (prevState == SLEEPING) {
         // The worker got tired of polling and went to sleep, so we
@@ -380,6 +397,7 @@ Worker::handoff(Transport::ServerRpc* newRpc)
 void
 Worker::sendReply()
 {
+    Fence::leave();
     state.store(POSTPROCESSING);
 }
 

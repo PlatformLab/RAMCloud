@@ -70,7 +70,7 @@ try
 
     if (!serverLocators.size()) {
         optionParser.usage();
-        DIE("Error: No servers specified to telnet to.");
+        RAMCLOUD_DIE("Error: No servers specified to telnet to.");
     }
 
     logger.setLogLevels(WARNING);
@@ -84,24 +84,24 @@ try
         char sendbuf[1024];
         char recvbuf[serverCount][1024];
         Transport::ClientRpc* rpcs[serverCount];
-        LOG(DEBUG, "Sending to %d servers", serverCount);
+        RAMCLOUD_LOG(DEBUG, "Sending to %d servers", serverCount);
         while (fgets(sendbuf, sizeof(sendbuf), stdin) != NULL) {
             Buffer response[serverCount];
             Buffer request[serverCount];
             for (int i = 0; i < serverCount; i++) {
                 Buffer::Chunk::appendToBuffer(&request[i], sendbuf,
                     static_cast<uint32_t>(strlen(sendbuf)));
-                LOG(DEBUG, "Sending out request %d to %s",
+                RAMCLOUD_LOG(DEBUG, "Sending out request %d to %s",
                     i, serverLocators[i].c_str());
                 rpcs[i] = session[i]->clientSend(&request[i], &response[i]);
             }
 
             for (int i = 0; i < serverCount; i++) {
-                LOG(DEBUG, "Getting reply %d", i);
+                RAMCLOUD_LOG(DEBUG, "Getting reply %d", i);
                 rpcs[i]->wait();
                 uint32_t respLen = response[i].getTotalLength();
                 if (respLen >= sizeof(recvbuf[i])) {
-                    LOG(WARNING, "Failed to get reply %d", i);
+                    RAMCLOUD_LOG(WARNING, "Failed to get reply %d", i);
                     break;
                 }
                 recvbuf[i][respLen] = '\0';
@@ -124,6 +124,6 @@ try
     return 0;
 } catch (RAMCloud::Exception& e) {
     using namespace RAMCloud;
-    LOG(ERROR, "%s", e.str().c_str());
+    RAMCLOUD_LOG(ERROR, "%s", e.str().c_str());
     return 1;
 }

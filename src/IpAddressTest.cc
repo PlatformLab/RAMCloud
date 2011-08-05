@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -18,18 +18,14 @@
 
 namespace RAMCloud {
 
-class IpAddressTest : public CppUnit::TestFixture {
-    CPPUNIT_TEST_SUITE(IpAddressTest);
-    CPPUNIT_TEST(test_constructor);
-    CPPUNIT_TEST(test_toString);
-    CPPUNIT_TEST_SUITE_END();
-
+class IpAddressTest : public ::testing::Test {
   public:
-    IpAddressTest() {}
 
     // Used to save message from exceptions in situations where the
     // exception object is too transient.
     char message[200];
+
+    IpAddressTest() {}
 
     string tryLocator(const char *locator) {
         try {
@@ -40,41 +36,40 @@ class IpAddressTest : public CppUnit::TestFixture {
         return "ok";
     }
 
-    void test_constructor() {
-        CPPUNIT_ASSERT_EQUAL("ok",
-                tryLocator("fast+udp: host=171.67.64.21, port=80"));
-        CPPUNIT_ASSERT_EQUAL("ok",
-                tryLocator("fast+udp: host=localhost, port=80"));
-        CPPUNIT_ASSERT_EQUAL("Service locator 'fast+udp: "
-                "host=garbage.host.name, port=80' couldn't be converted "
-                "to IP address: couldn't find host 'garbage.host.name'",
-                tryLocator("fast+udp: host=garbage.host.name, port=80"));
-        CPPUNIT_ASSERT_EQUAL("Service locator 'fast+udp: port=80' couldn't "
-                "be converted to IP address: The option with key 'host' "
-                "was not found in the ServiceLocator.",
-                tryLocator("fast+udp: port=80"));
-        CPPUNIT_ASSERT_EQUAL(
-                "Service locator 'fast+udp: host=localhost' couldn't "
-                "be converted to IP address: The option with key 'port' "
-                "was not found in the ServiceLocator.",
-                tryLocator("fast+udp: host=localhost"));
-        CPPUNIT_ASSERT_EQUAL("Service locator 'fast+udp: "
-                "host=localhost, port=badInteger' couldn't be "
-                "converted to IP address: bad lexical cast: source "
-                "type value could not be interpreted as target"
-                "\nCould not convert from source type std::string"
-                " to target type unsigned short\n",
-                tryLocator("fast+udp: host=localhost, port=badInteger"));
-    }
-
-    void test_toString() {
-        IpAddress a(ServiceLocator("fast+udp: host=171.67.64.21, port=80"));
-        CPPUNIT_ASSERT_EQUAL("171.67.64.21:80", a.toString());
-    }
-
   private:
     DISALLOW_COPY_AND_ASSIGN(IpAddressTest);
 };
-CPPUNIT_TEST_SUITE_REGISTRATION(IpAddressTest);
+
+TEST_F(IpAddressTest, constructor) {
+    EXPECT_EQ("ok",
+            tryLocator("fast+udp: host=171.67.64.21, port=80"));
+    EXPECT_EQ("ok",
+            tryLocator("fast+udp: host=localhost, port=80"));
+    EXPECT_EQ("Service locator 'fast+udp: "
+            "host=garbage.host.name, port=80' couldn't be converted "
+            "to IP address: couldn't find host 'garbage.host.name'",
+            tryLocator("fast+udp: host=garbage.host.name, port=80"));
+    EXPECT_EQ("Service locator 'fast+udp: port=80' couldn't "
+            "be converted to IP address: The option with key 'host' "
+            "was not found in the ServiceLocator.",
+            tryLocator("fast+udp: port=80"));
+    EXPECT_EQ(
+            "Service locator 'fast+udp: host=localhost' couldn't "
+            "be converted to IP address: The option with key 'port' "
+            "was not found in the ServiceLocator.",
+            tryLocator("fast+udp: host=localhost"));
+    EXPECT_EQ("Service locator 'fast+udp: "
+            "host=localhost, port=badInteger' couldn't be "
+            "converted to IP address: bad lexical cast: source "
+            "type value could not be interpreted as target"
+            "\nCould not convert from source type std::string"
+            " to target type unsigned short\n",
+            tryLocator("fast+udp: host=localhost, port=badInteger"));
+}
+
+TEST_F(IpAddressTest, toString) {
+    IpAddress a(ServiceLocator("fast+udp: host=171.67.64.21, port=80"));
+    EXPECT_EQ("171.67.64.21:80", a.toString());
+}
 
 }  // namespace RAMCloud

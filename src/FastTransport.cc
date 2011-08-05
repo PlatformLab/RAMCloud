@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -14,6 +14,9 @@
  */
 
 #include "FastTransport.h"
+
+#include "ShortMacros.h"
+#include "Cycles.h"
 #include "ServiceManager.h"
 
 namespace RAMCloud {
@@ -235,21 +238,27 @@ void FastTransport::handleIncomingPacket(Driver::Received* received)
  * Create an RPC over a Transport to a Service with a specific request
  * payload and a destination Buffer for response.
  *
- * \param transport
- *      The Transport this RPC is to be emitted on.
+ * \param session
+ *      The ClientSession this RPC is to be emitted on.
  * \param request
  *      The request payload including RPC headers.
  * \param[out] response
  *      The response payload including the RPC headers.
  */
-FastTransport::ClientRpc::ClientRpc(FastTransport* transport,
+FastTransport::ClientRpc::ClientRpc(ClientSession* session,
                                     Buffer* request,
                                     Buffer* response)
     : requestBuffer(request)
     , responseBuffer(response)
-    , transport(transport)
+    , session(session)
     , channelQueueEntries()
 {
+}
+
+void
+FastTransport::ClientRpc::cancelCleanup()
+{
+    session->cancelRpc(this);
 }
 
 // --- ServerRpc ---
@@ -437,7 +446,7 @@ FastTransport::InboundMessage::init(uint16_t totalFrags,
     this->totalFrags = totalFrags;
     this->dataBuffer = dataBuffer;
     if (useTimer)
-        timer.startCycles(timeoutCycles());
+        timer.start(dispatch->currentTime + timeoutCycles());
 }
 
 /**
@@ -534,7 +543,7 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
     if (header->requestAck)
         sendAck();
     if (useTimer)
-        timer.startCycles(timeoutCycles());
+        timer.start(dispatch->currentTime + timeoutCycles());
 
     return firstMissingFrag == totalFrags;
 }
@@ -571,7 +580,7 @@ FastTransport::InboundMessage::Timer::handleTimerEvent()
             > sessionTimeoutCycles()) {
         inboundMsg->session->close();
     } else {
-        startCycles(timeoutCycles());
+        start(dispatch->currentTime + timeoutCycles());
         inboundMsg->sendAck();
     }
 }
@@ -742,7 +751,7 @@ FastTransport::OutboundMessage::send()
                     oldest = sentTime;
         }
         if (oldest != ~(0lu))
-            timer.startCycles(timeoutCycles() - (now - oldest));
+            timer.start(Cycles::rdtsc() + timeoutCycles() - (now - oldest));
     }
 }
 
@@ -1184,16 +1193,15 @@ FastTransport::ClientSession::close()
     LOG(DEBUG, "closing session");
     for (uint32_t i = 0; i < numChannels; i++) {
         if (channels[i].currentRpc) {
-            string error("RPC aborted");
-            channels[i].currentRpc->markFinished(&error);
+            channels[i].currentRpc->markFinished(
+                "RPC aborted (session closed)");
         }
     }
     ChannelQueue::iterator iter(channelQueue.begin());
     while (iter != channelQueue.end()) {
         ClientRpc& rpc(*iter);
         iter = channelQueue.erase(iter);
-        string error("RPC aborted");
-        rpc.markFinished(&error);
+        rpc.markFinished("RPC aborted (session closed)");
     }
     resetChannels();
     serverSessionHint = INVALID_HINT;
@@ -1205,7 +1213,7 @@ FastTransport::ClientSession::close()
 FastTransport::ClientRpc*
 FastTransport::ClientSession::clientSend(Buffer* request, Buffer* response)
 {
-    ClientRpc* rpc = new(response, MISC) ClientRpc(transport,
+    ClientRpc* rpc = new(response, MISC) ClientRpc(this,
                                                    request, response);
 
     // rpc will be performed immediately on the first available channel or
@@ -1342,6 +1350,13 @@ FastTransport::ClientSession::processInboundPacket(Driver::Received* received)
             token = INVALID_TOKEN;
             connect();
             break;
+        case Header::SESSION_OPEN:
+            // We get here if the server is slow to respond to a SESSION_OPEN
+            // request, so we retransmit the request, but the server eventually
+            // responds to both the original and the retransmitted requests.
+            // The second response ends up here.  This is benign, so just
+            // ignore this packet.
+            break;
         default:
             LOG(WARNING, "bad payload type %d", header->getPayloadType());
         }
@@ -1377,7 +1392,30 @@ FastTransport::ClientSession::sendSessionOpenRequest()
     sessionOpenRequestInFlight = true;
 
     // Schedule the timer to resend if no response.
-    timer.startCycles(timeoutCycles());
+    timer.start(Cycles::rdtsc() + timeoutCycles());
+}
+
+/**
+ * This method is invoked by ClientRpc::cancelCleanup to carry out all of its work.
+ *
+ * \param rpc
+ *      The remote procedure call to cancel.
+ */
+void FastTransport::ClientSession::cancelRpc(FastTransport::ClientRpc* rpc)
+{
+    // First, see if the RPC has already been assigned a channel.  If so,
+    // separate it from the channel and reassign the channel.
+    bool rpcHasChannel = false;
+    for (uint32_t i = 0; i < numChannels; i++) {
+        if (channels[i].currentRpc == rpc) {
+            rpcHasChannel = true;
+            reassignChannel(&channels[i]);
+        }
+    }
+    if (!rpcHasChannel) {
+        // The RPC must be waiting on ChannelQueue; remove it from the queue.
+        erase(channelQueue, *rpc);
+    }
 }
 
 // - private -
@@ -1480,19 +1518,33 @@ FastTransport::ClientSession::processReceivedData(ClientChannel* channel,
     if (channel->inboundMsg.processReceivedData(received)) {
         // InboundMsg has gotten its last fragment
         channel->currentRpc->markFinished();
-        channel->rpcId += 1;
-        channel->outboundMsg.reset();
-        channel->inboundMsg.reset();
-        if (channelQueue.empty()) {
-            channel->state = ClientChannel::IDLE;
-            channel->currentRpc = 0;
-        } else {
-            ClientRpc* rpc = &channelQueue.front();
-            channelQueue.pop_front();
-            channel->state = ClientChannel::SENDING;
-            channel->currentRpc = rpc;
-            channel->outboundMsg.beginSending(rpc->requestBuffer);
-        }
+        reassignChannel(channel);
+    }
+}
+
+/**
+ * This method is invoked when a channel becomes free (e.g., when its RPC
+ * completes).  It either assigns a new RPC to the channel or marks the
+ * channel as available.
+ *
+ * \param channel
+ *      The channel that is now available.
+ */
+void
+FastTransport::ClientSession::reassignChannel(ClientChannel* channel)
+{
+    channel->rpcId += 1;
+    channel->outboundMsg.reset();
+    channel->inboundMsg.reset();
+    if (channelQueue.empty()) {
+        channel->state = ClientChannel::IDLE;
+        channel->currentRpc = 0;
+    } else {
+        ClientRpc* rpc = &channelQueue.front();
+        channelQueue.pop_front();
+        channel->state = ClientChannel::SENDING;
+        channel->currentRpc = rpc;
+        channel->outboundMsg.beginSending(rpc->requestBuffer);
     }
 }
 

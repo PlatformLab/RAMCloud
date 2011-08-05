@@ -111,7 +111,14 @@ class RamCloud {
     uint32_t openTable(const char* name);
     uint64_t create(uint32_t tableId, const void* buf, uint32_t length,
                     uint64_t* version = NULL, bool async = false);
-    void ping();
+    uint64_t ping(const char* serviceLocator, uint64_t nonce,
+                  uint64_t timeoutNanoseconds);
+    uint64_t ping(uint32_t table, uint64_t objectId, uint64_t nonce,
+                  uint64_t timeoutNanoseconds);
+    uint64_t proxyPing(const char* serviceLocator1,
+                       const char* serviceLocator2,
+                       uint64_t timeoutNanoseconds1,
+                       uint64_t timeoutNanoseconds2);
     void read(uint32_t tableId, uint64_t id, Buffer* value,
               const RejectRules* rejectRules = NULL,
               uint64_t* version = NULL);
@@ -122,6 +129,7 @@ class RamCloud {
     void write(uint32_t tableId, uint64_t id, const void* buf,
                uint32_t length, const RejectRules* rejectRules = NULL,
                uint64_t* version = NULL, bool async = false);
+    void write(uint32_t tableId, uint64_t id, const char* s);
 
     /// \copydoc Client::status
     Status status;
@@ -130,6 +138,7 @@ class RamCloud {
     CoordinatorClient coordinator;
     ObjectFinder objectFinder;
 
+  private:
     DISALLOW_COPY_AND_ASSIGN(RamCloud);
 };
 } // namespace RAMCloud

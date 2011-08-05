@@ -310,7 +310,8 @@ class SegmentTest : public CppUnit::TestFixture {
         Segment s(1, 2, alignedBuf, sizeof(alignedBuf), &backup);
         TestLog::Enable _;
         s.close();
-        CPPUNIT_ASSERT_EQUAL("write: 1, 2, 44, 1 | "
+        CPPUNIT_ASSERT_EQUAL("write: 1, 2, 48, 1 | "
+                             "write: Segment 2 closed (length 48) | "
                              "proceedNoMetrics: Closed segment 1, 2",
                              TestLog::get());
 

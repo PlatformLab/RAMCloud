@@ -16,8 +16,8 @@
 #include "BackupClient.h"
 #include "BackupManager.h"
 #include "CycleCounter.h"
+#include "ShortMacros.h"
 #include "Metrics.h"
-#include "BenchUtil.h"
 #include "Segment.h"
 
 namespace RAMCloud {
@@ -146,8 +146,10 @@ BackupManager::OpenSegment::write(uint32_t offset,
     // immutable after close
     assert(!closeQueued);
     closeQueued = closeSegment;
-    if (closeQueued)
+    if (closeQueued) {
+        LOG(DEBUG, "Segment %lu closed (length %d)", segmentId, offsetQueued);
         ++metrics->master.segmentCloseCount;
+    }
 }
 
 // --- BackupManager ---
@@ -299,7 +301,7 @@ BackupManager::sync()
             proceedNoMetrics();
         }
     } // block ensures that _ is destroyed and counter stops
-    serverStats.totalBackupSyncNanos += cyclesToNanoseconds(
+    serverStats.totalBackupSyncNanos += Cycles::toNanoseconds(
             metrics->master.backupManagerTicks - initTicks);
     serverStats.totalBackupSyncs++;
 }
@@ -401,8 +403,8 @@ BackupManager::proceedNoMetrics()
                 }
                 usedHosts.insert(host);
 
-                LOG(DEBUG, "Opening segment %lu, %lu on backup %s",
-                    *masterId, segment.segmentId,
+                LOG(DEBUG, "Opening segment %lu, %lu.%lu on backup %s",
+                    *masterId, segment.segmentId, &backup - segment.backups,
                     host->service_locator().c_str());
                 auto session = transportManager.getSession(
                                         host->service_locator().c_str());
@@ -476,8 +478,9 @@ BackupManager::proceedNoMetrics()
                                                     : BackupWriteRpc::NONE);
             backup->offsetSent = it->offsetQueued;
             backup->closeSent = it->closeQueued;
-            LOG(DEBUG, "Send write %lu.%lu (close=%d)", it->segmentId,
-                &backup - it->backups, it->closeQueued);
+            LOG(DEBUG, "Send write %lu.%lu (close=%d, offset=%d)",
+                it->segmentId, &backup - it->backups, it->closeQueued,
+                it->offsetQueued);
         }
         ++it;
     }
@@ -499,9 +502,11 @@ BackupManager::ensureSufficientHosts()
         LOG(NOTICE, "Need backups, fetching server list from coordinator");
         updateHostListFromCoordinator();
         numHosts = hosts.server_size();
-        if (numHosts < replicas)
-            DIE("Not enough backups to meet replication requirement "
+        if (numHosts < replicas) {
+            LOG(ERROR, "Not enough backups to meet replication requirement "
                 "(have %u, need %u)", numHosts, replicas);
+            throw InternalError(HERE, STATUS_INTERNAL_ERROR);
+        }
     }
 }
 
@@ -525,8 +530,11 @@ BackupManager::unopenSegment(OpenSegment* openSegment)
 void
 BackupManager::updateHostListFromCoordinator()
 {
-    if (!coordinator)
-        DIE("No coordinator given, replication requirements can't be met.");
+    if (!coordinator) {
+        LOG(ERROR, "No coordinator given, replication requirements "
+            "can't be met.");
+        throw InternalError(HERE, STATUS_INTERNAL_ERROR);
+    }
     coordinator->getBackupList(hosts);
 }
 

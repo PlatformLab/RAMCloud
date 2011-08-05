@@ -85,13 +85,13 @@
 #include "Common.h"
 #include "CycleCounter.h"
 #include "Metrics.h"
-#include "BenchUtil.h"
 #include "TimeCounter.h"
 #include "Transport.h"
 #include "InfRcTransport.h"
 #include "IpAddress.h"
 #include "ServiceLocator.h"
 #include "ServiceManager.h"
+#include "ShortMacros.h"
 
 #define check_error_null(x, s)                              \
     do {                                                    \
@@ -166,8 +166,9 @@ InfRcTransport<Infiniband>::InfRcTransport(const ServiceLocator *sl)
     // first use.
     clientSetupSocket = socket(PF_INET, SOCK_DGRAM, 0);
     if (clientSetupSocket == -1) {
-        LOG(ERROR, "failed to create client socket");
-        throw TransportException(HERE, "client socket failed");
+        LOG(ERROR, "failed to create client socket: %s", strerror(errno));
+        throw TransportException(HERE, format(
+                "failed to create client socket: %s", strerror(errno)));
     }
     try {
         setNonBlocking(clientSetupSocket);
@@ -182,16 +183,18 @@ InfRcTransport<Infiniband>::InfRcTransport(const ServiceLocator *sl)
 
         serverSetupSocket = socket(PF_INET, SOCK_DGRAM, 0);
         if (serverSetupSocket == -1) {
-            LOG(ERROR, "failed to create server socket");
-            throw TransportException(HERE, "server socket failed");
+            LOG(ERROR, "failed to create server socket: %s", strerror(errno));
+            throw TransportException(HERE, format(
+                    "failed to create server socket: %s", strerror(errno)));
         }
 
         if (bind(serverSetupSocket, &address.address,
           sizeof(address.address))) {
             close(serverSetupSocket);
             serverSetupSocket = -1;
-            LOG(ERROR, "failed to bind socket");
-            throw TransportException(HERE, "socket failed");
+            LOG(ERROR, "failed to bind socket: %s", strerror(errno));
+            throw TransportException(HERE, format("failed to bind socket: %s",
+                    strerror(errno)));
         }
 
         try {
@@ -266,6 +269,12 @@ InfRcTransport<Infiniband>::InfRcTransport(const ServiceLocator *sl)
 template<typename Infiniband>
 InfRcTransport<Infiniband>::~InfRcTransport()
 {
+    // Note: this destructor isn't yet complete; it contains just enough cleanup
+    // for the unit tests to run.
+    if (serverSetupSocket != -1)
+        close(serverSetupSocket);
+    if (clientSetupSocket != -1)
+        close(clientSetupSocket);
 }
 
 template<typename Infiniband>
@@ -274,12 +283,14 @@ InfRcTransport<Infiniband>::setNonBlocking(int fd)
 {
     int flags = fcntl(fd, F_GETFL);
     if (flags == -1) {
-        LOG(ERROR, "fcntl F_GETFL failed");
-        throw TransportException(HERE, "fnctl failed");
+        LOG(ERROR, "fcntl F_GETFL failed: %s", strerror(errno));
+        throw TransportException(HERE, format("fnctl failed: %s",
+                strerror(errno)));
     }
     if (fcntl(fd, F_SETFL, flags | O_NONBLOCK)) {
-        LOG(ERROR, "fcntl F_SETFL failed");
-        throw TransportException(HERE, "fnctl failed");
+        LOG(ERROR, "fcntl F_SETFL failed: %s", strerror(errno));
+        throw TransportException(HERE, format("fnctl failed: %s",
+                strerror(errno)));
     }
 }
 
@@ -385,10 +396,9 @@ InfRcTransport<Infiniband>::clientTryExchangeQueuePairs(struct sockaddr_in *sin,
     uint32_t usTimeout)
 {
     bool haveSent = false;
+    uint64_t startTime = Cycles::rdtsc();
 
     while (1) {
-        TimeCounter startTime;
-
         if (!haveSent) {
             ssize_t len = sendto(clientSetupSocket, outgoingQpt,
                 sizeof(*outgoingQpt), 0, reinterpret_cast<sockaddr *>(sin),
@@ -433,10 +443,10 @@ InfRcTransport<Infiniband>::clientTryExchangeQueuePairs(struct sockaddr_in *sin,
                 outgoingQpt->getNonce(), incomingQpt->getNonce());
         }
 
-        uint32_t elapsedUs = downCast<uint32_t>(startTime.stop() / 1000);
-        if (elapsedUs >= usTimeout)
+        double timeLeft = usTimeout - Cycles::toSeconds(Cycles::rdtsc() -
+                startTime)*1e06;
+        if (timeLeft < 0)
             return false;
-        usTimeout -= elapsedUs;
 
         // TODO(ongaro): The following isn't safe, at a minimum because some
         // other stack frame can start using clientSetupSocket.
@@ -510,10 +520,14 @@ InfRcTransport<Infiniband>::clientTrySetupQueuePair(IpAddress& address)
  * This method is invoked by the dispatcher when #serverSetupSocket becomes
  * readable. It attempts to set up QueuePair with a connecting remote
  * client.
+ *
+ * \param events
+ *      Indicates whether the socket was readable, writable, or both
+ *      (OR-ed combination of Dispatch::FileEvent bits).
  */
 template<typename Infiniband>
 void
-InfRcTransport<Infiniband>::ServerConnectHandler::handleFileEvent()
+InfRcTransport<Infiniband>::ServerConnectHandler::handleFileEvent(int events)
 {
     sockaddr_in sin;
     socklen_t sinlen = sizeof(sin);
@@ -593,7 +607,6 @@ InfRcTransport<Infiniband>::postSrqReceiveAndKickTransmit(ibv_srq* srq,
         if (!clientSendQueue.empty()) {
             ClientRpc& rpc = clientSendQueue.front();
             clientSendQueue.pop_front();
-            LOG(DEBUG, "Dequeued request with nonce %016lx", rpc.nonce);
             rpc.sendOrQueue();
         }
     }
@@ -621,7 +634,7 @@ InfRcTransport<Infiniband>::getTransmitBuffer()
         int n = infiniband->pollCompletionQueue(commonTxCq,
                                                 MAX_TX_QUEUE_DEPTH,
                                                 retArray);
-        uint64_t gtbPollNanos = cyclesToNanoseconds(timeThis.stop());
+        uint64_t gtbPollNanos = Cycles::toNanoseconds(timeThis.stop());
         serverStats.gtbPollNanos += gtbPollNanos;
         serverStats.gtbPollCount++;
 
@@ -714,7 +727,6 @@ InfRcTransport<Infiniband>::ServerRpc::sendReply()
     CycleCounter<Metric> _(&metrics->transport.transmit.ticks);
     ++metrics->transport.transmit.messageCount;
     ++metrics->transport.transmit.packetCount;
-    LOG(DEBUG, "Sending response with nonce %016lx", nonce);
     // "delete this;" on our way out of the method
     boost::scoped_ptr<InfRcTransport::ServerRpc> suicide(this);
 
@@ -739,8 +751,7 @@ InfRcTransport<Infiniband>::ServerRpc::sendReply()
     metrics->transport.transmit.byteCount += replyPayload.getTotalLength();
     t->infiniband->postSend(qp, bd, replyPayload.getTotalLength());
     replyPayload.truncateFront(sizeof(Header)); // for politeness
-    LOG(DEBUG, "Sent response with nonce %016lx", nonce);
-    serverStats.infrcSendReplyNanos += cyclesToNanoseconds(timeThis1.stop());
+    serverStats.infrcSendReplyNanos += Cycles::toNanoseconds(timeThis1.stop());
 }
 
 //-------------------------------------
@@ -806,7 +817,6 @@ InfRcTransport<Infiniband>::ClientRpc::tryZeroCopy(Buffer* request)
             metrics->transport.transmit.iovecCount +=
                 request->getNumberChunks();
             metrics->transport.transmit.byteCount += request->getTotalLength();
-            LOG(DEBUG, "Sending 0-copy request");
             t->infiniband->postSendZeroCopy(session->qp, bd,
                 hdrBytes, it.getData(), it.getLength(), t->logMemoryRegion);
             return true;
@@ -847,7 +857,6 @@ InfRcTransport<Infiniband>::ClientRpc::sendOrQueue()
             metrics->transport.transmit.iovecCount +=
                 request->getNumberChunks();
             metrics->transport.transmit.byteCount += request->getTotalLength();
-            LOG(DEBUG, "Sending request with nonce %016lx", nonce);
             t->infiniband->postSend(session->qp, bd,
                                     request->getTotalLength());
         }
@@ -856,12 +865,21 @@ InfRcTransport<Infiniband>::ClientRpc::sendOrQueue()
         t->outstandingRpcs.push_back(*this);
         ++t->numUsedClientSrqBuffers;
         state = REQUEST_SENT;
-        LOG(DEBUG, "Sent request with nonce %016lx", nonce);
     } else {
         // no available receive buffers
         t->clientSendQueue.push_back(*this);
-        LOG(DEBUG, "Queued send request with nonce %016lx", nonce);
     }
+}
+
+template<typename Infiniband>
+void
+InfRcTransport<Infiniband>::ClientRpc::cancelCleanup()
+{
+    transport->outstandingRpcs.erase(
+            transport->outstandingRpcs.iterator_to(*this));
+    state = RESPONSE_RECEIVED;
+    if (transport->outstandingRpcs.empty())
+        transport->clientRpcsActiveTime.destroy();
 }
 
 /**
@@ -893,7 +911,6 @@ InfRcTransport<Infiniband>::Poller::poll()
             }
 
             Header& header(*reinterpret_cast<Header*>(bd->buffer));
-            LOG(DEBUG, "Received response with nonce %016lx", header.nonce);
             foreach (ClientRpc& rpc, t->outstandingRpcs) {
                 if (rpc.nonce != header.nonce)
                     continue;
@@ -902,7 +919,6 @@ InfRcTransport<Infiniband>::Poller::poll()
                 if (t->numUsedClientSrqBuffers >=
                         MAX_SHARED_RX_QUEUE_DEPTH / 2) {
                     // clientSrq is low on buffers, better return this one
-                    LOG(DEBUG, "Copy and immediately return clientSrq buffer");
                     memcpy(new(rpc.response, APPEND) char[len],
                            bd->buffer + sizeof(header),
                            len);
@@ -910,7 +926,6 @@ InfRcTransport<Infiniband>::Poller::poll()
                 } else {
                     // rpc will hold one of clientSrq's buffers until
                     // rpc.response is destroyed
-                    LOG(DEBUG, "Hang onto clientSrq buffer");
                     PayloadChunk::appendToBuffer(rpc.response,
                                                  bd->buffer + sizeof(header),
                                                  len, t, t->clientSrq, bd);
@@ -928,8 +943,9 @@ InfRcTransport<Infiniband>::Poller::poll()
                     t->clientRpcsActiveTime.destroy();
                 goto next;
             }
-            LOG(WARNING, "dropped packet because no nonce matched %016lx",
-                         header.nonce);
+            LOG(WARNING, "incoming data doesn't match active RPC "
+                "(nonce 0x%016lx); perhaps RPC was cancelled?",
+                header.nonce);
       next: { /* pass */ }
         }
     }
@@ -960,7 +976,6 @@ InfRcTransport<Infiniband>::Poller::poll()
                 bd->buffer + downCast<uint32_t>(sizeof(header)),
                 wc.byte_len - downCast<uint32_t>(sizeof(header)),
                 t, t->serverSrq, bd);
-            LOG(DEBUG, "Received request with nonce %016lx", header.nonce);
             serviceManager->handleRpc(r);
             ++metrics->transport.receive.messageCount;
             ++metrics->transport.receive.packetCount;

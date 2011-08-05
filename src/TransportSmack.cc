@@ -67,7 +67,7 @@
 #include <boost/iterator/transform_iterator.hpp>
 #include <boost/shared_ptr.hpp>
 
-#include "BenchUtil.h"
+#include "TestUtil.h"
 #include "Client.h"
 #include "Common.h"
 #include "OptionParser.h"
@@ -170,7 +170,7 @@ struct Echo : public CTest {
     void init() {
         EchoRpc::Request& reqHdr(allocHeader<EchoRpc>(req));
         reqHdr.spinNs = spinNs;
-        fillRandom(new(&req, APPEND) char[size], size);
+        TestUtil::fillRandom(new(&req, APPEND) char[size], size);
     }
   public:
     Echo(const TestDescription& desc, Transport::SessionRef server)
@@ -209,7 +209,7 @@ struct Echo : public CTest {
             throw FatalError(HERE, "Server echo response differs from "
                                    "client echo request");
         }
-        LOG(DEBUG, "Echoed %u bytes", size);
+        RAMCLOUD_LOG(DEBUG, "Echoed %u bytes", size);
     }
     uint32_t size;
     uint32_t spinNs;
@@ -276,7 +276,7 @@ struct Remote : public CTest {
                              format("Remote response was %d to command %s",
                                     respHdr.rc, command.c_str()));
         }
-        LOG(DEBUG, "Executed %s", command.c_str());
+        RAMCLOUD_LOG(DEBUG, "Executed %s", command.c_str());
     }
     const string& command; // NOLINT
 };
@@ -331,7 +331,7 @@ struct Do : public Test {
             asyncTests.pop_back();
             test->wait();
         }
-        LOG(DEBUG, "Executed %s", command.c_str());
+        RAMCLOUD_LOG(DEBUG, "Executed %s", command.c_str());
     }
     const string command;
     vector<TestDescription> descriptions;
@@ -359,7 +359,10 @@ class TSService : public Service {
     void echo(const EchoRpc::Request& reqHdr,
               EchoRpc::Response& respHdr,
               Rpc& rpc) {
-        spin(reqHdr.spinNs);
+        uint64_t stop = Cycles::rdtsc() + reqHdr.spinNs;
+        while (Cycles::rdtsc() < stop) {
+            // Empty loop body.
+        }
         Buffer::Iterator iter(rpc.requestPayload, sizeof(reqHdr), ~0U);
         while (!iter.isDone()) {
             Buffer::Chunk::appendToBuffer(&rpc.replyPayload,
@@ -412,12 +415,13 @@ main(int argc, char *argv[])
         }
 
         if (isClient) {
-            LOG(NOTICE, "Running TransportSmack client, %s", testStr.c_str());
+            RAMCLOUD_LOG(NOTICE,
+                         "Running TransportSmack client, %s", testStr.c_str());
             // there's an implicit "do" command around testStr
             Do(testStr.c_str()).startWait();
-            LOG(NOTICE, "Done");
+            RAMCLOUD_LOG(NOTICE, "Done");
         } else {
-            LOG(NOTICE,
+            RAMCLOUD_LOG(NOTICE,
                 "Running TransportSmack server, listening on %s",
                 localLocator.c_str());
             transportManager.initialize(localLocator.c_str());
@@ -430,10 +434,10 @@ main(int argc, char *argv[])
 
         return 0;
     } catch (RAMCloud::ClientException& e) {
-        LOG(ERROR, "TransportSmack: %s", e.str().c_str());
+        RAMCLOUD_LOG(ERROR, "TransportSmack: %s", e.str().c_str());
         return 1;
     } catch (RAMCloud::Exception& e) {
-        LOG(ERROR, "TransportSmack: %s", e.str().c_str());
+        RAMCLOUD_LOG(ERROR, "TransportSmack: %s", e.str().c_str());
         return 1;
     }
 }

@@ -262,8 +262,10 @@ class HashTable {
         }
 
         if (numBuckets != this->numBuckets) {
-            LOG(DEBUG, "HashTable truncated to %lu buckets "
-                        "(nearest power of two)", this->numBuckets);
+            RAMCLOUD_LOG(DEBUG,
+                         "HashTable truncated to %lu buckets "
+                         "(nearest power of two)",
+                         this->numBuckets);
         }
 
         if (numBuckets == 0)

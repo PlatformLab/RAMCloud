@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,29 +13,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Header file for utilities useful in benchmarking.
- */
+#ifndef RAMCLOUD_SHORTMACROS_H
+#define RAMCLOUD_SHORTMACROS_H
 
-#include "Common.h"
+#define LOG RAMCLOUD_LOG
+#define DIE RAMCLOUD_DIE
+#define TEST_LOG RAMCLOUD_TEST_LOG
 
-#ifndef RAMCLOUD_BENCHUTIL_H
-#define RAMCLOUD_BENCHUTIL_H
-
-namespace RAMCloud {
-
-uint64_t getCyclesPerSecond();
-uint64_t cyclesToNanoseconds(uint64_t cycles);
-double cyclesToNanoseconds(double cycles);
-double cyclesToSeconds(uint64_t cycles);
-uint64_t nanosecondsToCycles(uint64_t ns);
-void spin(uint64_t ns);
-
-void fillRandom(void* buf, uint32_t size);
-void fillPrintableRandom(void* buf, uint32_t size);
-
-extern uint64_t cyclesPerSec;
-} // end RAMCloud
-
-#endif
+#endif  // RAMCLOUD_SHORTMACROS_H

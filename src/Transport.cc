@@ -56,12 +56,62 @@ Transport::ClientRpc::wait()
  *      during the next invocation of #wait.
  */
 void
-Transport::ClientRpc::markFinished(string* errorMessage)
+Transport::ClientRpc::markFinished(const char* errorMessage)
 {
     if (errorMessage != NULL) {
-        this->errorMessage.construct(*errorMessage);
+        this->errorMessage.construct(errorMessage);
     }
     finished.store(1);
+}
+
+/**
+ * This method is invoked by the underlying Transport to indicate that the
+ * RPC has completed with an error.
+ *
+ * \param errorMessage
+ *      An error message, which is copied and used to throw an exception
+ *      during the next invocation of #wait.
+ */
+void
+Transport::ClientRpc::markFinished(string& errorMessage)
+{
+    this->errorMessage.construct(errorMessage);
+    finished.store(1);
+}
+
+/**
+ * Abort the RPC (if it hasn't already completed).  Once this method
+ * returns the transport is free to reallocate any resources
+ * associated with the RPC, and it is safe for the client to destroy
+ * the RPC object; #isReady will return true and #wait will throw
+ * TransportException (unless the RPC completed before #cancel
+ * was invoked).
+ *
+ * \param message
+ *      Message giving the reason why the RPC was canceled; will be
+ *      included in the message of the exception thrown by #wait.  If
+ *      this is an empty string then a default message will be used.
+ */
+void
+Transport::ClientRpc::cancel(string& message)
+{
+    Dispatch::Lock lock;
+    if (isReady())
+        return;
+    cancelCleanup();
+    string fullMessage("RPC cancelled");
+    if (message.size() > 0) {
+        fullMessage.append(": ");
+        fullMessage.append(message);
+    }
+    markFinished(fullMessage);
+}
+
+void
+Transport::ClientRpc::cancel(const char* message)
+{
+    string s(message);
+    cancel(s);
 }
 
 } // namespace RAMCloud

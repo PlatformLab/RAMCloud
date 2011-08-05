@@ -28,8 +28,8 @@
 
 #include "Common.h"
 #include "Buffer.h"
+#include "ShortMacros.h"
 
-uint64_t mockTSCValue = 0lu;
 uint64_t mockPMCValue = 0lu;
 uint64_t mockRandomValue = 0lu;
 

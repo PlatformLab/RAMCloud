@@ -41,7 +41,6 @@ serializeToBuffer(Buffer& buffer, M& message)
     std::ostringstream ostream;
     if (!message.IsInitialized() ||
         !message.SerializePartialToOstream(&ostream)) {
-        LOG(DEBUG, "Couldn't serialize protocol buffer");
         throw E(HERE);
     }
     string str(ostream.str());
@@ -84,8 +83,6 @@ parseFromBuffer(Buffer& buffer, uint32_t offset, uint32_t length, M& message)
     if (!message.ParsePartialFromIstream(&istream) ||
         !message.IsInitialized()) {
         message.Clear();
-        LOG(DEBUG, "Couldn't parse protocol buffer output of length %d",
-            length);
         throw E(HERE);
     }
 }
