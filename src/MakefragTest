@@ -111,6 +111,7 @@ test: $(OBJDIR)/test \
       $(OBJDIR)/Telnet \
       $(OBJDIR)/TransportSmack \
       $(OBJDIR)/WillBenchmark
+	$(OBJDIR)/test
 
 all: $(OBJDIR)/Perf $(OBJDIR)/Cperf
 

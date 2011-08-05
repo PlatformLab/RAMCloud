@@ -352,7 +352,7 @@ double segmentEntrySort()
     // doesn't appear to help
     entries.reserve(count);
 
-    uint64_t start = rdtsc();
+    uint64_t start = Cycles::rdtsc();
 
     // appears to take about 1/8th the time
     for (SegmentIterator i(&s); !i.isDone(); i.next()) {
@@ -363,11 +363,11 @@ double segmentEntrySort()
     // the rest is, unsurprisingly, here
     std::sort(entries.begin(), entries.end(), SegmentEntryLessThan());
 
-    uint64_t stop = rdtsc();
+    uint64_t stop = Cycles::rdtsc();
 
     free(block);
 
-    return cyclesToSeconds(stop - start);
+    return Cycles::toSeconds(stop - start);
 }
 
 // Measure the cost of acquiring and releasing a SpinLock (assuming the

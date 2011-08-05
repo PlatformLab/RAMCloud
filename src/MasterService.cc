@@ -335,6 +335,7 @@ recoveryCleanup(LogEntryHandle maybeTomb, uint8_t type, void *cookie)
         MasterService *server = reinterpret_cast<MasterService*>(cookie);
         bool r = server->objectMap.remove(tomb->id.tableId, tomb->id.objectId);
         assert(r);
+        server->log.free(maybeTomb);
     }
 }
 

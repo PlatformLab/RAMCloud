@@ -14,7 +14,7 @@
  */
 
 #include <Common.h>
-#include <BenchUtil.h>
+#include <Cycles.h>
 
 /**
  * \file
@@ -64,7 +64,7 @@ secondsTimestamp()
 
 	if (baseTime == 0) {
 		baseTime = time(NULL);
-		baseTsc = rdtsc();
+		baseTsc = Cycles::rdtsc();
 
 		if (baseTime == -1) {
 			fprintf(stderr, "ERROR: The time(3) syscall failed!!");
@@ -79,8 +79,8 @@ secondsTimestamp()
 	}
 
     // calculate seconds offset. be careful to round up.
-    uint32_t tscSecondsOffset = downCast<uint32_t>(cyclesToNanoseconds(
-        rdtsc() - baseTsc + 500000000) / 1000000000U);
+    uint32_t tscSecondsOffset = downCast<uint32_t>(Cycles::toNanoseconds(
+        Cycles::rdtsc() - baseTsc + 500000000) / 1000000000U);
 
 	return downCast<uint32_t>(baseTime) - RAMCLOUD_UNIX_OFFSET +
         tscSecondsOffset;

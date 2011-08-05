@@ -551,7 +551,7 @@ TEST_F(BackupServiceTest, startReadingData_logDigest_simple) {
         EXPECT_EQ(LogDigest::getBytesFromCount(1),
             result.logDigestBytes);
         EXPECT_EQ(88U, result.logDigestSegmentId);
-        EXPECT_EQ(56U, result.logDigestSegmentLen);
+        EXPECT_EQ(52U, result.logDigestSegmentLen);
         LogDigest ld(result.logDigestBuffer, result.logDigestBytes);
         EXPECT_EQ(1, ld.getSegmentCount());
         EXPECT_EQ(0x3f17c2451f0cafUL, ld.getSegmentIds()[0]);
@@ -567,7 +567,7 @@ TEST_F(BackupServiceTest, startReadingData_logDigest_simple) {
         EXPECT_EQ(LogDigest::getBytesFromCount(1),
             result.logDigestBytes);
         EXPECT_EQ(89U, result.logDigestSegmentId);
-        EXPECT_EQ(56U, result.logDigestSegmentLen);
+        EXPECT_EQ(52U, result.logDigestSegmentLen);
         LogDigest ld(result.logDigestBuffer, result.logDigestBytes);
         EXPECT_EQ(1, ld.getSegmentCount());
         EXPECT_EQ(0x5d8ec445d537e15UL, ld.getSegmentIds()[0]);
@@ -587,7 +587,7 @@ TEST_F(BackupServiceTest, startReadingData_logDigest_latest) {
         BackupClient::StartReadingData::Result result;
         client->startReadingData(99, ProtoBuf::Tablets(), &result);
         EXPECT_EQ(88U, result.logDigestSegmentId);
-        EXPECT_EQ(56U, result.logDigestSegmentLen);
+        EXPECT_EQ(52U, result.logDigestSegmentLen);
         EXPECT_EQ(LogDigest::getBytesFromCount(1),
             result.logDigestBytes);
         LogDigest ld(result.logDigestBuffer, result.logDigestBytes);
