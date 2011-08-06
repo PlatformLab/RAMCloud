@@ -30,6 +30,7 @@
 #include "IpAddress.h"
 #include "Tub.h"
 #include "Segment.h"
+#include "ShortMacros.h"
 #include "Transport.h"
 #include "Infiniband.h"
 
@@ -73,7 +74,11 @@ class InfRcTransport : public Transport {
         assert(logMemoryRegion == NULL);
         logMemoryRegion = ibv_reg_mr(infiniband->pd.pd, base, bytes,
             IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_LOCAL_WRITE);
-        assert(logMemoryRegion != NULL);
+        if (logMemoryRegion == NULL) {
+            LOG(ERROR, "ibv_reg_mr failed to register %Zd bytes at %p",
+                bytes, base); 
+            throw TransportException(HERE, "ibv_reg_mr failed");
+        }
         logMemoryBase = reinterpret_cast<uintptr_t>(base);
         logMemoryBytes = bytes;
         RAMCLOUD_LOG(NOTICE, "Registered %Zd bytes at %p", bytes, base);
