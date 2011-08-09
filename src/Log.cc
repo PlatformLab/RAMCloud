@@ -19,6 +19,7 @@
 
 #include "Log.h"
 #include "LogCleaner.h"
+#include "ShortMacros.h"
 #include "TransportManager.h" // for Log memory 0-copy registration hack
 
 namespace RAMCloud {
@@ -153,7 +154,7 @@ Log::allocateHead()
 
     digest.addSegment(newHeadId);
 
-    while(!freePendingDigestAndReferenceList.empty()) {
+    while (!freePendingDigestAndReferenceList.empty()) {
         Segment& s = freePendingDigestAndReferenceList.front();
         freePendingDigestAndReferenceList.pop_front();
         freePendingReferenceList.push_back(s);
@@ -260,6 +261,7 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length,
     } while (seh == NULL);
 
     stats.totalAppends++;
+    stats.totalBytesAppended += seh->totalLength();
 
     if (cleanerOption == INLINED_CLEANER)
         cleaner.clean();
@@ -278,8 +280,15 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length,
 void
 Log::free(LogEntryHandle entry)
 {
-    getSegmentFromAddress(reinterpret_cast<const void*>(entry))->free(entry);
+    Segment* s = getSegmentFromAddress(reinterpret_cast<const void*>(entry));
+
+    // This debug-only check should catch invalid free()s within legitimate
+    // Segments.
+    assert(entry->isChecksumValid());
+
+    s->free(entry);
     stats.totalFrees++;
+    stats.totalBytesFreed += entry->totalLength();
 }
 
 /**
@@ -347,7 +356,9 @@ Log::getCallbacks(LogEntryType type)
     return NULL;
 }
 
-/// Wait for all segments to be fully replicated.
+/**
+ * Wait for all segments to be fully replicated.
+ */
 void
 Log::sync()
 {
@@ -377,6 +388,10 @@ Log::getBytesAppended() const
     return stats.totalBytesAppended;
 }
 
+/**
+ * Return the total number of bytes freed in the Log. Like #getBytesAppended,
+ * this number includes metadata overheads.
+ */
 uint64_t
 Log::getBytesFreed() const
 {
@@ -405,8 +420,16 @@ Log::getFromFreeList()
     return p;
 }
 
+/**
+ * Obtain a list of the Segments newly created since the last call to
+ * this method. This is used by the cleaner to obtain candidate Segments
+ * that have been closed and are eligible for cleaning at any time.
+ *
+ * \param[out] out
+ *      Vector of pointers with which to return the new cleanable Segments.
+ */
 void
-Log::getNewActiveSegments(SegmentVector& out)
+Log::getNewCleanableSegments(SegmentVector& out)
 {
     boost::lock_guard<SpinLock> lock(listLock);
 
@@ -418,24 +441,45 @@ Log::getNewActiveSegments(SegmentVector& out)
     }
 }
 
+/**
+ * Alert the Log of a Segment that is about to contain live data. This
+ * is used by the cleaner prior to relocating entries to new Segments.
+ * The Log needs to be made aware of such Segments because it needs to
+ * be able to handle #free calls on relocated objects, which can occur
+ * immediately following the cleaner's relocation and before it completes
+ * a cleaning pass.
+ *
+ * \param[in] segment
+ *      Pointer to the Segment that will shortly host live data.
+ */
 void
 Log::cleaningInto(Segment* segment)
 {
     boost::lock_guard<SpinLock> lock(listLock);
 
-    cleaningIntoList.push_back(*segment); 
+    cleaningIntoList.push_back(*segment);
     activeIdMap[segment->getId()] = segment;
     activeBaseAddressMap[segment->getBaseAddress()] = segment;
 }
 
+/**
+ * Alert the Log that the following Segments have been cleaned. The Log
+ * takes note of the newly cleaned Segments and any new Segments reported
+ * via the #cleaningInto method. When the next head is allocated in
+ * #allocateHead, the LogDigest will be updated to reflect all of the new
+ * Segments and none of the cleaned ones. This method also checks previously
+ * cleaned Segments and any that have been removed from the Log and are no
+ * longer be referenced by outstanding RPCs are returned to the free list.
+ *
+ * \param[in] clean
+ *      Vector of pointers to Segments that have been cleaned.
+ */
 void
 Log::cleaningComplete(SegmentVector& clean)
 {
     boost::lock_guard<SpinLock> lock(listLock);
 
-    // XXX- allocated Segments aren't on any list...
-    //      should we create a list for them just so they're
-    //      tracked?
+    debugDumpLists();
 
     while (!cleaningIntoList.empty()) {
         Segment& s = cleaningIntoList.front();
@@ -443,7 +487,7 @@ Log::cleaningComplete(SegmentVector& clean)
         cleanablePendingDigestList.push_back(s);
     }
 
-    foreach (Segment* s, clean) { 
+    foreach (Segment* s, clean) {
         cleanableList.erase(cleanableList.iterator_to(*s));
         freePendingDigestAndReferenceList.push_back(*s);
     }
@@ -451,10 +495,10 @@ Log::cleaningComplete(SegmentVector& clean)
     // XXX- this is a good time to check the 'freePendingReferenceList'
     //      and move any of those guys on to the freeList, if possible.
     foreach (Segment& s, freePendingReferenceList) {
-        (void)s;
-
-        //activeIdMap.erase(s.getId());
-        //activeBaseAddressMap.erase(s.getBaseAddress());
+        if (0) {
+            activeIdMap.erase(s.getId());
+            activeBaseAddressMap.erase(s.getBaseAddress());
+        }
     }
 }
 
@@ -475,6 +519,37 @@ Log::allocateSegmentId()
 ////////////////////////////////////
 /// Private Methods
 ////////////////////////////////////
+
+/**
+ * Print various Segment list counts to the debug log.
+ */
+void
+Log::debugDumpLists()
+{
+    LOG(DEBUG, "============ LOG LIST OCCUPANCY ============");
+    LOG(DEBUG, "  freeList:                           %Zd", freeList.size());
+    LOG(DEBUG, "  cleanableNewList:                   %Zd",
+        cleanableNewList.size());
+    LOG(DEBUG, "  cleanableList:                      %Zd",
+        cleanableList.size());
+    LOG(DEBUG, "  cleaningIntoList:                   %Zd",
+        cleaningIntoList.size());
+    LOG(DEBUG, "  cleanablePendingDigestList:         %Zd",
+        cleanablePendingDigestList.size());
+    LOG(DEBUG, "  freePendingDigestAndReferenceList:  %Zd",
+        freePendingDigestAndReferenceList.size());
+    LOG(DEBUG, "  freePendingReferenceList:           %Zd",
+        freePendingReferenceList.size());
+    LOG(DEBUG, "----- Total: %Zd (Segments in Log (incl. head): %Zd)",
+        freeList.size() +
+        cleanableNewList.size() +
+        cleanableList.size() +
+        cleaningIntoList.size() +
+        cleanablePendingDigestList.size() +
+        freePendingDigestAndReferenceList.size() +
+        freePendingReferenceList.size(),
+        getNumberOfSegments());
+}
 
 /**
  * Provide the Log with a single contiguous piece of backing Segment memory.

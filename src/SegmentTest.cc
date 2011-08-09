@@ -103,11 +103,11 @@ class SegmentTest : public CppUnit::TestFixture {
         Log l(serverId2, 8192, 8192);
         Segment s2(&l, 0, alignedBuf, sizeof(alignedBuf), NULL,
                    LOG_ENTRY_TYPE_INVALID, NULL, 0);
-        CPPUNIT_ASSERT_EQUAL(l.getBytesAppended(), s2.tail);
+        CPPUNIT_ASSERT_EQUAL(s2.getLiveBytes(), s2.tail);
 
         // Segments must be power-of-two sized <= 2GB and be
         // aligned to their capacity.
-        
+
         CPPUNIT_ASSERT_THROW(Segment(&l, 0, alignedBuf, sizeof(alignedBuf) + 1,
             NULL, LOG_ENTRY_TYPE_INVALID, NULL, 0), SegmentException);
         CPPUNIT_ASSERT_THROW(Segment(&l, 0, alignedBuf, 0x80000001,
@@ -210,7 +210,7 @@ class SegmentTest : public CppUnit::TestFixture {
         Segment s2(2, 3, alignedBuf2, sizeof(alignedBuf2), NULL);
         SegmentEntryHandle copySeh = s2.append(seh, false);
         CPPUNIT_ASSERT(copySeh != NULL);
-         
+
         CPPUNIT_ASSERT_EQUAL(seh->checksum(), copySeh->checksum());
         CPPUNIT_ASSERT_EQUAL(seh->generateChecksum(),
             copySeh->generateChecksum());
@@ -236,7 +236,7 @@ class SegmentTest : public CppUnit::TestFixture {
         // checksum as of the last append. Segments aren't copyable, so just
         // memcpy the contents for comparison.
         SegmentChecksum savePrevChecksum = s.prevChecksum;
-        memset(&s.prevChecksum, 0, sizeof(s.prevChecksum)); 
+        memset(&s.prevChecksum, 0, sizeof(s.prevChecksum));
         char saveForComparison[sizeof(Segment)];
         memcpy(saveForComparison, &s, sizeof(Segment));
         s.prevChecksum = savePrevChecksum;
@@ -249,7 +249,7 @@ class SegmentTest : public CppUnit::TestFixture {
 
         s.rollBack(seh);
         CPPUNIT_ASSERT_EQUAL(checksumPreAppend, s.checksum.getResult());
-        memset(&s.prevChecksum, 0, sizeof(s.prevChecksum)); 
+        memset(&s.prevChecksum, 0, sizeof(s.prevChecksum));
         CPPUNIT_ASSERT_EQUAL(0, memcmp(saveForComparison, &s, sizeof(Segment)));
     }
 
@@ -366,7 +366,7 @@ class SegmentTest : public CppUnit::TestFixture {
         Log l(serverId, 8192, 8192);
         Segment s(&l, 445566, alignedBuf, sizeof(alignedBuf), NULL,
                   LOG_ENTRY_TYPE_INVALID, NULL, 0);
-        uint64_t bytesBeforeAppend = l.getBytesAppended();
+        uint64_t bytesBeforeAppend = s.getLiveBytes();
         s.forceAppendBlob(buf, sizeof(buf));
         CPPUNIT_ASSERT_EQUAL(0, memcmp(buf, reinterpret_cast<char *>(
             s.baseAddress) + sizeof(SegmentEntry) + sizeof(SegmentHeader),
@@ -374,13 +374,13 @@ class SegmentTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(sizeof(buf) + sizeof(SegmentEntry) +
             sizeof(SegmentHeader), s.tail);
         CPPUNIT_ASSERT_EQUAL(bytesBeforeAppend + sizeof(buf),
-            l.getBytesAppended());
+            s.getLiveBytes());
     }
 
     void
     test_forceAppendWithEntry()
     {
-        // create a fake log; see comment in test_free 
+        // create a fake log; see comment in test_free
         Log l({0}, 8192, 8192);
         l.registerType(LOG_ENTRY_TYPE_OBJ,
                        livenessCallback, NULL,

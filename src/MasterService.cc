@@ -70,6 +70,7 @@ MasterService::MasterService(const ServerConfig config,
     , objectMap(config.hashTableBytes /
         HashTable<LogEntryHandle>::bytesPerCacheLine())
     , tablets()
+    , objectUpdateLock()
 {
     log.registerType(LOG_ENTRY_TYPE_OBJ,
                      objectLivenessCallback,
@@ -806,6 +807,8 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
                        RecoverRpc::Response& respHdr,
                        Rpc& rpc)
 {
+    boost::lock_guard<SpinLock> lock(objectUpdateLock);
+
     {
         CycleCounter<Metric> recoveryTicks(&metrics->recoveryTicks);
         reset(metrics, *serverId, 1);
@@ -1096,6 +1099,8 @@ MasterService::remove(const RemoveRpc::Request& reqHdr,
                       RemoveRpc::Response& respHdr,
                       Rpc& rpc)
 {
+    boost::lock_guard<SpinLock> lock(objectUpdateLock);
+
     Table& t(getTable(reqHdr.tableId, reqHdr.id));
     LogEntryHandle handle = objectMap.lookup(reqHdr.tableId, reqHdr.id);
     if (handle == NULL || handle->type() != LOG_ENTRY_TYPE_OBJ) {
@@ -1115,7 +1120,7 @@ MasterService::remove(const RemoveRpc::Request& reqHdr,
 
     // Mark the deleted object as free first, since the append could
     // invalidate it
-    log.free(LogEntryHandle(obj));
+    log.free(handle);
 
     // Write the tombstone into the Log, update our tablet
     // counters, and remove from the hash table.
@@ -1299,6 +1304,18 @@ MasterService::rejectOperation(const RejectRules* rejectRules, uint64_t version)
 // and there are no unit tests for it.
 //-----------------------------------------------------------------------
 
+/**
+ * Determine whether or not an object is still alive (i.e. is referenced
+ * by the hash table). If so, the cleaner must perpetuate it. If not, it
+ * can be safely discarded.
+ * 
+ * \param[in] handle
+ *      LogEntryHandle to the object whose liveness is being queried.
+ * \param[in] cookie
+ *      The opaque state pointer registered with the callback.
+ * \return
+ *      True if the object is still alive, else false.
+ */
 bool
 objectLivenessCallback(LogEntryHandle handle, void* cookie)
 {
@@ -1320,6 +1337,9 @@ objectLivenessCallback(LogEntryHandle handle, void* cookie)
 
     LogEntryHandle hashTblHandle =
         svr->objectMap.lookup(evictObj->id.tableId, evictObj->id.objectId);
+    if (hashTblHandle == NULL)
+        return false;
+
     assert(hashTblHandle->type() == LOG_ENTRY_TYPE_OBJ);
     const Object *hashTblObj = hashTblHandle->userData<Object>();
 
@@ -1353,7 +1373,7 @@ objectLivenessCallback(LogEntryHandle handle, void* cookie)
  */
 bool
 objectRelocationCallback(LogEntryHandle oldHandle,
-                         LogEntryHandle newHandle, 
+                         LogEntryHandle newHandle,
                          void* cookie)
 {
     assert(oldHandle->type() == LOG_ENTRY_TYPE_OBJ);
@@ -1364,6 +1384,8 @@ objectRelocationCallback(LogEntryHandle oldHandle,
     const Object* evictObj = oldHandle->userData<Object>();
     assert(evictObj != NULL);
 
+    boost::lock_guard<SpinLock> lock(svr->objectUpdateLock);
+
     Table* t = NULL;
     try {
         t = &svr->getTable(downCast<uint32_t>(evictObj->id.tableId),
@@ -1372,21 +1394,29 @@ objectRelocationCallback(LogEntryHandle oldHandle,
         // That tablet doesn't exist on this server anymore.
         // Just remove the hash table entry, if it exists.
         svr->objectMap.remove(evictObj->id.tableId, evictObj->id.objectId);
+        t->profiler.untrack(evictObj->id.objectId,
+                            oldHandle->totalLength(),
+                            oldHandle->logTime());
         return false;
     }
 
     LogEntryHandle hashTblHandle =
         svr->objectMap.lookup(evictObj->id.tableId, evictObj->id.objectId);
-    assert(hashTblHandle->type() == LOG_ENTRY_TYPE_OBJ);
-    const Object *hashTblObj = hashTblHandle->userData<Object>();
 
-    // simple pointer comparison suffices
-    bool keepNewObject = (hashTblObj == evictObj);
-    if (keepNewObject) {
-        t->profiler.track(evictObj->id.objectId,
-                          newHandle->totalLength(),
-                          newHandle->logTime());
-        svr->objectMap.replace(newHandle);
+    bool keepNewObject = false;
+    if (hashTblHandle != NULL) {
+        assert(hashTblHandle->type() == LOG_ENTRY_TYPE_OBJ);
+        const Object *hashTblObj = hashTblHandle->userData<Object>();
+
+        // simple pointer comparison suffices
+        keepNewObject = (hashTblObj == evictObj);
+
+        if (keepNewObject) {
+            t->profiler.track(evictObj->id.objectId,
+                              newHandle->totalLength(),
+                              newHandle->logTime());
+            svr->objectMap.replace(newHandle);
+        }
     }
 
     // remove the evicted entry whether it is discarded or not
@@ -1415,6 +1445,18 @@ objectTimestampCallback(LogEntryHandle handle)
     return handle->userData<Object>()->timestamp;
 }
 
+/**
+ * Determine whether or not a tombstone is still alive (i.e. it references
+ * a segment that still exists). If so, the cleaner must perpetuate it. If
+ * not, it can be safely discarded.
+ * 
+ * \param[in] handle
+ *      LogEntryHandle to the object whose liveness is being queried.
+ * \param[in] cookie
+ *      The opaque state pointer registered with the callback.
+ * \return
+ *      True if the object is still alive, else false.
+ */
 bool
 tombstoneLivenessCallback(LogEntryHandle handle, void* cookie)
 {
@@ -1463,7 +1505,7 @@ tombstoneLivenessCallback(LogEntryHandle handle, void* cookie)
  */
 bool
 tombstoneRelocationCallback(LogEntryHandle oldHandle,
-                            LogEntryHandle newHandle, 
+                            LogEntryHandle newHandle,
                             void* cookie)
 {
     assert(oldHandle->type() == LOG_ENTRY_TYPE_OBJTOMB);
@@ -1503,7 +1545,8 @@ tombstoneRelocationCallback(LogEntryHandle oldHandle,
 
 /**
  * Callback used by the Log to determine the age of Tombstone. We don't
- * current store tombstone ages, so just return -1 (they're always young).
+ * current store tombstone ages, so just return the current timstamp
+ * (they're perpetually young). This needs to be re-thought.
  * 
  * \param[in]  handle
  *      LogEntryHandle to the entry being examined.
@@ -1518,11 +1561,17 @@ tombstoneTimestampCallback(LogEntryHandle handle)
 }
 
 void
-MasterService::storeData(uint64_t tableId, uint64_t id,
-                         const RejectRules* rejectRules, Buffer* data,
-                         uint32_t dataOffset, uint32_t dataLength,
-                         uint64_t* newVersion, bool async)
+MasterService::storeData(uint64_t tableId,
+                         uint64_t id,
+                         const RejectRules* rejectRules,
+                         Buffer* data,
+                         uint32_t dataOffset,
+                         uint32_t dataLength,
+                         uint64_t* newVersion,
+                         bool async)
 {
+    boost::lock_guard<SpinLock> lock(objectUpdateLock);
+
     Table& t(getTable(downCast<uint32_t>(tableId), id));
 
     const Object *obj = NULL;

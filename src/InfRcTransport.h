@@ -76,7 +76,7 @@ class InfRcTransport : public Transport {
             IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_LOCAL_WRITE);
         if (logMemoryRegion == NULL) {
             LOG(ERROR, "ibv_reg_mr failed to register %Zd bytes at %p",
-                bytes, base); 
+                bytes, base);
             throw TransportException(HERE, "ibv_reg_mr failed");
         }
         logMemoryBase = reinterpret_cast<uintptr_t>(base);

@@ -14,7 +14,8 @@
  */
 
 /**
- * \file Unit tests for LogCleaner.
+ * \file
+ * Unit tests for LogCleaner.
  */
 
 #include "TestUtil.h"
@@ -41,12 +42,12 @@ TEST(LogCleanerTest, getSegmentsToClean) {
     Tub<uint64_t> serverId(0);
     Log log(serverId, 8192 * 1000, 8192, NULL, Log::INLINED_CLEANER);
     LogCleaner* cleaner = &log.cleaner;
+    char buf[64];
 
     size_t segmentsNeededForCleaning = cleaner->SEGMENTS_PER_CLEANING_PASS;
 
     while (log.cleanableNewList.size() < segmentsNeededForCleaning - 1) {
-        char buf[64];
-        LogEntryHandle h = log.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf)); 
+        LogEntryHandle h = log.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
         log.free(h);
     }
 
@@ -56,17 +57,31 @@ TEST(LogCleanerTest, getSegmentsToClean) {
     EXPECT_EQ(0U, segmentsToClean.size());
 
     while (log.cleanableNewList.size() < segmentsNeededForCleaning - 1) {
-        char buf[64];
         LogEntryHandle h = log.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
         log.free(h);
+    }
+
+    // fill the rest up so we can test proper sorting of best candidates
+    try {
+        while (log.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf)) != NULL) {}
+    } catch (LogException &e) {
     }
 
     cleaner->getSegmentsToClean(segmentsToClean);
 
     EXPECT_EQ(segmentsNeededForCleaning, segmentsToClean.size());
 
-    for (size_t i = 0; i < segmentsToClean.size(); i++)
+    for (size_t i = 0; i < segmentsToClean.size(); i++) {
         EXPECT_TRUE(segmentsToClean[i] != NULL);
+        EXPECT_LT(segmentsToClean[i]->getUtilisation(), 5);
+
+        // returned segments must no longer be in the cleanableSegments list,
+        // since we're presumed to clean them now
+        EXPECT_EQ(cleaner->cleanableSegments.end(),
+                  std::find(cleaner->cleanableSegments.begin(),
+                            cleaner->cleanableSegments.end(),
+                            segmentsToClean[i]));
+    }
 }
 
 static bool
@@ -115,8 +130,8 @@ TEST(LogCleanerTest, getSegmentsToClean_writeCost) {
         TestLog::Enable _(&getSegmentsToCleanFilter);
         cleaner->getSegmentsToClean(dummy);
         double writeCost;
-        sscanf(TestLog::get().c_str(), "getSegmentsToClean: writeCost is %lf",
-            &writeCost);
+        sscanf(TestLog::get().c_str(),                  // NOLINT sscanf ok here
+            "getSegmentsToClean: writeCost is %lf", &writeCost);
         if (testSetup[i].minWriteCost)
             EXPECT_TRUE(writeCost >= testSetup[i].minWriteCost);
         if (testSetup[i].maxWriteCost)

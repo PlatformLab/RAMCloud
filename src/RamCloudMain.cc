@@ -133,6 +133,7 @@ runRecovery(RamCloud& client,
     }
 
     // remove objects if we've been instructed. just start from table 0, obj 0.
+    LOG(NOTICE, "Performing %u removals of objects just created", removeCount);
     for (int t = 0; t < tableCount; t++) {
         for (int j = 0; removeCount > 0; j++, removeCount--)
             client.remove(tables[t], j);
@@ -355,11 +356,16 @@ try
 
     LOG(NOTICE, "Performing %u inserts of %u byte objects",
         count, objectDataSize);
+    uint64_t* ids = static_cast<uint64_t*>(malloc(sizeof(ids[0]) * count));
     b = Cycles::rdtsc();
     for (int j = 0; j < count; j++)
-        id = client.create(table, val, downCast<uint32_t>(strlen(val) + 1));
+        ids[j] = client.create(table, val, downCast<uint32_t>(strlen(val) + 1));
     LOG(NOTICE, "%d inserts took %lu ticks", count, Cycles::rdtsc() - b);
     LOG(NOTICE, "avg insert took %lu ticks", (Cycles::rdtsc() - b) / count);
+
+    LOG(NOTICE, "Performing %u removals of objects just inserted", removeCount);
+    for (int j = 0; j < count && j < removeCount; j++)
+            client.remove(table, ids[j]);
 
     client.dropTable("test");
 

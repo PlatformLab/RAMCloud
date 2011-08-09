@@ -297,7 +297,7 @@ class LogTest : public CppUnit::TestFixture {
         return true;
     }
 
-    static bool 
+    static bool
     relocationCallback(LogEntryHandle oldHandle,
                        LogEntryHandle newHandle,
                        void* cookie)

@@ -71,8 +71,8 @@ LogCleaner::clean()
 
     SegmentVector segmentsToClean;
     SegmentEntryHandleVector liveEntries;
-
     getSegmentsToClean(segmentsToClean);
+
     if (segmentsToClean.size() == 0)
         return;
 
@@ -109,7 +109,7 @@ LogCleaner::halt()
 void
 LogCleaner::cleanerThreadEntry(LogCleaner* logCleaner)
 {
-    LOG(NOTICE, "LogCleaner thread spun up"); 
+    LOG(NOTICE, "LogCleaner thread spun up");
 
     while (1) {
         boost::this_thread::interruption_point();
@@ -122,7 +122,9 @@ LogCleaner::cleanerThreadEntry(LogCleaner* logCleaner)
  * CostBenefit comparison functor for a vector of Segment pointers.
  * This is used to sort our array of cleanable Segments based on each
  * one's associated cost-benefit calculation. Higher values (the better
- * candidates) come first.
+ * candidates) come last. This lets us easily remove them by popping
+ * the back, rather than pulling from the front and shifting all elements
+ * down.
  */
 struct CostBenefitLessThan {
   public:
@@ -132,14 +134,21 @@ struct CostBenefitLessThan {
     }
 
     uint64_t
-    costBenefit(const Segment *s) const
+    costBenefit(Segment *s)
     {
         uint64_t costBenefit = ~(0UL);          // empty Segments are priceless
 
         int utilisation = s->getUtilisation();
         if (utilisation != 0) {
             uint64_t timestamp = s->getAverageTimestamp();
+
+            // Mathematically this should be assured, however, a few issues can
+            // potentially pop up:
+            //  1) improper synchronisation in Segment.cc
+            //  2) unsynchronised clocks and "newer" recovered data in the Log
+            //  3) unsynchronised TSCs (WallTime uses rdtsc)
             assert(timestamp <= now);
+
             uint64_t age = now - timestamp;
             costBenefit = ((100 - utilisation) * age) / utilisation;
         }
@@ -148,9 +157,9 @@ struct CostBenefitLessThan {
     }
 
     bool
-    operator()(const Segment* a, const Segment* b) const
+    operator()(Segment* a, Segment* b)
     {
-        return costBenefit(a) > costBenefit(b);
+        return costBenefit(a) < costBenefit(b);
     }
 
   private:
@@ -163,11 +172,11 @@ struct CostBenefitLessThan {
  */
 struct SegmentEntryAgeLessThan {
   public:
-    SegmentEntryAgeLessThan(Log* log)
+    explicit SegmentEntryAgeLessThan(Log* log)
         : log(log)
     {
     }
-    
+
     bool
     operator()(const SegmentEntryHandle a, const SegmentEntryHandle b)
     {
@@ -188,7 +197,9 @@ struct SegmentEntryAgeLessThan {
  * Decide which Segments, if any, to clean and return them in the provided
  * vector. This method implements the policy that determines which Segments
  * to clean, how many to clean, and whether or not to clean at all right
- * now. 
+ * now. Note that any Segments returned from this method have already been
+ * removed from the #cleanableSegments vector. If cleaning isn't performed,
+ * they should be re-added to the vector, lest they be forgotten.
  *
  * \param[out] segmentsToClean
  *      Pointers to Segments that should be cleaned are appended to this
@@ -199,7 +210,7 @@ LogCleaner::getSegmentsToClean(SegmentVector& segmentsToClean)
 {
     assert(segmentsToClean.size() == 0);
 
-    log->getNewActiveSegments(cleanableSegments);
+    log->getNewCleanableSegments(cleanableSegments);
 
     if (cleanableSegments.size() < SEGMENTS_PER_CLEANING_PASS)
         return;
@@ -216,7 +227,7 @@ LogCleaner::getSegmentsToClean(SegmentVector& segmentsToClean)
     uint64_t totalLiveBytes = 0;
     uint64_t totalCapacity = 0;
     for (size_t i = 0; i < SEGMENTS_PER_CLEANING_PASS; i++) {
-        Segment* s = cleanableSegments[i];
+        Segment* s = cleanableSegments[cleanableSegments.size() - i - 1];
         assert(s != NULL);
         totalLiveBytes += (s->getCapacity() - s->getFreeBytes());
         totalCapacity += s->getCapacity();
@@ -233,9 +244,12 @@ LogCleaner::getSegmentsToClean(SegmentVector& segmentsToClean)
         return;
     }
 
-    // Ok, let's clean these suckers!
-    for (size_t i = 0; i < SEGMENTS_PER_CLEANING_PASS; i++)
-        segmentsToClean.push_back(cleanableSegments[i]);
+    // Ok, let's clean these suckers! Be sure to remove them from the vector
+    // of candidate Segments so we don't try again in the future!
+    for (size_t i = 0; i < SEGMENTS_PER_CLEANING_PASS; i++) {
+        segmentsToClean.push_back(cleanableSegments.back());
+        cleanableSegments.pop_back();
+    }
 }
 
 /**
@@ -295,17 +309,17 @@ LogCleaner::moveLiveData(SegmentEntryHandleVector& liveData)
     Segment* currentSegment = NULL;
     SegmentVector segmentsAdded;
 
-    // TODO: We shouldn't just stop using a Segment if it didn't fit the
-    //       last object. We should keep considering them for future objects.
-    //       This is strictly better than leaving open space; even if we put
-    //       in objects that are much newer (and hence more likely to be
-    //       freed soon). The worst case is the same space is soon empty, but
-    //       we have the opportunity to do better if we can pack in more data
-    //       that ends up staying alive longer.
+    // XXX: We shouldn't just stop using a Segment if it didn't fit the
+    //      last object. We should keep considering them for future objects.
+    //      This is strictly better than leaving open space; even if we put
+    //      in objects that are much newer (and hence more likely to be
+    //      freed soon). The worst case is the same space is soon empty, but
+    //      we have the opportunity to do better if we can pack in more data
+    //      that ends up staying alive longer.
 
     foreach (SegmentEntryHandle handle, liveData) {
         SegmentEntryHandle newHandle = NULL;
-        
+
         do {
             if (currentSegment != NULL)
                 newHandle = currentSegment->append(handle, false);

@@ -31,6 +31,7 @@
 // * Create a new entry for the test in the #tests table.
 
 #include <cstdatomic>
+#include <vector>
 
 #include "Common.h"
 #include "AtomicInt.h"
@@ -41,8 +42,6 @@
 #include "Segment.h"
 #include "SegmentIterator.h"
 #include "SpinLock.h"
-
-#include <vector>
 
 using namespace RAMCloud;
 

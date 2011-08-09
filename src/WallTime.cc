@@ -13,8 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Common.h>
-#include <Cycles.h>
+#include "Common.h"
+#include "Cycles.h"
 
 /**
  * \file
@@ -62,27 +62,27 @@ secondsTimestamp()
         return mockWallTimeValue;
 #endif
 
-	if (baseTime == 0) {
-		baseTime = time(NULL);
-		baseTsc = Cycles::rdtsc();
+    if (baseTime == 0) {
+        baseTime = time(NULL);
+        baseTsc = Cycles::rdtsc();
 
-		if (baseTime == -1) {
-			fprintf(stderr, "ERROR: The time(3) syscall failed!!");
-			exit(1);
-		}
+        if (baseTime == -1) {
+            fprintf(stderr, "ERROR: The time(3) syscall failed!!");
+            exit(1);
+        }
 
-		if (baseTime < RAMCLOUD_UNIX_OFFSET) {
-			fprintf(stderr, "ERROR: Your clock is too far behind. "
+        if (baseTime < RAMCLOUD_UNIX_OFFSET) {
+            fprintf(stderr, "ERROR: Your clock is too far behind. "
                 "Please fix the date on your system!");
-			exit(1);
-		}
-	}
+            exit(1);
+        }
+    }
 
     // calculate seconds offset. be careful to round up.
     uint32_t tscSecondsOffset = downCast<uint32_t>(Cycles::toNanoseconds(
         Cycles::rdtsc() - baseTsc + 500000000) / 1000000000U);
 
-	return downCast<uint32_t>(baseTime) - RAMCLOUD_UNIX_OFFSET +
+    return downCast<uint32_t>(baseTime) - RAMCLOUD_UNIX_OFFSET +
         tscSecondsOffset;
 }
 
@@ -96,7 +96,7 @@ secondsTimestamp()
 time_t
 secondsTimestampToUnix(uint32_t timestamp)
 {
-	return (time_t)timestamp + RAMCLOUD_UNIX_OFFSET;
+    return (time_t)timestamp + RAMCLOUD_UNIX_OFFSET;
 }
 
 } // namespace

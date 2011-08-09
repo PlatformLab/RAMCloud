@@ -20,7 +20,6 @@
 #include "Log.h"
 #include "Segment.h"
 #include "Object.h"
-#include "Log.h"
 #include "Status.h"
 
 namespace RAMCloud {

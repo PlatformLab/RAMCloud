@@ -16,15 +16,14 @@
 #ifndef RAMCLOUD_LOGCLEANER_H
 #define RAMCLOUD_LOGCLEANER_H
 
+#include <boost/thread.hpp>
+#include <vector>
+
 #include "Common.h"
 #include "BackupManager.h"
 #include "LogTypes.h"
 #include "Log.h"
 #include "Segment.h"
-
-#include <boost/thread.hpp>
-
-#include <vector>
 
 namespace RAMCloud {
 
@@ -56,7 +55,7 @@ class LogCleaner {
     /// since the last cleaning operation.
     static const size_t MIN_CLEANING_DELTA = 2 * Segment::SEGMENT_SIZE;
 
-    /// Number of Segments to clean per pass. 
+    /// Number of Segments to clean per pass.
     static const size_t SEGMENTS_PER_CLEANING_PASS = 10;
 
     /// Maximum write cost we'll permit. Anything higher and we won't clean.

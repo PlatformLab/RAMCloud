@@ -126,7 +126,7 @@ class Log {
     size_t         getNumberOfSegments() const;
 
     // These public methods are only to be externally used by the cleaner.
-    void           getNewActiveSegments(SegmentVector& out);
+    void           getNewCleanableSegments(SegmentVector& out);
     void           cleaningInto(Segment* newSegment);
     void           cleaningComplete(SegmentVector &clean);
     void          *getFromFreeList();
@@ -148,15 +148,17 @@ class Log {
         uint64_t totalBytesFreed;
         uint64_t totalFrees;
 
-        // permit direct twiddling of counters by authorised classes
         friend class Log;
         friend class LogTest;
-        friend class Segment;
     };
 
     LogStats    stats;
 
   PRIVATE:
+    /**
+     * Class used when destroying boost intrusive lists and destroying/freeing
+     * all linked elements. See the intrusive list #clear_and_dispose method.
+     */
     class SegmentDisposer {
       public:
         void
@@ -173,6 +175,7 @@ class Log {
     typedef boost::unordered_map<uint64_t, Segment *> ActiveIdMap;
     typedef boost::unordered_map<const void *, Segment *> BaseAddressMap;
 
+    void        debugDumpLists();
     void        addSegmentMemory(void *p);
     void        markActive(Segment *s);
     Segment*    getSegmentFromAddress(const void*);
@@ -213,14 +216,14 @@ class Log {
     /// as well as Segments the LogCleaner has generated during cleaning).
     /// Every Segment on this list was previously on the #cleanableNewList.
     /// Segments transition to this list when the LogCleaner learns about
-    /// them via the #getNewActiveSegments() method.
+    /// them via the #getNewCleanableSegments() method.
     SegmentList cleanableList;
 
     /// List of new Segments that the cleaner is currently cleaning to (placing
     /// live entries in). This is needed in case deletions of those entries
     /// occur before cleaning has finished (the Log code must be able to look
     /// up the Segment* from the pointer into the Segment to update the
-    /// statistics). When #cleaningComplete() is called, this list is drained 
+    /// statistics). When #cleaningComplete() is called, this list is drained
     /// into the #cleanablePendingDigestList.
     SegmentList cleaningIntoList;
 

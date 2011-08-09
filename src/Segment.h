@@ -16,14 +16,15 @@
 #ifndef RAMCLOUD_SEGMENT_H
 #define RAMCLOUD_SEGMENT_H
 
+#include <vector>
+
 #include "BackupManager.h"
 #include "BoostIntrusive.h"
 #include "Common.h"
 #include "Crc32C.h"
 #include "LogTypes.h"
 #include "Object.h"
-
-#include <vector>
+#include "SpinLock.h"
 
 namespace RAMCloud {
 
@@ -50,7 +51,7 @@ struct SegmentEntry {
     /// enable SegmentEntry -> Segment base address calculations with variably
     /// sized segments.
     struct {
-        /// log_2(Capacity of Segment in bytes). That this, encodes a
+        /// log_2(Capacity of Segment in bytes). That is, encodes the
         /// power-of-two size of the Segment between 2^0 and 2^31.
         uint8_t                 segmentCapacityExponent;
     } mutableFields;
@@ -144,10 +145,11 @@ class Segment {
     const void        *getBaseAddress() const;
     uint64_t           getId() const;
     uint32_t           getCapacity() const;
-    uint32_t           appendableBytes() const;
-    int                getUtilisation() const;
-    uint32_t           getFreeBytes() const;
-    uint64_t           getAverageTimestamp() const;
+    uint32_t           appendableBytes();
+    int                getUtilisation();
+    uint32_t           getLiveBytes();
+    uint32_t           getFreeBytes();
+    uint64_t           getAverageTimestamp();
 
     /**
      * Given a pointer anywhere into a Segment's backing memory, obtain the base
@@ -174,6 +176,8 @@ class Segment {
   private:
     void               commonConstructor(LogEntryType type,
                                          const void *buffer, uint32_t length);
+    uint32_t           locklessAppendableBytes() const;
+    void               locklessSync();
     void               incrementSpaceTimeSum(SegmentEntryHandle handle);
     void               decrementSpaceTimeSum(SegmentEntryHandle handle);
     void               adjustSpaceTimeSum(SegmentEntryHandle handle,
@@ -188,20 +192,21 @@ class Segment {
                              Tub<SegmentChecksum::ResultType> expectedChecksum =
                                  Tub<SegmentChecksum::ResultType>());
 
-    BackupManager    *backup;         // makes operations on this segment durable
-    void             *baseAddress;    // base address for the Segment
-    Log              *const log;      // optional pointer to Log (for stats, CBs)
-    uint64_t          logId;          // log this belongs to, passed to backups
-    uint64_t          id;             // segment identification number
-    const uint32_t    capacity;       // total byte length of segment when empty
-    uint32_t          tail;           // offset to the next free byte in Segment
-    uint32_t          bytesFreed;     // bytes free()'d in this Segment
-    uint64_t          spaceTimeSum;   // sum of live datas' space-time products
-    Checksum          checksum;       // Latest Segment checksum (crc32c)
-    Checksum          prevChecksum;   // Checksum as of the penultimate append
-    bool              canRollBack;    // Can we roll back the last entry?
-    bool              closed;         // when true, no appends permitted
-    IntrusiveListHook listEntries;    // list ptr for Log code to track state
+    BackupManager    *backup;       // makes operations on this segment durable
+    void             *baseAddress;  // base address for the Segment
+    Log              *const log;    // optional pointer to Log (for stats, CBs)
+    const uint64_t    logId;        // log this belongs to, passed to backups
+    const uint64_t    id;           // segment identification number
+    const uint32_t    capacity;     // total byte length of segment when empty
+    uint32_t          tail;         // offset to the next free byte in Segment
+    uint32_t          bytesFreed;   // bytes free()'d in this Segment
+    uint64_t          spaceTimeSum; // sum of live datas' space-time products
+    Checksum          checksum;     // Latest Segment checksum (crc32c)
+    Checksum          prevChecksum; // Checksum as of the penultimate append
+    bool              canRollBack;  // Can we roll back the last entry?
+    bool              closed;       // When true, no appends permitted
+    SpinLock          mutex;        // Lock to protect against concurrent access
+    IntrusiveListHook listEntries;  // list ptr for Log code to track state
 
     /**
      * A handle to the open segment on backups,
@@ -365,7 +370,7 @@ class _SegmentEntryHandle {
     segmentSize() const
     {
         int exp = getSegmentEntry()->mutableFields.segmentCapacityExponent;
-        return 1U << exp; 
+        return 1U << exp;
     }
 
     /**
@@ -424,7 +429,7 @@ class _SegmentEntryHandle {
      * everything but the checksum and mutable fields).
      */
     uint32_t
-    mutableFieldsChecksum() const 
+    mutableFieldsChecksum() const
     {
         SegmentChecksum checksum;
         const SegmentEntry* entry = getSegmentEntry();

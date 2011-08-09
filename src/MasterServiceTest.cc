@@ -563,7 +563,7 @@ TEST_F(MasterServiceTest, recover) {
 }
 
 TEST_F(MasterServiceTest, recoverSegment) {
-    uint32_t segLen = 8192; 
+    uint32_t segLen = 8192;
     char* seg = static_cast<char*>(xmemalign(segLen, segLen));
     uint32_t len; // number of bytes in a recovery segment
     Buffer value;
@@ -604,7 +604,7 @@ TEST_F(MasterServiceTest, recoverSegment) {
     // Case 2a: Equal/newer tombstone already there; ignore object.
     ObjectTombstone t1(0, 0, 2002, 1);
     LogEntryHandle logTomb1 = service->log.append(LOG_ENTRY_TYPE_OBJTOMB,
-        &t1, sizeof(t1)); 
+        &t1, sizeof(t1));
     ret = service->objectMap.replace(logTomb1);
     EXPECT_FALSE(ret);
     len = buildRecoverySegment(seg, segLen, 0, 2002, 1, "equal guy");
@@ -619,7 +619,7 @@ TEST_F(MasterServiceTest, recoverSegment) {
     // Case 2b: Lesser tombstone already there; add object, remove tomb.
     ObjectTombstone t2(0, 0, 2003, 10);
     LogEntryHandle logTomb2 = service->log.append(LOG_ENTRY_TYPE_OBJTOMB,
-        &t2, sizeof(t2)); 
+        &t2, sizeof(t2));
     ret = service->objectMap.replace(logTomb2);
     EXPECT_FALSE(ret);
     len = buildRecoverySegment(seg, segLen, 0, 2003, 11, "newer guy");

@@ -24,8 +24,10 @@
 #include "Metrics.h"
 #include "Segment.h"
 #include "SegmentIterator.h"
+#include "ShortMacros.h"
 #include "Log.h"
 #include "LogTypes.h"
+#include "WallTime.h"
 
 namespace RAMCloud {
 
@@ -76,6 +78,7 @@ Segment::Segment(Log *log,
       prevChecksum(),
       canRollBack(false),
       closed(false),
+      mutex(),
       listEntries(),
       backupSegment(NULL)
 {
@@ -117,6 +120,7 @@ Segment::Segment(uint64_t logId,
       prevChecksum(),
       canRollBack(false),
       closed(false),
+      mutex(),
       listEntries(),
       backupSegment(NULL)
 {
@@ -206,8 +210,10 @@ SegmentEntryHandle
 Segment::append(LogEntryType type, const void *buffer, uint32_t length,
     bool sync, Tub<SegmentChecksum::ResultType> expectedChecksum)
 {
+    boost::lock_guard<SpinLock> lock(mutex);
+
     if (closed || type == LOG_ENTRY_TYPE_SEGFOOTER ||
-      appendableBytes() < length)
+      locklessAppendableBytes() < length)
         return NULL;
 
     return forceAppendWithEntry(type, buffer, length,
@@ -217,7 +223,8 @@ Segment::append(LogEntryType type, const void *buffer, uint32_t length,
 /**
  * Append an entry described by a given SegmentEntryHandle. This method is used
  * exclusively by the cleaner as a simple way to write existing entries to a
- * new Segment.
+ * new Segment. This operation also ensures that the checksum of the new entry
+ * matches the old.
  *
  * \param[in] handle
  *      Handle to the object we want to append to this Segment.
@@ -230,6 +237,7 @@ Segment::append(LogEntryType type, const void *buffer, uint32_t length,
 SegmentEntryHandle
 Segment::append(SegmentEntryHandle handle, bool sync)
 {
+    // NB: no need to take the mutex since append() will
     return append(handle->type(),
                   handle->userData<void*>(),
                   handle->length(),
@@ -259,6 +267,8 @@ Segment::append(SegmentEntryHandle handle, bool sync)
 void
 Segment::rollBack(SegmentEntryHandle handle)
 {
+    boost::lock_guard<SpinLock> lock(mutex);
+
     if (closed)
         throw SegmentException(HERE, "Cannot roll back on closed Segment");
 
@@ -288,6 +298,8 @@ Segment::rollBack(SegmentEntryHandle handle)
 void
 Segment::free(SegmentEntryHandle entry)
 {
+    boost::lock_guard<SpinLock> lock(mutex);
+
     assert((uintptr_t)entry >= ((uintptr_t)baseAddress + sizeof(SegmentEntry)));
     assert((uintptr_t)entry <  ((uintptr_t)baseAddress + capacity));
 
@@ -314,6 +326,8 @@ Segment::free(SegmentEntryHandle entry)
 void
 Segment::close(bool sync)
 {
+    boost::lock_guard<SpinLock> lock(mutex);
+
     if (closed)
         throw SegmentException(HERE, "Segment has already been closed");
 
@@ -335,19 +349,13 @@ Segment::close(bool sync)
 }
 
 /**
- * Wait for the segment to be fully replicated.
+ * \copydoc Segment::locklessSync
  */
 void
 Segment::sync()
 {
-    if (backup) {
-        if (backupSegment) {
-            backupSegment->write(tail, closed);
-            if (closed)
-                backupSegment = NULL;
-        }
-        backup->sync();
-    }
+    boost::lock_guard<SpinLock> lock(mutex);
+    locklessSync();
 }
 
 /**
@@ -356,6 +364,7 @@ Segment::sync()
 const void *
 Segment::getBaseAddress() const
 {
+    // NB: constant - no need for lock
     return baseAddress;
 }
 
@@ -365,6 +374,7 @@ Segment::getBaseAddress() const
 uint64_t
 Segment::getId() const
 {
+    // NB: constant - no need for lock
     return id;
 }
 
@@ -374,8 +384,86 @@ Segment::getId() const
 uint32_t
 Segment::getCapacity() const
 {
+    // NB: constant - no need for lock
     return capacity;
 }
+
+/**
+ * \copydoc Segment::locklessAppendableBytes
+ */
+uint32_t
+Segment::appendableBytes()
+{
+    boost::lock_guard<SpinLock> lock(mutex);
+    return locklessAppendableBytes();
+}
+
+/**
+ * Return the Segment's utilisation as an integer percentage. This is
+ * calculated by taking into account the number of live bytes written to
+ * the Segment minus the freed bytes in proportion to its capacity.
+ */
+int
+Segment::getUtilisation()
+{
+    boost::lock_guard<SpinLock> lock(mutex);
+    return static_cast<int>((100UL * (tail - bytesFreed)) / capacity);
+}
+
+/**
+ * Return the number of bytes that are being used in the Segment. This is
+ * the total amount of live data.
+ */
+uint32_t
+Segment::getLiveBytes()
+{
+    boost::lock_guard<SpinLock> lock(mutex);
+    return tail - bytesFreed;
+}
+
+/**
+ * Return the number of bytes that aren't being used in the Segment. This is
+ * the number of bytes that could be freed up if this Segment were to be
+ * cleaned.
+ */
+uint32_t
+Segment::getFreeBytes()
+{
+    // NB: capacity is constant, getLiveBytes will lock
+    return capacity - getLiveBytes();
+}
+
+/**
+ * Return a RAMCloud timestamp that's indicates the average time each byte
+ * was written in this Segment. This can be used to tell the average age
+ * of data in the Segment.
+ *
+ * \throw SegmentException
+ *      A SegmentException is thrown if this method is called on a Segment
+ *      that isn't part of a Log (i.e. if an alternate constructor was used
+ *      that did not take in a Log pointer). Access to Log callbacks is
+ *      needed to obtain ages for registered types.
+ */
+uint64_t
+Segment::getAverageTimestamp()
+{
+    boost::lock_guard<SpinLock> lock(mutex);
+
+    if (!log) {
+        throw SegmentException(HERE, format("%s() is only valid "
+                                     "if Segment is part of a log", __func__));
+    }
+
+    uint64_t liveBytes = tail - bytesFreed; // getLiveBytes() sans lock
+    if (liveBytes == 0)
+        return 0;
+
+    return spaceTimeSum / liveBytes;
+}
+
+////////////////////////////////////////
+/// Private Methods
+////////////////////////////////////////
 
 /**
  * Obtain the maximum number of bytes that can be appended to this Segment
@@ -383,7 +471,7 @@ Segment::getCapacity() const
  * guaranteed to succeed, whereas buffers larger will fail to be appended.
  */
 uint32_t
-Segment::appendableBytes() const
+Segment::locklessAppendableBytes() const
 {
     if (closed)
         return 0;
@@ -400,57 +488,20 @@ Segment::appendableBytes() const
 }
 
 /**
- * Return the Segment's utilisation as an integer percentage. This is
- * calculated by taking into account the number of live bytes written to
- * the Segment minus the freed bytes in proportion to its capacity.
+ * Wait for the segment to be fully replicated.
  */
-int
-Segment::getUtilisation() const
+void
+Segment::locklessSync()
 {
-    return static_cast<int>((100UL * (tail - bytesFreed)) / capacity);
-}
-
-/**
- * Return the number of bytes that aren't being used in the Segment. This is
- * the number of bytes that could be freed up if this Segment were to be
- * cleaned.
- */
-uint32_t
-Segment::getFreeBytes() const
-{
-    uint32_t liveBytes = tail - bytesFreed;
-    return capacity - liveBytes;
-}
-
-/**
- * Return a RAMCloud timestamp that's indicates the average time each byte
- * was written in this Segment. This can be used to tell the average age
- * of data in the Segment.
- *
- * \throw SegmentException
- *      A SegmentException is thrown if this method is called on a Segment
- *      that isn't part of a Log (i.e. if an alternate constructor was used
- *      that did not take in a Log pointer). Access to Log callbacks is
- *      needed to obtain ages for registered types.
- */
-uint64_t
-Segment::getAverageTimestamp() const
-{
-    if (!log) {
-        throw SegmentException(HERE, format("%s() is only valid "
-                                     "if Segment is part of a log", __func__));
+    if (backup) {
+        if (backupSegment) {
+            backupSegment->write(tail, closed);
+            if (closed)
+                backupSegment = NULL;
+        }
+        backup->sync();
     }
-
-    uint64_t liveBytes = tail - bytesFreed;
-    if (liveBytes == 0)
-        return 0;
-
-    return spaceTimeSum / liveBytes;
 }
-
-////////////////////////////////////////
-/// Private Methods
-////////////////////////////////////////
 
 /**
  * Increment the spaceTime product sum in light of a new entry.
@@ -519,9 +570,6 @@ Segment::forceAppendBlob(const void *buffer, uint32_t length)
     uint8_t       *dst = reinterpret_cast<uint8_t *>(baseAddress) + tail;
 
     memcpy(dst, src, length);
-
-    if (log)
-        log->stats.totalBytesAppended += length;
 
     tail += length;
     return reinterpret_cast<void *>(dst);
@@ -612,7 +660,7 @@ Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
     }
 
     if (sync)
-        this->sync();
+        locklessSync();
 
     SegmentEntryHandle handle =
         reinterpret_cast<SegmentEntryHandle>(entryPointer);

@@ -121,7 +121,7 @@ SegmentIterator::commonConstructor(bool ignoreCapacityMismatch)
 
     type    = handle->type();
     length  = handle->length();
-    blobPtr = handle->userData<char*>(); 
+    blobPtr = handle->userData<char*>();
 
     currentEntry = firstEntry = entry;
 }
@@ -195,7 +195,7 @@ SegmentIterator::next()
 
     type    = handle->type();
     length  = handle->length();
-    blobPtr = handle->userData<char*>(); 
+    blobPtr = handle->userData<char*>();
     currentEntry = entry;
 
     if (prefetching) {

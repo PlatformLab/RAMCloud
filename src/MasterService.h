@@ -28,6 +28,7 @@
 #include "RecoverySegmentIterator.h"
 #include "Service.h"
 #include "SegmentIterator.h"
+#include "SpinLock.h"
 #include "Table.h"
 
 namespace RAMCloud {
@@ -266,6 +267,14 @@ class MasterService : public Service {
      * The user_data field in each tablet points to a Table object.
      */
     ProtoBuf::Tablets tablets;
+
+    /**
+     * Lock that serialises all object updates (creations, overwrites,
+     * deletions, and cleaning relocations). This protects regular RPC
+     * operations from the log cleaner. When we work on multithreaded
+     * writes we'll need to revisit this.
+     */
+    SpinLock objectUpdateLock;
 
     /* Tombstone cleanup method used after recovery. */
     void removeTombstones();
