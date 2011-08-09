@@ -61,7 +61,7 @@ endif
 # Failed deconstructor inlines are generating noise
 # -Winline
 LIBS := $(EXTRALIBS) -lpcrecpp -lboost_program_options -lprotobuf -lrt \
-        -lpthread -lboost_thread -lssl
+        -lpthread -lboost_thread -lssl -lcrypto
 INCLUDES := -I$(TOP)/src -I$(TOP)/$(OBJDIR) -I$(GTEST_DIR)/include
 
 ifeq ($(INFINIBAND),yes)
