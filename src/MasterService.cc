@@ -830,8 +830,11 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
                        Rpc& rpc)
 {
     {
-        CycleCounter<Metric> recoveryTicks(&metrics->recoveryTicks);
-        reset(metrics, *serverId, 1);
+        CycleCounter<Metric> recoveryTicks(&metrics->master.recoveryTicks);
+        // Don't reset metrics here: the backup service has already done it,
+        // and doing it again here may cause information to be lost.
+        // reset(metrics, *serverId);
+        metrics->hasMaster = 1;
         metrics->master.replicas = backup.replicas;
 
         const auto& masterId = reqHdr.masterId;
@@ -896,7 +899,8 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
 
         // TODO(stutsman) update local copy of the will
     }
-    dump(metrics);
+    // No need to dump metrics now: it will be done in the backup code.
+    // dump(metrics);
 }
 
 /**

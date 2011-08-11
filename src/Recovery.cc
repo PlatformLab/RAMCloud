@@ -185,7 +185,7 @@ Recovery::Recovery(uint64_t masterId,
                    const ProtoBuf::ServerList& masterHosts,
                    const ProtoBuf::ServerList& backupHosts)
 
-    : recoveryTicks(&metrics->recoveryTicks)
+    : recoveryTicks(&metrics->coordinator.recoveryTicks)
     , backups()
     , masterHosts(masterHosts)
     , backupHosts(backupHosts)
@@ -195,7 +195,7 @@ Recovery::Recovery(uint64_t masterId,
     , tasks(new Tub<BackupStartTask>[backupHosts.server_size()])
 {
     CycleCounter<Metric> _(&metrics->coordinator.recoveryConstructorTicks);
-    reset(metrics, 0, 0);
+    reset(metrics, 0);
     buildSegmentIdToBackups();
 }
 

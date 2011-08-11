@@ -54,18 +54,15 @@ dump(const Metrics* metrics)
  *      Which metrics object to reset.
  * \param serverId
  *      The unique server ID for this process assigned by the coordinator.
- * \param serverRole
- *      The role of this server (0 = coordinator, 1 = master, 2 = backup).
  */
 void
-reset(Metrics* metrics, uint64_t serverId, uint64_t serverRole)
+reset(Metrics* metrics, uint64_t serverId)
 {
     metrics->~Metrics();
     new(metrics) Metrics();
     metrics->clockFrequency = (uint64_t) Cycles::perSecond();
     metrics->pid = getpid();
     metrics->serverId = serverId;
-    metrics->serverRole = serverRole;
     metrics->segmentSize = Segment::SEGMENT_SIZE;
 }
 

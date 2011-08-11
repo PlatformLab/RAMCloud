@@ -36,7 +36,7 @@ typedef RAMCloud::NoOp<uint64_t> Metric;
 namespace RAMCloud {
 extern Metrics* metrics;
 void dump(const Metrics* metrics);
-void reset(Metrics* metrics, uint64_t serverId, uint64_t serverRole);
+void reset(Metrics* metrics, uint64_t serverId);
 
 // These metrics are used to track activity on the server
 // during BenchMarks. They are triggered and populated by magic keyid
