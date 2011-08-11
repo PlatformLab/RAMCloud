@@ -274,6 +274,12 @@ class SegmentTest : public CppUnit::TestFixture {
         return h->userData<Object>()->timestamp;
     }
 
+    static void
+    scanCallback(LogEntryHandle h,
+                 void* cookie)
+    {
+    }
+
     void
     test_free()
     {
@@ -284,7 +290,8 @@ class SegmentTest : public CppUnit::TestFixture {
         l.registerType(LOG_ENTRY_TYPE_OBJ,
                        livenessCallback, NULL,
                        relocationCallback, NULL,
-                       timestampCallback);
+                       timestampCallback,
+                       scanCallback, NULL);
 
         char alignedBuf[8192] __attribute__((aligned(8192)));
         static char buf[64];
@@ -385,7 +392,8 @@ class SegmentTest : public CppUnit::TestFixture {
         l.registerType(LOG_ENTRY_TYPE_OBJ,
                        livenessCallback, NULL,
                        relocationCallback, NULL,
-                       timestampCallback);
+                       timestampCallback,
+                       scanCallback, NULL);
 
         char alignedBuf[8192] __attribute__((aligned(8192)));
         SegmentEntryHandle seh;

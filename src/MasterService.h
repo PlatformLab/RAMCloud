@@ -285,10 +285,12 @@ class MasterService : public Service {
     friend bool objectRelocationCallback(LogEntryHandle oldHandle,
                                          LogEntryHandle newHandle,
                                          void* cookie);
+    friend void objectScanCallback(LogEntryHandle handle, void* cookie);
     friend bool tombstoneLivenessCallback(LogEntryHandle handle, void* cookie);
     friend bool tombstoneRelocationCallback(LogEntryHandle oldHandle,
                                             LogEntryHandle newHandle,
                                             void* cookie);
+    friend void tombstoneScanCallback(LogEntryHandle handle, void* cookie);
     friend void segmentReplayCallback(Segment* seg, void* cookie);
     Table& getTable(uint32_t tableId, uint64_t objectId);
     void rejectOperation(const RejectRules* rejectRules, uint64_t version);

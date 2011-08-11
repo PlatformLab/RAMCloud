@@ -39,7 +39,7 @@ class LogTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_free);
     CPPUNIT_TEST(test_registerType);
     CPPUNIT_TEST(test_getCallbacks);
-    CPPUNIT_TEST(test_getNewActiveSegments);
+    CPPUNIT_TEST(test_getNewCleanableSegments);
     CPPUNIT_TEST(test_cleaningComplete);
     CPPUNIT_TEST_SUITE_END();
 
@@ -311,6 +311,12 @@ class LogTest : public CppUnit::TestFixture {
         return 57;
     }
 
+    static void
+    scanCallback(LogEntryHandle handle,
+                 void* cookie)
+    {
+    }
+
     void
     test_registerType()
     {
@@ -321,12 +327,14 @@ class LogTest : public CppUnit::TestFixture {
         l.registerType(LOG_ENTRY_TYPE_OBJ,
                        livenessCallback, NULL,
                        relocationCallback, NULL,
-                       timestampCallback);
+                       timestampCallback,
+                       scanCallback, NULL);
         CPPUNIT_ASSERT_THROW(
             l.registerType(LOG_ENTRY_TYPE_OBJ,
                            livenessCallback, NULL,
                            relocationCallback, NULL,
-                           timestampCallback),
+                           timestampCallback,
+                           scanCallback, NULL),
             LogException);
 
         LogTypeCallback *cb = l.callbackMap[LOG_ENTRY_TYPE_OBJ];
@@ -351,7 +359,8 @@ class LogTest : public CppUnit::TestFixture {
         l.registerType(LOG_ENTRY_TYPE_OBJ,
                        livenessCallback, NULL,
                        relocationCallback, NULL,
-                       timestampCallback);
+                       timestampCallback,
+                       scanCallback, NULL);
 
         const LogTypeCallback* cb = l.getCallbacks(LOG_ENTRY_TYPE_OBJ);
         CPPUNIT_ASSERT(cb != NULL);
@@ -362,14 +371,14 @@ class LogTest : public CppUnit::TestFixture {
     }
 
     void
-    test_getNewActiveSegments()
+    test_getNewCleanableSegments()
     {
         Tub<uint64_t> serverId;
         serverId.construct(57);
         Log l(serverId, 2 * 8192, 8192);
 
         SegmentVector out;
-        l.getNewActiveSegments(out);
+        l.getNewCleanableSegments(out);
         CPPUNIT_ASSERT_EQUAL(0, out.size());
 
         Segment* cleanableNew = new Segment(&l, l.allocateSegmentId(),
@@ -381,7 +390,7 @@ class LogTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(1, l.cleanableNewList.size());
         CPPUNIT_ASSERT_EQUAL(0, l.cleanableList.size());
 
-        l.getNewActiveSegments(out);
+        l.getNewCleanableSegments(out);
         CPPUNIT_ASSERT_EQUAL(1, out.size());
 
         CPPUNIT_ASSERT_EQUAL(0, l.cleanableNewList.size());

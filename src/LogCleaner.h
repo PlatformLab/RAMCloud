@@ -43,6 +43,8 @@ class LogCleaner {
     // cleaner thread entry point
     static void cleanerThreadEntry(LogCleaner* logCleaner);
 
+    void scanNewCleanableSegments();
+    void scanSegment(Segment* segment);
     void getSegmentsToClean(SegmentVector&);
     void getSortedLiveEntries(SegmentVector& segments,
                               SegmentEntryHandleVector& liveEntries);
@@ -66,8 +68,21 @@ class LogCleaner {
     /// cleaner if there isn't likely any work to be done.
     uint64_t        bytesFreedBeforeLastCleaning;
 
+    /// Segments that the Log considers cleanable, but which haven't been
+    /// scanned yet (i.e. the scan callback has not been called on each
+    /// entry. This list originally existed for asynchronous updates to
+    /// TabletProfiler structures, but the general callback may serve
+    /// arbitrary purposes for whoever registered a log type.
+    SegmentVector   scanList;
+
+    /// Segments are scanned in precise order of SegmentId. This integer
+    /// tracks the next SegmentId to be scanned. The assumption is that
+    /// the Log begins at ID 0.
+    uint64_t        nextScannedSegmentId;
+
     /// Closed segments that are part of the Log - these may be cleaned
-    /// at any time.
+    /// at any time. Only Segments that have been scanned (i.e. previously
+    /// were on the #scanList can be added here.
     SegmentVector   cleanableSegments;
 
     /// The Log we're cleaning.

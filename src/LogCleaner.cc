@@ -42,6 +42,8 @@ namespace RAMCloud {
  */
 LogCleaner::LogCleaner(Log* log, BackupManager *backup, bool startThread)
     : bytesFreedBeforeLastCleaning(0),
+      scanList(),
+      nextScannedSegmentId(0),
       cleanableSegments(),
       log(log),
       backup(backup),
@@ -65,6 +67,11 @@ void
 LogCleaner::clean()
 {
     uint64_t logBytesFreed = log->getBytesFreed();
+
+    // We must scan new segments the Log considers cleanable before they
+    // are cleaned. Doing so in log order gives us a chance to fire callbacks
+    // that maintain the TabletProfilers.
+    scanNewCleanableSegments();
 
     if ((logBytesFreed - bytesFreedBeforeLastCleaning) < MIN_CLEANING_DELTA)
         return;
@@ -194,6 +201,67 @@ struct SegmentEntryAgeLessThan {
 };
 
 /**
+ * Comparison functor used to sort Segments by their IDs. Higher (newer)
+ * IDs come first.
+ */
+struct SegmentIdLessThan {
+  public:
+    bool
+    operator()(const Segment* a, const Segment* b)
+    {
+        return a->getId() > b->getId();
+    }
+};
+
+/**
+ * Scan all cleanable Segments in order of SegmentId and then add them to
+ * the #cleanableList for future cleaning. If the next expected SegmentId
+ * is not available, do nothing.
+ *
+ * See #scanSegment for more details.
+ */
+void
+LogCleaner::scanNewCleanableSegments()
+{
+    log->getNewCleanableSegments(scanList);
+
+    std::sort(scanList.begin(),
+              scanList.end(),
+              SegmentIdLessThan());
+
+    while (scanList.size() > 0 &&
+           scanList.back()->getId() == nextScannedSegmentId) {
+
+        Segment* s = scanList.back();
+        scanList.pop_back();
+        scanSegment(s);
+        cleanableSegments.push_back(s);
+        nextScannedSegmentId++;
+    }
+}
+
+/**
+ * For a given Segment, scan all entries and call the scan callback function
+ * registered with the type, if there is one.
+ *
+ * This method ensures that a callback is fired on every entry added to the
+ * Log before it is cleaned. In addition, the callback is fired each time
+ * the entry is relocated due to cleaning.
+ *
+ * \param[in] segment
+ *      The Segment upon whose entries the callbacks are to be fired.
+ */
+void
+LogCleaner::scanSegment(Segment* segment)
+{
+    for (SegmentIterator si(segment); !si.isDone(); si.next()) {
+        const LogTypeCallback *cb = log->getCallbacks(si.getType());
+        if (cb != NULL && cb->scanCB != NULL)
+            cb->scanCB(si.getHandle(), cb->scanArg);
+    }
+}
+
+/**
  * Decide which Segments, if any, to clean and return them in the provided
  * vector. This method implements the policy that determines which Segments
  * to clean, how many to clean, and whether or not to clean at all right
@@ -209,8 +277,6 @@ void
 LogCleaner::getSegmentsToClean(SegmentVector& segmentsToClean)
 {
     assert(segmentsToClean.size() == 0);
-
-    log->getNewCleanableSegments(cleanableSegments);
 
     if (cleanableSegments.size() < SEGMENTS_PER_CLEANING_PASS)
         return;

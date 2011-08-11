@@ -316,6 +316,12 @@ Log::free(LogEntryHandle entry)
  * \param[in] timestampCB
  *      The callback to determine the modification time of objects of this
  *      type in RAMCloud seconds (see #secondsTimestamp).
+ * \param[in] scanCB
+ *      A callback that is invoked on entries in log order. The callback is
+ *      fired on all entries at least once. If an object has been relocated
+ *      by the cleaner, it is subject to another callback.
+ * \param[in] scanArg
+ *      A void* argument to be passed to the scan callback.
  * \throw LogException
  *      An exception is thrown if the type has already been registered.
  */
@@ -325,7 +331,9 @@ Log::registerType(LogEntryType type,
                   void *livenessArg,
                   log_relocation_cb_t relocationCB,
                   void *relocationArg,
-                  log_timestamp_cb_t timestampCB)
+                  log_timestamp_cb_t timestampCB,
+                  log_scan_cb_t scanCB,
+                  void *scanArg)
 {
     if (contains(callbackMap, type))
         throw LogException(HERE, "type already registered with the Log");
@@ -335,7 +343,9 @@ Log::registerType(LogEntryType type,
                                             livenessArg,
                                             relocationCB,
                                             relocationArg,
-                                            timestampCB);
+                                            timestampCB,
+                                            scanCB,
+                                            scanArg);
 }
 
 /**

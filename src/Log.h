@@ -51,6 +51,7 @@ typedef SegmentEntryHandle LogEntryHandle;
 typedef bool (*log_liveness_cb_t)(LogEntryHandle, void *);
 typedef bool (*log_relocation_cb_t)(LogEntryHandle, LogEntryHandle, void *);
 typedef uint32_t (*log_timestamp_cb_t)(LogEntryHandle);
+typedef void (*log_scan_cb_t)(LogEntryHandle, void *);
 
 class LogTypeCallback {
   public:
@@ -59,13 +60,17 @@ class LogTypeCallback {
                     void *livenessArg,
                     log_relocation_cb_t relocationCB,
                     void *relocationArg,
-                    log_timestamp_cb_t timestampCB)
+                    log_timestamp_cb_t timestampCB,
+                    log_scan_cb_t scanCB,
+                    void *scanArg)
         : type(type),
           livenessCB(livenessCB),
           livenessArg(livenessArg),
           relocationCB(relocationCB),
           relocationArg(relocationArg),
-          timestampCB(timestampCB)
+          timestampCB(timestampCB),
+          scanCB(scanCB),
+          scanArg(scanArg)
     {
     }
 
@@ -75,6 +80,8 @@ class LogTypeCallback {
     const log_relocation_cb_t relocationCB;
     void                     *relocationArg;
     const log_timestamp_cb_t  timestampCB;
+    const log_scan_cb_t       scanCB;
+    void                     *scanArg;
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(LogTypeCallback);
@@ -112,7 +119,9 @@ class Log {
                                 void *livenessArg,
                                 log_relocation_cb_t relocationCB,
                                 void *relocationArg,
-                                log_timestamp_cb_t timestampCB);
+                                log_timestamp_cb_t timestampCB,
+                                log_scan_cb_t scanCB,
+                                void* scanArg);
     const LogTypeCallback* getCallbacks(LogEntryType type);
     void           sync();
     uint64_t       getSegmentId(const void *p);

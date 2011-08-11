@@ -35,17 +35,23 @@ namespace RAMCloud {
 
 // --- MasterService ---
 
-bool objectLivenessCallback(LogEntryHandle handle, void*);
+bool objectLivenessCallback(LogEntryHandle handle,
+                            void* cookie);
 bool objectRelocationCallback(LogEntryHandle oldHandle,
                               LogEntryHandle newHandle,
                               void* cookie);
 uint32_t objectTimestampCallback(LogEntryHandle handle);
+void objectScanCallback(LogEntryHandle handle,
+                        void* cookie);
 
-bool tombstoneLivenessCallback(LogEntryHandle handle, void*);
+bool tombstoneLivenessCallback(LogEntryHandle handle,
+                               void* cookie);
 bool tombstoneRelocationCallback(LogEntryHandle oldHandle,
                                  LogEntryHandle newHandle,
                                  void* cookie);
 uint32_t tombstoneTimestampCallback(LogEntryHandle handle);
+void tombstoneScanCallback(LogEntryHandle handle,
+                           void* cookie);
 
 /**
  * Construct a MasterService.
@@ -77,13 +83,17 @@ MasterService::MasterService(const ServerConfig config,
                      this,
                      objectRelocationCallback,
                      this,
-                     objectTimestampCallback);
+                     objectTimestampCallback,
+                     objectScanCallback,
+                     this);
     log.registerType(LOG_ENTRY_TYPE_OBJTOMB,
                      tombstoneLivenessCallback,
                      this,
                      tombstoneRelocationCallback,
                      this,
-                     tombstoneTimestampCallback);
+                     tombstoneTimestampCallback,
+                     tombstoneScanCallback,
+                     this);
 }
 
 MasterService::~MasterService()
@@ -1001,11 +1011,7 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
                 metrics->master.liveObjectBytes +=
                     localObj->dataLength(i.getLength());
 
-                // update the TabletProfiler
-                Table& t(getTable(downCast<uint32_t>(recoverObj->id.tableId),
-                                  recoverObj->id.objectId));
-                t.profiler.track(recoverObj->id.objectId,
-                    newObjHandle->totalLength(), newObjHandle->logTime());
+                // The TabletProfiler is updated asynchronously.
 #endif
 
 #ifndef PERF_DEBUG_RECOVERY_REC_SEG_NO_HT
@@ -1124,9 +1130,7 @@ MasterService::remove(const RemoveRpc::Request& reqHdr,
 
     // Write the tombstone into the Log, update our tablet
     // counters, and remove from the hash table.
-    SegmentEntryHandle seh = log.append(
-        LOG_ENTRY_TYPE_OBJTOMB, &tomb, sizeof(tomb));
-    t.profiler.track(obj->id.objectId, seh->totalLength(), seh->logTime());
+    log.append(LOG_ENTRY_TYPE_OBJTOMB, &tomb, sizeof(tomb));
     objectMap.remove(reqHdr.tableId, reqHdr.id);
 }
 
@@ -1410,16 +1414,14 @@ objectRelocationCallback(LogEntryHandle oldHandle,
 
         // simple pointer comparison suffices
         keepNewObject = (hashTblObj == evictObj);
-
         if (keepNewObject) {
-            t->profiler.track(evictObj->id.objectId,
-                              newHandle->totalLength(),
-                              newHandle->logTime());
             svr->objectMap.replace(newHandle);
         }
     }
 
-    // remove the evicted entry whether it is discarded or not
+    // Remove the evicted entry whether it is discarded or not.
+    // If it isn't to be discarded, we'll track it again in the
+    // #tombstoneScanCallback function.
     t->profiler.untrack(evictObj->id.objectId,
                         oldHandle->totalLength(),
                         oldHandle->logTime());
@@ -1443,6 +1445,43 @@ objectTimestampCallback(LogEntryHandle handle)
 {
     assert(handle->type() == LOG_ENTRY_TYPE_OBJ);
     return handle->userData<Object>()->timestamp;
+}
+
+/**
+ * Asynchronous callback on all objects appended to the log or
+ * relocated by the cleaner. This occurs once per append and
+ * relocation event. We use this to update the appropriate
+ * TabletProfiler.
+ *
+ * \param[in] handle
+ *      LogEntryHandle of the object entry.
+ * \param[in] cookie
+ *      The opaque state pointer registered with the callback.
+ */
+void
+objectScanCallback(LogEntryHandle handle, void* cookie)
+{
+    assert(handle->type() == LOG_ENTRY_TYPE_OBJ);
+
+    MasterService* svr = static_cast<MasterService *>(cookie);
+    assert(svr != NULL);
+
+    const Object* obj = handle->userData<Object>();
+    assert(obj != NULL);
+
+    Table* t = NULL;
+    try {
+        t = &svr->getTable(downCast<uint32_t>(obj->id.tableId),
+                           obj->id.objectId);
+    } catch (TableDoesntExistException& e) {
+        LOG(DEBUG, "callback on object whose table is gone: "
+            "tblId %lu, objId %lu", obj->id.tableId, obj->id.objectId);
+        return;
+    }
+
+    t->profiler.track(obj->id.objectId,
+                      handle->totalLength(),
+                      handle->logTime());
 }
 
 /**
@@ -1524,18 +1563,18 @@ tombstoneRelocationCallback(LogEntryHandle oldHandle,
                            tomb->id.objectId);
     } catch (TableDoesntExistException& e) {
         // That tablet doesn't exist on this server anymore.
+        t->profiler.untrack(tomb->id.objectId,
+                            oldHandle->totalLength(),
+                            oldHandle->logTime());
         return false;
     }
 
     // see if the referant is still there
     bool keepNewTomb = log.isSegmentLive(tomb->segmentId);
-    if (keepNewTomb) {
-        t->profiler.track(tomb->id.objectId,
-                          newHandle->totalLength(),
-                          newHandle->logTime());
-    }
 
-    // remove the evicted entry whether it is discarded or not
+    // Remove the evicted entry whether it is discarded or not.
+    // If it isn't to be discarded, we'll track it again in the
+    // #tombstoneScanCallback function.
     t->profiler.untrack(tomb->id.objectId,
                         oldHandle->totalLength(),
                         oldHandle->logTime());
@@ -1558,6 +1597,43 @@ tombstoneTimestampCallback(LogEntryHandle handle)
 {
     assert(handle->type() == LOG_ENTRY_TYPE_OBJTOMB);
     return secondsTimestamp();  // XXX- will this be too expensive?
+}
+
+/**
+ * Asynchronous callback on all tombstones appended to the log or
+ * relocated by the cleaner. This occurs once per append and
+ * relocation event. We use this to update the appropriate
+ * TabletProfiler.
+ *
+ * \param[in] handle
+ *      LogEntryHandle of the tombstone entry.
+ * \param[in] cookie
+ *      The opaque state pointer registered with the callback.
+ */
+void
+tombstoneScanCallback(LogEntryHandle handle, void* cookie)
+{
+    assert(handle->type() == LOG_ENTRY_TYPE_OBJTOMB);
+
+    MasterService* svr = static_cast<MasterService *>(cookie);
+    assert(svr != NULL);
+
+    const ObjectTombstone* tomb = handle->userData<ObjectTombstone>();
+    assert(tomb != NULL);
+
+    Table* t = NULL;
+    try {
+        t = &svr->getTable(downCast<uint32_t>(tomb->id.tableId),
+                           tomb->id.objectId);
+    } catch (TableDoesntExistException& e) {
+        LOG(DEBUG, "callback on tombstone whose table is gone: "
+            "tblId %lu, objId %lu", tomb->id.tableId, tomb->id.objectId);
+        return;
+    }
+
+    t->profiler.track(tomb->id.objectId,
+                      handle->totalLength(),
+                      handle->logTime());
 }
 
 void
@@ -1632,14 +1708,11 @@ MasterService::storeData(uint64_t tableId,
         // Request an async append explicitly so that the tombstone
         // and the object are sent out together to the backups.
         bool sync = false;
-        LogEntryHandle tombHandle = log.append(
-            LOG_ENTRY_TYPE_OBJTOMB, &tomb, sizeof(tomb), sync);
-        t.profiler.track(id, tombHandle->totalLength(), tombHandle->logTime());
+        log.append(LOG_ENTRY_TYPE_OBJTOMB, &tomb, sizeof(tomb), sync);
     }
 
     LogEntryHandle objHandle = log.append(LOG_ENTRY_TYPE_OBJ, newObject,
         newObject->objectLength(dataLength), !async);
-    t.profiler.track(id, objHandle->totalLength(), objHandle->logTime());
     objectMap.replace(objHandle);
 
     *newVersion = newObject->version;

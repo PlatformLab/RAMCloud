@@ -29,7 +29,7 @@ namespace RAMCloud {
 
 TEST(LogCleanerTest, constructor) {
     Tub<uint64_t> serverId(0);
-    Log log(serverId, 8192, 8192, NULL, Log::INLINED_CLEANER);
+    Log log(serverId, 8192, 8192, NULL, Log::CLEANER_DISABLED);
     LogCleaner* cleaner = &log.cleaner;
 
     EXPECT_EQ(0U, cleaner->bytesFreedBeforeLastCleaning);
@@ -38,9 +38,65 @@ TEST(LogCleanerTest, constructor) {
     EXPECT_EQ(log.backup, cleaner->backup);
 }
 
+TEST(LogCleanerTest, scanNewCleanableSegments) {
+    Tub<uint64_t> serverId(0);
+    Log log(serverId, 8192, 8192, NULL, Log::CLEANER_DISABLED);
+    LogCleaner* cleaner = &log.cleaner;
+    char alignedBuf0[8192] __attribute__((aligned(8192)));
+    char alignedBuf1[8192] __attribute__((aligned(8192)));
+    char alignedBuf3[8192] __attribute__((aligned(8192)));
+
+    Segment s0(1, 0, alignedBuf0, sizeof(alignedBuf0));
+    Segment s1(1, 1, alignedBuf1, sizeof(alignedBuf1));
+    Segment s3(1, 3, alignedBuf3, sizeof(alignedBuf3));
+    cleaner->scanList.push_back(&s0);
+    cleaner->scanList.push_back(&s1);
+    cleaner->scanList.push_back(&s3);
+
+    cleaner->scanNewCleanableSegments();
+    EXPECT_EQ(1U, cleaner->scanList.size());
+    EXPECT_EQ(2U, cleaner->cleanableSegments.size());
+    EXPECT_EQ(0U, cleaner->cleanableSegments[0]->getId());
+    EXPECT_EQ(1U, cleaner->cleanableSegments[1]->getId());
+    EXPECT_EQ(3U, cleaner->scanList[0]->getId());
+}
+
+static int scanCbCalled = 0;
+
+static void
+scanCB(LogEntryHandle h, void* cookie)
+{
+    EXPECT_EQ(reinterpret_cast<void*>(1234), cookie);
+    EXPECT_EQ(513U, h->length());
+    scanCbCalled++;
+}
+
+TEST(LogCleanerTest, scanSegment) {
+    Tub<uint64_t> serverId(0);
+    Log log(serverId, 1024 * 2, 1024, NULL, Log::CLEANER_DISABLED);
+    LogCleaner* cleaner = &log.cleaner;
+
+    log.registerType(LOG_ENTRY_TYPE_OBJ,
+                     NULL, NULL,
+                     NULL, NULL,
+                     NULL,
+                     scanCB,
+                     reinterpret_cast<void*>(1234));
+
+    while (log.cleanableNewList.size() < 1) {
+        char buf[513];
+        log.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
+    }
+
+    // indirectly invokes scanSegment
+    cleaner->scanNewCleanableSegments();
+
+    EXPECT_EQ(1, scanCbCalled);
+}
+
 TEST(LogCleanerTest, getSegmentsToClean) {
     Tub<uint64_t> serverId(0);
-    Log log(serverId, 8192 * 1000, 8192, NULL, Log::INLINED_CLEANER);
+    Log log(serverId, 8192 * 1000, 8192, NULL, Log::CLEANER_DISABLED);
     LogCleaner* cleaner = &log.cleaner;
     char buf[64];
 
@@ -67,13 +123,17 @@ TEST(LogCleanerTest, getSegmentsToClean) {
     } catch (LogException &e) {
     }
 
+    cleaner->scanNewCleanableSegments();
     cleaner->getSegmentsToClean(segmentsToClean);
 
     EXPECT_EQ(segmentsNeededForCleaning, segmentsToClean.size());
 
     for (size_t i = 0; i < segmentsToClean.size(); i++) {
         EXPECT_TRUE(segmentsToClean[i] != NULL);
-        EXPECT_LT(segmentsToClean[i]->getUtilisation(), 5);
+        if (i == segmentsToClean.size() - 1)
+            EXPECT_GT(segmentsToClean[i]->getUtilisation(), 95);
+        else
+            EXPECT_LT(segmentsToClean[i]->getUtilisation(), 5);
 
         // returned segments must no longer be in the cleanableSegments list,
         // since we're presumed to clean them now
@@ -114,7 +174,7 @@ TEST(LogCleanerTest, getSegmentsToClean_writeCost) {
 
     for (int i = 0; testSetup[i].freeEveryNth != -1; i++) {
         Tub<uint64_t> serverId(0);
-        Log log(serverId, 8192 * 1000, 8192, NULL, Log::INLINED_CLEANER);
+        Log log(serverId, 8192 * 1000, 8192, NULL, Log::CLEANER_DISABLED);
         LogCleaner* cleaner = &log.cleaner;
         int freeEveryNth = testSetup[i].freeEveryNth;
 
@@ -128,6 +188,7 @@ TEST(LogCleanerTest, getSegmentsToClean_writeCost) {
 
         SegmentVector dummy;
         TestLog::Enable _(&getSegmentsToCleanFilter);
+        cleaner->scanNewCleanableSegments();
         cleaner->getSegmentsToClean(dummy);
         double writeCost;
         sscanf(TestLog::get().c_str(),                  // NOLINT sscanf ok here
@@ -161,9 +222,14 @@ timestampCB(LogEntryHandle h)
     return 1;
 }
 
+static void
+scanCB2(LogEntryHandle h, void* cookie)
+{
+}
+
 TEST(LogCleanerTest, getSortedLiveEntries) {
     Tub<uint64_t> serverId(0);
-    Log log(serverId, 8192 * 20, 8192, NULL, Log::INLINED_CLEANER);
+    Log log(serverId, 8192 * 20, 8192, NULL, Log::CLEANER_DISABLED);
     LogCleaner* cleaner = &log.cleaner;
 
     SegmentVector segments;
@@ -178,7 +244,8 @@ TEST(LogCleanerTest, getSortedLiveEntries) {
 
     log.registerType(LOG_ENTRY_TYPE_OBJ, livenessCB, NULL,
                                          relocationCB, NULL,
-                                         timestampCB);
+                                         timestampCB,
+                                         scanCB2, NULL);
 
     cleaner->getSortedLiveEntries(segments, liveEntries);
 
