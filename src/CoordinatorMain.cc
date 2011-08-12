@@ -33,6 +33,7 @@ main(int argc, char *argv[])
     try {
         OptionParser optionParser(OptionsDescription("Coordinator"),
                                   argc, argv);
+        pinAllMemory();
         string localLocator = optionParser.options.getCoordinatorLocator();
         transportManager.initialize(localLocator.c_str());
         localLocator = transportManager.getListeningLocatorsString();

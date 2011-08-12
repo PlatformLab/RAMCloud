@@ -345,7 +345,7 @@ MasterService::freeRecoveryTombstone(LogEntryHandle handle)
  * HashTable::forEach.
  */
 void
-recoveryCleanup(LogEntryHandle maybeTomb, uint8_t type, void *cookie)
+recoveryCleanup(LogEntryHandle maybeTomb, void *cookie)
 {
     if (maybeTomb->type() == LOG_ENTRY_TYPE_OBJTOMB) {
         const ObjectTombstone *tomb = maybeTomb->userData<ObjectTombstone>();
@@ -1475,7 +1475,6 @@ MasterService::storeData(uint64_t tableId, uint64_t id,
     if (handle != NULL) {
         if (handle->type() == LOG_ENTRY_TYPE_OBJTOMB) {
             recoveryCleanup(handle,
-                            static_cast<uint8_t>(LOG_ENTRY_TYPE_OBJTOMB),
                             this);
             handle = NULL;
         } else {

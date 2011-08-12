@@ -580,5 +580,7 @@ prefetch(const T* object)
     prefetch(object, sizeof(*object));
 }
 
+void pinAllMemory();
+
 } // end RAMCloud
 #endif // RAMCLOUD_COMMON_H

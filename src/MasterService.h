@@ -281,8 +281,7 @@ class MasterService : public Service {
     void freeRecoveryTombstone(LogEntryHandle handle);
     void removeTombstones();
 
-    friend void recoveryCleanup(LogEntryHandle maybeTomb, uint8_t type,
-        void *cookie);
+    friend void recoveryCleanup(LogEntryHandle maybeTomb, void *cookie);
     friend void objectEvictionCallback(LogEntryHandle handle, LogTime logTime,
         void* cookie);
     friend void tombstoneEvictionCallback(LogEntryHandle handle,

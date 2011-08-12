@@ -114,6 +114,7 @@ try
         LOG(DEBUG, "server: Pinned to core %d", cpu);
     }
 
+    pinAllMemory();
     transportManager.initialize(
             optionParser.options.getLocalLocator().c_str());
     LOG(NOTICE, "%s: Listening on %s", servicesInfo,

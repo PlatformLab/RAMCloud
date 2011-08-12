@@ -13,6 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <boost/version.hpp>
 #include <boost/program_options.hpp>
 #include <boost/lexical_cast.hpp>
 #include <iostream>
@@ -179,8 +180,12 @@ OptionParser::setup(int argc, char* argv[])
     catch (po::multiple_occurrences& e) {
         // This clause could provides a more understandable error message
         // (the default is fairly opaque).
+#if BOOST_VERSION >= 104200 // get_option_name introduced in Boost 1.4.2
         throw po::error(format("command-line option '%s' occurs multiple times",
                 e.get_option_name().c_str()));
+#else
+        throw po::error("command-line option occurs multiple times");
+#endif
     }
 }
 
