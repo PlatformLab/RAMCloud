@@ -14,10 +14,10 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-"""Generates data for a recovery performance graph.
+"""Generates data for a recovery performance graph in the SOSP11 paper.
 
-Keeps partition size constant and scales the number of recovery masters and
-backups.
+Proportional scaling: keeps partition size constant and scales the number
+of recovery masters and backups.
 """
 
 from __future__ import division, print_function
@@ -43,22 +43,22 @@ def write(data, filename):
             print(x, *ys, file=f)
 
 data = AveragingDict()
-numHosts = 35
+maxPartitions = 19
 for trial in range(5):
     print('Trial', trial)
-    for numPartitions in range(1, numHosts // 3 + 1):
+    for numPartitions in range(1, maxPartitions + 1):
         print(numPartitions, ' partitions')
 
         args = {}
-        args['numBackups'] = numPartitions * 6
+        args['numBackups'] = numPartitions * 3
         args['numPartitions'] = numPartitions
         args['objectSize'] = 1024
         args['disk'] = 3
         args['replicas'] = 3
         args['numObjects'] = 626012 * 600 // 640
-        args['oldMasterArgs'] = '-m 17000'
-        args['newMasterArgs'] = '-m 16000'
-        args['timeout'] = 180
+        args['oldMasterArgs'] = '-t 17000'
+        args['newMasterArgs'] = '-t 16000'
+        args['timeout'] = 60
         r = recovery.insist(**args)
         print('->', r['ns'] / 1e6, 'ms', '(run %s)' % r['run'])
 
@@ -67,7 +67,7 @@ for trial in range(5):
                               for backup in r['metrics'].backups]
         segmentsPerBackup = [backup.backup.storageReadCount
                              for backup in r['metrics'].backups]
-        masterRecoveryMs = [master.recoveryTicks / master.clockFrequency * 1000
+        masterRecoveryMs = [master.master.recoveryTicks / master.clockFrequency * 1000
                             for master in r['metrics'].masters]
 
         stats = (

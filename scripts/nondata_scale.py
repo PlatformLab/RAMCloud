@@ -14,7 +14,7 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-"""Generates data for a recovery performance graph.
+"""Generates data for a recovery performance graph in the SOSP11 paper.
 
 Keeps partition size constant and scales the number of recovery masters.
 """
@@ -56,18 +56,18 @@ def main():
     trials = {}
     for trial in range(5):
         for numObjects in [1, -1]:
-            for numPartitions in reversed(range(1, 12)):
+            for numPartitions in reversed(range(1, 20)):
                 args = {}
-                args['numBackups'] = min(numPartitions * 6, 35)
+                args['numBackups'] = min(numPartitions * 3, 58)
                 args['numPartitions'] = numPartitions
                 args['objectSize'] = 1024
-                args['disk'] = 2
+                args['disk'] = 0
                 args['replicas'] = 3
                 if numObjects == -1:
                     numObjects = 626012 * (1.16 - .0075 * (numPartitions-1)) // 640
                 args['numObjects'] = numObjects
-                args['oldMasterArgs'] = '-m 1200'
-                args['newMasterArgs'] = '-m 16000'
+                args['oldMasterArgs'] = '-t 1200'
+                args['newMasterArgs'] = '-t 16000'
                 print(numPartitions, 'partitions')
                 if numObjects not in trials:
                     trials[numObjects] = {}
@@ -96,7 +96,11 @@ def main():
                         break
                     except KeyError, e:
                         print(e)
-                        print('Broken metrics, trying again (run %s)' % r['run'])
+                        try:
+                            run = r['run']
+                        except:
+                            run = '??'
+                        print('Broken metrics, trying again (run %s)' % run)
                 writeFile(trials)
 
 if __name__ == '__main__': main()

@@ -99,15 +99,15 @@ def main(fileName, append=False, tag=0, iterations=100000):
             backupStrategy = (backupStrategy + 1) % strategies
 
         args = {}
-        args['numBackups'] = 66
+        args['numBackups'] = 33
         args['numPartitions'] = 11
         args['objectSize'] = 1024
         args['disk'] = 3
         args['replicas'] = 3
         args['numObjects'] = 626012 * 600 // 640
         args['backupArgs'] = '--backupStrategy=%d' % backupStrategy
-        args['oldMasterArgs'] = '-m 17000'
-        args['newMasterArgs'] = '-m 16000'
+        args['oldMasterArgs'] = '-t 17000'
+        args['newMasterArgs'] = '-t 16000'
         args['timeout'] = 120
         print('iteration', i, 'strategy', backupStrategy)
         r = recovery.insist(**args)
