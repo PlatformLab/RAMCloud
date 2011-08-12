@@ -142,7 +142,7 @@ ObjectFinder::waitForAllTabletsNormal()
         }
         if (allNormal && tabletMap.tablet_size() > 0)
             return;
-        usleep(1000);
+        usleep(200);
         refresher(tabletMap);
     }
 }
