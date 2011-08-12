@@ -472,15 +472,19 @@ TEST_F(TcpTransportTest, sendMessage_largeBuffer) {
             &reply);
     Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
-    EXPECT_GT(TcpTransport::messageChunks, 0);
+    EXPECT_GT(TcpTransport::messageChunks, 0)
+        << "The message fit in one chunk. You may have to increase the size "
+           "of the message for this test to be effective.";
     EXPECT_EQ("ok", TestUtil::checkLargeBuffer(&serverRpc->requestPayload,
             300000));
-    TestUtil::fillLargeBuffer(&serverRpc->replyPayload, 250000);
+    TestUtil::fillLargeBuffer(&serverRpc->replyPayload, 350000);
     TcpTransport::messageChunks = 0;
     serverRpc->sendReply();
     EXPECT_TRUE(TestUtil::waitForRpc(*clientRpc));
-    EXPECT_EQ("ok", TestUtil::checkLargeBuffer(&reply, 250000));
-    EXPECT_GT(TcpTransport::messageChunks, 0);
+    EXPECT_GT(TcpTransport::messageChunks, 0)
+        << "The message fit in one chunk. You may have to increase the size "
+           "of the message for this test to be effective.";
+    EXPECT_EQ("ok", TestUtil::checkLargeBuffer(&reply, 350000));
 }
 
 TEST_F(TcpTransportTest, sendMessage_brokenPipe) {
@@ -1044,7 +1048,7 @@ TEST_F(TcpTransportTest, sendReply) {
     serverRpc->sendReply();
     serverRpc = serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
-    TestUtil::fillLargeBuffer(&serverRpc->replyPayload, 199999);
+    TestUtil::fillLargeBuffer(&serverRpc->replyPayload, 1999990);
     serverRpc->sendReply();
     serverRpc = serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
@@ -1054,7 +1058,9 @@ TEST_F(TcpTransportTest, sendReply) {
     // Check server state.
     EXPECT_NE(server.sockets.size(), 0U);
     TcpTransport::Socket* socket = server.sockets[server.sockets.size() - 1];
-    EXPECT_EQ(2U, socket->rpcsWaitingToReply.size());
+    EXPECT_EQ(2U, socket->rpcsWaitingToReply.size())
+        << "There are no pending RPCs responses to send. You may have to "
+           "increase the size of the message for this test to be effective.";
     EXPECT_EQ("~TcpServerRpc: deleted", TestLog::get());
     TestLog::reset();
 
@@ -1062,7 +1068,7 @@ TEST_F(TcpTransportTest, sendReply) {
     EXPECT_TRUE(TestUtil::waitForRpc(*clientRpc1));
     EXPECT_EQ("response1/0", TestUtil::toString(&reply1));
     EXPECT_TRUE(TestUtil::waitForRpc(*clientRpc2));
-    EXPECT_EQ("ok", TestUtil::checkLargeBuffer(&reply2, 199999));
+    EXPECT_EQ("ok", TestUtil::checkLargeBuffer(&reply2, 1999990));
     EXPECT_TRUE(TestUtil::waitForRpc(*clientRpc3));
     EXPECT_EQ("response3/0", TestUtil::toString(&reply3));
     EXPECT_EQ("~TcpServerRpc: deleted | ~TcpServerRpc: deleted",

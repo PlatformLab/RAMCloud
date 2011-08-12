@@ -887,8 +887,12 @@ class HashTable {
                 typeField <<= (47 - typeBits);
             }
 
-            if ((ptr  & ~(0x00007fffffffffffUL >> typeBits)) != 0)
-                throw Exception(HERE, "pointer cannot fit! stack addr used?");
+            if ((ptr  & ~(0x00007fffffffffffUL >> typeBits)) != 0) {
+                throw Exception(HERE, format(
+                    "The given pointer (0x%016lx) can't fit in a hash table "
+                    "entry. Maybe it's a stack address? typeBits=%u",
+                    ptr, typeBits));
+            }
 
             uint64_t c = chain ? 1 : 0;
             assert((hash & ~(0x000000000000ffffUL)) == 0);

@@ -44,7 +44,7 @@ struct LargeBlockOfMemory {
         : length(length)
         , block(static_cast<T*>(mmap(NULL, length, PROT_READ | PROT_WRITE,
                                      MAP_SHARED | MAP_ANONYMOUS |
-                                     MAP_LOCKED | MAP_POPULATE, -1, 0)))
+                                     MAP_POPULATE, -1, 0)))
     {
         if (block == MAP_FAILED) {
             if (length == 0)
@@ -101,7 +101,7 @@ struct LargeBlockOfMemory {
         }
 
         block = reinterpret_cast<T*>(mmap(NULL, length, PROT_READ | PROT_WRITE,
-                                         MAP_SHARED | MAP_LOCKED | MAP_POPULATE,
+                                         MAP_SHARED | MAP_POPULATE,
                                          fd, 0));
         if (reinterpret_cast<void*>(block) == MAP_FAILED) {
             unlink(path);

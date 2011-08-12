@@ -5,9 +5,9 @@ AUTO_GEN_HEADERS += $(OBJDIR)/Metrics.in.h
 .SECONDARY: $(AUTO_GEN_HEADERS)
 $(OBJDIR)/%.pb.cc $(OBJDIR)/%.pb.h: $(TOP)/src/%.proto
 	@mkdir -p $(OBJDIR)
-	@echo protoc ... $$(basename $<)
+	@echo $(PROTOC) ... $$(basename $<)
 	@cd $(TOP)/src/; \
-	protoc --cpp_out=$(TOP)/$(OBJDIR) $$(basename $<); \
+	$(PROTOC) --cpp_out=$(TOP)/$(OBJDIR) $$(basename $<) || exit 1; \
 	echo "// RAMCloud pragma [GCCWARN=0]" >> $(TOP)/$(OBJDIR)/$$(basename $< .proto).pb.h; \
 	echo "// RAMCloud pragma [GCCWARN=0]" >> $(TOP)/$(OBJDIR)/$$(basename $< .proto).pb.cc
 

@@ -4,6 +4,11 @@
 #       Recursive Make Considered Harmful
 #       http://aegis.sourceforge.net/auug97.pdf
 
+
+# The following line allows developers to change the default values for make
+# variables in the file private/MakefragPrivateTop.
+include $(wildcard private/MakefragPrivateTop)
+
 DEBUG ?= yes
 YIELD ?= no
 SSE ?= sse4.2
@@ -69,23 +74,31 @@ COMFLAGS += -DYIELD=1
 endif
 
 CFLAGS_BASE := $(COMFLAGS) -std=gnu0x $(INCLUDES)
+CFLAGS_SILENT := $(CFLAGS_BASE)
 CFLAGS_NOWERROR := $(CFLAGS_BASE) $(CWARNS)
 CFLAGS := $(CFLAGS_BASE) -Werror $(CWARNS)
 
-CXXFLAGS_BASE := $(COMFLAGS) -std=c++0x $(INCLUDES) $(EXTRACXXFLAGS)
-CXXFLAGS_NOWERROR := $(CXXFLAGS_BASE) $(CXXWARNS)
-CXXFLAGS := $(CXXFLAGS_BASE) -Werror $(CXXWARNS)
+CXXFLAGS_BASE := $(COMFLAGS) -std=c++0x $(INCLUDES)
+CXXFLAGS_SILENT := $(CXXFLAGS_BASE) $(EXTRACXXFLAGS)
+CXXFLAGS_NOWERROR := $(CXXFLAGS_BASE) $(CXXWARNS) $(EXTRACXXFLAGS)
+CXXFLAGS := $(CXXFLAGS_BASE) -Werror $(CXXWARNS) $(EXTRACXXFLAGS)
+
 ifeq ($(COMPILER),intel)
 CXXFLAGS = $(CXXFLAGS_BASE) $(CXXWARNS)
 endif
 
-CC := gcc
-CXX := g++
-AR := ar
-PERL := perl
-LINT := python cpplint.py --filter=-runtime/threadsafe_fn,-readability/streams,-whitespace/blank_line,-whitespace/braces,-whitespace/comments,-runtime/arrays,-build/include_what_you_use,-whitespace/semicolon
+CC ?= gcc
+CXX ?= g++
+AR ?= ar
+PERL ?= perl
+PYTHON ?= python
+LINT := $(PYTHON) cpplint.py --filter=-runtime/threadsafe_fn,-readability/streams,-whitespace/blank_line,-whitespace/braces,-whitespace/comments,-runtime/arrays,-build/include_what_you_use,-whitespace/semicolon
 PRAGMAS := ./pragmas.py
 NULL := # useful for terminating lists of files
+PROTOC ?= protoc
+EPYDOC ?= epydoc
+EPYDOCFLAGS ?= --simple-term -v
+DOXYGEN ?= doxygen
 
 # run-cc:
 # Compile a C source file to an object file.
@@ -97,8 +110,8 @@ define run-cc
 @GCCWARN=$$( $(PRAGMAS) -q GCCWARN $(2) ); \
 case $$GCCWARN in \
 0) \
-	echo $(CC) $(CFLAGS_BASE) $(3) -c -o $(1) $(2); \
-	$(CC) $(CFLAGS_BASE) $(3) -c -o $(1) $(2); \
+	echo $(CC) $(CFLAGS_SILENT) $(3) -c -o $(1) $(2); \
+	$(CC) $(CFLAGS_SILENT) $(3) -c -o $(1) $(2); \
 	;; \
 5) \
 	echo $(CC) $(CFLAGS_NOWERROR) $(3) -c -o $(1) $(2); \
@@ -121,8 +134,8 @@ define run-cxx
 @GCCWARN=$$( $(PRAGMAS) -q GCCWARN $(2) ); \
 case $$GCCWARN in \
 0) \
-	echo $(CXX) $(CXXFLAGS_BASE) $(3) -c -o $(1) $(2); \
-	$(CXX) $(CXXFLAGS_BASE) $(3) -c -o $(1) $(2); \
+	echo $(CXX) $(CXXFLAGS_SILENT) $(3) -c -o $(1) $(2); \
+	$(CXX) $(CXXFLAGS_SILENT) $(3) -c -o $(1) $(2); \
 	;; \
 5) \
 	echo $(CXX) $(CXXFLAGS_NOWERROR) $(3) -c -o $(1) $(2); \
@@ -187,7 +200,7 @@ docs: python-docs
 	DOCSID=$$DOCSID-`cat ".git/$$( git symbolic-ref HEAD )" | cut -c1-6` ;\
 	(echo "PROJECT_NUMBER = \"Version [$$DOCSID]\""; \
 	 echo "INPUT = src bindings README $(OBJDIR)"; \
-	 echo "INCLUDE_PATH = $(OBJDIR)"; ) | cat Doxyfile - | doxygen -
+	 echo "INCLUDE_PATH = $(OBJDIR)"; ) | cat Doxyfile - | $(DOXYGEN) -
 
 docs-clean: python-docs-clean
 	rm -rf docs/doxygen/
