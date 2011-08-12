@@ -66,6 +66,15 @@ runRecovery(RamCloud& client,
         for (int tt = 0; tt < tableSkip; tt++) {
             snprintf(tableName, sizeof(tableName), "junk%d.%d", t, tt);
             client.createTable(tableName);
+
+            // For the first table on each other master, create an object in
+            // the table. The sole purpose of this is to trigger code in the
+            // master that will open connections with all the backups so that
+            // connection setup doesn't happen during recovery and slow it down.
+            if (t == 0) {
+                int table = client.openTable(tableName);
+                client.write(table, 1, "abcd", 4);
+            }
         }
     }
 

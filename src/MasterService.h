@@ -267,6 +267,15 @@ class MasterService : public Service {
      */
     ProtoBuf::Tablets tablets;
 
+    /**
+     * Used to identify the first write request, so that we can initialize
+     * connections to all backups at that time (this is a temporary kludge
+     * that needs to be replaced with a better solution).  False means this
+     * service has not yet processed any write requests.
+     */
+    bool anyWrites;
+
+
     /* Temporary tombstone methods used during recovery. */
     LogEntryHandle allocRecoveryTombstone(const ObjectTombstone* srcTomb);
     void freeRecoveryTombstone(LogEntryHandle handle);
