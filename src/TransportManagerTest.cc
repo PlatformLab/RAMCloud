@@ -195,6 +195,7 @@ void worker(Transport::SessionRef session) {
 TEST_F(TransportManagerTest, workerSessionSyncWithDispatchThread) {
     delete dispatch;
     dispatch = new Dispatch;
+    dispatch->hasDedicatedThread = true;
 
     MockTransport transport;
     Transport::SessionRef wrappedSession = new TransportManager::WorkerSession(
