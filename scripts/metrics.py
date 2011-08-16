@@ -195,6 +195,26 @@ def avgAndMin(points):
             min = p
     return (average(points), min)
 
+def maxTuple(tuples):
+    """Return the tuple whose first element is largest."""
+    maxTuple = None;
+    maxValue = 0.0;
+    for tuple in tuples:
+        if tuple[0] > maxValue:
+            maxValue = tuple[0]
+            maxTuple = tuple
+    return maxTuple
+
+def minTuple(tuples):
+    """Return the tuple whose first element is smallest."""
+    minTuple = None;
+    minValue = 1e100;
+    for tuple in tuples:
+        if tuple[0] < minValue:
+            minValue = tuple[0]
+            minTuple = tuple
+    return minTuple
+
 def seq(x):
     """Turn the argument into a sequence.
 
@@ -1232,28 +1252,6 @@ def textReport(data, printReport=True):
         '{0:6.2f}%',
         note='of total recovery')
 
-    slowReader = ""
-    slowReadBw = 1e30;
-    slowWriter = ""
-    slowWriteBw = 1e30;
-    for backup in backups:
-        if backup.backup.storageReadTicks != 0:
-            bw = ((backup.backup.storageReadBytes / 2**20) / 
-                        (backup.backup.storageReadTicks / backup.clockFrequency))
-            if bw < slowReadBw:
-                slowReader = backup.server
-                slowReadBw = bw
-        if backup.backup.storageWriteTicks != 0:
-            bw = ((backup.backup.storageWriteBytes / 2**20) / 
-                        (backup.backup.storageWriteTicks / backup.clockFrequency))
-            if bw < slowWriteBw:
-                slowWriter = backup.server
-                slowWriteBw = bw
-    diskSection.line("Slowest reader", ['%s (%.1f MB/s)' %
-            (slowReader, slowReadBw)])
-    diskSection.line("Slowest writer", ['%s (%.1f MB/s)' %
-            (slowWriter, slowWriteBw)])
-
     backupSection = report.add(Section('Backup Events'))
     backupSection.avgMaxFrac('Segments read',
         [backup.backup.storageReadCount for backup in backups])
@@ -1261,6 +1259,28 @@ def textReport(data, printReport=True):
         [backup.backup.primaryLoadCount for backup in backups])
     backupSection.avgMaxFrac('Secondary segments loaded',
         [backup.backup.secondaryLoadCount for backup in backups])
+
+    slowSection = report.add(Section('Slowest Servers'))
+    slowSection.line('Backup opens, writes',
+            ['{1:s} ({0:.1f} ms)'.format(*maxTuple([
+                [1e03 * (master.master.backupManagerTicks - 
+                 master.master.logSyncTicks) / master.clockFrequency,
+                 master.server] for master in masters]))])
+    slowSection.line('Stalled reading segs from backups',
+            ['{1:s} ({0:.1f} ms)'.format(*maxTuple([
+                [1e03 * master.master.segmentReadStallTicks /
+                 master.clockFrequency, master.server]
+                 for master in masters]))])
+    slowSection.line('Reading from disk',
+            ['{1:s} ({0:.1f} MB/s)'.format(*minTuple([
+                [(backup.backup.storageReadBytes / 2**20) / 
+                (backup.backup.storageReadTicks / backup.clockFrequency),
+                backup.server] for backup in backups]))])
+    slowSection.line('Writing to disk',
+            ['{1:s} ({0:.1f} MB/s)'.format(*minTuple([
+                [(backup.backup.storageWriteBytes / 2**20) / 
+                (backup.backup.storageWriteTicks / backup.clockFrequency),
+                backup.server] for backup in backups]))])
 
     localSection = report.add(Section('Local Metrics'))
     for hosts, attr in [([coord], 'coordinator'),
@@ -1329,3 +1349,4 @@ def main():
 
 if __name__ == '__main__':
     sys.exit(main())
+
