@@ -59,6 +59,7 @@ try
             continue;
         }
         actual = serverList.server_size();
+        LOG(DEBUG, "found %d servers", actual);
         if (number == actual)
             return 0;
         usleep(10000);
