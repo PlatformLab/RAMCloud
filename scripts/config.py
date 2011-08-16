@@ -72,8 +72,6 @@ os.environ['LD_LIBRARY_PATH'] = ':'.join(ld_library_path)
 # Ethernet addresses.
 hosts = []
 for i in range(1, 37):
-    if i == 34:
-        continue     # this host currently misconfigured.
     hosts.append(('rc%02d' % i,
                   '192.168.1.%d' % (100 + i),
                   i))
