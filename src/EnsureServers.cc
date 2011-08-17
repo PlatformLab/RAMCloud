@@ -31,7 +31,7 @@ try
 {
     OptionsDescription clientOptions("EnsureServers");
     int number = 0;
-    int timeout = 10;
+    int timeout = 20;
     clientOptions.add_options()
         ("number,n",
          ProgramOptions::value<int>(&number),
