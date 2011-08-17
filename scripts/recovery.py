@@ -24,10 +24,13 @@ import os
 import pprint
 import re
 import subprocess
+import sys
 import time
 
 hosts = []
-for i in range(1, 37):
+for i in range(1,60):
+    if i == 14:
+        continue
     hosts.append(('rc%02d' % i,
                   '192.168.1.%d' % (100 + i)))
 
@@ -37,10 +40,11 @@ serverBin = '%s/server' % obj_path
 clientBin = '%s/client' % obj_path
 ensureServersBin = '%s/ensureServers' % obj_path
 
-def recover(numBackups=1,
+def recover(numBackups=1,             # Number of hosts on which to start
+                                      # backups (*not* # of backup servers).
             numPartitions=1,
             objectSize=1024,
-            numObjects=626012,
+            numObjects=626012,        # Number of objects in each partition.
             numRemovals=0,
             replicas=1,
             disk=1,
@@ -62,7 +66,7 @@ def recover(numBackups=1,
     # Figure out which ranges of serverHosts will serve as backups, as
     # recovery masters, and as dual-backups (if we're using two disks
     # on each backup).
-    if disk != 3:
+    if disk < 3:
         doubleBackupEnd = 0;
     else:
         doubleBackupEnd = numBackups
@@ -80,11 +84,12 @@ def recover(numBackups=1,
         primaryDisk = '-f /dev/sda2'
     elif disk == 2:
         primaryDisk = '-f /dev/sdb2'
-    elif disk == 4:
-        primaryDisk = '-f /dev/md2'
     elif disk == 3:
         primaryDisk = '-f /dev/sda2'
         secondaryDisk = '-f /dev/sdb2'
+    elif disk == 4:
+        primaryDisk = '-m'
+        secondaryDisk = '-m'
     else:
         raise Exception('Disk should be an integer between 0 and 4')
 
@@ -159,7 +164,7 @@ def recover(numBackups=1,
 
             # start extra backup server on this host, if we are using
             # dual disks.
-            if isBackup and disk == 3:
+            if isBackup and disk >= 3:
                 command = ('%s -C %s -L infrc:host=%s,port=12244 -B %s %s' %
                            (serverBin, coordinatorLocator, host[1],
                             secondaryDisk, backupArgs))
@@ -194,10 +199,19 @@ def recover(numBackups=1,
         for i in range(100):
             try:
                 stats['metrics'] = metrics.parseRecovery(run)
+
+                # The following statement ensures that all of the desired
+                # metrics are available.  There is a race where it's possible
+                # that we get here before all of the servers have flushed all
+                # of their log data.  If that happens, an exception will be
+                # generated and we will try again.
+                metrics.textReport(stats['metrics'], False)
             except:
                 time.sleep(0.1)
                 continue
             break
+        else:
+            raise Exception("couldn't gather complete metrics; logs damaged?")
         stats['run'] = run
         stats['count'] = numObjects
         stats['size'] = objectSize
@@ -209,21 +223,20 @@ def insist(*args, **kwargs):
     while True:
         try:
             return recover(*args, **kwargs)
-        except subprocess.CalledProcessError, e:
-            print 'Recovery failed:', e
-            print 'Trying again...'
-        except ValueError, e:
+        except KeyboardInterrupt, e:
+            raise
+        except Exception, e:
             print 'Recovery failed:', e
             print 'Trying again...'
 
 if __name__ == '__main__':
     args = {}
-    args['numBackups'] = 33
-    args['numPartitions'] = 11
+    args['numBackups'] = 57
+    args['numPartitions'] = 19
     args['objectSize'] = 1024
     args['disk'] = 3
     args['numObjects'] = 626012 * 600 // 640
     args['oldMasterArgs'] = '-t %d' % (900 * args['numPartitions'])
     args['newMasterArgs'] = '-t 16000'
     args['replicas'] = 3
-    pprint.pprint(recover(**args))
+    recover(**args)

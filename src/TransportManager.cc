@@ -157,8 +157,9 @@ TransportManager::~TransportManager()
 void
 TransportManager::initialize(const char* localServiceLocator)
 {
-    Dispatch::Lock lock;
     isServer = true;
+    Dispatch::init(isServer);
+    Dispatch::Lock lock;
     std::vector<ServiceLocator> locators =
             ServiceLocator::parseServiceLocators(localServiceLocator);
 

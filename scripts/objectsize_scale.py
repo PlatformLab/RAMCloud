@@ -16,7 +16,8 @@
 
 """Generates data for a recovery performance graph.
 
-Keeps partition size constant and scales the number of objects.
+Measures recovery time as a function of partition size for a
+single recovery Master and 3 different object sizes.
 """
 
 from __future__ import division, print_function
@@ -39,8 +40,8 @@ for objectSize in [128, 256, 1024]:
         print('Running with objects of size %d for a %d MB partition' %
               (objectSize, partitionSize))
         r = recovery.insist(
-            oldMasterArgs='-m 1600',
-            newMasterArgs='-m 16000',
+            oldMasterArgs='-t 1600',
+            newMasterArgs='-t 16000',
             numObjects=int(numObjectsPerMb * partitionSize),
             **args)
         print('->', r['ns'] / 1e6, 'ms', '(run %s)' % r['run'])

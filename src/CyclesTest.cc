@@ -42,12 +42,11 @@ TEST_F(CyclesTest, basics) {
         start = Cycles::rdtsc();
         usleep(1000);
         elapsed = Cycles::toSeconds(Cycles::rdtsc() - start);
-        if ((elapsed >= .001) && (elapsed <.0015)) {
-            break;
-        }
+        ASSERT_LE(.001, elapsed);
+        ASSERT_GT(.0035, elapsed)
+          << "Your system slept longer than it should have. "
+             "There's probably nothing wrong -- this test is dubious.";
     }
-    EXPECT_LE(.001, elapsed);
-    EXPECT_GT(.0015, elapsed);
 }
 
 TEST_F(CyclesTest, perSecond_sanity) {

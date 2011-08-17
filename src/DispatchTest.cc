@@ -295,6 +295,7 @@ TEST_F(DispatchTest, destructor) {
 static void lockTestThread(Dispatch** d, volatile int* flag,
         CountPoller** poller) {
     *d = new Dispatch();
+    (*d)->hasDedicatedThread = true;
     *poller = new CountPoller(*d);
     *flag = 1;
     while (*flag == 1)
@@ -422,6 +423,7 @@ static void checkDispatchThread(Dispatch* td, bool* result) {
     *result = td->isDispatchThread();
 }
 TEST_F(DispatchTest, isDispatchThread) {
+    td->hasDedicatedThread = true;
     EXPECT_TRUE(td->isDispatchThread());
     bool childResult = true;
     boost::thread(checkDispatchThread, td, &childResult).join();

@@ -79,6 +79,7 @@ mmapGigabyteAligned(size_t length, int extraFlags, int fd = -1)
 
     void* block = reinterpret_cast<void*>(tryBase);
 
+#ifdef MLOCK_PAGES
     // Pin the pages. Don't do this with the mmap() MAP_LOCKED flag since
     // that slows down probing considerably (Linux might be locking down
     // pages before it knows that it can actually give us the entire range?).
@@ -87,6 +88,7 @@ mmapGigabyteAligned(size_t length, int extraFlags, int fd = -1)
         RAMCLOUD_LOG(ERROR, "Couldn't pin down the memory!");
         return MAP_FAILED;
     }
+#endif
 
     // Force the OS to populate backing pages.  MAP_POPULATE doesn't seem to
     // do the trick and using it makes polling mmap for aligned base addresses

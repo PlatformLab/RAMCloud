@@ -24,6 +24,7 @@
 #include <fcntl.h>
 #include <pcrecpp.h>
 #include <stdarg.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
 
 #include "Common.h"
@@ -300,5 +301,20 @@ string demangle(const char* name) {
     free(res);
     return ret;
 }
+
+/**
+ * Pin all current and future memory pages in memory so that the OS does not
+ * swap them to disk. All RAMCloud server main files should call this.
+ */
+void pinAllMemory() {
+    int r = mlockall(MCL_CURRENT | MCL_FUTURE);
+    if (r != 0) {
+        LOG(WARNING, "Could not lock all memory pages (%s), so the OS might "
+                     "swap memory later. Check your user's \"ulimit -l\" and "
+                     "adjust /etc/security/limits.conf as necessary.",
+                     strerror(errno));
+    }
+}
+
 
 } // namespace RAMCloud

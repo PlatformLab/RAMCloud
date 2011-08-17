@@ -35,8 +35,8 @@ for numPartitions in range(1, 36):
     args['disk'] = 1
     args['replicas'] = 3
     args['numObjects'] = 626012 * 400 // 640
-    args['oldMasterArgs'] = '-m 17000'
-    args['newMasterArgs'] = '-m 16000'
+    args['oldMasterArgs'] = '-t 17000'
+    args['newMasterArgs'] = '-t 16000'
     args['timeout'] = 180
     print(numPartitions, 'partitions')
     r = recovery.insist(**args)
@@ -46,7 +46,7 @@ for numPartitions in range(1, 36):
                           for backup in r['metrics'].backups]
     segmentsPerBackup = [backup.backup.storageReadCount
                          for backup in r['metrics'].backups]
-    masterRecoveryMs = [master.recoveryTicks / master.clockFrequency * 1000
+    masterRecoveryMs = [master.master.recoveryTicks / master.clockFrequency * 1000
                         for master in r['metrics'].masters]
     print(numPartitions, r['ns'] / 1e6,
           metrics.average(diskActiveMsPoints),

@@ -5,9 +5,9 @@ AUTO_GEN_HEADERS += $(OBJDIR)/Metrics.in.h
 .SECONDARY: $(AUTO_GEN_HEADERS)
 $(OBJDIR)/%.pb.cc $(OBJDIR)/%.pb.h: $(TOP)/src/%.proto
 	@mkdir -p $(OBJDIR)
-	@echo protoc ... $$(basename $<)
+	@echo $(PROTOC) ... $$(basename $<)
 	@cd $(TOP)/src/; \
-	protoc --cpp_out=$(TOP)/$(OBJDIR) $$(basename $<); \
+	$(PROTOC) --cpp_out=$(TOP)/$(OBJDIR) $$(basename $<) || exit 1; \
 	echo "// RAMCloud pragma [GCCWARN=0]" >> $(TOP)/$(OBJDIR)/$$(basename $< .proto).pb.h; \
 	echo "// RAMCloud pragma [GCCWARN=0]" >> $(TOP)/$(OBJDIR)/$$(basename $< .proto).pb.cc
 
@@ -48,6 +48,7 @@ SHARED_SRCFILES := \
 		   src/Metrics.cc \
 		   src/ObjectFinder.cc \
 		   src/OptionParser.cc \
+		   src/PcapFile.cc \
 		   src/PingClient.cc \
 		   src/PingService.cc \
 		   src/RamCloud.cc \
@@ -60,7 +61,6 @@ SHARED_SRCFILES := \
 		   src/ServiceManager.cc \
 		   src/SpinLock.cc \
 		   src/Status.cc \
-		   src/StringKeyAdapter.cc \
 		   src/TabletProfiler.cc \
 		   src/TcpTransport.cc \
 		   src/ThreadId.cc \

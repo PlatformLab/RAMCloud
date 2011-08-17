@@ -33,6 +33,7 @@
 #include "Common.h"
 #include "FastTransport.h"
 #include "InfUdDriver.h"
+#include "PcapFile.h"
 #include "ShortMacros.h"
 
 namespace RAMCloud {
@@ -324,6 +325,9 @@ InfUdDriver<Infiniband>::sendPacket(const Driver::Address *addr,
     }
     uint32_t length = static_cast<uint32_t>(p - bd->buffer);
 
+    if (pcapFile)
+        pcapFile->append(bd->buffer, length);
+
     try {
         LOG(DEBUG, "sending %u bytes to %s...", length,
             addr->toString().c_str());
@@ -362,6 +366,9 @@ InfUdDriver<Infiniband>::Poller::poll()
         driver->packetBufPool.destroy(buffer);
         return;
     }
+
+    if (pcapFile)
+        pcapFile->append(bd->buffer, bd->messageBytes);
 
     if (bd->messageBytes < (driver->localMac ? 60 : GRH_SIZE)) {
         LOG(ERROR, "received impossibly short packet!");

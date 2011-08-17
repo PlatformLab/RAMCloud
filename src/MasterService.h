@@ -269,6 +269,14 @@ class MasterService : public Service {
     ProtoBuf::Tablets tablets;
 
     /**
+     * Used to identify the first write request, so that we can initialize
+     * connections to all backups at that time (this is a temporary kludge
+     * that needs to be replaced with a better solution).  False means this
+     * service has not yet processed any write requests.
+     */
+    bool anyWrites;
+
+    /**
      * Lock that serialises all object updates (creations, overwrites,
      * deletions, and cleaning relocations). This protects regular RPC
      * operations from the log cleaner. When we work on multithreaded
@@ -279,8 +287,7 @@ class MasterService : public Service {
     /* Tombstone cleanup method used after recovery. */
     void removeTombstones();
 
-    friend void recoveryCleanup(LogEntryHandle maybeTomb, uint8_t type,
-        void *cookie);
+    friend void recoveryCleanup(LogEntryHandle maybeTomb, void *cookie);
     friend bool objectLivenessCallback(LogEntryHandle handle, void* cookie);
     friend bool objectRelocationCallback(LogEntryHandle oldHandle,
                                          LogEntryHandle newHandle,

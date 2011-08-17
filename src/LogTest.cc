@@ -128,7 +128,7 @@ class LogTest : public CppUnit::TestFixture {
     {
         Tub<uint64_t> serverId;
         serverId.construct(57);
-        Log l(serverId, 5 * 8192, 8192);
+        Log l(serverId, 5 * 8192, 8192, NULL, Log::CLEANER_DISABLED);
 
         Segment* cleaned = new Segment(&l, l.allocateSegmentId(),
             l.getFromFreeList(), 8192, NULL, LOG_ENTRY_TYPE_UNINIT,
@@ -375,7 +375,9 @@ class LogTest : public CppUnit::TestFixture {
     {
         Tub<uint64_t> serverId;
         serverId.construct(57);
-        Log l(serverId, 2 * 8192, 8192);
+        Log l(serverId, 2 * 8192, 8192, NULL, Log::CLEANER_DISABLED);
+
+        mockWallTimeValue = 1;
 
         SegmentVector out;
         l.getNewCleanableSegments(out);
@@ -390,6 +392,7 @@ class LogTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(1, l.cleanableNewList.size());
         CPPUNIT_ASSERT_EQUAL(0, l.cleanableList.size());
 
+        mockWallTimeValue = 9999;
         l.getNewCleanableSegments(out);
         CPPUNIT_ASSERT_EQUAL(1, out.size());
 

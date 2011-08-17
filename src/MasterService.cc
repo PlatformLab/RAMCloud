@@ -76,6 +76,7 @@ MasterService::MasterService(const ServerConfig config,
     , objectMap(config.hashTableBytes /
         HashTable<LogEntryHandle>::bytesPerCacheLine())
     , tablets()
+    , anyWrites(false)
     , objectUpdateLock()
 {
     log.registerType(LOG_ENTRY_TYPE_OBJ,
@@ -160,13 +161,6 @@ MasterService::init()
 {
     // Permit a NULL coordinator for testing/benchmark purposes.
     if (coordinator) {
-        // Open a session with each of the backups so that this doesn't slow
-        // down replication later.
-        ProtoBuf::ServerList backups;
-        coordinator->getBackupList(backups);
-        foreach(auto& backup, backups.server())
-            transportManager.getSession(backup.service_locator().c_str());
-
         // Enlist with the coordinator.
         serverId.construct(coordinator->enlistServer(MASTER,
                                                      config.localLocator));
@@ -339,7 +333,7 @@ MasterService::read(const ReadRpc::Request& reqHdr,
  * HashTable::forEach.
  */
 void
-recoveryCleanup(LogEntryHandle maybeTomb, uint8_t type, void *cookie)
+recoveryCleanup(LogEntryHandle maybeTomb, void *cookie)
 {
     if (maybeTomb->type() == LOG_ENTRY_TYPE_OBJTOMB) {
         const ObjectTombstone *tomb = maybeTomb->userData<ObjectTombstone>();
@@ -820,8 +814,11 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
     boost::lock_guard<SpinLock> lock(objectUpdateLock);
 
     {
-        CycleCounter<Metric> recoveryTicks(&metrics->recoveryTicks);
-        reset(metrics, *serverId, 1);
+        CycleCounter<Metric> recoveryTicks(&metrics->master.recoveryTicks);
+        // Don't reset metrics here: the backup service has already done it,
+        // and doing it again here may cause information to be lost.
+        // reset(metrics, *serverId);
+        metrics->hasMaster = 1;
         metrics->master.replicas = backup.replicas;
 
         const auto& masterId = reqHdr.masterId;
@@ -886,7 +883,8 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
 
         // TODO(stutsman) update local copy of the will
     }
-    dump(metrics);
+    // No need to dump metrics now: it will be done in the backup code.
+    // dump(metrics);
 }
 
 /**
@@ -1650,12 +1648,28 @@ MasterService::storeData(uint64_t tableId,
 
     Table& t(getTable(downCast<uint32_t>(tableId), id));
 
+    if (!anyWrites) {
+        // This is the first write; use this as a trigger to update the
+        // cluster configuration information and open a session with each
+        // backup, so it won't slow down recovery benchmarks.  This is a
+        // temporary hack, and needs to be replaced with a more robust
+        // approach to updating cluster configuration information.
+        anyWrites = true;
+
+        // NULL coordinator means we're in test mode, so skip this.
+        if (coordinator) {
+            ProtoBuf::ServerList backups;
+            coordinator->getBackupList(backups);
+            foreach(auto& backup, backups.server())
+                transportManager.getSession(backup.service_locator().c_str());
+        }
+    }
+
     const Object *obj = NULL;
     LogEntryHandle handle = objectMap.lookup(tableId, id);
     if (handle != NULL) {
         if (handle->type() == LOG_ENTRY_TYPE_OBJTOMB) {
             recoveryCleanup(handle,
-                            static_cast<uint8_t>(LOG_ENTRY_TYPE_OBJTOMB),
                             this);
             handle = NULL;
         } else {

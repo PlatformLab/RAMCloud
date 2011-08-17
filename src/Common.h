@@ -590,5 +590,7 @@ isPowerOfTwo(uint64_t number)
     return (number > 0 && (number & (number - 1)) == 0);
 }
 
+void pinAllMemory();
+
 } // end RAMCloud
 #endif // RAMCLOUD_COMMON_H

@@ -502,13 +502,25 @@ Log::cleaningComplete(SegmentVector& clean)
         freePendingDigestAndReferenceList.push_back(*s);
     }
 
-    // XXX- this is a good time to check the 'freePendingReferenceList'
-    //      and move any of those guys on to the freeList, if possible.
+    // this is a good time to check the 'freePendingReferenceList'
+    // and move any of those guys on to the freeList, if possible.
+    SegmentVector freeSegments;
     foreach (Segment& s, freePendingReferenceList) {
-        if (0) {
-            activeIdMap.erase(s.getId());
-            activeBaseAddressMap.erase(s.getBaseAddress());
+        // XXX- need to ensure no references exist. ref count it?
+        if (1) {
+            // not sure about mutating an intrusive list while iterating, so...
+            freeSegments.push_back(&s);
         }
+    }
+    while (freeSegments.size() > 0) {
+        Segment* s = freeSegments.back();
+        freeSegments.pop_back();
+        activeIdMap.erase(s->getId());
+        activeBaseAddressMap.erase(s->getBaseAddress());
+        freePendingReferenceList.erase(
+            freePendingReferenceList.iterator_to(*s));
+        freeList.push_back(const_cast<void*>(s->getBaseAddress()));
+        delete s;
     }
 }
 

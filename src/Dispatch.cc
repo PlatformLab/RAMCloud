@@ -27,7 +27,6 @@
 namespace RAMCloud {
 
 Dispatch *dispatch = NULL;
-static Initialize _(Dispatch::init);
 
 /**
  * Default object used to make system calls.
@@ -53,12 +52,21 @@ Syscall* Dispatch::sys = &defaultSyscall;
  * automatically during initialization, but it may be invoked explicitly
  * by other modules to ensure that initialization occurs before those modules
  * initialize themselves.
+ *
+ * @param hasDedicatedThread
+ *      Pass true if there is a thread which owns this dispatch (this is
+ *      true on RAMCloud servers), if false then the dispatch performs
+ *      no synchronization and callers must guarantee mutual exclusion
+ *      themselves.
+ *      If called mulitple times the value will be reset in the global
+ *      Dispatch instance.
  */
 void
-Dispatch::init() {
+Dispatch::init(bool hasDedicatedThread) {
     if (dispatch == NULL) {
         dispatch = new Dispatch();
     }
+    dispatch->hasDedicatedThread = hasDedicatedThread;
 }
 
 /**
@@ -79,6 +87,7 @@ Dispatch::Dispatch()
     , mutex()
     , lockNeeded(0)
     , locked(0)
+    , hasDedicatedThread(false)
 {
     exitPipeFds[0] = exitPipeFds[1] = -1;
 }

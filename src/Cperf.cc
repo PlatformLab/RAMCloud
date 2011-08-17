@@ -20,6 +20,7 @@
 // benchmark code.
 
 #include <boost/program_options.hpp>
+#include <boost/version.hpp>
 #include <iostream>
 namespace po = boost::program_options;
 
@@ -686,8 +687,12 @@ try
         ("clientIndex", po::value<int>(&clientIndex)->default_value(0),
                 "Index of this client (first client is 0)")
         ("coordinator,C",
+#if BOOST_VERSION >= 104200 // required flag introduced in Boost 1.42
                 po::value<string>(&coordinatorLocator)->required(),
-                "Service locator for the cluster coordinator")
+#else
+                po::value<string>(&coordinatorLocator),
+#endif
+                "Service locator for the cluster coordinator (required)")
         ("help,h", "Print this help message")
         ("numClients", po::value<int>(&numClients)->default_value(1),
                 "Total number of clients running")
@@ -698,7 +703,7 @@ try
     po::variables_map vm;
     po::store(po::command_line_parser(argc, argv).
             options(desc).positional(desc2).run(), vm);
-    if (vm.count("help")) {
+    if (vm.count("help") || coordinatorLocator.empty()) {
         std::cout << desc << '\n';
         exit(0);
     }

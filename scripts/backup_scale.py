@@ -35,13 +35,13 @@ for numBackups in range(3, 37):
     args['objectSize'] = 1024
     args['disk'] = 1
     args['numObjects'] = 626012 * 600 // 640
-    args['oldMasterArgs'] = '-m %d' % (800 * args['numPartitions'])
-    args['newMasterArgs'] = '-m 16000'
+    args['oldMasterArgs'] = '-t %d' % (800 * args['numPartitions'])
+    args['newMasterArgs'] = '-t 16000'
     args['replicas'] = 3
     r = recovery.insist(**args)
     print('->', r['ns'] / 1e6, 'ms', '(run %s)' % r['run'])
     masterCpuMs = metrics.average(
-        [(master.recoveryTicks - master.dispatchIdleTicks) /
+        [(master.master.recoveryTicks - master.dispatchIdleTicks) /
          master.clockFrequency
          for master in r['metrics'].masters]) * 1e3
     diskBandwidth = sum([(backup.backup.storageReadBytes +
