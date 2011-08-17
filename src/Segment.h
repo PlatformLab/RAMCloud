@@ -145,7 +145,7 @@ class Segment {
     const void        *getBaseAddress() const;
     uint64_t           getId() const;
     uint32_t           getCapacity() const;
-    uint32_t           appendableBytes();
+    uint32_t           appendableBytes(size_t afterEntryBytes = 0);
     int                getUtilisation();
     uint32_t           getLiveBytes();
     uint32_t           getFreeBytes();
@@ -176,7 +176,7 @@ class Segment {
   private:
     void               commonConstructor(LogEntryType type,
                                          const void *buffer, uint32_t length);
-    uint32_t           locklessAppendableBytes() const;
+    uint32_t           locklessAppendableBytes(size_t afterEntryBytes = 0)const;
     void               locklessSync();
     void               incrementSpaceTimeSum(SegmentEntryHandle handle);
     void               decrementSpaceTimeSum(SegmentEntryHandle handle);

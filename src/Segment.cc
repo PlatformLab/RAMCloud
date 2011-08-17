@@ -392,10 +392,10 @@ Segment::getCapacity() const
  * \copydoc Segment::locklessAppendableBytes
  */
 uint32_t
-Segment::appendableBytes()
+Segment::appendableBytes(size_t afterEntryBytes)
 {
     boost::lock_guard<SpinLock> lock(mutex);
-    return locklessAppendableBytes();
+    return locklessAppendableBytes(afterEntryBytes);
 }
 
 /**
@@ -469,15 +469,24 @@ Segment::getAverageTimestamp()
  * Obtain the maximum number of bytes that can be appended to this Segment
  * using the #append method. Buffers equal to this size or smaller are
  * guaranteed to succeed, whereas buffers larger will fail to be appended.
+ * 
+ * \param[in] afterEntryBytes
+ *      If non-0, return what the number of appendable bytes woudl be after
+ *      an entry of the specified byte length were added.
  */
 uint32_t
-Segment::locklessAppendableBytes() const
+Segment::locklessAppendableBytes(size_t afterEntryBytes) const
 {
     if (closed)
         return 0;
 
     uint32_t freeBytes = capacity - tail;
     uint32_t headRoom  = sizeof(SegmentEntry) + sizeof(SegmentFooter);
+
+    if (afterEntryBytes) {
+        headRoom += downCast<uint32_t>(sizeof(SegmentEntry)) +
+                    downCast<uint32_t>(afterEntryBytes);
+    }
 
     assert(freeBytes >= headRoom);
 

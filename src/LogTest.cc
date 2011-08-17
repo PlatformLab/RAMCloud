@@ -62,8 +62,9 @@ class LogTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(0, l.freePendingDigestAndReferenceList.size());
         CPPUNIT_ASSERT_EQUAL(0, l.freePendingReferenceList.size());
         CPPUNIT_ASSERT_EQUAL(0, l.nextSegmentId);
-        CPPUNIT_ASSERT_EQUAL(8192 - 3 * sizeof(SegmentEntry) -
-            sizeof(SegmentHeader) - sizeof(SegmentFooter),
+        CPPUNIT_ASSERT_EQUAL(8192 - 4 * sizeof(SegmentEntry) -
+            sizeof(SegmentHeader) - sizeof(SegmentFooter) -
+            LogDigest::getBytesFromCount(2),
             l.maximumAppendableBytes);
         CPPUNIT_ASSERT_EQUAL(NULL, l.head);
         CPPUNIT_ASSERT_EQUAL(Log::CONCURRENT_CLEANER, l.cleanerOption);
@@ -180,7 +181,8 @@ class LogTest : public CppUnit::TestFixture {
 
         CPPUNIT_ASSERT_EQUAL(2, l.freeList.size());
         CPPUNIT_ASSERT_EQUAL(p, l.freeList[1]);
-        CPPUNIT_ASSERT_EQUAL(s.appendableBytes(), l.maximumAppendableBytes);
+        CPPUNIT_ASSERT_EQUAL(s.appendableBytes(LogDigest::getBytesFromCount(1)),
+                             l.maximumAppendableBytes);
     }
 
     void

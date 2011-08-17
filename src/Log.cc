@@ -379,9 +379,6 @@ Log::sync()
 /**
  * Obtain the maximum number of bytes that can ever be appended to the
  * Log at once. Appends that exceed this maximum will throw an exception.
- *
- * XXX- Destroy this. It's not constant due to LogDigests anymore, so lets
- *      just nuke it. Nobody needs to use it anyhow.
  */
 uint64_t
 Log::getMaximumAppendableBytes() const
@@ -589,7 +586,8 @@ Log::addSegmentMemory(void *p)
 
     if (maximumAppendableBytes == 0) {
         Segment s((uint64_t)0, 0, p, segmentCapacity);
-        maximumAppendableBytes = s.appendableBytes();
+        maximumAppendableBytes = s.appendableBytes(
+            LogDigest::getBytesFromCount(getNumberOfSegments()));
     }
 }
 
