@@ -43,20 +43,20 @@ def write(data, filename):
             print(x, *ys, file=f)
 
 data = AveragingDict()
-maxPartitions = 19
+maxPartitions = 60
 for trial in range(5):
     print('Trial', trial)
-    for numPartitions in range(1, maxPartitions + 1):
+    for numPartitions in range(2, maxPartitions + 1, 2):
         print(numPartitions, ' partitions')
 
         args = {}
-        args['numBackups'] = numPartitions * 3
+        args['numBackups'] = numPartitions
         args['numPartitions'] = numPartitions
         args['objectSize'] = 1024
         args['disk'] = 3
         args['replicas'] = 3
-        args['numObjects'] = 626012 * 600 // 640
-        args['oldMasterArgs'] = '-t 17000'
+        args['numObjects'] = 500000
+        args['oldMasterArgs'] = '-t %d' % (700 * numPartitions)
         args['newMasterArgs'] = '-t 16000'
         args['timeout'] = 60
         r = recovery.insist(**args)

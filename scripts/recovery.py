@@ -211,13 +211,12 @@ def insist(*args, **kwargs):
 
 if __name__ == '__main__':
     args = {}
-    args['numBackups'] = 57
-    args['numPartitions'] = 19
+    args['numBackups'] = 50
+    args['numPartitions'] = 50
     args['objectSize'] = 1024
     args['disk'] = 3
-    args['numObjects'] = 626012 * 600 // 640
-    args['coordinatorArgs'] = '-l DEBUG'
-    args['oldMasterArgs'] = '-t %d' % (900 * args['numPartitions'])
+    args['numObjects'] = 540000
+    args['oldMasterArgs'] = '-t %d' % (700 * args['numPartitions'])
     args['newMasterArgs'] = '-t 16000'
     args['replicas'] = 3
     stats = recover(**args)

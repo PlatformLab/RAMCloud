@@ -1280,7 +1280,8 @@ def textReport(data):
             ['{1:s} ({0:.1f} MB/s)'.format(*minTuple([
                 [(backup.backup.storageWriteBytes / 2**20) / 
                 (backup.backup.storageWriteTicks / backup.clockFrequency),
-                backup.server] for backup in backups]))])
+                backup.server] for backup in backups
+                if backup.backup.storageWriteTicks]))])
 
     localSection = report.add(Section('Local Metrics'))
     for hosts, attr in [([coord], 'coordinator'),
