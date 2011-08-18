@@ -801,7 +801,7 @@ def latexReport(data):
                       for backup in backups],
                      recoveryTime)
 
-def textReport(data, printReport=True):
+def textReport(data):
     """Generate ASCII report"""
 
     coord = data.coordinator
@@ -1301,9 +1301,7 @@ def textReport(data, printReport=True):
             if any(points):
                 localSection.avgStd('{0:}.local.{1:}'.format(attr, field),
                                     points)
-
-    if (printReport):
-        print(report)
+    return report
 
 definitions = Recovery('recovery metrics', 'Metrics')
 
@@ -1345,7 +1343,7 @@ def main():
         latexReport(data)
         return
 
-    textReport(data)
+    print(textReport(data))
 
 if __name__ == '__main__':
     sys.exit(main())

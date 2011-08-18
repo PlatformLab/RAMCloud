@@ -60,6 +60,9 @@ enum LogModule {
 class Logger {
   public:
     explicit Logger(LogLevel level);
+    ~Logger();
+
+    void setLogFile(const char* path, bool truncate = false);
 
     void setLogLevel(LogModule, LogLevel level);
     void setLogLevel(LogModule, int level);

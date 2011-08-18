@@ -550,4 +550,32 @@ TestUtil::waitForRpc(Transport::ClientRpc& rpc)
     return false;
 }
 
+/**
+ * Read a file and return its contents.
+ *
+ * \param path
+ *      Name of the file to read.
+ *
+ * \result
+ *      The contents of the file, or an empty string if the file couldn't
+ *      be opened.
+ */
+string
+TestUtil::readFile(const char* path)
+{
+    char buffer[5000];
+    string result;
+    FILE* f = fopen(path, "r");
+    if (f != NULL) {
+        while (1) {
+            size_t count = fread(buffer, 1, sizeof(buffer), f);
+            if (count <= 0)
+                break;
+            result.append(buffer, count);
+        }
+    }
+    return result;
+}
+
+
 } // namespace RAMCloud

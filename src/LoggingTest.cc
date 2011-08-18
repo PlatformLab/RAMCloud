@@ -27,6 +27,7 @@ class LoggingTest : public ::testing::Test {
     ~LoggingTest() {
         logger.setLogLevels(WARNING);
         logger.stream = stderr;
+        unlink("__test.log");
     }
     DISALLOW_COPY_AND_ASSIGN(LoggingTest);
 };
@@ -35,6 +36,35 @@ TEST_F(LoggingTest, constructor) {
     Logger l(WARNING);
     EXPECT_EQ(stderr, l.stream);
     EXPECT_EQ(WARNING, l.logLevels[0]);
+}
+
+TEST_F(LoggingTest, setLogFile_basics) {
+    Logger l(NOTICE);
+    l.setLogFile("__test.log");
+    l.logMessage(DEFAULT_LOG_MODULE, NOTICE, HERE, "message 1\n");
+    EXPECT_TRUE(TestUtil::matchesPosixRegex("message 1",
+            TestUtil::readFile("__test.log")));
+    l.setLogFile("__test.log", false);
+    l.logMessage(DEFAULT_LOG_MODULE, NOTICE, HERE, "message 2");
+    EXPECT_TRUE(TestUtil::matchesPosixRegex("message 1.*message 2",
+            TestUtil::readFile("__test.log")));
+    l.setLogFile("__test.log", true);
+    l.logMessage(DEFAULT_LOG_MODULE, NOTICE, HERE, "message 3");
+    EXPECT_TRUE(TestUtil::doesNotMatchPosixRegex("message 1",
+            TestUtil::readFile("__test.log")));
+    EXPECT_TRUE(TestUtil::matchesPosixRegex("message 3",
+            TestUtil::readFile("__test.log")));
+}
+TEST_F(LoggingTest, setLogFile_cantOpenFile) {
+    Logger l(NOTICE);
+    string message("no exception");
+    try {
+        l.setLogFile("__gorp/__xyz/__foo");
+    } catch (Exception& e) {
+        message = e.message;
+    }
+    EXPECT_EQ("couldn't open log file '__gorp/__xyz/__foo': "
+            "No such file or directory", message);
 }
 
 TEST_F(LoggingTest, setLogLevel) {

@@ -70,6 +70,7 @@ class MasterServiceTest : public ::testing::Test {
     MasterClient* client;
     CoordinatorClient* coordinator;
     CoordinatorService* coordinatorService;
+    TestLog::Enable logSilencer;
 
     MasterServiceTest()
         : config()
@@ -83,12 +84,12 @@ class MasterServiceTest : public ::testing::Test {
         , client(NULL)
         , coordinator(NULL)
         , coordinatorService(NULL)
+        , logSilencer()
     {
         config.localLocator = "mock:host=master";
         config.coordinatorLocator = "mock:host=coordinator";
         backupConfig.coordinatorLocator = "mock:host=coordinator";
         MasterService::sizeLogAndHashTable("64", "8", &config);
-        logger.setLogLevels(SILENT_LOG_LEVEL);
         transport = new BindTransport();
         transportManager.registerMock(transport);
         coordinatorService = new CoordinatorService();
@@ -937,6 +938,7 @@ class MasterRecoverTest : public ::testing::Test {
     BackupStorage* storage1;
     BackupStorage* storage2;
     BindTransport* transport;
+    TestLog::Enable logSilencer;
 
     public:
     MasterRecoverTest()
@@ -950,6 +952,7 @@ class MasterRecoverTest : public ::testing::Test {
         , storage1()
         , storage2()
         , transport()
+        , logSilencer()
     {
         setUp(true);
     }
