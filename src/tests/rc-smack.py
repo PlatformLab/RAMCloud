@@ -207,6 +207,62 @@ def rewrite_delete_smack(c, loops, p):
 
         i += 1
 
+# Assumes 8MB segments, 10 Segments needed to clean
+def cleaner_consistency_smack(c, smacks):
+    if smacks < 10000:
+        return
+
+    p = rpcperf()
+    buf10k = getrandbuf(10 * 1024);
+
+    # write a bunch of data
+    i = 0
+    while i < 8192:
+        p.before()
+        c.write(0, i, str(i) + "." + buf10k)
+        p.after()
+
+        i += 1
+
+    # delete to make cleanable
+    i = 0
+    while i < 8192:
+        if (i % 3) != 0:
+            p.before()
+            c.delete(0, i)
+            p.after()
+        i += 1
+
+    # write a bunch more to get the previous segments cleaned
+    while i < 16384:
+        p.before()
+        c.write(0, i, str(i) + "." + buf10k)
+        p.after()
+
+        i += 1
+
+    # ensure only the mod 3 objects with IDs < 8192 are around
+    i = 0
+    while i < 16384:
+        p.before()
+        isLive = True
+        buf = ""
+        try:
+            buf = c.read(0, i)
+        except:
+            isLive = False
+        p.after()
+
+        if isLive:
+            assert int(buf[0].split(".")[0]) == i
+
+        if i < 8192 and (i % 3) != 0:
+            assert not isLive
+        else:
+            assert isLive
+
+        i += 1
+
 def main():
     parser = optparse.OptionParser()
     parser.add_option('-n', '--number', dest='smacks', default=10000, type=int)
@@ -224,6 +280,9 @@ def main():
     c = ramcloud.RAMCloud()
     c.connect(options.coordinatorLocator)
     c.create_table("test")
+
+    print "Running cleaner consistency smack"
+    cleaner_consistency_smack(c, smacks)
 
     print "Running version smack"
     version_smack(c, smacks)
