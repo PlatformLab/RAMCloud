@@ -29,10 +29,12 @@ import time
 
 hosts = []
 for i in range(1,60):
-    if i == 14:
-        continue
     hosts.append(('rc%02d' % i,
                   '192.168.1.%d' % (100 + i)))
+coordinatorHost = ('rcmaster', '192.168.1.1')
+clientHost = coordinatorHost
+oldMasterHost = coordinatorHost
+serverHosts = hosts
 
 obj_path = '%s/%s' % (top_path, obj_dir)
 coordinatorBin = '%s/coordinator' % obj_path
@@ -56,12 +58,6 @@ def recover(numBackups=1,             # Number of hosts on which to start
             clientArgs='-f',
             hostAllocationStrategy=0,
             debug=0):
-
-    coordinatorHost = hosts[0]
-    coordinatorLocator = 'infrc:host=%s,port=12246' % coordinatorHost[1]
-
-    # use the coordinator host as server too, but only as a last resort
-    serverHosts = (hosts[1:] + [hosts[0]])
 
     # Figure out which ranges of serverHosts will serve as backups, as
     # recovery masters, and as dual-backups (if we're using two disks
@@ -93,10 +89,6 @@ def recover(numBackups=1,             # Number of hosts on which to start
     else:
         raise Exception('Disk should be an integer between 0 and 4')
 
-    oldMasterHost = hosts[0]
-    oldMasterLocator = 'infrc:host=%s,port=12242' % oldMasterHost[1]
-
-    clientHost = hosts[0]
 
     run = log.createDir('recovery')
 
@@ -109,7 +101,7 @@ def recover(numBackups=1,             # Number of hosts on which to start
         def ensureServers(qty):
             sandbox.checkFailures()
             try:
-                sandbox.rsh(clientHost[0], '%s -C %s -n %d -l 1' %
+                sandbox.rsh(clientHost[0], '%s -C %s -n %d -l 1 -t 20' %
                             (ensureServersBin, coordinatorLocator, qty))
             except:
                 # prefer exceptions from dead processes to timeout error
@@ -117,19 +109,20 @@ def recover(numBackups=1,             # Number of hosts on which to start
                 raise
 
         # start coordinator
+        coordinatorLocator = 'infrc:host=%s,port=12246' % coordinatorHost[1]
         coordinator = sandbox.rsh(coordinatorHost[0],
-                  ('%s -C %s %s' %
-                   (coordinatorBin, coordinatorLocator, coordinatorArgs)),
-                  bg=True, stderr=subprocess.STDOUT,
-                  stdout=open(('%s/coordinator.%s.log' %
-                               (run, coordinatorHost[0])), 'w'))
+                  ('%s -C %s --logFile %s/coordinator.%s.log %s' %
+                   (coordinatorBin, coordinatorLocator, run,
+                    coordinatorHost[0], coordinatorArgs)),
+                  bg=True, stderr=subprocess.STDOUT)
         ensureServers(0)
 
         # start dying master
+        oldMasterLocator = 'infrc:host=%s,port=12242' % oldMasterHost[1]
         oldMaster = sandbox.rsh(oldMasterHost[0],
-                ('%s -C %s -L %s -r %d %s -M' %
-                 (serverBin, coordinatorLocator, oldMasterLocator, replicas,
-                  oldMasterArgs)),
+                ('%s -C %s -L %s --logFile %s/oldMaster.%s.log -r %d -M %s' %
+                 (serverBin, coordinatorLocator, oldMasterLocator,
+                  run, oldMasterHost[0], replicas, oldMasterArgs)),
                  bg=True, stderr=subprocess.STDOUT,
                  stdout=open(('%s/oldMaster.%s.log' %
                               (run, oldMasterHost[0])), 'w'))
@@ -141,8 +134,9 @@ def recover(numBackups=1,             # Number of hosts on which to start
             # first start the main server on this host, which runs either or
             # both of recovery master & backup
             host = serverHosts[i]
-            command = ('%s -C %s -L infrc:host=%s,port=12243' %
-                       (serverBin, coordinatorLocator, host[1]))
+            command = ('%s -C %s -L infrc:host=%s,port=12243 '
+                       '--logFile %s/server.%s.log' %
+                       (serverBin, coordinatorLocator, host[1], run, host[0]))
             isBackup = isMaster = False
             if (i >= masterStart) and (i < masterEnd):
                 isMaster = True
@@ -158,20 +152,17 @@ def recover(numBackups=1,             # Number of hosts on which to start
                 command += ' -M'
             if isMaster or isBackup:
                 servers.append(sandbox.rsh(host[0], command, bg=True,
-                               stderr=subprocess.STDOUT,
-                               stdout=open('%s/server.%s.log' %
-                                           (run, host[0]), 'w')))
+                               stderr=subprocess.STDOUT))
 
             # start extra backup server on this host, if we are using
             # dual disks.
             if isBackup and disk >= 3:
-                command = ('%s -C %s -L infrc:host=%s,port=12244 -B %s %s' %
+                command = ('%s -C %s -L infrc:host=%s,port=12244 '
+                           '--logFile %s/backup.%s.log -B %s %s' %
                            (serverBin, coordinatorLocator, host[1],
-                            secondaryDisk, backupArgs))
+                            run, host[0], secondaryDisk, backupArgs))
                 extraBackups.append(sandbox.rsh(host[0], command, bg=True,
-                                             stderr=subprocess.STDOUT,
-                                             stdout=open('%s/backup.%s.log' %
-                                                         (run, host[0]), 'w')))
+                                             stderr=subprocess.STDOUT))
                 totalServers += 1
         ensureServers(totalServers)
 
@@ -182,11 +173,11 @@ def recover(numBackups=1,             # Number of hosts on which to start
 
         # start client
         client = sandbox.rsh(clientHost[0],
-                 ('%s -d -C %s -n %d -r %d -s %d -t %d -k %d %s' %
-                  (clientBin, coordinatorLocator, numObjects, numRemovals,
-                   objectSize, numPartitions, numPartitions, clientArgs)),
-                 bg=True, stderr=subprocess.STDOUT,
-                 stdout=open('%s/client.%s.log' % (run, clientHost[0]), 'w'))
+                 ('%s -d -C %s --logFile %s/client.%s.log -n %d -r %d -s %d '
+                  '-t %d -k %d %s' % (clientBin, coordinatorLocator, run,
+                  clientHost[0], numObjects, numRemovals, objectSize,
+                  numPartitions, numPartitions, clientArgs)),
+                 bg=True, stderr=subprocess.STDOUT)
 
         start = time.time()
         while client.returncode is None:
@@ -195,28 +186,18 @@ def recover(numBackups=1,             # Number of hosts on which to start
             if time.time() - start > timeout:
                 raise Exception('timeout exceeded')
 
-        stats = {}
-        for i in range(100):
-            try:
-                stats['metrics'] = metrics.parseRecovery(run)
-
-                # The following statement ensures that all of the desired
-                # metrics are available.  There is a race where it's possible
-                # that we get here before all of the servers have flushed all
-                # of their log data.  If that happens, an exception will be
-                # generated and we will try again.
-                metrics.textReport(stats['metrics'], False)
-            except:
-                time.sleep(0.1)
-                continue
-            break
-        else:
-            raise Exception("couldn't gather complete metrics; logs damaged?")
-        stats['run'] = run
-        stats['count'] = numObjects
-        stats['size'] = objectSize
-        stats['ns'] = stats['metrics'].client.recoveryNs
-        return stats
+    # Collect metrics information.
+    stats = {}
+    stats['metrics'] = metrics.parseRecovery(run)
+    report = metrics.textReport(stats['metrics'])
+    f = open('%s/metrics' % (run), 'w')
+    f.write(str(report))
+    f.close()
+    stats['run'] = run
+    stats['count'] = numObjects
+    stats['size'] = objectSize
+    stats['ns'] = stats['metrics'].client.recoveryNs
+    return stats
 
 def insist(*args, **kwargs):
     """Keep trying recoveries until the damn thing succeeds"""
@@ -231,12 +212,13 @@ def insist(*args, **kwargs):
 
 if __name__ == '__main__':
     args = {}
-    args['numBackups'] = 57
-    args['numPartitions'] = 19
+    args['numBackups'] = 50
+    args['numPartitions'] = 50
     args['objectSize'] = 1024
     args['disk'] = 3
-    args['numObjects'] = 626012 * 600 // 640
-    args['oldMasterArgs'] = '-t %d' % (900 * args['numPartitions'])
+    args['numObjects'] = 540000
+    args['oldMasterArgs'] = '-t %d' % (700 * args['numPartitions'])
     args['newMasterArgs'] = '-t 16000'
     args['replicas'] = 3
-    recover(**args)
+    stats = recover(**args)
+    print('Recovery time: %.3fs' % (stats['ns']/1e09))

@@ -93,6 +93,7 @@ class TestUtil {
     static const char *getStatus(Buffer* buffer);
     static ::testing::AssertionResult matchesPosixRegex(
             const string& pattern, const string& subject);
+    static string readFile(const char* fileName);
     static string toString(const char *buf, uint32_t length);
     static string toString(Buffer* buffer);
     static bool waitForRpc(Transport::ClientRpc& rpc);

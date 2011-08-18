@@ -931,7 +931,6 @@ InfRcTransport<Infiniband>::Poller::poll()
                                                  len, t, t->clientSrq, bd);
                 }
                 rpc.state = ClientRpc::RESPONSE_RECEIVED;
-                rpc.markFinished();
                 ++metrics->transport.receive.messageCount;
                 ++metrics->transport.receive.packetCount;
                 metrics->transport.receive.iovecCount +=
@@ -939,6 +938,7 @@ InfRcTransport<Infiniband>::Poller::poll()
                 metrics->transport.receive.byteCount +=
                     rpc.response->getTotalLength();
                 metrics->transport.receive.ticks += receiveTicks.stop();
+                rpc.markFinished();
                 if (t->outstandingRpcs.empty())
                     t->clientRpcsActiveTime.destroy();
                 goto next;

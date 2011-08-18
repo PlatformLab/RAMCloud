@@ -74,14 +74,14 @@ try
          ProgramOptions::value<string>(&backupFile)->
             default_value("/var/tmp/backup.log"),
          "The file path to the backup storage.")
-        ("HashTableMemory,h",
+        ("hashTableMemory,h",
          ProgramOptions::value<string>(&hashTableMemory)->
             default_value("10%"),
          "Percentage or megabytes of master memory allocated to the hash table")
         ("masterOnly,M",
          ProgramOptions::bool_switch(&masterOnly),
          "The server should run the master service only (no backup)")
-        ("MasterTotalMemory,t",
+        ("totalMasterMemory,t",
          ProgramOptions::value<string>(&masterTotalMemory)->
             default_value("10%"),
          "Percentage or megabytes of system memory for master log & hash table")
@@ -95,6 +95,15 @@ try
          "Number of segment frames in backup storage");
 
     OptionParser optionParser(serverOptions, argc, argv);
+
+    // Log all the command-line arguments.
+    string args;
+    for (int i = 0; i < argc; i++) {
+        if (i != 0)
+            args.append(" ");
+        args.append(argv[i]);
+    }
+    LOG(NOTICE, "Command line: %s", args.c_str());
 
     if (masterOnly && backupOnly) {
         DIE("Can't specify both -B and -M options");

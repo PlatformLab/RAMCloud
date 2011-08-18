@@ -25,6 +25,7 @@ from optparse import OptionParser
 from pprint import pprint
 from functools import partial
 import math
+import os
 import random
 import re
 import sys
@@ -194,6 +195,26 @@ def avgAndMin(points):
         if p < min:
             min = p
     return (average(points), min)
+
+def maxTuple(tuples):
+    """Return the tuple whose first element is largest."""
+    maxTuple = None;
+    maxValue = 0.0;
+    for tuple in tuples:
+        if tuple[0] > maxValue:
+            maxValue = tuple[0]
+            maxTuple = tuple
+    return maxTuple
+
+def minTuple(tuples):
+    """Return the tuple whose first element is smallest."""
+    minTuple = None;
+    minValue = 1e100;
+    for tuple in tuples:
+        if tuple[0] < minValue:
+            minValue = tuple[0]
+            minTuple = tuple
+    return minTuple
 
 def seq(x):
     """Turn the argument into a sequence.
@@ -540,9 +561,6 @@ class Recovery(Struct):
     serverId = u64('server id assigned by coordinator')
     pid = u64('process ID on machine')
     clockFrequency = u64('cycles per second for the cpu')
-    dispatchIdleTicks = u64('total time spinning in Dispatch::handleEvent')
-    recvIdleTicks = u64(
-        'total time spent spinning in TransportManager::serverRecv')
     segmentSize = u64('size in bytes of segments')
     hasMaster = u64('1 means this server contained a master')
     hasBackup = u64('1 means this server contained a backup')
@@ -555,6 +573,8 @@ def parseRecovery(recovery_dir, definitions=None):
     if definitions is None:
         definitions = globals()['definitions']
     data = AttrDict()
+    data.log_dir = os.path.realpath(os.path.expanduser(recovery_dir))
+
     logFile = glob('%s/coordinator.*.log' % recovery_dir)[0]
     data.coordinator = parse(open(logFile), definitions)
     data.coordinator.server = re.match(
@@ -784,7 +804,7 @@ def latexReport(data):
                       for backup in backups],
                      recoveryTime)
 
-def textReport(data, printReport=True):
+def textReport(data):
     """Generate ASCII report"""
 
     coord = data.coordinator
@@ -823,18 +843,11 @@ def textReport(data, printReport=True):
                            2: 'disk'}.get(int(storageTypes.pop()),
                                           'unknown')
         summary.line('Storage type', [storageType])
+    summary.line('Log directory', [data.log_dir])
 
     coordSection = report.add(Section('Coordinator Time'))
     coordSection.ms('Total',
         coord.coordinator.recoveryTicks / coord.clockFrequency,
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    coordSection.ms('  Recv Idle',
-        coord.recvIdleTicks / coord.clockFrequency,
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    coordSection.ms('  Dispatch Idle',
-        coord.dispatchIdleTicks / coord.clockFrequency,
         total=recoveryTime,
         fractionLabel='of total recovery')
     coordSection.ms('  Starting recovery on backups',
@@ -863,7 +876,6 @@ def textReport(data, printReport=True):
         fractionLabel='of total recovery')
     coordSection.ms('  Other',
         ((coord.coordinator.recoveryTicks -
-          coord.recvIdleTicks -
           coord.coordinator.recoveryConstructorTicks -
           coord.coordinator.recoveryStartTicks -
           coord.coordinator.setWillTicks -
@@ -880,11 +892,6 @@ def textReport(data, printReport=True):
     masterSection = report.add(Section('Master Time'))
     masterSection.ms('Total',
         [master.master.recoveryTicks / master.clockFrequency
-         for master in masters],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    masterSection.ms('  Dispatch Idle',
-        [master.dispatchIdleTicks / master.clockFrequency
          for master in masters],
         total=recoveryTime,
         fractionLabel='of total recovery')
@@ -1057,11 +1064,6 @@ def textReport(data, printReport=True):
          for backup in backups],
         total=recoveryTime,
         fractionLabel='of total recovery')
-    backupSection.ms('  Recv Idle',
-        [backup.recvIdleTicks / backup.clockFrequency
-         for backup in backups],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
     backupSection.ms('  startReadingData',
         [backup.backup.startReadingDataTicks / backup.clockFrequency
          for backup in backups],
@@ -1101,7 +1103,6 @@ def textReport(data, printReport=True):
         fractionLabel='of total recovery')
     backupSection.ms('  Other',
         [(backup.backup.recoveryTicks -
-          backup.recvIdleTicks -
           backup.backup.startReadingDataTicks -
           backup.backup.writeTicks -
           backup.backup.readStallTicks -
@@ -1255,28 +1256,6 @@ def textReport(data, printReport=True):
         '{0:6.2f}%',
         note='of total recovery')
 
-    slowReader = ""
-    slowReadBw = 1e30;
-    slowWriter = ""
-    slowWriteBw = 1e30;
-    for backup in backups:
-        if backup.backup.storageReadTicks != 0:
-            bw = ((backup.backup.storageReadBytes / 2**20) / 
-                        (backup.backup.storageReadTicks / backup.clockFrequency))
-            if bw < slowReadBw:
-                slowReader = backup.server
-                slowReadBw = bw
-        if backup.backup.storageWriteTicks != 0:
-            bw = ((backup.backup.storageWriteBytes / 2**20) / 
-                        (backup.backup.storageWriteTicks / backup.clockFrequency))
-            if bw < slowWriteBw:
-                slowWriter = backup.server
-                slowWriteBw = bw
-    diskSection.line("Slowest reader", ['%s (%.1f MB/s)' %
-            (slowReader, slowReadBw)])
-    diskSection.line("Slowest writer", ['%s (%.1f MB/s)' %
-            (slowWriter, slowWriteBw)])
-
     backupSection = report.add(Section('Backup Events'))
     backupSection.avgMaxFrac('Segments read',
         [backup.backup.storageReadCount for backup in backups])
@@ -1284,6 +1263,29 @@ def textReport(data, printReport=True):
         [backup.backup.primaryLoadCount for backup in backups])
     backupSection.avgMaxFrac('Secondary segments loaded',
         [backup.backup.secondaryLoadCount for backup in backups])
+
+    slowSection = report.add(Section('Slowest Servers'))
+    slowSection.line('Backup opens, writes',
+            ['{1:s} ({0:.1f} ms)'.format(*maxTuple([
+                [1e03 * (master.master.backupManagerTicks - 
+                 master.master.logSyncTicks) / master.clockFrequency,
+                 master.server] for master in masters]))])
+    slowSection.line('Stalled reading segs from backups',
+            ['{1:s} ({0:.1f} ms)'.format(*maxTuple([
+                [1e03 * master.master.segmentReadStallTicks /
+                 master.clockFrequency, master.server]
+                 for master in masters]))])
+    slowSection.line('Reading from disk',
+            ['{1:s} ({0:.1f} MB/s)'.format(*minTuple([
+                [(backup.backup.storageReadBytes / 2**20) / 
+                (backup.backup.storageReadTicks / backup.clockFrequency),
+                backup.server] for backup in backups]))])
+    slowSection.line('Writing to disk',
+            ['{1:s} ({0:.1f} MB/s)'.format(*minTuple([
+                [(backup.backup.storageWriteBytes / 2**20) / 
+                (backup.backup.storageWriteTicks / backup.clockFrequency),
+                backup.server] for backup in backups
+                if backup.backup.storageWriteTicks]))])
 
     localSection = report.add(Section('Local Metrics'))
     for hosts, attr in [([coord], 'coordinator'),
@@ -1304,9 +1306,7 @@ def textReport(data, printReport=True):
             if any(points):
                 localSection.avgStd('{0:}.local.{1:}'.format(attr, field),
                                     points)
-
-    if (printReport):
-        print(report)
+    return report
 
 definitions = Recovery('recovery metrics', 'Metrics')
 
@@ -1348,7 +1348,8 @@ def main():
         latexReport(data)
         return
 
-    textReport(data)
+    print(textReport(data))
 
 if __name__ == '__main__':
     sys.exit(main())
+

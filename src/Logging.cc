@@ -193,7 +193,7 @@ class FileLocker {
 } // anonymous namespace
 
 /**
- * Create a new debug logger.
+ * Create a new debug logger; messages will go to stderr by default.
  * \param[in] level
  *      Messages for all modules at least as important as \a level will be
  *      logged.
@@ -201,6 +201,39 @@ class FileLocker {
 Logger::Logger(LogLevel level) : stream(stderr)
 {
     setLogLevels(level);
+}
+
+/**
+ * Destructor for debug logs.
+ */
+Logger::~Logger()
+{
+    if (stream != stderr)
+        fclose(stream);
+}
+
+/**
+ * Arrange for future log messages to go to a particular file.
+ * \param path
+ *      The pathname for the log file, which may or may not exist already.
+ * \param truncate
+ *      True means the log file should be truncated if it already exists;
+ *      false means an existing log file is retained, and new messages are
+ *      appended.
+ *      
+ */
+void
+Logger::setLogFile(const char* path, bool truncate)
+{
+    FILE* f = fopen(path, truncate ? "w" : "a");
+    if (f == NULL) {
+        throw Exception(HERE,
+                        format("couldn't open log file '%s'", path),
+                        errno);
+    }
+    if (stream != stderr)
+        fclose(stream);
+    stream = f;
 }
 
 /**

@@ -33,6 +33,16 @@ main(int argc, char *argv[])
     try {
         OptionParser optionParser(OptionsDescription("Coordinator"),
                                   argc, argv);
+
+        // Log all the command-line arguments.
+        string args;
+        for (int i = 0; i < argc; i++) {
+            if (i != 0)
+                args.append(" ");
+            args.append(argv[i]);
+        }
+        LOG(NOTICE, "Command line: %s", args.c_str());
+
         pinAllMemory();
         string localLocator = optionParser.options.getCoordinatorLocator();
         transportManager.initialize(localLocator.c_str());

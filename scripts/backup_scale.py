@@ -41,8 +41,7 @@ for numBackups in range(3, 37):
     r = recovery.insist(**args)
     print('->', r['ns'] / 1e6, 'ms', '(run %s)' % r['run'])
     masterCpuMs = metrics.average(
-        [(master.master.recoveryTicks - master.dispatchIdleTicks) /
-         master.clockFrequency
+        [(master.master.recoveryTicks / master.clockFrequency)
          for master in r['metrics'].masters]) * 1e3
     diskBandwidth = sum([(backup.backup.storageReadBytes +
                           backup.backup.storageWriteBytes) / 2**20

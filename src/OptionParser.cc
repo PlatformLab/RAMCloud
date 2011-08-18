@@ -108,6 +108,7 @@ OptionParser::setup(int argc, char* argv[])
     namespace po = ProgramOptions;
     try {
         string defaultLogLevel;
+        string logFile;
         vector<string> logLevels;
         string configFile(".ramcloud");
 
@@ -123,6 +124,9 @@ OptionParser::setup(int argc, char* argv[])
         // Options allowed on command line and in config file for all apps
         OptionsDescription configOptions("RAMCloud");
         configOptions.add_options()
+            ("logFile",
+             po::value<string>(&logFile),
+             "File to use for log messages")
             ("logLevel,l",
              po::value<string>(&defaultLogLevel)->
                 default_value("NOTICE"),
@@ -171,6 +175,8 @@ OptionParser::setup(int argc, char* argv[])
         if (vm.count("help"))
             usageAndExit();
 
+        if (logFile.size() != 0)
+            logger.setLogFile(logFile.c_str());
         logger.setLogLevels(defaultLogLevel);
         foreach (auto moduleLevel, logLevels) {
             auto pos = moduleLevel.find("=");
@@ -189,7 +195,7 @@ OptionParser::setup(int argc, char* argv[])
                                PcapFile::LinkType::ETHERNET);
     }
     catch (po::multiple_occurrences& e) {
-        // This clause could provides a more understandable error message
+        // This clause provides a more understandable error message
         // (the default is fairly opaque).
 #if BOOST_VERSION >= 104200 // get_option_name introduced in Boost 1.4.2
         throw po::error(format("command-line option '%s' occurs multiple times",

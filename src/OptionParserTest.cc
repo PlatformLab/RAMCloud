@@ -26,102 +26,80 @@ const char* localLocator = "fast+udp:host=1.2.3.4,port=54321";
 const char* coordinatorLocator = "tcp:host=4.3.2.1,port=12345";
 }
 
-class OptionParserTest : public CppUnit::TestFixture {
-    CPPUNIT_TEST_SUITE(OptionParserTest);
-    CPPUNIT_TEST(test_constructor_noAppSpecific);
-    CPPUNIT_TEST(test_constructor_appSpecific);
-    CPPUNIT_TEST(test_constructor_configFile);
-    CPPUNIT_TEST_SUITE_END();
-
+class OptionParserTest : public ::testing::Test {
   public:
-
-    void
-    setUp()
-    {
-    }
-
-    void
-    tearDown()
-    {
-    }
-
     OptionParserTest()
     {
     }
 
-    void
-    test_constructor_noAppSpecific()
+    ~OptionParserTest()
     {
-        int argc = 5;
-        const char* argv[] = { "fooprogram"
-                             , "-L", localLocator
-                             , "-C", coordinatorLocator
-                             };
-        OptionParser parser(argc, const_cast<char**>(argv));
-
-        CPPUNIT_ASSERT_EQUAL(localLocator, parser.options.getLocalLocator());
-        CPPUNIT_ASSERT_EQUAL(coordinatorLocator,
-                             parser.options.getCoordinatorLocator());
     }
-
-    void
-    test_constructor_appSpecific()
-    {
-        bool value = false;
-        int argc = 6;
-        const char* argv[] = { "fooprogram"
-                             , "-L", localLocator
-                             , "-C", coordinatorLocator
-                             , "-t"
-                             };
-        OptionsDescription appOptions;
-        appOptions.add_options()
-            ("test,t", ProgramOptions::bool_switch(&value), "test message");
-        OptionParser parser(appOptions, argc, const_cast<char**>(argv));
-
-        CPPUNIT_ASSERT_EQUAL(true, value);
-    }
-
-    struct TempFile {
-        TempFile()
-            : fd(-1)
-            , file(0)
-        {
-            snprintf(filename, sizeof(filename), "%s", "ramcloud-test-XXXXXX");
-            fd = mkstemp(filename);
-            file = fdopen(fd, "w+");
-        }
-        ~TempFile()
-        {
-            fclose(file);
-            unlink(filename);
-        }
-        char filename[50];
-        int fd;
-        FILE* file;
-
-        DISALLOW_COPY_AND_ASSIGN(TempFile);
-    };
-
-    void
-    test_constructor_configFile()
-    {
-        TempFile temp;
-        fprintf(temp.file, "coordinator=swisscheese\n");
-        rewind(temp.file);
-        int argc = 3;
-        const char* argv[] = {"progname", "-c", temp.filename};
-
-        OptionsDescription appOptions;
-        OptionParser parser(appOptions, argc, const_cast<char**>(argv));
-
-        CPPUNIT_ASSERT_EQUAL("swisscheese",
-                             parser.options.getCoordinatorLocator());
-    }
-
-  private:
     DISALLOW_COPY_AND_ASSIGN(OptionParserTest);
 };
-CPPUNIT_TEST_SUITE_REGISTRATION(OptionParserTest);
+
+TEST_F(OptionParserTest, constructor_noAppSpecific) {
+    int argc = 5;
+    const char* argv[] = { "fooprogram"
+                            , "-L", localLocator
+                            , "-C", coordinatorLocator
+                            };
+    OptionParser parser(argc, const_cast<char**>(argv));
+
+    EXPECT_EQ(localLocator, parser.options.getLocalLocator());
+    EXPECT_EQ(coordinatorLocator,
+                            parser.options.getCoordinatorLocator());
+}
+
+TEST_F(OptionParserTest, constructor_appSpecific) {
+    bool value = false;
+    int argc = 6;
+    const char* argv[] = { "fooprogram"
+                            , "-L", localLocator
+                            , "-C", coordinatorLocator
+                            , "-t"
+                            };
+    OptionsDescription appOptions;
+    appOptions.add_options()
+        ("test,t", ProgramOptions::bool_switch(&value), "test message");
+    OptionParser parser(appOptions, argc, const_cast<char**>(argv));
+
+    EXPECT_TRUE(value);
+}
+
+struct TempFile {
+    TempFile()
+        : fd(-1)
+        , file(0)
+    {
+        snprintf(filename, sizeof(filename), "%s", "ramcloud-test-XXXXXX");
+        fd = mkstemp(filename);
+        file = fdopen(fd, "w+");
+    }
+    ~TempFile()
+    {
+        fclose(file);
+        unlink(filename);
+    }
+    char filename[50];
+    int fd;
+    FILE* file;
+
+    DISALLOW_COPY_AND_ASSIGN(TempFile);
+};
+
+TEST_F(OptionParserTest, constructor_configFile) {
+    TempFile temp;
+    fprintf(temp.file, "coordinator=swisscheese\n");
+    rewind(temp.file);
+    int argc = 3;
+    const char* argv[] = {"progname", "-c", temp.filename};
+
+    OptionsDescription appOptions;
+    OptionParser parser(appOptions, argc, const_cast<char**>(argv));
+
+    EXPECT_EQ("swisscheese",
+                            parser.options.getCoordinatorLocator());
+}
 
 }  // namespace RAMCloud
