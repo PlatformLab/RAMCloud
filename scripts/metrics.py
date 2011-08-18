@@ -25,6 +25,7 @@ from optparse import OptionParser
 from pprint import pprint
 from functools import partial
 import math
+import os
 import random
 import re
 import sys
@@ -572,6 +573,8 @@ def parseRecovery(recovery_dir, definitions=None):
     if definitions is None:
         definitions = globals()['definitions']
     data = AttrDict()
+    data.log_dir = os.path.realpath(os.path.expanduser(recovery_dir))
+
     logFile = glob('%s/coordinator.*.log' % recovery_dir)[0]
     data.coordinator = parse(open(logFile), definitions)
     data.coordinator.server = re.match(
@@ -840,6 +843,7 @@ def textReport(data):
                            2: 'disk'}.get(int(storageTypes.pop()),
                                           'unknown')
         summary.line('Storage type', [storageType])
+    summary.line('Log directory', [data.log_dir])
 
     coordSection = report.add(Section('Coordinator Time'))
     coordSection.ms('Total',
