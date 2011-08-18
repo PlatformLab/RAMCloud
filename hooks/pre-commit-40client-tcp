@@ -15,7 +15,8 @@ atexit "portslay $port"
 atexit "portslay $cport"
 
 $OBJDIR/coordinator -C $coordinatorLocator > /dev/null 2>&1 &
-$OBJDIR/server -M -L $masterLocator -C $coordinatorLocator > /dev/null 2>&1 &
+sleep .1
+$OBJDIR/server -M -L $masterLocator -C $coordinatorLocator & 
 sleep .1
 
 $OBJDIR/client -C $coordinatorLocator > /dev/null 2>&1
