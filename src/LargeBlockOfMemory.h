@@ -26,78 +26,14 @@
 namespace RAMCloud {
 
 /**
- * Mmap the desired amount of space with gigabyte alignment (lower 30
- * bits of the address are 0). Also, ensure that all mappings are faulted
- * in by touching each page. This is used to give the log memory that's
- * well-aligned, which makes things like computing base addresses of
- * Segments from random pointers really easy if Segments are aligned as
- * well (to a power-of-two less than or equal to 1GB).
- * 
- * One gigabyte alignment should be enough for anybody. Come find me in 30
- * years and tell me how foolishly shortsighted I was.
- *
- * \param[in] length
- *      Length of the memory area to be mapped in bytes.
- * \param[in] extraFlags
- *      Extra flags to be passed to mmap(2).
- * \param[in] fd
- *      Optional file descriptor (if mmaping a file, for instance).
+ * We'd like to share class state across all instances of all templated
+ * versions of #LargeBlockOfMemory. However, due to templating, using
+ * static members won't work (LargeBlockOfMemory<x> is a different type
+ * from LargeBlockOfMemory<y> and doesn't share static members). Thus
+ * we hack around this with a simple namespace.
  */
-static void*
-mmapGigabyteAligned(size_t length, int extraFlags, int fd = -1)
-{
-    const uint64_t gigabyte = (uint64_t)1 << 30;
-    const int maxTries = 10000;
-    int i;
-
-    uint64_t tryBase = gigabyte;
-    for (i = 0; i < maxTries; i++) {
-        void *base = mmap(reinterpret_cast<void*>(tryBase),
-                          length,
-                          PROT_READ | PROT_WRITE,
-                          MAP_SHARED | extraFlags,
-                          fd,
-                          0);
-
-        if (base == reinterpret_cast<void*>(tryBase))
-            break;
-
-        if (base != MAP_FAILED) {
-            if (munmap(base, length)) {
-                RAMCLOUD_LOG(ERROR, "couldn't munmap undesirable mapping!");
-                return MAP_FAILED;
-            }
-        }
-
-        tryBase += gigabyte;
-    }
-
-    if (i == maxTries) {
-        RAMCLOUD_LOG(ERROR, "Couldn't mmap gigabyte-aligned region");
-        return MAP_FAILED;
-    }
-
-    void* block = reinterpret_cast<void*>(tryBase);
-
-#ifdef MLOCK_PAGES
-    // Pin the pages. Don't do this with the mmap() MAP_LOCKED flag since
-    // that slows down probing considerably (Linux might be locking down
-    // pages before it knows that it can actually give us the entire range?).
-    if (mlock(block, length)) {
-        munmap(block, length);
-        RAMCLOUD_LOG(ERROR, "Couldn't pin down the memory!");
-        return MAP_FAILED;
-    }
-#endif
-
-    // Force the OS to populate backing pages.  MAP_POPULATE doesn't seem to
-    // do the trick and using it makes polling mmap for aligned base addresses
-    // much slower.
-    uint64_t pageSize = sysconf(_SC_PAGESIZE);
-    for (uint64_t i = 0; i < length; i += pageSize)
-        reinterpret_cast<uint8_t*>(block)[i] = 0;
-
-    return block;
+namespace LargeBlockOfMemoryInternal {
+    extern uint64_t nextProbeBase;
 }
 
 /**
@@ -215,11 +151,94 @@ struct LargeBlockOfMemory {
     /// The number of bytes valid starting at #block.
     size_t length;
 
+    /// Just for convenience.
+    static const uint64_t GIGABYTE = (uint64_t)1 << 30;
+
     /**
      * A page-aligned block of #length bytes of data.
      * May be NULL if length is 0.
      */
     T* block;
+
+  private:
+    /**
+     * Mmap the desired amount of space with gigabyte alignment (lower 30
+     * bits of the address are 0). Also, ensure that all mappings are faulted
+     * in by touching each page. This is used to give the log memory that's
+     * well-aligned, which makes things like computing base addresses of
+     * Segments from random pointers really easy if Segments are aligned as
+     * well (to a power-of-two less than or equal to 1GB).
+     * 
+     * One gigabyte alignment should be enough for anybody. Come find me in 30
+     * years and tell me how foolishly shortsighted I was.
+     *
+     * \param[in] length
+     *      Length of the memory area to be mapped in bytes.
+     * \param[in] extraFlags
+     *      Extra flags to be passed to mmap(2).
+     * \param[in] fd
+     *      Optional file descriptor (if mmaping a file, for instance).
+     */
+    void*
+    mmapGigabyteAligned(size_t length, int extraFlags, int fd = -1)
+    {
+        const int maxTries = 10000;
+        int i;
+
+        uint64_t tryBase = LargeBlockOfMemoryInternal::nextProbeBase;
+        for (i = 0; i < maxTries; i++) {
+            void *base = mmap(reinterpret_cast<void*>(tryBase),
+                              length,
+                              PROT_READ | PROT_WRITE,
+                              MAP_SHARED | extraFlags,
+                              fd,
+                              0);
+
+            if (base == reinterpret_cast<void*>(tryBase))
+                break;
+
+            if (base != MAP_FAILED) {
+                if (munmap(base, length)) {
+                    RAMCLOUD_LOG(ERROR, "couldn't munmap undesirable mapping!");
+                    return MAP_FAILED;
+                }
+            }
+
+            tryBase += GIGABYTE;
+        }
+
+        if (i == maxTries) {
+            RAMCLOUD_LOG(ERROR, "Couldn't mmap gigabyte-aligned region");
+            return MAP_FAILED;
+        }
+
+        void* block = reinterpret_cast<void*>(tryBase);
+
+#ifdef MLOCK_PAGES
+        // Pin the pages. Don't do this with the mmap() MAP_LOCKED flag since
+        // that slows down probing considerably (Linux might be locking down
+        // pages before it knows that it can actually give us the entire
+        // range?).
+        if (mlock(block, length)) {
+            munmap(block, length);
+            RAMCLOUD_LOG(ERROR, "Couldn't pin down the memory!");
+            return MAP_FAILED;
+        }
+#endif
+
+        // Force the OS to populate backing pages.  MAP_POPULATE doesn't seem
+        // to do the trick and using it makes polling mmap for aligned base
+        // addresses much slower.
+        uint64_t pageSize = sysconf(_SC_PAGESIZE);
+        for (uint64_t i = 0; i < length; i += pageSize)
+            reinterpret_cast<uint8_t*>(block)[i] = 0;
+
+        // Cache last mapped address to avoid re-probing same addresses later.
+        LargeBlockOfMemoryInternal::nextProbeBase =
+            (tryBase + length + GIGABYTE - 1) & ~(GIGABYTE - 1);
+
+        return block;
+    }
 
     DISALLOW_COPY_AND_ASSIGN(LargeBlockOfMemory);
 };

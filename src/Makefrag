@@ -39,6 +39,7 @@ SHARED_SRCFILES := \
 		   src/FastTransport.cc \
 		   src/FailureDetector.cc \
 		   src/IpAddress.cc \
+		   src/LargeBlockOfMemory.cc \
 		   src/Log.cc \
 		   src/LogCleaner.cc \
 		   src/Logging.cc \
