@@ -67,6 +67,7 @@ class OptionParser {
         Options()
             : coordinatorLocator()
             , localLocator()
+            , pcapFilePath()
         {
         }
 
@@ -85,9 +86,19 @@ class OptionParser {
             return coordinatorLocator;
         }
 
+        /**
+         * Returns the locator the application should contact the coordinator
+         * at, if any.
+         */
+        const string& getPcapFilePath() const
+        {
+            return pcapFilePath;
+        }
+
       private:
         string coordinatorLocator;      ///< See getLocalLocator().
         string localLocator;            ///< See getCoordinatorLocator().
+        string pcapFilePath;            ///< Packet log file, "" to disable.
 
         friend class OptionParser;
     };

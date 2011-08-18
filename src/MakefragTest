@@ -158,6 +158,10 @@ $(OBJDIR)/WillBenchmark: $(OBJDIR)/WillBenchmark.o $(SHARED_OBJFILES) $(SERVER_O
 	@mkdir -p $(@D)
 	$(CXX) $(LIBS) -o $@ $^
 
+$(OBJDIR)/LogCleanerBenchmark: $(OBJDIR)/LogCleanerBenchmark.o $(OBJDIR)/TestUtil.o $(OBJDIR)/libramcloud.a
+	@mkdir -p $(@D)
+	$(CXX) $(TESTS_LIB) -o $@ $^
+
 $(OBJDIR)/BackupStorageBenchmark: $(OBJDIR)/BackupStorageBenchmark.o $(SHARED_OBJFILES) $(BACKUP_OBJFILES)
 	@mkdir -p $(@D)
 	$(CXX) $(LIBS) -o $@ $^

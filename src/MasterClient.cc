@@ -17,9 +17,9 @@
 #include "MasterClient.h"
 #include "TransportManager.h"
 #include "ProtoBuf.h"
+#include "Log.h"
 #include "Segment.h"
 #include "Object.h"
-#include "Log.h"
 #include "Status.h"
 
 namespace RAMCloud {

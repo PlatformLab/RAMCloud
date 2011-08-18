@@ -48,6 +48,7 @@ SHARED_SRCFILES := \
 		   src/Metrics.cc \
 		   src/ObjectFinder.cc \
 		   src/OptionParser.cc \
+		   src/PcapFile.cc \
 		   src/PingClient.cc \
 		   src/PingService.cc \
 		   src/RamCloud.cc \
@@ -60,7 +61,6 @@ SHARED_SRCFILES := \
 		   src/ServiceManager.cc \
 		   src/SpinLock.cc \
 		   src/Status.cc \
-		   src/StringKeyAdapter.cc \
 		   src/TabletProfiler.cc \
 		   src/TcpTransport.cc \
 		   src/ThreadId.cc \
@@ -69,6 +69,7 @@ SHARED_SRCFILES := \
 		   src/TransportManager.cc \
 		   src/UdpDriver.cc \
 		   src/UnreliableTransport.cc \
+           src/WallTime.cc \
 		   src/Will.cc \
 		   $(INFINIBAND_SRCFILES) \
 		   $(OBJDIR)/ServerList.pb.cc \

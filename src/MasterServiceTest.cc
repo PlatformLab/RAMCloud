@@ -219,6 +219,7 @@ TEST_F(MasterServiceTest, create_basics) {
     client->read(0, 2, &value);
     EXPECT_EQ("item2", TestUtil::toString(&value));
 }
+
 TEST_F(MasterServiceTest, create_badTable) {
     EXPECT_THROW(client->create(4, "", 1),
                  TableDoesntExistException);
@@ -226,23 +227,25 @@ TEST_F(MasterServiceTest, create_badTable) {
 
 TEST_F(MasterServiceTest, read_basics) {
     client->create(0, "abcdef", 6);
-
     Buffer value;
     uint64_t version;
     client->read(0, 0, &value, NULL, &version);
     EXPECT_EQ(1U, version);
     EXPECT_EQ("abcdef", TestUtil::toString(&value));
 }
+
 TEST_F(MasterServiceTest, read_badTable) {
     Buffer value;
     EXPECT_THROW(client->read(4, 0, &value),
                  TableDoesntExistException);
 }
+
 TEST_F(MasterServiceTest, read_noSuchObject) {
     Buffer value;
     EXPECT_THROW(client->read(0, 5, &value),
                  ObjectDoesntExistException);
 }
+
 TEST_F(MasterServiceTest, read_rejectRules) {
     client->create(0, "abcdef", 6);
 
@@ -281,16 +284,15 @@ TEST_F(MasterServiceTest, multiRead_basics) {
     EXPECT_EQ(2U, request2.version);
     EXPECT_EQ("secondVal", TestUtil::toString(val2.get()));
 }
+
 TEST_F(MasterServiceTest, multiRead_badTable) {
     client->create(0, "value1", 6);
 
     std::vector<MasterClient::ReadObject*> requests;
-
     Tub<Buffer> val1;
     MasterClient::ReadObject request1(0, 0, &val1);
     request1.status = STATUS_RETRY;
     requests.push_back(&request1);
-
     Tub<Buffer> valError;
     MasterClient::ReadObject requestError(10, 0, &valError);
     requestError.status = STATUS_RETRY;
@@ -304,6 +306,7 @@ TEST_F(MasterServiceTest, multiRead_badTable) {
     EXPECT_STREQ("STATUS_TABLE_DOESNT_EXIST",
                  statusToSymbol(requestError.status));
 }
+
 TEST_F(MasterServiceTest, multiRead_noSuchObject) {
     client->create(0, "firstVal", 8);
     client->create(0, "secondVal", 9);
@@ -364,7 +367,7 @@ TEST_F(MasterServiceTest, detectSegmentRecoveryFailure_failure) {
 }
 
 TEST_F(MasterServiceTest, recover_basics) {
-    char segMem[segmentSize];
+    char* segMem = static_cast<char*>(xmemalign(segmentSize, segmentSize));
     Tub<uint64_t> serverId;
     serverId.construct(123);
     BackupManager mgr(coordinator, serverId, 1);
@@ -424,25 +427,26 @@ TEST_F(MasterServiceTest, recover_basics) {
         "tabletsRecovered: called by masterId 2 with 4 tablets, "
         "5 will entries",
         TestLog::get()));
+    free(segMem);
 }
 
 /**
-    * Properties checked:
-    * 1) At most length of tasks number of RPCs are started initially
-    *    even with a longer backup list.
-    * 2) Ensures that if a segment is only requested in the initial
-    *    round of RPCs once.
-    * 3) Ensures that if an entry in the server list is skipped because
-    *    another RPC is outstanding for the same segment it is retried
-    *    if the earlier RPC fails.
-    * 4) Ensures that if an RPC succeeds for one copy of a segment other
-    *    RPCs for that segment don't occur.
-    * 5) A transport exception at construction time caused that entry
-    *    to be skipped and a new entry to be tried immediate, both
-    *    during initial RPC starts and following ones.
-    */
+  * Properties checked:
+  * 1) At most length of tasks number of RPCs are started initially
+  *    even with a longer backup list.
+  * 2) Ensures that if a segment is only requested in the initial
+  *    round of RPCs once.
+  * 3) Ensures that if an entry in the server list is skipped because
+  *    another RPC is outstanding for the same segment it is retried
+  *    if the earlier RPC fails.
+  * 4) Ensures that if an RPC succeeds for one copy of a segment other
+  *    RPCs for that segment don't occur.
+  * 5) A transport exception at construction time caused that entry
+  *    to be skipped and a new entry to be tried immediate, both
+  *    during initial RPC starts and following ones.
+  */
 TEST_F(MasterServiceTest, recover) {
-    char segMem[segmentSize];
+    char* segMem = static_cast<char*>(xmemalign(segmentSize, segmentSize));
     Tub<uint64_t> serverId;
     serverId.construct(123);
     BackupManager mgr(coordinator, serverId, 1);
@@ -555,10 +559,13 @@ TEST_F(MasterServiceTest, recover) {
         "for segment 93 on channel . (after RPC completion)",
         TestLog::get()));
     EXPECT_EQ(MasterService::REC_REQ_FAILED, backups.server(8).user_data());
+
+    free(segMem);
 }
 
 TEST_F(MasterServiceTest, recoverSegment) {
-    char seg[8192];
+    uint32_t segLen = 8192;
+    char* seg = static_cast<char*>(xmemalign(segLen, segLen));
     uint32_t len; // number of bytes in a recovery segment
     Buffer value;
     bool ret;
@@ -580,29 +587,30 @@ TEST_F(MasterServiceTest, recoverSegment) {
     ////////////////////////////////////////////////////////////////////
 
     // Case 1a: Newer object already there; ignore object.
-    len = buildRecoverySegment(seg, sizeof(seg), 0, 2000, 1, "newer guy");
+    len = buildRecoverySegment(seg, segLen, 0, 2000, 1, "newer guy");
     service->recoverSegment(0, seg, len);
     verifyRecoveryObject(0, 2000, "newer guy");
-    len = buildRecoverySegment(seg, sizeof(seg), 0, 2000, 0, "older guy");
+    len = buildRecoverySegment(seg, segLen, 0, 2000, 0, "older guy");
     service->recoverSegment(0, seg, len);
     verifyRecoveryObject(0, 2000, "newer guy");
 
     // Case 1b: Older object already there; replace object.
-    len = buildRecoverySegment(seg, sizeof(seg), 0, 2001, 0, "older guy");
+    len = buildRecoverySegment(seg, segLen, 0, 2001, 0, "older guy");
     service->recoverSegment(0, seg, len);
     verifyRecoveryObject(0, 2001, "older guy");
-    len = buildRecoverySegment(seg, sizeof(seg), 0, 2001, 1, "newer guy");
+    len = buildRecoverySegment(seg, segLen, 0, 2001, 1, "newer guy");
     service->recoverSegment(0, seg, len);
     verifyRecoveryObject(0, 2001, "newer guy");
 
     // Case 2a: Equal/newer tombstone already there; ignore object.
     ObjectTombstone t1(0, 0, 2002, 1);
-    LogEntryHandle logTomb1 = service->allocRecoveryTombstone(&t1);
+    LogEntryHandle logTomb1 = service->log.append(LOG_ENTRY_TYPE_OBJTOMB,
+        &t1, sizeof(t1));
     ret = service->objectMap.replace(logTomb1);
     EXPECT_FALSE(ret);
-    len = buildRecoverySegment(seg, sizeof(seg), 0, 2002, 1, "equal guy");
+    len = buildRecoverySegment(seg, segLen, 0, 2002, 1, "equal guy");
     service->recoverSegment(0, seg, len);
-    len = buildRecoverySegment(seg, sizeof(seg), 0, 2002, 0, "older guy");
+    len = buildRecoverySegment(seg, segLen, 0, 2002, 0, "older guy");
     service->recoverSegment(0, seg, len);
     EXPECT_EQ(logTomb1, service->objectMap.lookup(0, 2002));
     service->removeTombstones();
@@ -611,10 +619,11 @@ TEST_F(MasterServiceTest, recoverSegment) {
 
     // Case 2b: Lesser tombstone already there; add object, remove tomb.
     ObjectTombstone t2(0, 0, 2003, 10);
-    LogEntryHandle logTomb2 = service->allocRecoveryTombstone(&t2);
+    LogEntryHandle logTomb2 = service->log.append(LOG_ENTRY_TYPE_OBJTOMB,
+        &t2, sizeof(t2));
     ret = service->objectMap.replace(logTomb2);
     EXPECT_FALSE(ret);
-    len = buildRecoverySegment(seg, sizeof(seg), 0, 2003, 11, "newer guy");
+    len = buildRecoverySegment(seg, segLen, 0, 2003, 11, "newer guy");
     service->recoverSegment(0, seg, len);
     verifyRecoveryObject(0, 2003, "newer guy");
     EXPECT_TRUE(service->objectMap.lookup(0, 2003) != NULL);
@@ -624,7 +633,7 @@ TEST_F(MasterServiceTest, recoverSegment) {
 
     // Case 3: No tombstone, no object. Recovered object always added.
     EXPECT_TRUE(NULL == service->objectMap.lookup(0, 2004));
-    len = buildRecoverySegment(seg, sizeof(seg), 0, 2004, 0, "only guy");
+    len = buildRecoverySegment(seg, segLen, 0, 2004, 0, "only guy");
     service->recoverSegment(0, seg, len);
     verifyRecoveryObject(0, 2004, "only guy");
 
@@ -643,30 +652,30 @@ TEST_F(MasterServiceTest, recoverSegment) {
     ////////////////////////////////////////////////////////////////////
 
     // Case 1a: Newer object already there; ignore tombstone.
-    len = buildRecoverySegment(seg, sizeof(seg), 0, 2005, 1, "newer guy");
+    len = buildRecoverySegment(seg, segLen, 0, 2005, 1, "newer guy");
     service->recoverSegment(0, seg, len);
     ObjectTombstone t3(0, 0, 2005, 0);
-    len = buildRecoverySegment(seg, sizeof(seg), &t3);
+    len = buildRecoverySegment(seg, segLen, &t3);
     service->recoverSegment(0, seg, len);
     verifyRecoveryObject(0, 2005, "newer guy");
 
     // Case 1b: Equal/older object already there; discard and add tombstone.
-    len = buildRecoverySegment(seg, sizeof(seg), 0, 2006, 0, "equal guy");
+    len = buildRecoverySegment(seg, segLen, 0, 2006, 0, "equal guy");
     service->recoverSegment(0, seg, len);
     verifyRecoveryObject(0, 2006, "equal guy");
     ObjectTombstone t4(0, 0, 2006, 0);
-    len = buildRecoverySegment(seg, sizeof(seg), &t4);
+    len = buildRecoverySegment(seg, segLen, &t4);
     service->recoverSegment(0, seg, len);
     service->removeTombstones();
     EXPECT_TRUE(NULL == service->objectMap.lookup(0, 2006));
     EXPECT_THROW(client->read(0, 2006, &value),
                  ObjectDoesntExistException);
 
-    len = buildRecoverySegment(seg, sizeof(seg), 0, 2007, 0, "older guy");
+    len = buildRecoverySegment(seg, segLen, 0, 2007, 0, "older guy");
     service->recoverSegment(0, seg, len);
     verifyRecoveryObject(0, 2007, "older guy");
     ObjectTombstone t5(0, 0, 2007, 1);
-    len = buildRecoverySegment(seg, sizeof(seg), &t5);
+    len = buildRecoverySegment(seg, segLen, &t5);
     service->recoverSegment(0, seg, len);
     service->removeTombstones();
     EXPECT_TRUE(NULL == service->objectMap.lookup(0, 2007));
@@ -675,26 +684,26 @@ TEST_F(MasterServiceTest, recoverSegment) {
 
     // Case 2a: Newer tombstone already there; ignore.
     ObjectTombstone t6(0, 0, 2008, 1);
-    len = buildRecoverySegment(seg, sizeof(seg), &t6);
+    len = buildRecoverySegment(seg, segLen, &t6);
     service->recoverSegment(0, seg, len);
     tomb1 = service->objectMap.lookup(0, 2008)->userData<ObjectTombstone>();
     EXPECT_TRUE(tomb1 != NULL);
     EXPECT_EQ(1U, tomb1->objectVersion);
     ObjectTombstone t7(0, 0, 2008, 0);
-    len = buildRecoverySegment(seg, sizeof(seg), &t7);
+    len = buildRecoverySegment(seg, segLen, &t7);
     service->recoverSegment(0, seg, len);
     tomb2 = service->objectMap.lookup(0, 2008)->userData<ObjectTombstone>();
     EXPECT_EQ(tomb1, tomb2);
 
     // Case 2b: Older tombstone already there; replace.
     ObjectTombstone t8(0, 0, 2009, 0);
-    len = buildRecoverySegment(seg, sizeof(seg), &t8);
+    len = buildRecoverySegment(seg, segLen, &t8);
     service->recoverSegment(0, seg, len);
     tomb1 = service->objectMap.lookup(0, 2009)->userData<ObjectTombstone>();
     EXPECT_TRUE(tomb1 != NULL);
     EXPECT_EQ(0U, tomb1->objectVersion);
     ObjectTombstone t9(0, 0, 2009, 1);
-    len = buildRecoverySegment(seg, sizeof(seg), &t9);
+    len = buildRecoverySegment(seg, segLen, &t9);
     service->recoverSegment(0, seg, len);
     tomb2 = service->objectMap.lookup(0, 2009)->userData<ObjectTombstone>();
     EXPECT_EQ(1U, tomb2->objectVersion);
@@ -702,13 +711,15 @@ TEST_F(MasterServiceTest, recoverSegment) {
     // Case 3: No tombstone, no object. Recovered tombstone always added.
     EXPECT_TRUE(NULL == service->objectMap.lookup(0, 2010));
     ObjectTombstone t10(0, 0, 2010, 0);
-    len = buildRecoverySegment(seg, sizeof(seg), &t10);
+    len = buildRecoverySegment(seg, segLen, &t10);
     service->recoverSegment(0, seg, len);
     EXPECT_TRUE(service->objectMap.lookup(0, 2010) != NULL);
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJTOMB,
               service->objectMap.lookup(0, 2010)->type());
     EXPECT_EQ(0, memcmp(&t10, service->objectMap.lookup(
               0, 2010)->userData(), sizeof(t10)));
+
+    free(seg);
 }
 
 TEST_F(MasterServiceTest, remove_basics) {
@@ -721,9 +732,11 @@ TEST_F(MasterServiceTest, remove_basics) {
     Buffer value;
     EXPECT_THROW(client->read(0, 0, &value), ObjectDoesntExistException);
 }
+
 TEST_F(MasterServiceTest, remove_badTable) {
     EXPECT_THROW(client->remove(4, 0), TableDoesntExistException);
 }
+
 TEST_F(MasterServiceTest, remove_rejectRules) {
     client->create(0, "item0", 5);
 
@@ -736,6 +749,7 @@ TEST_F(MasterServiceTest, remove_rejectRules) {
                  WrongVersionException);
     EXPECT_EQ(1U, version);
 }
+
 TEST_F(MasterServiceTest, remove_objectAlreadyDeletedRejectRules) {
     RejectRules rules;
     memset(&rules, 0, sizeof(rules));
@@ -745,6 +759,7 @@ TEST_F(MasterServiceTest, remove_objectAlreadyDeletedRejectRules) {
                  ObjectDoesntExistException);
     EXPECT_EQ(VERSION_NONEXISTENT, version);
 }
+
 TEST_F(MasterServiceTest, remove_objectAlreadyDeleted) {
     uint64_t version;
     client->remove(0, 1, NULL, &version);
@@ -848,6 +863,7 @@ TEST_F(MasterServiceTest, write) {
     EXPECT_EQ("item0-v3", TestUtil::toString(&value));
     EXPECT_EQ(3U, version);
 }
+
 TEST_F(MasterServiceTest, write_rejectRules) {
     RejectRules rules;
     memset(&rules, 0, sizeof(rules));
@@ -1045,19 +1061,18 @@ TEST_F(MasterRecoverTest, recover) {
 
     // Give them a name so that freeSegment doesn't get called on
     // destructor until after the test.
-    char segMem1[segmentSize];
+    char* segMem1 = static_cast<char*>(xmemalign(segmentSize, segmentSize));
     Tub<uint64_t> serverId;
     serverId.construct(99);
     BackupManager mgr(coordinator, serverId, 2);
-    Segment s1(99, 87, &segMem1, sizeof(segMem1), &mgr);
+    Segment s1(99, 87, segMem1, segmentSize, &mgr);
     s1.close();
-    char segMem2[segmentSize];
-    Segment s2(99, 88, &segMem2, sizeof(segMem2), &mgr);
+    char* segMem2 = static_cast<char*>(xmemalign(segmentSize, segmentSize));
+    Segment s2(99, 88, segMem2, segmentSize, &mgr);
     s2.close();
 
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
-
     {
         BackupClient::StartReadingData::Result result;
         BackupClient(transportManager.getSession("mock:host=backup1"))
@@ -1085,6 +1100,9 @@ TEST_F(MasterRecoverTest, recover) {
         "recoverSegment: Segment 88 replay complete"));
     EXPECT_NE(string::npos, TestLog::get().find(
         "recoverSegment: Segment 87 replay complete"));
+
+    free(segMem1);
+    free(segMem2);
 }
 
 TEST_F(MasterRecoverTest, failedToRecoverAll) {

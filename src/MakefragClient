@@ -28,6 +28,7 @@ CLIENT_SRCFILES := \
 		   src/MasterClient.cc \
 		   src/Metrics.cc \
 		   src/ObjectFinder.cc \
+		   src/PcapFile.cc \
 		   src/PingClient.cc \
 		   src/RamCloud.cc \
 		   src/Service.cc \
@@ -35,6 +36,7 @@ CLIENT_SRCFILES := \
 		   src/ServiceManager.cc \
 		   src/SpinLock.cc \
 		   src/Status.cc \
+		   src/StringKeyAdapter.cc \
 		   src/TcpTransport.cc \
 		   src/ThreadId.cc \
 		   src/TimeCounter.cc \

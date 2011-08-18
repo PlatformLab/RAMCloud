@@ -47,6 +47,7 @@ def recover(numBackups=1,             # Number of hosts on which to start
             numPartitions=1,
             objectSize=1024,
             numObjects=626012,        # Number of objects in each partition.
+            numRemovals=0,
             replicas=1,
             disk=1,
             timeout=60,
@@ -172,10 +173,10 @@ def recover(numBackups=1,             # Number of hosts on which to start
 
         # start client
         client = sandbox.rsh(clientHost[0],
-                 ('%s -d -C %s --logFile %s/client.%s.log -n %d -s %d '
+                 ('%s -d -C %s --logFile %s/client.%s.log -n %d -r %d -s %d '
                   '-t %d -k %d %s' % (clientBin, coordinatorLocator, run,
-                  clientHost[0], numObjects, objectSize, numPartitions,
-                  numPartitions, clientArgs)),
+                  clientHost[0], numObjects, numRemovals, objectSize,
+                  numPartitions, numPartitions, clientArgs)),
                  bg=True, stderr=subprocess.STDOUT)
 
         start = time.time()

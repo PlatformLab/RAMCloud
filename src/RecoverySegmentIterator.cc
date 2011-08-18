@@ -84,7 +84,7 @@ RecoverySegmentIterator::getEntry() const
 LogEntryType
 RecoverySegmentIterator::getType() const
 {
-    return getEntry().type;
+    return reinterpret_cast<SegmentEntryHandle>(&getEntry())->type();
 }
 
 /**

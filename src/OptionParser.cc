@@ -22,6 +22,7 @@
 #include "Common.h"
 #include "Transport.h"
 #include "OptionParser.h"
+#include "PcapFile.h"
 #include "ShortMacros.h"
 
 namespace RAMCloud {
@@ -141,7 +142,13 @@ OptionParser::setup(int argc, char* argv[])
             ("coordinator,C",
              po::value<string>(&options.coordinatorLocator)->
                default_value("fast+udp:host=0.0.0.0,port=12246"),
-             "Service locator where the coordinator can be contacted");
+             "Service locator where the coordinator can be contacted")
+            ("pcapFile",
+             po::value<string>(&options.pcapFilePath)->
+               default_value(""),
+             "File to log transmitted and received packets to in pcap format. "
+             "Only works with InfUdDriver based transports for now; "
+             "use tcpdump to capture kernel-based packet formats.");
 
         // Do one pass with just help/config file options so we can get
         // the alternate config file location, if specified.  Then
@@ -182,6 +189,10 @@ OptionParser::setup(int argc, char* argv[])
             auto level = moduleLevel.substr(pos + 1);
             logger.setLogLevel(name, level);
         }
+
+        if (options.pcapFilePath != "")
+            pcapFile.construct(options.pcapFilePath.c_str(),
+                               PcapFile::LinkType::ETHERNET);
     }
     catch (po::multiple_occurrences& e) {
         // This clause provides a more understandable error message

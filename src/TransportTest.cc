@@ -48,6 +48,7 @@ class TransportTest : public ::testing::Test {
 TEST_F(TransportTest, wait_noError) {
     delete dispatch;
     dispatch = new Dispatch;
+    dispatch->hasDedicatedThread = true;
     int count = 3;
     Transport::ClientRpc rpc;
     TransportTestPoller poller(&count, &rpc, NULL);
@@ -63,6 +64,7 @@ void waitOnRpc(Transport::ClientRpc* rpc, const char** state) {
 TEST_F(TransportTest, wait_notDispatchThread) {
     delete dispatch;
     dispatch = new Dispatch;
+    dispatch->hasDedicatedThread = true;
     int count = 3;
     Transport::ClientRpc rpc;
     TransportTestPoller poller(&count, &rpc, NULL);
@@ -91,6 +93,7 @@ TEST_F(TransportTest, wait_notDispatchThread) {
 TEST_F(TransportTest, wait_error) {
     delete dispatch;
     dispatch = new Dispatch;
+    dispatch->hasDedicatedThread = true;
     int count = 3;
     Transport::ClientRpc rpc;
     TransportTestPoller poller(&count, &rpc, "test error message");

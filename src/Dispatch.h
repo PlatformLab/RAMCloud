@@ -51,15 +51,17 @@ class Dispatch {
   public:
     Dispatch();
     ~Dispatch();
-    static void init();
+    static void init(bool hasDedicatedThread = false);
 
     /**
-     * Returns true if this thread is the one in which the object was created.
+     * Returns true if this thread is the one in which the object was created
+     * or if there is no thread which owns the dispatch
+     * (see #hasDedicatedThread).
      */
     bool
     isDispatchThread()
     {
-        return (ownerId == ThreadId::get());
+        return (!hasDedicatedThread || ownerId == ThreadId::get());
     }
 
     void poll();
@@ -307,6 +309,16 @@ class Dispatch {
 
     // Nonzero means the dispatch thread is locked.
     AtomicInt locked;
+
+    /**
+     * True if there is a thread which owns this dispatch (this is
+     * true on RAMCloud servers).
+     *
+     * On clients this is false which means clients must guarantee that only
+     * one thread interacts with the Dispatch at a time (synchronization
+     * is disabled in the Dispatch).
+     */
+    bool hasDedicatedThread;
 
     static Syscall *sys;
 

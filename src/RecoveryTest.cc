@@ -51,7 +51,7 @@ class RecoveryTest : public CppUnit::TestFixture {
         ProtoBuf::ServerList backupList;
         Tub<uint64_t> masterIdTub;
         BackupManager* mgr;
-        char *segMem;
+        void *segMem;
         Segment* seg;
 
         WriteValidSegment(uint64_t masterId,
@@ -75,7 +75,7 @@ class RecoveryTest : public CppUnit::TestFixture {
             }
             mgr->hosts = backupList;
 
-            segMem = new char[segmentSize];
+            segMem = xmemalign(segmentSize, segmentSize);
             seg = new Segment(masterId, segmentId, segMem, segmentSize, mgr);
 
             char temp[LogDigest::getBytesFromCount(
@@ -95,7 +95,7 @@ class RecoveryTest : public CppUnit::TestFixture {
         ~WriteValidSegment()
         {
             delete seg;
-            delete[] segMem;
+            free(segMem);
             delete mgr;
         }
 

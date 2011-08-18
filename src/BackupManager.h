@@ -147,6 +147,7 @@ class BackupManager {
     BackupManager(CoordinatorClient* coordinator,
                   const Tub<uint64_t>& masterId,
                   uint32_t replicas);
+    explicit BackupManager(BackupManager* prototype);
     ~BackupManager();
 
     void freeSegment(uint64_t segmentId);

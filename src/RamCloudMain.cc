@@ -43,10 +43,14 @@ bool fillWithTestData = false;
 
 void
 runRecovery(RamCloud& client,
-            int count, uint32_t objectDataSize,
+            int count,
+            int removeCount,
+            uint32_t objectDataSize,
             int tableCount,
             int tableSkip)
 {
+    if (removeCount > count)
+        DIE("cannot remove more objects than I create!");
     if (verify && objectDataSize < 20)
         DIE("need >= 20 byte objects to do verification!");
     if (verify && fillWithTestData)
@@ -135,6 +139,14 @@ runRecovery(RamCloud& client,
             count * tableCount, Cycles::rdtsc() - b);
         LOG(NOTICE, "avg insert took %lu ticks",
             (Cycles::rdtsc() - b) / count / tableCount);
+    }
+
+    // remove objects if we've been instructed. just start from table 0, obj 0.
+    LOG(NOTICE, "Performing %u removals of objects just created", removeCount);
+    for (int t = 0; t < tableCount; t++) {
+        for (int j = 0; removeCount > 0; j++, removeCount--)
+            client.remove(tables[t], j);
+
     }
 
     // dump the tablet map
@@ -237,7 +249,7 @@ main(int argc, char *argv[])
 try
 {
     bool hintServerDown;
-    int count;
+    int count, removeCount;
     uint32_t objectDataSize;
     uint32_t tableCount;
     uint32_t skipCount;
@@ -263,6 +275,9 @@ try
          ProgramOptions::value<int>(&count)->
             default_value(1024),
          "The number of values to insert.")
+        ("removals,r",
+         ProgramOptions::value<int>(&removeCount)->default_value(0),
+         "The number of values inserted to remove (creating tombstones).")
         ("size,s",
          ProgramOptions::value<uint32_t>(&objectDataSize)->
             default_value(1024),
@@ -279,7 +294,8 @@ try
     RamCloud client(optionParser.options.getCoordinatorLocator().c_str());
 
     if (hintServerDown) {
-        runRecovery(client, count, objectDataSize, tableCount, skipCount);
+        runRecovery(client, count, removeCount,
+            objectDataSize, tableCount, skipCount);
         return 0;
     }
 
@@ -349,11 +365,16 @@ try
 
     LOG(NOTICE, "Performing %u inserts of %u byte objects",
         count, objectDataSize);
+    uint64_t* ids = static_cast<uint64_t*>(malloc(sizeof(ids[0]) * count));
     b = Cycles::rdtsc();
     for (int j = 0; j < count; j++)
-        id = client.create(table, val, downCast<uint32_t>(strlen(val) + 1));
+        ids[j] = client.create(table, val, downCast<uint32_t>(strlen(val) + 1));
     LOG(NOTICE, "%d inserts took %lu ticks", count, Cycles::rdtsc() - b);
     LOG(NOTICE, "avg insert took %lu ticks", (Cycles::rdtsc() - b) / count);
+
+    LOG(NOTICE, "Performing %u removals of objects just inserted", removeCount);
+    for (int j = 0; j < count && j < removeCount; j++)
+            client.remove(table, ids[j]);
 
     client.dropTable("test");
 

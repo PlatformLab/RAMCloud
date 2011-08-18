@@ -28,6 +28,7 @@
 #include "RecoverySegmentIterator.h"
 #include "Service.h"
 #include "SegmentIterator.h"
+#include "SpinLock.h"
 #include "Table.h"
 
 namespace RAMCloud {
@@ -275,17 +276,28 @@ class MasterService : public Service {
      */
     bool anyWrites;
 
+    /**
+     * Lock that serialises all object updates (creations, overwrites,
+     * deletions, and cleaning relocations). This protects regular RPC
+     * operations from the log cleaner. When we work on multithreaded
+     * writes we'll need to revisit this.
+     */
+    SpinLock objectUpdateLock;
 
-    /* Temporary tombstone methods used during recovery. */
-    LogEntryHandle allocRecoveryTombstone(const ObjectTombstone* srcTomb);
-    void freeRecoveryTombstone(LogEntryHandle handle);
+    /* Tombstone cleanup method used after recovery. */
     void removeTombstones();
 
     friend void recoveryCleanup(LogEntryHandle maybeTomb, void *cookie);
-    friend void objectEvictionCallback(LogEntryHandle handle, LogTime logTime,
-        void* cookie);
-    friend void tombstoneEvictionCallback(LogEntryHandle handle,
-        LogTime logTime, void* cookie);
+    friend bool objectLivenessCallback(LogEntryHandle handle, void* cookie);
+    friend bool objectRelocationCallback(LogEntryHandle oldHandle,
+                                         LogEntryHandle newHandle,
+                                         void* cookie);
+    friend void objectScanCallback(LogEntryHandle handle, void* cookie);
+    friend bool tombstoneLivenessCallback(LogEntryHandle handle, void* cookie);
+    friend bool tombstoneRelocationCallback(LogEntryHandle oldHandle,
+                                            LogEntryHandle newHandle,
+                                            void* cookie);
+    friend void tombstoneScanCallback(LogEntryHandle handle, void* cookie);
     friend void segmentReplayCallback(Segment* seg, void* cookie);
     Table& getTable(uint32_t tableId, uint64_t objectId);
     void rejectOperation(const RejectRules* rejectRules, uint64_t version);

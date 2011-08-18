@@ -26,7 +26,83 @@
 namespace RAMCloud {
 
 /**
- * A wrapper for a large block of memory.
+ * Mmap the desired amount of space with gigabyte alignment (lower 30
+ * bits of the address are 0). Also, ensure that all mappings are faulted
+ * in by touching each page. This is used to give the log memory that's
+ * well-aligned, which makes things like computing base addresses of
+ * Segments from random pointers really easy if Segments are aligned as
+ * well (to a power-of-two less than or equal to 1GB).
+ * 
+ * One gigabyte alignment should be enough for anybody. Come find me in 30
+ * years and tell me how foolishly shortsighted I was.
+ *
+ * \param[in] length
+ *      Length of the memory area to be mapped in bytes.
+ * \param[in] extraFlags
+ *      Extra flags to be passed to mmap(2).
+ * \param[in] fd
+ *      Optional file descriptor (if mmaping a file, for instance).
+ */
+static void*
+mmapGigabyteAligned(size_t length, int extraFlags, int fd = -1)
+{
+    const uint64_t gigabyte = (uint64_t)1 << 30;
+    const int maxTries = 10000;
+    int i;
+
+    uint64_t tryBase = gigabyte;
+    for (i = 0; i < maxTries; i++) {
+        void *base = mmap(reinterpret_cast<void*>(tryBase),
+                          length,
+                          PROT_READ | PROT_WRITE,
+                          MAP_SHARED | extraFlags,
+                          fd,
+                          0);
+
+        if (base == reinterpret_cast<void*>(tryBase))
+            break;
+
+        if (base != MAP_FAILED) {
+            if (munmap(base, length)) {
+                RAMCLOUD_LOG(ERROR, "couldn't munmap undesirable mapping!");
+                return MAP_FAILED;
+            }
+        }
+
+        tryBase += gigabyte;
+    }
+
+    if (i == maxTries) {
+        RAMCLOUD_LOG(ERROR, "Couldn't mmap gigabyte-aligned region");
+        return MAP_FAILED;
+    }
+
+    void* block = reinterpret_cast<void*>(tryBase);
+
+#ifdef MLOCK_PAGES
+    // Pin the pages. Don't do this with the mmap() MAP_LOCKED flag since
+    // that slows down probing considerably (Linux might be locking down
+    // pages before it knows that it can actually give us the entire range?).
+    if (mlock(block, length)) {
+        munmap(block, length);
+        RAMCLOUD_LOG(ERROR, "Couldn't pin down the memory!");
+        return MAP_FAILED;
+    }
+#endif
+
+    // Force the OS to populate backing pages.  MAP_POPULATE doesn't seem to
+    // do the trick and using it makes polling mmap for aligned base addresses
+    // much slower.
+    uint64_t pageSize = sysconf(_SC_PAGESIZE);
+    for (uint64_t i = 0; i < length; i += pageSize)
+        reinterpret_cast<uint8_t*>(block)[i] = 0;
+
+    return block;
+}
+
+/**
+ * A wrapper for a large block of memory. Returned memory is guaranteed to be
+ * at least one gigabyte aligned (at least the first 30 address bits will be 0).
  * \tparam T
  *      The type of object that will be stored in this block of memory.
  */
@@ -34,7 +110,7 @@ template<typename T = void>
 struct LargeBlockOfMemory {
     /**
      * Allocates anonymous backing pages for a block of memory, pins them,
-     * and zeros them.
+     * and zeros them. The memory is aligned to a gigabyte boundary.
      * \param length
      *      The number of bytes of memory to allocate.
      * \throw FatalError
@@ -42,9 +118,7 @@ struct LargeBlockOfMemory {
      */
     explicit LargeBlockOfMemory(size_t length)
         : length(length)
-        , block(static_cast<T*>(mmap(NULL, length, PROT_READ | PROT_WRITE,
-                                     MAP_SHARED | MAP_ANONYMOUS |
-                                     MAP_POPULATE, -1, 0)))
+        , block(static_cast<T*>(mmapGigabyteAligned(length, MAP_ANONYMOUS)))
     {
         if (block == MAP_FAILED) {
             if (length == 0)
@@ -53,17 +127,12 @@ struct LargeBlockOfMemory {
                              format("Could not allocate %lu bytes", length),
                              errno);
         }
-        // Force the OS to populate backing pages,
-        // because MAP_POPULATE doesn't seem to do the trick.
-        uint64_t pageSize = sysconf(_SC_PAGESIZE);
-        for (uint64_t i = 0; i < length; i += pageSize)
-            reinterpret_cast<uint8_t*>(block)[i] = 0;
     }
 
     /**
      * Creates a file of the desired length and mmaps pages from it, pins them,
      * and zeros them. This is intended to be used with hugetlbfs to get
-     * superpage-backed memory.
+     * superpage-backed memory. Memory is aligned to a gigabyte boundary.
      * \param filePath
      *      Path to the file to create and mmap. This file must not already
      *      exist.
@@ -100,9 +169,7 @@ struct LargeBlockOfMemory {
                 errno);
         }
 
-        block = reinterpret_cast<T*>(mmap(NULL, length, PROT_READ | PROT_WRITE,
-                                         MAP_SHARED | MAP_POPULATE,
-                                         fd, 0));
+        block = reinterpret_cast<T*>(mmapGigabyteAligned(length, 0, fd));
         if (reinterpret_cast<void*>(block) == MAP_FAILED) {
             unlink(path);
             close(fd);
