@@ -305,6 +305,13 @@ string demangle(const char* name) {
 /**
  * Pin all current and future memory pages in memory so that the OS does not
  * swap them to disk. All RAMCloud server main files should call this.
+ *
+ * Note that future mapping operations (e.g. mmap, stack expansion, etc)
+ * may fail if their memory cannot be pinned due to resource limits. Thus the
+ * check below may not capture all possible failures up front. It's probably
+ * best to call this at the end of initialisation (after most large allocations
+ * have been made). This is also a good idea because pinning slows down mmap
+ * probing in #LargeBlockOfMemory.
  */
 void pinAllMemory() {
     int r = mlockall(MCL_CURRENT | MCL_FUTURE);

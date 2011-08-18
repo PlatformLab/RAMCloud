@@ -114,7 +114,6 @@ try
         LOG(DEBUG, "server: Pinned to core %d", cpu);
     }
 
-    pinAllMemory();
     transportManager.initialize(
             optionParser.options.getLocalLocator().c_str());
     LOG(NOTICE, "%s: Listening on %s", servicesInfo,
@@ -159,6 +158,12 @@ try
     }
     PingService pingService;
     serviceManager->addService(pingService, PING_SERVICE);
+
+    // Only pin down memory _after_ users of LargeBlockOfMemory have obtained
+    // their allocations (since LBOM probes are much slower if the memory
+    // needs to be pinned during mmap).
+    pinAllMemory();
+
     while (true) {
         dispatch->poll();
     }
