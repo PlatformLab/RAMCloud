@@ -328,8 +328,10 @@ CoordinatorService::hintServerDown(const HintServerDownRpc::Request& reqHdr,
                     tablet.set_state(ProtoBuf::Tablets_Tablet::RECOVERING);
             }
 
-            LOG(NOTICE, "Trying partition recovery on %lu with %u masters "
-                "and %u backups", serverId, masterList.server_size(),
+            LOG(NOTICE, "Recovering master %lu (%s) on %u recovery masters "
+                "using %u backups", serverId,
+                master.service_locator().c_str(),
+                masterList.server_size(),
                 backupList.server_size());
 
             BaseRecovery* recovery = NULL;

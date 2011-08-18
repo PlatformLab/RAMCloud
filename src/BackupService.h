@@ -487,6 +487,7 @@ class BackupService : public Service {
     explicit BackupService(const Config& config,
                            BackupStorage& storage);
     virtual ~BackupService();
+    void benchmark();
     void dispatch(RpcOpcode opcode, Rpc& rpc);
     uint64_t getServerId() const;
     void init();
@@ -570,6 +571,9 @@ class BackupService : public Service {
 
     /// The storage backend where closed segments are to be placed.
     BackupStorage& storage;
+
+    /// The results of storage.benchmark().
+    pair<uint32_t, uint32_t> storageBenchmarkResults;
 
     /// For unit testing.
     uint64_t bytesWritten;
