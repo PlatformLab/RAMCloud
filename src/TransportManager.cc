@@ -234,6 +234,7 @@ TransportManager::getSession(const char* serviceLocator)
 
     // Iterate over all of the sub-locators, looking for a transport that
     // can handle its protocol.
+    bool transportSupported = false;
     auto locators = ServiceLocator::parseServiceLocators(serviceLocator);
     foreach (auto& locator, locators) {
         for (uint32_t i = 0; i < transportFactories.size(); i++) {
@@ -241,6 +242,7 @@ TransportManager::getSession(const char* serviceLocator)
             if (!factory->supports(locator.getProtocol().c_str())) {
                 continue;
             }
+
             if (transports[i] == NULL) {
                 // Try to create a new transport via this factory.
                 // It's OK if that doesn't work (e.g. the particular
@@ -257,6 +259,8 @@ TransportManager::getSession(const char* serviceLocator)
                     continue;
                 }
             }
+
+            transportSupported = true;
             try {
                 auto session = transports[i]->getSession(locator);
                 if (isServer) {
@@ -281,9 +285,17 @@ TransportManager::getSession(const char* serviceLocator)
             }
         }
     }
-    throw TransportException(HERE,
-        format("No transport found for this service locator: %s",
-               serviceLocator));
+
+    string errorMsg;
+    if (transportSupported) {
+        errorMsg = format("Could not obtain transport session for this "
+            "service locator: %s", serviceLocator);
+    } else {
+        errorMsg = format("No supported transport found for this "
+            "service locator: %s", serviceLocator);
+    }
+
+    throw TransportException(HERE, errorMsg);
 }
 
 /**

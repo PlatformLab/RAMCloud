@@ -128,10 +128,28 @@ TEST_F(TransportManagerTest, getSession_createWorkerSession) {
     EXPECT_EQ("WorkerSession: created", TestLog::get());
 }
 
-TEST_F(TransportManagerTest, getSession_failure) {
+TEST_F(TransportManagerTest, getSession_badTransportFailure) {
     TransportManager manager;
     manager.registerMock(NULL);
     EXPECT_THROW(manager.getSession("foo:"), TransportException);
+    try {
+        manager.getSession("foo:");
+    } catch (TransportException& e) {
+        EXPECT_EQ(e.message, "No supported transport found for "
+                             "this service locator: foo:");
+    }
+}
+
+TEST_F(TransportManagerTest, getSession_transportgetSessionFailure) {
+    TransportManager manager;
+    manager.registerMock(NULL);
+    EXPECT_THROW(manager.getSession("mock:host=error"), TransportException);
+    try {
+        manager.getSession("mock:host=error");
+    } catch (TransportException& e) {
+        EXPECT_EQ(e.message, "Could not obtain transport session "
+                             "for this service locator: mock:host=error");
+    }
 }
 
 // No tests for getListeningLocatorsString: it's trivial.

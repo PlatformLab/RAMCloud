@@ -55,6 +55,10 @@ MockTransport::getServiceLocator()
 Transport::SessionRef
 MockTransport::getSession(const ServiceLocator& serviceLocator)
 {
+    // magic hook to invoke failed getSession in testing
+    if (serviceLocator.getOriginalString() == "mock:host=error")
+        throw TransportException(HERE, "Failed to open session");
+
     return new MockSession(this, serviceLocator);
 }
 

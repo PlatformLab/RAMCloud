@@ -537,8 +537,8 @@ TEST_F(MasterServiceTest, recover) {
         TestLog::get()));
     // 5) Checks bad locators for initial RPCs are handled
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "No transport found for this service locator: mock:host=backup3",
-        TestLog::get()));
+        "Could not obtain transport session for this service locator: "
+        "mock:host=backup3", TestLog::get()));
     EXPECT_EQ(MasterService::REC_REQ_FAILED, backups.server(5).user_data());
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
         "recover: Starting getRecoveryData from mock:host=backup1 "
@@ -551,8 +551,8 @@ TEST_F(MasterServiceTest, recover) {
         TestLog::get()));
     // 5) Checks bad locators for non-initial RPCs are handled
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "No transport found for this service locator: mock:host=backup4",
-        TestLog::get()));
+        "Could not obtain transport session for this service locator: "
+        "mock:host=backup4", TestLog::get()));
     EXPECT_EQ(MasterService::REC_REQ_FAILED, backups.server(7).user_data());
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
         "recover: Starting getRecoveryData from mock:host=backup1 "
