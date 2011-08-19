@@ -1077,6 +1077,8 @@ BackupService::getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
                                BackupGetRecoveryDataRpc::Response& respHdr,
                                Rpc& rpc)
 {
+    CycleCounter<Metric> _(&metrics->backup.readTicks);
+
     LOG(DEBUG, "getRecoveryData masterId %lu, segmentId %lu, partitionId %lu",
         reqHdr.masterId, reqHdr.segmentId, reqHdr.partitionId);
 
@@ -1253,7 +1255,7 @@ BackupService::startReadingData(
         }
     }
 
-    // Shuffle the primary entries, this prevents this helps all recovery
+    // Shuffle the primary entries, this helps all recovery
     // masters to stay busy even if the log contains long sequences of
     // back-to-back segments that only have objects for a particular
     // partition.  Secondary order is irrelevant.
