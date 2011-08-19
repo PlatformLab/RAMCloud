@@ -140,7 +140,6 @@ try
         MasterService::sizeLogAndHashTable(masterTotalMemory,
                                           hashTableMemory, &masterConfig);
         masterService.construct(masterConfig, &coordinator, replicas);
-        masterService->init();
         serviceManager->addService(*masterService, MASTER_SERVICE);
     }
 
@@ -162,7 +161,7 @@ try
                                                 backupFile.c_str(),
                                                 O_DIRECT | O_SYNC));
         backupService.construct(backupConfig, *storage);
-        backupService->init();
+        backupService->benchmark();
         serviceManager->addService(*backupService, BACKUP_SERVICE);
     }
     PingService pingService;
@@ -173,6 +172,14 @@ try
     // needs to be pinned during mmap).
     pinAllMemory();
 
+    // Enlist with the coordinator just before dedicating this thread to RPC
+    // dispatch. This reduces the window of being unavailable to service RPCs
+    // after enlisting with the coordinator (which can lead to session open
+    // timeouts).
+    if (masterService)
+        masterService->init();
+    if (backupService)
+        backupService->init();
     while (true) {
         dispatch->poll();
     }

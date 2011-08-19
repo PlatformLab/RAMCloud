@@ -881,6 +881,7 @@ BackupService::BackupService(const Config& config,
     , segments()
     , segmentSize(storage.getSegmentSize())
     , storage(storage)
+    , storageBenchmarkResults()
     , bytesWritten(0)
     , ioScheduler()
 #ifdef SINGLE_THREADED_BACKUP
@@ -889,15 +890,20 @@ BackupService::BackupService(const Config& config,
     , ioThread(boost::ref(ioScheduler))
 #endif
 {
-    recoveryTicks.construct(); // make unit tests happy
+    try {
+        recoveryTicks.construct(); // make unit tests happy
 
-    // Prime the segment pool. This removes an overhead that would otherwise be
-    // seen during the first recovery.
-    void* mem[100];
-    foreach(auto& m, mem)
-        m = pool.malloc();
-    foreach(auto& m, mem)
-        pool.free(m);
+        // Prime the segment pool. This removes an overhead that would
+        // otherwise be seen during the first recovery.
+        void* mem[100];
+        foreach(auto& m, mem)
+            m = pool.malloc();
+        foreach(auto& m, mem)
+            pool.free(m);
+    } catch (...) {
+        ioScheduler.shutdown(ioThread);
+        throw;
+    }
 }
 
 /**
@@ -936,7 +942,21 @@ BackupService::getServerId() const
     return serverId;
 }
 
-// - private -
+/**
+ * Perform an initial benchmark of the storage system. This is later passed to
+ * the coordinator during init() so that masters can intelligently select
+ * backups.
+ *
+ * This is not part of the constructor because we don't want the benchmark
+ * running during unit tests. It's not part of init() because that method must
+ * be fast (right now, as soon as init runs for some service, clients can start
+ * accessing the service; however, the dispatch loop won't run until init
+ * completes for all services).
+ */
+void
+BackupService::benchmark() {
+    storageBenchmarkResults = storage.benchmark(config.backupStrategy);
+}
 
 // See Server::dispatch.
 void
@@ -1077,9 +1097,9 @@ BackupService::getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
 void
 BackupService::init()
 {
-    auto speeds = storage.benchmark(config.backupStrategy);
     serverId = coordinator.enlistServer(BACKUP, config.localLocator,
-                                        speeds.first, speeds.second);
+                                        storageBenchmarkResults.first,
+                                        storageBenchmarkResults.second);
     LOG(NOTICE, "My server ID is %lu", serverId);
 }
 

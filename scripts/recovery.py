@@ -28,7 +28,7 @@ import sys
 import time
 
 hosts = []
-for i in range(1,60):
+for i in range(1, 61):
     hosts.append(('rc%02d' % i,
                   '192.168.1.%d' % (100 + i)))
 coordinatorHost = ('rcmaster', '192.168.1.1')
