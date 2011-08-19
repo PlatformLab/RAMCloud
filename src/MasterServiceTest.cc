@@ -88,6 +88,7 @@ class MasterServiceTest : public ::testing::Test {
     {
         config.localLocator = "mock:host=master";
         config.coordinatorLocator = "mock:host=coordinator";
+        backupConfig.localLocator = "mock:host=backup1";
         backupConfig.coordinatorLocator = "mock:host=coordinator";
         MasterService::sizeLogAndHashTable("64", "8", &config);
         transport = new BindTransport();
@@ -99,12 +100,11 @@ class MasterServiceTest : public ::testing::Test {
         storage = new InMemoryStorage(segmentSize, segmentFrames);
         backupService = new BackupService(backupConfig, *storage);
         transport->addService(*backupService, "mock:host=backup1");
-        coordinator->enlistServer(BACKUP, "mock:host=backup1");
+        backupService->init();
 
         service = new MasterService(config, coordinator, 1);
         transport->addService(*service, "mock:host=master");
-        service->serverId.construct(
-            coordinator->enlistServer(MASTER, config.localLocator));
+        service->init();
         client =
             new MasterClient(transportManager.getSession("mock:host=master"));
         ProtoBuf::Tablets_Tablet& tablet(*service->tablets.add_tablet());
@@ -454,9 +454,11 @@ TEST_F(MasterServiceTest, recover) {
     mgr.sync();
 
     InMemoryStorage storage2{segmentSize, segmentFrames};
-    BackupService backupService2{backupConfig, *storage};
+    BackupService::Config backupConfig2 = backupConfig;
+    backupConfig2.localLocator = "mock:host=backup2";
+    BackupService backupService2{backupConfig2, *storage};
     transport->addService(backupService2, "mock:host=backup2");
-    coordinator->enlistServer(BACKUP, "mock:host=backup2");
+    backupService2.init();
 
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
@@ -948,7 +950,8 @@ class MasterRecoverTest : public ::testing::Test {
     BackupService* backupService2;
     CoordinatorClient* coordinator;
     CoordinatorService* coordinatorService;
-    BackupService::Config* config;
+    BackupService::Config* config1;
+    BackupService::Config* config2;
     const uint32_t segmentSize;
     const uint32_t segmentFrames;
     BackupStorage* storage1;
@@ -962,7 +965,8 @@ class MasterRecoverTest : public ::testing::Test {
         , backupService2()
         , coordinator()
         , coordinatorService()
-        , config()
+        , config1()
+        , config2()
         , segmentSize(1 << 16)
         , segmentFrames(2)
         , storage1()
@@ -970,36 +974,40 @@ class MasterRecoverTest : public ::testing::Test {
         , transport()
         , logSilencer()
     {
-        setUp(true);
+        setUp();
     }
 
     void
-    setUp(bool enlist)
+    setUp()
     {
         transport = new BindTransport;
         transportManager.registerMock(transport);
 
-        config = new BackupService::Config;
-        config->coordinatorLocator = "mock:host=coordinator";
+        config1 = new BackupService::Config;
+        config1->coordinatorLocator = "mock:host=coordinator";
+        config1->localLocator = "mock:host=backup1";
+
+        config2 = new BackupService::Config;
+        config2->coordinatorLocator = "mock:host=coordinator";
+        config2->localLocator = "mock:host=backup2";
 
         coordinatorService = new CoordinatorService;
-        transport->addService(*coordinatorService, config->coordinatorLocator);
+        transport->addService(*coordinatorService, config1->coordinatorLocator);
 
-        coordinator = new CoordinatorClient(config->coordinatorLocator.c_str());
+        coordinator =
+            new CoordinatorClient(config1->coordinatorLocator.c_str());
 
         storage1 = new InMemoryStorage(segmentSize, segmentFrames);
         storage2 = new InMemoryStorage(segmentSize, segmentFrames);
 
-        backupService1 = new BackupService(*config, *storage1);
-        backupService2 = new BackupService(*config, *storage2);
+        backupService1 = new BackupService(*config1, *storage1);
+        backupService2 = new BackupService(*config2, *storage2);
 
         transport->addService(*backupService1, "mock:host=backup1");
         transport->addService(*backupService2, "mock:host=backup2");
 
-        if (enlist) {
-            coordinator->enlistServer(BACKUP, "mock:host=backup1");
-            coordinator->enlistServer(BACKUP, "mock:host=backup2");
-        }
+        backupService1->init();
+        backupService2->init();
     }
 
     ~MasterRecoverTest()
@@ -1010,7 +1018,8 @@ class MasterRecoverTest : public ::testing::Test {
         delete storage1;
         delete coordinator;
         delete coordinatorService;
-        delete config;
+        delete config1;
+        delete config2;
         transportManager.unregisterMock();
         delete transport;
         EXPECT_EQ(0,
@@ -1028,7 +1037,9 @@ class MasterRecoverTest : public ::testing::Test {
         ServerConfig config;
         config.coordinatorLocator = "mock:host=coordinator";
         MasterService::sizeLogAndHashTable("64", "8", &config);
-        return new MasterService(config, coordinator, 2);
+        MasterService* s = new MasterService(config, coordinator, 2);
+        s->init();
+        return s;
     }
 
     void

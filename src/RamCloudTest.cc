@@ -67,17 +67,13 @@ class RamCloudTest : public ::testing::Test {
                              "mock:host=coordinatorService");
         master1 = new MasterService(masterConfig1, coordinatorClient1, 0);
         transport.addService(*master1, "mock:host=master1");
-        master1->serverId.construct(
-            coordinatorClient1->enlistServer(MASTER,
-                                             masterConfig1.localLocator));
+        master1->init();
 
         coordinatorClient2 = new CoordinatorClient(
                              "mock:host=coordinatorService");
         master2 = new MasterService(masterConfig2, coordinatorClient2, 0);
         transport.addService(*master2, "mock:host=master2");
-        master2->serverId.construct(
-            coordinatorClient2->enlistServer(MASTER,
-                                             masterConfig2.localLocator));
+        master2->init();
 
         transport.addService(ping1, "mock:ping=1");
         transport.addService(ping2, "mock:ping=2");

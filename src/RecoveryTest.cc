@@ -110,7 +110,9 @@ class RecoveryTest : public CppUnit::TestFixture {
     BackupService* backupService3;
     CoordinatorClient* coordinator;
     CoordinatorService* coordinatorService;
-    BackupService::Config* config;
+    BackupService::Config* config1;
+    BackupService::Config* config2;
+    BackupService::Config* config3;
     ProtoBuf::ServerList* masterHosts;
     ProtoBuf::ServerList* backupHosts;
     const uint32_t segmentFrames;
@@ -131,7 +133,9 @@ class RecoveryTest : public CppUnit::TestFixture {
         , backupService3()
         , coordinator()
         , coordinatorService()
-        , config()
+        , config1()
+        , config2()
+        , config3()
         , masterHosts()
         , backupHosts()
         , segmentFrames(3)
@@ -145,40 +149,46 @@ class RecoveryTest : public CppUnit::TestFixture {
     }
 
     void
-    setUp(bool enlist)
+    setUp()
     {
         logger.setLogLevels(SILENT_LOG_LEVEL);
-        if (!enlist)
-            tearDown();
 
         transport = new BindTransport;
         transportManager.registerMock(transport);
 
-        config = new BackupService::Config;
-        config->coordinatorLocator = "mock:host=coordinator";
+        config1 = new BackupService::Config;
+        config1->coordinatorLocator = "mock:host=coordinator";
+        config1->localLocator = "mock:host=backup1";
+
+        config2 = new BackupService::Config;
+        config2->coordinatorLocator = "mock:host=coordinator";
+        config2->localLocator = "mock:host=backup2";
+
+        config3 = new BackupService::Config;
+        config3->coordinatorLocator = "mock:host=coordinator";
+        config3->localLocator = "mock:host=backup3";
 
         coordinatorService = new CoordinatorService;
-        transport->addService(*coordinatorService, config->coordinatorLocator);
+        transport->addService(*coordinatorService, config1->coordinatorLocator);
 
-        coordinator = new CoordinatorClient(config->coordinatorLocator.c_str());
+        coordinator =
+            new CoordinatorClient(config1->coordinatorLocator.c_str());
 
         storage1 = new InMemoryStorage(segmentSize, segmentFrames);
         storage2 = new InMemoryStorage(segmentSize, segmentFrames);
         storage3 = new InMemoryStorage(segmentSize, segmentFrames);
 
-        backupService1 = new BackupService(*config, *storage1);
-        backupService2 = new BackupService(*config, *storage2);
-        backupService3 = new BackupService(*config, *storage3);
+        backupService1 = new BackupService(*config1, *storage1);
+        backupService2 = new BackupService(*config2, *storage2);
+        backupService3 = new BackupService(*config3, *storage3);
 
         transport->addService(*backupService1, "mock:host=backup1");
         transport->addService(*backupService2, "mock:host=backup2");
         transport->addService(*backupService3, "mock:host=backup3");
 
-        if (enlist) {
-            coordinator->enlistServer(BACKUP, "mock:host=backup1");
-            coordinator->enlistServer(BACKUP, "mock:host=backup2");
-            coordinator->enlistServer(BACKUP, "mock:host=backup3");
-        }
+        backupService1->init();
+        backupService2->init();
+        backupService3->init();
 
         backup1 =
             new BackupClient(transportManager.getSession("mock:host=backup1"));
@@ -220,12 +230,6 @@ class RecoveryTest : public CppUnit::TestFixture {
     }
 
     void
-    setUp()
-    {
-        setUp(true);
-    }
-
-    void
     tearDown()
     {
         delete backupHosts;
@@ -243,7 +247,9 @@ class RecoveryTest : public CppUnit::TestFixture {
         delete storage1;
         delete coordinator;
         delete coordinatorService;
-        delete config;
+        delete config1;
+        delete config2;
+        delete config3;
         transportManager.unregisterMock();
         delete transport;
         CPPUNIT_ASSERT_EQUAL(0,
@@ -402,8 +408,7 @@ class RecoveryTest : public CppUnit::TestFixture {
             MasterService::sizeLogAndHashTable("64", "8", &config);
             master = new MasterService(config, &coordinator, 0);
             transport.addService(*master, locator);
-            master->serverId.construct(
-                coordinator.enlistServer(MASTER, locator));
+            master->init();
         }
 
         ~AutoMaster()

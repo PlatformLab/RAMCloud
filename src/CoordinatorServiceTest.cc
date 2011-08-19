@@ -55,8 +55,7 @@ class CoordinatorServiceTest : public ::testing::Test {
         master = static_cast<MasterService*>(malloc(sizeof(MasterService)));
         transport->addService(*master, "mock:host=master");
         master = new(master) MasterService(masterConfig, client, 0);
-        master->serverId.construct(
-            client->enlistServer(MASTER, masterConfig.localLocator));
+        master->init();
         TestLog::enable();
     }
 
@@ -75,6 +74,7 @@ class CoordinatorServiceTest : public ::testing::Test {
 
 TEST_F(CoordinatorServiceTest, createTable) {
     MasterService master2(masterConfig, NULL, 0);
+    master2.init();
     transport->addService(master2, "mock:host=master2");
     client->enlistServer(MASTER, "mock:host=master2");
     // master is already enlisted

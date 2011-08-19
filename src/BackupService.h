@@ -583,6 +583,9 @@ class BackupService : public Service {
     /// The thread driving #ioScheduler.
     boost::thread ioThread;
 
+    /// Used to ensure that init() is invoked before the dispatcher runs.
+    bool initCalled;
+
     friend class BackupServiceTest;
     friend class SegmentInfoTest;
     DISALLOW_COPY_AND_ASSIGN(BackupService);

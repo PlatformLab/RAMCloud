@@ -76,6 +76,7 @@ MasterService::MasterService(const ServerConfig config,
     , objectMap(config.hashTableBytes /
         HashTable<LogEntryHandle>::bytesPerCacheLine())
     , tablets()
+    , initCalled(false)
     , anyWrites(false)
     , objectUpdateLock()
 {
@@ -109,6 +110,8 @@ MasterService::~MasterService()
 void
 MasterService::dispatch(RpcOpcode opcode, Rpc& rpc)
 {
+    assert(initCalled);
+
     switch (opcode) {
         case CreateRpc::opcode:
             callHandler<CreateRpc, MasterService,
@@ -159,6 +162,8 @@ MasterService::dispatch(RpcOpcode opcode, Rpc& rpc)
 void
 MasterService::init()
 {
+    assert(!initCalled);
+
     // Permit a NULL coordinator for testing/benchmark purposes.
     if (coordinator) {
         // Enlist with the coordinator.
@@ -166,6 +171,8 @@ MasterService::init()
                                                      config.localLocator));
         LOG(NOTICE, "My server ID is %lu", *serverId);
     }
+
+    initCalled = true;
 }
 
 /**

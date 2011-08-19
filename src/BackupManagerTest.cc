@@ -67,7 +67,8 @@ struct BackupManagerBaseTest : public ::testing::Test {
     Tub<CoordinatorClient> coordinator;
     Tub<InMemoryStorage> storage1;
     Tub<InMemoryStorage> storage2;
-    Tub<BackupService::Config> backupServiceConfig;
+    Tub<BackupService::Config> backupServiceConfig1;
+    Tub<BackupService::Config> backupServiceConfig2;
     Tub<BackupService> backupService1;
     Tub<BackupService> backupService2;
     Tub<BackupClient> backup1;
@@ -91,11 +92,16 @@ struct BackupManagerBaseTest : public ::testing::Test {
         storage1.construct(segmentSize, segmentFrames);
         storage2.construct(segmentSize, segmentFrames);
 
-        backupServiceConfig.construct();
-        backupServiceConfig->coordinatorLocator = coordinatorLocator;
+        backupServiceConfig1.construct();
+        backupServiceConfig1->coordinatorLocator = coordinatorLocator;
+        backupServiceConfig1->localLocator = "mock:host=backup1";
 
-        backupService1.construct(*backupServiceConfig, *storage1);
-        backupService2.construct(*backupServiceConfig, *storage2);
+        backupServiceConfig2.construct();
+        backupServiceConfig2->coordinatorLocator = coordinatorLocator;
+        backupServiceConfig2->localLocator = "mock:host=backup2";
+
+        backupService1.construct(*backupServiceConfig1, *storage1);
+        backupService2.construct(*backupServiceConfig2, *storage2);
 
         transport->addService(*backupService1, "mock:host=backup1");
         transport->addService(*backupService2, "mock:host=backup2");
@@ -110,8 +116,8 @@ struct BackupManagerBaseTest : public ::testing::Test {
 
 struct BackupManagerTest : public BackupManagerBaseTest {
     BackupManagerTest() {
-        coordinator->enlistServer(BACKUP, "mock:host=backup1");
-        coordinator->enlistServer(BACKUP, "mock:host=backup2");
+        backupService1->init();
+        backupService2->init();
     }
 };
 

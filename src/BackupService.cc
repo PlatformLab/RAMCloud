@@ -889,6 +889,7 @@ BackupService::BackupService(const Config& config,
 #else
     , ioThread(boost::ref(ioScheduler))
 #endif
+    , initCalled(false)
 {
     try {
         recoveryTicks.construct(); // make unit tests happy
@@ -962,6 +963,8 @@ BackupService::benchmark() {
 void
 BackupService::dispatch(RpcOpcode opcode, Rpc& rpc)
 {
+    assert(initCalled);
+
     switch (opcode) {
         case BackupFreeRpc::opcode:
             callHandler<BackupFreeRpc, BackupService,
@@ -1097,10 +1100,14 @@ BackupService::getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
 void
 BackupService::init()
 {
+    assert(!initCalled);
+
     serverId = coordinator.enlistServer(BACKUP, config.localLocator,
                                         storageBenchmarkResults.first,
                                         storageBenchmarkResults.second);
     LOG(NOTICE, "My server ID is %lu", serverId);
+
+    initCalled = true;
 }
 
 /**

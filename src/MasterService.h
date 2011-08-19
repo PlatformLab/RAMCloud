@@ -269,6 +269,11 @@ class MasterService : public Service {
     ProtoBuf::Tablets tablets;
 
     /**
+     * Used to ensure that init() is invoked before the dispatcher runs.
+     */
+    bool initCalled;
+
+    /**
      * Used to identify the first write request, so that we can initialize
      * connections to all backups at that time (this is a temporary kludge
      * that needs to be replaced with a better solution).  False means this

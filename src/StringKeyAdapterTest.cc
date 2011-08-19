@@ -50,8 +50,7 @@ class StringKeyAdapterTest : public ::testing::Test {
         config.coordinatorLocator = "mock:host=coordinator";
         masterService.construct(config, coordinator.get(), 0);
         transport.addService(*masterService, "mock:host=master");
-        masterService->serverId.construct(
-            coordinator->enlistServer(MASTER, config.localLocator));
+        masterService->init();
         master.construct(transportManager.getSession("mock:host=master"));
 
         ProtoBuf::Tablets_Tablet& tablet(*masterService->tablets.add_tablet());
