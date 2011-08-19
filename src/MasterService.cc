@@ -651,7 +651,6 @@ MasterService::recover(uint64_t masterId,
 
     // As RPCs complete, process them and start more
     Tub<CycleCounter<Metric>> readStallTicks;
-    readStallTicks.construct(&metrics->master.segmentReadStallTicks);
 
     bool gotFirstGRD = false;
 
@@ -661,8 +660,13 @@ MasterService::recover(uint64_t masterId,
         segmentIdToBackups.insert({backup.segment_id(), &backup});
 
     while (activeRequests) {
+        if (!readStallTicks)
+            readStallTicks.construct(&metrics->master.segmentReadStallTicks);
+        metrics->master.taskIterations++;
+        uint64_t beforeProceed = Cycles::rdtsc();
         this->backup.proceed();
         uint64_t currentTime = Cycles::rdtsc();
+        metrics->master.proceedWhileWaitingTicks += currentTime - beforeProceed;
         foreach (auto& task, tasks) {
             if (!task)
                 continue;
@@ -682,6 +686,7 @@ MasterService::recover(uint64_t masterId,
             try {
                 (*task->rpc)();
                 uint64_t grdTime = Cycles::rdtsc() - task->startTime;
+                metrics->master.segmentReadTicks += grdTime;
 
                 if (!gotFirstGRD) {
                     metrics->master.replicationTicks =
@@ -723,8 +728,6 @@ MasterService::recover(uint64_t masterId,
                 // The backup isn't ready yet, try back in 1 ms.
                 task->resendTime = currentTime +
                     static_cast<int>(Cycles::perSecond()/1000.0);
-                readStallTicks.construct(
-                                    &metrics->master.segmentReadStallTicks);
                 continue;
             } catch (const TransportException& e) {
                 LOG(DEBUG, "Couldn't contact %s, trying next backup; "
@@ -780,7 +783,6 @@ MasterService::recover(uint64_t masterId,
           outOfHosts:
             if (!task)
                 --activeRequests;
-            readStallTicks.construct(&metrics->master.segmentReadStallTicks);
         }
     }
     if (readStallTicks)
@@ -949,7 +951,7 @@ void
 MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
                               uint32_t bufferLength)
 {
-    uint64_t start = Cycles::rdtsc();
+    uint64_t startBackupTicks = metrics->master.backupManagerTicks;
     LOG(DEBUG, "recoverSegment %lu, ...", segmentId);
     CycleCounter<Metric> _(&metrics->master.recoverSegmentTicks);
 
@@ -1010,8 +1012,11 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
                 const Object* newObj = localObj;
 #else
                 // write to log (with lazy backup flush) & update hash table
-                LogEntryHandle newObjHandle = log.append(LOG_ENTRY_TYPE_OBJ,
-                    recoverObj, i.getLength(), false, i.checksum());
+                LogEntryHandle newObjHandle = ({
+                    CycleCounter<Metric> _(&metrics->master.logAppendTicks);
+                    log.append(LOG_ENTRY_TYPE_OBJ, recoverObj, i.getLength(),
+                        false, i.checksum());
+                });
                 ++metrics->master.objectAppendCount;
                 metrics->master.liveObjectBytes +=
                     localObj->dataLength(i.getLength());
@@ -1074,8 +1079,11 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
 
             if (recoverTomb->objectVersion >= minSuccessor) {
                 ++metrics->master.tombstoneAppendCount;
-                LogEntryHandle newTomb = log.append(LOG_ENTRY_TYPE_OBJTOMB,
-                    recoverTomb, sizeof(*recoverTomb), false, i.checksum());
+                LogEntryHandle newTomb = ({
+                    CycleCounter<Metric> _(&metrics->master.logAppendTicks);
+                    log.append(LOG_ENTRY_TYPE_OBJTOMB, recoverTomb,
+                        sizeof(*recoverTomb), false, i.checksum());
+                });
                 objectMap.replace(newTomb);
 
                 // nuke the old tombstone, if it existed
@@ -1096,9 +1104,9 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
 
         i.next();
     }
-    double replayTime = Cycles::toSeconds(Cycles::rdtsc() - start);
-    LOG(DEBUG, "Segment %lu replay complete, took %.1f ms",
-        segmentId, replayTime*1e03);
+    LOG(DEBUG, "Segment %lu replay complete", segmentId);
+    metrics->master.backupInRecoverTicks +=
+        metrics->master.backupManagerTicks - startBackupTicks;
 }
 
 /**

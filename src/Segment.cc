@@ -210,6 +210,7 @@ SegmentEntryHandle
 Segment::append(LogEntryType type, const void *buffer, uint32_t length,
     bool sync, Tub<SegmentChecksum::ResultType> expectedChecksum)
 {
+    CycleCounter<Metric> _(&metrics->master.segmentAppendTicks);
     boost::lock_guard<SpinLock> lock(mutex);
 
     if (closed || type == LOG_ENTRY_TYPE_SEGFOOTER ||

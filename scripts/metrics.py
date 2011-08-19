@@ -486,14 +486,27 @@ class Master(Struct):
         'total amount of time waiting for segment open responses from backups')
     segmentReadCount = u64(
         'total number of BackupClient::getRecoveryData calls issued')
+    segmentReadTicks = u64(
+        'total elapsed time for RPCs reading segments from backups')
     segmentReadStallTicks = u64(
         'total amount of time stalled waiting for segments from backups')
+    proceedWhileWaitingTicks = u64(
+        'total amount of time spent in backup.proceed while waiting '
+        'to read segments')
     segmentReadByteCount = u64(
         'total size in bytes of recovery segments received from backups')
     verifyChecksumTicks = u64(
         'total amount of time verifying checksums on objects from backups')
     recoverSegmentTicks = u64(
         'total amount of time spent in MasterServer::recoverSegment')
+    logAppendTicks = u64(
+        'total amount of time spent in Log::append called from '
+        'MasterServer::recoverSegment')
+    segmentAppendTicks = u64(
+        'total amount of time spent in Segment::append')
+    backupInRecoverTicks = u64(
+        'total amount of time spent in BackupManager::proceed '
+        'called from MasterServer::recoverSegment')
     segmentCloseCount = u64(
         'total number of complete segments written to backups')
     segmentWriteStallTicks = u64(
@@ -527,6 +540,8 @@ class Master(Struct):
         'total amount of time R-th replica took to close during log sync')
     logSyncCloseCount = u64(
         'total number of segments closed during log sync')
+    taskIterations = u64(
+        'total times recover checked for a completed task')
 
 class Backup(Struct):
     recoveryTicks = u64('total time elapsed during recovery')
@@ -732,19 +747,38 @@ def textReport(data):
          for master in masters],
         total=recoveryTime,
         fractionLabel='of total recovery')
+    masterSection.ms('Stalled on segment read',
+        [master.master.segmentReadStallTicks / master.clockFrequency
+         for master in masters],
+        total=recoveryTime,
+        fractionLabel='of total recovery')
+    masterSection.ms('  Backup.proceed',
+        [master.master.proceedWhileWaitingTicks / master.clockFrequency
+         for master in masters],
+        total=recoveryTime,
+        fractionLabel='of total recovery')
     masterSection.ms('Inside recoverSegment',
         [master.master.recoverSegmentTicks / master.clockFrequency
          for master in masters],
         total=recoveryTime,
         fractionLabel='of total recovery')
-    masterSection.ms('  Backup opens, writes',
-        [(master.master.backupManagerTicks - master.master.logSyncTicks)
-         / master.clockFrequency
+    masterSection.ms('  Log append',
+        [master.master.logAppendTicks / master.clockFrequency
+         for master in masters],
+        total=recoveryTime,
+        fractionLabel='of total recovery')
+    masterSection.ms('  Backup.proceed',
+        [master.master.backupInRecoverTicks / master.clockFrequency
          for master in masters],
         total=recoveryTime,
         fractionLabel='of total recovery')
     masterSection.ms('  Verify checksum',
         [master.master.verifyChecksumTicks / master.clockFrequency
+         for master in masters],
+        total=recoveryTime,
+        fractionLabel='of total recovery')
+    masterSection.ms('  Segment append',
+        [master.master.logAppendTicks / master.clockFrequency
          for master in masters],
         total=recoveryTime,
         fractionLabel='of total recovery')
@@ -758,10 +792,9 @@ def textReport(data):
          for master in masters],
         total=recoveryTime,
         fractionLabel='of total recovery')
-    masterSection.ms('  HT, profiler, etc',
+    masterSection.ms('  Other',
         [(master.master.recoverSegmentTicks -
-          master.master.backupManagerTicks +
-          master.master.logSyncTicks -
+          master.master.backupInRecoverTicks -
           master.master.verifyChecksumTicks -
           master.master.segmentAppendCopyTicks -
           master.master.segmentAppendChecksumTicks) /
@@ -770,18 +803,7 @@ def textReport(data):
         total=recoveryTime,
         fractionLabel='of total recovery',
         note='other')
-    masterSection.ms('Waiting for backups',
-        [(master.master.segmentReadStallTicks + master.master.logSyncTicks)
-         / master.clockFrequency
-         for master in masters],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    masterSection.ms('  Stalled on segment read',
-        [master.master.segmentReadStallTicks / master.clockFrequency
-         for master in masters],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    masterSection.ms('  Log sync',
+    masterSection.ms('Log sync',
         [master.master.logSyncTicks / master.clockFrequency
          for master in masters],
         total=recoveryTime,
@@ -894,6 +916,13 @@ def textReport(data):
          for master in masters],
         total=recoveryTime,
         fractionLabel='of total recovery')
+    masterSection.ms('Average GRD completion time',
+        [(master.master.segmentReadTicks / master.master.segmentReadCount)
+         / master.clockFrequency
+         for master in masters])
+    masterSection.avgMaxFrac('Task iterations',
+        [master.master.taskIterations for master in masters],
+        '{0:.0f}')
 
     backupSection = report.add(Section('Backup Time'))
     backupSection.ms('RPC service time',
