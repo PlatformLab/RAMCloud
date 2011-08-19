@@ -232,6 +232,10 @@ TransportManager::getSession(const char* serviceLocator)
     // Session was not found in the cache, so create a new one and add
     // it to the cache.
 
+    // Will contain more detailed information about the first transport to
+    // throw an exception for this locator.
+    string firstException;
+
     // Iterate over all of the sub-locators, looking for a transport that
     // can handle its protocol.
     bool transportSupported = false;
@@ -282,6 +286,8 @@ TransportManager::getSession(const char* serviceLocator)
                 // TODO(ongaro): Transport::getName() would be nice here.
                 LOG(DEBUG, "Transport %p refused to open session for %s",
                     transports[i], locator.getOriginalString().c_str());
+                if (firstException.empty())
+                    firstException = " (details: " + e.str() + ")";
             }
         }
     }
@@ -289,7 +295,7 @@ TransportManager::getSession(const char* serviceLocator)
     string errorMsg;
     if (transportSupported) {
         errorMsg = format("Could not obtain transport session for this "
-            "service locator: %s", serviceLocator);
+            "service locator: %s", serviceLocator) + firstException;
     } else {
         errorMsg = format("No supported transport found for this "
             "service locator: %s", serviceLocator);

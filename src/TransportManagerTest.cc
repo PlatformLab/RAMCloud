@@ -147,8 +147,11 @@ TEST_F(TransportManagerTest, getSession_transportgetSessionFailure) {
     try {
         manager.getSession("mock:host=error");
     } catch (TransportException& e) {
-        EXPECT_EQ(e.message, "Could not obtain transport session "
-                             "for this service locator: mock:host=error");
+        EXPECT_TRUE(TestUtil::matchesPosixRegex(
+            "Could not obtain transport session for this service locator: "
+            "mock:host=error (details: RAMCloud::TransportException: "
+            "Failed to open session thrown at .*)",
+            e.message));
     }
 }
 
