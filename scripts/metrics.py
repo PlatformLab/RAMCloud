@@ -530,8 +530,11 @@ class Master(Struct):
 
 class Backup(Struct):
     recoveryTicks = u64('total time elapsed during recovery')
+    serviceTicks = u64('total time spent servicing RPC requests')
     startReadingDataTicks = u64('total amount of time in sRD')
-    readCount = u64(
+    readRequestCount = u64(
+        'total number of getRecoveryData requests processed to completion')
+    readCompletionCount = u64(
         'total number of getRecoveryData requests processed to completion')
     readTicks = u64(
         'total number of time servicing getRecoveryData RPC')
@@ -893,8 +896,8 @@ def textReport(data):
         fractionLabel='of total recovery')
 
     backupSection = report.add(Section('Backup Time'))
-    backupSection.ms('Total in RPC thread',
-        [backup.backup.recoveryTicks / backup.clockFrequency
+    backupSection.ms('RPC service time',
+        [backup.backup.serviceTicks / backup.clockFrequency
          for backup in backups],
         total=recoveryTime,
         fractionLabel='of total recovery')
@@ -925,24 +928,22 @@ def textReport(data):
          for backup in backups],
         total=recoveryTime,
         fractionLabel='of total recovery')
-    backupSection.ms('  Read segment',
+    backupSection.ms('  getRecoveryData',
         [backup.backup.readTicks / backup.clockFrequency
-         for backup in backups],
-        total=recoveryTime,
-        fractionLabel='of total recovery',
-        note='reply with pre-filtered data')
-    backupSection.ms('  Transmitting in transport',
-        [backup.transport.transmit.ticks / backup.clockFrequency
          for backup in backups],
         total=recoveryTime,
         fractionLabel='of total recovery')
     backupSection.ms('  Other',
-        [(backup.backup.recoveryTicks -
+        [(backup.backup.serviceTicks -
           backup.backup.startReadingDataTicks -
           backup.backup.writeTicks -
-          backup.backup.readTicks -
-          backup.transport.transmit.ticks) /
+          backup.backup.readTicks) /
          backup.clockFrequency
+         for backup in backups],
+        total=recoveryTime,
+        fractionLabel='of total recovery')
+    backupSection.ms('Transmitting in transport',
+        [backup.transport.transmit.ticks / backup.clockFrequency
          for backup in backups],
         total=recoveryTime,
         fractionLabel='of total recovery')
@@ -961,6 +962,13 @@ def textReport(data):
          for backup in backups],
         total=recoveryTime,
         fractionLabel='of total recovery')
+    backupSection.avgMaxFrac('getRecoveryData completions',
+        [backup.backup.readCompletionCount for backup in backups],
+        '{0:.0f}')
+    backupSection.avgMaxFrac('getRecoveryData retry fraction',
+        [(backup.backup.readRequestCount - backup.backup.readCompletionCount)
+         /backup.backup.readRequestCount
+         for backup in backups], '{0:0.3f}')
 
     efficiencySection = report.add(Section('Efficiency'))
 

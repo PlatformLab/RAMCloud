@@ -964,6 +964,7 @@ void
 BackupService::dispatch(RpcOpcode opcode, Rpc& rpc)
 {
     assert(initCalled);
+    CycleCounter<Metric> serviceTicks(&metrics->backup.serviceTicks);
 
     switch (opcode) {
         case BackupFreeRpc::opcode:
@@ -1077,6 +1078,7 @@ BackupService::getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
                                BackupGetRecoveryDataRpc::Response& respHdr,
                                Rpc& rpc)
 {
+    ++metrics->backup.readRequestCount;
     CycleCounter<Metric> _(&metrics->backup.readTicks);
 
     LOG(DEBUG, "getRecoveryData masterId %lu, segmentId %lu, partitionId %lu",
@@ -1091,7 +1093,7 @@ BackupService::getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
 
     info->appendRecoverySegment(reqHdr.partitionId, rpc.replyPayload);
 
-    ++metrics->backup.readCount;
+    ++metrics->backup.readCompletionCount;
     LOG(DEBUG, "getRecoveryData complete");
 }
 
