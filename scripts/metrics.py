@@ -638,172 +638,6 @@ def rawFull(data):
 
     pprint(data)
 
-def latexReport(data):
-    """Generate LaTeX commands"""
-
-    coord = data.coordinator
-    masters = data.masters
-    backups = data.backups
-
-    def newcommand(prefix, name, numbers, precision=0):
-        try:
-            iter(numbers)
-        except TypeError:
-            print('\\newcommand{{\\{0:}{1:}}}{{{2:.{precision}f}}}'.format(
-                  prefix, name, numbers, precision=precision))
-        else:
-            avg, stddev = avgAndStdDev(seq(numbers))
-            print('\\newcommand{\\%s%sAvg}{%.2f}' % (prefix, name, avg))
-            print('\\newcommand{\\%s%sStdDev}{%.2f}' % (prefix, name, stddev))
-    pnewcommand = partial(newcommand, 'breakdown')
-    def msWithPct(name, numbers, divisor):
-        try:
-            iter(numbers)
-        except TypeError:
-            pass
-        else:
-            numbers, stddev = avgAndStdDev(seq(numbers))
-        numbers *= 1000
-        divisor *= 1000
-        pnewcommand(name, numbers, 1)
-        pnewcommand('%sPct' % name,  100.0 * numbers / divisor, 2)
-    recoveryTime = coord.coordinator.recoveryTicks / coord.clockFrequency
-    pnewcommand('RecoveryTime', recoveryTime, 2)
-    pnewcommand('Masters', len(masters))
-    pnewcommand('Backups', len(backups))
-    pnewcommand('ObjectCount', sum([master.master.liveObjectCount
-                                   for master in masters]))
-    pnewcommand('ObjectSize', [master.master.liveObjectBytes /
-                              master.master.liveObjectCount
-                              for master in masters])
-    msWithPct('CoordinatorIdle', (coord.idleTicks / coord.clockFrequency),
-                               recoveryTime)
-    msWithPct('CoordinatorStartRecoveryOnBackups',
-               coord.coordinator.recoveryConstructorTicks /
-               coord.clockFrequency,
-               recoveryTime)
-    msWithPct('CoordinatorStartRecoveryOnMasters',
-               coord.coordinator.recoveryStartTicks /
-               coord.clockFrequency,
-               recoveryTime)
-    msWithPct('MasterTotal', [master.master.recoveryTicks / master.clockFrequency
-                              for master in masters], recoveryTime)
-    msWithPct('MasterRecoverSegment',
-              [master.master.recoverSegmentTicks / master.clockFrequency
-              for master in masters],
-              recoveryTime)
-    msWithPct('MasterBackupOpenWrite',
-              [master.master.backupManagerTicks / master.clockFrequency
-              for master in masters],
-              recoveryTime)
-    msWithPct('MasterApproxCpu',
-              [(master.master.recoverSegmentTicks -
-              master.master.backupManagerTicks)
-              / master.clockFrequency
-              for master in masters],
-              recoveryTime)
-    msWithPct('MasterVerifyChecksum',
-              [master.master.verifyChecksumTicks / master.clockFrequency
-              for master in masters],
-              recoveryTime)
-    msWithPct('MasterSegmentAppendCopy',
-              [master.master.segmentAppendCopyTicks / master.clockFrequency
-              for master in masters],
-              recoveryTime)
-    msWithPct('MasterSegmentAppendChecksum',
-              [master.master.segmentAppendChecksumTicks /
-              master.clockFrequency
-              for master in masters],
-              recoveryTime)
-    msWithPct('MasterHtProfiler',
-              [(master.master.recoverSegmentTicks -
-              master.master.backupManagerTicks -
-              master.master.verifyChecksumTicks -
-              master.master.segmentAppendCopyTicks -
-              master.master.segmentAppendChecksumTicks) /
-              master.clockFrequency
-              for master in masters],
-              recoveryTime)
-    msWithPct('MasterWaitingForBackups',
-              [(master.master.segmentOpenStallTicks +
-              master.master.segmentWriteStallTicks +
-              master.master.segmentReadStallTicks)
-              / master.clockFrequency
-              for master in masters],
-              recoveryTime)
-    msWithPct('MasterStalledOnSegmentOpen',
-              [master.master.segmentOpenStallTicks / master.clockFrequency
-              for master in masters],
-              recoveryTime)
-    msWithPct('MasterStalledOnSegmentWrite',
-              [master.master.segmentWriteStallTicks / master.clockFrequency
-              for master in masters],
-              recoveryTime)
-    msWithPct('MasterStalledOnSegmentRead',
-              [master.master.segmentReadStallTicks / master.clockFrequency
-              for master in masters],
-              recoveryTime)
-    msWithPct('MasterRemovingTombstones',
-              [master.master.removeTombstoneTicks / master.clockFrequency
-              for master in masters],
-              recoveryTime)
-    msWithPct('MasterTransmittingInTransport',
-              [master.transport.transmit.ticks / master.clockFrequency
-              for master in masters],
-              recoveryTime)
-    msWithPct('BackupTotalMainThread',
-                     [backup.backup.recoveryTicks / backup.clockFrequency
-                      for backup in backups],
-                     recoveryTime)
-    msWithPct('BackupIdle',
-                     [backup.idleTicks / backup.clockFrequency
-                      for backup in backups],
-                     recoveryTime)
-    msWithPct('BackupStartReadingData',
-                     [backup.backup.startReadingDataTicks / backup.clockFrequency
-                      for backup in backups],
-                     recoveryTime)
-    msWithPct('BackupOpenWriteSegment',
-                     [backup.backup.writeTicks / backup.clockFrequency
-                      for backup in backups],
-                     recoveryTime)
-    msWithPct('BackupOpenSegmentZeroMemory',
-                     [backup.backup.writeClearTicks / backup.clockFrequency
-                      for backup in backups],
-                     recoveryTime)
-    msWithPct('BackupWriteCopy',
-                     [backup.backup.writeCopyTicks / backup.clockFrequency
-                      for backup in backups],
-                     recoveryTime)
-    msWithPct('BackupWriteOther',
-                     [(backup.backup.writeTicks -
-                       backup.backup.writeClearTicks -
-                       backup.backup.writeCopyTicks) / backup.clockFrequency
-                      for backup in backups],
-                     recoveryTime)
-    msWithPct('BackupReadSegmentStall',
-                     [backup.backup.readStallTicks / backup.clockFrequency
-                      for backup in backups],
-                     recoveryTime)
-    msWithPct('BackupTransmittingInTransport',
-                     [backup.transport.transmit.ticks / backup.clockFrequency
-                      for backup in backups],
-                     recoveryTime)
-    msWithPct('BackupOther',
-                     [(backup.backup.recoveryTicks -
-                       backup.idleTicks -
-                       backup.backup.startReadingDataTicks -
-                       backup.backup.writeTicks -
-                       backup.backup.readStallTicks -
-                       backup.transport.transmit.ticks) /
-                      backup.clockFrequency
-                      for backup in backups],
-                     recoveryTime)
-    msWithPct('BackupFilteringSegmentsThread',
-                     [backup.backup.filterTicks / backup.clockFrequency
-                      for backup in backups],
-                     recoveryTime)
-
 def textReport(data):
     """Generate ASCII report"""
 
@@ -1323,9 +1157,6 @@ def main():
     parser.add_option('-a', '--all',
         dest='all', action='store_true',
         help='Print out all raw data not just a sample')
-    parser.add_option('-l', '--latex',
-        dest='latex', action='store_true',
-        help='Print out a short report in LaTeX for the SOSP paper')
     options, args = parser.parse_args()
     if len(args) > 0:
         recovery_dir = args[0]
@@ -1344,10 +1175,6 @@ def main():
             rawFull(data)
         else:
             rawSample(data)
-
-    if options.latex:
-        latexReport(data)
-        return
 
     print(textReport(data))
 
