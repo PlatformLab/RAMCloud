@@ -101,7 +101,7 @@ def recover(numBackups=1,             # Number of hosts on which to start
         def ensureServers(qty):
             sandbox.checkFailures()
             try:
-                sandbox.rsh(clientHost[0], '%s -C %s -n %d -l 1 -t 20' %
+                sandbox.rsh(clientHost[0], '%s -C %s -n %d -l 1 -t 30' %
                             (ensureServersBin, coordinatorLocator, qty))
             except:
                 # prefer exceptions from dead processes to timeout error
@@ -192,6 +192,7 @@ def recover(numBackups=1,             # Number of hosts on which to start
     report = metrics.textReport(stats['metrics'])
     f = open('%s/metrics' % (run), 'w')
     f.write(str(report))
+    f.write('\n')
     f.close()
     stats['run'] = run
     stats['count'] = numObjects
