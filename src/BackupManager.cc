@@ -174,6 +174,8 @@ BackupManager::BackupManager(CoordinatorClient* coordinator,
     , segments()
     , openSegmentPool(OpenSegment::sizeOf(replicas))
     , openSegmentList()
+    , outstandingRpcs(0)
+    , activeTime()
 {
 }
 
@@ -197,7 +199,8 @@ BackupManager::BackupManager(BackupManager* prototype)
     , segments()
     , openSegmentPool(OpenSegment::sizeOf(replicas))
     , openSegmentList()
-
+    , outstandingRpcs(0)
+    , activeTime()
 {
 }
 
@@ -304,6 +307,7 @@ BackupManager::sync()
     serverStats.totalBackupSyncNanos += Cycles::toNanoseconds(
             metrics->master.backupManagerTicks - initTicks);
     serverStats.totalBackupSyncs++;
+    assert(outstandingRpcs == 0);
 }
 
 /**
@@ -336,6 +340,7 @@ BackupManager::proceedNoMetrics()
                         &backup - segment.backups);
                     (*backup->rpc)();
                     backup->rpc.destroy();
+                    outstandingRpcs--;
                     backup->openIsDone = true;
                     if (backup->closeSent)
                         backup->closeTicks.destroy();
@@ -418,6 +423,7 @@ BackupManager::proceedNoMetrics()
                                       flags);
                 flags = BackupWriteRpc::OPEN;
                 backup->offsetSent = segment.openLen;
+                outstandingRpcs++;
             }
         }
         break; // opening segments should be serialized
@@ -493,8 +499,15 @@ BackupManager::proceedNoMetrics()
             LOG(DEBUG, "Send write %lu.%lu (close=%d, offset=%d)",
                 it->segmentId, &backup - it->backups, it->closeQueued,
                 it->offsetQueued);
+            outstandingRpcs++;
         }
         ++it;
+    }
+    if (outstandingRpcs > 0) {
+        if (!activeTime)
+            activeTime.construct(&metrics->master.replicationTicks);
+    } else {
+        activeTime.destroy();
     }
 }
 

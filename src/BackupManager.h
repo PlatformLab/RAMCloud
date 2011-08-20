@@ -203,6 +203,13 @@ class BackupManager {
      */
     OpenSegmentList openSegmentList;
 
+    /// The number of RPCs that have been issued to backups but have not yet
+    /// completed.
+    int outstandingRpcs;
+
+    /// Used to count the amount of time that outstandingRpcs > 0.
+    Tub<CycleCounter<Metric>> activeTime;
+
     DISALLOW_COPY_AND_ASSIGN(BackupManager);
 };
 
