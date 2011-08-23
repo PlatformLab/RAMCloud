@@ -450,8 +450,8 @@ struct Task {
         , rpc()
         , resendTime(0)
     {
-          rpc.construct(client, masterId, backupHost.segment_id(),
-                        partitionId, response);
+        rpc.construct(client, masterId, backupHost.segment_id(),
+                      partitionId, response);
     }
     void resend() {
         LOG(DEBUG, "Resend %lu", backupHost.segment_id());
@@ -600,7 +600,7 @@ MasterService::recover(uint64_t masterId,
      */
     uint64_t usefulTime = 0;
     uint64_t start = Cycles::rdtsc();
-    LOG(NOTICE, "Recovering master %lu, partition %lu, %u hosts",
+    LOG(NOTICE, "Recovering master %lu, partition %lu, %u replicas available",
         masterId, partitionId, backups.server_size());
 
     boost::unordered_set<uint64_t> runningSet;
@@ -824,8 +824,8 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
         metrics->hasMaster = 1;
         metrics->master.replicas = backup.replicas;
 
-        const auto& masterId = reqHdr.masterId;
-        const auto& partitionId = reqHdr.partitionId;
+        uint64_t masterId = reqHdr.masterId;
+        uint64_t partitionId = reqHdr.partitionId;
         ProtoBuf::Tablets recoveryTablets;
         ProtoBuf::parseFromResponse(rpc.requestPayload, sizeof(reqHdr),
                                     reqHdr.tabletsLength, recoveryTablets);

@@ -404,7 +404,7 @@ TEST_F(MasterServiceTest, recover_basics) {
         "setTablets: table:                  124, "
                     "start:                   20, "
                     "end  :                  100 | "
-        "recover: Recovering master 123, partition 0, 1 hosts | "
+        "recover: Recovering master 123, partition 0, 1 replicas available | "
         "recover: Starting getRecoveryData from mock:host=backup1 for "
         "segment 87 on channel 0 (initial round of RPCs) | "
         "recover: Waiting on recovery data for segment 87 from "
@@ -1106,7 +1106,8 @@ TEST_F(MasterRecoverTest, recover) {
     TestLog::Enable _(&recoverSegmentFilter);
     master->recover(99, 0, backups);
     EXPECT_EQ(0U, TestLog::get().find(
-        "recover: Recovering master 99, partition 0, 3 hosts"));
+        "recover: Recovering master 99, partition 0, 3 replicas "
+        "available"));
     EXPECT_NE(string::npos, TestLog::get().find(
         "recoverSegment: Segment 88 replay complete"));
     EXPECT_NE(string::npos, TestLog::get().find(
@@ -1132,7 +1133,7 @@ TEST_F(MasterRecoverTest, failedToRecoverAll) {
                  SegmentRecoveryFailedException);
     string log = TestLog::get();
     EXPECT_EQ(
-        "recover: Recovering master 99, partition 0, 2 hosts | "
+        "recover: Recovering master 99, partition 0, 2 replicas available | "
         "recover: Starting getRecoveryData from mock:host=backup1 "
         "for segment 87 on channel 0 (initial round of RPCs) | "
         "recover: Starting getRecoveryData from mock:host=backup1 "
