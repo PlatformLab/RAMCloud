@@ -138,7 +138,7 @@ $(OBJDIR)/Bench: $(OBJDIR)/Bench.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramclou
 	@mkdir -p $(@D)
 	$(CXX) $(LIBS) -o $@ $^
 
-$(OBJDIR)/Perf: $(OBJDIR)/Perf.o $(SERVER_OBJFILES)
+$(OBJDIR)/Perf: $(OBJDIR)/Perf.o $(OBJDIR)/PerfHelper.o $(SERVER_OBJFILES)
 	@mkdir -p $(@D)
 	$(CXX) $(LIBS) -o $@ $^
 
