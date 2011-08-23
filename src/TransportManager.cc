@@ -1,4 +1,5 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
+ * Copyright (c) 2011 Facebook
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -163,6 +164,13 @@ TransportManager::initialize(const char* localServiceLocator)
     std::vector<ServiceLocator> locators =
             ServiceLocator::parseServiceLocators(localServiceLocator);
 
+    if (locators.empty()) {
+        throw Exception(HERE,
+            "Servers must listen on at least one service locator, but "
+            "none was provided");
+    }
+
+    uint32_t numListeningTransports = 0;
     foreach (auto& locator, locators) {
         for (uint32_t i = 0; i < transportFactories.size(); i++) {
             TransportFactory* factory = transportFactories[i];
@@ -181,15 +189,29 @@ TransportManager::initialize(const char* localServiceLocator)
                     // least one transport for this factory.
                     transports.push_back(transport);
                 }
-                if (listeningLocators.size() != 0)
-                    listeningLocators += ";";
                 // Ask the transport for its service locator. This might be
                 // more specific than "locator", as the transport may have
                 // added information.
-                listeningLocators += transport->getServiceLocator();
+                string listeningLocator = transport->getServiceLocator();
+                if (listeningLocator.empty()) {
+                    throw Exception(HERE,
+                        format("Listening transport has empty locator. "
+                               "Was initialized with '%s'",
+                               locator.getOriginalString().c_str()));
+                }
+                if (listeningLocators.size() != 0)
+                    listeningLocators += ";";
+                listeningLocators += listeningLocator;
+                ++numListeningTransports;
                 break;
             }
         }
+    }
+    if (numListeningTransports == 0) {
+        dumpTransportFactories();
+        throw Exception(HERE, format(
+            "Servers must listen on at least one service locator, but no "
+            "possible transports were found for '%s'", localServiceLocator));
     }
 }
 
@@ -333,7 +355,7 @@ TransportManager::registerMemory(void* base, size_t bytes)
 }
 
 /**
- * dumpStats() on all existing transports.
+ * Calls dumpStats() on all existing transports.
  */
 void
 TransportManager::dumpStats()
@@ -344,6 +366,25 @@ TransportManager::dumpStats()
             transport->dumpStats();
     }
 }
+
+/**
+ * Logs the list of transport factories and the protocols they support.
+ */
+void
+TransportManager::dumpTransportFactories()
+{
+    Dispatch::Lock lock;
+    LOG(NOTICE, "The following transport factories are known:");
+    uint32_t i = 0;
+    foreach (auto factory, transportFactories) {
+        LOG(NOTICE,
+            "Transport factory %u supports the following protocols:", i);
+        foreach (const char* protocol, factory->getProtocols())
+          LOG(NOTICE, "  %s", protocol);
+        ++i;
+    }
+}
+
 
 /**
  * Construct a WorkerSession.
