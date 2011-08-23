@@ -147,10 +147,10 @@ Log::allocateHead()
     }
 
     foreach (Segment& s, cleanableList)
-        digest.addSegment(s.getId());
+        digest.addSegment(downCast<LogDigest::SegmentId>(s.getId()));
 
     foreach (Segment& s, cleanableNewList)
-        digest.addSegment(s.getId());
+        digest.addSegment(downCast<LogDigest::SegmentId>(s.getId()));
 
     digest.addSegment(newHeadId);
 
