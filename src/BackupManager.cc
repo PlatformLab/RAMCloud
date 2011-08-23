@@ -466,6 +466,19 @@ BackupManager::proceedNoMetrics()
                     ++metrics->master.replayCloseCount;
                 }
             }
+
+            uint32_t writeBytes = it->offsetQueued - backup->offsetSent;
+            BackupWriteRpc::Flags flags = it->closeQueued ?
+                BackupWriteRpc::CLOSE : BackupWriteRpc::NONE;
+
+            // Throttle the largest sync we're willing to send. This avoids
+            // clogging up the backup for a long time with an 8MB chunk to
+            // eat through.
+            if (writeBytes > MAX_WRITE_RPC_BYTES) {
+                writeBytes = MAX_WRITE_RPC_BYTES;
+                flags = BackupWriteRpc::NONE;
+            }
+
             backup->rpc.construct(backup->client,
                                   *masterId,
                                   it->segmentId,
@@ -479,11 +492,10 @@ BackupManager::proceedNoMetrics()
                 // replicate the object data.
                 (&backup - it->backups > 0 && !metrics->pid) ? 0 :
 #endif
-                                  it->offsetQueued - backup->offsetSent,
-                                  it->closeQueued ? BackupWriteRpc::CLOSE
-                                                    : BackupWriteRpc::NONE);
-            backup->offsetSent = it->offsetQueued;
-            backup->closeSent = it->closeQueued;
+                                  writeBytes,
+                                  flags);
+            backup->offsetSent += writeBytes;
+            backup->closeSent = (flags == BackupWriteRpc::CLOSE);
             LOG(DEBUG, "Send write %lu.%lu (close=%d, offset=%d)",
                 it->segmentId, &backup - it->backups, it->closeQueued,
                 it->offsetQueued);

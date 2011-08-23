@@ -159,6 +159,12 @@ class BackupManager {
     void dumpOpenSegments(); // defined for testing only
 
   PRIVATE:
+    /// Maximum number of bytes we'll send in any single write RPC
+    /// to backups. The idea is to avoid starving other RPCs to the
+    /// backup by not inundating it with segment-sized writes on
+    /// recovery.
+    static const uint32_t MAX_WRITE_RPC_BYTES = 1024 * 1024;
+
     void proceedNoMetrics();
     void ensureSufficientHosts();
     bool isSynced();
