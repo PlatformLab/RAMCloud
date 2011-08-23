@@ -25,7 +25,6 @@ import metrics
 import recovery
 import subprocess
 
-
 print("""Don\'t forget to set your segment size to 16 * 1024!
 Don\'t forget to set MAX_RPC_SIZE in InfRcTransport.h to 8 * 1024 * 1024 + 4096!
 Don\'t forget to set LogDigest::SegmentId to uint16_t!""")
@@ -56,19 +55,40 @@ def main():
     trials = {}
     for trial in range(5):
         for numObjects in [1, -1]:
-            for numPartitions in reversed(range(1, 20)):
+            for numPartitions in reversed(range(3, 61)):
                 args = {}
-                args['numBackups'] = min(numPartitions * 3, 58)
+                args['numBackups'] = numPartitions
                 args['numPartitions'] = numPartitions
                 args['objectSize'] = 1024
-                args['disk'] = 0
+                args['disk'] = 4
                 args['replicas'] = 3
+
+                # Note: 96 MBbytes of memory means about 6000 segments, which
+                # means > 12kbytes for log digests in the worst case.  If more
+                # segments are needed in the future, it will be necessary to
+                # increase the segment size to make room for larger log
+                # digests.
+                args['oldMasterArgs'] = '-t 96'
+                args['newMasterArgs'] = '-t 96'
                 if numObjects == -1:
-                    numObjects = 626012 * (1.16 - .0075 * (numPartitions-1)) // 640
-                args['numObjects'] = numObjects
-                args['oldMasterArgs'] = '-t 1200'
-                args['newMasterArgs'] = '-t 16000'
-                print(numPartitions, 'partitions')
+                    # The following calculation produces about 75 segments
+                    # for each partition.  It's based on the following
+                    # measurements made on
+                    # August 22, 2011:
+                    # numPartitions == 60 and numObjects == 800 produces
+                    #     75 segs/partition
+                    # numPartitions == 3 and numObjects == 1150 produces
+                    #     75 segs/partition
+                    #
+                    # The tricky the issue is that as the total number of
+                    # segments increases the log digests take up more and
+                    # more space, so we need to create fewer objects per
+                    # partition
+                    args['numObjects'] = 1150 + (800-1150)*(numPartitions-3)/(60 - 3)
+                else:
+                    args['numObjects'] = numObjects
+                print('%d partitions, each with %d objects' %
+                      (numPartitions, args['numObjects']))
                 if numObjects not in trials:
                     trials[numObjects] = {}
                 while True:
@@ -103,4 +123,5 @@ def main():
                         print('Broken metrics, trying again (run %s)' % run)
                 writeFile(trials)
 
-if __name__ == '__main__': main()
+if __name__ == '__main__':
+    main()
