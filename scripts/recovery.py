@@ -123,9 +123,7 @@ def recover(numBackups=1,             # Number of hosts on which to start
                 ('%s -C %s -L %s --logFile %s/oldMaster.%s.log -r %d -M %s' %
                  (serverBin, coordinatorLocator, oldMasterLocator,
                   run, oldMasterHost[0], replicas, oldMasterArgs)),
-                 bg=True, stderr=subprocess.STDOUT,
-                 stdout=open(('%s/oldMaster.%s.log' %
-                              (run, oldMasterHost[0])), 'w'))
+                 bg=True)
         ensureServers(1)
 
         # start other servers
