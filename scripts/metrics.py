@@ -680,7 +680,7 @@ def textReport(data):
                     master.master.liveObjectCount
                     for master in masters],
                    '{0:6.0f} bytes')
-    summary.avgStd('Total objects',
+    summary.avgStd('Total live objects',
                    sum([master.master.liveObjectCount
                         for master in masters]))
     totalLiveObjectMB = sum([master.master.liveObjectBytes
