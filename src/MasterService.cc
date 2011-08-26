@@ -971,6 +971,9 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
         recoverSegmentPrefetcher(prefetch);
 #endif
 
+        metrics->master.recoverySegmentEntryCount++;
+        metrics->master.recoverySegmentEntryBytes += i.getLength();
+
         if (type == LOG_ENTRY_TYPE_OBJ) {
             const Object *recoverObj = reinterpret_cast<const Object *>(
                 i.getPointer());
