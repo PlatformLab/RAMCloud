@@ -683,12 +683,12 @@ def textReport(data):
                         for master in masters]) / 1024.0 / 1024.0
     totalObjectMBWithOverhead = sum([master.master.segmentReadByteCount
                                     for master in masters]) / 1024.0 / 1024.0
-    summary.avgStd('Total object MB', totalObjectMB)
-    summary.avgStd('Total object + overhead MB', totalObjectMBWithOverhead)
-    summary.avgStd('Overhead Percentage',
+    summary.avgStd('Total object space', totalObjectMB, '{0:6.2f} MB')
+    summary.avgStd('Total object space (w/ overhead)', totalObjectMBWithOverhead,
+                   '{0:6.2f} MB')
+    summary.avgStd('Object overhead percentage',
         (totalObjectMBWithOverhead - totalObjectMB) / totalObjectMB * 100.0,
-        '%')
-                   
+        '{0:6.3f} %')
 
     if backups:
         storageTypes = set([backup.backup.storageType for backup in backups])
