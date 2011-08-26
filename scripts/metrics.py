@@ -668,9 +668,6 @@ def textReport(data):
     summary.avgStd('Backups', len(backups))
     summary.avgStd('Replicas',
                    masters[0].master.replicas)
-    summary.avgStd('Total objects',
-                   sum([master.master.liveObjectCount
-                        for master in masters]))
     summary.avgMaxFrac('Objects per master',
                    [master.master.liveObjectCount
                         for master in masters])
@@ -679,6 +676,19 @@ def textReport(data):
                     master.master.liveObjectCount
                     for master in masters],
                    '{0:6.0f} bytes')
+    summary.avgStd('Total objects',
+                   sum([master.master.liveObjectCount
+                        for master in masters]))
+    totalObjectMB = sum([master.master.liveObjectBytes
+                        for master in masters]) / 1024.0 / 1024.0
+    totalObjectMBWithOverhead = sum([master.master.segmentReadByteCount
+                                    for master in masters]) / 1024.0 / 1024.0
+    summary.avgStd('Total object MB', totalObjectMB)
+    summary.avgStd('Total object + overhead MB', totalObjectMBWithOverhead)
+    summary.avgStd('Overhead Percentage',
+        (totalObjectMBWithOverhead - totalObjectMB) / totalObjectMB * 100.0,
+        '%')
+                   
 
     if backups:
         storageTypes = set([backup.backup.storageType for backup in backups])
