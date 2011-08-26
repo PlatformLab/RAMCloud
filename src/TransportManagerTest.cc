@@ -1,4 +1,5 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
+ * Copyright (c) 2011 Facebook
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -51,6 +52,28 @@ TEST_F(TransportManagerTest, initialize) {
     EXPECT_EQ(4U, manager.transports.size());
     Transport* t = manager.transports[3];
     EXPECT_EQ("mock:x=14", t->getServiceLocator());
+}
+
+TEST_F(TransportManagerTest, initialize_emptyLocator) {
+    TransportManager manager;
+    EXPECT_THROW(manager.initialize(""), Exception);
+    EXPECT_THROW(manager.initialize("  "), Exception);
+}
+
+TEST_F(TransportManagerTest, initialize_transportEmptyLocator) {
+    MockTransport* t = new MockTransport();
+    t->locatorString = "";
+    MockTransportFactory mockTransportFactory(t, "mock");
+
+    TransportManager manager;
+    manager.transportFactories.clear();
+    manager.transportFactories.push_back(&mockTransportFactory);
+    EXPECT_THROW(manager.initialize("mock:"), Exception);
+}
+
+TEST_F(TransportManagerTest, initialize_noListeningTransports) {
+    TransportManager manager;
+    EXPECT_THROW(manager.initialize("rofl:"), Exception);
 }
 
 TEST_F(TransportManagerTest, initialize_registerExistingMemory) {

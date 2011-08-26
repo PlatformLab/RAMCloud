@@ -114,7 +114,7 @@ class MockTransport : public Transport {
     // transport.
     static uint32_t sessionDeleteCount;
 
-    // ServiceLocator string passed to constructor, or empty if the
+    // ServiceLocator string passed to constructor, or "mock:" if the
     // constructor argument was NULL.
     string locatorString;
 

@@ -78,7 +78,7 @@ class PcapFile {
 
     explicit PcapFile(const char* filePath,
                       LinkType linkType,
-                      uint32_t maxSavedLength = 0x60);
+                      uint32_t maxSavedLength = 65535);
     void append(const char* rawPacket, uint32_t length);
     void append(const Buffer& rawPacket);
 

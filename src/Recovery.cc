@@ -55,7 +55,8 @@ struct MasterStartTask {
         }
         masterHost = &recovery.masterHosts.server(recoveryMasterIndex++);
         auto locator = masterHost->service_locator().c_str();
-        LOG(NOTICE, "Initiating recovery with recovery master %s", locator);
+        LOG(NOTICE, "Initiating recovery with recovery master %s, "
+            "partition %d", locator, partitionId);
         try {
             masterClient.construct(transportManager.getSession(locator));
             rpc.construct(*masterClient,

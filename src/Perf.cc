@@ -1,4 +1,5 @@
 /* Copyright (c) 2011 Stanford University
+ * Copyright (c) 2011 Facebook
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -42,6 +43,8 @@
 #include "Segment.h"
 #include "SegmentIterator.h"
 #include "SpinLock.h"
+#include "ClientException.h"
+#include "PerfHelper.h"
 
 using namespace RAMCloud;
 
@@ -63,7 +66,6 @@ void bindThreadToCpu(int cpu)
 //----------------------------------------------------------------------
 // Test functions start here
 //----------------------------------------------------------------------
-
 
 // Measure the cost of AtomicInt::compareExchange.
 double atomicIntCmpX()
@@ -191,6 +193,19 @@ double dispatchPoll()
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
         dispatch.poll();
+    }
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
+}
+
+// Measure the cost of calling a non-inlined function.
+double functionCall()
+{
+    int count = 1000000;
+    uint64_t x = 0;
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        x = PerfHelper::plusOne(x);
     }
     uint64_t stop = Cycles::rdtsc();
     return Cycles::toSeconds(stop - start)/count;
@@ -384,6 +399,89 @@ double spinLock()
     return Cycles::toSeconds(stop - start)/count;
 }
 
+// Measure the cost of throwing and catching an int. This uses an integer as
+// the value thrown, which is presumably as fast as possible.
+double throwInt()
+{
+    int count = 100000;
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        try {
+            throw 0;
+        } catch (int) { // NOLINT
+            // pass
+        }
+    }
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
+}
+
+// Measure the cost of throwing and catching an int from a function call.
+double throwIntNL()
+{
+    int count = 100000;
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        try {
+            PerfHelper::throwInt();
+        } catch (int) { // NOLINT
+            // pass
+        }
+    }
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
+}
+
+// Measure the cost of throwing and catching an Exception. This uses an actual
+// exception as the value thrown, which may be slower than throwInt.
+double throwException()
+{
+    int count = 100000;
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        try {
+            throw ObjectDoesntExistException(HERE);
+        } catch (const ObjectDoesntExistException&) {
+            // pass
+        }
+    }
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
+}
+
+// Measure the cost of throwing and catching an Exception from a function call.
+double throwExceptionNL()
+{
+    int count = 100000;
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        try {
+            PerfHelper::throwObjectDoesntExistException();
+        } catch (const ObjectDoesntExistException&) {
+            // pass
+        }
+    }
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
+}
+
+// Measure the cost of throwing and catching an Exception using
+// ClientException::throwException.
+double throwSwitch()
+{
+    int count = 100000;
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        try {
+            ClientException::throwException(HERE, STATUS_OBJECT_DOESNT_EXIST);
+        } catch (const ObjectDoesntExistException&) {
+            // pass
+        }
+    }
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
+}
+
 // The following struct and table define each performance test in terms of
 // a string name and a function that implements the test.
 struct TestInfo {
@@ -420,6 +518,8 @@ TestInfo tests[] = {
      "Convert a rdtsc result to (uint64_t) nanoseconds"},
     {"dispatchPoll", dispatchPoll,
      "Dispatch::poll (no timers or pollers)"},
+    {"functionCall", functionCall,
+     "Call a function that has not been inlined"},
     {"getThreadId", getThreadId,
      "Retrieve thread id via ThreadId::get"},
     {"lfence", lfence,
@@ -434,6 +534,16 @@ TestInfo tests[] = {
      "Sfence instruction"},
     {"spinLock", spinLock,
      "Acquire/release SpinLock"},
+    {"throwInt", throwInt,
+     "Throw an int"},
+    {"throwIntNL", throwIntNL,
+     "Throw an int in a function call"},
+    {"throwException", throwException,
+     "Throw an Exception"},
+    {"throwExceptionNL", throwExceptionNL,
+     "Throw an Exception in a function call"},
+    {"throwSwitch", throwSwitch,
+     "Throw an Exception using ClientException::throwException"},
 };
 
 /**
