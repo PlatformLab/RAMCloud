@@ -42,6 +42,11 @@ def write(data, filename):
         for x, ys in data.items():
             print(x, *ys, file=f)
 
+# If using disks (6 backup processes per master), try the following changes:
+#   1) Set maxPartitions = 20
+#   2) Use range(1, maxPartitions + 1)
+#   3) Set args['numBackups'] = numPartitions * 3
+
 data = AveragingDict()
 maxPartitions = 60
 for trial in range(5):
@@ -55,10 +60,10 @@ for trial in range(5):
         args['objectSize'] = 1024
         args['disk'] = 3
         args['replicas'] = 3
-        args['numObjects'] = 500000
+        args['numObjects'] = 592415
         args['oldMasterArgs'] = '-t %d' % (700 * numPartitions)
-        args['newMasterArgs'] = '-t 16000'
-        args['timeout'] = 60
+        args['newMasterArgs'] = '-t 8000'
+        args['timeout'] = 300
         r = recovery.insist(**args)
         print('->', r['ns'] / 1e6, 'ms', '(run %s)' % r['run'])
 

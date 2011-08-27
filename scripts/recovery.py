@@ -215,9 +215,9 @@ if __name__ == '__main__':
     args['numPartitions'] = 50
     args['objectSize'] = 1024
     args['disk'] = 3
-    args['numObjects'] = 540000
+    args['numObjects'] = 592415 # 600MB
     args['oldMasterArgs'] = '-t %d' % (700 * args['numPartitions'])
-    args['newMasterArgs'] = '-t 16000'
+    args['newMasterArgs'] = '-t 8000'
     args['replicas'] = 3
     stats = recover(**args)
     print('Recovery time: %.3fs' % (stats['ns']/1e09))
