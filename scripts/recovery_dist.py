@@ -29,9 +29,11 @@ import random
 
 strategies = 4
 
+numHosts = 60
+
 def setFans(high):
     with Sandbox() as sandbox:
-        for i in range(1, 41):
+        for i in range(1, numHosts + 1):
             sandbox.rsh('root@rc%.2d' % i, 'echo 1 > /sys/devices/platform/w83627ehf.2576/pwm2_enable')
             if high:
                 sandbox.rsh('root@rc%.2d' % i, 'echo 255 > /sys/devices/platform/w83627ehf.2576/pwm2')
@@ -99,15 +101,15 @@ def main(fileName, append=False, tag=0, iterations=100000):
             backupStrategy = (backupStrategy + 1) % strategies
 
         args = {}
-        args['numBackups'] = 33
-        args['numPartitions'] = 11
+        args['numBackups'] = 60
+        args['numPartitions'] = 20
         args['objectSize'] = 1024
         args['disk'] = 3
         args['replicas'] = 3
-        args['numObjects'] = 626012 * 600 // 640
+        args['numObjects'] = 592415 # 600 * 2**20 / (1024 + 38)
         args['backupArgs'] = '--backupStrategy=%d' % backupStrategy
         args['oldMasterArgs'] = '-t 17000'
-        args['newMasterArgs'] = '-t 16000'
+        args['newMasterArgs'] = '-t 8000'
         args['timeout'] = 120
         print('iteration', i, 'strategy', backupStrategy)
         r = recovery.insist(**args)
