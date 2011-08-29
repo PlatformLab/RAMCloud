@@ -703,11 +703,15 @@ try
     po::variables_map vm;
     po::store(po::command_line_parser(argc, argv).
             options(desc).positional(desc2).run(), vm);
-    if (vm.count("help") || coordinatorLocator.empty()) {
+    if (vm.count("help")) {
         std::cout << desc << '\n';
         exit(0);
     }
     po::notify(vm);
+    if (coordinatorLocator.empty()) {
+        RAMCLOUD_LOG(ERROR, "missing required option --coordinator");
+        exit(1);
+    }
 
     cluster = new RamCloud(coordinatorLocator.c_str());
     cluster->createTable("data");
@@ -739,4 +743,5 @@ try
 }
 catch (std::exception& e) {
     RAMCLOUD_LOG(ERROR, "%s", e.what());
+    exit(1);
 }
