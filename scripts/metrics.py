@@ -505,6 +505,10 @@ class Master(Struct):
         'total number of complete segments written to backups')
     segmentWriteStallTicks = u64(
         'total amount of time spent stalled on writing segments to backups')
+    recoverySegmentEntryCount = u64(
+        'total number of recovery segment entries (e.g. objects, tombstones)')
+    recoverySegmentEntryBytes = u64(
+        'total number of entry bytes in recovery segments (without overhead)')
     liveObjectCount = u64('total number of live objects')
     liveObjectBytes = u64('total number of bytes of live object data')
     objectAppendCount = u64('total number of objects appended to the log')
@@ -668,9 +672,6 @@ def textReport(data):
     summary.avgStd('Backups', len(backups))
     summary.avgStd('Replicas',
                    masters[0].master.replicas)
-    summary.avgStd('Total objects',
-                   sum([master.master.liveObjectCount
-                        for master in masters]))
     summary.avgMaxFrac('Objects per master',
                    [master.master.liveObjectCount
                         for master in masters])
@@ -679,6 +680,22 @@ def textReport(data):
                     master.master.liveObjectCount
                     for master in masters],
                    '{0:6.0f} bytes')
+    summary.avgStd('Total live objects',
+                   sum([master.master.liveObjectCount
+                        for master in masters]))
+    totalLiveObjectMB = sum([master.master.liveObjectBytes
+                            for master in masters]) / 1024.0 / 1024.0
+    totalRecoverySegmentMBWithOverhead = sum(
+                            [master.master.segmentReadByteCount
+                            for master in masters]) / 1024.0 / 1024.0
+    totalrecoverySegentEntryMB = sum([master.master.recoverySegmentEntryBytes
+                                     for master in masters]) / 1024.0 / 1024.0
+    summary.avgStd('Total recovery segment entries',
+                   sum([master.master.recoverySegmentEntryCount
+                      for master in masters]))
+    summary.avgStd('Total live object space', totalLiveObjectMB, '{0:6.2f} MB')
+    summary.avgStd('Total recovery segment space w/ overhead',
+                   totalRecoverySegmentMBWithOverhead, '{0:6.2f} MB')
 
     if backups:
         storageTypes = set([backup.backup.storageType for backup in backups])

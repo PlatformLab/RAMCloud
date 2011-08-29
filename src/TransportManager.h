@@ -51,6 +51,7 @@ class TransportManager {
     string getListeningLocatorsString();
     void registerMemory(void* base, size_t bytes);
     void dumpStats();
+    void dumpTransportFactories();
 
 #if TESTING
     /**

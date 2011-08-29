@@ -15,8 +15,6 @@ SSE ?= sse4.2
 COMPILER ?= gnu
 VALGRIND ?= no
 
-INFINIBAND := $(shell [ -e /usr/lib/libibverbs.so ] && echo -n "yes")
-
 ## Create a separate build directory for each git branch and for each arch
 OBJSUFFIX := $(shell git symbolic-ref -q HEAD | \
 	       sed -e s,refs/heads/,.,)
@@ -64,6 +62,26 @@ LIBS := $(EXTRALIBS) -lpcrecpp -lboost_program_options -lprotobuf -lrt \
         -lpthread -lboost_thread -lssl -lcrypto
 INCLUDES := -I$(TOP)/src -I$(TOP)/$(OBJDIR) -I$(GTEST_DIR)/include
 
+CC ?= gcc
+CXX ?= g++
+AR ?= ar
+PERL ?= perl
+PYTHON ?= python
+LINT := $(PYTHON) cpplint.py --filter=-runtime/threadsafe_fn,-readability/streams,-whitespace/blank_line,-whitespace/braces,-whitespace/comments,-runtime/arrays,-build/include_what_you_use,-whitespace/semicolon
+PRAGMAS := ./pragmas.py
+NULL := # useful for terminating lists of files
+PROTOC ?= protoc
+EPYDOC ?= epydoc
+EPYDOCFLAGS ?= --simple-term -v
+DOXYGEN ?= doxygen
+
+# Test whether Infiniband support is available. Avoids using $(COMFLAGS)
+# (particularly, -MD) which results in bad interactions with mergedeps.
+INFINIBAND = $(shell $(CXX) $(INCLUDES) $(EXTRACXXFLAGS) $(LIBS) -libverbs \
+                         -o /dev/null src/HaveInfiniband.cc \
+                         >/dev/null 2>&1 \
+                         && echo yes || echo no)
+
 ifeq ($(INFINIBAND),yes)
 COMFLAGS += -DINFINIBAND
 LIBS += -libverbs
@@ -86,19 +104,6 @@ CXXFLAGS := $(CXXFLAGS_BASE) -Werror $(CXXWARNS) $(EXTRACXXFLAGS)
 ifeq ($(COMPILER),intel)
 CXXFLAGS = $(CXXFLAGS_BASE) $(CXXWARNS)
 endif
-
-CC ?= gcc
-CXX ?= g++
-AR ?= ar
-PERL ?= perl
-PYTHON ?= python
-LINT := $(PYTHON) cpplint.py --filter=-runtime/threadsafe_fn,-readability/streams,-whitespace/blank_line,-whitespace/braces,-whitespace/comments,-runtime/arrays,-build/include_what_you_use,-whitespace/semicolon
-PRAGMAS := ./pragmas.py
-NULL := # useful for terminating lists of files
-PROTOC ?= protoc
-EPYDOC ?= epydoc
-EPYDOCFLAGS ?= --simple-term -v
-DOXYGEN ?= doxygen
 
 # run-cc:
 # Compile a C source file to an object file.

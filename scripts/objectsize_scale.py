@@ -31,17 +31,17 @@ for objectSize in [128, 256, 1024]:
     print('# objectSize:', objectSize, file=dat)
     for partitionSize in range(1, 1050, 100):
         args = {}
-        args['numBackups'] = 36
+        args['numBackups'] = 60
         args['numPartitions'] = 1
         args['objectSize'] = objectSize
         args['disk'] = 1
         args['replicas'] = 3
-        numObjectsPerMb = 2**20 / (objectSize + 40)
+        numObjectsPerMb = 2**20 / (objectSize + 38)
         print('Running with objects of size %d for a %d MB partition' %
               (objectSize, partitionSize))
         r = recovery.insist(
             oldMasterArgs='-t 1600',
-            newMasterArgs='-t 16000',
+            newMasterArgs='-t 8000',
             numObjects=int(numObjectsPerMb * partitionSize),
             **args)
         print('->', r['ns'] / 1e6, 'ms', '(run %s)' % r['run'])

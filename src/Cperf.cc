@@ -1,4 +1,5 @@
 /* Copyright (c) 2011 Stanford University
+ * Copyright (c) 2011 Facebook
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -78,7 +79,7 @@ enum Id {
  *      readable explanation of what the value refers to.
  */
 void
-printTime(const char* name, double seconds, char* description)
+printTime(const char* name, double seconds, const char* description)
 {
     printf("%-20s ", name);
     if (seconds < 1.0e-06) {
@@ -107,7 +108,7 @@ printTime(const char* name, double seconds, char* description)
  *      readable explanation of what the value refers to.
  */
 void
-printBandwidth(const char* name, double bandwidth, char* description)
+printBandwidth(const char* name, double bandwidth, const char* description)
 {
     printf("%-20s ", name);
     if (bandwidth >= 1.0e09) {
@@ -661,6 +662,41 @@ readLoaded()
     sendCommand("done", "done", 1, numClients-1);
 }
 
+// Read an object that doesn't exist. This excercies some exception paths that
+// are supposed to be fast. This comes up, for example, in workloads in which a
+// RAMCloud is used as a cache with frequent cache misses.
+void
+readNotFound()
+{
+    if (clientIndex != 0)
+        return;
+
+    uint64_t runCycles = Cycles::fromSeconds(.1);
+
+    // Similar to timeRead but catches the exception
+    uint64_t start = Cycles::rdtsc();
+    uint64_t elapsed;
+    int count = 0;
+    while (true) {
+        for (int i = 0; i < 10; i++) {
+            Buffer output;
+            try {
+                cluster->read(dataTable, 55, &output);
+            } catch (const ObjectDoesntExistException& e) {
+                continue;
+            }
+            throw Exception(HERE, "Object exists?");
+        }
+        count += 10;
+        elapsed = Cycles::rdtsc() - start;
+        if (elapsed >= runCycles)
+            break;
+    }
+    double t = Cycles::toSeconds(elapsed)/count;
+
+    printTime("readNotFound", t, "read object that doesn't exist");
+}
+
 // The following struct and table define each performance test in terms of
 // a string name and a function that implements the test.
 struct TestInfo {
@@ -672,7 +708,8 @@ struct TestInfo {
 TestInfo tests[] = {
     {"basic", basic},
     {"broadcast", broadcast},
-    {"readLoaded", readLoaded}
+    {"readLoaded", readLoaded},
+    {"readNotFound", readNotFound},
 };
 
 int
@@ -703,11 +740,11 @@ try
     po::variables_map vm;
     po::store(po::command_line_parser(argc, argv).
             options(desc).positional(desc2).run(), vm);
+    po::notify(vm);
     if (vm.count("help")) {
         std::cout << desc << '\n';
         exit(0);
     }
-    po::notify(vm);
     if (coordinatorLocator.empty()) {
         RAMCLOUD_LOG(ERROR, "missing required option --coordinator");
         exit(1);
