@@ -741,10 +741,13 @@ try
     po::store(po::command_line_parser(argc, argv).
             options(desc).positional(desc2).run(), vm);
     po::notify(vm);
-    // error checks need to come after the notify call
-    if (vm.count("help") || coordinatorLocator.empty()) {
+    if (vm.count("help")) {
         std::cout << desc << '\n';
         exit(0);
+    }
+    if (coordinatorLocator.empty()) {
+        RAMCLOUD_LOG(ERROR, "missing required option --coordinator");
+        exit(1);
     }
 
     cluster = new RamCloud(coordinatorLocator.c_str());
@@ -777,4 +780,5 @@ try
 }
 catch (std::exception& e) {
     RAMCLOUD_LOG(ERROR, "%s", e.what());
+    exit(1);
 }
