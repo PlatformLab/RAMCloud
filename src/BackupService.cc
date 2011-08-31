@@ -1390,6 +1390,7 @@ BackupService::writeSegment(const BackupWriteRpc::Request& reqHdr,
             info->write(rpc.requestPayload, sizeof(reqHdr),
                         reqHdr.length, reqHdr.offset);
         }
+        metrics->backup.writeCopyBytes += reqHdr.length;
         bytesWritten += reqHdr.length;
     } else {
         if (!(reqHdr.flags & BackupWriteRpc::CLOSE))

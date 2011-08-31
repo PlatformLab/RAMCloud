@@ -409,6 +409,33 @@ class Section(object):
                                                          fractionLabel))
         self.line(label, columns, note)
 
+    def avgMinFrac(self, label, points, pointFormat=None,
+                 total=None, fractionLabel='', note=''):
+        """Same as avgMaxFrac except print mimimum value rather than max.
+        """
+        points = seq(points)
+        if fractionLabel:
+            fractionLabel = ' {0:}'.format(fractionLabel)
+        columns = []
+        if len(points) == 1:
+            point = points[0]
+            if pointFormat is None:
+                pointFormat = defaultFormat(point)
+            columns.append(pointFormat.format(point))
+            if total is not None:
+                columns.append('{0:6.2%}{1:}'.format(point / total,
+                                                     fractionLabel))
+        else:
+            if pointFormat is None:
+                pointFormat = '{0:6.1f}'
+            avg, min = avgAndMin(points)
+            columns.append('{0:} avg'.format(pointFormat.format(avg)))
+            columns.append('min {0:}'.format(pointFormat.format(min)))
+            if total is not None:
+                columns.append('{0:6.2%} avg{1:}'.format(avg / total,
+                                                         fractionLabel))
+        self.line(label, columns, note)
+
     avgStd = avgStdFrac
     """Same as avgStdFrac.
 
@@ -563,6 +590,8 @@ class Backup(Struct):
     writeTicks = u64('total amount of time servicing write RPC')
     writeClearTicks = u64(
         'total amount of time clearing segment memory during segment open')
+    writeCopyBytes = u64(
+        'total bytes written to backup segments')
     writeCopyTicks = u64(
         'total amount of time clearing segment memory during segment open')
     writeCount = u64('total number of writeSegment requests processed')
@@ -604,9 +633,12 @@ def parseRecovery(recovery_dir, definitions=None):
     # raw log data to provide separate copies for masters and backups
     data.backups = []
     data.masters = []
+    nodes = {}
     for logFile in sorted(glob('%s/backup.*.log' % recovery_dir)):
         server = parse(open(logFile), definitions)
         server.server = re.match('.*/(backup\..*)\.log', logFile).group(1)
+        node = re.match('.*/backup\.(.*)\.log', logFile).group(1)
+        nodes[node] = 1;
         if server.hasBackup != 0:
             data.backups.append(server)
         if server.hasMaster != 0:
@@ -614,10 +646,13 @@ def parseRecovery(recovery_dir, definitions=None):
     for logFile in sorted(glob('%s/server.*.log' % recovery_dir)):
         server = parse(open(logFile), definitions)
         server.server = re.match('.*/(server\..*)\.log', logFile).group(1)
+        node = re.match('.*/server\.(.*)\.log', logFile).group(1)
+        nodes[node] = 1;
         if server.hasBackup != 0:
             data.backups.append(server)
         if server.hasMaster != 0:
             data.masters.append(server)
+    data.totalNodes = len(nodes)
         
     data.client = AttrDict()
     for line in open(glob('%s/client.*.log' % recovery_dir)[0]):
@@ -674,6 +709,7 @@ def textReport(data):
     summary.avgStd('Recovery time', recoveryTime, '{0:6.3f} s')
     summary.avgStd('Masters', len(masters))
     summary.avgStd('Backups', len(backups))
+    summary.avgStd('Total nodes', data.totalNodes)
     summary.avgStd('Replicas',
                    masters[0].master.replicas)
     summary.avgMaxFrac('Objects per master',
@@ -1049,6 +1085,10 @@ def textReport(data):
             pointFormat='{0:6.2f} ms avg')
     except:
         pass
+    efficiencySection.avgMinFrac('Memory bandwidth (backup copies)',
+        [(backup.backup.writeCopyBytes / 2**30) /
+         (backup.backup.writeCopyTicks / backup.clockFrequency)
+         for backup in backups], pointFormat= '{0:6.2f} GB/s')
 
     networkSection = report.add(Section('Network Utilization'))
     networkSection.avgStdFrac('Aggregate',
@@ -1056,7 +1096,7 @@ def textReport(data):
               for host in [coord] + masters + backups]) *
          8 / 2**30 / recoveryTime),
         '{0:4.2f} Gb/s',
-        total=(max(len(masters), len(backups)) * 32),
+        total=data.totalNodes*25,
         fractionLabel='of network capacity',
         note='overall')
     networkSection.avgMinSum('Master in',
