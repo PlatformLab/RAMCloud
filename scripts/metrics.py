@@ -600,9 +600,12 @@ def parseRecovery(recovery_dir, definitions=None):
     # raw log data to provide separate copies for masters and backups
     data.backups = []
     data.masters = []
+    nodes = {}
     for logFile in sorted(glob('%s/backup.*.log' % recovery_dir)):
         server = parse(open(logFile), definitions)
         server.server = re.match('.*/(backup\..*)\.log', logFile).group(1)
+        node = re.match('.*/backup\.(.*)\.log', logFile).group(1)
+        nodes[node] = 1;
         if server.hasBackup != 0:
             data.backups.append(server)
         if server.hasMaster != 0:
@@ -610,10 +613,13 @@ def parseRecovery(recovery_dir, definitions=None):
     for logFile in sorted(glob('%s/server.*.log' % recovery_dir)):
         server = parse(open(logFile), definitions)
         server.server = re.match('.*/(server\..*)\.log', logFile).group(1)
+        node = re.match('.*/server\.(.*)\.log', logFile).group(1)
+        nodes[node] = 1;
         if server.hasBackup != 0:
             data.backups.append(server)
         if server.hasMaster != 0:
             data.masters.append(server)
+    data.totalNodes = len(nodes)
         
     data.client = AttrDict()
     for line in open(glob('%s/client.*.log' % recovery_dir)[0]):
@@ -670,6 +676,7 @@ def textReport(data):
     summary.avgStd('Recovery time', recoveryTime, '{0:6.3f} s')
     summary.avgStd('Masters', len(masters))
     summary.avgStd('Backups', len(backups))
+    summary.avgStd('Total nodes', data.totalNodes)
     summary.avgStd('Replicas',
                    masters[0].master.replicas)
     summary.avgMaxFrac('Objects per master',
@@ -1052,7 +1059,7 @@ def textReport(data):
               for host in [coord] + masters + backups]) *
          8 / 2**30 / recoveryTime),
         '{0:4.2f} Gb/s',
-        total=(max(len(masters), len(backups)) * 32),
+        total=data.totalNodes*25,
         fractionLabel='of network capacity',
         note='overall')
     networkSection.avgMinSum('Master in',
