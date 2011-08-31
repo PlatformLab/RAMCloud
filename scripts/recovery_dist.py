@@ -29,14 +29,21 @@ import random
 
 strategies = 4
 
+numHosts = 60
+
 def setFans(high):
-    with Sandbox() as sandbox:
-        for i in range(1, 41):
-            sandbox.rsh('root@rc%.2d' % i, 'echo 1 > /sys/devices/platform/w83627ehf.2576/pwm2_enable')
-            if high:
-                sandbox.rsh('root@rc%.2d' % i, 'echo 255 > /sys/devices/platform/w83627ehf.2576/pwm2')
-            else:
-                sandbox.rsh('root@rc%.2d' % i, 'echo 127 > /sys/devices/platform/w83627ehf.2576/pwm2')
+    for i in range(3):
+        exe = 'rcfans-max' if high else 'rcfans-normal'
+        subprocess.check_call(exe, shell=True)
+        time.sleep(30)
+    exe = 'rcfans-assert-high' if high else 'rcfans-assert-normal'
+    r = subprocess.check_call(exe, shell=True)
+    if r != 0:
+        raise Exception('Tried to set all fans to %s but it did not work on some hosts' % high)
+    proc = subprocess.Popen('rcstatus', shell=True, stdout=subprocess.PIPE)
+    out = proc.communicate()[0]
+    print(out, file=sys.stderr)
+    time.sleep(30)
 
 def recreateCdf(inFileName):
     cdfdat = open('%s/recovery/recovery_dist_cdf.data' % top_path, 'w', 1)
@@ -45,7 +52,7 @@ def recreateCdf(inFileName):
             indat = open(inFileName, 'r', 1)
             times = []
             for line in indat.readlines():
-                time, diskMin, diskMax, diskAvg, strategy, tag = line.split()
+                time, diskMin, diskMax, diskAvg, strategy, tag, commentChar, run = line.split()
                 time = float(time)
                 diskMin = float(diskMin)
                 diskMax = float(diskMax)
@@ -83,13 +90,13 @@ def main(fileName, append=False, tag=0, iterations=100000):
         d = open(fileName, mode, 1)
         backupStrategy = strategies - 1
         for line in d.readlines():
-            time, diskMin, diskMax, diskAvg, strategy, t = line.split()
+            time, diskMin, diskMax, diskAvg, strategy, t, commentChar, run = line.split()
             if t == tag:
                 backupStrategy = int(strategy)
             i += 1
         d.close()
         backupStrategy = (backupStrategy + 1) % strategies
-        print('Resuming measurements on strategy', backupStrategy)
+        print('Resuming measurements on strategy', backupStrategy, file=sys.stderr)
     else:
         backupStrategy = 0
 
@@ -99,32 +106,34 @@ def main(fileName, append=False, tag=0, iterations=100000):
             backupStrategy = (backupStrategy + 1) % strategies
 
         args = {}
-        args['numBackups'] = 33
-        args['numPartitions'] = 11
+        args['numBackups'] = 60
+        args['numPartitions'] = 20
         args['objectSize'] = 1024
         args['disk'] = 3
         args['replicas'] = 3
-        args['numObjects'] = 626012 * 600 // 640
+        args['numObjects'] = 592415 # 600 * 2**20 / (1024 + 38)
         args['backupArgs'] = '--backupStrategy=%d' % backupStrategy
         args['oldMasterArgs'] = '-t 17000'
-        args['newMasterArgs'] = '-t 16000'
+        args['newMasterArgs'] = '-t 8000'
         args['timeout'] = 120
-        print('iteration', i, 'strategy', backupStrategy)
+        print('starting iteration', i, 'strategy', backupStrategy, file=sys.stderr)
         r = recovery.insist(**args)
         try:
             diskReadingMsPoints = [backup.backup.readingDataTicks * 1e3 /
                                    backup.clockFrequency
                                    for backup in r['metrics'].backups]
         except:
-            print('No metrics, trying again')
+            print('No metrics, trying again', file=sys.stderr)
             continue
-        print('->', r['ns'] / 1e6, 'ms', '(run %s)' % r['run'])
+        print('completed iteration', i, 'strategy', backupStrategy, r['ns'] / 1e6, 'ms', '(run %s' % r['run'], 'fans %d)' % tag, file=sys.stderr)
         print(r['ns'] / 1e6,
               min(diskReadingMsPoints),
               max(diskReadingMsPoints),
               sum(diskReadingMsPoints) / len(diskReadingMsPoints),
               backupStrategy,
               tag,
+              '#',
+              r['run'],
               file=dat)
         recreateCdf(fileName)
         backupStrategy = (backupStrategy + 1) % strategies
@@ -134,19 +143,18 @@ def main(fileName, append=False, tag=0, iterations=100000):
 def runTogglingFans():
     iterations = (strategies - 1) * 20
     #iterations = (strategies - 1)
-    fans = random.random() < 0.5
+    fans = sys.argv[2] == 'high'
     while True:
-        print('Setting fans to', fans)
+        print('Setting fans to', fans, file=sys.stderr)
         setFans(fans)
-        time.sleep(30)
         main(fileName, append=True, tag=1 if fans else 0, iterations=iterations)
         fans = not fans
 
 if __name__ == '__main__':
     tag=0
-    if len(sys.argv) > 2:
+    if sys.argv[1] in ['run', 'continue'] and len(sys.argv) > 2:
         tag = int(sys.argv[2])
-        print('Tagging output files with %d' % tag)
+        print('Tagging output files with %d' % tag, file=sys.stderr)
         if not tag in (0, 1):
             raise Exception('Tag must be 0 for normal fans, 1 for high fans')
 
