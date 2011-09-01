@@ -723,12 +723,7 @@ try
     desc.add_options()
         ("clientIndex", po::value<int>(&clientIndex)->default_value(0),
                 "Index of this client (first client is 0)")
-        ("coordinator,C",
-#if BOOST_VERSION >= 104200 // required flag introduced in Boost 1.42
-                po::value<string>(&coordinatorLocator)->required(),
-#else
-                po::value<string>(&coordinatorLocator),
-#endif
+        ("coordinator,C", po::value<string>(&coordinatorLocator),
                 "Service locator for the cluster coordinator (required)")
         ("help,h", "Print this help message")
         ("numClients", po::value<int>(&numClients)->default_value(1),
