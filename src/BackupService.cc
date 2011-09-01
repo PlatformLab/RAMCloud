@@ -1150,7 +1150,7 @@ BackupService::recoveryComplete(
     LOG(DEBUG, "masterID: %lu", reqHdr.masterId);
     rpc.sendReply();
     recoveryTicks.destroy();
-    dump(metrics);
+    metrics->end();
 }
 
 /**
@@ -1209,7 +1209,7 @@ BackupService::startReadingData(
     LOG(DEBUG, "Handling: %lu", reqHdr.masterId);
     recoveryTicks.construct(&metrics->backup.recoveryTicks);
     recoveryStart = Cycles::rdtsc();
-    reset(metrics, serverId);
+    metrics->start(serverId);
     metrics->hasBackup = 1;
     metrics->backup.storageType = static_cast<uint64_t>(storage.storageType);
     CycleCounter<Metric> srdTicks(&metrics->backup.startReadingDataTicks);
