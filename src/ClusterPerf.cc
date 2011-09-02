@@ -514,11 +514,11 @@ basic()
         double t = timeRead(dataTable, 44, 100, output);
         checkBuffer(output, size, dataTable, 44);
 
-        snprintf(name, sizeof(name), "basic::read%s", ids[i]);
+        snprintf(name, sizeof(name), "basic.read%s", ids[i]);
         snprintf(description, sizeof(description), "read single %sB object",
                 ids[i]);
         printTime(name, t, description);
-        snprintf(name, sizeof(name), "basic::readBw%s", ids[i]);
+        snprintf(name, sizeof(name), "basic.readBw%s", ids[i]);
         snprintf(description, sizeof(description),
                 "bandwidth reading %sB object", ids[i]);
         printBandwidth(name, size/t, description);
@@ -536,11 +536,11 @@ basic()
         cluster->read(dataTable, 44, &output);
         checkBuffer(output, size, dataTable, 44);
 
-        snprintf(name, sizeof(name), "basic::write%s", ids[i]);
+        snprintf(name, sizeof(name), "basic.write%s", ids[i]);
         snprintf(description, sizeof(description),
                 "write single %sB object", ids[i]);
         printTime(name, t, description);
-        snprintf(name, sizeof(name), "basic::writeBw%s", ids[i]);
+        snprintf(name, sizeof(name), "basic.writeBw%s", ids[i]);
         snprintf(description, sizeof(description),
                 "bandwidth writing %sB object", ids[i]);
         printBandwidth(name, size/t, description);
@@ -747,7 +747,7 @@ try
     string coordinatorLocator, logFile;
     string logLevel("NOTICE");
     po::options_description desc(
-            "Usage: Cperf [options] testName testName ...\n\n"
+            "Usage: ClusterPerf [options] testName testName ...\n\n"
             "Runs one or more benchmarks on a RAMCloud cluster and outputs\n"
             "performance information.  This program is not normally invoked\n"
             "directly; it is invoked by the clusterperf script.\n\n"

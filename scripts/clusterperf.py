@@ -16,7 +16,8 @@
 
 """
 Runs one or more cluster benchmarks for RAMCloud, using cluster.py to
-set up the cluster and Cperf.cc to implement the details of the benchmark.
+set up the cluster and ClusterPerf.cc to implement the details of the
+benchmark.
 """
 
 # TO ADD A NEW BENCHMARK:
@@ -53,7 +54,7 @@ class Test:
             name,                 # Symbolic name for the test, used on the
                                   # command line to run the test.  This same
                                   # name is normally used for the
-                                  # corresponding test in Cperf.cc.
+                                  # corresponding test in ClusterPerf.cc.
             function              # Python driver function for the test.
             ):
         """
@@ -132,21 +133,21 @@ def default(
     This function is used as the invocation function for most tests;
     it simply invokes ClusterPerf via cluster.run and prints the result.
     """
-    cluster.run(client='obj.master/Cperf %s %s' %
+    cluster.run(client='obj.master/ClusterPerf %s %s' %
             (flatten_args(perf_args), name), **cluster_args)
     print(get_client_log(), end='')
 
 def broadcast(name, options, cluster_args, perf_args):
     if 'num_clients' not in cluster_args:
         cluster_args['num_clients'] = 10
-    cluster.run(client='obj.master/Cperf %s %s' %
+    cluster.run(client='obj.master/ClusterPerf %s %s' %
             (flatten_args(perf_args), name), **cluster_args)
     print(get_client_log(), end='')
 
 def readLoaded(name, options, cluster_args, perf_args):
     if 'num_clients' not in cluster_args:
         cluster_args['num_clients'] = 20
-    cluster.run(client='obj.master/Cperf %s %s' %
+    cluster.run(client='obj.master/ClusterPerf %s %s' %
             (flatten_args(perf_args), name), **cluster_args)
     print(get_client_log(), end='')
     
