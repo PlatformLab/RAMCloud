@@ -871,7 +871,7 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
         ProtoBuf::Tablets recoveryWill;
         {
             CycleCounter<Metric> _(&metrics->master.recoveryWillTicks);
-            Will will(tablets, maxBytesPerPartition, maxReferantsPerPartition);
+            Will will(tablets, maxBytesPerPartition, maxReferentsPerPartition);
             will.serialize(recoveryWill);
         }
 
@@ -1570,7 +1570,7 @@ tombstoneRelocationCallback(LogEntryHandle oldHandle,
         return false;
     }
 
-    // see if the referant is still there
+    // see if the referent is still there
     bool keepNewTomb = log.isSegmentLive(tomb->segmentId);
 
     // Remove the evicted entry whether it is discarded or not.

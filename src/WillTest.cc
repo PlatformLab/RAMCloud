@@ -104,7 +104,7 @@ class WillTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(0, w.currentMaxBytes);
         CPPUNIT_ASSERT_EQUAL(0, w.currentCount);
         CPPUNIT_ASSERT_EQUAL(1000, w.maxBytesPerPartition);
-        CPPUNIT_ASSERT_EQUAL(1001, w.maxReferantsPerPartition);
+        CPPUNIT_ASSERT_EQUAL(1001, w.maxReferentsPerPartition);
         CPPUNIT_ASSERT_EQUAL(0, w.entries.size());
     }
 
@@ -156,7 +156,7 @@ class WillTest : public CppUnit::TestFixture {
             "-----------------------------------------------------------------"
             "----------------------------------------------------------- | deb"
             "ugDump: Partition             TableId            FirstKey        "
-            "     LastKey     MinBytes     MaxBytes   MinReferants   MaxRefera"
+            "     LastKey     MinBytes     MaxBytes   MinReferents   MaxRefere"
             "nts | debugDump: ------------------------------------------------"
             "-----------------------------------------------------------------"
             "------------ | debugDump:         0  0x0000000000000000  0x000000"
@@ -194,10 +194,10 @@ class WillTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(10000, w.entries[0].lastKey);
         CPPUNIT_ASSERT_EQUAL(100, w.entries[0].minBytes);
         CPPUNIT_ASSERT_EQUAL(150, w.entries[0].maxBytes);
-        CPPUNIT_ASSERT_EQUAL(10, w.entries[0].minReferants);
-        CPPUNIT_ASSERT_EQUAL(20, w.entries[0].maxReferants);
+        CPPUNIT_ASSERT_EQUAL(10, w.entries[0].minReferents);
+        CPPUNIT_ASSERT_EQUAL(20, w.entries[0].maxReferents);
         CPPUNIT_ASSERT_EQUAL(150, w.currentMaxBytes);
-        CPPUNIT_ASSERT_EQUAL(20, w.currentMaxReferants);
+        CPPUNIT_ASSERT_EQUAL(20, w.currentMaxReferents);
         CPPUNIT_ASSERT_EQUAL(0, w.currentId);
         CPPUNIT_ASSERT_EQUAL(1, w.currentCount);
 
@@ -221,9 +221,9 @@ class WillTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(1, w.currentId);
         CPPUNIT_ASSERT_EQUAL(1, w.currentCount);
         CPPUNIT_ASSERT_EQUAL(2, w.currentMaxBytes);
-        CPPUNIT_ASSERT_EQUAL(10, w.currentMaxReferants);
+        CPPUNIT_ASSERT_EQUAL(10, w.currentMaxReferents);
 
-        // now exceed the referant maximum
+        // now exceed the referent maximum
         {
             ProtoBuf::Tablets::Tablet tablet = createTablet(0, 12, 0, -1);
             Partition p(0, -1, 3, 3, 49, 49);
@@ -233,7 +233,7 @@ class WillTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(2, w.currentId);
         CPPUNIT_ASSERT_EQUAL(1, w.currentCount);
         CPPUNIT_ASSERT_EQUAL(3, w.currentMaxBytes);
-        CPPUNIT_ASSERT_EQUAL(49, w.currentMaxReferants);
+        CPPUNIT_ASSERT_EQUAL(49, w.currentMaxReferents);
     }
 
 
@@ -284,7 +284,7 @@ class WillTest : public CppUnit::TestFixture {
         }
 
         uint64_t
-        getReferantsInRange(uint64_t firstKey, uint64_t lastKey)
+        getReferentsInRange(uint64_t firstKey, uint64_t lastKey)
         {
             boost::unordered_map<uint64_t, uint64_t>::iterator it =
                 objectMap.begin();
@@ -326,9 +326,9 @@ class WillTest : public CppUnit::TestFixture {
         }
 
         uint64_t
-        getReferantsInRange(uint64_t table, uint64_t firstKey, uint64_t lastKey)
+        getReferentsInRange(uint64_t table, uint64_t firstKey, uint64_t lastKey)
         {
-            return tabletMap[table].getReferantsInRange(firstKey, lastKey);
+            return tabletMap[table].getReferentsInRange(firstKey, lastKey);
         }
 
       private:
@@ -340,17 +340,17 @@ class WillTest : public CppUnit::TestFixture {
     {
         uint64_t totalMinBytes = 0;
         uint64_t totalMaxBytes = 0;
-        uint64_t totalMinReferants = 0;
-        uint64_t totalMaxReferants = 0;
+        uint64_t totalMinReferents = 0;
+        uint64_t totalMaxReferents = 0;
         uint64_t totalRealBytes = 0;
-        uint64_t totalRealReferants = 0;
+        uint64_t totalRealReferents = 0;
         uint64_t lastId = 0;
         for (unsigned int i = 0; i < w.entries.size(); i++) {
             Will::WillEntry* we = &w.entries[i];
 
             uint64_t realBytes = o.getBytesInRange(we->tableId,
                 we->firstKey, we->lastKey);
-            uint64_t realReferants = o.getReferantsInRange(we->tableId,
+            uint64_t realReferents = o.getReferentsInRange(we->tableId,
                 we->firstKey, we->lastKey);
 
 #if 0
@@ -364,37 +364,37 @@ class WillTest : public CppUnit::TestFixture {
                 CPPUNIT_ASSERT(totalRealBytes <= totalMaxBytes);
                 CPPUNIT_ASSERT(labs(totalMaxBytes - totalRealBytes) <=
                     (int64_t)TabletProfiler::getMaximumByteError());
-                CPPUNIT_ASSERT(totalRealReferants <= totalMaxReferants);
-                CPPUNIT_ASSERT(labs(totalMaxReferants - totalRealReferants) <=
-                    (int64_t)TabletProfiler::getMaximumReferantError());
+                CPPUNIT_ASSERT(totalRealReferents <= totalMaxReferents);
+                CPPUNIT_ASSERT(labs(totalMaxReferents - totalRealReferents) <=
+                    (int64_t)TabletProfiler::getMaximumReferentError());
 
                 totalMinBytes = 0;
                 totalMaxBytes = 0;
-                totalMinReferants = 0;
-                totalMaxReferants = 0;
+                totalMinReferents = 0;
+                totalMaxReferents = 0;
                 totalRealBytes = 0;
-                totalRealReferants = 0;
+                totalRealReferents = 0;
                 lastId = we->partitionId;
             }
 
             CPPUNIT_ASSERT(we->minBytes <= realBytes);
             CPPUNIT_ASSERT(we->maxBytes >= realBytes);
-            CPPUNIT_ASSERT(we->minReferants <= realReferants);
-            CPPUNIT_ASSERT(we->maxReferants >= realReferants);
+            CPPUNIT_ASSERT(we->minReferents <= realReferents);
+            CPPUNIT_ASSERT(we->maxReferents >= realReferents);
 
             totalMinBytes += we->minBytes;
             totalMaxBytes += we->maxBytes;
-            totalMinReferants += we->minReferants;
-            totalMaxReferants += we->maxReferants;
+            totalMinReferents += we->minReferents;
+            totalMaxReferents += we->maxReferents;
             totalRealBytes += realBytes;
-            totalRealReferants += realReferants;
+            totalRealReferents += realReferents;
         }
         CPPUNIT_ASSERT(totalRealBytes <= totalMaxBytes);
         CPPUNIT_ASSERT(labs(totalMaxBytes - totalRealBytes) <=
             (int64_t)TabletProfiler::getMaximumByteError());
-        CPPUNIT_ASSERT(totalRealReferants <= totalMaxReferants);
-        CPPUNIT_ASSERT(labs(totalMaxReferants - totalRealReferants) <=
-            (int64_t)TabletProfiler::getMaximumReferantError());
+        CPPUNIT_ASSERT(totalRealReferents <= totalMaxReferents);
+        CPPUNIT_ASSERT(labs(totalMaxReferents - totalRealReferents) <=
+            (int64_t)TabletProfiler::getMaximumReferentError());
     }
 
     // Simple test that writes 18GB of objects with incrementing
@@ -407,7 +407,7 @@ class WillTest : public CppUnit::TestFixture {
         Oracle o;
 
         const uint64_t maxBytesPerPartition = 640 * 1024 * 1024;
-        const uint64_t maxReferantsPerPartition = 10 * 1000 * 1000;
+        const uint64_t maxReferentsPerPartition = 10 * 1000 * 1000;
 
         // 5GB, auto-incrementing, 256KB objects
         t = createAndAddTablet(tablets, 0, 0, 0, -1);
@@ -431,7 +431,7 @@ class WillTest : public CppUnit::TestFixture {
         }
 
         {
-            Will w(tablets, maxBytesPerPartition, maxReferantsPerPartition);
+            Will w(tablets, maxBytesPerPartition, maxReferentsPerPartition);
             sanityCheckWill(w, o);
         }
 
@@ -442,12 +442,12 @@ class WillTest : public CppUnit::TestFixture {
         }
 
         {
-            Will w(tablets, maxBytesPerPartition, maxReferantsPerPartition);
+            Will w(tablets, maxBytesPerPartition, maxReferentsPerPartition);
             sanityCheckWill(w, o);
         }
     }
 
-    // Try very small objects to test the referant limit, rather
+    // Try very small objects to test the referent limit, rather
     // than the byte limit.
     void
     test_Will_endToEnd_2()
@@ -457,7 +457,7 @@ class WillTest : public CppUnit::TestFixture {
         Oracle o;
 
         const uint64_t maxBytesPerPartition = 640 * 1024 * 1024;
-        const uint64_t maxReferantsPerPartition = 100 * 1000;
+        const uint64_t maxReferentsPerPartition = 100 * 1000;
 
         // 5GB, auto-incrementing, 10KB objects
         t = createAndAddTablet(tablets, 0, 0, 0, -1);
@@ -467,7 +467,7 @@ class WillTest : public CppUnit::TestFixture {
         }
 
         {
-            Will w(tablets, maxBytesPerPartition, maxReferantsPerPartition);
+            Will w(tablets, maxBytesPerPartition, maxReferentsPerPartition);
             sanityCheckWill(w, o);
         }
     }
@@ -482,7 +482,7 @@ class WillTest : public CppUnit::TestFixture {
         Oracle o;
 
         const uint64_t maxBytesPerPartition = 640 * 1024 * 1024;
-        const uint64_t maxReferantsPerPartition = 10 * 1000 * 1000;
+        const uint64_t maxReferentsPerPartition = 10 * 1000 * 1000;
 
         // 2GB, random keys, avg. 128KB objects
         t = createAndAddTablet(tablets, 0, 0, 0, -1);
@@ -519,7 +519,7 @@ class WillTest : public CppUnit::TestFixture {
         }
 
         {
-            Will w(tablets, maxBytesPerPartition, maxReferantsPerPartition);
+            Will w(tablets, maxBytesPerPartition, maxReferentsPerPartition);
             sanityCheckWill(w, o);
         }
     }

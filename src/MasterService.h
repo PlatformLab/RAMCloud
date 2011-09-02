@@ -239,8 +239,8 @@ class MasterService : public Service {
     /// Maximum number of bytes per partition. For Will calculation.
     static const uint64_t maxBytesPerPartition = 640UL * 1024 * 1024;
 
-    /// Maximum number of referants (objs) per partition. For Will calculation.
-    static const uint64_t maxReferantsPerPartition = 10UL * 1000 * 1000;
+    /// Maximum number of referents (objs) per partition. For Will calculation.
+    static const uint64_t maxReferentsPerPartition = 10UL * 1000 * 1000;
 
     BackupManager backup;
 

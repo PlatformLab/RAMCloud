@@ -25,7 +25,7 @@ namespace RAMCloud {
 /**
  * A map from (uint64_t, uint64_t) tuples to type T addresses. Effectively
  * this provides a 128-bit integer to pointer map. We will refer to these
- * 128-bit tuples as ``keys'' and the things, T, they point to as ``referants''.
+ * 128-bit tuples as ``keys'' and the things, T, they point to as ``referents''.
  *
  * This is used, for instance, in resolving most object-level %RAMCloud
  * requests. I.e., to read and write a %RAMCloud object, this lets you find the
@@ -45,7 +45,7 @@ namespace RAMCloud {
  * line, additional overflow cache lines are allocated (outside of the array of
  * buckets). In this case, the last hash table entry in each of the
  * non-terminal cache lines has a pointer to the next cache line instead of a
- * pointer to a referant.
+ * pointer to a referent.
  */
 template<typename T>
 class HashTable {
@@ -196,7 +196,7 @@ class HashTable {
          * The total number of times there was an Entry collision across
          * all #lookupEntry() operations. This is when the buckets collide for
          * a key, and the extra disambiguation bits inside the Entry collide,
-         * but the referant itself reveals that the entry does not correspond to
+         * but the referent itself reveals that the entry does not correspond to
          * the given key.
          */
         uint64_t lookupEntryHashCollisions;
@@ -273,13 +273,13 @@ class HashTable {
     }
 
     /**
-     * Find the address of a referant given the key.
+     * Find the address of a referent given the key.
      * \param[in] key1
      *      The first 64 bits of the key.
      * \param[in] key2
      *      The second 64 bits of the key.
      * \return
-     *      The address of the referant, or \a NULL if one doesn't exist.
+     *      The address of the referent, or \a NULL if one doesn't exist.
      */
     T
     lookup(uint64_t key1, uint64_t key2)
@@ -290,17 +290,17 @@ class HashTable {
         entry = lookupEntry(bucket, secondaryHash, key1, key2);
         if (entry == NULL)
             return NULL;
-        return entry->getReferant();
+        return entry->getReferent();
     }
 
     /**
-     * Remove a referant from the hash table.
+     * Remove a referent from the hash table.
      * \param[in] key1
      *      The first 64 bits of the key.
      * \param[in] key2
      *      The second 64 bits of the key.
      * \param[out] retPtr
-     *      If not NULL, return the address of the referant
+     *      If not NULL, return the address of the referent
      *      removed here.
      * \return
      *      Whether the hash table contained the key specified.
@@ -314,7 +314,7 @@ class HashTable {
         entry = lookupEntry(bucket, secondaryHash, key1, key2);
         if (entry == NULL)
             return false;
-        T p = entry->getReferant();
+        T p = entry->getReferent();
         if (retPtr != NULL)
             *retPtr = p;
         entry->clear();
@@ -322,20 +322,20 @@ class HashTable {
     }
 
     /**
-     * Update the referant correspoding to a key in the hash table.
+     * Update the referent correspoding to a key in the hash table.
      * This is equivalent to, but faster than, #remove() followed by #replace().
      * \param[in] ptr
-     *      The address of the new referant.
+     *      The address of the new referent.
      * \param[out] retPtr
-     *      If not NULL, return the address of the referant
+     *      If not NULL, return the address of the referent
      *      replaced here. If nothing was replaced, the pointer
      *      returned is undefined. 
      * \retval true
      *      The hash table previously contained (key1, key2) and its entry has
-     *      been updated to reflect the new location of the referant.
+     *      been updated to reflect the new location of the referent.
      * \retval false
      *      The hash table did not previously contain (key1, key2). An entry has
-     *      been created to reflect the location of the referant.
+     *      been created to reflect the location of the referent.
      */
     bool
     replace(T ptr, T* retPtr = NULL)
@@ -354,10 +354,10 @@ class HashTable {
         bucket = findBucket(key1, key2, &secondaryHash);
         entry = lookupEntry(bucket, secondaryHash, key1, key2);
         if (entry != NULL) {
-            T p = entry->getReferant();
+            T p = entry->getReferent();
             if (retPtr != NULL)
                 *retPtr = p;
-            entry->setReferant(secondaryHash, ptr);
+            entry->setReferent(secondaryHash, ptr);
             return true;
         }
 
@@ -366,7 +366,7 @@ class HashTable {
             entry = cl->entries;
             for (i = 0; i < ENTRIES_PER_CACHE_LINE; i++) {
                 if (entry->isAvailable()) {
-                    entry->setReferant(secondaryHash, ptr);
+                    entry->setReferent(secondaryHash, ptr);
                     return false;
                 }
                 entry++;
@@ -388,16 +388,16 @@ class HashTable {
     }
 
     /**
-     * Apply the given callback function to each referant of type T stored
+     * Apply the given callback function to each referent of type T stored
      * in the HashTable in the specified bucket.
      * \param callback
-     *      The callback to fire on each referant stored in the HashTable.
+     *      The callback to fire on each referent stored in the HashTable.
      * \param cookie
      *      An opaque parameter to pass to the callback function.
      * \param bucket
      *      An index into the HashTable's buckets.  Must be < #numBuckets.
      * \return
-     *      The total number of callbacks fired (i.e. the number of referants
+     *      The total number of callbacks fired (i.e. the number of referents
      *      in the HashTable).
      */
     uint64_t
@@ -412,7 +412,7 @@ class HashTable {
                 Entry *e = &cl->entries[j];
                 if (!e->isAvailable() &&
                     e->getChainPointer() == NULL) {
-                    T ptr = e->getReferant();
+                    T ptr = e->getReferent();
                     callback(ptr, cookie);
                     numCalls++;
                 }
@@ -427,14 +427,14 @@ class HashTable {
     }
 
     /**
-     * Apply the given callback function to each referant of type T stored
+     * Apply the given callback function to each referent of type T stored
      * in the HashTable.
      * \param[in] callback
-     *      The callback to fire on each referant stored in the HashTable.
+     *      The callback to fire on each referent stored in the HashTable.
      * \param[in] cookie
      *      An opaque parameter to pass to the callback function.
      * \return
-     *      The total number of callbacks fired (i.e. the number of referants
+     *      The total number of callbacks fired (i.e. the number of referents
      *      in the HashTable).
      */
     uint64_t
@@ -459,10 +459,10 @@ class HashTable {
     }
 
     /**
-     * Prefetch the referant associated with the given key.
+     * Prefetch the referent associated with the given key.
      */
     void
-    prefetchReferant(uint64_t key1, uint64_t key2)
+    prefetchReferent(uint64_t key1, uint64_t key2)
     {
         uint64_t secondaryHash;
         CacheLine *cl = findBucket(key1, key2, &secondaryHash);
@@ -472,7 +472,7 @@ class HashTable {
         Entry *candidate = cl->entries;
         for (uint32_t i = 0; i < ENTRIES_PER_CACHE_LINE; i++, candidate++) {
             if (candidate->hashMatches(secondaryHash)) {
-                prefetch(candidate->getReferant(),
+                prefetch(candidate->getReferent(),
                          64 /* not really sure how many bytes to prefetch */);
                 return;
             }
@@ -583,7 +583,7 @@ class HashTable {
      * \param[out] secondaryHash
      *      The secondary hash bits (16 bits).
      * \return
-     *      The bucket corresponding to the given referant ID.
+     *      The bucket corresponding to the given referent ID.
      */
     CacheLine *
     findBucket(uint64_t key1, uint64_t key2,
@@ -637,7 +637,7 @@ class HashTable {
                     // The hash within the hash table entry matches, so with
                     // high probability this is the pointer we're looking for.
                     // To check, we must go to the object.
-                    T c = candidate->getReferant();
+                    T c = candidate->getReferent();
                     if (c->key1() == key1 && c->key2() == key2) {
                         perfCounters.lookupEntryDist.storeSample(cycles.stop());
                         return candidate;
@@ -664,10 +664,10 @@ class HashTable {
      *
      * Hash table entries live on \link CacheLine CacheLines\endlink.
      *
-     * A normal hash table entry (see #setReferant(), #getReferant(), and
+     * A normal hash table entry (see #setReferent(), #getReferent(), and
      * #hashMatches()) consists of secondary bits from the #hash() function on
      * the key to disambiguate most bucket collisions and the address of the
-     * referant. In this case, its chain bit will not be set and its pointer
+     * referent. In this case, its chain bit will not be set and its pointer
      * will not be \c NULL.
      *
      * A chaining hash table entry (see #setChainPointer(), #getChainPointer())
@@ -696,10 +696,10 @@ class HashTable {
          * \param[in] hash
          *      The secondary hash bits computed from the key (16 bits).
          * \param[in] ptr
-         *      The address of the referant. Must not be \c NULL.
+         *      The address of the referent. Must not be \c NULL.
          */
         void
-        setReferant(uint64_t hash, T ptr)
+        setReferent(uint64_t hash, T ptr)
         {
             assert(ptr != NULL);
             pack(hash, false, reinterpret_cast<uint64_t>(ptr));
@@ -730,14 +730,14 @@ class HashTable {
         }
 
         /**
-         * Extract the referant's address from a hash table entry.
+         * Extract the referent's address from a hash table entry.
          * The caller must first verify that the hash table entry indeed stores
-         * a referant address with #hashMatches().
+         * a referent address with #hashMatches().
          * \return
-         *      The address of the referant stored.
+         *      The address of the referent stored.
          */
         T
-        getReferant() const
+        getReferent() const
         {
             UnpackedEntry ue = unpack();
             assert(!ue.chain && ue.ptr != 0);
@@ -764,8 +764,8 @@ class HashTable {
          * \param[in] hash
          *      The secondary hash bits computed from the key to test (16 bits).
          * \return
-         *      Whether the hash table entry holds the address to a referant and
-         *      the secondary hash bits for that referant point to \a hash.
+         *      Whether the hash table entry holds the address to a referent and
+         *      the secondary hash bits for that referent point to \a hash.
          */
         bool
         hashMatches(uint64_t hash) const
@@ -797,10 +797,10 @@ class HashTable {
          *      The secondary hash bits (16 bits) computed from the key.
          *      Irrelevant if \a chain is true.
          * \param[in] chain
-         *      Whether \a ptr is a chain pointer as opposed to a referant
+         *      Whether \a ptr is a chain pointer as opposed to a referent
          *      pointer.
          * \param[in] ptr
-         *      The chain pointer to the next cache line or the referant pointer
+         *      The chain pointer to the next cache line or the referent pointer
          *      (determined by \a chain).
          * \throw Exception
          *      An exception is thrown if the pointer cannot fix in the number
@@ -860,7 +860,7 @@ class HashTable {
 
     /**
      * The number of hash table Entry objects in a CacheLine. This directly
-     * corresponds to the number of referants each cacheline may contain.
+     * corresponds to the number of referents each cacheline may contain.
      */
     static const uint32_t ENTRIES_PER_CACHE_LINE = (BYTES_PER_CACHE_LINE /
                                                     sizeof(Entry));

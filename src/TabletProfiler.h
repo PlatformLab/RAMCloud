@@ -26,17 +26,17 @@ class Partition {
  public:
     Partition()
         : firstKey(0), lastKey(0), minBytes(0), maxBytes(0),
-          minReferants(0), maxReferants(0)
+          minReferents(0), maxReferents(0)
     {
     }
 #if TESTING
     // only for testing. too many u64 args make it too error-prone in
     // normal use. this is just an expedient for tests.
     Partition(uint64_t firstKey, uint64_t lastKey, uint64_t minBytes,
-              uint64_t maxBytes, uint64_t minReferants, uint64_t maxReferants)
+              uint64_t maxBytes, uint64_t minReferents, uint64_t maxReferents)
         : firstKey(firstKey), lastKey(lastKey), minBytes(minBytes),
-          maxBytes(maxBytes), minReferants(minReferants),
-          maxReferants(maxReferants)
+          maxBytes(maxBytes), minReferents(minReferents),
+          maxReferents(maxReferents)
     {
     }
 #endif
@@ -44,8 +44,8 @@ class Partition {
     uint64_t lastKey;           /// the last key of this partition
     uint64_t minBytes;          /// the min possible bytes in this partition
     uint64_t maxBytes;          /// the max possible bytes in this partition
-    uint64_t minReferants;      /// the min possible referants in this partition
-    uint64_t maxReferants;      /// the max possible referants in this partition
+    uint64_t minReferents;      /// the min possible referents in this partition
+    uint64_t maxReferents;      /// the max possible referents in this partition
 };
 typedef std::vector<Partition> PartitionList;
 
@@ -58,9 +58,9 @@ class TabletProfiler {
     void           track(uint64_t key, uint32_t bytes, LogTime time);
     void           untrack(uint64_t key, uint32_t bytes, LogTime time);
     PartitionList* getPartitions(uint64_t maxPartitionBytes,
-                                 uint64_t maxPartitionReferants,
+                                 uint64_t maxPartitionReferents,
                                  uint64_t residualMaxBytes,
-                                 uint64_t residualMaxReferants);
+                                 uint64_t residualMaxReferents);
 
     /**
      * Return the maximum number of bytes we can be off by when calculating
@@ -75,12 +75,12 @@ class TabletProfiler {
     }
 
     /**
-     * Return the maximum number of referants we can be off by when calculating
+     * Return the maximum number of referents we can be off by when calculating
      * Partitions. The actual count is always <= what we report, so we can
      * only overestimate by at most this amount of error. We never underestimate.
      */
     static uint64_t
-    getMaximumReferantError()
+    getMaximumReferentError()
     {
         return 2 * ((uint64_t)ceil(64.0 / BITS_PER_LEVEL) - 1) *
             BUCKET_SPLIT_OBJS;
@@ -97,26 +97,26 @@ class TabletProfiler {
     /// Min bytes to track per bucket before using a child Subrange.
     static const uint64_t BUCKET_SPLIT_BYTES = 8 * 1024 * 1024;
 
-    /// Min referants to track per bucket before using a child Subrange.
+    /// Min referents to track per bucket before using a child Subrange.
     static const uint64_t BUCKET_SPLIT_OBJS  = BUCKET_SPLIT_BYTES / 100;
 
     /// Max bytes a bucket and its parent can have before they are merged.
     static const uint64_t BUCKET_MERGE_BYTES = BUCKET_SPLIT_BYTES * 3 / 4;
 
-    /// Max referants a bucket and its parent can have before they are merged.
+    /// Max referents a bucket and its parent can have before they are merged.
     static const uint64_t BUCKET_MERGE_OBJS  = BUCKET_SPLIT_OBJS  * 3 / 4;
 
     class PartitionCollector {
       public:
         PartitionCollector(uint64_t maxPartitionBytes,
-                           uint64_t maxPartitionReferants,
+                           uint64_t maxPartitionReferents,
                            PartitionList* partitions,
                            uint64_t residualMaxBytes,
-                           uint64_t residualMaxReferants);
+                           uint64_t residualMaxReferents);
         bool addRangeLeaf(uint64_t firstKey, uint64_t lastKey,
-                          uint64_t rangeBytes, uint64_t rangeReferants,
-                          uint64_t possibleBytes, uint64_t possibleReferants);
-        void addRangeNonLeaf(uint64_t rangeBytes, uint64_t rangeReferants);
+                          uint64_t rangeBytes, uint64_t rangeReferents,
+                          uint64_t possibleBytes, uint64_t possibleReferents);
+        void addRangeNonLeaf(uint64_t rangeBytes, uint64_t rangeReferents);
         void done();
 
       private:
@@ -125,23 +125,23 @@ class TabletProfiler {
         void pushCurrentTally(uint64_t lastKey,
                               uint64_t minBytes,
                               uint64_t maxBytes,
-                              uint64_t minReferants,
-                              uint64_t maxReferants);
+                              uint64_t minReferents,
+                              uint64_t maxReferents);
 
         /* residual counts passed in to the constructor, for use in the
            first partition generated */
         uint64_t residualMaxBytes;          /// Initial residual byte count
-        uint64_t residualMaxReferants;      /// Initial residual referant count
+        uint64_t residualMaxReferents;      /// Initial residual referent count
 
         /* current tally */
         uint64_t maxPartitionBytes;         /// Current max byte count
-        uint64_t maxPartitionReferants;     /// Current max referant count
+        uint64_t maxPartitionReferents;     /// Current max referent count
         uint64_t nextFirstKey;              /// Next firstKey for addRangeLeaf
         uint64_t currentFirstKey;           /// Current first key in partition
         uint64_t currentKnownBytes;         /// Count of exactly known bytes
-        uint64_t currentKnownReferants;     /// Count of exactly known referants
+        uint64_t currentKnownReferents;     /// Count of exactly known referents
         uint64_t previousPossibleBytes;     /// Possible last partition bytes
-        uint64_t previousPossibleReferants; /// Possible last partition refs
+        uint64_t previousPossibleReferents; /// Possible last partition refs
         bool     isDone;                    /// Is this partition is done?
 
         friend class TabletProfilerTest;
@@ -152,7 +152,7 @@ class TabletProfiler {
     // forward decl
     class Subrange;
 
-    /// A Bucket is used to track the number of bytes and referants within
+    /// A Bucket is used to track the number of bytes and referents within
     /// a contiguous subrange of the key space. Each Bucket may have a
     /// child Subrange, which more precisely tracks that range (i.e. with
     /// more individual Buckets). Note that counts in a parent Bucket
@@ -160,7 +160,7 @@ class TabletProfiler {
     struct Bucket {
         Subrange *child;                /// Pointer to child Subrange, or NULL
         uint64_t  totalBytes;           /// Total byte count
-        uint64_t  totalReferants;       /// Total referant count
+        uint64_t  totalReferents;       /// Total referent count
     };
 
     /// A Subrange is an individual node in our TabletProfiler tree. It tracks
@@ -203,7 +203,7 @@ class TabletProfiler {
         bool         isBottom();
         bool         partitionWalk(PartitionCollector *pc,
                                    uint64_t parentBytes = 0,
-                                   uint64_t parentReferants = 0);
+                                   uint64_t parentReferents = 0);
         LogTime      getCreateTime();
         uint64_t     getFirstKey();
         uint64_t     getLastKey();
@@ -216,7 +216,7 @@ class TabletProfiler {
         uint64_t     firstKey;          /// First key of this Subrange
         uint64_t     lastKey;           /// Last key of this Subrange
         uint64_t     totalBytes;        /// Sum of all Buckets' totalBytes
-        uint64_t     totalReferants;    /// Sum of all Buckets' totalReferants
+        uint64_t     totalReferents;    /// Sum of all Buckets' totalReferents
         uint32_t     totalChildren;     /// Number of Buckets with child != NULL
         LogTime      createTime;        /// LogTime of track() that created this
 
@@ -232,7 +232,7 @@ class TabletProfiler {
     Subrange*              root;                /// Root Subrange in our tree
     Subrange::BucketHandle findHint;            /// Optimisation for locality
     LogTime                lastTracked;         /// LogTime of last track() call
-    uint64_t               totalTracked;        /// Total tracked referants
+    uint64_t               totalTracked;        /// Total tracked referents
     uint64_t               totalTrackedBytes;   /// Total tracked bytes
 
     friend class TabletProfilerTest;

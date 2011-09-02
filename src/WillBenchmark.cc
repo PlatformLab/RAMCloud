@@ -74,7 +74,7 @@ class WillBenchmark {
         ProtoBuf::Tablets tablets;
 
         const uint64_t maxBytesPerPartition = 640 * 1024 * 1024;
-        const uint64_t maxReferantsPerPartition = 10 * 1000 * 1000;
+        const uint64_t maxReferentsPerPartition = 10 * 1000 * 1000;
 
         for (uint64_t i = 0; i < serverTablets; i++) {
             Table* t = createAndAddTablet(tablets, 0, i, 0, -1);
@@ -92,7 +92,7 @@ class WillBenchmark {
             free(foo);
 
             uint64_t b = Cycles::rdtsc();
-            Will w(tablets, maxBytesPerPartition, maxReferantsPerPartition);
+            Will w(tablets, maxBytesPerPartition, maxReferentsPerPartition);
             willLength += w.entries.size();
             totalTicks += Cycles::rdtsc() - b;
         }

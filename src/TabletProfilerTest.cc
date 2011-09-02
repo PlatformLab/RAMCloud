@@ -134,7 +134,7 @@ class TabletProfilerTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(2, l->size());
         delete l;
 
-        // assert if we have < the max number of bytes/referants,
+        // assert if we have < the max number of bytes/referents,
         // then our count is precise. we must force a split so
         // that the walker takes into account parent bytes.
         tp.track(0, TabletProfiler::BUCKET_SPLIT_BYTES, LogTime(1, 5));
@@ -143,7 +143,7 @@ class TabletProfilerTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT(l != NULL);
         CPPUNIT_ASSERT_EQUAL(1, l->size());
         CPPUNIT_ASSERT_EQUAL((*l)[0].minBytes, (*l)[0].maxBytes);
-        CPPUNIT_ASSERT_EQUAL((*l)[0].minReferants,  (*l)[0].maxReferants);
+        CPPUNIT_ASSERT_EQUAL((*l)[0].minReferents,  (*l)[0].maxReferents);
     }
 
     // this is mostly just a wrapper around Subrange::findBucket.
@@ -213,13 +213,13 @@ class TabletProfilerTest : public CppUnit::TestFixture {
 
         CPPUNIT_ASSERT_EQUAL(&partList, pc.partitions);
         CPPUNIT_ASSERT_EQUAL(1024 * 1024, pc.maxPartitionBytes);
-        CPPUNIT_ASSERT_EQUAL(1000, pc.maxPartitionReferants);
+        CPPUNIT_ASSERT_EQUAL(1000, pc.maxPartitionReferents);
         CPPUNIT_ASSERT_EQUAL(0, pc.nextFirstKey);
         CPPUNIT_ASSERT_EQUAL(0, pc.currentFirstKey);
         CPPUNIT_ASSERT_EQUAL(0, pc.currentKnownBytes);
-        CPPUNIT_ASSERT_EQUAL(0, pc.currentKnownReferants);
+        CPPUNIT_ASSERT_EQUAL(0, pc.currentKnownReferents);
         CPPUNIT_ASSERT_EQUAL(0, pc.previousPossibleBytes);
-        CPPUNIT_ASSERT_EQUAL(0, pc.previousPossibleReferants);
+        CPPUNIT_ASSERT_EQUAL(0, pc.previousPossibleReferents);
         CPPUNIT_ASSERT_EQUAL(false, pc.isDone);
     }
 
@@ -232,9 +232,9 @@ class TabletProfilerTest : public CppUnit::TestFixture {
         bool ret = pc.addRangeLeaf(0, 10, 5, 1, 0, 0);
         CPPUNIT_ASSERT_EQUAL(true, ret);
         CPPUNIT_ASSERT_EQUAL(5, pc.currentKnownBytes);
-        CPPUNIT_ASSERT_EQUAL(1, pc.currentKnownReferants);
+        CPPUNIT_ASSERT_EQUAL(1, pc.currentKnownReferents);
         CPPUNIT_ASSERT_EQUAL(0, pc.previousPossibleBytes);
-        CPPUNIT_ASSERT_EQUAL(0, pc.previousPossibleReferants);
+        CPPUNIT_ASSERT_EQUAL(0, pc.previousPossibleReferents);
         CPPUNIT_ASSERT_EQUAL(0, pc.partitions->size());
         CPPUNIT_ASSERT_EQUAL(11, pc.nextFirstKey);
 
@@ -244,7 +244,7 @@ class TabletProfilerTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(21, pc.currentFirstKey);
         CPPUNIT_ASSERT_EQUAL(1, pc.partitions->size());
 
-        // force a new partition by referants
+        // force a new partition by referents
         ret = pc.addRangeLeaf(21, 30, 1, 5000, 0, 0);
         CPPUNIT_ASSERT_EQUAL(false, ret);
         CPPUNIT_ASSERT_EQUAL(31, pc.currentFirstKey);
@@ -260,7 +260,7 @@ class TabletProfilerTest : public CppUnit::TestFixture {
 
         pc1.addRangeLeaf(0, 10, 1024 * 1024 + 1, 1, 42, 83);
         CPPUNIT_ASSERT_EQUAL(42, pc1.previousPossibleBytes);
-        CPPUNIT_ASSERT_EQUAL(83, pc1.previousPossibleReferants);
+        CPPUNIT_ASSERT_EQUAL(83, pc1.previousPossibleReferents);
         pc1.addRangeLeaf(11, 20, 100, 1, 0, 0);
         pc1.done();
         CPPUNIT_ASSERT_EQUAL(2, pc1.partitions->size());
@@ -293,9 +293,9 @@ class TabletProfilerTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(0, pc.partitions->begin()[0].firstKey);
         CPPUNIT_ASSERT_EQUAL(8, pc.partitions->begin()[0].lastKey);
         CPPUNIT_ASSERT_EQUAL(0, pc.currentKnownBytes);
-        CPPUNIT_ASSERT_EQUAL(0, pc.currentKnownReferants);
+        CPPUNIT_ASSERT_EQUAL(0, pc.currentKnownReferents);
         CPPUNIT_ASSERT_EQUAL(0, pc.residualMaxBytes);
-        CPPUNIT_ASSERT_EQUAL(0, pc.residualMaxReferants);
+        CPPUNIT_ASSERT_EQUAL(0, pc.residualMaxReferents);
     }
 
     void
@@ -377,7 +377,7 @@ class TabletProfilerTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(0, s1.firstKey);
         CPPUNIT_ASSERT_EQUAL((uint64_t)-1, s1.lastKey);
         CPPUNIT_ASSERT_EQUAL(0, s1.totalBytes);
-        CPPUNIT_ASSERT_EQUAL(0, s1.totalReferants);
+        CPPUNIT_ASSERT_EQUAL(0, s1.totalReferents);
         CPPUNIT_ASSERT_EQUAL(0, s1.totalChildren);
         CPPUNIT_ASSERT(LogTime(1, 9) == s1.createTime);
         CPPUNIT_ASSERT(s1.buckets != NULL);
@@ -393,7 +393,7 @@ class TabletProfilerTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(0x100000000, s2.firstKey);
         CPPUNIT_ASSERT_EQUAL(0x1ffffffff, s2.lastKey);
         CPPUNIT_ASSERT_EQUAL(0, s2.totalBytes);
-        CPPUNIT_ASSERT_EQUAL(0, s2.totalReferants);
+        CPPUNIT_ASSERT_EQUAL(0, s2.totalReferents);
         CPPUNIT_ASSERT_EQUAL(0, s2.totalChildren);
         CPPUNIT_ASSERT(LogTime(1, 9) == s2.createTime);
         CPPUNIT_ASSERT(s2.buckets != NULL);
@@ -472,15 +472,15 @@ class TabletProfilerTest : public CppUnit::TestFixture {
             if (i == 1) {
                 s.buckets[i].child = c;
                 s.buckets[i].totalBytes = 8 * 1024 * 1024;
-                s.buckets[i].totalReferants = 1000;
+                s.buckets[i].totalReferents = 1000;
             } else {
                 s.buckets[i].totalBytes = 0;
-                s.buckets[i].totalReferants = 0;
+                s.buckets[i].totalReferents = 0;
             }
         }
         for (uint32_t i = 0; i < c->numBuckets; i++) {
             c->buckets[i].totalBytes = 4 * 1024 * 1024;
-            c->buckets[i].totalReferants = 1;
+            c->buckets[i].totalReferents = 1;
         }
 
         PartitionList partList;
@@ -507,10 +507,10 @@ class TabletProfilerTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(NULL, tp.root->buckets[0].child);
         CPPUNIT_ASSERT_EQUAL(TabletProfiler::BUCKET_SPLIT_BYTES - 1,
             tp.root->buckets[0].totalBytes);
-        CPPUNIT_ASSERT_EQUAL(1, tp.root->buckets[0].totalReferants);
+        CPPUNIT_ASSERT_EQUAL(1, tp.root->buckets[0].totalReferents);
         CPPUNIT_ASSERT_EQUAL(TabletProfiler::BUCKET_SPLIT_BYTES - 1,
             tp.root->totalBytes);
-        CPPUNIT_ASSERT_EQUAL(1, tp.root->totalReferants);
+        CPPUNIT_ASSERT_EQUAL(1, tp.root->totalReferents);
 
         // now force one that will split the bucket
         tp.track(0, 2, LogTime(1, 2));
@@ -518,10 +518,10 @@ class TabletProfilerTest : public CppUnit::TestFixture {
         // assert the parent hasn't changed
         CPPUNIT_ASSERT_EQUAL(TabletProfiler::BUCKET_SPLIT_BYTES - 1,
             tp.root->buckets[0].totalBytes);
-        CPPUNIT_ASSERT_EQUAL(1, tp.root->buckets[0].totalReferants);
+        CPPUNIT_ASSERT_EQUAL(1, tp.root->buckets[0].totalReferents);
         CPPUNIT_ASSERT_EQUAL(TabletProfiler::BUCKET_SPLIT_BYTES - 1,
             tp.root->totalBytes);
-        CPPUNIT_ASSERT_EQUAL(1, tp.root->totalReferants);
+        CPPUNIT_ASSERT_EQUAL(1, tp.root->totalReferents);
 
         // now check that the child is correct
         CPPUNIT_ASSERT_EQUAL(1, tp.root->totalChildren);
@@ -535,9 +535,9 @@ class TabletProfilerTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(tp.root->getBucketLastKey(rootBh), child->lastKey);
         CPPUNIT_ASSERT_EQUAL(0, child->totalChildren);
         CPPUNIT_ASSERT_EQUAL(2, child->buckets[0].totalBytes);
-        CPPUNIT_ASSERT_EQUAL(1, child->buckets[0].totalReferants);
+        CPPUNIT_ASSERT_EQUAL(1, child->buckets[0].totalReferents);
         CPPUNIT_ASSERT_EQUAL(2, child->totalBytes);
-        CPPUNIT_ASSERT_EQUAL(1, child->totalReferants);
+        CPPUNIT_ASSERT_EQUAL(1, child->totalReferents);
     }
 
     // NB: this test can be sensitive to the constants used.
@@ -563,17 +563,17 @@ class TabletProfilerTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(1, tp.root->totalChildren);
         CPPUNIT_ASSERT_EQUAL(child, bh.getSubrange());
         CPPUNIT_ASSERT_EQUAL(300, child->totalBytes);
-        CPPUNIT_ASSERT_EQUAL(3, child->totalReferants);
+        CPPUNIT_ASSERT_EQUAL(3, child->totalReferents);
         CPPUNIT_ASSERT_EQUAL(300, child->buckets[0].totalBytes);
-        CPPUNIT_ASSERT_EQUAL(3, child->buckets[0].totalReferants);
+        CPPUNIT_ASSERT_EQUAL(3, child->buckets[0].totalReferents);
 
         // make sure it doesn't merge before we expect
         tp.untrack(0, 100, LogTime(1, 6));
         CPPUNIT_ASSERT_EQUAL(child, bh.getSubrange());
         CPPUNIT_ASSERT_EQUAL(200, child->totalBytes);
-        CPPUNIT_ASSERT_EQUAL(2, child->totalReferants);
+        CPPUNIT_ASSERT_EQUAL(2, child->totalReferents);
         CPPUNIT_ASSERT_EQUAL(200, child->buckets[0].totalBytes);
-        CPPUNIT_ASSERT_EQUAL(2, child->buckets[0].totalReferants);
+        CPPUNIT_ASSERT_EQUAL(2, child->buckets[0].totalReferents);
 
         // now force a merge
         tp.untrack(0, quarter, LogTime(1, 1));
@@ -584,9 +584,9 @@ class TabletProfilerTest : public CppUnit::TestFixture {
 
         CPPUNIT_ASSERT_EQUAL(NULL, tp.root->buckets[0].child);
         CPPUNIT_ASSERT_EQUAL(quarter + 100, tp.root->totalBytes);
-        CPPUNIT_ASSERT_EQUAL(2, tp.root->totalReferants);
+        CPPUNIT_ASSERT_EQUAL(2, tp.root->totalReferents);
         CPPUNIT_ASSERT_EQUAL(quarter + 100, tp.root->buckets[0].totalBytes);
-        CPPUNIT_ASSERT_EQUAL(2, tp.root->buckets[0].totalReferants);
+        CPPUNIT_ASSERT_EQUAL(2, tp.root->buckets[0].totalReferents);
         CPPUNIT_ASSERT_EQUAL(0, tp.root->totalChildren);
     }
 
