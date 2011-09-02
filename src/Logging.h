@@ -100,7 +100,9 @@ class Logger {
 
   PRIVATE:
     /**
-     * The stream on which to log messages.
+     * The stream on which to log messages.  NULL means use stderr.
+     * Note: we don't ever set this value to stderr: if the application
+     * changes stderr we want to automatically use the new value.
      */
     FILE* stream;
 

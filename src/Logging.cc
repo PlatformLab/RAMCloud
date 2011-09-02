@@ -198,7 +198,7 @@ class FileLocker {
  *      Messages for all modules at least as important as \a level will be
  *      logged.
  */
-Logger::Logger(LogLevel level) : stream(stderr)
+Logger::Logger(LogLevel level) : stream(NULL)
 {
     setLogLevels(level);
 }
@@ -208,7 +208,7 @@ Logger::Logger(LogLevel level) : stream(stderr)
  */
 Logger::~Logger()
 {
-    if (stream != stderr)
+    if (stream != NULL)
         fclose(stream);
 }
 
@@ -231,7 +231,7 @@ Logger::setLogFile(const char* path, bool truncate)
                         format("couldn't open log file '%s'", path),
                         errno);
     }
-    if (stream != stderr)
+    if (stream != NULL)
         fclose(stream);
     stream = f;
 }
@@ -419,11 +419,12 @@ Logger::logMessage(LogModule module, LogLevel level,
     static int pid = getpid();
     va_list ap;
     struct timespec now;
+    FILE* f = (stream != NULL) ? stream : stderr;
 
     clock_gettime(CLOCK_REALTIME, &now);
-    FileLocker _(stream);
+    FileLocker _(f);
 
-    fprintf(stream, "%010lu.%09lu %s:%d in %s %s %s[%d]: ",
+    fprintf(f, "%010lu.%09lu %s:%d in %s %s %s[%d]: ",
             now.tv_sec, now.tv_nsec,
             where.relativeFile().c_str(), where.line,
             where.qualifiedFunction().c_str(),
@@ -432,10 +433,10 @@ Logger::logMessage(LogModule module, LogLevel level,
             pid);
 
     va_start(ap, format);
-    vfprintf(stream, format, ap);
+    vfprintf(f, format, ap);
     va_end(ap);
 
-    fflush(stream);
+    fflush(f);
 }
 
 } // end RAMCloud
