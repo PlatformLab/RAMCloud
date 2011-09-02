@@ -72,50 +72,51 @@ coord_locator_templates = {
     'unreliable+infeth': 'fast+udp:host=%(host)s,port=%(port)d',
 }
 
-def cluster(num_servers=1,             # Number of hosts on which to start
-                                       # servers (not including coordinator).
-            num_backups=1,             # Number of backups to run on each
-                                       # server host (0, 1, or 2).
-            replicas=3,                # Replication factor to use for each
-                                       # log segment.
-            disk1=default_disk1,       # Server arguments specifying the
-                                       # backing device for the first backup
-                                       # on each server.
-            disk2=default_disk2,       # Server arguments specifying the
-                                       # backing device for the first backup
-                                       # on each server (if num_backups = 2).
-            timeout=20,                # How many seconds to wait for the
-                                       # clients to complete.
-            coordinator_args='',       # Additional arguments for the
-                                       # coordinator.
-            master_args='-t 16000',    # Additional arguments for each server
-                                       # that runs a master
-            backup_args='',            # Additional arguments for each server
-                                       # that runs a backup.
-            log_level='NOTICE',        # Log level to use for all servers.
-            log_dir='logs',            # Top-level directory in which to write
-                                       # log files.  A separate subdirectory
-                                       # will be created in this directory
-                                       # for the log files from this run.
-            client='echo',             # Command-line to invoke for each client
-                                       # additional arguments will be prepended
-                                       # with configuration information such as
-                                       # -C.
-            num_clients=1,             # Number of client processes to run.
-                                       # They will all run on separate
-                                       # machines, if possible, but if there
-                                       # aren't enough available machines then
-                                       # multiple clients will run on some
-                                       # machines.
-            share_hosts=False,         # True means clients can be run on
-                                       # machines running servers, if needed.
-            transport='infrc',         # Name of transport to use for servers.
-            verbose=False,             # Print information about progress in
-                                       # starting clients and servers
-            debug=False                # If True, pause after starting all
-                                       # to allow for debugging setup such as
-                                       # attaching gdb.
-            ):       
+def run(
+        num_servers=4,             # Number of hosts on which to start
+                                   # servers (not including coordinator).
+        num_backups=1,             # Number of backups to run on each
+                                   # server host (0, 1, or 2).
+        replicas=3,                # Replication factor to use for each
+                                   # log segment.
+        disk1=default_disk1,       # Server arguments specifying the
+                                   # backing device for the first backup
+                                   # on each server.
+        disk2=default_disk2,       # Server arguments specifying the
+                                   # backing device for the first backup
+                                   # on each server (if num_backups = 2).
+        timeout=20,                # How many seconds to wait for the
+                                   # clients to complete.
+        coordinator_args='',       # Additional arguments for the
+                                   # coordinator.
+        master_args='',            # Additional arguments for each server
+                                   # that runs a master
+        backup_args='',            # Additional arguments for each server
+                                   # that runs a backup.
+        log_level='NOTICE',        # Log level to use for all servers.
+        log_dir='logs',            # Top-level directory in which to write
+                                   # log files.  A separate subdirectory
+                                   # will be created in this directory
+                                   # for the log files from this run.
+        client='echo',             # Command-line to invoke for each client
+                                   # additional arguments will be prepended
+                                   # with configuration information such as
+                                   # -C.
+        num_clients=1,             # Number of client processes to run.
+                                   # They will all run on separate
+                                   # machines, if possible, but if there
+                                   # aren't enough available machines then
+                                   # multiple clients will run on some
+                                   # machines.
+        share_hosts=False,         # True means clients can be run on
+                                   # machines running servers, if needed.
+        transport='infrc',         # Name of transport to use for servers.
+        verbose=False,             # Print information about progress in
+                                   # starting clients and servers
+        debug=False                # If True, pause after starting all
+                                   # to allow for debugging setup such as
+                                   # attaching gdb.
+        ):       
     """
     Start a coordinator and servers, as indicated by the arguments.
     Then start one or more client processes and wait for them to complete.
@@ -135,7 +136,7 @@ def cluster(num_servers=1,             # Number of hosts on which to start
         def ensure_servers(qty):
             sandbox.checkFailures()
             try:
-                sandbox.rsh(hosts[0][0], '%s -C %s -n %d -l 1' %
+                sandbox.rsh(hosts[0][0], '%s -C %s -n %d -l 1 -t 5' %
                             (ensure_servers_bin, coordinator_locator, qty))
             except:
                 # prefer exceptions from dead processes to timeout error
@@ -151,12 +152,10 @@ def cluster(num_servers=1,             # Number of hosts on which to start
                                      'port': coordinator_port,
                                      'id': coordinator_host[2]})
             coordinator = sandbox.rsh(coordinator_host[0],
-                      ('%s -C %s -l %s %s' %
+                      ('%s -C %s -l %s --logFile %s/coordinator.%s.log %s' %
                        (coordinator_binary, coordinator_locator, log_level,
-                        coordinator_args)),
-                      bg=True, stderr=subprocess.STDOUT,
-                      stdout=open(('%s/coordinator.%s.log' %
-                                   (log_subdir, coordinator_host[0])), 'w'))
+                        log_subdir, coordinator_host[0], coordinator_args)),
+                      bg=True, stderr=subprocess.STDOUT)
             ensure_servers(0)
             if verbose:
                 print "Coordinator started on %s at %s" % (coordinator_host[0],
@@ -173,17 +172,17 @@ def cluster(num_servers=1,             # Number of hosts on which to start
                                'host1g': host[0],
                                'port': server_port,
                                'id': host[2]})
-            command = ('%s -C %s -L %s -r %d -l %s %s' %
+            command = ('%s -C %s -L %s -r %d -l %s '
+                       '--logFile %s/server.%s.log %s' %
                        (server_binary, coordinator_locator, server_locator,
-                        replicas, log_level, master_args))
+                        replicas, log_level, log_subdir, host[0],
+                        master_args))
             if num_backups > 0:
                 command += ' %s %s' % (disk1, backup_args)
             else:
                 command += ' -M'
             servers.append(sandbox.rsh(host[0], command, bg=True,
-                           stderr=subprocess.STDOUT,
-                           stdout=open('%s/server.%s.log' %
-                                       (log_subdir, host[0]), 'w')))
+                           stderr=subprocess.STDOUT))
             if verbose:
                 print "Server started on %s at %s" % (host[0], server_locator)
             
@@ -194,24 +193,23 @@ def cluster(num_servers=1,             # Number of hosts on which to start
                                    'host1g': host[0],
                                    'port': second_backup_port,
                                    'id': host[2]})
-                command = ('%s -C %s -L %s -B %s -l %s %s' %
+                command = ('%s -C %s -L %s -B %s -l %s '
+                           '--logFile %s/server.%s.log %s' %
                            (server_binary, coordinator_locator, host[1],
-                            disk2, log_level, backup_args))
+                            disk2, log_level, log_subdir, host[0],
+                            backup_args))
                 servers.append(sandbox.rsh(host[0], command, bg=True,
-                                           stderr=subprocess.STDOUT,
-                                           stdout=open('%s/backup.%s.log' %
-                                                       (log_subdir, host[0]), 'w')))
+                                           stderr=subprocess.STDOUT))
                 if verbose:
                     print "Extra backup started on %s at %s" % (host[0],
                             server_locator)
+        if debug:
+            print "Servers started; pausing for debug setup."
+            raw_input("Type <Enter> to continue: ")
         if num_servers > 0:
             ensure_servers(num_servers*(1 + num_backups))
             if verbose:
                 print "All servers running"
-
-        if debug:
-            print "Servers started; pausing for debug setup."
-            raw_input("Type <Enter> to continue: ")
 
         # Start clients
         args = client.split(" ")
@@ -225,16 +223,14 @@ def cluster(num_servers=1,             # Number of hosts on which to start
                 else:
                     host_index = num_servers
             client_host = hosts[host_index]
-            command = ('%s -C %s --numClients %d --clientIndex %d %s' %
-                           (client_bin, coordinator_locator, num_clients,
-                            i, client_args))
-            clients.append(sandbox.rsh(client_host[0], command, bg=True,
-                                       stderr=subprocess.STDOUT,
-                                       stdout=open('%s/client%d.%s.log' %
-                                                   (log_subdir, i,
-                                                    client_host[0]), 'w')))
+            command = ('%s -C %s --numClients %d --clientIndex %d '
+                       '--logFile %s/client%d.%s.log %s' %
+                       (client_bin, coordinator_locator, num_clients,
+                        i, log_subdir, i, client_host[0], client_args))
+            clients.append(sandbox.rsh(client_host[0], command, bg=True))
             if verbose:
-                print "Client %d started on %s" % (i, client_host[0])
+                print "Client %d started on %s: %s" % (i, client_host[0],
+                        command)
             host_index += 1
 
         # Wait for all of the clients to complete
@@ -315,7 +311,7 @@ if __name__ == '__main__':
 
     status = 0
     try:
-        cluster(**vars(options))
+        run(**vars(options))
     finally:
         logInfo = log.scan("logs/latest", ["WARNING", "ERROR"])
         if len(logInfo) > 0:

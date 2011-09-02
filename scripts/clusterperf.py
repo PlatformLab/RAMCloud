@@ -1,0 +1,241 @@
+#!/usr/bin/env python
+
+# Copyright (c) 2011 Stanford University
+#
+# Permission to use, copy, modify, and distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR(S) DISCLAIM ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL AUTHORS BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+"""
+Runs one or more cluster benchmarks for RAMCloud, using cluster.py to
+set up the cluster and Cperf.cc to implement the details of the benchmark.
+"""
+
+# TO ADD A NEW BENCHMARK:
+# 1. Decide on a symbolic name for the new test.
+# 2. Write code for the test in ClusterPerf.cc using the same test name (see
+#    instructions in ClusterPerf.cc for details).
+# 3. If needed, create a driver function for the test (named after the test)
+#    in the "driver functions" section below.  Many tests can just use the
+#    function "default".  If you need to provide special arguments to
+#    cluster.run for your tests, or if the running of your test is unusual
+#    in some way (e.g., you call cluster.run several times or collect
+#    results from unusual places) then you'll need to write a test-specific
+#    driver function.
+# 4. Create a new Test object in one of the tables simple_tests or
+#    graph_tests below, depending on the kind of test.
+
+from __future__ import division, print_function
+from common import *
+import cluster
+import log
+import glob
+import metrics
+import os
+import pprint
+import re
+import sys
+import time
+from optparse import OptionParser
+
+# Each object of the following class represents one test that can be
+# performed by this program.
+class Test:
+    def __init__(self,
+            name,                 # Symbolic name for the test, used on the
+                                  # command line to run the test.  This same
+                                  # name is normally used for the
+                                  # corresponding test in Cperf.cc.
+            function              # Python driver function for the test.
+            ):
+        """
+        Construct a Test object.
+        """
+
+        self.name = name
+        self.function = function
+
+def flatten_args(args):
+    """
+    Given a dictionary of arguments, produce a string suitable for inclusion
+    in a command line, such as "--name1 value1 --name2 value2"
+    """
+    return " ".join(["%s %s" % (name, value)
+            for name, value in args.iteritems()])
+
+def get_client_log(
+        index = 0                 # Client index (0 for first client,
+                                  # which is usually the one that's wanted)
+        ):
+    """
+    Given the index of a client, read the client's log file
+    from the current log directory and return its contents.
+    """
+
+    globResult = glob.glob('%s/latest/client%d*.log' %
+            (options.log_dir, index))
+    if len(globResult) == 0:
+        raise Exception("couldn't find log file for client %d" % (index))
+    return open(globResult[0], 'r').read()
+
+def run_test(
+        test,                     # Test object describing the test to run.
+        options                   # Command-line options.
+        ):
+    """
+    Run a given test.  The main value provided by this function is to
+    prepare a candidate set of options for cluster.run and another set
+    for ClusterPerf, based on the command-line options.
+    """
+    cluster_args = {
+        'debug':       options.debug,
+        'log_dir':     options.log_dir,
+        'log_level':   options.log_level,
+        'num_backups': options.num_backups,
+        'replicas':    options.replicas,
+        'timeout':     options.timeout,
+        'transport':   options.transport,
+        'replicas':    options.replicas,
+        'verbose':     options.verbose
+    }
+    perf_args = {}
+    if options.num_clients != None:
+        cluster_args['num_clients'] = options.num_clients
+    if options.size != None:
+        perf_args['--size'] = options.size
+    test.function(test.name, options, cluster_args, perf_args)
+
+#-------------------------------------------------------------------
+# Driver functions follow below.  These functions a responsible for
+# invoking ClusterPerf via cluster.py, and they collect and print
+# result data.  Simple tests can just use the "default" driver function.
+#-------------------------------------------------------------------
+
+def default(
+        name,                      # Name of this test; passed through
+                                   # to ClusterPerf verbatim.
+        options,                   # The full set of command-line options.
+        cluster_args,              # Arguments to pass to cluster.run
+                                   # (extracted from options).
+        perf_args                  # Arguments to pass to ClusterPerf
+                                   # (via cluster.run).
+        ):
+    """
+    This function is used as the invocation function for most tests;
+    it simply invokes ClusterPerf via cluster.run and prints the result.
+    """
+    cluster.run(client='obj.master/Cperf %s %s' %
+            (flatten_args(perf_args), name), **cluster_args)
+    print(get_client_log(), end='')
+
+def broadcast(name, options, cluster_args, perf_args):
+    if 'num_clients' not in cluster_args:
+        cluster_args['num_clients'] = 10
+    cluster.run(client='obj.master/Cperf %s %s' %
+            (flatten_args(perf_args), name), **cluster_args)
+    print(get_client_log(), end='')
+
+def readLoaded(name, options, cluster_args, perf_args):
+    if 'num_clients' not in cluster_args:
+        cluster_args['num_clients'] = 20
+    cluster.run(client='obj.master/Cperf %s %s' %
+            (flatten_args(perf_args), name), **cluster_args)
+    print(get_client_log(), end='')
+    
+#-------------------------------------------------------------------
+#  End of driver functions.
+#-------------------------------------------------------------------
+
+# The following tables define all of the benchmarks supported by this program.
+# The benchmarks are divided into two groups:
+#   * simple_tests describes tests that output one or more individual
+#     performance metrics
+#   * graph_tests describe tests that generate one graph per test;  the graph
+#     days output in gnuplot format with comments describing the data.
+
+simple_tests = [
+    Test("basic", default),
+    Test("broadcast", broadcast),
+    Test("readNotFound", default)
+]
+
+graph_tests = [
+    Test("readLoaded", readLoaded)
+]
+
+if __name__ == '__main__':
+    parser = OptionParser(description=
+            'Run one or more performance benchmarks on a RAMCloud cluster.  Each '
+            'test argument names one test to run (default: run all tests).  Not '
+            'all options are used by all benchmarks.',
+            usage='%prog [options] test test ...',
+            conflict_handler='resolve')
+    parser.add_option('-n', '--clients', type=int,
+            metavar='N', dest='num_clients',
+            help='Number of instances of the client application '
+                 'to run')
+    parser.add_option('--debug', action='store_true', default=False,
+            help='Pause after starting servers but before running '
+                 'clients to enable debugging setup')
+    parser.add_option('-d', '--logDir', default='logs', metavar='DIR',
+            dest='log_dir',
+            help='Top level directory for log files; the files for '
+                 'each invocation will go in a subdirectory.')
+    parser.add_option('-l', '--logLevel', default='NOTICE',
+            choices=['DEBUG', 'NOTICE', 'WARNING', 'ERROR', 'SILENT'],
+            metavar='L', dest='log_level',
+            help='Controls degree of logging in servers')
+    parser.add_option('-b', '--numBackups', type=int, default=1,
+            metavar='N', dest='num_backups',
+            help='Number of backups to run on each server host '
+                 '(0, 1, or 2)')
+    parser.add_option('-r', '--replicas', type=int, default=3,
+            metavar='N',
+            help='Number of disk backup copies for each segment')
+    parser.add_option('-s', '--size', type=int,
+            help='Object size in bytes')
+    parser.add_option('-t', '--timeout', type=int, default=20,
+            metavar='SECS',
+            help="Abort if the client application doesn't finish within "
+                 'SECS seconds')
+    parser.add_option('-T', '--transport', default='infrc',
+            help='Transport to use for communication with servers')
+    parser.add_option('-v', '--verbose', action='store_true', default=False,
+            help='Print progress messages')
+    (options, args) = parser.parse_args()
+
+    # Invoke the requested tests (run all of them if no tests were specified)
+    try:
+        if len(args) == 0:
+            # No specific tests were requested, so run all of them.
+            
+            for test in simple_tests:
+                run_test(test, options)
+            for test in graph_tests:
+                run_test(test, options)
+        else:
+            for name in args:
+                for test in simple_tests:
+                    if test.name == name:
+                        run_test(test, options)
+                        break
+                else:
+                    for test in graph_tests:
+                        if test.name == name:
+                            run_test(test, options)
+                            break
+                    else:
+                        print("No clusterperf test named '%s'" % (name))
+    finally:
+        logInfo = log.scan("%s/latest" % (options.log_dir),
+                ["WARNING", "ERROR"])
+        if len(logInfo) > 0:
+            print(logInfo)
