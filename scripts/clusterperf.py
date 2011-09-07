@@ -37,6 +37,7 @@ benchmark.
 from __future__ import division, print_function
 from common import *
 import cluster
+import config
 import log
 import glob
 import metrics
@@ -144,6 +145,21 @@ def broadcast(name, options, cluster_args, perf_args):
             (flatten_args(perf_args), name), **cluster_args)
     print(get_client_log(), end='')
 
+def netBandwidth(name, options, cluster_args, perf_args):
+    cluster_args['share_hosts'] = True;
+    if 'num_clients' not in cluster_args:
+        cluster_args['num_clients'] = 2*len(config.hosts)
+    cluster_args['num_servers'] = cluster_args['num_clients']
+    if cluster_args['num_servers'] > len(config.hosts):
+        cluster_args['num_servers'] = len(config.hosts)
+    if options.size != None:
+        perf_args['--size'] = options.size
+    else:
+        perf_args['--size'] = 1024*1024;
+    cluster.run(client='obj.master/ClusterPerf %s %s' %
+            (flatten_args(perf_args), name), **cluster_args)
+    print(get_client_log(), end='')
+
 def readLoaded(name, options, cluster_args, perf_args):
     if 'num_clients' not in cluster_args:
         cluster_args['num_clients'] = 20
@@ -165,6 +181,7 @@ def readLoaded(name, options, cluster_args, perf_args):
 simple_tests = [
     Test("basic", default),
     Test("broadcast", broadcast),
+    Test("netBandwidth", netBandwidth),
     Test("readNotFound", default)
 ]
 
