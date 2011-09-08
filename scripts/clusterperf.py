@@ -95,7 +95,7 @@ def run_test(
     """
     Run a given test.  The main value provided by this function is to
     prepare a candidate set of options for cluster.run and another set
-    for ClusterPerf, based on the command-line options.
+    for the ClusterPerf clients, based on the command-line options.
     """
     cluster_args = {
         'debug':       options.debug,
@@ -104,16 +104,17 @@ def run_test(
         'num_backups': options.num_backups,
         'replicas':    options.replicas,
         'timeout':     options.timeout,
+        'share_hosts': True,
         'transport':   options.transport,
         'replicas':    options.replicas,
         'verbose':     options.verbose
     }
-    perf_args = {}
+    client_args = {}
     if options.num_clients != None:
         cluster_args['num_clients'] = options.num_clients
     if options.size != None:
-        perf_args['--size'] = options.size
-    test.function(test.name, options, cluster_args, perf_args)
+        client_args['--size'] = options.size
+    test.function(test.name, options, cluster_args, client_args)
 
 #-------------------------------------------------------------------
 # Driver functions follow below.  These functions a responsible for
@@ -127,7 +128,7 @@ def default(
         options,                   # The full set of command-line options.
         cluster_args,              # Arguments to pass to cluster.run
                                    # (extracted from options).
-        perf_args                  # Arguments to pass to ClusterPerf
+        client_args                # Arguments to pass to ClusterPerf
                                    # (via cluster.run).
         ):
     """
@@ -135,36 +136,48 @@ def default(
     it simply invokes ClusterPerf via cluster.run and prints the result.
     """
     cluster.run(client='obj.master/ClusterPerf %s %s' %
-            (flatten_args(perf_args), name), **cluster_args)
+            (flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
 
-def broadcast(name, options, cluster_args, perf_args):
+def broadcast(name, options, cluster_args, client_args):
     if 'num_clients' not in cluster_args:
         cluster_args['num_clients'] = 10
     cluster.run(client='obj.master/ClusterPerf %s %s' %
-            (flatten_args(perf_args), name), **cluster_args)
+            (flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
 
-def netBandwidth(name, options, cluster_args, perf_args):
-    cluster_args['share_hosts'] = True;
+def netBandwidth(name, options, cluster_args, client_args):
     if 'num_clients' not in cluster_args:
         cluster_args['num_clients'] = 2*len(config.hosts)
     cluster_args['num_servers'] = cluster_args['num_clients']
     if cluster_args['num_servers'] > len(config.hosts):
         cluster_args['num_servers'] = len(config.hosts)
     if options.size != None:
-        perf_args['--size'] = options.size
+        client_args['--size'] = options.size
     else:
-        perf_args['--size'] = 1024*1024;
+        client_args['--size'] = 1024*1024;
     cluster.run(client='obj.master/ClusterPerf %s %s' %
-            (flatten_args(perf_args), name), **cluster_args)
+            (flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
 
-def readLoaded(name, options, cluster_args, perf_args):
+def readLoaded(name, options, cluster_args, client_args):
     if 'num_clients' not in cluster_args:
         cluster_args['num_clients'] = 20
     cluster.run(client='obj.master/ClusterPerf %s %s' %
-            (flatten_args(perf_args), name), **cluster_args)
+            (flatten_args(client_args), name), **cluster_args)
+    print(get_client_log(), end='')
+
+def readRandom(name, options, cluster_args, client_args):
+    cluster_args['timeout'] = 60
+    if 'num_clients' not in cluster_args:
+        cluster_args['num_clients'] = 50
+    if options.num_servers != None:
+        cluster_args['num_servers'] = options.num_servers
+    else:
+        cluster_args['num_servers'] = 10
+    client_args['--numTables'] = cluster_args['num_servers'];
+    cluster.run(client='obj.master/ClusterPerf %s %s' %
+            (flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
     
 #-------------------------------------------------------------------
@@ -176,7 +189,7 @@ def readLoaded(name, options, cluster_args, perf_args):
 #   * simple_tests describes tests that output one or more individual
 #     performance metrics
 #   * graph_tests describe tests that generate one graph per test;  the graph
-#     days output in gnuplot format with comments describing the data.
+#     output is in gnuplot format with comments describing the data.
 
 simple_tests = [
     Test("basic", default),
@@ -186,7 +199,8 @@ simple_tests = [
 ]
 
 graph_tests = [
-    Test("readLoaded", readLoaded)
+    Test("readLoaded", readLoaded),
+    Test("readRandom", readRandom)
 ]
 
 if __name__ == '__main__':
@@ -218,6 +232,9 @@ if __name__ == '__main__':
     parser.add_option('-r', '--replicas', type=int, default=3,
             metavar='N',
             help='Number of disk backup copies for each segment')
+    parser.add_option('--servers', type=int,
+            metavar='N', dest='num_servers',
+            help='Number of hosts on which to run servers')
     parser.add_option('-s', '--size', type=int,
             help='Object size in bytes')
     parser.add_option('-t', '--timeout', type=int, default=20,

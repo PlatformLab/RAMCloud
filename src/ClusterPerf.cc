@@ -66,6 +66,10 @@ static int clientIndex;
 // wasn't specified, so each test should pick an appropriate default.
 static int objectSize;
 
+// Value of the "--numTables" command-line option: used by some tests
+// to specify the number of tables to create.
+static int numTables;
+
 // Identifier for table that is used for test-specific data.
 uint32_t dataTable = -1;
 
@@ -157,6 +161,54 @@ printBandwidth(const char* name, double bandwidth, const char* description)
         printf("%5.1f B/s  ", bandwidth);
     }
     printf("  %s\n", description);
+}
+
+/**
+ * Print a performance measurement consisting of a rate.
+ *
+ * \param name
+ *      Symbolic name for the measurement, in the form test.value
+ *      where \c test is the name of the test that generated the result,
+ *      \c value is a name for the particular measurement.
+ * \param value
+ *      Measurement in units 1/second.
+ * \param description
+ *      Longer string (but not more than 20-30 chars) with a human-
+ *      readable explanation of what the value refers to.
+ */
+void
+printRate(const char* name, double value, const char* description)
+{
+    printf("%-20s  ", name);
+    if (value > 1e09) {
+        printf("%5.1f G/s  ", value/1e09);
+    } else if (value > 1e06) {
+        printf("%5.1f M/s  ", value/1e06);
+    } else if (value > 1e03) {
+        printf("%5.1f K/s  ", value/1e03);
+    } else {
+        printf("%5.1f /s   ", value);
+    }
+    printf("  %s\n", description);
+}
+
+/**
+ * Print a performance measurement consisting of a percentage.
+ *
+ * \param name
+ *      Symbolic name for the measurement, in the form test.value
+ *      where \c test is the name of the test that generated the result,
+ *      \c value is a name for the particular measurement.
+ * \param value
+ *      Measurement in units of %.
+ * \param description
+ *      Longer string (but not more than 20-30 chars) with a human-
+ *      readable explanation of what the value refers to.
+ */
+void
+printPercent(const char* name, double value, const char* description)
+{
+    printf("%-20s    %.1f %%      %s\n", name, value, description);
 }
 
 /**
@@ -457,6 +509,14 @@ waitForObject(uint32_t tableId, uint64_t objectId, const char* desired,
     size_t length = desired ? strlen(desired) : -1;
     while (true) {
         try {
+            double elapsed = Cycles::toSeconds(Cycles::rdtsc() - start);
+            if (elapsed > 1.0) {
+                // Slave is taking too long; time out.
+                throw Exception(HERE, format(
+                        "Object <%u, %lu> didn't reach desired state",
+                        tableId, objectId));
+                exit(1);
+            }
             cluster->read(tableId, objectId, &value);
             if (desired == NULL) {
                 return;
@@ -465,14 +525,6 @@ waitForObject(uint32_t tableId, uint64_t objectId, const char* desired,
                     (memcmp(value.getRange(0, downCast<int>(length)),
                     desired, length) == 0)) {
                 return;
-            }
-            double elapsed = Cycles::toSeconds(Cycles::rdtsc() - start);
-            if (elapsed > 1.0) {
-                // Slave is taking too long; time out.
-                throw Exception(HERE, format(
-                        "Object <%u, %lu> didn't reach desired state",
-                        tableId, objectId));
-                exit(1);
             }
         }
         catch (TableDoesntExistException& e) {
@@ -534,6 +586,41 @@ sendCommand(const char* command, const char* state, int firstSlave,
 }
 
 /**
+ * Create one or more tables, each on a different master, and create one
+ * object in each table.
+ *
+ * \param numTables
+ *      How many tables to create.
+ * \param objectSize
+ *      Number of bytes in the object to create each table.
+ * \param objectId
+ *      Identifier to use for the created object in each table.
+ *
+ */
+int*
+createTables(int numTables, int objectSize, int objectId = 0)
+{
+    int* tableIds = new int[numTables];
+
+    // Create the tables in backwards order to reduce possible correlations
+    // between clients, tables, and servers (if we have 60 clients and 60
+    // servers, with clients and servers colocated and client i accessing
+    // table i, we wouldn't want each client reading a table from the
+    // server on the same machine).
+    for (int i = numTables-1; i >= 0;  i--) {
+        char tableName[20];
+        snprintf(tableName, sizeof(tableName), "table%d", i);
+        cluster->createTable(tableName);
+        tableIds[i] = cluster->openTable(tableName);
+        Buffer data;
+        fillBuffer(data, objectSize, tableIds[i], objectId);
+        cluster->write(tableIds[i], objectId, data.getRange(0, objectSize),
+                objectSize);
+    }
+    return tableIds;
+}
+
+/**
  * Slaves invoke this method to return one or more performance measurements
  * back to the master.
  *
@@ -582,22 +669,24 @@ sendMetrics(double m0, double m1 = 0.0, double m2 = 0.0, double m3 = 0.0,
  *      This vector of vectors is cleared and then filled with the slaves'
  *      performance data.  Each inner vector corresponds to one metric
  *      and contains a value from each of the slaves.
+ * \param clientCount
+ *      Metrics will be read from this many clients, starting at 0.
  */
 void
-getMetrics(ClientMetrics& metrics)
+getMetrics(ClientMetrics& metrics, int clientCount)
 {
     // First, reset the result.
     metrics.clear();
     metrics.resize(MAX_METRICS);
     for (int i = 0; i < MAX_METRICS; i++) {
-        metrics[i].resize(numClients);
-        for (int j = 0; j < numClients; j++) {
+        metrics[i].resize(clientCount);
+        for (int j = 0; j < clientCount; j++) {
             metrics[i][j] = 0.0;
         }
     }
 
     // Iterate over all the slaves to fetch metrics from each.
-    for (int client = 0; client < numClients; client++) {
+    for (int client = 0; client < clientCount; client++) {
         Buffer metricsBuffer;
         waitForObject(controlTable, objectId(client, METRICS), NULL,
                 metricsBuffer);
@@ -797,7 +886,6 @@ broadcast()
 void
 netBandwidth()
 {
-    int tableId = 0;
     int objectId = 99;
 
     // Duration of the test, in ms.
@@ -806,16 +894,11 @@ netBandwidth()
     if (clientIndex > 0) {
         // Slaves execute the following code.  First, wait for the master
         // to set everything up, then open the table we will use.
-        while (true) {
-            char command[20];
-            getCommand(command, sizeof(command));
-            if (strcmp(command, "run") == 0)
-                break;
-
-        }
+        char command[20];
+        getCommand(command, sizeof(command));
         char tableName[20];
         snprintf(tableName, sizeof(tableName), "table%d", clientIndex);
-        tableId = cluster->openTable(tableName);
+        int tableId = cluster->openTable(tableName);
         RAMCLOUD_LOG(NOTICE, "Client %d reading from table %d", clientIndex,
                 tableId);
         setSlaveState("running");
@@ -832,34 +915,24 @@ netBandwidth()
     }
 
     // The master executes the code below.  First, create a table for each
-    // slave, with a single object.  Create the tables in backwards order
-    // to reduce possible correlations between clients, tables, and servers
-    // (if we have 60 clients and 60 servers, with clients and servers
-    // colocated, we wouldn't want each client reading a table from the
-    // server on the same machine).
+    // slave, with a single object.
 
-    for (int i = numClients-1; i >= 0;  i--) {
-        char tableName[20];
-        snprintf(tableName, sizeof(tableName), "table%d", i);
-        cluster->createTable(tableName);
-        tableId = cluster->openTable(tableName);
-        Buffer data;
-        fillBuffer(data, objectSize, tableId, objectId);
-        cluster->write(tableId, objectId, data.getRange(0, objectSize),
-                objectSize);
-    }
+    int size = objectSize;
+    if (size < 0)
+        size = 1024*1024;
+    int* tableIds = createTables(numClients, objectSize, objectId);
 
     // Start all the slaves running, and read our own local object.
     sendCommand("run", "running", 1, numClients-1);
-    RAMCLOUD_LOG(DEBUG, "Master reading from table %d", tableId);
+    RAMCLOUD_LOG(DEBUG, "Master reading from table %d", tableIds[0]);
     Buffer value;
-    double latency = timeRead(tableId, objectId, 100, value);
+    double latency = timeRead(tableIds[0], objectId, 100, value);
     double bandwidth = value.getTotalLength()/latency;
     sendMetrics(bandwidth);
 
     // Collect statistics.
     ClientMetrics metrics;
-    getMetrics(metrics);
+    getMetrics(metrics, numClients);
     RAMCLOUD_LOG(DEBUG, "Bandwidth (%u-byte object): %.1f MB/sec",
             value.getTotalLength(), bandwidth/(1024*1024));
 
@@ -930,7 +1003,7 @@ readLoaded()
     if (size < 0)
         size = 100;
     printf("# RAMCloud read performance as a function of load (1 or more\n");
-    printf("# clients all reading a single %d-byte object repeatedly).'\n",
+    printf("# clients all reading a single %d-byte object repeatedly).\n",
             size);
     printf("# Generated by 'clusterperf.py readLoaded'\n");
     printf("#\n");
@@ -990,6 +1063,133 @@ readNotFound()
     printTime("readNotFound", t, "read object that doesn't exist");
 }
 
+/**
+ * This method contains the core of the "readRandom" test; it is
+ * shared by the master and slaves.
+ *
+ * \param tableIds
+ *      Array of numTables identifiers for the tables available for
+ *      the test.
+ * \param docString
+ *      Information provided by the master about this run; used
+ *      in log messages.
+ */
+void readRandomCommon(int *tableIds, char *docString)
+{
+    // Duration of test.
+    double ms = 100;
+    uint64_t startTime = Cycles::rdtsc();
+    uint64_t endTime = startTime + Cycles::fromSeconds(ms/1e03);
+    uint64_t slowTicks = Cycles::fromSeconds(10e-06);
+    uint64_t readStart, readEnd;
+    uint64_t maxLatency = 0;
+    int count = 0;
+    int slowReads = 0;
+
+    // Each iteration through this loop issues one read operation to a
+    // randomly-selected table.
+    while (true) {
+        int tableId = tableIds[downCast<int>(generateRandom() % numTables)];
+        readStart = Cycles::rdtsc();
+        Buffer value;
+        cluster->read(tableId, 0, &value);
+        readEnd = Cycles::rdtsc();
+        count++;
+        uint64_t latency = readEnd - readStart;
+
+        // When computing the slowest read, skip the first reads so that
+        // everything has a chance to get fully warmed up.
+        if ((latency > maxLatency) && (count > 100))
+            maxLatency = latency;
+        if (latency > slowTicks)
+            slowReads++;
+        if (readEnd > endTime)
+            break;
+    }
+    double thruput = count/Cycles::toSeconds(readEnd - startTime);
+    double slowPercent = 100.0 * slowReads / count;
+    sendMetrics(thruput, Cycles::toSeconds(maxLatency), slowPercent);
+    if (clientIndex != 0) {
+        RAMCLOUD_LOG(NOTICE,
+                "%s: throughput: %.1f reads/sec., max latency: %.1fus, "
+                "reads > 20us: %.1f%%", docString,
+                thruput, Cycles::toSeconds(maxLatency)*1e06, slowPercent);
+    }
+}
+
+// In this test all of the clients repeatedly read objects from a collection
+// of tables on different servers.  For each read a client chooses a table
+// at random.
+void
+readRandom()
+{
+    int *tableIds = NULL;
+
+    if (clientIndex > 0) {
+        // This is a slave: execute commands coming from the master.
+        while (true) {
+            char command[20];
+            char doc[200];
+            getCommand(command, sizeof(command));
+            if (strcmp(command, "run") == 0) {
+                if (tableIds == NULL) {
+                    // Open all the tables.
+                    tableIds = new int[numTables];
+                    for (int i = 0; i < numTables; i++) {
+                        char tableName[20];
+                        snprintf(tableName, sizeof(tableName), "table%d", i);
+                        tableIds[i] = cluster->openTable(tableName);
+                    }
+                }
+                readObject(controlTable, objectId(0, DOC), doc, sizeof(doc));
+                setSlaveState("running");
+                readRandomCommon(tableIds, doc);
+                setSlaveState("idle");
+            } else if (strcmp(command, "done") == 0) {
+                setSlaveState("done");
+                return;
+            } else {
+                RAMCLOUD_LOG(ERROR, "unknown command %s", command);
+                return;
+            }
+        }
+    }
+
+    // This is the master: first, create the tables.
+    int size = objectSize;
+    if (size < 0)
+        size = 100;
+    tableIds = createTables(numTables, size);
+
+    // Vary the number of clients and repeat the test for each number.
+    printf("# RAMCloud read performance when 1 or more clients read\n");
+    printf("# %d-byte objects chosen at random from %d servers.\n",
+            size, numTables);
+    printf("# Generated by 'clusterperf.py readRandom'\n");
+    printf("#\n");
+    printf("# numClients  throughput(total kreads/sec)  slowest(ms)  "
+                "reads > 10us\n");
+    printf("#--------------------------------------------------------"
+                "------------\n");
+    fflush(stdout);
+    for (int numActive = 1; numActive <= numClients; numActive++) {
+        char doc[100];
+        snprintf(doc, sizeof(doc), "%d active clients", numActive);
+        cluster->write(controlTable, objectId(0, DOC), doc);
+        sendCommand("run", "running", 1, numActive-1);
+        readRandomCommon(tableIds, doc);
+        sendCommand(NULL, "idle", 1, numActive-1);
+        ClientMetrics metrics;
+        getMetrics(metrics, numActive);
+        printf("%3d               %6.0f                    %6.2f"
+                "          %.1f%%\n",
+                numActive, sum(metrics[0])/1e03, max(metrics[1])*1e03,
+                sum(metrics[2])/numActive);
+        fflush(stdout);
+    }
+    sendCommand("done", "done", 1, numClients-1);
+}
+
 // The following struct and table define each performance test in terms of
 // a string name and a function that implements the test.
 struct TestInfo {
@@ -1004,6 +1204,7 @@ TestInfo tests[] = {
     {"netBandwidth", netBandwidth},
     {"readLoaded", readLoaded},
     {"readNotFound", readNotFound},
+    {"readRandom", readRandom},
 };
 
 int
@@ -1035,6 +1236,8 @@ try
                 "Total number of clients running")
         ("size,s", po::value<int>(&objectSize)->default_value(-1),
                 "Size of objects (in bytes) to use for test")
+        ("numTables", po::value<int>(&numTables)->default_value(10),
+                "Number of tables to use for test")
         ("testName", po::value<vector<string>>(&testNames),
                 "Name(s) of test(s) to run");
     po::positional_options_description desc2;
