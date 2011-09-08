@@ -304,12 +304,15 @@ class MasterService : public Service {
                                             void* cookie);
     friend void tombstoneScanCallback(LogEntryHandle handle, void* cookie);
     friend void segmentReplayCallback(Segment* seg, void* cookie);
-    Table& getTable(uint32_t tableId, uint64_t objectId);
-    void rejectOperation(const RejectRules* rejectRules, uint64_t version);
-    void storeData(uint64_t table, uint64_t id,
-                   const RejectRules* rejectRules, Buffer* data,
-                   uint32_t dataOffset, uint32_t dataLength,
-                   uint64_t* newVersion, bool async);
+    Table* getTable(uint32_t tableId, uint64_t objectId)
+        __attribute__((warn_unused_result));
+    Status rejectOperation(const RejectRules& rejectRules, uint64_t version)
+        __attribute__((warn_unused_result));
+    Status storeData(uint64_t table, uint64_t id,
+                     const RejectRules* rejectRules, Buffer* data,
+                     uint32_t dataOffset, uint32_t dataLength,
+                     uint64_t* newVersion, bool async)
+        __attribute__((warn_unused_result));
     friend class MasterServiceTest;
     friend class MasterRecoverTest;
     friend class CoordinatorServiceTest;

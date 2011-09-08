@@ -102,8 +102,10 @@ CoordinatorService::createTable(const CreateTableRpc::Request& reqHdr,
                                 CreateTableRpc::Response& respHdr,
                                 Rpc& rpc)
 {
-    if (masterList.server_size() == 0)
-        throw RetryException(HERE);
+    if (masterList.server_size() == 0) {
+        respHdr.common.status = STATUS_RETRY;
+        return;
+    }
 
     const char* name = getString(rpc.requestPayload, sizeof(reqHdr),
                                  reqHdr.nameLength);
@@ -203,8 +205,10 @@ CoordinatorService::openTable(const OpenTableRpc::Request& reqHdr,
     const char* name = getString(rpc.requestPayload, sizeof(reqHdr),
                                  reqHdr.nameLength);
     Tables::iterator it(tables.find(name));
-    if (it == tables.end())
-        throw TableDoesntExistException(HERE);
+    if (it == tables.end()) {
+        respHdr.common.status = STATUS_TABLE_DOESNT_EXIST;
+        return;
+    }
     respHdr.tableId = it->second;
 }
 
