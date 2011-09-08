@@ -38,8 +38,10 @@ Syscall* ServiceManager::sys = &defaultSyscall;
 // Length of time that a worker will actively poll for new work before it puts
 // itself to sleep. This period should be much longer than typical RPC
 // round-trip times so the worker thread doesn't go to sleep in an ongoing
-// conversation with a single client.
-int ServiceManager::pollMicros = 100;
+// conversation with a single client.  It must also be much longer than the
+// time it takes to wake up the thread once it has gone to sleep (as of
+// September 2011 this time appears to be as much as 50 microseconds).
+int ServiceManager::pollMicros = 10000;
 
 // The following constant is used to signal a worker thread that
 // it should exit.
