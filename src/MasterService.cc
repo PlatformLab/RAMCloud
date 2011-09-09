@@ -186,17 +186,25 @@ MasterService::create(const CreateRpc::Request& reqHdr,
                       CreateRpc::Response& respHdr,
                       Rpc& rpc)
 {
-    Table& t(getTable(reqHdr.tableId, ~0UL));
-    uint64_t id = t.AllocateKey(&objectMap);
+    Table* table = getTable(reqHdr.tableId, ~0UL);
+    if (table == NULL) {
+        respHdr.common.status = STATUS_TABLE_DOESNT_EXIST;
+        return;
+    }
+    uint64_t id = table->AllocateKey(&objectMap);
 
     RejectRules rejectRules;
     memset(&rejectRules, 0, sizeof(RejectRules));
     rejectRules.exists = 1;
 
-    storeData(reqHdr.tableId, id, &rejectRules,
-              &rpc.requestPayload, sizeof(reqHdr), reqHdr.length,
-              &respHdr.version,
-              reqHdr.async);
+    Status status = storeData(reqHdr.tableId, id, &rejectRules,
+                              &rpc.requestPayload, sizeof(reqHdr),
+                              reqHdr.length, &respHdr.version,
+                              reqHdr.async);
+    if (status != STATUS_OK) {
+        respHdr.common.status = status;
+        return;
+    }
     respHdr.id = id;
 }
 
@@ -231,9 +239,14 @@ MasterService::fillWithTestData(const FillWithTestDataRpc::Request& reqHdr,
     for (uint32_t objects = 0; objects < reqHdr.numObjects; objects++) {
         int t = objects % tablets.tablet_size();
         uint64_t newVersion;
-        storeData(tables[t]->getId(), tables[t]->AllocateKey(&objectMap),
-                  &rejectRules, &buffer, 0, reqHdr.objectSize,
-                  &newVersion, true);
+        Status status = storeData(tables[t]->getId(),
+                                  tables[t]->AllocateKey(&objectMap),
+                                  &rejectRules, &buffer, 0, reqHdr.objectSize,
+                                  &newVersion, true);
+        if (status != STATUS_OK) {
+            respHdr.common.status = status;
+            return;
+        }
         if ((objects % 50) == 0) {
             backup.proceed();
         }
@@ -271,10 +284,7 @@ MasterService::multiRead(const MultiReadRpc::Request& reqHdr,
         // We must note the status if the table does not exist. Also, we might
         // have an entry in the hash table that's invalid because its tablet no
         // longer lives here.
-        try{
-            getTable(currentReq->tableId, currentReq->id);
-        }
-        catch(TableDoesntExistException &e) {
+        if (getTable(currentReq->tableId, currentReq->id) == NULL) {
             *status = STATUS_TABLE_DOESNT_EXIST;
             continue;
         }
@@ -313,19 +323,27 @@ MasterService::read(const ReadRpc::Request& reqHdr,
     }
     CycleCounter<uint64_t> timeThisRead;
 
-    // We must throw an exception if the table does not exist. Also, we might
-    // have an entry in the hash table that's invalid because its tablet no
-    // longer lives here.
-    getTable(reqHdr.tableId, reqHdr.id);
+    // We must return table doesn't exist if the table does not exist. Also, we
+    // might have an entry in the hash table that's invalid because its tablet
+    // no longer lives here.
+    if (getTable(reqHdr.tableId, reqHdr.id) == NULL) {
+        respHdr.common.status = STATUS_TABLE_DOESNT_EXIST;
+        return;
+    }
 
     LogEntryHandle handle = objectMap.lookup(reqHdr.tableId, reqHdr.id);
     if (handle == NULL || handle->type() != LOG_ENTRY_TYPE_OBJ) {
-        throw ObjectDoesntExistException(HERE);
+        respHdr.common.status = STATUS_OBJECT_DOESNT_EXIST;
+        return;
     }
 
     const Object* obj = handle->userData<Object>();
     respHdr.version = obj->version;
-    rejectOperation(&reqHdr.rejectRules, obj->version);
+    Status status = rejectOperation(reqHdr.rejectRules, obj->version);
+    if (status != STATUS_OK) {
+        respHdr.common.status = status;
+        return;
+    }
     Buffer::Chunk::appendToBuffer(&rpc.replyPayload,
         obj->data, obj->dataLength(handle->length()));
     // TODO(ongaro): We'll need a new type of Chunk to block the cleaner
@@ -1108,10 +1126,17 @@ MasterService::remove(const RemoveRpc::Request& reqHdr,
 {
     boost::lock_guard<SpinLock> lock(objectUpdateLock);
 
-    Table& t(getTable(reqHdr.tableId, reqHdr.id));
+    Table* table = getTable(reqHdr.tableId, reqHdr.id);
+    if (table == NULL) {
+        respHdr.common.status = STATUS_TABLE_DOESNT_EXIST;
+        return;
+    }
     LogEntryHandle handle = objectMap.lookup(reqHdr.tableId, reqHdr.id);
     if (handle == NULL || handle->type() != LOG_ENTRY_TYPE_OBJ) {
-        rejectOperation(&reqHdr.rejectRules, VERSION_NONEXISTENT);
+        Status status = rejectOperation(reqHdr.rejectRules,
+                                        VERSION_NONEXISTENT);
+        if (status != STATUS_OK)
+            respHdr.common.status = status;
         return;
     }
 
@@ -1119,9 +1144,13 @@ MasterService::remove(const RemoveRpc::Request& reqHdr,
     respHdr.version = obj->version;
 
     // Abort if we're trying to delete the wrong version.
-    rejectOperation(&reqHdr.rejectRules, respHdr.version);
+    Status status = rejectOperation(reqHdr.rejectRules, respHdr.version);
+    if (status != STATUS_OK) {
+        respHdr.common.status = status;
+        return;
+    }
 
-    t.RaiseVersion(obj->version + 1);
+    table->RaiseVersion(obj->version + 1);
 
     ObjectTombstone tomb(log.getSegmentId(obj), obj);
 
@@ -1234,10 +1263,14 @@ MasterService::write(const WriteRpc::Request& reqHdr,
                     Rpc& rpc)
 {
     CycleCounter<uint64_t> timeThis;
-    storeData(reqHdr.tableId, reqHdr.id,
-              &reqHdr.rejectRules, &rpc.requestPayload, sizeof(reqHdr),
-              static_cast<uint32_t>(reqHdr.length), &respHdr.version,
-              reqHdr.async);
+    Status status = storeData(reqHdr.tableId, reqHdr.id, &reqHdr.rejectRules,
+                              &rpc.requestPayload, sizeof(reqHdr),
+                              static_cast<uint32_t>(reqHdr.length),
+                              &respHdr.version, reqHdr.async);
+    if (status != STATUS_OK) {
+        respHdr.common.status = status;
+        return;
+    }
     serverStats.totalWriteRequests++;
     serverStats.totalWriteNanos += Cycles::toNanoseconds(timeThis.stop());
 }
@@ -1252,24 +1285,20 @@ MasterService::write(const WriteRpc::Request& reqHdr,
  *      Identifier for a desired object.
  *
  * \return
- *      The Table of which the tablet containing this object is a part.
- *
- * \exception TableDoesntExist
- *      Thrown if that tablet isn't owned by this server.
+ *      The Table of which the tablet containing this object is a part,
+ *      or NULL if this master does not own the tablet.
  */
-// TODO(ongaro): Masters don't know whether tables exist.
-// This be something like ObjectNotHereException.
-Table&
+Table*
 MasterService::getTable(uint32_t tableId, uint64_t objectId) {
 
     foreach (const ProtoBuf::Tablets::Tablet& tablet, tablets.tablet()) {
         if (tablet.table_id() == tableId &&
             tablet.start_object_id() <= objectId &&
             objectId <= tablet.end_object_id()) {
-            return *reinterpret_cast<Table*>(tablet.user_data());
+            return reinterpret_cast<Table*>(tablet.user_data());
         }
     }
-    throw TableDoesntExistException(HERE);
+    return NULL;
 }
 
 /**
@@ -1287,20 +1316,21 @@ MasterService::getTable(uint32_t tableId, uint64_t objectId) {
  *      indicate that the operation should be rejected. Otherwise
  *      the return value indicates the reason for the rejection.
  */
-void
-MasterService::rejectOperation(const RejectRules* rejectRules, uint64_t version)
+Status
+MasterService::rejectOperation(const RejectRules& rejectRules, uint64_t version)
 {
     if (version == VERSION_NONEXISTENT) {
-        if (rejectRules->doesntExist)
-            throw ObjectDoesntExistException(HERE);
-        return;
+        if (rejectRules.doesntExist)
+            return STATUS_OBJECT_DOESNT_EXIST;
+        return STATUS_OK;
     }
-    if (rejectRules->exists)
-        throw ObjectExistsException(HERE);
-    if (rejectRules->versionLeGiven && version <= rejectRules->givenVersion)
-        throw WrongVersionException(HERE);
-    if (rejectRules->versionNeGiven && version != rejectRules->givenVersion)
-        throw WrongVersionException(HERE);
+    if (rejectRules.exists)
+        return STATUS_OBJECT_DOESNT_EXIST;
+    if (rejectRules.versionLeGiven && version <= rejectRules.givenVersion)
+        return STATUS_WRONG_VERSION;
+    if (rejectRules.versionNeGiven && version != rejectRules.givenVersion)
+        return STATUS_WRONG_VERSION;
+    return STATUS_OK;
 }
 
 //-----------------------------------------------------------------------
@@ -1332,13 +1362,10 @@ objectLivenessCallback(LogEntryHandle handle, void* cookie)
     const Object* evictObj = handle->userData<Object>();
     assert(evictObj != NULL);
 
-    Table* t = NULL;
-    try {
-        t = &svr->getTable(downCast<uint32_t>(evictObj->id.tableId),
-                           evictObj->id.objectId);
-    } catch (TableDoesntExistException& e) {
+    Table* t = svr->getTable(downCast<uint32_t>(evictObj->id.tableId),
+                             evictObj->id.objectId);
+    if (t == NULL)
         return false;
-    }
 
     LogEntryHandle hashTblHandle =
         svr->objectMap.lookup(evictObj->id.tableId, evictObj->id.objectId);
@@ -1391,17 +1418,12 @@ objectRelocationCallback(LogEntryHandle oldHandle,
 
     boost::lock_guard<SpinLock> lock(svr->objectUpdateLock);
 
-    Table* t = NULL;
-    try {
-        t = &svr->getTable(downCast<uint32_t>(evictObj->id.tableId),
-                           evictObj->id.objectId);
-    } catch (TableDoesntExistException& e) {
+    Table* table = svr->getTable(downCast<uint32_t>(evictObj->id.tableId),
+                                 evictObj->id.objectId);
+    if (table == NULL) {
         // That tablet doesn't exist on this server anymore.
         // Just remove the hash table entry, if it exists.
         svr->objectMap.remove(evictObj->id.tableId, evictObj->id.objectId);
-        t->profiler.untrack(evictObj->id.objectId,
-                            oldHandle->totalLength(),
-                            oldHandle->logTime());
         return false;
     }
 
@@ -1423,9 +1445,9 @@ objectRelocationCallback(LogEntryHandle oldHandle,
     // Remove the evicted entry whether it is discarded or not.
     // If it isn't to be discarded, we'll track it again in the
     // #tombstoneScanCallback function.
-    t->profiler.untrack(evictObj->id.objectId,
-                        oldHandle->totalLength(),
-                        oldHandle->logTime());
+    table->profiler.untrack(evictObj->id.objectId,
+                            oldHandle->totalLength(),
+                            oldHandle->logTime());
 
     return keepNewObject;
 }
@@ -1470,11 +1492,9 @@ objectScanCallback(LogEntryHandle handle, void* cookie)
     const Object* obj = handle->userData<Object>();
     assert(obj != NULL);
 
-    Table* t = NULL;
-    try {
-        t = &svr->getTable(downCast<uint32_t>(obj->id.tableId),
-                           obj->id.objectId);
-    } catch (TableDoesntExistException& e) {
+    Table* t = svr->getTable(downCast<uint32_t>(obj->id.tableId),
+                             obj->id.objectId);
+    if (t == NULL) {
         LOG(DEBUG, "callback on object whose table is gone: "
             "tblId %lu, objId %lu", obj->id.tableId, obj->id.objectId);
         return;
@@ -1508,13 +1528,10 @@ tombstoneLivenessCallback(LogEntryHandle handle, void* cookie)
     const ObjectTombstone* tomb = handle->userData<ObjectTombstone>();
     assert(tomb != NULL);
 
-    Table* t = NULL;
-    try {
-        t = &svr->getTable(downCast<uint32_t>(tomb->id.tableId),
-                           tomb->id.objectId);
-    } catch (TableDoesntExistException& e) {
+    Table* t = svr->getTable(downCast<uint32_t>(tomb->id.tableId),
+                             tomb->id.objectId);
+    if (t == NULL)
         return false;
-    }
 
     return svr->log.isSegmentLive(tomb->segmentId);
 }
@@ -1558,15 +1575,10 @@ tombstoneRelocationCallback(LogEntryHandle oldHandle,
     const ObjectTombstone* tomb = oldHandle->userData<ObjectTombstone>();
     assert(tomb != NULL);
 
-    Table* t = NULL;
-    try {
-        t = &svr->getTable(downCast<uint32_t>(tomb->id.tableId),
-                           tomb->id.objectId);
-    } catch (TableDoesntExistException& e) {
+    Table* table = svr->getTable(downCast<uint32_t>(tomb->id.tableId),
+                             tomb->id.objectId);
+    if (table == NULL) {
         // That tablet doesn't exist on this server anymore.
-        t->profiler.untrack(tomb->id.objectId,
-                            oldHandle->totalLength(),
-                            oldHandle->logTime());
         return false;
     }
 
@@ -1576,9 +1588,9 @@ tombstoneRelocationCallback(LogEntryHandle oldHandle,
     // Remove the evicted entry whether it is discarded or not.
     // If it isn't to be discarded, we'll track it again in the
     // #tombstoneScanCallback function.
-    t->profiler.untrack(tomb->id.objectId,
-                        oldHandle->totalLength(),
-                        oldHandle->logTime());
+    table->profiler.untrack(tomb->id.objectId,
+                            oldHandle->totalLength(),
+                            oldHandle->logTime());
 
     return keepNewTomb;
 }
@@ -1622,11 +1634,9 @@ tombstoneScanCallback(LogEntryHandle handle, void* cookie)
     const ObjectTombstone* tomb = handle->userData<ObjectTombstone>();
     assert(tomb != NULL);
 
-    Table* t = NULL;
-    try {
-        t = &svr->getTable(downCast<uint32_t>(tomb->id.tableId),
-                           tomb->id.objectId);
-    } catch (TableDoesntExistException& e) {
+    Table* t = svr->getTable(downCast<uint32_t>(tomb->id.tableId),
+                             tomb->id.objectId);
+    if (t == NULL) {
         LOG(DEBUG, "callback on tombstone whose table is gone: "
             "tblId %lu, objId %lu", tomb->id.tableId, tomb->id.objectId);
         return;
@@ -1637,7 +1647,38 @@ tombstoneScanCallback(LogEntryHandle handle, void* cookie)
                       handle->logTime());
 }
 
-void
+/**
+ * \param tableId
+ *      The table in which to store the object.
+ * \param id
+ *      Identifier within the table of the object to be written; may or
+ *      may not refer to an existing object.
+ * \param rejectRules
+ *      Specifies conditions under which the write should be aborted with an
+ *      error. May not be NULL.
+ * \param data
+ *      Contains the binary blob to store at (tableId, id).
+ *      May not be NULL.
+ * \param dataOffset
+ *      The offset into \a data where the blob begins.
+ * \param dataLength
+ *      The size in bytes of the blob.
+ * \param newVersion
+ *      The version number of the object is returned here. May not be NULL. If
+ *      the operation was successful this will be the new version for the
+ *      object; if this object has ever existed previously the new version is
+ *      guaranteed to be greater than any previous version of the object. If
+ *      the operation failed then the version number returned is the current
+ *      version of the object, or VERSION_NONEXISTENT if the object does not
+ *      exist.
+ * \param async
+ *      If true, this write will be replicated to backups before return.
+ *      If false, the replication may happen sometime later.
+ * \return
+ *      STATUS_OK if the object was written. Otherwise, for example,
+ *      STATUS_TABLE_DOESNT_EXIST may be returned.
+ */
+Status
 MasterService::storeData(uint64_t tableId,
                          uint64_t id,
                          const RejectRules* rejectRules,
@@ -1649,7 +1690,9 @@ MasterService::storeData(uint64_t tableId,
 {
     boost::lock_guard<SpinLock> lock(objectUpdateLock);
 
-    Table& t(getTable(downCast<uint32_t>(tableId), id));
+    Table* table = getTable(downCast<uint32_t>(tableId), id);
+    if (table == NULL)
+        return STATUS_TABLE_DOESNT_EXIST;
 
     if (!anyWrites) {
         // This is the first write; use this as a trigger to update the
@@ -1683,11 +1726,10 @@ MasterService::storeData(uint64_t tableId,
 
     uint64_t version = (obj != NULL) ? obj->version : VERSION_NONEXISTENT;
 
-    try {
-        rejectOperation(rejectRules, version);
-    } catch (...) {
+    Status status = rejectOperation(*rejectRules, version);
+    if (status != STATUS_OK) {
         *newVersion = version;
-        throw;
+        return status;
     }
 
     DECLARE_OBJECT(newObject, dataLength);
@@ -1697,7 +1739,7 @@ MasterService::storeData(uint64_t tableId,
     if (obj != NULL)
         newObject->version = obj->version + 1;
     else
-        newObject->version = t.AllocateVersion();
+        newObject->version = table->AllocateVersion();
     assert(obj == NULL || newObject->version > obj->version);
     data->copy(dataOffset, dataLength, newObject->data);
 
@@ -1734,6 +1776,7 @@ MasterService::storeData(uint64_t tableId,
 
     *newVersion = newObject->version;
     bytesWritten += dataLength;
+    return STATUS_OK;
 }
 
 } // namespace RAMCloud

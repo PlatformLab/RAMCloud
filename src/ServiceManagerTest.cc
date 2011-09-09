@@ -311,7 +311,7 @@ TEST_F(ServiceManagerTest, workerMain_goToSleep) {
 
     // Initially the worker should not go to sleep (time appears to
     // stand still for it, because we aren't calling dispatch->poll).
-    usleep(1000);
+    usleep(20000);
     EXPECT_EQ(Worker::POLLING, worker->state.load());
 
     // Update dispatch->currentTime. When the worker sees this it should
@@ -344,7 +344,7 @@ TEST_F(ServiceManagerTest, workerMain_futexError) {
     sys.futexWaitErrno = EPERM;
     // Wait for the worker to go to sleep, then make sure it logged
     // an error message.
-    usleep(1000);
+    usleep(20000);
     dispatch->currentTime = Cycles::rdtsc();
     for (int i = 0; i < 1000; i++) {
         usleep(100);

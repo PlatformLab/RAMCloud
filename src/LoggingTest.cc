@@ -34,7 +34,7 @@ class LoggingTest : public ::testing::Test {
 
 TEST_F(LoggingTest, constructor) {
     Logger l(WARNING);
-    EXPECT_EQ(stderr, l.stream);
+    EXPECT_TRUE(l.stream == NULL);
     EXPECT_EQ(WARNING, l.logLevels[0]);
 }
 
@@ -230,6 +230,21 @@ TEST_F(LoggingTest, DIE) { // also tests getMessage
     }
     fclose(logger.stream);
     EXPECT_STREQ("", "FatalError not thrown");
+}
+
+TEST_F(LoggingTest, redirectStderr) {
+    // If the application redirects stderr, make sure that log messages
+    // go there, not to the old stderr.
+    Logger l(NOTICE);
+    FILE *f = fopen("__test.log", "w");
+    ASSERT_TRUE(f != NULL);
+    FILE *savedStderr = stderr;
+    stderr = f;
+    l.logMessage(DEFAULT_LOG_MODULE, NOTICE, HERE, "message 99\n");
+    stderr = savedStderr;
+    fclose(f);
+    EXPECT_TRUE(TestUtil::matchesPosixRegex("message 99",
+            TestUtil::readFile("__test.log")));
 }
 
 }  // namespace RAMCloud

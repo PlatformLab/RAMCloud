@@ -135,6 +135,9 @@ BackupService::SegmentInfo::~SegmentInfo()
  * \param[out] buffer
  *      A buffer which onto which the requested recovery segment will be
  *      appended.
+ * \return
+ *      Status code: STATUS_OK if the recovery segment was appended,
+ *      STATUS_RETRY if the caller should try again later.
  * \throw BadSegmentIdException
  *      If the segment to which this recovery segment belongs is not yet
  *      recovered or there is no such recovery segment for that
@@ -143,14 +146,14 @@ BackupService::SegmentInfo::~SegmentInfo()
  *      If the segment to which this recovery segment belongs failed to
  *      recover.
  */
-void
+Status
 BackupService::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
                                                   Buffer& buffer)
 {
     Lock lock(mutex, boost::try_to_lock_t());
     if (!lock.owns_lock()) {
         LOG(DEBUG, "Deferring because couldn't acquire lock immediately");
-        throw RetryException(HERE);
+        return STATUS_RETRY;
     }
 
     if (state != RECOVERING) {
@@ -175,7 +178,7 @@ BackupService::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
     if (!isRecovered() && !recoveryException) {
         LOG(DEBUG, "Deferring because <%lu,%lu> not yet filtered",
             masterId, segmentId);
-        throw RetryException(HERE);
+        return STATUS_RETRY;
     }
     assert(state == RECOVERING);
 
@@ -208,6 +211,7 @@ BackupService::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
     }
 #endif
     LOG(DEBUG, "appendRecoverySegment <%lu,%lu>", masterId, segmentId);
+    return STATUS_OK;
 }
 
 /**
@@ -1091,7 +1095,12 @@ BackupService::getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
         throw BackupBadSegmentIdException(HERE);
     }
 
-    info->appendRecoverySegment(reqHdr.partitionId, rpc.replyPayload);
+    Status status = info->appendRecoverySegment(reqHdr.partitionId,
+                                                rpc.replyPayload);
+    if (status != STATUS_OK) {
+        respHdr.common.status = status;
+        return;
+    }
 
     ++metrics->backup.readCompletionCount;
     LOG(DEBUG, "getRecoveryData complete");

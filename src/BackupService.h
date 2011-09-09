@@ -198,8 +198,8 @@ class BackupService : public Service {
                     uint64_t masterId, uint64_t segmentId,
                     uint32_t segmentSize, bool primary);
         ~SegmentInfo();
-        void appendRecoverySegment(uint64_t partitionId,
-                                   Buffer& buffer);
+        Status appendRecoverySegment(uint64_t partitionId, Buffer& buffer)
+            __attribute__((warn_unused_result));
         void buildRecoverySegments(const ProtoBuf::Tablets& partitions);
         void close();
         void free();

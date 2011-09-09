@@ -71,7 +71,7 @@ os.environ['LD_LIBRARY_PATH'] = ':'.join(ld_library_path)
 # to use for creating service locators. and an id for generating
 # Ethernet addresses.
 hosts = []
-for i in range(1, 37):
+for i in range(1, 61):
     hosts.append(('rc%02d' % i,
                   '192.168.1.%d' % (100 + i),
                   i))
