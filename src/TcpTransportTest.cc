@@ -69,11 +69,15 @@ class TcpTransportTest : public ::testing::Test {
 
     // Return a count of the number of complete RPC requests waiting
     // for service (also, discard all of these requests).
-    int countWaitingRequests()
+    int countWaitingRequests(TcpTransport* transport)
     {
         int result = 0;
-        while (serviceManager->waitForRpc(0.0) != NULL)
+        Transport::ServerRpc* rpc = NULL;
+        while ((rpc = serviceManager->waitForRpc(0.0)) != NULL) {
+            transport->serverRpcPool.destroy(
+                static_cast<TcpTransport::TcpServerRpc*>(rpc));
             result++;
+        }
         return result;
     }
 
@@ -313,12 +317,12 @@ TEST_F(TcpTransportTest, ServerSocketHandler_handleFileEvent_reads) {
     server.sockets[serverFd]->ioHandler.handleFileEvent(
             Dispatch::FileEvent::READABLE);
     EXPECT_TRUE(server.sockets[serverFd]->rpc != NULL);
-    EXPECT_EQ(0, countWaitingRequests());
+    EXPECT_EQ(0, countWaitingRequests(&server));
 
     EXPECT_EQ(6, write(fd, "abcdef", 6));
     server.sockets[serverFd]->ioHandler.handleFileEvent(
             Dispatch::FileEvent::READABLE);
-    EXPECT_EQ(1, countWaitingRequests());
+    EXPECT_EQ(1, countWaitingRequests(&server));
 
     close(fd);
 }
@@ -420,6 +424,8 @@ TEST_F(TcpTransportTest, sendMessage_sendPartOfHeader) {
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_EQ("20 30 40",
             TestUtil::toString(&serverRpc->requestPayload));
+    server.serverRpcPool.destroy(
+        static_cast<TcpTransport::TcpServerRpc*>(serverRpc));
 
     close(fd);
 }
@@ -437,6 +443,8 @@ TEST_F(TcpTransportTest, sendMessage_multipleChunks) {
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_EQ("abcdexxx12345678",
             TestUtil::toString(&serverRpc->requestPayload));
+    server.serverRpcPool.destroy(
+        static_cast<TcpTransport::TcpServerRpc*>(serverRpc));
 
     close(fd);
 }
@@ -943,15 +951,23 @@ TEST_F(TcpTransportTest, ClientSocketHandler_handleFileEvent_sendRequests) {
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_EQ("ok", TestUtil::checkLargeBuffer(&serverRpc->requestPayload,
             300000));
+    server.serverRpcPool.destroy(
+        static_cast<TcpTransport::TcpServerRpc*>(serverRpc));
+
     serverRpc = serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_EQ("request2/0", TestUtil::toString(&serverRpc->requestPayload));
+    server.serverRpcPool.destroy(
+        static_cast<TcpTransport::TcpServerRpc*>(serverRpc));
+
     serverRpc = serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_EQ("request3/0", TestUtil::toString(&serverRpc->requestPayload));
     EXPECT_EQ(0U, rawSession->rpcsWaitingToSend.size());
     EXPECT_EQ(3U, rawSession->rpcsWaitingForResponse.size());
     EXPECT_TRUE(rawSession->rpcsWaitingForResponse.front().sent);
+    server.serverRpcPool.destroy(
+        static_cast<TcpTransport::TcpServerRpc*>(serverRpc));
 }
 
 TEST_F(TcpTransportTest, ClientSocketHandler_eof) {

@@ -142,7 +142,8 @@ InfRcTransport<Infiniband>::InfRcTransport(const ServiceLocator *sl)
       logMemoryBase(0),
       logMemoryBytes(0),
       logMemoryRegion(0),
-      transmitCycleCounter()
+      transmitCycleCounter(),
+      serverRpcPool()
 {
     const char *ibDeviceName = NULL;
 
@@ -754,10 +755,11 @@ InfRcTransport<Infiniband>::ServerRpc::sendReply()
     CycleCounter<Metric> _(&metrics->transport.transmit.ticks);
     ++metrics->transport.transmit.messageCount;
     ++metrics->transport.transmit.packetCount;
-    // "delete this;" on our way out of the method
-    boost::scoped_ptr<InfRcTransport::ServerRpc> suicide(this);
 
     InfRcTransport *t = transport;
+
+    // "t->serverRpcPool.destroy(this);" on our way out of the method
+    ServerRpcPoolGuard<ServerRpc> suicide(t->serverRpcPool, this);
 
     if (replyPayload.getTotalLength() > t->getMaxRpcSize()) {
         throw TransportException(HERE,
@@ -998,7 +1000,7 @@ InfRcTransport<Infiniband>::Poller::poll()
             }
 
             Header& header(*reinterpret_cast<Header*>(bd->buffer));
-            ServerRpc *r = new ServerRpc(t, qp, header.nonce);
+            ServerRpc *r = t->serverRpcPool.construct(t, qp, header.nonce);
             PayloadChunk::appendToBuffer(&r->requestPayload,
                 bd->buffer + downCast<uint32_t>(sizeof(header)),
                 wc.byte_len - downCast<uint32_t>(sizeof(header)),

@@ -17,6 +17,7 @@
 #include "Fence.h"
 #include "Initialize.h"
 #include "ShortMacros.h"
+#include "ServerRpcPool.h"
 #include "ServiceManager.h"
 
 namespace RAMCloud {
@@ -120,6 +121,8 @@ ServiceManager::addService(Service& service, RpcServiceType type) {
 void
 ServiceManager::handleRpc(Transport::ServerRpc* rpc)
 {
+    assert(rpc->epochIsSet());
+
     // Find the service for this RPC.
     const RpcRequestCommon* header;
     header = rpc->requestPayload.getStart<RpcRequestCommon>();
@@ -136,7 +139,7 @@ ServiceManager::handleRpc(Transport::ServerRpc* rpc)
             Service::prepareErrorResponse(rpc->replyPayload,
                     STATUS_MESSAGE_TOO_SHORT);
         } else {
-            LOG(WARNING, "Incoming RPC requested unavilable service %d",
+            LOG(WARNING, "Incoming RPC requested unavailable service %d",
                     header->service);
             Service::prepareErrorResponse(rpc->replyPayload,
                     STATUS_SERVICE_NOT_AVAILABLE);

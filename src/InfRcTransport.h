@@ -30,6 +30,7 @@
 #include "IpAddress.h"
 #include "Tub.h"
 #include "Segment.h"
+#include "ServerRpcPool.h"
 #include "ShortMacros.h"
 #include "Transport.h"
 #include "Infiniband.h"
@@ -327,6 +328,9 @@ class InfRcTransport : public Transport {
     // CycleCounter that's constructed when TX goes active and is destroyed
     // when all TX buffers have been reclaimed. Counts are added to metrics.
     Tub<CycleCounter<uint64_t>> transmitCycleCounter;
+
+    /// Pool allocator for our ServerRpc objects.
+    ServerRpcPool<ServerRpc> serverRpcPool;
 
     DISALLOW_COPY_AND_ASSIGN(InfRcTransport);
 };

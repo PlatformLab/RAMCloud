@@ -40,6 +40,7 @@ TESTS_SRCFILES := \
 		  src/MockTransport.cc \
 		  src/ObjectFinderTest.cc \
 		  src/OptionParserTest.cc \
+		  src/ObjectPoolTest.cc \
 		  src/PingServiceTest.cc \
 		  src/ProtoBufTest.cc \
 		  src/Recovery.cc \
@@ -47,6 +48,7 @@ TESTS_SRCFILES := \
 		  src/RecoveryTest.cc \
 		  src/SegmentTest.cc \
 		  src/SegmentIteratorTest.cc \
+		  src/ServerRpcPoolTest.cc \
 		  src/ServiceTest.cc \
 		  src/ServiceManagerTest.cc \
 		  src/ServiceLocatorTest.cc \
