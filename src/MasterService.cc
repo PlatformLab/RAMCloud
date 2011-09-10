@@ -112,6 +112,8 @@ MasterService::dispatch(RpcOpcode opcode, Rpc& rpc)
 {
     assert(initCalled);
 
+    boost::lock_guard<SpinLock> lock(objectUpdateLock);
+
     switch (opcode) {
         case CreateRpc::opcode:
             callHandler<CreateRpc, MasterService,
@@ -832,7 +834,6 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
                        RecoverRpc::Response& respHdr,
                        Rpc& rpc)
 {
-    boost::lock_guard<SpinLock> lock(objectUpdateLock);
 
     {
         CycleCounter<Metric> recoveryTicks(&metrics->master.recoveryTicks);
@@ -1124,8 +1125,6 @@ MasterService::remove(const RemoveRpc::Request& reqHdr,
                       RemoveRpc::Response& respHdr,
                       Rpc& rpc)
 {
-    boost::lock_guard<SpinLock> lock(objectUpdateLock);
-
     Table* table = getTable(reqHdr.tableId, reqHdr.id);
     if (table == NULL) {
         respHdr.common.status = STATUS_TABLE_DOESNT_EXIST;
@@ -1362,6 +1361,8 @@ objectLivenessCallback(LogEntryHandle handle, void* cookie)
     const Object* evictObj = handle->userData<Object>();
     assert(evictObj != NULL);
 
+    boost::lock_guard<SpinLock> lock(svr->objectUpdateLock);
+
     Table* t = svr->getTable(downCast<uint32_t>(evictObj->id.tableId),
                              evictObj->id.objectId);
     if (t == NULL)
@@ -1492,6 +1493,8 @@ objectScanCallback(LogEntryHandle handle, void* cookie)
     const Object* obj = handle->userData<Object>();
     assert(obj != NULL);
 
+    boost::lock_guard<SpinLock> lock(svr->objectUpdateLock);
+
     Table* t = svr->getTable(downCast<uint32_t>(obj->id.tableId),
                              obj->id.objectId);
     if (t == NULL) {
@@ -1527,6 +1530,8 @@ tombstoneLivenessCallback(LogEntryHandle handle, void* cookie)
 
     const ObjectTombstone* tomb = handle->userData<ObjectTombstone>();
     assert(tomb != NULL);
+
+    boost::lock_guard<SpinLock> lock(svr->objectUpdateLock);
 
     Table* t = svr->getTable(downCast<uint32_t>(tomb->id.tableId),
                              tomb->id.objectId);
@@ -1570,10 +1575,10 @@ tombstoneRelocationCallback(LogEntryHandle oldHandle,
     MasterService* svr = static_cast<MasterService *>(cookie);
     assert(svr != NULL);
 
-    Log& log = svr->log;
-
     const ObjectTombstone* tomb = oldHandle->userData<ObjectTombstone>();
     assert(tomb != NULL);
+
+    boost::lock_guard<SpinLock> lock(svr->objectUpdateLock);
 
     Table* table = svr->getTable(downCast<uint32_t>(tomb->id.tableId),
                              tomb->id.objectId);
@@ -1583,7 +1588,7 @@ tombstoneRelocationCallback(LogEntryHandle oldHandle,
     }
 
     // see if the referent is still there
-    bool keepNewTomb = log.isSegmentLive(tomb->segmentId);
+    bool keepNewTomb = svr->log.isSegmentLive(tomb->segmentId);
 
     // Remove the evicted entry whether it is discarded or not.
     // If it isn't to be discarded, we'll track it again in the
@@ -1633,6 +1638,8 @@ tombstoneScanCallback(LogEntryHandle handle, void* cookie)
 
     const ObjectTombstone* tomb = handle->userData<ObjectTombstone>();
     assert(tomb != NULL);
+
+    boost::lock_guard<SpinLock> lock(svr->objectUpdateLock);
 
     Table* t = svr->getTable(downCast<uint32_t>(tomb->id.tableId),
                              tomb->id.objectId);
@@ -1688,8 +1695,6 @@ MasterService::storeData(uint64_t tableId,
                          uint64_t* newVersion,
                          bool async)
 {
-    boost::lock_guard<SpinLock> lock(objectUpdateLock);
-
     Table* table = getTable(downCast<uint32_t>(tableId), id);
     if (table == NULL)
         return STATUS_TABLE_DOESNT_EXIST;
