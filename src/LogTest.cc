@@ -16,8 +16,10 @@
 #include "TestUtil.h"
 
 #include "Segment.h"
+#include "ServerRpcPool.h"
 #include "Log.h"
 #include "LogTypes.h"
+#include "Transport.h"
 
 namespace RAMCloud {
 
@@ -259,7 +261,7 @@ class LogTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT(seh != NULL);
         CPPUNIT_ASSERT(oldHead != l.head);
 
-        // execise regular head != NULL path
+        // exercise regular head != NULL path
         LogTime logTime = seh->logTime();
         LogTime nextTime;
         seh = l.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf), NULL);
@@ -404,12 +406,19 @@ class LogTest : public CppUnit::TestFixture {
         // cleanableNew deallocated by log destructor
     }
 
+    // Need a do-nothing subclass of the abstract parent type.
+    class TestServerRpc : public Transport::ServerRpc {
+        void sendReply() {}
+    };
+
     void
     test_cleaningComplete()
     {
         Tub<uint64_t> serverId;
         serverId.construct(57);
         Log l(serverId, 3 * 8192, 8192);
+
+        ServerRpcPoolInternal::currentEpoch = 5;
 
         Segment* cleanSeg = new Segment(&l, l.allocateSegmentId(),
             l.getFromFreeList(), 8192, NULL, LOG_ENTRY_TYPE_UNINIT,
@@ -430,6 +439,24 @@ class LogTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(1, l.cleanablePendingDigestList.size());
         CPPUNIT_ASSERT_EQUAL(1, l.freePendingDigestAndReferenceList.size());
         CPPUNIT_ASSERT_EQUAL(0, l.cleanableList.size());
+        CPPUNIT_ASSERT_EQUAL(6, ServerRpcPoolInternal::currentEpoch);
+        CPPUNIT_ASSERT_EQUAL(5, cleanSeg->cleanedEpoch);
+
+        // ensure that segments aren't freed until possibly conflicting RPCs
+        // are gone
+        l.freePendingDigestAndReferenceList.erase(
+            l.freePendingDigestAndReferenceList.iterator_to(*cleanSeg));
+        l.freePendingReferenceList.push_back(*cleanSeg);
+        ServerRpcPool<TestServerRpc> pool;
+        TestServerRpc* rpc = pool.construct();
+        clean.pop_back();
+        cleanSeg->cleanedEpoch = 6;
+        l.cleaningComplete(clean);
+        CPPUNIT_ASSERT_EQUAL(1, l.freePendingReferenceList.size());
+
+        pool.destroy(rpc);
+        l.cleaningComplete(clean);
+        CPPUNIT_ASSERT_EQUAL(0, l.freePendingReferenceList.size());
 
         // Segments above are deallocated by log destructor
     }

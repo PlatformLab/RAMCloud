@@ -206,7 +206,13 @@ class Segment {
     bool              canRollBack;  // Can we roll back the last entry?
     bool              closed;       // When true, no appends permitted
     SpinLock          mutex;        // Lock to protect against concurrent access
+
+    /*
+     * The following fields are only used externally by the Log class;
+     * the Segment code does not touch them.
+     */
     IntrusiveListHook listEntries;  // list ptr for Log code to track state
+    uint64_t          cleanedEpoch; // epoch when this Segment was cleaned
 
     /**
      * A handle to the open segment on backups,
@@ -217,7 +223,7 @@ class Segment {
     friend class SegmentTest;
     friend class SegmentIteratorTest;
     friend class LogTest;
-    friend class Log;       // XXX- just for listEntries!
+    friend class Log;
 
     DISALLOW_COPY_AND_ASSIGN(Segment);
 };

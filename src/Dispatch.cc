@@ -165,7 +165,7 @@ Dispatch::poll()
         // Make sure that the read of readyEvents doesn't get reordered either
         // before we see readyFd or after we change it (otherwise could
         // read the wrong value).
-        Fence::lfence(); 
+        Fence::lfence();
         int events = readyEvents;
         Fence::lfence();
         readyFd = -1;

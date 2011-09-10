@@ -80,6 +80,7 @@ Segment::Segment(Log *log,
       closed(false),
       mutex(),
       listEntries(),
+      cleanedEpoch(-1),
       backupSegment(NULL)
 {
     commonConstructor(type, buffer, length);
@@ -122,6 +123,7 @@ Segment::Segment(uint64_t logId,
       closed(false),
       mutex(),
       listEntries(),
+      cleanedEpoch(-1),
       backupSegment(NULL)
 {
     commonConstructor(LOG_ENTRY_TYPE_INVALID, NULL, 0);
