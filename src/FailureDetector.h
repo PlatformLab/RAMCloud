@@ -34,7 +34,7 @@ class FailureDetector {
     ~FailureDetector();
     void mainLoop();
 
-  private:
+  PRIVATE:
     /// The TimeoutQueue contains a list of previously-issued pings,
     /// in non-descending cycle count order of transmission. It abstracts
     /// out the tracking of outstanding requests, their timing out, how
@@ -63,7 +63,7 @@ class FailureDetector {
         Tub<TimeoutEntry> dequeue(uint64_t nonce);
         uint64_t microsUntilNextTimeout();
 
-      private:
+      PRIVATE:
         std::list<TimeoutEntry> entries;    /// Timeouts in non-descending order
         uint64_t timeoutUsecs;              /// Common timeout for all entries
 

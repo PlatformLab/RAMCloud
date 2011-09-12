@@ -78,7 +78,7 @@ class SegmentIterator {
     bool                        isChecksumValid() const;
     bool                        isSegmentChecksumValid() const;
 
-  private:
+  PRIVATE:
     void            commonConstructor(bool ignoreCapacityMismatch);
     bool            isEntryValid(const SegmentEntry *entry) const;
 

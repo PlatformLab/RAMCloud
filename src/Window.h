@@ -111,7 +111,7 @@ class Window {
         return offset;
     }
 
-  private:
+  PRIVATE:
     uint32_t offset;              //!< Index in the virtual array of the first
                                   //!< element in the window.
 

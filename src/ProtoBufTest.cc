@@ -22,50 +22,35 @@ namespace RAMCloud {
 
 using namespace ProtoBuf; // NOLINT
 
-class ProtoBufTest : public CppUnit::TestFixture {
-    CPPUNIT_TEST_SUITE(ProtoBufTest);
-    CPPUNIT_TEST(test_serializeAndParse);
-    CPPUNIT_TEST(test_serializeToBuffer);
-    CPPUNIT_TEST(test_parseFromBuffer);
-    CPPUNIT_TEST_SUITE_END();
-
+class ProtoBufTest : public ::testing::Test {
   public:
     ProtoBufTest() {}
 
-    void setUp() {
-    }
-
-    void tearDown() {
-    }
-
-    void test_serializeAndParse() {
-        Buffer buf;
-        TestMessage in;
-        in.set_foo("bar");
-        uint32_t length = serializeToRequest(buf, in);
-        CPPUNIT_ASSERT(0 < length && length < 1024);
-        CPPUNIT_ASSERT_EQUAL(length, buf.getTotalLength());
-        TestMessage out;
-        parseFromRequest(buf, 0, length, out);
-        CPPUNIT_ASSERT_EQUAL(in.foo(), out.foo());
-    }
-
-    void test_serializeToBuffer() {
-        Buffer buf;
-        TestMessage msg;
-        CPPUNIT_ASSERT_THROW(serializeToRequest(buf, msg),
-                             RequestFormatError);
-    }
-
-    void test_parseFromBuffer() {
-        Buffer buf;
-        TestMessage msg;
-        CPPUNIT_ASSERT_THROW(parseFromRequest(buf, 0, 0, msg),
-                             RequestFormatError);
-    }
-
     DISALLOW_COPY_AND_ASSIGN(ProtoBufTest);
 };
-CPPUNIT_TEST_SUITE_REGISTRATION(ProtoBufTest);
+
+TEST_F(ProtoBufTest, serializeAndParse) {
+    Buffer buf;
+    TestMessage in;
+    in.set_foo("bar");
+    uint32_t length = serializeToRequest(buf, in);
+    EXPECT_TRUE(0 < length && length < 1024);
+    EXPECT_EQ(length, buf.getTotalLength());
+    TestMessage out;
+    parseFromRequest(buf, 0, length, out);
+    EXPECT_EQ(in.foo(), out.foo());
+}
+
+TEST_F(ProtoBufTest, serializeToBuffer) {
+    Buffer buf;
+    TestMessage msg;
+    EXPECT_THROW(serializeToRequest(buf, msg), RequestFormatError);
+}
+
+TEST_F(ProtoBufTest, parseFromBuffer) {
+    Buffer buf;
+    TestMessage msg;
+    EXPECT_THROW(parseFromRequest(buf, 0, 0, msg), RequestFormatError);
+}
 
 }  // namespace RAMCloud

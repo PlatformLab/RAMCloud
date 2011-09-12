@@ -72,7 +72,7 @@ class Recovery : public BaseRecovery {
     void start();
     bool tabletsRecovered(const ProtoBuf::Tablets& tablets);
 
-  private:
+  PRIVATE:
     // Only used in Recovery::buildSegmentIdToBackups().
     struct BackupStartTask {
         BackupStartTask(const ProtoBuf::ServerList::Entry& backupHost,

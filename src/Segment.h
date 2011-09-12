@@ -173,7 +173,7 @@ class Segment {
 #endif
     static const uint64_t  INVALID_SEGMENT_ID = ~(0ull);
 
-  private:
+  PRIVATE:
     void               commonConstructor(LogEntryType type,
                                          const void *buffer, uint32_t length);
     uint32_t           locklessAppendableBytes(size_t afterEntryBytes = 0)const;
@@ -407,7 +407,7 @@ class _SegmentEntryHandle {
         throw Exception(HERE, "not of object or object tombstone types");
     }
 
-  private:
+  PRIVATE:
     /*/
      * ``this'' always points to a SegmentEntry structure, so return it.
      */

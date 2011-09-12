@@ -89,55 +89,6 @@ class MockRestartingTask {
     DISALLOW_COPY_AND_ASSIGN(MockRestartingTask);
 };
 
-// maxOutstanding == 1
-TEST(ClientTest, sequential) {
-    for (uint32_t i = 0; i < 100; ++i) {
-        Tub<MockTask> tasks[5];
-        foreach (auto& task, tasks)
-            task.construct();
-        parallelRun(tasks, arrayLength(tasks), 1);
-        foreach (auto& task, tasks)
-            EXPECT_TRUE(task->isDone());
-    }
-}
-
-// numTasks <= maxOutstanding
-TEST(ClientTest, startAllInitially) {
-    for (uint32_t i = 0; i < 100; ++i) {
-        Tub<MockTask> tasks[5];
-        foreach (auto& task, tasks)
-            task.construct();
-        parallelRun(tasks, arrayLength(tasks), 5);
-        foreach (auto& task, tasks)
-            EXPECT_TRUE(task->isDone());
-    }
-}
-
-// numTasks > maxOutstanding
-TEST(ClientTest, normal) {
-    for (uint32_t i = 0; i < 100; ++i) {
-        Tub<MockTask> tasks[10];
-        foreach (auto& task, tasks)
-            task.construct();
-        parallelRun(tasks, arrayLength(tasks), 4);
-        foreach (auto& task, tasks)
-            EXPECT_TRUE(task->isDone());
-    }
-}
-
-TEST(ClientTest, restartingTasks) {
-    for (uint32_t i = 0; i < 20; ++i) {
-        Tub<MockRestartingTask> tasks[10];
-        foreach (auto& task, tasks)
-            task.construct();
-        parallelRun(tasks, arrayLength(tasks), 4);
-        foreach (auto& task, tasks)
-            EXPECT_TRUE(task->isDone());
-    }
-}
-
-/////
-
 struct TestRpc {
     static const RpcOpcode opcode = PING;
     static const RpcServiceType service = RpcServiceType(0);
@@ -153,101 +104,139 @@ struct TestRpc {
     };
 };
 
-class ClientTest : public CppUnit::TestFixture {
-    CPPUNIT_TEST_SUITE(ClientTest);
-    CPPUNIT_TEST(test_allocHeader);
-    CPPUNIT_TEST(test_sendRecv_normal);
-    CPPUNIT_TEST(test_sendRecv_shortResponse);
-    CPPUNIT_TEST(test_checkStatus);
-    CPPUNIT_TEST(test_throwShortResponseError);
-    CPPUNIT_TEST_SUITE_END();
-
+class ClientTest : public ::testing::Test {
+  public:
     Client client;
     MockTransport* transport;
     Transport::SessionRef session;
 
-  public:
-    ClientTest() : client(), transport(NULL), session() {}
-
-    void setUp() {
+    ClientTest() : client(), transport(NULL), session()
+    {
         client.status = STATUS_OK;
         transport = new MockTransport();
         transportManager.registerMock(transport);
         session = transport->getSession();
     }
 
-    void tearDown() {
+    ~ClientTest()
+    {
         transportManager.unregisterMock();
         delete transport;
     }
 
-    void test_allocHeader() {
-        Buffer req;
-        TestRpc::Request& reqHdr = client.allocHeader<TestRpc>(req);
-        CPPUNIT_ASSERT_EQUAL(0, reqHdr.x);
-        CPPUNIT_ASSERT_EQUAL(PING, reqHdr.common.opcode);
-    }
-
-    void test_sendRecv_normal() {
-        Buffer req, resp;
-        transport->setInput("3 0x12345678");
-        const TestRpc::Response& respHdr(
-            client.sendRecv<TestRpc>(session, req, resp));
-        CPPUNIT_ASSERT_EQUAL(static_cast<Status>(3), client.status);
-        CPPUNIT_ASSERT_EQUAL(0x12345678, respHdr.y);
-    }
-
-    void test_sendRecv_shortResponse() {
-        Buffer req, resp;
-        transport->setInput("");
-        CPPUNIT_ASSERT_THROW(client.sendRecv<TestRpc>(session, req, resp),
-                             ResponseFormatError);
-    }
-
-    void test_checkStatus() {
-        client.status = STATUS_MESSAGE_TOO_SHORT;
-        CPPUNIT_ASSERT_THROW(client.checkStatus(HERE), MessageTooShortError);
-    }
-
-    void test_throwShortResponseError() {
-        Buffer b;
-        Status status;
-
-        // Response says "success".
-        b.fillFromString("0 0");
-        status = STATUS_OK;
-        try {
-            client.throwShortResponseError(b);
-        } catch (ClientException& e) {
-            status = e.status;
-        }
-        CPPUNIT_ASSERT_EQUAL(9, status);
-
-        // Valid RpcResponseCommon with error status.
-        b.reset();
-        b.fillFromString("7 0");
-        status = STATUS_OK;
-        try {
-            client.throwShortResponseError(b);
-        } catch (ClientException& e) {
-            status = e.status;
-        }
-        CPPUNIT_ASSERT_EQUAL(7, status);
-
-        // Response too short for RpcResponseCommon.
-        b.reset();
-        b.fillFromString("a");
-        status = STATUS_OK;
-        try {
-            client.throwShortResponseError(b);
-        } catch (ClientException& e) {
-            status = e.status;
-        }
-        CPPUNIT_ASSERT_EQUAL(9, status);
-    }
-
     DISALLOW_COPY_AND_ASSIGN(ClientTest);
 };
-CPPUNIT_TEST_SUITE_REGISTRATION(ClientTest);
+
+// maxOutstanding == 1
+TEST_F(ClientTest, sequential) {
+    for (uint32_t i = 0; i < 100; ++i) {
+        Tub<MockTask> tasks[5];
+        foreach (auto& task, tasks)
+            task.construct();
+        parallelRun(tasks, arrayLength(tasks), 1);
+        foreach (auto& task, tasks)
+            EXPECT_TRUE(task->isDone());
+    }
+}
+
+// numTasks <= maxOutstanding
+TEST_F(ClientTest, startAllInitially) {
+    for (uint32_t i = 0; i < 100; ++i) {
+        Tub<MockTask> tasks[5];
+        foreach (auto& task, tasks)
+            task.construct();
+        parallelRun(tasks, arrayLength(tasks), 5);
+        foreach (auto& task, tasks)
+            EXPECT_TRUE(task->isDone());
+    }
+}
+
+// numTasks > maxOutstanding
+TEST_F(ClientTest, normal) {
+    for (uint32_t i = 0; i < 100; ++i) {
+        Tub<MockTask> tasks[10];
+        foreach (auto& task, tasks)
+            task.construct();
+        parallelRun(tasks, arrayLength(tasks), 4);
+        foreach (auto& task, tasks)
+            EXPECT_TRUE(task->isDone());
+    }
+}
+
+TEST_F(ClientTest, restartingTasks) {
+    for (uint32_t i = 0; i < 20; ++i) {
+        Tub<MockRestartingTask> tasks[10];
+        foreach (auto& task, tasks)
+            task.construct();
+        parallelRun(tasks, arrayLength(tasks), 4);
+        foreach (auto& task, tasks)
+            EXPECT_TRUE(task->isDone());
+    }
+}
+
+TEST_F(ClientTest, allocHeader) {
+    Buffer req;
+    TestRpc::Request& reqHdr = client.allocHeader<TestRpc>(req);
+    EXPECT_EQ(0U, reqHdr.x);
+    EXPECT_EQ(PING, reqHdr.common.opcode);
+}
+
+TEST_F(ClientTest, sendRecv_normal) {
+    Buffer req, resp;
+    transport->setInput("3 0x12345678");
+    const TestRpc::Response& respHdr(
+        client.sendRecv<TestRpc>(session, req, resp));
+    EXPECT_EQ(static_cast<Status>(3), client.status);
+    EXPECT_EQ(0x12345678U, respHdr.y);
+}
+
+TEST_F(ClientTest, sendRecv_shortResponse) {
+    Buffer req, resp;
+    transport->setInput("");
+    EXPECT_THROW(client.sendRecv<TestRpc>(session, req, resp),
+                            ResponseFormatError);
+}
+
+TEST_F(ClientTest, checkStatus) {
+    client.status = STATUS_MESSAGE_TOO_SHORT;
+    EXPECT_THROW(client.checkStatus(HERE), MessageTooShortError);
+}
+
+TEST_F(ClientTest, throwShortResponseError) {
+    Buffer b;
+    Status status;
+
+    // Response says "success".
+    b.fillFromString("0 0");
+    status = STATUS_OK;
+    try {
+        client.throwShortResponseError(b);
+    } catch (ClientException& e) {
+        status = e.status;
+    }
+    EXPECT_EQ(9, status);
+
+    // Valid RpcResponseCommon with error status.
+    b.reset();
+    b.fillFromString("7 0");
+    status = STATUS_OK;
+    try {
+        client.throwShortResponseError(b);
+    } catch (ClientException& e) {
+        status = e.status;
+    }
+    EXPECT_EQ(7, status);
+
+    // Response too short for RpcResponseCommon.
+    b.reset();
+    b.fillFromString("a");
+    status = STATUS_OK;
+    try {
+        client.throwShortResponseError(b);
+    } catch (ClientException& e) {
+        status = e.status;
+    }
+    EXPECT_EQ(9, status);
+}
 
 }  // namespace RAMCloud

@@ -30,44 +30,39 @@ class Person {
 INTRUSIVE_LIST_TYPEDEF(Person, queueEntries) PersonList;
 static PersonList personList;
 
-class BoostIntrusiveTest : public CppUnit::TestFixture {
-    CPPUNIT_TEST_SUITE(BoostIntrusiveTest);
-    CPPUNIT_TEST(test_list_example);
-    CPPUNIT_TEST_SUITE_END();
-
-  public:
-    void test_list_example() {
-        Person x, y, z;
-
-        personList.push_back(x);
-        personList.push_back(y);
-        personList.push_back(z);
-
-        CPPUNIT_ASSERT_EQUAL(&x, &personList.front());
-        CPPUNIT_ASSERT_EQUAL(&z, &personList.back());
-
-        int count = 0;
-        PersonList::iterator iter(personList.begin());
-        while (iter != personList.end()) {
-            ++count;
-            ++iter;
-        }
-        CPPUNIT_ASSERT_EQUAL(count, personList.size());
-
-        count = 0;
-        foreach (Person& person, personList) {
-            if (person.name.empty()) {}
-            ++count;
-        }
-        CPPUNIT_ASSERT_EQUAL(count, personList.size());
-
-        // boost has an assertion by default in the destructor for
-        // IntrusiveListHook that makes sure it's not currently a part of a
-        // list. Without taking x, y, and z off the list before the end of
-        // this scope, that assertion will fail.
-        personList.clear();
-    }
+class BoostIntrusiveTest : public ::testing::Test {
 };
-CPPUNIT_TEST_SUITE_REGISTRATION(BoostIntrusiveTest);
+
+TEST_F(BoostIntrusiveTest, list_example) {
+    Person x, y, z;
+
+    personList.push_back(x);
+    personList.push_back(y);
+    personList.push_back(z);
+
+    EXPECT_EQ(&x, &personList.front());
+    EXPECT_EQ(&z, &personList.back());
+
+    uint32_t count = 0;
+    PersonList::iterator iter(personList.begin());
+    while (iter != personList.end()) {
+        ++count;
+        ++iter;
+    }
+    EXPECT_EQ(count, personList.size());
+
+    count = 0;
+    foreach (Person& person, personList) {
+        if (person.name.empty()) {}
+        ++count;
+    }
+    EXPECT_EQ(count, personList.size());
+
+    // boost has an assertion by default in the destructor for
+    // IntrusiveListHook that makes sure it's not currently a part of a
+    // list. Without taking x, y, and z off the list before the end of
+    // this scope, that assertion will fail.
+    personList.clear();
+}
 
 }  // namespace RAMCloud

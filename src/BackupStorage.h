@@ -114,7 +114,7 @@ class BackupStorage {
             allocatedHandlesCount++;
         }
 
-      private:
+      PRIVATE:
         static int32_t allocatedHandlesCount;
 
       DISALLOW_COPY_AND_ASSIGN(Handle);
@@ -231,7 +231,7 @@ class SingleFileStorage : public BackupStorage {
             return segmentFrame;
         }
 
-      private:
+      PRIVATE:
         uint32_t segmentFrame;
 
       DISALLOW_COPY_AND_ASSIGN(Handle);
@@ -252,7 +252,7 @@ class SingleFileStorage : public BackupStorage {
     virtual void putSegment(const BackupStorage::Handle* handle,
                             const char* segment) const;
 
-  private:
+  PRIVATE:
     uint64_t offsetOfSegmentFrame(uint32_t segmentFrame) const;
     void reserveSpace();
 
@@ -301,7 +301,7 @@ class InMemoryStorage : public BackupStorage {
      * is backed up at in RAM.
      */
     class Handle : public BackupStorage::Handle {
-      private:
+      PRIVATE:
         /// A pool of segmentSize chunks used to store segments.
         typedef boost::pool<SegmentAllocator> Pool;
 
@@ -322,7 +322,7 @@ class InMemoryStorage : public BackupStorage {
             return address;
         }
 
-      private:
+      PRIVATE:
         /// See Handle.
         char* address;
 
@@ -341,7 +341,7 @@ class InMemoryStorage : public BackupStorage {
     virtual void putSegment(const BackupStorage::Handle* handle,
                             const char* segment) const;
 
-  private:
+  PRIVATE:
     typedef boost::pool<SegmentAllocator> Pool;
     /// A pool of segmentSize chunks used to store segments.
     Pool pool;

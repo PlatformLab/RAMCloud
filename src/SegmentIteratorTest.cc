@@ -24,238 +24,210 @@ namespace RAMCloud {
 /**
  * Unit tests for SegmentIterator.
  */
-class SegmentIteratorTest : public CppUnit::TestFixture {
-
-    DISALLOW_COPY_AND_ASSIGN(SegmentIteratorTest); // NOLINT
-
-    CPPUNIT_TEST_SUITE(SegmentIteratorTest);
-    CPPUNIT_TEST(test_constructor);
-    CPPUNIT_TEST(test_isEntryValid);
-    CPPUNIT_TEST(test_isDone);
-    CPPUNIT_TEST(test_next);
-    CPPUNIT_TEST(test_getters);
-    CPPUNIT_TEST(test_isChecksumValid);
-    CPPUNIT_TEST(test_isSegmentChecksumValid);
-    CPPUNIT_TEST(test_generateChecksum);
-    CPPUNIT_TEST_SUITE_END();
-
+class SegmentIteratorTest : public ::testing::Test {
   public:
     SegmentIteratorTest() {}
 
-    void
-    test_constructor()
-    {
-        char alignedBuf[8192] __attribute__((aligned(8192)));
-        memset(alignedBuf, 0, sizeof(alignedBuf));
+  private:
+    DISALLOW_COPY_AND_ASSIGN(SegmentIteratorTest);
+};
 
+TEST_F(SegmentIteratorTest, constructor) {
+    char alignedBuf[8192] __attribute__((aligned(8192)));
+    memset(alignedBuf, 0, sizeof(alignedBuf));
+
+    Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf));
+
+    SegmentIterator si(&s);
+    EXPECT_EQ((const void *)alignedBuf, si.baseAddress);
+    EXPECT_EQ(sizeof(alignedBuf), si.segmentCapacity);
+    EXPECT_EQ(98765U, si.id);
+    EXPECT_EQ(LOG_ENTRY_TYPE_SEGHEADER, si.type);
+    EXPECT_EQ(sizeof(SegmentHeader), si.length);
+    EXPECT_EQ(reinterpret_cast<const char *>(si.baseAddress) +
+        sizeof(SegmentEntry), reinterpret_cast<const char *>(si.blobPtr));
+    EXPECT_EQ(si.baseAddress, (const void *)si.firstEntry);
+    EXPECT_EQ(si.baseAddress, (const void *)si.currentEntry);
+    EXPECT_FALSE(si.sawFooter);
+
+    SegmentIterator si2(alignedBuf, sizeof(alignedBuf));
+    EXPECT_EQ((const void *)alignedBuf, si2.baseAddress);
+    EXPECT_EQ(sizeof(alignedBuf), si2.segmentCapacity);
+    EXPECT_EQ(98765U, si2.id);
+    EXPECT_EQ(LOG_ENTRY_TYPE_SEGHEADER, si2.type);
+    EXPECT_EQ(sizeof(SegmentHeader), si2.length);
+    EXPECT_EQ(reinterpret_cast<const char *>(si2.baseAddress) +
+        sizeof(SegmentEntry), reinterpret_cast<const char *>(si2.blobPtr));
+    EXPECT_EQ(si2.baseAddress, (const void *)si2.firstEntry);
+    EXPECT_EQ(si2.baseAddress, (const void *)si2.currentEntry);
+    EXPECT_FALSE(si2.sawFooter);
+
+    EXPECT_THROW(
+        SegmentIterator si3(alignedBuf, sizeof(alignedBuf) - 1),
+        SegmentIteratorException);
+
+    memset(alignedBuf, 0, sizeof(SegmentEntry));
+    EXPECT_THROW(
+        SegmentIterator si3(alignedBuf, sizeof(alignedBuf)),
+        SegmentIteratorException);
+}
+
+TEST_F(SegmentIteratorTest, isEntryValid) {
+    char alignedBuf[8192] __attribute__((aligned(8192)));
+    memset(alignedBuf, 0, sizeof(alignedBuf));
+
+    Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf));
+    SegmentIterator si(&s);
+
+    SegmentEntry *se = reinterpret_cast<SegmentEntry *>(alignedBuf);
+    EXPECT_TRUE(si.isEntryValid(se));
+
+    se->length = sizeof(alignedBuf) - sizeof(SegmentEntry);
+    EXPECT_TRUE(si.isEntryValid(se));
+
+    se->length++;
+    EXPECT_FALSE(si.isEntryValid(se));
+}
+
+TEST_F(SegmentIteratorTest, isDone) {
+    char alignedBuf[8192] __attribute__((aligned(8192)));
+    memset(alignedBuf, 0, sizeof(alignedBuf));
+
+    Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf));
+    SegmentIterator si(&s);
+
+    EXPECT_FALSE(si.isDone());
+
+    si.sawFooter = true;
+    EXPECT_TRUE(si.isDone());
+
+    si.sawFooter = false;
+    SegmentEntry *se = reinterpret_cast<SegmentEntry *>(alignedBuf);
+    se->length = sizeof(alignedBuf) + 1;
+    EXPECT_TRUE(si.isDone());
+}
+
+TEST_F(SegmentIteratorTest, next) {
+    char alignedBuf[8192] __attribute__((aligned(8192)));
+    memset(alignedBuf, 0, sizeof(alignedBuf));
+
+    {
         Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf));
-
         SegmentIterator si(&s);
-        CPPUNIT_ASSERT_EQUAL((const void *)alignedBuf, si.baseAddress);
-        CPPUNIT_ASSERT_EQUAL(sizeof(alignedBuf), si.segmentCapacity);
-        CPPUNIT_ASSERT_EQUAL(98765, si.id);
-        CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGHEADER, si.type);
-        CPPUNIT_ASSERT_EQUAL(sizeof(SegmentHeader), si.length);
-        CPPUNIT_ASSERT_EQUAL(reinterpret_cast<const char *>(si.baseAddress) +
-            sizeof(SegmentEntry), reinterpret_cast<const char *>(si.blobPtr));
-        CPPUNIT_ASSERT_EQUAL(si.baseAddress, (const void *)si.firstEntry);
-        CPPUNIT_ASSERT_EQUAL(si.baseAddress, (const void *)si.currentEntry);
-        CPPUNIT_ASSERT_EQUAL(false, si.sawFooter);
-
-        SegmentIterator si2(alignedBuf, sizeof(alignedBuf));
-        CPPUNIT_ASSERT_EQUAL((const void *)alignedBuf, si2.baseAddress);
-        CPPUNIT_ASSERT_EQUAL(sizeof(alignedBuf), si2.segmentCapacity);
-        CPPUNIT_ASSERT_EQUAL(98765, si2.id);
-        CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGHEADER, si2.type);
-        CPPUNIT_ASSERT_EQUAL(sizeof(SegmentHeader), si2.length);
-        CPPUNIT_ASSERT_EQUAL(reinterpret_cast<const char *>(si2.baseAddress) +
-            sizeof(SegmentEntry), reinterpret_cast<const char *>(si2.blobPtr));
-        CPPUNIT_ASSERT_EQUAL(si2.baseAddress, (const void *)si2.firstEntry);
-        CPPUNIT_ASSERT_EQUAL(si2.baseAddress, (const void *)si2.currentEntry);
-        CPPUNIT_ASSERT_EQUAL(false, si2.sawFooter);
-
-        CPPUNIT_ASSERT_THROW(
-            SegmentIterator si3(alignedBuf, sizeof(alignedBuf) - 1),
-            SegmentIteratorException);
-
-        memset(alignedBuf, 0, sizeof(SegmentEntry));
-        CPPUNIT_ASSERT_THROW(
-            SegmentIterator si3(alignedBuf, sizeof(alignedBuf)),
-            SegmentIteratorException);
-    }
-
-    void
-    test_isEntryValid()
-    {
-        char alignedBuf[8192] __attribute__((aligned(8192)));
-        memset(alignedBuf, 0, sizeof(alignedBuf));
-
-        Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf));
-        SegmentIterator si(&s);
-
-        SegmentEntry *se = reinterpret_cast<SegmentEntry *>(alignedBuf);
-        CPPUNIT_ASSERT_EQUAL(true, si.isEntryValid(se));
-
-        se->length = sizeof(alignedBuf) - sizeof(SegmentEntry);
-        CPPUNIT_ASSERT_EQUAL(true, si.isEntryValid(se));
-
-        se->length++;
-        CPPUNIT_ASSERT_EQUAL(false, si.isEntryValid(se));
-    }
-
-    void
-    test_isDone()
-    {
-        char alignedBuf[8192] __attribute__((aligned(8192)));
-        memset(alignedBuf, 0, sizeof(alignedBuf));
-
-        Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf));
-        SegmentIterator si(&s);
-
-        CPPUNIT_ASSERT_EQUAL(false, si.isDone());
-
-        si.sawFooter = true;
-        CPPUNIT_ASSERT_EQUAL(true, si.isDone());
-
-        si.sawFooter = false;
-        SegmentEntry *se = reinterpret_cast<SegmentEntry *>(alignedBuf);
-        se->length = sizeof(alignedBuf) + 1;
-        CPPUNIT_ASSERT_EQUAL(true, si.isDone());
-    }
-
-    void
-    test_next()
-    {
-        char alignedBuf[8192] __attribute__((aligned(8192)));
-        memset(alignedBuf, 0, sizeof(alignedBuf));
-
-        {
-            Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf));
-            SegmentIterator si(&s);
-
-            si.currentEntry = NULL;
-            si.next();
-            CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_INVALID, si.type);
-            CPPUNIT_ASSERT_EQUAL(0, si.length);
-            CPPUNIT_ASSERT_EQUAL(NULL, si.blobPtr);
-        }
-
-        {
-            Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf));
-            SegmentIterator si(&s);
-
-            SegmentEntry *se = const_cast<SegmentEntry *>(si.currentEntry);
-            se->type = LOG_ENTRY_TYPE_SEGFOOTER;
-            si.next();
-            CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_INVALID, si.type);
-            CPPUNIT_ASSERT_EQUAL(0, si.length);
-            CPPUNIT_ASSERT_EQUAL(NULL, si.blobPtr);
-            CPPUNIT_ASSERT_EQUAL(true, si.sawFooter);
-        }
-
-        {
-            Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf));
-            SegmentIterator si(&s);
-
-            SegmentEntry *se = const_cast<SegmentEntry *>(si.currentEntry);
-            se->length = sizeof(alignedBuf) + 1;
-            SegmentEntry *next = reinterpret_cast<SegmentEntry*>(
-                 reinterpret_cast<char*>(se) + sizeof(*se) + se->length);
-            next->length = 10 * 1024 * 1024;
-            si.next();
-            CPPUNIT_ASSERT_EQUAL(NULL, si.currentEntry);
-        }
-
-        {
-            Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf));
-            SegmentIterator si(&s);
-
-            s.close();
-            si.next();
-            CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGFOOTER, si.type);
-            CPPUNIT_ASSERT_EQUAL(sizeof(SegmentFooter), si.length);
-        }
-    }
-
-    void
-    test_getters()
-    {
-        char alignedBuf[8192] __attribute__((aligned(8192)));
-        memset(alignedBuf, 0, sizeof(alignedBuf));
-
-        Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf));
-
-        static char buf;
-        SegmentEntryHandle h = s.append(LOG_ENTRY_TYPE_OBJ, &buf, sizeof(buf));
-        SegmentIterator si(&s);
-
-        CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGHEADER, si.getType());
-        CPPUNIT_ASSERT_EQUAL(sizeof(SegmentHeader), si.getLength());
-        CPPUNIT_ASSERT_EQUAL(sizeof(SegmentEntry) + sizeof(SegmentHeader),
-            si.getLengthInLog());
-        CPPUNIT_ASSERT(si.getLogTime() == LogTime(98765, 0));
-        CPPUNIT_ASSERT_EQUAL((const void *)(alignedBuf + sizeof(SegmentEntry)),
-            si.getPointer());
-        CPPUNIT_ASSERT_EQUAL((uintptr_t)si.getPointer() -
-            (uintptr_t)si.baseAddress, si.getOffset());
-
-        si.next();
-        CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJ, si.getType());
-        CPPUNIT_ASSERT_EQUAL(sizeof(buf), si.getLength());
-        uint32_t segmentOffset = h->logTime().second;
-        CPPUNIT_ASSERT(si.getLogTime() == LogTime(98765, segmentOffset));
-        CPPUNIT_ASSERT(si.getLogTime() > LogTime(98765, 0));
 
         si.currentEntry = NULL;
-        CPPUNIT_ASSERT_THROW(si.getType(), SegmentIteratorException);
-        CPPUNIT_ASSERT_THROW(si.getLength(), SegmentIteratorException);
-        CPPUNIT_ASSERT_THROW(si.getLengthInLog(), SegmentIteratorException);
-        CPPUNIT_ASSERT_THROW(si.getLogTime(), SegmentIteratorException);
-        CPPUNIT_ASSERT_THROW(si.getPointer(), SegmentIteratorException);
-        CPPUNIT_ASSERT_THROW(si.getType(), SegmentIteratorException);
+        si.next();
+        EXPECT_EQ(LOG_ENTRY_TYPE_INVALID, si.type);
+        EXPECT_EQ(0U, si.length);
+        EXPECT_TRUE(NULL == si.blobPtr);
     }
 
-    void
-    test_generateChecksum()
     {
-        char alignedBuf[8192] __attribute__((aligned(8192)));
-        memset(alignedBuf, 0, sizeof(alignedBuf));
-        Segment s(1, 2, alignedBuf, sizeof(alignedBuf));
-        SegmentIterator i(&s);
-        CPPUNIT_ASSERT_EQUAL(0x0bd2d711, i.generateChecksum());
+        Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf));
+        SegmentIterator si(&s);
+
+        SegmentEntry *se = const_cast<SegmentEntry *>(si.currentEntry);
+        se->type = LOG_ENTRY_TYPE_SEGFOOTER;
+        si.next();
+        EXPECT_EQ(LOG_ENTRY_TYPE_INVALID, si.type);
+        EXPECT_EQ(0U, si.length);
+        EXPECT_TRUE(NULL == si.blobPtr);
+        EXPECT_TRUE(si.sawFooter);
     }
 
-    void
-    test_isChecksumValid()
     {
-        char alignedBuf[8192] __attribute__((aligned(8192)));
-        memset(alignedBuf, 0, sizeof(alignedBuf));
-        Segment s(1, 2, alignedBuf, sizeof(alignedBuf));
-        SegmentIterator i(&s);
-        CPPUNIT_ASSERT_EQUAL(true, i.isChecksumValid());
-        alignedBuf[sizeof(SegmentEntry)]++;
-        CPPUNIT_ASSERT_EQUAL(false, i.isChecksumValid());
+        Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf));
+        SegmentIterator si(&s);
+
+        SegmentEntry *se = const_cast<SegmentEntry *>(si.currentEntry);
+        se->length = sizeof(alignedBuf) + 1;
+        SegmentEntry *next = reinterpret_cast<SegmentEntry*>(
+                reinterpret_cast<char*>(se) + sizeof(*se) + se->length);
+        next->length = 10 * 1024 * 1024;
+        si.next();
+        EXPECT_TRUE(NULL == si.currentEntry);
     }
 
-    void
-    test_isSegmentChecksumValid()
     {
-        char alignedBuf[8192] __attribute__((aligned(8192)));
-        memset(alignedBuf, 0, sizeof(alignedBuf));
+        Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf));
+        SegmentIterator si(&s);
 
-        Segment s(1, 2, alignedBuf, sizeof(alignedBuf));
-        CPPUNIT_ASSERT_THROW(SegmentIterator(
-            s.baseAddress, s.capacity).isSegmentChecksumValid(),
-            SegmentIteratorException);
         s.close();
-
-        CPPUNIT_ASSERT_EQUAL(true, SegmentIterator(
-            s.baseAddress, s.capacity).isSegmentChecksumValid());
-        alignedBuf[sizeof(SegmentEntry)]++;
-        CPPUNIT_ASSERT_EQUAL(false, SegmentIterator(
-            s.baseAddress, s.capacity).isSegmentChecksumValid());
+        si.next();
+        EXPECT_EQ(LOG_ENTRY_TYPE_SEGFOOTER, si.type);
+        EXPECT_EQ(sizeof(SegmentFooter), si.length);
     }
-};
-CPPUNIT_TEST_SUITE_REGISTRATION(SegmentIteratorTest);
+}
+
+TEST_F(SegmentIteratorTest, getters) {
+    char alignedBuf[8192] __attribute__((aligned(8192)));
+    memset(alignedBuf, 0, sizeof(alignedBuf));
+
+    Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf));
+
+    static char buf;
+    SegmentEntryHandle h = s.append(LOG_ENTRY_TYPE_OBJ, &buf, sizeof(buf));
+    SegmentIterator si(&s);
+
+    EXPECT_EQ(LOG_ENTRY_TYPE_SEGHEADER, si.getType());
+    EXPECT_EQ(sizeof(SegmentHeader), si.getLength());
+    EXPECT_EQ(sizeof(SegmentEntry) + sizeof(SegmentHeader),
+        si.getLengthInLog());
+    EXPECT_EQ(si.getLogTime(), LogTime(98765, 0));
+    EXPECT_EQ((const void *)(alignedBuf + sizeof(SegmentEntry)),
+        si.getPointer());
+    EXPECT_EQ((uintptr_t)si.getPointer() -
+        (uintptr_t)si.baseAddress, si.getOffset());
+
+    si.next();
+    EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, si.getType());
+    EXPECT_EQ(sizeof(buf), si.getLength());
+    uint32_t segmentOffset = h->logTime().second;
+    EXPECT_EQ(si.getLogTime(), LogTime(98765, segmentOffset));
+    EXPECT_TRUE(si.getLogTime() > LogTime(98765, 0));
+
+    si.currentEntry = NULL;
+    EXPECT_THROW(si.getType(), SegmentIteratorException);
+    EXPECT_THROW(si.getLength(), SegmentIteratorException);
+    EXPECT_THROW(si.getLengthInLog(), SegmentIteratorException);
+    EXPECT_THROW(si.getLogTime(), SegmentIteratorException);
+    EXPECT_THROW(si.getPointer(), SegmentIteratorException);
+    EXPECT_THROW(si.getType(), SegmentIteratorException);
+}
+
+TEST_F(SegmentIteratorTest, generateChecksum) {
+    char alignedBuf[8192] __attribute__((aligned(8192)));
+    memset(alignedBuf, 0, sizeof(alignedBuf));
+    Segment s(1, 2, alignedBuf, sizeof(alignedBuf));
+    SegmentIterator i(&s);
+    EXPECT_EQ(0x0bd2d711U, i.generateChecksum());
+}
+
+TEST_F(SegmentIteratorTest, isChecksumValid) {
+    char alignedBuf[8192] __attribute__((aligned(8192)));
+    memset(alignedBuf, 0, sizeof(alignedBuf));
+    Segment s(1, 2, alignedBuf, sizeof(alignedBuf));
+    SegmentIterator i(&s);
+    EXPECT_TRUE(i.isChecksumValid());
+    alignedBuf[sizeof(SegmentEntry)]++;
+    EXPECT_FALSE(i.isChecksumValid());
+}
+
+TEST_F(SegmentIteratorTest, isSegmentChecksumValid) {
+    char alignedBuf[8192] __attribute__((aligned(8192)));
+    memset(alignedBuf, 0, sizeof(alignedBuf));
+
+    Segment s(1, 2, alignedBuf, sizeof(alignedBuf));
+    EXPECT_THROW(SegmentIterator(
+        s.baseAddress, s.capacity).isSegmentChecksumValid(),
+        SegmentIteratorException);
+    s.close();
+
+    EXPECT_TRUE(SegmentIterator(
+        s.baseAddress, s.capacity).isSegmentChecksumValid());
+    alignedBuf[sizeof(SegmentEntry)]++;
+    EXPECT_FALSE(SegmentIterator(
+        s.baseAddress, s.capacity).isSegmentChecksumValid());
+}
 
 } // namespace RAMCloud

@@ -86,7 +86,7 @@ class TabletProfiler {
             BUCKET_SPLIT_OBJS;
     }
 
-  private:
+  PRIVATE:
     /// Bits of key space we shave off each level deeper in the structure.
     /// The first level covers the entire 64-bit range, whereas the next
     /// level only covers 2^(64 - BITS_PER_LEVEL), and so on. This also
@@ -119,7 +119,7 @@ class TabletProfiler {
         void addRangeNonLeaf(uint64_t rangeBytes, uint64_t rangeReferants);
         void done();
 
-      private:
+      PRIVATE:
         PartitionList* partitions;
 
         void pushCurrentTally(uint64_t lastKey,
@@ -181,7 +181,7 @@ class TabletProfiler {
                        this->bucketIndex == other.bucketIndex);
             }
 
-          private:
+          PRIVATE:
             Subrange* subrange;         /// Pointer to the Subrange referenced
             int       bucketIndex;      /// Index of the Bucket in subrange
 
@@ -208,7 +208,7 @@ class TabletProfiler {
         uint64_t     getFirstKey();
         uint64_t     getLastKey();
 
-      private:
+      PRIVATE:
         BucketHandle parent;            /// Handle to Subrange's parent Bucket
         uint64_t     bucketWidth;       /// Keyspace width of each Bucket
         Bucket      *buckets;           /// Array of Buckets

@@ -18,42 +18,36 @@
 
 namespace RAMCloud {
 
-class StatusTest : public CppUnit::TestFixture {
-
-    CPPUNIT_TEST_SUITE(StatusTest);
-    CPPUNIT_TEST(test_statusToString);
-    CPPUNIT_TEST(test_statusToSymbol);
-    CPPUNIT_TEST_SUITE_END();
-
+class StatusTest : public ::testing::Test {
   public:
     StatusTest() { }
 
-    void test_statusToString() {
-        // Make sure that Status value 0 always corresponds to success.
-        CPPUNIT_ASSERT_EQUAL("operation succeeded",
-                statusToString(Status(0)));
-        CPPUNIT_ASSERT_EQUAL("object has wrong version",
-                statusToString(STATUS_WRONG_VERSION));
-        CPPUNIT_ASSERT(statusToString(Status(STATUS_MAX_VALUE)) !=
-                       statusToString(Status(STATUS_MAX_VALUE + 1)));
-        CPPUNIT_ASSERT_EQUAL("unrecognized RAMCloud error",
-                statusToString(Status(STATUS_MAX_VALUE+1)));
-    }
-
-    void test_statusToSymbol() {
-        // Make sure that Status value 0 always corresponds to success.
-        CPPUNIT_ASSERT_EQUAL("STATUS_OK",
-                statusToSymbol(Status(0)));
-        CPPUNIT_ASSERT_EQUAL("STATUS_WRONG_VERSION",
-                statusToSymbol(STATUS_WRONG_VERSION));
-        CPPUNIT_ASSERT(statusToSymbol(Status(STATUS_MAX_VALUE)) !=
-                       statusToSymbol(Status(STATUS_MAX_VALUE + 1)));
-        CPPUNIT_ASSERT_EQUAL("STATUS_UNKNOWN",
-                statusToSymbol(Status(STATUS_MAX_VALUE+1)));
-    }
-
+  private:
     DISALLOW_COPY_AND_ASSIGN(StatusTest);
 };
-CPPUNIT_TEST_SUITE_REGISTRATION(StatusTest);
+
+TEST_F(StatusTest, statusToString) {
+    // Make sure that Status value 0 always corresponds to success.
+    EXPECT_STREQ("operation succeeded",
+            statusToString(Status(0)));
+    EXPECT_STREQ("object has wrong version",
+            statusToString(STATUS_WRONG_VERSION));
+    EXPECT_TRUE(statusToString(Status(STATUS_MAX_VALUE)) !=
+                    statusToString(Status(STATUS_MAX_VALUE + 1)));
+    EXPECT_STREQ("unrecognized RAMCloud error",
+            statusToString(Status(STATUS_MAX_VALUE+1)));
+}
+
+TEST_F(StatusTest, statusToSymbol) {
+    // Make sure that Status value 0 always corresponds to success.
+    EXPECT_STREQ("STATUS_OK",
+            statusToSymbol(Status(0)));
+    EXPECT_STREQ("STATUS_WRONG_VERSION",
+            statusToSymbol(STATUS_WRONG_VERSION));
+    EXPECT_TRUE(statusToSymbol(Status(STATUS_MAX_VALUE)) !=
+                    statusToSymbol(Status(STATUS_MAX_VALUE + 1)));
+    EXPECT_STREQ("STATUS_UNKNOWN",
+            statusToSymbol(Status(STATUS_MAX_VALUE+1)));
+}
 
 }  // namespace RAMCloud

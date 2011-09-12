@@ -31,293 +31,225 @@ namespace {
 const char* path = "/tmp/ramcloud-backup-storage-test-delete-this";
 };
 
-class SingleFileStorageTest : public CppUnit::TestFixture {
-
-    CPPUNIT_TEST_SUITE(SingleFileStorageTest);
-    CPPUNIT_TEST(test_constructor);
-    CPPUNIT_TEST(test_constructor_openFails);
-    CPPUNIT_TEST(test_allocate);
-    CPPUNIT_TEST(test_allocate_ensureFifoUse);
-    CPPUNIT_TEST(test_allocate_noFreeFrames);
-    CPPUNIT_TEST(test_free);
-    CPPUNIT_TEST(test_getSegment);
-    CPPUNIT_TEST(test_putSegment);
-    CPPUNIT_TEST(test_putSegment_seekFailed);
-    CPPUNIT_TEST_SUITE_END();
-
+class SingleFileStorageTest : public ::testing::Test {
+  public:
     const uint32_t segmentFrames;
     const uint32_t segmentSize;
     SingleFileStorage* storage;
 
-  public:
     SingleFileStorageTest()
         : segmentFrames(2)
         , segmentSize(8)
         , storage(NULL)
     {
-    }
-
-    void
-    setUp()
-    {
         storage = new SingleFileStorage(segmentSize, segmentFrames, path, 0);
     }
 
-    void
-    tearDown()
+    ~SingleFileStorageTest()
     {
         delete storage;
         unlink(path);
-        CPPUNIT_ASSERT_EQUAL(0,
+        EXPECT_EQ(0,
             BackupStorage::Handle::resetAllocatedHandlesCount());
     }
 
-    void
-    test_constructor()
-    {
-        struct stat s;
-        stat(path, &s);
-        CPPUNIT_ASSERT_EQUAL(segmentSize * segmentFrames, s.st_size);
-    }
-
-    void
-    test_constructor_openFails()
-    {
-        CPPUNIT_ASSERT_THROW(SingleFileStorage(segmentSize,
-                                               segmentFrames,
-                                               "/dev/null/cantcreate", 0),
-                             BackupStorageException);
-        CPPUNIT_ASSERT_EQUAL("Not a directory", strerror(errno));
-    }
-
-    void
-    test_allocate()
-    {
-        boost::scoped_ptr<BackupStorage::Handle>
-            handle(storage->allocate(99, 0));
-        CPPUNIT_ASSERT_EQUAL(0, storage->freeMap[0]);
-        CPPUNIT_ASSERT_EQUAL(0,
-            static_cast<SingleFileStorage::Handle*>(handle.get())->
-                getSegmentFrame());
-    }
-
-    void
-    test_allocate_ensureFifoUse()
-    {
-        BackupStorage::Handle* handle = storage->allocate(99, 0);
-        try {
-            CPPUNIT_ASSERT_EQUAL(0, storage->freeMap[0]);
-            CPPUNIT_ASSERT_EQUAL(0,
-                static_cast<SingleFileStorage::Handle*>(handle)->
-                    getSegmentFrame());
-            storage->free(handle);
-        } catch (...) {
-            delete handle;
-            throw;
-        }
-
-        handle = storage->allocate(99, 1);
-        try {
-            CPPUNIT_ASSERT_EQUAL(1, storage->freeMap[0]);
-            CPPUNIT_ASSERT_EQUAL(0, storage->freeMap[1]);
-            CPPUNIT_ASSERT_EQUAL(1,
-                static_cast<SingleFileStorage::Handle*>(handle)->
-                    getSegmentFrame());
-            storage->free(handle);
-        } catch (...) {
-            delete handle;
-            throw;
-        }
-
-        handle = storage->allocate(99, 2);
-        try {
-            CPPUNIT_ASSERT_EQUAL(0, storage->freeMap[0]);
-            CPPUNIT_ASSERT_EQUAL(1, storage->freeMap[1]);
-            CPPUNIT_ASSERT_EQUAL(0,
-                static_cast<SingleFileStorage::Handle*>(handle)->
-                    getSegmentFrame());
-            storage->free(handle);
-        } catch (...) {
-            delete handle;
-            throw;
-        }
-    }
-
-    void
-    test_allocate_noFreeFrames()
-    {
-        delete storage->allocate(99, 0);
-        delete storage->allocate(99, 1);
-        CPPUNIT_ASSERT_THROW(
-            boost::scoped_ptr<BackupStorage::Handle>(storage->allocate(99, 2)),
-            BackupStorageException);
-    }
-
-    void
-    test_free()
-    {
-        BackupStorage::Handle* handle = storage->allocate(99, 0);
-        storage->free(handle);
-
-        CPPUNIT_ASSERT_EQUAL(1, storage->freeMap[0]);
-
-        char buf[4];
-        lseek(storage->fd, storage->offsetOfSegmentFrame(0), SEEK_SET);
-        read(storage->fd, &buf[0], 4);
-        CPPUNIT_ASSERT_EQUAL('F', buf[0]);
-        CPPUNIT_ASSERT_EQUAL('E', buf[3]);
-    }
-
-    void
-    test_getSegment()
-    {
-        delete storage->allocate(99, 0);  // skip the first segment frame
-        boost::scoped_ptr<BackupStorage::Handle>
-            handle(storage->allocate(99, 1));
-
-        const char* src = "1234567";
-        char dst[segmentSize];
-
-        storage->putSegment(handle.get(), src);
-        storage->getSegment(handle.get(), dst);
-
-        CPPUNIT_ASSERT_EQUAL("1234567", dst);
-    }
-
-    void
-    test_putSegment()
-    {
-        delete storage->allocate(99, 0);  // skip the first segment frame
-        boost::scoped_ptr<BackupStorage::Handle>
-            handle(storage->allocate(99, 1));
-
-        const char* src = "1234567";
-        CPPUNIT_ASSERT_EQUAL(8, segmentSize);
-        char buf[segmentSize];
-
-        storage->putSegment(handle.get(), src);
-
-        lseek(storage->fd, storage->offsetOfSegmentFrame(1), SEEK_SET);
-        read(storage->fd, &buf[0], segmentSize);
-        CPPUNIT_ASSERT_EQUAL("1234567", buf);
-    }
-
-    void
-    test_putSegment_seekFailed()
-    {
-        boost::scoped_ptr<BackupStorage::Handle>
-            handle(storage->allocate(99, 1));
-        close(storage->fd);
-        char buf[segmentSize];
-        memset(buf, 0, sizeof(buf));
-        CPPUNIT_ASSERT_THROW(
-            storage->putSegment(handle.get(), buf),
-            BackupStorageException);
-        storage->fd = open(path, O_CREAT | O_RDWR, 0666); // supresses LOG ERROR
-    }
-
-    // offsetOfSegmentFrame: correct by proof by construction
-
-    // reserveSpace: tested by test_constructor
-
     DISALLOW_COPY_AND_ASSIGN(SingleFileStorageTest);
 };
-CPPUNIT_TEST_SUITE_REGISTRATION(SingleFileStorageTest);
 
-class InMemoryStorageTest : public CppUnit::TestFixture {
+TEST_F(SingleFileStorageTest, constructor) {
+    struct stat s;
+    stat(path, &s);
+    EXPECT_EQ(segmentSize * segmentFrames, s.st_size);
+}
 
-    CPPUNIT_TEST_SUITE(InMemoryStorageTest);
-    CPPUNIT_TEST(test_allocate);
-    CPPUNIT_TEST(test_allocate_noFreeFrames);
-    CPPUNIT_TEST(test_free);
-    CPPUNIT_TEST(test_getSegment);
-    CPPUNIT_TEST(test_putSegment);
-    CPPUNIT_TEST_SUITE_END();
+TEST_F(SingleFileStorageTest, openFails) {
+    EXPECT_THROW(SingleFileStorage(segmentSize,
+                                            segmentFrames,
+                                            "/dev/null/cantcreate", 0),
+                            BackupStorageException);
+    EXPECT_STREQ("Not a directory", strerror(errno));
+}
 
+TEST_F(SingleFileStorageTest, allocate) {
+    boost::scoped_ptr<BackupStorage::Handle>
+        handle(storage->allocate(99, 0));
+    EXPECT_EQ(0, storage->freeMap[0]);
+    EXPECT_EQ(0U,
+        static_cast<SingleFileStorage::Handle*>(handle.get())->
+            getSegmentFrame());
+}
+
+TEST_F(SingleFileStorageTest, allocate_ensureFifoUse) {
+    BackupStorage::Handle* handle = storage->allocate(99, 0);
+    try {
+        EXPECT_EQ(0, storage->freeMap[0]);
+        EXPECT_EQ(0U,
+            static_cast<SingleFileStorage::Handle*>(handle)->
+                getSegmentFrame());
+        storage->free(handle);
+    } catch (...) {
+        delete handle;
+        throw;
+    }
+
+    handle = storage->allocate(99, 1);
+    try {
+        EXPECT_EQ(1, storage->freeMap[0]);
+        EXPECT_EQ(0, storage->freeMap[1]);
+        EXPECT_EQ(1U,
+            static_cast<SingleFileStorage::Handle*>(handle)->
+                getSegmentFrame());
+        storage->free(handle);
+    } catch (...) {
+        delete handle;
+        throw;
+    }
+
+    handle = storage->allocate(99, 2);
+    try {
+        EXPECT_EQ(0, storage->freeMap[0]);
+        EXPECT_EQ(1, storage->freeMap[1]);
+        EXPECT_EQ(0U,
+            static_cast<SingleFileStorage::Handle*>(handle)->
+                getSegmentFrame());
+        storage->free(handle);
+    } catch (...) {
+        delete handle;
+        throw;
+    }
+}
+
+TEST_F(SingleFileStorageTest, allocate_noFreeFrames) {
+    delete storage->allocate(99, 0);
+    delete storage->allocate(99, 1);
+    EXPECT_THROW(
+        boost::scoped_ptr<BackupStorage::Handle>(storage->allocate(99, 2)),
+        BackupStorageException);
+}
+
+TEST_F(SingleFileStorageTest, free) {
+    BackupStorage::Handle* handle = storage->allocate(99, 0);
+    storage->free(handle);
+
+    EXPECT_EQ(1, storage->freeMap[0]);
+
+    char buf[4];
+    lseek(storage->fd, storage->offsetOfSegmentFrame(0), SEEK_SET);
+    read(storage->fd, &buf[0], 4);
+    EXPECT_EQ('F', buf[0]);
+    EXPECT_EQ('E', buf[3]);
+}
+
+TEST_F(SingleFileStorageTest, getSegment) {
+    delete storage->allocate(99, 0);  // skip the first segment frame
+    boost::scoped_ptr<BackupStorage::Handle>
+        handle(storage->allocate(99, 1));
+
+    const char* src = "1234567";
+    char dst[segmentSize];
+
+    storage->putSegment(handle.get(), src);
+    storage->getSegment(handle.get(), dst);
+
+    EXPECT_STREQ("1234567", dst);
+}
+
+TEST_F(SingleFileStorageTest, putSegment) {
+    delete storage->allocate(99, 0);  // skip the first segment frame
+    boost::scoped_ptr<BackupStorage::Handle>
+        handle(storage->allocate(99, 1));
+
+    const char* src = "1234567";
+    EXPECT_EQ(8U, segmentSize);
+    char buf[segmentSize];
+
+    storage->putSegment(handle.get(), src);
+
+    lseek(storage->fd, storage->offsetOfSegmentFrame(1), SEEK_SET);
+    read(storage->fd, &buf[0], segmentSize);
+    EXPECT_STREQ("1234567", buf);
+}
+
+TEST_F(SingleFileStorageTest, putSegment_seekFailed) {
+    boost::scoped_ptr<BackupStorage::Handle>
+        handle(storage->allocate(99, 1));
+    close(storage->fd);
+    char buf[segmentSize];
+    memset(buf, 0, sizeof(buf));
+    EXPECT_THROW(
+        storage->putSegment(handle.get(), buf),
+        BackupStorageException);
+    storage->fd = open(path, O_CREAT | O_RDWR, 0666); // supresses LOG ERROR
+}
+
+class InMemoryStorageTest : public ::testing::Test {
+  public:
     const uint32_t segmentFrames;
     const uint32_t segmentSize;
     InMemoryStorage* storage;
 
-  public:
     InMemoryStorageTest()
         : segmentFrames(2)
         , segmentSize(8)
         , storage(NULL)
     {
-    }
-
-    void
-    setUp()
-    {
         storage = new InMemoryStorage(segmentSize, segmentFrames);
     }
 
-    void
-    tearDown()
+    ~InMemoryStorageTest()
     {
         delete storage;
-        CPPUNIT_ASSERT_EQUAL(0,
+        EXPECT_EQ(0,
             BackupStorage::Handle::resetAllocatedHandlesCount());
-    }
-
-    void
-    test_allocate()
-    {
-        boost::scoped_ptr<BackupStorage::Handle>
-            handle(storage->allocate(99, 0));
-        CPPUNIT_ASSERT(0 !=
-            static_cast<InMemoryStorage::Handle*>(handle.get())->
-                getAddress());
-    }
-
-    void
-    test_allocate_noFreeFrames()
-    {
-        delete storage->allocate(99, 0);
-        delete storage->allocate(99, 1);
-        CPPUNIT_ASSERT_THROW(
-            boost::scoped_ptr<BackupStorage::Handle>(storage->allocate(99, 2)),
-            BackupStorageException);
-    }
-
-    void
-    test_free()
-    {
-        BackupStorage::Handle* handle = storage->allocate(99, 0);
-        storage->free(handle);
-    }
-
-    void
-    test_getSegment()
-    {
-        delete storage->allocate(99, 0);  // skip the first segment frame
-        boost::scoped_ptr<BackupStorage::Handle>
-            handle(storage->allocate(99, 1));
-
-        const char* src = "1234567";
-        char dst[segmentSize];
-
-        storage->putSegment(handle.get(), src);
-        storage->getSegment(handle.get(), dst);
-
-        CPPUNIT_ASSERT_EQUAL("1234567", dst);
-    }
-
-    void
-    test_putSegment()
-    {
-        delete storage->allocate(99, 0);  // skip the first segment frame
-        boost::scoped_ptr<BackupStorage::Handle>
-            handle(storage->allocate(99, 1));
-
-        const char* src = "1234567";
-        storage->putSegment(handle.get(), src);
-        CPPUNIT_ASSERT_EQUAL("1234567",
-            static_cast<InMemoryStorage::Handle*>(handle.get())->getAddress());
     }
 
     DISALLOW_COPY_AND_ASSIGN(InMemoryStorageTest);
 };
-CPPUNIT_TEST_SUITE_REGISTRATION(InMemoryStorageTest);
+
+TEST_F(InMemoryStorageTest, allocate) {
+    boost::scoped_ptr<BackupStorage::Handle>
+        handle(storage->allocate(99, 0));
+    EXPECT_TRUE(0 !=
+        static_cast<InMemoryStorage::Handle*>(handle.get())->
+            getAddress());
+}
+
+TEST_F(InMemoryStorageTest, allocate_noFreeFrames) {
+    delete storage->allocate(99, 0);
+    delete storage->allocate(99, 1);
+    EXPECT_THROW(
+        boost::scoped_ptr<BackupStorage::Handle>(storage->allocate(99, 2)),
+        BackupStorageException);
+}
+
+TEST_F(InMemoryStorageTest, free) {
+    BackupStorage::Handle* handle = storage->allocate(99, 0);
+    storage->free(handle);
+}
+
+TEST_F(InMemoryStorageTest, getSegment) {
+    delete storage->allocate(99, 0);  // skip the first segment frame
+    boost::scoped_ptr<BackupStorage::Handle>
+        handle(storage->allocate(99, 1));
+
+    const char* src = "1234567";
+    char dst[segmentSize];
+
+    storage->putSegment(handle.get(), src);
+    storage->getSegment(handle.get(), dst);
+
+    EXPECT_STREQ("1234567", dst);
+}
+
+TEST_F(InMemoryStorageTest, putSegment) {
+    delete storage->allocate(99, 0);  // skip the first segment frame
+    boost::scoped_ptr<BackupStorage::Handle>
+        handle(storage->allocate(99, 1));
+
+    const char* src = "1234567";
+    storage->putSegment(handle.get(), src);
+    EXPECT_STREQ("1234567",
+        static_cast<InMemoryStorage::Handle*>(handle.get())->getAddress());
+}
 
 } // namespace RAMCloud

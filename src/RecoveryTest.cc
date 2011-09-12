@@ -33,15 +33,8 @@ namespace RAMCloud {
 /**
  * Unit tests for Recovery.
  */
-class RecoveryTest : public CppUnit::TestFixture {
-
-    CPPUNIT_TEST_SUITE(RecoveryTest);
-    CPPUNIT_TEST(test_buildSegmentIdToBackups);
-    CPPUNIT_TEST(test_buildSegmentIdToBackups_secondariesEarlyInSomeList);
-    CPPUNIT_TEST(test_verifyCompleteLog);
-    CPPUNIT_TEST(test_start);
-    CPPUNIT_TEST(test_start_notEnoughMasters);
-    CPPUNIT_TEST_SUITE_END();
+class RecoveryTest : public ::testing::Test {
+  public:
 
     /**
      * Used to control precise timing of destruction of the Segment object
@@ -146,11 +139,6 @@ class RecoveryTest : public CppUnit::TestFixture {
         , storage3()
         , transport()
     {
-    }
-
-    void
-    setUp()
-    {
         logger.setLogLevels(SILENT_LOG_LEVEL);
 
         transport = new BindTransport;
@@ -229,8 +217,7 @@ class RecoveryTest : public CppUnit::TestFixture {
         }
     }
 
-    void
-    tearDown()
+    ~RecoveryTest()
     {
         delete backupHosts;
         delete masterHosts;
@@ -252,301 +239,289 @@ class RecoveryTest : public CppUnit::TestFixture {
         delete config3;
         transportManager.unregisterMock();
         delete transport;
-        CPPUNIT_ASSERT_EQUAL(0,
+        EXPECT_EQ(0,
             BackupStorage::Handle::resetAllocatedHandlesCount());
-    }
-
-    void
-    test_buildSegmentIdToBackups()
-    {
-        MockRandom _(1);
-        // Two segs on backup1, one that overlaps with backup2
-        segmentsToFree.push_back(
-            new WriteValidSegment(99, 88, { 88 }, segmentSize,
-                {"mock:host=backup1"}, true));
-        segmentsToFree.push_back(
-            new WriteValidSegment(99, 89, { 88, 89 }, segmentSize,
-                {"mock:host=backup1"}, false));
-        // One seg on backup2
-        segmentsToFree.push_back(
-            new WriteValidSegment(99, 88, { 88 }, segmentSize,
-                {"mock:host=backup2"}, true));
-        // Zero segs on backup3
-
-        ProtoBuf::Tablets tablets;
-        Recovery recovery(99, tablets, *masterHosts, *backupHosts);
-
-        CPPUNIT_ASSERT_EQUAL(3, recovery.backups.server_size());
-        {
-            const ProtoBuf::ServerList::Entry&
-                backup(recovery.backups.server(0));
-            CPPUNIT_ASSERT_EQUAL(89, backup.segment_id());
-            CPPUNIT_ASSERT_EQUAL("mock:host=backup1", backup.service_locator());
-            CPPUNIT_ASSERT_EQUAL(ProtoBuf::BACKUP, backup.server_type());
-        }{
-            const ProtoBuf::ServerList::Entry&
-                backup(recovery.backups.server(1));
-            CPPUNIT_ASSERT_EQUAL(88, backup.segment_id());
-            CPPUNIT_ASSERT_EQUAL("mock:host=backup2", backup.service_locator());
-            CPPUNIT_ASSERT_EQUAL(ProtoBuf::BACKUP, backup.server_type());
-        }{
-            const ProtoBuf::ServerList::Entry&
-                backup(recovery.backups.server(2));
-            CPPUNIT_ASSERT_EQUAL(88, backup.segment_id());
-            CPPUNIT_ASSERT_EQUAL("mock:host=backup1", backup.service_locator());
-            CPPUNIT_ASSERT_EQUAL(ProtoBuf::BACKUP, backup.server_type());
-        }
-    }
-
-    void
-    test_buildSegmentIdToBackups_secondariesEarlyInSomeList()
-    {
-        // Two segs on backup1, one that overlaps with backup2
-        segmentsToFree.push_back(
-            new WriteValidSegment(99, 88, { 88 }, segmentSize,
-                {"mock:host=backup1"}, true));
-        segmentsToFree.push_back(
-            new WriteValidSegment(99, 89, { 88, 89 }, segmentSize,
-                {"mock:host=backup1"}, true));
-        // One seg on backup2
-        segmentsToFree.push_back(
-            new WriteValidSegment(99, 88, { 88 }, segmentSize,
-                {"mock:host=backup2"}, true));
-        // Zero segs on backup3
-        // Add one more primary to backup1
-        // Add a primary/secondary segment pair to backup2 and backup3
-        // No matter which host its placed on it appears earlier in the
-        // segment list of 2 or 3 than the latest primary on 1 (which is
-        // in slot 3).  Check to make sure the code prevents this secondary
-        // from showing up before any primary in the list.
-        segmentsToFree.push_back(
-            new WriteValidSegment(99, 90, { 88, 89, 90 }, segmentSize,
-                {"mock:host=backup1"}, false));
-        segmentsToFree.push_back(
-            new WriteValidSegment(99, 91, { 88, 89, 90, 91 }, segmentSize,
-                {"mock:host=backup2", "mock:host=backup3"}, true));
-
-        ProtoBuf::Tablets tablets;
-        Recovery recovery(99, tablets, *masterHosts, *backupHosts);
-
-        CPPUNIT_ASSERT_EQUAL(4, recovery.backups.server_size());
-        bool sawSecondary = false;
-        foreach (const auto& backup, recovery.backups.server()) {
-            if (!backup.user_data())
-                sawSecondary = true;
-            else
-                CPPUNIT_ASSERT(!sawSecondary);
-        }
-    }
-
-    static bool
-    verifyCompleteLogFilter(string s)
-    {
-        return s == "verifyCompleteLog";
-    }
-
-    void
-    test_verifyCompleteLog()
-    {
-        // TODO(ongaro): The buildSegmentIdToBackups method needs to be
-        // refactored before it can be reasonably tested (see RAM-243).
-        // Sorry. Kick me off the project.
-#if 0
-        ProtoBuf::Tablets tablets;
-        Recovery recovery(99, tablets, *masterHosts, *backupHosts);
-
-        vector<Recovery::SegmentAndDigestTuple> oldDigestList =
-            recovery.digestList;
-        CPPUNIT_ASSERT_EQUAL(1, oldDigestList.size());
-
-        // no head is very bad news.
-        recovery.digestList.clear();
-        CPPUNIT_ASSERT_THROW(recovery.verifyCompleteLog(), Exception);
-
-        // ensure the newest head is chosen
-        recovery.digestList = oldDigestList;
-        recovery.digestList.push_back({ oldDigestList[0].segmentId + 1,
-            oldDigestList[0].segmentLength,
-            oldDigestList[0].logDigest.getRawPointer(),
-            oldDigestList[0].logDigest.getBytes() });
-        TestLog::Enable _(&verifyCompleteLogFilter);
-        recovery.verifyCompleteLog();
-        CPPUNIT_ASSERT_EQUAL("verifyCompleteLog: Segment 90 of length "
-            "64 bytes is the head of the log", TestLog::get());
-
-        // ensure the longest newest head is chosen
-        TestLog::reset();
-        recovery.digestList.push_back({ oldDigestList[0].segmentId + 1,
-            oldDigestList[0].segmentLength + 1,
-            oldDigestList[0].logDigest.getRawPointer(),
-            oldDigestList[0].logDigest.getBytes() });
-        recovery.verifyCompleteLog();
-        CPPUNIT_ASSERT_EQUAL("verifyCompleteLog: Segment 90 of length "
-            "65 bytes is the head of the log", TestLog::get());
-
-        // ensure we log missing segments
-        TestLog::reset();
-        recovery.segmentMap.erase(88);
-        recovery.verifyCompleteLog();
-        CPPUNIT_ASSERT_EQUAL("verifyCompleteLog: Segment 90 of length 65 bytes "
-            "is the head of the log | verifyCompleteLog: Segment 88 is missing!"
-            " | verifyCompleteLog: 1 segments in the digest, but not obtained "
-            "from backups!", TestLog::get());
-#endif
-    }
-
-    /// Create a master along with its config and clean them up on destruction.
-    struct AutoMaster {
-        AutoMaster(BindTransport& transport,
-                   CoordinatorClient &coordinator,
-                   const string& locator)
-            : config()
-            , master()
-        {
-            config.coordinatorLocator = "mock:host=coordinator";
-            config.localLocator = locator;
-            MasterService::sizeLogAndHashTable("64", "8", &config);
-            master = new MasterService(config, &coordinator, 0);
-            transport.addService(*master, locator);
-            master->init();
-        }
-
-        ~AutoMaster()
-        {
-            delete master;
-        }
-
-        ServerConfig config;
-        MasterService* master;
-
-        DISALLOW_COPY_AND_ASSIGN(AutoMaster);
-    };
-
-    static bool
-    getRecoveryDataFilter(string s)
-    {
-        return s == "getRecoveryData" ||
-               s == "start";
-    }
-
-    void
-    test_start()
-    {
-        MockRandom __(1);
-
-        // Two segs on backup1, one that overlaps with backup2
-        segmentsToFree.push_back(
-            new WriteValidSegment(99, 88, { 88 }, segmentSize,
-                {"mock:host=backup1"}, true));
-        segmentsToFree.push_back(
-            new WriteValidSegment(99, 89, { 88, 89 }, segmentSize,
-                {"mock:host=backup1"}, false));
-        // One seg on backup2
-        segmentsToFree.push_back(
-            new WriteValidSegment(99, 88, { 88 }, segmentSize,
-                {"mock:host=backup2"}, true));
-        // Zero segs on backup3
-
-
-        AutoMaster am1(*transport, *coordinator, "mock:host=master1");
-        AutoMaster am2(*transport, *coordinator, "mock:host=master2");
-
-        ProtoBuf::Tablets tablets; {
-            ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
-            tablet.set_table_id(123);
-            tablet.set_start_object_id(0);
-            tablet.set_end_object_id(9);
-            tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
-            tablet.set_user_data(0); // partition 0
-        }{
-            ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
-            tablet.set_table_id(123);
-            tablet.set_start_object_id(20);
-            tablet.set_end_object_id(29);
-            tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
-            tablet.set_user_data(0); // partition 0
-        }{
-            ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
-            tablet.set_table_id(123);
-            tablet.set_start_object_id(10);
-            tablet.set_end_object_id(19);
-            tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
-            tablet.set_user_data(1); // partition 1
-        }
-
-        Recovery recovery(99, tablets, *masterHosts, *backupHosts);
-        TestLog::Enable _(&getRecoveryDataFilter);
-        recovery.start();
-        CPPUNIT_ASSERT_EQUAL(3, recovery.tabletsUnderRecovery);
-        CPPUNIT_ASSERT_EQUAL(
-            "start: Starting recovery for 2 partitions | "
-            "getRecoveryData: getRecoveryData masterId 99, segmentId 89, "
-            "partitionId 0 | "
-            "getRecoveryData: getRecoveryData complete | "
-            "getRecoveryData: getRecoveryData masterId 99, segmentId 88, "
-            "partitionId 0 | "
-            "getRecoveryData: getRecoveryData complete | "
-            "getRecoveryData: getRecoveryData masterId 99, segmentId 89, "
-            "partitionId 1 | "
-            "getRecoveryData: getRecoveryData complete | "
-            "getRecoveryData: getRecoveryData masterId 99, segmentId 88, "
-            "partitionId 1 | "
-            "getRecoveryData: getRecoveryData complete",
-            TestLog::get());
-    }
-
-    void
-    test_start_notEnoughMasters()
-    {
-        // Two segs on backup1, one that overlaps with backup2
-        segmentsToFree.push_back(
-            new WriteValidSegment(99, 88, { 88 }, segmentSize,
-                {"mock:host=backup1"}, true));
-        segmentsToFree.push_back(
-            new WriteValidSegment(99, 89, { 88, 89 }, segmentSize,
-                {"mock:host=backup1"}, false));
-        // One seg on backup2
-        segmentsToFree.push_back(
-            new WriteValidSegment(99, 88, { 88 }, segmentSize,
-                {"mock:host=backup2"}, true));
-        // Zero segs on backup3
-
-        AutoMaster am1(*transport, *coordinator, "mock:host=master1");
-        AutoMaster am2(*transport, *coordinator, "mock:host=master2");
-
-        ProtoBuf::Tablets tablets; {
-            ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
-            tablet.set_table_id(123);
-            tablet.set_start_object_id(0);
-            tablet.set_end_object_id(9);
-            tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
-            tablet.set_user_data(0); // partition 0
-        }{
-            ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
-            tablet.set_table_id(123);
-            tablet.set_start_object_id(10);
-            tablet.set_end_object_id(19);
-            tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
-            tablet.set_user_data(1); // partition 1
-        }{
-            ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
-            tablet.set_table_id(123);
-            tablet.set_start_object_id(20);
-            tablet.set_end_object_id(29);
-            tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
-            tablet.set_user_data(2); // partition 2
-        }
-
-        Recovery recovery(99, tablets, *masterHosts, *backupHosts);
-        MockRandom __(1); // triggers deterministic rand().
-        TestLog::Enable _(&getRecoveryDataFilter);
-        CPPUNIT_ASSERT_THROW(recovery.start(), FatalError);
     }
 
   private:
     DISALLOW_COPY_AND_ASSIGN(RecoveryTest);
 };
-CPPUNIT_TEST_SUITE_REGISTRATION(RecoveryTest);
 
+TEST_F(RecoveryTest, buildSegmentIdToBackups) {
+    MockRandom _(1);
+    // Two segs on backup1, one that overlaps with backup2
+    segmentsToFree.push_back(
+        new WriteValidSegment(99, 88, { 88 }, segmentSize,
+            {"mock:host=backup1"}, true));
+    segmentsToFree.push_back(
+        new WriteValidSegment(99, 89, { 88, 89 }, segmentSize,
+            {"mock:host=backup1"}, false));
+    // One seg on backup2
+    segmentsToFree.push_back(
+        new WriteValidSegment(99, 88, { 88 }, segmentSize,
+            {"mock:host=backup2"}, true));
+    // Zero segs on backup3
+
+    ProtoBuf::Tablets tablets;
+    Recovery recovery(99, tablets, *masterHosts, *backupHosts);
+
+    EXPECT_EQ(3, recovery.backups.server_size());
+    {
+        const ProtoBuf::ServerList::Entry&
+            backup(recovery.backups.server(0));
+        EXPECT_EQ(89U, backup.segment_id());
+        EXPECT_EQ("mock:host=backup1", backup.service_locator());
+        EXPECT_EQ(ProtoBuf::BACKUP, backup.server_type());
+    }{
+        const ProtoBuf::ServerList::Entry&
+            backup(recovery.backups.server(1));
+        EXPECT_EQ(88U, backup.segment_id());
+        EXPECT_EQ("mock:host=backup2", backup.service_locator());
+        EXPECT_EQ(ProtoBuf::BACKUP, backup.server_type());
+    }{
+        const ProtoBuf::ServerList::Entry&
+            backup(recovery.backups.server(2));
+        EXPECT_EQ(88U, backup.segment_id());
+        EXPECT_EQ("mock:host=backup1", backup.service_locator());
+        EXPECT_EQ(ProtoBuf::BACKUP, backup.server_type());
+    }
+}
+
+TEST_F(RecoveryTest, buildSegmentIdToBackups_secondariesEarlyInSomeList) {
+    // Two segs on backup1, one that overlaps with backup2
+    segmentsToFree.push_back(
+        new WriteValidSegment(99, 88, { 88 }, segmentSize,
+            {"mock:host=backup1"}, true));
+    segmentsToFree.push_back(
+        new WriteValidSegment(99, 89, { 88, 89 }, segmentSize,
+            {"mock:host=backup1"}, true));
+    // One seg on backup2
+    segmentsToFree.push_back(
+        new WriteValidSegment(99, 88, { 88 }, segmentSize,
+            {"mock:host=backup2"}, true));
+    // Zero segs on backup3
+    // Add one more primary to backup1
+    // Add a primary/secondary segment pair to backup2 and backup3
+    // No matter which host its placed on it appears earlier in the
+    // segment list of 2 or 3 than the latest primary on 1 (which is
+    // in slot 3).  Check to make sure the code prevents this secondary
+    // from showing up before any primary in the list.
+    segmentsToFree.push_back(
+        new WriteValidSegment(99, 90, { 88, 89, 90 }, segmentSize,
+            {"mock:host=backup1"}, false));
+    segmentsToFree.push_back(
+        new WriteValidSegment(99, 91, { 88, 89, 90, 91 }, segmentSize,
+            {"mock:host=backup2", "mock:host=backup3"}, true));
+
+    ProtoBuf::Tablets tablets;
+    Recovery recovery(99, tablets, *masterHosts, *backupHosts);
+
+    EXPECT_EQ(4, recovery.backups.server_size());
+    bool sawSecondary = false;
+    foreach (const auto& backup, recovery.backups.server()) {
+        if (!backup.user_data())
+            sawSecondary = true;
+        else
+            EXPECT_FALSE(sawSecondary);
+    }
+}
+
+static bool
+verifyCompleteLogFilter(string s)
+{
+    return s == "verifyCompleteLog";
+}
+
+TEST_F(RecoveryTest, verifyCompleteLog) {
+    // TODO(ongaro): The buildSegmentIdToBackups method needs to be
+    // refactored before it can be reasonably tested (see RAM-243).
+    // Sorry. Kick me off the project.
+    TestLog::Enable _(&verifyCompleteLogFilter);
+#if 0
+    ProtoBuf::Tablets tablets;
+    Recovery recovery(99, tablets, *masterHosts, *backupHosts);
+
+    vector<Recovery::SegmentAndDigestTuple> oldDigestList =
+        recovery.digestList;
+    EXPECT_EQ(1, oldDigestList.size());
+
+    // no head is very bad news.
+    recovery.digestList.clear();
+    EXPECT_THROW(recovery.verifyCompleteLog(), Exception);
+
+    // ensure the newest head is chosen
+    recovery.digestList = oldDigestList;
+    recovery.digestList.push_back({ oldDigestList[0].segmentId + 1,
+        oldDigestList[0].segmentLength,
+        oldDigestList[0].logDigest.getRawPointer(),
+        oldDigestList[0].logDigest.getBytes() });
+    recovery.verifyCompleteLog();
+    EXPECT_EQ("verifyCompleteLog: Segment 90 of length "
+        "64 bytes is the head of the log", TestLog::get());
+
+    // ensure the longest newest head is chosen
+    TestLog::reset();
+    recovery.digestList.push_back({ oldDigestList[0].segmentId + 1,
+        oldDigestList[0].segmentLength + 1,
+        oldDigestList[0].logDigest.getRawPointer(),
+        oldDigestList[0].logDigest.getBytes() });
+    recovery.verifyCompleteLog();
+    EXPECT_EQ("verifyCompleteLog: Segment 90 of length "
+        "65 bytes is the head of the log", TestLog::get());
+
+    // ensure we log missing segments
+    TestLog::reset();
+    recovery.segmentMap.erase(88);
+    recovery.verifyCompleteLog();
+    EXPECT_EQ("verifyCompleteLog: Segment 90 of length 65 bytes "
+        "is the head of the log | verifyCompleteLog: Segment 88 is missing!"
+        " | verifyCompleteLog: 1 segments in the digest, but not obtained "
+        "from backups!", TestLog::get());
+#endif
+}
+
+/// Create a master along with its config and clean them up on destruction.
+struct AutoMaster {
+    AutoMaster(BindTransport& transport,
+                CoordinatorClient &coordinator,
+                const string& locator)
+        : config()
+        , master()
+    {
+        config.coordinatorLocator = "mock:host=coordinator";
+        config.localLocator = locator;
+        MasterService::sizeLogAndHashTable("64", "8", &config);
+        master = new MasterService(config, &coordinator, 0);
+        transport.addService(*master, locator);
+        master->init();
+    }
+
+    ~AutoMaster()
+    {
+        delete master;
+    }
+
+    ServerConfig config;
+    MasterService* master;
+
+    DISALLOW_COPY_AND_ASSIGN(AutoMaster);
+};
+
+static bool
+getRecoveryDataFilter(string s)
+{
+    return s == "getRecoveryData" ||
+            s == "start";
+}
+
+TEST_F(RecoveryTest, start) {
+    MockRandom __(1);
+
+    // Two segs on backup1, one that overlaps with backup2
+    segmentsToFree.push_back(
+        new WriteValidSegment(99, 88, { 88 }, segmentSize,
+            {"mock:host=backup1"}, true));
+    segmentsToFree.push_back(
+        new WriteValidSegment(99, 89, { 88, 89 }, segmentSize,
+            {"mock:host=backup1"}, false));
+    // One seg on backup2
+    segmentsToFree.push_back(
+        new WriteValidSegment(99, 88, { 88 }, segmentSize,
+            {"mock:host=backup2"}, true));
+    // Zero segs on backup3
+
+
+    AutoMaster am1(*transport, *coordinator, "mock:host=master1");
+    AutoMaster am2(*transport, *coordinator, "mock:host=master2");
+
+    ProtoBuf::Tablets tablets; {
+        ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
+        tablet.set_table_id(123);
+        tablet.set_start_object_id(0);
+        tablet.set_end_object_id(9);
+        tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
+        tablet.set_user_data(0); // partition 0
+    }{
+        ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
+        tablet.set_table_id(123);
+        tablet.set_start_object_id(20);
+        tablet.set_end_object_id(29);
+        tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
+        tablet.set_user_data(0); // partition 0
+    }{
+        ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
+        tablet.set_table_id(123);
+        tablet.set_start_object_id(10);
+        tablet.set_end_object_id(19);
+        tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
+        tablet.set_user_data(1); // partition 1
+    }
+
+    Recovery recovery(99, tablets, *masterHosts, *backupHosts);
+    TestLog::Enable _(&getRecoveryDataFilter);
+    recovery.start();
+    EXPECT_EQ(3U, recovery.tabletsUnderRecovery);
+    EXPECT_EQ(
+        "start: Starting recovery for 2 partitions | "
+        "getRecoveryData: getRecoveryData masterId 99, segmentId 89, "
+        "partitionId 0 | "
+        "getRecoveryData: getRecoveryData complete | "
+        "getRecoveryData: getRecoveryData masterId 99, segmentId 88, "
+        "partitionId 0 | "
+        "getRecoveryData: getRecoveryData complete | "
+        "getRecoveryData: getRecoveryData masterId 99, segmentId 89, "
+        "partitionId 1 | "
+        "getRecoveryData: getRecoveryData complete | "
+        "getRecoveryData: getRecoveryData masterId 99, segmentId 88, "
+        "partitionId 1 | "
+        "getRecoveryData: getRecoveryData complete",
+        TestLog::get());
+}
+
+TEST_F(RecoveryTest, start_notEnoughMasters) {
+    // Two segs on backup1, one that overlaps with backup2
+    segmentsToFree.push_back(
+        new WriteValidSegment(99, 88, { 88 }, segmentSize,
+            {"mock:host=backup1"}, true));
+    segmentsToFree.push_back(
+        new WriteValidSegment(99, 89, { 88, 89 }, segmentSize,
+            {"mock:host=backup1"}, false));
+    // One seg on backup2
+    segmentsToFree.push_back(
+        new WriteValidSegment(99, 88, { 88 }, segmentSize,
+            {"mock:host=backup2"}, true));
+    // Zero segs on backup3
+
+    AutoMaster am1(*transport, *coordinator, "mock:host=master1");
+    AutoMaster am2(*transport, *coordinator, "mock:host=master2");
+
+    ProtoBuf::Tablets tablets; {
+        ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
+        tablet.set_table_id(123);
+        tablet.set_start_object_id(0);
+        tablet.set_end_object_id(9);
+        tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
+        tablet.set_user_data(0); // partition 0
+    }{
+        ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
+        tablet.set_table_id(123);
+        tablet.set_start_object_id(10);
+        tablet.set_end_object_id(19);
+        tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
+        tablet.set_user_data(1); // partition 1
+    }{
+        ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
+        tablet.set_table_id(123);
+        tablet.set_start_object_id(20);
+        tablet.set_end_object_id(29);
+        tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
+        tablet.set_user_data(2); // partition 2
+    }
+
+    Recovery recovery(99, tablets, *masterHosts, *backupHosts);
+    MockRandom __(1); // triggers deterministic rand().
+    TestLog::Enable _(&getRecoveryDataFilter);
+    EXPECT_THROW(recovery.start(), FatalError);
+}
 
 } // namespace RAMCloud

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -59,13 +59,8 @@ struct Refresher {
     uint32_t called;
 };
 
-class ObjectFinderTest : public CppUnit::TestFixture {
-    CPPUNIT_TEST_SUITE(ObjectFinderTest);
-    CPPUNIT_TEST(test_lookup);
-    CPPUNIT_TEST(test_multiLookup_basics);
-    CPPUNIT_TEST(test_multiLookup_badTable);
-    CPPUNIT_TEST_SUITE_END();
-
+class ObjectFinderTest : public ::testing::Test {
+  public:
     BindTransport* transport;
     CoordinatorService* coordinatorService;
     CoordinatorClient* coordinatorClient;
@@ -73,7 +68,6 @@ class ObjectFinderTest : public CppUnit::TestFixture {
     Service* host2Service;
     ObjectFinder* objectFinder;
 
-  public:
     ObjectFinderTest()
         : transport()
         , coordinatorService()
@@ -81,9 +75,7 @@ class ObjectFinderTest : public CppUnit::TestFixture {
         , host1Service()
         , host2Service()
         , objectFinder()
-    {}
-
-    void setUp() {
+    {
         transport = new BindTransport();
         transportManager.registerMock(transport);
         coordinatorService = new CoordinatorService();
@@ -96,7 +88,7 @@ class ObjectFinderTest : public CppUnit::TestFixture {
         objectFinder = new ObjectFinder(*coordinatorClient);
     }
 
-    void tearDown() {
+    ~ObjectFinderTest() {
         delete objectFinder;
         delete host1Service;
         delete host2Service;
@@ -106,97 +98,96 @@ class ObjectFinderTest : public CppUnit::TestFixture {
         delete transport;
     }
 
-    void test_lookup() {
-        Refresher refresher;
-        objectFinder->refresher = boost::ref(refresher);
-        Transport::SessionRef session(objectFinder->lookup(1, 2));
-        // first tablet map is empty, throws TableDoesntExistException
-        // get a new tablet map
-        // find tablet in recovery
-        // get a new tablet map
-        // find tablet in recovery
-        // get a new tablet map
-        // find tablet in operation
-        CPPUNIT_ASSERT_EQUAL(3, refresher.called);
-        CPPUNIT_ASSERT_EQUAL("mock:host=host1",
-            static_cast<BindTransport::BindSession*>(session.get())->locator);
-    }
-
-    void test_multiLookup_basics() {
-        Refresher refresher;
-        objectFinder->refresher = boost::ref(refresher);
-
-        MasterClient::ReadObject* requests[3];
-
-        Tub<Buffer> readValue1;
-        MasterClient::ReadObject request1(1, 0, &readValue1);
-        request1.status = STATUS_RETRY;
-        requests[0] = &request1;
-
-        Tub<Buffer> readValue2;
-        MasterClient::ReadObject request2(1, 1, &readValue2);
-        request2.status = STATUS_RETRY;
-        requests[1] = &request2;
-
-        Tub<Buffer> readValue3;
-        MasterClient::ReadObject request3(2, 0, &readValue3);
-        request3.status = STATUS_RETRY;
-        requests[2] = &request3;
-
-        std::vector<ObjectFinder::MasterRequests> requestBins =
-                                        objectFinder->multiLookup(requests, 3);
-
-        CPPUNIT_ASSERT_EQUAL("mock:host=host1",
-            static_cast<BindTransport::BindSession*>(
-            requestBins[0].sessionRef.get())->locator);
-        CPPUNIT_ASSERT_EQUAL(1, requestBins[0].requests[0]->tableId);
-        CPPUNIT_ASSERT_EQUAL(0, requestBins[0].requests[0]->id);
-        CPPUNIT_ASSERT_EQUAL("STATUS_RETRY", statusToSymbol(request1.status));
-        CPPUNIT_ASSERT_EQUAL(1, requestBins[0].requests[1]->tableId);
-        CPPUNIT_ASSERT_EQUAL(1, requestBins[0].requests[1]->id);
-        CPPUNIT_ASSERT_EQUAL("STATUS_RETRY", statusToSymbol(request2.status));
-
-        CPPUNIT_ASSERT_EQUAL("mock:host=host2",
-            static_cast<BindTransport::BindSession*>(
-            requestBins[1].sessionRef.get())->locator);
-        CPPUNIT_ASSERT_EQUAL(2, requestBins[1].requests[0]->tableId);
-        CPPUNIT_ASSERT_EQUAL(0, requestBins[1].requests[0]->id);
-        CPPUNIT_ASSERT_EQUAL("STATUS_RETRY", statusToSymbol(request3.status));
-    }
-
-    void test_multiLookup_badTable() {
-        TestLog::Enable _;
-        Refresher refresher;
-        objectFinder->refresher = boost::ref(refresher);
-
-        MasterClient::ReadObject* requests[2];
-
-        Tub<Buffer> readValue1;
-        MasterClient::ReadObject request1(1, 0, &readValue1);
-        request1.status = STATUS_RETRY;
-        requests[0] = &request1;
-
-        Tub<Buffer> readValueError;
-        MasterClient::ReadObject requestError(3, 0, &readValueError);
-        requestError.status = STATUS_RETRY;
-        requests[1] = &requestError;
-
-        std::vector<ObjectFinder::MasterRequests> requestBins =
-                                        objectFinder->multiLookup(requests, 2);
-
-        CPPUNIT_ASSERT_EQUAL("mock:host=host1",
-            static_cast<BindTransport::BindSession*>(
-            requestBins[0].sessionRef.get())->locator);
-        CPPUNIT_ASSERT_EQUAL(1, requestBins[0].requests[0]->tableId);
-        CPPUNIT_ASSERT_EQUAL(0, requestBins[0].requests[0]->id);
-        CPPUNIT_ASSERT_EQUAL("STATUS_RETRY", statusToSymbol(request1.status));
-
-        CPPUNIT_ASSERT_EQUAL("STATUS_TABLE_DOESNT_EXIST",
-                             statusToSymbol(requestError.status));
-    }
-
     DISALLOW_COPY_AND_ASSIGN(ObjectFinderTest);
 };
-CPPUNIT_TEST_SUITE_REGISTRATION(ObjectFinderTest);
+
+TEST_F(ObjectFinderTest, lookup) {
+    Refresher refresher;
+    objectFinder->refresher = boost::ref(refresher);
+    Transport::SessionRef session(objectFinder->lookup(1, 2));
+    // first tablet map is empty, throws TableDoesntExistException
+    // get a new tablet map
+    // find tablet in recovery
+    // get a new tablet map
+    // find tablet in recovery
+    // get a new tablet map
+    // find tablet in operation
+    EXPECT_EQ(3U, refresher.called);
+    EXPECT_EQ("mock:host=host1",
+        static_cast<BindTransport::BindSession*>(session.get())->locator);
+}
+
+TEST_F(ObjectFinderTest, multiLookup_basics) {
+    Refresher refresher;
+    objectFinder->refresher = boost::ref(refresher);
+
+    MasterClient::ReadObject* requests[3];
+
+    Tub<Buffer> readValue1;
+    MasterClient::ReadObject request1(1, 0, &readValue1);
+    request1.status = STATUS_RETRY;
+    requests[0] = &request1;
+
+    Tub<Buffer> readValue2;
+    MasterClient::ReadObject request2(1, 1, &readValue2);
+    request2.status = STATUS_RETRY;
+    requests[1] = &request2;
+
+    Tub<Buffer> readValue3;
+    MasterClient::ReadObject request3(2, 0, &readValue3);
+    request3.status = STATUS_RETRY;
+    requests[2] = &request3;
+
+    std::vector<ObjectFinder::MasterRequests> requestBins =
+                                    objectFinder->multiLookup(requests, 3);
+
+    EXPECT_EQ("mock:host=host1",
+        static_cast<BindTransport::BindSession*>(
+        requestBins[0].sessionRef.get())->locator);
+    EXPECT_EQ(1U, requestBins[0].requests[0]->tableId);
+    EXPECT_EQ(0U, requestBins[0].requests[0]->id);
+    EXPECT_STREQ("STATUS_RETRY", statusToSymbol(request1.status));
+    EXPECT_EQ(1U, requestBins[0].requests[1]->tableId);
+    EXPECT_EQ(1U, requestBins[0].requests[1]->id);
+    EXPECT_STREQ("STATUS_RETRY", statusToSymbol(request2.status));
+
+    EXPECT_EQ("mock:host=host2",
+        static_cast<BindTransport::BindSession*>(
+        requestBins[1].sessionRef.get())->locator);
+    EXPECT_EQ(2U, requestBins[1].requests[0]->tableId);
+    EXPECT_EQ(0U, requestBins[1].requests[0]->id);
+    EXPECT_STREQ("STATUS_RETRY", statusToSymbol(request3.status));
+}
+
+TEST_F(ObjectFinderTest, multiLookup_badTable) {
+    TestLog::Enable _;
+    Refresher refresher;
+    objectFinder->refresher = boost::ref(refresher);
+
+    MasterClient::ReadObject* requests[2];
+
+    Tub<Buffer> readValue1;
+    MasterClient::ReadObject request1(1, 0, &readValue1);
+    request1.status = STATUS_RETRY;
+    requests[0] = &request1;
+
+    Tub<Buffer> readValueError;
+    MasterClient::ReadObject requestError(3, 0, &readValueError);
+    requestError.status = STATUS_RETRY;
+    requests[1] = &requestError;
+
+    std::vector<ObjectFinder::MasterRequests> requestBins =
+                                    objectFinder->multiLookup(requests, 2);
+
+    EXPECT_EQ("mock:host=host1",
+        static_cast<BindTransport::BindSession*>(
+        requestBins[0].sessionRef.get())->locator);
+    EXPECT_EQ(1U, requestBins[0].requests[0]->tableId);
+    EXPECT_EQ(0U, requestBins[0].requests[0]->id);
+    EXPECT_STREQ("STATUS_RETRY", statusToSymbol(request1.status));
+
+    EXPECT_STREQ("STATUS_TABLE_DOESNT_EXIST",
+                            statusToSymbol(requestError.status));
+}
 
 }  // namespace RAMCloud

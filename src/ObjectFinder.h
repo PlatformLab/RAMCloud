@@ -65,7 +65,7 @@ class ObjectFinder {
 
     void waitForAllTabletsNormal();
 
-  private:
+  PRIVATE:
     /**
      * A cache of the coordinator's tablet map.
      */

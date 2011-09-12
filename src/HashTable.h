@@ -150,7 +150,7 @@ class HashTable {
             max = 0;
         }
 
-      private:
+      PRIVATE:
         DISALLOW_COPY_AND_ASSIGN(PerfDistribution);
     };
 
@@ -527,7 +527,7 @@ class HashTable {
         return numBuckets;
     }
 
-  private:
+  PRIVATE:
 
     // forward declarations
     class Entry;
@@ -774,7 +774,7 @@ class HashTable {
             return (!ue.chain && ue.ptr != 0 && ue.hash == hash);
         }
 
-      private:
+      PRIVATE:
         /**
          * The packed value stored in the entry.
          *

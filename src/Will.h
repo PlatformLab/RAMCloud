@@ -30,7 +30,7 @@ class Will {
     void serialize(ProtoBuf::Tablets& will);
     void debugDump();
 
-  private:
+  PRIVATE:
     /// Each entry in the Will describes a key range for a particular
     /// Tablet and is assigned to a partition. All entries for a
     /// particular partition must meet the total byte and referant

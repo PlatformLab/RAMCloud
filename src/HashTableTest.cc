@@ -33,83 +33,60 @@ typedef HashTable<TestObject*> TestObjectMap;
 /**
  * Unit tests for HashTable::PerfDistribution.
  */
-class HashTablePerfDistributionTest : public CppUnit::TestFixture {
-
-    DISALLOW_COPY_AND_ASSIGN(HashTablePerfDistributionTest); // NOLINT
-
-    CPPUNIT_TEST_SUITE(HashTablePerfDistributionTest);
-    CPPUNIT_TEST(test_constructor);
-    CPPUNIT_TEST(test_storeSample);
-    CPPUNIT_TEST_SUITE_END();
-
+class HashTablePerfDistributionTest : public ::testing::Test {
   public:
     HashTablePerfDistributionTest() {}
 
-    void test_constructor()
-    {
-        RAMCloud::TestObjectMap::PerfDistribution d;
-        CPPUNIT_ASSERT_EQUAL(~0UL, d.min);
-        CPPUNIT_ASSERT_EQUAL(0UL, d.max);
-        CPPUNIT_ASSERT_EQUAL(0UL, d.binOverflows);
-        CPPUNIT_ASSERT_EQUAL(0UL, d.bins[0]);
-        CPPUNIT_ASSERT_EQUAL(0UL, d.bins[1]);
-        CPPUNIT_ASSERT_EQUAL(0UL, d.bins[2]);
-    }
-
-    void test_storeSample()
-    {
-        TestObjectMap::PerfDistribution d;
-
-        // You can't use CPPUNIT_ASSERT_EQUAL here because it tries to take a
-        // reference to BIN_WIDTH. See 10.4.6.2 Member Constants of The C++
-        // Programming Language by Bjarne Stroustrup for more about static
-        // constant integers.
-        CPPUNIT_ASSERT(10 == TestObjectMap::PerfDistribution::BIN_WIDTH);
-
-        d.storeSample(3);
-        CPPUNIT_ASSERT_EQUAL(3UL, d.min);
-        CPPUNIT_ASSERT_EQUAL(3UL, d.max);
-        CPPUNIT_ASSERT_EQUAL(0UL, d.binOverflows);
-        CPPUNIT_ASSERT_EQUAL(1UL, d.bins[0]);
-        CPPUNIT_ASSERT_EQUAL(0UL, d.bins[1]);
-        CPPUNIT_ASSERT_EQUAL(0UL, d.bins[2]);
-
-        d.storeSample(3);
-        d.storeSample(d.NBINS * d.BIN_WIDTH + 40);
-        d.storeSample(12);
-        d.storeSample(78);
-
-        CPPUNIT_ASSERT_EQUAL(3UL, d.min);
-        CPPUNIT_ASSERT_EQUAL(d.NBINS * d.BIN_WIDTH + 40, d.max);
-        CPPUNIT_ASSERT_EQUAL(1UL, d.binOverflows);
-        CPPUNIT_ASSERT_EQUAL(2UL, d.bins[0]);
-        CPPUNIT_ASSERT_EQUAL(1UL, d.bins[1]);
-        CPPUNIT_ASSERT_EQUAL(0UL, d.bins[2]);
-    }
-
+    DISALLOW_COPY_AND_ASSIGN(HashTablePerfDistributionTest);
 };
-CPPUNIT_TEST_SUITE_REGISTRATION(HashTablePerfDistributionTest);
+
+TEST_F(HashTablePerfDistributionTest, constructor) {
+    RAMCloud::TestObjectMap::PerfDistribution d;
+    EXPECT_EQ(~0UL, d.min);
+    EXPECT_EQ(0UL, d.max);
+    EXPECT_EQ(0UL, d.binOverflows);
+    EXPECT_EQ(0UL, d.bins[0]);
+    EXPECT_EQ(0UL, d.bins[1]);
+    EXPECT_EQ(0UL, d.bins[2]);
+}
+
+TEST_F(HashTablePerfDistributionTest, storeSample) {
+    TestObjectMap::PerfDistribution d;
+
+    // You can't use EXPECT_TRUE here because it tries to take a
+    // reference to BIN_WIDTH. See 10.4.6.2 Member Constants of The C++
+    // Programming Language by Bjarne Stroustrup for more about static
+    // constant integers.
+    EXPECT_TRUE(10 == TestObjectMap::PerfDistribution::BIN_WIDTH);  // NOLINT
+
+    d.storeSample(3);
+    EXPECT_EQ(3UL, d.min);
+    EXPECT_EQ(3UL, d.max);
+    EXPECT_EQ(0UL, d.binOverflows);
+    EXPECT_EQ(1UL, d.bins[0]);
+    EXPECT_EQ(0UL, d.bins[1]);
+    EXPECT_EQ(0UL, d.bins[2]);
+
+    d.storeSample(3);
+    d.storeSample(d.NBINS * d.BIN_WIDTH + 40);
+    d.storeSample(12);
+    d.storeSample(78);
+
+    EXPECT_EQ(3UL, d.min);
+    EXPECT_EQ(d.NBINS * d.BIN_WIDTH + 40, d.max);
+    EXPECT_EQ(1UL, d.binOverflows);
+    EXPECT_EQ(2UL, d.bins[0]);
+    EXPECT_EQ(1UL, d.bins[1]);
+    EXPECT_EQ(0UL, d.bins[2]);
+}
 
 
 /**
  * Unit tests for HashTable::Entry.
  */
-class HashTableEntryTest : public CppUnit::TestFixture {
-
-    DISALLOW_COPY_AND_ASSIGN(HashTableEntryTest); // NOLINT
-
-    CPPUNIT_TEST_SUITE(HashTableEntryTest);
-    CPPUNIT_TEST(test_size);
-    CPPUNIT_TEST(test_pack);
-    CPPUNIT_TEST(test_clear);
-    CPPUNIT_TEST(test_trivial_clear);
-    CPPUNIT_TEST(test_setReferant);
-    CPPUNIT_TEST(test_setChainPointer);
-    CPPUNIT_TEST(test_isAvailable);
-    CPPUNIT_TEST(test_getReferant);
-    CPPUNIT_TEST(test_getChainPointer);
-    CPPUNIT_TEST(test_hashMatches);
-    CPPUNIT_TEST_SUITE_END();
+class HashTableEntryTest : public ::testing::Test {
+  public:
+    HashTableEntryTest() {}
 
     /**
      * Return whether fields make it through #HashTable::Entry::pack() and
@@ -143,165 +120,132 @@ class HashTableEntryTest : public CppUnit::TestFixture {
                 in.ptr == out.ptr);
     }
 
-  public:
-    HashTableEntryTest() {}
+    DISALLOW_COPY_AND_ASSIGN(HashTableEntryTest);
+};
 
-    void test_size()
-    {
-        CPPUNIT_ASSERT(8 == sizeof(TestObjectMap::Entry));
-    }
+TEST_F(HashTableEntryTest, size) {
+    EXPECT_EQ(8U, sizeof(TestObjectMap::Entry));
+}
 
-    void test_pack() // also tests unpack
-    {
-        // first without normal cases
-        CPPUNIT_ASSERT(packable(0x0000UL, false, 0x000000000000UL));
-        CPPUNIT_ASSERT(packable(0xffffUL, true,  0x7fffffffffffUL));
-        CPPUNIT_ASSERT(packable(0xffffUL, false, 0x7fffffffffffUL));
-        CPPUNIT_ASSERT(packable(0xa257UL, false, 0x3cdeadbeef98UL));
+// also tests unpack
+TEST_F(HashTableEntryTest, pack) {
+    // first without normal cases
+    EXPECT_TRUE(packable(0x0000UL, false, 0x000000000000UL));
+    EXPECT_TRUE(packable(0xffffUL, true,  0x7fffffffffffUL));
+    EXPECT_TRUE(packable(0xffffUL, false, 0x7fffffffffffUL));
+    EXPECT_TRUE(packable(0xa257UL, false, 0x3cdeadbeef98UL));
 
-        // and now test the exception cases of pack()
-        TestObjectMap::Entry e;
-        CPPUNIT_ASSERT_THROW(e.pack(0, false, 0xffffffffffffUL), Exception);
-    }
+    // and now test the exception cases of pack()
+    TestObjectMap::Entry e;
+    EXPECT_THROW(e.pack(0, false, 0xffffffffffffUL), Exception);
+}
 
-    // No tests for test_unpack, since test_pack tested it.
+// No tests for test_unpack, since test_pack tested it.
 
-    void test_clear()
-    {
-        TestObjectMap::Entry e;
-        e.value = 0xdeadbeefdeadbeefUL;
-        e.clear();
-        TestObjectMap::Entry::UnpackedEntry out;
-        out = e.unpack();
-        CPPUNIT_ASSERT_EQUAL(0UL, out.hash);
-        CPPUNIT_ASSERT_EQUAL(false, out.chain);
-        CPPUNIT_ASSERT_EQUAL(0UL, out.ptr);
-    }
+TEST_F(HashTableEntryTest, clear) {
+    TestObjectMap::Entry e;
+    e.value = 0xdeadbeefdeadbeefUL;
+    e.clear();
+    TestObjectMap::Entry::UnpackedEntry out;
+    out = e.unpack();
+    EXPECT_EQ(0UL, out.hash);
+    EXPECT_FALSE(out.chain);
+    EXPECT_EQ(0UL, out.ptr);
+}
 
-    void test_trivial_clear()
-    {
-        TestObjectMap::Entry e;
-        e.value = 0xdeadbeefdeadbeefUL;
-        e.clear();
-        TestObjectMap::Entry f;
-        f.value = 0xdeadbeefdeadbeefUL;
-        f.pack(0, false, 0);
-        CPPUNIT_ASSERT_EQUAL(e.value, f.value);
-    }
+TEST_F(HashTableEntryTest, trivial_clear) {
+    TestObjectMap::Entry e;
+    e.value = 0xdeadbeefdeadbeefUL;
+    e.clear();
+    TestObjectMap::Entry f;
+    f.value = 0xdeadbeefdeadbeefUL;
+    f.pack(0, false, 0);
+    EXPECT_EQ(e.value, f.value);
+}
 
-    void test_setReferant()
-    {
-        TestObjectMap::Entry e;
-        e.value = 0xdeadbeefdeadbeefUL;
-        e.setReferant(0xaaaaUL, reinterpret_cast<TestObject*>(
-            0x7fffffffffffUL));
-        TestObjectMap::Entry::UnpackedEntry out;
-        out = e.unpack();
-        CPPUNIT_ASSERT_EQUAL(0xaaaaUL, out.hash);
-        CPPUNIT_ASSERT_EQUAL(false, out.chain);
-        CPPUNIT_ASSERT_EQUAL(0x7fffffffffffUL, out.ptr);
-    }
+TEST_F(HashTableEntryTest, setReferant) {
+    TestObjectMap::Entry e;
+    e.value = 0xdeadbeefdeadbeefUL;
+    e.setReferant(0xaaaaUL, reinterpret_cast<TestObject*>(
+        0x7fffffffffffUL));
+    TestObjectMap::Entry::UnpackedEntry out;
+    out = e.unpack();
+    EXPECT_EQ(0xaaaaUL, out.hash);
+    EXPECT_FALSE(out.chain);
+    EXPECT_EQ(0x7fffffffffffUL, out.ptr);
+}
 
-    void test_setChainPointer()
-    {
-        TestObjectMap::Entry e;
-        e.value = 0xdeadbeefdeadbeefUL;
-        {
-            TestObjectMap::CacheLine *cl;
-            cl = reinterpret_cast<TestObjectMap::CacheLine*>(
-                0x7fffffffffffUL);
-            e.setChainPointer(cl);
-        }
-        TestObjectMap::Entry::UnpackedEntry out;
-        out = e.unpack();
-        CPPUNIT_ASSERT_EQUAL(0UL, out.hash);
-        CPPUNIT_ASSERT_EQUAL(true, out.chain);
-        CPPUNIT_ASSERT_EQUAL(0x7fffffffffffUL, out.ptr);
-    }
-
-    void test_isAvailable()
-    {
-        TestObjectMap::Entry e;
-        e.clear();
-        CPPUNIT_ASSERT(e.isAvailable());
-        e.setChainPointer(reinterpret_cast<TestObjectMap::CacheLine*>(
-            0x1UL));
-        CPPUNIT_ASSERT(!e.isAvailable());
-        e.setReferant(0UL, reinterpret_cast<TestObject*>(0x1UL));
-        CPPUNIT_ASSERT(!e.isAvailable());
-        e.clear();
-        CPPUNIT_ASSERT(e.isAvailable());
-    }
-
-    void test_getReferant()
-    {
-        TestObjectMap::Entry e;
-        TestObject *o =
-            reinterpret_cast<TestObject*>(0x7fffffffffffUL);
-        e.setReferant(0xaaaaUL, o);
-        CPPUNIT_ASSERT_EQUAL(o, e.getReferant());
-    }
-
-    void test_getChainPointer()
+TEST_F(HashTableEntryTest, setChainPointer) {
+    TestObjectMap::Entry e;
+    e.value = 0xdeadbeefdeadbeefUL;
     {
         TestObjectMap::CacheLine *cl;
-        cl = reinterpret_cast<TestObjectMap::CacheLine*>(0x7fffffffffffUL);
-        TestObjectMap::Entry e;
+        cl = reinterpret_cast<TestObjectMap::CacheLine*>(
+            0x7fffffffffffUL);
         e.setChainPointer(cl);
-        CPPUNIT_ASSERT_EQUAL(cl, e.getChainPointer());
-        e.clear();
-        CPPUNIT_ASSERT(NULL == e.getChainPointer());
-        e.setReferant(0UL, reinterpret_cast<TestObject*>(0x1UL));
-        CPPUNIT_ASSERT(NULL == e.getChainPointer());
     }
+    TestObjectMap::Entry::UnpackedEntry out;
+    out = e.unpack();
+    EXPECT_EQ(0UL, out.hash);
+    EXPECT_TRUE(out.chain);
+    EXPECT_EQ(0x7fffffffffffUL, out.ptr);
+}
 
-    void test_hashMatches()
-    {
-        TestObjectMap::Entry e;
-        e.clear();
-        CPPUNIT_ASSERT(!e.hashMatches(0UL));
-        e.setChainPointer(reinterpret_cast<TestObjectMap::CacheLine*>(
-            0x1UL));
-        CPPUNIT_ASSERT(!e.hashMatches(0UL));
-        e.setReferant(0UL, reinterpret_cast<TestObject*>(0x1UL));
-        CPPUNIT_ASSERT(e.hashMatches(0UL));
-        CPPUNIT_ASSERT(!e.hashMatches(0xbeefUL));
-        e.setReferant(0xbeefUL, reinterpret_cast<TestObject*>(0x1UL));
-        CPPUNIT_ASSERT(!e.hashMatches(0UL));
-        CPPUNIT_ASSERT(e.hashMatches(0xbeefUL));
-        CPPUNIT_ASSERT(!e.hashMatches(0xfeedUL));
-    }
+TEST_F(HashTableEntryTest, isAvailable) {
+    TestObjectMap::Entry e;
+    e.clear();
+    EXPECT_TRUE(e.isAvailable());
+    e.setChainPointer(reinterpret_cast<TestObjectMap::CacheLine*>(
+        0x1UL));
+    EXPECT_FALSE(e.isAvailable());
+    e.setReferant(0UL, reinterpret_cast<TestObject*>(0x1UL));
+    EXPECT_FALSE(e.isAvailable());
+    e.clear();
+    EXPECT_TRUE(e.isAvailable());
+}
 
-};
-CPPUNIT_TEST_SUITE_REGISTRATION(HashTableEntryTest);
+TEST_F(HashTableEntryTest, getReferant) {
+    TestObjectMap::Entry e;
+    TestObject *o =
+        reinterpret_cast<TestObject*>(0x7fffffffffffUL);
+    e.setReferant(0xaaaaUL, o);
+    EXPECT_EQ(o, e.getReferant());
+}
+
+TEST_F(HashTableEntryTest, getChainPointer) {
+    TestObjectMap::CacheLine *cl;
+    cl = reinterpret_cast<TestObjectMap::CacheLine*>(0x7fffffffffffUL);
+    TestObjectMap::Entry e;
+    e.setChainPointer(cl);
+    EXPECT_EQ(cl, e.getChainPointer());
+    e.clear();
+    EXPECT_TRUE(NULL == e.getChainPointer());
+    e.setReferant(0UL, reinterpret_cast<TestObject*>(0x1UL));
+    EXPECT_TRUE(NULL == e.getChainPointer());
+}
+
+TEST_F(HashTableEntryTest, hashMatches) {
+    TestObjectMap::Entry e;
+    e.clear();
+    EXPECT_TRUE(!e.hashMatches(0UL));
+    e.setChainPointer(reinterpret_cast<TestObjectMap::CacheLine*>(
+        0x1UL));
+    EXPECT_TRUE(!e.hashMatches(0UL));
+    e.setReferant(0UL, reinterpret_cast<TestObject*>(0x1UL));
+    EXPECT_TRUE(e.hashMatches(0UL));
+    EXPECT_TRUE(!e.hashMatches(0xbeefUL));
+    e.setReferant(0xbeefUL, reinterpret_cast<TestObject*>(0x1UL));
+    EXPECT_TRUE(!e.hashMatches(0UL));
+    EXPECT_TRUE(e.hashMatches(0xbeefUL));
+    EXPECT_TRUE(!e.hashMatches(0xfeedUL));
+}
 
 /**
  * Unit tests for HashTable.
  */
-class HashTableTest : public CppUnit::TestFixture {
-    CPPUNIT_TEST_SUITE(HashTableTest);
-    CPPUNIT_TEST(test_constructor);
-    CPPUNIT_TEST(test_constructor_truncate);
-    CPPUNIT_TEST(test_destructor);
-    CPPUNIT_TEST(test_simple);
-    CPPUNIT_TEST(test_multiTable);
-    CPPUNIT_TEST(test_hash);
-    CPPUNIT_TEST(test_findBucket);
-    CPPUNIT_TEST(test_lookupEntry_notFound);
-    CPPUNIT_TEST(test_lookupEntry_cacheLine0Entry0);
-    CPPUNIT_TEST(test_lookupEntry_cacheLine0Entry7);
-    CPPUNIT_TEST(test_lookupEntry_cacheLine2Entry0);
-    CPPUNIT_TEST(test_lookupEntry_hashCollision);
-    CPPUNIT_TEST(test_lookup);
-    CPPUNIT_TEST(test_remove);
-    CPPUNIT_TEST(test_replace_normal);
-    CPPUNIT_TEST(test_replace_cacheLine0Entry0);
-    CPPUNIT_TEST(test_replace_cacheLine0Entry7);
-    CPPUNIT_TEST(test_replace_cacheLine2Entry0);
-    CPPUNIT_TEST(test_replace_cacheLineFull);
-    CPPUNIT_TEST(test_forEach);
-    CPPUNIT_TEST_SUITE_END();
-    DISALLOW_COPY_AND_ASSIGN(HashTableTest); //NOLINT
+class HashTableTest : public ::testing::Test {
+  public:
+    HashTableTest() { }
 
     // convenient abbreviation
 #define seven (TestObjectMap::ENTRIES_PER_CACHE_LINE - 1)
@@ -423,8 +367,8 @@ class HashTableTest : public CppUnit::TestFixture {
         uint64_t littleHash;
         (void) ht->findBucket(0, ptr->key2(), &littleHash);
         TestObjectMap::Entry& entry = entryAt(ht, x, y);
-        CPPUNIT_ASSERT(entry.hashMatches(littleHash));
-        CPPUNIT_ASSERT_EQUAL(ptr, entry.getReferant());
+        EXPECT_TRUE(entry.hashMatches(littleHash));
+        EXPECT_EQ(ptr, entry.getReferant());
     }
 
     TestObjectMap::Entry *findBucketAndLookupEntry(TestObjectMap *ht,
@@ -437,335 +381,308 @@ class HashTableTest : public CppUnit::TestFixture {
         return ht->lookupEntry(bucket, secondaryHash, tableId, objectId);
     }
 
-  public:
+    DISALLOW_COPY_AND_ASSIGN(HashTableTest);
+};
 
-    HashTableTest()
-    {
+TEST_F(HashTableTest, constructor) {
+    TestObjectMap ht(16);
+    for (uint32_t i = 0; i < 16; i++) {
+        for (uint32_t j = 0; j < ht.entriesPerCacheLine(); j++)
+            EXPECT_TRUE(ht.buckets.get()[i].entries[j].isAvailable());
     }
+}
 
-    void test_constructor()
-    {
-        TestObjectMap ht(16);
-        for (uint32_t i = 0; i < 16; i++) {
-            for (uint32_t j = 0; j < ht.entriesPerCacheLine(); j++)
-                CPPUNIT_ASSERT(ht.buckets.get()[i].entries[j].isAvailable());
-        }
+TEST_F(HashTableTest, constructor_truncate) {
+    // This is effectively testing nearestPowerOfTwo.
+    EXPECT_EQ(1UL, TestObjectMap(1).numBuckets);
+    EXPECT_EQ(2UL, TestObjectMap(2).numBuckets);
+    EXPECT_EQ(2UL, TestObjectMap(3).numBuckets);
+    EXPECT_EQ(4UL, TestObjectMap(4).numBuckets);
+    EXPECT_EQ(4UL, TestObjectMap(5).numBuckets);
+    EXPECT_EQ(4UL, TestObjectMap(6).numBuckets);
+    EXPECT_EQ(4UL, TestObjectMap(7).numBuckets);
+    EXPECT_EQ(8UL, TestObjectMap(8).numBuckets);
+}
+
+TEST_F(HashTableTest, destructor) {
+}
+
+TEST_F(HashTableTest, simple) {
+    TestObjectMap ht(1024);
+
+    TestObject a(0, 0);
+    TestObject b(0, 10);
+
+    EXPECT_EQ(NULL_OBJECT, ht.lookup(0, 0));
+    ht.replace(&a);
+    EXPECT_EQ(const_cast<TestObject*>(&a),
+        ht.lookup(0, 0));
+    EXPECT_EQ(NULL_OBJECT, ht.lookup(0, 10));
+    ht.replace(&b);
+    EXPECT_EQ(const_cast<TestObject*>(&b),
+        ht.lookup(0, 10));
+    EXPECT_EQ(const_cast<TestObject*>(&a),
+        ht.lookup(0, 0));
+}
+
+TEST_F(HashTableTest, multiTable) {
+    TestObjectMap ht(1024);
+
+    TestObject a(0, 0);
+    TestObject b(1, 0);
+    TestObject c(0, 1);
+
+    EXPECT_EQ(NULL_OBJECT, ht.lookup(0, 0));
+    EXPECT_EQ(NULL_OBJECT, ht.lookup(1, 0));
+    EXPECT_EQ(NULL_OBJECT, ht.lookup(0, 1));
+
+    ht.replace(&a);
+    ht.replace(&b);
+    ht.replace(&c);
+
+    EXPECT_EQ(const_cast<TestObject*>(&a),
+        ht.lookup(0, 0));
+    EXPECT_EQ(const_cast<TestObject*>(&b),
+        ht.lookup(1, 0));
+    EXPECT_EQ(const_cast<TestObject*>(&c),
+        ht.lookup(0, 1));
+}
+
+/**
+    * Ensure that #RAMCloud::HashTable::hash() generates hashes using the full
+    * range of bits.
+    */
+TEST_F(HashTableTest, hash) {
+    uint64_t observedBits = 0UL;
+    srand(1);
+    for (uint32_t i = 0; i < 50; i++) {
+        uint64_t input = generateRandom();
+        observedBits |= TestObjectMap::hash(input);
     }
+    EXPECT_EQ(~0UL, observedBits);
+}
 
-    void test_constructor_truncate()
-    {
-        // This is effectively testing nearestPowerOfTwo.
-        CPPUNIT_ASSERT_EQUAL(1UL, TestObjectMap(1).numBuckets);
-        CPPUNIT_ASSERT_EQUAL(2UL, TestObjectMap(2).numBuckets);
-        CPPUNIT_ASSERT_EQUAL(2UL, TestObjectMap(3).numBuckets);
-        CPPUNIT_ASSERT_EQUAL(4UL, TestObjectMap(4).numBuckets);
-        CPPUNIT_ASSERT_EQUAL(4UL, TestObjectMap(5).numBuckets);
-        CPPUNIT_ASSERT_EQUAL(4UL, TestObjectMap(6).numBuckets);
-        CPPUNIT_ASSERT_EQUAL(4UL, TestObjectMap(7).numBuckets);
-        CPPUNIT_ASSERT_EQUAL(8UL, TestObjectMap(8).numBuckets);
-    }
+TEST_F(HashTableTest, findBucket) {
+    TestObjectMap ht(1024);
+    TestObjectMap::CacheLine *bucket;
+    uint64_t hashValue;
+    uint64_t secondaryHash;
+    bucket = ht.findBucket(0, 4327, &secondaryHash);
+    hashValue = TestObjectMap::hash(0) ^ TestObjectMap::hash(4327);
+    EXPECT_EQ(static_cast<uint64_t>(bucket - ht.buckets.get()),
+                            (hashValue & 0x0000ffffffffffffffffUL) % 1024);
+    EXPECT_EQ(secondaryHash, hashValue >> 48);
+}
 
-    void test_destructor()
-    {
-    }
-
-    void test_simple()
-    {
-        TestObjectMap ht(1024);
-
-        TestObject a(0, 0);
-        TestObject b(0, 10);
-
-        CPPUNIT_ASSERT_EQUAL(NULL_OBJECT, ht.lookup(0, 0));
-        ht.replace(&a);
-        CPPUNIT_ASSERT_EQUAL(const_cast<TestObject*>(&a),
-            ht.lookup(0, 0));
-        CPPUNIT_ASSERT_EQUAL(NULL_OBJECT, ht.lookup(0, 10));
-        ht.replace(&b);
-        CPPUNIT_ASSERT_EQUAL(const_cast<TestObject*>(&b),
-            ht.lookup(0, 10));
-        CPPUNIT_ASSERT_EQUAL(const_cast<TestObject*>(&a),
-            ht.lookup(0, 0));
-    }
-
-    void test_multiTable()
-    {
-        TestObjectMap ht(1024);
-
-        TestObject a(0, 0);
-        TestObject b(1, 0);
-        TestObject c(0, 1);
-
-        CPPUNIT_ASSERT_EQUAL(NULL_OBJECT, ht.lookup(0, 0));
-        CPPUNIT_ASSERT_EQUAL(NULL_OBJECT, ht.lookup(1, 0));
-        CPPUNIT_ASSERT_EQUAL(NULL_OBJECT, ht.lookup(0, 1));
-
-        ht.replace(&a);
-        ht.replace(&b);
-        ht.replace(&c);
-
-        CPPUNIT_ASSERT_EQUAL(const_cast<TestObject*>(&a),
-            ht.lookup(0, 0));
-        CPPUNIT_ASSERT_EQUAL(const_cast<TestObject*>(&b),
-            ht.lookup(1, 0));
-        CPPUNIT_ASSERT_EQUAL(const_cast<TestObject*>(&c),
-            ht.lookup(0, 1));
-    }
-
-    /**
-     * Ensure that #RAMCloud::HashTable::hash() generates hashes using the full
-     * range of bits.
-     */
-    void test_hash()
-    {
-        uint64_t observedBits = 0UL;
-        srand(1);
-        for (uint32_t i = 0; i < 50; i++) {
-            uint64_t input = generateRandom();
-            observedBits |= TestObjectMap::hash(input);
-        }
-        CPPUNIT_ASSERT_EQUAL(~0UL, observedBits);
-    }
-
-    void test_findBucket()
-    {
-        TestObjectMap ht(1024);
-        TestObjectMap::CacheLine *bucket;
-        uint64_t hashValue;
-        uint64_t secondaryHash;
-        bucket = ht.findBucket(0, 4327, &secondaryHash);
-        hashValue = TestObjectMap::hash(0) ^ TestObjectMap::hash(4327);
-        CPPUNIT_ASSERT_EQUAL(static_cast<uint64_t>(bucket - ht.buckets.get()),
-                             (hashValue & 0x0000ffffffffffffffffUL) % 1024);
-        CPPUNIT_ASSERT_EQUAL(secondaryHash, hashValue >> 48);
-    }
-
-    /**
-     * Test #RAMCloud::HashTable::lookupEntry() when the object ID is not
-     * found.
-     */
-    void test_lookupEntry_notFound()
-    {
-        {
-            SETUP(0, 0);
-            CPPUNIT_ASSERT_EQUAL(static_cast<TestObjectMap::Entry*>(NULL),
-                                 findBucketAndLookupEntry(&ht, 0, 1));
-            CPPUNIT_ASSERT_EQUAL(1UL, ht.getPerfCounters().lookupEntryCalls);
-            CPPUNIT_ASSERT(ht.getPerfCounters().lookupEntryCycles > 0);
-            CPPUNIT_ASSERT(ht.getPerfCounters().lookupEntryDist.max > 0);
-        }
-        {
-            SETUP(0, TestObjectMap::ENTRIES_PER_CACHE_LINE * 5);
-            CPPUNIT_ASSERT_EQUAL(static_cast<TestObjectMap::Entry*>(NULL),
-                                 findBucketAndLookupEntry(&ht, 0, numEnt + 1));
-            CPPUNIT_ASSERT_EQUAL(5UL,
-                        ht.getPerfCounters().lookupEntryChainsFollowed);
-        }
-    }
-
-    /**
-     * Test #RAMCloud::HashTable::lookupEntry() when the object ID is found in
-     * the first entry of the first cache line.
-     */
-    void test_lookupEntry_cacheLine0Entry0()
-    {
-        SETUP(0, 1);
-        CPPUNIT_ASSERT_EQUAL(&entryAt(&ht, 0, 0),
-                             findBucketAndLookupEntry(&ht, 0, 0));
-    }
-
-    /**
-     * Test #RAMCloud::HashTable::lookupEntry() when the object ID is found in
-     * the last entry of the first cache line.
-     */
-    void test_lookupEntry_cacheLine0Entry7()
-    {
-        SETUP(0, TestObjectMap::ENTRIES_PER_CACHE_LINE);
-        CPPUNIT_ASSERT_EQUAL(&entryAt(&ht, 0, seven),
-                             findBucketAndLookupEntry(&ht, 0, seven));
-    }
-
-    /**
-     * Test #RAMCloud::HashTable::lookupEntry() when the object ID is found in
-     * the first entry of the third cache line.
-     */
-    void test_lookupEntry_cacheLine2Entry0()
-    {
-        SETUP(0, TestObjectMap::ENTRIES_PER_CACHE_LINE * 5);
-
-        // with 8 entries per cache line:
-        // cl0: [ k00, k01, k02, k03, k04, k05, k06, cl1 ]
-        // cl1: [ k07, k09, k09, k10, k11, k12, k13, cl2 ]
-        // cl2: [ k14, k15, k16, k17, k18, k19, k20, cl3 ]
-        // ...
-
-        CPPUNIT_ASSERT_EQUAL(&entryAt(&ht, 2, 0),
-                             findBucketAndLookupEntry(&ht, 0, seven * 2));
-    }
-
-    /**
-     * Test #RAMCloud::HashTable::lookupEntry() when there is a hash collision
-     * with another Entry.
-     */
-    void test_lookupEntry_hashCollision()
-    {
-        SETUP(0, 1);
-        CPPUNIT_ASSERT_EQUAL(&entryAt(&ht, 0, 0),
-                             findBucketAndLookupEntry(&ht, 0, 0));
-        CPPUNIT_ASSERT(ht.getPerfCounters().lookupEntryDist.max > 0);
-        values[0]._key2 = 0x43324890UL;
-        CPPUNIT_ASSERT_EQUAL(static_cast<TestObjectMap::Entry*>(NULL),
-                             findBucketAndLookupEntry(&ht, 0, 0));
-        CPPUNIT_ASSERT_EQUAL(1UL,
-                             ht.getPerfCounters().lookupEntryHashCollisions);
-    }
-
-    void test_lookup()
-    {
-        TestObjectMap ht(1);
-        TestObject *v = new TestObject(0, 83UL);
-        CPPUNIT_ASSERT_EQUAL(NULL_OBJECT, ht.lookup(0, 83UL));
-        ht.replace(v);
-        CPPUNIT_ASSERT_EQUAL(const_cast<TestObject*>(v),
-            ht.lookup(0, 83UL));
-
-        delete v;
-    }
-
-    void test_remove()
-    {
-        TestObject * ptr;
-        TestObjectMap ht(1);
-        CPPUNIT_ASSERT(!ht.remove(0, 83UL));
-        TestObject *v = new TestObject(0, 83UL);
-        ht.replace(v);
-        CPPUNIT_ASSERT(ht.remove(0, 83UL, &ptr));
-        CPPUNIT_ASSERT_EQUAL(v, ptr);
-        CPPUNIT_ASSERT_EQUAL(NULL_OBJECT, ht.lookup(0, 83UL));
-        CPPUNIT_ASSERT(!ht.remove(0, 83UL));
-        delete v;
-    }
-
-    void test_replace_normal()
-    {
-        TestObject* replaced;
-        TestObjectMap ht(1);
-        TestObject *v = new TestObject(0, 83UL);
-        TestObject *w = new TestObject(0, 83UL);
-        CPPUNIT_ASSERT(!ht.replace(v));
-        CPPUNIT_ASSERT_EQUAL(1UL, ht.getPerfCounters().replaceCalls);
-        CPPUNIT_ASSERT(ht.getPerfCounters().replaceCycles > 0);
-        CPPUNIT_ASSERT_EQUAL(const_cast<TestObject*>(v),
-            ht.lookup(0, 83UL));
-        CPPUNIT_ASSERT(ht.replace(v));
-        CPPUNIT_ASSERT_EQUAL(const_cast<TestObject*>(v),
-            ht.lookup(0, 83UL));
-        CPPUNIT_ASSERT(ht.replace(w, &replaced));
-        CPPUNIT_ASSERT_EQUAL(v, replaced);
-        CPPUNIT_ASSERT_EQUAL(const_cast<TestObject*>(w),
-            ht.lookup(0, 83UL));
-        delete v;
-        delete w;
-    }
-
-    /**
-     * Test #RAMCloud::HashTable::replace() when the object ID is new and the
-     * first entry of the first cache line is available.
-     */
-    void test_replace_cacheLine0Entry0()
+/**
+    * Test #RAMCloud::HashTable::lookupEntry() when the object ID is not
+    * found.
+    */
+TEST_F(HashTableTest, lookupEntry_notFound) {
     {
         SETUP(0, 0);
-        TestObject v(0, 83UL);
-        ht.replace(&v);
-        assertEntryIs(&ht, 0, 0, &v);
+        EXPECT_EQ(static_cast<TestObjectMap::Entry*>(NULL),
+                                findBucketAndLookupEntry(&ht, 0, 1));
+        EXPECT_EQ(1UL, ht.getPerfCounters().lookupEntryCalls);
+        EXPECT_LT(0U, ht.getPerfCounters().lookupEntryCycles);
+        EXPECT_LT(0U, ht.getPerfCounters().lookupEntryDist.max);
     }
-
-    /**
-     * Test #RAMCloud::HashTable::replace() when the object ID is new and the
-     * last entry of the first cache line is available.
-     */
-    void test_replace_cacheLine0Entry7()
     {
-        SETUP(0, TestObjectMap::ENTRIES_PER_CACHE_LINE - 1);
-        TestObject v(0, 83UL);
-        ht.replace(&v);
-        assertEntryIs(&ht, 0, seven, &v);
+        SETUP(0, TestObjectMap::ENTRIES_PER_CACHE_LINE * 5);
+        EXPECT_EQ(static_cast<TestObjectMap::Entry*>(NULL),
+                  findBucketAndLookupEntry(&ht, 0, numEnt + 1));
+        EXPECT_EQ(5UL, ht.getPerfCounters().lookupEntryChainsFollowed);
     }
+}
 
-    /**
-     * Test #RAMCloud::HashTable::replace() when the object ID is new and the
-     * first entry of the third cache line is available. The third cache line
-     * is already chained onto the second.
-     */
-    void test_replace_cacheLine2Entry0()
-    {
-        SETUP(0, TestObjectMap::ENTRIES_PER_CACHE_LINE * 2);
-        ht.buckets.get()[2].entries[0].clear();
-        ht.buckets.get()[2].entries[1].clear();
-        TestObject v(0, 83UL);
-        ht.replace(&v);
-        assertEntryIs(&ht, 2, 0, &v);
-        CPPUNIT_ASSERT_EQUAL(2UL, ht.getPerfCounters().insertChainsFollowed);
-    }
+/**
+    * Test #RAMCloud::HashTable::lookupEntry() when the object ID is found in
+    * the first entry of the first cache line.
+    */
+TEST_F(HashTableTest, lookupEntry_cacheLine0Entry0) {
+    SETUP(0, 1);
+    EXPECT_EQ(&entryAt(&ht, 0, 0),
+              findBucketAndLookupEntry(&ht, 0, 0));
+}
 
-    /**
-     * Test #RAMCloud::HashTable::replace() when the object ID is new and the
-     * first and only cache line is full. The second cache line needs to be
-     * allocated.
-     */
-    void test_replace_cacheLineFull()
-    {
-        SETUP(0, TestObjectMap::ENTRIES_PER_CACHE_LINE);
-        TestObject v(0, 83UL);
-        ht.replace(&v);
-        CPPUNIT_ASSERT(entryAt(&ht, 0, seven).getChainPointer() != NULL);
-        CPPUNIT_ASSERT(entryAt(&ht, 0, seven).getChainPointer() !=
-                       &ht.buckets.get()[1]);
-        assertEntryIs(&ht, 1, 0, &values[seven]);
-        assertEntryIs(&ht, 1, 1, &v);
-    }
+/**
+    * Test #RAMCloud::HashTable::lookupEntry() when the object ID is found in
+    * the last entry of the first cache line.
+    */
+TEST_F(HashTableTest, lookupEntry_cacheLine0Entry7) {
+    SETUP(0, TestObjectMap::ENTRIES_PER_CACHE_LINE);
+    EXPECT_EQ(&entryAt(&ht, 0, seven),
+              findBucketAndLookupEntry(&ht, 0, seven));
+}
 
-    struct ForEachTestStruct {
-        ForEachTestStruct() : _key1(0), _key2(0), count(0) {}
-        uint64_t key1() const { return _key1; }
-        uint64_t key2() const { return _key2; }
-        uint64_t _key1, _key2, count;
-    };
+/**
+    * Test #RAMCloud::HashTable::lookupEntry() when the object ID is found in
+    * the first entry of the third cache line.
+    */
+TEST_F(HashTableTest, lookupEntry_cacheLine2Entry0) {
+    SETUP(0, TestObjectMap::ENTRIES_PER_CACHE_LINE * 5);
 
-    /**
-     * Callback used by test_forEach().
-     */ 
-    static void
-    test_forEach_callback(ForEachTestStruct *p, void *cookie)
-    {
-        CPPUNIT_ASSERT_EQUAL(cookie, reinterpret_cast<void *>(57));
-        const_cast<ForEachTestStruct *>(p)->count++;
-    }
+    // with 8 entries per cache line:
+    // cl0: [ k00, k01, k02, k03, k04, k05, k06, cl1 ]
+    // cl1: [ k07, k09, k09, k10, k11, k12, k13, cl2 ]
+    // cl2: [ k14, k15, k16, k17, k18, k19, k20, cl3 ]
+    // ...
 
-    /**
-     * Simple test for #RAMCloud::HashTable::forEach(), ensuring that it
-     * properly traverses multiple buckets and chained cachelines.
-     */
-    void test_forEach()
-    {
-        HashTable<ForEachTestStruct*> ht(2);
-        ForEachTestStruct checkoff[256];
-        memset(checkoff, 0, sizeof(checkoff));
+    EXPECT_EQ(&entryAt(&ht, 2, 0),
+              findBucketAndLookupEntry(&ht, 0, seven * 2));
+}
 
-        for (uint32_t i = 0; i < arrayLength(checkoff); i++) {
-            checkoff[i]._key1 = 0;
-            checkoff[i]._key2 = i;
-            ht.replace(&checkoff[i]);
-        }
+/**
+    * Test #RAMCloud::HashTable::lookupEntry() when there is a hash collision
+    * with another Entry.
+    */
+TEST_F(HashTableTest, lookupEntry_hashCollision) {
+    SETUP(0, 1);
+    EXPECT_EQ(&entryAt(&ht, 0, 0),
+                            findBucketAndLookupEntry(&ht, 0, 0));
+    EXPECT_LT(0U, ht.getPerfCounters().lookupEntryDist.max);
+    values[0]._key2 = 0x43324890UL;
+    EXPECT_EQ(static_cast<TestObjectMap::Entry*>(NULL),
+              findBucketAndLookupEntry(&ht, 0, 0));
+    EXPECT_EQ(1UL, ht.getPerfCounters().lookupEntryHashCollisions);
+}
 
-        uint64_t t = ht.forEach(test_forEach_callback,
-            reinterpret_cast<void *>(57));
-        CPPUNIT_ASSERT_EQUAL(arrayLength(checkoff), t);
+TEST_F(HashTableTest, lookup) {
+    TestObjectMap ht(1);
+    TestObject *v = new TestObject(0, 83UL);
+    EXPECT_EQ(NULL_OBJECT, ht.lookup(0, 83UL));
+    ht.replace(v);
+    EXPECT_EQ(const_cast<TestObject*>(v),
+        ht.lookup(0, 83UL));
 
-        for (uint32_t i = 0; i < arrayLength(checkoff); i++)
-            CPPUNIT_ASSERT_EQUAL(1, checkoff[i].count);
-    }
+    delete v;
+}
+
+TEST_F(HashTableTest, remove) {
+    TestObject * ptr;
+    TestObjectMap ht(1);
+    EXPECT_TRUE(!ht.remove(0, 83UL));
+    TestObject *v = new TestObject(0, 83UL);
+    ht.replace(v);
+    EXPECT_TRUE(ht.remove(0, 83UL, &ptr));
+    EXPECT_EQ(v, ptr);
+    EXPECT_EQ(NULL_OBJECT, ht.lookup(0, 83UL));
+    EXPECT_TRUE(!ht.remove(0, 83UL));
+    delete v;
+}
+
+TEST_F(HashTableTest, replace_normal) {
+    TestObject* replaced;
+    TestObjectMap ht(1);
+    TestObject *v = new TestObject(0, 83UL);
+    TestObject *w = new TestObject(0, 83UL);
+    EXPECT_TRUE(!ht.replace(v));
+    EXPECT_EQ(1UL, ht.getPerfCounters().replaceCalls);
+    EXPECT_LT(0U, ht.getPerfCounters().replaceCycles);
+    EXPECT_EQ(const_cast<TestObject*>(v),
+        ht.lookup(0, 83UL));
+    EXPECT_TRUE(ht.replace(v));
+    EXPECT_EQ(const_cast<TestObject*>(v),
+        ht.lookup(0, 83UL));
+    EXPECT_TRUE(ht.replace(w, &replaced));
+    EXPECT_EQ(v, replaced);
+    EXPECT_EQ(const_cast<TestObject*>(w),
+        ht.lookup(0, 83UL));
+    delete v;
+    delete w;
+}
+
+/**
+    * Test #RAMCloud::HashTable::replace() when the object ID is new and the
+    * first entry of the first cache line is available.
+    */
+TEST_F(HashTableTest, replace_cacheLine0Entry0) {
+    SETUP(0, 0);
+    TestObject v(0, 83UL);
+    ht.replace(&v);
+    assertEntryIs(&ht, 0, 0, &v);
+}
+
+/**
+    * Test #RAMCloud::HashTable::replace() when the object ID is new and the
+    * last entry of the first cache line is available.
+    */
+TEST_F(HashTableTest, replace_cacheLine0Entry7) {
+    SETUP(0, TestObjectMap::ENTRIES_PER_CACHE_LINE - 1);
+    TestObject v(0, 83UL);
+    ht.replace(&v);
+    assertEntryIs(&ht, 0, seven, &v);
+}
+
+/**
+    * Test #RAMCloud::HashTable::replace() when the object ID is new and the
+    * first entry of the third cache line is available. The third cache line
+    * is already chained onto the second.
+    */
+TEST_F(HashTableTest, replace_cacheLine2Entry0) {
+    SETUP(0, TestObjectMap::ENTRIES_PER_CACHE_LINE * 2);
+    ht.buckets.get()[2].entries[0].clear();
+    ht.buckets.get()[2].entries[1].clear();
+    TestObject v(0, 83UL);
+    ht.replace(&v);
+    assertEntryIs(&ht, 2, 0, &v);
+    EXPECT_EQ(2UL, ht.getPerfCounters().insertChainsFollowed);
+}
+
+/**
+    * Test #RAMCloud::HashTable::replace() when the object ID is new and the
+    * first and only cache line is full. The second cache line needs to be
+    * allocated.
+    */
+TEST_F(HashTableTest, replace_cacheLineFull) {
+    SETUP(0, TestObjectMap::ENTRIES_PER_CACHE_LINE);
+    TestObject v(0, 83UL);
+    ht.replace(&v);
+    EXPECT_TRUE(entryAt(&ht, 0, seven).getChainPointer() != NULL);
+    EXPECT_TRUE(entryAt(&ht, 0, seven).getChainPointer() !=
+              &ht.buckets.get()[1]);
+    assertEntryIs(&ht, 1, 0, &values[seven]);
+    assertEntryIs(&ht, 1, 1, &v);
+}
+
+struct ForEachTestStruct {
+    ForEachTestStruct() : _key1(0), _key2(0), count(0) {}
+    uint64_t key1() const { return _key1; }
+    uint64_t key2() const { return _key2; }
+    uint64_t _key1, _key2, count;
 };
-CPPUNIT_TEST_SUITE_REGISTRATION(HashTableTest);
+
+/**
+    * Callback used by test_forEach().
+    */ 
+static void
+test_forEach_callback(ForEachTestStruct *p, void *cookie)
+{
+    EXPECT_EQ(cookie, reinterpret_cast<void *>(57));
+    const_cast<ForEachTestStruct *>(p)->count++;
+}
+
+/**
+    * Simple test for #RAMCloud::HashTable::forEach(), ensuring that it
+    * properly traverses multiple buckets and chained cachelines.
+    */
+TEST_F(HashTableTest, forEach) {
+    HashTable<ForEachTestStruct*> ht(2);
+    ForEachTestStruct checkoff[256];
+    memset(checkoff, 0, sizeof(checkoff));
+
+    for (uint32_t i = 0; i < arrayLength(checkoff); i++) {
+        checkoff[i]._key1 = 0;
+        checkoff[i]._key2 = i;
+        ht.replace(&checkoff[i]);
+    }
+
+    uint64_t t = ht.forEach(test_forEach_callback,
+        reinterpret_cast<void *>(57));
+    EXPECT_EQ(arrayLength(checkoff), t);
+
+    for (uint32_t i = 0; i < arrayLength(checkoff); i++)
+        EXPECT_EQ(1U, checkoff[i].count);
+}
 
 } // namespace RAMCloud

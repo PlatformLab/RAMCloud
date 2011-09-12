@@ -134,7 +134,7 @@ class Client {
      */
     Status status;
 
-  protected:
+  PROTECTED:
 
     // begin RPC proxy method helpers
 

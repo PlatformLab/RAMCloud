@@ -20,12 +20,7 @@ namespace RAMCloud {
 
 typedef RealInfiniband Infiniband;
 
-class InfAddressTest : public CppUnit::TestFixture {
-    CPPUNIT_TEST_SUITE(InfAddressTest);
-    CPPUNIT_TEST(test_constructor);
-    CPPUNIT_TEST(test_toString);
-    CPPUNIT_TEST_SUITE_END();
-
+class InfAddressTest : public ::testing::Test {
   public:
     InfAddressTest() {}
     char x[0];
@@ -41,42 +36,41 @@ class InfAddressTest : public CppUnit::TestFixture {
         return "ok";
     }
 
-    void test_constructor() {
-        CPPUNIT_ASSERT_EQUAL("ok", tryLocator("fast+infud: lid=0, qpn=0"));
-        CPPUNIT_ASSERT_EQUAL("ok",
-            tryLocator("fast+infud: lid=65535, qpn=4294967295"));
-
-        CPPUNIT_ASSERT_EQUAL("Service locator 'fast+infud: lid=65536, qpn=0' "
-            "couldn't be converted to Infiniband address: Could not parse lid. "
-            "Invalid or out of range.",
-            tryLocator("fast+infud: lid=65536, qpn=0"));
-
-        CPPUNIT_ASSERT_EQUAL("Service locator 'fast+infud: lid=0, "
-            "qpn=4294967296' couldn't be converted to Infiniband address: "
-            "Could not parse qpn. Invalid or out of range.",
-            tryLocator("fast+infud: lid=0, qpn=4294967296"));
-
-        CPPUNIT_ASSERT_EQUAL("Service locator 'fast+infud: foo=0, qpn=0' "
-            "couldn't be converted to Infiniband address: Could not parse "
-            "lid. Invalid or out of range.",
-            tryLocator("fast+infud: foo=0, qpn=0"));
-
-        CPPUNIT_ASSERT_EQUAL("Service locator 'fast+infud: lid=0, bar=0' "
-            "couldn't be converted to Infiniband address: Could not parse "
-            "qpn. Invalid or out of range.",
-            tryLocator("fast+infud: lid=0, bar=0"));
-    }
-
-    void test_toString() {
-        // dangerous cast!
-        Infiniband::Address a(*reinterpret_cast<RealInfiniband*>(x), 0,
-                          ServiceLocator("fast+infud: lid=721, qpn=23472"));
-        CPPUNIT_ASSERT_EQUAL("721:23472", a.toString());
-    }
-
   private:
     DISALLOW_COPY_AND_ASSIGN(InfAddressTest);
 };
-CPPUNIT_TEST_SUITE_REGISTRATION(InfAddressTest);
+
+TEST_F(InfAddressTest, constructor) {
+    EXPECT_EQ("ok", tryLocator("fast+infud: lid=0, qpn=0"));
+    EXPECT_EQ("ok",
+        tryLocator("fast+infud: lid=65535, qpn=4294967295"));
+
+    EXPECT_EQ("Service locator 'fast+infud: lid=65536, qpn=0' "
+        "couldn't be converted to Infiniband address: Could not parse lid. "
+        "Invalid or out of range.",
+        tryLocator("fast+infud: lid=65536, qpn=0"));
+
+    EXPECT_EQ("Service locator 'fast+infud: lid=0, "
+        "qpn=4294967296' couldn't be converted to Infiniband address: "
+        "Could not parse qpn. Invalid or out of range.",
+        tryLocator("fast+infud: lid=0, qpn=4294967296"));
+
+    EXPECT_EQ("Service locator 'fast+infud: foo=0, qpn=0' "
+        "couldn't be converted to Infiniband address: Could not parse "
+        "lid. Invalid or out of range.",
+        tryLocator("fast+infud: foo=0, qpn=0"));
+
+    EXPECT_EQ("Service locator 'fast+infud: lid=0, bar=0' "
+        "couldn't be converted to Infiniband address: Could not parse "
+        "qpn. Invalid or out of range.",
+        tryLocator("fast+infud: lid=0, bar=0"));
+}
+
+TEST_F(InfAddressTest, toString) {
+    // dangerous cast!
+    Infiniband::Address a(*reinterpret_cast<RealInfiniband*>(x), 0,
+                        ServiceLocator("fast+infud: lid=721, qpn=23472"));
+    EXPECT_EQ("721:23472", a.toString());
+}
 
 }  // namespace RAMCloud

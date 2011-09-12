@@ -132,7 +132,7 @@ class ServiceLocator {
         return (this->originalString == other.originalString);
     }
 
-  private:
+  PRIVATE:
     ServiceLocator();
 
     void init(pcrecpp::StringPiece* serviceLocator);

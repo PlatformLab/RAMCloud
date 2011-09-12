@@ -18,85 +18,72 @@
 
 namespace RAMCloud {
 
-class CommonTest : public CppUnit::TestFixture {
-    CPPUNIT_TEST_SUITE(CommonTest);
-    CPPUNIT_TEST(test_unsafeArrayLength);
-    CPPUNIT_TEST(test_arrayLength);
-    CPPUNIT_TEST(test_vformat_long);
-    CPPUNIT_TEST(test_format_copy);
-    CPPUNIT_TEST(test_format_outArg);
-    CPPUNIT_TEST(test_generateRandom);
-    CPPUNIT_TEST(test_getTotalSystemMemory);
-    CPPUNIT_TEST_SUITE_END();
-
+class CommonTest : public ::testing::Test {
   public:
     CommonTest() {}
 
-    void test_unsafeArrayLength() {
-        int x[10];
-        int y[] = {1, 2, 3};
-        CPPUNIT_ASSERT_EQUAL(10, unsafeArrayLength(x));
-        CPPUNIT_ASSERT_EQUAL(3, unsafeArrayLength(y));
-
-        // The following will give bogus results:
-        // int *z;
-        // CPPUNIT_ASSERT_EQUAL(0, arrayLength(z));
-    }
-
-    void test_arrayLength() {
-        int x[10];
-        int y[] = {1, 2, 3};
-        CPPUNIT_ASSERT_EQUAL(10, arrayLength(x));
-        CPPUNIT_ASSERT_EQUAL(3, arrayLength(y));
-
-        // The following should not compile:
-        // int *z;
-        // CPPUNIT_ASSERT_EQUAL(0, arrayLength(z));
-    }
-
-    void test_vformat_long() {
-        char x[3000];
-        memset(x, 0xcc, sizeof(x));
-        x[sizeof(x) - 1] = '\0';
-        CPPUNIT_ASSERT_EQUAL(x, format("%s", x));
-    }
-
-    void test_format_copy() {
-        CPPUNIT_ASSERT_EQUAL("rofl3",
-                             format("rofl3"));
-        CPPUNIT_ASSERT_EQUAL("rofl3",
-                             format("r%sl%d", "of", 3));
-    }
-
-    void test_format_outArg() {
-        string s;
-        CPPUNIT_ASSERT_EQUAL("rofl3", format(s, "rofl3"));
-        CPPUNIT_ASSERT_EQUAL(&s, &format(s, "r%sl%d", "of", 3));
-        CPPUNIT_ASSERT_EQUAL("rofl3", s);
-    }
-
-    // make sure generateRandom() uses all 64 bits
-    void test_generateRandom() {
-        uint64_t r = 0;
-        for (uint32_t i = 0; i < 50; i++)
-            r |= generateRandom();
-        CPPUNIT_ASSERT_EQUAL(~0UL, r);
-    }
-
-    void test_getTotalSystemMemory() {
-        // for portability, only test if /proc/meminfo exists
-        FILE *fp = fopen("/proc/meminfo", "r");
-        if (fp == NULL)
-            return;
-        fclose(fp);
-
-        // seems reasonable?
-        CPPUNIT_ASSERT(getTotalSystemMemory() > 1024 * 1024);
-    }
-
     DISALLOW_COPY_AND_ASSIGN(CommonTest);
 };
-CPPUNIT_TEST_SUITE_REGISTRATION(CommonTest);
+
+TEST_F(CommonTest, unsafeArrayLength) {
+    int x[10];
+    int y[] = {1, 2, 3};
+    EXPECT_EQ(10U, unsafeArrayLength(x));
+    EXPECT_EQ(3U, unsafeArrayLength(y));
+
+    // The following will give bogus results:
+    // int *z;
+    // EXPECT_EQ(0U, arrayLength(z));
+}
+
+TEST_F(CommonTest, arrayLength) {
+    int x[10];
+    int y[] = {1, 2, 3};
+    EXPECT_EQ(10U, arrayLength(x));
+    EXPECT_EQ(3U, arrayLength(y));
+
+    // The following should not compile:
+    // int *z;
+    // EXPECT_EQ(0U, arrayLength(z));
+}
+
+TEST_F(CommonTest, vformat_long) {
+    char x[3000];
+    memset(x, 0xcc, sizeof(x));
+    x[sizeof(x) - 1] = '\0';
+    EXPECT_EQ(x, format("%s", x));
+}
+
+TEST_F(CommonTest, format_copy) {
+    EXPECT_EQ("rofl3", format("rofl3"));
+    EXPECT_EQ("rofl3", format("r%sl%d", "of", 3));
+}
+
+TEST_F(CommonTest, format_outArg) {
+    string s;
+    EXPECT_EQ("rofl3", format(s, "rofl3"));
+    EXPECT_EQ(&s, &format(s, "r%sl%d", "of", 3));
+    EXPECT_EQ("rofl3", s);
+}
+
+// make sure generateRandom() uses all 64 bits
+TEST_F(CommonTest, generateRandom) {
+    uint64_t r = 0;
+    for (uint32_t i = 0; i < 50; i++)
+        r |= generateRandom();
+    EXPECT_EQ(~0UL, r);
+}
+
+TEST_F(CommonTest, getTotalSystemMemory) {
+    // for portability, only test if /proc/meminfo exists
+    FILE *fp = fopen("/proc/meminfo", "r");
+    if (fp == NULL)
+        return;
+    fclose(fp);
+
+    // seems reasonable?
+    EXPECT_TRUE(getTotalSystemMemory() > 1024 * 1024);
+}
 
 TEST(CodeLocation, relativeFile) {
     CodeLocation where = HERE;
