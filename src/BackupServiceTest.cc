@@ -834,7 +834,8 @@ TEST_F(SegmentInfoTest, appendRecoverySegment) {
     info.buildRecoverySegments(partitions);
 
     Buffer buffer;
-    info.appendRecoverySegment(0, buffer);
+    Status status = info.appendRecoverySegment(0, buffer);
+    ASSERT_EQ(STATUS_OK, status);
     RecoverySegmentIterator it(buffer.getRange(0, buffer.getTotalLength()),
                                  buffer.getTotalLength());
     EXPECT_FALSE(it.isDone());
@@ -868,22 +869,22 @@ TEST_F(SegmentInfoTest, appendRecoverySegmentSecondarySegment) {
 
     Buffer buffer;
     while (true) {
-        try {
-            info.appendRecoverySegment(0, buffer);
-        } catch (const RetryException& e) {
+        Status status = info.appendRecoverySegment(0, buffer);
+        if (status == STATUS_RETRY) {
             buffer.reset();
             continue;
         }
+        ASSERT_EQ(status, STATUS_OK);
         break;
     }
     buffer.reset();
     while (true) {
-        try {
-            info.appendRecoverySegment(0, buffer);
-        } catch (const RetryException& e) {
+        Status status = info.appendRecoverySegment(0, buffer);
+        if (status == STATUS_RETRY) {
             buffer.reset();
             continue;
         }
+        ASSERT_EQ(status, STATUS_OK);
         break;
     }
     RecoverySegmentIterator it(buffer.getRange(0, buffer.getTotalLength()),
@@ -907,14 +908,17 @@ TEST_F(SegmentInfoTest, appendRecoverySegmentMalformedSegment) {
     info.buildRecoverySegments(partitions);
 
     Buffer buffer;
-    EXPECT_THROW(info.appendRecoverySegment(0, buffer),
+    Status status;
+    EXPECT_THROW(status = info.appendRecoverySegment(0, buffer),
                  SegmentRecoveryFailedException);
+    EXPECT_EQ(STATUS_OK, status);
 }
 
 TEST_F(SegmentInfoTest, appendRecoverySegmentNotYetRecovered) {
     Buffer buffer;
     TestLog::Enable _;
-    EXPECT_THROW(info.appendRecoverySegment(0, buffer),
+    Status status;
+    EXPECT_THROW(status = info.appendRecoverySegment(0, buffer),
                  BackupBadSegmentIdException);
     EXPECT_EQ("appendRecoverySegment: Asked for segment <99,88> which isn't "
               "recovering", TestLog::get());
@@ -934,8 +938,10 @@ TEST_F(SegmentInfoTest, appendRecoverySegmentPartitionOutOfBounds) {
     EXPECT_EQ(0u, info.recoverySegmentsLength);
     Buffer buffer;
     TestLog::Enable _;
-    EXPECT_THROW(info.appendRecoverySegment(0, buffer),
+    Status status;
+    EXPECT_THROW(status = info.appendRecoverySegment(0, buffer),
                  BackupBadSegmentIdException);
+    EXPECT_EQ(STATUS_OK, status);
     EXPECT_EQ("appendRecoverySegment: Asked for recovery segment 0 from "
               "segment <99,88> but there are only 0 partitions",
               TestLog::get());

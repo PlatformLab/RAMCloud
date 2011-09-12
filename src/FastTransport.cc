@@ -37,6 +37,7 @@ FastTransport::FastTransport(Driver* driver)
     : driver(driver)
     , clientSessions(this)
     , serverSessions(this)
+    , serverRpcPool()
 {
     struct IncomingPacketHandler : Driver::IncomingPacketHandler {
         explicit IncomingPacketHandler(FastTransport& t) : t(t) {}
@@ -264,47 +265,24 @@ FastTransport::ClientRpc::cancelCleanup()
 // --- ServerRpc ---
 
 /**
- * Create a ServerRpc. Used to allocate ServerRpc as part of ServerChannel, see
- * setup() for per RPC initialization.
- */
-FastTransport::ServerRpc::ServerRpc()
-    : session(NULL)
-    , channelId(0)
-{
-}
-
-/// Make sure this RPC isn't still in a list.  Only happens during testing.
-FastTransport::ServerRpc::~ServerRpc()
-{
-}
-
-/**
- * Reset a ServerRpc to a unused state.
- */
-void
-FastTransport::ServerRpc::reset()
-{
-    requestPayload.reset();
-    replyPayload.reset();
-    session = NULL;
-    channelId = 0;
-}
-
-/**
- * Initialize a ServerRpc to a ServerSession on a particular channel.
+ * Create a ServerRpc. Used to allocate and initialize a ServerRpc as part
+ * of ServerChannel.
  *
  * \param session
  *      The ServerSession this RPC is associated with.
  * \param channelId
  *      The channel in session on which to handle this RPC.
  */
-void
-FastTransport::ServerRpc::setup(ServerSession* session,
-                                uint8_t channelId)
+FastTransport::ServerRpc::ServerRpc(ServerSession* session,
+                                    uint8_t channelId)
+    : session(session)
+    , channelId(channelId)
 {
-    reset();
-    this->session = session;
-    this->channelId = channelId;
+}
+
+/// Make sure this RPC isn't still in a list.  Only happens during testing.
+FastTransport::ServerRpc::~ServerRpc()
+{
 }
 
 /**
@@ -923,7 +901,7 @@ FastTransport::ServerSession::beginSending(uint8_t channelId)
     ServerChannel* channel = &channels[channelId];
     assert(channel->state == ServerChannel::PROCESSING);
     channel->state = ServerChannel::SENDING_WAITING;
-    Buffer* responseBuffer = &channel->currentRpc.replyPayload;
+    Buffer* responseBuffer = &channel->currentRpc->replyPayload;
     channel->outboundMsg.beginSending(responseBuffer);
     lastActivityTime = dispatch->currentTime;
 }
@@ -949,7 +927,9 @@ FastTransport::ServerSession::expire()
             continue;
         channels[i].state = ServerChannel::IDLE;
         channels[i].rpcId = ~0U;
-        channels[i].currentRpc.reset();
+        if (channels[i].currentRpc != NULL)
+            transport->serverRpcPool.destroy(channels[i].currentRpc);
+        channels[i].currentRpc = NULL;
         channels[i].inboundMsg.reset();
         channels[i].outboundMsg.reset();
     }
@@ -1023,8 +1003,11 @@ FastTransport::ServerSession::processInboundPacket(Driver::Received* received)
             channel->rpcId = header->rpcId;
             channel->inboundMsg.reset();
             channel->outboundMsg.reset();
-            channel->currentRpc.setup(this, header->channelId);
-            Buffer* recvBuffer = &channel->currentRpc.requestPayload;
+            if (channel->currentRpc != NULL)
+                transport->serverRpcPool.destroy(channel->currentRpc);
+            channel->currentRpc =
+                transport->serverRpcPool.construct(this, header->channelId);
+            Buffer* recvBuffer = &channel->currentRpc->requestPayload;
             channel->inboundMsg.init(header->totalFrags, recvBuffer);
             TEST_LOG("processReceivedData");
             processReceivedData(channel, received);
@@ -1124,7 +1107,7 @@ FastTransport::ServerSession::processReceivedData(ServerChannel* channel,
     case ServerChannel::RECEIVING:
         if (channel->inboundMsg.processReceivedData(received)) {
             channel->state = ServerChannel::PROCESSING;
-            serviceManager->handleRpc(&channel->currentRpc);
+            serviceManager->handleRpc(channel->currentRpc);
         }
         break;
     case ServerChannel::PROCESSING:

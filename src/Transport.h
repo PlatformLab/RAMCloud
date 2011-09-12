@@ -21,6 +21,7 @@
 #include <boost/intrusive_ptr.hpp>
 
 #include "Common.h"
+#include "BoostIntrusive.h"
 #include "Buffer.h"
 #include "ServiceLocator.h"
 #include "Tub.h"
@@ -141,7 +142,17 @@ class Transport {
         /**
          * Constructor for ServerRpc.
          */
-        ServerRpc() : requestPayload(), replyPayload() {}
+        ServerRpc()
+            : requestPayload(),
+              replyPayload(),
+              epoch(INVALID_EPOCH),
+              outstandingRpcListHook() {}
+
+        /**
+         * Default epoch value on construction. Used to ensure that the proper
+         * value is set before the RPC is passed on to the serviceManager.
+         */
+        static const uint64_t INVALID_EPOCH = -1;
 
       public:
         /**
@@ -161,6 +172,16 @@ class Transport {
         virtual void sendReply() = 0;
 
         /**
+         * Returns false if the epoch was not set, else true. Used to assert
+         * that no RPCs are pushed through the ServiceManager without an epoch.
+         */
+        bool
+        epochIsSet()
+        {
+            return epoch != INVALID_EPOCH;
+        }
+
+        /**
          * The incoming RPC payload, which contains a request.
          */
         Buffer requestPayload;
@@ -169,6 +190,22 @@ class Transport {
          * The RPC payload to send as a response with #sendReply().
          */
         Buffer replyPayload;
+
+        /**
+         * The epoch of this RPC upon reception. ServerRpcPool will set this
+         * value automatically, tagging the incoming RPC before it is passed to
+         * the handling service's dispatch method. This number can be used later
+         * to determine if any RPCs less than or equal to a certain epoch are
+         * still outstanding in the system.
+         */
+        uint64_t epoch;
+
+        /**
+         * Hook for the list of active server RPCs that the ServerRpcPool class
+         * maintains. RPCs are added when ServerRpc-derived classes are
+         * constructed by ServerRpcPool and removed when they're destroyed.
+         */
+        IntrusiveListHook outstandingRpcListHook;
 
       PRIVATE:
         DISALLOW_COPY_AND_ASSIGN(ServerRpc);

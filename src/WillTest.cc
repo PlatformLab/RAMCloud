@@ -88,7 +88,7 @@ TEST_F(WillTest, Will_constructor) {
     EXPECT_EQ(0U, w.currentMaxBytes);
     EXPECT_EQ(0U, w.currentCount);
     EXPECT_EQ(1000U, w.maxBytesPerPartition);
-    EXPECT_EQ(1001U, w.maxReferantsPerPartition);
+    EXPECT_EQ(1001U, w.maxReferentsPerPartition);
     EXPECT_EQ(0U, w.entries.size());
 }
 
@@ -136,7 +136,7 @@ TEST_F(WillTest, Will_debugDump) {
         "-----------------------------------------------------------------"
         "----------------------------------------------------------- | deb"
         "ugDump: Partition             TableId            FirstKey        "
-        "     LastKey     MinBytes     MaxBytes   MinReferants   MaxRefera"
+        "     LastKey     MinBytes     MaxBytes   MinReferents   MaxRefere"
         "nts | debugDump: ------------------------------------------------"
         "-----------------------------------------------------------------"
         "------------ | debugDump:         0  0x0000000000000000  0x000000"
@@ -170,10 +170,10 @@ TEST_F(WillTest, Will_addPartition) {
     EXPECT_EQ(10000U, w.entries[0].lastKey);
     EXPECT_EQ(100U, w.entries[0].minBytes);
     EXPECT_EQ(150U, w.entries[0].maxBytes);
-    EXPECT_EQ(10U, w.entries[0].minReferants);
-    EXPECT_EQ(20U, w.entries[0].maxReferants);
+    EXPECT_EQ(10U, w.entries[0].minReferents);
+    EXPECT_EQ(20U, w.entries[0].maxReferents);
     EXPECT_EQ(150U, w.currentMaxBytes);
-    EXPECT_EQ(20U, w.currentMaxReferants);
+    EXPECT_EQ(20U, w.currentMaxReferents);
     EXPECT_EQ(0U, w.currentId);
     EXPECT_EQ(1U, w.currentCount);
 
@@ -197,7 +197,7 @@ TEST_F(WillTest, Will_addPartition) {
     EXPECT_EQ(1U, w.currentId);
     EXPECT_EQ(1U, w.currentCount);
     EXPECT_EQ(2U, w.currentMaxBytes);
-    EXPECT_EQ(10U, w.currentMaxReferants);
+    EXPECT_EQ(10U, w.currentMaxReferents);
 
     // now exceed the referant maximum
     {
@@ -209,7 +209,7 @@ TEST_F(WillTest, Will_addPartition) {
     EXPECT_EQ(2U, w.currentId);
     EXPECT_EQ(1U, w.currentCount);
     EXPECT_EQ(3U, w.currentMaxBytes);
-    EXPECT_EQ(49U, w.currentMaxReferants);
+    EXPECT_EQ(49U, w.currentMaxReferents);
 }
 
 
@@ -260,7 +260,7 @@ class TabletOracle {
     }
 
     uint64_t
-    getReferantsInRange(uint64_t firstKey, uint64_t lastKey)
+    getReferentsInRange(uint64_t firstKey, uint64_t lastKey)
     {
         boost::unordered_map<uint64_t, uint64_t>::iterator it =
             objectMap.begin();
@@ -302,9 +302,9 @@ class Oracle {
     }
 
     uint64_t
-    getReferantsInRange(uint64_t table, uint64_t firstKey, uint64_t lastKey)
+    getReferentsInRange(uint64_t table, uint64_t firstKey, uint64_t lastKey)
     {
-        return tabletMap[table].getReferantsInRange(firstKey, lastKey);
+        return tabletMap[table].getReferentsInRange(firstKey, lastKey);
     }
 
     private:
@@ -316,17 +316,17 @@ sanityCheckWill(Will& w, Oracle& o)
 {
     uint64_t totalMinBytes = 0;
     uint64_t totalMaxBytes = 0;
-    uint64_t totalMinReferants = 0;
-    uint64_t totalMaxReferants = 0;
+    uint64_t totalMinReferents = 0;
+    uint64_t totalMaxReferents = 0;
     uint64_t totalRealBytes = 0;
-    uint64_t totalRealReferants = 0;
+    uint64_t totalRealReferents = 0;
     uint64_t lastId = 0;
     for (unsigned int i = 0; i < w.entries.size(); i++) {
         Will::WillEntry* we = &w.entries[i];
 
         uint64_t realBytes = o.getBytesInRange(we->tableId,
             we->firstKey, we->lastKey);
-        uint64_t realReferants = o.getReferantsInRange(we->tableId,
+        uint64_t realReferents = o.getReferentsInRange(we->tableId,
             we->firstKey, we->lastKey);
 
 #if 0
@@ -340,37 +340,37 @@ sanityCheckWill(Will& w, Oracle& o)
             EXPECT_TRUE(totalRealBytes <= totalMaxBytes);
             EXPECT_TRUE(labs(totalMaxBytes - totalRealBytes) <=
                 (int64_t)TabletProfiler::getMaximumByteError());
-            EXPECT_TRUE(totalRealReferants <= totalMaxReferants);
-            EXPECT_TRUE(labs(totalMaxReferants - totalRealReferants) <=
-                (int64_t)TabletProfiler::getMaximumReferantError());
+            EXPECT_TRUE(totalRealReferents <= totalMaxReferents);
+            EXPECT_TRUE(labs(totalMaxReferents - totalRealReferents) <=
+                (int64_t)TabletProfiler::getMaximumReferentError());
 
             totalMinBytes = 0;
             totalMaxBytes = 0;
-            totalMinReferants = 0;
-            totalMaxReferants = 0;
+            totalMinReferents = 0;
+            totalMaxReferents = 0;
             totalRealBytes = 0;
-            totalRealReferants = 0;
+            totalRealReferents = 0;
             lastId = we->partitionId;
         }
 
         EXPECT_TRUE(we->minBytes <= realBytes);
         EXPECT_TRUE(we->maxBytes >= realBytes);
-        EXPECT_TRUE(we->minReferants <= realReferants);
-        EXPECT_TRUE(we->maxReferants >= realReferants);
+        EXPECT_TRUE(we->minReferents <= realReferents);
+        EXPECT_TRUE(we->maxReferents >= realReferents);
 
         totalMinBytes += we->minBytes;
         totalMaxBytes += we->maxBytes;
-        totalMinReferants += we->minReferants;
-        totalMaxReferants += we->maxReferants;
+        totalMinReferents += we->minReferents;
+        totalMaxReferents += we->maxReferents;
         totalRealBytes += realBytes;
-        totalRealReferants += realReferants;
+        totalRealReferents += realReferents;
     }
     EXPECT_TRUE(totalRealBytes <= totalMaxBytes);
     EXPECT_TRUE(labs(totalMaxBytes - totalRealBytes) <=
         (int64_t)TabletProfiler::getMaximumByteError());
-    EXPECT_TRUE(totalRealReferants <= totalMaxReferants);
-    EXPECT_TRUE(labs(totalMaxReferants - totalRealReferants) <=
-        (int64_t)TabletProfiler::getMaximumReferantError());
+    EXPECT_TRUE(totalRealReferents <= totalMaxReferents);
+    EXPECT_TRUE(labs(totalMaxReferents - totalRealReferents) <=
+        (int64_t)TabletProfiler::getMaximumReferentError());
 }
 
 // Simple test that writes 18GB of objects with incrementing
@@ -381,7 +381,7 @@ TEST_F(WillTest, Will_endToEnd) {
     Oracle o;
 
     const uint64_t maxBytesPerPartition = 640 * 1024 * 1024;
-    const uint64_t maxReferantsPerPartition = 10 * 1000 * 1000;
+    const uint64_t maxReferentsPerPartition = 10 * 1000 * 1000;
 
     // 5GB, auto-incrementing, 256KB objects
     t = createAndAddTablet(tablets, 0, 0, 0, -1);
@@ -405,7 +405,7 @@ TEST_F(WillTest, Will_endToEnd) {
     }
 
     {
-        Will w(tablets, maxBytesPerPartition, maxReferantsPerPartition);
+        Will w(tablets, maxBytesPerPartition, maxReferentsPerPartition);
         sanityCheckWill(w, o);
     }
 
@@ -416,7 +416,7 @@ TEST_F(WillTest, Will_endToEnd) {
     }
 
     {
-        Will w(tablets, maxBytesPerPartition, maxReferantsPerPartition);
+        Will w(tablets, maxBytesPerPartition, maxReferentsPerPartition);
         sanityCheckWill(w, o);
     }
 }
@@ -429,7 +429,7 @@ TEST_F(WillTest, Will_endToEnd_2) {
     Oracle o;
 
     const uint64_t maxBytesPerPartition = 640 * 1024 * 1024;
-    const uint64_t maxReferantsPerPartition = 100 * 1000;
+    const uint64_t maxReferentsPerPartition = 100 * 1000;
 
     // 5GB, auto-incrementing, 10KB objects
     t = createAndAddTablet(tablets, 0, 0, 0, -1);
@@ -439,7 +439,7 @@ TEST_F(WillTest, Will_endToEnd_2) {
     }
 
     {
-        Will w(tablets, maxBytesPerPartition, maxReferantsPerPartition);
+        Will w(tablets, maxBytesPerPartition, maxReferentsPerPartition);
         sanityCheckWill(w, o);
     }
 }
@@ -452,7 +452,7 @@ TEST_F(WillTest, Will_endToEnd_3) {
     Oracle o;
 
     const uint64_t maxBytesPerPartition = 640 * 1024 * 1024;
-    const uint64_t maxReferantsPerPartition = 10 * 1000 * 1000;
+    const uint64_t maxReferentsPerPartition = 10 * 1000 * 1000;
 
     // 2GB, random keys, avg. 128KB objects
     t = createAndAddTablet(tablets, 0, 0, 0, -1);
@@ -489,7 +489,7 @@ TEST_F(WillTest, Will_endToEnd_3) {
     }
 
     {
-        Will w(tablets, maxBytesPerPartition, maxReferantsPerPartition);
+        Will w(tablets, maxBytesPerPartition, maxReferentsPerPartition);
         sanityCheckWill(w, o);
     }
 }

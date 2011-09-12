@@ -30,6 +30,7 @@
 #include "IpAddress.h"
 #include "Tub.h"
 #include "Segment.h"
+#include "ServerRpcPool.h"
 #include "ShortMacros.h"
 #include "Transport.h"
 #include "Infiniband.h"
@@ -217,6 +218,9 @@ class InfRcTransport : public Transport {
     // necessary.
     BufferDescriptor* getTransmitBuffer();
 
+    // Pull TX buffers from completion queue and add to freeTxBuffers.
+    int reapTxBuffers();
+
     // queue pair connection setup helpers
     QueuePair* clientTrySetupQueuePair(IpAddress& address);
     bool       clientTryExchangeQueuePairs(struct sockaddr_in *sin,
@@ -320,6 +324,13 @@ class InfRcTransport : public Transport {
     uintptr_t logMemoryBase;
     size_t logMemoryBytes;
     ibv_mr* logMemoryRegion;
+
+    // CycleCounter that's constructed when TX goes active and is destroyed
+    // when all TX buffers have been reclaimed. Counts are added to metrics.
+    Tub<CycleCounter<uint64_t>> transmitCycleCounter;
+
+    /// Pool allocator for our ServerRpc objects.
+    ServerRpcPool<ServerRpc> serverRpcPool;
 
     DISALLOW_COPY_AND_ASSIGN(InfRcTransport);
 };

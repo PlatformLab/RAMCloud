@@ -40,6 +40,7 @@
 #include "Dispatch.h"
 #include "Fence.h"
 #include "Object.h"
+#include "ObjectPool.h"
 #include "Segment.h"
 #include "SegmentIterator.h"
 #include "SpinLock.h"
@@ -288,6 +289,39 @@ double lockNonDispThrd()
     return Cycles::toSeconds(stop - start)/count;
 }
 
+// Starting with a new ObjectPool, measure the cost of Object
+// allocations. The pool may optionally be primed first to
+// measure the best-case performance.
+template <typename T, bool primeFirst>
+double objectPoolAlloc()
+{
+    int count = 100000;
+    T* toDestroy[count];
+    ObjectPool<T> pool;
+
+    if (primeFirst) {
+        for (int i = 0; i < count; i++) {
+            toDestroy[i] = pool.construct();
+        }
+        for (int i = 0; i < count; i++) {
+            pool.destroy(toDestroy[i]);
+        }
+    }
+
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        toDestroy[i] = pool.construct();
+    }
+    uint64_t stop = Cycles::rdtsc();
+
+    // clean up
+    for (int i = 0; i < count; i++) {
+        pool.destroy(toDestroy[i]);
+    }
+
+    return Cycles::toSeconds(stop - start)/count;
+}
+
 // Measure the cost of the Cylcles::toNanoseconds method.
 double perfCyclesToNanoseconds()
 {
@@ -528,6 +562,10 @@ TestInfo tests[] = {
      "Acquire/release Dispatch::Lock (in dispatch thread)"},
     {"lockNonDispThrd", lockNonDispThrd,
      "Acquire/release Dispatch::Lock (non-dispatch thread)"},
+    {"objectPoolAlloc", objectPoolAlloc<int, false>,
+     "Cost of new allocations from an ObjectPool (no destroys)"},
+    {"objectPoolRealloc", objectPoolAlloc<int, true>,
+     "Cost of ObjectPool allocation after destroying an object"},
     {"segmentEntrySort", segmentEntrySort,
      "Sort a Segment full of avg. 100-byte Objects by age"},
     {"sfence", sfence,
@@ -555,7 +593,7 @@ TestInfo tests[] = {
 void runTest(TestInfo& info)
 {
     double secs = info.func();
-    int width = printf("%-16s ", info.name);
+    int width = printf("%-18s ", info.name);
     if (secs < 1.0e-06) {
         width += printf("%.2fns", 1e09*secs);
     } else if (secs < 1.0e-03) {
@@ -589,7 +627,7 @@ main(int argc, char *argv[])
                 }
             }
             if (!foundTest) {
-                int width = printf("%-16s ??", argv[i]);
+                int width = printf("%-18s ??", argv[i]);
                 printf("%*s No such test\n", 26-width, "");
             }
         }

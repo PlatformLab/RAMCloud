@@ -26,14 +26,14 @@ namespace RAMCloud {
 class Will {
   public:
     Will(ProtoBuf::Tablets& tablets, uint64_t maxBytesPerPartition,
-         uint64_t maxReferantsPerPartition);
+         uint64_t maxReferentsPerPartition);
     void serialize(ProtoBuf::Tablets& will);
     void debugDump();
 
   PRIVATE:
     /// Each entry in the Will describes a key range for a particular
     /// Tablet and is assigned to a partition. All entries for a
-    /// particular partition must meet the total byte and referant
+    /// particular partition must meet the total byte and referent
     /// contraints given to the constructor.
     struct WillEntry {
         uint64_t partitionId;
@@ -42,15 +42,15 @@ class Will {
         uint64_t lastKey;
         uint64_t minBytes;
         uint64_t maxBytes;
-        uint64_t minReferants;
-        uint64_t maxReferants;
+        uint64_t minReferents;
+        uint64_t maxReferents;
     };
     typedef std::vector<WillEntry> WillList;
 
     /* current partition state */
     uint64_t currentId;             /// current partitionId we're working on
     uint64_t currentMaxBytes;       /// current max bytes in this partition
-    uint64_t currentMaxReferants;   /// current max referants in this partition
+    uint64_t currentMaxReferents;   /// current max referents in this partition
 
     /// current number of TabletProfiler partitions added since the
     /// last currentId increment
@@ -58,7 +58,7 @@ class Will {
 
     /* parameters dictating partition sizes */
     uint64_t maxBytesPerPartition;      /// max bytes allowed in a partition
-    uint64_t maxReferantsPerPartition;  /// max referants allowed in a partition
+    uint64_t maxReferentsPerPartition;  /// max referents allowed in a partition
 
     /// list tablets, ordered by partition
     WillList entries;

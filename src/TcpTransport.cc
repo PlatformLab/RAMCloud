@@ -43,7 +43,11 @@ Syscall* TcpTransport::sys = &defaultSyscall;
  *      If NULL this transport will be used only for outgoing requests.
  */
 TcpTransport::TcpTransport(const ServiceLocator* serviceLocator)
-        : locatorString(), listenSocket(-1), acceptHandler(), sockets()
+        : locatorString(),
+          listenSocket(-1),
+          acceptHandler(),
+          sockets(),
+          serverRpcPool()
 {
     if (serviceLocator == NULL)
         return;
@@ -124,12 +128,12 @@ TcpTransport::closeSocket(int fd) {
  */
 TcpTransport::Socket::~Socket() {
     if (rpc != NULL) {
-        delete rpc;
+        transport->serverRpcPool.destroy(rpc);
     }
     while (!rpcsWaitingToReply.empty()) {
         TcpServerRpc& rpc = rpcsWaitingToReply.front();
         rpcsWaitingToReply.pop_front();
-        delete &rpc;
+        transport->serverRpcPool.destroy(&rpc);
     }
 }
 
@@ -242,7 +246,8 @@ TcpTransport::ServerSocketHandler::handleFileEvent(int events)
     try {
         if (events & Dispatch::FileEvent::READABLE) {
             if (socket->rpc == NULL) {
-                socket->rpc = new TcpServerRpc(socket, fd);
+                socket->rpc = transport->serverRpcPool.construct(socket,
+                                                                 fd, transport);
             }
             if (socket->rpc->message.readMessage(fd)) {
                 // The incoming request is complete; pass it off for servicing.
@@ -266,7 +271,7 @@ TcpTransport::ServerSocketHandler::handleFileEvent(int events)
                 // The current reply is finished; start the next one, if
                 // there is one.
                 socket->rpcsWaitingToReply.pop_front();
-                delete &rpc;
+                transport->serverRpcPool.destroy(&rpc);
                 socket->bytesLeftToSend = -1;
                 if (socket->rpcsWaitingToReply.empty()) {
                     setEvents(Dispatch::FileEvent::READABLE);
@@ -728,7 +733,7 @@ TcpTransport::TcpServerRpc::sendReply()
     }
     // The whole response was sent immediately (this should be the
     // common case).  Delete the RPC object on the way out of this method.
-    std::auto_ptr<TcpServerRpc> suicide(this);
+    ServerRpcPoolGuard<TcpServerRpc> suicide(transport->serverRpcPool, this);
 }
 
 // See Transport::ClientRpc::cancelCleanup for documentation.

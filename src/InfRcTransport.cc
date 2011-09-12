@@ -141,7 +141,9 @@ InfRcTransport<Infiniband>::InfRcTransport(const ServiceLocator *sl)
       serverConnectHandler(),
       logMemoryBase(0),
       logMemoryBytes(0),
-      logMemoryRegion(0)
+      logMemoryRegion(0),
+      transmitCycleCounter(),
+      serverRpcPool()
 {
     const char *ibDeviceName = NULL;
 
@@ -625,45 +627,71 @@ template<typename Infiniband>
 typename Infiniband::BufferDescriptor*
 InfRcTransport<Infiniband>::getTransmitBuffer()
 {
-    CycleCounter<uint64_t> timeThis2;
+    CycleCounter<uint64_t> timeThis;
     // if we've drained our free tx buffer pool, we must wait.
     while (freeTxBuffers.empty()) {
-
-        ibv_wc retArray[MAX_TX_QUEUE_DEPTH];
-        CycleCounter<uint64_t> timeThis;
-        int n = infiniband->pollCompletionQueue(commonTxCq,
-                                                MAX_TX_QUEUE_DEPTH,
-                                                retArray);
-        uint64_t gtbPollNanos = Cycles::toNanoseconds(timeThis.stop());
-        serverStats.gtbPollNanos += gtbPollNanos;
-        serverStats.gtbPollCount++;
-
-        if (0 >= n) {
-             serverStats.gtbPollZeroNCount++;
-             serverStats.gtbPollZeroNanos += gtbPollNanos;
-        } else {
-             serverStats.gtbPollNonZeroNAvg += n;
-             serverStats.gtbPollNonZeroNanos += gtbPollNanos;
-        }
-
-        for (int i = 0; i < n; i++) {
-            BufferDescriptor* bd =
-                reinterpret_cast<BufferDescriptor*>(retArray[i].wr_id);
-            freeTxBuffers.push_back(bd);
-
-            if (retArray[i].status != IBV_WC_SUCCESS) {
-                LOG(ERROR, "Transmit failed: %s",
-                    infiniband->wcStatusToString(retArray[i].status));
-            }
-        }
-
+        reapTxBuffers();
     }
 
     BufferDescriptor* bd = freeTxBuffers.back();
     freeTxBuffers.pop_back();
 
-    serverStats.infrcGetTxBufferNanos += timeThis2.stop();
+    serverStats.infrcGetTxBufferNanos += timeThis.stop();
+
+    if (!transmitCycleCounter) {
+        transmitCycleCounter.construct();
+    }
+
     return bd;
+}
+
+/**
+ * Check for completed transmissions and, if any are done,
+ * reclaim their buffers for future transmissions.
+ *
+ * \return
+ *      The number of buffers reaped.
+ */
+template<typename Infiniband>
+int
+InfRcTransport<Infiniband>::reapTxBuffers()
+{
+    ibv_wc retArray[MAX_TX_QUEUE_DEPTH];
+    CycleCounter<uint64_t> timeThis;
+    int n = infiniband->pollCompletionQueue(commonTxCq,
+                                            MAX_TX_QUEUE_DEPTH,
+                                            retArray);
+    uint64_t gtbPollNanos = Cycles::toNanoseconds(timeThis.stop());
+    serverStats.gtbPollNanos += gtbPollNanos;
+    serverStats.gtbPollCount++;
+
+    if (0 >= n) {
+         serverStats.gtbPollZeroNCount++;
+         serverStats.gtbPollZeroNanos += gtbPollNanos;
+    } else {
+         serverStats.gtbPollNonZeroNAvg += n;
+         serverStats.gtbPollNonZeroNanos += gtbPollNanos;
+    }
+
+    for (int i = 0; i < n; i++) {
+        BufferDescriptor* bd =
+            reinterpret_cast<BufferDescriptor*>(retArray[i].wr_id);
+        freeTxBuffers.push_back(bd);
+
+        if (retArray[i].status != IBV_WC_SUCCESS) {
+            LOG(ERROR, "Transmit failed: %s",
+                infiniband->wcStatusToString(retArray[i].status));
+        }
+    }
+
+    // Has TX just transitioned to idle?
+    if (n > 0 && freeTxBuffers.size() == MAX_TX_QUEUE_DEPTH) {
+        metrics->transport.infiniband.transmitActiveTicks +=
+            transmitCycleCounter->stop();
+        transmitCycleCounter.destroy();
+    }
+
+    return n;
 }
 
 /**
@@ -727,10 +755,11 @@ InfRcTransport<Infiniband>::ServerRpc::sendReply()
     CycleCounter<Metric> _(&metrics->transport.transmit.ticks);
     ++metrics->transport.transmit.messageCount;
     ++metrics->transport.transmit.packetCount;
-    // "delete this;" on our way out of the method
-    boost::scoped_ptr<InfRcTransport::ServerRpc> suicide(this);
 
     InfRcTransport *t = transport;
+
+    // "t->serverRpcPool.destroy(this);" on our way out of the method
+    ServerRpcPoolGuard<ServerRpc> suicide(t->serverRpcPool, this);
 
     if (replyPayload.getTotalLength() > t->getMaxRpcSize()) {
         throw TransportException(HERE,
@@ -971,7 +1000,7 @@ InfRcTransport<Infiniband>::Poller::poll()
             }
 
             Header& header(*reinterpret_cast<Header*>(bd->buffer));
-            ServerRpc *r = new ServerRpc(t, qp, header.nonce);
+            ServerRpc *r = t->serverRpcPool.construct(t, qp, header.nonce);
             PayloadChunk::appendToBuffer(&r->requestPayload,
                 bd->buffer + downCast<uint32_t>(sizeof(header)),
                 wc.byte_len - downCast<uint32_t>(sizeof(header)),
@@ -986,8 +1015,9 @@ InfRcTransport<Infiniband>::Poller::poll()
             metrics->transport.receive.ticks += receiveTicks.stop();
         }
     }
+
   done:
-    return;
+    t->reapTxBuffers();
 }
 
 //-------------------------------------

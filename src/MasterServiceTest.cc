@@ -878,16 +878,10 @@ TEST_F(MasterServiceTest, write_rejectRules) {
 
 TEST_F(MasterServiceTest, getTable) {
     // Table exists.
-    EXPECT_NO_THROW(service->getTable(0, 0));
+    EXPECT_TRUE(service->getTable(0, 0) != NULL);
 
     // Table doesn't exist.
-    Status status = Status(0);
-    try {
-        service->getTable(1000, 0);
-    } catch (TableDoesntExistException& e) {
-        status = e.status;
-    }
-    EXPECT_EQ(1, status);
+    EXPECT_TRUE(service->getTable(1000, 0) == NULL);
 }
 
 TEST_F(MasterServiceTest, rejectOperation) {
@@ -897,47 +891,42 @@ TEST_F(MasterServiceTest, rejectOperation) {
     // Fail: object doesn't exist.
     rules = empty;
     rules.doesntExist = 1;
-    EXPECT_THROW(
-            service->rejectOperation(&rules, VERSION_NONEXISTENT),
-            ObjectDoesntExistException);
+    EXPECT_EQ(service->rejectOperation(rules, VERSION_NONEXISTENT),
+              STATUS_OBJECT_DOESNT_EXIST);
 
     // Succeed: object doesn't exist.
     rules = empty;
     rules.exists = rules.versionLeGiven = rules.versionNeGiven = 1;
-    EXPECT_NO_THROW(
-            service->rejectOperation(&rules, VERSION_NONEXISTENT));
+    EXPECT_EQ(service->rejectOperation(rules, VERSION_NONEXISTENT),
+              STATUS_OK);
 
     // Fail: object exists.
     rules = empty;
     rules.exists = 1;
-    EXPECT_THROW(service->rejectOperation(&rules, 2),
-                 ObjectExistsException);
+    EXPECT_EQ(service->rejectOperation(rules, 2),
+              STATUS_OBJECT_DOESNT_EXIST);
 
     // versionLeGiven.
     rules = empty;
     rules.givenVersion = 0x400000001;
     rules.versionLeGiven = 1;
-    EXPECT_THROW(
-            service->rejectOperation(&rules, 0x400000000),
-            WrongVersionException);
-    EXPECT_THROW(
-            service->rejectOperation(&rules, 0x400000001),
-            WrongVersionException);
-    EXPECT_NO_THROW(
-            service->rejectOperation(&rules, 0x400000002));
+    EXPECT_EQ(service->rejectOperation(rules, 0x400000000),
+              STATUS_WRONG_VERSION);
+    EXPECT_EQ(service->rejectOperation(rules, 0x400000001),
+              STATUS_WRONG_VERSION);
+    EXPECT_EQ(service->rejectOperation(rules, 0x400000002),
+              STATUS_OK);
 
     // versionNeGiven.
     rules = empty;
     rules.givenVersion = 0x400000001;
     rules.versionNeGiven = 1;
-    EXPECT_THROW(
-            service->rejectOperation(&rules, 0x400000000),
-            WrongVersionException);
-    EXPECT_NO_THROW(
-            service->rejectOperation(&rules, 0x400000001));
-    EXPECT_THROW(
-            service->rejectOperation(&rules, 0x400000002),
-            WrongVersionException);
+    EXPECT_EQ(service->rejectOperation(rules, 0x400000000),
+              STATUS_WRONG_VERSION);
+    EXPECT_EQ(service->rejectOperation(rules, 0x400000001),
+              STATUS_OK);
+    EXPECT_EQ(service->rejectOperation(rules, 0x400000002),
+              STATUS_WRONG_VERSION);
 }
 
 

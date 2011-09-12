@@ -119,7 +119,6 @@ class HashTableEntryTest : public ::testing::Test {
                 in.chain == out.chain &&
                 in.ptr == out.ptr);
     }
-
     DISALLOW_COPY_AND_ASSIGN(HashTableEntryTest);
 };
 
@@ -163,10 +162,10 @@ TEST_F(HashTableEntryTest, trivial_clear) {
     EXPECT_EQ(e.value, f.value);
 }
 
-TEST_F(HashTableEntryTest, setReferant) {
+TEST_F(HashTableEntryTest, setReferent) {
     TestObjectMap::Entry e;
     e.value = 0xdeadbeefdeadbeefUL;
-    e.setReferant(0xaaaaUL, reinterpret_cast<TestObject*>(
+    e.setReferent(0xaaaaUL, reinterpret_cast<TestObject*>(
         0x7fffffffffffUL));
     TestObjectMap::Entry::UnpackedEntry out;
     out = e.unpack();
@@ -198,18 +197,18 @@ TEST_F(HashTableEntryTest, isAvailable) {
     e.setChainPointer(reinterpret_cast<TestObjectMap::CacheLine*>(
         0x1UL));
     EXPECT_FALSE(e.isAvailable());
-    e.setReferant(0UL, reinterpret_cast<TestObject*>(0x1UL));
+    e.setReferent(0UL, reinterpret_cast<TestObject*>(0x1UL));
     EXPECT_FALSE(e.isAvailable());
     e.clear();
     EXPECT_TRUE(e.isAvailable());
 }
 
-TEST_F(HashTableEntryTest, getReferant) {
+TEST_F(HashTableEntryTest, getReferent) {
     TestObjectMap::Entry e;
     TestObject *o =
         reinterpret_cast<TestObject*>(0x7fffffffffffUL);
-    e.setReferant(0xaaaaUL, o);
-    EXPECT_EQ(o, e.getReferant());
+    e.setReferent(0xaaaaUL, o);
+    EXPECT_EQ(o, e.getReferent());
 }
 
 TEST_F(HashTableEntryTest, getChainPointer) {
@@ -220,7 +219,7 @@ TEST_F(HashTableEntryTest, getChainPointer) {
     EXPECT_EQ(cl, e.getChainPointer());
     e.clear();
     EXPECT_TRUE(NULL == e.getChainPointer());
-    e.setReferant(0UL, reinterpret_cast<TestObject*>(0x1UL));
+    e.setReferent(0UL, reinterpret_cast<TestObject*>(0x1UL));
     EXPECT_TRUE(NULL == e.getChainPointer());
 }
 
@@ -231,10 +230,10 @@ TEST_F(HashTableEntryTest, hashMatches) {
     e.setChainPointer(reinterpret_cast<TestObjectMap::CacheLine*>(
         0x1UL));
     EXPECT_TRUE(!e.hashMatches(0UL));
-    e.setReferant(0UL, reinterpret_cast<TestObject*>(0x1UL));
+    e.setReferent(0UL, reinterpret_cast<TestObject*>(0x1UL));
     EXPECT_TRUE(e.hashMatches(0UL));
     EXPECT_TRUE(!e.hashMatches(0xbeefUL));
-    e.setReferant(0xbeefUL, reinterpret_cast<TestObject*>(0x1UL));
+    e.setReferent(0xbeefUL, reinterpret_cast<TestObject*>(0x1UL));
     EXPECT_TRUE(!e.hashMatches(0UL));
     EXPECT_TRUE(e.hashMatches(0xbeefUL));
     EXPECT_TRUE(!e.hashMatches(0xfeedUL));
@@ -293,7 +292,7 @@ class HashTableTest : public ::testing::Test {
                 entry = &cacheLines->get()[i / seven - 1].entries[seven];
             else
                 entry = &cacheLines->get()[i / seven].entries[i % seven];
-            entry->setReferant(littleHash, &values[i]);
+            entry->setReferent(littleHash, &values[i]);
         }
 
         ht->buckets.swap(*cacheLines);
@@ -368,7 +367,7 @@ class HashTableTest : public ::testing::Test {
         (void) ht->findBucket(0, ptr->key2(), &littleHash);
         TestObjectMap::Entry& entry = entryAt(ht, x, y);
         EXPECT_TRUE(entry.hashMatches(littleHash));
-        EXPECT_EQ(ptr, entry.getReferant());
+        EXPECT_EQ(ptr, entry.getReferent());
     }
 
     TestObjectMap::Entry *findBucketAndLookupEntry(TestObjectMap *ht,

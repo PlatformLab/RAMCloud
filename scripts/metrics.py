@@ -492,9 +492,13 @@ class Transmit(TransmitReceiveCommon):
     copyTicks = u64('total time elapsed copying messages')
     dmaTicks = u64('total time elapsed waiting for DMA to HCA')
 
+class Infiniband(Struct):
+    transmitActiveTicks = u64('total time with packets on the transmit queue')
+
 class Transport(Struct):
     transmit = Transmit('transmit docs', 'Transmit')
     receive = TransmitReceiveCommon('receive docs', 'Receive')
+    infiniband = Infiniband('infiniband docs', 'Infiniband')
     sessionOpenTicks = u64(
         'total amount of time opening sessions for RPCs')
     sessionOpenCount = u64(

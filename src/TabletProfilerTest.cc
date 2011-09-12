@@ -105,7 +105,7 @@ TEST_F(TabletProfilerTest, TabletProfiler_getPartitions) {
     EXPECT_TRUE(l != NULL);
     EXPECT_EQ(1U, l->size());
     EXPECT_EQ((*l)[0].minBytes, (*l)[0].maxBytes);
-    EXPECT_EQ((*l)[0].minReferants,  (*l)[0].maxReferants);
+    EXPECT_EQ((*l)[0].minReferents,  (*l)[0].maxReferents);
 }
 
 // this is mostly just a wrapper around Subrange::findBucket.
@@ -170,13 +170,13 @@ TEST_F(TabletProfilerTest, PartitionCollector_constructor) {
 
     EXPECT_EQ(&partList, pc.partitions);
     EXPECT_EQ(1024U * 1024U, pc.maxPartitionBytes);
-    EXPECT_EQ(1000U, pc.maxPartitionReferants);
+    EXPECT_EQ(1000U, pc.maxPartitionReferents);
     EXPECT_EQ(0U, pc.nextFirstKey);
     EXPECT_EQ(0U, pc.currentFirstKey);
     EXPECT_EQ(0U, pc.currentKnownBytes);
-    EXPECT_EQ(0U, pc.currentKnownReferants);
+    EXPECT_EQ(0U, pc.currentKnownReferents);
     EXPECT_EQ(0U, pc.previousPossibleBytes);
-    EXPECT_EQ(0U, pc.previousPossibleReferants);
+    EXPECT_EQ(0U, pc.previousPossibleReferents);
     EXPECT_FALSE(pc.isDone);
 }
 
@@ -187,9 +187,9 @@ TEST_F(TabletProfilerTest, PartitionCollector_addRangeLeaf) {
     bool ret = pc.addRangeLeaf(0, 10, 5, 1, 0, 0);
     EXPECT_TRUE(ret);
     EXPECT_EQ(5U, pc.currentKnownBytes);
-    EXPECT_EQ(1U, pc.currentKnownReferants);
+    EXPECT_EQ(1U, pc.currentKnownReferents);
     EXPECT_EQ(0U, pc.previousPossibleBytes);
-    EXPECT_EQ(0U, pc.previousPossibleReferants);
+    EXPECT_EQ(0U, pc.previousPossibleReferents);
     EXPECT_EQ(0U, pc.partitions->size());
     EXPECT_EQ(11U, pc.nextFirstKey);
 
@@ -213,7 +213,7 @@ TEST_F(TabletProfilerTest, PartitionCollector_done) {
 
     pc1.addRangeLeaf(0, 10, 1024 * 1024 + 1, 1, 42, 83);
     EXPECT_EQ(42U, pc1.previousPossibleBytes);
-    EXPECT_EQ(83U, pc1.previousPossibleReferants);
+    EXPECT_EQ(83U, pc1.previousPossibleReferents);
     pc1.addRangeLeaf(11, 20, 100, 1, 0, 0);
     pc1.done();
     EXPECT_EQ(2U, pc1.partitions->size());
@@ -244,9 +244,9 @@ TEST_F(TabletProfilerTest, PartitionCollector_pushCurrentTally) {
     EXPECT_EQ(0U, pc.partitions->begin()[0].firstKey);
     EXPECT_EQ(8U, pc.partitions->begin()[0].lastKey);
     EXPECT_EQ(0U, pc.currentKnownBytes);
-    EXPECT_EQ(0U, pc.currentKnownReferants);
+    EXPECT_EQ(0U, pc.currentKnownReferents);
     EXPECT_EQ(0U, pc.residualMaxBytes);
-    EXPECT_EQ(0U, pc.residualMaxReferants);
+    EXPECT_EQ(0U, pc.residualMaxReferents);
 }
 
 TEST_F(TabletProfilerTest, BucketHandle_constructor) {
@@ -316,7 +316,7 @@ TEST_F(TabletProfilerTest, Subrange_constructor) {
     EXPECT_EQ(0U, s1.firstKey);
     EXPECT_EQ((uint64_t)-1, s1.lastKey);
     EXPECT_EQ(0U, s1.totalBytes);
-    EXPECT_EQ(0U, s1.totalReferants);
+    EXPECT_EQ(0U, s1.totalReferents);
     EXPECT_EQ(0U, s1.totalChildren);
     EXPECT_EQ(LogTime(1, 9), s1.createTime);
     EXPECT_TRUE(s1.buckets != NULL);
@@ -332,7 +332,7 @@ TEST_F(TabletProfilerTest, Subrange_constructor) {
     EXPECT_EQ(0x100000000U, s2.firstKey);
     EXPECT_EQ(0x1ffffffffU, s2.lastKey);
     EXPECT_EQ(0U, s2.totalBytes);
-    EXPECT_EQ(0U, s2.totalReferants);
+    EXPECT_EQ(0U, s2.totalReferents);
     EXPECT_EQ(0U, s2.totalChildren);
     EXPECT_EQ(LogTime(1, 9), s2.createTime);
     EXPECT_TRUE(s2.buckets != NULL);
@@ -399,15 +399,15 @@ TEST_F(TabletProfilerTest, Subrange_partitionWalk) {
         if (i == 1) {
             s.buckets[i].child = c;
             s.buckets[i].totalBytes = 8 * 1024 * 1024;
-            s.buckets[i].totalReferants = 1000;
+            s.buckets[i].totalReferents = 1000;
         } else {
             s.buckets[i].totalBytes = 0;
-            s.buckets[i].totalReferants = 0;
+            s.buckets[i].totalReferents = 0;
         }
     }
     for (uint32_t i = 0; i < c->numBuckets; i++) {
         c->buckets[i].totalBytes = 4 * 1024 * 1024;
-        c->buckets[i].totalReferants = 1;
+        c->buckets[i].totalReferents = 1;
     }
 
     PartitionList partList;
@@ -432,10 +432,10 @@ TEST_F(TabletProfilerTest, Subrange_track) {
     EXPECT_TRUE(NULL == tp.root->buckets[0].child);
     EXPECT_EQ(TabletProfiler::BUCKET_SPLIT_BYTES - 1,
         tp.root->buckets[0].totalBytes);
-    EXPECT_EQ(1U, tp.root->buckets[0].totalReferants);
+    EXPECT_EQ(1U, tp.root->buckets[0].totalReferents);
     EXPECT_EQ(TabletProfiler::BUCKET_SPLIT_BYTES - 1,
         tp.root->totalBytes);
-    EXPECT_EQ(1U, tp.root->totalReferants);
+    EXPECT_EQ(1U, tp.root->totalReferents);
 
     // now force one that will split the bucket
     tp.track(0, 2, LogTime(1, 2));
@@ -443,10 +443,10 @@ TEST_F(TabletProfilerTest, Subrange_track) {
     // assert the parent hasn't changed
     EXPECT_EQ(TabletProfiler::BUCKET_SPLIT_BYTES - 1,
         tp.root->buckets[0].totalBytes);
-    EXPECT_EQ(1U, tp.root->buckets[0].totalReferants);
+    EXPECT_EQ(1U, tp.root->buckets[0].totalReferents);
     EXPECT_EQ(TabletProfiler::BUCKET_SPLIT_BYTES - 1,
         tp.root->totalBytes);
-    EXPECT_EQ(1U, tp.root->totalReferants);
+    EXPECT_EQ(1U, tp.root->totalReferents);
 
     // now check that the child is correct
     EXPECT_EQ(1U, tp.root->totalChildren);
@@ -460,9 +460,9 @@ TEST_F(TabletProfilerTest, Subrange_track) {
     EXPECT_EQ(tp.root->getBucketLastKey(rootBh), child->lastKey);
     EXPECT_EQ(0U, child->totalChildren);
     EXPECT_EQ(2U, child->buckets[0].totalBytes);
-    EXPECT_EQ(1U, child->buckets[0].totalReferants);
+    EXPECT_EQ(1U, child->buckets[0].totalReferents);
     EXPECT_EQ(2U, child->totalBytes);
-    EXPECT_EQ(1U, child->totalReferants);
+    EXPECT_EQ(1U, child->totalReferents);
 }
 
 // NB: this test can be sensitive to the constants used.
@@ -486,17 +486,17 @@ TEST_F(TabletProfilerTest, Subrange_untrack) {
     EXPECT_EQ(1U, tp.root->totalChildren);
     EXPECT_EQ(child, bh.getSubrange());
     EXPECT_EQ(300U, child->totalBytes);
-    EXPECT_EQ(3U, child->totalReferants);
+    EXPECT_EQ(3U, child->totalReferents);
     EXPECT_EQ(300U, child->buckets[0].totalBytes);
-    EXPECT_EQ(3U, child->buckets[0].totalReferants);
+    EXPECT_EQ(3U, child->buckets[0].totalReferents);
 
     // make sure it doesn't merge before we expect
     tp.untrack(0, 100, LogTime(1, 6));
     EXPECT_EQ(child, bh.getSubrange());
     EXPECT_EQ(200U, child->totalBytes);
-    EXPECT_EQ(2U, child->totalReferants);
+    EXPECT_EQ(2U, child->totalReferents);
     EXPECT_EQ(200U, child->buckets[0].totalBytes);
-    EXPECT_EQ(2U, child->buckets[0].totalReferants);
+    EXPECT_EQ(2U, child->buckets[0].totalReferents);
 
     // now force a merge
     tp.untrack(0, quarter, LogTime(1, 1));
@@ -507,9 +507,9 @@ TEST_F(TabletProfilerTest, Subrange_untrack) {
 
     EXPECT_TRUE(NULL == tp.root->buckets[0].child);
     EXPECT_EQ(quarter + 100, tp.root->totalBytes);
-    EXPECT_EQ(2U, tp.root->totalReferants);
+    EXPECT_EQ(2U, tp.root->totalReferents);
     EXPECT_EQ(quarter + 100, tp.root->buckets[0].totalBytes);
-    EXPECT_EQ(2U, tp.root->buckets[0].totalReferants);
+    EXPECT_EQ(2U, tp.root->buckets[0].totalReferents);
     EXPECT_EQ(0U, tp.root->totalChildren);
 }
 

@@ -165,9 +165,9 @@ Dispatch::poll()
         // Make sure that the read of readyEvents doesn't get reordered either
         // before we see readyFd or after we change it (otherwise could
         // read the wrong value).
-        __asm__ __volatile__("lfence");
+        Fence::lfence();
         int events = readyEvents;
-        __asm__ __volatile__("lfence");
+        Fence::lfence();
         readyFd = -1;
         File* file = files[fd];
         if (file) {
@@ -444,7 +444,7 @@ void Dispatch::epollThreadMain(Dispatch* owner) {
             // The following line guarantees that the modification of
             // owner->readyEvents will be visible in memory before the
             // modification of readyFd.
-            __asm__ __volatile__("sfence");
+            Fence::sfence();
             owner->readyFd = events[i].data.fd;
         }
     }

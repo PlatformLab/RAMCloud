@@ -27,6 +27,7 @@
 #include "Cycles.h"
 #include "Dispatch.h"
 #include "Driver.h"
+#include "ServerRpcPool.h"
 #include "Transport.h"
 #include "Window.h"
 
@@ -133,10 +134,8 @@ class FastTransport : public Transport {
      */
     class ServerRpc : public Transport::ServerRpc {
       public:
-        ServerRpc();
+        ServerRpc(ServerSession* session, uint8_t channelId);
         virtual ~ServerRpc();
-        void reset();
-        void setup(ServerSession* session, uint8_t channelId);
         void sendReply();
 
       PRIVATE:
@@ -811,7 +810,7 @@ class FastTransport : public Transport {
              * by setup().
              */
             ServerChannel()
-                : currentRpc()
+                : currentRpc(NULL)
                 , inboundMsg()
                 , outboundMsg()
                 , rpcId(INVALID_RPC_ID)
@@ -838,13 +837,15 @@ class FastTransport : public Transport {
             {
                 state = IDLE;
                 rpcId = INVALID_RPC_ID;
-                currentRpc.reset();
+                if (currentRpc != NULL)
+                    transport->serverRpcPool.destroy(currentRpc);
+                currentRpc = NULL;
                 inboundMsg.setup(transport, session, channelId, false);
                 outboundMsg.setup(transport, session, channelId, false);
             }
 
             /// The RPC this channel is actively servicing, or invalid if none.
-            ServerRpc currentRpc;
+            ServerRpc* currentRpc;
 
             /// The RPC request is accumulated here.
             InboundMessage inboundMsg;
@@ -1257,6 +1258,9 @@ class FastTransport : public Transport {
 
     /// Contains state for all RPCs this transport participates in as server.
     SessionTable<ServerSession> serverSessions;
+
+    /// Pool allocator for our ServerRpc objects.
+    ServerRpcPool<ServerRpc> serverRpcPool;
 
     // If non-zero, overrides the value of timeoutCycles during tests.
     static uint64_t timeoutCyclesOverride;

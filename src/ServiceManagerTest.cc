@@ -157,7 +157,7 @@ TEST_F(ServiceManagerTest, handleRpc_serviceUnavailable) {
     MockTransport::MockServerRpc* rpc = new MockTransport::MockServerRpc(
             &transport, "0x70000");
     manager->handleRpc(rpc);
-    EXPECT_EQ("handleRpc: Incoming RPC requested unavilable service 7",
+    EXPECT_EQ("handleRpc: Incoming RPC requested unavailable service 7",
             TestLog::get());
     EXPECT_STREQ("STATUS_SERVICE_NOT_AVAILABLE",
             statusToSymbol(transport.status));

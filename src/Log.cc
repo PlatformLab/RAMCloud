@@ -19,6 +19,7 @@
 
 #include "Log.h"
 #include "LogCleaner.h"
+#include "ServerRpcPool.h"
 #include "ShortMacros.h"
 #include "TransportManager.h" // for Log memory 0-copy registration hack
 
@@ -488,23 +489,38 @@ Log::cleaningComplete(SegmentVector& clean)
 
     debugDumpLists();
 
+    // New Segments we've added during cleaning need to wait
+    // until the next head is written before they become part
+    // of the Log.
     while (!cleaningIntoList.empty()) {
         Segment& s = cleaningIntoList.front();
         cleaningIntoList.pop_front();
         cleanablePendingDigestList.push_back(s);
     }
 
+    // Increment the current epoch and save the last epoch any
+    // RPC could have been a part of so we can store it with
+    // the Segments to be freed.
+    uint64_t epoch = ServerRpcPool<>::incrementCurrentEpoch() - 1;
+
+    // Cleaned Segments must wait until the next digest has been
+    // written (i.e. the new Segments we cleaned into are part of
+    // of the Log and the cleaned ones are not) and no outstanding
+    // RPCs could reference the data in those Segments before they
+    // may be cleaned.
     foreach (Segment* s, clean) {
+        s->cleanedEpoch = epoch;
         cleanableList.erase(cleanableList.iterator_to(*s));
         freePendingDigestAndReferenceList.push_back(*s);
     }
 
-    // this is a good time to check the 'freePendingReferenceList'
-    // and move any of those guys on to the freeList, if possible.
+    // This is a good time to check cleaned Segments that are no
+    // longer part of the Log, but may or may not still be referenced
+    // by outstanding RPCs.
+    uint64_t earliestEpoch = ServerRpcPool<>::getEarliestOutstandingEpoch();
     SegmentVector freeSegments;
     foreach (Segment& s, freePendingReferenceList) {
-        // XXX- need to ensure no references exist. ref count it?
-        if (1) {
+        if (s.cleanedEpoch < earliestEpoch) {
             // not sure about mutating an intrusive list while iterating, so...
             freeSegments.push_back(&s);
         }

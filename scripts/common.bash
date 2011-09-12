@@ -20,3 +20,11 @@ OBJDIR=obj$OBJSUFFIX
 export LD_LIBRARY_PATH=$OBJDIR:/lib:/usr/lib:/usr/local/lib
 export PYTHONPATH=bindings/python
 
+if [ ! -x $OBJDIR/coordinator ]; then
+    echo "Error: $OBJDIR/coordinator doesn't exist" > /dev/stderr
+    exit 1
+fi
+if [ ! -x $OBJDIR/server ]; then
+    echo "Error: $OBJDIR/server doesn't exist" > /dev/stderr
+    exit 1
+fi

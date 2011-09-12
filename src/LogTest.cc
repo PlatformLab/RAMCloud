@@ -16,8 +16,10 @@
 #include "TestUtil.h"
 
 #include "Segment.h"
+#include "ServerRpcPool.h"
 #include "Log.h"
 #include "LogTypes.h"
+#include "Transport.h"
 
 namespace RAMCloud {
 
@@ -368,10 +370,17 @@ TEST_F(LogTest, getNewCleanableSegments) {
     // cleanableNew deallocated by log destructor
 }
 
+// Need a do-nothing subclass of the abstract parent type.
+class TestServerRpc : public Transport::ServerRpc {
+    void sendReply() {}
+};
+
 TEST_F(LogTest, cleaningComplete) {
     Tub<uint64_t> serverId;
     serverId.construct(57);
     Log l(serverId, 3 * 8192, 8192);
+
+    ServerRpcPoolInternal::currentEpoch = 5;
 
     Segment* cleanSeg = new Segment(&l, l.allocateSegmentId(),
         l.getFromFreeList(), 8192, NULL, LOG_ENTRY_TYPE_UNINIT,
@@ -392,6 +401,24 @@ TEST_F(LogTest, cleaningComplete) {
     EXPECT_EQ(1U, l.cleanablePendingDigestList.size());
     EXPECT_EQ(1U, l.freePendingDigestAndReferenceList.size());
     EXPECT_EQ(0U, l.cleanableList.size());
+    EXPECT_EQ(6U, ServerRpcPoolInternal::currentEpoch);
+    EXPECT_EQ(5U, cleanSeg->cleanedEpoch);
+
+    // ensure that segments aren't freed until possibly conflicting RPCs
+    // are gone
+    l.freePendingDigestAndReferenceList.erase(
+        l.freePendingDigestAndReferenceList.iterator_to(*cleanSeg));
+    l.freePendingReferenceList.push_back(*cleanSeg);
+    ServerRpcPool<TestServerRpc> pool;
+    TestServerRpc* rpc = pool.construct();
+    clean.pop_back();
+    cleanSeg->cleanedEpoch = 6;
+    l.cleaningComplete(clean);
+    EXPECT_EQ(1U, l.freePendingReferenceList.size());
+
+    pool.destroy(rpc);
+    l.cleaningComplete(clean);
+    EXPECT_EQ(0U, l.freePendingReferenceList.size());
 
     // Segments above are deallocated by log destructor
 }

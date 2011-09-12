@@ -356,6 +356,10 @@ TEST_F(FastTransportTest, handleIncomingPacket_c2sGoodHint) {
     EXPECT_EQ(
         "handleIncomingPacket: "
         "calling ServerSession::processInboundPacket", TestLog::get());
+    FastTransport::ServerRpc* rpc =
+        static_cast<FastTransport::ServerRpc*>(serviceManager->waitForRpc(0.0));
+    EXPECT_NE(static_cast<FastTransport::ServerRpc*>(NULL), rpc);
+    transport->serverRpcPool.destroy(rpc);
 }
 
 TEST_F(FastTransportTest, handleIncomingPacket_c2sGoodHintBadToken) {
@@ -1227,12 +1231,22 @@ TEST_F(ServerSessionTest, expire_channelRecvOrSendWait) {
             FastTransport::ServerSession::ServerChannel::IDLE;
     uint32_t magic = 19281;
     session->channels[0].rpcId = magic;
+
     session->channels[1].state =
         FastTransport::ServerSession::ServerChannel::RECEIVING;
-    session->channels[1].currentRpc.setup(session, 1);
+    EXPECT_EQ(static_cast<FastTransport::ServerRpc*>(NULL),
+              session->channels[1].currentRpc);
+    session->channels[1].currentRpc =
+        session->transport->serverRpcPool.construct(session,
+                                                    downCast<uint8_t>(1));
+
     session->channels[2].state =
         FastTransport::ServerSession::ServerChannel::SENDING_WAITING;
-    session->channels[2].currentRpc.setup(session, 2);
+    EXPECT_EQ(static_cast<FastTransport::ServerRpc*>(NULL),
+              session->channels[2].currentRpc);
+    session->channels[2].currentRpc =
+        session->transport->serverRpcPool.construct(session,
+                                                    downCast<uint8_t>(2));
 
     EXPECT_TRUE(session->expire());
 
@@ -1245,13 +1259,15 @@ TEST_F(ServerSessionTest, expire_channelRecvOrSendWait) {
     EXPECT_EQ(FastTransport::ServerSession::ServerChannel::IDLE,
               session->channels[1].state);
     EXPECT_EQ(~(0u), session->channels[1].rpcId);
-    EXPECT_EQ(0, session->channels[1].currentRpc.session);
+    EXPECT_EQ(static_cast<FastTransport::ServerRpc*>(NULL),
+              session->channels[1].currentRpc);
 
     // ensure 2 got reset
     EXPECT_EQ(FastTransport::ServerSession::ServerChannel::IDLE,
               session->channels[2].state);
     EXPECT_EQ(~(0u), session->channels[2].rpcId);
-    EXPECT_EQ(0, session->channels[2].currentRpc.session);
+    EXPECT_EQ(static_cast<FastTransport::ServerRpc*>(NULL),
+              session->channels[2].currentRpc);
 
     // check the minor tid-bits at the end
     EXPECT_EQ(FastTransport::ServerSession::INVALID_TOKEN,
@@ -1354,6 +1370,11 @@ TEST_F(ServerSessionTest, processInboundPacket_nextRpcReceivedDataPacket) {
         TestLog::get());
     session->channels[0].state =
             FastTransport::ServerSession::ServerChannel::IDLE;
+
+    FastTransport::ServerRpc* rpc =
+        static_cast<FastTransport::ServerRpc*>(serviceManager->waitForRpc(0.0));
+    EXPECT_NE(static_cast<FastTransport::ServerRpc*>(NULL), rpc);
+    transport->serverRpcPool.destroy(rpc);
 }
 
 TEST_F(ServerSessionTest, processInboundPacket_newRpcBadPayloadType) {
@@ -1396,7 +1417,11 @@ TEST_F(ServerSessionTest, processReceivedData_receiving) {
             &session->channels[0];
     channel->state =
             FastTransport::ServerSession::ServerChannel::RECEIVING;
-    channel->currentRpc.setup(session, 0);
+    EXPECT_EQ(static_cast<FastTransport::ServerRpc*>(NULL),
+              channel->currentRpc);
+    channel->currentRpc = session->transport->serverRpcPool.construct(session,
+                                                        downCast<uint8_t>(0));
+
     uint16_t totalFrags = 2;
     Buffer recvBuffer;
     channel->inboundMsg.init(totalFrags, &recvBuffer);
@@ -1414,8 +1439,12 @@ TEST_F(ServerSessionTest, processReceivedData_receiving) {
     session->processReceivedData(channel, &lastRecvd);
     EXPECT_EQ("first | last",
               TestUtil::bufferToDebugString(&recvBuffer));
-    EXPECT_EQ(&channel->currentRpc,
-              serviceManager->waitForRpc(0));
+
+    FastTransport::ServerRpc* rpc =
+        static_cast<FastTransport::ServerRpc*>(serviceManager->waitForRpc(0.0));
+    EXPECT_NE(static_cast<FastTransport::ServerRpc*>(NULL), rpc);
+    transport->serverRpcPool.destroy(rpc);
+
     EXPECT_EQ(FastTransport::ServerSession::
               ServerChannel::PROCESSING,
               session->channels[0].state);

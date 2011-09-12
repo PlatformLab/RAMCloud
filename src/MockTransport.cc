@@ -135,6 +135,9 @@ MockTransport::MockServerRpc::MockServerRpc(MockTransport* transport,
     if (message != NULL) {
         requestPayload.fillFromString(message);
     }
+
+    // set this to avoid handleRpc's sanity check
+    epoch = 0;
 }
 
 /**

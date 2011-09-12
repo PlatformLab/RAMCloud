@@ -36,17 +36,17 @@ namespace RAMCloud {
  *      the Will. 
  * \param[in] maxBytesPerPartition
  *      The maximum number of bytes to allow in any partition.
- * \param[in] maxReferantsPerPartition
- *      The maximum number of referants to allow in any partition.
+ * \param[in] maxReferentsPerPartition
+ *      The maximum number of referents to allow in any partition.
  */
 Will::Will(ProtoBuf::Tablets &tablets, uint64_t maxBytesPerPartition,
-    uint64_t maxReferantsPerPartition)
+    uint64_t maxReferentsPerPartition)
     : currentId(0),
       currentMaxBytes(0),
-      currentMaxReferants(0),
+      currentMaxReferents(0),
       currentCount(0),
       maxBytesPerPartition(maxBytesPerPartition),
-      maxReferantsPerPartition(maxReferantsPerPartition),
+      maxReferentsPerPartition(maxReferentsPerPartition),
       entries()
 {
     foreach (const ProtoBuf::Tablets::Tablet& tablet, tablets.tablet())
@@ -87,8 +87,8 @@ Will::debugDump()
                "------------------------------------------------------------"
                "-----");
     LOG(DEBUG, "Partition             TableId            FirstKey             "
-               "LastKey     MinBytes     MaxBytes   MinReferants   "
-               "MaxReferants");
+               "LastKey     MinBytes     MaxBytes   MinReferents   "
+               "MaxReferents");
     LOG(DEBUG, "------------------------------------------------------------"
                "------------------------------------------------------------"
                "-----");
@@ -97,7 +97,7 @@ Will::debugDump()
         LOG(DEBUG, "%9lu  0x%016lx  0x%016lx  0x%016lx  %9luKB  %9luKB      "
             "%9lu      %9lu", we->partitionId, we->tableId, we->firstKey,
             we->lastKey, we->minBytes / 1024, we->maxBytes/ 1024,
-            we->minReferants, we->maxReferants);
+            we->minReferents, we->maxReferents);
     }
 }
 
@@ -116,7 +116,7 @@ Will::addTablet(const ProtoBuf::Tablets::Tablet& tablet)
 {
     Table& t = *reinterpret_cast<Table*>(tablet.user_data());
     PartitionList *parts = t.profiler.getPartitions(maxBytesPerPartition,
-        maxReferantsPerPartition, currentMaxBytes, currentMaxReferants);
+        maxReferentsPerPartition, currentMaxBytes, currentMaxReferents);
     assert(parts->size() > 0);
     for (unsigned int i = 0; i < parts->size(); i++)
         addPartition((*parts)[i], tablet);
@@ -138,12 +138,12 @@ Will::addPartition(Partition& partition,
     const ProtoBuf::Tablets::Tablet& tablet)
 {
     uint64_t maxBytes = partition.maxBytes + currentMaxBytes;
-    uint64_t maxReferants = partition.maxReferants + currentMaxReferants;
+    uint64_t maxReferents = partition.maxReferents + currentMaxReferents;
 
     if ((maxBytes > maxBytesPerPartition ||
-         maxReferants > maxReferantsPerPartition) && currentCount > 0) {
+         maxReferents > maxReferentsPerPartition) && currentCount > 0) {
         currentId++;
-        currentMaxBytes = currentMaxReferants = currentCount = 0;
+        currentMaxBytes = currentMaxReferents = currentCount = 0;
     }
 
     WillEntry we;
@@ -158,12 +158,12 @@ Will::addPartition(Partition& partition,
 
     we.minBytes = partition.minBytes;
     we.maxBytes = partition.maxBytes;
-    we.minReferants = partition.minReferants;
-    we.maxReferants = partition.maxReferants;
+    we.minReferents = partition.minReferents;
+    we.maxReferents = partition.maxReferents;
     entries.push_back(we);
 
     currentMaxBytes += partition.maxBytes;
-    currentMaxReferants += partition.maxReferants;
+    currentMaxReferents += partition.maxReferents;
     currentCount++;
 }
 

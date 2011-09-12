@@ -23,6 +23,7 @@
 #include "Dispatch.h"
 #include "IpAddress.h"
 #include "Tub.h"
+#include "ServerRpcPool.h"
 #include "Syscall.h"
 #include "Transport.h"
 
@@ -122,6 +123,7 @@ class TcpTransport : public Transport {
       friend class ServerSocketHandler;
       friend class TcpTransportTest;
       friend class TcpTransport;
+      friend class ObjectPool<TcpServerRpc>;     // Since constructor is private
       public:
         virtual ~TcpServerRpc()
         {
@@ -129,9 +131,9 @@ class TcpTransport : public Transport {
         }
         void sendReply();
       PRIVATE:
-        TcpServerRpc(Socket* socket, int fd)
+        TcpServerRpc(Socket* socket, int fd, TcpTransport* transport)
             : fd(fd), socket(socket), message(&requestPayload, NULL),
-            queueEntries() { }
+            queueEntries(), transport(transport) { }
 
         int fd;                   /// File descriptor of the socket on
                                   /// which the request was received.
@@ -141,6 +143,7 @@ class TcpTransport : public Transport {
         IntrusiveListHook queueEntries;
                                   /// Used to link this RPC onto the
                                   /// rpcsWaitingToReply list of the Socket.
+        TcpTransport* transport;  /// The parent TcpTransport object.
 
         DISALLOW_COPY_AND_ASSIGN(TcpServerRpc);
     };
@@ -315,10 +318,12 @@ class TcpTransport : public Transport {
     class Socket {
         public:
         Socket(int fd, TcpTransport *transport)
-                : rpc(NULL), ioHandler(fd, transport, this),
+                : transport(transport), rpc(NULL),
+                ioHandler(fd, transport, this),
                 rpcsWaitingToReply(), bytesLeftToSend(0) { }
         ~Socket();
-        TcpServerRpc *rpc;        /// Incoming RPC that is in progress for
+        TcpTransport* transport;  /// The parent TcpTransport object.
+        TcpServerRpc* rpc;        /// Incoming RPC that is in progress for
                                   /// this fd, or NULL if none.
         ServerSocketHandler ioHandler;
                                   /// Used to get notified whenever data
@@ -344,6 +349,9 @@ class TcpTransport : public Transport {
     /// Counts the number of nonzero-size partial messages sent by
     /// sendMessage (for testing only).
     static int messageChunks;
+
+    /// Pool allocator for our ServerRpc objects.
+    ServerRpcPool<TcpServerRpc> serverRpcPool;
 
     DISALLOW_COPY_AND_ASSIGN(TcpTransport);
 };
