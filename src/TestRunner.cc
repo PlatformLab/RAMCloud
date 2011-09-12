@@ -17,14 +17,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <cppunit/CompilerOutputter.h>
-#include <cppunit/Message.h>
-#include <cppunit/Protector.h>
-#include <cppunit/Test.h>
-#include <cppunit/TestResult.h>
-#include <cppunit/extensions/TestFactoryRegistry.h>
-#include <cppunit/extensions/TypeInfoHelper.h>
-#include <cppunit/ui/text/TestRunner.h>
 #include <gtest/gtest.h>
 
 #include <typeinfo>
@@ -108,7 +100,6 @@ class QuietUnitTestResultPrinter : public testing::TestEventListener {
 
 char testName[256];
 bool progress = false;
-bool googleOnly = false;
 
 void __attribute__ ((noreturn))
 usage(char *arg0)
@@ -145,9 +136,6 @@ cmdline(int argc, char *argv[])
         case 'p':
             progress = true;
             break;
-        case 'g':
-            googleOnly = true;
-            break;
         default:
             usage(argv[0]);
         }
@@ -155,13 +143,6 @@ cmdline(int argc, char *argv[])
 }
 
 } // anonymous namespace
-
-// CppUnit doesn't put this in a public header
-struct CppUnit::ProtectorContext {
-    CppUnit::Test *test;
-    CppUnit::TestResult *result;
-    std::string description;
-};
 
 int
 main(int argc, char *argv[])
@@ -185,7 +166,7 @@ main(int argc, char *argv[])
     ::testing::AddGlobalTestEnvironment(new LoggerEnvironment());
 
     int r = 0;
-    if (googleOnly || !strcmp(testName, defaultTest)) {
+    if (!strcmp(testName, defaultTest)) {
         auto unitTest = ::testing::UnitTest::GetInstance();
         if (!progress) {
             auto& listeners = unitTest->listeners();
@@ -195,49 +176,6 @@ main(int argc, char *argv[])
         }
         r += unitTest->Run();
     }
-
-    // Next run cppunit tests.
-
-    CppUnit::TextUi::TestRunner runner;
-    CppUnit::TestFactoryRegistry& registry =
-            CppUnit::TestFactoryRegistry::getRegistry();
-
-    // This thing will print RAMCloud::Exception::message when RAMCloud
-    // exceptions are thrown in our unit tests.
-    class RAMCloudProtector : public CppUnit::Protector {
-        bool protect(const CppUnit::Functor& functor,
-                     const CppUnit::ProtectorContext& context) {
-            if (context.description == "setUp() failed") {
-                RAMCloud::logger.setLogLevels(RAMCloud::WARNING);
-#ifdef VALGRIND
-                // Since valgrind is slow, it's nice to have the test names
-                // output to your terminal while you wait.
-                printf("%s\n", context.test->getName().c_str());
-                fflush(stdout);
-#endif
-            }
-            try {
-                return functor();
-            } catch (const RAMCloud::Exception& e) {
-                std::string className(
-                    CppUnit::TypeInfoHelper::getClassName(typeid(e)));
-                CppUnit::Message message(className + ":\n    " + e.str());
-                reportError(context, message);
-            } catch (const RAMCloud::ClientException& e) {
-                std::string className(
-                    CppUnit::TypeInfoHelper::getClassName(typeid(e)));
-                CppUnit::Message message(className + ":\n    " + e.str());
-                reportError(context, message);
-            }
-            return false;
-        }
-    };
-    // CppUnit's ProtectorChain::pop() will call delete on our protector, so I
-    // guess they want us to use new to allocate it.
-    runner.eventManager().pushProtector(new RAMCloudProtector());
-    runner.addTest(registry.makeTest());
-    if (!googleOnly)
-        r += !runner.run(testName, false, true, progress);
 
     return r;
 }

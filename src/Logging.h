@@ -187,7 +187,7 @@ namespace RAMCloud {
  *
  *     foo->methodName();
  *
- *     CPPUNIT_ASSERT_EQUAL(
+ *     EXPECT_EQ(
  *         "void RAMCloud::FooClass:methodToTest(): log message",
  *         TestLog::get());
  * }

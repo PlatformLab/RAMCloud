@@ -95,7 +95,7 @@ $(OBJDIR)/gtest.a: $(OBJDIR)/gtest-all.o
 	$(AR) rcs $@ $^
 # end google test rules
 
-TESTS_LIB := -lcppunit -ldl $(LIBS)
+TESTS_LIB := -ldl $(LIBS)
 
 $(OBJDIR)/test: $(TESTS_OBJFILES) $(OBJDIR)/gtest.a
 	@mkdir -p $(@D)
