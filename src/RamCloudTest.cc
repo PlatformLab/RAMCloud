@@ -54,10 +54,10 @@ class RamCloudTest : public ::testing::Test {
     {
         masterConfig1.coordinatorLocator = "mock:host=coordinatorService";
         masterConfig1.localLocator = "mock:host=master1";
-        MasterService::sizeLogAndHashTable("64", "8", &masterConfig1);
+        MasterService::sizeLogAndHashTable("16", "1", &masterConfig1);
         masterConfig2.coordinatorLocator = "mock:host=coordinatorService";
         masterConfig2.localLocator = "mock:host=master2";
-        MasterService::sizeLogAndHashTable("64", "8", &masterConfig2);
+        MasterService::sizeLogAndHashTable("16", "1", &masterConfig2);
 
         transportManager.registerMock(&transport);
         transport.addService(coordinatorService,
