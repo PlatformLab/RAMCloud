@@ -391,18 +391,34 @@ LogCleaner::moveLiveData(SegmentEntryHandleVector& liveData)
     Segment* currentSegment = NULL;
     SegmentVector segmentsAdded;
 
-    // XXX: We shouldn't just stop using a Segment if it didn't fit the
-    //      last object. We should keep considering them for future objects.
-    //      This is strictly better than leaving open space; even if we put
-    //      in objects that are much newer (and hence more likely to be
-    //      freed soon). The worst case is the same space is soon empty, but
-    //      we have the opportunity to do better if we can pack in more data
-    //      that ends up staying alive longer.
-
     foreach (SegmentEntryHandle handle, liveData) {
         SegmentEntryHandle newHandle = NULL;
 
-        do {
+        // First try to write the object to Segments we already created
+        // (rather than the latest one) in the hopes of packing them better
+        // and getting the highest utilisation. It's possible, for instance,
+        // that a large object caused us to create a new Segment, but the
+        // previous one still has lots of free space for smaller objects.
+        // 
+        // This is strictly better than leaving open space, even if we put
+        // in objects that are much newer (and hence more likely to be
+        // freed soon). The worst case is the same space is soon empty, but
+        // we have the opportunity to do better if we can pack in more data
+        // that ends up staying alive longer.
+        //
+        // If we end up cleaning to many Segments, this could get pretty
+        // expensive as the destinations fill up. Should we sort/bucket by
+        // free space, preclude ones with high utilisation already, or
+        // randomly try a fixed number instead? At worst we'll end up
+        // running through CLEANED_SEGMENTS_PER_PASS segments for each
+        // object we write out.
+        foreach (Segment* segment, segmentsAdded) {
+            newHandle = segment->append(handle, false);
+            if (newHandle != NULL)
+                break;
+        }
+
+        while (newHandle == NULL) {
             if (currentSegment != NULL)
                 newHandle = currentSegment->append(handle, false);
 
@@ -416,7 +432,7 @@ LogCleaner::moveLiveData(SegmentEntryHandleVector& liveData)
                 segmentsAdded.push_back(currentSegment);
                 log->cleaningInto(currentSegment);
             }
-        } while (newHandle == NULL);
+        }
 
         const LogTypeCallback *cb = log->getCallbacks(handle->type());
         if (!cb->relocationCB(handle, newHandle, cb->relocationArg))
