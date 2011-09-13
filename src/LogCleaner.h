@@ -48,7 +48,10 @@ class LogCleaner {
     void getSegmentsToClean(SegmentVector&);
     void getSortedLiveEntries(SegmentVector& segments,
                               SegmentEntryHandleVector& liveEntries);
-    void moveLiveData(SegmentEntryHandleVector& data);
+    uint32_t moveToFillSegment(Segment* lastNewSegment,
+                               SegmentVector& segmentsToClean);
+    void moveLiveData(SegmentEntryHandleVector& data,
+                      SegmentVector& segmentsToClean);
 
     /// After cleaning, wake the cleaner again after this many microseconds.
     static const size_t CLEANER_POLL_USEC = 50000;
@@ -62,6 +65,14 @@ class LogCleaner {
 
     /// Maximum write cost we'll permit. Anything higher and we won't clean.
     static const double MAXIMUM_CLEANABLE_WRITE_COST = 3.0;
+
+    /// Enable optimisation that tries to pack objects into prior new Segments
+    /// before trying the latest one.
+    static const bool packPriorOptimisation = true;
+
+    /// Enable optimisation that packs the last Segment the cleaner relocates
+    /// to.
+    static const bool packLastOptimisation = true;
 
     /// The number of bytes that have been freed in the Log since the last
     /// cleaning operation completed. This is used to avoid invoking the

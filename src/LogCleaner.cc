@@ -84,7 +84,7 @@ LogCleaner::clean()
         return;
 
     getSortedLiveEntries(segmentsToClean, liveEntries);
-    moveLiveData(liveEntries);
+    moveLiveData(liveEntries, segmentsToClean);
     log->cleaningComplete(segmentsToClean);
 
     bytesFreedBeforeLastCleaning = logBytesFreed;
@@ -323,7 +323,7 @@ LogCleaner::getSegmentsToClean(SegmentVector& segmentsToClean)
         return;
     }
 
-    LOG(DEBUG, "cleaning %zd segments to free %lu bytes (writeCost is %.3f)\n",
+    LOG(NOTICE, "cleaning %zd segments to free %lu bytes (writeCost is %.3f)\n",
         numSegmentsToClean, totalCapacity - totalLiveBytes, writeCost);
 
     // Ok, let's clean these suckers! Be sure to remove them from the vector
@@ -356,16 +356,101 @@ LogCleaner::getSortedLiveEntries(SegmentVector& segments,
 {
     foreach (Segment* segment, segments) {
         for (SegmentIterator i(segment); !i.isDone(); i.next()) {
-            SegmentEntryHandle seh = i.getHandle();
-            const LogTypeCallback *logCB = log->getCallbacks(seh->type());
-            if (logCB != NULL && logCB->livenessCB(seh, logCB->livenessArg))
-                liveEntries.push_back(seh);
+            SegmentEntryHandle handle = i.getHandle();
+            const LogTypeCallback *cb = log->getCallbacks(handle->type());
+            if (cb != NULL && cb->livenessCB(handle, cb->livenessArg))
+                liveEntries.push_back(handle);
         }
     }
 
     std::sort(liveEntries.begin(),
               liveEntries.end(),
               SegmentEntryAgeLessThan(log));
+}
+
+/**
+ * Helper method for moveLiveData().
+ *
+ * We want to avoid the last new Segment we allocate having low
+ * utilisation (for example, we could have allocated a whole Segment
+ * just for the very last tiny object that was relocated). To avoid
+ * this, we'll greedily clean the next best Segments in our cost-benefit
+ * order so long as their live objects all fit in whatever space is left
+ * over.
+ *
+ * \param[in] lastNewSegment
+ *      The last Segment created by moveLiveData().
+ * \param[out] segmentsToClean
+ *      Vector of Segments to clean. If we clean any other Segments
+ *      beyond what the getSegmentsToClean algorithm dictated, we need
+ *      to add them here.
+ * \return
+ *      The number of objects relocated by the method. The caller can
+ *      determine the number of bytes relocated by checking the
+ *      utilisation of lastNewSegment before and after the call.
+ */
+uint32_t
+LogCleaner::moveToFillSegment(Segment* lastNewSegment,
+                              SegmentVector& segmentsToClean)
+{
+    if (!packLastOptimisation)
+        return 0;
+
+    if (lastNewSegment == NULL)
+        return 0;
+
+    int utilisationBefore = lastNewSegment->getUtilisation();
+    uint32_t bytesRelocated = 0;
+    uint32_t objectsRelocated = 0;
+
+    // Keep going so long as we make progress.
+    while (1) {
+        bool madeProgress = false;
+
+        for (size_t i = 0; i < cleanableSegments.size(); i++) {
+            size_t segmentIndex = cleanableSegments.size() - i - 1;
+            Segment* segment = cleanableSegments[segmentIndex];
+
+            if (segment->getLiveBytes() > lastNewSegment->appendableBytes())
+                continue;
+
+            madeProgress = true;
+
+            // There's no point in sorting the source's objects since they're
+            // going into only one Segment.
+            for (SegmentIterator it(segment); !it.isDone(); it.next()) {
+                SegmentEntryHandle handle = it.getHandle();
+                const LogTypeCallback *cb = log->getCallbacks(handle->type());
+                if (cb == NULL || !cb->livenessCB(handle, cb->livenessArg))
+                    continue;
+
+                SegmentEntryHandle newHandle =
+                    lastNewSegment->append(handle, false);
+                assert(newHandle != NULL);
+
+                if (cb->relocationCB(handle, newHandle, cb->relocationArg)) {
+                    bytesRelocated += handle->totalLength();
+                    objectsRelocated++;
+                } else {
+                    lastNewSegment->rollBack(newHandle);
+                }
+            }
+
+            // Be sure to move the Segment just cleaned to the list of cleaned
+            // Segments.
+            segmentsToClean.push_back(segment);
+            cleanableSegments.erase(cleanableSegments.begin() + segmentIndex);
+        }
+
+        if (!madeProgress)
+            break;
+    }
+
+    LOG(NOTICE, "packed %u bytes into last Segment (utilisation before/after: "
+        "%d%%/%d%%)", bytesRelocated, utilisationBefore,
+        lastNewSegment->getUtilisation());
+
+    return objectsRelocated;
 }
 
 /**
@@ -384,9 +469,14 @@ LogCleaner::getSortedLiveEntries(SegmentVector& segments,
  *
  * \param[in] liveData
  *      Vector of SegmentEntryHandles of recently live data to move.
+ * \param[out] segmentsToClean
+ *      Vector of Segments from which liveData came. This is only to be used
+ *      if we choose to clean addition Segmnts not previously specified (e.g.
+ *      in the moveToFillSegment method when packing the last new Segment).
  */
 void
-LogCleaner::moveLiveData(SegmentEntryHandleVector& liveData)
+LogCleaner::moveLiveData(SegmentEntryHandleVector& liveData,
+                         SegmentVector& segmentsToClean)
 {
     Segment* currentSegment = NULL;
     SegmentVector segmentsAdded;
@@ -399,7 +489,7 @@ LogCleaner::moveLiveData(SegmentEntryHandleVector& liveData)
         // and getting the highest utilisation. It's possible, for instance,
         // that a large object caused us to create a new Segment, but the
         // previous one still has lots of free space for smaller objects.
-        // 
+        //
         // This is strictly better than leaving open space, even if we put
         // in objects that are much newer (and hence more likely to be
         // freed soon). The worst case is the same space is soon empty, but
@@ -412,10 +502,12 @@ LogCleaner::moveLiveData(SegmentEntryHandleVector& liveData)
         // randomly try a fixed number instead? At worst we'll end up
         // running through CLEANED_SEGMENTS_PER_PASS segments for each
         // object we write out.
-        foreach (Segment* segment, segmentsAdded) {
-            newHandle = segment->append(handle, false);
-            if (newHandle != NULL)
-                break;
+        if (packPriorOptimisation) {
+            foreach (Segment* segment, segmentsAdded) {
+                newHandle = segment->append(handle, false);
+                if (newHandle != NULL)
+                    break;
+            }
         }
 
         while (newHandle == NULL) {
@@ -439,8 +531,26 @@ LogCleaner::moveLiveData(SegmentEntryHandleVector& liveData)
             currentSegment->rollBack(newHandle);
     }
 
+    // End game: try to get good utilisation out of the last Segment.
+    uint32_t extraObjects = moveToFillSegment(currentSegment, segmentsToClean);
+
+    // Close and sync all newly created Segments.
     foreach (Segment* segment, segmentsAdded)
         segment->close(true);
+
+    // Now we're done. Log a few stats.
+    int totalUtilisation = 0;
+    foreach (Segment* segment, segmentsAdded) {
+        LOG(NOTICE, "created new Segment: ID %lu, utilisation %d%%",
+            segment->getId(), segment->getUtilisation());
+        totalUtilisation += segment->getUtilisation();
+    }
+    LOG(NOTICE, "cleaned %zd segments by relocating %zd entries into %zd new "
+        "segments with %.2f%% average utilisation; net gain of %zd segments",
+        segmentsToClean.size(), liveData.size() + extraObjects,
+        segmentsAdded.size(),
+        1.0 * totalUtilisation / static_cast<double>(segmentsAdded.size()),
+        segmentsToClean.size() - segmentsAdded.size());
 }
 
 } // namespace
