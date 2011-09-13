@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Stanford University
+/* Copyright (c) 2009-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,16 +14,9 @@
  */
 
 #include <getopt.h>
-#include <stdlib.h>
-#include <string.h>
-
 #include <gtest/gtest.h>
 
-#include <typeinfo>
-
 #include "Common.h"
-#include "ClientException.h"
-#include "Dispatch.h"
 
 namespace {
 
@@ -98,17 +91,14 @@ class QuietUnitTestResultPrinter : public testing::TestEventListener {
     DISALLOW_COPY_AND_ASSIGN(QuietUnitTestResultPrinter);
 };
 
-char testName[256];
 bool progress = false;
 
 void __attribute__ ((noreturn))
 usage(char *arg0)
 {
     printf("Usage: %s "
-            "[-p] [-t testName]\n"
-           "\t-t\t--test\tRun a specific test..\n"
+            "[-p]\n"
            "\t-p\t--progress\tShow test progress.\n",
-           "\t-g\t--google\tRun google tests only.\n",
            arg0);
     exit(EXIT_FAILURE);
 }
@@ -117,22 +107,16 @@ void
 cmdline(int argc, char *argv[])
 {
     struct option long_options[] = {
-        {"test", required_argument, NULL, 't'},
         {"progress", no_argument, NULL, 'p'},
-        {"google", no_argument, NULL, 'g'},
         {0, 0, 0, 0},
     };
 
     int c;
     int i = 0;
-    while ((c = getopt_long(argc, argv, "t:pg",
+    while ((c = getopt_long(argc, argv, ":p",
                             long_options, &i)) >= 0)
     {
         switch (c) {
-        case 't':
-            strncpy(testName, optarg, sizeof(testName));
-            testName[sizeof(testName) - 1] = '\0';
-            break;
         case 'p':
             progress = true;
             break;
@@ -151,31 +135,29 @@ main(int argc, char *argv[])
     char* googleArgv[] = {NULL};
     ::testing::InitGoogleTest(&googleArgc, googleArgv);
 
-    const char *defaultTest = "";
-    strncpy(testName, defaultTest, sizeof(testName));
     cmdline(argc, argv);
 
-    // First run gtest tests.
-    // set log levels for gtest unit tests
-    struct LoggerEnvironment : public ::testing::Environment {
-        void SetUp()
-        {
+    auto unitTest = ::testing::UnitTest::GetInstance();
+    auto& listeners = unitTest->listeners();
+
+    // set up the environment for unit tests
+    struct GTestSetupListener : public ::testing::EmptyTestEventListener {
+        // this fires before each test fixture's constructor
+        void OnTestStart(const ::testing::TestInfo& testInfo) {
             RAMCloud::logger.setLogLevels(RAMCloud::WARNING);
         }
-    };
-    ::testing::AddGlobalTestEnvironment(new LoggerEnvironment());
-
-    int r = 0;
-    if (!strcmp(testName, defaultTest)) {
-        auto unitTest = ::testing::UnitTest::GetInstance();
-        if (!progress) {
-            auto& listeners = unitTest->listeners();
-            auto defaultPrinter = listeners.Release(
-                                    listeners.default_result_printer());
-            listeners.Append(new QuietUnitTestResultPrinter(defaultPrinter));
+        // this fires after each test fixture's destructor
+        void OnTestEnd(const ::testing::TestInfo& testInfo) {
         }
-        r += unitTest->Run();
+    };
+    listeners.Append(new GTestSetupListener());
+
+    if (!progress) {
+        // replace default output printer with quiet one
+        auto defaultPrinter = listeners.Release(
+                                listeners.default_result_printer());
+        listeners.Append(new QuietUnitTestResultPrinter(defaultPrinter));
     }
 
-    return r;
+    return RUN_ALL_TESTS();
 }

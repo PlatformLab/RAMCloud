@@ -42,7 +42,7 @@ class CoordinatorServiceTest : public ::testing::Test {
     {
         masterConfig.coordinatorLocator = "mock:host=coordinator";
         masterConfig.localLocator = "mock:host=master";
-        MasterService::sizeLogAndHashTable("64", "8", &masterConfig);
+        MasterService::sizeLogAndHashTable("16", "1", &masterConfig);
         transport = new BindTransport();
         transportManager.registerMock(transport);
         service = new CoordinatorService();
