@@ -38,13 +38,33 @@ class Metrics {
   public:
     void start(uint64_t serverId);
     void end();
+    void reset();
   private:
     /**
-     * Clear all of the counters and other metrics stored in this object.
-     * The implementation of this method is in Metrics.in.cc and is
-     * generated automatically by scripts/metrics.py.
+     * This structure is used to return information about one metric
+     * from the metricInfo method.
      */
-    void resetMetrics();
+    struct MetricInfo {
+        /// Hierarchical name for the metric, such as "master.replicas".
+        const char* name;
+
+        /// Pointer to the metric's value in this Metrics object.
+        Metric* value;
+    };
+
+    /**
+     * Return information describing a particular metric. The implementation
+     * of this method is in Metrics.in.cc; it is generated automatically by
+     * scripts/metrics.py.
+     *
+     * \param i
+     *      Index of the desired metric; must be >= 0 and < numMetrics.
+     *
+     * \return
+     *      Information about the given metric.  If i is out of range then
+     *      both fields of the return value are NULL.
+     */
+    MetricInfo metricInfo(int i);
 
     /**
      * Generate log messages that display the values of all of the counters
