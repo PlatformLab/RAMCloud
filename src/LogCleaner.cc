@@ -278,7 +278,7 @@ LogCleaner::getSegmentsToClean(SegmentVector& segmentsToClean)
 {
     assert(segmentsToClean.size() == 0);
 
-    if (cleanableSegments.size() < SEGMENTS_PER_CLEANING_PASS)
+    if (cleanableSegments.size() < CLEANED_SEGMENTS_PER_PASS)
         return;
 
     std::sort(cleanableSegments.begin(),
@@ -290,29 +290,45 @@ LogCleaner::getSegmentsToClean(SegmentVector& segmentsToClean)
     // may new bytes of data that we can free up.  For us, this cost is
     // (1 / 1 - u). LFS was twice as high because segments had to be read
     // from disk before cleaning.
+    uint64_t wantFreeBytes = log->getSegmentCapacity() *
+                             CLEANED_SEGMENTS_PER_PASS;
     uint64_t totalLiveBytes = 0;
     uint64_t totalCapacity = 0;
-    for (size_t i = 0; i < SEGMENTS_PER_CLEANING_PASS; i++) {
+    size_t i;
+    for (i = 0; i < cleanableSegments.size(); i++) {
         Segment* s = cleanableSegments[cleanableSegments.size() - i - 1];
         assert(s != NULL);
         totalLiveBytes += (s->getCapacity() - s->getFreeBytes());
         totalCapacity += s->getCapacity();
+
+        if ((totalCapacity - totalLiveBytes) >= wantFreeBytes) {
+            i++;
+            break;
+        }
     }
+    size_t numSegmentsToClean = i;
+
+    // Abort if there aren't enough bytes to free.
+    if ((totalCapacity - totalLiveBytes) < wantFreeBytes)
+        return;
+
+    // Calculate the write cost for the bytes we can free up.
+    // We'll only clean if the write cost is sufficiently low.
     double u = static_cast<double>(totalLiveBytes) /
                static_cast<double>(totalCapacity);
-    double writeCost = 1 / (1 - u);
-
-    LOG(DEBUG, "writeCost is %.3f\n", writeCost);
-
+    double writeCost = 1.0 / (1.0 - u);
     if (writeCost > MAXIMUM_CLEANABLE_WRITE_COST) {
         LOG(DEBUG, "writeCost (%.3f > %.3f) too high; not cleaning",
             writeCost, MAXIMUM_CLEANABLE_WRITE_COST);
         return;
     }
 
+    LOG(DEBUG, "cleaning %zd segments to free %lu bytes (writeCost is %.3f)\n",
+        numSegmentsToClean, totalCapacity - totalLiveBytes, writeCost);
+
     // Ok, let's clean these suckers! Be sure to remove them from the vector
     // of candidate Segments so we don't try again in the future!
-    for (size_t i = 0; i < SEGMENTS_PER_CLEANING_PASS; i++) {
+    for (i = 0; i < numSegmentsToClean; i++) {
         segmentsToClean.push_back(cleanableSegments.back());
         cleanableSegments.pop_back();
     }

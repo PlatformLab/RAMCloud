@@ -100,40 +100,24 @@ TEST(LogCleanerTest, getSegmentsToClean) {
     LogCleaner* cleaner = &log.cleaner;
     char buf[64];
 
-    size_t segmentsNeededForCleaning = cleaner->SEGMENTS_PER_CLEANING_PASS;
-
-    while (log.cleanableNewList.size() < segmentsNeededForCleaning - 1) {
-        LogEntryHandle h = log.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
-        log.free(h);
-    }
+    size_t minFreeBytesForCleaning = cleaner->CLEANED_SEGMENTS_PER_PASS *
+        log.getSegmentCapacity();
 
     SegmentVector segmentsToClean;
-
-    cleaner->getSegmentsToClean(segmentsToClean);
-    EXPECT_EQ(0U, segmentsToClean.size());
-
-    while (log.cleanableNewList.size() < segmentsNeededForCleaning - 1) {
+    while (segmentsToClean.size() == 0) {
         LogEntryHandle h = log.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
         log.free(h);
+        cleaner->scanNewCleanableSegments();
+        cleaner->getSegmentsToClean(segmentsToClean);
     }
 
-    // fill the rest up so we can test proper sorting of best candidates
-    try {
-        while (log.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf)) != NULL) {}
-    } catch (LogException &e) {
-    }
-
-    cleaner->scanNewCleanableSegments();
-    cleaner->getSegmentsToClean(segmentsToClean);
-
-    EXPECT_EQ(segmentsNeededForCleaning, segmentsToClean.size());
+    size_t freeableBytes = 0;
+    foreach (Segment* s, segmentsToClean)
+        freeableBytes += s->getFreeBytes();
+    EXPECT_GE(freeableBytes, minFreeBytesForCleaning);
 
     for (size_t i = 0; i < segmentsToClean.size(); i++) {
         EXPECT_TRUE(segmentsToClean[i] != NULL);
-        if (i == segmentsToClean.size() - 1)
-            EXPECT_GT(segmentsToClean[i]->getUtilisation(), 95);
-        else
-            EXPECT_LT(segmentsToClean[i]->getUtilisation(), 5);
 
         // returned segments must no longer be in the cleanableSegments list,
         // since we're presumed to clean them now
@@ -152,8 +136,6 @@ getSegmentsToCleanFilter(string s)
 
 // sanity check the write cost calculation
 TEST(LogCleanerTest, getSegmentsToClean_writeCost) {
-    size_t segmentsNeededForCleaning = LogCleaner::SEGMENTS_PER_CLEANING_PASS;
-
     struct TestSetup {
         int freeEveryNth;       // after N appends, free one (0 => no frees)
         double minWriteCost;    // min acceptable writeCost (0 => no min)
@@ -165,38 +147,87 @@ TEST(LogCleanerTest, getSegmentsToClean_writeCost) {
         // - ~50% full segments:  write cost should be very close to 2
         { 2, 2.00, 2.05 },
 
-        // - ~100% full segments: write cost should be very high (100 if u=0.99)
-        { 0, 100.00, 0 },
+        // - ~80% full segments: write cost should be very close to 5
+        { 5, 5.00, 5.10 },
 
         // terminator
         { -1, 0, 0 },
     };
 
     for (int i = 0; testSetup[i].freeEveryNth != -1; i++) {
+        // Depending on our maximum permitted write cost, we may or may not be
+        // able to run all test cases.
+        if (testSetup[i].minWriteCost >
+          LogCleaner::MAXIMUM_CLEANABLE_WRITE_COST) {
+            continue;
+        }
+
         Tub<uint64_t> serverId(0);
         Log log(serverId, 8192 * 1000, 8192, NULL, Log::CLEANER_DISABLED);
         LogCleaner* cleaner = &log.cleaner;
         int freeEveryNth = testSetup[i].freeEveryNth;
 
+        TestLog::Enable _(&getSegmentsToCleanFilter);
+
+        SegmentVector segmentsToClean;
         int j = 0;
-        while (log.cleanableNewList.size() < segmentsNeededForCleaning) {
+        while (segmentsToClean.size() == 0) {
             char buf[64];
             LogEntryHandle h = log.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
             if (freeEveryNth && (j++ % freeEveryNth) == 0)
                 log.free(h);
+            cleaner->scanNewCleanableSegments();
+            cleaner->getSegmentsToClean(segmentsToClean);
         }
 
-        SegmentVector dummy;
-        TestLog::Enable _(&getSegmentsToCleanFilter);
-        cleaner->scanNewCleanableSegments();
-        cleaner->getSegmentsToClean(dummy);
         double writeCost;
+        size_t numSegments;
+        uint64_t numFreeableBytes;
         sscanf(TestLog::get().c_str(),                  // NOLINT sscanf ok here
-            "getSegmentsToClean: writeCost is %lf", &writeCost);
+            "getSegmentsToClean: cleaning %zd segments to free %lu bytes "
+            "(writeCost is %lf)", &numSegments, &numFreeableBytes, &writeCost);
         if (testSetup[i].minWriteCost)
-            EXPECT_TRUE(writeCost >= testSetup[i].minWriteCost);
+            EXPECT_GE(writeCost, testSetup[i].minWriteCost);
         if (testSetup[i].maxWriteCost)
-            EXPECT_TRUE(writeCost <= testSetup[i].maxWriteCost);
+            EXPECT_LE(writeCost, testSetup[i].maxWriteCost);
+    }
+}
+
+TEST(LogCleanerTest, getSegmentsToClean_costBenefitOrder) {
+    Tub<uint64_t> serverId(0);
+    Log log(serverId, 8192 * 1000, 8192, NULL, Log::CLEANER_DISABLED);
+    LogCleaner* cleaner = &log.cleaner;
+    char buf[64];
+
+    // Ages should be so close (if not all equal) that they're irrelevant.
+    // Utilisation should be the only important attribute.
+
+    // Make a very cleanable segment (~100% free space).
+    while (cleaner->cleanableSegments.size() == 0) {
+        LogEntryHandle h = log.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
+        log.free(h);
+        cleaner->scanNewCleanableSegments();
+    }
+
+    // Make a bunch more that are ~90% free space.
+    SegmentVector segmentsToClean;
+    for (size_t i = 0; segmentsToClean.size() == 0; i++) {
+        LogEntryHandle h = log.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
+        if ((i % 10) != 0)
+            log.free(h);
+        cleaner->scanNewCleanableSegments();
+        cleaner->getSegmentsToClean(segmentsToClean);
+    }
+
+    int lastUtilisation = 0;
+    for (size_t i = 0; i < segmentsToClean.size(); i++) {
+        Segment*s = segmentsToClean[i];
+        if (i == 0)
+            EXPECT_LE(s->getUtilisation(), 1);
+        else
+            EXPECT_GE(s->getUtilisation(), 9);
+        EXPECT_LE(lastUtilisation, s->getUtilisation());
+        lastUtilisation = s->getUtilisation();
     }
 }
 

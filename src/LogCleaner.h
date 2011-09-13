@@ -57,8 +57,8 @@ class LogCleaner {
     /// since the last cleaning operation.
     static const size_t MIN_CLEANING_DELTA = 2 * Segment::SEGMENT_SIZE;
 
-    /// Number of Segments to clean per pass.
-    static const size_t SEGMENTS_PER_CLEANING_PASS = 10;
+    /// Number of clean Segments to produce in each cleaning pass.
+    static const size_t CLEANED_SEGMENTS_PER_PASS = 10;
 
     /// Maximum write cost we'll permit. Anything higher and we won't clean.
     static const double MAXIMUM_CLEANABLE_WRITE_COST = 3.0;
