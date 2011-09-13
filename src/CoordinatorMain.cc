@@ -31,6 +31,8 @@ main(int argc, char *argv[])
 {
     using namespace RAMCloud;
     try {
+        Context context(true);
+        Context::Guard _(context);
         OptionParser optionParser(OptionsDescription("Coordinator"),
                                   argc, argv);
 
@@ -45,15 +47,18 @@ main(int argc, char *argv[])
 
         pinAllMemory();
         string localLocator = optionParser.options.getCoordinatorLocator();
-        transportManager.initialize(localLocator.c_str());
-        localLocator = transportManager.getListeningLocatorsString();
+        Context::get().transportManager->initialize(localLocator.c_str());
+        localLocator = Context::get().transportManager->
+                                getListeningLocatorsString();
         LOG(NOTICE, "coordinator: Listening on %s", localLocator.c_str());
         CoordinatorService coordinatorService;
-        serviceManager->addService(coordinatorService, COORDINATOR_SERVICE);
+        Context::get().serviceManager->addService(coordinatorService,
+                                                COORDINATOR_SERVICE);
         PingService pingService;
-        serviceManager->addService(pingService, PING_SERVICE);
+        Context::get().serviceManager->addService(pingService, PING_SERVICE);
+        Dispatch& dispatch = *Context::get().dispatch;
         while (true) {
-            dispatch->poll();
+            dispatch.poll();
         }
         return 0;
     } catch (RAMCloud::Exception& e) {

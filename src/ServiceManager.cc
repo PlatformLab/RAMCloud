@@ -26,9 +26,6 @@ namespace RAMCloud {
  */
 static Syscall defaultSyscall;
 
-ServiceManager* serviceManager = NULL;
-static Initialize _(ServiceManager::init);
-
 /**
  * Used by this class to make all system calls.  In normal production
  * use it points to defaultSyscall; for testing it points to a mock
@@ -49,25 +46,15 @@ int ServiceManager::pollMicros = 10000;
 #define WORKER_EXIT reinterpret_cast<Transport::ServerRpc*>(1)
 
 /**
- * Perform once-only overall initialization for the ServiceManager class, such
- * as creating the global #serviceManager object.  This method is invoked
- * automatically during initialization, but it may be invoked explicitly by
- * other modules to ensure that initialization occurs before those modules
- * initialize themselves.
- */
-void
-ServiceManager::init() {
-    Dispatch::init();
-    if (serviceManager == NULL) {
-        serviceManager = new ServiceManager();
-    }
-}
-
-/**
  * Construct a ServiceManager.
  */
 ServiceManager::ServiceManager()
-    : services(), busyThreads(), idleThreads(), serviceCount(0), extraRpcs()
+    : Dispatch::Poller(*Context::get().dispatch)
+    , services()
+    , busyThreads()
+    , idleThreads()
+    , serviceCount(0)
+    , extraRpcs()
 {
 }
 
@@ -77,12 +64,10 @@ ServiceManager::ServiceManager()
  */
 ServiceManager::~ServiceManager()
 {
-    assert(dispatch->isDispatchThread());
-    if (serviceManager == this) {
-        serviceManager = NULL;
-    }
+    Dispatch& dispatch = *Context::get().dispatch;
+    assert(dispatch.isDispatchThread());
     while (!busyThreads.empty()) {
-        dispatch->poll();
+        dispatch.poll();
     }
     foreach (Worker* worker, idleThreads) {
         worker->exit();
@@ -172,7 +157,7 @@ ServiceManager::handleRpc(Transport::ServerRpc* rpc)
     // Find a thread to execute the RPC, and hand off the RPC.
     Worker* worker;
     if (idleThreads.empty()) {
-        worker = new Worker;
+        worker = new Worker(Context::get());
         worker->thread.construct(workerMain, worker);
     } else {
         worker = idleThreads.back();
@@ -270,7 +255,7 @@ ServiceManager::waitForRpc(double timeoutSeconds) {
         if (Cycles::toSeconds(Cycles::rdtsc() - start) > timeoutSeconds) {
             return NULL;
         }
-        dispatch->poll();
+        Context::get().dispatch->poll();
     }
 }
 
@@ -285,52 +270,58 @@ ServiceManager::waitForRpc(double timeoutSeconds) {
  */
 void
 ServiceManager::workerMain(Worker* worker)
-try {
-    uint64_t pollCycles = Cycles::fromNanoseconds(1000*pollMicros);
-    while (true) {
-        uint64_t stopPollingTime = dispatch->currentTime + pollCycles;
+{
+    Context::Guard _(worker->context);
+    Dispatch& dispatch = *Context::get().dispatch;
+    try {
+        uint64_t pollCycles = Cycles::fromNanoseconds(1000*pollMicros);
+        while (true) {
+            uint64_t stopPollingTime = dispatch.currentTime + pollCycles;
 
-        // Wait for ServiceManager to supply us with some work to do.
-        while (worker->state.load() != Worker::WORKING) {
-            if (dispatch->currentTime >= stopPollingTime) {
-                // It's been a long time since we've had any work to do; go
-                // to sleep so we don't waste any more CPU cycles.  Tricky
-                // race condition: the dispatch thread could change the state
-                // to WORKING just before we change it to SLEEPING, so use an
-                // atomic op and only change to SLEEPING if the current value
-                // is POLLING.
-                int expected = Worker::POLLING;
-                if (worker->state.compareExchange(expected, Worker::SLEEPING)) {
-                    if (sys->futexWait(reinterpret_cast<int*>(&worker->state),
-                            Worker::SLEEPING) == -1) {
-                        // EWOULDBLOCK means that someone already changed
-                        // worker->state, so we didn't block; this is benign.
-                        if (errno != EWOULDBLOCK) {
-                            LOG(ERROR, "futexWait failed in ServiceManager::"
-                                    "workerMain: %s", strerror(errno));
+            // Wait for ServiceManager to supply us with some work to do.
+            while (worker->state.load() != Worker::WORKING) {
+                if (dispatch.currentTime >= stopPollingTime) {
+                    // It's been a long time since we've had any work to do; go
+                    // to sleep so we don't waste any more CPU cycles.  Tricky
+                    // race condition: the dispatch thread could change the
+                    // state to WORKING just before we change it to SLEEPING,
+                    // so use an atomic op and only change to SLEEPING if the
+                    // current value is POLLING.
+                    int expected = Worker::POLLING;
+                    if (worker->state.compareExchange(expected,
+                                                      Worker::SLEEPING)) {
+                        if (sys->futexWait(
+                                reinterpret_cast<int*>(&worker->state),
+                                Worker::SLEEPING) == -1) {
+                            // EWOULDBLOCK means that someone already changed
+                            // worker->state, so we didn't block; this is
+                            // benign.
+                            if (errno != EWOULDBLOCK) {
+                                LOG(ERROR, "futexWait failed in "
+                                           "ServiceManager::workerMain: %s",
+                                    strerror(errno));
+                            }
                         }
                     }
                 }
             }
-            // Empty loop body.
+            Fence::enter();
+            if (worker->rpc == WORKER_EXIT)
+                break;
+
+            Service::Rpc rpc(worker, worker->rpc->requestPayload,
+                    worker->rpc->replyPayload);
+            worker->serviceInfo->service.handleRpc(rpc);
+
+            // Pass the RPC back to ServiceManager for completion.
+            Fence::leave();
+            worker->state.store(Worker::POLLING);
         }
-        Fence::enter();
-        if (worker->rpc == WORKER_EXIT)
-            break;
-
-        Service::Rpc rpc(worker, worker->rpc->requestPayload,
-                worker->rpc->replyPayload);
-        worker->serviceInfo->service.handleRpc(rpc);
-
-        // Pass the RPC back to ServiceManager for completion.
-        Fence::leave();
-        worker->state.store(Worker::POLLING);
+        TEST_LOG("exiting");
+    } catch (std::exception& e) {
+        LOG(ERROR, "worker: %s", e.what());
+        throw; // will likely call std::terminate()
     }
-    TEST_LOG("exiting");
-} catch (std::exception& e) {
-    using namespace RAMCloud;
-    LOG(ERROR, "worker: %s", e.what());
-    throw; // will likely call std::terminate()
 }
 
 /**
@@ -341,7 +332,8 @@ try {
 void
 Worker::exit()
 {
-    assert(dispatch->isDispatchThread());
+    Dispatch& dispatch = *Context::get().dispatch;
+    assert(dispatch.isDispatchThread());
     if (exited) {
         // Worker already exited; nothing to do.  This should only happen
         // during tests.
@@ -351,7 +343,7 @@ Worker::exit()
     // Wait for the worker thread to finish handling any RPCs already
     // queued for it.
     while (busyIndex >= 0) {
-        dispatch->poll();
+        dispatch.poll();
     }
 
     // Tell the worker thread to exit, and wait for it to actually exit

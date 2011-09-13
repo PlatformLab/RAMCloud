@@ -96,6 +96,7 @@ using std::vector;
     TypeName& operator=(const TypeName&) = delete;
 #endif
 
+#include "Context.h"
 #include "Logging.h"
 #include "Status.h"
 

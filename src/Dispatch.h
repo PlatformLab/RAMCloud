@@ -29,11 +29,6 @@
 
 namespace RAMCloud {
 
-/// Singleton Dispatch object that is normally used for all operations,
-/// and defaults in many cases.
-class Dispatch;
-extern Dispatch* dispatch;
-
 /**
  * The Dispatch class keeps track of interesting events such as open files
  * and timers, and arranges for particular methods to be invoked when the
@@ -46,12 +41,14 @@ extern Dispatch* dispatch;
  * - Other threads can invoke Dispatch methods, but they must hold a
  *   Dispatch::Lock object at the time of the invocation, in order to avoid
  *   synchronization problems.
+ *
+ * To get a pointer to the current Dispatch instance, use
+ * Context::get().dispatch; see the Context class for more info.
  */
 class Dispatch {
   public:
-    Dispatch();
+    explicit Dispatch(bool hasDedicatedThread);
     ~Dispatch();
-    static void init(bool hasDedicatedThread = false);
 
     /**
      * Returns true if this thread is the one in which the object was created
@@ -81,7 +78,7 @@ class Dispatch {
      */
     class Poller {
       public:
-        explicit Poller(Dispatch* dispatch = RAMCloud::dispatch);
+        explicit Poller(Dispatch& dispatch);
         virtual ~Poller();
 
         /**
@@ -124,8 +121,7 @@ class Dispatch {
      */
     class File {
       public:
-        explicit File(int fd, int events = 0,
-                Dispatch* dispatch = RAMCloud::dispatch);
+        explicit File(Dispatch& dispatch, int fd, int events = 0);
         virtual ~File();
         void setEvents(int events);
 
@@ -177,9 +173,8 @@ class Dispatch {
      */
     class Timer {
       public:
-        explicit Timer(Dispatch* dispatch = RAMCloud::dispatch);
-        explicit Timer(uint64_t cycles,
-                Dispatch* dispatch = RAMCloud::dispatch);
+        explicit Timer(Dispatch& dispatch);
+        explicit Timer(Dispatch& dispatch, uint64_t cycles);
         virtual ~Timer();
         bool isRunning();
         void start(uint64_t cycles);
@@ -225,7 +220,7 @@ class Dispatch {
      */
     class Lock {
       public:
-        explicit Lock(Dispatch* dispatch = RAMCloud::dispatch);
+        explicit Lock(Dispatch* dispatch = Context::get().dispatch);
         ~Lock();
       PRIVATE:
         /// The Dispatch object associated with this Lock.
@@ -240,7 +235,8 @@ class Dispatch {
     };
 
   PRIVATE:
-    static void epollThreadMain(Dispatch* dispatch);
+    static void epollThreadMain(Context* context);
+    static bool fdIsReady(int fd);
 
     // Keeps track of all of the pollers currently defined.  We don't
     // use an intrusive list here because it isn't reentrant: we need

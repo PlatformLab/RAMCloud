@@ -390,7 +390,7 @@ class RemoveTombstonePoller : public Dispatch::Poller {
      */
     RemoveTombstonePoller(MasterService& masterService,
                           HashTable<LogEntryHandle>& objectMap)
-        : Dispatch::Poller()
+        : Dispatch::Poller(*Context::get().dispatch)
         , currentBucket(0)
         , masterService(masterService)
         , objectMap(objectMap)
@@ -408,7 +408,7 @@ class RemoveTombstonePoller : public Dispatch::Poller {
         // This method runs in the dispatch thread, so it isn't safe to
         // manipulate any of the objectMap state if any RPCs are currently
         // executing.
-        if (!serviceManager->idle())
+        if (!Context::get().serviceManager->idle())
             return;
         objectMap.forEachInBucket(
             recoveryCleanup, &masterService, currentBucket);
@@ -464,7 +464,7 @@ struct Task {
         , partitionId(partitionId)
         , backupHost(backupHost)
         , response()
-        , client(transportManager.getSession(
+        , client(Context::get().transportManager->getSession(
                     backupHost.service_locator().c_str()))
         , startTime(Cycles::rdtsc())
         , rpc()
@@ -1711,6 +1711,8 @@ MasterService::storeData(uint64_t tableId,
         if (coordinator) {
             ProtoBuf::ServerList backups;
             coordinator->getBackupList(backups);
+            TransportManager& transportManager =
+                *Context::get().transportManager;
             foreach(auto& backup, backups.server())
                 transportManager.getSession(backup.service_locator().c_str());
         }

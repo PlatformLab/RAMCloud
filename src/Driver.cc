@@ -175,8 +175,14 @@ Driver::PayloadChunk::appendToBuffer(Buffer* buffer,
 /// Returns memory to the Driver once the Chunk is discarded.
 Driver::PayloadChunk::~PayloadChunk()
 {
-    if (driver)
+    if (driver) {
+        // This is a botch. These chunks get destroyed when Buffers are
+        // destroyed, which can happen in client applications outside of a
+        // context. The driver release, however, might need a context to, e.g.,
+        // lock the dispatch thread.
+        Context::Guard _(context);
         driver->release(payload);
+    }
 }
 
 /**
@@ -202,6 +208,7 @@ Driver::PayloadChunk::PayloadChunk(void* data,
                                           Driver* driver,
                                           char* const payload)
     : Buffer::Chunk(data, dataLength)
+    , context(Context::get())
     , driver(driver)
     , payload(payload)
 {

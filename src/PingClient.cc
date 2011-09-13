@@ -49,13 +49,13 @@ PingClient::ping(const char* serviceLocator, uint64_t nonce,
 
     // Send the request and wait for a response.
     Transport::SessionRef session =
-            transportManager.getSession(serviceLocator);
+            Context::get().transportManager->getSession(serviceLocator);
     AsyncState state = send<PingRpc>(session, req, resp);
     uint64_t abortTime = Cycles::rdtsc() + Cycles::fromNanoseconds(
             timeoutNanoseconds);
     while (true) {
-        if (dispatch->isDispatchThread())
-            dispatch->poll();
+        if (Context::get().dispatch->isDispatchThread())
+            Context::get().dispatch->poll();
         if (state.isReady())
             break;
         if (Cycles::rdtsc() >= abortTime) {
@@ -111,13 +111,13 @@ PingClient::proxyPing(const char* serviceLocator1,
 
     // Send the request and wait for a response.
     Transport::SessionRef session =
-            transportManager.getSession(serviceLocator1);
+            Context::get().transportManager->getSession(serviceLocator1);
     AsyncState state = send<ProxyPingRpc>(session, req, resp);
     uint64_t abortTime = Cycles::rdtsc() + Cycles::fromNanoseconds(
             timeoutNanoseconds1);
     while (true) {
-        if (dispatch->isDispatchThread())
-            dispatch->poll();
+        if (Context::get().dispatch->isDispatchThread())
+            Context::get().dispatch->poll();
         if (state.isReady())
             break;
         if (Cycles::rdtsc() >= abortTime) {

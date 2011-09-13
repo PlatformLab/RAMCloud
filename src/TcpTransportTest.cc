@@ -23,20 +23,20 @@ namespace RAMCloud {
 
 class TcpTransportTest : public ::testing::Test {
   public:
+    ServiceManager* serviceManager;
     ServiceLocator* locator;
     MockSyscall* sys;
     Syscall* savedSyscall;
     TestLog::Enable logEnabler;
 
     TcpTransportTest()
-            : locator(NULL), sys(NULL), savedSyscall(NULL), logEnabler(NULL)
+            : serviceManager(Context::get().serviceManager),
+              locator(NULL), sys(NULL), savedSyscall(NULL), logEnabler(NULL)
     {
         locator = new ServiceLocator("tcp+ip: host=localhost, port=11000");
         sys = new MockSyscall();
         savedSyscall = TcpTransport::sys;
         TcpTransport::sys = sys;
-        delete serviceManager;
-        ServiceManager::init();
     }
 
     ~TcpTransportTest() {
@@ -73,7 +73,7 @@ class TcpTransportTest : public ::testing::Test {
     {
         int result = 0;
         Transport::ServerRpc* rpc = NULL;
-        while ((rpc = serviceManager->waitForRpc(0.0)) != NULL) {
+        while ((rpc = Context::get().serviceManager->waitForRpc(0.0)) != NULL) {
             transport->serverRpcPool.destroy(
                 static_cast<TcpTransport::TcpServerRpc*>(rpc));
             result++;
@@ -87,7 +87,7 @@ class TcpTransportTest : public ::testing::Test {
     bool waitForSession(TcpTransport& transport)
     {
         for (int i = 0; i < 1000; i++) {
-            dispatch->poll();
+            Context::get().dispatch->poll();
             if (transport.sockets.size() > 0)
                 return true;
             usleep(1000);

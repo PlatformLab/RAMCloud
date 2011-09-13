@@ -1211,6 +1211,10 @@ int
 main(int argc, char *argv[])
 try
 {
+    // need external context to set log levels
+    Context context(true);
+    Context::Guard _(context);
+
     // Parse command-line options.
     vector<string> testNames;
     string coordinatorLocator, logFile;
@@ -1258,7 +1262,7 @@ try
         }
         stdout = stderr = f;
     }
-    logger.setLogLevels(logLevel);
+    Context::get().logger->setLogLevels(logLevel);
     if (vm.count("help")) {
         std::cout << desc << '\n';
         exit(0);
@@ -1268,7 +1272,7 @@ try
         exit(1);
     }
 
-    cluster = new RamCloud(coordinatorLocator.c_str());
+    cluster = new RamCloud(context, coordinatorLocator.c_str());
     cluster->createTable("data");
     dataTable = cluster->openTable("data");
     cluster->createTable("control");

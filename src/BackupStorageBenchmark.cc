@@ -157,8 +157,6 @@ main(int ac, char* av[])
         backupFile = av[1];
     LOG(WARNING, "Writing to %s", backupFile);
 
-    logger.setLogLevels(3);
-
     Bench(backupFile).testRead();
     //Bench(backupFile).testReadWithWriteInterference();
 

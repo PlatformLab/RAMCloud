@@ -64,7 +64,6 @@ class WillBenchmark {
   public:
     WillBenchmark()
     {
-        logger.setLogLevels(SILENT_LOG_LEVEL);
     }
 
     void

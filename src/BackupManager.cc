@@ -411,7 +411,7 @@ BackupManager::proceedNoMetrics()
                 LOG(DEBUG, "Opening segment %lu, %lu.%lu on backup %s",
                     *masterId, segment.segmentId, &backup - segment.backups,
                     host->service_locator().c_str());
-                auto session = transportManager.getSession(
+                auto session = Context::get().transportManager->getSession(
                                         host->service_locator().c_str());
                 backup.construct(session);
                 segments.insert({segment.segmentId, session});

@@ -143,8 +143,9 @@ CoordinatorService::createTable(const CreateTableRpc::Request& reqHdr,
     willEntry.set_user_data(maxPartitionId + 1);
 
     // Inform the master.
+    const char* locator = master.service_locator().c_str();
     MasterClient masterClient(
-        transportManager.getSession(master.service_locator().c_str()));
+        Context::get().transportManager->getSession(locator));
     ProtoBuf::Tablets masterTabletMap;
     foreach (const ProtoBuf::Tablets::Tablet& tablet, tabletMap.tablet()) {
         if (tablet.server_id() == master.server_id())
@@ -185,8 +186,8 @@ CoordinatorService::dropTable(const DropTableRpc::Request& reqHdr,
     }
     // TODO(ongaro): update only affected masters, filter tabletMap for those
     // tablets belonging to each master
-    const string& locator(masterList.server(0).service_locator());
-    MasterClient master(transportManager.getSession(locator.c_str()));
+    const char* locator = masterList.server(0).service_locator().c_str();
+    MasterClient master(Context::get().transportManager->getSession(locator));
     master.setTablets(tabletMap);
 
     LOG(NOTICE, "Dropped table '%s' with id %u", name, tableId);
@@ -466,7 +467,7 @@ CoordinatorService::quiesce(const BackupQuiesceRpc::Request& reqHdr,
                             Rpc& rpc)
 {
     foreach (auto& server, backupList.server()) {
-        BackupClient(transportManager.getSession(
+        BackupClient(Context::get().transportManager->getSession(
                         server.service_locator().c_str())).quiesce();
     }
 }

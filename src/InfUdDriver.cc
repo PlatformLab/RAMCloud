@@ -349,7 +349,7 @@ template<typename Infiniband>
 void
 InfUdDriver<Infiniband>::Poller::poll()
 {
-    assert(dispatch->isDispatchThread());
+    assert(Context::get().dispatch->isDispatchThread());
 
     PacketBuf* buffer = driver->packetBufPool.construct();
     BufferDescriptor* bd = NULL;

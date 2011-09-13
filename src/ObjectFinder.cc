@@ -57,7 +57,7 @@ ObjectFinder::lookup(uint32_t table, uint64_t objectId) {
                 objectId <= tablet.end_object_id()) {
                 if (tablet.state() == ProtoBuf::Tablets_Tablet_State_NORMAL) {
                     // TODO(ongaro): add cache
-                    return transportManager.getSession(
+                    return Context::get().transportManager->getSession(
                                         tablet.service_locator().c_str());
                 } else {
                     // tablet is recovering or something, try again

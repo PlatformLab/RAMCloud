@@ -32,11 +32,10 @@ class ServiceTest : public ::testing::Test {
         : service()
         , request()
         , response()
-        , worker()
+        , worker(Context::get())
         , rpc(&worker, request, response)
     {
         TestLog::enable();
-        logger.setLogLevels(SILENT_LOG_LEVEL);
     }
 
     ~ServiceTest()
@@ -159,7 +158,7 @@ TEST_F(ServiceTest, sendReply) {
     // Verify that the reply has been sent even though the worker has not
     // returned yet.
     for (int i = 0; i < 1000; i++) {
-        dispatch->poll();
+        Context::get().dispatch->poll();
         if (manager.busyThreads[0]->rpc == NULL) {
             break;
         }

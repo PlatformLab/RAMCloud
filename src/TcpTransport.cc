@@ -148,7 +148,9 @@ TcpTransport::Socket::~Socket() {
  *      The TcpTransport that manages this socket.
  */
 TcpTransport::AcceptHandler::AcceptHandler(int fd, TcpTransport* transport)
-    : Dispatch::File(fd, Dispatch::FileEvent::READABLE), transport(transport)
+    : Dispatch::File(*Context::get().dispatch, fd,
+                     Dispatch::FileEvent::READABLE)
+    , transport(transport)
 {
     // Empty constructor body.
 }
@@ -220,9 +222,13 @@ TcpTransport::AcceptHandler::handleFileEvent(int events)
  *      Socket object corresponding to fd.
  */
 TcpTransport::ServerSocketHandler::ServerSocketHandler(int fd,
-        TcpTransport* transport, Socket* socket)
-        : Dispatch::File(fd, Dispatch::FileEvent::READABLE),
-        fd(fd), transport(transport), socket(socket)
+                                                       TcpTransport* transport,
+                                                       Socket* socket)
+    : Dispatch::File(*Context::get().dispatch, fd,
+                     Dispatch::FileEvent::READABLE)
+    , fd(fd)
+    , transport(transport)
+    , socket(socket)
 {
     // Empty constructor body.
 }
@@ -253,7 +259,7 @@ TcpTransport::ServerSocketHandler::handleFileEvent(int events)
                 // The incoming request is complete; pass it off for servicing.
                 TcpServerRpc *rpc = socket->rpc;
                 socket->rpc = NULL;
-                serviceManager->handleRpc(rpc);
+                Context::get().serviceManager->handleRpc(rpc);
             }
         }
         if (events & Dispatch::FileEvent::WRITABLE) {
@@ -642,9 +648,11 @@ TcpTransport::TcpSession::findRpc(Header& header) {
  *      The TcpSession that is controlling this request and its response.
  */
 TcpTransport::ClientSocketHandler::ClientSocketHandler(int fd,
-        TcpSession* session)
-        : Dispatch::File(fd, Dispatch::FileEvent::READABLE),
-        fd(fd), session(session)
+                                                       TcpSession* session)
+    : Dispatch::File(*Context::get().dispatch, fd,
+                     Dispatch::FileEvent::READABLE)
+    , fd(fd)
+    , session(session)
 {
     // Empty constructor body.
 }

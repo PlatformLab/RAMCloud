@@ -424,7 +424,7 @@ FastTransport::InboundMessage::init(uint16_t totalFrags,
     this->totalFrags = totalFrags;
     this->dataBuffer = dataBuffer;
     if (useTimer)
-        timer.start(dispatch->currentTime + timeoutCycles());
+        timer.start(Context::get().dispatch->currentTime + timeoutCycles());
 }
 
 /**
@@ -521,7 +521,7 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
     if (header->requestAck)
         sendAck();
     if (useTimer)
-        timer.start(dispatch->currentTime + timeoutCycles());
+        timer.start(Context::get().dispatch->currentTime + timeoutCycles());
 
     return firstMissingFrag == totalFrags;
 }
@@ -536,7 +536,8 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
  *      when the timer trips.
  */
 FastTransport::InboundMessage::Timer::Timer(InboundMessage* const inboundMsg)
-    : inboundMsg(inboundMsg)
+    : Dispatch::Timer(*Context::get().dispatch)
+    , inboundMsg(inboundMsg)
 {
 }
 
@@ -554,11 +555,12 @@ FastTransport::InboundMessage::Timer::handleTimerEvent()
 {
     // NOTE: Kills the entire session if one message gets stalled.
     //       We could make this less aggressive if we think they might recover.
-    if (dispatch->currentTime - inboundMsg->session->lastActivityTime
+    if (Context::get().dispatch->currentTime -
+            inboundMsg->session->lastActivityTime
             > sessionTimeoutCycles()) {
         inboundMsg->session->close();
     } else {
-        start(dispatch->currentTime + timeoutCycles());
+        start(Context::get().dispatch->currentTime + timeoutCycles());
         inboundMsg->sendAck();
     }
 }
@@ -681,7 +683,7 @@ FastTransport::OutboundMessage::send()
      *  - If timers are enabled for this message then the timer is scheduled
      *    to fire when the next packet retransmit timeout occurs.
      */
-    uint64_t now = dispatch->currentTime;
+    uint64_t now = Context::get().dispatch->currentTime;
 
     // First, decide on candidate range of packets to send/resend
     // Only fragments less than stop will be considered for (re-)send
@@ -830,7 +832,8 @@ FastTransport::OutboundMessage::sendOneData(uint32_t fragNumber,
  *      when the timer trips.
  */
 FastTransport::OutboundMessage::Timer::Timer(OutboundMessage* const outboundMsg)
-    : outboundMsg(outboundMsg)
+    : Dispatch::Timer(*Context::get().dispatch)
+    , outboundMsg(outboundMsg)
 {
 }
 
@@ -842,7 +845,8 @@ FastTransport::OutboundMessage::Timer::Timer(OutboundMessage* const outboundMsg)
 void
 FastTransport::OutboundMessage::Timer::handleTimerEvent()
 {
-    if (dispatch->currentTime - outboundMsg->session->lastActivityTime
+    if (Context::get().dispatch->currentTime -
+            outboundMsg->session->lastActivityTime
             > sessionTimeoutCycles()) {
         LOG(DEBUG, "closing session due to timeout");
         outboundMsg->session->close();
@@ -903,7 +907,7 @@ FastTransport::ServerSession::beginSending(uint8_t channelId)
     channel->state = ServerChannel::SENDING_WAITING;
     Buffer* responseBuffer = &channel->currentRpc->replyPayload;
     channel->outboundMsg.beginSending(responseBuffer);
-    lastActivityTime = dispatch->currentTime;
+    lastActivityTime = Context::get().dispatch->currentTime;
 }
 
 /// This shouldn't ever be called.
@@ -970,7 +974,7 @@ FastTransport::ServerSession::getAddress()
 void
 FastTransport::ServerSession::processInboundPacket(Driver::Received* received)
 {
-    lastActivityTime = dispatch->currentTime;
+    lastActivityTime = Context::get().dispatch->currentTime;
     Header* header = received->getOffset<Header>(0);
     if (header->channelId >= NUM_CHANNELS_PER_SESSION) {
         LOG(WARNING, "invalid channel id %d", header->channelId);
@@ -1056,7 +1060,7 @@ FastTransport::ServerSession::startSession(
     sessionOpen->numChannels = NUM_CHANNELS_PER_SESSION;
     Buffer::Iterator payloadIter(payload);
     transport->sendPacket(this->clientAddress.get(), &header, &payloadIter);
-    lastActivityTime = dispatch->currentTime;
+    lastActivityTime = Context::get().dispatch->currentTime;
 }
 
 // - private -
@@ -1107,7 +1111,7 @@ FastTransport::ServerSession::processReceivedData(ServerChannel* channel,
     case ServerChannel::RECEIVING:
         if (channel->inboundMsg.processReceivedData(received)) {
             channel->state = ServerChannel::PROCESSING;
-            serviceManager->handleRpc(channel->currentRpc);
+            Context::get().serviceManager->handleRpc(channel->currentRpc);
         }
         break;
     case ServerChannel::PROCESSING:
@@ -1201,7 +1205,7 @@ FastTransport::ClientSession::clientSend(Buffer* request, Buffer* response)
 
     // rpc will be performed immediately on the first available channel or
     // queued until a channel is idle if none are currently available.
-    lastActivityTime = dispatch->currentTime;
+    lastActivityTime = Context::get().dispatch->currentTime;
     if (!isConnected()) {
         connect();
         LOG(DEBUG, "queueing RPC");
@@ -1301,7 +1305,7 @@ FastTransport::ClientSession::isConnected()
 void
 FastTransport::ClientSession::processInboundPacket(Driver::Received* received)
 {
-    lastActivityTime = dispatch->currentTime;
+    lastActivityTime = Context::get().dispatch->currentTime;
     Header* header = received->getOffset<Header>(0);
     if (header->channelId >= numChannels) {
         if (header->getPayloadType() == Header::SESSION_OPEN)
@@ -1371,7 +1375,7 @@ FastTransport::ClientSession::sendSessionOpenRequest()
     header.payloadType = Header::SESSION_OPEN;
     transport->sendPacket(serverAddress.get(),
                           &header, NULL);
-    lastActivityTime = dispatch->currentTime;
+    lastActivityTime = Context::get().dispatch->currentTime;
     sessionOpenRequestInFlight = true;
 
     // Schedule the timer to resend if no response.
@@ -1574,14 +1578,15 @@ FastTransport::ClientSession::processSessionOpenResponse(
 
 // --- ClientSession::Timer ---
 FastTransport::ClientSession::Timer::Timer(ClientSession* session)
-    : session(session)
+    : Dispatch::Timer(*Context::get().dispatch)
+    , session(session)
 {
 }
 
 void
 FastTransport::ClientSession::Timer::handleTimerEvent()
 {
-    if (dispatch->currentTime - session->lastActivityTime
+    if (Context::get().dispatch->currentTime - session->lastActivityTime
             > sessionTimeoutCycles()) {
         session->sessionOpenRequestInFlight = false;
         session->close();

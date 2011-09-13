@@ -792,6 +792,9 @@ BackupService::IoScheduler::doStore(SegmentInfo& info) const
  * Makes a copy of each of the arguments as a thread local copy
  * for use as the thread runs.
  *
+ * \param context
+ *      The context in which the new thread will run (same as that of the
+ *      parent thread).
  * \param infos
  *      Pointers to SegmentInfo which will be loaded from storage
  *      and split into recovery segments.  Notice, the copy here is
@@ -804,10 +807,12 @@ BackupService::IoScheduler::doStore(SegmentInfo& info) const
  *      Reference to an atomic count for tracking number of running recoveries.
  */
 BackupService::RecoverySegmentBuilder::RecoverySegmentBuilder(
+        Context& context,
         const vector<SegmentInfo*>& infos,
         const ProtoBuf::Tablets& partitions,
         AtomicInt& recoveryThreadCount)
-    : infos(infos)
+    : context(context)
+    , infos(infos)
     , partitions(partitions)
     , recoveryThreadCount(recoveryThreadCount)
 {
@@ -826,6 +831,8 @@ BackupService::RecoverySegmentBuilder::RecoverySegmentBuilder(
 void
 BackupService::RecoverySegmentBuilder::operator()()
 {
+    Context::Guard scopedContext(context);
+
     uint64_t startTime = Cycles::rdtsc();
     ReferenceDecrementer<AtomicInt> _(recoveryThreadCount);
     LOG(DEBUG, "Building recovery segments on new thread");
@@ -1308,7 +1315,8 @@ BackupService::startReadingData(
     srdTicks.stop();
 
 #ifndef SINGLE_THREADED_BACKUP
-    RecoverySegmentBuilder builder(primarySegments,
+    RecoverySegmentBuilder builder(Context::get(),
+                                   primarySegments,
                                    partitions,
                                    recoveryThreadCount);
     ++recoveryThreadCount;

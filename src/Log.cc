@@ -85,7 +85,8 @@ Log::Log(const Tub<uint64_t>& logId,
         addSegmentMemory(static_cast<char*>(segmentMemory.get()) +
                          i * segmentCapacity);
     }
-    transportManager.registerMemory(segmentMemory.get(), segmentMemory.length);
+    Context::get().transportManager->registerMemory(segmentMemory.get(),
+                                                  segmentMemory.length);
 }
 
 /**

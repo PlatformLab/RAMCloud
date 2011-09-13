@@ -21,6 +21,7 @@ TESTS_SRCFILES := \
 		  src/ClientExceptionTest.cc \
 		  src/ClientTest.cc \
 		  src/CommonTest.cc \
+		  src/ContextTest.cc \
 		  src/CoordinatorServiceTest.cc \
 		  src/Crc32CTest.cc \
 		  src/CyclesTest.cc \

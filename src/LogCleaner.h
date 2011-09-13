@@ -41,7 +41,7 @@ class LogCleaner {
     typedef std::vector<SegmentEntryHandle> SegmentEntryHandleVector;
 
     // cleaner thread entry point
-    static void cleanerThreadEntry(LogCleaner* logCleaner);
+    static void cleanerThreadEntry(LogCleaner* logCleaner, Context* context);
 
     void scanNewCleanableSegments();
     void scanSegment(Segment* segment);

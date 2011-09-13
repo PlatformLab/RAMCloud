@@ -31,6 +31,9 @@ namespace RAMCloud {
  * RAMCloud services.  It also implements an asynchronous interface between
  * the dispatch thread (which manages all of the network connections for a
  * server and runs Transport code) and the worker threads.
+ *
+ * To get a pointer to the current ServiceManager instance, use
+ * Context::get().serviceManager; see the Context class for more info.
  */
 class ServiceManager : Dispatch::Poller {
   public:
@@ -107,9 +110,6 @@ class ServiceManager : Dispatch::Poller {
     DISALLOW_COPY_AND_ASSIGN(ServiceManager);
 };
 
-// Singleton object, used by all calls to handleRpc and sendReply.
-extern ServiceManager* serviceManager;
-
 /**
  * An object of this class describes a single worker thread and is used
  * for communication between the thread and the ServiceManager poller
@@ -128,6 +128,7 @@ class Worker {
                                        /// Service for the last request
                                        /// executed by this worker.
     Tub<boost::thread> thread;         /// Thread that executes this worker.
+    Context& context;
     Transport::ServerRpc* rpc;         /// RPC being serviced by this worker.
                                        /// NULL means the last RPC given to
                                        /// the worker has been finished and a
@@ -173,10 +174,9 @@ class Worker {
     bool exited;                       /// True means the worker is no longer
                                        /// running.
 
-    explicit Worker()
-        : serviceInfo(NULL), thread(), rpc(NULL), busyIndex(-1),
-          state(POLLING), exited(false) {}
-    ~Worker() {}
+    explicit Worker(Context& context)
+        : serviceInfo(NULL), thread(), context(context), rpc(NULL),
+          busyIndex(-1), state(POLLING), exited(false) {}
     void exit();
     void handoff(Transport::ServerRpc* rpc);
 

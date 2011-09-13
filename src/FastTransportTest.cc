@@ -84,19 +84,19 @@ class MockReceived : public Driver::Received {
 // Used in {add,remove,fire}Timer tests
 struct MockTimer : public Dispatch::Timer {
     MockTimer()
-        : Dispatch::Timer()
+        : Dispatch::Timer(*Context::get().dispatch)
         , onTimerFiredCount(0)
         , expectWhen(0)
     {}
     explicit MockTimer(uint64_t expectWhen)
-        : Dispatch::Timer()
+        : Dispatch::Timer(*Context::get().dispatch)
         , onTimerFiredCount(0)
         , expectWhen(expectWhen)
     {}
     virtual void operator() ()
     {
         if (expectWhen)
-            EXPECT_EQ(expectWhen, dispatch->currentTime);
+            EXPECT_EQ(expectWhen, Context::get().dispatch->currentTime);
         onTimerFiredCount++;
     }
     uint32_t onTimerFiredCount;
@@ -158,14 +158,6 @@ class FastTransportTest : public ::testing::Test {
     {
         driver = new MockDriver(FastTransport::Header::headerToString);
         transport = new FastTransport(driver);
-        delete serviceManager;
-        ServiceManager::init();
-
-        logger.setLogLevels(SILENT_LOG_LEVEL);
-
-        // The following is necessary in case some other tests messed up
-        // currentTime (e.g. by resetting it to 0).
-        dispatch->currentTime = Cycles::rdtsc();
     }
 
     ~FastTransportTest()
@@ -196,7 +188,8 @@ TEST_F(FastTransportTest, sanityCheck) {
     request.fillFromString("abcdefg");
     Transport::ClientRpc* clientRpc = session->clientSend(&request,
             &reply);
-    Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
+    Transport::ServerRpc* serverRpc =
+        Context::get().serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_EQ("abcdefg/0", TestUtil::toString(&serverRpc->requestPayload));
     EXPECT_FALSE(clientRpc->isReady());
@@ -208,7 +201,7 @@ TEST_F(FastTransportTest, sanityCheck) {
     TestUtil::fillLargeBuffer(&request, 100000);
     reply.reset();
     clientRpc = session->clientSend(&request, &reply);
-    serverRpc = serviceManager->waitForRpc(1.0);
+    serverRpc = Context::get().serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_EQ("ok",
           TestUtil::checkLargeBuffer(&serverRpc->requestPayload, 100000));
@@ -231,13 +224,13 @@ TEST_F(FastTransportTest, getSession_noneExpirable) {
 }
 
 TEST_F(FastTransportTest, getSession_reuseExpired) {
-    dispatch->currentTime = 0;
+    Context::get().dispatch->currentTime = 0;
     EXPECT_EQ(0U, transport->clientSessions.size());
     Transport::Session* firstSession =
         transport->getSession(serviceLocator).get();
     FastTransport::sessionTimeoutCyclesOverride =
             FastTransport::SESSION_TIMEOUT_NS;
-    dispatch->currentTime = FastTransport::SESSION_TIMEOUT_NS;
+    Context::get().dispatch->currentTime = FastTransport::SESSION_TIMEOUT_NS;
     Transport::Session* lastSession =
         transport->getSession(serviceLocator).get();
     EXPECT_EQ(firstSession, lastSession);
@@ -310,7 +303,8 @@ TEST_F(FastTransportTest, handleIncomingPacket_c2sBadHintOpenSession) {
     TestLog::Enable _(&tppPred);
 
     FastTransport::sessionTimeoutCyclesOverride = 2000;
-    dispatch->currentTime = FastTransport::sessionTimeoutCycles() * 2;
+    Context::get().dispatch->currentTime =
+        FastTransport::sessionTimeoutCycles() * 2;
     FastTransport::SessionOpenResponse sessResp =
             { FastTransport::NUM_CHANNELS_PER_SESSION };
     MockReceived recvd(0, 1, &sessResp, sizeof(sessResp));
@@ -357,7 +351,8 @@ TEST_F(FastTransportTest, handleIncomingPacket_c2sGoodHint) {
         "handleIncomingPacket: "
         "calling ServerSession::processInboundPacket", TestLog::get());
     FastTransport::ServerRpc* rpc =
-        static_cast<FastTransport::ServerRpc*>(serviceManager->waitForRpc(0.0));
+        static_cast<FastTransport::ServerRpc*>(
+            Context::get().serviceManager->waitForRpc(0.0));
     EXPECT_NE(static_cast<FastTransport::ServerRpc*>(NULL), rpc);
     transport->serverRpcPool.destroy(rpc);
 }
@@ -866,7 +861,7 @@ class OutboundMessageTest: public ::testing::Test {
         msg->totalFrags = transport->numFrags(buffer);
 
         Cycles::mockTscValue = tsc;
-        dispatch->currentTime = tsc;
+        Context::get().dispatch->currentTime = tsc;
     }
 
     ~OutboundMessageTest()
@@ -1174,14 +1169,12 @@ class ServerSessionTest: public ::testing::Test {
         , address("1.2.3.4")
         , port(12345)
     {
-        dispatch->currentTime = 1000;
+        Context::get().dispatch->currentTime = 1000;
         driver = new MockDriver(FastTransport::Header::headerToString);
         transport = new FastTransport(driver);
         session = new FastTransport::ServerSession(transport, sessionId);
         ServiceLocator sl("mock: host=1.2.3.4, port=12345");
         driverAddress = driver->newAddress(sl);
-        delete serviceManager;
-        ServiceManager::init();
     }
 
     ~ServerSessionTest()
@@ -1196,7 +1189,7 @@ class ServerSessionTest: public ::testing::Test {
 };
 
 TEST_F(ServerSessionTest, beginSending) {
-    dispatch->currentTime = 9898;
+    Context::get().dispatch->currentTime = 9898;
 
     uint8_t channelId = 6;
     // Just here to flip us into a state where
@@ -1212,7 +1205,7 @@ TEST_F(ServerSessionTest, beginSending) {
     EXPECT_EQ(FastTransport::ServerSession::
               ServerChannel::SENDING_WAITING,
               session->channels[channelId].state);
-    EXPECT_EQ(dispatch->currentTime, session->lastActivityTime);
+    EXPECT_EQ(Context::get().dispatch->currentTime, session->lastActivityTime);
 }
 
 TEST_F(ServerSessionTest, expire_channelStillProcessing) {
@@ -1278,13 +1271,13 @@ TEST_F(ServerSessionTest, expire_channelRecvOrSendWait) {
 
 TEST_F(ServerSessionTest, processInboundPacket_badChannel) {
     TestLog::Enable dummy;
-    dispatch->currentTime = 9898;
+    Context::get().dispatch->currentTime = 9898;
 
     MockReceived recvd(0, 1, "");
     recvd.getHeader()->channelId = FastTransport::NUM_CHANNELS_PER_SESSION;
 
     session->processInboundPacket(&recvd);
-    EXPECT_EQ(dispatch->currentTime, session->lastActivityTime);
+    EXPECT_EQ(Context::get().dispatch->currentTime, session->lastActivityTime);
     EXPECT_EQ(
         "processInboundPacket: "
         "invalid channel id 8", TestLog::get());
@@ -1372,7 +1365,8 @@ TEST_F(ServerSessionTest, processInboundPacket_nextRpcReceivedDataPacket) {
             FastTransport::ServerSession::ServerChannel::IDLE;
 
     FastTransport::ServerRpc* rpc =
-        static_cast<FastTransport::ServerRpc*>(serviceManager->waitForRpc(0.0));
+        static_cast<FastTransport::ServerRpc*>(
+            Context::get().serviceManager->waitForRpc(0.0));
     EXPECT_NE(static_cast<FastTransport::ServerRpc*>(NULL), rpc);
     transport->serverRpcPool.destroy(rpc);
 }
@@ -1392,7 +1386,7 @@ TEST_F(ServerSessionTest, processInboundPacket_newRpcBadPayloadType) {
 }
 
 TEST_F(ServerSessionTest, startSession) {
-    dispatch->currentTime = 9898;
+    Context::get().dispatch->currentTime = 9898;
     const uint64_t rand = 0x7676UL;
     MockRandom __(rand);
 
@@ -1441,7 +1435,8 @@ TEST_F(ServerSessionTest, processReceivedData_receiving) {
               TestUtil::bufferToDebugString(&recvBuffer));
 
     FastTransport::ServerRpc* rpc =
-        static_cast<FastTransport::ServerRpc*>(serviceManager->waitForRpc(0.0));
+        static_cast<FastTransport::ServerRpc*>(
+            Context::get().serviceManager->waitForRpc(0.0));
     EXPECT_NE(static_cast<FastTransport::ServerRpc*>(NULL), rpc);
     transport->serverRpcPool.destroy(rpc);
 
@@ -1536,7 +1531,7 @@ TEST_F(ClientSessionTest, clientSend_noAvailableChannel) {
 }
 
 TEST_F(ClientSessionTest, clientSend_availableChannel) {
-    dispatch->currentTime = 98328;
+    Context::get().dispatch->currentTime = 98328;
 
     session->numChannels = FastTransport::MAX_NUM_CHANNELS_PER_SESSION;
     session->allocateChannels();
@@ -1550,7 +1545,7 @@ TEST_F(ClientSessionTest, clientSend_availableChannel) {
               channel->state);
     EXPECT_EQ(rpc, channel->currentRpc);
     channel->currentRpc = NULL;
-    EXPECT_EQ(dispatch->currentTime, session->lastActivityTime);
+    EXPECT_EQ(Context::get().dispatch->currentTime, session->lastActivityTime);
 }
 
 TEST_F(ClientSessionTest, close) {
@@ -1579,7 +1574,7 @@ TEST_F(ClientSessionTest, close) {
 }
 
 TEST_F(ClientSessionTest, connect) {
-    dispatch->currentTime = 91291;
+    Context::get().dispatch->currentTime = 91291;
 
     ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=12345");
     session->init(serviceLocator);
@@ -1594,7 +1589,7 @@ TEST_F(ClientSessionTest, connect) {
         "clientSessionHint:98765432 serverSessionHint:cccccccc "
         "0/0 frags channel:0 dir:0 reqACK:0 drop:0 payloadType:2 } ",
         driver->outputLog);
-    EXPECT_EQ(dispatch->currentTime, session->lastActivityTime);
+    EXPECT_EQ(Context::get().dispatch->currentTime, session->lastActivityTime);
 }
 
 TEST_F(ClientSessionTest, connect_sessionOpenRequestRetransmit) {
@@ -1607,9 +1602,9 @@ TEST_F(ClientSessionTest, connect_sessionOpenRequestRetransmit) {
     EXPECT_TRUE(session->sessionOpenRequestInFlight);
 
 
-    Cycles::mockTscValue = dispatch->currentTime +
+    Cycles::mockTscValue = Context::get().dispatch->currentTime +
             FastTransport::timeoutCycles() + 1;
-    dispatch->poll();
+    Context::get().dispatch->poll();
 
     EXPECT_EQ(
         "{ sessionToken:cccccccccccccccc rpcId:0 "
@@ -1623,7 +1618,7 @@ TEST_F(ClientSessionTest, connect_sessionOpenRequestRetransmit) {
 }
 
 TEST_F(ClientSessionTest, connect_sessionOpenRequestTimeout) {
-    dispatch->currentTime = 91291;
+    Context::get().dispatch->currentTime = 91291;
     Cycles::mockTscValue = 91291;
 
     ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=12345");
@@ -1635,9 +1630,9 @@ TEST_F(ClientSessionTest, connect_sessionOpenRequestTimeout) {
     FastTransport::ClientRpc rpc(session, request, response);
     session->channelQueue.push_back(rpc);
 
-    Cycles::mockTscValue = dispatch->currentTime +
+    Cycles::mockTscValue = Context::get().dispatch->currentTime +
             2*FastTransport::sessionTimeoutCycles();
-    dispatch->poll();
+    Context::get().dispatch->poll();
     EXPECT_FALSE(session->sessionOpenRequestInFlight);
 
     EXPECT_EQ("RPC aborted (session closed)", *rpc.errorMessage);
@@ -1726,7 +1721,7 @@ TEST_F(ClientSessionTest, processInboundPacket_invalidChannel) {
 }
 
 TEST_F(ClientSessionTest, processInboundPacket_data) {
-    dispatch->currentTime = 91291;
+    Context::get().dispatch->currentTime = 91291;
 
     session->numChannels = FastTransport::MAX_NUM_CHANNELS_PER_SESSION;
     session->allocateChannels();
@@ -1744,7 +1739,7 @@ TEST_F(ClientSessionTest, processInboundPacket_data) {
               ClientChannel::RECEIVING,
               channel->state);
 
-    EXPECT_EQ(dispatch->currentTime, session->lastActivityTime);
+    EXPECT_EQ(Context::get().dispatch->currentTime, session->lastActivityTime);
     channel->currentRpc = NULL;
 }
 
@@ -1852,7 +1847,7 @@ TEST_F(ClientSessionTest, processInboundPacket_stalePacket) {
 }
 
 TEST_F(ClientSessionTest, sendSessionOpenRequest) {
-    dispatch->currentTime = 91291;
+    Context::get().dispatch->currentTime = 91291;
 
     ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=12345");
     session->init(serviceLocator);
@@ -1862,7 +1857,7 @@ TEST_F(ClientSessionTest, sendSessionOpenRequest) {
         "clientSessionHint:98765432 serverSessionHint:cccccccc "
         "0/0 frags channel:0 dir:0 reqACK:0 drop:0 payloadType:2 } ",
         driver->outputLog);
-    EXPECT_EQ(dispatch->currentTime, session->lastActivityTime);
+    EXPECT_EQ(Context::get().dispatch->currentTime, session->lastActivityTime);
     session->timer.stop();
 }
 
@@ -2135,7 +2130,8 @@ TEST_F(SessionTableTest, put) {
 }
 
 TEST_F(SessionTableTest, expire) {
-    dispatch->currentTime = FastTransport::sessionTimeoutCycles();
+    Context::get().dispatch->currentTime =
+        FastTransport::sessionTimeoutCycles();
     FastTransport::SessionTable<MockSession> st(NULL);
 
     // Make sure it runs/doesn't segfault on 0 length
@@ -2145,7 +2141,8 @@ TEST_F(SessionTableTest, expire) {
     for (uint32_t i = 0; i < 3; i++) {
         st.get();
         // even numbered sessions are up for expire
-        st[i]->setLastActivityTime(i % 2 ? dispatch->currentTime : 0);
+        st[i]->setLastActivityTime(i % 2 ?
+                                   Context::get().dispatch->currentTime : 0);
     }
 
     st.expire();

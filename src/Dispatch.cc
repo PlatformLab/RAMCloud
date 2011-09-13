@@ -14,19 +14,17 @@
  */
 
 #include <sys/epoll.h>
+#include <sys/select.h>
 
 #include "ShortMacros.h"
 #include "Common.h"
 #include "Cycles.h"
 #include "Dispatch.h"
 #include "Fence.h"
-#include "Initialize.h"
 #include "Metrics.h"
 #include "NoOp.h"
 
 namespace RAMCloud {
-
-Dispatch *dispatch = NULL;
 
 /**
  * Default object used to make system calls.
@@ -47,32 +45,14 @@ Syscall* Dispatch::sys = &defaultSyscall;
         owner->isDispatchThread())
 
 /**
- * Perform once-only overall initialization for the Dispatch class, such
- * as creating the global #dispatch object.  This method is invoked
- * automatically during initialization, but it may be invoked explicitly
- * by other modules to ensure that initialization occurs before those modules
- * initialize themselves.
- *
+ * Constructor for Dispatch objects.
  * @param hasDedicatedThread
  *      Pass true if there is a thread which owns this dispatch (this is
  *      true on RAMCloud servers), if false then the dispatch performs
  *      no synchronization and callers must guarantee mutual exclusion
  *      themselves.
- *      If called mulitple times the value will be reset in the global
- *      Dispatch instance.
  */
-void
-Dispatch::init(bool hasDedicatedThread) {
-    if (dispatch == NULL) {
-        dispatch = new Dispatch();
-    }
-    dispatch->hasDedicatedThread = hasDedicatedThread;
-}
-
-/**
- * Constructor for Dispatch objects.
- */
-Dispatch::Dispatch()
+Dispatch::Dispatch(bool hasDedicatedThread)
     : currentTime(Cycles::rdtsc())
     , pollers()
     , files()
@@ -87,7 +67,7 @@ Dispatch::Dispatch()
     , mutex()
     , lockNeeded(0)
     , locked(0)
-    , hasDedicatedThread(false)
+    , hasDedicatedThread(hasDedicatedThread)
 {
     exitPipeFds[0] = exitPipeFds[1] = -1;
 }
@@ -228,8 +208,8 @@ Dispatch::poll()
  *      Dispatch object through which the poller will be invoked (defaults
  *      to the global #RAMCloud::dispatch object).
  */
-Dispatch::Poller::Poller(Dispatch *dispatch)
-    : owner(dispatch), slot(downCast<unsigned>(owner->pollers.size()))
+Dispatch::Poller::Poller(Dispatch& dispatch)
+    : owner(&dispatch), slot(downCast<int>(owner->pollers.size()))
 {
     CHECK_LOCK;
     owner->pollers.push_back(this);
@@ -274,8 +254,8 @@ Dispatch::Poller::~Poller()
  *      Dispatch object that will manage this file handler (defaults
  *      to the global #RAMCloud::dispatch object).
  */
-Dispatch::File::File(int fd, int events, Dispatch* dispatch)
-        : owner(dispatch)
+Dispatch::File::File(Dispatch& dispatch, int fd, int events)
+        : owner(&dispatch)
         , fd(fd)
         , events(0)
         , active(false)
@@ -309,7 +289,8 @@ Dispatch::File::File(int fd, int events, Dispatch* dispatch)
                     "Dispatch couldn't set epoll event for exit pipe",
                     errno);
         }
-        owner->epollThread.construct(Dispatch::epollThreadMain, owner);
+        owner->epollThread.construct(Dispatch::epollThreadMain,
+                                     &Context::get());
     }
 
     if (owner->files.size() <= static_cast<uint32_t>(fd)) {
@@ -395,10 +376,13 @@ void Dispatch::File::setEvents(int events)
  * event.  By putting this functionality in a separate thread the main
  * poll loop never needs to incur the overhead of a kernel call.
  *
- * \param owner
- *      The Dispatch object on whose behalf this thread is working.
+ * \param context
+ *      The context under which this thread should execute, including the
+ *      dispatch object on whose behalf this thread is working.
  */
-void Dispatch::epollThreadMain(Dispatch* owner) {
+void Dispatch::epollThreadMain(Context* context) {
+    Context::Guard _(*context);
+    Dispatch* owner = context->dispatch;
 #define MAX_EVENTS 10
     struct epoll_event events[MAX_EVENTS];
     while (true) {
@@ -409,7 +393,8 @@ void Dispatch::epollThreadMain(Dispatch* owner) {
                     "Dispatch::epollThread");
                 continue;
             } else {
-                if (errno == EINTR) continue;
+                if (errno == EINTR)
+                    continue;
                 LOG(ERROR, "epoll_wait failed in Dispatch::epollThread: %s",
                         strerror(errno));
                 return;
@@ -434,11 +419,16 @@ void Dispatch::epollThreadMain(Dispatch* owner) {
                 return;
             }
             while (owner->readyFd >= 0) {
-                // The main polling loop hasn't yet noticed the last file
-                // that became ready; wait for the shared memory location
-                // to clear again.  This loop busy-waits but yields the
-                // CPU to any other runnable threads.
-                sched_yield();
+                // The main polling loop hasn't yet noticed the last file that
+                // became ready; wait for the shared memory location to clear
+                // again. It's also possible the main thread has signaled for
+                // this thread to exit and isn't interested in this readyFd
+                // value, so check on that while waiting.
+                if (owner->exitPipeFds[0] >= 0 &&
+                    fdIsReady(owner->exitPipeFds[0])) {
+                    TEST_LOG("done");
+                    return;
+                }
             }
             owner->readyEvents = readyEvents;
             // The following line guarantees that the modification of
@@ -451,6 +441,25 @@ void Dispatch::epollThreadMain(Dispatch* owner) {
 }
 
 /**
+ * Return true if the given fd has some event ready.
+ */
+bool
+Dispatch::fdIsReady(int fd)
+{
+    assert(fd >= 0);
+    fd_set fds;
+    FD_ZERO(&fds);
+    FD_SET(fd, &fds);
+    struct timeval timeout {0, 0};
+    int r = select(fd + 1, &fds, &fds, &fds, &timeout);
+    if (r < 0) {
+        throw FatalError(HERE,
+            "select error on Dispatch's exitPipe", errno);
+    }
+    return r > 0;
+}
+
+/**
  * Construct a timer but do not start it: it will not fire until #start
  * is invoked.
  *
@@ -458,8 +467,8 @@ void Dispatch::epollThreadMain(Dispatch* owner) {
  *      Dispatch object that will manage this timer (defaults to the
  *      global #RAMCloud::dispatch object).
  */
-Dispatch::Timer::Timer(Dispatch* dispatch)
-    : owner(dispatch), triggerTime(0), slot(-1)
+Dispatch::Timer::Timer(Dispatch& dispatch)
+    : owner(&dispatch), triggerTime(0), slot(-1)
 {
 }
 
@@ -473,8 +482,8 @@ Dispatch::Timer::Timer(Dispatch* dispatch)
  *      Time at which the timer should trigger, measured in cycles (the units
  *      returned by #Cycles::rdtsc).
  */
-Dispatch::Timer::Timer(uint64_t cycles, Dispatch* dispatch)
-        : owner(dispatch), triggerTime(0), slot(-1)
+Dispatch::Timer::Timer(Dispatch& dispatch, uint64_t cycles)
+        : owner(&dispatch), triggerTime(0), slot(-1)
 {
     start(cycles);
 }
@@ -564,8 +573,7 @@ static NoOp<int> thisThreadHasDispatchLock;
  * someone up the stack already has one).
  *
  * \param dispatch
- *      Dispatch object to lock (defaults to the global #RAMCloud::dispatch
- *      object).
+ *      Dispatch object to lock (defaults to the context's dispatch object).
  */
 Dispatch::Lock::Lock(Dispatch* dispatch)
     : dispatch(dispatch), lock()

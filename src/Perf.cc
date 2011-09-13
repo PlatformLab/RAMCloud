@@ -190,7 +190,7 @@ double cppAtomicLoad()
 double dispatchPoll()
 {
     int count = 1000000;
-    Dispatch dispatch;
+    Dispatch dispatch(false);
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
         dispatch.poll();
@@ -230,7 +230,7 @@ double getThreadId()
 double lfence()
 {
     int count = 1000000;
-    Dispatch dispatch;
+    Dispatch dispatch(false);
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
         Fence::lfence();
@@ -244,7 +244,7 @@ double lfence()
 double lockInDispThrd()
 {
     int count = 1000000;
-    Dispatch dispatch;
+    Dispatch dispatch(false);
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
         Dispatch::Lock lock(&dispatch);
@@ -259,7 +259,7 @@ double lockInDispThrd()
 void dispatchThread(Dispatch **d, volatile int* flag)
 {
     bindThreadToCpu(2);
-    Dispatch dispatch;
+    Dispatch dispatch(false);
     *d = &dispatch;
     dispatch.poll();
     *flag = 1;
@@ -358,7 +358,6 @@ double perfCyclesToSeconds()
 double sfence()
 {
     int count = 1000000;
-    Dispatch dispatch;
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
         Fence::sfence();

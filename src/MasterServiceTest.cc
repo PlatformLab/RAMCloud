@@ -92,7 +92,7 @@ class MasterServiceTest : public ::testing::Test {
         backupConfig.coordinatorLocator = "mock:host=coordinator";
         MasterService::sizeLogAndHashTable("64", "8", &config);
         transport = new BindTransport();
-        transportManager.registerMock(transport);
+        Context::get().transportManager->registerMock(transport);
         coordinatorService = new CoordinatorService();
         transport->addService(*coordinatorService, "mock:host=coordinator");
         coordinator = new CoordinatorClient("mock:host=coordinator");
@@ -105,8 +105,8 @@ class MasterServiceTest : public ::testing::Test {
         service = new MasterService(config, coordinator, 1);
         transport->addService(*service, "mock:host=master");
         service->init();
-        client =
-            new MasterClient(transportManager.getSession("mock:host=master"));
+        client = new MasterClient(Context::get().transportManager->getSession(
+                                        "mock:host=master"));
         ProtoBuf::Tablets_Tablet& tablet(*service->tablets.add_tablet());
         tablet.set_table_id(0);
         tablet.set_start_object_id(0);
@@ -121,7 +121,7 @@ class MasterServiceTest : public ::testing::Test {
         delete storage;
         delete coordinator;
         delete coordinatorService;
-        transportManager.unregisterMock();
+        Context::get().transportManager->unregisterMock();
         delete transport;
     }
 
@@ -377,7 +377,8 @@ TEST_F(MasterServiceTest, recover_basics) {
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
     BackupClient::StartReadingData::Result result;
-    BackupClient(transportManager.getSession("mock:host=backup1")).
+    BackupClient(Context::get().transportManager->getSession(
+                                                "mock:host=backup1")).
         startReadingData(123, tablets, &result);
 
     ProtoBuf::ServerList backups;
@@ -463,7 +464,8 @@ TEST_F(MasterServiceTest, recover) {
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
     BackupClient::StartReadingData::Result result;
-    BackupClient(transportManager.getSession("mock:host=backup1")).
+    BackupClient(Context::get().transportManager->getSession(
+                                                    "mock:host=backup1")).
         startReadingData(123, tablets, &result);
 
     ProtoBuf::ServerList backups;
@@ -970,7 +972,7 @@ class MasterRecoverTest : public ::testing::Test {
     setUp()
     {
         transport = new BindTransport;
-        transportManager.registerMock(transport);
+        Context::get().transportManager->registerMock(transport);
 
         config1 = new BackupService::Config;
         config1->coordinatorLocator = "mock:host=coordinator";
@@ -1009,7 +1011,7 @@ class MasterRecoverTest : public ::testing::Test {
         delete coordinatorService;
         delete config1;
         delete config2;
-        transportManager.unregisterMock();
+        Context::get().transportManager->unregisterMock();
         delete transport;
         EXPECT_EQ(0,
             BackupStorage::Handle::resetAllocatedHandlesCount());
@@ -1075,12 +1077,14 @@ TEST_F(MasterRecoverTest, recover) {
     createTabletList(tablets);
     {
         BackupClient::StartReadingData::Result result;
-        BackupClient(transportManager.getSession("mock:host=backup1"))
+        BackupClient(Context::get().transportManager->getSession(
+                                                    "mock:host=backup1"))
             .startReadingData(99, tablets, &result);
     }
     {
         BackupClient::StartReadingData::Result result;
-        BackupClient(transportManager.getSession("mock:host=backup2"))
+        BackupClient(Context::get().transportManager->getSession(
+                                                    "mock:host=backup2"))
             .startReadingData(99, tablets, &result);
     }
 
