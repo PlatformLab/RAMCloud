@@ -85,7 +85,8 @@ struct BackupManagerBaseTest : public ::testing::Test {
         mockRegistrar.construct(*transport);
 
         coordinatorService.construct();
-        transport->addService(*coordinatorService, coordinatorLocator);
+        transport->addService(*coordinatorService, coordinatorLocator,
+                COORDINATOR_SERVICE);
 
         coordinator.construct(coordinatorLocator);
 
@@ -103,8 +104,10 @@ struct BackupManagerBaseTest : public ::testing::Test {
         backupService1.construct(*backupServiceConfig1, *storage1);
         backupService2.construct(*backupServiceConfig2, *storage2);
 
-        transport->addService(*backupService1, "mock:host=backup1");
-        transport->addService(*backupService2, "mock:host=backup2");
+        transport->addService(*backupService1, "mock:host=backup1",
+                BACKUP_SERVICE);
+        transport->addService(*backupService2, "mock:host=backup2",
+                BACKUP_SERVICE);
 
         backup1.construct(transportManager.getSession("mock:host=backup1"));
         backup2.construct(transportManager.getSession("mock:host=backup2"));

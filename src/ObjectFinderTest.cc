@@ -79,12 +79,15 @@ class ObjectFinderTest : public ::testing::Test {
         transport = new BindTransport();
         transportManager.registerMock(transport);
         coordinatorService = new CoordinatorService();
-        transport->addService(*coordinatorService, "mock:host=coordinator");
+        transport->addService(*coordinatorService, "mock:host=coordinator",
+                COORDINATOR_SERVICE);
         coordinatorClient = new CoordinatorClient("mock:host=coordinator");
         host1Service = new Service();
-        transport->addService(*host1Service, "mock:host=host1");
+        transport->addService(*host1Service, "mock:host=host1",
+                MASTER_SERVICE);
         host2Service = new Service();
-        transport->addService(*host2Service, "mock:host=host2");
+        transport->addService(*host2Service, "mock:host=host2",
+                MASTER_SERVICE);
         objectFinder = new ObjectFinder(*coordinatorClient);
     }
 

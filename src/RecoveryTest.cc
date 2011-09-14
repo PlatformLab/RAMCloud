@@ -157,7 +157,8 @@ class RecoveryTest : public ::testing::Test {
         config3->localLocator = "mock:host=backup3";
 
         coordinatorService = new CoordinatorService;
-        transport->addService(*coordinatorService, config1->coordinatorLocator);
+        transport->addService(*coordinatorService,
+                config1->coordinatorLocator, COORDINATOR_SERVICE);
 
         coordinator =
             new CoordinatorClient(config1->coordinatorLocator.c_str());
@@ -170,9 +171,12 @@ class RecoveryTest : public ::testing::Test {
         backupService2 = new BackupService(*config2, *storage2);
         backupService3 = new BackupService(*config3, *storage3);
 
-        transport->addService(*backupService1, "mock:host=backup1");
-        transport->addService(*backupService2, "mock:host=backup2");
-        transport->addService(*backupService3, "mock:host=backup3");
+        transport->addService(*backupService1, "mock:host=backup1",
+                BACKUP_SERVICE);
+        transport->addService(*backupService2, "mock:host=backup2",
+                BACKUP_SERVICE);
+        transport->addService(*backupService3, "mock:host=backup3",
+                BACKUP_SERVICE);
 
         backupService1->init();
         backupService2->init();
@@ -392,7 +396,7 @@ struct AutoMaster {
         config.localLocator = locator;
         MasterService::sizeLogAndHashTable("16", "1", &config);
         master = new MasterService(config, &coordinator, 0);
-        transport.addService(*master, locator);
+        transport.addService(*master, locator, MASTER_SERVICE);
         master->init();
     }
 

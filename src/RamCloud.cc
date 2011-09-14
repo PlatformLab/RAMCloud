@@ -1,5 +1,5 @@
 
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -62,6 +62,22 @@ RamCloud::create(uint32_t tableId, const void* buf, uint32_t length,
                  uint64_t* version, bool async)
 {
     return Create(*this, tableId, buf, length, version, async)();
+}
+
+void
+RamCloud::getMetrics(const char* serviceLocator, MetricsHash& metrics)
+{
+    PingClient client;
+    return client.getMetrics(serviceLocator, metrics);
+}
+
+void
+RamCloud::getMetrics(uint32_t table, uint64_t objectId, MetricsHash& metrics)
+{
+    PingClient client;
+    const char *serviceLocator = objectFinder.lookup(table, objectId)->
+            getServiceLocator().c_str();
+    return client.getMetrics(serviceLocator, metrics);
 }
 
 /// \copydoc PingClient::ping

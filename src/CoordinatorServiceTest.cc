@@ -47,13 +47,14 @@ class CoordinatorServiceTest : public ::testing::Test {
         transportManager.registerMock(transport);
         service = new CoordinatorService();
         service->nextServerId = 2;
-        transport->addService(*service, "mock:host=coordinator");
+        transport->addService(*service, "mock:host=coordinator",
+                    COORDINATOR_SERVICE);
         client = new CoordinatorClient("mock:host=coordinator");
         // need to add the master as a transport destinaton before it is
         // created because under BindTransport it must service an rpc
         // just after its constructor is completes
         master = static_cast<MasterService*>(malloc(sizeof(MasterService)));
-        transport->addService(*master, "mock:host=master");
+        transport->addService(*master, "mock:host=master", MASTER_SERVICE);
         master = new(master) MasterService(masterConfig, client, 0);
         master->init();
         TestLog::enable();
@@ -75,7 +76,7 @@ class CoordinatorServiceTest : public ::testing::Test {
 TEST_F(CoordinatorServiceTest, createTable) {
     MasterService master2(masterConfig, NULL, 0);
     master2.init();
-    transport->addService(master2, "mock:host=master2");
+    transport->addService(master2, "mock:host=master2", MASTER_SERVICE);
     client->enlistServer(MASTER, "mock:host=master2");
     // master is already enlisted
     client->createTable("foo");

@@ -34,6 +34,9 @@ class PingService : public Service {
     }
 
   PRIVATE:
+    void getMetrics(const GetMetricsRpc::Request& reqHdr,
+              GetMetricsRpc::Response& respHdr,
+              Rpc& rpc);
     void ping(const PingRpc::Request& reqHdr,
               PingRpc::Response& respHdr,
               Rpc& rpc);

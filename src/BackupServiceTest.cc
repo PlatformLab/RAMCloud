@@ -62,9 +62,10 @@ class BackupServiceTest : public ::testing::Test {
         transport = new BindTransport();
         transportManager.registerMock(transport);
         coordinatorService = new CoordinatorService();
-        transport->addService(*coordinatorService, "mock:host=coordinator");
+        transport->addService(*coordinatorService, "mock:host=coordinator",
+                    COORDINATOR_SERVICE);
         backup = new BackupService(*config, *storage);
-        transport->addService(*backup, "mock:host=backup");
+        transport->addService(*backup, "mock:host=backup", BACKUP_SERVICE);
         backup->init();
         client =
             new BackupClient(transportManager.getSession("mock:host=backup"));

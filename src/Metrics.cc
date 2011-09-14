@@ -18,6 +18,7 @@
 #include "Common.h"
 #include "ShortMacros.h"
 #include "Metrics.h"
+#include "MetricList.pb.h"
 #include "Segment.h"
 
 namespace RAMCloud {
@@ -50,7 +51,7 @@ Metrics::start(uint64_t serverId)
     reset();
     clockFrequency = (uint64_t) Cycles::perSecond();
     pid = getpid();
-    serverId = serverId;
+    this->serverId = serverId;
     segmentSize = Segment::SEGMENT_SIZE;
 }
 
@@ -85,6 +86,28 @@ Metrics::reset()
         MetricInfo info = metricInfo(i);
         *info.value = 0;
     }
+}
+
+/**
+ * Generate a string that contains a serialized representation of all of the
+ * performance counters.
+ *
+ * \param out
+ *      The contents of this variable are replaced with a (binary) string
+ *      formatted using Protocol Buffers and MetricList.proto.
+ */
+void
+Metrics::serialize(std::string& out)
+{
+     ProtoBuf::MetricList list;
+     for (int i = 0; i < numMetrics; i++) {
+        MetricInfo info = metricInfo(i);
+        ProtoBuf::MetricList_Entry* metric = list.add_metric();
+        metric->set_name(info.name);
+        metric->set_value(*info.value);
+     }
+     out.clear();
+     list.SerializeToString(&out);
 }
 
 /**

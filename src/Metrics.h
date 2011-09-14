@@ -39,6 +39,7 @@ class Metrics {
     void start(uint64_t serverId);
     void end();
     void reset();
+    void serialize(std::string& out);
   private:
     /**
      * This structure is used to return information about one metric

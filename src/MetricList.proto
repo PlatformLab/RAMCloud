@@ -13,32 +13,18 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_PINGCLIENT_H
-#define RAMCLOUD_PINGCLIENT_H
+package RAMCloud.ProtoBuf;
 
-#include "Client.h"
-#include "MetricsHash.h"
-#include "Transport.h"
-
-namespace RAMCloud {
-
-/**
- * This class implements the client-side interface to the ping service.
- */
-class PingClient : public Client {
-  public:
-    PingClient() {}
-    void getMetrics(const char* serviceLocator, MetricsHash& metrics);
-    uint64_t ping(const char* serviceLocator, uint64_t nonce,
-            uint64_t timeoutNanoseconds);
-    uint64_t proxyPing(const char* serviceLocator1,
-            const char* serviceLocator2,
-            uint64_t timeoutNanoseconds1,
-            uint64_t timeoutNanoseconds2);
-
-  private:
-    DISALLOW_COPY_AND_ASSIGN(PingClient);
-};
-} // namespace RAMCloud
-
-#endif // RAMCLOUD_PINGCLIENT_H
+/// A list containing one or more performance counters from a RAMCloud
+/// server.
+message MetricList {
+  /// An individual metric.
+  message Entry {
+    /// The name for this metric, such as "master.replicas".
+    required string name = 1;
+    /// Current value for the metric.
+    required uint64 value = 2;
+  }
+  /// The full list of metrics.
+  repeated Entry metric = 1;
+}

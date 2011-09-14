@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -28,11 +28,18 @@ namespace RAMCloud {
  * directly into a Service instance's #dispatch() method).
  */
 struct BindTransport : public Transport {
+    // The following utility class keeps track of a collection of
+    // services all associated with the same service locator (e.g.
+    // the services that would be contained in a single server).
+    struct ServiceArray {
+        Service* services[MAX_SERVICE+1];
+    };
+
     explicit BindTransport(Service* service = NULL)
         : services(), abortCounter(0)
     {
         if (service)
-            addService(*service, "mock:");
+            addService(*service, "mock:", MASTER_SERVICE);
     }
 
     string
@@ -41,8 +48,8 @@ struct BindTransport : public Transport {
     }
 
     void
-    addService(Service& service, const string locator) {
-        services[locator] = &service;
+    addService(Service& service, const string locator, RpcServiceType type) {
+        services[locator].services[type] = &service;
     }
 
     Transport::SessionRef
@@ -53,7 +60,7 @@ struct BindTransport : public Transport {
             throw TransportException(HERE, format("Unknown mock host: %s",
                                                   locator.c_str()));
         }
-        return new BindSession(*this, *it->second, locator);
+        return new BindSession(*this, it->second, locator);
     }
 
     Transport::SessionRef
@@ -76,9 +83,9 @@ struct BindTransport : public Transport {
 
     struct BindSession : public Session {
       public:
-        explicit BindSession(BindTransport& transport, Service& service,
+        explicit BindSession(BindTransport& transport, ServiceArray& services,
                              const string& locator)
-            : transport(transport), service(service), locator(locator) {}
+            : transport(transport), services(services), locator(locator) {}
         ClientRpc* clientSend(Buffer* request, Buffer* response) {
             BindClientRpc* result = new(response, MISC) BindClientRpc;
             Service::Rpc rpc(NULL, *request, *response);
@@ -89,7 +96,16 @@ struct BindTransport : public Transport {
                     return result;
                 }
             }
-            service.handleRpc(rpc);
+            const RpcRequestCommon* header;
+            header = request->getStart<RpcRequestCommon>();
+            if ((header == NULL) || (header->service > MAX_SERVICE)) {
+                throw ServiceNotAvailableException(HERE);
+            }
+            Service* service = services.services[header->service];
+            if (service == NULL) {
+                throw ServiceNotAvailableException(HERE);
+            }
+            service->handleRpc(rpc);
             result->markFinished();
             return result;
         }
@@ -97,12 +113,14 @@ struct BindTransport : public Transport {
             delete this;
         }
         BindTransport& transport;
-        Service& service;
+
+        // Points to an array holding one of each of the available services.
+        ServiceArray services;
         const string locator;
         DISALLOW_COPY_AND_ASSIGN(BindSession);
     };
 
-    typedef std::map<const string, Service*> ServiceMap;
+    typedef std::map<const string, ServiceArray> ServiceMap;
     ServiceMap services;
 
     // The following value is used to simulate server timeouts.

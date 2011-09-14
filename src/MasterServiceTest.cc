@@ -94,16 +94,18 @@ class MasterServiceTest : public ::testing::Test {
         transport = new BindTransport();
         transportManager.registerMock(transport);
         coordinatorService = new CoordinatorService();
-        transport->addService(*coordinatorService, "mock:host=coordinator");
+        transport->addService(*coordinatorService, "mock:host=coordinator",
+                COORDINATOR_SERVICE);
         coordinator = new CoordinatorClient("mock:host=coordinator");
 
         storage = new InMemoryStorage(segmentSize, segmentFrames);
         backupService = new BackupService(backupConfig, *storage);
-        transport->addService(*backupService, "mock:host=backup1");
+        transport->addService(*backupService, "mock:host=backup1",
+                BACKUP_SERVICE);
         backupService->init();
 
         service = new MasterService(config, coordinator, 1);
-        transport->addService(*service, "mock:host=master");
+        transport->addService(*service, "mock:host=master", MASTER_SERVICE);
         service->init();
         client =
             new MasterClient(transportManager.getSession("mock:host=master"));
@@ -457,7 +459,8 @@ TEST_F(MasterServiceTest, recover) {
     BackupService::Config backupConfig2 = backupConfig;
     backupConfig2.localLocator = "mock:host=backup2";
     BackupService backupService2{backupConfig2, *storage};
-    transport->addService(backupService2, "mock:host=backup2");
+    transport->addService(backupService2, "mock:host=backup2",
+            BACKUP_SERVICE);
     backupService2.init();
 
     ProtoBuf::Tablets tablets;
@@ -981,7 +984,8 @@ class MasterRecoverTest : public ::testing::Test {
         config2->localLocator = "mock:host=backup2";
 
         coordinatorService = new CoordinatorService;
-        transport->addService(*coordinatorService, config1->coordinatorLocator);
+        transport->addService(*coordinatorService,
+                config1->coordinatorLocator, COORDINATOR_SERVICE);
 
         coordinator =
             new CoordinatorClient(config1->coordinatorLocator.c_str());
@@ -992,8 +996,10 @@ class MasterRecoverTest : public ::testing::Test {
         backupService1 = new BackupService(*config1, *storage1);
         backupService2 = new BackupService(*config2, *storage2);
 
-        transport->addService(*backupService1, "mock:host=backup1");
-        transport->addService(*backupService2, "mock:host=backup2");
+        transport->addService(*backupService1, "mock:host=backup1",
+                BACKUP_SERVICE);
+        transport->addService(*backupService2, "mock:host=backup2",
+                BACKUP_SERVICE);
 
         backupService1->init();
         backupService2->init();

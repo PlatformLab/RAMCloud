@@ -47,6 +47,7 @@ SHARED_SRCFILES := \
 		   src/MasterClient.cc \
 		   src/MasterService.cc \
 		   src/Metrics.cc \
+		   src/MetricsHash.cc \
 		   src/ObjectFinder.cc \
 		   src/OptionParser.cc \
 		   src/PcapFile.cc \
@@ -74,6 +75,7 @@ SHARED_SRCFILES := \
 		   src/WallTime.cc \
 		   src/Will.cc \
 		   $(INFINIBAND_SRCFILES) \
+		   $(OBJDIR)/MetricList.pb.cc \
 		   $(OBJDIR)/ServerList.pb.cc \
 		   $(OBJDIR)/Tablets.pb.cc \
 		   $(NULL)

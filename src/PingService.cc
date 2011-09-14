@@ -15,11 +15,29 @@
 
 #include "Common.h"
 #include "Cycles.h"
+#include "Metrics.h"
 #include "ShortMacros.h"
 #include "PingClient.h"
 #include "PingService.h"
 
 namespace RAMCloud {
+
+/**
+ * Top-level service method to handle the GET_METRICS request.
+ *
+ * \copydetails Service::ping
+ */
+void
+PingService::getMetrics(const GetMetricsRpc::Request& reqHdr,
+             GetMetricsRpc::Response& respHdr,
+             Rpc& rpc)
+{
+    string serialized;
+    metrics->serialize(serialized);
+    respHdr.messageLength = downCast<uint32_t>(serialized.length());
+    memcpy(new(&rpc.replyPayload, APPEND) uint8_t[respHdr.messageLength],
+           serialized.c_str(), respHdr.messageLength);
+}
 
 /**
  * Top-level service method to handle the PING request.
@@ -75,6 +93,10 @@ void
 PingService::dispatch(RpcOpcode opcode, Rpc& rpc)
 {
     switch (opcode) {
+        case GetMetricsRpc::opcode:
+            callHandler<GetMetricsRpc, PingService,
+                        &PingService::getMetrics>(rpc);
+            break;
         case PingRpc::opcode:
             callHandler<PingRpc, PingService, &PingService::ping>(rpc);
             break;

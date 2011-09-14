@@ -41,14 +41,16 @@ class StringKeyAdapterTest : public ::testing::Test {
     {
         transportManager.registerMock(&transport);
         coordinatorService.construct();
-        transport.addService(*coordinatorService, "mock:host=coordinator");
+        transport.addService(*coordinatorService, "mock:host=coordinator",
+                COORDINATOR_SERVICE);
         coordinator.construct("mock:host=coordinator");
 
         MasterService::sizeLogAndHashTable("16", "1", &config);
         config.localLocator = "mock:host=master";
         config.coordinatorLocator = "mock:host=coordinator";
         masterService.construct(config, coordinator.get(), 0);
-        transport.addService(*masterService, "mock:host=master");
+        transport.addService(*masterService, "mock:host=master",
+                MASTER_SERVICE);
         masterService->init();
         master.construct(transportManager.getSession("mock:host=master"));
 

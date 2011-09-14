@@ -17,6 +17,8 @@
 #include "CoordinatorClient.h"
 #include "CoordinatorService.h"
 #include "MasterService.h"
+#include "Metrics.h"
+#include "MetricsHash.h"
 #include "PingService.h"
 #include "TransportManager.h"
 #include "BindTransport.h"
@@ -37,6 +39,8 @@ class RamCloudTest : public ::testing::Test {
     PingService ping1;
     PingService ping2;
     RamCloud* ramcloud;
+    uint32_t tableId1;
+    uint32_t tableId2;
 
   public:
     RamCloudTest()
@@ -51,36 +55,40 @@ class RamCloudTest : public ::testing::Test {
         , ping1()
         , ping2()
         , ramcloud(NULL)
+        , tableId1(-1)
+        , tableId2(-2)
     {
         masterConfig1.coordinatorLocator = "mock:host=coordinatorService";
         masterConfig1.localLocator = "mock:host=master1";
         MasterService::sizeLogAndHashTable("16", "1", &masterConfig1);
-        masterConfig2.coordinatorLocator = "mock:host=coordinatorService";
+        masterConfig2.coordinatorLocator = "mock:host=coordinator";
         masterConfig2.localLocator = "mock:host=master2";
         MasterService::sizeLogAndHashTable("16", "1", &masterConfig2);
 
         transportManager.registerMock(&transport);
         transport.addService(coordinatorService,
-                              "mock:host=coordinatorService");
+                              "mock:host=coordinator", COORDINATOR_SERVICE);
 
         coordinatorClient1 = new CoordinatorClient(
-                             "mock:host=coordinatorService");
+                             "mock:host=coordinator");
         master1 = new MasterService(masterConfig1, coordinatorClient1, 0);
-        transport.addService(*master1, "mock:host=master1");
+        transport.addService(*master1, "mock:host=master1", MASTER_SERVICE);
         master1->init();
 
         coordinatorClient2 = new CoordinatorClient(
-                             "mock:host=coordinatorService");
+                             "mock:host=coordinator");
         master2 = new MasterService(masterConfig2, coordinatorClient2, 0);
-        transport.addService(*master2, "mock:host=master2");
+        transport.addService(*master2, "mock:host=master2", MASTER_SERVICE);
         master2->init();
 
-        transport.addService(ping1, "mock:ping=1");
-        transport.addService(ping2, "mock:ping=2");
+        transport.addService(ping1, "mock:host=ping1", PING_SERVICE);
+        transport.addService(ping2, "mock:host=master1", PING_SERVICE);
 
-        ramcloud = new RamCloud("mock:host=coordinatorService");
+        ramcloud = new RamCloud("mock:host=coordinator");
         ramcloud->createTable("table1");
+        tableId1 = ramcloud->openTable("table1");
         ramcloud->createTable("table2");
+        tableId2 = ramcloud->openTable("table2");
         TestLog::enable();
     }
 
@@ -100,11 +108,9 @@ class RamCloudTest : public ::testing::Test {
 
 TEST_F(RamCloudTest, multiRead) {
     // Create objects to be read later
-    uint32_t tableId1 = ramcloud->openTable("table1");
     uint64_t version1;
     ramcloud->create(tableId1, "firstVal", 8, &version1, false);
 
-    uint32_t tableId2 = ramcloud->openTable("table2");
     uint64_t version2;
     ramcloud->create(tableId2, "secondVal", 9, &version2, false);
     uint64_t version3;
@@ -141,13 +147,27 @@ TEST_F(RamCloudTest, multiRead) {
     EXPECT_EQ("thirdVal", TestUtil::toString(readValue3.get()));
 }
 
+TEST_F(RamCloudTest, getMetrics) {
+    metrics->master.local.count3 = 10101;
+    MetricsHash metrics;
+    ramcloud->getMetrics("mock:host=master1", metrics);
+    EXPECT_EQ(10101U, metrics["master.local.count3"]);
+}
+
+TEST_F(RamCloudTest, getMetrics_byTableId) {
+    metrics->master.local.count3 = 20202;
+    MetricsHash metrics;
+    ramcloud->getMetrics(tableId1, 0, metrics);
+    EXPECT_EQ(20202U, metrics["master.local.count3"]);
+}
+
 TEST_F(RamCloudTest, ping) {
-    EXPECT_EQ(12345U, ramcloud->ping("mock:ping=1", 12345U, 100000));
+    EXPECT_EQ(12345U, ramcloud->ping("mock:host=ping1", 12345U, 100000));
 }
 
 TEST_F(RamCloudTest, proxyPing) {
-    EXPECT_NE(0xffffffffffffffffU, ramcloud->proxyPing("mock:ping=1",
-                "mock:ping=2", 100000, 100000));
+    EXPECT_NE(0xffffffffffffffffU, ramcloud->proxyPing("mock:host=ping1",
+                "mock:host=master1", 100000, 100000));
 }
 
 TEST_F(RamCloudTest, writeString) {

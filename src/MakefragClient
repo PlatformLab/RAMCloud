@@ -27,6 +27,7 @@ CLIENT_SRCFILES := \
 		   src/MacAddress.cc \
 		   src/MasterClient.cc \
 		   src/Metrics.cc \
+		   src/MetricsHash.cc \
 		   src/ObjectFinder.cc \
 		   src/PcapFile.cc \
 		   src/PingClient.cc \
@@ -46,6 +47,7 @@ CLIENT_SRCFILES := \
 		   src/UdpDriver.cc \
 		   src/UnreliableTransport.cc \
 		   $(INFINIBAND_SRCFILES) \
+		   $(OBJDIR)/MetricList.pb.cc \
 		   $(OBJDIR)/ServerList.pb.cc \
 		   $(OBJDIR)/Tablets.pb.cc \
 		   $(NULL)
