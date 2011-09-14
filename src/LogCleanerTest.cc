@@ -285,4 +285,16 @@ TEST(LogCleanerTest, getSortedLiveEntries) {
     EXPECT_EQ(newer, liveEntries[1]);
 }
 
+// Ensure we fill objects into older destination Segments in order
+// to get better utilisation.
+TEST(LogCleanerTest, moveLiveData_packOldFirst) {
+    // XXX
+}
+
+// Ensure that if we're left with significant space in the last Segment
+// we try to fill it with the live data from some other Segment.
+TEST(LogCleanerTest, moveLiveData_packLastSegment) {
+    // XXX
+}
+
 } // namespace RAMCloud
