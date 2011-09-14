@@ -177,7 +177,13 @@ Dispatch::poll()
             }
             fileInvocationSerial = id;
             file->invocationId = id;
-            file->handleFileEvent(events);
+
+            // It's possible that the desired events may have changed while
+            // an event was being reported.
+            // events &= file->events;
+            if (events != 0) {
+                file->handleFileEvent(events);
+            }
 
             // Must reenable the event for this file, since it was automatically
             // disabled by epoll.  However, it's possible that the handler

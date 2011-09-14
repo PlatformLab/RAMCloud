@@ -67,7 +67,7 @@ ServiceManager::init() {
  * Construct a ServiceManager.
  */
 ServiceManager::ServiceManager()
-    : services(), busyThreads(), idleThreads(), serviceCount(0), extraRpcs()
+    : services(), busyThreads(), idleThreads(), serviceCount(0), testRpcs()
 {
 }
 
@@ -130,11 +130,13 @@ ServiceManager::handleRpc(Transport::ServerRpc* rpc)
     header = rpc->requestPayload.getStart<RpcRequestCommon>();
     if ((header == NULL) || (header->service > MAX_SERVICE) ||
             !services[header->service]) {
+#if TESTING
         if (serviceCount == 0) {
             // Special case for testing.
-            extraRpcs.push(rpc);
+            testRpcs.push(rpc);
             return;
         }
+#endif
         if (header == NULL) {
             LOG(WARNING, "Incoming RPC contains no header (message length %d)",
                     rpc->requestPayload.getTotalLength());
@@ -247,9 +249,9 @@ ServiceManager::poll()
 }
 
 /**
- * Wait for an RPC request to arrive, but give up if it takes too long.
- * This method is intended only for testing (it assumes that a NULL
- * service was specified in the constructor).
+ * Wait for an RPC request to appear in the testRpcs queue, but give up if
+ * it takes too long.  This method is intended only for testing (it only
+ * works when there are no registered services).
  *
  * \param timeoutSeconds
  *      If a request doesn't arrive within this many seconds, return NULL.
@@ -262,9 +264,9 @@ Transport::ServerRpc*
 ServiceManager::waitForRpc(double timeoutSeconds) {
     uint64_t start = Cycles::rdtsc();
     while (true) {
-        if (!extraRpcs.empty()) {
-            Transport::ServerRpc* result = extraRpcs.front();
-            extraRpcs.pop();
+        if (!testRpcs.empty()) {
+            Transport::ServerRpc* result = testRpcs.front();
+            testRpcs.pop();
             return result;
         }
         if (Cycles::toSeconds(Cycles::rdtsc() - start) > timeoutSeconds) {

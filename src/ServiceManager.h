@@ -96,9 +96,9 @@ class ServiceManager : Dispatch::Poller {
     // Number of services that are currently registered.
     int serviceCount;
 
-    // Holds requests that arrive when no services are registered.  Used
-    // primarily for testing.
-    std::queue<Transport::ServerRpc*> extraRpcs;
+    // Used for testing: if no services are registered, incoming RPCs are
+    // queued here.
+    std::queue<Transport::ServerRpc*> testRpcs;
 
     static Syscall *sys;
 
