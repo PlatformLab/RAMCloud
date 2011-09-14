@@ -146,7 +146,7 @@ void
 Segment::commonConstructor(LogEntryType type,
                            const void *buffer, uint32_t length)
 {
-    if (!isPowerOfTwo(capacity))
+    if (!BitOps::isPowerOfTwo(capacity))
         throw SegmentException(HERE, "segment capacity must be a power of two");
 
     if (capacity < (sizeof(SegmentEntry) + sizeof(SegmentHeader) +

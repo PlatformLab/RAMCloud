@@ -17,6 +17,7 @@
 #define RAMCLOUD_HASHTABLE_H
 
 #include "Common.h"
+#include "BitOps.h"
 #include "CycleCounter.h"
 #include "LargeBlockOfMemory.h"
 
@@ -243,7 +244,7 @@ class HashTable {
      *      An exception is thrown if numBuckets is 0.
      */
     explicit HashTable(uint64_t numBuckets)
-        : numBuckets(nearestPowerOfTwo(numBuckets))
+        : numBuckets(BitOps::powerOfTwoLessOrEqual(numBuckets))
         , buckets(this->numBuckets * sizeof(CacheLine))
         , perfCounters()
     {
@@ -532,26 +533,6 @@ class HashTable {
     // forward declarations
     class Entry;
     struct CacheLine;
-
-    /**
-     * Find the nearest power of 2 that is less than or equal to \a n.
-     * \param n
-     *      A maximum for the return value.
-     * \return
-     *      A power of two that is less than or equal to \a n.
-     */
-    uint64_t
-    nearestPowerOfTwo(uint64_t n)
-    {
-        if ((n & (n - 1)) == 0)
-            return n;
-
-        for (int i = 63; i >= 0; i--) {
-            if ((1UL << i) <= n)
-                return (1 << i);
-        }
-        return 0;
-    }
 
     /**
      * A 64-bit to 64-bit hash function.

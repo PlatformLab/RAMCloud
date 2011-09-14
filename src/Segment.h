@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "BackupManager.h"
+#include "BitOps.h"
 #include "BoostIntrusive.h"
 #include "Common.h"
 #include "Crc32C.h"
@@ -158,7 +159,7 @@ class Segment {
     static const void*
     getSegmentBaseAddress(const void* p, uint32_t capacity)
     {
-        assert(isPowerOfTwo(capacity));
+        assert(BitOps::isPowerOfTwo(capacity));
         // Segments are always capacity aligned, which must be a power of two.
         uintptr_t addr = reinterpret_cast<uintptr_t>(p);
         uintptr_t wideCapacity = capacity;

@@ -580,16 +580,6 @@ prefetch(const T* object)
     prefetch(object, sizeof(*object));
 }
 
-/**
- * Return true if the unsigned number provided is a power of two, else
- * false.
- */
-static inline bool
-isPowerOfTwo(uint64_t number)
-{
-    return (number > 0 && (number & (number - 1)) == 0);
-}
-
 void pinAllMemory();
 
 } // end RAMCloud
