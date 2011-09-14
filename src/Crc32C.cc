@@ -37,7 +37,7 @@ haveSse42() {
 }
 } // anonymous namespace
 
-#if __SSE4_2__ && !PERF_DEBUG_RECOVERY_SOFTWARE_CRC32
+#if __SSE4_2__
 bool Crc32C::haveHardware = haveSse42();
 #else
 bool Crc32C::haveHardware = false;

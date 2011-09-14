@@ -630,7 +630,7 @@ Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
         return NULL;
 
     SegmentEntry entry(type, length);
-#ifndef PERF_DEBUG_RECOVERY_NO_CKSUM
+
     if (updateChecksum) {
         CycleCounter<Metric> _(&metrics->master.segmentAppendChecksumTicks);
         SegmentChecksum entryChecksum;
@@ -666,7 +666,7 @@ Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
         entry.checksum = entryChecksum.getResult() ^
                          mutableFieldsChecksum.getResult();
     }
-#endif
+
     const void* entryPointer;
     {
         CycleCounter<Metric> _(&metrics->master.segmentAppendCopyTicks);

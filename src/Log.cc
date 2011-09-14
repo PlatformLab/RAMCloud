@@ -171,9 +171,6 @@ Log::allocateHead()
     // only close the old head _after_ we've opened up the new head!
     if (head) {
         head->close(false); // an exception here would be problematic...
-#ifdef PERF_DEBUG_RECOVERY_SYNC_BACKUP
-        head->sync();
-#endif
     }
 
     head = nextHead;
