@@ -263,10 +263,11 @@ TcpTransport::ServerSocketHandler::handleFileEvent(int events)
             }
         }
         if (events & Dispatch::FileEvent::WRITABLE) {
-            // We should only get here if a reply could not be transmitted in
-            // its entirety because it would have blocked on I/O.
-            assert(!socket->rpcsWaitingToReply.empty());
             while (true) {
+                if (socket->rpcsWaitingToReply.empty()) {
+                    setEvents(Dispatch::FileEvent::READABLE);
+                    break;
+                }
                 TcpServerRpc& rpc = socket->rpcsWaitingToReply.front();
                 socket->bytesLeftToSend = TcpTransport::sendMessage(fd,
                         rpc.message.header.nonce, rpc.replyPayload,
@@ -279,10 +280,6 @@ TcpTransport::ServerSocketHandler::handleFileEvent(int events)
                 socket->rpcsWaitingToReply.pop_front();
                 transport->serverRpcPool.destroy(&rpc);
                 socket->bytesLeftToSend = -1;
-                if (socket->rpcsWaitingToReply.empty()) {
-                    setEvents(Dispatch::FileEvent::READABLE);
-                    break;
-                }
             }
         }
     } catch (TcpTransportEof& e) {

@@ -1064,7 +1064,7 @@ TEST_F(TcpTransportTest, sendReply) {
     serverRpc->sendReply();
     serverRpc = serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
-    TestUtil::fillLargeBuffer(&serverRpc->replyPayload, 1999990);
+    TestUtil::fillLargeBuffer(&serverRpc->replyPayload, 200000);
     serverRpc->sendReply();
     serverRpc = serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
@@ -1084,7 +1084,7 @@ TEST_F(TcpTransportTest, sendReply) {
     EXPECT_TRUE(TestUtil::waitForRpc(*clientRpc1));
     EXPECT_EQ("response1/0", TestUtil::toString(&reply1));
     EXPECT_TRUE(TestUtil::waitForRpc(*clientRpc2));
-    EXPECT_EQ("ok", TestUtil::checkLargeBuffer(&reply2, 1999990));
+    EXPECT_EQ("ok", TestUtil::checkLargeBuffer(&reply2, 200000));
     EXPECT_TRUE(TestUtil::waitForRpc(*clientRpc3));
     EXPECT_EQ("response3/0", TestUtil::toString(&reply3));
     EXPECT_EQ("~TcpServerRpc: deleted | ~TcpServerRpc: deleted",
