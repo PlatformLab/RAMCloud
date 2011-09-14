@@ -106,8 +106,10 @@ struct BackupManagerBaseTest : public ::testing::Test {
         transport->addService(*backupService1, "mock:host=backup1");
         transport->addService(*backupService2, "mock:host=backup2");
 
-        backup1.construct(transportManager.getSession("mock:host=backup1"));
-        backup2.construct(transportManager.getSession("mock:host=backup2"));
+        backup1.construct(Context::get().transportManager->getSession(
+                            "mock:host=backup1"));
+        backup2.construct(Context::get().transportManager->getSession(
+                            "mock:host=backup2"));
 
         serverId.construct(99);
         mgr.construct(coordinator.get(), serverId, 2);
@@ -122,7 +124,6 @@ struct BackupManagerTest : public BackupManagerBaseTest {
 };
 
 TEST_F(BackupManagerBaseTest, selectOpenHostsNotEnoughBackups) {
-    logger.setLogLevels(SILENT_LOG_LEVEL);
     auto seg = mgr->openSegment(88, NULL, 0);
     EXPECT_THROW(mgr->proceed(), InternalError);
     mgr->unopenSegment(seg); // so that destructor's sync is a no-op

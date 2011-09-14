@@ -94,7 +94,7 @@ class UdpDriverTest : public ::testing::Test {
         transport->packetData.clear();
         uint64_t start = Cycles::rdtsc();
         while (true) {
-            dispatch->poll();
+            Context::get().dispatch->poll();
             if (transport->packetData.size() != 0) {
                 return transport->packetData.c_str();
             }

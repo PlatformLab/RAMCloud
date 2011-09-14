@@ -45,13 +45,15 @@ try
 {
     using namespace RAMCloud;
 
-    logger.setLogLevel(TRANSPORT_MODULE, DEBUG);
+    Context context(false);
+    Context::Guard _(context);
 
     OptionParser optionParser(argc, argv);
-    transportManager.initialize(optionParser.options.getLocalLocator().c_str());
+    context.transportManager->initialize(
+                            optionParser.options.getLocalLocator().c_str());
 
     while (true) {
-        Transport::ServerRpc* rpc = serviceManager->waitForRpc(1);
+        Transport::ServerRpc* rpc = context.serviceManager->waitForRpc(1);
         if (rpc == NULL)
             continue;
         Buffer::Iterator iter(rpc->requestPayload);

@@ -193,7 +193,7 @@ class LogCleaner {
     };
 
     // cleaner thread entry point
-    static void cleanerThreadEntry(LogCleaner* logCleaner);
+    static void cleanerThreadEntry(LogCleaner* logCleaner, Context* context);
 
     void dumpCleaningPassStats(PerfCounters& before);
     void scanNewCleanableSegments();

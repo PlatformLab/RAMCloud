@@ -139,7 +139,7 @@ class RecoveryTest : public ::testing::Test {
         , storage3()
         , transport()
     {
-        logger.setLogLevels(SILENT_LOG_LEVEL);
+        TransportManager& transportManager = *Context::get().transportManager;
 
         transport = new BindTransport;
         transportManager.registerMock(transport);
@@ -237,7 +237,7 @@ class RecoveryTest : public ::testing::Test {
         delete config1;
         delete config2;
         delete config3;
-        transportManager.unregisterMock();
+        Context::get().transportManager->unregisterMock();
         delete transport;
         EXPECT_EQ(0,
             BackupStorage::Handle::resetAllocatedHandlesCount());

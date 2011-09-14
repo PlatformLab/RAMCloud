@@ -61,7 +61,7 @@ UnreliableTransport::UnreliableTransport(Driver* driver)
                                  data);
                 if (!header->getMoreWillFollow()) {
                     erase(t.serverPendingList, *rpc);
-                    serviceManager->handleRpc(rpc);
+                    Context::get().serviceManager->handleRpc(rpc);
                 }
             } else {
                 foreach (UnreliableClientRpc& rpc, t.clientPendingList) {

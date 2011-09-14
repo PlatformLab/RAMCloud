@@ -39,7 +39,7 @@ class StringKeyAdapterTest : public ::testing::Test {
         , sk()
         , table()
     {
-        transportManager.registerMock(&transport);
+        Context::get().transportManager->registerMock(&transport);
         coordinatorService.construct();
         transport.addService(*coordinatorService, "mock:host=coordinator");
         coordinator.construct("mock:host=coordinator");
@@ -50,7 +50,8 @@ class StringKeyAdapterTest : public ::testing::Test {
         masterService.construct(config, coordinator.get(), 0);
         transport.addService(*masterService, "mock:host=master");
         masterService->init();
-        master.construct(transportManager.getSession("mock:host=master"));
+        master.construct(Context::get().transportManager->getSession(
+                                                        "mock:host=master"));
 
         ProtoBuf::Tablets_Tablet& tablet(*masterService->tablets.add_tablet());
         tablet.set_table_id(0);
@@ -58,7 +59,7 @@ class StringKeyAdapterTest : public ::testing::Test {
         tablet.set_end_object_id(~0UL);
         tablet.set_user_data(reinterpret_cast<uint64_t>(new Table(0)));
 
-        client.construct("mock:host=coordinator");
+        client.construct(Context::get(), "mock:host=coordinator");
         sk.construct(*client);
 
         client->createTable("StringKeyAdapterTest");
@@ -67,7 +68,7 @@ class StringKeyAdapterTest : public ::testing::Test {
 
     ~StringKeyAdapterTest()
     {
-        transportManager.unregisterMock();
+        Context::get().transportManager->unregisterMock();
     }
 
     BindTransport transport;

@@ -103,12 +103,6 @@ static struct InfRcTransportFactory : public TransportFactory {
 } infRcTransportFactory;
 #endif
 
-/**
- * The single instance of #TransportManager.
- * Its priority ensures that it is initialized after the TestLog.
- */
-TransportManager  __attribute__((init_priority(400))) transportManager;
-
 TransportManager::TransportManager()
     : isServer(false)
     , transportFactories()
@@ -136,13 +130,9 @@ TransportManager::~TransportManager()
 {
     // Must clear the cache and destroy sessionRefs before the
     // transports are destroyed.
-
-    // Can't safely execute the following code; see RAM-212 for details.
-#if 0
     sessionCache.clear();
     foreach (auto transport, transports)
         delete transport;
-#endif
 }
 
 /**
@@ -159,7 +149,6 @@ void
 TransportManager::initialize(const char* localServiceLocator)
 {
     isServer = true;
-    Dispatch::init(isServer);
     Dispatch::Lock lock;
     std::vector<ServiceLocator> locators =
             ServiceLocator::parseServiceLocators(localServiceLocator);

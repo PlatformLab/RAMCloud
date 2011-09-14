@@ -58,7 +58,8 @@ struct MasterStartTask {
         LOG(NOTICE, "Initiating recovery with recovery master %s, "
             "partition %d", locator, partitionId);
         try {
-            masterClient.construct(transportManager.getSession(locator));
+            masterClient.construct(
+                Context::get().transportManager->getSession(locator));
             rpc.construct(*masterClient,
                           recovery.masterId, partitionId,
                           tablets,
@@ -118,7 +119,8 @@ struct BackupEndTask {
     void send() {
         auto locator = serviceLocator.c_str();
         try {
-            client.construct(transportManager.getSession(locator));
+            client.construct(
+                Context::get().transportManager->getSession(locator));
             rpc.construct(*client, masterId);
             return;
         } catch (const TransportException& e) {

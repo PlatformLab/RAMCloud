@@ -58,7 +58,7 @@ struct BindTransport : public Transport {
 
     Transport::SessionRef
     getSession() {
-        return transportManager.getSession("mock:");
+        return Context::get().transportManager->getSession("mock:");
     }
 
     struct BindServerRpc : public ServerRpc {

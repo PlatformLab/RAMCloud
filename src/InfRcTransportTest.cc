@@ -26,8 +26,6 @@ class InfRcTransportTest : public ::testing::Test {
     InfRcTransportTest() : locator(NULL)
     {
         locator = new ServiceLocator("infrc: host=localhost, port=11000");
-        delete serviceManager;
-        ServiceManager::init();
     }
 
     ~InfRcTransportTest() {
@@ -51,7 +49,8 @@ TEST_F(InfRcTransportTest, sanityCheck) {
     request.fillFromString("abcdefg");
     Transport::ClientRpc* clientRpc = session->clientSend(&request,
             &reply);
-    Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
+    Transport::ServerRpc* serverRpc =
+            Context::get().serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_EQ("abcdefg/0", TestUtil::toString(&serverRpc->requestPayload));
     EXPECT_FALSE(clientRpc->isReady());
@@ -63,7 +62,7 @@ TEST_F(InfRcTransportTest, sanityCheck) {
     TestUtil::fillLargeBuffer(&request, 100000);
     reply.reset();
     clientRpc = session->clientSend(&request, &reply);
-    serverRpc = serviceManager->waitForRpc(1.0);
+    serverRpc = Context::get().serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_EQ("ok",
             TestUtil::checkLargeBuffer(&serverRpc->requestPayload, 100000));
@@ -86,7 +85,8 @@ TEST_F(InfRcTransportTest, ClientRpc_cancelCleanup) {
     request.fillFromString("abcdefg");
     Transport::ClientRpc* clientRpc = session->clientSend(&request,
             &reply);
-    Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
+    Transport::ServerRpc* serverRpc =
+            Context::get().serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_FALSE(clientRpc->isReady());
     EXPECT_EQ(1U, client.outstandingRpcs.size());
@@ -111,7 +111,7 @@ TEST_F(InfRcTransportTest, ClientRpc_cancelCleanup) {
     request.fillFromString("xyzzy");
     reply.reset();
     clientRpc = session->clientSend(&request, &reply);
-    serverRpc = serviceManager->waitForRpc(1.0);
+    serverRpc = Context::get().serviceManager->waitForRpc(1.0);
 
     // Note: the log entry for the unrecognized response to the canceled
     // RPC only appears here (InfRc doesn't check for responses unless

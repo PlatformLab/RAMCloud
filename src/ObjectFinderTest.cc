@@ -77,7 +77,7 @@ class ObjectFinderTest : public ::testing::Test {
         , objectFinder()
     {
         transport = new BindTransport();
-        transportManager.registerMock(transport);
+        Context::get().transportManager->registerMock(transport);
         coordinatorService = new CoordinatorService();
         transport->addService(*coordinatorService, "mock:host=coordinator");
         coordinatorClient = new CoordinatorClient("mock:host=coordinator");
@@ -94,7 +94,7 @@ class ObjectFinderTest : public ::testing::Test {
         delete host2Service;
         delete coordinatorClient;
         delete coordinatorService;
-        transportManager.unregisterMock();
+        Context::get().transportManager->unregisterMock();
         delete transport;
     }
 

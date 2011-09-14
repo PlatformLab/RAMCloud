@@ -254,6 +254,10 @@ try
     uint32_t tableCount;
     uint32_t skipCount;
 
+    // need external context to set log levels with OptionParser
+    Context context(true);
+    Context::Guard _(context);
+
     OptionsDescription clientOptions("Client");
     clientOptions.add_options()
         ("down,d",
@@ -291,7 +295,8 @@ try
     LOG(NOTICE, "client: Connecting to %s",
         optionParser.options.getCoordinatorLocator().c_str());
 
-    RamCloud client(optionParser.options.getCoordinatorLocator().c_str());
+    RamCloud client(context,
+                    optionParser.options.getCoordinatorLocator().c_str());
 
     if (hintServerDown) {
         runRecovery(client, count, removeCount,

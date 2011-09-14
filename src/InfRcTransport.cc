@@ -456,8 +456,9 @@ InfRcTransport<Infiniband>::clientTryExchangeQueuePairs(struct sockaddr_in *sin,
         // We need to call the dispatcher in order to let other event handlers
         // run (this is particularly important if the server we are trying to
         // connect to is us).
-        if (dispatch->isDispatchThread()) {
-            dispatch->poll();
+        Dispatch& dispatch = *Context::get().dispatch;
+        if (dispatch.isDispatchThread()) {
+            dispatch.poll();
         }
     }
 }
@@ -1005,7 +1006,7 @@ InfRcTransport<Infiniband>::Poller::poll()
                 bd->buffer + downCast<uint32_t>(sizeof(header)),
                 wc.byte_len - downCast<uint32_t>(sizeof(header)),
                 t, t->serverSrq, bd);
-            serviceManager->handleRpc(r);
+            Context::get().serviceManager->handleRpc(r);
             ++metrics->transport.receive.messageCount;
             ++metrics->transport.receive.packetCount;
             metrics->transport.receive.iovecCount +=
@@ -1094,6 +1095,11 @@ InfRcTransport<Infiniband>::PayloadChunk::appendToBuffer(Buffer* buffer,
 template<typename Infiniband>
 InfRcTransport<Infiniband>::PayloadChunk::~PayloadChunk()
 {
+    // This is a botch. These chunks get destroyed when Buffers are
+    // destroyed, which can happen in client applications outside of a
+    // context. The driver release, however, might need a context to, e.g.,
+    // lock the dispatch thread.
+    Context::Guard _(context);
     transport->postSrqReceiveAndKickTransmit(srq, bd);
 }
 
@@ -1120,6 +1126,7 @@ InfRcTransport<Infiniband>::PayloadChunk::PayloadChunk(void* data,
                                           ibv_srq* srq,
                                           BufferDescriptor* bd)
     : Buffer::Chunk(data, dataLength),
+      context(Context::get()),
       transport(transport),
       srq(srq),
       bd(bd)

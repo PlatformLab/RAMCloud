@@ -51,7 +51,7 @@ LogCleaner::LogCleaner(Log* log, BackupManager *backup, bool startThread)
       perfCounters()
 {
     if (startThread)
-        thread.construct(cleanerThreadEntry, this);
+        thread.construct(cleanerThreadEntry, this, &Context::get());
 }
 
 LogCleaner::~LogCleaner()
@@ -124,8 +124,9 @@ LogCleaner::halt()
  * cleaning on an as-needed basis.
  */
 void
-LogCleaner::cleanerThreadEntry(LogCleaner* logCleaner)
+LogCleaner::cleanerThreadEntry(LogCleaner* logCleaner, Context* context)
 {
+    Context::Guard _(*context);
     LOG(NOTICE, "LogCleaner thread spun up");
 
     while (1) {

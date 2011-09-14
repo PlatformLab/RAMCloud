@@ -671,7 +671,7 @@ class FastTransport : public Transport {
          */
         explicit Session(FastTransport* transport, uint32_t id)
             : id(id)
-            , lastActivityTime(dispatch->currentTime)
+            , lastActivityTime(Context::get().dispatch->currentTime)
             , transport(transport)
             , token(INVALID_TOKEN)
         {}
@@ -1194,7 +1194,7 @@ class FastTransport : public Transport {
         void expire()
         {
             const uint32_t sessionsToCheck = 5;
-            uint64_t now = dispatch->currentTime;
+            uint64_t now = Context::get().dispatch->currentTime;
             for (uint32_t i = 0; i < sessionsToCheck; i++) {
                 lastCleanedIndex++;
                 if (lastCleanedIndex >= sessions.size()) {
