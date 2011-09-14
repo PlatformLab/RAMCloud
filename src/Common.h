@@ -289,15 +289,15 @@ rdpmc(uint32_t counter)
         return mockPMCValue;
     return _rdpmc(counter);
 }
-__inline __attribute__((always_inline, no_instrument_function))
-uint64_t generateRandom(void);
-uint64_t
+
+static inline uint64_t
 generateRandom()
 {
     if (mockRandomValue)
         return mockRandomValue++;
     return RAMCloud::_generateRandom();
 }
+
 class MockRandom {
     uint64_t original;
   public:
