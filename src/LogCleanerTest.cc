@@ -184,7 +184,7 @@ TEST(LogCleanerTest, getSegmentsToClean_writeCost) {
         size_t numSegments;
         uint64_t numFreeableBytes;
         sscanf(TestLog::get().c_str(),                  // NOLINT sscanf ok here
-            "getSegmentsToClean: cleaning %zd segments to free %lu bytes "
+            "getSegmentsToClean: Cleaning %zd segments to free %lu bytes "
             "(writeCost is %lf)", &numSegments, &numFreeableBytes, &writeCost);
         if (testSetup[i].minWriteCost)
             EXPECT_GE(writeCost, testSetup[i].minWriteCost);
@@ -281,8 +281,8 @@ TEST(LogCleanerTest, getSortedLiveEntries) {
     cleaner->getSortedLiveEntries(segments, liveEntries);
 
     EXPECT_EQ(2U, liveEntries.size());
-    EXPECT_EQ(older, liveEntries[0]);
-    EXPECT_EQ(newer, liveEntries[1]);
+    EXPECT_EQ(older, liveEntries[0].first);
+    EXPECT_EQ(newer, liveEntries[1].first);
 }
 
 // Ensure we fill objects into older destination Segments in order
