@@ -30,6 +30,8 @@ namespace RAMCloud {
  */
 class ObjectFinder {
   public:
+    class TabletMapFetcher; // forward declaration, see full declaration below
+
     explicit ObjectFinder(CoordinatorClient& coordinator);
 
     /**
@@ -72,14 +74,26 @@ class ObjectFinder {
     ProtoBuf::Tablets tabletMap;
 
     /**
-     * Update the local tablet map cache. Usually, calling refresher(tabletMap)
-     * is the same as calling coordinator.getTabletMap(tabletMap). During unit
-     * tests, however, refresher is swapped out with a mock function.
+     * Update the local tablet map cache. Usually, calling
+     * tabletMapFetcher.getTabletMap() is the same as calling
+     * coordinator.getTabletMap(tabletMap). During unit tests, however,
+     * this is swapped out with a mock implementation.
      */
-    boost::function<void(ProtoBuf::Tablets&)> refresher;
+    std::unique_ptr<ObjectFinder::TabletMapFetcher> tabletMapFetcher;
 
     friend class ObjectFinderTest;
     DISALLOW_COPY_AND_ASSIGN(ObjectFinder);
+};
+
+/**
+ * The interface for ObjectFinder::tabletMapFetcher. This is usually set to
+ * RealTabletMapFetcher, which is defined in ObjectFinder.cc.
+ */
+class ObjectFinder::TabletMapFetcher {
+  public:
+    virtual ~TabletMapFetcher() {}
+    /// See CoordinatorClient::getTabletMap.
+    virtual void getTabletMap(ProtoBuf::Tablets& tabletMap) = 0;
 };
 
 } // end RAMCloud

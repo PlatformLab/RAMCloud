@@ -20,9 +20,9 @@
 #include "ObjectFinder.h"
 
 namespace RAMCloud {
-struct Refresher {
+struct Refresher : public ObjectFinder::TabletMapFetcher {
     Refresher() : called(0) {}
-    void operator()(ProtoBuf::Tablets& tabletMap) {
+    void getTabletMap(ProtoBuf::Tablets& tabletMap) {
         ProtoBuf::Tablets_Tablet tablet1;
         tablet1.set_table_id(0);
         tablet1.set_start_object_id(0);
@@ -67,6 +67,7 @@ class ObjectFinderTest : public ::testing::Test {
     Service* host1Service;
     Service* host2Service;
     ObjectFinder* objectFinder;
+    Refresher* refresher;
 
     ObjectFinderTest()
         : transport()
@@ -75,6 +76,7 @@ class ObjectFinderTest : public ::testing::Test {
         , host1Service()
         , host2Service()
         , objectFinder()
+        , refresher()
     {
         transport = new BindTransport();
         Context::get().transportManager->registerMock(transport);
@@ -86,9 +88,12 @@ class ObjectFinderTest : public ::testing::Test {
         host2Service = new Service();
         transport->addService(*host2Service, "mock:host=host2");
         objectFinder = new ObjectFinder(*coordinatorClient);
+        refresher = new Refresher();
+        objectFinder->tabletMapFetcher.reset(refresher);
     }
 
     ~ObjectFinderTest() {
+        // refresher is deleted by objectFinder
         delete objectFinder;
         delete host1Service;
         delete host2Service;
@@ -102,8 +107,6 @@ class ObjectFinderTest : public ::testing::Test {
 };
 
 TEST_F(ObjectFinderTest, lookup) {
-    Refresher refresher;
-    objectFinder->refresher = boost::ref(refresher);
     Transport::SessionRef session(objectFinder->lookup(1, 2));
     // first tablet map is empty, throws TableDoesntExistException
     // get a new tablet map
@@ -112,15 +115,12 @@ TEST_F(ObjectFinderTest, lookup) {
     // find tablet in recovery
     // get a new tablet map
     // find tablet in operation
-    EXPECT_EQ(3U, refresher.called);
+    EXPECT_EQ(3U, refresher->called);
     EXPECT_EQ("mock:host=host1",
         static_cast<BindTransport::BindSession*>(session.get())->locator);
 }
 
 TEST_F(ObjectFinderTest, multiLookup_basics) {
-    Refresher refresher;
-    objectFinder->refresher = boost::ref(refresher);
-
     MasterClient::ReadObject* requests[3];
 
     Tub<Buffer> readValue1;
@@ -161,8 +161,6 @@ TEST_F(ObjectFinderTest, multiLookup_basics) {
 
 TEST_F(ObjectFinderTest, multiLookup_badTable) {
     TestLog::Enable _;
-    Refresher refresher;
-    objectFinder->refresher = boost::ref(refresher);
 
     MasterClient::ReadObject* requests[2];
 
