@@ -68,6 +68,7 @@ TESTS_SRCFILES := \
 		  src/TransportTest.cc \
 		  src/TubTest.cc \
 		  src/UdpDriverTest.cc \
+		  src/VarLenArrayTest.cc \
 		  src/WillTest.cc \
 		  src/WindowTest.cc \
 		  src/RamCloudTest.cc \
