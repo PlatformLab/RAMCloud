@@ -45,7 +45,7 @@ BackupManager::dumpOpenSegments()
         LOG(ERROR, "  openLen: %u", segment.openLen);
         LOG(ERROR, "  offsetQueued: %u", segment.offsetQueued);
         LOG(ERROR, "  closeQueued: %u", segment.closeQueued);
-        foreach (auto& backup, segment.backupIter()) {
+        foreach (auto& backup, segment.backups) {
             LOG(ERROR, "  Backup:%s", backup ? "" : " inactive");
             if (!backup)
                 continue;
@@ -177,7 +177,7 @@ TEST_F(BackupManagerTest, OpenSegmentVarLenArray) {
     // backups[0] must be the last member of OpenSegment
     BackupManager::OpenSegment* openSegment = NULL;
     EXPECT_EQ(static_cast<void*>(openSegment + 1),
-              static_cast<void*>(openSegment->backups));
+              static_cast<void*>(&openSegment->backups[0]));
 }
 
 TEST_F(BackupManagerTest, OpenSegmentConstructor) {
@@ -191,7 +191,7 @@ TEST_F(BackupManagerTest, OpenSegmentConstructor) {
     EXPECT_EQ(data, openSegment->data);
     EXPECT_EQ(arrayLength(data), openSegment->offsetQueued);
     EXPECT_FALSE(openSegment->closeQueued);
-    foreach (auto& backup, openSegment->backupIter()) {
+    foreach (auto& backup, openSegment->backups) {
         EXPECT_EQ(arrayLength(data), backup->offsetSent);
         EXPECT_FALSE(backup->closeSent);
         EXPECT_FALSE(backup->rpc);
@@ -201,7 +201,7 @@ TEST_F(BackupManagerTest, OpenSegmentConstructor) {
 
     // make sure OpenSegment::backups point to reasonable service locators
     vector<string> backupLocators;
-    foreach (auto& backup, openSegment->backupIter()) {
+    foreach (auto& backup, openSegment->backups) {
         backupLocators.push_back(
             backup->client.getSession()->getServiceLocator());
     }
@@ -230,13 +230,13 @@ TEST_F(BackupManagerTest, OpenSegmentsync) {
     openSegment->sync();
     openSegment->sync();
     openSegment->write(4, false);
-    foreach (auto& backup, openSegment->backupIter()) {
+    foreach (auto& backup, openSegment->backups) {
         EXPECT_EQ(4U, backup->offsetSent);
         EXPECT_FALSE(backup->closeSent);
         EXPECT_TRUE(backup->rpc);
     }
     openSegment->sync();
-    foreach (auto& backup, openSegment->backupIter()) {
+    foreach (auto& backup, openSegment->backups) {
         EXPECT_EQ(4U, backup->offsetSent);
         EXPECT_FALSE(backup->closeSent);
         EXPECT_FALSE(backup->rpc);
@@ -244,7 +244,7 @@ TEST_F(BackupManagerTest, OpenSegmentsync) {
     openSegment->write(6, false);
     openSegment->write(8, false);
     openSegment->sync();
-    foreach (auto& backup, openSegment->backupIter()) {
+    foreach (auto& backup, openSegment->backups) {
         EXPECT_EQ(8U, backup->offsetSent);
         EXPECT_FALSE(backup->closeSent);
         EXPECT_FALSE(backup->rpc);

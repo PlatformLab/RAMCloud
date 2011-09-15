@@ -25,6 +25,7 @@
 #include "Common.h"
 #include "RawMetrics.h"
 #include "Tub.h"
+#include "VarLenArray.h"
 
 namespace RAMCloud {
 
@@ -61,8 +62,6 @@ class BackupManager {
         }
         OpenSegment(BackupManager& backupManager, uint64_t segmentId,
                     const void* data, uint32_t len);
-        ~OpenSegment();
-        void sync();
 
         // The following are really private:
 
@@ -98,15 +97,6 @@ class BackupManager {
             Tub<BackupClient::WriteSegment> rpc;
         };
 
-        /**
-         * Return a range of iterators across #backups
-         * for use in foreach loops.
-         */
-        std::pair<Tub<Backup>*, Tub<Backup>*>
-        backupIter() {
-            return {&backups[0], &backups[backupManager.replicas]};
-        }
-
         void sendWriteRequests();
         void waitForWriteRequests();
 
@@ -140,7 +130,7 @@ class BackupManager {
          * An array of #BackupManager::replica backups on which to replicate
          * the segment.
          */
-        Tub<Backup> backups[0]; // must be last member of class
+        VarLenArray<Tub<Backup>> backups; // must be last member of class
         DISALLOW_COPY_AND_ASSIGN(OpenSegment);
     };
 
