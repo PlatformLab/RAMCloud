@@ -109,11 +109,6 @@ BackupStorage::benchmark(BackupStrategy backupStrategy)
     } else if (backupStrategy == EVEN_DISTRIBUTION) {
         LOG(NOTICE, "EVEN_SELECTION BackupStrategy selected");
         return {100, 100};
-    } else if (backupStrategy == UNIFORM_RANDOM) {
-        LOG(NOTICE, "UNIFORM_RANDOM BackupStrategy selected");
-        // Magic value lets master know it should immediately
-        // accept this backup (i.e. use uniform random selection).
-        return {1, 1};
     } else {
         DIE("Bad BackupStrategy selected");
     }

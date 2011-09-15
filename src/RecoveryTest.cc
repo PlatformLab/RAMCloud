@@ -67,7 +67,11 @@ class RecoveryTest : public ::testing::Test {
                 e.set_service_locator(locator);
                 e.set_server_type(ProtoBuf::BACKUP);
             }
-            mgr->hosts = backupList;
+
+            // TODO(ongaro): Rework this to not muck with mgr's internal state
+            mgr->backupSelector.hosts = backupList;
+            for (uint32_t i = 0; i < uint32_t(backupList.server_size()); ++i)
+                mgr->backupSelector.hostsOrder.push_back(i);
 
             segMem = Memory::xmemalign(HERE, segmentSize, segmentSize);
             seg = new Segment(masterId, segmentId, segMem, segmentSize, mgr);
