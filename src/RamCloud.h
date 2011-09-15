@@ -160,6 +160,7 @@ class RamCloud {
     uint32_t openTable(const char* name);
     uint64_t create(uint32_t tableId, const void* buf, uint32_t length,
                     uint64_t* version = NULL, bool async = false);
+    void getAllMetrics(std::vector<MetricsHash>& metrics);
     void getMetrics(const char* serviceLocator, MetricsHash& metrics);
     void getMetrics(uint32_t table, uint64_t objectId, MetricsHash& metrics);
     uint64_t ping(const char* serviceLocator, uint64_t nonce,

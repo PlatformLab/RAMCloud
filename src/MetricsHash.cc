@@ -87,4 +87,49 @@ MetricsHash::difference(MetricsHash& other)
     }
 }
 
+/**
+ * Subtract the metrics in one group of MetricsHashes from the
+ * corresponding metrics in another group.  More specifically: MetricsHash
+ * objects in \c first and \c second are paired by matching their
+ * \c serverId values.  For each identified pair, \c difference is
+ * invoked on the pair.  If a MetricsHash in \c second doesn't have a
+ * matching MetricsHash in \c first then it is cleared.
+ *
+ * \param first
+ *      A collection of MetricsHashes, typically snapshotting all of
+ *      the servers in a cluster at a particular point in time
+ * \param second
+ *      Another collection of MetricsHashes, typically snapshotting
+ *      the same servers as \c first, but at a later point in time.
+ *      The data in this collection is modified to subtract off
+ *      corresponding values from \c first.
+ *
+ * \return
+ *       A count of the number of MetricsHashes in \c second that had
+ *       to be cleared because there was no matching MetricsHash in
+ *       \c first.
+ */
+int
+MetricsHash::difference(std::vector<MetricsHash>& first,
+        std::vector<MetricsHash>& second)
+{
+    int mismatches = 0;
+    foreach (MetricsHash& m2, second) {
+        uint64_t serverId = m2["serverId"];
+        bool match = false;
+        foreach (MetricsHash& m1, first) {
+            if (m1["serverId"] == serverId) {
+                m2.difference(m1);
+                match = true;
+                break;
+            }
+        }
+        if (!match) {
+            mismatches++;
+            m2.clear();
+        }
+    }
+    return mismatches;
+}
+
 } // namespace RAMCloud

@@ -92,6 +92,36 @@ TEST_F(MetricsHashTest, difference_skipSpecialValues) {
     EXPECT_EQ(30U, metrics["serverId"]);
 }
 
+TEST_F(MetricsHashTest, difference_vectors) {
+    std::vector<MetricsHash> first;
+    std::vector<MetricsHash> second;
+    first.resize(2);
+    first[0]["serverId"] = 10;
+    first[0]["x"] = 1;
+    first[0]["y"] = 2;
+    first[1]["serverId"] = 20;
+    first[1]["x"] = 100;
+    first[1]["y"] = 200;
+    second.resize(4);
+    second[0]["serverId"] = 14;
+    second[1]["serverId"] = 20;
+    second[1]["x"] = 1000;
+    second[1]["y"] = 2000;
+    second[2]["serverId"] = 99;
+    second[3]["serverId"] = 10;
+    second[3]["x"] = 50;
+    second[3]["y"] = 60;
+    EXPECT_EQ(2, MetricsHash::difference(first, second));
+    EXPECT_EQ(0U, second[0].size());
+    EXPECT_EQ(20U, second[1]["serverId"]);
+    EXPECT_EQ(900U, second[1]["x"]);
+    EXPECT_EQ(1800U, second[1]["y"]);
+    EXPECT_EQ(0U, second[2].size());
+    EXPECT_EQ(10U, second[3]["serverId"]);
+    EXPECT_EQ(49U, second[3]["x"]);
+    EXPECT_EQ(58U, second[3]["y"]);
+}
+
 // The following tests are for methods defined in MetricsHash.h.
 
 TEST_F(MetricsHashTest, iteration) {
@@ -146,6 +176,15 @@ TEST_F(MetricsHashTest, empty) {
     EXPECT_FALSE(metrics.empty());
     metrics.erase("c");
     EXPECT_TRUE(metrics.empty());
+}
+
+TEST_F(MetricsHashTest, size) {
+    MetricsHash metrics;
+    EXPECT_EQ(0U, metrics.size());
+    metrics["a"] = 1;
+    EXPECT_EQ(1U, metrics.size());
+    metrics["b"] = 10;
+    EXPECT_EQ(2U, metrics.size());
 }
 
 }

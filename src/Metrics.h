@@ -36,7 +36,7 @@ namespace RAMCloud {
 
 class Metrics {
   public:
-    void start(uint64_t serverId);
+    void start();
     void end();
     void reset();
     void serialize(std::string& out);

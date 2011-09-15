@@ -17,6 +17,7 @@
 #define RAMCLOUD_METRICSHASH_H
 
 #include <unordered_map>
+#include <vector>
 #include "Common.h"
 
 namespace RAMCloud {
@@ -36,6 +37,8 @@ class MetricsHash {
     ~MetricsHash();
     void load(Buffer& buffer);
     void difference(MetricsHash& other);
+    static int difference(std::vector<MetricsHash>& first,
+            std::vector<MetricsHash>& second);
 
     // The following methods all delegate directly to the corresponding
     // methods in unordered_map.
@@ -67,6 +70,11 @@ class MetricsHash {
     bool empty()
     {
         return metrics.empty();
+    }
+
+    size_t size()
+    {
+        return metrics.size();
     }
 
     /**

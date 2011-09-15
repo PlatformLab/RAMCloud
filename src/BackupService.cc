@@ -1104,6 +1104,9 @@ BackupService::init()
                                         storageBenchmarkResults.first,
                                         storageBenchmarkResults.second);
     LOG(NOTICE, "My server ID is %lu", serverId);
+    if (metrics->serverId == 0) {
+        metrics->serverId = serverId;
+    }
 
     initCalled = true;
 }
@@ -1203,7 +1206,9 @@ BackupService::startReadingData(
     LOG(DEBUG, "Handling: %lu", reqHdr.masterId);
     recoveryTicks.construct(&metrics->backup.recoveryTicks);
     recoveryStart = Cycles::rdtsc();
-    metrics->start(serverId);
+    metrics->start();
+    if (metrics->serverId == 0)
+        metrics->serverId = serverId;
     metrics->hasBackup = 1;
     metrics->backup.storageType = static_cast<uint64_t>(storage.storageType);
     CycleCounter<Metric> srdTicks(&metrics->backup.startReadingDataTicks);

@@ -198,7 +198,7 @@ Recovery::Recovery(uint64_t masterId,
     , tasks(new Tub<BackupStartTask>[backupHosts.server_size()])
 {
     CycleCounter<Metric> _(&metrics->coordinator.recoveryConstructorTicks);
-    metrics->start(0);
+    metrics->start();
     buildSegmentIdToBackups();
 }
 

@@ -60,7 +60,7 @@ struct BindTransport : public Transport {
             throw TransportException(HERE, format("Unknown mock host: %s",
                                                   locator.c_str()));
         }
-        return new BindSession(*this, it->second, locator);
+        return new BindSession(*this, &it->second, locator);
     }
 
     Transport::SessionRef
@@ -83,7 +83,7 @@ struct BindTransport : public Transport {
 
     struct BindSession : public Session {
       public:
-        explicit BindSession(BindTransport& transport, ServiceArray& services,
+        explicit BindSession(BindTransport& transport, ServiceArray* services,
                              const string& locator)
             : transport(transport), services(services), locator(locator) {}
         ClientRpc* clientSend(Buffer* request, Buffer* response) {
@@ -101,7 +101,7 @@ struct BindTransport : public Transport {
             if ((header == NULL) || (header->service > MAX_SERVICE)) {
                 throw ServiceNotAvailableException(HERE);
             }
-            Service* service = services.services[header->service];
+            Service* service = services->services[header->service];
             if (service == NULL) {
                 throw ServiceNotAvailableException(HERE);
             }
@@ -115,7 +115,7 @@ struct BindTransport : public Transport {
         BindTransport& transport;
 
         // Points to an array holding one of each of the available services.
-        ServiceArray services;
+        ServiceArray* services;
         const string locator;
         DISALLOW_COPY_AND_ASSIGN(BindSession);
     };

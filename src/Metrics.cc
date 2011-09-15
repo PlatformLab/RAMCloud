@@ -38,20 +38,19 @@ Metrics* metrics = &_metrics;
 /**
  * This method is invoked when a service begins recovery.  It clears existing
  * metrics, unless some other service has already started recovery.
- * \param serverId
- *      The unique server ID for this process assigned by the coordinator.
  */
 void
-Metrics::start(uint64_t serverId)
+Metrics::start()
 {
     boost::unique_lock<boost::mutex> _(mutex);
     activeCount++;
     if (activeCount > 1)
         return;
     reset();
+
+    // Set a few special values.
     clockFrequency = (uint64_t) Cycles::perSecond();
     pid = getpid();
-    this->serverId = serverId;
     segmentSize = Segment::SEGMENT_SIZE;
 }
 

@@ -30,20 +30,18 @@ class MetricsTest : public ::testing::Test {
 TEST_F(MetricsTest, start) {
     Metrics metrics;
     metrics.master.recoveryTicks = 44;
-    metrics.start(111);
+    metrics.start();
     EXPECT_EQ(0U, metrics.master.recoveryTicks);
-    EXPECT_EQ(111U, metrics.serverId);
     metrics.master.recoveryTicks = 55;
-    metrics.start(222);
+    metrics.start();
     EXPECT_EQ(55U, metrics.master.recoveryTicks);
-    EXPECT_EQ(111U, metrics.serverId);
 }
 
 TEST_F(MetricsTest, end) {
     TestLog::Enable _;
     Metrics metrics;
-    metrics.start(111);
-    metrics.start(111);
+    metrics.start();
+    metrics.start();
     metrics.master.recoveryTicks = 44;
     metrics.end();
     EXPECT_EQ("", TestLog::get());

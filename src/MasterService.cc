@@ -172,6 +172,7 @@ MasterService::init()
         serverId.construct(coordinator->enlistServer(MASTER,
                                                      config.localLocator));
         LOG(NOTICE, "My server ID is %lu", *serverId);
+        metrics->serverId = *serverId;
     }
 
     initCalled = true;
@@ -833,7 +834,8 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
 
     {
         CycleCounter<Metric> recoveryTicks(&metrics->master.recoveryTicks);
-        metrics->start(*serverId);
+        metrics->start();
+        metrics->serverId = *serverId;
         metrics->hasMaster = 1;
         metrics->master.replicas = backup.replicas;
 
