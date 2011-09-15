@@ -17,6 +17,7 @@
 #include <gtest/gtest.h>
 
 #include "Common.h"
+#include "Tub.h"
 
 namespace {
 
@@ -142,13 +143,22 @@ main(int argc, char *argv[])
 
     // set up the environment for unit tests
     struct GTestSetupListener : public ::testing::EmptyTestEventListener {
+        GTestSetupListener()
+            : testContext()
+            , scopedContext() {}
         // this fires before each test fixture's constructor
         void OnTestStart(const ::testing::TestInfo& testInfo) {
-            RAMCloud::logger.setLogLevels(RAMCloud::WARNING);
+            testContext.construct(false);
+            scopedContext.construct(*testContext);
+            testContext->logger->setLogLevels(RAMCloud::WARNING);
         }
         // this fires after each test fixture's destructor
         void OnTestEnd(const ::testing::TestInfo& testInfo) {
+            scopedContext.destroy();
+            testContext.destroy();
         }
+        RAMCloud::Tub<RAMCloud::Context> testContext;
+        RAMCloud::Tub<RAMCloud::Context::Guard> scopedContext;
     };
     listeners.Append(new GTestSetupListener());
 

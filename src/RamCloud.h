@@ -40,14 +40,28 @@ class RamCloud {
         Create(RamCloud& ramCloud,
                uint32_t tableId, const void* buf, uint32_t length,
                uint64_t* version = NULL, bool async = false)
-            : master(ramCloud.objectFinder.lookupHead(tableId))
+            : constructorContext(ramCloud.clientContext)
+            , ramCloud(ramCloud)
+            , master(ramCloud.objectFinder.lookupHead(tableId))
             , masterCreate(master, tableId, buf, length, version, async)
         {
+            // This should be the last line on all return paths of this
+            // constructor.
+            constructorContext.leave();
         }
-        bool isReady() { return masterCreate.isReady(); }
+        bool isReady() {
+            Context::Guard _(ramCloud.clientContext);
+            return masterCreate.isReady();
+        }
         /// Wait for the create RPC to complete.
-        uint64_t operator()() { return masterCreate(); }
+        uint64_t operator()() {
+            Context::Guard _(ramCloud.clientContext);
+            return masterCreate();
+        }
       private:
+        /// Analogous to RamCloud::constructorContext.
+        Context::Guard constructorContext;
+        RamCloud& ramCloud;
         MasterClient master;
         MasterClient::Create masterCreate;
         DISALLOW_COPY_AND_ASSIGN(Create);
@@ -61,14 +75,28 @@ class RamCloud {
              uint32_t tableId, uint64_t id, Buffer* value,
              const RejectRules* rejectRules = NULL,
              uint64_t* version = NULL)
-            : master(ramCloud.objectFinder.lookup(tableId, id))
+            : constructorContext(ramCloud.clientContext)
+            , ramCloud(ramCloud)
+            , master(ramCloud.objectFinder.lookup(tableId, id))
             , masterRead(master, tableId, id, value, rejectRules, version)
         {
+            // This should be the last line on all return paths of this
+            // constructor.
+            constructorContext.leave();
         }
-        bool isReady() { return masterRead.isReady(); }
+        bool isReady() {
+            Context::Guard _(ramCloud.clientContext);
+            return masterRead.isReady();
+        }
         /// Wait for the read RPC to complete.
-        void operator()() { masterRead(); }
+        void operator()() {
+            Context::Guard _(ramCloud.clientContext);
+            masterRead();
+        }
       private:
+        /// Analogous to RamCloud::constructorContext.
+        Context::Guard constructorContext;
+        RamCloud& ramCloud;
         MasterClient master;
         MasterClient::Read masterRead;
         DISALLOW_COPY_AND_ASSIGN(Read);
@@ -82,31 +110,51 @@ class RamCloud {
               uint32_t tableId, uint64_t id, Buffer& buffer,
               const RejectRules* rejectRules = NULL,
               uint64_t* version = NULL, bool async = false)
-            : master(ramCloud.objectFinder.lookup(tableId, id))
+            : constructorContext(ramCloud.clientContext)
+            , ramCloud(ramCloud)
+            , master(ramCloud.objectFinder.lookup(tableId, id))
             , masterWrite(master, tableId, id, buffer,
                           rejectRules, version, async)
         {
+            // This should be the last line on all return paths of this
+            // constructor.
+            constructorContext.leave();
         }
         /// Start a write RPC. See RamCloud::write.
         Write(RamCloud& ramCloud,
               uint32_t tableId, uint64_t id, const void* buf,
               uint32_t length, const RejectRules* rejectRules = NULL,
               uint64_t* version = NULL, bool async = false)
-            : master(ramCloud.objectFinder.lookup(tableId, id))
+            : constructorContext(ramCloud.clientContext)
+            , ramCloud(ramCloud)
+            , master(ramCloud.objectFinder.lookup(tableId, id))
             , masterWrite(master, tableId, id, buf, length,
                           rejectRules, version, async)
         {
+            // This should be the last line on all return paths of this
+            // constructor.
+            constructorContext.leave();
         }
-        bool isReady() { return masterWrite.isReady(); }
+        bool isReady() {
+            Context::Guard _(ramCloud.clientContext);
+            return masterWrite.isReady();
+        }
         /// Wait for the write RPC to complete.
-        void operator()() { masterWrite(); }
+        void operator()() {
+            Context::Guard _(ramCloud.clientContext);
+            masterWrite();
+        }
       private:
+        /// Analogous to RamCloud::constructorContext.
+        Context::Guard constructorContext;
+        RamCloud& ramCloud;
         MasterClient master;
         MasterClient::Write masterWrite;
         DISALLOW_COPY_AND_ASSIGN(Write);
     };
 
     explicit RamCloud(const char* serviceLocator);
+    RamCloud(Context& context, const char* serviceLocator);
     void createTable(const char* name);
     void dropTable(const char* name);
     uint32_t openTable(const char* name);
@@ -133,6 +181,27 @@ class RamCloud {
                uint32_t length, const RejectRules* rejectRules = NULL,
                uint64_t* version = NULL, bool async = false);
     void write(uint32_t tableId, uint64_t id, const char* s);
+  PRIVATE:
+    /**
+     * Usually, RamCloud objects create a new context in which to run. This is
+     * the location where that context is stored.
+     */
+    Tub<Context> realClientContext;
+
+    /**
+     * This usually refers to realClientContext. For testing purposes and
+     * clients that want to provide their own context that they've mucked with,
+     * this refers to an externally defined context.
+     */
+    Context& clientContext;
+
+    /**
+     * This should only be used in the constructor. This guard sets the context
+     * within the constructor, both during the initializer list and during the
+     * code in the constructor.
+     */
+    Context::Guard constructorContext;
+  public:
 
     /// \copydoc Client::status
     Status status;

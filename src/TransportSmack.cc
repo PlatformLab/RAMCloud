@@ -310,7 +310,8 @@ struct Do : public Test {
                                               desc.getProtocol());
                 const string& serviceLocator(desc.getOption("server"));
                 Transport::SessionRef server(
-                    transportManager.getSession(serviceLocator.c_str()));
+                    Context::get().transportManager->getSession(
+                                                    serviceLocator.c_str()));
                 bool async = desc.getOption("async", false);
                 TestRef tests[repeat];
                 for (uint32_t i = 0; i < repeat; ++i)
@@ -424,11 +425,13 @@ main(int argc, char *argv[])
             RAMCLOUD_LOG(NOTICE,
                 "Running TransportSmack server, listening on %s",
                 localLocator.c_str());
-            transportManager.initialize(localLocator.c_str());
+            Context context(true);
+            Context::Guard _(context);
+            context.transportManager->initialize(localLocator.c_str());
 
             TSService service;
             while (true) {
-                dispatch->poll();
+                context.dispatch->poll();
             }
         }
 

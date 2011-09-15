@@ -25,8 +25,7 @@ class LoggingTest : public ::testing::Test {
     LoggingTest() {}
 
     ~LoggingTest() {
-        logger.setLogLevels(WARNING);
-        logger.stream = stderr;
+        Context::get().logger->stream = stderr;
         unlink("__test.log");
     }
     DISALLOW_COPY_AND_ASSIGN(LoggingTest);
@@ -92,7 +91,6 @@ TEST_F(LoggingTest, setLogLevel_int) {
 }
 
 TEST_F(LoggingTest, setLogLevel_string) {
-    logger.setLogLevels(SILENT_LOG_LEVEL);
     Logger l(WARNING);
 
     l.setLogLevel("default", "-1");
@@ -153,7 +151,6 @@ TEST_F(LoggingTest, setLogLevels_int) {
 }
 
 TEST_F(LoggingTest, setLogLevels_string) {
-    logger.setLogLevels(SILENT_LOG_LEVEL);
     Logger l(WARNING);
 
     l.setLogLevels("-1");
@@ -198,6 +195,7 @@ TEST_F(LoggingTest, LOG) { // also tests logMessage
     char* buf = NULL;
     size_t size = 0;
 
+    Logger& logger = *Context::get().logger;
     logger.stream = open_memstream(&buf, &size);
     assert(logger.stream != NULL);
 
@@ -217,6 +215,7 @@ TEST_F(LoggingTest, LOG) { // also tests logMessage
 }
 
 TEST_F(LoggingTest, DIE) { // also tests getMessage
+    Logger& logger = *Context::get().logger;
     logger.stream = fmemopen(NULL, 1024, "w");
     assert(logger.stream != NULL);
     try {

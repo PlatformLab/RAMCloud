@@ -54,13 +54,12 @@ class BackupServiceTest : public ::testing::Test {
         , config(NULL)
         , transport(NULL)
     {
-        logger.setLogLevels(SILENT_LOG_LEVEL);
         config = new BackupService::Config();
         config->coordinatorLocator = "mock:host=coordinator";
         storage = new InMemoryStorage(segmentSize, segmentFrames);
 
         transport = new BindTransport();
-        transportManager.registerMock(transport);
+        Context::get().transportManager->registerMock(transport);
         coordinatorService = new CoordinatorService();
         transport->addService(*coordinatorService, "mock:host=coordinator",
                     COORDINATOR_SERVICE);
@@ -68,7 +67,8 @@ class BackupServiceTest : public ::testing::Test {
         transport->addService(*backup, "mock:host=backup", BACKUP_SERVICE);
         backup->init();
         client =
-            new BackupClient(transportManager.getSession("mock:host=backup"));
+            new BackupClient(Context::get().transportManager->getSession(
+                                 "mock:host=backup"));
     }
 
     ~BackupServiceTest()
@@ -76,7 +76,7 @@ class BackupServiceTest : public ::testing::Test {
         delete client;
         delete backup;
         delete coordinatorService;
-        transportManager.unregisterMock();
+        Context::get().transportManager->unregisterMock();
         delete transport;
         delete storage;
         delete config;
@@ -396,7 +396,6 @@ TEST_F(BackupServiceTest, getRecoveryData_malformedSegment) {
         Buffer response;
         BackupClient::GetRecoveryData cont(*client, 99, 88,
                                             0, response);
-        logger.setLogLevels(SILENT_LOG_LEVEL);
         EXPECT_THROW(
             try {
                 cont();
@@ -454,9 +453,10 @@ TEST_F(BackupServiceTest, recoverySegmentBuilder) {
     ProtoBuf::Tablets partitions;
     createTabletList(partitions);
     AtomicInt recoveryThreadCount{0};
-    BackupService::RecoverySegmentBuilder builder(toBuild,
-                                                    partitions,
-                                                    recoveryThreadCount);
+    BackupService::RecoverySegmentBuilder builder(Context::get(),
+                                                  toBuild,
+                                                  partitions,
+                                                  recoveryThreadCount);
     builder();
 
     EXPECT_EQ(BackupService::SegmentInfo::RECOVERING,
@@ -747,7 +747,6 @@ class SegmentInfoTest : public ::testing::Test {
         , ioThread(boost::ref(ioScheduler))
         , info{storage, pool, ioScheduler, 99, 88, segmentSize, true}
     {
-        logger.setLogLevels(SILENT_LOG_LEVEL);
     }
 
     ~SegmentInfoTest()

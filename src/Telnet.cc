@@ -56,7 +56,10 @@ try
 {
     using namespace RAMCloud; // NOLINT
 
-    // FastTelnet specific options
+    Context context(false);
+    Context::Guard _(context);
+
+    // Telnet-specific options
     OptionsDescription telnetOptions("Telnet");
     telnetOptions.add_options()
         ("generate,g",
@@ -73,12 +76,12 @@ try
         RAMCLOUD_DIE("Error: No servers specified to telnet to.");
     }
 
-    logger.setLogLevels(WARNING);
-
     int serverCount = downCast<uint32_t>(serverLocators.size());
     Transport::SessionRef session[serverCount];
-    for (int i = 0; i < serverCount; i++)
-        session[i] = transportManager.getSession(serverLocators[i].c_str());
+    for (int i = 0; i < serverCount; i++) {
+        session[i] = Context::get().transportManager->getSession(
+                                                    serverLocators[i].c_str());
+    }
 
     if (!generate) {
         char sendbuf[1024];

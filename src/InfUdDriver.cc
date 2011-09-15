@@ -31,35 +31,13 @@
 #include <sys/types.h>
 
 #include "Common.h"
+#include "BitOps.h"
 #include "FastTransport.h"
 #include "InfUdDriver.h"
 #include "PcapFile.h"
 #include "ShortMacros.h"
 
 namespace RAMCloud {
-
-namespace {
-/**
- * Find the nearest power of 2 that is greater than or equal to \a n.
- * \param n
- *      A minimum for the return value.
- * \return
- *      A power of two that is greater than or equal to \a n.
- */
-template<typename T>
-T
-nearestPowerOfTwo(T n)
-{
-    if ((n & (n - 1)) == 0)
-        return n;
-
-    for (uint32_t i = 0; i < sizeof(T) * 8; ++i) {
-        if ((1U << i) >= n)
-            return (1U << i);
-    }
-    return 0;
-}
-}; // anonymous namespace
 
 /**
  * Construct an InfUdDriver.
@@ -128,7 +106,7 @@ InfUdDriver<Infiniband>::InfUdDriver(const ServiceLocator *sl,
     uint32_t bufSize = (getMaxPacketSize() +
         (localMac ? downCast<uint32_t>(sizeof(EthernetHeader))
                   : GRH_SIZE));
-    bufSize = nearestPowerOfTwo(bufSize);
+    bufSize = BitOps::powerOfTwoGreaterOrEqual(bufSize);
     rxBuffers.construct(realInfiniband->pd, bufSize,
                         uint32_t(MAX_RX_QUEUE_DEPTH));
     txBuffers.construct(realInfiniband->pd, bufSize,
@@ -349,7 +327,7 @@ template<typename Infiniband>
 void
 InfUdDriver<Infiniband>::Poller::poll()
 {
-    assert(dispatch->isDispatchThread());
+    assert(Context::get().dispatch->isDispatchThread());
 
     PacketBuf* buffer = driver->packetBufPool.construct();
     BufferDescriptor* bd = NULL;

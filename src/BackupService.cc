@@ -200,16 +200,12 @@ BackupService::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
         throw BackupBadSegmentIdException(HERE);
     }
 
-#ifdef PERF_DEBUG_RECOVERY_CONTIGUOUS_RECOVERY_SEGMENTS
-    auto& bufLen = recoverySegments[partitionId];
-    Buffer::Chunk::appendToBuffer(&buffer, bufLen.first, bufLen.second);
-#else
     for (Buffer::Iterator it(recoverySegments[partitionId]);
          !it.isDone(); it.next())
     {
         Buffer::Chunk::appendToBuffer(&buffer, it.getData(), it.getLength());
     }
-#endif
+
     LOG(DEBUG, "appendRecoverySegment <%lu,%lu>", masterId, segmentId);
     return STATUS_OK;
 }
@@ -301,14 +297,7 @@ BackupService::SegmentInfo::buildRecoverySegments(
         partitionCount, segmentId);
     CycleCounter<Metric> _(&metrics->backup.filterTicks);
 
-#ifdef PERF_DEBUG_RECOVERY_CONTIGUOUS_RECOVERY_SEGMENTS
-    recoverySegments = new pair<char[Segment::SEGMENT_SIZE], uint32_t>
-                                                [partitionCount];
-    for (uint32_t i = 0; i < partitionCount; ++i)
-        recoverySegments[i].second = 0;
-#else
     recoverySegments = new Buffer[partitionCount];
-#endif
     recoverySegmentsLength = partitionCount;
 
     try {
@@ -333,24 +322,13 @@ BackupService::SegmentInfo::buildRecoverySegments(
                     sizeof(*entry));
             const uint32_t len = (downCast<uint32_t>(sizeof(*entry)) +
                                   it.getLength());
-#ifdef PERF_DEBUG_RECOVERY_CONTIGUOUS_RECOVERY_SEGMENTS
-            auto& bufLen = recoverySegments[*partitionId];
-            assert(bufLen.second + len <= Segment::SEGMENT_SIZE);
-            void *out = bufLen.first + bufLen.second;
-            bufLen.second += len;
-#else
             void *out = new(&recoverySegments[*partitionId], APPEND) char[len];
-#endif
             memcpy(out, entry, len);
         }
 #if TESTING
         for (uint64_t i = 0; i < recoverySegmentsLength; ++i) {
             LOG(DEBUG, "Recovery segment for <%lu,%lu> partition %lu is %u B",
-#ifdef PERF_DEBUG_RECOVERY_CONTIGUOUS_RECOVERY_SEGMENTS
-                masterId, segmentId, i, recoverySegments[i].second);
-#else
                 masterId, segmentId, i, recoverySegments[i].getTotalLength());
-#endif
         }
 #endif
     } catch (const SegmentIteratorException& e) {
@@ -792,6 +770,9 @@ BackupService::IoScheduler::doStore(SegmentInfo& info) const
  * Makes a copy of each of the arguments as a thread local copy
  * for use as the thread runs.
  *
+ * \param context
+ *      The context in which the new thread will run (same as that of the
+ *      parent thread).
  * \param infos
  *      Pointers to SegmentInfo which will be loaded from storage
  *      and split into recovery segments.  Notice, the copy here is
@@ -804,10 +785,12 @@ BackupService::IoScheduler::doStore(SegmentInfo& info) const
  *      Reference to an atomic count for tracking number of running recoveries.
  */
 BackupService::RecoverySegmentBuilder::RecoverySegmentBuilder(
+        Context& context,
         const vector<SegmentInfo*>& infos,
         const ProtoBuf::Tablets& partitions,
         AtomicInt& recoveryThreadCount)
-    : infos(infos)
+    : context(context)
+    , infos(infos)
     , partitions(partitions)
     , recoveryThreadCount(recoveryThreadCount)
 {
@@ -826,6 +809,8 @@ BackupService::RecoverySegmentBuilder::RecoverySegmentBuilder(
 void
 BackupService::RecoverySegmentBuilder::operator()()
 {
+    Context::Guard scopedContext(context);
+
     uint64_t startTime = Cycles::rdtsc();
     ReferenceDecrementer<AtomicInt> _(recoveryThreadCount);
     LOG(DEBUG, "Building recovery segments on new thread");
@@ -1308,7 +1293,8 @@ BackupService::startReadingData(
     srdTicks.stop();
 
 #ifndef SINGLE_THREADED_BACKUP
-    RecoverySegmentBuilder builder(primarySegments,
+    RecoverySegmentBuilder builder(Context::get(),
+                                   primarySegments,
                                    partitions,
                                    recoveryThreadCount);
     ++recoveryThreadCount;

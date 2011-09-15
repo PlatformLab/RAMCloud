@@ -33,7 +33,10 @@ namespace RAMCloud {
 class CoordinatorClient : public Client {
   public:
     explicit CoordinatorClient(const char* coordinatorLocator)
-        : session(transportManager.getSession(coordinatorLocator)) {}
+        : session(Context::get().transportManager->
+                    getSession(coordinatorLocator))
+    {
+    }
 
     void createTable(const char* name);
     void dropTable(const char* name);

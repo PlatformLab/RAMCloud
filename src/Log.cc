@@ -85,7 +85,8 @@ Log::Log(const Tub<uint64_t>& logId,
         addSegmentMemory(static_cast<char*>(segmentMemory.get()) +
                          i * segmentCapacity);
     }
-    transportManager.registerMemory(segmentMemory.get(), segmentMemory.length);
+    Context::get().transportManager->registerMemory(segmentMemory.get(),
+                                                  segmentMemory.length);
 }
 
 /**
@@ -171,9 +172,6 @@ Log::allocateHead()
     // only close the old head _after_ we've opened up the new head!
     if (head) {
         head->close(false); // an exception here would be problematic...
-#ifdef PERF_DEBUG_RECOVERY_SYNC_BACKUP
-        head->sync();
-#endif
     }
 
     head = nextHead;

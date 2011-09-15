@@ -17,6 +17,8 @@
 #include "Cycles.h"
 #include "Dispatch.h"
 #include "MockSyscall.h"
+#include "ServiceManager.h"
+#include "TransportManager.h"
 
 namespace RAMCloud {
 static string *localLog;
@@ -26,7 +28,7 @@ static string *localLog;
 class DummyPoller : public Dispatch::Poller {
   public:
     DummyPoller(const char *name, int callsUntilTrue, Dispatch *dispatch)
-        : Dispatch::Poller(dispatch), myName(name),
+        : Dispatch::Poller(*dispatch), myName(name),
         callsUntilTrue(callsUntilTrue), pollersToDelete() { }
     void poll() {
         bool deleteThis = false;
@@ -69,7 +71,7 @@ class DummyPoller : public Dispatch::Poller {
 class CountPoller : public Dispatch::Poller {
   public:
     explicit CountPoller(Dispatch* dispatch)
-            : Dispatch::Poller(dispatch), count(0) { }
+            : Dispatch::Poller(*dispatch), count(0) { }
     void poll() {
         count++;
     }
@@ -83,9 +85,9 @@ class CountPoller : public Dispatch::Poller {
 class DummyTimer : public Dispatch::Timer {
   public:
     explicit DummyTimer(const char *name, Dispatch* dispatch)
-            : Dispatch::Timer(dispatch), myName(name), timersToDelete() { }
+            : Dispatch::Timer(*dispatch), myName(name), timersToDelete() { }
     DummyTimer(const char *name, uint64_t cycles, Dispatch* dispatch)
-            : Dispatch::Timer(cycles, dispatch), myName(name),
+            : Dispatch::Timer(*dispatch, cycles), myName(name),
             timersToDelete() { }
     void handleTimerEvent() {
         bool deleteThis = false;
@@ -125,12 +127,12 @@ class DummyFile : public Dispatch::File {
   public:
     explicit DummyFile(const char *name, bool readData, int fd,
             int events, Dispatch* dispatch)
-            : Dispatch::File(fd, events, dispatch), myName(name),
+            : Dispatch::File(*dispatch, fd, events), myName(name),
             readData(readData), lastInvocationId(0), deleteThis(false),
             eventInfo() { }
     explicit DummyFile(const char *name, bool readData, int fd,
             Dispatch* dispatch)
-            : Dispatch::File(fd, 0, dispatch),
+            : Dispatch::File(*dispatch, fd, 0),
             myName(name), readData(readData), lastInvocationId(0),
             deleteThis(false), eventInfo() { }
     void handleFileEvent(int events) {
@@ -187,35 +189,35 @@ class DispatchTest : public ::testing::Test {
         , logEnabler(NULL)
         , td(NULL)
     {
+
+        // delete the context objects that depend on dispatch.
+        // This allows us to mess with the context's dispatch safely.
+        delete Context::get().serviceManager;
+        Context::get().serviceManager = NULL;
+        delete Context::get().transportManager;
+        Context::get().transportManager = NULL;
+
         exceptionMessage = "no exception";
         if (!localLog) {
             localLog = new string;
         }
         localLog->clear();
-        td = new Dispatch;
+        td = Context::get().dispatch;
         td->currentTime = 100;
         sys = new MockSyscall();
         savedSyscall = Dispatch::sys;
         Dispatch::sys = sys;
         logEnabler = new TestLog::Enable();
         EXPECT_EQ(0, pipe(pipeFds));
-
-        // Stop the official dispatcher so it can't interfere with the tests.
-        delete RAMCloud::dispatch;
-        RAMCloud::dispatch = NULL;
     }
 
     ~DispatchTest() {
         close(pipeFds[0]);
         close(pipeFds[1]);
-        delete td;
         Dispatch::sys = savedSyscall;
         delete sys;
         sys = NULL;
         Cycles::mockTscValue = 0;
-
-        // Restart the main dispatcher.
-        RAMCloud::dispatch = new Dispatch;
     }
 
     // Calls td->poll repeatedly until either a log entry is
@@ -271,6 +273,7 @@ TEST_F(DispatchTest, destructor) {
     EXPECT_EQ("", TestLog::get());
     delete td;
     td = NULL;
+    Context::get().dispatch = NULL;
     EXPECT_EQ("epollThreadMain: done", TestLog::get());
     close(fds[0]);
     close(fds[1]);
@@ -292,26 +295,28 @@ TEST_F(DispatchTest, destructor) {
 }
 
 // Helper function that runs in a separate thread for the following test.
-static void lockTestThread(Dispatch** d, volatile int* flag,
+static void lockTestThread(Context* context, volatile int* flag,
         CountPoller** poller) {
-    *d = new Dispatch();
-    (*d)->hasDedicatedThread = true;
-    *poller = new CountPoller(*d);
+    Context::Guard _(*context);
+    Dispatch& dispatch = *Context::get().dispatch;
+    dispatch.hasDedicatedThread = true;
+    dispatch.ownerId = ThreadId::get();
+    *poller = new CountPoller(&dispatch);
     *flag = 1;
     while (*flag == 1)
-        (*d)->poll();
+        dispatch.poll();
     delete *poller;
-    delete *d;
+    dispatch.hasDedicatedThread = false;
 }
 
 TEST_F(DispatchTest, poll_locking) {
     Tub<Dispatch::Lock> lock;
     // The following Dispatch is created by the child thread and polled
     // from there.
-    Dispatch* dispatch;
     CountPoller* counter = NULL;
     volatile int flag = 0;
-    boost::thread thread(lockTestThread, &dispatch, &flag, &counter);
+    boost::thread thread(lockTestThread, &Context::get(), &flag, &counter);
+    Dispatch& dispatch = *Context::get().dispatch;
 
     // Wait for the child thread to start up and enter its polling loop.
     for (int i = 0; i < 1000; i++) {
@@ -324,9 +329,9 @@ TEST_F(DispatchTest, poll_locking) {
 
     // Create a lock and make sure that the dispatcher stops (e.g. make
     // sure that pollers aren't being invoked).
-    lock.construct(dispatch);
-    EXPECT_EQ(1, dispatch->lockNeeded.load());
-    EXPECT_EQ(1, dispatch->locked.load());
+    lock.construct();
+    EXPECT_EQ(1, dispatch.lockNeeded.load());
+    EXPECT_EQ(1, dispatch.locked.load());
     int oldCount = counter->count;
     usleep(1000);
     EXPECT_EQ(0, counter->count - oldCount);
@@ -337,8 +342,8 @@ TEST_F(DispatchTest, poll_locking) {
     for (int i = 0; (counter->count == oldCount) && (i < 1000); i++) {
         usleep(100);
     }
-    EXPECT_EQ(0, dispatch->locked.load());
-    EXPECT_EQ(0, dispatch->lockNeeded.load());
+    EXPECT_EQ(0, dispatch.locked.load());
+    EXPECT_EQ(0, dispatch.lockNeeded.load());
     EXPECT_GT(counter->count, oldCount);
 
     flag = 0;
@@ -629,15 +634,38 @@ TEST_F(DispatchTest, epollThreadMain_errorsInEpollWait) {
     sys->epollWaitCount = 0;
     sys->epollWaitEvents = &event;
     sys->epollWaitErrno = EPERM;
-    Dispatch::epollThreadMain(td);
+    Dispatch::epollThreadMain(&Context::get());
     EXPECT_EQ("epollThreadMain: epoll_wait returned no "
             "events in Dispatch::epollThread | epollThreadMain: "
             "epoll_wait failed in Dispatch::epollThread: Operation "
             "not permitted", TestLog::get());
 }
 
-static void epollThreadWrapper(Dispatch* dispatch) {
-    Dispatch::epollThreadMain(dispatch);
+TEST_F(DispatchTest, epollThreadMain_exitIgnoringFd) {
+    sys->write(pipeFds[1], "blah", 4);
+    DummyFile f1("f1", false, pipeFds[0],
+            Dispatch::FileEvent::READABLE, td);
+    //Dispatch::epollThreadMain(&Context::get());
+    usleep(5000);
+    EXPECT_EQ("", TestLog::get());
+    EXPECT_NE(-1, td->readyFd);
+    sys->write(td->exitPipeFds[1], "x", 1);
+    usleep(5000);
+    EXPECT_EQ("epollThreadMain: done", TestLog::get());
+}
+
+TEST_F(DispatchTest, fdIsReady) {
+    int fds[2];
+    EXPECT_EQ(0, pipe(fds));
+    EXPECT_FALSE(Dispatch::fdIsReady(fds[0]));
+    EXPECT_EQ(1, write(fds[1], "x", 1));
+    close(fds[1]);
+    EXPECT_TRUE(Dispatch::fdIsReady(fds[0]));
+    close(fds[0]);
+}
+
+static void epollThreadWrapper(Context* context) {
+    Dispatch::epollThreadMain(context);
     *localLog = "epoll thread finished";
 }
 
@@ -657,7 +685,7 @@ TEST_F(DispatchTest, epollThreadMain_signalEventsAndExit) {
 
     // Start up the polling thread; it will signal the first ready file.
     td->readyFd = -1;
-    boost::thread(epollThreadWrapper, td).detach();
+    boost::thread(epollThreadWrapper, &Context::get()).detach();
     waitForReadyFd(1.0);
     EXPECT_EQ(43, td->readyFd);
     EXPECT_EQ(Dispatch::FileEvent::WRITABLE, td->readyEvents);
@@ -731,7 +759,7 @@ TEST_F(DispatchTest, Timer_start) {
 
 TEST_F(DispatchTest, Timer_start_dispatchDeleted) {
     Tub<Dispatch> dispatch;
-    dispatch.construct();
+    dispatch.construct(false);
     DummyTimer t1("t1", dispatch.get());
     t1.start(1000);
     dispatch.destroy();
@@ -755,7 +783,7 @@ TEST_F(DispatchTest, Timer_stop) {
 TEST_F(DispatchTest, Lock_inDispatchThread) {
     // Creating a lock shouldn't stop the Dispatcher from polling.
     DummyPoller p1("p1", 1000, td);
-    Dispatch::Lock lock(td);
+    Dispatch::Lock lock;
     td->poll();
     EXPECT_EQ("poller p1 invoked", *localLog);
 }

@@ -29,6 +29,10 @@ int
 main(int argc, char *argv[])
 try
 {
+    // need external context to set log levels with OptionParser
+    Context context(true);
+    Context::Guard _(context);
+
     OptionsDescription clientOptions("EnsureServers");
     int number = 0;
     int timeout = 20;
@@ -52,7 +56,8 @@ try
     do {
         ProtoBuf::ServerList serverList;
         try {
-            RamCloud(optionParser.options.getCoordinatorLocator().c_str())
+            RamCloud(context,
+                     optionParser.options.getCoordinatorLocator().c_str())
                 .coordinator.getServerList(serverList);
         } catch (const TransportException& e) {
             usleep(10000);

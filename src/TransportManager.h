@@ -40,7 +40,8 @@ class TransportFactory;
  * Servers should first use #transportManager's #initialize(). Then, they may
  * use #getSession().
  *
- * The only instance of this class is #transportManager.
+ * To get a pointer to the current TransportManager instance, use
+ * Context::get().transportManager; see the Context class for more info.
  */
 class TransportManager {
   public:
@@ -84,12 +85,10 @@ class TransportManager {
 
     struct MockRegistrar {
         explicit MockRegistrar(Transport& transport) {
-            extern TransportManager transportManager;
-            transportManager.registerMock(&transport);
+            Context::get().transportManager->registerMock(&transport);
         }
         ~MockRegistrar() {
-            extern TransportManager transportManager;
-            transportManager.unregisterMock();
+            Context::get().transportManager->unregisterMock();
         }
     };
 #endif
@@ -171,8 +170,6 @@ class TransportManager {
     friend class TransportManagerTest;
     DISALLOW_COPY_AND_ASSIGN(TransportManager);
 };
-
-extern TransportManager transportManager;
 
 } // end RAMCloud
 

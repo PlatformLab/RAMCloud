@@ -44,7 +44,7 @@ class CoordinatorServiceTest : public ::testing::Test {
         masterConfig.localLocator = "mock:host=master";
         MasterService::sizeLogAndHashTable("16", "1", &masterConfig);
         transport = new BindTransport();
-        transportManager.registerMock(transport);
+        Context::get().transportManager->registerMock(transport);
         service = new CoordinatorService();
         service->nextServerId = 2;
         transport->addService(*service, "mock:host=coordinator",
@@ -66,7 +66,7 @@ class CoordinatorServiceTest : public ::testing::Test {
         free(master);
         delete client;
         delete service;
-        transportManager.unregisterMock();
+        Context::get().transportManager->unregisterMock();
         delete transport;
     }
 

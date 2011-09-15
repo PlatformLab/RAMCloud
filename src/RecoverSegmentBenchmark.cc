@@ -32,7 +32,6 @@ class RecoverSegmentBenchmark {
         : config()
         , service(NULL)
     {
-        logger.setLogLevels(SILENT_LOG_LEVEL);
         config.localLocator = "bogus";
         config.coordinatorLocator = "bogus";
         MasterService::sizeLogAndHashTable(logSize, hashTableSize, &config);

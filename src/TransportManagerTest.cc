@@ -203,6 +203,8 @@ TEST_F(TransportManagerTest, registerMemory) {
     EXPECT_EQ("registerMemory: register 20 bytes at 22 for mock1: | "
               "registerMemory: register 20 bytes at 22 for mock2:",
               TestLog::get());
+    manager.unregisterMock();
+    manager.unregisterMock();
 }
 
 // The following tests both the constructor and the clientSend method.
@@ -229,7 +231,8 @@ TEST_F(TransportManagerTest, workerSession) {
 // The next test makes sure that clientSend synchronizes properly with the
 // dispatch thread.
 
-void worker(Transport::SessionRef session) {
+void worker(Context* context, Transport::SessionRef session) {
+    Context::Guard _(*context);
     Buffer request;
     Buffer reply;
     request.fillFromString("abcdefg");
@@ -237,20 +240,19 @@ void worker(Transport::SessionRef session) {
 }
 
 TEST_F(TransportManagerTest, workerSessionSyncWithDispatchThread) {
-    delete dispatch;
-    dispatch = new Dispatch;
-    dispatch->hasDedicatedThread = true;
+    Context context(true);
+    Context::Guard _(context);
 
     MockTransport transport;
     Transport::SessionRef wrappedSession = new TransportManager::WorkerSession(
             transport.getSession());
-    boost::thread child(worker, wrappedSession);
+    boost::thread child(worker, &Context::get(), wrappedSession);
 
     // Make sure the child hangs in clientSend until we invoke the dispatcher.
     usleep(1000);
     EXPECT_STREQ("", transport.outputLog.c_str());
     for (int i = 0; i < 1000; i++) {
-        dispatch->poll();
+        Context::get().dispatch->poll();
         if (transport.outputLog.size() > 0) {
             break;
         }

@@ -390,7 +390,7 @@ class RemoveTombstonePoller : public Dispatch::Poller {
      */
     RemoveTombstonePoller(MasterService& masterService,
                           HashTable<LogEntryHandle>& objectMap)
-        : Dispatch::Poller()
+        : Dispatch::Poller(*Context::get().dispatch)
         , currentBucket(0)
         , masterService(masterService)
         , objectMap(objectMap)
@@ -408,7 +408,7 @@ class RemoveTombstonePoller : public Dispatch::Poller {
         // This method runs in the dispatch thread, so it isn't safe to
         // manipulate any of the objectMap state if any RPCs are currently
         // executing.
-        if (!serviceManager->idle())
+        if (!Context::get().serviceManager->idle())
             return;
         objectMap.forEachInBucket(
             recoveryCleanup, &masterService, currentBucket);
@@ -464,7 +464,7 @@ struct Task {
         , partitionId(partitionId)
         , backupHost(backupHost)
         , response()
-        , client(transportManager.getSession(
+        , client(Context::get().transportManager->getSession(
                     backupHost.service_locator().c_str()))
         , startTime(Cycles::rdtsc())
         , rpc()
@@ -627,11 +627,7 @@ MasterService::recover(uint64_t masterId,
     foreach (auto& backup, *backups.mutable_server())
         backup.set_user_data(REC_REQ_NOT_STARTED);
 
-#ifdef PERF_DEBUG_RECOVERY_SERIAL
-    Tub<Task> tasks[1];
-#else
     Tub<Task> tasks[4];
-#endif
     uint32_t activeRequests = 0;
 
     auto notStarted = backups.mutable_server()->begin();
@@ -966,14 +962,8 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
     CycleCounter<Metric> _(&metrics->master.recoverSegmentTicks);
 
     RecoverySegmentIterator i(buffer, bufferLength);
-#ifndef PERF_DEBUG_RECOVERY_REC_SEG_NO_PREFETCH
     RecoverySegmentIterator prefetch(buffer, bufferLength);
-#endif
 
-#ifdef PERF_DEBUG_RECOVERY_REC_SEG_JUST_ITER
-    for (; !i.isDone(); i.next());
-    return;
-#endif
     uint64_t lastOffsetBackupProgress = 0;
     while (!i.isDone()) {
         LogEntryType type = i.getType();
@@ -983,9 +973,7 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
             this->backup.proceed();
         }
 
-#ifndef PERF_DEBUG_RECOVERY_REC_SEG_NO_PREFETCH
         recoverSegmentPrefetcher(prefetch);
-#endif
 
         metrics->master.recoverySegmentEntryCount++;
         metrics->master.recoverySegmentEntryBytes += i.getLength();
@@ -996,10 +984,6 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
             uint64_t objId = recoverObj->id.objectId;
             uint64_t tblId = recoverObj->id.tableId;
 
-#ifdef PERF_DEBUG_RECOVERY_REC_SEG_NO_HT
-            const Object *localObj = 0;
-            const ObjectTombstone *tomb = 0;
-#else
             const Object *localObj = NULL;
             const ObjectTombstone *tomb = NULL;
             LogEntryHandle handle = objectMap.lookup(tblId, objId);
@@ -1009,7 +993,6 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
                 else
                     localObj = handle->userData<Object>();
             }
-#endif
 
             // can't have both a tombstone and an object in the hash tables
             assert(tomb == NULL || localObj == NULL);
@@ -1021,9 +1004,6 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
                 minSuccessor = tomb->objectVersion + 1;
 
             if (recoverObj->version >= minSuccessor) {
-#ifdef PERF_DEBUG_RECOVERY_REC_SEG_NO_LOG
-                const Object* newObj = localObj;
-#else
                 // write to log (with lazy backup flush) & update hash table
                 LogEntryHandle newObjHandle = log.append(LOG_ENTRY_TYPE_OBJ,
                     recoverObj, i.getLength(), false, i.checksum());
@@ -1032,11 +1012,7 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
                     localObj->dataLength(i.getLength());
 
                 // The TabletProfiler is updated asynchronously.
-#endif
-
-#ifndef PERF_DEBUG_RECOVERY_REC_SEG_NO_HT
                 objectMap.replace(newObjHandle);
-#endif
 
                 // nuke the tombstone, if it existed
                 if (tomb != NULL)
@@ -1711,6 +1687,8 @@ MasterService::storeData(uint64_t tableId,
         if (coordinator) {
             ProtoBuf::ServerList backups;
             coordinator->getBackupList(backups);
+            TransportManager& transportManager =
+                *Context::get().transportManager;
             foreach(auto& backup, backups.server())
                 transportManager.getSession(backup.service_locator().c_str());
         }

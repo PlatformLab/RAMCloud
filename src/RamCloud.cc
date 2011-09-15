@@ -31,14 +31,39 @@ namespace RAMCloud {
  *      Couldn't connect to the server.
  */
 RamCloud::RamCloud(const char* serviceLocator)
-    : status(STATUS_OK)
+    : realClientContext()
+    , clientContext(*realClientContext.construct(false))
+    , constructorContext(clientContext)
+    , status(STATUS_OK)
     , coordinator(serviceLocator)
-    , objectFinder(coordinator) { }
+    , objectFinder(coordinator)
+{
+    // This should be the last line on all return paths of this constructor.
+    constructorContext.leave();
+}
+
+/**
+ * An alternate constructor that inherits an already created context. This is
+ * useful for testing and for client programs that mess with the context
+ * (which should be discouraged).
+ */
+RamCloud::RamCloud(Context& context, const char* serviceLocator)
+    : realClientContext()
+    , clientContext(context)
+    , constructorContext(clientContext)
+    , status(STATUS_OK)
+    , coordinator(serviceLocator)
+    , objectFinder(coordinator)
+{
+    // This should be the last line on all return paths of this constructor.
+    constructorContext.leave();
+}
 
 /// \copydoc CoordinatorClient::createTable
 void
 RamCloud::createTable(const char* name)
 {
+    Context::Guard _(clientContext);
     coordinator.createTable(name);
 }
 
@@ -46,6 +71,7 @@ RamCloud::createTable(const char* name)
 void
 RamCloud::dropTable(const char* name)
 {
+    Context::Guard _(clientContext);
     coordinator.dropTable(name);
 }
 
@@ -53,6 +79,7 @@ RamCloud::dropTable(const char* name)
 uint32_t
 RamCloud::openTable(const char* name)
 {
+    Context::Guard _(clientContext);
     return coordinator.openTable(name);
 }
 
@@ -61,6 +88,7 @@ uint64_t
 RamCloud::create(uint32_t tableId, const void* buf, uint32_t length,
                  uint64_t* version, bool async)
 {
+    Context::Guard _(clientContext);
     return Create(*this, tableId, buf, length, version, async)();
 }
 
@@ -85,6 +113,7 @@ uint64_t
 RamCloud::ping(const char* serviceLocator, uint64_t nonce,
                uint64_t timeoutNanoseconds)
 {
+    Context::Guard _(clientContext);
     PingClient client;
     return client.ping(serviceLocator, nonce, timeoutNanoseconds);
 }
@@ -114,6 +143,7 @@ uint64_t
 RamCloud::ping(uint32_t table, uint64_t objectId, uint64_t nonce,
                uint64_t timeoutNanoseconds)
 {
+    Context::Guard _(clientContext);
     PingClient client;
     const char *serviceLocator = objectFinder.lookup(table, objectId)->
             getServiceLocator().c_str();
@@ -127,6 +157,7 @@ RamCloud::proxyPing(const char* serviceLocator1,
                     uint64_t timeoutNanoseconds1,
                     uint64_t timeoutNanoseconds2)
 {
+    Context::Guard _(clientContext);
     PingClient client;
     return client.proxyPing(serviceLocator1, serviceLocator2,
                             timeoutNanoseconds1, timeoutNanoseconds2);
@@ -137,6 +168,7 @@ void
 RamCloud::read(uint32_t tableId, uint64_t id, Buffer* value,
                const RejectRules* rejectRules, uint64_t* version)
 {
+    Context::Guard _(clientContext);
     return Read(*this, tableId, id, value, rejectRules, version)();
 }
 
@@ -152,6 +184,7 @@ RamCloud::read(uint32_t tableId, uint64_t id, Buffer* value,
 void
 RamCloud::multiRead(MasterClient::ReadObject* requests[], uint32_t numRequests)
 {
+    Context::Guard _(clientContext);
     std::vector<ObjectFinder::MasterRequests> requestBins =
                             objectFinder.multiLookup(requests, numRequests);
 
@@ -182,6 +215,7 @@ void
 RamCloud::remove(uint32_t tableId, uint64_t id,
                  const RejectRules* rejectRules, uint64_t* version)
 {
+    Context::Guard _(clientContext);
     MasterClient master(objectFinder.lookup(tableId, id));
     master.remove(tableId, id, rejectRules, version);
 }
@@ -193,6 +227,7 @@ RamCloud::write(uint32_t tableId, uint64_t id,
                 const RejectRules* rejectRules, uint64_t* version,
                 bool async)
 {
+    Context::Guard _(clientContext);
     Write(*this, tableId, id, buf, length, rejectRules, version, async)();
 }
 
@@ -213,6 +248,7 @@ RamCloud::write(uint32_t tableId, uint64_t id,
 void
 RamCloud::write(uint32_t tableId, uint64_t id, const char* s)
 {
+    Context::Guard _(clientContext);
     Write(*this, tableId, id, s, downCast<int>(strlen(s)), NULL,
           NULL, false)();
 }

@@ -35,8 +35,6 @@ class ServiceManagerTest : public ::testing::Test {
     ServiceManagerTest() : manager(), transport(), service(),
             logEnabler(), savedSyscall(NULL), sys()
     {
-        delete dispatch;
-        dispatch = new Dispatch;
         manager.construct();
         manager->addService(service, RpcServiceType(2));
         savedSyscall = ServiceManager::sys;
@@ -82,7 +80,7 @@ TEST_F(ServiceManagerTest, sanityCheck) {
 
     // Wait for the request to be processed for (but don't wait forever).
     for (int i = 0; i < 1000; i++) {
-        dispatch->poll();
+        Context::get().dispatch->poll();
         if (!transport.outputLog.empty())
             break;
         usleep(1000);
@@ -99,14 +97,6 @@ TEST_F(ServiceManagerTest, constructor) {
     EXPECT_EQ(0, manager1.serviceCount);
     EXPECT_EQ(1, manager2.serviceCount);
     EXPECT_TRUE(manager2.services[2]);
-}
-
-TEST_F(ServiceManagerTest, destructor_clearServiceManager) {
-    manager.destroy();
-    EXPECT_TRUE(serviceManager != NULL);
-    delete serviceManager;
-    EXPECT_TRUE(serviceManager == NULL);
-    ServiceManager::init();
 }
 
 TEST_F(ServiceManagerTest, destructor_cleanupThreads) {
@@ -316,7 +306,7 @@ TEST_F(ServiceManagerTest, workerMain_goToSleep) {
 
     // Update dispatch->currentTime. When the worker sees this it should
     // go to sleep.
-    dispatch->currentTime = Cycles::rdtsc();
+    Context::get().dispatch->currentTime = Cycles::rdtsc();
     for (int i = 0; i < 1000; i++) {
         usleep(100);
         if (worker->state.load() == Worker::SLEEPING) {
@@ -345,7 +335,7 @@ TEST_F(ServiceManagerTest, workerMain_futexError) {
     // Wait for the worker to go to sleep, then make sure it logged
     // an error message.
     usleep(20000);
-    dispatch->currentTime = Cycles::rdtsc();
+    Context::get().dispatch->currentTime = Cycles::rdtsc();
     for (int i = 0; i < 1000; i++) {
         usleep(100);
         if (worker->state.load() == Worker::SLEEPING) {
@@ -408,7 +398,7 @@ TEST_F(ServiceManagerTest, Worker_handoff_callFutex) {
             break;
         }
         usleep(1000);
-        dispatch->poll();
+        Context::get().dispatch->poll();
     }
     EXPECT_STREQ("", message);
 
@@ -417,7 +407,7 @@ TEST_F(ServiceManagerTest, Worker_handoff_callFutex) {
     manager->handleRpc(
             new MockTransport::MockServerRpc(&transport, "0x20000 99"));
     waitUntilDone(1);
-    manager-> poll();
+    manager->poll();
     EXPECT_EQ("serverReply: 0x20001 100", transport.outputLog);
 }
 

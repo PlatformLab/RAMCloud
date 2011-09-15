@@ -87,7 +87,7 @@ class Recovery : public BaseRecovery {
         {
             response.construct();
             client.construct(
-                transportManager.getSession(
+                Context::get().transportManager->getSession(
                     backupHost.service_locator().c_str()));
             rpc.construct(*client, crashedMasterId, partitions);
             RAMCLOUD_LOG(DEBUG, "Starting startReadingData on %s",

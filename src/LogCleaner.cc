@@ -47,10 +47,11 @@ LogCleaner::LogCleaner(Log* log, BackupManager *backup, bool startThread)
       cleanableSegments(),
       log(log),
       backup(backup),
-      thread()
+      thread(),
+      perfCounters()
 {
     if (startThread)
-        thread.construct(cleanerThreadEntry, this);
+        thread.construct(cleanerThreadEntry, this, &Context::get());
 }
 
 LogCleaner::~LogCleaner()
@@ -62,32 +63,41 @@ LogCleaner::~LogCleaner()
  * Attempt to do a cleaning pass. This will only actually clean if it's
  * worth doing at the moment. (What this means is presently ill-defined
  * and subject to drastic change).
+ * 
+ * \return
+ *      true if cleaning was performed, otherwise false.
  */
-void
+bool
 LogCleaner::clean()
 {
-    uint64_t logBytesFreed = log->getBytesFreed();
+    CycleCounter<uint64_t> totalTicks(&perfCounters.cleanTicks);
+    PerfCounters before = perfCounters;
 
     // We must scan new segments the Log considers cleanable before they
     // are cleaned. Doing so in log order gives us a chance to fire callbacks
     // that maintain the TabletProfilers.
     scanNewCleanableSegments();
 
-    if ((logBytesFreed - bytesFreedBeforeLastCleaning) < MIN_CLEANING_DELTA)
-        return;
-
     SegmentVector segmentsToClean;
     SegmentEntryHandleVector liveEntries;
     getSegmentsToClean(segmentsToClean);
 
     if (segmentsToClean.size() == 0)
-        return;
+        return false;
 
     getSortedLiveEntries(segmentsToClean, liveEntries);
-    moveLiveData(liveEntries);
-    log->cleaningComplete(segmentsToClean);
 
-    bytesFreedBeforeLastCleaning = logBytesFreed;
+    moveLiveData(liveEntries, segmentsToClean);
+    perfCounters.segmentsCleaned += segmentsToClean.size();
+
+    CycleCounter<uint64_t> logTicks(&perfCounters.cleaningCompleteTicks);
+    log->cleaningComplete(segmentsToClean);
+    logTicks.stop();
+
+    totalTicks.stop();
+    dumpCleaningPassStats(before);
+
+    return true;
 }
 
 /**
@@ -114,104 +124,61 @@ LogCleaner::halt()
  * cleaning on an as-needed basis.
  */
 void
-LogCleaner::cleanerThreadEntry(LogCleaner* logCleaner)
+LogCleaner::cleanerThreadEntry(LogCleaner* logCleaner, Context* context)
 {
+    Context::Guard _(*context);
     LOG(NOTICE, "LogCleaner thread spun up");
 
     while (1) {
         boost::this_thread::interruption_point();
-        logCleaner->clean();
-        usleep(LogCleaner::CLEANER_POLL_USEC);
+        if (!logCleaner->clean())
+            usleep(LogCleaner::CLEANER_POLL_USEC);
     }
 }
 
-/**
- * CostBenefit comparison functor for a vector of Segment pointers.
- * This is used to sort our array of cleanable Segments based on each
- * one's associated cost-benefit calculation. Higher values (the better
- * candidates) come last. This lets us easily remove them by popping
- * the back, rather than pulling from the front and shifting all elements
- * down.
- */
-struct CostBenefitLessThan {
-  public:
-    CostBenefitLessThan()
-        : now(secondsTimestamp())
-    {
-    }
+void
+LogCleaner::dumpCleaningPassStats(PerfCounters& before)
+{
+    PerfCounters delta = perfCounters - before;
 
-    uint64_t
-    costBenefit(Segment *s)
-    {
-        uint64_t costBenefit = ~(0UL);          // empty Segments are priceless
+    double totalCleaningTicks = static_cast<double>(delta.cleanTicks);
 
-        int utilisation = s->getUtilisation();
-        if (utilisation != 0) {
-            uint64_t timestamp = s->getAverageTimestamp();
+    #define _pctAndTime(_x)                             \
+        Cycles::toNanoseconds(delta._x) / 1000 / 1000,  \
+        100.0 * static_cast<double>(delta._x) /         \
+            totalCleaningTicks
 
-            // Mathematically this should be assured, however, a few issues can
-            // potentially pop up:
-            //  1) improper synchronisation in Segment.cc
-            //  2) unsynchronised clocks and "newer" recovered data in the Log
-            //  3) unsynchronised TSCs (WallTime uses rdtsc)
-            assert(timestamp <= now);
+    LOG(NOTICE, "============ Cleaning Pass Time Breakdown: ============");
+    LOG(NOTICE, " Total: %lu ms",
+        Cycles::toNanoseconds(delta.cleanTicks) / 1000 / 1000);
+    LOG(NOTICE, "   Scan Segments:      %6lu ms   (%.2f%%)",
+        _pctAndTime(scanTicks));
+    LOG(NOTICE, "   Choose Segments:    %6lu ms   (%.2f%%)",
+        _pctAndTime(getSegmentsTicks));
+    LOG(NOTICE, "   Collect Live Data:  %6lu ms   (%.2f%%)",
+        _pctAndTime(collectLiveEntriesTicks));
+    LOG(NOTICE, "   Sort Live Data:     %6lu ms   (%.2f%%)",
+        _pctAndTime(sortLiveEntriesTicks));
+    LOG(NOTICE, "   Move Live Data:     %6lu ms   (%.2f%%)",
+        _pctAndTime(moveLiveDataTicks));
+    LOG(NOTICE, "     Pack Prior Segs:  %6lu ms   (%.2f%%)",
+        _pctAndTime(packPriorTicks));
+    LOG(NOTICE, "     Pack Last Seg:    %6lu ms   (%.2f%%)",
+        _pctAndTime(packLastTicks));
+    LOG(NOTICE, "     Close and Sync:   %6lu ms   (%.2f%%)",
+        _pctAndTime(closeAndSyncTicks));
+    LOG(NOTICE, "   Cleaning Complete:  %6lu ms   (%.2f%%)",
+        _pctAndTime(cleaningCompleteTicks));
 
-            uint64_t age = now - timestamp;
-            costBenefit = ((100 - utilisation) * age) / utilisation;
-        }
+    #undef _pctAndTime
 
-        return costBenefit;
-    }
-
-    bool
-    operator()(Segment* a, Segment* b)
-    {
-        return costBenefit(a) < costBenefit(b);
-    }
-
-  private:
-    uint64_t now;
-};
-
-/**
- * Comparison functor that is used to sort Segment entries based on their
- * age (timestamp). Older entries come first (i.e. those with lower timestamps).
- */
-struct SegmentEntryAgeLessThan {
-  public:
-    explicit SegmentEntryAgeLessThan(Log* log)
-        : log(log)
-    {
-    }
-
-    bool
-    operator()(const SegmentEntryHandle a, const SegmentEntryHandle b)
-    {
-        const LogTypeCallback *aLogCB = log->getCallbacks(a->type());
-        const LogTypeCallback *bLogCB = log->getCallbacks(b->type());
-
-        assert(aLogCB != NULL);
-        assert(bLogCB != NULL);
-
-        return aLogCB->timestampCB(a) < bLogCB->timestampCB(b);
-    }
-
-  private:
-    Log* log;
-};
-
-/**
- * Comparison functor used to sort Segments by their IDs. Higher (newer)
- * IDs come first.
- */
-struct SegmentIdLessThan {
-  public:
-    bool
-    operator()(const Segment* a, const Segment* b)
-    {
-        return a->getId() > b->getId();
-    }
-};
+    double netCleanBytesPerSec =
+        static_cast<double>((delta.segmentsCleaned - delta.segmentsGenerated)) *
+        static_cast<double>(log->getSegmentCapacity()) /
+        Cycles::toSeconds(delta.cleanTicks);
+    LOG(NOTICE, "Cleaner rate: %.2f MB/s",
+        netCleanBytesPerSec / 1024.0 / 1024.0);
+}
 
 /**
  * Scan all cleanable Segments in order of SegmentId and then add them to
@@ -223,6 +190,8 @@ struct SegmentIdLessThan {
 void
 LogCleaner::scanNewCleanableSegments()
 {
+    CycleCounter<uint64_t> _(&perfCounters.scanTicks);
+
     log->getNewCleanableSegments(scanList);
 
     std::sort(scanList.begin(),
@@ -276,9 +245,11 @@ LogCleaner::scanSegment(Segment* segment)
 void
 LogCleaner::getSegmentsToClean(SegmentVector& segmentsToClean)
 {
+    CycleCounter<uint64_t> _(&perfCounters.getSegmentsTicks);
+
     assert(segmentsToClean.size() == 0);
 
-    if (cleanableSegments.size() < SEGMENTS_PER_CLEANING_PASS)
+    if (cleanableSegments.size() < CLEANED_SEGMENTS_PER_PASS)
         return;
 
     std::sort(cleanableSegments.begin(),
@@ -290,29 +261,45 @@ LogCleaner::getSegmentsToClean(SegmentVector& segmentsToClean)
     // may new bytes of data that we can free up.  For us, this cost is
     // (1 / 1 - u). LFS was twice as high because segments had to be read
     // from disk before cleaning.
+    uint64_t wantFreeBytes = log->getSegmentCapacity() *
+                             CLEANED_SEGMENTS_PER_PASS;
     uint64_t totalLiveBytes = 0;
     uint64_t totalCapacity = 0;
-    for (size_t i = 0; i < SEGMENTS_PER_CLEANING_PASS; i++) {
+    size_t i;
+    for (i = 0; i < cleanableSegments.size(); i++) {
         Segment* s = cleanableSegments[cleanableSegments.size() - i - 1];
         assert(s != NULL);
         totalLiveBytes += (s->getCapacity() - s->getFreeBytes());
         totalCapacity += s->getCapacity();
+
+        if ((totalCapacity - totalLiveBytes) >= wantFreeBytes) {
+            i++;
+            break;
+        }
     }
+    size_t numSegmentsToClean = i;
+
+    // Abort if there aren't enough bytes to free.
+    if ((totalCapacity - totalLiveBytes) < wantFreeBytes)
+        return;
+
+    // Calculate the write cost for the bytes we can free up.
+    // We'll only clean if the write cost is sufficiently low.
     double u = static_cast<double>(totalLiveBytes) /
                static_cast<double>(totalCapacity);
-    double writeCost = 1 / (1 - u);
-
-    LOG(DEBUG, "writeCost is %.3f\n", writeCost);
-
+    double writeCost = 1.0 / (1.0 - u);
     if (writeCost > MAXIMUM_CLEANABLE_WRITE_COST) {
         LOG(DEBUG, "writeCost (%.3f > %.3f) too high; not cleaning",
             writeCost, MAXIMUM_CLEANABLE_WRITE_COST);
         return;
     }
 
+    LOG(NOTICE, "Cleaning %zd segments to free %lu bytes (writeCost is %.3f)",
+        numSegmentsToClean, totalCapacity - totalLiveBytes, writeCost);
+
     // Ok, let's clean these suckers! Be sure to remove them from the vector
     // of candidate Segments so we don't try again in the future!
-    for (size_t i = 0; i < SEGMENTS_PER_CLEANING_PASS; i++) {
+    for (i = 0; i < numSegmentsToClean; i++) {
         segmentsToClean.push_back(cleanableSegments.back());
         cleanableSegments.pop_back();
     }
@@ -338,18 +325,111 @@ void
 LogCleaner::getSortedLiveEntries(SegmentVector& segments,
                                  SegmentEntryHandleVector& liveEntries)
 {
+    CycleCounter<uint64_t> collectTicks(&perfCounters.collectLiveEntriesTicks);
     foreach (Segment* segment, segments) {
         for (SegmentIterator i(segment); !i.isDone(); i.next()) {
-            SegmentEntryHandle seh = i.getHandle();
-            const LogTypeCallback *logCB = log->getCallbacks(seh->type());
-            if (logCB != NULL && logCB->livenessCB(seh, logCB->livenessArg))
-                liveEntries.push_back(seh);
+            SegmentEntryHandle handle = i.getHandle();
+            const LogTypeCallback *cb = log->getCallbacks(handle->type());
+            if (cb != NULL && cb->livenessCB(handle, cb->livenessArg)) {
+                assert(cb->timestampCB != NULL);
+                liveEntries.push_back(SegmentEntryHandleAndAge(
+                    handle, cb->timestampCB(handle)));
+            }
         }
     }
+    collectTicks.stop();
 
+    CycleCounter<uint64_t> _(&perfCounters.sortLiveEntriesTicks);
     std::sort(liveEntries.begin(),
               liveEntries.end(),
               SegmentEntryAgeLessThan(log));
+}
+
+/**
+ * Helper method for moveLiveData().
+ *
+ * We want to avoid the last new Segment we allocate having low
+ * utilisation (for example, we could have allocated a whole Segment
+ * just for the very last tiny object that was relocated). To avoid
+ * this, we'll greedily clean the next best Segments in our cost-benefit
+ * order so long as their live objects all fit in whatever space is left
+ * over.
+ *
+ * \param[in] lastNewSegment
+ *      The last Segment created by moveLiveData().
+ * \param[out] segmentsToClean
+ *      Vector of Segments to clean. If we clean any other Segments
+ *      beyond what the getSegmentsToClean algorithm dictated, we need
+ *      to add them here.
+ * \return
+ *      The number of objects relocated by the method. The caller can
+ *      determine the number of bytes relocated by checking the
+ *      utilisation of lastNewSegment before and after the call.
+ */
+uint32_t
+LogCleaner::moveToFillSegment(Segment* lastNewSegment,
+                              SegmentVector& segmentsToClean)
+{
+    CycleCounter<uint64_t> _(&perfCounters.packLastTicks);
+
+    if (!packLastOptimisation)
+        return 0;
+
+    if (lastNewSegment == NULL)
+        return 0;
+
+    int utilisationBefore = lastNewSegment->getUtilisation();
+    uint32_t bytesRelocated = 0;
+    uint32_t objectsRelocated = 0;
+
+    // Keep going so long as we make progress.
+    while (1) {
+        bool madeProgress = false;
+
+        for (size_t i = 0; i < cleanableSegments.size(); i++) {
+            size_t segmentIndex = cleanableSegments.size() - i - 1;
+            Segment* segment = cleanableSegments[segmentIndex];
+
+            if (segment->getLiveBytes() > lastNewSegment->appendableBytes())
+                continue;
+
+            madeProgress = true;
+
+            // There's no point in sorting the source's objects since they're
+            // going into only one Segment.
+            for (SegmentIterator it(segment); !it.isDone(); it.next()) {
+                SegmentEntryHandle handle = it.getHandle();
+                const LogTypeCallback *cb = log->getCallbacks(handle->type());
+                if (cb == NULL || !cb->livenessCB(handle, cb->livenessArg))
+                    continue;
+
+                SegmentEntryHandle newHandle =
+                    lastNewSegment->append(handle, false);
+                assert(newHandle != NULL);
+
+                if (cb->relocationCB(handle, newHandle, cb->relocationArg)) {
+                    bytesRelocated += handle->totalLength();
+                    objectsRelocated++;
+                } else {
+                    lastNewSegment->rollBack(newHandle);
+                }
+            }
+
+            // Be sure to move the Segment just cleaned to the list of cleaned
+            // Segments.
+            segmentsToClean.push_back(segment);
+            cleanableSegments.erase(cleanableSegments.begin() + segmentIndex);
+        }
+
+        if (!madeProgress)
+            break;
+    }
+
+    LOG(NOTICE, "packed %u bytes into last Segment (utilisation before/after: "
+        "%d%%/%d%%)", bytesRelocated, utilisationBefore,
+        lastNewSegment->getUtilisation());
+
+    return objectsRelocated;
 }
 
 /**
@@ -368,25 +448,52 @@ LogCleaner::getSortedLiveEntries(SegmentVector& segments,
  *
  * \param[in] liveData
  *      Vector of SegmentEntryHandles of recently live data to move.
+ * \param[out] segmentsToClean
+ *      Vector of Segments from which liveData came. This is only to be used
+ *      if we choose to clean addition Segmnts not previously specified (e.g.
+ *      in the moveToFillSegment method when packing the last new Segment).
  */
 void
-LogCleaner::moveLiveData(SegmentEntryHandleVector& liveData)
+LogCleaner::moveLiveData(SegmentEntryHandleVector& liveData,
+                         SegmentVector& segmentsToClean)
 {
+    CycleCounter<uint64_t> _(&perfCounters.moveLiveDataTicks);
+
     Segment* currentSegment = NULL;
     SegmentVector segmentsAdded;
 
-    // XXX: We shouldn't just stop using a Segment if it didn't fit the
-    //      last object. We should keep considering them for future objects.
-    //      This is strictly better than leaving open space; even if we put
-    //      in objects that are much newer (and hence more likely to be
-    //      freed soon). The worst case is the same space is soon empty, but
-    //      we have the opportunity to do better if we can pack in more data
-    //      that ends up staying alive longer.
-
-    foreach (SegmentEntryHandle handle, liveData) {
+    foreach (SegmentEntryHandleAndAge& entryAndAge, liveData) {
+        SegmentEntryHandle handle = entryAndAge.first;
         SegmentEntryHandle newHandle = NULL;
 
-        do {
+        // First try to write the object to Segments we already created
+        // (rather than the latest one) in the hopes of packing them better
+        // and getting the highest utilisation. It's possible, for instance,
+        // that a large object caused us to create a new Segment, but the
+        // previous one still has lots of free space for smaller objects.
+        //
+        // This is strictly better than leaving open space, even if we put
+        // in objects that are much newer (and hence more likely to be
+        // freed soon). The worst case is the same space is soon empty, but
+        // we have the opportunity to do better if we can pack in more data
+        // that ends up staying alive longer.
+        //
+        // If we end up cleaning to many Segments, this could get pretty
+        // expensive as the destinations fill up. Should we sort/bucket by
+        // free space, preclude ones with high utilisation already, or
+        // randomly try a fixed number instead? At worst we'll end up
+        // running through CLEANED_SEGMENTS_PER_PASS segments for each
+        // object we write out.
+        if (packPriorOptimisation) {
+            CycleCounter<uint64_t> _(&perfCounters.packPriorTicks);
+            foreach (Segment* segment, segmentsAdded) {
+                newHandle = segment->append(handle, false);
+                if (newHandle != NULL)
+                    break;
+            }
+        }
+
+        while (newHandle == NULL) {
             if (currentSegment != NULL)
                 newHandle = currentSegment->append(handle, false);
 
@@ -400,15 +507,37 @@ LogCleaner::moveLiveData(SegmentEntryHandleVector& liveData)
                 segmentsAdded.push_back(currentSegment);
                 log->cleaningInto(currentSegment);
             }
-        } while (newHandle == NULL);
+        }
 
         const LogTypeCallback *cb = log->getCallbacks(handle->type());
         if (!cb->relocationCB(handle, newHandle, cb->relocationArg))
             currentSegment->rollBack(newHandle);
     }
 
+    // End game: try to get good utilisation out of the last Segment.
+    uint32_t extraObjects = moveToFillSegment(currentSegment, segmentsToClean);
+
+    // Close and sync all newly created Segments.
+    CycleCounter<uint64_t> syncTicks(&perfCounters.closeAndSyncTicks);
     foreach (Segment* segment, segmentsAdded)
         segment->close(true);
+    syncTicks.stop();
+
+    // Now we're done. Log a few stats.
+    int totalUtilisation = 0;
+    foreach (Segment* segment, segmentsAdded) {
+        LOG(NOTICE, "created new Segment: ID %lu, utilisation %d%%",
+            segment->getId(), segment->getUtilisation());
+        totalUtilisation += segment->getUtilisation();
+    }
+    LOG(NOTICE, "cleaned %zd segments by relocating %zd entries into %zd new "
+        "segments with %.2f%% average utilisation; net gain of %zd segments",
+        segmentsToClean.size(), liveData.size() + extraObjects,
+        segmentsAdded.size(),
+        1.0 * totalUtilisation / static_cast<double>(segmentsAdded.size()),
+        segmentsToClean.size() - segmentsAdded.size());
+
+    perfCounters.segmentsGenerated += segmentsAdded.size();
 }
 
 } // namespace

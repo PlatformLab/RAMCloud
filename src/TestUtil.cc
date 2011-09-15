@@ -435,7 +435,7 @@ bool
 TestUtil::waitForRpc(Transport::ClientRpc& rpc)
 {
     for (int i = 0; i < 1000; i++) {
-        dispatch->poll();
+        Context::get().dispatch->poll();
         if (rpc.isReady())
             return true;
         usleep(1000);

@@ -153,9 +153,45 @@ namespace TestLog {
         Lock _(mutex);
         predicate = pred;
     }
+
+    /// Reset and enable/disable the test log on construction/destruction.
+    Enable::Enable()
+    {
+        Context::get().logger->saveLogLevels(savedLogLevels);
+        Context::get().logger->setLogLevels(SILENT_LOG_LEVEL);
+        enable();
+    }
+
+    /**
+     * Reset and enable/disable the test log on construction/destruction
+     * using a particular predicate to filter test log entries.
+     *
+     * \param[in] pred
+     *      See setPredicate().
+     */
+    Enable::Enable(bool (*pred)(string))
+    {
+        Context::get().logger->saveLogLevels(savedLogLevels);
+        Context::get().logger->setLogLevels(SILENT_LOG_LEVEL);
+        setPredicate(pred);
+        enable();
+    }
+
+    /// Reset and disable test logging automatically.
+    Enable::~Enable()
+    {
+        disable();
+        Context::get().logger->restoreLogLevels(savedLogLevels);
+    }
+
 } // end RAMCloud::TestLog
 
-Logger logger(NOTICE);
+/**
+ * This logger is used when RAMCLOUD_LOG is called without a current context.
+ * This shouldn't ever happen, but it wouldn't be friendly to otherwise
+ * segfault the process for a log message.
+ */
+Logger fallbackLogger(NOTICE);
 
 /**
  * Friendly names for each #LogLevel value.
@@ -424,13 +460,14 @@ Logger::logMessage(LogModule module, LogLevel level,
     clock_gettime(CLOCK_REALTIME, &now);
     FileLocker _(f);
 
-    fprintf(f, "%010lu.%09lu %s:%d in %s %s %s[%d]: ",
+    fprintf(f, "%010lu.%09lu %s:%d in %s %s %s[%d]%s: ",
             now.tv_sec, now.tv_nsec,
             where.relativeFile().c_str(), where.line,
             where.qualifiedFunction().c_str(),
             logModuleNames[module],
             logLevelNames[level],
-            pid);
+            pid,
+            (this == &fallbackLogger ? " with no context" : ""));
 
     va_start(ap, format);
     vfprintf(f, format, ap);

@@ -65,7 +65,7 @@ class RamCloudTest : public ::testing::Test {
         masterConfig2.localLocator = "mock:host=master2";
         MasterService::sizeLogAndHashTable("16", "1", &masterConfig2);
 
-        transportManager.registerMock(&transport);
+        Context::get().transportManager->registerMock(&transport);
         transport.addService(coordinatorService,
                               "mock:host=coordinator", COORDINATOR_SERVICE);
 
@@ -84,7 +84,7 @@ class RamCloudTest : public ::testing::Test {
         transport.addService(ping1, "mock:host=ping1", PING_SERVICE);
         transport.addService(ping2, "mock:host=master1", PING_SERVICE);
 
-        ramcloud = new RamCloud("mock:host=coordinator");
+        ramcloud = new RamCloud(Context::get(), "mock:host=coordinator");
         ramcloud->createTable("table1");
         tableId1 = ramcloud->openTable("table1");
         ramcloud->createTable("table2");
@@ -100,7 +100,7 @@ class RamCloudTest : public ::testing::Test {
         delete master2;
         delete coordinatorClient1;
         delete coordinatorClient2;
-        transportManager.unregisterMock();
+        Context::get().transportManager->unregisterMock();
     }
 
     DISALLOW_COPY_AND_ASSIGN(RamCloudTest);

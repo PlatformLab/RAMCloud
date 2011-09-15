@@ -133,6 +133,10 @@ class Driver {
                      Driver* driver,
                      char* const payload);
 
+        /// The context in which the chunk was created. This same context is
+        /// used when the chunk is destroyed. See comment in destructor.
+        Context& context;
+
         /// Return the PayloadChunk memory here.
         Driver* const driver;
 

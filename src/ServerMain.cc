@@ -41,6 +41,9 @@ try
 {
     using namespace RAMCloud;
 
+    Context context(true);
+    Context::Guard _(context);
+
     ServerConfig masterConfig;
     string masterTotalMemory, hashTableMemory;
 
@@ -123,10 +126,10 @@ try
         LOG(DEBUG, "server: Pinned to core %d", cpu);
     }
 
-    transportManager.initialize(
+    Context::get().transportManager->initialize(
             optionParser.options.getLocalLocator().c_str());
     LOG(NOTICE, "%s: Listening on %s", servicesInfo,
-            transportManager.getListeningLocatorsString().c_str());
+        Context::get().transportManager->getListeningLocatorsString().c_str());
     CoordinatorClient coordinator(
         optionParser.options.getCoordinatorLocator().c_str());
 
@@ -135,12 +138,13 @@ try
         masterConfig.coordinatorLocator =
                 optionParser.options.getCoordinatorLocator();
         masterConfig.localLocator =
-                transportManager.getListeningLocatorsString();
+                Context::get().transportManager->getListeningLocatorsString();
         LOG(NOTICE, "Using %u backups", replicas);
         MasterService::sizeLogAndHashTable(masterTotalMemory,
                                           hashTableMemory, &masterConfig);
         masterService.construct(masterConfig, &coordinator, replicas);
-        serviceManager->addService(*masterService, MASTER_SERVICE);
+        Context::get().serviceManager->
+            addService(*masterService, MASTER_SERVICE);
     }
 
     std::unique_ptr<BackupStorage> storage;
@@ -149,7 +153,7 @@ try
         backupConfig.coordinatorLocator =
                 optionParser.options.getCoordinatorLocator();
         backupConfig.localLocator =
-                transportManager.getListeningLocatorsString();
+                Context::get().transportManager->getListeningLocatorsString();
         backupConfig.backupStrategy = static_cast<BackupStrategy>(
                 backupStrategy);
         if (inMemory)
@@ -162,10 +166,11 @@ try
                                                 O_DIRECT | O_SYNC));
         backupService.construct(backupConfig, *storage);
         backupService->benchmark();
-        serviceManager->addService(*backupService, BACKUP_SERVICE);
+        Context::get().serviceManager
+            ->addService(*backupService, BACKUP_SERVICE);
     }
     PingService pingService;
-    serviceManager->addService(pingService, PING_SERVICE);
+    Context::get().serviceManager->addService(pingService, PING_SERVICE);
 
     // Only pin down memory _after_ users of LargeBlockOfMemory have obtained
     // their allocations (since LBOM probes are much slower if the memory
@@ -180,8 +185,9 @@ try
         masterService->init();
     if (backupService)
         backupService->init();
+    Dispatch& dispatch = *Context::get().dispatch;
     while (true) {
-        dispatch->poll();
+        dispatch.poll();
     }
 
     return 0;

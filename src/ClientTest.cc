@@ -114,13 +114,13 @@ class ClientTest : public ::testing::Test {
     {
         client.status = STATUS_OK;
         transport = new MockTransport();
-        transportManager.registerMock(transport);
+        Context::get().transportManager->registerMock(transport);
         session = transport->getSession();
     }
 
     ~ClientTest()
     {
-        transportManager.unregisterMock();
+        Context::get().transportManager->unregisterMock();
         delete transport;
     }
 

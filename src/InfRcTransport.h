@@ -199,6 +199,8 @@ class InfRcTransport : public Transport {
                      ibv_srq* srq,
                      BufferDescriptor* bd);
 
+        Context& context;
+
         InfRcTransport* transport;
 
         /// Return the PayloadChunk memory here.
@@ -291,7 +293,9 @@ class InfRcTransport : public Transport {
      */
     class Poller : public Dispatch::Poller {
       public:
-        explicit Poller(InfRcTransport* transport) : transport(transport) {}
+        explicit Poller(InfRcTransport* transport)
+            : Dispatch::Poller(*Context::get().dispatch)
+            , transport(transport) {}
         virtual void poll();
 
       private:
@@ -308,8 +312,10 @@ class InfRcTransport : public Transport {
     class ServerConnectHandler : public Dispatch::File {
       public:
         ServerConnectHandler(int fd, InfRcTransport* transport)
-                : Dispatch::File(fd, Dispatch::FileEvent::READABLE),
-                fd(fd), transport(transport) { }
+            : Dispatch::File(*Context::get().dispatch, fd,
+                             Dispatch::FileEvent::READABLE)
+            , fd(fd)
+            , transport(transport) { }
         virtual void handleFileEvent(int events);
       private:
         // The following variables are just copies of constructor arguments.

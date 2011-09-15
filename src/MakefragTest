@@ -16,11 +16,13 @@ TESTS_SRCFILES := \
 		  src/BackupManagerTest.cc \
 		  src/BackupServiceTest.cc \
 		  src/BackupStorageTest.cc \
+		  src/BitOpsTest.cc \
 		  src/BoostIntrusiveTest.cc \
 		  src/BufferTest.cc \
 		  src/ClientExceptionTest.cc \
 		  src/ClientTest.cc \
 		  src/CommonTest.cc \
+		  src/ContextTest.cc \
 		  src/CoordinatorServiceTest.cc \
 		  src/Crc32CTest.cc \
 		  src/CyclesTest.cc \
@@ -153,7 +155,7 @@ $(OBJDIR)/TransportBench: $(OBJDIR)/TransportBench.o $(OBJDIR)/Metrics.o $(OBJDI
 	@mkdir -p $(@D)
 	$(CXX) $(TESTS_LIB) -o $@ $^
 
-$(OBJDIR)/TransportSmack: $(OBJDIR)/TransportSmack.o $(OBJDIR)/Service.o $(OBJDIR)/Metrics.o $(OBJDIR)/OptionParser.o $(OBJDIR)/TestUtil.o  $(OBJDIR)/gtest.a $(OBJDIR)/libramcloud.a
+$(OBJDIR)/TransportSmack: $(OBJDIR)/TransportSmack.o $(OBJDIR)/Service.o $(OBJDIR)/Metrics.o $(OBJDIR)/OptionParser.o $(OBJDIR)/TestUtil.o $(OBJDIR)/gtest.a $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
 	$(CXX) $(TESTS_LIB) -o $@ $^
 
@@ -161,7 +163,7 @@ $(OBJDIR)/WillBenchmark: $(OBJDIR)/WillBenchmark.o $(SHARED_OBJFILES) $(SERVER_O
 	@mkdir -p $(@D)
 	$(CXX) $(LIBS) -o $@ $^
 
-$(OBJDIR)/LogCleanerBenchmark: $(OBJDIR)/LogCleanerBenchmark.o $(OBJDIR)/TestUtil.o $(OBJDIR)/libramcloud.a
+$(OBJDIR)/LogCleanerBenchmark: $(OBJDIR)/LogCleanerBenchmark.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
 	$(CXX) $(TESTS_LIB) -o $@ $^
 

@@ -57,9 +57,16 @@ enum LogModule {
     NUM_LOG_MODULES // must be the last element in the enum
 };
 
+/**
+ * This class is used to print informational and error messages to stderr or a
+ * file. You'll usually want to use the RAMCLOUD_LOG macro to log messages, but
+ * you'll need to access this class to configure the verbosity of the logger
+ * and where the log messages should go. To get a pointer to the current Logger
+ * instance, use Context::get().logger; see the Context class for more info.
+ */
 class Logger {
   public:
-    explicit Logger(LogLevel level);
+    explicit Logger(LogLevel level = NOTICE);
     ~Logger();
 
     void setLogFile(const char* path, bool truncate = false);
@@ -117,7 +124,7 @@ class Logger {
     DISALLOW_COPY_AND_ASSIGN(Logger);
 };
 
-extern Logger logger;
+extern Logger fallbackLogger;
 
 } // end RAMCloud
 
@@ -136,9 +143,13 @@ extern Logger logger;
  *      The arguments to the format string.
  */
 #define RAMCLOUD_LOG(level, format, ...) do { \
-    if (RAMCloud::logger.isLogging(RAMCLOUD_CURRENT_LOG_MODULE, level)) \
-        RAMCloud::logger.logMessage(RAMCLOUD_CURRENT_LOG_MODULE, level, HERE, \
-                                    format "\n", ##__VA_ARGS__); \
+    RAMCloud::Logger& _logger = RAMCloud::Context::isSet() \
+            ? *RAMCloud::Context::get().logger \
+            : RAMCloud::fallbackLogger; \
+    if (_logger.isLogging(RAMCLOUD_CURRENT_LOG_MODULE, level)) { \
+        _logger.logMessage(RAMCLOUD_CURRENT_LOG_MODULE, level, HERE, \
+                           format "\n", ##__VA_ARGS__); \
+    } \
     RAMCLOUD_TEST_LOG(format, ##__VA_ARGS__); \
 } while (0)
 
@@ -214,36 +225,12 @@ namespace TestLog {
      * Allows one to instrument a function in an exception safe way with
      * test logging just by sticking one of these on the stack.
      */
-    struct Enable {
-        /// Reset and enable/disable the test log on construction/destruction.
-        Enable()
-        {
-            logger.saveLogLevels(savedLogLevels);
-            logger.setLogLevels(SILENT_LOG_LEVEL);
-            enable();
-        }
-
-        /**
-         * Reset and enable/disable the test log on construction/destruction
-         * using a particular predicate to filter test log entries.
-         *
-         * \param[in] pred
-         *      See setPredicate().
-         */
-        Enable(bool (*pred)(string))
-        {
-            logger.saveLogLevels(savedLogLevels);
-            logger.setLogLevels(SILENT_LOG_LEVEL);
-            setPredicate(pred);
-            enable();
-        }
-
-        /// Reset and disable test logging automatically.
-        ~Enable()
-        {
-            disable();
-            logger.restoreLogLevels(savedLogLevels);
-        }
+    class Enable {
+      public:
+        Enable();
+        Enable(bool (*pred)(string));
+        ~Enable();
+      private:
         LogLevel savedLogLevels[NUM_LOG_MODULES];
     };
 } // namespace RAMCloud::TestLog

@@ -74,6 +74,15 @@ TEST_F(CommonTest, generateRandom) {
     EXPECT_EQ(~0UL, r);
 }
 
+TEST_F(CommonTest, generateRandom_lowOrderIsOneSometimes) {
+    for (uint32_t c = 0; c < 100000; ++c) {
+        uint8_t r = static_cast<uint8_t>(generateRandom());
+        if (r == 1)
+            return;
+    }
+    FAIL();
+}
+
 TEST_F(CommonTest, getTotalSystemMemory) {
     // for portability, only test if /proc/meminfo exists
     FILE *fp = fopen("/proc/meminfo", "r");
@@ -128,18 +137,6 @@ TEST(CodeLocation, qualifiedFunction) {
                            "(int), void (*)(int)))(int)))(void (*)(int), void "
                            "(*)(int)))(int)";
     EXPECT_EQ("func", where.qualifiedFunction());
-}
-
-TEST(isPowerOfTwo, simple) {
-    for (uint64_t i = 1; i != 0; i <<= 1)
-        EXPECT_TRUE(isPowerOfTwo(i));
-
-    int total = 0;
-    for (uint64_t i = 0; i <= 1024; i++) {
-        if (isPowerOfTwo(i))
-            total++;
-    }
-    EXPECT_EQ(11, total);
 }
 
 }  // namespace RAMCloud

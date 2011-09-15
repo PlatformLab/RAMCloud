@@ -176,8 +176,8 @@ OptionParser::setup(int argc, char* argv[])
             usageAndExit();
 
         if (logFile.size() != 0)
-            logger.setLogFile(logFile.c_str());
-        logger.setLogLevels(defaultLogLevel);
+            Context::get().logger->setLogFile(logFile.c_str());
+        Context::get().logger->setLogLevels(defaultLogLevel);
         foreach (auto moduleLevel, logLevels) {
             auto pos = moduleLevel.find("=");
             if (pos == string::npos) {
@@ -187,7 +187,7 @@ OptionParser::setup(int argc, char* argv[])
             }
             auto name = moduleLevel.substr(0, pos);
             auto level = moduleLevel.substr(pos + 1);
-            logger.setLogLevel(name, level);
+            Context::get().logger->setLogLevel(name, level);
         }
 
         if (options.pcapFilePath != "")

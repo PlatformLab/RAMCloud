@@ -338,12 +338,7 @@ class BackupService : public Service {
         Tub<ProtoBuf::Tablets> recoveryPartitions;
 
         /// An array of recovery segments when non-null.
-#ifdef PERF_DEBUG_RECOVERY_CONTIGUOUS_RECOVERY_SEGMENTS
-        // first is byte array, second is number of bytes used
-        pair<char[Segment::SEGMENT_SIZE], uint32_t>* recoverySegments;
-#else
         Buffer* recoverySegments;
-#endif
 
         /// The number of Buffers in #recoverySegments.
         uint32_t recoverySegmentsLength;
@@ -449,12 +444,16 @@ class BackupService : public Service {
     class RecoverySegmentBuilder
     {
       public:
-        RecoverySegmentBuilder(const vector<SegmentInfo*>& infos,
+        RecoverySegmentBuilder(Context& context,
+                               const vector<SegmentInfo*>& infos,
                                const ProtoBuf::Tablets& partitions,
                                AtomicInt& recoveryThreadCount);
         void operator()();
 
       private:
+        /// The context in which the thread will execute.
+        Context& context;
+
         /**
          * The SegmentInfos that will be loaded from disk (asynchronously)
          * and (asynchronously) split into recovery segments.  These

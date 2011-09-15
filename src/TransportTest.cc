@@ -24,7 +24,8 @@ class TransportTestPoller : public Dispatch::Poller {
   public:
     TransportTestPoller(int *count, Transport::ClientRpc* rpc,
             const char* errorMessage)
-        : count(count), rpc(rpc), errorMessage(errorMessage) { }
+        : Dispatch::Poller(*Context::get().dispatch),
+          count(count), rpc(rpc), errorMessage(errorMessage) { }
     void poll() {
         (*count)--;
         if (*count <= 0) {
@@ -46,9 +47,8 @@ class TransportTest : public ::testing::Test {
 };
 
 TEST_F(TransportTest, wait_noError) {
-    delete dispatch;
-    dispatch = new Dispatch;
-    dispatch->hasDedicatedThread = true;
+    Context context(true);
+    Context::Guard _(context);
     int count = 3;
     Transport::ClientRpc rpc;
     TransportTestPoller poller(&count, &rpc, NULL);
@@ -56,20 +56,21 @@ TEST_F(TransportTest, wait_noError) {
     EXPECT_EQ(0, count);
 }
 
-void waitOnRpc(Transport::ClientRpc* rpc, const char** state) {
+void waitOnRpc(Context* context, Transport::ClientRpc* rpc, const char** state)
+{
+    Context::Guard _(*context);
     rpc->wait();
     *state = "finished";
 };
 
 TEST_F(TransportTest, wait_notDispatchThread) {
-    delete dispatch;
-    dispatch = new Dispatch;
-    dispatch->hasDedicatedThread = true;
+    Context context(true);
+    Context::Guard _(context);
     int count = 3;
     Transport::ClientRpc rpc;
     TransportTestPoller poller(&count, &rpc, NULL);
     const char *state = "not finished";
-    boost::thread(waitOnRpc, &rpc, &state).detach();
+    boost::thread(waitOnRpc, &Context::get(), &rpc, &state).detach();
 
     // Wait a while and make sure that the RPC hasn't finished, and
     // that the dispatcher hasn't been invoked.
@@ -91,9 +92,8 @@ TEST_F(TransportTest, wait_notDispatchThread) {
 }
 
 TEST_F(TransportTest, wait_error) {
-    delete dispatch;
-    dispatch = new Dispatch;
-    dispatch->hasDedicatedThread = true;
+    Context context(true);
+    Context::Guard _(context);
     int count = 3;
     Transport::ClientRpc rpc;
     TransportTestPoller poller(&count, &rpc, "test error message");

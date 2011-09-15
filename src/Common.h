@@ -96,6 +96,7 @@ using std::vector;
     TypeName& operator=(const TypeName&) = delete;
 #endif
 
+#include "Context.h"
 #include "Logging.h"
 #include "Status.h"
 
@@ -289,15 +290,15 @@ rdpmc(uint32_t counter)
         return mockPMCValue;
     return _rdpmc(counter);
 }
-__inline __attribute__((always_inline, no_instrument_function))
-uint64_t generateRandom(void);
-uint64_t
+
+static inline uint64_t
 generateRandom()
 {
     if (mockRandomValue)
         return mockRandomValue++;
     return RAMCloud::_generateRandom();
 }
+
 class MockRandom {
     uint64_t original;
   public:
@@ -578,16 +579,6 @@ static inline void
 prefetch(const T* object)
 {
     prefetch(object, sizeof(*object));
-}
-
-/**
- * Return true if the unsigned number provided is a power of two, else
- * false.
- */
-static inline bool
-isPowerOfTwo(uint64_t number)
-{
-    return (number > 0 && (number & (number - 1)) == 0);
 }
 
 void pinAllMemory();

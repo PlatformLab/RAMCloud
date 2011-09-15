@@ -34,12 +34,12 @@ class PingServiceTest : public ::testing::Test {
 
     PingServiceTest() : transport(), pingService(), client()
     {
-        transportManager.registerMock(&transport);
+        Context::get().transportManager->registerMock(&transport);
         transport.addService(pingService, "mock:host=ping", PING_SERVICE);
     }
 
     ~PingServiceTest() {
-        transportManager.unregisterMock();
+        Context::get().transportManager->unregisterMock();
     }
     DISALLOW_COPY_AND_ASSIGN(PingServiceTest);
 };
@@ -88,12 +88,12 @@ TEST_F(PingServiceTest, proxyPing_timeout2) {
 TEST_F(PingServiceTest, proxyPing_pingReturnsBadValue) {
     MockTransport mockTransport;
     mockTransport.setInput("0 0 55 0");
-    transportManager.registerMock(&mockTransport, "mock2");
+    Context::get().transportManager->registerMock(&mockTransport, "mock2");
     transport.addService(pingService, "mock2:host=ping2", PING_SERVICE);
     EXPECT_EQ(0xffffffffffffffffU,
               client.proxyPing("mock:host=ping", "mock2:host=ping2",
                                2000000, 1000000));
-    transportManager.unregisterMock();
+    Context::get().transportManager->unregisterMock();
 }
 TEST_F(PingServiceTest, proxyPing_timeout1) {
     // Test the situation where the proxy (serviceLocator1) times out.
