@@ -74,6 +74,15 @@ MetricsHash::difference(MetricsHash& other)
 {
     for (MetricsHash::iterator it = other.begin(); it != other.end();
             it++) {
+        // Some of the "metrics" just provide identifying information;
+        // we don't want to difference them because it will destroy
+        // that information.
+        if ((it->first.compare("clockFrequency") == 0) ||
+                (it->first.compare("pid") == 0) ||
+                (it->first.compare("serverId") == 0) ||
+                (it->first.compare("segmentSize") == 0)) {
+            continue;
+        }
         (*this)[it->first] -= it->second;
     }
 }

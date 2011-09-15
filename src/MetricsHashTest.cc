@@ -77,6 +77,21 @@ TEST_F(MetricsHashTest, difference) {
     EXPECT_EQ(0xfffffffffffffffdul, metrics["d"]);
 }
 
+TEST_F(MetricsHashTest, difference_skipSpecialValues) {
+    MetricsHash metrics;
+    metrics["clockFrequency"] = 10;
+    metrics["pid"] = 20;
+    metrics["serverId"] = 30;
+    MetricsHash metrics2;
+    metrics2["clockFrequency"] = 1;
+    metrics2["pid"] = 2;
+    metrics2["serverId"] = 3;
+    metrics.difference(metrics2);
+    EXPECT_EQ(10U, metrics["clockFrequency"]);
+    EXPECT_EQ(20U, metrics["pid"]);
+    EXPECT_EQ(30U, metrics["serverId"]);
+}
+
 // The following tests are for methods defined in MetricsHash.h.
 
 TEST_F(MetricsHashTest, iteration) {
