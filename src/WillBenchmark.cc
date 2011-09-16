@@ -16,6 +16,7 @@
 #include "Cycles.h"
 #include "Log.h"
 #include "Logging.h"
+#include "Memory.h"
 #include "Table.h"
 #include "Tablets.pb.h"
 #include "TabletProfiler.h"
@@ -86,7 +87,7 @@ class WillBenchmark {
         uint64_t willLength = 0;
         for (int i = 0; i < loops; i++) {
             // try to trash the cache
-            void* foo = xmalloc(100 * 1024 * 1024);
+            void* foo = Memory::xmalloc(HERE, 100 * 1024 * 1024);
             memset(foo, 0, 100 * 1024 * 1024);
             free(foo);
 

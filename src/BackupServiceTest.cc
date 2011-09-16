@@ -20,12 +20,13 @@
 #include "BindTransport.h"
 #include "CoordinatorService.h"
 #include "Log.h"
-#include "ShortMacros.h"
 #include "MasterService.h"
+#include "Memory.h"
 #include "MockTransport.h"
 #include "RecoverySegmentIterator.h"
 #include "Rpc.h"
 #include "SegmentIterator.h"
+#include "ShortMacros.h"
 #include "TransportManager.h"
 
 namespace RAMCloud {
@@ -184,7 +185,7 @@ class BackupServiceTest : public ::testing::Test {
     writeDigestedSegment(uint64_t masterId, uint64_t segmentId,
         vector<uint64_t> digestIds)
     {
-        void* segBuf = xmemalign(1024 * 1024, 1024 * 1024);
+        void* segBuf = Memory::xmemalign(HERE, 1024 * 1024, 1024 * 1024);
         Segment s((uint64_t)0, segmentId, segBuf, 1024 * 1024);
 
         char digestBuf[LogDigest::getBytesFromCount

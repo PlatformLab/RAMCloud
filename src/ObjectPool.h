@@ -17,6 +17,7 @@
 #define RAMCLOUD_OBJECTPOOL_H
 
 #include "Common.h"
+#include "Memory.h"
 
 /*
  * Notes on performance and efficiency:
@@ -91,7 +92,7 @@ class ObjectPool
     {
         void* backing = NULL;
         if (pool.size() == 0) {
-            backing = xmalloc(sizeof(T));
+            backing = Memory::xmalloc(HERE, sizeof(T));
         } else {
             backing = pool.back();
             pool.pop_back();

@@ -13,10 +13,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "Buffer.h"
-
 #include <string.h>
 #include <algorithm>
+
+#include "Buffer.h"
+#include "Memory.h"
 
 namespace RAMCloud {
 
@@ -30,7 +31,7 @@ namespace RAMCloud {
 Buffer::Allocation*
 Buffer::Allocation::newAllocation(uint32_t prependSize, uint32_t totalSize) {
     totalSize = (totalSize + 7) & ~7U;
-    void* a = xmalloc(sizeof(Allocation) + totalSize);
+    void* a = Memory::xmalloc(HERE, sizeof(Allocation) + totalSize);
     return new(a) Allocation(prependSize, totalSize);
 }
 

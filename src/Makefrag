@@ -48,6 +48,7 @@ SHARED_SRCFILES := \
 		   src/MacAddress.cc \
 		   src/MasterClient.cc \
 		   src/MasterService.cc \
+		   src/Memory.cc \
 		   src/Metrics.cc \
 		   src/MetricsHash.cc \
 		   src/ObjectFinder.cc \

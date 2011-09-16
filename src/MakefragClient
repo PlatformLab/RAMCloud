@@ -28,6 +28,7 @@ CLIENT_SRCFILES := \
 		   src/Logging.cc \
 		   src/MacAddress.cc \
 		   src/MasterClient.cc \
+		   src/Memory.cc \
 		   src/Metrics.cc \
 		   src/MetricsHash.cc \
 		   src/ObjectFinder.cc \

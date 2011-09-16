@@ -28,6 +28,7 @@
 
 #include "Common.h"
 #include "Buffer.h"
+#include "Memory.h"
 #include "ShortMacros.h"
 
 namespace RAMCloud {
@@ -133,7 +134,7 @@ _generateRandom()
         ssize_t bytesRead = read(fd, &seed, sizeof(seed));
         close(fd);
         assert(bytesRead == sizeof(seed));
-        statebuf = static_cast<char*>(xmalloc(STATE_BYTES));
+        statebuf = static_cast<char*>(Memory::xmalloc(HERE, STATE_BYTES));
         initstate_r(seed, statebuf, STATE_BYTES, &buf);
     }
 

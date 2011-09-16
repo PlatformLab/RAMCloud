@@ -21,6 +21,7 @@
 
 #include "Common.h"
 #include "BackupStorage.h"
+#include "Memory.h"
 #include "ShortMacros.h"
 
 namespace RAMCloud {
@@ -41,7 +42,9 @@ BackupStorage::benchmark(BackupStrategy backupStrategy)
     uint32_t writeSpeeds[count];
     BackupStorage::Handle* handles[count];
 
-    void* p = xmemalign(Segment::SEGMENT_SIZE, Segment::SEGMENT_SIZE);
+    void* p = Memory::xmemalign(HERE,
+                                Segment::SEGMENT_SIZE,
+                                Segment::SEGMENT_SIZE);
     char* segment = static_cast<char*>(p);
 
     try {

@@ -21,6 +21,7 @@
 #include <boost/pool/pool.hpp>
 #include <boost/dynamic_bitset.hpp>
 
+#include "Memory.h"
 #include "Segment.h"
 
 namespace RAMCloud {
@@ -56,8 +57,9 @@ struct SegmentAllocator
     static char*
     malloc(const size_type bytes)
     {
-        return reinterpret_cast<char *>(xmemalign(Segment::SEGMENT_SIZE,
-                                                  bytes));
+        return reinterpret_cast<char *>(Memory::xmemalign(HERE,
+                                                          Segment::SEGMENT_SIZE,
+                                                          bytes));
     }
 
     static void

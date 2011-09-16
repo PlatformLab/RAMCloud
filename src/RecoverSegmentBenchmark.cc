@@ -17,6 +17,7 @@
 #include "Cycles.h"
 #include "Logging.h"
 #include "MasterService.h"
+#include "Memory.h"
 #include "Tablets.pb.h"
 
 namespace RAMCloud {
@@ -55,7 +56,7 @@ class RecoverSegmentBenchmark {
         uint64_t nextObjId = 0;
         Segment *segments[numSegments];
         for (int i = 0; i < numSegments; i++) {
-            void *p = xmalloc(Segment::SEGMENT_SIZE);
+            void *p = Memory::xmalloc(HERE, Segment::SEGMENT_SIZE);
             segments[i] = new Segment((uint64_t)0, i, p,
                 Segment::SEGMENT_SIZE, NULL);
             while (1) {
