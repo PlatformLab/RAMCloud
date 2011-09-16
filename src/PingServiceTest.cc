@@ -15,7 +15,7 @@
 
 #include "TestUtil.h"
 #include "Common.h"
-#include "Metrics.h"
+#include "RawMetrics.h"
 #include "MetricsHash.h"
 #include "PingClient.h"
 #include "BindTransport.h"

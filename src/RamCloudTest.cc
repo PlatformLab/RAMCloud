@@ -17,7 +17,7 @@
 #include "CoordinatorClient.h"
 #include "CoordinatorService.h"
 #include "MasterService.h"
-#include "Metrics.h"
+#include "RawMetrics.h"
 #include "MetricsHash.h"
 #include "PingService.h"
 #include "TransportManager.h"

@@ -16,7 +16,7 @@
  */
 
 #include "TestUtil.h"
-#include "Metrics.h"
+#include "RawMetrics.h"
 #include "MetricsHash.h"
 #include "MetricList.pb.h"
 
@@ -38,7 +38,7 @@ TEST_F(MetricsHashTest, basics) {
 }
 
 TEST_F(MetricsHashTest, load) {
-    Metrics data;
+    RawMetrics data;
     data.master.recoveryTicks = 99;
     data.backup.writeCount = 1000;
     string s;

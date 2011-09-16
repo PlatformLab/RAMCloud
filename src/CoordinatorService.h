@@ -21,7 +21,7 @@
 
 #include "Common.h"
 #include "ClientException.h"
-#include "Metrics.h"
+#include "RawMetrics.h"
 #include "Recovery.h"
 #include "Rpc.h"
 #include "Service.h"

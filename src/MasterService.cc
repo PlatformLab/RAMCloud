@@ -21,7 +21,7 @@
 #include "Dispatch.h"
 #include "ShortMacros.h"
 #include "MasterService.h"
-#include "Metrics.h"
+#include "RawMetrics.h"
 #include "Tub.h"
 #include "ProtoBuf.h"
 #include "Rpc.h"
@@ -440,7 +440,7 @@ class RemoveTombstonePoller : public Dispatch::Poller {
 void
 MasterService::removeTombstones()
 {
-    CycleCounter<Metric> _(&metrics->master.removeTombstoneTicks);
+    CycleCounter<RawMetric> _(&metrics->master.removeTombstoneTicks);
 #if TESTING
     // Asynchronous tombstone removal raises hell in unit tests.
     objectMap.forEach(recoveryCleanup, this);
@@ -667,7 +667,7 @@ MasterService::recover(uint64_t masterId,
   doneStartingInitialTasks:
 
     // As RPCs complete, process them and start more
-    Tub<CycleCounter<Metric>> readStallTicks;
+    Tub<CycleCounter<RawMetric>> readStallTicks;
 
     bool gotFirstGRD = false;
 
@@ -803,7 +803,7 @@ MasterService::recover(uint64_t masterId,
     detectSegmentRecoveryFailure(masterId, partitionId, backups);
 
     {
-        CycleCounter<Metric> logSyncTicks(&metrics->master.logSyncTicks);
+        CycleCounter<RawMetric> logSyncTicks(&metrics->master.logSyncTicks);
         LOG(NOTICE, "Syncing the log");
         metrics->master.logSyncBytes =
             0 - metrics->transport.transmit.byteCount;
@@ -833,7 +833,7 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
 {
 
     {
-        CycleCounter<Metric> recoveryTicks(&metrics->master.recoveryTicks);
+        CycleCounter<RawMetric> recoveryTicks(&metrics->master.recoveryTicks);
         metrics->master.recoveryCount++;
         metrics->master.replicas = backup.replicas;
 
@@ -885,13 +885,13 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
         // TODO(ongaro): don't need to calculate a new will here
         ProtoBuf::Tablets recoveryWill;
         {
-            CycleCounter<Metric> _(&metrics->master.recoveryWillTicks);
+            CycleCounter<RawMetric> _(&metrics->master.recoveryWillTicks);
             Will will(tablets, maxBytesPerPartition, maxReferentsPerPartition);
             will.serialize(recoveryWill);
         }
 
         {
-            CycleCounter<Metric> _(&metrics->master.tabletsRecoveredTicks);
+            CycleCounter<RawMetric> _(&metrics->master.tabletsRecoveredTicks);
             coordinator->tabletsRecovered(*serverId, recoveryTablets,
                                           recoveryWill);
         }
@@ -958,7 +958,7 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
 {
     uint64_t startBackupTicks = metrics->master.backupManagerTicks;
     LOG(DEBUG, "recoverSegment %lu, ...", segmentId);
-    CycleCounter<Metric> _(&metrics->master.recoverSegmentTicks);
+    CycleCounter<RawMetric> _(&metrics->master.recoverSegmentTicks);
 
     RecoverySegmentIterator i(buffer, bufferLength);
     RecoverySegmentIterator prefetch(buffer, bufferLength);
@@ -1035,7 +1035,7 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
             uint64_t tblId = recoverTomb->id.tableId;
 
             bool checksumIsValid = ({
-                CycleCounter<Metric> c(&metrics->master.verifyChecksumTicks);
+                CycleCounter<RawMetric> c(&metrics->master.verifyChecksumTicks);
                 i.isChecksumValid();
             });
             if (!checksumIsValid) {

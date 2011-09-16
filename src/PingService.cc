@@ -15,7 +15,7 @@
 
 #include "Common.h"
 #include "Cycles.h"
-#include "Metrics.h"
+#include "RawMetrics.h"
 #include "ShortMacros.h"
 #include "PingClient.h"
 #include "PingService.h"

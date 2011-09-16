@@ -27,12 +27,12 @@ CLIENT_SRCFILES := \
 		   src/Logging.cc \
 		   src/MacAddress.cc \
 		   src/MasterClient.cc \
-		   src/Metrics.cc \
 		   src/MetricsHash.cc \
 		   src/ObjectFinder.cc \
 		   src/PcapFile.cc \
 		   src/PingClient.cc \
 		   src/RamCloud.cc \
+		   src/RawMetrics.cc \
 		   src/ServerRpcPool.cc \
 		   src/Service.cc \
 		   src/ServiceLocator.cc \

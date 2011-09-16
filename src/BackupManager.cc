@@ -17,7 +17,7 @@
 #include "BackupManager.h"
 #include "CycleCounter.h"
 #include "ShortMacros.h"
-#include "Metrics.h"
+#include "RawMetrics.h"
 #include "Segment.h"
 
 namespace RAMCloud {
@@ -217,7 +217,7 @@ BackupManager::~BackupManager()
 void
 BackupManager::freeSegment(uint64_t segmentId)
 {
-    CycleCounter<Metric> _(&metrics->master.backupManagerTicks);
+    CycleCounter<RawMetric> _(&metrics->master.backupManagerTicks);
     TEST_LOG("%lu, %lu", *masterId, segmentId);
 
     // Make sure this segment isn't open:
@@ -261,7 +261,7 @@ BackupManager::freeSegment(uint64_t segmentId)
 BackupManager::OpenSegment*
 BackupManager::openSegment(uint64_t segmentId, const void* data, uint32_t len)
 {
-    CycleCounter<Metric> _(&metrics->master.backupManagerTicks);
+    CycleCounter<RawMetric> _(&metrics->master.backupManagerTicks);
     LOG(DEBUG, "openSegment %lu, %lu, ..., %u", *masterId, segmentId, len);
     auto* p = openSegmentPool.malloc();
     if (p == NULL)
@@ -299,7 +299,7 @@ BackupManager::sync()
 {
     uint64_t initTicks = metrics->master.backupManagerTicks;
     {
-        CycleCounter<Metric> _(&metrics->master.backupManagerTicks);
+        CycleCounter<RawMetric> _(&metrics->master.backupManagerTicks);
         while (!isSynced()) {
             proceedNoMetrics();
         }
@@ -318,7 +318,7 @@ BackupManager::sync()
 void
 BackupManager::proceed()
 {
-    CycleCounter<Metric> _(&metrics->master.backupManagerTicks);
+    CycleCounter<RawMetric> _(&metrics->master.backupManagerTicks);
     proceedNoMetrics();
 }
 

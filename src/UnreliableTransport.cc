@@ -14,7 +14,7 @@
  */
 
 #include "CycleCounter.h"
-#include "Metrics.h"
+#include "RawMetrics.h"
 #include "ServiceManager.h"
 #include "UnreliableTransport.h"
 
@@ -32,7 +32,7 @@ UnreliableTransport::UnreliableTransport(Driver* driver)
     struct IncomingPacketHandler : Driver::IncomingPacketHandler {
         explicit IncomingPacketHandler(UnreliableTransport& t) : t(t) {}
         void operator()(Driver::Received* received) {
-            CycleCounter<Metric> _(&metrics->transport.receive.ticks);
+            CycleCounter<RawMetric> _(&metrics->transport.receive.ticks);
             ++metrics->transport.receive.packetCount;
             ++metrics->transport.receive.iovecCount;
             metrics->transport.receive.byteCount += received->len;
@@ -116,7 +116,7 @@ UnreliableTransport::sendPacketized(const Driver::Address* recipient,
     for (uint32_t sent = 0; sent < totalLength; sent += maxPayload) {
         header.setMoreWillFollow((totalLength - sent) > maxPayload);
         Buffer::Iterator slice(payload, sent, maxPayload);
-        CycleCounter<Metric> counter;
+        CycleCounter<RawMetric> counter;
         driver->sendPacket(recipient, &header, sizeof(header), &slice);
         metrics->transport.transmit.ticks += counter.stop();
         ++metrics->transport.transmit.packetCount;

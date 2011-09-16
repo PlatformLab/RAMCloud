@@ -27,7 +27,7 @@ namespace RAMCloud {
  * and querying performance metrics; this is the primary interface used
  * by applications and benchmarks to access performance information.
  * Each metric has a hierarchical string name such as "master.replicas"
- * and a uint64_t value.  The available names are defined in metrics.py.
+ * and a uint64_t value.  The available names are defined in rawmetrics.py.
  * MetricsHash is a thin layer on top of unordered_map, so you can use
  * standard map mechanisms like [].
  */

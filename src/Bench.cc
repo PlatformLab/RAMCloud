@@ -26,7 +26,7 @@
 #include <sstream>
 #include <map>
 
-#include "Metrics.h"
+#include "RawMetrics.h"
 #include "TestUtil.h"
 #include "RamCloud.h"
 #include "MasterService.h"

@@ -21,7 +21,7 @@
 
 #include "CycleCounter.h"
 #include "Infiniband.h"
-#include "Metrics.h"
+#include "RawMetrics.h"
 #include "ShortMacros.h"
 #include "Transport.h"
 
@@ -406,7 +406,7 @@ Infiniband::postSendAndWait(QueuePair* qp, BufferDescriptor *bd,
     uint32_t length, const Address* address, uint32_t remoteQKey)
 {
     postSend(qp, bd, length, address, remoteQKey);
-    CycleCounter<Metric> _(&metrics->transport.transmit.dmaTicks);
+    CycleCounter<RawMetric> _(&metrics->transport.transmit.dmaTicks);
 
     ibv_wc wc;
     while (ibv_poll_cq(qp->txcq, 1, &wc) < 1) {}

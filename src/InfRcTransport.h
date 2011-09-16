@@ -279,7 +279,7 @@ class InfRcTransport : public Transport {
     /// RPCs which are awaiting their responses from the network.
     ClientRpcList outstandingRpcs;
 
-    Tub<CycleCounter<Metric>> clientRpcsActiveTime;
+    Tub<CycleCounter<RawMetric>> clientRpcsActiveTime;
 
     /// ServiceLocator string. May be empty if a NULL ServiceLocator was
     /// passed to the constructor. Since InfRcTransport bootstraps over

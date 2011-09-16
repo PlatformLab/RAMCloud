@@ -16,7 +16,7 @@
  */
 
 #include "TestUtil.h"
-#include "Metrics.h"
+#include "RawMetrics.h"
 #include "MetricList.pb.h"
 
 namespace RAMCloud {
@@ -28,7 +28,7 @@ class MetricsTest : public ::testing::Test {
 };
 
 TEST_F(MetricsTest, serialize) {
-    Metrics metrics;
+    RawMetrics metrics;
     metrics.master.recoveryTicks = 12345;
     string serialized;
     metrics.serialize(serialized);

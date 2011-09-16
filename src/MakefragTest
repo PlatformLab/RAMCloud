@@ -38,7 +38,6 @@ TESTS_SRCFILES := \
 		  src/MacAddressTest.cc \
 		  src/MasterServiceTest.cc \
 		  src/MetricsHashTest.cc \
-		  src/MetricsTest.cc \
 		  src/MockDriver.cc \
 		  src/MockTransport.cc \
 		  src/ObjectFinderTest.cc \
@@ -46,6 +45,7 @@ TESTS_SRCFILES := \
 		  src/ObjectPoolTest.cc \
 		  src/PingServiceTest.cc \
 		  src/ProtoBufTest.cc \
+		  src/RawMetricsTest.cc \
 		  src/Recovery.cc \
 		  src/RecoverySegmentIteratorTest.cc \
 		  src/RecoveryTest.cc \
@@ -151,11 +151,11 @@ $(OBJDIR)/ClusterPerf: $(OBJDIR)/ClusterPerf.o $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
 	$(CXX) $(LIBS) -o $@ $^
 
-$(OBJDIR)/TransportBench: $(OBJDIR)/TransportBench.o $(OBJDIR)/Metrics.o $(OBJDIR)/libramcloud.a
+$(OBJDIR)/TransportBench: $(OBJDIR)/TransportBench.o $(OBJDIR)/RawMetrics.o $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
 	$(CXX) $(TESTS_LIB) -o $@ $^
 
-$(OBJDIR)/TransportSmack: $(OBJDIR)/TransportSmack.o $(OBJDIR)/Service.o $(OBJDIR)/Metrics.o $(OBJDIR)/OptionParser.o $(OBJDIR)/TestUtil.o $(OBJDIR)/gtest.a $(OBJDIR)/libramcloud.a
+$(OBJDIR)/TransportSmack: $(OBJDIR)/TransportSmack.o $(OBJDIR)/Service.o $(OBJDIR)/RawMetrics.o $(OBJDIR)/OptionParser.o $(OBJDIR)/TestUtil.o $(OBJDIR)/gtest.a $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
 	$(CXX) $(TESTS_LIB) -o $@ $^
 

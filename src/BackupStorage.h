@@ -197,7 +197,7 @@ class BackupStorage {
     uint32_t const segmentSize;
 
   public:
-    /// Used in Metrics to print out the backup storage type.
+    /// Used in RawMetrics to print out the backup storage type.
     const Type storageType;
 
     DISALLOW_COPY_AND_ASSIGN(BackupStorage);

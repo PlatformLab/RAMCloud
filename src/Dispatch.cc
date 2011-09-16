@@ -21,7 +21,7 @@
 #include "Cycles.h"
 #include "Dispatch.h"
 #include "Fence.h"
-#include "Metrics.h"
+#include "RawMetrics.h"
 #include "NoOp.h"
 
 namespace RAMCloud {

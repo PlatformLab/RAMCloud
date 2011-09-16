@@ -22,7 +22,7 @@
 
 #include "Common.h"
 
-#include "Metrics.h"
+#include "RawMetrics.h"
 #include "RamCloud.h"
 #include "MasterService.h"
 #include "OptionParser.h"
