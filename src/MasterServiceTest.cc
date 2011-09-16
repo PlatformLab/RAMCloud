@@ -23,9 +23,10 @@
 #include "ClientException.h"
 #include "CoordinatorClient.h"
 #include "CoordinatorService.h"
-#include "ShortMacros.h"
+#include "Memory.h"
 #include "MasterClient.h"
 #include "MasterService.h"
+#include "ShortMacros.h"
 #include "TransportManager.h"
 
 namespace RAMCloud {
@@ -369,7 +370,8 @@ TEST_F(MasterServiceTest, detectSegmentRecoveryFailure_failure) {
 }
 
 TEST_F(MasterServiceTest, recover_basics) {
-    char* segMem = static_cast<char*>(xmemalign(segmentSize, segmentSize));
+    char* segMem = static_cast<char*>(Memory::xmemalign(HERE, segmentSize,
+                                                        segmentSize));
     Tub<uint64_t> serverId;
     serverId.construct(123);
     BackupManager mgr(coordinator, serverId, 1);
@@ -449,7 +451,8 @@ TEST_F(MasterServiceTest, recover_basics) {
   *    during initial RPC starts and following ones.
   */
 TEST_F(MasterServiceTest, recover) {
-    char* segMem = static_cast<char*>(xmemalign(segmentSize, segmentSize));
+    char* segMem = static_cast<char*>(Memory::xmemalign(HERE, segmentSize,
+                                                        segmentSize));
     Tub<uint64_t> serverId;
     serverId.construct(123);
     BackupManager mgr(coordinator, serverId, 1);
@@ -572,7 +575,7 @@ TEST_F(MasterServiceTest, recover) {
 
 TEST_F(MasterServiceTest, recoverSegment) {
     uint32_t segLen = 8192;
-    char* seg = static_cast<char*>(xmemalign(segLen, segLen));
+    char* seg = static_cast<char*>(Memory::xmemalign(HERE, segLen, segLen));
     uint32_t len; // number of bytes in a recovery segment
     Buffer value;
     bool ret;
@@ -1069,13 +1072,15 @@ TEST_F(MasterRecoverTest, recover) {
 
     // Give them a name so that freeSegment doesn't get called on
     // destructor until after the test.
-    char* segMem1 = static_cast<char*>(xmemalign(segmentSize, segmentSize));
+    char* segMem1 = static_cast<char*>(Memory::xmemalign(HERE, segmentSize,
+                                                         segmentSize));
     Tub<uint64_t> serverId;
     serverId.construct(99);
     BackupManager mgr(coordinator, serverId, 2);
     Segment s1(99, 87, segMem1, segmentSize, &mgr);
     s1.close();
-    char* segMem2 = static_cast<char*>(xmemalign(segmentSize, segmentSize));
+    char* segMem2 = static_cast<char*>(Memory::xmemalign(HERE, segmentSize,
+                                                         segmentSize));
     Segment s2(99, 88, segMem2, segmentSize, &mgr);
     s2.close();
 

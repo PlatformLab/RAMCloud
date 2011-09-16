@@ -27,9 +27,10 @@
 #include "BackupService.h"
 #include "BackupStorage.h"
 #include "BindTransport.h"
-#include "ShortMacros.h"
 #include "MasterService.h"
+#include "Memory.h"
 #include "Segment.h"
+#include "ShortMacros.h"
 
 namespace RAMCloud {
 
@@ -264,7 +265,7 @@ TEST_F(BackupManagerTest, OpenSegmentsync) {
 // TODO(ongaro): This is a test that really belongs in SegmentTest.cc, but the
 // setup overhead is too high.
 TEST_F(BackupManagerTest, writeSegment) {
-    void* segMem = xmemalign(segmentSize, segmentSize);
+    void* segMem = Memory::xmemalign(HERE, segmentSize, segmentSize);
     Segment seg(99, 88, segMem, segmentSize, mgr.get());
     SegmentHeader header = { 99, 88, segmentSize };
     seg.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));

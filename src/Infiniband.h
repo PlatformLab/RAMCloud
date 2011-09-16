@@ -18,6 +18,7 @@
 #include "Common.h"
 #include "Driver.h"
 #include "MacAddress.h"
+#include "Memory.h"
 #include "Tub.h"
 #include "Transport.h"
 
@@ -328,7 +329,7 @@ class RealInfiniband {
             , descriptors()
         {
             const size_t bytes = bufferSize * bufferCount;
-            basePointer = xmemalign(4096, bytes);
+            basePointer = Memory::xmemalign(HERE, 4096, bytes);
 
             ibv_mr *mr = ibv_reg_mr(pd.pd, basePointer, bytes,
                 IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_LOCAL_WRITE);

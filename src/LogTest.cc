@@ -19,6 +19,7 @@
 #include "ServerRpcPool.h"
 #include "Log.h"
 #include "LogTypes.h"
+#include "Memory.h"
 #include "Transport.h"
 
 namespace RAMCloud {
@@ -155,7 +156,7 @@ TEST_F(LogTest, addSegmentMemory) {
     serverId.construct(57);
     Log l(serverId, 1 * 8192, 8192);
 
-    void *p = xmemalign(l.segmentCapacity, l.segmentCapacity);
+    void *p = Memory::xmemalign(HERE, l.segmentCapacity, l.segmentCapacity);
     l.addSegmentMemory(p);
     Segment s((uint64_t)0, 0, p, 8192);
 

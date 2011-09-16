@@ -15,6 +15,7 @@ CLIENT_SRCFILES := \
 		   src/CRamCloud.cc \
 		   src/Client.cc \
 		   src/ClientException.cc \
+		   src/CodeLocation.cc \
 		   src/Context.cc \
 		   src/CoordinatorClient.cc \
 		   src/Crc32C.cc \
@@ -24,9 +25,10 @@ CLIENT_SRCFILES := \
 		   src/Driver.cc \
 		   src/FastTransport.cc \
 		   src/IpAddress.cc \
-		   src/Logging.cc \
+		   src/Logger.cc \
 		   src/MacAddress.cc \
 		   src/MasterClient.cc \
+		   src/Memory.cc \
 		   src/MetricsHash.cc \
 		   src/ObjectFinder.cc \
 		   src/PcapFile.cc \
@@ -41,6 +43,7 @@ CLIENT_SRCFILES := \
 		   src/Status.cc \
 		   src/StringKeyAdapter.cc \
 		   src/TcpTransport.cc \
+		   src/TestLog.cc \
 		   src/ThreadId.cc \
 		   src/TimeCounter.cc \
 		   src/Transport.cc \

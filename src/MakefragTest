@@ -33,7 +33,7 @@ TESTS_SRCFILES := \
 		  src/InitializeTest.cc \
 		  src/IpAddressTest.cc \
 		  src/LogCleanerTest.cc \
-		  src/LoggingTest.cc \
+		  src/LoggerTest.cc \
 		  src/LogTest.cc \
 		  src/MacAddressTest.cc \
 		  src/MasterServiceTest.cc \

@@ -16,6 +16,7 @@
 #include <math.h>
 
 #include "Log.h"
+#include "Memory.h"
 #include "TabletProfiler.h"
 
 /*
@@ -596,7 +597,7 @@ TabletProfiler::Subrange::Subrange(BucketHandle parent, uint64_t firstKey,
     : parent(parent),
       bucketWidth(0),
       buckets(NULL),
-      numBuckets(downCast<uint32_t>(fastPower(2, BITS_PER_LEVEL))),
+      numBuckets(1U << BITS_PER_LEVEL),
       firstKey(firstKey),
       lastKey(lastKey),
       totalBytes(0),
@@ -622,7 +623,8 @@ TabletProfiler::Subrange::Subrange(BucketHandle parent, uint64_t firstKey,
         }
     }
 
-    buckets = static_cast<Bucket*>(xmalloc(sizeof(Bucket) * numBuckets));
+    buckets = static_cast<Bucket*>(Memory::xmalloc(HERE,
+                                               sizeof(Bucket) * numBuckets));
     memset(buckets, 0, sizeof(Bucket) * numBuckets);
 }
 

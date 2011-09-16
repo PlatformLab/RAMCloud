@@ -13,8 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_LOGGING_H
-#define RAMCLOUD_LOGGING_H
+#ifndef RAMCLOUD_LOGGER_H
+#define RAMCLOUD_LOGGER_H
 
 #include "Common.h"
 
@@ -170,88 +170,6 @@ extern Logger fallbackLogger;
                                RAMCloud::format(format_, ##__VA_ARGS__)); \
 } while (0)
 
-namespace RAMCloud {
+#include "TestLog.h"
 
-/**
- * A module for capturing "test log entries" to facilitate unit testing.
- *
- * RAMCLOUD_TEST_LOG calls can be removed by disabling TESTING.  Further, test
- * logging can be run time toggled using enable() and disable() to prevent unit
- * tests which aren't interested in the test log from accumulating the log in
- * RAM.
- *
- * The easiest interface is to simply instantiate Enable at the beginning of a
- * test method.
- *
- * Example:
- * \code
- * void
- * FooClass::methodToTest()
- * {
- *     RAMCLOUD_TEST_LOG("log message");
- * }
- *
- * void
- * test()
- * {
- *     TestLog::Enable _;
- *
- *     foo->methodName();
- *
- *     EXPECT_EQ(
- *         "void RAMCloud::FooClass:methodToTest(): log message",
- *         TestLog::get());
- * }
- * \endcode
- *
- * TEST_LOG calls in deeper calls may be irrelevant to a specific unit test
- * so a predicate can be specified using setPredicate or as an argument to
- * the constructor of Enable to select only interesting test log entries.
- * See setPredicate() for more detail.
- */
-namespace TestLog {
-    void reset();
-    void disable();
-    void enable();
-    string get();
-    void log(const CodeLocation& where, const char* format, ...)
-        __attribute__((format(gnu_printf, 2, 3)));
-    void setPredicate(bool (*pred)(string));
-
-    /**
-     * Reset and enable the test log on construction, reset and disable it
-     * on destruction.
-     *
-     * Allows one to instrument a function in an exception safe way with
-     * test logging just by sticking one of these on the stack.
-     */
-    class Enable {
-      public:
-        Enable();
-        Enable(bool (*pred)(string));
-        ~Enable();
-      private:
-        LogLevel savedLogLevels[NUM_LOG_MODULES];
-    };
-} // namespace RAMCloud::TestLog
-
-} // namespace RAMCloud
-#if TESTING
-/**
- * Log an entry in the test log for use in unit tests.
- *
- * See RAMCloud::TestLog for examples on how to use this for testing.
- *
- * \param[in] format
- *      A printf-style format string for the message. It should not have a line
- *      break at the end.
- * \param[in] ...
- *      The arguments to the format string.
- */
-#define RAMCLOUD_TEST_LOG(format, ...) \
-    RAMCloud::TestLog::log(HERE, format, ##__VA_ARGS__)
-#else
-#define RAMCLOUD_TEST_LOG(format, ...)
-#endif
-
-#endif  // RAMCLOUD_LOGGING_H
+#endif  // RAMCLOUD_LOGGER_H

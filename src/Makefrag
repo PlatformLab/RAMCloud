@@ -33,6 +33,7 @@ SHARED_SRCFILES := \
 		   src/BackupManager.cc \
 		   src/Buffer.cc \
 		   src/ClientException.cc \
+		   src/CodeLocation.cc \
 		   src/Common.cc \
 		   src/Cycles.cc \
 		   src/Dispatch.cc \
@@ -43,10 +44,11 @@ SHARED_SRCFILES := \
 		   src/LargeBlockOfMemory.cc \
 		   src/Log.cc \
 		   src/LogCleaner.cc \
-		   src/Logging.cc \
+		   src/Logger.cc \
 		   src/MacAddress.cc \
 		   src/MasterClient.cc \
 		   src/MasterService.cc \
+		   src/Memory.cc \
 		   src/MetricsHash.cc \
 		   src/ObjectFinder.cc \
 		   src/OptionParser.cc \
@@ -67,6 +69,7 @@ SHARED_SRCFILES := \
 		   src/Status.cc \
 		   src/TabletProfiler.cc \
 		   src/TcpTransport.cc \
+		   src/TestLog.cc \
 		   src/ThreadId.cc \
 		   src/TimeCounter.cc \
 		   src/Transport.cc \

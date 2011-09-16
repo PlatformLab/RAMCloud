@@ -197,9 +197,9 @@ void
 writeOne(uint64_t val, uint64_t key = 0)
 {
     char buf[size];
-    memset(&buf[0], downCast<uint32_t>(val), size);
+    memset(&buf[0], RC::downCast<uint32_t>(val), size);
     buf[size-1] = 0;
-    client->write(table, key, &buf[0], downCast<uint32_t>(size));
+    client->write(table, key, &buf[0], RC::downCast<uint32_t>(size));
 }
 
 void
@@ -215,7 +215,7 @@ writeMany(void)
     if (numTables == 1) {
         numCalls++;
         for (uint64_t i = 0; i < count; i++) {
-            uint64_t key = randomReads ? generateRandom() %
+            uint64_t key = randomReads ? RC::generateRandom() %
                                             (1000*1000*10*numCalls +
                                              1000*1000*workerId + i)
                                        : i;
@@ -227,9 +227,9 @@ writeMany(void)
         for (uint32_t i = 0; i < numTables; i++) {
             uint64_t val = 0xFF;
             char buf[size];
-            memset(&buf[0], downCast<uint32_t>(val), size);
+            memset(&buf[0], RC::downCast<uint32_t>(val), size);
             buf[size-1] = 0;
-            client->write(tables[i], 0, &buf[0], downCast<uint32_t>(size));
+            client->write(tables[i], 0, &buf[0], RC::downCast<uint32_t>(size));
         }
     }
 }
@@ -240,7 +240,7 @@ readMany()
     uint64_t key;
     RC::Buffer value;
     for (uint64_t i = 0; i < count; i++) {
-        key = randomReads ? generateRandom() % count : i;
+        key = randomReads ? RC::generateRandom() % count : i;
         client->read(table, multirow ? key : 0, &value);
         uint64_t val = *value.getStart<uint64_t>();
         if (size != value.getTotalLength()) {
@@ -269,7 +269,7 @@ multiRead_oneMaster()
         RC::Tub<RC::Buffer> values[multiread];
 
         for (uint32_t j = 0; j < multiread; j++) {
-            uint64_t key = randomReads ? generateRandom() % count : j;
+            uint64_t key = randomReads ? RC::generateRandom() % count : j;
             requestObjects[j] = RC::MasterClient::ReadObject(
                                 table, (randomReads || multirow) ? key : 0,
                                 &values[j]);

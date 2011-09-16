@@ -22,11 +22,12 @@
 #include "BackupStorage.h"
 #include "CoordinatorClient.h"
 #include "CoordinatorService.h"
-#include "ShortMacros.h"
 #include "MasterService.h"
+#include "Memory.h"
+#include "Recovery.h"
+#include "ShortMacros.h"
 #include "Tablets.pb.h"
 #include "TransportManager.h"
-#include "Recovery.h"
 
 namespace RAMCloud {
 
@@ -68,7 +69,7 @@ class RecoveryTest : public ::testing::Test {
             }
             mgr->hosts = backupList;
 
-            segMem = xmemalign(segmentSize, segmentSize);
+            segMem = Memory::xmemalign(HERE, segmentSize, segmentSize);
             seg = new Segment(masterId, segmentId, segMem, segmentSize, mgr);
 
             char temp[LogDigest::getBytesFromCount(
