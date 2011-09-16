@@ -15,6 +15,7 @@ CLIENT_SRCFILES := \
 		   src/CRamCloud.cc \
 		   src/Client.cc \
 		   src/ClientException.cc \
+		   src/CodeLocation.cc \
 		   src/Context.cc \
 		   src/CoordinatorClient.cc \
 		   src/Crc32C.cc \

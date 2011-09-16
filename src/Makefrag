@@ -33,6 +33,7 @@ SHARED_SRCFILES := \
 		   src/BackupManager.cc \
 		   src/Buffer.cc \
 		   src/ClientException.cc \
+		   src/CodeLocation.cc \
 		   src/Common.cc \
 		   src/Cycles.cc \
 		   src/Dispatch.cc \

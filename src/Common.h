@@ -235,100 +235,14 @@ class MockRandom {
 string format(const char* format, ...)
     __attribute__((format(printf, 1, 2)));
 
-/**
- * Describes the location of a line of code.
- * You can get one of these with #HERE.
- */
-struct CodeLocation {
-    /// Called by #HERE only.
-    CodeLocation(const char* file,
-                 const uint32_t line,
-                 const char* function,
-                 const char* prettyFunction)
-        : file(file)
-        , line(line)
-        , function(function)
-        , prettyFunction(prettyFunction)
-    {}
-    string str() const {
-        return format("%s at %s:%d",
-                      qualifiedFunction().c_str(),
-                      relativeFile().c_str(),
-                      line);
-    }
-    string relativeFile() const;
-    string qualifiedFunction() const;
-
-    /// __FILE__
-    const char* file;
-    /// __LINE__
-    uint32_t line;
-    /// __func__
-    const char* function;
-    /// __PRETTY_FUNCTION__
-    const char* prettyFunction;
-};
-
-/**
- * Constructs a #CodeLocation describing the line from where it is used.
- */
-#define HERE \
-    RAMCloud::CodeLocation(__FILE__, __LINE__, __func__, __PRETTY_FUNCTION__)
-
 string demangle(const char* name);
 
-/**
- * The base class for all RAMCloud exceptions.
- */
-struct Exception : public std::exception {
-    explicit Exception(const CodeLocation& where)
-        : message(""), errNo(0), where(where), whatCache() {}
-    Exception(const CodeLocation& where, std::string msg)
-        : message(msg), errNo(0), where(where), whatCache() {}
-    Exception(const CodeLocation& where, int errNo)
-        : message(""), errNo(errNo), where(where), whatCache() {
-        message = strerror(errNo);
-    }
-    Exception(const CodeLocation& where, string msg, int errNo)
-        : message(msg + ": " + strerror(errNo)), errNo(errNo), where(where),
-          whatCache() {}
-    Exception(const Exception& other)
-        : message(other.message), errNo(other.errNo), where(other.where),
-          whatCache() {}
-    virtual ~Exception() throw() {}
-    string str() const {
-        return (demangle(typeid(*this).name()) + ": " + message +
-                " thrown at " + where.str());
-    }
-    const char* what() const throw() {
-        if (whatCache)
-            return whatCache.get();
-        string s(str());
-        char* cStr = new char[s.length() + 1];
-        whatCache.reset(const_cast<const char*>(cStr));
-        memcpy(cStr, s.c_str(), s.length() + 1);
-        return cStr;
-    }
-    string message;
-    int errNo;
-    CodeLocation where;
-  private:
-    mutable std::unique_ptr<const char[]> whatCache;
-};
+} // namespace RAMCloud
 
-/**
- * A fatal error that should exit the program.
- */
-struct FatalError : public Exception {
-    explicit FatalError(const CodeLocation& where)
-        : Exception(where) {}
-    FatalError(const CodeLocation& where, std::string msg)
-        : Exception(where, msg) {}
-    FatalError(const CodeLocation& where, int errNo)
-        : Exception(where, errNo) {}
-    FatalError(const CodeLocation& where, string msg, int errNo)
-        : Exception(where, msg, errNo) {}
-};
+#include "CodeLocation.h"
+#include "Exception.h"
+
+namespace RAMCloud {
 
 void debug_dump64(const void *buf, uint64_t bytes);
 class Buffer;
