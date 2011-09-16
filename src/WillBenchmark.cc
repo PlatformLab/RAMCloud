@@ -15,7 +15,6 @@
 
 #include "Cycles.h"
 #include "Log.h"
-#include "Logging.h"
 #include "Memory.h"
 #include "Table.h"
 #include "Tablets.pb.h"

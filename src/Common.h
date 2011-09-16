@@ -73,7 +73,7 @@ using std::vector;
 #endif
 
 #include "Context.h"
-#include "Logging.h"
+#include "Logger.h"
 #include "Status.h"
 
 namespace RAMCloud {

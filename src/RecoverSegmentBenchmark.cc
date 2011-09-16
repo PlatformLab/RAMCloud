@@ -15,7 +15,6 @@
 
 #include "ClientException.h"
 #include "Cycles.h"
-#include "Logging.h"
 #include "MasterService.h"
 #include "Memory.h"
 #include "Tablets.pb.h"
