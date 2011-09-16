@@ -972,7 +972,8 @@ void*
 operator new(size_t numBytes, RAMCloud::Buffer* buffer,
              RAMCloud::CHUNK_T chunk)
 {
-    assert(numBytes >= sizeof(RAMCloud::Buffer::Chunk));
+    using namespace RAMCloud;
+    assert(numBytes >= sizeof(Buffer::Chunk));
     return buffer->allocateChunk(downCast<uint32_t>(numBytes));
 }
 
@@ -996,6 +997,7 @@ void*
 operator new(size_t numBytes, RAMCloud::Buffer* buffer,
              RAMCloud::MISC_T misc)
 {
+    using namespace RAMCloud;
     if (numBytes == 0) {
         // We want no visible effects but should return a unique pointer.
         return buffer->allocateAppend(1);

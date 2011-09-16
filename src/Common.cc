@@ -31,10 +31,10 @@
 #include "Buffer.h"
 #include "ShortMacros.h"
 
+namespace RAMCloud {
+
 uint64_t mockPMCValue = 0lu;
 uint64_t mockRandomValue = 0lu;
-
-namespace RAMCloud {
 
 // Output a binary buffer in 'hexdump -C' style.
 // Note that this exceeds 80 characters due to 64-bit offsets. Oh, well.
@@ -83,17 +83,16 @@ debug_dump64(Buffer& buffer)
     debug_dump64(buffer.getRange(0, length), length);
 }
 
-namespace {
-void vformat(string& s, const char* format, va_list ap)
-    __attribute__((format(printf, 2, 0)));
-
-/**
- * A safe version of vsprintf.
- * Used by the two #format() variants.
- */
-void
-vformat(string& s, const char* format, va_list ap)
+/// A safe version of sprintf.
+string
+format(const char* format, ...)
 {
+    string s;
+    va_list ap;
+    va_start(ap, format);
+
+    // We're not really sure how big of a buffer will be necessary.
+    // Try 1K, if not the return value will tell us how much is necessary.
     int bufSize = 1024;
     while (true) {
         char buf[bufSize];
@@ -104,36 +103,11 @@ vformat(string& s, const char* format, va_list ap)
         assert(r >= 0); // old glibc versions returned -1
         if (r < bufSize) {
             s = buf;
-            return;
+            break;
         }
         bufSize = r + 1;
     }
-}
-} // anonymous namespace
 
-/// A safe version of sprintf.
-string
-format(const char* format, ...)
-{
-    string s;
-    va_list ap;
-    va_start(ap, format);
-    vformat(s, format, ap);
-    va_end(ap);
-    return s;
-}
-
-/**
- * A safe version of sprintf.
- * The contents of the first parameter are replaced with the result, and the
- * first parameter is also returned for convenience.
- */
-string&
-format(string& s, const char* format, ...)
-{
-    va_list ap;
-    va_start(ap, format);
-    vformat(s, format, ap);
     va_end(ap);
     return s;
 }

@@ -37,7 +37,7 @@
 bool generate;
 
 /// Service locators of the hosts to bounce data off of.
-vector<string> serverLocators;
+std::vector<string> serverLocators;
 
 /**
  * Entry point for the program.  Acts as a client which sends packets

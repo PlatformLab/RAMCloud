@@ -38,24 +38,6 @@
 #define PUBLIC public
 #endif
 
-// Define nullptr for c++0x compatibility.
-// This will go away if we move to g++ 4.6.
-/// \cond
-const                        // this is a const object...
-class {
-  public:
-    template<class T>        // convertible to any type
-    operator T*() const      // of null non-member
-    { return 0; }            // pointer...
-
-    template<class C, class T> // or any type of null
-    operator T C::*() const    // member pointer...
-    { return 0; }
-  private:
-    void operator&() const;  // whose address can't be taken NOLINT
-} nullptr = {};              // and whose name is nullptr
-/// \endcond
-
 #define __STDC_LIMIT_MACROS
 #include <cstdint>
 
@@ -64,14 +46,6 @@ class {
 #endif
 #include <xmmintrin.h>
 
-#ifndef __cplusplus
-#include <inttypes.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <strings.h>
-#include <assert.h>
-#else
 #include <cinttypes>
 #include <cstdio>
 #include <cstdlib>
@@ -82,12 +56,14 @@ class {
 #include <typeinfo>
 #include <vector>
 #include <boost/foreach.hpp>
+
+namespace RAMCloud {
 using std::string;
 using std::pair;
-using std::make_pair;
 using std::vector;
+}
+
 #define foreach BOOST_FOREACH
-#endif
 
 // A macro to disallow the copy constructor and operator= functions
 #ifndef DISALLOW_COPY_AND_ASSIGN
@@ -99,6 +75,8 @@ using std::vector;
 #include "Context.h"
 #include "Logging.h"
 #include "Status.h"
+
+namespace RAMCloud {
 
 /**
  * Allocate a new memory area.
@@ -172,45 +150,10 @@ _xmemalign(size_t alignment, size_t len,
     return p;
 }
 
-/**
- * Resize a previously allocated memory area.
- * This works like realloc(3), except it will crash rather than return \c NULL
- * if the system is out of memory.
- * \param[in] _p
- *      The pointer to the previously allocated memory area. This pointer is
- *      invalid after this function is called.
- * \param[in] _l
- *      The new length for the memory area (a \c size_t).
- * \return
- *      A non-\c NULL pointer to the new memory area.
- */
-#define xrealloc(_p, _l) _xrealloc(_p, _l, __FILE__, __LINE__, __func__)
-static inline void * _xrealloc(void *ptr, size_t len, const char* file,
-                               const int line, const char* func) {
-    void *p = realloc(ptr, len > 0 ? len : 1);
-    if (p == NULL) {
-        fprintf(stderr, "realloc(%lu) failed: %s:%d (%s)\n",
-                len, file, line, func);
-        exit(1);
-    }
-
-    return p;
-}
-
 // htons, ntohs cause warnings
 #define HTONS(x) \
     static_cast<uint16_t>((((x) >> 8) & 0xff) | (((x) & 0xff) << 8))
 #define NTOHS HTONS
-
-#ifdef __cplusplus
-/**
- * Return the size in bytes of a struct, except consider the size of structs
- * with no members to be 0 bytes.
- */
-#define sizeof0(x)  (__is_empty(x) ? 0 : sizeof(x))
-#else
-#define sizeof0(x) sizeof(x)
-#endif
 
 /**
  * Useful for ignoring the results of functions that emit a warning when their
@@ -228,8 +171,6 @@ static inline void * _xrealloc(void *ptr, size_t len, const char* file,
  *      Prefer #arrayLength().
  */
 #define unsafeArrayLength(array) (sizeof(array) / sizeof(array[0]))
-
-#ifdef __cplusplus
 
 /**
  * Cast a bigger int down to a smaller one.
@@ -254,49 +195,18 @@ arrayLength(const T (&array)[length])
     return length;
 }
 
-__inline __attribute__((always_inline, no_instrument_function))
-uint64_t _rdpmc(uint32_t counter);
-uint64_t
-_rdpmc(uint32_t counter)
-{
-    uint32_t hi, lo;
-    __asm __volatile("rdpmc" : "=d" (hi), "=a" (lo) : "c" (counter));
-    return ((uint64_t) lo) | (((uint64_t) hi) << 32);
-}
-
-namespace RAMCloud {
 uint64_t _generateRandom();
-}
-
-/// Yield the current task to the scheduler.
-static inline void
-yield()
-{
-#if YIELD
-    extern int sched_yield();
-    sched_yield(); // always returns 0 on linux
-#endif
-}
 
 #if TESTING
 extern uint64_t mockPMCValue;
 extern uint64_t mockRandomValue;
-__inline __attribute__((always_inline, no_instrument_function))
-uint64_t rdpmc(uint32_t counter);
-uint64_t
-rdpmc(uint32_t counter)
-{
-    if (mockPMCValue)
-        return mockPMCValue;
-    return _rdpmc(counter);
-}
 
 static inline uint64_t
 generateRandom()
 {
     if (mockRandomValue)
         return mockRandomValue++;
-    return RAMCloud::_generateRandom();
+    return _generateRandom();
 }
 
 class MockRandom {
@@ -313,38 +223,7 @@ class MockRandom {
     }
 };
 #else
-#define rdpmc(c) _rdpmc(c)
 #define generateRandom() RAMCloud::_generateRandom()
-#endif
-
-/**
- * A fast integer power computation.
- * \param[in] base
- *      The base of use.
- * \param[in] exp
- *      The exponent, i.e. the power to take the base to.
- * \return
- *      base^exp
- */
-static inline uint64_t
-fastPower(uint64_t base, uint8_t exp)
-{
-    uint64_t result = 1;
-
-    while (exp > 0) {
-        if ((exp % 2) == 1)
-            result *= base;
-        base *= base;
-        exp /= 2;
-    }
-
-    return result;
-}
-
-#if TESTING
-#undef PRODUCTION
-#else
-#define PRODUCTION 1
 #endif
 
 #if TESTING
@@ -353,20 +232,8 @@ fastPower(uint64_t base, uint8_t exp)
 #define VIRTUAL_FOR_TESTING
 #endif
 
-#if TESTING
-#define CONST_FOR_PRODUCTION
-#else
-#define CONST_FOR_PRODUCTION const
-#endif
-#endif
-
-namespace RAMCloud {
-
 string format(const char* format, ...)
     __attribute__((format(printf, 1, 2)));
-
-string& format(string& s, const char* format, ...)
-    __attribute__((format(printf, 2, 3)));
 
 /**
  * Describes the location of a line of code.
@@ -507,35 +374,10 @@ get(const Map& map, const typename Map::key_type& key)
 }
 
 /**
- * Return the first element of a pair.
- *
- * Useful for projection of pair elements using functions which take a type
- * that models UnaryFunction.
- */
-template <typename T, typename _>
-T first(pair<T, _> p)
-{
-    return p.first;
-}
-
-/**
- * Return the second element of a pair.
- *
- * Useful for projection of pair elements using functions which take a type
- * that models UnaryFunction.
- */
-template <typename T, typename _>
-T second(pair<_, T> p)
-{
-    return p.second;
-}
-
-/**
  * Return the offset of a field in a structure. This is identical to the
  * "offsetof" macro except that it uses 100 as the base address instead of
  * 0 (g++ refuses to compile with a 0 base address).
  */
-
 #define OFFSET_OF(type, field) (reinterpret_cast<size_t> \
         (reinterpret_cast<char*>(&(reinterpret_cast<type*>(100)->field))) \
         - 100)
