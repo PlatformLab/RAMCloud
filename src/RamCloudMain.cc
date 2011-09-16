@@ -169,6 +169,10 @@ runRecovery(RamCloud& client,
     LOG(NOTICE, "--- hinting that the server is down: %s ---",
         session->getServiceLocator().c_str());
 
+    // Take an initial snapshot of performance metrics.
+    std::vector<MetricsHash> metricsBefore;
+    client.getAllMetrics(metricsBefore);
+
     uint64_t b = Cycles::rdtsc();
     client.coordinator.hintServerDown(
         session->getServiceLocator().c_str());
@@ -242,6 +246,20 @@ runRecovery(RamCloud& client,
     // As of 6/2011 this needs to be reworked: ping no longer contains the
     // hack to print statistics.
     // client.ping();
+
+    // Take another snapshot of performance metrics, and log all of the
+    // deltas.
+    std::vector<MetricsHash> metricsAfter;
+    client.getAllMetrics(metricsAfter);
+    int mismatches = MetricsHash::difference(metricsBefore, metricsAfter);
+    if (mismatches != 0)
+        LOG(ERROR, "Metrics mismatches: %d", mismatches);
+    foreach (MetricsHash& m, metricsAfter) {
+        LOG(NOTICE, "Metrics: begin server");
+         for (MetricsHash::iterator it = m.begin(); it != m.end(); it++) {
+             LOG(NOTICE, "Metrics: %s %lu", it->first.c_str(), it->second);
+         }
+    }
 }
 
 int

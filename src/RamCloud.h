@@ -182,7 +182,13 @@ class RamCloud {
                uint32_t length, const RejectRules* rejectRules = NULL,
                uint64_t* version = NULL, bool async = false);
     void write(uint32_t tableId, uint64_t id, const char* s);
+
   PRIVATE:
+    /**
+     * Service locator for the cluster coordinator.
+     */
+    string coordinatorLocator;
+
     /**
      * Usually, RamCloud objects create a new context in which to run. This is
      * the location where that context is stored.

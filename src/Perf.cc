@@ -169,20 +169,6 @@ double cppAtomicExchange()
     return Cycles::toSeconds(stop - start)/count;
 }
 
-// Measure the cost of clearing a Metrics object.
-double clearMetrics()
-{
-    int count = 10000;
-    Metrics metrics;
-    std::atomic_int value(11);
-    uint64_t start = Cycles::rdtsc();
-    for (int i = 0; i < count; i++) {
-        metrics.reset();
-    }
-    uint64_t stop = Cycles::rdtsc();
-    return Cycles::toSeconds(stop - start)/count;
-}
-
 // Measure the cost of the load method on a C++ atomic_int (seems to have
 // 2 mfence operations!).
 double cppAtomicLoad()
@@ -555,8 +541,6 @@ TestInfo tests[] = {
      "AtomicInt::exchange"},
     {"bMutexNoBlock", bMutexNoBlock,
      "Boost mutex lock/unlock (no blocking)"},
-    {"clearMetrics", clearMetrics,
-     "Reset all performance counters"},
     {"cppAtomicExchg", cppAtomicExchange,
      "Exchange method on a C++ atomic_int"},
     {"cppAtomicLoad", cppAtomicLoad,

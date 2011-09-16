@@ -27,36 +27,6 @@ class MetricsTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(MetricsTest);
 };
 
-TEST_F(MetricsTest, start) {
-    Metrics metrics;
-    metrics.master.recoveryTicks = 44;
-    metrics.start();
-    EXPECT_EQ(0U, metrics.master.recoveryTicks);
-    metrics.master.recoveryTicks = 55;
-    metrics.start();
-    EXPECT_EQ(55U, metrics.master.recoveryTicks);
-}
-
-TEST_F(MetricsTest, end) {
-    TestLog::Enable _;
-    Metrics metrics;
-    metrics.start();
-    metrics.start();
-    metrics.master.recoveryTicks = 44;
-    metrics.end();
-    EXPECT_EQ("", TestLog::get());
-    metrics.end();
-    EXPECT_TRUE(TestUtil::matchesPosixRegex(
-            "master\\.recoveryTicks = 44", TestLog::get()));
-}
-
-TEST_F(MetricsTest, reset) {
-    Metrics metrics;
-    metrics.master.recoveryTicks = 44;
-    metrics.reset();
-    EXPECT_EQ(0U, metrics.master.recoveryTicks);
-}
-
 TEST_F(MetricsTest, serialize) {
     Metrics metrics;
     metrics.master.recoveryTicks = 12345;

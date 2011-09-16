@@ -46,11 +46,11 @@ class PingServiceTest : public ::testing::Test {
 
 TEST_F(PingServiceTest, getMetrics) {
     metrics->master.replicas = 99;
-    metrics->master.local.count3 = 33;
+    metrics->temp.count3 = 33;
     MetricsHash results;
     client.getMetrics("mock:host=ping", results);
     EXPECT_EQ(99U, results["master.replicas"]);
-    EXPECT_EQ(33U, results["master.local.count3"]);
+    EXPECT_EQ(33U, results["temp.count3"]);
 }
 
 TEST_F(PingServiceTest, ping_basics) {

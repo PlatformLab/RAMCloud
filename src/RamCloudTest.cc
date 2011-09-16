@@ -116,8 +116,10 @@ TEST_F(RamCloudTest, getAllMetrics) {
     // (but we create extra redundant enlistments).
     coordinatorClient1->enlistServer(MASTER, "mock:host=master1");
     coordinatorClient1->enlistServer(MASTER, "mock:host=ping1");
-    // master2 is already enlisted, so we need to give it a PingService
-    // that can respond to requests.
+    // Make sure each existing server has an associated PingService.
+    PingService pingforCoordinator;
+    transport.addService(pingforCoordinator, "mock:host=coordinator",
+            PING_SERVICE);
     PingService pingforMaster2;
     transport.addService(pingforMaster2, "mock:host=master2", PING_SERVICE);
     PingService ping3;
@@ -129,27 +131,27 @@ TEST_F(RamCloudTest, getAllMetrics) {
     std::vector<MetricsHash> metricList;
     metricList.resize(1);
     metricList[0]["bogusValue"] = 12345;
-    metrics->master.local.count3 = 30303;
+    metrics->temp.count3 = 30303;
     ramcloud->getAllMetrics(metricList);
-    EXPECT_EQ(4U, metricList.size());
+    EXPECT_EQ(5U, metricList.size());
     // Make sure the vector was cleared.
     EXPECT_EQ(0U, metricList[0]["bogusValue"]);
-    EXPECT_EQ(30303U, metricList[0]["master.local.count3"]);
-    EXPECT_EQ(30303U, metricList[3]["master.local.count3"]);
+    EXPECT_EQ(30303U, metricList[0]["temp.count3"]);
+    EXPECT_EQ(30303U, metricList[3]["temp.count3"]);
 }
 
 TEST_F(RamCloudTest, getMetrics) {
-    metrics->master.local.count3 = 10101;
+    metrics->temp.count3 = 10101;
     MetricsHash metrics;
     ramcloud->getMetrics("mock:host=master1", metrics);
-    EXPECT_EQ(10101U, metrics["master.local.count3"]);
+    EXPECT_EQ(10101U, metrics["temp.count3"]);
 }
 
 TEST_F(RamCloudTest, getMetrics_byTableId) {
-    metrics->master.local.count3 = 20202;
+    metrics->temp.count3 = 20202;
     MetricsHash metrics;
     ramcloud->getMetrics(tableId1, 0, metrics);
-    EXPECT_EQ(20202U, metrics["master.local.count3"]);
+    EXPECT_EQ(20202U, metrics["temp.count3"]);
 }
 
 TEST_F(RamCloudTest, ping) {

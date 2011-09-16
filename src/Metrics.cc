@@ -36,55 +36,17 @@ namespace {
 Metrics* metrics = &_metrics;
 
 /**
- * This method is invoked when a service begins recovery.  It clears existing
- * metrics, unless some other service has already started recovery.
+ * This method is invoked from the constructor (which is defined in
+ * Metrics.in.h).  It initializes a few special "metrics" that contain
+ * general information about the server.
  */
 void
-Metrics::start()
+Metrics::init()
 {
-    boost::unique_lock<boost::mutex> _(mutex);
-    activeCount++;
-    if (activeCount > 1)
-        return;
-    reset();
-
-    // Set a few special values.
+    Cycles::init();
     clockFrequency = (uint64_t) Cycles::perSecond();
     pid = getpid();
     segmentSize = Segment::SEGMENT_SIZE;
-}
-
-/**
- * This method is called to indicate that a service has completed recovery.
- * Once all recovering services have called this method, metrics get dumped
- * to the log.
- */
-void
-Metrics::end()
-{
-    boost::unique_lock<boost::mutex> _(mutex);
-    activeCount--;
-    if (activeCount > 0)
-        return;
-    LOG(NOTICE, "Metrics:");
-    for (int i = 0; i < numMetrics; i++) {
-        MetricInfo info = metricInfo(i);
-        LOG(NOTICE, "metrics->%s = %lu", info.name,
-                static_cast<uint64_t>(*info.value));
-    }
-    LOG(NOTICE, "End of Metrics");
-}
-
-/**
- * Clear all of the counters stored in this object.
- */
-void
-Metrics::reset()
-{
-    for (int i = 0; i < numMetrics; i++) {
-        MetricInfo info = metricInfo(i);
-        *info.value = 0;
-    }
 }
 
 /**

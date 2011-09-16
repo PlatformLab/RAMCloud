@@ -834,9 +834,7 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
 
     {
         CycleCounter<Metric> recoveryTicks(&metrics->master.recoveryTicks);
-        metrics->start();
-        metrics->serverId = *serverId;
-        metrics->hasMaster = 1;
+        metrics->master.recoveryCount++;
         metrics->master.replicas = backup.replicas;
 
         uint64_t masterId = reqHdr.masterId;
@@ -901,7 +899,6 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
 
         // TODO(stutsman) update local copy of the will
     }
-    metrics->end();
 }
 
 /**

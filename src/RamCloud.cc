@@ -31,7 +31,8 @@ namespace RAMCloud {
  *      Couldn't connect to the server.
  */
 RamCloud::RamCloud(const char* serviceLocator)
-    : realClientContext()
+    : coordinatorLocator(serviceLocator)
+    , realClientContext()
     , clientContext(*realClientContext.construct(false))
     , constructorContext(clientContext)
     , status(STATUS_OK)
@@ -48,7 +49,8 @@ RamCloud::RamCloud(const char* serviceLocator)
  * (which should be discouraged).
  */
 RamCloud::RamCloud(Context& context, const char* serviceLocator)
-    : realClientContext()
+    : coordinatorLocator(serviceLocator)
+    , realClientContext()
     , clientContext(context)
     , constructorContext(clientContext)
     , status(STATUS_OK)
@@ -114,8 +116,10 @@ RamCloud::getAllMetrics(std::vector<MetricsHash>& metrics)
     ProtoBuf::ServerList serverList;
     coordinator.getServerList(serverList);
 
-    // Create one MetricsHash for each unique service locator.
-    metrics.resize(0);
+    // Create one MetricsHash for each unique service locator, starting
+    // with the coordinator.
+    metrics.resize(1);
+    client.getMetrics(coordinatorLocator.c_str(), metrics[0]);
     for (int i = 0; i < serverList.server_size(); i++) {
         const ProtoBuf::ServerList_Entry& server = serverList.server(i);
         const char *serviceLocator = server.service_locator().c_str();

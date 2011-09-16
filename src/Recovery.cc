@@ -198,7 +198,7 @@ Recovery::Recovery(uint64_t masterId,
     , tasks(new Tub<BackupStartTask>[backupHosts.server_size()])
 {
     CycleCounter<Metric> _(&metrics->coordinator.recoveryConstructorTicks);
-    metrics->start();
+    metrics->coordinator.recoveryCount++;
     buildSegmentIdToBackups();
 }
 
@@ -206,7 +206,6 @@ Recovery::~Recovery()
 {
     delete[] tasks;
     recoveryTicks.stop();
-    metrics->end();
 }
 
 bool

@@ -19,7 +19,7 @@
 from __future__ import division
 from common import *
 import log
-import metrics
+import recoverymetrics
 import os
 import pprint
 import re
@@ -186,8 +186,8 @@ def recover(numBackups=1,             # Number of hosts on which to start
 
     # Collect metrics information.
     stats = {}
-    stats['metrics'] = metrics.parseRecovery(run)
-    report = metrics.textReport(stats['metrics'])
+    stats['metrics'] = recoverymetrics.parseRecovery(run)
+    report = recoverymetrics.textReport(stats['metrics'])
     f = open('%s/metrics' % (run), 'w')
     f.write(str(report))
     f.write('\n')
@@ -211,8 +211,8 @@ def insist(*args, **kwargs):
 
 if __name__ == '__main__':
     args = {}
-    args['numBackups'] = 50
-    args['numPartitions'] = 50
+    args['numBackups'] = 5
+    args['numPartitions'] = 5
     args['objectSize'] = 1024
     args['disk'] = 3
     args['numObjects'] = 592415 # 600MB
