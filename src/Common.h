@@ -267,36 +267,5 @@ prefetch(const T* object)
 
 void pinAllMemory();
 
-/// An exception used only for testing purposes.
-struct TestingException : public Exception {
-    explicit TestingException(const CodeLocation& where) : Exception(where) {}
-};
-
-/**
- * Throws an exception after a given certain number of calls.
- * Used for testing only.
- */
-template<typename E = TestingException>
-struct DelayedThrower {
-#if TESTING
-    explicit DelayedThrower(uint64_t tillThrow = ~0UL)
-        : tillThrow(tillThrow)
-    {
-    }
-    void operator()() {
-        if (tillThrow == 0) {
-            tillThrow = ~0UL;
-            throw E(HERE);
-        } else {
-            --tillThrow;
-        }
-    }
-    uint64_t tillThrow;
-#else
-    explicit DelayedThrower(uint64_t tillThrow = ~0UL) {}
-    void operator()() {}
-#endif
-};
-
 } // end RAMCloud
 #endif // RAMCLOUD_COMMON_H
