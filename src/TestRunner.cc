@@ -13,8 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <getopt.h>
 #include <gtest/gtest.h>
+#include <boost/program_options.hpp>
 
 #include "Common.h"
 #include "Tub.h"
@@ -94,49 +94,30 @@ class QuietUnitTestResultPrinter : public testing::TestEventListener {
 
 bool progress = false;
 
-void __attribute__ ((noreturn))
-usage(char *arg0)
-{
-    printf("Usage: %s "
-            "[-p]\n"
-           "\t-p\t--progress\tShow test progress.\n",
-           arg0);
-    exit(EXIT_FAILURE);
-}
-
-void
-cmdline(int argc, char *argv[])
-{
-    struct option long_options[] = {
-        {"progress", no_argument, NULL, 'p'},
-        {0, 0, 0, 0},
-    };
-
-    int c;
-    int i = 0;
-    while ((c = getopt_long(argc, argv, ":p",
-                            long_options, &i)) >= 0)
-    {
-        switch (c) {
-        case 'p':
-            progress = true;
-            break;
-        default:
-            usage(argv[0]);
-        }
-    }
-}
-
 } // anonymous namespace
 
 int
 main(int argc, char *argv[])
 {
+    namespace po = boost::program_options;
+    po::options_description configOptions("TestRunner");
+    configOptions.add_options()
+        ("help,h", "Produce help message")
+        ("verbose,v",
+         po::value<bool>(&progress)->
+            default_value(false),
+         "Show test progress");
+    po::variables_map vm;
+    po::store(po::parse_command_line(argc, argv, configOptions), vm);
+    po::notify(vm);
+    if (vm.count("help")) {
+        std::cerr << configOptions << std::endl;
+        exit(1);
+    }
+
     int googleArgc = 0;
     char* googleArgv[] = {NULL};
     ::testing::InitGoogleTest(&googleArgc, googleArgv);
-
-    cmdline(argc, argv);
 
     auto unitTest = ::testing::UnitTest::GetInstance();
     auto& listeners = unitTest->listeners();
