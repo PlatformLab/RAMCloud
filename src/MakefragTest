@@ -108,7 +108,6 @@ $(OBJDIR)/test: $(TESTS_OBJFILES) $(OBJDIR)/gtest.a
 # The unit tests don't actually call all of these programs, but
 # they are included here to make sure they continue to build.
 test: $(OBJDIR)/test \
-      $(OBJDIR)/Bench \
       $(OBJDIR)/ClusterPerf \
       $(OBJDIR)/Echo \
       $(OBJDIR)/HashTableBenchmark \
@@ -137,10 +136,6 @@ $(OBJDIR)/Telnet: $(OBJDIR)/Telnet.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
 	$(CXX) $(LIBS) -o $@ $^
 
 $(OBJDIR)/RecoverSegmentBenchmark: $(OBJDIR)/RecoverSegmentBenchmark.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
-	@mkdir -p $(@D)
-	$(CXX) $(LIBS) -o $@ $^
-
-$(OBJDIR)/Bench: $(OBJDIR)/Bench.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
 	$(CXX) $(LIBS) -o $@ $^
 
@@ -186,7 +181,3 @@ tests-clean:
 .PHONY: test-smack
 test-smack: client $(OBJDIR)/server
 	scripts/smack
-
-.PHONY: test-bench
-test-bench: $(OBJDIR)/server $(OBJDIR)/Bench
-	scripts/run-bench
