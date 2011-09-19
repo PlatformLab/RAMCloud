@@ -484,8 +484,7 @@ void
 Log::cleaningComplete(SegmentVector& clean)
 {
     boost::lock_guard<SpinLock> lock(listLock);
-
-    debugDumpLists();
+    bool change = false;
 
     // New Segments we've added during cleaning need to wait
     // until the next head is written before they become part
@@ -494,6 +493,7 @@ Log::cleaningComplete(SegmentVector& clean)
         Segment& s = cleaningIntoList.front();
         cleaningIntoList.pop_front();
         cleanablePendingDigestList.push_back(s);
+        change = true;
     }
 
     // Increment the current epoch and save the last epoch any
@@ -510,6 +510,7 @@ Log::cleaningComplete(SegmentVector& clean)
         s->cleanedEpoch = epoch;
         cleanableList.erase(cleanableList.iterator_to(*s));
         freePendingDigestAndReferenceList.push_back(*s);
+        change = true;
     }
 
     // This is a good time to check cleaned Segments that are no
@@ -532,7 +533,11 @@ Log::cleaningComplete(SegmentVector& clean)
             freePendingReferenceList.iterator_to(*s));
         freeList.push_back(const_cast<void*>(s->getBaseAddress()));
         delete s;
+        change = true;
     }
+
+    if (change)
+        dumpListStats();
 }
 
 /**
@@ -557,23 +562,33 @@ Log::allocateSegmentId()
  * Print various Segment list counts to the debug log.
  */
 void
-Log::debugDumpLists()
+Log::dumpListStats()
 {
-    LOG(DEBUG, "============ LOG LIST OCCUPANCY ============");
-    LOG(DEBUG, "  freeList:                           %Zd", freeList.size());
-    LOG(DEBUG, "  cleanableNewList:                   %Zd",
-        cleanableNewList.size());
-    LOG(DEBUG, "  cleanableList:                      %Zd",
-        cleanableList.size());
-    LOG(DEBUG, "  cleaningIntoList:                   %Zd",
-        cleaningIntoList.size());
-    LOG(DEBUG, "  cleanablePendingDigestList:         %Zd",
-        cleanablePendingDigestList.size());
-    LOG(DEBUG, "  freePendingDigestAndReferenceList:  %Zd",
-        freePendingDigestAndReferenceList.size());
-    LOG(DEBUG, "  freePendingReferenceList:           %Zd",
-        freePendingReferenceList.size());
-    LOG(DEBUG, "----- Total: %Zd (Segments in Log (incl. head): %Zd)",
+    double total = static_cast<double>(getNumberOfSegments());
+    LOG(NOTICE, "============ LOG LIST OCCUPANCY ============");
+    LOG(NOTICE, "  freeList:                           %6Zd  (%.2f%%)",
+        freeList.size(),
+        100.0 * static_cast<double>(freeList.size()) / total);
+    LOG(NOTICE, "  cleanableNewList:                   %6Zd  (%.2f%%)",
+        cleanableNewList.size(),
+        100.0 * static_cast<double>(cleanableNewList.size()) / total);
+    LOG(NOTICE, "  cleanableList:                      %6Zd  (%.2f%%)",
+        cleanableList.size(),
+        100.0 * static_cast<double>(cleanableList.size()) / total);
+    LOG(NOTICE, "  cleaningIntoList:                   %6Zd  (%.2f%%)",
+        cleaningIntoList.size(),
+        100.0 * static_cast<double>(cleaningIntoList.size()) / total);
+    LOG(NOTICE, "  cleanablePendingDigestList:         %6Zd  (%.2f%%)",
+        cleanablePendingDigestList.size(),
+        100.0 * static_cast<double>(cleanablePendingDigestList.size()) / total);
+    LOG(NOTICE, "  freePendingDigestAndReferenceList:  %6Zd  (%.2f%%)",
+        freePendingDigestAndReferenceList.size(),
+        100.0 * static_cast<double>(
+            freePendingDigestAndReferenceList.size()) / total);
+    LOG(NOTICE, "  freePendingReferenceList:           %6Zd  (%.2f%%)",
+        freePendingReferenceList.size(),
+        1.00 * static_cast<double>(freePendingReferenceList.size()) / total);
+    LOG(NOTICE, "----- Total: %Zd (Segments in Log incl. head: %Zd)",
         freeList.size() +
         cleanableNewList.size() +
         cleanableList.size() +

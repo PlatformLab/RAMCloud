@@ -184,7 +184,7 @@ class Log {
     typedef boost::unordered_map<uint64_t, Segment *> ActiveIdMap;
     typedef boost::unordered_map<const void *, Segment *> BaseAddressMap;
 
-    void        debugDumpLists();
+    void        dumpListStats();
     void        addSegmentMemory(void *p);
     void        markActive(Segment *s);
     Segment*    getSegmentFromAddress(const void*);
