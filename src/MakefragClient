@@ -15,6 +15,7 @@ CLIENT_SRCFILES := \
 		   src/CRamCloud.cc \
 		   src/Client.cc \
 		   src/ClientException.cc \
+		   src/ClusterMetrics.cc \
 		   src/CodeLocation.cc \
 		   src/Context.cc \
 		   src/CoordinatorClient.cc \
@@ -29,12 +30,12 @@ CLIENT_SRCFILES := \
 		   src/MacAddress.cc \
 		   src/MasterClient.cc \
 		   src/Memory.cc \
-		   src/MetricsHash.cc \
 		   src/ObjectFinder.cc \
 		   src/PcapFile.cc \
 		   src/PingClient.cc \
 		   src/RamCloud.cc \
 		   src/RawMetrics.cc \
+		   src/ServerMetrics.cc \
 		   src/ServerRpcPool.cc \
 		   src/Service.cc \
 		   src/ServiceLocator.cc \

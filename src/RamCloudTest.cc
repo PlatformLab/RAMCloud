@@ -17,9 +17,9 @@
 #include "CoordinatorClient.h"
 #include "CoordinatorService.h"
 #include "MasterService.h"
-#include "RawMetrics.h"
-#include "MetricsHash.h"
 #include "PingService.h"
+#include "RawMetrics.h"
+#include "ServerMetrics.h"
 #include "TransportManager.h"
 #include "BindTransport.h"
 #include "RamCloud.h"
@@ -106,51 +106,15 @@ class RamCloudTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(RamCloudTest);
 };
 
-TEST_F(RamCloudTest, getAllMetrics) {
-    // Enlist several "masters" and "backups", with lots of redundancy
-    // in the locators to test duplicate elimination.  In reality,
-    // most of these are just PingServices, since that's all the
-    // functionality that's needed for this test.
-    //
-    // Note: master1 and master2 are already enlisted automatically
-    // (but we create extra redundant enlistments).
-    coordinatorClient1->enlistServer(MASTER, "mock:host=master1");
-    coordinatorClient1->enlistServer(MASTER, "mock:host=ping1");
-    // Make sure each existing server has an associated PingService.
-    PingService pingforCoordinator;
-    transport.addService(pingforCoordinator, "mock:host=coordinator",
-            PING_SERVICE);
-    PingService pingforMaster2;
-    transport.addService(pingforMaster2, "mock:host=master2", PING_SERVICE);
-    PingService ping3;
-    transport.addService(ping3, "mock:host=ping3", PING_SERVICE);
-    coordinatorClient1->enlistServer(BACKUP, "mock:host=ping1");
-    coordinatorClient1->enlistServer(BACKUP, "mock:host=ping3");
-    coordinatorClient1->enlistServer(BACKUP, "mock:host=ping3");
-
-    std::vector<MetricsHash> metricList;
-    metricList.resize(1);
-    metricList[0]["bogusValue"] = 12345;
-    metrics->temp.count3 = 30303;
-    ramcloud->getAllMetrics(metricList);
-    EXPECT_EQ(5U, metricList.size());
-    // Make sure the vector was cleared.
-    EXPECT_EQ(0U, metricList[0]["bogusValue"]);
-    EXPECT_EQ(30303U, metricList[0]["temp.count3"]);
-    EXPECT_EQ(30303U, metricList[3]["temp.count3"]);
-}
-
 TEST_F(RamCloudTest, getMetrics) {
     metrics->temp.count3 = 10101;
-    MetricsHash metrics;
-    ramcloud->getMetrics("mock:host=master1", metrics);
+    ServerMetrics metrics =  ramcloud->getMetrics("mock:host=master1");
     EXPECT_EQ(10101U, metrics["temp.count3"]);
 }
 
 TEST_F(RamCloudTest, getMetrics_byTableId) {
     metrics->temp.count3 = 20202;
-    MetricsHash metrics;
-    ramcloud->getMetrics(tableId1, 0, metrics);
+    ServerMetrics metrics = ramcloud->getMetrics(tableId1, 0);
     EXPECT_EQ(20202U, metrics["temp.count3"]);
 }
 

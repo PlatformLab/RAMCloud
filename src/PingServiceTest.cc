@@ -14,12 +14,12 @@
  */
 
 #include "TestUtil.h"
-#include "Common.h"
-#include "RawMetrics.h"
-#include "MetricsHash.h"
-#include "PingClient.h"
 #include "BindTransport.h"
+#include "Common.h"
+#include "PingClient.h"
 #include "PingService.h"
+#include "RawMetrics.h"
+#include "ServerMetrics.h"
 #include "TransportManager.h"
 
 // Note: this file tests both PingService.cc and PingClient.cc.
@@ -47,10 +47,9 @@ class PingServiceTest : public ::testing::Test {
 TEST_F(PingServiceTest, getMetrics) {
     metrics->master.replicas = 99;
     metrics->temp.count3 = 33;
-    MetricsHash results;
-    client.getMetrics("mock:host=ping", results);
-    EXPECT_EQ(99U, results["master.replicas"]);
-    EXPECT_EQ(33U, results["temp.count3"]);
+    ServerMetrics metrics = client.getMetrics("mock:host=ping");
+    EXPECT_EQ(99U, metrics["master.replicas"]);
+    EXPECT_EQ(33U, metrics["temp.count3"]);
 }
 
 TEST_F(PingServiceTest, ping_basics) {

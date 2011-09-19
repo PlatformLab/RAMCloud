@@ -13,8 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_METRICSHASH_H
-#define RAMCLOUD_METRICSHASH_H
+#ifndef RAMCLOUD_SERVERMETRICS_H
+#define RAMCLOUD_SERVERMETRICS_H
 
 #include <unordered_map>
 #include <vector>
@@ -28,17 +28,15 @@ namespace RAMCloud {
  * by applications and benchmarks to access performance information.
  * Each metric has a hierarchical string name such as "master.replicas"
  * and a uint64_t value.  The available names are defined in rawmetrics.py.
- * MetricsHash is a thin layer on top of unordered_map, so you can use
+ * ServerMetrics is a thin layer on top of unordered_map, so you can use
  * standard map mechanisms like [].
  */
-class MetricsHash {
+class ServerMetrics {
   public:
-    MetricsHash();
-    ~MetricsHash();
+    ServerMetrics();
+    ~ServerMetrics();
     void load(Buffer& buffer);
-    void difference(MetricsHash& other);
-    static int difference(std::vector<MetricsHash>& first,
-            std::vector<MetricsHash>& second);
+    ServerMetrics difference(ServerMetrics& other);
 
     // The following methods all delegate directly to the corresponding
     // methods in unordered_map.
@@ -56,13 +54,17 @@ class MetricsHash {
     {
         return metrics.end();
     }
+    iterator find(const string& name)
+    {
+        return metrics.find(name);
+    }
 
     void clear()
     {
         metrics.clear();
     }
 
-    size_t erase(string name)
+    size_t erase(const string& name)
     {
         return metrics.erase(name);
     }
@@ -95,4 +97,4 @@ class MetricsHash {
 
 } // end RAMCloud
 
-#endif  // RAMCLOUD_METRICSHASH_H
+#endif  // RAMCLOUD_SERVERMETRICS_H

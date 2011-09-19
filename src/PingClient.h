@@ -17,7 +17,7 @@
 #define RAMCLOUD_PINGCLIENT_H
 
 #include "Client.h"
-#include "MetricsHash.h"
+#include "ServerMetrics.h"
 #include "Transport.h"
 
 namespace RAMCloud {
@@ -28,7 +28,7 @@ namespace RAMCloud {
 class PingClient : public Client {
   public:
     PingClient() {}
-    void getMetrics(const char* serviceLocator, MetricsHash& metrics);
+    ServerMetrics getMetrics(const char* serviceLocator);
     uint64_t ping(const char* serviceLocator, uint64_t nonce,
             uint64_t timeoutNanoseconds);
     uint64_t proxyPing(const char* serviceLocator1,

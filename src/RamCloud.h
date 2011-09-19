@@ -19,8 +19,8 @@
 #include "Common.h"
 #include "CoordinatorClient.h"
 #include "MasterClient.h"
-#include "MetricsHash.h"
 #include "ObjectFinder.h"
+#include "ServerMetrics.h"
 
 namespace RAMCloud {
 
@@ -160,9 +160,9 @@ class RamCloud {
     uint32_t openTable(const char* name);
     uint64_t create(uint32_t tableId, const void* buf, uint32_t length,
                     uint64_t* version = NULL, bool async = false);
-    void getAllMetrics(std::vector<MetricsHash>& metrics);
-    void getMetrics(const char* serviceLocator, MetricsHash& metrics);
-    void getMetrics(uint32_t table, uint64_t objectId, MetricsHash& metrics);
+    string* getServiceLocator();
+    ServerMetrics getMetrics(const char* serviceLocator);
+    ServerMetrics getMetrics(uint32_t table, uint64_t objectId);
     uint64_t ping(const char* serviceLocator, uint64_t nonce,
                   uint64_t timeoutNanoseconds);
     uint64_t ping(uint32_t table, uint64_t objectId, uint64_t nonce,

@@ -94,49 +94,12 @@ RamCloud::create(uint32_t tableId, const void* buf, uint32_t length,
     return Create(*this, tableId, buf, length, version, async)();
 }
 
-/**
- * Retrieve performance counters from all of the servers in the cluster.
- *
- * \param metrics
- *      Destination into which metrics will be placed.  Any existing
- *      contents are deleted, and one new MetricsHash object will be
- *      added for each distinct server in the cluster.
- */
-void
-RamCloud::getAllMetrics(std::vector<MetricsHash>& metrics)
-{
-    PingClient client;
-
-    // Keeps track of the service locators for all the servers we have
-    // already contacted (if multiple services live at the same address,
-    // only want to fetch one copy of the metrics).
-    std::unordered_map<std::string, int> visited;
-
-    // Get information about all servers in the cluster.
-    ProtoBuf::ServerList serverList;
-    coordinator.getServerList(serverList);
-
-    // Create one MetricsHash for each unique service locator, starting
-    // with the coordinator.
-    metrics.resize(1);
-    client.getMetrics(coordinatorLocator.c_str(), metrics[0]);
-    for (int i = 0; i < serverList.server_size(); i++) {
-        const ProtoBuf::ServerList_Entry& server = serverList.server(i);
-        const char *serviceLocator = server.service_locator().c_str();
-        if (visited[serviceLocator])
-            continue;
-        metrics.resize(metrics.size() + 1);
-        client.getMetrics(serviceLocator, metrics[metrics.size() - 1]);
-        visited[serviceLocator] = 1;
-    }
-}
-
 /// \copydoc PingClient::getMetrics
-void
-RamCloud::getMetrics(const char* serviceLocator, MetricsHash& metrics)
+ServerMetrics
+RamCloud::getMetrics(const char* serviceLocator)
 {
     PingClient client;
-    return client.getMetrics(serviceLocator, metrics);
+    return client.getMetrics(serviceLocator);
 }
 
 /**
@@ -147,16 +110,23 @@ RamCloud::getMetrics(const char* serviceLocator, MetricsHash& metrics)
  * \param objectId
  *      Identifier for an object within \c table; the server that manages
  *      this object is the one whose metrics will be retrieved.
- * \param metrics
- *      Store the metrics here, replacing any existing contents.
  */
-void
-RamCloud::getMetrics(uint32_t table, uint64_t objectId, MetricsHash& metrics)
+ServerMetrics
+RamCloud::getMetrics(uint32_t table, uint64_t objectId)
 {
     PingClient client;
     const char *serviceLocator = objectFinder.lookup(table, objectId)->
             getServiceLocator().c_str();
-    return client.getMetrics(serviceLocator, metrics);
+    return client.getMetrics(serviceLocator);
+}
+
+/**
+ * Return the service locator for the coordinator for this cluster.
+ */
+string*
+RamCloud::getServiceLocator()
+{
+    return &coordinatorLocator;
 }
 
 /// \copydoc PingClient::ping

@@ -26,11 +26,12 @@ namespace RAMCloud {
  *
  * \param serviceLocator
  *      Identifies the server whose metrics should be retrieved.
- * \param metrics
- *      Store the metrics here, replacing any existing contents.
+ *
+ * \return
+ *       The performance metrics retrieved from \c serviceLocator.
  */
-void
-PingClient::getMetrics(const char* serviceLocator, MetricsHash& metrics)
+ServerMetrics
+PingClient::getMetrics(const char* serviceLocator)
 {
     // Fill in the request.
     Buffer req, resp;
@@ -42,8 +43,9 @@ PingClient::getMetrics(const char* serviceLocator, MetricsHash& metrics)
     checkStatus(HERE);
     resp.truncateFront(sizeof(respHdr));
     assert(respHdr.messageLength == resp.getTotalLength());
-    metrics.clear();
+    ServerMetrics metrics;
     metrics.load(resp);
+    return metrics;
 }
 
 /**

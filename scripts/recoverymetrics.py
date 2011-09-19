@@ -77,8 +77,16 @@ def parse(f):
         if not match:
             continue
         info = match.group(1)
-        if info.find('begin server') == 0:
+        start = re.match('begin server (.*)', info)
+        if start:
             list.append(AttrDict())
+            # Compute a human-readable name for this server (ideally
+            # just its short host name).
+            short_name = re.search('host=([^,]*)', start.group(1))
+            if short_name:
+               list[-1].server = short_name.group(1)
+            else:
+               list[-1].server = start.group(1)
             continue;
         if len(list) == 0:
             raise Exception, ('metrics data before "begin server" in %s'
@@ -394,18 +402,16 @@ def parseRecovery(recovery_dir):
         # log file. Figure out whether this server is a coordinator,
         # master, backup, or both master and backup, and put the
         # data in appropriate sub-lists.
-        server.server = 'server%d' % (server.serverId)
         if server.backup.recoveryCount > 0:
             data.backups.append(server)
         if server.master.recoveryCount > 0:
             data.masters.append(server)
         if server.coordinator.recoveryCount > 0:
             data.coordinator = server
-            server.server = "coordinator"
 
-    # Calculator the total number of server nodes (not including
-    # coordinator).  Currently this calculation is broken.
-    data.totalNodes = len(data.masters)
+    # Calculator the total number of unique server nodes (subtract 1 for the
+    # coordinator).
+    data.totalNodes = len(set([server.server for server in data.servers])) - 1
         
     data.client = AttrDict()
     for line in open(glob('%s/client.*.log' % recovery_dir)[0]):

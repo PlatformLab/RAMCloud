@@ -21,6 +21,7 @@ TESTS_SRCFILES := \
 		  src/BufferTest.cc \
 		  src/ClientExceptionTest.cc \
 		  src/ClientTest.cc \
+		  src/ClusterMetricsTest.cc \
 		  src/CommonTest.cc \
 		  src/ContextTest.cc \
 		  src/CoordinatorServiceTest.cc \
@@ -37,7 +38,6 @@ TESTS_SRCFILES := \
 		  src/LogTest.cc \
 		  src/MacAddressTest.cc \
 		  src/MasterServiceTest.cc \
-		  src/MetricsHashTest.cc \
 		  src/MockDriver.cc \
 		  src/MockTransport.cc \
 		  src/ObjectFinderTest.cc \
@@ -51,6 +51,7 @@ TESTS_SRCFILES := \
 		  src/RecoveryTest.cc \
 		  src/SegmentTest.cc \
 		  src/SegmentIteratorTest.cc \
+		  src/ServerMetricsTest.cc \
 		  src/ServerRpcPoolTest.cc \
 		  src/ServiceTest.cc \
 		  src/ServiceManagerTest.cc \

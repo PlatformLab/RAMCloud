@@ -18,12 +18,13 @@
 #include <getopt.h>
 #include <assert.h>
 
+#include "ClusterMetrics.h"
 #include "Cycles.h"
 #include "ShortMacros.h"
 #include "Crc32C.h"
-#include "RamCloud.h"
 #include "ObjectFinder.h"
 #include "OptionParser.h"
+#include "RamCloud.h"
 #include "Tub.h"
 
 using namespace RAMCloud;
@@ -170,8 +171,7 @@ runRecovery(RamCloud& client,
         session->getServiceLocator().c_str());
 
     // Take an initial snapshot of performance metrics.
-    std::vector<MetricsHash> metricsBefore;
-    client.getAllMetrics(metricsBefore);
+    ClusterMetrics metricsBefore(&client);
 
     uint64_t b = Cycles::rdtsc();
     client.coordinator.hintServerDown(
@@ -242,23 +242,23 @@ runRecovery(RamCloud& client,
             Cycles::toNanoseconds(Cycles::rdtsc() - b));
     }
 
-    // dump out coordinator rpc info
-    // As of 6/2011 this needs to be reworked: ping no longer contains the
-    // hack to print statistics.
-    // client.ping();
-
     // Take another snapshot of performance metrics, and log all of the
     // deltas.
-    std::vector<MetricsHash> metricsAfter;
-    client.getAllMetrics(metricsAfter);
-    int mismatches = MetricsHash::difference(metricsBefore, metricsAfter);
-    if (mismatches != 0)
-        LOG(ERROR, "Metrics mismatches: %d", mismatches);
-    foreach (MetricsHash& m, metricsAfter) {
-        LOG(NOTICE, "Metrics: begin server");
-         for (MetricsHash::iterator it = m.begin(); it != m.end(); it++) {
-             LOG(NOTICE, "Metrics: %s %lu", it->first.c_str(), it->second);
-         }
+    ClusterMetrics metricsAfter(&client);
+    ClusterMetrics diff = metricsAfter.difference(metricsBefore);
+    if (metricsAfter.size() != diff.size()) {
+        LOG(ERROR, "Metrics mismatches: %lu",
+                metricsAfter.size() - diff.size());
+    }
+    for (ClusterMetrics::iterator serverIt = diff.begin();
+            serverIt != diff.end(); serverIt++) {
+        LOG(NOTICE, "Metrics: begin server %s", serverIt->first.c_str());
+        ServerMetrics &server = serverIt->second;
+        for (ServerMetrics::iterator metricIt = server.begin();
+                metricIt != server.end(); metricIt++) {
+            LOG(NOTICE, "Metrics: %s %lu", metricIt->first.c_str(),
+                    metricIt->second);
+        }
     }
 }
 

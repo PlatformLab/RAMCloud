@@ -33,6 +33,7 @@ SHARED_SRCFILES := \
 		   src/BackupManager.cc \
 		   src/Buffer.cc \
 		   src/ClientException.cc \
+		   src/ClusterMetrics.cc \
 		   src/CodeLocation.cc \
 		   src/Common.cc \
 		   src/Cycles.cc \
@@ -49,7 +50,6 @@ SHARED_SRCFILES := \
 		   src/MasterClient.cc \
 		   src/MasterService.cc \
 		   src/Memory.cc \
-		   src/MetricsHash.cc \
 		   src/ObjectFinder.cc \
 		   src/OptionParser.cc \
 		   src/PcapFile.cc \
@@ -61,6 +61,7 @@ SHARED_SRCFILES := \
 		   src/RecoverySegmentIterator.cc \
 		   src/Segment.cc \
 		   src/SegmentIterator.cc \
+		   src/ServerMetrics.cc \
 		   src/ServerRpcPool.cc \
 		   src/Service.cc \
 		   src/ServiceLocator.cc \
