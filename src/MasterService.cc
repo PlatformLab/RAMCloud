@@ -1419,9 +1419,9 @@ objectRelocationCallback(LogEntryHandle oldHandle,
         }
     }
 
-    // Remove the evicted entry whether it is discarded or not.
-    // If it isn't to be discarded, we'll track it again in the
-    // #tombstoneScanCallback function.
+    // Remove the evicted entry whether it is discarded or not. If
+    // we keep it we'll track it again in the objectScanCallback
+    // function.
     table->profiler.untrack(evictObj->id.objectId,
                             oldHandle->totalLength(),
                             oldHandle->logTime());
@@ -1507,13 +1507,6 @@ tombstoneLivenessCallback(LogEntryHandle handle, void* cookie)
     const ObjectTombstone* tomb = handle->userData<ObjectTombstone>();
     assert(tomb != NULL);
 
-    boost::lock_guard<SpinLock> lock(svr->objectUpdateLock);
-
-    Table* t = svr->getTable(downCast<uint32_t>(tomb->id.tableId),
-                             tomb->id.objectId);
-    if (t == NULL)
-        return false;
-
     return svr->log.isSegmentLive(tomb->segmentId);
 }
 
@@ -1554,24 +1547,20 @@ tombstoneRelocationCallback(LogEntryHandle oldHandle,
     const ObjectTombstone* tomb = oldHandle->userData<ObjectTombstone>();
     assert(tomb != NULL);
 
-    boost::lock_guard<SpinLock> lock(svr->objectUpdateLock);
-
-    Table* table = svr->getTable(downCast<uint32_t>(tomb->id.tableId),
-                             tomb->id.objectId);
-    if (table == NULL) {
-        // That tablet doesn't exist on this server anymore.
-        return false;
-    }
-
     // see if the referent is still there
     bool keepNewTomb = svr->log.isSegmentLive(tomb->segmentId);
 
-    // Remove the evicted entry whether it is discarded or not.
-    // If it isn't to be discarded, we'll track it again in the
-    // #tombstoneScanCallback function.
-    table->profiler.untrack(tomb->id.objectId,
-                            oldHandle->totalLength(),
-                            oldHandle->logTime());
+    // Remove the entry from the TabletProfiler whether it is to be
+    // discarded or not. If we keep it we'll track it again in the
+    // tombstoneScanCallback function.
+    boost::lock_guard<SpinLock> lock(svr->objectUpdateLock);
+    Table* table = svr->getTable(downCast<uint32_t>(tomb->id.tableId),
+                                 tomb->id.objectId);
+    if (table != NULL) {
+        table->profiler.untrack(tomb->id.objectId,
+                                oldHandle->totalLength(),
+                                oldHandle->logTime());
+    }
 
     return keepNewTomb;
 }
