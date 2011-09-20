@@ -24,7 +24,6 @@ from __future__ import division
 from common import *
 import itertools
 import log
-import metrics
 import os
 import pprint
 import re

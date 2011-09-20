@@ -40,7 +40,6 @@ import cluster
 import config
 import log
 import glob
-import metrics
 import os
 import pprint
 import re
