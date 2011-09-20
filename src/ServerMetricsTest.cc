@@ -40,7 +40,7 @@ TEST_F(ServerMetricsTest, basics) {
 TEST_F(ServerMetricsTest, load) {
     RawMetrics data;
     data.master.recoveryTicks = 99;
-    data.backup.writeCount = 1000;
+    data.temp.count2 = 1000;
     string s;
     data.serialize(s);
     Buffer buffer;
@@ -49,7 +49,7 @@ TEST_F(ServerMetricsTest, load) {
     ServerMetrics metrics;
     metrics.load(buffer);
     EXPECT_EQ(99U, metrics["master.recoveryTicks"]);
-    EXPECT_EQ(1000U, metrics["backup.writeCount"]);
+    EXPECT_EQ(1000U, metrics["temp.count2"]);
 }
 
 TEST_F(ServerMetricsTest, load_bogusInput) {

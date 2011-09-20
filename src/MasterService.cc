@@ -666,7 +666,6 @@ MasterService::recover(uint64_t masterId,
     while (activeRequests) {
         if (!readStallTicks)
             readStallTicks.construct(&metrics->master.segmentReadStallTicks);
-        metrics->master.taskIterations++;
         this->backup.proceed();
         uint64_t currentTime = Cycles::rdtsc();
         foreach (auto& task, tasks) {
@@ -878,7 +877,6 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
         }
 
         {
-            CycleCounter<RawMetric> _(&metrics->master.tabletsRecoveredTicks);
             coordinator->tabletsRecovered(*serverId, recoveryTablets,
                                           recoveryWill);
         }

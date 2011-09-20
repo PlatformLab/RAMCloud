@@ -509,7 +509,7 @@ def textReport(data):
         total=recoveryTime,
         fractionLabel='of total recovery')
     coordSection.ms('  Tablets recovered',
-        coord.coordinator.tabletsRecoveredTicks / coord.clockFrequency,
+        coord.rpc.tabletsRecoveredTicks / coord.clockFrequency,
         total=recoveryTime,
         fractionLabel='of total recovery')
     coordSection.ms('    Completing recovery on backups',
@@ -517,20 +517,20 @@ def textReport(data):
         total=recoveryTime,
         fractionLabel='of total recovery')
     coordSection.ms('  Set will',
-        coord.coordinator.setWillTicks / coord.clockFrequency,
+        coord.rpc.setWillTicks / coord.clockFrequency,
         total=recoveryTime,
         fractionLabel='of total recovery')
     coordSection.ms('  Get tablet map',
-        coord.coordinator.getTabletMapTicks / coord.clockFrequency,
+        coord.rpc.getTabletMapTicks / coord.clockFrequency,
         total=recoveryTime,
         fractionLabel='of total recovery')
     coordSection.ms('  Other',
         ((coord.coordinator.recoveryTicks -
           coord.coordinator.recoveryConstructorTicks -
           coord.coordinator.recoveryStartTicks -
-          coord.coordinator.setWillTicks -
-          coord.coordinator.getTabletMapTicks -
-          coord.coordinator.tabletsRecoveredTicks) /
+          coord.rpc.setWillTicks -
+          coord.rpc.getTabletMapTicks -
+          coord.rpc.tabletsRecoveredTicks) /
          coord.clockFrequency),
         total=recoveryTime,
         fractionLabel='of total recovery')
@@ -679,17 +679,17 @@ def textReport(data):
          for master in masters])
     try:
         masterSection.ms('RPC latency replicating one segment',
-            [(master.master.replayCloseTicks + master.master.logSyncCloseTicks) /
+            [(master.master.backupCloseTicks + master.master.logSyncCloseTicks) /
              master.clockFrequency /
-             (master.master.replayCloseCount + master.master.logSyncCloseCount)
+             (master.master.backupCloseCount + master.master.logSyncCloseCount)
              for master in masters],
             note='for R-th replica')
     except:
         pass
     try:
         masterSection.ms('  During replay',
-            [master.master.replayCloseTicks / master.clockFrequency /
-             master.master.replayCloseCount
+            [master.master.backupCloseTicks / master.clockFrequency /
+             master.master.backupCloseCount
              for master in masters],
             note='for R-th replica')
     except:
@@ -717,9 +717,6 @@ def textReport(data):
         [(master.master.segmentReadTicks / master.master.segmentReadCount)
          / master.clockFrequency
          for master in masters])
-    masterSection.avgMaxFrac('Task iterations',
-        [master.master.taskIterations for master in masters],
-        '{0:.0f}')
 
     backupSection = report.add(Section('Backup Time'))
     backupSection.ms('RPC service time',
@@ -728,12 +725,12 @@ def textReport(data):
         total=recoveryTime,
         fractionLabel='of total recovery')
     backupSection.ms('  startReadingData',
-        [backup.backup.startReadingDataTicks / backup.clockFrequency
+        [backup.rpc.backupStartReadingDataTicks / backup.clockFrequency
          for backup in backups],
         total=recoveryTime,
         fractionLabel='of total recovery')
     backupSection.ms('  Open/write segment',
-        [backup.backup.writeTicks / backup.clockFrequency
+        [backup.rpc.backupWriteTicks / backup.clockFrequency
          for backup in backups],
         total=recoveryTime,
         fractionLabel='of total recovery')
@@ -748,22 +745,22 @@ def textReport(data):
         total=recoveryTime,
         fractionLabel='of total recovery')
     backupSection.ms('    Other',
-        [(backup.backup.writeTicks -
+        [(backup.rpc.backupWriteTicks -
           backup.backup.writeClearTicks -
           backup.backup.writeCopyTicks) / backup.clockFrequency
          for backup in backups],
         total=recoveryTime,
         fractionLabel='of total recovery')
     backupSection.ms('  getRecoveryData',
-        [backup.backup.readTicks / backup.clockFrequency
+        [backup.rpc.backupGetRecoveryDataTicks / backup.clockFrequency
          for backup in backups],
         total=recoveryTime,
         fractionLabel='of total recovery')
     backupSection.ms('  Other',
         [(backup.backup.serviceTicks -
-          backup.backup.startReadingDataTicks -
-          backup.backup.writeTicks -
-          backup.backup.readTicks) /
+          backup.rpc.backupStartReadingDataTicks -
+          backup.rpc.backupWriteTicks -
+          backup.rpc.backupGetRecoveryDataTicks) /
          backup.clockFrequency
          for backup in backups],
         total=recoveryTime,
@@ -792,10 +789,10 @@ def textReport(data):
         [backup.backup.readCompletionCount for backup in backups],
         '{0:.0f}')
     backupSection.avgMaxFrac('getRecoveryData retry fraction',
-        [(backup.backup.readRequestCount - backup.backup.readCompletionCount)
-         /backup.backup.readRequestCount
+        [(backup.rpc.backupGetRecoveryDataCount - backup.backup.readCompletionCount)
+         /backup.rpc.backupGetRecoveryDataCount
          for backup in backups
-         if (backup.backup.readRequestCount > 0)], '{0:0.3f}')
+         if (backup.rpc.backupGetRecoveryDataCount > 0)], '{0:0.3f}')
 
     efficiencySection = report.add(Section('Efficiency'))
 
@@ -811,11 +808,11 @@ def textReport(data):
     # TODO(ongaro): get stddev among segments
     try:
         efficiencySection.avgStd('Writing a segment',
-            (sum([backup.backup.writeTicks / backup.clockFrequency
+            (sum([backup.rpc.backupWriteTicks / backup.clockFrequency
                   for backup in backups]) * 1000 /
         # Divide count by 2 since each segment does two writes: one to open the segment
         # and one to write the data.
-            sum([backup.backup.writeCount / 2
+            sum([backup.rpc.backupWriteCount / 2
                  for backup in backups])),
             pointFormat='{0:6.2f} ms avg',
             note='backup RPC thread')

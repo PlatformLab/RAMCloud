@@ -379,7 +379,6 @@ BackupService::SegmentInfo::close()
 
     state = CLOSED;
     rightmostWrittenOffset = BYTES_WRITTEN_CLOSED;
-    --metrics->backup.currentOpenSegmentCount;
 
     assert(storageHandle);
     ioScheduler.store(*this);
@@ -447,8 +446,6 @@ BackupService::SegmentInfo::open()
     this->segment = segment;
     this->storageHandle = handle;
     state = OPEN;
-    ++metrics->backup.currentOpenSegmentCount;
-    ++metrics->backup.totalSegmentCount;
 }
 
 /**
@@ -1067,9 +1064,6 @@ BackupService::getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
                                BackupGetRecoveryDataRpc::Response& respHdr,
                                Rpc& rpc)
 {
-    ++metrics->backup.readRequestCount;
-    CycleCounter<RawMetric> _(&metrics->backup.readTicks);
-
     LOG(DEBUG, "getRecoveryData masterId %lu, segmentId %lu, partitionId %lu",
         reqHdr.masterId, reqHdr.segmentId, reqHdr.partitionId);
 
@@ -1207,7 +1201,6 @@ BackupService::startReadingData(
     recoveryStart = Cycles::rdtsc();
     metrics->backup.recoveryCount++;
     metrics->backup.storageType = static_cast<uint64_t>(storage.storageType);
-    CycleCounter<RawMetric> srdTicks(&metrics->backup.startReadingDataTicks);
 
     ProtoBuf::Tablets partitions;
     ProtoBuf::parseFromResponse(rpc.requestPayload, sizeof(reqHdr),
@@ -1291,7 +1284,6 @@ BackupService::startReadingData(
     }
 
     rpc.sendReply();
-    srdTicks.stop();
 
 #ifndef SINGLE_THREADED_BACKUP
     RecoverySegmentBuilder builder(Context::get(),
@@ -1343,10 +1335,8 @@ BackupService::writeSegment(const BackupWriteRpc::Request& reqHdr,
                             BackupWriteRpc::Response& respHdr,
                             Rpc& rpc)
 {
-    CycleCounter<RawMetric> _(&metrics->backup.writeTicks);
     uint64_t masterId = reqHdr.masterId;
     uint64_t segmentId = reqHdr.segmentId;
-    ++metrics->backup.writeCount;
 
     SegmentInfo* info = findSegmentInfo(masterId, segmentId);
 

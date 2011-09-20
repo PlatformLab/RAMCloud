@@ -458,8 +458,8 @@ BackupManager::proceedNoMetrics()
                     ++metrics->master.logSyncCloseCount;
                 } else {
                     backup->closeTicks.construct(
-                        &metrics->master.replayCloseTicks);
-                    ++metrics->master.replayCloseCount;
+                        &metrics->master.backupCloseTicks);
+                    ++metrics->master.backupCloseCount;
                 }
             }
 

@@ -157,120 +157,103 @@ class Group:
 
 coordinator = Group('Coordinator', 'metrics for coordinator')
 coordinator.metric('recoveryCount',
-    'total number of recoveries in which this coordinator participated')
-coordinator.metric('recoveryTicks', 'total time elapsed during recovery')
-coordinator.metric('recoveryConstructorTicks',
-    'total amount of time in Recovery constructor')
-coordinator.metric('recoveryStartTicks', 'total amount of time in Recovery::start')
-coordinator.metric('tabletsRecoveredTicks', 'total amount of time in Recovery::start')
-coordinator.metric('setWillTicks', 'total amount of time in Recovery::setWill')
-coordinator.metric('getTabletMapTicks', 'total amount of time in Recovery::setWill')
+    'number of recoveries in which this coordinator participated')
+coordinator.metric('recoveryTicks', 'elapsed time during recoveries')
+coordinator.metric('recoveryConstructorTicks', 'time in Recovery constructor')
+coordinator.metric('recoveryStartTicks', 'time in Recovery::start')
 coordinator.metric('recoveryCompleteTicks',
-    'total amount of time sending recovery complete RPCs to backups')
+    'time sending recovery complete RPCs to backups')
 
 master = Group('Master', 'metrics for masters')
 master.metric('recoveryCount',
-    'total number of recoveries in which this master participated')
-master.metric('recoveryTicks', 'total time elapsed during recovery')
-master.metric('tabletsRecoveredTicks',
-    'total amount of time spent calling Coordinator::tabletsRecovered')
-master.metric('backupManagerTicks',
-    'total amount of time spent in BackupManager')
-master.metric('segmentAppendChecksumTicks',
-    'total amount of time spent checksumming in Segment::append')
-master.metric('segmentAppendCopyTicks',
-    'total amount of time spent copying in Segment::append')
-master.metric('segmentOpenStallTicks',
-    'total amount of time waiting for segment open responses from backups')
-master.metric('segmentReadCount',
-    'total number of BackupClient::getRecoveryData calls issued')
-master.metric('segmentReadTicks',
-    'total elapsed time for RPCs reading segments from backups')
-master.metric('segmentReadStallTicks',
-    'total amount of time stalled waiting for segments from backups')
-master.metric('segmentReadByteCount',
-    'total size in bytes of recovery segments received from backups')
-master.metric('verifyChecksumTicks',
-    'total amount of time verifying checksums on objects from backups')
-master.metric('recoverSegmentTicks',
-    'total amount of time spent in MasterServer::recoverSegment')
+    'number of recoveries in which this master participated')
+master.metric('recoveryTicks', 'the elapsed time during recoveries')
+master.metric('backupManagerTicks', 'time spent in BackupManager')
 master.metric('segmentAppendTicks',
     'total amount of time spent in Segment::append')
+master.metric('segmentAppendCopyTicks',
+    'time spent copying in Segment::append')
+master.metric('segmentAppendChecksumTicks',
+    'time spent checksumming in Segment::append')
+master.metric('segmentReadCount',
+    'number of BackupClient::getRecoveryData calls issued')
+master.metric('segmentReadTicks',
+    'elapsed time for getRecoveryData calls to backups')
+master.metric('segmentReadStallTicks',
+    'time stalled waiting for segments from backups')
+master.metric('segmentReadByteCount',
+    'bytes of recovery segments received from backups')
+master.metric('verifyChecksumTicks',
+    'time verifying checksums on objects from backups')
+master.metric('recoverSegmentTicks',
+    'spent in MasterService::recoverSegment')
 master.metric('backupInRecoverTicks',
-    'total amount of time spent in BackupManager::proceed '
-    'called from MasterServer::recoverSegment')
+    'time spent in BackupManager::proceed '
+    'called from MasterService::recoverSegment')
 master.metric('segmentCloseCount',
-    'total number of complete segments written to backups')
-master.metric('segmentWriteStallTicks',
-    'total amount of time spent stalled on writing segments to backups')
+    'number of complete segments written to backups')
 master.metric('recoverySegmentEntryCount',
-    'total number of recovery segment entries (e.g. objects, tombstones)')
+    'number of recovery segment entries (e.g. objects, tombstones)')
 master.metric('recoverySegmentEntryBytes',
-    'total number of entry bytes in recovery segments (without overhead)')
-master.metric('liveObjectCount', 'total number of live objects')
-master.metric('liveObjectBytes', 'total number of bytes of live object data')
-master.metric('objectAppendCount', 'total number of objects appended to the log')
-master.metric('objectDiscardCount', 'total number of objects not appended to the log')
+    'number of bytes in recovery segment entries (without overhead)')
+master.metric('liveObjectCount',
+    'number of live objects written during recovery')
+master.metric('liveObjectBytes',
+    'number of bytes of live object data written during recovery')
+master.metric('objectAppendCount',
+    'number of objects appended to the log during recovery')
+master.metric('objectDiscardCount',
+    'number of objects not appended to the log during recovery')
 master.metric('tombstoneAppendCount',
-    'total number of tombstones kept (currently to the side)')
-master.metric('tombstoneDiscardCount', 'total number of tombstones discarded')
+    'number of tombstones kept during recovery')
+master.metric('tombstoneDiscardCount',
+    'number of tombstones discarded during recovery')
 master.metric('logSyncTicks',
-    'total amount of time syncing the log at the end of recovery')
+    'time syncing the log at the end of recovery')
 master.metric('logSyncBytes',
-    'total bytes sent during log sync')
+    'bytes sent during log sync')
 master.metric('recoveryWillTicks',
-    'total amount of time rebuilding will at the end of recovery')
+    'time rebuilding will at the end of recovery')
 master.metric('removeTombstoneTicks',
-    'total amount of time deleting tombstones at the end of recovery')
+    'time deleting tombstones at the end of recovery')
 master.metric('replicationTicks',
-    'total time with outstanding RPCs to backups')
+    'time with outstanding RPCs to backups')
 master.metric('replicationBytes',
-    'total bytes sent from first gRD response through log sync')
-master.metric('replicas', 'number of backups on which to replicate each segment')
-master.metric('replayCloseTicks',
-    'total amount of time R-th replica took to close during replay')
-master.metric('replayCloseCount',
-    'total number of segments closed during replay')
+    'bytes sent during recovery from first gRD response '
+    'through log sync')
+master.metric('replicas',
+    'number of backups on which to replicate each segment')
+master.metric('backupCloseTicks',
+    'time closing segments in BackupManager')
+master.metric('backupCloseCount',
+    'number of segments closed in BackupManager')
 master.metric('logSyncCloseTicks',
-    'total amount of time R-th replica took to close during log sync')
+    'time close segments during log sync')
 master.metric('logSyncCloseCount',
-    'total number of segments closed during log sync')
-master.metric('taskIterations',
-    'total times recover checked for a completed task')
+    'number of segments closed during log sync')
 
 backup = Group('Backup', 'metrics for backups')
 backup.metric('recoveryCount',
-    'total number of recoveries in which this backup participated')
-backup.metric('recoveryTicks', 'total time elapsed during recovery')
-backup.metric('serviceTicks', 'total time spent servicing RPC requests')
-backup.metric('startReadingDataTicks', 'total amount of time in sRD')
-backup.metric('readRequestCount',
-    'total number of getRecoveryData requests processed to completion')
+    'number of recoveries in which this backup participated')
+backup.metric('recoveryTicks', 'elapsed time during recovery')
+backup.metric('serviceTicks', 'time spent servicing RPC requests')
 backup.metric('readCompletionCount',
-    'total number of getRecoveryData requests processed to completion')
-backup.metric('readTicks',
-    'total number of time servicing getRecoveryData RPC')
+    'number of getRecoveryData requests successfully completed')
 backup.metric('readingDataTicks',
-    'total amount of time between startReadingData to done reading')
-backup.metric('storageReadCount', 'total number of segment reads from disk')
-backup.metric('storageReadBytes', 'total amount of bytes read from disk')
-backup.metric('storageReadTicks', 'total amount of time reading from disk')
-backup.metric('writeTicks', 'total amount of time servicing write RPC')
+    'time from startReadingData to done reading')
+backup.metric('storageReadCount', 'number of segment reads from disk')
+backup.metric('storageReadBytes', 'amount of bytes read from disk')
+backup.metric('storageReadTicks', 'time reading from disk')
 backup.metric('writeClearTicks',
-    'total amount of time clearing segment memory during segment open')
-backup.metric('writeCopyBytes',
-    'total bytes written to backup segments')
-backup.metric('writeCopyTicks',
-    'total amount of time clearing segment memory during segment open')
-backup.metric('writeCount', 'total number of writeSegment requests processed')
-backup.metric('storageWriteCount', 'total number of segment writes to disk')
-backup.metric('storageWriteBytes', 'total amount of bytes written to disk')
-backup.metric('storageWriteTicks', 'total amount of time writing to disk')
-backup.metric('filterTicks', 'total amount of time filtering segments')
-backup.metric('currentOpenSegmentCount', 'total number of open segments')
-backup.metric('totalSegmentCount', 'total number of open or closed segments')
-backup.metric('primaryLoadCount', 'total number of primary segments requested')
-backup.metric('secondaryLoadCount', 'total number of secondary segments requested')
+    'time clearing segment memory during segment open')
+backup.metric('writeCopyBytes', 'bytes written to backup segments')
+backup.metric('writeCopyTicks', 'time copying data to backup segments')
+backup.metric('storageWriteCount', 'number of segment writes to disk')
+backup.metric('storageWriteBytes', 'bytes written to disk')
+backup.metric('storageWriteTicks', 'time writing to disk')
+backup.metric('filterTicks', 'time filtering segments')
+backup.metric('primaryLoadCount', 'number of primary segments requested')
+backup.metric('secondaryLoadCount', 'number of secondary segments requested')
 backup.metric('storageType', '1 = in-memory, 2 = on-disk')
 
 # This class records basic statistics for RPCs (count & execution time):
@@ -392,27 +375,27 @@ receive.metric('iovecCount', 'number of Buffer chunks received')
 receive.metric('byteCount', 'number of bytes received')
 
 infiniband = Group('Infiniband', 'metrics for Infiniband networking')
-infiniband.metric('transmitActiveTicks', 'total time with packets on the transmit queue')
+infiniband.metric('transmitActiveTicks', 'time with packets on the transmit queue')
 
 transport = Group('Transport', 'transport metrics')
 transport.group(transmit)
 transport.group(receive)
 transport.group(infiniband)
 transport.metric('sessionOpenTicks',
-    'total amount of time opening sessions for RPCs')
+    'time opening sessions for RPCs')
 transport.metric('sessionOpenCount',
-    'total amount of sessions opened for RPCs')
+    'number of sessions opened for RPCs')
 transport.metric('sessionOpenSquaredTicks',
     'used for calculating the standard deviation of sessionOpenTicks')
 transport.metric('retrySessionOpenCount',
-    'total amount of timeouts during session open')
+    'member of timeouts during session open')
 transport.metric('clientRpcsActiveTicks',
-    'total amount of time with a client RPC active on the network')
+    'time with a client RPC active on the network')
 
 temp = Group('Temp', 'metrics for temporary use')
 for i in range(10):
-    temp.metric('ticks{0:}'.format(i),'total amount of time for some undefined activity')
-    temp.metric('count{0:}'.format(i),'total number of occurrences of some undefined event')
+    temp.metric('ticks{0:}'.format(i),'amount of time for some undefined activity')
+    temp.metric('count{0:}'.format(i),'number of occurrences of some undefined event')
 
 definitions = Group('RawMetrics', 'server metrics')
 definitions.group(coordinator);
