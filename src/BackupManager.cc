@@ -297,16 +297,12 @@ BackupManager::isSynced()
 void
 BackupManager::sync()
 {
-    uint64_t initTicks = metrics->master.backupManagerTicks;
     {
         CycleCounter<RawMetric> _(&metrics->master.backupManagerTicks);
         while (!isSynced()) {
             proceedNoMetrics();
         }
     } // block ensures that _ is destroyed and counter stops
-    serverStats.totalBackupSyncNanos += Cycles::toNanoseconds(
-            metrics->master.backupManagerTicks - initTicks);
-    serverStats.totalBackupSyncs++;
     assert(outstandingRpcs == 0);
 }
 

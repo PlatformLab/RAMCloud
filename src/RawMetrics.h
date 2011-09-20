@@ -78,30 +78,6 @@ class RawMetrics {
 };
 
 extern RawMetrics* metrics;
-
-// These metrics are used to track activity on the server
-// during BenchMarks. They are triggered and populated by magic keyid
-// RC::MasterService::TOTAL_READ_REQUESTS_OBJID. Also see Bench.cc
-struct ServerStats {
-  uint64_t totalReadRequests;
-  uint64_t totalReadNanos;
-  uint64_t totalWriteRequests;
-  uint64_t totalWriteNanos;
-  uint64_t totalBackupSyncs;
-  uint64_t totalBackupSyncNanos;
-  uint64_t serverWaitNanos;
-  uint64_t infrcSendReplyNanos;
-  uint64_t infrcGetTxBufferNanos;
-  uint64_t infrcGetTxCount;
-  uint64_t gtbPollCount;
-  uint64_t gtbPollNanos;
-  uint64_t gtbPollZeroNanos;
-  uint64_t gtbPollNonZeroNanos;
-  uint64_t gtbPollZeroNCount;
-  uint64_t gtbPollNonZeroNAvg;
-};
-
-extern ServerStats serverStats;
 } // namespace RAMCloud
 
 #endif // RAMCLOUD_RAWMETRICS_H

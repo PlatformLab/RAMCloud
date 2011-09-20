@@ -315,17 +315,6 @@ MasterService::read(const ReadRpc::Request& reqHdr,
                    ReadRpc::Response& respHdr,
                    Rpc& rpc)
 {
-    if (reqHdr.id == TOTAL_READ_REQUESTS_OBJID) {
-        new(&rpc.replyPayload, APPEND) ServerStats(serverStats);
-        respHdr.length = sizeof(serverStats);
-        memset(&serverStats, 0, sizeof(serverStats));
-        return; // TODO(nandu) - if an actual object uses this objid
-                // then we do not return its real value back. Should
-                // change this to use an RPC other than read. Write to
-                // this object has undesirable behavior too.
-    }
-    CycleCounter<uint64_t> timeThisRead;
-
     // We must return table doesn't exist if the table does not exist. Also, we
     // might have an entry in the hash table that's invalid because its tablet
     // no longer lives here.
@@ -352,8 +341,6 @@ MasterService::read(const ReadRpc::Request& reqHdr,
     // TODO(ongaro): We'll need a new type of Chunk to block the cleaner
     // from scribbling over obj->data.
     respHdr.length = obj->dataLength(handle->length());
-    serverStats.totalReadRequests++;
-    serverStats.totalReadNanos += Cycles::toNanoseconds(timeThisRead.stop());
 }
 
 /**
@@ -1236,7 +1223,6 @@ MasterService::write(const WriteRpc::Request& reqHdr,
                     WriteRpc::Response& respHdr,
                     Rpc& rpc)
 {
-    CycleCounter<uint64_t> timeThis;
     Status status = storeData(reqHdr.tableId, reqHdr.id, &reqHdr.rejectRules,
                               &rpc.requestPayload, sizeof(reqHdr),
                               static_cast<uint32_t>(reqHdr.length),
@@ -1245,8 +1231,6 @@ MasterService::write(const WriteRpc::Request& reqHdr,
         respHdr.common.status = status;
         return;
     }
-    serverStats.totalWriteRequests++;
-    serverStats.totalWriteNanos += Cycles::toNanoseconds(timeThis.stop());
 }
 
 /**

@@ -628,7 +628,6 @@ template<typename Infiniband>
 typename Infiniband::BufferDescriptor*
 InfRcTransport<Infiniband>::getTransmitBuffer()
 {
-    CycleCounter<uint64_t> timeThis;
     // if we've drained our free tx buffer pool, we must wait.
     while (freeTxBuffers.empty()) {
         reapTxBuffers();
@@ -636,8 +635,6 @@ InfRcTransport<Infiniband>::getTransmitBuffer()
 
     BufferDescriptor* bd = freeTxBuffers.back();
     freeTxBuffers.pop_back();
-
-    serverStats.infrcGetTxBufferNanos += timeThis.stop();
 
     if (!transmitCycleCounter) {
         transmitCycleCounter.construct();
@@ -658,21 +655,9 @@ int
 InfRcTransport<Infiniband>::reapTxBuffers()
 {
     ibv_wc retArray[MAX_TX_QUEUE_DEPTH];
-    CycleCounter<uint64_t> timeThis;
     int n = infiniband->pollCompletionQueue(commonTxCq,
                                             MAX_TX_QUEUE_DEPTH,
                                             retArray);
-    uint64_t gtbPollNanos = Cycles::toNanoseconds(timeThis.stop());
-    serverStats.gtbPollNanos += gtbPollNanos;
-    serverStats.gtbPollCount++;
-
-    if (0 >= n) {
-         serverStats.gtbPollZeroNCount++;
-         serverStats.gtbPollZeroNanos += gtbPollNanos;
-    } else {
-         serverStats.gtbPollNonZeroNAvg += n;
-         serverStats.gtbPollNonZeroNanos += gtbPollNanos;
-    }
 
     for (int i = 0; i < n; i++) {
         BufferDescriptor* bd =
@@ -752,7 +737,6 @@ template<typename Infiniband>
 void
 InfRcTransport<Infiniband>::ServerRpc::sendReply()
 {
-    CycleCounter<uint64_t> timeThis1;
     CycleCounter<RawMetric> _(&metrics->transport.transmit.ticks);
     ++metrics->transport.transmit.messageCount;
     ++metrics->transport.transmit.packetCount;
@@ -771,7 +755,6 @@ InfRcTransport<Infiniband>::ServerRpc::sendReply()
     }
 
     BufferDescriptor* bd = t->getTransmitBuffer();
-    serverStats.infrcGetTxCount++;
     new(&replyPayload, PREPEND) Header(nonce);
     {
         CycleCounter<RawMetric> copyTicks(
@@ -782,7 +765,6 @@ InfRcTransport<Infiniband>::ServerRpc::sendReply()
     metrics->transport.transmit.byteCount += replyPayload.getTotalLength();
     t->infiniband->postSend(qp, bd, replyPayload.getTotalLength());
     replyPayload.truncateFront(sizeof(Header)); // for politeness
-    serverStats.infrcSendReplyNanos += Cycles::toNanoseconds(timeThis1.stop());
 }
 
 //-------------------------------------
