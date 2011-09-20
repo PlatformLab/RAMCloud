@@ -370,10 +370,10 @@ double sfence()
 struct SegmentEntryLessThan {
   public:
     bool
-    operator()(const SegmentEntryHandle a, const SegmentEntryHandle b)
+    operator()(const std::pair<SegmentEntryHandle, uint32_t> a,
+               const std::pair<SegmentEntryHandle, uint32_t> b)
     {
-        return a->userData<Object>()->timestamp <
-               b->userData<Object>()->timestamp;
+        return a.second < b.second;
     }
 };
 
@@ -386,7 +386,7 @@ double segmentEntrySort()
     const int avgObjectSize = 100;
 
     DECLARE_OBJECT(obj, 2 * avgObjectSize);
-    vector<SegmentEntryHandle> entries;
+    vector<std::pair<SegmentEntryHandle, uint32_t>> entries;
 
     int count;
     for (count = 0; ; count++) {
@@ -404,7 +404,8 @@ double segmentEntrySort()
     // appears to take about 1/8th the time
     for (SegmentIterator i(&s); !i.isDone(); i.next()) {
         if (i.getType() == LOG_ENTRY_TYPE_OBJ)
-            entries.push_back(i.getHandle());
+            entries.push_back(std::pair<SegmentEntryHandle, uint32_t>(
+                i.getHandle(), i.getHandle()->userData<Object>()->timestamp));
     }
 
     // the rest is, unsurprisingly, here
@@ -415,6 +416,56 @@ double segmentEntrySort()
     free(block);
 
     return Cycles::toSeconds(stop - start);
+}
+
+// Measure the time it takes to iterate over the entries in
+// a single Segment.
+template<uint32_t minObjectBytes, uint32_t maxObjectBytes>
+double segmentIterator()
+{
+    uint64_t numObjects = 0;
+    uint64_t nextObjId = 0;
+    Segment *segment;
+
+    // build a segment
+    void *p = xmemalign(Segment::SEGMENT_SIZE, Segment::SEGMENT_SIZE);
+    segment = new Segment(0, 0, p, Segment::SEGMENT_SIZE, NULL);
+    while (1) {
+        uint32_t size = minObjectBytes;
+        if (minObjectBytes != maxObjectBytes) {
+            uint64_t rnd = generateRandom();
+            size += downCast<uint32_t>(rnd % (maxObjectBytes - minObjectBytes));
+        }
+        DECLARE_OBJECT(o, size);
+        o->id.objectId = nextObjId++;
+        o->id.tableId = 0;
+        o->version = 0;
+        const void *so = segment->append(LOG_ENTRY_TYPE_OBJ,
+                                         o,
+                                         o->objectLength(size));
+        if (so == NULL)
+            break;
+        numObjects++;
+    }
+    segment->close();
+
+    // scan through the segment
+    uint64_t totalBytes = 0;
+    uint64_t totalObjects = 0;
+    CycleCounter<uint64_t> counter;
+    SegmentIterator si(segment);
+    while (!si.isDone()) {
+        totalBytes += si.getLength();
+        totalObjects++;
+        si.next();
+    }
+    double time = Cycles::toSeconds(counter.stop());
+
+    // clean up
+    free(const_cast<void *>(segment->getBaseAddress()));
+    delete segment;
+
+    return time;
 }
 
 // Measure the cost of acquiring and releasing a SpinLock (assuming the
@@ -567,6 +618,8 @@ TestInfo tests[] = {
      "Cost of ObjectPool allocation after destroying an object"},
     {"segmentEntrySort", segmentEntrySort,
      "Sort a Segment full of avg. 100-byte Objects by age"},
+    {"segmentIterator", segmentIterator<50, 150>,
+     "Iterate a Segment full of avg. 100-byte Objects"},
     {"sfence", sfence,
      "Sfence instruction"},
     {"spinLock", spinLock,
