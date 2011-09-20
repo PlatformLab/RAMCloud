@@ -133,4 +133,20 @@ TEST(CodeLocation, qualifiedFunction) {
     EXPECT_EQ("func", where.qualifiedFunction());
 }
 
+TEST_F(CommonTest, startsWith) {
+    EXPECT_TRUE(startsWith("foo", "foo"));
+    EXPECT_TRUE(startsWith("foo", "fo"));
+    EXPECT_TRUE(startsWith("foo", ""));
+    EXPECT_TRUE(startsWith("", ""));
+    EXPECT_FALSE(startsWith("f", "foo"));
+}
+
+TEST_F(CommonTest, endsWith) {
+    EXPECT_TRUE(endsWith("foo", "foo"));
+    EXPECT_TRUE(endsWith("foo", "oo"));
+    EXPECT_TRUE(endsWith("foo", ""));
+    EXPECT_TRUE(endsWith("", ""));
+    EXPECT_FALSE(endsWith("o", "foo"));
+}
+
 }  // namespace RAMCloud
