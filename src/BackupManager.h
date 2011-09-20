@@ -25,19 +25,23 @@
 #include "Common.h"
 #include "RawMetrics.h"
 #include "Tub.h"
+#include "VarLenArray.h"
 
 namespace RAMCloud {
 
 /**
- * Orchestrates operations on backup servers.
- * This class handles selecting backup servers on a segment-by-segment basis
- * and relays backup operations to those servers.
+ * Replicates segments to backup servers. This class is used on masters to
+ * replicate segments of the log to backups. It handles selecting backup
+ * servers on a segment-by-segment basis and replicates local segments to
+ * remote backups.
  */
 class BackupManager {
   PUBLIC:
-    /// Represents a segment that is being replicated to backups.
+    /**
+     * A segment that is being replicated to backups.
+     * Most of this class is used to store state internal to the BackupManager.
+     */
     class OpenSegment {
-
       PUBLIC:
         /**
          * Convenience method for calling #write() with the last offset and
@@ -59,13 +63,51 @@ class BackupManager {
         static size_t sizeOf(uint32_t replicas) {
             return sizeof(OpenSegment) + sizeof(backups[0]) * replicas;
         }
+
         OpenSegment(BackupManager& backupManager, uint64_t segmentId,
                     const void* data, uint32_t len);
-        ~OpenSegment();
-        void sync();
 
-        // The following are really private:
+        /**
+         * The BackupManager instance which owns this OpenSegment.
+         */
+        BackupManager& backupManager;
 
+        /**
+         * A unique ID for the segment.
+         */
+        const uint64_t segmentId;
+
+        /**
+         * The start of an array of bytes to be replicated.
+         */
+        const void* data;
+
+        /**
+         * The number of bytes to send atomically to backups with the open
+         * segment RPC.
+         */
+        uint32_t openLen;
+
+        /**
+         * The number of bytes of #data written by the user of this class (not
+         * necessarily yet replicated).
+         */
+        uint32_t offsetQueued;
+
+        /**
+         * Whether the user of this class has closed this segment (not
+         * necessarily yet replicated).
+         */
+        bool closeQueued;
+
+        /**
+         * Intrusive list entries for #BackupManager::openSegmentList.
+         */
+        IntrusiveListHook listEntries;
+
+        /**
+         * The state needed for a single (partial) replica of this segment.
+         */
         struct Backup {
             explicit Backup(Transport::SessionRef session)
                 : client(session)
@@ -75,9 +117,17 @@ class BackupManager {
                 , closeTicks()
                 , rpc()
             {}
+
+            /**
+             * A handle to the remote backup server.
+             */
             BackupClient client;
 
+            /**
+             * Whether the initial RPC which opens the segment has completed.
+             */
             bool openIsDone;
+
             /**
              * The number of bytes of #OpenSegment::data that have been
              * transmitted to the backup (but not necessarily acknowledged).
@@ -99,48 +149,11 @@ class BackupManager {
         };
 
         /**
-         * Return a range of iterators across #backups
-         * for use in foreach loops.
-         */
-        std::pair<Tub<Backup>*, Tub<Backup>*>
-        backupIter() {
-            return {&backups[0], &backups[backupManager.replicas]};
-        }
-
-        void sendWriteRequests();
-        void waitForWriteRequests();
-
-        BackupManager& backupManager;
-        /**
-         * A unique ID for the segment.
-         */
-        const uint64_t segmentId;
-        /**
-         * The start of an array of bytes to be replicated.
-         */
-        const void* data;
-
-        uint32_t openLen;
-
-        /**
-         * The number of bytes of #data written by the user of this class (not
-         * necessarily yet replicated).
-         */
-        uint32_t offsetQueued;
-        /**
-         * Whether the user of this class has closed this segment (not
-         * necessarily yet replicated).
-         */
-        bool closeQueued;
-        /**
-         * Intrusive list entries for #BackupManager::openSegmentList.
-         */
-        IntrusiveListHook listEntries;
-        /**
          * An array of #BackupManager::replica backups on which to replicate
          * the segment.
          */
-        Tub<Backup> backups[0]; // must be last member of class
+        VarLenArray<Tub<Backup>> backups; // must be last member of class
+
         DISALLOW_COPY_AND_ASSIGN(OpenSegment);
     };
 
@@ -166,10 +179,8 @@ class BackupManager {
     static const uint32_t MAX_WRITE_RPC_BYTES = 1024 * 1024;
 
     void proceedNoMetrics();
-    void ensureSufficientHosts();
     bool isSynced();
     void unopenSegment(OpenSegment* openSegment);
-    void updateHostListFromCoordinator();
 
     /// Cluster coordinator. May be NULL for testing purposes.
     CoordinatorClient* const coordinator;
@@ -180,8 +191,48 @@ class BackupManager {
      */
     const Tub<uint64_t>& masterId;
 
-    /// The host pool to schedule backups from.
-    ProtoBuf::ServerList hosts;
+    /**
+     * Selects backups on which to store replicas.
+     */
+    class BackupSelector {
+      PUBLIC:
+        typedef ProtoBuf::ServerList::Entry Backup;
+        explicit BackupSelector(CoordinatorClient* coordinator);
+        void select(uint32_t numBackups, Backup* backups[]);
+        Backup* selectAdditional(uint32_t numBackups,
+                                 const Backup* const backups[]);
+      PRIVATE:
+        Backup* getRandomHost();
+        bool conflict(const Backup* a, const Backup* b) const;
+        bool conflictWithAny(const Backup* a, uint32_t numBackups,
+                                 const Backup* const backups[]) const;
+        void updateHostListFromCoordinator();
+
+        /// A hook for testing purposes.
+        DelayedThrower<> updateHostListThrower;
+
+        /// Cluster coordinator. May be NULL for testing purposes.
+        CoordinatorClient* const coordinator;
+
+        /// The list of backups from which to select.
+        ProtoBuf::ServerList hosts;
+
+        /**
+         * Used in #getRandomHost(). This is some permutation of the integers
+         * between 0 and hosts.size() - 1, inclusive.
+         */
+        vector<uint32_t> hostsOrder;
+
+        /**
+         * Used in #getRandomHost(). This is the number of backups that have
+         * been returned by #getRandomHost() since its last pass over the
+         * #hosts list.
+         */
+        uint32_t numUsedHosts;
+
+        DISALLOW_COPY_AND_ASSIGN(BackupSelector);
+    };
+    BackupSelector backupSelector; ///< See #BackupSelector.
 
   PUBLIC:
     /// The number of backups to replicate each segment on.

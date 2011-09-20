@@ -35,7 +35,6 @@ enum BackupStrategy {
     RANDOM_REFINE_MIN,
     RANDOM_REFINE_AVG,
     EVEN_DISTRIBUTION,
-    UNIFORM_RANDOM,
 };
 
 struct BackupStorageException : public Exception {

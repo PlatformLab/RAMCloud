@@ -22,12 +22,10 @@
 
 namespace RAMCloud {
 
-// --- BackupManager::OpenSegment ---
-
 namespace {
 /**
- * Packs and unpacks the user_data field of backupManager.hosts.
- * Used in BackupManager.
+ * Packs and unpacks the user_data field of BackupSelector.hosts.
+ * Used in BackupSelector.
  */
 struct AbuserData{
   private:
@@ -48,8 +46,7 @@ struct AbuserData{
         uint64_t user_data;
     } x;
   public:
-    template<typename T>
-    explicit AbuserData(const T* host)
+    explicit AbuserData(const ProtoBuf::ServerList::Entry* host)
         : x()
     {
         x.user_data = host->user_data();
@@ -72,21 +69,172 @@ struct AbuserData{
     }
 };
 
-template <typename HostList, typename Set>
-auto
-pickRandomUnusedHost(HostList& hostList, const Set& usedHosts) ->
-    decltype(hostList.mutable_server(0))
+} // anonymous namespace
+
+// --- BackupSelector ---
+
+/**
+ * Constructor.
+ * \param coordinator
+ *      See #coordinator.
+ */
+BackupManager::BackupSelector::BackupSelector(CoordinatorClient* coordinator)
+    : updateHostListThrower()
+    , coordinator(coordinator)
+    , hosts()
+    , hostsOrder()
+    , numUsedHosts(0)
 {
-    assert(static_cast<uint64_t>(hostList.server_size()) > usedHosts.size());
+}
+
+/**
+ * Choose backups for a segment.
+ * \param[in] numBackups
+ *      The number of backups to choose.
+ * \param[out] backups
+ *      An array of numBackups entries in which to return the chosen backups.
+ *      The first entry should store the primary replica.
+ */
+void
+BackupManager::BackupSelector::select(uint32_t numBackups, Backup* backups[])
+{
+    if (numBackups == 0)
+        return;
+    while (hosts.server_size() == 0)
+        updateHostListFromCoordinator();
+
+    // Select primary (the least loaded of 5 random backups):
+    auto& primary = backups[0];
+    primary = getRandomHost();
+    for (uint32_t i = 0; i < 5 - 1; ++i) {
+        auto candidate = getRandomHost();
+        if (AbuserData(primary).getMs() > AbuserData(candidate).getMs())
+            primary = candidate;
+    }
+    AbuserData h(primary);
+    LOG(DEBUG, "Chose backup with %u segments and %u MB/s disk bandwidth "
+        "(expected time to read on recovery is %u ms)",
+        h->numSegments, h->bandwidth, h.getMs());
+    ++h->numSegments;
+    primary->set_user_data(h->user_data);
+
+    // Select secondaries:
+    for (uint32_t i = 1; i < numBackups; ++i)
+        backups[i] = selectAdditional(i, backups);
+}
+
+/**
+ * Choose a random backup that does not conflict with an existing set of
+ * backups.
+ * \param[in] numBackups
+ *      The number of entries in the \a backups array.
+ * \param[in] backups
+ *      An array of numBackups entries, none of which may conflict with the
+ *      returned backup.
+ */
+BackupManager::BackupSelector::Backup*
+BackupManager::BackupSelector::selectAdditional(uint32_t numBackups,
+                                                const Backup* const backups[])
+{
     while (true) {
-        uint32_t index = downCast<uint32_t>(generateRandom() %
-                                            hostList.server_size());
-        auto host = hostList.mutable_server(index);
-        if (!contains(usedHosts, host))
-            return host;
+        for (uint32_t i = 0; i < uint32_t(hosts.server_size()) * 2; ++i) {
+            auto host = getRandomHost();
+            if (!conflictWithAny(host, numBackups, backups))
+                return host;
+        }
+        // The constraints must be unsatisfiable with the current backup list.
+        LOG(NOTICE, "Current list of backups is insufficient, refreshing");
+        updateHostListFromCoordinator();
     }
 }
-} // anonymous namespace
+
+/**
+ * Return a random backup.
+ * Guaranteed to return all backups at least once after
+ * any hosts.server_size() * 2 consecutive calls.
+ * \pre
+ *      The backup list is not empty.
+ * \return
+ *      A random backup.
+ *
+ * Conceptually, the algorithm operates as follows:
+ * A set of candidate backups is initialized with the entire list of backups,
+ * and a set of used backups starts off empty. With each call to getRandomHost,
+ * one backup is chosen from the set of candidates and is moved into the set of
+ * used backups. This is the backup that is returned. Once the set of
+ * candidates is exhausted, start over.
+ *
+ * In practice, the algorithm is implemented efficiently:
+ * Every index into the list of hosts is stored in the #hostsOrder array. The
+ * backups referred to by hostsOrder[0] through hostsOrder[numUsedHosts - 1]
+ * make up the set of used hosts, while the backups referred to by the
+ * remainder of the array make up the candidate backups.
+ */
+BackupManager::BackupSelector::Backup*
+BackupManager::BackupSelector::getRandomHost()
+{
+    assert(hosts.server_size() > 0);
+    if (numUsedHosts >= hostsOrder.size())
+        numUsedHosts = 0;
+    uint32_t i = numUsedHosts;
+    ++numUsedHosts;
+    uint32_t j = i + downCast<uint32_t>(generateRandom() %
+                                        (hostsOrder.size() - i));
+    std::swap(hostsOrder[i], hostsOrder[j]);
+    return hosts.mutable_server(hostsOrder[i]);
+}
+
+/**
+ * Return whether it is unwise to place a replica on backup 'a' given that a
+ * replica exists on backup 'b'. For example, it is unwise to place two
+ * replicas on the same backup or on backups that share a common power source.
+ */
+bool
+BackupManager::BackupSelector::conflict(const Backup* a, const Backup* b) const
+{
+    if (a == b)
+        return true;
+    // TODO(ongaro): Add other notions of conflicts, such as same rack.
+    return false;
+}
+
+/**
+ * Return whether it is unwise to place a replica on backup 'a' given that
+ * replica exists on 'backups'. See #conflict.
+ */
+bool
+BackupManager::BackupSelector::conflictWithAny(const Backup* a,
+                                           uint32_t numBackups,
+                                           const Backup* const backups[]) const
+{
+    for (uint32_t i = 0; i < numBackups; ++i) {
+        if (conflict(a, backups[i]))
+            return true;
+    }
+    return false;
+}
+
+/**
+ * Populate the host list by fetching a list of hosts from the coordinator.
+ */
+void
+BackupManager::BackupSelector::updateHostListFromCoordinator()
+{
+    updateHostListThrower();
+    if (!coordinator)
+        DIE("No coordinator given, replication requirements can't be met.");
+    // TODO(ongaro): This forgets about the number of primaries
+    //               stored on each backup.
+    coordinator->getBackupList(hosts);
+
+    hostsOrder.clear();
+    hostsOrder.reserve(hosts.server_size());
+    for (uint32_t i = 0; i < uint32_t(hosts.server_size()); ++i)
+        hostsOrder.push_back(i);
+    numUsedHosts = 0;
+}
+
+// --- BackupManager::OpenSegment ---
 
 /**
  * Constructor.
@@ -104,25 +252,15 @@ BackupManager::OpenSegment::OpenSegment(BackupManager& backupManager,
     , offsetQueued(len)
     , closeQueued(false)
     , listEntries()
+    , backups(backupManager.replicas)
 {
-    // Call constructors on Tub<Backup> array
-    foreach (auto& backup, backupIter())
-        new(&backup) Tub<Backup>();
-}
-
-BackupManager::OpenSegment::~OpenSegment()
-{
-    // Call destructors on Tub<Backup> array
-    foreach (auto& backup, backupIter())
-        backup.~Tub();
 }
 
 /**
  * Eventually replicate the \a len bytes of data starting at \a offset into the
  * segment.
- * Waits for all previous segments to finish replicating and guarantees that no
- * replica will see this write until it has seen all previous writes on this
- * segment.
+ * Guarantees that no replica will see this write until it has seen all
+ * previous writes on this segment.
  * \pre
  *      All previous segments have been closed (at least locally).
  * \param offset
@@ -169,7 +307,7 @@ BackupManager::BackupManager(CoordinatorClient* coordinator,
                              uint32_t replicas)
     : coordinator(coordinator)
     , masterId(masterId)
-    , hosts()
+    , backupSelector(coordinator)
     , replicas(replicas)
     , segments()
     , openSegmentPool(OpenSegment::sizeOf(replicas))
@@ -194,7 +332,7 @@ BackupManager::BackupManager(CoordinatorClient* coordinator,
 BackupManager::BackupManager(BackupManager* prototype)
     : coordinator(prototype->coordinator)
     , masterId(prototype->masterId)
-    , hosts()
+    , backupSelector(prototype->coordinator)
     , replicas(prototype->replicas)
     , segments()
     , openSegmentPool(OpenSegment::sizeOf(replicas))
@@ -238,13 +376,7 @@ BackupManager::freeSegment(uint64_t segmentId)
 }
 
 /**
- * Begin replicating a new segment on backups.
- *
- * Opening a segment happens synchronously and does not depend on other open
- * segments. The first \a len bytes of \a data are replicated immediately to
- * backups without regard to whether other open segments have been fully
- * replicated or even closed. This method returns once all replicas have opened
- * the segment and received the immediate data.
+ * Eventually begin replicating a segment on backups.
  *
  * \param segmentId
  *      A unique identifier for this segment. The caller must ensure this
@@ -275,10 +407,12 @@ BackupManager::openSegment(uint64_t segmentId, const void* data, uint32_t len)
 bool
 BackupManager::isSynced()
 {
+    // TODO(ongaro): Change to return (rpcsInFlight == 0)?
+    //               Will need to call proceed in openSegment and write.
     foreach (auto& segment, openSegmentList) {
-        if (!replicas && segment.closeQueued)
+        if (replicas == 0 && segment.closeQueued)
             return false;
-        foreach (auto& backup, segment.backupIter()) {
+        foreach (auto& backup, segment.backups) {
             if (!backup || backup->rpc)
                 return false;
             if (backup->closeSent != segment.closeQueued ||
@@ -322,18 +456,18 @@ BackupManager::proceed()
 void
 BackupManager::proceedNoMetrics()
 {
-    // reap all outstanding RPCs
+    // Reap all outstanding RPCs.
+    // Note: cannot use foreach because unopenSegment modifies openSegmentList.
     auto it = openSegmentList.begin();
     while (it != openSegmentList.end()) {
         auto& segment = *it;
-        if (replicas && !segment.backups[0]) {
-            ++it;
-        } else {
+        ++it;
+        if (!replicas || segment.backups[0]) {
             bool closeDone = segment.closeQueued;
-            foreach (auto& backup, segment.backupIter()) {
+            foreach (auto& backup, segment.backups) {
                 if (backup->rpc && backup->rpc->isReady()) {
                     LOG(DEBUG, "Wait %lu.%lu", segment.segmentId,
-                        &backup - segment.backups);
+                        &backup - &segment.backups[0]);
                     (*backup->rpc)();
                     backup->rpc.destroy();
                     outstandingRpcs--;
@@ -343,7 +477,6 @@ BackupManager::proceedNoMetrics()
                 }
                 closeDone &= (!backup->rpc && backup->closeSent);
             }
-            ++it;
             if (closeDone) {
                  LOG(DEBUG, "Closed segment %lu, %lu",
                      *masterId, segment.segmentId);
@@ -354,65 +487,37 @@ BackupManager::proceedNoMetrics()
 
     // send opens
     uint32_t i = 0;
-    it = openSegmentList.begin();
-    while (it != openSegmentList.end()) {
+    foreach (auto& segment, openSegmentList) {
         if (i++ == 4) // pick something >= 3 to throttle number of open RPCs
             break;
-        auto& segment = *it;
-
         bool openDone = true;
-        foreach (auto& backup, segment.backupIter())
+        foreach (auto& backup, segment.backups)
             openDone &= backup && backup->openIsDone;
-        if (openDone) {
-            ++it;
+        if (openDone)
             continue;
-        }
 
-        if (replicas && !segment.backups[0]) { // no open request has been sent
-            // Select backups, initialize backups,
-            // and tell each of the backups to open the segment:
-            ensureSufficientHosts();
+        if (replicas != 0 && !segment.backups[0]) {
+            // No open request has been sent:
+            // select backups, initialize backups,
+            // and tell each of the backups to open the segment.
+            ProtoBuf::ServerList::Entry* backupHosts[replicas];
+            backupSelector.select(replicas, backupHosts);
             auto flags = BackupWriteRpc::OPENPRIMARY;
-            auto& hostList = hosts;
-            std::set<decltype(hostList.mutable_server(0))> usedHosts;
 
-            foreach (auto& backup, segment.backupIter()) {
-                auto host = pickRandomUnusedHost(hostList, usedHosts);
-                if (flags == BackupWriteRpc::OPENPRIMARY) {
-                    // Select the least loaded of 5 random backups:
-                    for (uint32_t j = 0; j < 4; ++j) {
-                        auto candidate = pickRandomUnusedHost(hostList,
-                                                              usedHosts);
-                        if (AbuserData(host).getMs() == 1u) {
-                            // if we saw magic value which means pick at
-                            // uniform random
-                            host = candidate;
-                            break;
-                        }
-                        if (AbuserData(host).getMs() >
-                            AbuserData(candidate).getMs()) {
-                            host = candidate;
-                        }
-                    }
-                    AbuserData h(host);
-                    LOG(DEBUG, "Chose backup with "
-                        "%u segments and %u MB/s disk bandwidth "
-                        "(expected time to read on recovery is %u ms)",
-                        h->numSegments, h->bandwidth, h.getMs());
-                    ++h->numSegments;
-                    host->set_user_data(h->user_data);
-                }
-                usedHosts.insert(host);
+            uint32_t i = 0;
+            foreach (auto& backup, segment.backups) {
+                auto host = backupHosts[i++];
 
                 LOG(DEBUG, "Opening segment %lu, %lu.%lu on backup %s",
-                    *masterId, segment.segmentId, &backup - segment.backups,
+                    *masterId, segment.segmentId, &backup - &segment.backups[0],
                     host->service_locator().c_str());
                 auto session = Context::get().transportManager->getSession(
                                         host->service_locator().c_str());
+                // TODO(stutsman): catch exceptions
                 backup.construct(session);
                 segments.insert({segment.segmentId, session});
                 LOG(DEBUG, "Send open %lu.%lu", segment.segmentId,
-                    &backup - segment.backups);
+                    &backup - &segment.backups[0]);
                 backup->rpc.construct(backup->client,
                                       *masterId, segment.segmentId,
                                       0, segment.data, segment.openLen,
@@ -427,31 +532,30 @@ BackupManager::proceedNoMetrics()
 
     // send writes+closes
     i = 0;
-    it = openSegmentList.begin();
-    while (it != openSegmentList.end()) {
+    foreach (auto& segment, openSegmentList) {
         if (i++ == 2) // pick something to throttle the number of write RPCs
             break;
-        // check if the 'it' segment can proceed with a write/close
+        // check if 'segment' can proceed with a write/close
         bool nextOpenDone = true;
-        auto next = it;
+        auto next = openSegmentList.iterator_to(segment);
         ++next;
         if (next != openSegmentList.end()) {
-            foreach (auto& backup, next->backupIter())
+            foreach (auto& backup, next->backups)
                 nextOpenDone &= backup && backup->openIsDone;
         }
-        if (it->closeQueued && !nextOpenDone)
+        if (segment.closeQueued && !nextOpenDone)
             break; // waiting for next segment's open response
 
-        foreach (auto& backup, it->backupIter()) {
+        foreach (auto& backup, segment.backups) {
             if (!backup)
                 break; // haven't started open yet
             if (backup->rpc)
                 continue; // RPC already active
-            if (backup->closeSent == it->closeQueued &&
-                backup->offsetSent == it->offsetQueued)
+            if (backup->closeSent == segment.closeQueued &&
+                backup->offsetSent == segment.offsetQueued)
                 continue; // already synced
-            if (it->closeQueued &&
-                &backup == it->backups + replicas - 1) {
+            if (segment.closeQueued &&
+                &backup == &segment.backups[0] + replicas - 1) {
                 if (metrics->master.logSyncBytes) {
                     backup->closeTicks.construct(
                         &metrics->master.logSyncCloseTicks);
@@ -463,8 +567,8 @@ BackupManager::proceedNoMetrics()
                 }
             }
 
-            uint32_t writeBytes = it->offsetQueued - backup->offsetSent;
-            BackupWriteRpc::Flags flags = it->closeQueued ?
+            uint32_t writeBytes = segment.offsetQueued - backup->offsetSent;
+            BackupWriteRpc::Flags flags = segment.closeQueued ?
                 BackupWriteRpc::CLOSE : BackupWriteRpc::NONE;
 
             // Throttle the largest sync we're willing to send. This avoids
@@ -477,27 +581,19 @@ BackupManager::proceedNoMetrics()
 
             backup->rpc.construct(backup->client,
                                   *masterId,
-                                  it->segmentId,
+                                  segment.segmentId,
                                   backup->offsetSent,
-                                  (static_cast<const char*>(it->data) +
+                                  (static_cast<const char*>(segment.data) +
                                    backup->offsetSent),
-#if SPEEDHACK
-                // Used to make recovery benchmarks faster:
-                // If you're feeling brave, this isn't a primary backup, and
-                // this is not on a recovery master, there's not a real need to
-                // replicate the object data.
-                (&backup - it->backups > 0 && !metrics->pid) ? 0 :
-#endif
                                   writeBytes,
                                   flags);
             backup->offsetSent += writeBytes;
             backup->closeSent = (flags == BackupWriteRpc::CLOSE);
             LOG(DEBUG, "Send write %lu.%lu (close=%d, offset=%d)",
-                it->segmentId, &backup - it->backups, it->closeQueued,
-                it->offsetQueued);
+                segment.segmentId, &backup - &segment.backups[0],
+                segment.closeQueued, segment.offsetQueued);
             outstandingRpcs++;
         }
-        ++it;
     }
     if (outstandingRpcs > 0) {
         if (!activeTime)
@@ -510,28 +606,6 @@ BackupManager::proceedNoMetrics()
 // - private -
 
 /**
- * Make sure #hosts contains at least #replicas entries.
- */
-void
-BackupManager::ensureSufficientHosts()
-{
-    if (!replicas)
-        return;
-
-    uint32_t numHosts(hosts.server_size());
-    if (numHosts < replicas) {
-        LOG(NOTICE, "Need backups, fetching server list from coordinator");
-        updateHostListFromCoordinator();
-        numHosts = hosts.server_size();
-        if (numHosts < replicas) {
-            LOG(ERROR, "Not enough backups to meet replication requirement "
-                "(have %u, need %u)", numHosts, replicas);
-            throw InternalError(HERE, STATUS_INTERNAL_ERROR);
-        }
-    }
-}
-
-/**
  * Remove the segment from openSegmentList, call its destructor,
  * and free its memory.
  * This is the opposite of #openSegment.
@@ -542,21 +616,6 @@ BackupManager::unopenSegment(OpenSegment* openSegment)
     erase(openSegmentList, *openSegment);
     openSegment->~OpenSegment();
     openSegmentPool.free(openSegment);
-}
-
-
-/**
- * Populate the host list by fetching a list of hosts from the coordinator.
- */
-void
-BackupManager::updateHostListFromCoordinator()
-{
-    if (!coordinator) {
-        LOG(ERROR, "No coordinator given, replication requirements "
-            "can't be met.");
-        throw InternalError(HERE, STATUS_INTERNAL_ERROR);
-    }
-    coordinator->getBackupList(hosts);
 }
 
 } // namespace RAMCloud
