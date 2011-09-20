@@ -80,12 +80,7 @@ class Service {
         DISALLOW_COPY_AND_ASSIGN(Rpc);
     };
 
-    Service()
-    {
-        std::fill(rpcsHandled, rpcsHandled + ILLEGAL_RPC_TYPE+1, 0);
-        std::fill(rpcsTime, rpcsTime + ILLEGAL_RPC_TYPE+1, 0);
-    }
-
+    Service() {}
     virtual ~Service() {}
     virtual void dispatch(RpcOpcode opcode,
                           Rpc& rpc);
@@ -141,13 +136,6 @@ class Service {
         memset(respHdr, 0, sizeof(*respHdr));
         (static_cast<S*>(this)->*handler)(*reqHdr, *respHdr, rpc);
     }
-
-    /// Counts the number of times each RPC type is invoked on this service.
-    /// Note: index ILLEGAL_RPC_TYPE is used, so leave space for it!
-    uint64_t rpcsHandled[ILLEGAL_RPC_TYPE+1];
-
-    /// Total number of cycles spent servicing each type of RPC on this service.
-    uint64_t rpcsTime[ILLEGAL_RPC_TYPE+1];
 
   private:
     friend class ServiceTest;

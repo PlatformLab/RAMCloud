@@ -60,253 +60,371 @@ class Out:
     def indent(self):
         return Out(self._stream, self._indent + 1)
 
-class AttrDict(dict):
-    """A mapping with string keys that aliases x.y syntax to x['y'] syntax.
-
-    The attribute syntax is easier to read and type than the item syntax.
+class Metric:
+    """A single performance metric.
     """
-    def __getattr__(self, name):
-        return self[name]
-    def __setattr__(self, name, value):
-        self[name] = value
-    def __delattr__(self, name):
-        del self[name]
-
-class Struct(object):
-    """A container for other metrics."""
-
-    # These attributes are defined out here to simplify
-    # the implementation of getFields.
-    doc = ''
-    typeName = ''
-
-    def __init__(self, doc, typeName):
-        self.doc = doc
-        self.typeName = typeName
-
-    def getFields(self):
-        fieldNames = sorted(set(dir(self)) - set(dir(Struct)))
-        return [(n, getattr(self, n)) for n in fieldNames]
-
-    def dumpHeader(self, out, name=''):
-        indent = ' ' * 4 * (out._indent + 2)
-        out('/// %s' % self.doc)
-        constructorBody = ''
-        if self.typeName != 'RawMetrics':
-            out('struct %s {' % self.typeName)
-        else:
-            constructorBody = 'init();'
-        fields = self.getFields()
-        if fields:
-            out('    %s()' % self.typeName)
-            out('        : %s {%s}' %
-                (('\n%s, ' % (indent)).join(
-                    ['%s(%s)' % (n, f.initializer()) for n, f in fields]),
-                    constructorBody))
-            for n, f in fields:
-                f.dumpHeader(out.indent(), n)
-        if self.typeName != 'RawMetrics':
-            if name:
-                out('} %s;' % name)
-            else:
-                out('};')
-
+    def __init__(self, name, documentation):
+        """ name is the variable name to use for this metric """
+        self.name = name
+        self.documentation = documentation
+    def dump_header(self, out):
+        out('/// %s' % self.documentation)
+        out('RawMetric %s;' % self.name)
     def initializer(self):
-        return ''
+        return '%s(0)' % (self.name)
+    def instance_name(self):
+        """ Compute the name to use for an instance of this metric. """
+        return self.name
+    def dump_metric_info_code(self, out, path, counter):
+        """ Generate a case statement as part of a giant switch statement
+            that  allows for iteration over all metrics.
 
-    def dumpMetricInfoCode(self, out, name, counter):
-        # name is the path (e.g., 'backup.local') to get to this struct
-        # counter is a Counter used to generate "case" clauses with
-        # incrementing values.
-        childPrefix = name + '.'
-        if len(name) == 0:
-            childPrefix = ''
-        for n, f in self.getFields():
-            f.dumpMetricInfoCode(out, '%s%s' % (childPrefix, n), counter)
-
-class u64(object):
-    """A 64-bit unsigned integer metric."""
-
-    def __init__(self, doc):
-        self.doc = doc
-    def dumpHeader(self, out, name):
-        out('/// %s' % self.doc)
-        out('RawMetric %s;' % name)
-    def initializer(self):
-        return '0'
-    def dumpMetricInfoCode(self, out, name, counter):
+            path is a hierarchical name identifying this element, such
+            as 'backup.local' (it includes this object's name, if that
+            is desired).
+            counter is a Counter used to generate "case" clauses with
+            incrementing values.
+        """
         out('        case %s:' % (counter.value()))
-        out('            return {"%s",' % (name))
-        out('                    &%s};' % (name))
+        out('            return {"%s",' % path)
+        out('                    &%s};' % path)
         counter.next()
 
+class Group:
+    """A group of related performance metrics and subgroups.  Translates
+       into a nested struct inside the C++ RawMetrics object.
+    """
+
+    def __init__(self, name, documentation):
+        """ name is the name of a class to use for this group (i.e.
+            initial capital letter).
+        """
+        self.name = name
+        self.documentation = documentation
+        self.metrics = []
+        self.groups = []
+
+    def metric(self, name, documentation):
+        self.metrics.append(Metric(name, documentation))
+
+    def group(self, group):
+        self.groups.append(group)
+
+    def dump_header(self, out):
+        indent = ' ' * 4 * (out._indent + 2)
+        out('/// %s' % self.documentation)
+        constructorBody = ''
+        if self.name != 'RawMetrics':
+            out('struct %s {' % self.name)
+        else:
+            constructorBody = 'init();'
+        children = self.groups + self.metrics;
+        out('    %s()' % self.name)
+        out('        : %s {%s}' %
+            (('\n%s, ' % (indent)).join(
+                [child.initializer() for child in children]),
+                constructorBody))
+        for child in children:
+            child.dump_header(out.indent())
+        if self.name != 'RawMetrics':
+            out('} %s;' % self.instance_name())
+
+    def initializer(self):
+        return '%s()' % self.instance_name()
+
+    def instance_name(self):
+        """ Compute the name to use for an instance of this group. """
+        return self.name[0].lower() + self.name[1:]
+
+    def dump_metric_info_code(self, out, path, counter):
+        """ Generate a case statement as part of a giant switch statement
+            that  allows for iteration over all metrics.
+
+            path is a hierarchical name identifying this element, such
+            as 'backup.local' (it includes this object's name, if that
+            is desired).
+            counter is a Counter used to generate "case" clauses with
+            incrementing values.
+        """
+        prefix = path
+        if len(path) != 0:
+            prefix += '.'
+        for child in self.groups + self.metrics:
+            child.dump_metric_info_code(out,
+                    prefix + child.instance_name(), counter)
+
 ### Metrics definitions:
-class Temp(Struct):
-    # see for loop below
-    pass
+
+coordinator = Group('Coordinator', 'metrics for coordinator')
+coordinator.metric('recoveryCount',
+    'total number of recoveries in which this coordinator participated')
+coordinator.metric('recoveryTicks', 'total time elapsed during recovery')
+coordinator.metric('recoveryConstructorTicks',
+    'total amount of time in Recovery constructor')
+coordinator.metric('recoveryStartTicks', 'total amount of time in Recovery::start')
+coordinator.metric('tabletsRecoveredTicks', 'total amount of time in Recovery::start')
+coordinator.metric('setWillTicks', 'total amount of time in Recovery::setWill')
+coordinator.metric('getTabletMapTicks', 'total amount of time in Recovery::setWill')
+coordinator.metric('recoveryCompleteTicks',
+    'total amount of time sending recovery complete RPCs to backups')
+
+master = Group('Master', 'metrics for masters')
+master.metric('recoveryCount',
+    'total number of recoveries in which this master participated')
+master.metric('recoveryTicks', 'total time elapsed during recovery')
+master.metric('tabletsRecoveredTicks',
+    'total amount of time spent calling Coordinator::tabletsRecovered')
+master.metric('backupManagerTicks',
+    'total amount of time spent in BackupManager')
+master.metric('segmentAppendChecksumTicks',
+    'total amount of time spent checksumming in Segment::append')
+master.metric('segmentAppendCopyTicks',
+    'total amount of time spent copying in Segment::append')
+master.metric('segmentOpenStallTicks',
+    'total amount of time waiting for segment open responses from backups')
+master.metric('segmentReadCount',
+    'total number of BackupClient::getRecoveryData calls issued')
+master.metric('segmentReadTicks',
+    'total elapsed time for RPCs reading segments from backups')
+master.metric('segmentReadStallTicks',
+    'total amount of time stalled waiting for segments from backups')
+master.metric('segmentReadByteCount',
+    'total size in bytes of recovery segments received from backups')
+master.metric('verifyChecksumTicks',
+    'total amount of time verifying checksums on objects from backups')
+master.metric('recoverSegmentTicks',
+    'total amount of time spent in MasterServer::recoverSegment')
+master.metric('segmentAppendTicks',
+    'total amount of time spent in Segment::append')
+master.metric('backupInRecoverTicks',
+    'total amount of time spent in BackupManager::proceed '
+    'called from MasterServer::recoverSegment')
+master.metric('segmentCloseCount',
+    'total number of complete segments written to backups')
+master.metric('segmentWriteStallTicks',
+    'total amount of time spent stalled on writing segments to backups')
+master.metric('recoverySegmentEntryCount',
+    'total number of recovery segment entries (e.g. objects, tombstones)')
+master.metric('recoverySegmentEntryBytes',
+    'total number of entry bytes in recovery segments (without overhead)')
+master.metric('liveObjectCount', 'total number of live objects')
+master.metric('liveObjectBytes', 'total number of bytes of live object data')
+master.metric('objectAppendCount', 'total number of objects appended to the log')
+master.metric('objectDiscardCount', 'total number of objects not appended to the log')
+master.metric('tombstoneAppendCount',
+    'total number of tombstones kept (currently to the side)')
+master.metric('tombstoneDiscardCount', 'total number of tombstones discarded')
+master.metric('logSyncTicks',
+    'total amount of time syncing the log at the end of recovery')
+master.metric('logSyncBytes',
+    'total bytes sent during log sync')
+master.metric('recoveryWillTicks',
+    'total amount of time rebuilding will at the end of recovery')
+master.metric('removeTombstoneTicks',
+    'total amount of time deleting tombstones at the end of recovery')
+master.metric('replicationTicks',
+    'total time with outstanding RPCs to backups')
+master.metric('replicationBytes',
+    'total bytes sent from first gRD response through log sync')
+master.metric('replicas', 'number of backups on which to replicate each segment')
+master.metric('replayCloseTicks',
+    'total amount of time R-th replica took to close during replay')
+master.metric('replayCloseCount',
+    'total number of segments closed during replay')
+master.metric('logSyncCloseTicks',
+    'total amount of time R-th replica took to close during log sync')
+master.metric('logSyncCloseCount',
+    'total number of segments closed during log sync')
+master.metric('taskIterations',
+    'total times recover checked for a completed task')
+
+backup = Group('Backup', 'metrics for backups')
+backup.metric('recoveryCount',
+    'total number of recoveries in which this backup participated')
+backup.metric('recoveryTicks', 'total time elapsed during recovery')
+backup.metric('serviceTicks', 'total time spent servicing RPC requests')
+backup.metric('startReadingDataTicks', 'total amount of time in sRD')
+backup.metric('readRequestCount',
+    'total number of getRecoveryData requests processed to completion')
+backup.metric('readCompletionCount',
+    'total number of getRecoveryData requests processed to completion')
+backup.metric('readTicks',
+    'total number of time servicing getRecoveryData RPC')
+backup.metric('readingDataTicks',
+    'total amount of time between startReadingData to done reading')
+backup.metric('storageReadCount', 'total number of segment reads from disk')
+backup.metric('storageReadBytes', 'total amount of bytes read from disk')
+backup.metric('storageReadTicks', 'total amount of time reading from disk')
+backup.metric('writeTicks', 'total amount of time servicing write RPC')
+backup.metric('writeClearTicks',
+    'total amount of time clearing segment memory during segment open')
+backup.metric('writeCopyBytes',
+    'total bytes written to backup segments')
+backup.metric('writeCopyTicks',
+    'total amount of time clearing segment memory during segment open')
+backup.metric('writeCount', 'total number of writeSegment requests processed')
+backup.metric('storageWriteCount', 'total number of segment writes to disk')
+backup.metric('storageWriteBytes', 'total amount of bytes written to disk')
+backup.metric('storageWriteTicks', 'total amount of time writing to disk')
+backup.metric('filterTicks', 'total amount of time filtering segments')
+backup.metric('currentOpenSegmentCount', 'total number of open segments')
+backup.metric('totalSegmentCount', 'total number of open or closed segments')
+backup.metric('primaryLoadCount', 'total number of primary segments requested')
+backup.metric('secondaryLoadCount', 'total number of secondary segments requested')
+backup.metric('storageType', '1 = in-memory, 2 = on-disk')
+
+# This class records basic statistics for RPCs (count & execution time):
+rpc = Group('Rpc', 'metrics for remote procedure calls')
+# The order of entries here, and for the "*Ticks" definitions below,
+# must be the same as the order in the RpcOpcode definition in Rpc.h.
+rpc.metric('rpc0Count', 'number of invocations of RPC 0 (undefined)')
+rpc.metric('rpc1Count', 'number of invocations of RPC 1 (undefined)')
+rpc.metric('rpc2Count', 'number of invocations of RPC 2 (undefined)')
+rpc.metric('rpc3Count', 'number of invocations of RPC 3 (undefined)')
+rpc.metric('rpc4Count', 'number of invocations of RPC 4 (undefined)')
+rpc.metric('rpc5Count', 'number of invocations of RPC 5 (undefined)')
+rpc.metric('rpc6Count', 'number of invocations of RPC 6 (undefined)')
+rpc.metric('pingCount', 'number of invocations of PING RPC')
+rpc.metric('proxyPingCount', 'number of invocations of PROXY_PING RPC')
+rpc.metric('createTableCount', 'number of invocations of CREATE_TABLE RPC')
+rpc.metric('openTableCount', 'number of invocations of OPEN_TABLE RPC')
+rpc.metric('dropTableCount', 'number of invocations of DROP_TABLE RPC')
+rpc.metric('createCount', 'number of invocations of CREATE RPC')
+rpc.metric('readCount', 'number of invocations of READ RPC')
+rpc.metric('writeCount', 'number of invocations of WRITE RPC')
+rpc.metric('removeCount', 'number of invocations of REMOVE RPC')
+rpc.metric('enlistServerCount', 'number of invocations of ENLIST_SERVER RPC')
+rpc.metric('getServerListCount', 'number of invocations of GET_SERVER_LIST RPC')
+rpc.metric('getTabletMapCount', 'number of invocations of GET_TABLET_MAP RPC')
+rpc.metric('setTabletsCount', 'number of invocations of SET_TABLETS RPC')
+rpc.metric('recoverCount', 'number of invocations of RECOVER RPC')
+rpc.metric('hintServerDownCount', 'number of invocations of HINT_SERVER_DOWN RPC')
+rpc.metric('tabletsRecoveredCount', 'number of invocations of TABLETS_RECOVERED RPC')
+rpc.metric('setWillCount', 'number of invocations of SET_WILL RPC')
+rpc.metric('rereplicateSegmentsCount', 'number of invocations of REREPLICATE_SEGMENTS RPC')
+rpc.metric('fillWithTestDataCount', 'number of invocations of FILL_WITH_TEST_DATA RPC')
+rpc.metric('multiReadCount', 'number of invocations of MULTI_READ RPC')
+rpc.metric('getMetricsCount', 'number of invocations of GET_METRICS RPC')
+rpc.metric('backupCloseCount', 'number of invocations of BACKUP_CLOSE RPC')
+rpc.metric('backupFreeCount', 'number of invocations of BACKUP_FREE RPC')
+rpc.metric('backupGetRecoveryDataCount', 'number of invocations of BACKUP_GETRECOVERYDATA RPC')
+rpc.metric('backupOpenCount', 'number of invocations of BACKUP_OPEN RPC')
+rpc.metric('backupStartReadingDataCount', 'number of invocations of BACKUP_STARTREADINGDATA RPC')
+rpc.metric('backupWriteCount', 'number of invocations of BACKUP_WRITE RPC')
+rpc.metric('backupRecoveryCompleteCount', 'number of invocations of BACKUP_RECOVERYCOMPLETE RPC')
+rpc.metric('backupQuiesceCount', 'number of invocations of BACKUP_QUIESCE RPC')
+rpc.metric('illegalRpcCount', 'number of invocations of RPCs with illegal opcodes')
+rpc.metric('rpc37Count', 'number of invocations of RPC 37 (undefined)')
+rpc.metric('rpc38Count', 'number of invocations of RPC 38 (undefined)')
+rpc.metric('rpc39Count', 'number of invocations of RPC 39 (undefined)')
+rpc.metric('rpc40Count', 'number of invocations of RPC 40 (undefined)')
+rpc.metric('rpc41Count', 'number of invocations of RPC 41 (undefined)')
+rpc.metric('rpc42Count', 'number of invocations of RPC 42 (undefined)')
+rpc.metric('rpc43Count', 'number of invocations of RPC 43 (undefined)')
+rpc.metric('rpc44Count', 'number of invocations of RPC 44 (undefined)')
+rpc.metric('rpc45Count', 'number of invocations of RPC 45 (undefined)')
+rpc.metric('rpc46Count', 'number of invocations of RPC 46 (undefined)')
+rpc.metric('rpc47Count', 'number of invocations of RPC 47 (undefined)')
+
+rpc.metric('rpc0Ticks', 'time spent executing RPC 0 (undefined)')
+rpc.metric('rpc1Ticks', 'time spent executing RPC 1 (undefined)')
+rpc.metric('rpc2Ticks', 'time spent executing RPC 2 (undefined)')
+rpc.metric('rpc3Ticks', 'time spent executing RPC 3 (undefined)')
+rpc.metric('rpc4Ticks', 'time spent executing RPC 4 (undefined)')
+rpc.metric('rpc5Ticks', 'time spent executing RPC 5 (undefined)')
+rpc.metric('rpc6Ticks', 'time spent executing RPC 6 (undefined)')
+rpc.metric('pingTicks', 'time spent executing PING RPC')
+rpc.metric('proxyPingTicks', 'time spent executing PROXY_PING RPC')
+rpc.metric('createTableTicks', 'time spent executing CREATE_TABLE RPC')
+rpc.metric('openTableTicks', 'time spent executing OPEN_TABLE RPC')
+rpc.metric('dropTableTicks', 'time spent executing DROP_TABLE RPC')
+rpc.metric('createTicks', 'time spent executing CREATE RPC')
+rpc.metric('readTicks', 'time spent executing READ RPC')
+rpc.metric('writeTicks', 'time spent executing WRITE RPC')
+rpc.metric('removeTicks', 'time spent executing REMOVE RPC')
+rpc.metric('enlistServerTicks', 'time spent executing ENLIST_SERVER RPC')
+rpc.metric('getServerListTicks', 'time spent executing GET_SERVER_LIST RPC')
+rpc.metric('getTabletMapTicks', 'time spent executing GET_TABLET_MAP RPC')
+rpc.metric('setTabletsTicks', 'time spent executing SET_TABLETS RPC')
+rpc.metric('recoverTicks', 'time spent executing RECOVER RPC')
+rpc.metric('hintServerDownTicks', 'time spent executing HINT_SERVER_DOWN RPC')
+rpc.metric('tabletsRecoveredTicks', 'time spent executing TABLETS_RECOVERED RPC')
+rpc.metric('setWillTicks', 'time spent executing SET_WILL RPC')
+rpc.metric('rereplicateSegmentsTicks', 'time spent executing REREPLICATE_SEGMENTS RPC')
+rpc.metric('fillWithTestDataTicks', 'time spent executing FILL_WITH_TEST_DATA RPC')
+rpc.metric('multiReadTicks', 'time spent executing MULTI_READ RPC')
+rpc.metric('getMetricsTicks', 'time spent executing GET_METRICS RPC')
+rpc.metric('backupCloseTicks', 'time spent executing BACKUP_CLOSE RPC')
+rpc.metric('backupFreeTicks', 'time spent executing BACKUP_FREE RPC')
+rpc.metric('backupGetRecoveryDataTicks', 'time spent executing BACKUP_GETRECOVERYDATA RPC')
+rpc.metric('backupOpenTicks', 'time spent executing BACKUP_OPEN RPC')
+rpc.metric('backupStartReadingDataTicks', 'time spent executing BACKUP_STARTREADINGDATA RPC')
+rpc.metric('backupWriteTicks', 'time spent executing BACKUP_WRITE RPC')
+rpc.metric('backupRecoveryCompleteTicks', 'time spent executing BACKUP_RECOVERYCOMPLETE RPC')
+rpc.metric('backupQuiesceTicks', 'time spent executing BACKUP_QUIESCE RPC')
+rpc.metric('illegalRpcTicks', 'time spent executing RPCs with illegal opcodes')
+rpc.metric('rpc37Ticks', 'time spent executing RPC 37 (undefined)')
+rpc.metric('rpc38Ticks', 'time spent executing RPC 38 (undefined)')
+rpc.metric('rpc39Ticks', 'time spent executing RPC 39 (undefined)')
+rpc.metric('rpc40Ticks', 'time spent executing RPC 40 (undefined)')
+rpc.metric('rpc41Ticks', 'time spent executing RPC 41 (undefined)')
+rpc.metric('rpc42Ticks', 'time spent executing RPC 42 (undefined)')
+rpc.metric('rpc43Ticks', 'time spent executing RPC 43 (undefined)')
+rpc.metric('rpc44Ticks', 'time spent executing RPC 44 (undefined)')
+rpc.metric('rpc45Ticks', 'time spent executing RPC 45 (undefined)')
+rpc.metric('rpc46Ticks', 'time spent executing RPC 46 (undefined)')
+rpc.metric('rpc47Ticks', 'time spent executing RPC 47 (undefined)')
+
+transmit = Group('Transmit', 'metrics related to transmitting messages')
+transmit.metric('ticks', 'elapsed time transmitting messages')
+transmit.metric('messageCount', 'number of messages transmitted')
+transmit.metric('packetCount', 'number of packets transmitted')
+transmit.metric('iovecCount', 'number of Buffer chunks transmitted')
+transmit.metric('byteCount', 'number of bytes transmitted')
+transmit.metric('copyTicks', 'elapsed time copying messages')
+transmit.metric('dmaTicks', 'elapsed time waiting for DMA to HCA')
+
+receive = Group('Receive', 'metrics related to receiving messages')
+receive.metric('ticks', 'elapsed time receiving messages')
+receive.metric('messageCount', 'number of messages received')
+receive.metric('packetCount', 'number of packets received')
+receive.metric('iovecCount', 'number of Buffer chunks received')
+receive.metric('byteCount', 'number of bytes received')
+
+infiniband = Group('Infiniband', 'metrics for Infiniband networking')
+infiniband.metric('transmitActiveTicks', 'total time with packets on the transmit queue')
+
+transport = Group('Transport', 'transport metrics')
+transport.group(transmit)
+transport.group(receive)
+transport.group(infiniband)
+transport.metric('sessionOpenTicks',
+    'total amount of time opening sessions for RPCs')
+transport.metric('sessionOpenCount',
+    'total amount of sessions opened for RPCs')
+transport.metric('sessionOpenSquaredTicks',
+    'used for calculating the standard deviation of sessionOpenTicks')
+transport.metric('retrySessionOpenCount',
+    'total amount of timeouts during session open')
+transport.metric('clientRpcsActiveTicks',
+    'total amount of time with a client RPC active on the network')
+
+temp = Group('Temp', 'metrics for temporary use')
 for i in range(10):
-    setattr(Temp, 'ticks{0:}'.format(i), 
-            u64('total amount of time for some undefined activity'))
-    setattr(Temp, 'count{0:}'.format(i), 
-            u64('total number of occurrences of some undefined event'))
+    temp.metric('ticks{0:}'.format(i),'total amount of time for some undefined activity')
+    temp.metric('count{0:}'.format(i),'total number of occurrences of some undefined event')
 
-class TransmitReceiveCommon(Struct):
-    ticks = u64('total time elapsed transmitting/receiving messages')
-    messageCount = u64('total number of messages transmitted/received')
-    packetCount = u64('total number of packets transmitted/received')
-    iovecCount = u64('total number of Buffer chunks transmitted/received')
-    byteCount = u64('total number of bytes transmitted/received')
-
-class Transmit(TransmitReceiveCommon):
-    copyTicks = u64('total time elapsed copying messages')
-    dmaTicks = u64('total time elapsed waiting for DMA to HCA')
-
-class Infiniband(Struct):
-    transmitActiveTicks = u64('total time with packets on the transmit queue')
-
-class Transport(Struct):
-    transmit = Transmit('transmit docs', 'Transmit')
-    receive = TransmitReceiveCommon('receive docs', 'Receive')
-    infiniband = Infiniband('infiniband docs', 'Infiniband')
-    sessionOpenTicks = u64(
-        'total amount of time opening sessions for RPCs')
-    sessionOpenCount = u64(
-        'total amount of sessions opened for RPCs')
-    sessionOpenSquaredTicks = u64(
-        'used for calculating the standard deviation of sessionOpenTicks')
-    retrySessionOpenCount = u64(
-        'total amount of timeouts during session open')
-    clientRpcsActiveTicks = u64(
-        'total amount of time with a client RPC active on the network')
-
-class Coordinator(Struct):
-    recoveryCount = u64(
-        'total number of recoveries in which this coordinator participated')
-    recoveryTicks = u64('total time elapsed during recovery')
-    recoveryConstructorTicks = u64(
-        'total amount of time in Recovery constructor')
-    recoveryStartTicks = u64('total amount of time in Recovery::start')
-    tabletsRecoveredTicks = u64('total amount of time in Recovery::start')
-    setWillTicks = u64('total amount of time in Recovery::setWill')
-    getTabletMapTicks = u64('total amount of time in Recovery::setWill')
-    recoveryCompleteTicks = u64(
-        'total amount of time sending recovery complete RPCs to backups')
-
-class Master(Struct):
-    recoveryCount = u64(
-        'total number of recoveries in which this master participated')
-    recoveryTicks = u64('total time elapsed during recovery')
-    tabletsRecoveredTicks = u64(
-        'total amount of time spent calling Coordinator::tabletsRecovered')
-    backupManagerTicks = u64(
-        'total amount of time spent in BackupManager')
-    segmentAppendChecksumTicks = u64(
-        'total amount of time spent checksumming in Segment::append')
-    segmentAppendCopyTicks = u64(
-        'total amount of time spent copying in Segment::append')
-    segmentOpenStallTicks = u64(
-        'total amount of time waiting for segment open responses from backups')
-    segmentReadCount = u64(
-        'total number of BackupClient::getRecoveryData calls issued')
-    segmentReadTicks = u64(
-        'total elapsed time for RPCs reading segments from backups')
-    segmentReadStallTicks = u64(
-        'total amount of time stalled waiting for segments from backups')
-    segmentReadByteCount = u64(
-        'total size in bytes of recovery segments received from backups')
-    verifyChecksumTicks = u64(
-        'total amount of time verifying checksums on objects from backups')
-    recoverSegmentTicks = u64(
-        'total amount of time spent in MasterServer::recoverSegment')
-    segmentAppendTicks = u64(
-        'total amount of time spent in Segment::append')
-    backupInRecoverTicks = u64(
-        'total amount of time spent in BackupManager::proceed '
-        'called from MasterServer::recoverSegment')
-    segmentCloseCount = u64(
-        'total number of complete segments written to backups')
-    segmentWriteStallTicks = u64(
-        'total amount of time spent stalled on writing segments to backups')
-    recoverySegmentEntryCount = u64(
-        'total number of recovery segment entries (e.g. objects, tombstones)')
-    recoverySegmentEntryBytes = u64(
-        'total number of entry bytes in recovery segments (without overhead)')
-    liveObjectCount = u64('total number of live objects')
-    liveObjectBytes = u64('total number of bytes of live object data')
-    objectAppendCount = u64('total number of objects appended to the log')
-    objectDiscardCount = u64('total number of objects not appended to the log')
-    tombstoneAppendCount = u64(
-        'total number of tombstones kept (currently to the side)')
-    tombstoneDiscardCount = u64('total number of tombstones discarded')
-    logSyncTicks = u64(
-        'total amount of time syncing the log at the end of recovery')
-    logSyncBytes = u64(
-        'total bytes sent during log sync')
-    recoveryWillTicks = u64(
-        'total amount of time rebuilding will at the end of recovery')
-    removeTombstoneTicks = u64(
-        'total amount of time deleting tombstones at the end of recovery')
-    replicationTicks = u64(
-        'total time with outstanding RPCs to backups')
-    replicationBytes = u64(
-        'total bytes sent from first gRD response through log sync')
-    replicas = u64('number of backups on which to replicate each segment')
-    replayCloseTicks = u64(
-        'total amount of time R-th replica took to close during replay')
-    replayCloseCount = u64(
-        'total number of segments closed during replay')
-    logSyncCloseTicks = u64(
-        'total amount of time R-th replica took to close during log sync')
-    logSyncCloseCount = u64(
-        'total number of segments closed during log sync')
-    taskIterations = u64(
-        'total times recover checked for a completed task')
-
-class Backup(Struct):
-    recoveryCount = u64(
-        'total number of recoveries in which this backup participated')
-    recoveryTicks = u64('total time elapsed during recovery')
-    serviceTicks = u64('total time spent servicing RPC requests')
-    startReadingDataTicks = u64('total amount of time in sRD')
-    readRequestCount = u64(
-        'total number of getRecoveryData requests processed to completion')
-    readCompletionCount = u64(
-        'total number of getRecoveryData requests processed to completion')
-    readTicks = u64(
-        'total number of time servicing getRecoveryData RPC')
-    readingDataTicks = u64(
-        'total amount of time between startReadingData to done reading')
-    storageReadCount = u64('total number of segment reads from disk')
-    storageReadBytes = u64('total amount of bytes read from disk')
-    storageReadTicks = u64('total amount of time reading from disk')
-    writeTicks = u64('total amount of time servicing write RPC')
-    writeClearTicks = u64(
-        'total amount of time clearing segment memory during segment open')
-    writeCopyBytes = u64(
-        'total bytes written to backup segments')
-    writeCopyTicks = u64(
-        'total amount of time clearing segment memory during segment open')
-    writeCount = u64('total number of writeSegment requests processed')
-    storageWriteCount = u64('total number of segment writes to disk')
-    storageWriteBytes = u64('total amount of bytes written to disk')
-    storageWriteTicks = u64('total amount of time writing to disk')
-    filterTicks = u64('total amount of time filtering segments')
-    currentOpenSegmentCount = u64('total number of open segments')
-    totalSegmentCount = u64('total number of open or closed segments')
-    primaryLoadCount = u64('total number of primary segments requested')
-    secondaryLoadCount = u64('total number of secondary segments requested')
-    storageType = u64('1 = in-memory, 2 = on-disk')
-
-class RawMetrics(Struct):
-    serverId = u64('server id assigned by coordinator')
-    pid = u64('process ID on machine')
-    clockFrequency = u64('cycles per second for the cpu')
-    segmentSize = u64('size in bytes of segments')
-    transport = Transport('metrics related to transports', 'Transport')
-    coordinator = Coordinator('metrics for coordinator', 'Coordinator')
-    master = Master('metrics for masters', 'Master')
-    backup = Backup('metrics for backups', 'Backup')
-    temp = Temp('metrics for temporary use', 'Temp')
+definitions = Group('RawMetrics', 'server metrics')
+definitions.group(coordinator);
+definitions.group(master);
+definitions.group(backup);
+definitions.group(rpc);
+definitions.group(transport);
+definitions.group(temp);
+definitions.metric('serverId', 'server id assigned by coordinator')
+definitions.metric('pid', 'process ID on machine')
+definitions.metric('clockFrequency', 'cycles per second for the cpu')
+definitions.metric('segmentSize','size in bytes of segments')
 
 def writeBuildFiles(definitions):
     counter = Counter()
@@ -316,7 +434,7 @@ def writeBuildFiles(definitions):
     cc('namespace RAMCloud {')
     cc('RawMetrics::MetricInfo RawMetrics::metricInfo(int i)\n{')
     cc('    switch (i) {')
-    definitions.dumpMetricInfoCode(cc, '', counter)
+    definitions.dump_metric_info_code(cc, '', counter)
     cc('    }')
     cc('    return {NULL, NULL};')
     cc('}')
@@ -325,10 +443,9 @@ def writeBuildFiles(definitions):
     h = Out(open('%s/RawMetrics.in.h' % obj_dir, 'w'))
     h('// This file was automatically generated by scripts/rawmetrics.py.')
     h('// Do not edit it.')
-    definitions.dumpHeader(h)
+    definitions.dump_header(h)
     h('    static const int numMetrics = %d;' % (counter.value()))
 
-definitions = RawMetrics('server metrics', 'RawMetrics')
 
 if __name__ == '__main__':
     writeBuildFiles(definitions)

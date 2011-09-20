@@ -42,7 +42,9 @@ enum RpcServiceType {
 /**
  * This enum defines the choices for the "opcode" field in RPC
  * headers, which selects a particular operation to perform.  Each
- * RAMCloud service implements a subset of these operations 
+ * RAMCloud service implements a subset of these operations.  Note:
+ * changes to this table should also be reflected in the definition
+ * of rpc in scripts/rawmetrics.py.
  */
 enum RpcOpcode {
     PING                    = 7,
@@ -66,15 +68,15 @@ enum RpcOpcode {
     FILL_WITH_TEST_DATA     = 25,
     MULTI_READ              = 26,
     GET_METRICS             = 27,
-    BACKUP_CLOSE            = 128,
-    BACKUP_FREE             = 129,
-    BACKUP_GETRECOVERYDATA  = 130,
-    BACKUP_OPEN             = 131,
-    BACKUP_STARTREADINGDATA = 132,
-    BACKUP_WRITE            = 133,
-    BACKUP_RECOVERYCOMPLETE = 134,
-    BACKUP_QUIESCE          = 135,
-    ILLEGAL_RPC_TYPE        = 136,  // 1 + the highest legitimate RpcOpcode
+    BACKUP_CLOSE            = 28,
+    BACKUP_FREE             = 29,
+    BACKUP_GETRECOVERYDATA  = 30,
+    BACKUP_OPEN             = 31,
+    BACKUP_STARTREADINGDATA = 32,
+    BACKUP_WRITE            = 33,
+    BACKUP_RECOVERYCOMPLETE = 34,
+    BACKUP_QUIESCE          = 35,
+    ILLEGAL_RPC_TYPE        = 36,  // 1 + the highest legitimate RpcOpcode
 };
 
 /**

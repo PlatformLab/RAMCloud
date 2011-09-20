@@ -16,6 +16,7 @@
 #include "TestUtil.h"
 #include "MockService.h"
 #include "MockTransport.h"
+#include "RawMetrics.h"
 #include "Service.h"
 #include "ServiceManager.h"
 
@@ -86,7 +87,8 @@ TEST_F(ServiceTest, getString_stringNotTerminated) {
 TEST_F(ServiceTest, dispatch_ping) {
     request.fillFromString("7 0 0 0");
     service.dispatch(PingRpc::opcode, rpc);
-    EXPECT_TRUE(TestUtil::matchesPosixRegex("ping", TestLog::get()));
+    EXPECT_TRUE(TestUtil::matchesPosixRegex("Service::ping invoked",
+            TestLog::get()));
 }
 TEST_F(ServiceTest, dispatch_unknown) {
     request.fillFromString("0 0");
@@ -106,11 +108,12 @@ TEST_F(ServiceTest, handleRpc_messageTooShortForCommon) {
     EXPECT_STREQ("STATUS_MESSAGE_TOO_SHORT", TestUtil::getStatus(&response));
 }
 TEST_F(ServiceTest, handleRpc_undefinedType) {
+    metrics->rpc.illegalRpcCount = 0;
     request.fillFromString("1000 abcdef");
     service.handleRpc(rpc);
     EXPECT_STREQ("STATUS_UNIMPLEMENTED_REQUEST",
             TestUtil::getStatus(&response));
-    EXPECT_EQ(1U, service.rpcsHandled[ILLEGAL_RPC_TYPE]);
+    EXPECT_EQ(1U, metrics->rpc.illegalRpcCount);
 }
 TEST_F(ServiceTest, handleRpc_clientException) {
     MockService service;
