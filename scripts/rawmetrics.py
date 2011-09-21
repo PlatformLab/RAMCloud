@@ -169,8 +169,7 @@ master.metric('recoveryCount',
     'number of recoveries in which this master participated')
 master.metric('recoveryTicks', 'the elapsed time during recoveries')
 master.metric('backupManagerTicks', 'time spent in BackupManager')
-master.metric('segmentAppendTicks',
-    'total amount of time spent in Segment::append')
+master.metric('segmentAppendTicks', 'time spent in Segment::append')
 master.metric('segmentAppendCopyTicks',
     'time spent copying in Segment::append')
 master.metric('segmentAppendChecksumTicks',
