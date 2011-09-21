@@ -101,6 +101,7 @@ def run_test(
         'log_dir':     options.log_dir,
         'log_level':   options.log_level,
         'num_backups': options.num_backups,
+        'num_servers': options.num_servers,
         'replicas':    options.replicas,
         'timeout':     options.timeout,
         'share_hosts': True,
@@ -109,6 +110,13 @@ def run_test(
         'verbose':     options.verbose
     }
     client_args = {}
+    # Provide a default value for num_servers here.  This is better
+    # than defaulting it in the OptionParser below, because tests can
+    # see whether or not an actual value was specified and provide a
+    # test-specific default.
+    if cluster_args['num_servers'] == None:
+        # Make sure there are enough servers to meet replica requirements.
+        cluster_args['num_servers'] = options.replicas
     if options.num_clients != None:
         cluster_args['num_clients'] = options.num_clients
     if options.size != None:
@@ -116,7 +124,7 @@ def run_test(
     test.function(test.name, options, cluster_args, client_args)
 
 #-------------------------------------------------------------------
-# Driver functions follow below.  These functions a responsible for
+# Driver functions follow below.  These functions are responsible for
 # invoking ClusterPerf via cluster.py, and they collect and print
 # result data.  Simple tests can just use the "default" driver function.
 #-------------------------------------------------------------------
@@ -125,10 +133,14 @@ def default(
         name,                      # Name of this test; passed through
                                    # to ClusterPerf verbatim.
         options,                   # The full set of command-line options.
-        cluster_args,              # Arguments to pass to cluster.run
-                                   # (extracted from options).
-        client_args                # Arguments to pass to ClusterPerf
-                                   # (via cluster.run).
+        cluster_args,              # Proposed set of arguments to pass to
+                                   # cluster.run (extracted from options).
+                                   # Individual tests can override as
+                                   # appropriate for the test.
+        client_args                # Proposed set of arguments to pass to
+                                   # ClusterPerf (via cluster.run).
+                                   # Individual tests can override as
+                                   # needed for the test.
         ):
     """
     This function is used as the invocation function for most tests;
@@ -148,9 +160,10 @@ def broadcast(name, options, cluster_args, client_args):
 def netBandwidth(name, options, cluster_args, client_args):
     if 'num_clients' not in cluster_args:
         cluster_args['num_clients'] = 2*len(config.hosts)
-    cluster_args['num_servers'] = cluster_args['num_clients']
-    if cluster_args['num_servers'] > len(config.hosts):
-        cluster_args['num_servers'] = len(config.hosts)
+    if options.num_servers == None:
+        cluster_args['num_servers'] = cluster_args['num_clients']
+        if cluster_args['num_servers'] > len(config.hosts):
+            cluster_args['num_servers'] = len(config.hosts)
     if options.size != None:
         client_args['--size'] = options.size
     else:
@@ -170,9 +183,7 @@ def readRandom(name, options, cluster_args, client_args):
     cluster_args['timeout'] = 60
     if 'num_clients' not in cluster_args:
         cluster_args['num_clients'] = 50
-    if options.num_servers != None:
-        cluster_args['num_servers'] = options.num_servers
-    else:
+    if options.num_servers == None:
         cluster_args['num_servers'] = 10
     client_args['--numTables'] = cluster_args['num_servers'];
     cluster.run(client='obj.master/ClusterPerf %s %s' %
