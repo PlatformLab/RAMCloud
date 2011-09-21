@@ -283,7 +283,6 @@ class SingleFileStorage : public BackupStorage {
     /// The number of segments this storage can store simultaneously.
     const uint32_t segmentFrames;
 
-    friend class SingleFileStorageTest;
     DISALLOW_COPY_AND_ASSIGN(SingleFileStorage);
 };
 

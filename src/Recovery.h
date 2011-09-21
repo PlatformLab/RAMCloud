@@ -157,7 +157,6 @@ class Recovery : public BaseRecovery {
     /// List of asynchronous startReadingData tasks and their replies
     Tub<BackupStartTask> *tasks;
 
-    friend class RecoveryTest;
     friend class RecoveryInternal::MasterStartTask;
     DISALLOW_COPY_AND_ASSIGN(Recovery);
 };

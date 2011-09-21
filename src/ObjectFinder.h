@@ -78,7 +78,6 @@ class ObjectFinder {
      */
     boost::function<void(ProtoBuf::Tablets&)> refresher;
 
-    friend class ObjectFinderTest;
     DISALLOW_COPY_AND_ASSIGN(ObjectFinder);
 };
 

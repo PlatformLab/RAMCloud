@@ -127,7 +127,6 @@ class CoordinatorService : public Service {
     /// Used in unit testing.
     BaseRecovery* mockRecovery;
 
-    friend class CoordinatorServiceTest;
     DISALLOW_COPY_AND_ASSIGN(CoordinatorService);
 };
 

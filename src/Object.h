@@ -88,8 +88,6 @@ class Object {
     Object() : id(-1, -1), version(-1), timestamp(secondsTimestamp()) { }
 
     // to use default constructor in arrays
-    friend class BackupServiceTest;
-    friend class HashTableTest;
     friend void hashTableBenchmark(uint64_t, uint64_t);
 
     DISALLOW_COPY_AND_ASSIGN(Object); // NOLINT
@@ -117,9 +115,6 @@ class ObjectTombstone {
           objectVersion(objectVersion)
     {
     }
-
-    friend class BackupServiceTest;
-    friend class MasterServiceTest;
 } __attribute__((__packed__));
 
 } // namespace RAMCloud

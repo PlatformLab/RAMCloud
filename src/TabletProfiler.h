@@ -144,8 +144,6 @@ class TabletProfiler {
         uint64_t previousPossibleReferents; /// Possible last partition refs
         bool     isDone;                    /// Is this partition is done?
 
-        friend class TabletProfilerTest;
-
         DISALLOW_COPY_AND_ASSIGN(PartitionCollector);
     };
 
@@ -184,8 +182,6 @@ class TabletProfiler {
           PRIVATE:
             Subrange* subrange;         /// Pointer to the Subrange referenced
             int       bucketIndex;      /// Index of the Bucket in subrange
-
-            friend class TabletProfilerTest;
         };
 
         Subrange(BucketHandle parent, uint64_t firstKey, uint64_t lastKey,
@@ -220,8 +216,6 @@ class TabletProfiler {
         uint32_t     totalChildren;     /// Number of Buckets with child != NULL
         LogTime      createTime;        /// LogTime of track() that created this
 
-        friend class TabletProfilerTest;
-
         DISALLOW_COPY_AND_ASSIGN(Subrange);
     };
 
@@ -234,8 +228,6 @@ class TabletProfiler {
     LogTime                lastTracked;         /// LogTime of last track() call
     uint64_t               totalTracked;        /// Total tracked referents
     uint64_t               totalTrackedBytes;   /// Total tracked bytes
-
-    friend class TabletProfilerTest;
 
     DISALLOW_COPY_AND_ASSIGN(TabletProfiler);
 };

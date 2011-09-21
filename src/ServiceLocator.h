@@ -38,7 +38,6 @@ namespace RAMCloud {
  * see #RAMCloud::ServiceLocatorTest::test_usageExample().
  */
 class ServiceLocator {
-  friend class ServiceLocatorTest;
   public:
 
     /**

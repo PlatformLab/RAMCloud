@@ -68,7 +68,6 @@ class Will {
                           const ProtoBuf::Tablets::Tablet& tablet);
 
     friend class WillBenchmark;
-    friend class WillTest;
 
     DISALLOW_COPY_AND_ASSIGN(Will);
 };

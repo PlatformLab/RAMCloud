@@ -95,8 +95,6 @@ class SegmentIterator {
     const SegmentEntry    *firstEntry;
     const SegmentEntry    *currentEntry;
 
-    friend class SegmentIteratorTest;
-
     DISALLOW_COPY_AND_ASSIGN(SegmentIterator);
 };
 
