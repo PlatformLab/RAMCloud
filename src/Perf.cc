@@ -419,6 +419,21 @@ double segmentEntrySort()
     return Cycles::toSeconds(stop - start);
 }
 
+// Measure the cost of starting and stopping a Dispatch::Timer.
+double startStopTimer()
+{
+    int count = 1000000;
+    Dispatch dispatch(false);
+    Dispatch::Timer timer(dispatch);
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        timer.start(12345U);
+        timer.stop();
+    }
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
+}
+
 // Measure the cost of acquiring and releasing a SpinLock (assuming the
 // lock is initially free).
 double spinLock()
@@ -438,7 +453,7 @@ double spinLock()
 // the value thrown, which is presumably as fast as possible.
 double throwInt()
 {
-    int count = 100000;
+    int count = 10000;
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
         try {
@@ -454,7 +469,7 @@ double throwInt()
 // Measure the cost of throwing and catching an int from a function call.
 double throwIntNL()
 {
-    int count = 100000;
+    int count = 10000;
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
         try {
@@ -471,7 +486,7 @@ double throwIntNL()
 // exception as the value thrown, which may be slower than throwInt.
 double throwException()
 {
-    int count = 100000;
+    int count = 10000;
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
         try {
@@ -487,7 +502,7 @@ double throwException()
 // Measure the cost of throwing and catching an Exception from a function call.
 double throwExceptionNL()
 {
-    int count = 100000;
+    int count = 10000;
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
         try {
@@ -504,7 +519,7 @@ double throwExceptionNL()
 // ClientException::throwException.
 double throwSwitch()
 {
-    int count = 100000;
+    int count = 10000;
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
         try {
@@ -573,6 +588,8 @@ TestInfo tests[] = {
      "Sfence instruction"},
     {"spinLock", spinLock,
      "Acquire/release SpinLock"},
+    {"startStopTimer", startStopTimer,
+     "Start and stop a Dispatch::Timer"},
     {"throwInt", throwInt,
      "Throw an int"},
     {"throwIntNL", throwIntNL,
