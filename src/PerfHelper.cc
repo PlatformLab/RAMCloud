@@ -20,6 +20,17 @@ using namespace RAMCloud;
 
 namespace PerfHelper {
 
+/// Flush the CPU data cache by reading and writing 100MB of new data.
+void
+flushCache()
+{
+    int hundredMegs = 100 * 1024 * 1024;
+    volatile char* block = new char[hundredMegs];
+    for (int i = 0; i < hundredMegs; i++)
+        block[i] = 1;
+    delete[] block;
+}
+
 /// Used in functionCall().
 uint64_t
 plusOne(uint64_t x)

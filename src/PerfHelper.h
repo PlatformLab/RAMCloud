@@ -20,6 +20,7 @@
 
 namespace PerfHelper {
 
+void flushCache();
 uint64_t plusOne(uint64_t x);
 void throwObjectDoesntExistException();
 void throwInt();
