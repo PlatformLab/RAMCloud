@@ -179,6 +179,7 @@ class RealInfiniband {
         uint32_t getRemoteQpNumber() const;
         uint16_t getRemoteLid() const;
         int      getState() const;
+        bool     isError() const;
         void     plumb(QueuePairTuple *qpt);
         void     activate(const Tub<MacAddress>& localMac);
 

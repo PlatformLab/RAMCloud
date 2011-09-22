@@ -850,6 +850,27 @@ Infiniband::QueuePair::getState() const
 }
 
 /**
+ * Return true if the queue pair is in an error state, false otherwise.
+ *
+ * \throw
+ *      TransportException is thrown if querying the queue pair
+ *      fails.
+ */
+bool
+Infiniband::QueuePair::isError() const
+{
+    ibv_qp_attr qpa;
+    ibv_qp_init_attr qpia;
+
+    int r = ibv_query_qp(qp, &qpa, -1, &qpia);
+    if (r) {
+        // XXX log?!?
+        throw TransportException(HERE, r);
+    }
+    return qpa.cur_qp_state == IBV_QPS_ERR;
+}
+
+/**
  * Construct an Address from the information in a ServiceLocator.
  * \param infiniband
  *      Infiniband instance under which this address is valid.
