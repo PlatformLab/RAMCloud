@@ -355,6 +355,19 @@ double perfCyclesToSeconds()
     return Cycles::toSeconds(stop - start)/count;
 }
 
+// Measure the cost of reading the fine-grain cycle counter.
+double rdtscTest()
+{
+    int count = 1000000;
+    uint64_t start = Cycles::rdtsc();
+    uint64_t total = 0;
+    for (int i = 0; i < count; i++) {
+        total += Cycles::rdtsc();
+    }
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
+}
+
 // Measure the cost of an sfence instruction.
 double sfence()
 {
@@ -532,6 +545,31 @@ double throwSwitch()
     return Cycles::toSeconds(stop - start)/count;
 }
 
+// Measure the cost of pushing a new element on a std::vector, copying
+// from the end to an internal element, and popping the end element.
+double vectorPushPop()
+{
+    int count = 100000;
+    std::vector<int> vector;
+    vector.push_back(1);
+    vector.push_back(2);
+    vector.push_back(3);
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        vector.push_back(i);
+        vector.push_back(i+1);
+        vector.push_back(i+2);
+        vector[2] = vector.back();
+        vector.pop_back();
+        vector[0] = vector.back();
+        vector.pop_back();
+        vector[1] = vector.back();
+        vector.pop_back();
+    }
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/(count*3);
+}
+
 // The following struct and table define each performance test in terms of
 // a string name and a function that implements the test.
 struct TestInfo {
@@ -582,6 +620,8 @@ TestInfo tests[] = {
      "Cost of new allocations from an ObjectPool (no destroys)"},
     {"objectPoolRealloc", objectPoolAlloc<int, true>,
      "Cost of ObjectPool allocation after destroying an object"},
+    {"rdtsc", rdtscTest,
+     "Read the fine-grain cycle counter"},
     {"segmentEntrySort", segmentEntrySort,
      "Sort a Segment full of avg. 100-byte Objects by age"},
     {"sfence", sfence,
@@ -600,6 +640,8 @@ TestInfo tests[] = {
      "Throw an Exception in a function call"},
     {"throwSwitch", throwSwitch,
      "Throw an Exception using ClientException::throwException"},
+    {"vectorPushPop", vectorPushPop,
+     "Push and pop a std::vector"},
 };
 
 /**
