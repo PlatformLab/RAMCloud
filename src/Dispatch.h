@@ -176,15 +176,11 @@ class Dispatch {
         explicit Timer(Dispatch& dispatch);
         explicit Timer(Dispatch& dispatch, uint64_t cycles);
         virtual ~Timer();
+        virtual void handleTimerEvent();
         bool isRunning();
         void start(uint64_t cycles);
         void stop();
 
-        /**
-         * This method is defined by a subclass and invoked when the
-         * timer expires.
-         */
-        virtual void handleTimerEvent() = 0;
       PRIVATE:
         /// The Dispatch object that owns this Timer.  NULL means the
         /// Dispatch has been deleted.

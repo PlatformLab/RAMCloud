@@ -46,7 +46,7 @@ Syscall* Dispatch::sys = &defaultSyscall;
 
 /**
  * Constructor for Dispatch objects.
- * @param hasDedicatedThread
+ * \param hasDedicatedThread
  *      Pass true if there is a thread which owns this dispatch (this is
  *      true on RAMCloud servers), if false then the dispatch performs
  *      no synchronization and callers must guarantee mutual exclusion
@@ -500,6 +500,16 @@ Dispatch::Timer::Timer(Dispatch& dispatch, uint64_t cycles)
 Dispatch::Timer::~Timer()
 {
     if (owner != NULL) stop();
+}
+
+/**
+ * This method is overridden by a subclass and invoked when the
+ * timer expires.
+ */
+void
+Dispatch::Timer::handleTimerEvent()
+{
+    // Empty default is useful for some tests.
 }
 
 /**
