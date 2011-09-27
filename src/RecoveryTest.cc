@@ -478,15 +478,15 @@ TEST_F(RecoveryTest, start) {
             for (uint32_t partId = 0; partId < 2; ++partId) {
                 {
                     Buffer throwAway;
-                    backup1->getRecoveryData(99, 88, 0, throwAway);
+                    backup1->getRecoveryData(99, 88, partId, throwAway);
                 }
                 {
                     Buffer throwAway;
-                    backup1->getRecoveryData(99, 89, 0, throwAway);
+                    backup1->getRecoveryData(99, 89, partId, throwAway);
                 }
                 {
                     Buffer throwAway;
-                    backup2->getRecoveryData(99, 88, 0, throwAway);
+                    backup2->getRecoveryData(99, 88, partId, throwAway);
                 }
             }
         } catch (const RetryException& e) {
