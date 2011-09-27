@@ -21,6 +21,7 @@
 #include <boost/pool/pool.hpp>
 #include <boost/dynamic_bitset.hpp>
 
+#include "Memory.h"
 #include "Segment.h"
 
 namespace RAMCloud {
@@ -34,7 +35,6 @@ enum BackupStrategy {
     RANDOM_REFINE_MIN,
     RANDOM_REFINE_AVG,
     EVEN_DISTRIBUTION,
-    UNIFORM_RANDOM,
 };
 
 struct BackupStorageException : public Exception {
@@ -56,8 +56,9 @@ struct SegmentAllocator
     static char*
     malloc(const size_type bytes)
     {
-        return reinterpret_cast<char *>(xmemalign(Segment::SEGMENT_SIZE,
-                                                  bytes));
+        return reinterpret_cast<char *>(Memory::xmemalign(HERE,
+                                                          Segment::SEGMENT_SIZE,
+                                                          bytes));
     }
 
     static void
@@ -197,7 +198,7 @@ class BackupStorage {
     uint32_t const segmentSize;
 
   public:
-    /// Used in Metrics to print out the backup storage type.
+    /// Used in RawMetrics to print out the backup storage type.
     const Type storageType;
 
     DISALLOW_COPY_AND_ASSIGN(BackupStorage);

@@ -16,8 +16,32 @@
  */
 
 #include "TestUtil.h"
-#include "Metrics.h"
+#include "RawMetrics.h"
+#include "MetricList.pb.h"
 
 namespace RAMCloud {
+
+class MetricsTest : public ::testing::Test {
+  public:
+    MetricsTest() { }
+    DISALLOW_COPY_AND_ASSIGN(MetricsTest);
+};
+
+TEST_F(MetricsTest, serialize) {
+    RawMetrics metrics;
+    metrics.master.recoveryTicks = 12345;
+    string serialized;
+    metrics.serialize(serialized);
+    ProtoBuf::MetricList list;
+    list.ParseFromString(serialized);
+    for (int i = 0; i < list.metric_size(); i++) {
+        const ProtoBuf::MetricList_Entry& metric = list.metric(i);
+        if (metric.name().compare("master.recoveryTicks") == 0) {
+            EXPECT_EQ(12345U, metric.value());
+            return;
+        }
+    }
+    FAIL() << "master.recoveryTicks record not found";
+}
 
 }

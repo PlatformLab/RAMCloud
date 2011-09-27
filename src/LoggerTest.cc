@@ -14,30 +14,31 @@
  */
 
 #include "TestUtil.h"
+#include "TestLog.h"
 #include "ShortMacros.h"
 
 namespace RAMCloud {
 
-class LoggingTest : public ::testing::Test {
+class LoggerTest : public ::testing::Test {
   public:
     static const uint32_t numLogLevels = static_cast<uint32_t>(NUM_LOG_LEVELS);
 
-    LoggingTest() {}
+    LoggerTest() {}
 
-    ~LoggingTest() {
+    ~LoggerTest() {
         Context::get().logger->stream = stderr;
         unlink("__test.log");
     }
-    DISALLOW_COPY_AND_ASSIGN(LoggingTest);
+    DISALLOW_COPY_AND_ASSIGN(LoggerTest);
 };
 
-TEST_F(LoggingTest, constructor) {
+TEST_F(LoggerTest, constructor) {
     Logger l(WARNING);
     EXPECT_TRUE(l.stream == NULL);
     EXPECT_EQ(WARNING, l.logLevels[0]);
 }
 
-TEST_F(LoggingTest, setLogFile_basics) {
+TEST_F(LoggerTest, setLogFile_basics) {
     Logger l(NOTICE);
     l.setLogFile("__test.log");
     l.logMessage(DEFAULT_LOG_MODULE, NOTICE, HERE, "message 1\n");
@@ -54,7 +55,7 @@ TEST_F(LoggingTest, setLogFile_basics) {
     EXPECT_TRUE(TestUtil::matchesPosixRegex("message 3",
             TestUtil::readFile("__test.log")));
 }
-TEST_F(LoggingTest, setLogFile_cantOpenFile) {
+TEST_F(LoggerTest, setLogFile_cantOpenFile) {
     Logger l(NOTICE);
     string message("no exception");
     try {
@@ -66,13 +67,13 @@ TEST_F(LoggingTest, setLogFile_cantOpenFile) {
             "No such file or directory", message);
 }
 
-TEST_F(LoggingTest, setLogLevel) {
+TEST_F(LoggerTest, setLogLevel) {
     Logger l(WARNING);
     l.setLogLevel(DEFAULT_LOG_MODULE, NOTICE);
     EXPECT_EQ(NOTICE, l.logLevels[DEFAULT_LOG_MODULE]);
 }
 
-TEST_F(LoggingTest, setLogLevel_int) {
+TEST_F(LoggerTest, setLogLevel_int) {
     Logger l(WARNING);
 
     l.setLogLevel(DEFAULT_LOG_MODULE, -1);
@@ -90,7 +91,7 @@ TEST_F(LoggingTest, setLogLevel_int) {
               downCast<unsigned>(l.logLevels[DEFAULT_LOG_MODULE]));
 }
 
-TEST_F(LoggingTest, setLogLevel_string) {
+TEST_F(LoggerTest, setLogLevel_string) {
     Logger l(WARNING);
 
     l.setLogLevel("default", "-1");
@@ -115,7 +116,7 @@ TEST_F(LoggingTest, setLogLevel_string) {
         "setLogLevel: Ignoring bad log module level: junk", TestLog::get());
 }
 
-TEST_F(LoggingTest, changeLogLevel) {
+TEST_F(LoggerTest, changeLogLevel) {
     Logger l(WARNING);
     l.changeLogLevel(DEFAULT_LOG_MODULE, -1);
     EXPECT_EQ(ERROR, l.logLevels[DEFAULT_LOG_MODULE]);
@@ -123,14 +124,14 @@ TEST_F(LoggingTest, changeLogLevel) {
     EXPECT_EQ(WARNING, l.logLevels[DEFAULT_LOG_MODULE]);
 }
 
-TEST_F(LoggingTest, setLogLevels) {
+TEST_F(LoggerTest, setLogLevels) {
     Logger l(WARNING);
     l.setLogLevels(NOTICE);
     for (int i = 0; i < NUM_LOG_MODULES; i++)
         EXPECT_EQ(NOTICE, l.logLevels[i]);
 }
 
-TEST_F(LoggingTest, setLogLevels_int) {
+TEST_F(LoggerTest, setLogLevels_int) {
     Logger l(WARNING);
 
     l.setLogLevels(-1);
@@ -150,7 +151,7 @@ TEST_F(LoggingTest, setLogLevels_int) {
         EXPECT_EQ(numLogLevels - 1, downCast<unsigned>(l.logLevels[i]));
 }
 
-TEST_F(LoggingTest, setLogLevels_string) {
+TEST_F(LoggerTest, setLogLevels_string) {
     Logger l(WARNING);
 
     l.setLogLevels("-1");
@@ -172,7 +173,7 @@ TEST_F(LoggingTest, setLogLevels_string) {
         TestLog::get());
 }
 
-TEST_F(LoggingTest, changeLogLevels) {
+TEST_F(LoggerTest, changeLogLevels) {
     Logger l(WARNING);
 
     l.changeLogLevels(-1);
@@ -184,14 +185,14 @@ TEST_F(LoggingTest, changeLogLevels) {
         EXPECT_EQ(WARNING, l.logLevels[i]);
 }
 
-TEST_F(LoggingTest, isLogging) {
+TEST_F(LoggerTest, isLogging) {
     Logger l(WARNING);
     EXPECT_TRUE(l.isLogging(DEFAULT_LOG_MODULE, ERROR));
     EXPECT_TRUE(l.isLogging(DEFAULT_LOG_MODULE, WARNING));
     EXPECT_TRUE(!l.isLogging(DEFAULT_LOG_MODULE, NOTICE));
 }
 
-TEST_F(LoggingTest, LOG) { // also tests logMessage
+TEST_F(LoggerTest, LOG) { // also tests logMessage
     char* buf = NULL;
     size_t size = 0;
 
@@ -204,8 +205,8 @@ TEST_F(LoggingTest, LOG) { // also tests logMessage
 
     LOG(ERROR, "rofl: %d", 3);
     const char* pattern = "^[[:digit:]]\\{10\\}\\.[[:digit:]]\\{9\\} "
-                            "src/LoggingTest.cc:[[:digit:]]\\{1,4\\} "
-                            "in LoggingTest_RAMCLOUD_LOG_Test::TestBody "
+                            "src/LoggerTest.cc:[[:digit:]]\\{1,4\\} "
+                            "in LoggerTest_RAMCLOUD_LOG_Test::TestBody "
                             "default ERROR\\[[[:digit:]]\\{1,5\\}\\]: "
                             "rofl: 3\n$";
     EXPECT_TRUE(TestUtil::matchesPosixRegex(pattern, buf));
@@ -214,7 +215,7 @@ TEST_F(LoggingTest, LOG) { // also tests logMessage
     free(buf);
 }
 
-TEST_F(LoggingTest, DIE) { // also tests getMessage
+TEST_F(LoggerTest, DIE) { // also tests getMessage
     Logger& logger = *Context::get().logger;
     logger.stream = fmemopen(NULL, 1024, "w");
     assert(logger.stream != NULL);
@@ -231,7 +232,7 @@ TEST_F(LoggingTest, DIE) { // also tests getMessage
     EXPECT_STREQ("", "FatalError not thrown");
 }
 
-TEST_F(LoggingTest, redirectStderr) {
+TEST_F(LoggerTest, redirectStderr) {
     // If the application redirects stderr, make sure that log messages
     // go there, not to the old stderr.
     Logger l(NOTICE);

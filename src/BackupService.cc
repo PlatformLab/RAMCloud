@@ -35,7 +35,7 @@ namespace RAMCloud {
 namespace {
 /**
  * The TSC reading at the start of the last recovery.
- * Used to update #Metrics::backup::readingDataTicks.
+ * Used to update #RawMetrics.backup.readingDataTicks.
  */
 uint64_t recoveryStart;
 } // anonymous namespace
@@ -104,7 +104,7 @@ BackupService::SegmentInfo::~SegmentInfo()
         LOG(NOTICE, "Backup shutting down with open segment <%lu,%lu>, "
             "closing out to storage", masterId, segmentId);
         state = CLOSED;
-        CycleCounter<Metric> _(&metrics->backup.storageWriteTicks);
+        CycleCounter<RawMetric> _(&metrics->backup.storageWriteTicks);
         ++metrics->backup.storageWriteCount;
         metrics->backup.storageWriteBytes += segmentSize;
         storage.putSegment(storageHandle, segment);
@@ -295,7 +295,7 @@ BackupService::SegmentInfo::buildRecoverySegments(
     }
     LOG(NOTICE, "Building %u recovery segments for %lu",
         partitionCount, segmentId);
-    CycleCounter<Metric> _(&metrics->backup.filterTicks);
+    CycleCounter<RawMetric> _(&metrics->backup.filterTicks);
 
     recoverySegments = new Buffer[partitionCount];
     recoverySegmentsLength = partitionCount;
@@ -379,7 +379,6 @@ BackupService::SegmentInfo::close()
 
     state = CLOSED;
     rightmostWrittenOffset = BYTES_WRITTEN_CLOSED;
-    --metrics->backup.currentOpenSegmentCount;
 
     assert(storageHandle);
     ioScheduler.store(*this);
@@ -430,7 +429,7 @@ BackupService::SegmentInfo::open()
     // Get memory for staging the segment writes
     char* segment = static_cast<char*>(pool.malloc());
     {
-        CycleCounter<Metric> q(&metrics->backup.writeClearTicks);
+        CycleCounter<RawMetric> q(&metrics->backup.writeClearTicks);
         memset(segment, 0, segmentSize < sizeof(SegmentEntry) ?
                             segmentSize : sizeof(SegmentEntry));
     }
@@ -447,8 +446,6 @@ BackupService::SegmentInfo::open()
     this->segment = segment;
     this->storageHandle = handle;
     state = OPEN;
-    ++metrics->backup.currentOpenSegmentCount;
-    ++metrics->backup.totalSegmentCount;
 }
 
 /**
@@ -695,7 +692,7 @@ BackupService::IoScheduler::doLoad(SegmentInfo& info) const
 
     char* segment = static_cast<char*>(info.pool.malloc());
     try {
-        CycleCounter<Metric> _(&metrics->backup.storageReadTicks);
+        CycleCounter<RawMetric> _(&metrics->backup.storageReadTicks);
         ++metrics->backup.storageReadCount;
         metrics->backup.storageReadBytes += info.segmentSize;
         uint64_t startTime = Cycles::rdtsc();
@@ -736,7 +733,7 @@ BackupService::IoScheduler::doStore(SegmentInfo& info) const
 
     LOG(DEBUG, "Storing segment <%lu,%lu>", info.masterId, info.segmentId);
     try {
-        CycleCounter<Metric> _(&metrics->backup.storageWriteTicks);
+        CycleCounter<RawMetric> _(&metrics->backup.storageWriteTicks);
         ++metrics->backup.storageWriteCount;
         metrics->backup.storageWriteBytes += info.segmentSize;
         uint64_t startTime = Cycles::rdtsc();
@@ -953,7 +950,7 @@ void
 BackupService::dispatch(RpcOpcode opcode, Rpc& rpc)
 {
     assert(initCalled);
-    CycleCounter<Metric> serviceTicks(&metrics->backup.serviceTicks);
+    CycleCounter<RawMetric> serviceTicks(&metrics->backup.serviceTicks);
 
     switch (opcode) {
         case BackupFreeRpc::opcode:
@@ -1067,9 +1064,6 @@ BackupService::getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
                                BackupGetRecoveryDataRpc::Response& respHdr,
                                Rpc& rpc)
 {
-    ++metrics->backup.readRequestCount;
-    CycleCounter<Metric> _(&metrics->backup.readTicks);
-
     LOG(DEBUG, "getRecoveryData masterId %lu, segmentId %lu, partitionId %lu",
         reqHdr.masterId, reqHdr.segmentId, reqHdr.partitionId);
 
@@ -1104,6 +1098,9 @@ BackupService::init()
                                         storageBenchmarkResults.first,
                                         storageBenchmarkResults.second);
     LOG(NOTICE, "My server ID is %lu", serverId);
+    if (metrics->serverId == 0) {
+        metrics->serverId = serverId;
+    }
 
     initCalled = true;
 }
@@ -1144,7 +1141,6 @@ BackupService::recoveryComplete(
     LOG(DEBUG, "masterID: %lu", reqHdr.masterId);
     rpc.sendReply();
     recoveryTicks.destroy();
-    metrics->end();
 }
 
 /**
@@ -1203,10 +1199,8 @@ BackupService::startReadingData(
     LOG(DEBUG, "Handling: %lu", reqHdr.masterId);
     recoveryTicks.construct(&metrics->backup.recoveryTicks);
     recoveryStart = Cycles::rdtsc();
-    metrics->start(serverId);
-    metrics->hasBackup = 1;
+    metrics->backup.recoveryCount++;
     metrics->backup.storageType = static_cast<uint64_t>(storage.storageType);
-    CycleCounter<Metric> srdTicks(&metrics->backup.startReadingDataTicks);
 
     ProtoBuf::Tablets partitions;
     ProtoBuf::parseFromResponse(rpc.requestPayload, sizeof(reqHdr),
@@ -1290,7 +1284,6 @@ BackupService::startReadingData(
     }
 
     rpc.sendReply();
-    srdTicks.stop();
 
 #ifndef SINGLE_THREADED_BACKUP
     RecoverySegmentBuilder builder(Context::get(),
@@ -1342,10 +1335,8 @@ BackupService::writeSegment(const BackupWriteRpc::Request& reqHdr,
                             BackupWriteRpc::Response& respHdr,
                             Rpc& rpc)
 {
-    CycleCounter<Metric> _(&metrics->backup.writeTicks);
     uint64_t masterId = reqHdr.masterId;
     uint64_t segmentId = reqHdr.segmentId;
-    ++metrics->backup.writeCount;
 
     SegmentInfo* info = findSegmentInfo(masterId, segmentId);
 
@@ -1381,7 +1372,7 @@ BackupService::writeSegment(const BackupWriteRpc::Request& reqHdr,
             throw BackupSegmentOverflowException(HERE);
 
         {
-            CycleCounter<Metric> __(&metrics->backup.writeCopyTicks);
+            CycleCounter<RawMetric> __(&metrics->backup.writeCopyTicks);
             info->write(rpc.requestPayload, sizeof(reqHdr),
                         reqHdr.length, reqHdr.offset);
         }

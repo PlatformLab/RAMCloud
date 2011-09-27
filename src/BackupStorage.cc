@@ -21,6 +21,7 @@
 
 #include "Common.h"
 #include "BackupStorage.h"
+#include "Memory.h"
 #include "ShortMacros.h"
 
 namespace RAMCloud {
@@ -41,7 +42,9 @@ BackupStorage::benchmark(BackupStrategy backupStrategy)
     uint32_t writeSpeeds[count];
     BackupStorage::Handle* handles[count];
 
-    void* p = xmemalign(Segment::SEGMENT_SIZE, Segment::SEGMENT_SIZE);
+    void* p = Memory::xmemalign(HERE,
+                                Segment::SEGMENT_SIZE,
+                                Segment::SEGMENT_SIZE);
     char* segment = static_cast<char*>(p);
 
     try {
@@ -106,11 +109,6 @@ BackupStorage::benchmark(BackupStrategy backupStrategy)
     } else if (backupStrategy == EVEN_DISTRIBUTION) {
         LOG(NOTICE, "EVEN_SELECTION BackupStrategy selected");
         return {100, 100};
-    } else if (backupStrategy == UNIFORM_RANDOM) {
-        LOG(NOTICE, "UNIFORM_RANDOM BackupStrategy selected");
-        // Magic value lets master know it should immediately
-        // accept this backup (i.e. use uniform random selection).
-        return {1, 1};
     } else {
         DIE("Bad BackupStrategy selected");
     }

@@ -14,6 +14,7 @@
  */
 
 #include "Cycles.h"
+#include "RawMetrics.h"
 #include "Service.h"
 #include "ShortMacros.h"
 #include "ServiceManager.h"
@@ -90,23 +91,7 @@ Service::ping(const PingRpc::Request& reqHdr,
     // This method no longer serves any useful purpose (as of 6/2011) and
     // shouldn't get invoked except during tests.  It stays around mostly
     // so that other methods can \copydoc its documentation.
-    TEST_LOG("ping");
-    LOG(DEBUG, "RPCs serviced");
-    uint64_t totalCount = 0;
-    uint64_t totalTime = 0;
-    for (uint32_t i = 0; i < ILLEGAL_RPC_TYPE; i++) {
-        uint64_t h = rpcsHandled[i];
-        uint64_t t = rpcsTime[i];
-        if (!h)
-            continue;
-        totalCount += h;
-        totalTime += t;
-        rpcsHandled[i] = 0;
-        rpcsTime[i] = 0;
-        LOG(DEBUG, "%5u: %10lu %10lu", i, h, t);
-    }
-    LOG(DEBUG, "Total: %10lu %10lu", totalCount, totalTime);
-    Context::get().transportManager->dumpStats();
+    TEST_LOG("Service::ping invoked");
 }
 
 /**
@@ -151,14 +136,14 @@ Service::handleRpc(Rpc& rpc) {
     uint32_t opcode = header->opcode;
     if (opcode >= ILLEGAL_RPC_TYPE)
         opcode = ILLEGAL_RPC_TYPE;
-    rpcsHandled[opcode]++;
+    (&metrics->rpc.rpc0Count)[opcode]++;
     uint64_t start = Cycles::rdtsc();
     try {
         dispatch(RpcOpcode(header->opcode), rpc);
     } catch (ClientException& e) {
         prepareErrorResponse(rpc.replyPayload, e.status);
     }
-    rpcsTime[opcode] += Cycles::rdtsc() - start;
+    (&metrics->rpc.rpc0Ticks)[opcode] += Cycles::rdtsc() - start;
 }
 
 /**

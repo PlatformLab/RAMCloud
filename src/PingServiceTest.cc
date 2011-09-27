@@ -14,10 +14,12 @@
  */
 
 #include "TestUtil.h"
+#include "BindTransport.h"
 #include "Common.h"
 #include "PingClient.h"
-#include "BindTransport.h"
 #include "PingService.h"
+#include "RawMetrics.h"
+#include "ServerMetrics.h"
 #include "TransportManager.h"
 
 // Note: this file tests both PingService.cc and PingClient.cc.
@@ -33,7 +35,7 @@ class PingServiceTest : public ::testing::Test {
     PingServiceTest() : transport(), pingService(), client()
     {
         Context::get().transportManager->registerMock(&transport);
-        transport.addService(pingService, "mock:host=ping");
+        transport.addService(pingService, "mock:host=ping", PING_SERVICE);
     }
 
     ~PingServiceTest() {
@@ -41,6 +43,14 @@ class PingServiceTest : public ::testing::Test {
     }
     DISALLOW_COPY_AND_ASSIGN(PingServiceTest);
 };
+
+TEST_F(PingServiceTest, getMetrics) {
+    metrics->master.replicas = 99;
+    metrics->temp.count3 = 33;
+    ServerMetrics metrics = client.getMetrics("mock:host=ping");
+    EXPECT_EQ(99U, metrics["master.replicas"]);
+    EXPECT_EQ(33U, metrics["temp.count3"]);
+}
 
 TEST_F(PingServiceTest, ping_basics) {
     TestLog::Enable _;
@@ -78,7 +88,7 @@ TEST_F(PingServiceTest, proxyPing_pingReturnsBadValue) {
     MockTransport mockTransport;
     mockTransport.setInput("0 0 55 0");
     Context::get().transportManager->registerMock(&mockTransport, "mock2");
-    transport.addService(pingService, "mock2:host=ping2");
+    transport.addService(pingService, "mock2:host=ping2", PING_SERVICE);
     EXPECT_EQ(0xffffffffffffffffU,
               client.proxyPing("mock:host=ping", "mock2:host=ping2",
                                2000000, 1000000));

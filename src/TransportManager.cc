@@ -16,7 +16,7 @@
 
 #include "CycleCounter.h"
 #include "ShortMacros.h"
-#include "Metrics.h"
+#include "RawMetrics.h"
 #include "TransportManager.h"
 #include "TransportFactory.h"
 
@@ -238,7 +238,7 @@ TransportManager::getSession(const char* serviceLocator)
     if (it != sessionCache.end())
         return it->second;
 
-    CycleCounter<Metric> counter;
+    CycleCounter<RawMetric> counter;
 
     // Session was not found in the cache, so create a new one and add
     // it to the cache.

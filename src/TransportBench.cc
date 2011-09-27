@@ -20,7 +20,7 @@
 #include "ClientException.h"
 #include "Cycles.h"
 #include "CycleCounter.h"
-#include "Metrics.h"
+#include "RawMetrics.h"
 
 using std::cerr;
 using std::endl;

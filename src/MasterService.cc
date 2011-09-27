@@ -21,7 +21,7 @@
 #include "Dispatch.h"
 #include "ShortMacros.h"
 #include "MasterService.h"
-#include "Metrics.h"
+#include "RawMetrics.h"
 #include "Tub.h"
 #include "ProtoBuf.h"
 #include "Rpc.h"
@@ -175,6 +175,7 @@ MasterService::init()
         serverId.construct(coordinator->enlistServer(MASTER,
                                                      config.localLocator));
         LOG(NOTICE, "My server ID is %lu", *serverId);
+        metrics->serverId = *serverId;
     }
 
     initCalled = true;
@@ -317,17 +318,6 @@ MasterService::read(const ReadRpc::Request& reqHdr,
                    ReadRpc::Response& respHdr,
                    Rpc& rpc)
 {
-    if (reqHdr.id == TOTAL_READ_REQUESTS_OBJID) {
-        new(&rpc.replyPayload, APPEND) ServerStats(serverStats);
-        respHdr.length = sizeof(serverStats);
-        memset(&serverStats, 0, sizeof(serverStats));
-        return; // TODO(nandu) - if an actual object uses this objid
-                // then we do not return its real value back. Should
-                // change this to use an RPC other than read. Write to
-                // this object has undesirable behavior too.
-    }
-    CycleCounter<uint64_t> timeThisRead;
-
     // We must return table doesn't exist if the table does not exist. Also, we
     // might have an entry in the hash table that's invalid because its tablet
     // no longer lives here.
@@ -354,8 +344,6 @@ MasterService::read(const ReadRpc::Request& reqHdr,
     // TODO(ongaro): We'll need a new type of Chunk to block the cleaner
     // from scribbling over obj->data.
     respHdr.length = obj->dataLength(handle->length());
-    serverStats.totalReadRequests++;
-    serverStats.totalReadNanos += Cycles::toNanoseconds(timeThisRead.stop());
 }
 
 /**
@@ -443,7 +431,7 @@ class RemoveTombstonePoller : public Dispatch::Poller {
 void
 MasterService::removeTombstones()
 {
-    CycleCounter<Metric> _(&metrics->master.removeTombstoneTicks);
+    CycleCounter<RawMetric> _(&metrics->master.removeTombstoneTicks);
 #if TESTING
     // Asynchronous tombstone removal raises hell in unit tests.
     objectMap.forEach(recoveryCleanup, this);
@@ -670,7 +658,7 @@ MasterService::recover(uint64_t masterId,
   doneStartingInitialTasks:
 
     // As RPCs complete, process them and start more
-    Tub<CycleCounter<Metric>> readStallTicks;
+    Tub<CycleCounter<RawMetric>> readStallTicks;
 
     bool gotFirstGRD = false;
 
@@ -682,7 +670,6 @@ MasterService::recover(uint64_t masterId,
     while (activeRequests) {
         if (!readStallTicks)
             readStallTicks.construct(&metrics->master.segmentReadStallTicks);
-        metrics->master.taskIterations++;
         this->backup.proceed();
         uint64_t currentTime = Cycles::rdtsc();
         foreach (auto& task, tasks) {
@@ -806,7 +793,7 @@ MasterService::recover(uint64_t masterId,
     detectSegmentRecoveryFailure(masterId, partitionId, backups);
 
     {
-        CycleCounter<Metric> logSyncTicks(&metrics->master.logSyncTicks);
+        CycleCounter<RawMetric> logSyncTicks(&metrics->master.logSyncTicks);
         LOG(NOTICE, "Syncing the log");
         metrics->master.logSyncBytes =
             0 - metrics->transport.transmit.byteCount;
@@ -836,9 +823,8 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
 {
 
     {
-        CycleCounter<Metric> recoveryTicks(&metrics->master.recoveryTicks);
-        metrics->start(*serverId);
-        metrics->hasMaster = 1;
+        CycleCounter<RawMetric> recoveryTicks(&metrics->master.recoveryTicks);
+        metrics->master.recoveryCount++;
         metrics->master.replicas = backup.replicas;
 
         uint64_t masterId = reqHdr.masterId;
@@ -889,13 +875,12 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
         // TODO(ongaro): don't need to calculate a new will here
         ProtoBuf::Tablets recoveryWill;
         {
-            CycleCounter<Metric> _(&metrics->master.recoveryWillTicks);
+            CycleCounter<RawMetric> _(&metrics->master.recoveryWillTicks);
             Will will(tablets, maxBytesPerPartition, maxReferentsPerPartition);
             will.serialize(recoveryWill);
         }
 
         {
-            CycleCounter<Metric> _(&metrics->master.tabletsRecoveredTicks);
             coordinator->tabletsRecovered(*serverId, recoveryTablets,
                                           recoveryWill);
         }
@@ -903,7 +888,6 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
 
         // TODO(stutsman) update local copy of the will
     }
-    metrics->end();
 }
 
 /**
@@ -963,7 +947,7 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
 {
     uint64_t startBackupTicks = metrics->master.backupManagerTicks;
     LOG(DEBUG, "recoverSegment %lu, ...", segmentId);
-    CycleCounter<Metric> _(&metrics->master.recoverSegmentTicks);
+    CycleCounter<RawMetric> _(&metrics->master.recoverSegmentTicks);
 
     RecoverySegmentIterator i(buffer, bufferLength);
     RecoverySegmentIterator prefetch(buffer, bufferLength);
@@ -1038,7 +1022,7 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
             uint64_t tblId = recoverTomb->id.tableId;
 
             bool checksumIsValid = ({
-                CycleCounter<Metric> c(&metrics->master.verifyChecksumTicks);
+                CycleCounter<RawMetric> c(&metrics->master.verifyChecksumTicks);
                 i.isChecksumValid();
             });
             if (!checksumIsValid) {
@@ -1242,7 +1226,6 @@ MasterService::write(const WriteRpc::Request& reqHdr,
                     WriteRpc::Response& respHdr,
                     Rpc& rpc)
 {
-    CycleCounter<uint64_t> timeThis;
     Status status = storeData(reqHdr.tableId, reqHdr.id, &reqHdr.rejectRules,
                               &rpc.requestPayload, sizeof(reqHdr),
                               static_cast<uint32_t>(reqHdr.length),
@@ -1251,8 +1234,6 @@ MasterService::write(const WriteRpc::Request& reqHdr,
         respHdr.common.status = status;
         return;
     }
-    serverStats.totalWriteRequests++;
-    serverStats.totalWriteNanos += Cycles::toNanoseconds(timeThis.stop());
 }
 
 /**

@@ -23,7 +23,7 @@
 #include "Common.h"
 #include "CycleCounter.h"
 #include "Log.h"
-#include "Metrics.h"
+#include "RawMetrics.h"
 #include "ProtoBuf.h"
 #include "ServerList.pb.h"
 #include "Tablets.pb.h"
@@ -131,7 +131,7 @@ class Recovery : public BaseRecovery {
         LogDigest logDigest;
     };
 
-    CycleCounter<Metric> recoveryTicks;
+    CycleCounter<RawMetric> recoveryTicks;
 
     /**
      * A mapping of segmentIds to backup host service locators.

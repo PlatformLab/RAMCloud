@@ -84,7 +84,7 @@
 
 #include "Common.h"
 #include "CycleCounter.h"
-#include "Metrics.h"
+#include "RawMetrics.h"
 #include "TimeCounter.h"
 #include "Transport.h"
 #include "InfRcTransport.h"
@@ -628,7 +628,6 @@ template<typename Infiniband>
 typename Infiniband::BufferDescriptor*
 InfRcTransport<Infiniband>::getTransmitBuffer()
 {
-    CycleCounter<uint64_t> timeThis;
     // if we've drained our free tx buffer pool, we must wait.
     while (freeTxBuffers.empty()) {
         reapTxBuffers();
@@ -636,8 +635,6 @@ InfRcTransport<Infiniband>::getTransmitBuffer()
 
     BufferDescriptor* bd = freeTxBuffers.back();
     freeTxBuffers.pop_back();
-
-    serverStats.infrcGetTxBufferNanos += timeThis.stop();
 
     if (!transmitCycleCounter) {
         transmitCycleCounter.construct();
@@ -658,21 +655,9 @@ int
 InfRcTransport<Infiniband>::reapTxBuffers()
 {
     ibv_wc retArray[MAX_TX_QUEUE_DEPTH];
-    CycleCounter<uint64_t> timeThis;
     int n = infiniband->pollCompletionQueue(commonTxCq,
                                             MAX_TX_QUEUE_DEPTH,
                                             retArray);
-    uint64_t gtbPollNanos = Cycles::toNanoseconds(timeThis.stop());
-    serverStats.gtbPollNanos += gtbPollNanos;
-    serverStats.gtbPollCount++;
-
-    if (0 >= n) {
-         serverStats.gtbPollZeroNCount++;
-         serverStats.gtbPollZeroNanos += gtbPollNanos;
-    } else {
-         serverStats.gtbPollNonZeroNAvg += n;
-         serverStats.gtbPollNonZeroNanos += gtbPollNanos;
-    }
 
     for (int i = 0; i < n; i++) {
         BufferDescriptor* bd =
@@ -752,8 +737,7 @@ template<typename Infiniband>
 void
 InfRcTransport<Infiniband>::ServerRpc::sendReply()
 {
-    CycleCounter<uint64_t> timeThis1;
-    CycleCounter<Metric> _(&metrics->transport.transmit.ticks);
+    CycleCounter<RawMetric> _(&metrics->transport.transmit.ticks);
     ++metrics->transport.transmit.messageCount;
     ++metrics->transport.transmit.packetCount;
 
@@ -771,17 +755,16 @@ InfRcTransport<Infiniband>::ServerRpc::sendReply()
     }
 
     BufferDescriptor* bd = t->getTransmitBuffer();
-    serverStats.infrcGetTxCount++;
     new(&replyPayload, PREPEND) Header(nonce);
     {
-        CycleCounter<Metric> copyTicks(&metrics->transport.transmit.copyTicks);
+        CycleCounter<RawMetric> copyTicks(
+            &metrics->transport.transmit.copyTicks);
         replyPayload.copy(0, replyPayload.getTotalLength(), bd->buffer);
     }
     metrics->transport.transmit.iovecCount += replyPayload.getNumberChunks();
     metrics->transport.transmit.byteCount += replyPayload.getTotalLength();
     t->infiniband->postSend(qp, bd, replyPayload.getTotalLength());
     replyPayload.truncateFront(sizeof(Header)); // for politeness
-    serverStats.infrcSendReplyNanos += Cycles::toNanoseconds(timeThis1.stop());
 }
 
 //-------------------------------------
@@ -840,7 +823,7 @@ InfRcTransport<Infiniband>::ClientRpc::tryZeroCopy(Buffer* request)
 //LOG(NOTICE, "ZERO COPYING WRITE FROM LOG: total: %u bytes, hdr: %lu bytes, 0copy: %u bytes\n", request->getTotalLength(), hdrBytes, it.getLength()); //NOLINT 
             BufferDescriptor* bd = t->getTransmitBuffer();
             {
-                CycleCounter<Metric>
+                CycleCounter<RawMetric>
                     copyTicks(&metrics->transport.transmit.copyTicks);
                 request->copy(0, hdrBytes, bd->buffer);
             }
@@ -872,7 +855,7 @@ InfRcTransport<Infiniband>::ClientRpc::sendOrQueue()
             t->clientRpcsActiveTime.construct(
                 &metrics->transport.clientRpcsActiveTicks);
         }
-        CycleCounter<Metric> _(&metrics->transport.transmit.ticks);
+        CycleCounter<RawMetric> _(&metrics->transport.transmit.ticks);
         ++metrics->transport.transmit.messageCount;
         ++metrics->transport.transmit.packetCount;
         new(request, PREPEND) Header(nonce);
@@ -880,7 +863,7 @@ InfRcTransport<Infiniband>::ClientRpc::sendOrQueue()
         if (!tryZeroCopy(request)) {
             BufferDescriptor* bd = t->getTransmitBuffer();
             {
-                CycleCounter<Metric>
+                CycleCounter<RawMetric>
                     copyTicks(&metrics->transport.transmit.copyTicks);
                 request->copy(0, request->getTotalLength(), bd->buffer);
             }
@@ -930,7 +913,7 @@ InfRcTransport<Infiniband>::Poller::poll()
     // First check for responses to requests that we have made.
     if (!t->outstandingRpcs.empty()) {
         while (t->infiniband->pollCompletionQueue(t->clientRxCq, 1, &wc) > 0) {
-            CycleCounter<Metric> receiveTicks;
+            CycleCounter<RawMetric> receiveTicks;
             BufferDescriptor *bd =
                         reinterpret_cast<BufferDescriptor *>(wc.wr_id);
             if (wc.status != IBV_WC_SUCCESS) {
@@ -982,7 +965,7 @@ InfRcTransport<Infiniband>::Poller::poll()
 
     // Next, check for incoming RPC requests (assuming that we are a server).
     if (t->serverSetupSocket >= 0) {
-        CycleCounter<Metric> receiveTicks;
+        CycleCounter<RawMetric> receiveTicks;
         if (t->infiniband->pollCompletionQueue(t->serverRxCq, 1, &wc) >= 1) {
             if (t->queuePairMap.find(wc.qp_num) == t->queuePairMap.end()) {
                 LOG(ERROR, "failed to find qp_num in map");

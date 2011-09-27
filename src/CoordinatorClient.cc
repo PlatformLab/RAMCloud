@@ -43,7 +43,7 @@ CoordinatorClient::createTable(const char* name)
             return;
         } catch (const RetryException& e) {
             LOG(DEBUG, "RETRY trying to create table");
-            yield();
+            usleep(500);
         }
     }
 }
@@ -144,7 +144,7 @@ CoordinatorClient::enlistServer(ServerType serverType,
                 "TransportException trying to talk to coordinator: %s",
                 e.str().c_str());
             LOG(NOTICE, "retrying");
-            yield();
+            usleep(500);
         }
     }
 }

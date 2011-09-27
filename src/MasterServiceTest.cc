@@ -23,9 +23,10 @@
 #include "ClientException.h"
 #include "CoordinatorClient.h"
 #include "CoordinatorService.h"
-#include "ShortMacros.h"
+#include "Memory.h"
 #include "MasterClient.h"
 #include "MasterService.h"
+#include "ShortMacros.h"
 #include "TransportManager.h"
 
 namespace RAMCloud {
@@ -94,16 +95,18 @@ class MasterServiceTest : public ::testing::Test {
         transport = new BindTransport();
         Context::get().transportManager->registerMock(transport);
         coordinatorService = new CoordinatorService();
-        transport->addService(*coordinatorService, "mock:host=coordinator");
+        transport->addService(*coordinatorService, "mock:host=coordinator",
+                COORDINATOR_SERVICE);
         coordinator = new CoordinatorClient("mock:host=coordinator");
 
         storage = new InMemoryStorage(segmentSize, segmentFrames);
         backupService = new BackupService(backupConfig, *storage);
-        transport->addService(*backupService, "mock:host=backup1");
+        transport->addService(*backupService, "mock:host=backup1",
+                BACKUP_SERVICE);
         backupService->init();
 
         service = new MasterService(config, coordinator, 1);
-        transport->addService(*service, "mock:host=master");
+        transport->addService(*service, "mock:host=master", MASTER_SERVICE);
         service->init();
         client = new MasterClient(Context::get().transportManager->getSession(
                                         "mock:host=master"));
@@ -367,7 +370,8 @@ TEST_F(MasterServiceTest, detectSegmentRecoveryFailure_failure) {
 }
 
 TEST_F(MasterServiceTest, recover_basics) {
-    char* segMem = static_cast<char*>(xmemalign(segmentSize, segmentSize));
+    char* segMem = static_cast<char*>(Memory::xmemalign(HERE, segmentSize,
+                                                        segmentSize));
     Tub<uint64_t> serverId;
     serverId.construct(123);
     BackupManager mgr(coordinator, serverId, 1);
@@ -447,7 +451,8 @@ TEST_F(MasterServiceTest, recover_basics) {
   *    during initial RPC starts and following ones.
   */
 TEST_F(MasterServiceTest, recover) {
-    char* segMem = static_cast<char*>(xmemalign(segmentSize, segmentSize));
+    char* segMem = static_cast<char*>(Memory::xmemalign(HERE, segmentSize,
+                                                        segmentSize));
     Tub<uint64_t> serverId;
     serverId.construct(123);
     BackupManager mgr(coordinator, serverId, 1);
@@ -458,7 +463,8 @@ TEST_F(MasterServiceTest, recover) {
     BackupService::Config backupConfig2 = backupConfig;
     backupConfig2.localLocator = "mock:host=backup2";
     BackupService backupService2{backupConfig2, *storage};
-    transport->addService(backupService2, "mock:host=backup2");
+    transport->addService(backupService2, "mock:host=backup2",
+            BACKUP_SERVICE);
     backupService2.init();
 
     ProtoBuf::Tablets tablets;
@@ -569,7 +575,7 @@ TEST_F(MasterServiceTest, recover) {
 
 TEST_F(MasterServiceTest, recoverSegment) {
     uint32_t segLen = 8192;
-    char* seg = static_cast<char*>(xmemalign(segLen, segLen));
+    char* seg = static_cast<char*>(Memory::xmemalign(HERE, segLen, segLen));
     uint32_t len; // number of bytes in a recovery segment
     Buffer value;
     bool ret;
@@ -983,7 +989,8 @@ class MasterRecoverTest : public ::testing::Test {
         config2->localLocator = "mock:host=backup2";
 
         coordinatorService = new CoordinatorService;
-        transport->addService(*coordinatorService, config1->coordinatorLocator);
+        transport->addService(*coordinatorService,
+                config1->coordinatorLocator, COORDINATOR_SERVICE);
 
         coordinator =
             new CoordinatorClient(config1->coordinatorLocator.c_str());
@@ -994,8 +1001,10 @@ class MasterRecoverTest : public ::testing::Test {
         backupService1 = new BackupService(*config1, *storage1);
         backupService2 = new BackupService(*config2, *storage2);
 
-        transport->addService(*backupService1, "mock:host=backup1");
-        transport->addService(*backupService2, "mock:host=backup2");
+        transport->addService(*backupService1, "mock:host=backup1",
+                BACKUP_SERVICE);
+        transport->addService(*backupService2, "mock:host=backup2",
+                BACKUP_SERVICE);
 
         backupService1->init();
         backupService2->init();
@@ -1063,13 +1072,15 @@ TEST_F(MasterRecoverTest, recover) {
 
     // Give them a name so that freeSegment doesn't get called on
     // destructor until after the test.
-    char* segMem1 = static_cast<char*>(xmemalign(segmentSize, segmentSize));
+    char* segMem1 = static_cast<char*>(Memory::xmemalign(HERE, segmentSize,
+                                                         segmentSize));
     Tub<uint64_t> serverId;
     serverId.construct(99);
     BackupManager mgr(coordinator, serverId, 2);
     Segment s1(99, 87, segMem1, segmentSize, &mgr);
     s1.close();
-    char* segMem2 = static_cast<char*>(xmemalign(segmentSize, segmentSize));
+    char* segMem2 = static_cast<char*>(Memory::xmemalign(HERE, segmentSize,
+                                                         segmentSize));
     Segment s2(99, 88, segMem2, segmentSize, &mgr);
     s2.close();
 

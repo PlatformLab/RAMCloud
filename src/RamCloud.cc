@@ -1,5 +1,5 @@
 
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -31,7 +31,8 @@ namespace RAMCloud {
  *      Couldn't connect to the server.
  */
 RamCloud::RamCloud(const char* serviceLocator)
-    : realClientContext()
+    : coordinatorLocator(serviceLocator)
+    , realClientContext()
     , clientContext(*realClientContext.construct(false))
     , constructorContext(clientContext)
     , status(STATUS_OK)
@@ -48,7 +49,8 @@ RamCloud::RamCloud(const char* serviceLocator)
  * (which should be discouraged).
  */
 RamCloud::RamCloud(Context& context, const char* serviceLocator)
-    : realClientContext()
+    : coordinatorLocator(serviceLocator)
+    , realClientContext()
     , clientContext(context)
     , constructorContext(clientContext)
     , status(STATUS_OK)
@@ -92,6 +94,41 @@ RamCloud::create(uint32_t tableId, const void* buf, uint32_t length,
     return Create(*this, tableId, buf, length, version, async)();
 }
 
+/// \copydoc PingClient::getMetrics
+ServerMetrics
+RamCloud::getMetrics(const char* serviceLocator)
+{
+    PingClient client;
+    return client.getMetrics(serviceLocator);
+}
+
+/**
+ * Retrieve performance counters from the server that stores a given object.
+ *
+ * \param table
+ *      Identifier for a table.
+ * \param objectId
+ *      Identifier for an object within \c table; the server that manages
+ *      this object is the one whose metrics will be retrieved.
+ */
+ServerMetrics
+RamCloud::getMetrics(uint32_t table, uint64_t objectId)
+{
+    PingClient client;
+    const char *serviceLocator = objectFinder.lookup(table, objectId)->
+            getServiceLocator().c_str();
+    return client.getMetrics(serviceLocator);
+}
+
+/**
+ * Return the service locator for the coordinator for this cluster.
+ */
+string*
+RamCloud::getServiceLocator()
+{
+    return &coordinatorLocator;
+}
+
 /// \copydoc PingClient::ping
 uint64_t
 RamCloud::ping(const char* serviceLocator, uint64_t nonce,
@@ -109,7 +146,7 @@ RamCloud::ping(const char* serviceLocator, uint64_t nonce,
  * \param table
  *      Identifier for a table.
  * \param objectId
- *      Identifier for an object within \c tableId; the server that manages
+ *      Identifier for an object within \c table; the server that manages
  *      this object is the one that will be pinged.
  * \param nonce
  *      Arbitrary 64-bit value to pass to the server; the server will return

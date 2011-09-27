@@ -13,10 +13,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "Buffer.h"
-
 #include <string.h>
 #include <algorithm>
+
+#include "Buffer.h"
+#include "Memory.h"
 
 namespace RAMCloud {
 
@@ -30,7 +31,7 @@ namespace RAMCloud {
 Buffer::Allocation*
 Buffer::Allocation::newAllocation(uint32_t prependSize, uint32_t totalSize) {
     totalSize = (totalSize + 7) & ~7U;
-    void* a = xmalloc(sizeof(Allocation) + totalSize);
+    void* a = Memory::xmalloc(HERE, sizeof(Allocation) + totalSize);
     return new(a) Allocation(prependSize, totalSize);
 }
 
@@ -972,7 +973,8 @@ void*
 operator new(size_t numBytes, RAMCloud::Buffer* buffer,
              RAMCloud::CHUNK_T chunk)
 {
-    assert(numBytes >= sizeof(RAMCloud::Buffer::Chunk));
+    using namespace RAMCloud;
+    assert(numBytes >= sizeof(Buffer::Chunk));
     return buffer->allocateChunk(downCast<uint32_t>(numBytes));
 }
 
@@ -996,6 +998,7 @@ void*
 operator new(size_t numBytes, RAMCloud::Buffer* buffer,
              RAMCloud::MISC_T misc)
 {
+    using namespace RAMCloud;
     if (numBytes == 0) {
         // We want no visible effects but should return a unique pointer.
         return buffer->allocateAppend(1);

@@ -23,6 +23,7 @@
 #include "Common.h"
 #include "Cycles.h"
 #include "HashTable.h"
+#include "Memory.h"
 #include "OptionParser.h"
 
 namespace RAMCloud {
@@ -42,7 +43,7 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
     uint64_t i;
     TestObjectMap ht(nlines);
     TestObject **values = static_cast<TestObject**>(
-        xmalloc(nkeys * sizeof(values[0])));
+        Memory::xmalloc(HERE, nkeys * sizeof(values[0])));
 
     printf("hash table keys: %lu\n", nkeys);
     printf("hash table lines: %lu\n", nlines);
@@ -132,7 +133,7 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
            Cycles::toNanoseconds(pc.lookupEntryDist.max));
 
     uint64_t *histogram = static_cast<uint64_t *>(
-        xmalloc(nlines * sizeof(histogram[0])));
+        Memory::xmalloc(HERE, nlines * sizeof(histogram[0])));
     memset(histogram, 0, sizeof(nlines * sizeof(histogram[0])));
 
     for (i = 0; i < nlines; i++) {

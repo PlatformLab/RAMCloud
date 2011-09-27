@@ -21,6 +21,7 @@
 #include "Client.h"
 #include "Common.h"
 #include "CoordinatorClient.h"
+#include "Memory.h"
 #include "Object.h"
 #include "ProtoBuf.h"
 #include "ServerList.pb.h"
@@ -93,7 +94,7 @@ class BackupClient : public Client {
                 this->primarySegmentCount = primarySegmentCount;
 
                 if (logDigestPtr != NULL) {
-                    logDigestBuffer = xmalloc(logDigestBytes);
+                    logDigestBuffer = Memory::xmalloc(HERE, logDigestBytes);
                     memcpy(const_cast<void*>(logDigestBuffer), logDigestPtr,
                         logDigestBytes);
                     this->logDigestBytes = logDigestBytes;

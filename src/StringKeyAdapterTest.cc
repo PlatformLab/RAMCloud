@@ -23,6 +23,7 @@
 #include "MasterClient.h"
 #include "MasterService.h"
 #include "StringKeyAdapter.h"
+#include "TransportManager.h"
 
 namespace RAMCloud {
 
@@ -30,6 +31,7 @@ class StringKeyAdapterTest : public ::testing::Test {
   public:
     StringKeyAdapterTest()
         : transport()
+        , mockRegistrar(transport)
         , config()
         , coordinatorService()
         , coordinator()
@@ -39,16 +41,17 @@ class StringKeyAdapterTest : public ::testing::Test {
         , sk()
         , table()
     {
-        Context::get().transportManager->registerMock(&transport);
         coordinatorService.construct();
-        transport.addService(*coordinatorService, "mock:host=coordinator");
+        transport.addService(*coordinatorService, "mock:host=coordinator",
+                COORDINATOR_SERVICE);
         coordinator.construct("mock:host=coordinator");
 
         MasterService::sizeLogAndHashTable("32", "1", &config);
         config.localLocator = "mock:host=master";
         config.coordinatorLocator = "mock:host=coordinator";
         masterService.construct(config, coordinator.get(), 0);
-        transport.addService(*masterService, "mock:host=master");
+        transport.addService(*masterService, "mock:host=master",
+                MASTER_SERVICE);
         masterService->init();
         master.construct(Context::get().transportManager->getSession(
                                                         "mock:host=master"));
@@ -66,12 +69,8 @@ class StringKeyAdapterTest : public ::testing::Test {
         table = client->openTable("StringKeyAdapterTest");
     }
 
-    ~StringKeyAdapterTest()
-    {
-        Context::get().transportManager->unregisterMock();
-    }
-
     BindTransport transport;
+    TransportManager::MockRegistrar mockRegistrar;
     ServerConfig config;
     Tub<CoordinatorService> coordinatorService;
     Tub<CoordinatorClient> coordinator;

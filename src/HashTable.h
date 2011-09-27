@@ -20,6 +20,7 @@
 #include "BitOps.h"
 #include "CycleCounter.h"
 #include "LargeBlockOfMemory.h"
+#include "Memory.h"
 
 namespace RAMCloud {
 
@@ -377,7 +378,8 @@ class HashTable {
             cl = last.getChainPointer();
             if (cl == NULL) {
                 // no empty space found, allocate a new cache line
-                void *buf = xmemalign(sizeof(CacheLine), sizeof(CacheLine));
+                void *buf = Memory::xmemalign(HERE, sizeof(CacheLine),
+                                              sizeof(CacheLine));
                 cl = static_cast<CacheLine *>(buf);
                 cl->entries[0] = last;
                 for (i = 1; i < ENTRIES_PER_CACHE_LINE; i++)

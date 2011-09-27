@@ -39,6 +39,7 @@
 #include "Cycles.h"
 #include "Dispatch.h"
 #include "Fence.h"
+#include "Memory.h"
 #include "Object.h"
 #include "ObjectPool.h"
 #include "Segment.h"
@@ -466,7 +467,8 @@ struct SegmentEntryLessThan {
 // populate a vector with their entries, and sort it by age.
 double segmentEntrySort()
 {
-    void *block = xmemalign(Segment::SEGMENT_SIZE, Segment::SEGMENT_SIZE);
+    void *block = Memory::xmemalign(HERE, Segment::SEGMENT_SIZE,
+                                    Segment::SEGMENT_SIZE);
     Segment s(0, 0, block, Segment::SEGMENT_SIZE, NULL);
     const int avgObjectSize = 100;
 
@@ -513,7 +515,8 @@ double segmentIterator()
     Segment *segment;
 
     // build a segment
-    void *p = xmemalign(Segment::SEGMENT_SIZE, Segment::SEGMENT_SIZE);
+    void *p = Memory::xmemalign(HERE,
+        Segment::SEGMENT_SIZE, Segment::SEGMENT_SIZE);
     segment = new Segment(0, 0, p, Segment::SEGMENT_SIZE, NULL);
     while (1) {
         uint32_t size = minObjectBytes;

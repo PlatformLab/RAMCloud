@@ -197,8 +197,8 @@ Recovery::Recovery(uint64_t masterId,
     , will(will)
     , tasks(new Tub<BackupStartTask>[backupHosts.server_size()])
 {
-    CycleCounter<Metric> _(&metrics->coordinator.recoveryConstructorTicks);
-    metrics->start(0);
+    CycleCounter<RawMetric> _(&metrics->coordinator.recoveryConstructorTicks);
+    metrics->coordinator.recoveryCount++;
     buildSegmentIdToBackups();
 }
 
@@ -206,7 +206,6 @@ Recovery::~Recovery()
 {
     delete[] tasks;
     recoveryTicks.stop();
-    metrics->end();
 }
 
 bool
@@ -432,7 +431,7 @@ Recovery::buildSegmentIdToBackups()
 void
 Recovery::start()
 {
-    CycleCounter<Metric> _(&metrics->coordinator.recoveryStartTicks);
+    CycleCounter<RawMetric> _(&metrics->coordinator.recoveryStartTicks);
 
     // Pre-serialize the backup schedule, since this takes a while and is the
     // same for each master.
@@ -472,7 +471,7 @@ Recovery::tabletsRecovered(const ProtoBuf::Tablets& tablets)
     if (tabletsUnderRecovery != 0)
         return false;
 
-    CycleCounter<Metric> ticks(&metrics->coordinator.recoveryCompleteTicks);
+    CycleCounter<RawMetric> ticks(&metrics->coordinator.recoveryCompleteTicks);
     // broadcast to backups that recovery is done
     uint32_t numBackups = static_cast<uint32_t>(backupHosts.server_size());
     Tub<BackupEndTask> tasks[numBackups];

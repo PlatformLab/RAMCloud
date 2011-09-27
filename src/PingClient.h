@@ -17,6 +17,7 @@
 #define RAMCLOUD_PINGCLIENT_H
 
 #include "Client.h"
+#include "ServerMetrics.h"
 #include "Transport.h"
 
 namespace RAMCloud {
@@ -27,12 +28,13 @@ namespace RAMCloud {
 class PingClient : public Client {
   public:
     PingClient() {}
+    ServerMetrics getMetrics(const char* serviceLocator);
     uint64_t ping(const char* serviceLocator, uint64_t nonce,
-                  uint64_t timeoutNanoseconds);
+            uint64_t timeoutNanoseconds);
     uint64_t proxyPing(const char* serviceLocator1,
-                       const char* serviceLocator2,
-                       uint64_t timeoutNanoseconds1,
-                       uint64_t timeoutNanoseconds2);
+            const char* serviceLocator2,
+            uint64_t timeoutNanoseconds1,
+            uint64_t timeoutNanoseconds2);
 
   private:
     DISALLOW_COPY_AND_ASSIGN(PingClient);

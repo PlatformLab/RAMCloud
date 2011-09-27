@@ -203,9 +203,9 @@ class LogCleaner {
      * Various counters to measure performance of the cleaner. This mostly
      * consists of ticks spent in various bits of code.
      *
-     * XXX- This should be part of Metrics someday, but the difference
+     * XXX- This should be part of RawMetrics someday, but the difference
      * (operator-) functionality is very useful and we don't yet snapshot
-     * Metrics (wiping the old data when a recovery starts is a bummer).
+     * RawMetrics.
      */
     class PerfCounters {
       public:

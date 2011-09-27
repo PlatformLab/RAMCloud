@@ -22,6 +22,33 @@
 namespace RAMCloud {
 
 /**
+ * Retrieve performance counters from a given server.
+ *
+ * \param serviceLocator
+ *      Identifies the server whose metrics should be retrieved.
+ *
+ * \return
+ *       The performance metrics retrieved from \c serviceLocator.
+ */
+ServerMetrics
+PingClient::getMetrics(const char* serviceLocator)
+{
+    // Fill in the request.
+    Buffer req, resp;
+    allocHeader<GetMetricsRpc>(req);
+    Transport::SessionRef session =
+            Context::get().transportManager->getSession(serviceLocator);
+    const GetMetricsRpc::Response& respHdr(
+            sendRecv<GetMetricsRpc>(session, req, resp));
+    checkStatus(HERE);
+    resp.truncateFront(sizeof(respHdr));
+    assert(respHdr.messageLength == resp.getTotalLength());
+    ServerMetrics metrics;
+    metrics.load(resp);
+    return metrics;
+}
+
+/**
  * Issues a trivial RPC to test that a server exists and is responsive.
  *
  * \param serviceLocator

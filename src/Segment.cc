@@ -21,7 +21,7 @@
 
 #include "Crc32C.h"
 #include "CycleCounter.h"
-#include "Metrics.h"
+#include "RawMetrics.h"
 #include "Segment.h"
 #include "SegmentIterator.h"
 #include "ShortMacros.h"
@@ -234,7 +234,7 @@ Segment::append(SegmentEntryHandle handle, bool sync)
 SegmentEntryHandleVector
 Segment::multiAppend(SegmentMultiAppendVector& appends, bool sync)
 {
-    CycleCounter<Metric> _(&metrics->master.segmentAppendTicks);
+    CycleCounter<RawMetric> _(&metrics->master.segmentAppendTicks);
     boost::lock_guard<SpinLock> lock(mutex);
     SegmentEntryHandleVector handles;
 
@@ -558,7 +558,7 @@ SegmentEntryHandle
 Segment::locklessAppend(LogEntryType type, const void *buffer, uint32_t length,
     bool sync, Tub<SegmentChecksum::ResultType> expectedChecksum)
 {
-    CycleCounter<Metric> _(&metrics->master.segmentAppendTicks);
+    CycleCounter<RawMetric> _(&metrics->master.segmentAppendTicks);
 
     if (closed || type == LOG_ENTRY_TYPE_SEGFOOTER ||
       !locklessCanAppendEntries(1, length))
@@ -762,7 +762,7 @@ Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
     SegmentEntry entry(type, length);
 
     if (updateChecksum) {
-        CycleCounter<Metric> _(&metrics->master.segmentAppendChecksumTicks);
+        CycleCounter<RawMetric> _(&metrics->master.segmentAppendChecksumTicks);
         SegmentChecksum entryChecksum;
         entryChecksum.update(&entry, sizeof(entry));
         entryChecksum.update(buffer, length);
@@ -799,7 +799,7 @@ Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
 
     const void* entryPointer;
     {
-        CycleCounter<Metric> _(&metrics->master.segmentAppendCopyTicks);
+        CycleCounter<RawMetric> _(&metrics->master.segmentAppendCopyTicks);
         entryPointer = forceAppendBlob(&entry, sizeof(entry));
         forceAppendBlob(buffer, length);
     }

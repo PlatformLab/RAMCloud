@@ -20,9 +20,7 @@ BUILDLOG=$LOGDIR/nightly-build-$DATE.log
 rm -rf $BUILDDIR
 git clone $REPO $BUILDDIR
 pushd $BUILDDIR
-make obj.master/server > $BUILDLOG 2>&1 
-make obj.master/Bench > $BUILDLOG 2>&1 
-$TOP/scripts/run-bench >> $LOG
+make obj.master/server > $BUILDLOG 2>&1
 popd
 rm -rf $BUILDDIR
 

@@ -15,7 +15,6 @@
 
 #include "Context.h"
 #include "Dispatch.h"
-#include "Logging.h"
 #include "ServiceManager.h"
 #include "ShortMacros.h"
 #include "TransportManager.h"

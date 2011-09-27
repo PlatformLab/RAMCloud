@@ -42,7 +42,9 @@ enum RpcServiceType {
 /**
  * This enum defines the choices for the "opcode" field in RPC
  * headers, which selects a particular operation to perform.  Each
- * RAMCloud service implements a subset of these operations 
+ * RAMCloud service implements a subset of these operations.  Note:
+ * changes to this table should also be reflected in the definition
+ * of rpc in scripts/rawmetrics.py.
  */
 enum RpcOpcode {
     PING                    = 7,
@@ -65,15 +67,16 @@ enum RpcOpcode {
     REREPLICATE_SEGMENTS    = 24,
     FILL_WITH_TEST_DATA     = 25,
     MULTI_READ              = 26,
-    BACKUP_CLOSE            = 128,
-    BACKUP_FREE             = 129,
-    BACKUP_GETRECOVERYDATA  = 130,
-    BACKUP_OPEN             = 131,
-    BACKUP_STARTREADINGDATA = 132,
-    BACKUP_WRITE            = 133,
-    BACKUP_RECOVERYCOMPLETE = 134,
-    BACKUP_QUIESCE          = 135,
-    ILLEGAL_RPC_TYPE        = 136,  // 1 + the highest legitimate RpcOpcode
+    GET_METRICS             = 27,
+    BACKUP_CLOSE            = 28,
+    BACKUP_FREE             = 29,
+    BACKUP_GETRECOVERYDATA  = 30,
+    BACKUP_OPEN             = 31,
+    BACKUP_STARTREADINGDATA = 32,
+    BACKUP_WRITE            = 33,
+    BACKUP_RECOVERYCOMPLETE = 34,
+    BACKUP_QUIESCE          = 35,
+    ILLEGAL_RPC_TYPE        = 36,  // 1 + the highest legitimate RpcOpcode
 };
 
 /**
@@ -107,6 +110,8 @@ struct RpcResponseCommon {
 // Fields with names such as "pad1" are included to make padding
 // explicit (removing these fields has no effect on the layout of
 // the records).
+
+// Master RPCs follow, see MasterService.cc
 
 struct CreateRpc {
     static const RpcOpcode opcode = CREATE;
@@ -161,43 +166,6 @@ struct MultiReadRpc {
         // In buffer: Status, SegmentEntry and Object go here
         // Object has variable number of bytes (depending on data size.)
         // In case of an error, only Status goes here
-    };
-};
-
-struct PingRpc {
-    static const RpcOpcode opcode = RpcOpcode::PING;
-    static const RpcServiceType service = PING_SERVICE;
-    struct Request {
-        RpcRequestCommon common;
-        uint64_t nonce;             // The nonce may be used to identify
-                                    // replies to previously transmitted
-                                    // pings.
-    };
-    struct Response {
-        RpcResponseCommon common;
-        uint64_t nonce;             // This should be identical to what was
-                                    // sent in the request being answered.
-    };
-};
-
-struct ProxyPingRpc {
-    static const RpcOpcode opcode = PROXY_PING;
-    static const RpcServiceType service = PING_SERVICE;
-    struct Request {
-        RpcRequestCommon common;
-        uint64_t timeoutNanoseconds;   // Number of nanoseconds to wait for a
-                                       // reply before responding negatively to
-                                       // this RPC.
-        uint32_t serviceLocatorLength; // Number of bytes in the serviceLocator,
-                                       // including terminating NULL character.
-                                       // The bytes of the service locator
-                                       // follow immediately after this header.
-    };
-    struct Response {
-        RpcResponseCommon common;
-        uint64_t replyNanoseconds;     // Number of nanoseconds it took to get
-                                       // the reply. If a timeout occurred, the
-                                       // value is -1.
     };
 };
 
@@ -305,7 +273,7 @@ struct WriteRpc {
     };
 };
 
-// Coordinator RPCs follow, see Coordinator.cc
+// Coordinator RPCs follow, see CoordinatorService.cc
 
 struct CreateTableRpc {
     static const RpcOpcode opcode = CREATE_TABLE;
@@ -461,7 +429,7 @@ struct SetWillRpc {
     };
 };
 
-// -- Backup RPCs ---
+// Backup RPCs follow, see BackupService.cc
 
 struct BackupFreeRpc {
     static const RpcOpcode opcode = BACKUP_FREE;
@@ -519,20 +487,24 @@ struct BackupStartReadingDataRpc {
     static const RpcServiceType service = BACKUP_SERVICE;
     struct Request {
         RpcRequestCommon common;
-        uint64_t masterId;      ///< Server Id from whom the request is coming.
-        uint32_t partitionsLength; // Number of bytes in the partition map.
-                                   // The bytes of the partition map follow
-                                   // immediately after this header. See
-                                   // ProtoBuf::Tablets.
+        uint64_t masterId;         ///< Server Id from whom the request is
+                                   ///< coming.
+        uint32_t partitionsLength; ///< Number of bytes in the partition map.
+                                   ///< The bytes of the partition map follow
+                                   ///< immediately after this header. See
+                                   ///< ProtoBuf::Tablets.
     };
     struct Response {
         RpcResponseCommon common;
-        uint32_t segmentIdCount;    ///< Number of segmentIds in reply payload.
-        uint32_t primarySegmentCount;   ///< Count of segmentIds which prefix
-                                        ///< the reply payload are primary.
-        uint32_t digestBytes;       ///< Number of bytes for optional LogDigest.
-        uint64_t digestSegmentId;   ///< SegmentId the LogDigest came from.
-        uint32_t digestSegmentLen;  ///< Byte length of the LogDigest Segment.
+        uint32_t segmentIdCount;       ///< Number of segmentIds in reply
+                                       ///< payload.
+        uint32_t primarySegmentCount;  ///< Count of segmentIds which prefix
+                                       ///< the reply payload are primary.
+        uint32_t digestBytes;          ///< Number of bytes for optional
+                                       ///< LogDigest.
+        uint64_t digestSegmentId;      ///< SegmentId the LogDigest came from.
+        uint32_t digestSegmentLen;     ///< Byte length of the LogDigest
+                                       ///< Segment.
         // A series of segmentIdCount uint64_t segmentIds follows.
         // If logDigestBytes != 0, then a serialised LogDigest follows
         // immediately after the last segmentId.
@@ -562,6 +534,62 @@ struct BackupWriteRpc {
     };
     struct Response {
         RpcResponseCommon common;
+    };
+};
+
+// Ping RPCs follow, see PingService.cc
+
+struct GetMetricsRpc {
+    static const RpcOpcode opcode = RpcOpcode::GET_METRICS;
+    static const RpcServiceType service = PING_SERVICE;
+    struct Request {
+        RpcRequestCommon common;
+    };
+    struct Response {
+        RpcResponseCommon common;
+        uint32_t messageLength;    // Number of bytes in a
+                                   // ProtoBuf::MetricList message that
+                                   // follows immediately after this
+                                   // header.
+        // Variable-length byte string containing ProtoBuf::MetricList
+        // follows.
+    };
+};
+
+struct PingRpc {
+    static const RpcOpcode opcode = RpcOpcode::PING;
+    static const RpcServiceType service = PING_SERVICE;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t nonce;             // The nonce may be used to identify
+                                    // replies to previously transmitted
+                                    // pings.
+    };
+    struct Response {
+        RpcResponseCommon common;
+        uint64_t nonce;             // This should be identical to what was
+                                    // sent in the request being answered.
+    };
+};
+
+struct ProxyPingRpc {
+    static const RpcOpcode opcode = PROXY_PING;
+    static const RpcServiceType service = PING_SERVICE;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t timeoutNanoseconds;   // Number of nanoseconds to wait for a
+                                       // reply before responding negatively to
+                                       // this RPC.
+        uint32_t serviceLocatorLength; // Number of bytes in the serviceLocator,
+                                       // including terminating NULL character.
+                                       // The bytes of the service locator
+                                       // follow immediately after this header.
+    };
+    struct Response {
+        RpcResponseCommon common;
+        uint64_t replyNanoseconds;     // Number of nanoseconds it took to get
+                                       // the reply. If a timeout occurred, the
+                                       // value is -1.
     };
 };
 

@@ -20,6 +20,7 @@
 #include "CoordinatorClient.h"
 #include "MasterClient.h"
 #include "ObjectFinder.h"
+#include "ServerMetrics.h"
 
 namespace RAMCloud {
 
@@ -159,6 +160,9 @@ class RamCloud {
     uint32_t openTable(const char* name);
     uint64_t create(uint32_t tableId, const void* buf, uint32_t length,
                     uint64_t* version = NULL, bool async = false);
+    string* getServiceLocator();
+    ServerMetrics getMetrics(const char* serviceLocator);
+    ServerMetrics getMetrics(uint32_t table, uint64_t objectId);
     uint64_t ping(const char* serviceLocator, uint64_t nonce,
                   uint64_t timeoutNanoseconds);
     uint64_t ping(uint32_t table, uint64_t objectId, uint64_t nonce,
@@ -178,7 +182,13 @@ class RamCloud {
                uint32_t length, const RejectRules* rejectRules = NULL,
                uint64_t* version = NULL, bool async = false);
     void write(uint32_t tableId, uint64_t id, const char* s);
+
   PRIVATE:
+    /**
+     * Service locator for the cluster coordinator.
+     */
+    string coordinatorLocator;
+
     /**
      * Usually, RamCloud objects create a new context in which to run. This is
      * the location where that context is stored.

@@ -27,11 +27,183 @@
 #include "BackupService.h"
 #include "BackupStorage.h"
 #include "BindTransport.h"
-#include "ShortMacros.h"
 #include "MasterService.h"
+#include "Memory.h"
 #include "Segment.h"
+#include "ShortMacros.h"
 
 namespace RAMCloud {
+
+struct BackupSelectorTest : public ::testing::Test {
+    typedef BackupManager::BackupSelector BackupSelector;
+    Tub<BindTransport> transport;
+    Tub<TransportManager::MockRegistrar> mockRegistrar;
+    Tub<CoordinatorService> coordinatorService;
+    Tub<CoordinatorClient> coordinator;
+    Tub<BackupSelector> selector;
+
+    BackupSelectorTest() {
+        transport.construct();
+        mockRegistrar.construct(*transport);
+
+        coordinatorService.construct();
+        transport->addService(*coordinatorService,
+                              "mock:host=coordinator", COORDINATOR_SERVICE);
+
+        coordinator.construct("mock:host=coordinator");
+        selector.construct(coordinator.get());
+    }
+
+    char lastChar(const string& s) {
+        return *(s.end() - 1);
+    }
+
+    string condenseBackups(uint32_t numBackups,
+                           BackupSelector::Backup* backups[]) {
+        string r;
+        for (uint32_t i = 0; i < numBackups; ++i) {
+            if (backups[i] == NULL)
+                r.push_back('x');
+            else
+                r.push_back(lastChar(backups[i]->service_locator()));
+        }
+        return r;
+    }
+
+    string randomRound() {
+        BackupSelector::Backup* randomBackups[] = {
+            selector->getRandomHost(),
+            selector->getRandomHost(),
+            selector->getRandomHost(),
+        };
+        return condenseBackups(3, randomBackups);
+    }
+};
+
+TEST_F(BackupSelectorTest, selectNoHosts) {
+    BackupSelector::Backup* returned[4] = {};
+
+    selector->select(0, returned);
+    EXPECT_EQ("xxxx", condenseBackups(4, returned));
+
+    selector->updateHostListThrower.tillThrow = 10;
+    EXPECT_THROW(selector->select(1, returned), TestingException);
+    EXPECT_EQ("xxxx", condenseBackups(4, returned));
+}
+
+TEST_F(BackupSelectorTest, selectAllEqual) {
+    BackupSelector::Backup* returned[4] = {};
+    MockRandom _(1); // getRandomHost will return: 2 4 6 8 5 1 3 7 9
+    coordinator->enlistServer(BACKUP, "mock:host=backup1", 100);
+    coordinator->enlistServer(BACKUP, "mock:host=backup2", 100);
+    coordinator->enlistServer(BACKUP, "mock:host=backup3", 100);
+    coordinator->enlistServer(BACKUP, "mock:host=backup4", 100);
+    coordinator->enlistServer(BACKUP, "mock:host=backup5", 100);
+    coordinator->enlistServer(BACKUP, "mock:host=backup6", 100);
+    coordinator->enlistServer(BACKUP, "mock:host=backup7", 100);
+    coordinator->enlistServer(BACKUP, "mock:host=backup8", 100);
+    coordinator->enlistServer(BACKUP, "mock:host=backup9", 100);
+    selector->select(3, returned);
+    EXPECT_EQ("213x", condenseBackups(4, returned));
+}
+
+TEST_F(BackupSelectorTest, selectDifferentSpeeds) {
+    BackupSelector::Backup* returned[4] = {};
+    MockRandom _(1); // getRandomHost will return: 2 4 6 8 5 1 3 7 9
+    coordinator->enlistServer(BACKUP, "mock:host=backup1", 10);
+    coordinator->enlistServer(BACKUP, "mock:host=backup2", 20);
+    coordinator->enlistServer(BACKUP, "mock:host=backup3", 30);
+    coordinator->enlistServer(BACKUP, "mock:host=backup4", 40);
+    coordinator->enlistServer(BACKUP, "mock:host=backup5", 50);
+    coordinator->enlistServer(BACKUP, "mock:host=backup6", 60);
+    coordinator->enlistServer(BACKUP, "mock:host=backup7", 70);
+    coordinator->enlistServer(BACKUP, "mock:host=backup8", 80);
+    coordinator->enlistServer(BACKUP, "mock:host=backup9", 90);
+    selector->select(3, returned);
+    EXPECT_EQ("813x", condenseBackups(4, returned));
+}
+
+TEST_F(BackupSelectorTest, selectEvenPrimaryPlacement) {
+    coordinator->enlistServer(BACKUP, "mock:host=backup1", 100);
+    coordinator->enlistServer(BACKUP, "mock:host=backup2", 100);
+    coordinator->enlistServer(BACKUP, "mock:host=backup3", 100);
+    coordinator->enlistServer(BACKUP, "mock:host=backup4", 100);
+    coordinator->enlistServer(BACKUP, "mock:host=backup5", 100);
+    coordinator->enlistServer(BACKUP, "mock:host=backup6", 100);
+    coordinator->enlistServer(BACKUP, "mock:host=backup7", 100);
+    coordinator->enlistServer(BACKUP, "mock:host=backup8", 100);
+    coordinator->enlistServer(BACKUP, "mock:host=backup9", 100);
+    uint32_t primaryCounts[9] = {};
+    for (uint32_t i = 0; i < 900; ++i) {
+        BackupSelector::Backup* primary;
+        selector->select(1, &primary);
+        ++primaryCounts[lastChar(primary->service_locator()) - '1'];
+    }
+    EXPECT_LT(*std::max_element(primaryCounts, primaryCounts + 9) -
+              *std::min_element(primaryCounts, primaryCounts + 9),
+              5U); // range < 5 won't fail often
+}
+
+TEST_F(BackupSelectorTest, selectAdditional) {
+    selector->updateHostListThrower.tillThrow = 10;
+    EXPECT_THROW(selector->selectAdditional(0, NULL), TestingException);
+
+    coordinator->enlistServer(BACKUP, "mock:host=backup1");
+    selector->updateHostListFromCoordinator();
+    EXPECT_EQ(selector->hosts.mutable_server(0),
+              selector->selectAdditional(0, NULL));
+
+    BackupSelector::Backup* conflicts[] =
+        { selector->hosts.mutable_server(0) };
+    selector->updateHostListThrower.tillThrow = 10;
+    EXPECT_THROW(selector->selectAdditional(1, conflicts), TestingException);
+}
+
+
+TEST_F(BackupSelectorTest, getRandomHost) {
+    coordinator->enlistServer(BACKUP, "mock:host=backup1");
+    coordinator->enlistServer(BACKUP, "mock:host=backup2");
+    coordinator->enlistServer(BACKUP, "mock:host=backup3");
+    selector->updateHostListFromCoordinator();
+    MockRandom _(1);
+    EXPECT_EQ("213", randomRound());
+    EXPECT_EQ("132", randomRound());
+    EXPECT_EQ("312", randomRound());
+}
+
+TEST_F(BackupSelectorTest, conflict) {
+    BackupSelector::Backup x, y;
+    EXPECT_FALSE(selector->conflict(&x, &y));
+    EXPECT_TRUE(selector->conflict(&x, &x));
+}
+
+TEST_F(BackupSelectorTest, conflictWithAny) {
+    BackupSelector::Backup w, x, y, z;
+    BackupSelector::Backup* existing[] = { &x, &y , &z };
+    EXPECT_FALSE(selector->conflictWithAny(&w, 0, NULL));
+    EXPECT_FALSE(selector->conflictWithAny(&w, 3, existing));
+    EXPECT_TRUE(selector->conflictWithAny(&x, 3, existing));
+    EXPECT_TRUE(selector->conflictWithAny(&y, 3, existing));
+    EXPECT_TRUE(selector->conflictWithAny(&z, 3, existing));
+}
+
+TEST_F(BackupSelectorTest, updateHostListFromCoordinator) {
+    selector->updateHostListFromCoordinator();
+    EXPECT_EQ(0, selector->hosts.server_size());
+    EXPECT_EQ(0U, selector->hostsOrder.size());
+    EXPECT_EQ(0U, selector->numUsedHosts);
+
+    coordinator->enlistServer(BACKUP, "mock:host=backup1");
+    coordinator->enlistServer(BACKUP, "mock:host=backup2");
+    coordinator->enlistServer(BACKUP, "mock:host=backup3");
+    selector->updateHostListFromCoordinator();
+    EXPECT_EQ(3, selector->hosts.server_size());
+    EXPECT_EQ(3u, selector->hostsOrder.size());
+    EXPECT_EQ(0U, selector->hostsOrder[0]);
+    EXPECT_EQ(1U, selector->hostsOrder[1]);
+    EXPECT_EQ(2U, selector->hostsOrder[2]);
+    EXPECT_EQ(0U, selector->numUsedHosts);
+}
 
 void
 BackupManager::dumpOpenSegments()
@@ -44,7 +216,7 @@ BackupManager::dumpOpenSegments()
         LOG(ERROR, "  openLen: %u", segment.openLen);
         LOG(ERROR, "  offsetQueued: %u", segment.offsetQueued);
         LOG(ERROR, "  closeQueued: %u", segment.closeQueued);
-        foreach (auto& backup, segment.backupIter()) {
+        foreach (auto& backup, segment.backups) {
             LOG(ERROR, "  Backup:%s", backup ? "" : " inactive");
             if (!backup)
                 continue;
@@ -85,7 +257,8 @@ struct BackupManagerBaseTest : public ::testing::Test {
         mockRegistrar.construct(*transport);
 
         coordinatorService.construct();
-        transport->addService(*coordinatorService, coordinatorLocator);
+        transport->addService(*coordinatorService, coordinatorLocator,
+                COORDINATOR_SERVICE);
 
         coordinator.construct(coordinatorLocator);
 
@@ -103,8 +276,10 @@ struct BackupManagerBaseTest : public ::testing::Test {
         backupService1.construct(*backupServiceConfig1, *storage1);
         backupService2.construct(*backupServiceConfig2, *storage2);
 
-        transport->addService(*backupService1, "mock:host=backup1");
-        transport->addService(*backupService2, "mock:host=backup2");
+        transport->addService(*backupService1, "mock:host=backup1",
+                BACKUP_SERVICE);
+        transport->addService(*backupService2, "mock:host=backup2",
+                BACKUP_SERVICE);
 
         backup1.construct(Context::get().transportManager->getSession(
                             "mock:host=backup1"));
@@ -124,8 +299,9 @@ struct BackupManagerTest : public BackupManagerBaseTest {
 };
 
 TEST_F(BackupManagerBaseTest, selectOpenHostsNotEnoughBackups) {
+    mgr->backupSelector.updateHostListThrower.tillThrow = 10;
     auto seg = mgr->openSegment(88, NULL, 0);
-    EXPECT_THROW(mgr->proceed(), InternalError);
+    EXPECT_THROW(mgr->proceed(), TestingException);
     mgr->unopenSegment(seg); // so that destructor's sync is a no-op
 }
 
@@ -173,7 +349,7 @@ TEST_F(BackupManagerTest, OpenSegmentVarLenArray) {
     // backups[0] must be the last member of OpenSegment
     BackupManager::OpenSegment* openSegment = NULL;
     EXPECT_EQ(static_cast<void*>(openSegment + 1),
-              static_cast<void*>(openSegment->backups));
+              static_cast<void*>(&openSegment->backups[0]));
 }
 
 TEST_F(BackupManagerTest, OpenSegmentConstructor) {
@@ -187,7 +363,7 @@ TEST_F(BackupManagerTest, OpenSegmentConstructor) {
     EXPECT_EQ(data, openSegment->data);
     EXPECT_EQ(arrayLength(data), openSegment->offsetQueued);
     EXPECT_FALSE(openSegment->closeQueued);
-    foreach (auto& backup, openSegment->backupIter()) {
+    foreach (auto& backup, openSegment->backups) {
         EXPECT_EQ(arrayLength(data), backup->offsetSent);
         EXPECT_FALSE(backup->closeSent);
         EXPECT_FALSE(backup->rpc);
@@ -197,7 +373,7 @@ TEST_F(BackupManagerTest, OpenSegmentConstructor) {
 
     // make sure OpenSegment::backups point to reasonable service locators
     vector<string> backupLocators;
-    foreach (auto& backup, openSegment->backupIter()) {
+    foreach (auto& backup, openSegment->backups) {
         backupLocators.push_back(
             backup->client.getSession()->getServiceLocator());
     }
@@ -226,13 +402,13 @@ TEST_F(BackupManagerTest, OpenSegmentsync) {
     openSegment->sync();
     openSegment->sync();
     openSegment->write(4, false);
-    foreach (auto& backup, openSegment->backupIter()) {
+    foreach (auto& backup, openSegment->backups) {
         EXPECT_EQ(4U, backup->offsetSent);
         EXPECT_FALSE(backup->closeSent);
         EXPECT_TRUE(backup->rpc);
     }
     openSegment->sync();
-    foreach (auto& backup, openSegment->backupIter()) {
+    foreach (auto& backup, openSegment->backups) {
         EXPECT_EQ(4U, backup->offsetSent);
         EXPECT_FALSE(backup->closeSent);
         EXPECT_FALSE(backup->rpc);
@@ -240,7 +416,7 @@ TEST_F(BackupManagerTest, OpenSegmentsync) {
     openSegment->write(6, false);
     openSegment->write(8, false);
     openSegment->sync();
-    foreach (auto& backup, openSegment->backupIter()) {
+    foreach (auto& backup, openSegment->backups) {
         EXPECT_EQ(8U, backup->offsetSent);
         EXPECT_FALSE(backup->closeSent);
         EXPECT_FALSE(backup->rpc);
@@ -261,7 +437,7 @@ TEST_F(BackupManagerTest, OpenSegmentsync) {
 // TODO(ongaro): This is a test that really belongs in SegmentTest.cc, but the
 // setup overhead is too high.
 TEST_F(BackupManagerTest, writeSegment) {
-    void* segMem = xmemalign(segmentSize, segmentSize);
+    void* segMem = Memory::xmemalign(HERE, segmentSize, segmentSize);
     Segment seg(99, 88, segMem, segmentSize, mgr.get());
     SegmentHeader header = { 99, 88, segmentSize };
     seg.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));

@@ -19,7 +19,7 @@
 from __future__ import division
 from common import *
 import log
-import metrics
+import recoverymetrics
 import os
 import pprint
 import re
@@ -109,7 +109,7 @@ def recover(numBackups=1,             # Number of hosts on which to start
                 raise
 
         # start coordinator
-        coordinatorLocator = 'infrc:host=%s,port=12246' % coordinatorHost[1]
+        coordinatorLocator = 'infrc:host=%s,port=12246' % coordinatorHost[0]
         coordinator = sandbox.rsh(coordinatorHost[0],
                   ('%s -C %s --logFile %s/coordinator.%s.log %s' %
                    (coordinatorBin, coordinatorLocator, run,
@@ -118,7 +118,7 @@ def recover(numBackups=1,             # Number of hosts on which to start
         ensureServers(0)
 
         # start dying master
-        oldMasterLocator = 'infrc:host=%s,port=12242' % oldMasterHost[1]
+        oldMasterLocator = 'infrc:host=%s,port=12242' % oldMasterHost[0]
         oldMaster = sandbox.rsh(oldMasterHost[0],
                 ('%s -C %s -L %s --logFile %s/oldMaster.%s.log -r %d -M %s' %
                  (serverBin, coordinatorLocator, oldMasterLocator,
@@ -134,7 +134,7 @@ def recover(numBackups=1,             # Number of hosts on which to start
             host = serverHosts[i]
             command = ('%s -C %s -L infrc:host=%s,port=12243 '
                        '--logFile %s/server.%s.log' %
-                       (serverBin, coordinatorLocator, host[1], run, host[0]))
+                       (serverBin, coordinatorLocator, host[0], run, host[0]))
             isBackup = isMaster = False
             if (i >= masterStart) and (i < masterEnd):
                 isMaster = True
@@ -157,7 +157,7 @@ def recover(numBackups=1,             # Number of hosts on which to start
             if isBackup and disk >= 3:
                 command = ('%s -C %s -L infrc:host=%s,port=12244 '
                            '--logFile %s/backup.%s.log -B %s %s' %
-                           (serverBin, coordinatorLocator, host[1],
+                           (serverBin, coordinatorLocator, host[0],
                             run, host[0], secondaryDisk, backupArgs))
                 extraBackups.append(sandbox.rsh(host[0], command, bg=True,
                                              stderr=subprocess.STDOUT))
@@ -186,8 +186,8 @@ def recover(numBackups=1,             # Number of hosts on which to start
 
     # Collect metrics information.
     stats = {}
-    stats['metrics'] = metrics.parseRecovery(run)
-    report = metrics.textReport(stats['metrics'])
+    stats['metrics'] = recoverymetrics.parseRecovery(run)
+    report = recoverymetrics.textReport(stats['metrics'])
     f = open('%s/metrics' % (run), 'w')
     f.write(str(report))
     f.write('\n')
@@ -211,8 +211,8 @@ def insist(*args, **kwargs):
 
 if __name__ == '__main__':
     args = {}
-    args['numBackups'] = 50
-    args['numPartitions'] = 50
+    args['numBackups'] = 5
+    args['numPartitions'] = 5
     args['objectSize'] = 1024
     args['disk'] = 3
     args['numObjects'] = 592415 # 600MB

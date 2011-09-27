@@ -22,11 +22,12 @@
 #include "BackupStorage.h"
 #include "CoordinatorClient.h"
 #include "CoordinatorService.h"
-#include "ShortMacros.h"
 #include "MasterService.h"
+#include "Memory.h"
+#include "Recovery.h"
+#include "ShortMacros.h"
 #include "Tablets.pb.h"
 #include "TransportManager.h"
-#include "Recovery.h"
 
 namespace RAMCloud {
 
@@ -66,9 +67,13 @@ class RecoveryTest : public ::testing::Test {
                 e.set_service_locator(locator);
                 e.set_server_type(ProtoBuf::BACKUP);
             }
-            mgr->hosts = backupList;
 
-            segMem = xmemalign(segmentSize, segmentSize);
+            // TODO(ongaro): Rework this to not muck with mgr's internal state
+            mgr->backupSelector.hosts = backupList;
+            for (uint32_t i = 0; i < uint32_t(backupList.server_size()); ++i)
+                mgr->backupSelector.hostsOrder.push_back(i);
+
+            segMem = Memory::xmemalign(HERE, segmentSize, segmentSize);
             seg = new Segment(masterId, segmentId, segMem, segmentSize, mgr);
 
             char temp[LogDigest::getBytesFromCount(
@@ -157,7 +162,8 @@ class RecoveryTest : public ::testing::Test {
         config3->localLocator = "mock:host=backup3";
 
         coordinatorService = new CoordinatorService;
-        transport->addService(*coordinatorService, config1->coordinatorLocator);
+        transport->addService(*coordinatorService,
+                config1->coordinatorLocator, COORDINATOR_SERVICE);
 
         coordinator =
             new CoordinatorClient(config1->coordinatorLocator.c_str());
@@ -170,9 +176,12 @@ class RecoveryTest : public ::testing::Test {
         backupService2 = new BackupService(*config2, *storage2);
         backupService3 = new BackupService(*config3, *storage3);
 
-        transport->addService(*backupService1, "mock:host=backup1");
-        transport->addService(*backupService2, "mock:host=backup2");
-        transport->addService(*backupService3, "mock:host=backup3");
+        transport->addService(*backupService1, "mock:host=backup1",
+                BACKUP_SERVICE);
+        transport->addService(*backupService2, "mock:host=backup2",
+                BACKUP_SERVICE);
+        transport->addService(*backupService3, "mock:host=backup3",
+                BACKUP_SERVICE);
 
         backupService1->init();
         backupService2->init();
@@ -392,7 +401,7 @@ struct AutoMaster {
         config.localLocator = locator;
         MasterService::sizeLogAndHashTable("32", "1", &config);
         master = new MasterService(config, &coordinator, 0);
-        transport.addService(*master, locator);
+        transport.addService(*master, locator, MASTER_SERVICE);
         master->init();
     }
 

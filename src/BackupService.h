@@ -38,7 +38,7 @@
 #include "CycleCounter.h"
 #include "Fence.h"
 #include "LogTypes.h"
-#include "Metrics.h"
+#include "RawMetrics.h"
 #include "Rpc.h"
 #include "Service.h"
 
@@ -525,7 +525,7 @@ class BackupService : public Service {
      * Times each recovery. This is an Tub that is reset on every
      * recovery, since CycleCounters can't presently be restarted.
      */
-    Tub<CycleCounter<Metric>> recoveryTicks;
+    Tub<CycleCounter<RawMetric>> recoveryTicks;
 
     /**
      * A pool of aligned segments (supporting O_DIRECT) to avoid

@@ -15,6 +15,8 @@ CLIENT_SRCFILES := \
 		   src/CRamCloud.cc \
 		   src/Client.cc \
 		   src/ClientException.cc \
+		   src/ClusterMetrics.cc \
+		   src/CodeLocation.cc \
 		   src/Context.cc \
 		   src/CoordinatorClient.cc \
 		   src/Crc32C.cc \
@@ -24,14 +26,16 @@ CLIENT_SRCFILES := \
 		   src/Driver.cc \
 		   src/FastTransport.cc \
 		   src/IpAddress.cc \
-		   src/Logging.cc \
+		   src/Logger.cc \
 		   src/MacAddress.cc \
 		   src/MasterClient.cc \
-		   src/Metrics.cc \
+		   src/Memory.cc \
 		   src/ObjectFinder.cc \
 		   src/PcapFile.cc \
 		   src/PingClient.cc \
 		   src/RamCloud.cc \
+		   src/RawMetrics.cc \
+		   src/ServerMetrics.cc \
 		   src/ServerRpcPool.cc \
 		   src/Service.cc \
 		   src/ServiceLocator.cc \
@@ -40,6 +44,7 @@ CLIENT_SRCFILES := \
 		   src/Status.cc \
 		   src/StringKeyAdapter.cc \
 		   src/TcpTransport.cc \
+		   src/TestLog.cc \
 		   src/ThreadId.cc \
 		   src/TimeCounter.cc \
 		   src/Transport.cc \
@@ -47,6 +52,7 @@ CLIENT_SRCFILES := \
 		   src/UdpDriver.cc \
 		   src/UnreliableTransport.cc \
 		   $(INFINIBAND_SRCFILES) \
+		   $(OBJDIR)/MetricList.pb.cc \
 		   $(OBJDIR)/ServerList.pb.cc \
 		   $(OBJDIR)/Tablets.pb.cc \
 		   $(NULL)

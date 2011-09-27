@@ -22,19 +22,19 @@
 #include <cxxabi.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <pcrecpp.h>
 #include <stdarg.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 
 #include "Common.h"
 #include "Buffer.h"
+#include "Memory.h"
 #include "ShortMacros.h"
+
+namespace RAMCloud {
 
 uint64_t mockPMCValue = 0lu;
 uint64_t mockRandomValue = 0lu;
-
-namespace RAMCloud {
 
 // Output a binary buffer in 'hexdump -C' style.
 // Note that this exceeds 80 characters due to 64-bit offsets. Oh, well.
@@ -83,17 +83,16 @@ debug_dump64(Buffer& buffer)
     debug_dump64(buffer.getRange(0, length), length);
 }
 
-namespace {
-void vformat(string& s, const char* format, va_list ap)
-    __attribute__((format(printf, 2, 0)));
-
-/**
- * A safe version of vsprintf.
- * Used by the two #format() variants.
- */
-void
-vformat(string& s, const char* format, va_list ap)
+/// A safe version of sprintf.
+string
+format(const char* format, ...)
 {
+    string s;
+    va_list ap;
+    va_start(ap, format);
+
+    // We're not really sure how big of a buffer will be necessary.
+    // Try 1K, if not the return value will tell us how much is necessary.
     int bufSize = 1024;
     while (true) {
         char buf[bufSize];
@@ -104,36 +103,11 @@ vformat(string& s, const char* format, va_list ap)
         assert(r >= 0); // old glibc versions returned -1
         if (r < bufSize) {
             s = buf;
-            return;
+            break;
         }
         bufSize = r + 1;
     }
-}
-} // anonymous namespace
 
-/// A safe version of sprintf.
-string
-format(const char* format, ...)
-{
-    string s;
-    va_list ap;
-    va_start(ap, format);
-    vformat(s, format, ap);
-    va_end(ap);
-    return s;
-}
-
-/**
- * A safe version of sprintf.
- * The contents of the first parameter are replaced with the result, and the
- * first parameter is also returned for convenience.
- */
-string&
-format(string& s, const char* format, ...)
-{
-    va_list ap;
-    va_start(ap, format);
-    vformat(s, format, ap);
     va_end(ap);
     return s;
 }
@@ -160,7 +134,7 @@ _generateRandom()
         ssize_t bytesRead = read(fd, &seed, sizeof(seed));
         close(fd);
         assert(bytesRead == sizeof(seed));
-        statebuf = static_cast<char*>(xmalloc(STATE_BYTES));
+        statebuf = static_cast<char*>(Memory::xmalloc(HERE, STATE_BYTES));
         initstate_r(seed, statebuf, STATE_BYTES, &buf);
     }
 
@@ -240,53 +214,6 @@ getTotalSystemMemory()
     fclose(fp);
 
     return totalBytes;
-}
-
-namespace {
-
-/**
- * Return the number of characters of __FILE__ that make up the path prefix.
- * That is, __FILE__ plus this value will be the relative path from the top
- * directory of the RAMCloud repo.
- */
-int
-length__FILE__Prefix()
-{
-    const char* start = __FILE__;
-    const char* match = strstr(__FILE__, "src/Common.cc");
-    assert(match != NULL);
-    return downCast<int>(match - start);
-}
-
-} // anonymous namespace
-
-string
-CodeLocation::relativeFile() const
-{
-    static int lengthFilePrefix = length__FILE__Prefix();
-    // Remove the prefix only if it matches that of __FILE__. This check is
-    // needed in case someone compiles different files using different paths.
-    if (strncmp(file, __FILE__, lengthFilePrefix) == 0)
-        return string(file + lengthFilePrefix);
-    else
-        return string(file);
-}
-
-/**
- * Return the name of the function, qualified by its surrounding classes and
- * namespaces. Note that this strips off the RAMCloud namespace to produce
- * shorter strings.
- */
-string
-CodeLocation::qualifiedFunction() const
-{
-    string ret;
-    const string pattern(
-        format("\\s(?:RAMCloud::)?(\\S*\\b%s)\\(", function));
-    if (pcrecpp::RE(pattern).PartialMatch(prettyFunction, &ret))
-        return ret;
-    else // shouldn't happen
-        return function;
 }
 
 /**

@@ -47,24 +47,18 @@ TEST_F(CommonTest, arrayLength) {
     // EXPECT_EQ(0U, arrayLength(z));
 }
 
-TEST_F(CommonTest, vformat_long) {
+TEST_F(CommonTest, format_basic) {
+    EXPECT_EQ("rofl3", format("rofl3"));
+    EXPECT_EQ("rofl3", format("r%sl%d", "of", 3));
+}
+
+TEST_F(CommonTest, format_long) {
     char x[3000];
     memset(x, 0xcc, sizeof(x));
     x[sizeof(x) - 1] = '\0';
     EXPECT_EQ(x, format("%s", x));
 }
 
-TEST_F(CommonTest, format_copy) {
-    EXPECT_EQ("rofl3", format("rofl3"));
-    EXPECT_EQ("rofl3", format("r%sl%d", "of", 3));
-}
-
-TEST_F(CommonTest, format_outArg) {
-    string s;
-    EXPECT_EQ("rofl3", format(s, "rofl3"));
-    EXPECT_EQ(&s, &format(s, "r%sl%d", "of", 3));
-    EXPECT_EQ("rofl3", s);
-}
 
 // make sure generateRandom() uses all 64 bits
 TEST_F(CommonTest, generateRandom) {

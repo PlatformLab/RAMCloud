@@ -21,6 +21,27 @@
 
 namespace RAMCloud {
 
+namespace {
+
+/**
+ * The implementation of ObjectFinder::TabletMapFetcher that is used for normal
+ * execution. Simply forwards getTabletMap to the coordinator client.
+ */
+class RealTabletMapFetcher : public ObjectFinder::TabletMapFetcher {
+  public:
+    explicit RealTabletMapFetcher(CoordinatorClient& coordinator)
+        : coordinator(coordinator)
+    {
+    }
+    void getTabletMap(ProtoBuf::Tablets& tabletMap) {
+        coordinator.getTabletMap(tabletMap);
+    }
+  private:
+    CoordinatorClient& coordinator;
+};
+
+} // anonymous namespace
+
 /**
  * Constructor.
  * \param coordinator
@@ -28,9 +49,7 @@ namespace RAMCloud {
  */
 ObjectFinder::ObjectFinder(CoordinatorClient& coordinator)
     : tabletMap()
-      // set refresher to coordinator.getTabletMap
-    , refresher(boost::bind(&CoordinatorClient::getTabletMap,
-                            boost::ref(coordinator), _1))
+    , tabletMapFetcher(new RealTabletMapFetcher(coordinator))
 {
 }
 
@@ -72,7 +91,7 @@ ObjectFinder::lookup(uint32_t table, uint64_t objectId) {
             throw TableDoesntExistException(HERE);
         }
   refresh_and_retry:
-        refresher(tabletMap);
+        tabletMapFetcher->getTabletMap(tabletMap);
         haveRefreshed = true;
     }
 }
@@ -143,7 +162,7 @@ ObjectFinder::waitForAllTabletsNormal()
         if (allNormal && tabletMap.tablet_size() > 0)
             return;
         usleep(200);
-        refresher(tabletMap);
+        tabletMapFetcher->getTabletMap(tabletMap);
     }
 }
 
