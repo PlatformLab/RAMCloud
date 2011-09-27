@@ -29,7 +29,7 @@ namespace RAMCloud {
 
 TEST(LogCleanerTest, constructor) {
     Tub<uint64_t> serverId(0);
-    Log log(serverId, 8192, 8192, NULL, Log::CLEANER_DISABLED);
+    Log log(serverId, 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
     LogCleaner* cleaner = &log.cleaner;
 
     EXPECT_EQ(0U, cleaner->bytesFreedBeforeLastCleaning);
@@ -40,7 +40,7 @@ TEST(LogCleanerTest, constructor) {
 
 TEST(LogCleanerTest, scanNewCleanableSegments) {
     Tub<uint64_t> serverId(0);
-    Log log(serverId, 8192, 8192, NULL, Log::CLEANER_DISABLED);
+    Log log(serverId, 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
     LogCleaner* cleaner = &log.cleaner;
     char alignedBuf0[8192] __attribute__((aligned(8192)));
     char alignedBuf1[8192] __attribute__((aligned(8192)));
@@ -56,8 +56,8 @@ TEST(LogCleanerTest, scanNewCleanableSegments) {
     cleaner->scanNewCleanableSegments();
     EXPECT_EQ(1U, cleaner->scanList.size());
     EXPECT_EQ(2U, cleaner->cleanableSegments.size());
-    EXPECT_EQ(0U, cleaner->cleanableSegments[0]->getId());
-    EXPECT_EQ(1U, cleaner->cleanableSegments[1]->getId());
+    EXPECT_EQ(0U, cleaner->cleanableSegments[0].segment->getId());
+    EXPECT_EQ(1U, cleaner->cleanableSegments[1].segment->getId());
     EXPECT_EQ(3U, cleaner->scanList[0]->getId());
 }
 
@@ -73,10 +73,11 @@ scanCB(LogEntryHandle h, void* cookie)
 
 TEST(LogCleanerTest, scanSegment) {
     Tub<uint64_t> serverId(0);
-    Log log(serverId, 1024 * 2, 1024, NULL, Log::CLEANER_DISABLED);
+    Log log(serverId, 1024 * 2, 1024, 768, NULL, Log::CLEANER_DISABLED);
     LogCleaner* cleaner = &log.cleaner;
 
     log.registerType(LOG_ENTRY_TYPE_OBJ,
+                     true,
                      NULL, NULL,
                      NULL, NULL,
                      NULL,
@@ -96,7 +97,9 @@ TEST(LogCleanerTest, scanSegment) {
 
 TEST(LogCleanerTest, getSegmentsToClean) {
     Tub<uint64_t> serverId(0);
-    Log log(serverId, 8192 * 1000, 8192, NULL, Log::CLEANER_DISABLED);
+    Log log(serverId, 8192 * 1000, 8192, 4298, NULL, Log::CLEANER_DISABLED);
+    log.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
+        NULL, NULL, NULL, NULL, NULL);
     LogCleaner* cleaner = &log.cleaner;
     char buf[64];
 
@@ -121,17 +124,9 @@ TEST(LogCleanerTest, getSegmentsToClean) {
 
         // returned segments must no longer be in the cleanableSegments list,
         // since we're presumed to clean them now
-        EXPECT_EQ(cleaner->cleanableSegments.end(),
-                  std::find(cleaner->cleanableSegments.begin(),
-                            cleaner->cleanableSegments.end(),
-                            segmentsToClean[i]));
+        foreach (LogCleaner::CleanableSegment& cs, cleaner->cleanableSegments)
+            EXPECT_FALSE(cs.segment == segmentsToClean[i]);
     }
-}
-
-static bool
-getSegmentsToCleanFilter(string s)
-{
-    return s == "getSegmentsToClean";
 }
 
 // sanity check the write cost calculation
@@ -163,11 +158,13 @@ TEST(LogCleanerTest, getSegmentsToClean_writeCost) {
         }
 
         Tub<uint64_t> serverId(0);
-        Log log(serverId, 8192 * 1000, 8192, NULL, Log::CLEANER_DISABLED);
+        Log log(serverId, 8192 * 1000, 8192, 4298, NULL, Log::CLEANER_DISABLED);
+        log.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
+            NULL, NULL, NULL, NULL, NULL);
         LogCleaner* cleaner = &log.cleaner;
         int freeEveryNth = testSetup[i].freeEveryNth;
 
-        TestLog::Enable _(&getSegmentsToCleanFilter);
+        LogCleaner::PerfCounters before = cleaner->perfCounters;
 
         SegmentVector segmentsToClean;
         int j = 0;
@@ -180,12 +177,7 @@ TEST(LogCleanerTest, getSegmentsToClean_writeCost) {
             cleaner->getSegmentsToClean(segmentsToClean);
         }
 
-        double writeCost;
-        size_t numSegments;
-        uint64_t numFreeableBytes;
-        sscanf(TestLog::get().c_str(),                  // NOLINT sscanf ok here
-            "getSegmentsToClean: Cleaning %zd segments to free %lu bytes "
-            "(writeCost is %lf)", &numSegments, &numFreeableBytes, &writeCost);
+        double writeCost = (cleaner->perfCounters - before).writeCostSum;
         if (testSetup[i].minWriteCost)
             EXPECT_GE(writeCost, testSetup[i].minWriteCost);
         if (testSetup[i].maxWriteCost)
@@ -195,7 +187,9 @@ TEST(LogCleanerTest, getSegmentsToClean_writeCost) {
 
 TEST(LogCleanerTest, getSegmentsToClean_costBenefitOrder) {
     Tub<uint64_t> serverId(0);
-    Log log(serverId, 8192 * 1000, 8192, NULL, Log::CLEANER_DISABLED);
+    Log log(serverId, 8192 * 1000, 8192, 4298, NULL, Log::CLEANER_DISABLED);
+    log.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
+        NULL, NULL, NULL, NULL, NULL);
     LogCleaner* cleaner = &log.cleaner;
     char buf[64];
 
@@ -260,11 +254,18 @@ scanCB2(LogEntryHandle h, void* cookie)
 
 TEST(LogCleanerTest, getSortedLiveEntries) {
     Tub<uint64_t> serverId(0);
-    Log log(serverId, 8192 * 20, 8192, NULL, Log::CLEANER_DISABLED);
+    Log log(serverId, 8192 * 20, 8192, 8000, NULL, Log::CLEANER_DISABLED);
     LogCleaner* cleaner = &log.cleaner;
 
+    log.registerType(LOG_ENTRY_TYPE_OBJ,
+                     true,
+                     livenessCB, NULL,
+                     relocationCB, NULL,
+                     timestampCB,
+                     scanCB2, NULL);
+
     SegmentVector segments;
-    LogCleaner::SegmentEntryHandleVector liveEntries;
+    LogCleaner::LiveSegmentEntryHandleVector liveEntries;
 
     char buf[8192];
     LogEntryHandle older = log.append(LOG_ENTRY_TYPE_OBJ, buf, 1024);
@@ -273,16 +274,11 @@ TEST(LogCleanerTest, getSortedLiveEntries) {
     wantNewer = newer;
     log.append(LOG_ENTRY_TYPE_OBJ, buf, 8192 - 2048);   // force old head closed
 
-    log.registerType(LOG_ENTRY_TYPE_OBJ, livenessCB, NULL,
-                                         relocationCB, NULL,
-                                         timestampCB,
-                                         scanCB2, NULL);
-
     cleaner->getSortedLiveEntries(segments, liveEntries);
 
     EXPECT_EQ(2U, liveEntries.size());
-    EXPECT_EQ(older, liveEntries[0].first);
-    EXPECT_EQ(newer, liveEntries[1].first);
+    EXPECT_EQ(older, liveEntries[0].handle);
+    EXPECT_EQ(newer, liveEntries[1].handle);
 }
 
 // Ensure we fill objects into older destination Segments in order

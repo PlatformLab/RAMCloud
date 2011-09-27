@@ -390,7 +390,7 @@ struct AutoMaster {
     {
         config.coordinatorLocator = "mock:host=coordinator";
         config.localLocator = locator;
-        MasterService::sizeLogAndHashTable("16", "1", &config);
+        MasterService::sizeLogAndHashTable("32", "1", &config);
         master = new MasterService(config, &coordinator, 0);
         transport.addService(*master, locator);
         master->init();

@@ -22,6 +22,7 @@
 
 #include "Common.h"
 
+#include "Context.h"
 #include "Metrics.h"
 #include "RamCloud.h"
 #include "MasterService.h"
@@ -69,7 +70,7 @@ runIt(RC::RamCloud* client,
 {
     char objBuf[objectSize];
 
-    for (uint64_t i = 0; i < maxId * 10; i++) {
+    for (uint64_t i = 0; i < maxId * 20; i++) {
         uint64_t objId = nextId(maxId);
         // XXX- u32 table ids!!
         client->write((uint32_t)tableId, objId, objBuf, objectSize);
@@ -80,6 +81,9 @@ int
 main(int argc, char *argv[])
 try
 {
+    RC::Context context(true);
+    RC::Context::Guard _(context);
+
     int objectSize;
     int logSize;
     int utilisation;
@@ -138,6 +142,7 @@ try
     printf("========== Log Cleaner Benchmark ==========\n");
     printf(" %dMB Log, %d-byte objects, %d%% utilisation, max objectId %lu\n",
         logSize, objectSize, utilisation, maxObjectId);
+    printf(" running the %s distribution\n", distribution.c_str());
 
     string coordinatorLocator = optionParser.options.getCoordinatorLocator();
     printf("client: Connecting to %s\n", coordinatorLocator.c_str());

@@ -72,13 +72,16 @@ Segment::Segment(Log *log,
       id(segmentId),
       capacity(capacity),
       tail(0),
-      bytesFreed(0),
+      bytesExplicitlyFreed(0),
+      bytesImplicitlyFreed(0),
       spaceTimeSum(0),
+      implicitlyFreedSpaceTimeSum(0),
       checksum(),
       prevChecksum(),
       canRollBack(false),
       closed(false),
       mutex(),
+      entryCountsByType(),
       listEntries(),
       cleanedEpoch(-1),
       backupSegment(NULL)
@@ -115,13 +118,16 @@ Segment::Segment(uint64_t logId,
       id(segmentId),
       capacity(capacity),
       tail(0),
-      bytesFreed(0),
+      bytesExplicitlyFreed(0),
+      bytesImplicitlyFreed(0),
       spaceTimeSum(0),
+      implicitlyFreedSpaceTimeSum(0),
       checksum(),
       prevChecksum(),
       canRollBack(false),
       closed(false),
       mutex(),
+      entryCountsByType(),
       listEntries(),
       cleanedEpoch(-1),
       backupSegment(NULL)
@@ -173,6 +179,12 @@ Segment::commonConstructor(LogEntryType type,
     }
     if (backup)
         backupSegment = backup->openSegment(id, baseAddress, tail);
+
+    // Even if we're not backing up synchronously, we shouldn't be able to roll
+    // back this metadata.
+    canRollBack = false;
+
+    memset(entryCountsByType, 0, sizeof(entryCountsByType));
 }
 
 Segment::~Segment()
@@ -184,43 +196,14 @@ Segment::~Segment()
 }
 
 /**
- * Append an entry to this Segment. Entries consist of a typed header, followed
- * by the user-specified contents. Note that this operation makes no guarantees
- * about data alignment.
- * \param[in] type
- *      The type of entry to append. All types except LOG_ENTRY_TYPE_SEGFOOTER
- *      are permitted.
- * \param[in] buffer
- *      Data to be appended to this Segment.
- * \param[in] length
- *      Length of the data to be appended in bytes.
- * \param[in] sync
- *      If true then this write to replicated to backups before return,
- *      otherwise the replication will happen on a subsequent append()
- *      where sync is true or when the segment is closed.  This defaults
- *      to true.
- * \param[in] expectedChecksum
- *      The checksum we expect this entry to have once appended. If the
- *      actual calculated checksum does not match, an exception is
- *      thrown and nothing is appended. This parameter is optional.
- * \return
- *      On success, a SegmentEntryHandle is returned, which points to the
- *      ``buffer'' written. On failure, the handle is NULL. We avoid using
- *      slow exceptions since this can be on the fast path.
+ * \copydoc Segment::locklessAppend
  */
 SegmentEntryHandle
 Segment::append(LogEntryType type, const void *buffer, uint32_t length,
     bool sync, Tub<SegmentChecksum::ResultType> expectedChecksum)
 {
-    CycleCounter<Metric> _(&metrics->master.segmentAppendTicks);
     boost::lock_guard<SpinLock> lock(mutex);
-
-    if (closed || type == LOG_ENTRY_TYPE_SEGFOOTER ||
-      locklessAppendableBytes() < length)
-        return NULL;
-
-    return forceAppendWithEntry(type, buffer, length,
-        sync, true, expectedChecksum);
+    return locklessAppend(type, buffer, length, sync, expectedChecksum);
 }
 
 /**
@@ -246,6 +229,45 @@ Segment::append(SegmentEntryHandle handle, bool sync)
                   handle->length(),
                   sync,
                   Tub<SegmentChecksum::ResultType>(handle->checksum()));
+}
+
+SegmentEntryHandleVector
+Segment::multiAppend(SegmentMultiAppendVector& appends, bool sync)
+{
+    CycleCounter<Metric> _(&metrics->master.segmentAppendTicks);
+    boost::lock_guard<SpinLock> lock(mutex);
+    SegmentEntryHandleVector handles;
+
+    if (closed)
+        return {};
+
+    size_t totalEntryBytes = 0;
+    for (size_t i = 0; i < appends.size(); i++) {
+        if (appends[i].type == LOG_ENTRY_TYPE_SEGFOOTER)
+            return {};
+        totalEntryBytes += appends[i].length;
+    }
+
+    if (!locklessCanAppendEntries(appends.size(), totalEntryBytes))
+        return {};
+
+    for (size_t i = 0; i < appends.size(); i++) {
+        handles.push_back(locklessAppend(appends[i].type,
+                                         appends[i].buffer,
+                                         appends[i].length,
+                                         false,
+                                         appends[i].expectedChecksum));
+
+        // This should never fail. It was up to this method to ensure
+        // success before starting the appends.
+        assert(handles[i] != NULL);
+    }
+
+    // Sync once, if needed, in order to write everything atomically.
+    if (sync)
+        locklessSync();
+
+    return handles;
 }
 
 /**
@@ -287,6 +309,7 @@ Segment::rollBack(SegmentEntryHandle handle)
     canRollBack = false;
     tail -= handle->totalLength();
     decrementSpaceTimeSum(handle);
+    entryCountsByType[downCast<uint8_t>(handle->type())]--;
 }
 
 /**
@@ -309,11 +332,47 @@ Segment::free(SegmentEntryHandle entry)
     // be sure to account for SegmentEntry structs before each append
     uint32_t length = entry->totalLength();
 
-    assert((bytesFreed + length) <= tail);
+    assert((bytesExplicitlyFreed + bytesImplicitlyFreed + length) <= tail);
 
-    bytesFreed += length;
+    bytesExplicitlyFreed += length;
 
     decrementSpaceTimeSum(entry);
+}
+
+/**
+ * Set the counts for entries that have been implicitly freed (i.e. for
+ * entry types that the user will not explicitly mark as free). The
+ * cleaner determines when these entries are no longer live and updates
+ * the counts with this method. As such, this method is only ever intended
+ * for invocation by the LogCleaner class.
+ *
+ * \param freeByteSum
+ *      Total number of bytes to be marked free. This should include all
+ *      overhead (e.g. metadata), as returned by the LogEntryHandle's
+ *      totalLength() method.
+ *
+ * \param freeSpaceTimeSum
+ *      Sum of the product of byte count and timestamps from all free
+ *      entries reflected in the freeByteSm count. If any entries do not
+ *      have timestamps (there is no timestamp callback associated with the
+ *      type, then they should contribute nothing to this sum.
+ */
+void
+Segment::setImplicitlyFreedCounts(uint32_t freeByteSum,
+                                  uint64_t freeSpaceTimeSum)
+{
+    boost::lock_guard<SpinLock> lock(mutex);
+
+    // Count should never decrease subsequently.
+    assert(bytesImplicitlyFreed <= freeByteSum);
+    assert(implicitlyFreedSpaceTimeSum <= freeSpaceTimeSum);
+
+    bytesImplicitlyFreed = freeByteSum;
+    implicitlyFreedSpaceTimeSum = freeSpaceTimeSum;
+
+    // Sanity check.
+    assert(bytesImplicitlyFreed + bytesExplicitlyFreed <= capacity);
+    assert(implicitlyFreedSpaceTimeSum <= spaceTimeSum);
 }
 
 /**
@@ -395,10 +454,10 @@ Segment::getCapacity() const
  * \copydoc Segment::locklessAppendableBytes
  */
 uint32_t
-Segment::appendableBytes(size_t afterEntryBytes)
+Segment::appendableBytes()
 {
     boost::lock_guard<SpinLock> lock(mutex);
-    return locklessAppendableBytes(afterEntryBytes);
+    return locklessAppendableBytes();
 }
 
 /**
@@ -410,18 +469,17 @@ int
 Segment::getUtilisation()
 {
     boost::lock_guard<SpinLock> lock(mutex);
-    return static_cast<int>((100UL * (tail - bytesFreed)) / capacity);
+    return static_cast<int>((100UL * locklessGetLiveBytes()) / capacity);
 }
 
 /**
- * Return the number of bytes that are being used in the Segment. This is
- * the total amount of live data.
+ * \copydoc Segment::getLiveBytes
  */
 uint32_t
 Segment::getLiveBytes()
 {
     boost::lock_guard<SpinLock> lock(mutex);
-    return tail - bytesFreed;
+    return locklessGetLiveBytes();
 }
 
 /**
@@ -457,11 +515,14 @@ Segment::getAverageTimestamp()
                                      "if Segment is part of a log", __func__));
     }
 
-    uint64_t liveBytes = tail - bytesFreed; // getLiveBytes() sans lock
+    uint64_t liveBytes = locklessGetLiveBytes();
     if (liveBytes == 0)
         return 0;
 
-    return spaceTimeSum / liveBytes;
+    // Take into account entries determined to be free by the LogCleaner.
+    uint64_t adjustedSpaceTimeSum = spaceTimeSum - implicitlyFreedSpaceTimeSum;
+
+    return adjustedSpaceTimeSum / liveBytes;
 }
 
 ////////////////////////////////////////
@@ -469,34 +530,103 @@ Segment::getAverageTimestamp()
 ////////////////////////////////////////
 
 /**
- * Obtain the maximum number of bytes that can be appended to this Segment
- * using the #append method. Buffers equal to this size or smaller are
- * guaranteed to succeed, whereas buffers larger will fail to be appended.
- * 
- * \param[in] afterEntryBytes
- *      If non-0, return what the number of appendable bytes woudl be after
- *      an entry of the specified byte length were added.
+ * Append an entry to this Segment. Entries consist of a typed header, followed
+ * by the user-specified contents. Note that this operation makes no guarantees
+ * about data alignment.
+ * \param[in] type
+ *      The type of entry to append. All types except LOG_ENTRY_TYPE_SEGFOOTER
+ *      are permitted.
+ * \param[in] buffer
+ *      Data to be appended to this Segment.
+ * \param[in] length
+ *      Length of the data to be appended in bytes.
+ * \param[in] sync
+ *      If true then this write to replicated to backups before return,
+ *      otherwise the replication will happen on a subsequent append()
+ *      where sync is true or when the segment is closed.  This defaults
+ *      to true.
+ * \param[in] expectedChecksum
+ *      The checksum we expect this entry to have once appended. If the
+ *      actual calculated checksum does not match, an exception is
+ *      thrown and nothing is appended. This parameter is optional.
+ * \return
+ *      On success, a SegmentEntryHandle is returned, which points to the
+ *      ``buffer'' written. On failure, the handle is NULL. We avoid using
+ *      slow exceptions since this can be on the fast path.
+ */
+SegmentEntryHandle
+Segment::locklessAppend(LogEntryType type, const void *buffer, uint32_t length,
+    bool sync, Tub<SegmentChecksum::ResultType> expectedChecksum)
+{
+    CycleCounter<Metric> _(&metrics->master.segmentAppendTicks);
+
+    if (closed || type == LOG_ENTRY_TYPE_SEGFOOTER ||
+      !locklessCanAppendEntries(1, length))
+        return NULL;
+
+    return forceAppendWithEntry(type, buffer, length,
+        sync, true, expectedChecksum);
+}
+
+/**
+ * Return the number of bytes that are being used in the Segment. This is
+ * the total amount of live data.
  */
 uint32_t
-Segment::locklessAppendableBytes(size_t afterEntryBytes) const
+Segment::locklessGetLiveBytes() const
+{
+    return tail - bytesExplicitlyFreed - bytesImplicitlyFreed;
+}
+
+/**
+ * Obtain the maximum number of bytes that can be appended to this Segment,
+ * including space that will need to be used for metadata.
+ */
+uint32_t
+Segment::locklessAppendableBytes() const
 {
     if (closed)
         return 0;
 
+    uint32_t headRoom = downCast<uint32_t>(sizeof(SegmentEntry) +
+                                           sizeof(SegmentFooter));
     uint32_t freeBytes = capacity - tail;
-    uint32_t headRoom  = sizeof(SegmentEntry) + sizeof(SegmentFooter);
-
-    if (afterEntryBytes) {
-        headRoom += downCast<uint32_t>(sizeof(SegmentEntry)) +
-                    downCast<uint32_t>(afterEntryBytes);
-    }
 
     assert(freeBytes >= headRoom);
 
-    if ((freeBytes - headRoom) < sizeof(SegmentEntry))
+    return freeBytes - headRoom;
+}
+
+/**
+ * Given a number of entries and the total length of the entries in
+ * bytes, return whether or not they can be written into the free
+ * space left in this Segment.
+ * 
+ * \param numberOfEntries
+ *      The number of entries we want to see if we can append.
+ *
+ * \param numberOfBytesInEntries
+ *      The total number of bytes in each of the entries we want to
+ *      see if we can append.
+ */
+bool
+Segment::locklessCanAppendEntries(size_t numberOfEntries,
+                                  size_t numberOfBytesInEntries) const
+{
+    assert(numberOfBytesInEntries == 0 || numberOfEntries != 0);
+
+    if (closed)
         return 0;
 
-    return freeBytes - headRoom - downCast<uint32_t>(sizeof(SegmentEntry));
+    uint32_t bytesNeeded = downCast<uint32_t>(numberOfEntries) *
+                           downCast<uint32_t>(sizeof(SegmentEntry)) +
+                           downCast<uint32_t>(numberOfBytesInEntries);
+
+    uint32_t headRoom = downCast<uint32_t>(sizeof(SegmentEntry) +
+                                           sizeof(SegmentFooter));
+    uint32_t freeBytes = capacity - tail - headRoom;
+
+    return (freeBytes >= bytesNeeded);
 }
 
 /**
@@ -546,7 +676,7 @@ void
 Segment::adjustSpaceTimeSum(SegmentEntryHandle handle, bool subtract)
 {
     if (log) {
-        const LogTypeCallback *cb = log->getCallbacks(handle->type());
+        const LogTypeInfo *cb = log->getTypeInfo(handle->type());
         if (cb != NULL && cb->timestampCB != NULL) {
             // XXX should the timestamp callback be mandatory for externally-
             //     defined types? If someone defines a commonly-used type with
@@ -684,6 +814,8 @@ Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
 
     // If we haven't synced it yet, we can roll it back.
     canRollBack = !sync;
+
+    entryCountsByType[downCast<uint8_t>(type)]++;
 
     return handle;
 }

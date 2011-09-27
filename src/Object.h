@@ -98,21 +98,24 @@ class ObjectTombstone {
     ObjectTombstone(uint64_t segmentId, const Object *object)
         : id(object->id),
           segmentId(segmentId),
-          objectVersion(object->version)
+          objectVersion(object->version),
+          timestamp(secondsTimestamp())
     {
-        static_assert(sizeof(*this) == 32, "bad Object size!");
+        static_assert(sizeof(*this) == 36, "bad Object size!");
     }
 
     struct ObjectIdentifier id;
     uint64_t segmentId;
     uint64_t objectVersion;
+    uint32_t timestamp;
 
   PRIVATE:
     ObjectTombstone(uint64_t segmentId, uint64_t tableId,
                     uint64_t objectId, uint64_t objectVersion)
         : id(tableId, objectId),
           segmentId(segmentId),
-          objectVersion(objectVersion)
+          objectVersion(objectVersion),
+          timestamp(secondsTimestamp())
     {
     }
 } __attribute__((__packed__));

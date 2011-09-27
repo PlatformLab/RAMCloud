@@ -37,32 +37,32 @@ class LogTest : public ::testing::Test {
 TEST_F(LogTest, constructor) {
     Tub<uint64_t> serverId;
     serverId.construct(57);
-    Log l(serverId, 2 * 8192, 8192);
+    Log l(serverId, 2 * 8192, 8192, 4298);
 
     EXPECT_EQ(57U, *l.logId);
     EXPECT_EQ(2 * 8192U, l.logCapacity);
     EXPECT_EQ(8192U, l.segmentCapacity);
+    EXPECT_EQ(4298U, l.maximumBytesPerAppend);
     EXPECT_EQ(2U, l.freeList.size());
     EXPECT_EQ(0U, l.cleanableNewList.size());
     EXPECT_EQ(0U, l.cleanablePendingDigestList.size());
     EXPECT_EQ(0U, l.freePendingDigestAndReferenceList.size());
     EXPECT_EQ(0U, l.freePendingReferenceList.size());
     EXPECT_EQ(0U, l.nextSegmentId);
-    EXPECT_EQ(8192 - 4 * sizeof(SegmentEntry) -
-        sizeof(SegmentHeader) - sizeof(SegmentFooter) -
-        LogDigest::getBytesFromCount(2),
-        l.maximumAppendableBytes);
     EXPECT_TRUE(NULL == l.head);
     EXPECT_EQ(Log::CONCURRENT_CLEANER, l.cleanerOption);
 
-    Log l2(serverId, 2 * 8192, 8192, NULL, Log::CLEANER_DISABLED);
+    Log l2(serverId, 2 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
     EXPECT_EQ(Log::CLEANER_DISABLED, l2.cleanerOption);
+
+    EXPECT_THROW(new Log(serverId, 8192, 8192, 8193),
+        LogException);
 }
 
 TEST_F(LogTest, allocateHead_basics) {
     Tub<uint64_t> serverId;
     serverId.construct(57);
-    Log l(serverId, 2 * 8192, 8192);
+    Log l(serverId, 3 * 8192, 8192, 4298);
 
     {
         l.allocateHead();
@@ -105,13 +105,13 @@ TEST_F(LogTest, allocateHead_basics) {
         EXPECT_TRUE(s != oldHead);
     }
 
-    EXPECT_THROW(l.allocateHead(), LogException);
+    EXPECT_THROW(l.allocateHead(), LogOutOfMemoryException);
 }
 
 TEST_F(LogTest, allocateHead_lists) {
     Tub<uint64_t> serverId;
     serverId.construct(57);
-    Log l(serverId, 5 * 8192, 8192, NULL, Log::CLEANER_DISABLED);
+    Log l(serverId, 5 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
 
     Segment* cleaned = new Segment(&l, l.allocateSegmentId(),
         l.getFromFreeList(), 8192, NULL, LOG_ENTRY_TYPE_UNINIT,
@@ -153,7 +153,7 @@ TEST_F(LogTest, allocateHead_lists) {
 TEST_F(LogTest, addSegmentMemory) {
     Tub<uint64_t> serverId;
     serverId.construct(57);
-    Log l(serverId, 1 * 8192, 8192);
+    Log l(serverId, 1 * 8192, 8192, 4298);
 
     void *p = xmemalign(l.segmentCapacity, l.segmentCapacity);
     l.addSegmentMemory(p);
@@ -161,14 +161,43 @@ TEST_F(LogTest, addSegmentMemory) {
 
     EXPECT_EQ(2U, l.freeList.size());
     EXPECT_EQ(p, l.freeList[1]);
-    EXPECT_EQ(s.appendableBytes(LogDigest::getBytesFromCount(1)),
-              l.maximumAppendableBytes);
+}
+
+TEST_F(LogTest, getFromFreeList) {
+    Tub<uint64_t> serverId;
+    serverId.construct(57);
+    Log l(serverId, 2 * 8192, 8192, 4298);
+
+    // Grab a segment and reduce from 2 to 1 free segments.
+    void* seg2 = l.getFromFreeList(true);
+    EXPECT_TRUE(seg2 != NULL);
+
+    // Shouldn't be able to get the last one regardless of the
+    // parameter (only one seg left and cleanablePendingDigestList
+    // is empty).
+    EXPECT_THROW(l.getFromFreeList(false), LogOutOfMemoryException);
+    EXPECT_THROW(l.getFromFreeList(true), LogOutOfMemoryException);
+
+    // Having a Segment on cleanablePendingDigestList should
+    // alter the behaviour.
+    Segment* s = new Segment(5, 5, seg2, 8192, l.backup);
+    l.cleanablePendingDigestList.push_back(*s);
+
+    EXPECT_THROW(l.getFromFreeList(false), LogOutOfMemoryException);
+    EXPECT_TRUE(l.getFromFreeList(true) != NULL);
+    EXPECT_EQ(0U, l.freeList.size());
+
+    // Now the free list is totally empty.
+    EXPECT_THROW(l.getFromFreeList(false), LogOutOfMemoryException);
+    EXPECT_THROW(l.getFromFreeList(true), LogOutOfMemoryException);
 }
 
 TEST_F(LogTest, isSegmentLive) {
     Tub<uint64_t> serverId;
     serverId.construct(57);
-    Log l(serverId, 2 * 8192, 8192);
+    Log l(serverId, 2 * 8192, 8192, 4298);
+    l.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
+        NULL, NULL, NULL, NULL, NULL);
     static char buf[64];
 
     uint64_t segmentId = l.nextSegmentId;
@@ -180,7 +209,9 @@ TEST_F(LogTest, isSegmentLive) {
 TEST_F(LogTest, getSegmentId) {
     Tub<uint64_t> serverId;
     serverId.construct(57);
-    Log l(serverId, 2 * 8192, 8192);
+    Log l(serverId, 2 * 8192, 8192, 4298);
+    l.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
+        NULL, NULL, NULL, NULL, NULL);
     static char buf[64];
 
     const void *p = l.append(LOG_ENTRY_TYPE_OBJ,
@@ -193,9 +224,11 @@ TEST_F(LogTest, getSegmentId) {
 TEST_F(LogTest, append) {
     Tub<uint64_t> serverId;
     serverId.construct(57);
-    Log l(serverId, 2 * 8192, 8192, NULL, Log::CLEANER_DISABLED);
+    Log l(serverId, 2 * 8192, 8192, 8138, NULL, Log::CLEANER_DISABLED);
+    l.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
+        NULL, NULL, NULL, NULL, NULL);
     static char buf[13];
-    char fillbuf[l.getMaximumAppendableBytes()];
+    char fillbuf[l.getSegmentCapacity()];
     memset(fillbuf, 'A', sizeof(fillbuf));
 
     EXPECT_TRUE(l.head == NULL);
@@ -225,7 +258,8 @@ TEST_F(LogTest, append) {
 
     // exercise head != NULL, but too few bytes (new head) path
     Segment *oldHead = l.head;
-    seh = l.append(LOG_ENTRY_TYPE_OBJ, fillbuf, l.head->appendableBytes());
+    seh = l.append(LOG_ENTRY_TYPE_OBJ, fillbuf,
+        l.head->appendableBytes() - downCast<uint32_t>(sizeof(SegmentEntry)));
     EXPECT_TRUE(seh != NULL);
     EXPECT_EQ(oldHead, l.head);
     EXPECT_EQ(0U, l.head->appendableBytes());
@@ -245,22 +279,25 @@ TEST_F(LogTest, append) {
     // fill the log and get an exception. we should be on the 3rd Segment
     // now.
     EXPECT_EQ(0U, l.freeList.size());
-    seh = l.append(LOG_ENTRY_TYPE_OBJ, fillbuf, l.head->appendableBytes());
+    seh = l.append(LOG_ENTRY_TYPE_OBJ, fillbuf,
+        l.head->appendableBytes() - downCast<uint32_t>(sizeof(SegmentEntry)));
     EXPECT_TRUE(seh != NULL);
     EXPECT_THROW(l.append(LOG_ENTRY_TYPE_OBJ, buf, 1),
-        LogException);
+        LogOutOfMemoryException);
 }
 
 TEST_F(LogTest, free) {
     Tub<uint64_t> serverId;
     serverId.construct(57);
-    Log l(serverId, 2 * 8192, 8192);
+    Log l(serverId, 2 * 8192, 8192, 4298);
+    l.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
+        NULL, NULL, NULL, NULL, NULL);
     static char buf[64];
 
     LogEntryHandle h = l.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
     l.free(h);
     Segment *s = l.head;
-    EXPECT_EQ(sizeof(buf) + sizeof(SegmentEntry), s->bytesFreed);
+    EXPECT_EQ(sizeof(buf) + sizeof(SegmentEntry), s->bytesExplicitlyFreed);
 
     EXPECT_THROW(l.free(LogEntryHandle(NULL)), LogException);
 }
@@ -294,23 +331,34 @@ scanCallback(LogEntryHandle handle,
 TEST_F(LogTest, registerType) {
     Tub<uint64_t> serverId;
     serverId.construct(57);
-    Log l(serverId, 1 * 8192, 8192);
+    Log l(serverId, 1 * 8192, 8192, 4298);
 
     l.registerType(LOG_ENTRY_TYPE_OBJ,
-                    livenessCallback, NULL,
-                    relocationCallback, NULL,
-                    timestampCallback,
-                    scanCallback, NULL);
+                   true,
+                   livenessCallback, NULL,
+                   relocationCallback, NULL,
+                   timestampCallback,
+                   scanCallback, NULL);
     EXPECT_THROW(
         l.registerType(LOG_ENTRY_TYPE_OBJ,
-                        livenessCallback, NULL,
-                        relocationCallback, NULL,
-                        timestampCallback,
-                        scanCallback, NULL),
+                       true,
+                       livenessCallback, NULL,
+                       relocationCallback, NULL,
+                       timestampCallback,
+                       scanCallback, NULL),
+        LogException);
+    EXPECT_THROW(
+        l.registerType(LOG_ENTRY_TYPE_OBJTOMB,
+                       false,
+                       NULL, NULL,
+                       relocationCallback, NULL,
+                       timestampCallback,
+                       scanCallback, NULL),
         LogException);
 
-    LogTypeCallback *cb = l.callbackMap[LOG_ENTRY_TYPE_OBJ];
+    LogTypeInfo *cb = l.logTypeMap[LOG_ENTRY_TYPE_OBJ];
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, cb->type);
+    EXPECT_TRUE(cb->explicitlyFreed);
     EXPECT_EQ(reinterpret_cast<void *>(livenessCallback),
               reinterpret_cast<void *>(cb->livenessCB));
     EXPECT_TRUE(NULL == cb->livenessArg);
@@ -321,29 +369,30 @@ TEST_F(LogTest, registerType) {
               reinterpret_cast<void *>(cb->timestampCB));
 }
 
-TEST_F(LogTest, getCallbacks) {
+TEST_F(LogTest, getTypeInfo) {
     Tub<uint64_t> serverId;
     serverId.construct(57);
-    Log l(serverId, 1 * 8192, 8192);
+    Log l(serverId, 1 * 8192, 8192, 4298);
 
     l.registerType(LOG_ENTRY_TYPE_OBJ,
-                    livenessCallback, NULL,
-                    relocationCallback, NULL,
-                    timestampCallback,
-                    scanCallback, NULL);
+                   true,
+                   livenessCallback, NULL,
+                   relocationCallback, NULL,
+                   timestampCallback,
+                   scanCallback, NULL);
 
-    const LogTypeCallback* cb = l.getCallbacks(LOG_ENTRY_TYPE_OBJ);
+    const LogTypeInfo* cb = l.getTypeInfo(LOG_ENTRY_TYPE_OBJ);
     EXPECT_TRUE(cb != NULL);
     EXPECT_EQ(reinterpret_cast<void*>(livenessCallback),
               reinterpret_cast<void*>(cb->livenessCB));
 
-    EXPECT_TRUE(NULL == l.getCallbacks(LOG_ENTRY_TYPE_OBJTOMB));
+    EXPECT_TRUE(NULL == l.getTypeInfo(LOG_ENTRY_TYPE_OBJTOMB));
 }
 
 TEST_F(LogTest, getNewCleanableSegments) {
     Tub<uint64_t> serverId;
     serverId.construct(57);
-    Log l(serverId, 2 * 8192, 8192, NULL, Log::CLEANER_DISABLED);
+    Log l(serverId, 2 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
 
     mockWallTimeValue = 1;
 
@@ -378,7 +427,7 @@ class TestServerRpc : public Transport::ServerRpc {
 TEST_F(LogTest, cleaningComplete) {
     Tub<uint64_t> serverId;
     serverId.construct(57);
-    Log l(serverId, 3 * 8192, 8192);
+    Log l(serverId, 3 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
 
     ServerRpcPoolInternal::currentEpoch = 5;
 

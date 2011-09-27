@@ -201,7 +201,17 @@ RamCloud::remove(uint32_t tableId, uint64_t id,
 {
     Context::Guard _(clientContext);
     MasterClient master(objectFinder.lookup(tableId, id));
-    master.remove(tableId, id, rejectRules, version);
+    while (1) {
+        // Keep trying the operation if the server responded with a retry
+        // status.
+        try {
+            master.remove(tableId, id, rejectRules, version);
+            break;
+        } catch (RetryException& e) {
+        } catch (...) {
+            throw;
+        }
+    }
 }
 
 /// \copydoc MasterClient::write
@@ -212,7 +222,18 @@ RamCloud::write(uint32_t tableId, uint64_t id,
                 bool async)
 {
     Context::Guard _(clientContext);
-    Write(*this, tableId, id, buf, length, rejectRules, version, async)();
+    while (1) {
+        // Keep trying the operation if the server responded with a retry
+        // status.
+        try {
+            Write(*this, tableId, id, buf, length,
+                  rejectRules, version, async)();
+            break;
+        } catch (RetryException& e) {
+        } catch (...) {
+            throw;
+        }
+    }
 }
 
 /**
@@ -233,8 +254,18 @@ void
 RamCloud::write(uint32_t tableId, uint64_t id, const char* s)
 {
     Context::Guard _(clientContext);
-    Write(*this, tableId, id, s, downCast<int>(strlen(s)), NULL,
-          NULL, false)();
+    while (1) {
+        // Keep trying the operation if the server responded with a retry
+        // status.
+        try {
+            Write(*this, tableId, id, s, downCast<int>(strlen(s)), NULL,
+                  NULL, false)();
+            break;
+        } catch (RetryException& e) {
+        } catch (...) {
+            throw;
+        }
+    }
 }
 
 }  // namespace RAMCloud

@@ -30,6 +30,28 @@ namespace RAMCloud {
 // forward decl around the circular Log/LogCleaner dependency
 class Log;
 
+/**
+ * The LogCleaner defragments a Log's closed Segments, writing out any live
+ * data to new "survivor" Segments and passing the survivors, as well as the
+ * cleaned Segments, to the Log that owns them. The cleaner is designed to
+ * run asynchronously in a separate thread, though it can be run inline with
+ * the Log code as well.
+ *
+ * The cleaner employs some heuristics to aid efficiency. For instance, it
+ * tries to minimise the cost of cleaning by choosing Segments that have a
+ * good 'cost-benefit' ratio. That is, it looks for Segments that have lots
+ * of free space, but also for Segments that have less free space but a lot
+ * of old data (the assumption being that old data is unlikely to die and
+ * cleaning old data will reduce fragmentation and not soon require another
+ * cleaning).
+ *
+ * In addition, the LogCleaner attempts to segregate entries by age in the
+ * hopes of packing old data and new data into different Segments. This has
+ * two main benefits. First, old data is less likely to fragment (be freed)
+ * so those Segments will maintain high utilisation and therefore require
+ * less cleaning. Second, new data is more likely to fragment, so Segments
+ * containing newer data will hopefully be cheaper to clean in the future.
+ */
 class LogCleaner {
   public:
     explicit LogCleaner(Log* log, BackupManager* backup, bool startThread);
@@ -56,7 +78,41 @@ class LogCleaner {
         uint32_t age;
         uint32_t totalLength;
     };
-    typedef std::vector<LiveSegmentEntry> SegmentEntryHandleVector;
+    typedef std::vector<LiveSegmentEntry> LiveSegmentEntryHandleVector;
+
+    /// Structure containing a Segment that can be cleaned and some
+    /// miscellanous state we want to keep associated with it.
+    class CleanableSegment {
+      public:
+        CleanableSegment(Segment* segment,
+                         uint32_t implicitlyFreeableEntries,
+                         uint32_t implicitlyFreeableBytes)
+            : segment(segment),
+              implicitlyFreeableEntries(implicitlyFreeableEntries),
+              implicitlyFreedEntries(0),
+              implicitlyFreeableBytes(implicitlyFreeableBytes),
+              implicitlyFreedBytes(0)
+        {
+        }
+
+        /// The Segment that could be cleaned.
+        Segment* segment;
+
+        /// Number of entries in this Segment that won't be explicitly
+        /// freed by the user of the Log. We need to query the liveness
+        /// of any such objects ourselves and update counts.
+        uint32_t implicitlyFreeableEntries;
+
+        /// Number of entries the cleaner has discovered to be free.
+        uint32_t implicitlyFreedEntries;
+
+        /// Number of bytes worth of entries that won't be explicitly
+        /// freed.
+        uint32_t implicitlyFreeableBytes;
+
+        /// Number of bytes the claner has discovered to be free.
+        uint32_t implicitlyFreedBytes;
+    };
 
     /**
      * CostBenefit comparison functor for a vector of Segment pointers.
@@ -98,9 +154,9 @@ class LogCleaner {
         }
 
         bool
-        operator()(Segment* a, Segment* b)
+        operator()(CleanableSegment a, CleanableSegment b)
         {
-            return costBenefit(a) < costBenefit(b);
+            return costBenefit(a.segment) < costBenefit(b.segment);
         }
 
       private:
@@ -154,7 +210,10 @@ class LogCleaner {
     class PerfCounters {
       public:
         PerfCounters()
-            : scanTicks(0),
+            : newScanTicks(0),
+              scanForFreeSpaceTicks(0),
+              scanForFreeSpaceProgress(0),
+              scanForFreeSpaceSegments(0),
               getSegmentsTicks(0),
               collectLiveEntriesTicks(0),
               livenessCallbackTicks(0),
@@ -198,7 +257,10 @@ class LogCleaner {
             PerfCounters ret;
 
             #define _sub(_x) ret._x = _x - other._x
-            _sub(scanTicks);
+            _sub(newScanTicks);
+            _sub(scanForFreeSpaceTicks);
+            _sub(scanForFreeSpaceProgress);
+            _sub(scanForFreeSpaceSegments);
             _sub(getSegmentsTicks);
             _sub(collectLiveEntriesTicks);
             _sub(livenessCallbackTicks);
@@ -232,7 +294,10 @@ class LogCleaner {
             return ret;
         }
 
-        uint64_t scanTicks;                 /// Time in scanSegment().
+        uint64_t newScanTicks;              /// Time in scanSegment().
+        uint64_t scanForFreeSpaceTicks;     /// Time in scanForFreeSpace().
+        uint64_t scanForFreeSpaceProgress;  /// Invocations that got new stats.
+        uint64_t scanForFreeSpaceSegments;  /// Total segs scanned for space.
         uint64_t getSegmentsTicks;          /// Time in getSegmentsToClean().
         uint64_t collectLiveEntriesTicks;   /// Part of getSortedLiveEntries().
         uint64_t livenessCallbackTicks;     /// Time checking entry liveness.
@@ -304,9 +369,10 @@ class LogCleaner {
         Segment*
         getSegment(uint32_t needBytes)
         {
-            int index = getBinIndex(needBytes);
-
             // See which bins, if any, can satisfy this request.
+            // It's possible that the index - 1 bin could, but
+            // there's no guarantee.
+            int index = getBinIndex(needBytes) + 1;
             uint64_t mask = ~((1UL << index) - 1);
             if ((binOccupancyMask & mask) == 0)
                 return NULL;
@@ -315,6 +381,7 @@ class LogCleaner {
             index = BitOps::findFirstSet(binOccupancyMask & mask) - 1;
             assert(index != 0);
             assert(!bins[index].empty());
+            assert(bins[index].back()->appendableBytes() >= needBytes);
             lastIndex = index;
             return bins[index].back();
         }
@@ -343,10 +410,13 @@ class LogCleaner {
             lastIndex = -1;
         }
 
-      PRIVATE:
         /**
-         * Given a desired number of bytes, return the index of the lowest
-         * bin that could satisfy the allocation (assuming it's not empty).
+         * Given a desired number of bytes, return the index of the bin
+         * into which a Segment with this many appendable bytes would be
+         * placed. Note that this will not return the index of a bucket
+         * guaranteed to contain Segments that have at least so many
+         * appendable bytes (but you can simply add 1 to the returned
+         * index to do so).
          */
         int
         getBinIndex(uint64_t bytes)
@@ -393,14 +463,20 @@ class LogCleaner {
     static void cleanerThreadEntry(LogCleaner* logCleaner, Context* context);
 
     void dumpCleaningPassStats(PerfCounters& before);
+    double writeCost(uint64_t totalCapacity, uint64_t liveBytes);
+    bool isCleanable(double _writeCost);
     void scanNewCleanableSegments();
-    void scanSegment(Segment* segment);
+    void scanSegment(Segment*  segment,
+                     uint32_t* implicitlyFreeableEntries,
+                     uint32_t* implicitlyFreeableBytes);
+    void scanForFreeSpace();
+    void scanSegmentForFreeSpace(CleanableSegment& cleanableSegment);
     void getSegmentsToClean(SegmentVector&);
-    void getSortedLiveEntries(SegmentVector& segments,
-                              SegmentEntryHandleVector& liveEntries);
+    int  getSortedLiveEntries(SegmentVector& segments,
+                              LiveSegmentEntryHandleVector& liveEntries);
     void moveToFillSegment(Segment* lastNewSegment,
                            SegmentVector& segmentsToClean);
-    void moveLiveData(SegmentEntryHandleVector& data,
+    void moveLiveData(LiveSegmentEntryHandleVector& data,
                       SegmentVector& segmentsToClean);
 
     /// After cleaning, wake the cleaner again after this many microseconds.
@@ -410,7 +486,7 @@ class LogCleaner {
     static const size_t CLEANED_SEGMENTS_PER_PASS = 10;
 
     /// Maximum write cost we'll permit. Anything higher and we won't clean.
-    static const double MAXIMUM_CLEANABLE_WRITE_COST = 3.0;
+    static const double MAXIMUM_CLEANABLE_WRITE_COST = 6.0;
 
     /// When walking the age-sorted list of entries to relocate, prefetch the
     /// entry this far ahead of current position. Each operation takes long
@@ -422,35 +498,39 @@ class LogCleaner {
     /// farther ahead.
     static const uint32_t MAX_PREFETCH_BYTES = 2048;
 
+    /// Approximation of the smallest entries we'll expect to see. Used to
+    /// reserve space ahead of time, e.g. in SegmentEntryVectors.
+    static const uint32_t MIN_ENTRY_BYTES = 50;
+
     /// The number of bytes that have been freed in the Log since the last
     /// cleaning operation completed. This is used to avoid invoking the
     /// cleaner if there isn't likely any work to be done.
-    uint64_t        bytesFreedBeforeLastCleaning;
+    uint64_t bytesFreedBeforeLastCleaning;
 
     /// Segments that the Log considers cleanable, but which haven't been
     /// scanned yet (i.e. the scan callback has not been called on each
     /// entry. This list originally existed for asynchronous updates to
     /// TabletProfiler structures, but the general callback may serve
     /// arbitrary purposes for whoever registered a log type.
-    SegmentVector   scanList;
+    SegmentVector scanList;
 
     /// Segments are scanned in precise order of SegmentId. This integer
     /// tracks the next SegmentId to be scanned. The assumption is that
     /// the Log begins at ID 0.
-    uint64_t        nextScannedSegmentId;
+    uint64_t nextScannedSegmentId;
 
     /// Closed segments that are part of the Log - these may be cleaned
     /// at any time. Only Segments that have been scanned (i.e. previously
     /// were on the #scanList can be added here.
-    SegmentVector   cleanableSegments;
+    std::vector<CleanableSegment> cleanableSegments;
 
     /// The Log we're cleaning.
-    Log*            log;
+    Log* log;
 
     /// Our own private BackupManager (not the Log's). BackupManager isn't
     /// reentrant, and there's little reason for it to be, so use this one
     // to manage the Segments we create while cleaning.
-    BackupManager*  backup;
+    BackupManager* backup;
 
     // Tub containing our cleaning thread, if we're told to instantiate one
     // by whoever constructs this object.
@@ -458,8 +538,6 @@ class LogCleaner {
 
     // Current performance counters.
     PerfCounters perfCounters;
-
-    friend class LogCleanerTest;
 
     DISALLOW_COPY_AND_ASSIGN(LogCleaner);
 };

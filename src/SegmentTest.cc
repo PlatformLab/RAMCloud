@@ -95,8 +95,12 @@ TEST_F(SegmentTest, constructor) {
     EXPECT_EQ(8192U, s.capacity);
     EXPECT_EQ(sizeof(SegmentEntry) + sizeof(SegmentHeader),
         s.tail);
-    EXPECT_EQ(0UL, s.bytesFreed);
+    EXPECT_EQ(0UL, s.bytesExplicitlyFreed);
+    EXPECT_EQ(0UL, s.bytesImplicitlyFreed);
     EXPECT_EQ(0UL, s.spaceTimeSum);
+    EXPECT_EQ(0UL, s.implicitlyFreedSpaceTimeSum);
+    EXPECT_FALSE(s.canRollBack);
+    EXPECT_FALSE(s.closed);
 
     SegmentEntry *se = reinterpret_cast<SegmentEntry *>(s.baseAddress);
     EXPECT_EQ(LOG_ENTRY_TYPE_SEGHEADER, se->type);
@@ -111,7 +115,7 @@ TEST_F(SegmentTest, constructor) {
     // be sure we count the header written in the LogStats
     Tub<uint64_t> serverId2;
     serverId2.construct(0);
-    Log l(serverId2, 8192, 8192);
+    Log l(serverId2, 8192, 8192, 4298);
     Segment s2(&l, 0, alignedBuf, sizeof(alignedBuf), NULL,
                 LOG_ENTRY_TYPE_INVALID, NULL, 0);
     EXPECT_EQ(s2.getLiveBytes(), s2.tail);
@@ -179,7 +183,8 @@ TEST_F(SegmentTest, append) {
     EXPECT_THROW(s.append(LOG_ENTRY_TYPE_OBJ, &c, 1, true, 5),
         SegmentException);
 
-    uint32_t bytes = s.appendableBytes();
+    uint32_t bytes = downCast<uint32_t>(
+        s.appendableBytes() - sizeof(SegmentEntry));
     char buf[bytes];
     for (uint32_t i = 0; i < bytes; i++)
         buf[i] = static_cast<char>(i);
@@ -250,7 +255,9 @@ TEST_F(SegmentTest, rollBack) {
     EXPECT_TRUE(seh != NULL);
     EXPECT_TRUE(s.canRollBack);
 
+    EXPECT_EQ(2U, s.entryCountsByType[LOG_ENTRY_TYPE_OBJ]);
     s.rollBack(seh);
+    EXPECT_EQ(1U, s.entryCountsByType[LOG_ENTRY_TYPE_OBJ]);
     EXPECT_EQ(checksumPreAppend, s.checksum.getResult());
     memset(&s.prevChecksum, 0, sizeof(s.prevChecksum));
     EXPECT_EQ(0, memcmp(saveForComparison, &s, sizeof(Segment)));
@@ -260,15 +267,16 @@ TEST_F(SegmentTest, free) {
     // create a fake log so we can use the timestamp callback
     // (the Log-less segment constructor won't result in the
     // spaceTimeSum value being altered otherwise.
-    Log l({0}, 8192, 8192);
+    Log l({0}, 8192, 8192, 4298);
     l.registerType(LOG_ENTRY_TYPE_OBJ,
-                    livenessCallback, NULL,
-                    relocationCallback, NULL,
-                    timestampCallback,
-                    scanCallback, NULL);
+                   true,
+                   livenessCallback, NULL,
+                   relocationCallback, NULL,
+                   timestampCallback,
+                   scanCallback, NULL);
 
     char alignedBuf[8192] __attribute__((aligned(8192)));
-    static char buf[64];
+    char buf[64];
 
     reinterpret_cast<Object*>(buf)->timestamp = 0xf00f1234U;
 
@@ -276,8 +284,42 @@ TEST_F(SegmentTest, free) {
     *const_cast<Log**>(&s.log) = &l;
     SegmentEntryHandle h = s.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
     s.free(h);
-    EXPECT_EQ(sizeof(buf) + sizeof(SegmentEntry), s.bytesFreed);
+    EXPECT_EQ(sizeof(buf) + sizeof(SegmentEntry), s.bytesExplicitlyFreed);
     EXPECT_EQ(0UL, s.spaceTimeSum);
+}
+
+TEST_F(SegmentTest, setImplicitlyFreedCounts) {
+    Log l({0}, 8192, 8192, 4298);
+    l.registerType(LOG_ENTRY_TYPE_OBJ,
+                   true,
+                   livenessCallback, NULL,
+                   relocationCallback, NULL,
+                   timestampCallback,
+                   scanCallback, NULL);
+
+    char alignedBuf[8192] __attribute__((aligned(8192)));
+    char buf[64];
+
+    reinterpret_cast<Object*>(buf)->timestamp = 7;
+
+    Segment s(1, 2, alignedBuf, sizeof(alignedBuf));
+    *const_cast<Log**>(&s.log) = &l;
+
+    uint64_t avgBefore = s.getAverageTimestamp();
+    LogEntryHandle h = s.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
+    s.setImplicitlyFreedCounts(h->totalLength(), h->totalLength() * 7);
+    EXPECT_EQ(h->totalLength(), s.bytesImplicitlyFreed);
+    EXPECT_EQ(h->totalLength() * 7, s.implicitlyFreedSpaceTimeSum);
+    EXPECT_EQ(avgBefore, s.getAverageTimestamp());
+
+    // At some point I mistakenly thought that
+    //    s1 * t1 + s2 * t2 + ... + sn * tn = Sigma s x Sigma t
+    // Make sure this thinko doesn't reappear.
+    reinterpret_cast<Object*>(buf)->timestamp = 14;
+    LogEntryHandle h2 = s.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
+    s.setImplicitlyFreedCounts(h->totalLength() + h2->totalLength(),
+        h->totalLength() * 7 + h2->totalLength() * 14);
+    EXPECT_EQ(avgBefore, s.getAverageTimestamp());
 }
 
 TEST_F(SegmentTest, close) {
@@ -315,7 +357,7 @@ TEST_F(SegmentTest, appendableBytes) {
     char alignedBuf[8192] __attribute__((aligned(8192)));
 
     Segment s(1, 2, alignedBuf, sizeof(alignedBuf));
-    EXPECT_EQ(sizeof(alignedBuf) - 3 * sizeof(SegmentEntry) -
+    EXPECT_EQ(sizeof(alignedBuf) - 2 * sizeof(SegmentEntry) -
         sizeof(SegmentHeader) - sizeof(SegmentFooter), s.appendableBytes());
 
     static char buf[83];
@@ -323,7 +365,7 @@ TEST_F(SegmentTest, appendableBytes) {
     while (s.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf)))
         i++;
     EXPECT_EQ(87, i);
-    EXPECT_EQ(47U, s.appendableBytes());
+    EXPECT_EQ(57U, s.appendableBytes());
 
     s.close();
     EXPECT_EQ(0U, s.appendableBytes());
@@ -338,7 +380,7 @@ TEST_F(SegmentTest, forceAppendBlob) {
 
     Tub<uint64_t> serverId;
     serverId.construct(0);
-    Log l(serverId, 8192, 8192);
+    Log l(serverId, 8192, 8192, 4298);
     Segment s(&l, 445566, alignedBuf, sizeof(alignedBuf), NULL,
                 LOG_ENTRY_TYPE_INVALID, NULL, 0);
     uint64_t bytesBeforeAppend = s.getLiveBytes();
@@ -354,12 +396,13 @@ TEST_F(SegmentTest, forceAppendBlob) {
 
 TEST_F(SegmentTest, forceAppendWithEntry) {
     // create a fake log; see comment in test_free
-    Log l({0}, 8192, 8192);
+    Log l({0}, 8192, 8192, 4298);
     l.registerType(LOG_ENTRY_TYPE_OBJ,
-                    livenessCallback, NULL,
-                    relocationCallback, NULL,
-                    timestampCallback,
-                    scanCallback, NULL);
+                   true,
+                   livenessCallback, NULL,
+                   relocationCallback, NULL,
+                   timestampCallback,
+                   scanCallback, NULL);
 
     char alignedBuf[8192] __attribute__((aligned(8192)));
     SegmentEntryHandle seh;
@@ -390,6 +433,7 @@ TEST_F(SegmentTest, forceAppendWithEntry) {
     EXPECT_TRUE(seh != NULL);
     EXPECT_EQ(s.spaceTimeSum,
         (seh->totalLength() * 0xf00f1234UL) * 2);
+    EXPECT_EQ(2U, s.entryCountsByType[LOG_ENTRY_TYPE_OBJ]);
 }
 
 TEST_F(SegmentTest, syncToBackup) {
@@ -423,6 +467,39 @@ TEST_F(SegmentTest, getSegmentBaseAddress) {
     EXPECT_EQ(8U * 1024U * 1024U,
         reinterpret_cast<uintptr_t>(Segment::getSegmentBaseAddress(
         reinterpret_cast<void *>(8 * 1024 * 1024 + 237), 8 * 1024 * 1024)));
+}
+
+TEST_F(SegmentTest, maximumSegmentsNeededForEntries) {
+    EXPECT_EQ(1,
+        Segment::maximumSegmentsNeededForEntries(6,
+                                                 6 * 1024 * 1024,
+                                                 1 * 1024 * 1024,
+                                                 8 * 1024 * 1024));
+    EXPECT_EQ(2,
+        Segment::maximumSegmentsNeededForEntries(7,
+                                                 7 * 1024 * 1024,
+                                                 1 * 1024 * 1024,
+                                                 8 * 1024 * 1024));
+    EXPECT_EQ(2,
+        Segment::maximumSegmentsNeededForEntries(8,
+                                                 8 * 1024 * 1024,
+                                                 1 * 1024 * 1024,
+                                                 8 * 1024 * 1024));
+    EXPECT_EQ(2,
+        Segment::maximumSegmentsNeededForEntries(9,
+                                                 9 * 1024 * 1024,
+                                                 1 * 1024 * 1024,
+                                                 8 * 1024 * 1024));
+    EXPECT_EQ(3,
+        Segment::maximumSegmentsNeededForEntries(14,
+                                                 14 * 1024 * 1024,
+                                                  1 * 1024 * 1024,
+                                                  8 * 1024 * 1024));
+    EXPECT_EQ(101,
+        Segment::maximumSegmentsNeededForEntries(700,
+                                                 700 * 1024 * 1024,
+                                                   1 * 1024 * 1024,
+                                                   8 * 1024 * 1024));
 }
 
 } // namespace RAMCloud
