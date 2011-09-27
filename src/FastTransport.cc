@@ -1119,20 +1119,20 @@ FastTransport::ServerSession::processReceivedData(ServerChannel* channel,
             channel->inboundMsg.sendAck();
         break;
     case ServerChannel::SENDING_WAITING:
-        /*
-         * This is an extremely subtle and racy case.  This can happen when
-         * the sender believes a fragment didn't make it to the receiver
-         * and resends when in reality the receiver simply hasn't received
-         * the earlier transmission.  With low timeouts this can occur
-         * consistently when CPUs are contended because the kernel
-         * scheduler has a rather long period.
-         */
-        if (received->len < sizeof(Header))
+        if (received->len < sizeof(Header)) {
             LOG(DEBUG, "extraneous packet too small to contain Header");
-        else
-            LOG(DEBUG, "extraneous packet Header: %s",
-                Header::headerToString(received->payload,
-                                       sizeof(Header)).c_str());
+        } else {
+            /*
+             * This happens when a client believes a fragment didn't make it to
+             * the server and resends (asking for an ACK) when in reality the
+             * server simply hasn't processed the earlier transmission.  With
+             * low timeouts (< 10 ms) this can occur when CPUs are contended
+             * because the kernel scheduler has a rather long period.
+             *
+             * If this is occurring frequently it could indicate a problem but
+             * it also can occur as the result of normal operation.
+             */
+        }
         // Ignore the incoming packet and continue to send the response.
         // Hopefully this will appease the sender spamming us.
         channel->outboundMsg.send();
