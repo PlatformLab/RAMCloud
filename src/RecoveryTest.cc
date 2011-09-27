@@ -467,6 +467,34 @@ TEST_F(RecoveryTest, start) {
     }
 
     Recovery recovery(99, tablets, *masterHosts, *backupHosts);
+
+    /*
+     * Make sure all segments are partitioned on the backups before proceeding,
+     * otherwise test output can be non-deterministic since sometimes
+     * RetryExceptions are throw and certain requests can be repeated.
+     */
+    while (true) {
+        try {
+            for (uint32_t partId = 0; partId < 2; ++partId) {
+                {
+                    Buffer throwAway;
+                    backup1->getRecoveryData(99, 88, 0, throwAway);
+                }
+                {
+                    Buffer throwAway;
+                    backup1->getRecoveryData(99, 89, 0, throwAway);
+                }
+                {
+                    Buffer throwAway;
+                    backup2->getRecoveryData(99, 88, 0, throwAway);
+                }
+            }
+        } catch (const RetryException& e) {
+            continue;
+        }
+        break;
+    }
+
     TestLog::Enable _(&getRecoveryDataFilter);
     recovery.start();
     EXPECT_EQ(3U, recovery.tabletsUnderRecovery);
