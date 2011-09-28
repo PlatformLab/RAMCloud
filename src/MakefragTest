@@ -56,6 +56,7 @@ TESTS_SRCFILES := \
 		  src/ServiceTest.cc \
 		  src/ServiceManagerTest.cc \
 		  src/ServiceLocatorTest.cc \
+		  src/SessionAlarmTest.cc \
 		  src/SpinLockTest.cc \
 		  src/StatusTest.cc \
 		  src/StringKeyAdapterTest.cc \

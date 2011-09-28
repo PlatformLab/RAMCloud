@@ -521,9 +521,16 @@ TcpTransport::IncomingMessage::readMessage(int fd) {
  *      Identifies the server to which RPCs on this session will be sent.
  */
 TcpTransport::TcpSession::TcpSession(const ServiceLocator& serviceLocator)
-        : address(serviceLocator), fd(-1), serial(1), rpcsWaitingToSend(),
-          bytesLeftToSend(0), rpcsWaitingForResponse(), current(NULL),
-          message(), clientIoHandler(), errorInfo()
+        : address(serviceLocator)
+        , fd(-1), serial(1)
+        , rpcsWaitingToSend()
+        , bytesLeftToSend(0)
+        , rpcsWaitingForResponse()
+        , current(NULL)
+        , message()
+        , clientIoHandler()
+        , errorInfo()
+        , alarm(*Context::get().sessionAlarmTimer, *this)
 {
     fd = sys->socket(PF_INET, SOCK_STREAM, 0);
     if (fd == -1) {
@@ -550,6 +557,15 @@ TcpTransport::TcpSession::TcpSession(const ServiceLocator& serviceLocator)
  */
 TcpTransport::TcpSession::~TcpSession()
 {
+    errorInfo = "session closed";
+    close();
+}
+
+// See documentation for Transport::Session::abort.
+void
+TcpTransport::TcpSession::abort(const char* message)
+{
+    errorInfo = message;
     close();
 }
 
@@ -562,9 +578,6 @@ TcpTransport::TcpSession::close()
     if (fd >= 0) {
         sys->close(fd);
         fd = -1;
-    }
-    if (errorInfo.size() == 0) {
-        errorInfo = "session closed";
     }
     while (!rpcsWaitingForResponse.empty()) {
         rpcsWaitingForResponse.front().cancel(errorInfo);
@@ -585,6 +598,7 @@ TcpTransport::TcpSession::clientSend(Buffer* request, Buffer* reply)
     if (fd == -1) {
         throw TransportException(HERE, errorInfo);
     }
+    alarm.rpcStarted();
     TcpClientRpc* rpc = new(reply, MISC) TcpClientRpc(this, request,
             reply, serial);
     serial++;
@@ -671,10 +685,11 @@ TcpTransport::ClientSocketHandler::handleFileEvent(int events)
             if (session->message->readMessage(fd)) {
                 // This RPC is finished.
                 if (session->current != NULL) {
-                    session->current->markFinished();
                     session->rpcsWaitingForResponse.erase(
                             session->rpcsWaitingForResponse.iterator_to(
                             *session->current));
+                    session->alarm.rpcFinished();
+                    session->current->markFinished();
                     session->current = NULL;
                 }
                 session->message.construct(static_cast<Buffer*>(NULL), session);
@@ -707,13 +722,11 @@ TcpTransport::ClientSocketHandler::handleFileEvent(int events)
     } catch (TcpTransportEof& e) {
         // Close the session's socket in order to prevent an infinite loop of
         // calls to this method.
-        session->errorInfo = "socket closed by server";
-        session->close();
+        session->abort("socket closed by server");
     } catch (TransportException& e) {
         LOG(ERROR, "TcpTransport::ClientSocketHandler closing session "
                 "socket: %s", e.message.c_str());
-        session->errorInfo = e.message;
-        session->close();
+        session->abort(e.message.c_str());
     }
 }
 
@@ -752,6 +765,7 @@ TcpTransport::TcpClientRpc::cancelCleanup()
         session->rpcsWaitingToSend.erase(
                 session->rpcsWaitingToSend.iterator_to(*this));
     }
+    session->alarm.rpcFinished();
 }
 
 }  // namespace RAMCloud

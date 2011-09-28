@@ -66,6 +66,7 @@ SHARED_SRCFILES := \
 		   src/Service.cc \
 		   src/ServiceLocator.cc \
 		   src/ServiceManager.cc \
+		   src/SessionAlarm.cc \
 		   src/SpinLock.cc \
 		   src/Status.cc \
 		   src/TabletProfiler.cc \

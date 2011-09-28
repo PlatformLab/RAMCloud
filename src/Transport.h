@@ -273,6 +273,15 @@ class Transport {
             serviceLocator = locator;
         }
 
+        /**
+         * Shut down this session: abort any RPCs in progress and reject
+         * any future calls to \c clientSend.
+         * \param message
+         *      Provides information about why the Session is being aborted.
+         */
+        virtual void abort(const char* message) {
+        }
+
         /// Used by boost::intrusive_ptr. Do not call explicitly.
         friend void intrusive_ptr_add_ref(Session* session) {
             ++session->refCount;

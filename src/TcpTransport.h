@@ -24,6 +24,7 @@
 #include "IpAddress.h"
 #include "Tub.h"
 #include "ServerRpcPool.h"
+#include "SessionAlarm.h"
 #include "Syscall.h"
 #include "Transport.h"
 
@@ -250,6 +251,7 @@ class TcpTransport : public Transport {
       public:
         explicit TcpSession(const ServiceLocator& serviceLocator);
         ~TcpSession();
+        virtual void abort(const char* message);
         ClientRpc* clientSend(Buffer* request, Buffer* reply)
             __attribute__((warn_unused_result));
         Buffer* findRpc(Header& header);
@@ -260,7 +262,8 @@ class TcpTransport : public Transport {
 #if TESTING
         TcpSession() : address(), fd(-1), serial(1), rpcsWaitingToSend(),
             bytesLeftToSend(0), rpcsWaitingForResponse(), current(NULL),
-            message(), clientIoHandler(), errorInfo() { }
+            message(), clientIoHandler(), errorInfo(),
+            alarm(*Context::get().sessionAlarmTimer, *this) { }
 #endif
         void close();
         static void tryReadReply(int fd, int16_t event, void *arg);
@@ -296,6 +299,7 @@ class TcpTransport : public Transport {
                                   /// arrives.
         string errorInfo;         /// If the session is no longer usable,
                                   /// this variable indicates why.
+        SessionAlarm alarm;       /// Used to detect server timeouts.
         DISALLOW_COPY_AND_ASSIGN(TcpSession);
     };
 

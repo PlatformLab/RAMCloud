@@ -610,7 +610,7 @@ TEST_F(TcpTransportTest, readMessage_getBufferFromSession) {
     write(fd, "abcde", 5);
     EXPECT_TRUE(incoming.readMessage(serverFd));
     EXPECT_EQ("abcde", TestUtil::toString(&reply));
-    session.close();
+    session.abort("session closed");
 
     close(fd);
 }
@@ -735,6 +735,26 @@ TEST_F(TcpTransportTest, sessionDestructor) {
     EXPECT_EQ(1, sys->closeCount);
 }
 
+TEST_F(TcpTransportTest, TcpSession_abort) {
+    TcpTransport server(locator);
+    TcpTransport client;
+    Transport::SessionRef session = client.getSession(*locator);
+    Buffer request1;
+    Buffer reply1;
+
+    Transport::ClientRpc* clientRpc1 = session->clientSend(&request1,
+            &reply1);
+    session->abort("aborted for test");
+    EXPECT_TRUE(clientRpc1->isReady());
+    string message("no exception");
+    try {
+        clientRpc1->wait();
+    } catch (TransportException& e) {
+        message = e.message;
+    }
+    EXPECT_EQ("RPC cancelled: aborted for test", message);
+}
+
 TEST_F(TcpTransportTest, TcpSession_close_cancelRpcsWaitingToSend) {
     TcpTransport server(locator);
     TcpTransport client;
@@ -831,8 +851,7 @@ TEST_F(TcpTransportTest, clientSend_sessionClosed) {
     Transport::SessionRef session = client.getSession(*locator);
     TcpTransport::TcpSession* rawSession =
             reinterpret_cast<TcpTransport::TcpSession*>(session.get());
-    rawSession->close();
-    rawSession->errorInfo = "session closed";
+    rawSession->abort("session closed");
     string message("no exception");
     try {
         Buffer request, reply;
@@ -898,7 +917,7 @@ TEST_F(TcpTransportTest, findRpc) {
     EXPECT_EQ("3333", TestUtil::toString(session.findRpc(header)));
     header.nonce = 334UL;
     EXPECT_TRUE(session.findRpc(header) == NULL);
-    session.close();
+    session.abort("session closed");
 }
 
 TEST_F(TcpTransportTest, ClientSocketHandler_handleFileEvent_readResponse) {
@@ -1130,6 +1149,40 @@ TEST_F(TcpTransportTest, TcpClientRpc_cancelCleanup_rpcsWaitingToSend) {
     EXPECT_EQ(1U, rawSession->rpcsWaitingToSend.size());
     clientRpc1->cancel();
     EXPECT_EQ(0U, rawSession->rpcsWaitingToSend.size());
+}
+
+TEST_F(TcpTransportTest, sessionAlarm) {
+    TcpTransport server(locator);
+    TcpTransport client;
+    Transport::SessionRef session = client.getSession(*locator);
+    TcpTransport::TcpSession* rawSession =
+            reinterpret_cast<TcpTransport::TcpSession*>(session.get());
+    Buffer request1;
+    Buffer reply1;
+
+    // First, let a request complete successfully, and make sure that
+    // things get cleaned up well enough that a timeout doesn't occur.
+    Transport::ClientRpc* clientRpc = session->clientSend(&request1,
+            &reply1);
+    Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
+    serverRpc->replyPayload.fillFromString("response1");
+    serverRpc->sendReply();
+    EXPECT_TRUE(TestUtil::waitForRpc(*clientRpc));
+    for (int i = 0; i < 20; i++) {
+        Context::get().sessionAlarmTimer->handleTimerEvent();
+    }
+    EXPECT_NE(-1, rawSession->fd);
+    EXPECT_EQ("", rawSession->errorInfo);
+
+    // Issue a second request, don't respond to it, and make sure it
+    // times out.
+    request1.reset();
+    clientRpc = session->clientSend(&request1, &reply1);
+    for (int i = 0; i < 20; i++) {
+        Context::get().sessionAlarmTimer->handleTimerEvent();
+    }
+    EXPECT_EQ(-1, rawSession->fd);
+    EXPECT_EQ("server is not responding", rawSession->errorInfo);
 }
 
 }  // namespace RAMCloud

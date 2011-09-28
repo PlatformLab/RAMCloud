@@ -181,10 +181,12 @@ class Dispatch {
         void start(uint64_t cycles);
         void stop();
 
-      PRIVATE:
+      PROTECTED:
         /// The Dispatch object that owns this Timer.  NULL means the
         /// Dispatch has been deleted.
         Dispatch* owner;
+
+      PRIVATE:
 
         /// If the timer is running it will be invoked as soon as #rdtsc
         /// returns a value greater or equal to this. This value is only
