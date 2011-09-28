@@ -115,22 +115,22 @@ TEST_F(LogTest, allocateHead_lists) {
     Log l(serverId, 5 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
 
     Segment* cleaned = new Segment(&l, l.allocateSegmentId(),
-        l.getFromFreeList(), 8192, NULL, LOG_ENTRY_TYPE_UNINIT,
+        l.getFromFreeList(false), 8192, NULL, LOG_ENTRY_TYPE_UNINIT,
         NULL, 0);
     l.cleanablePendingDigestList.push_back(*cleaned);
 
     Segment* cleanableNew = new Segment(&l, l.allocateSegmentId(),
-        l.getFromFreeList(), 8192, NULL, LOG_ENTRY_TYPE_UNINIT,
+        l.getFromFreeList(false), 8192, NULL, LOG_ENTRY_TYPE_UNINIT,
         NULL, 0);
     l.cleanableNewList.push_back(*cleanableNew);
 
     Segment* cleanable = new Segment(&l, l.allocateSegmentId(),
-        l.getFromFreeList(), 8192, NULL, LOG_ENTRY_TYPE_UNINIT,
+        l.getFromFreeList(false), 8192, NULL, LOG_ENTRY_TYPE_UNINIT,
         NULL, 0);
     l.cleanableList.push_back(*cleanable);
 
     Segment* freePending = new Segment(&l, l.allocateSegmentId(),
-        l.getFromFreeList(), 8192, NULL, LOG_ENTRY_TYPE_UNINIT,
+        l.getFromFreeList(false), 8192, NULL, LOG_ENTRY_TYPE_UNINIT,
         NULL, 0);
     l.freePendingDigestAndReferenceList.push_back(*freePending);
 
@@ -402,7 +402,7 @@ TEST_F(LogTest, getNewCleanableSegments) {
     EXPECT_EQ(0U, out.size());
 
     Segment* cleanableNew = new Segment(&l, l.allocateSegmentId(),
-        l.getFromFreeList(), 8192, NULL, LOG_ENTRY_TYPE_UNINIT,
+        l.getFromFreeList(false), 8192, NULL, LOG_ENTRY_TYPE_UNINIT,
         NULL, 0);
 
     l.cleanableNewList.push_back(*cleanableNew);
@@ -433,11 +433,11 @@ TEST_F(LogTest, cleaningComplete) {
     ServerRpcPoolInternal::currentEpoch = 5;
 
     Segment* cleanSeg = new Segment(&l, l.allocateSegmentId(),
-        l.getFromFreeList(), 8192, NULL, LOG_ENTRY_TYPE_UNINIT,
+        l.getFromFreeList(false), 8192, NULL, LOG_ENTRY_TYPE_UNINIT,
         NULL, 0);
 
     Segment* liveSeg = new Segment(&l, l.allocateSegmentId(),
-        l.getFromFreeList(), 8192, NULL, LOG_ENTRY_TYPE_UNINIT,
+        l.getFromFreeList(false), 8192, NULL, LOG_ENTRY_TYPE_UNINIT,
         NULL, 0);
 
     l.cleaningInto(liveSeg);
@@ -446,7 +446,8 @@ TEST_F(LogTest, cleaningComplete) {
     l.cleanableList.push_back(*cleanSeg);
     clean.push_back(cleanSeg);
 
-    l.cleaningComplete(clean);
+    std::vector<void*> empty;
+    l.cleaningComplete(clean, empty);
 
     EXPECT_EQ(1U, l.cleanablePendingDigestList.size());
     EXPECT_EQ(1U, l.freePendingDigestAndReferenceList.size());
@@ -463,12 +464,20 @@ TEST_F(LogTest, cleaningComplete) {
     TestServerRpc* rpc = pool.construct();
     clean.pop_back();
     cleanSeg->cleanedEpoch = 6;
-    l.cleaningComplete(clean);
+    l.cleaningComplete(clean, empty);
     EXPECT_EQ(1U, l.freePendingReferenceList.size());
 
     pool.destroy(rpc);
-    l.cleaningComplete(clean);
+    l.cleaningComplete(clean, empty);
     EXPECT_EQ(0U, l.freePendingReferenceList.size());
+
+    // check returning unused segments memory
+    clean.clear();
+    void* toFreeAgain = l.freeList.back();
+    l.freeList.pop_back();
+    empty.push_back(toFreeAgain);
+    l.cleaningComplete(clean, empty);
+    EXPECT_EQ(toFreeAgain, l.freeList.back());
 
     // Segments above are deallocated by log destructor
 }

@@ -211,8 +211,9 @@ class Log {
     // These public methods are only to be externally used by the cleaner.
     void           getNewCleanableSegments(SegmentVector& out);
     void           cleaningInto(Segment* newSegment);
-    void           cleaningComplete(SegmentVector &clean);
-    void          *getFromFreeList();
+    void           cleaningComplete(SegmentVector &clean,
+                                    std::vector<void*>& unusedSegmentMemory);
+    void          *getSegmentMemoryForCleaning();
     uint64_t       allocateSegmentId();
 
     // This class is shared between the Log and its consituent Segments

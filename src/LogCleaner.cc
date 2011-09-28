@@ -84,13 +84,15 @@ LogCleaner::clean()
 
     SegmentVector segmentsToClean;
     LiveSegmentEntryHandleVector liveEntries;
+    std::vector<void*> cleanSegmentMemory;
+
     getSegmentsToClean(segmentsToClean);
 
     if (segmentsToClean.size() == 0) {
         // Even if there's nothing to do, call into the Log
         // to give it a chance to free up Segments that were
         // waiting on existing references.
-        log->cleaningComplete(segmentsToClean);
+        log->cleaningComplete(segmentsToClean, cleanSegmentMemory);
         return false;
     }
 
@@ -98,13 +100,25 @@ LogCleaner::clean()
 
     liveEntries.reserve(segmentsToClean.size() *
         (log->getSegmentCapacity() / MIN_ENTRY_BYTES));
-    getSortedLiveEntries(segmentsToClean, liveEntries);
+    int segmentsNeeded = getSortedLiveEntries(segmentsToClean, liveEntries);
 
-    moveLiveData(liveEntries, segmentsToClean);
+    try {
+        for (int i = 0; i < segmentsNeeded; i++)
+            cleanSegmentMemory.push_back(log->getSegmentMemoryForCleaning());
+    } catch (LogOutOfMemoryException& e) {
+        LOG(DEBUG, "Cleaning pass failed: log out of memory!");
+        SegmentVector empty;
+        log->cleaningComplete(empty, cleanSegmentMemory);
+        if (thread)
+            usleep(CLEANER_LOW_MEMORY_WAIT_USEC);
+        return false;
+    }
+
+    moveLiveData(liveEntries, cleanSegmentMemory, segmentsToClean);
     perfCounters.segmentsCleaned += segmentsToClean.size();
 
     CycleCounter<uint64_t> logTicks(&perfCounters.cleaningCompleteTicks);
-    log->cleaningComplete(segmentsToClean);
+    log->cleaningComplete(segmentsToClean, cleanSegmentMemory);
     logTicks.stop();
 
     totalTicks.stop();
@@ -729,6 +743,14 @@ LogCleaner::moveToFillSegment(Segment* lastNewSegment,
  *
  * \param[in] liveData
  *      Vector of SegmentEntryHandles of recently live data to move.
+ * \param[in] cleanSegmentMemory
+ *      Vector of clean segment memory to use to write the live data in to.
+ *      This contains the maximum number of clean segments we could possibly
+ *      need to move all of the live data. This preallocation of segments from
+ *      the log and ensures that this method can complete the cleaning pass.
+ *      Memory that is used from this vector should be removed from it. If any
+ *      remain after the method completes they will be returned to the log for
+ *      immediate reuse.
  * \param[out] segmentsToClean
  *      Vector of Segments from which liveData came. This is only to be used
  *      if we choose to clean addition Segmnts not previously specified (e.g.
@@ -736,6 +758,7 @@ LogCleaner::moveToFillSegment(Segment* lastNewSegment,
  */
 void
 LogCleaner::moveLiveData(LiveSegmentEntryHandleVector& liveData,
+                         std::vector<void*>& cleanSegmentMemory,
                          SegmentVector& segmentsToClean)
 {
     CycleCounter<uint64_t> _(&perfCounters.moveLiveDataTicks);
@@ -772,12 +795,18 @@ LogCleaner::moveLiveData(LiveSegmentEntryHandleVector& liveData,
         while (newHandle == NULL) {
             segmentUsed = segmentBins.getSegment(handle->totalLength());
             if (segmentUsed == NULL) {
+                // This should never fail. The caller should have
+                // pre-allocated all we need.
+                void* segmentMemory = cleanSegmentMemory.back();
+                cleanSegmentMemory.pop_back();
+
                 Segment* newSeg = new Segment(log,
                                               log->allocateSegmentId(),
-                                              log->getFromFreeList(),
+                                              segmentMemory,
                                               log->getSegmentCapacity(),
                                               backup,
                                               LOG_ENTRY_TYPE_UNINIT, NULL, 0);
+
 
                 segmentsAdded.push_back(newSeg);
                 segmentBins.addSegment(newSeg);

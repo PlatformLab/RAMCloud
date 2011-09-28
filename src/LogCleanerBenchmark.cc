@@ -23,7 +23,6 @@
 #include "Common.h"
 
 #include "Context.h"
-#include "Metrics.h"
 #include "RawMetrics.h"
 #include "RamCloud.h"
 #include "MasterService.h"
@@ -31,7 +30,7 @@
 #include "MasterClient.h"
 #include "Tub.h"
 
-namespace RC = RAMCloud;
+namespace RAMCloud {
 
 static uint64_t
 randInt(uint64_t floor, uint64_t ceiling)
@@ -63,7 +62,7 @@ hotAndCold(uint64_t maxObjId)
 }
 
 static void
-runIt(RC::RamCloud* client,
+runIt(RamCloud* client,
       uint64_t tableId,
       uint64_t maxId,
       int objectSize,
@@ -78,12 +77,16 @@ runIt(RC::RamCloud* client,
     }
 }
 
+} // namespace RAMCloud
+
+using namespace RAMCloud;
+
 int
 main(int argc, char *argv[])
 try
 {
-    RC::Context context(true);
-    RC::Context::Guard _(context);
+    Context context(true);
+    Context::Guard _(context);
 
     int objectSize;
     int logSize;
@@ -91,31 +94,31 @@ try
     string distribution;
     string tableName;
 
-    RC::OptionsDescription benchOptions("Bench");
+    OptionsDescription benchOptions("Bench");
     benchOptions.add_options()
         ("table,t",
-         RC::ProgramOptions::value<string>(&tableName)->
+         ProgramOptions::value<string>(&tableName)->
             default_value("cleanerBench"),
          "name of the table to use for testing.")
         ("size,s",
-         RC::ProgramOptions::value<int>(&objectSize)->
+         ProgramOptions::value<int>(&objectSize)->
            default_value(4096),
          "size of each object in bytes.")
          ("logMegs,m",
-          RC::ProgramOptions::value<int>(&logSize)->
+          ProgramOptions::value<int>(&logSize)->
             default_value(0),
           "total size of the master's log in megabytes.")
         ("utilisation,u",
-         RC::ProgramOptions::value<int>(&utilisation)->
+         ProgramOptions::value<int>(&utilisation)->
            default_value(50),
          "Percentage of the log space to utilise.")
         ("distribution,d",
-         RC::ProgramOptions::value<string>(&distribution)->
+         ProgramOptions::value<string>(&distribution)->
            default_value("uniform"),
          "Object distribution; choose one of \"uniform\" or "
          "\"hotAndCold\"");
 
-    RC::OptionParser optionParser(benchOptions, argc, argv);
+    OptionParser optionParser(benchOptions, argc, argv);
 
     if (logSize <= 0) {
         fprintf(stderr, "ERROR: You must specify a log size in megabytes\n");
@@ -148,7 +151,7 @@ try
     string coordinatorLocator = optionParser.options.getCoordinatorLocator();
     printf("client: Connecting to %s\n", coordinatorLocator.c_str());
 
-    RC::RamCloud* client = new RC::RamCloud(coordinatorLocator.c_str());
+    RamCloud* client = new RamCloud(coordinatorLocator.c_str());
     client->createTable(tableName.c_str());
     uint64_t table = client->openTable(tableName.c_str());
 
@@ -158,7 +161,7 @@ try
         runIt(client, table, maxObjectId, objectSize, hotAndCold);
 
     return 0;
-} catch (RC::ClientException& e) {
+} catch (ClientException& e) {
     fprintf(stderr, "RAMCloud Client exception: %s\n", e.str().c_str());
     return 1;
 } catch (RAMCloud::Exception& e) {

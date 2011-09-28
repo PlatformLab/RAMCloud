@@ -477,7 +477,14 @@ class LogCleaner {
     void moveToFillSegment(Segment* lastNewSegment,
                            SegmentVector& segmentsToClean);
     void moveLiveData(LiveSegmentEntryHandleVector& data,
+                      std::vector<void*>& cleanSegmentMemory,
                       SegmentVector& segmentsToClean);
+
+    /// If we don't have enough free segments to clean, wait this long before
+    /// trying again. Hopefully next time there will be enough. Otherwise,
+    /// we'll need to clean at a higher write cost and/or lower the desired
+    /// number of cleaned segments per pass.
+    static const size_t CLEANER_LOW_MEMORY_WAIT_USEC = 500000;
 
     /// After cleaning, wake the cleaner again after this many microseconds.
     static const size_t CLEANER_POLL_USEC = 50000;

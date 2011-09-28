@@ -475,15 +475,18 @@ Log::getBytesFreed() const
 }
 
 /**
- * Obtain Segment backing memory from the free list.
+ * Obtain Segment backing memory from the free list. This is only supposed
+ * to be used by the LogCleaner.
+ *
  * \return
  *      On success, a pointer to Segment backing memory of #segmentCapacity
  *      bytes, as provided in the #addSegmentMemory method.
+ *
  * \throw LogOutOfMemoryException
  *      If memory is exhausted.
  */
 void *
-Log::getFromFreeList()
+Log::getSegmentMemoryForCleaning()
 {
     return getFromFreeList(false);
 }
@@ -541,12 +544,25 @@ Log::cleaningInto(Segment* segment)
  *
  * \param[in] clean
  *      Vector of pointers to Segments that have been cleaned.
+ *
+ * \param[in] unusedSegmentMemory
+ *      Vector of pointers to segment memory that were allocated for
+ *      cleaning via #getSegmentMemoryForCleaning, but were not used. These
+ *      will be immediately returned to the free list.
  */
 void
-Log::cleaningComplete(SegmentVector& clean)
+Log::cleaningComplete(SegmentVector& clean,
+                      std::vector<void*>& unusedSegmentMemory)
 {
     boost::lock_guard<SpinLock> lock(listLock);
     bool change = false;
+
+    // Return any unused segment memory the cleaner ended up
+    // not needing directly to the free list.
+    while (!unusedSegmentMemory.empty()) {
+        freeList.push_back(unusedSegmentMemory.back());
+        unusedSegmentMemory.pop_back();
+    }
 
     // New Segments we've added during cleaning need to wait
     // until the next head is written before they become part
