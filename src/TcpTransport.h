@@ -133,12 +133,15 @@ class TcpTransport : public Transport {
         void sendReply();
       PRIVATE:
         TcpServerRpc(Socket* socket, int fd, TcpTransport* transport)
-            : fd(fd), socket(socket), message(&requestPayload, NULL),
+            : fd(fd), socketId(socket->id), message(&requestPayload, NULL),
             queueEntries(), transport(transport) { }
 
         int fd;                   /// File descriptor of the socket on
                                   /// which the request was received.
-        Socket* socket;           /// Transport state corresponding to fd.
+        uint64_t socketId;        /// Uniquely identifies this connection;
+                                  /// must match sockets[fd].id.  Allows us
+                                  /// to detect if fd has been closed and
+                                  /// reused for a different connection.
         IncomingMessage message;  /// Records state of partially-received
                                   /// request.
         IntrusiveListHook queueEntries;
@@ -322,11 +325,17 @@ class TcpTransport : public Transport {
     class Socket {
         public:
         Socket(int fd, TcpTransport *transport)
-                : transport(transport), rpc(NULL),
-                ioHandler(fd, transport, this),
-                rpcsWaitingToReply(), bytesLeftToSend(0) { }
+                : transport(transport), id(transport->nextSocketId),
+                rpc(NULL), ioHandler(fd, transport, this),
+                rpcsWaitingToReply(), bytesLeftToSend(0)
+        {
+            transport->nextSocketId++;
+        }
         ~Socket();
         TcpTransport* transport;  /// The parent TcpTransport object.
+        uint64_t id;              /// Unique identifier: no other Socket
+                                  /// for this transport instance will use
+                                  /// the same value.
         TcpServerRpc* rpc;        /// Incoming RPC that is in progress for
                                   /// this fd, or NULL if none.
         ServerSocketHandler ioHandler;
@@ -349,6 +358,9 @@ class TcpTransport : public Transport {
     /// information about file descriptor i (NULL means no client
     /// is currently connected).
     std::vector<Socket*> sockets;
+
+    /// Used to assign increasing id values to Sockets.
+    uint64_t nextSocketId;
 
     /// Counts the number of nonzero-size partial messages sent by
     /// sendMessage (for testing only).

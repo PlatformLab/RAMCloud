@@ -47,6 +47,7 @@ TcpTransport::TcpTransport(const ServiceLocator* serviceLocator)
           listenSocket(-1),
           acceptHandler(),
           sockets(),
+          nextSocketId(100),
           serverRpcPool()
 {
     if (serviceLocator == NULL)
@@ -234,11 +235,11 @@ TcpTransport::ServerSocketHandler::ServerSocketHandler(int fd,
 }
 
 /**
- * This method is invoked by Dispatch when a client socket becomes readable
- * or writable.  It attempts to read incoming messages from the socket.  If
- * a full message is available, a TcpServerRpc object gets queued for service.
- * It also attempts to write responses to the socket (if there are responses
- * waiting for transmission).
+ * This method is invoked by Dispatch when a server's connection from a client
+ * becomes readable or writable.  It attempts to read incoming messages from
+ * the socket.  If a full message is available, a TcpServerRpc object gets
+ * queued for service.  It also attempts to write responses to the socket
+ * (if there are responses waiting for transmission).
  *
  * \param events
  *      Indicates whether the socket was readable, writable, or both
@@ -734,24 +735,31 @@ TcpTransport::ClientSocketHandler::handleFileEvent(int events)
 void
 TcpTransport::TcpServerRpc::sendReply()
 {
-    if (!socket->rpcsWaitingToReply.empty()) {
-        // Can't transmit the response yet; the socket is backed up.
-        socket->rpcsWaitingToReply.push_back(*this);
-        return;
+    // It's possible that our fd has been closed (or even reused for a
+    // new connection); if so, just discard the RPC without sending
+    // a response.
+    Socket* socket = transport->sockets[fd];
+    if ((socket != NULL) && (socket->id == socketId)) {
+        if (!socket->rpcsWaitingToReply.empty()) {
+            // Can't transmit the response yet; the socket is backed up.
+            socket->rpcsWaitingToReply.push_back(*this);
+            return;
+        }
+
+        // Try to transmit the response.
+        socket->bytesLeftToSend = TcpTransport::sendMessage(fd,
+                message.header.nonce, replyPayload, -1);
+        if (socket->bytesLeftToSend > 0) {
+            socket->rpcsWaitingToReply.push_back(*this);
+            socket->ioHandler.setEvents(Dispatch::FileEvent::READABLE |
+                    Dispatch::FileEvent::WRITABLE);
+            return;
+        }
     }
 
-    // Try to transmit the response.
-    socket->bytesLeftToSend = TcpTransport::sendMessage(fd,
-            message.header.nonce, replyPayload, -1);
-    if (socket->bytesLeftToSend > 0) {
-        socket->rpcsWaitingToReply.push_back(*this);
-        socket->ioHandler.setEvents(Dispatch::FileEvent::READABLE |
-                Dispatch::FileEvent::WRITABLE);
-        return;
-    }
     // The whole response was sent immediately (this should be the
-    // common case).  Delete the RPC object on the way out of this method.
-    ServerRpcPoolGuard<TcpServerRpc> suicide(transport->serverRpcPool, this);
+    // common case).  Recycle the RPC object.
+    transport->serverRpcPool.destroy(this);
 }
 
 // See Transport::ClientRpc::cancelCleanup for documentation.

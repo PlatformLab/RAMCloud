@@ -1054,6 +1054,65 @@ TEST_F(TcpTransportTest, ClientSocketHandler_ioError) {
             "Operation not permitted", message);
 }
 
+TEST_F(TcpTransportTest, sendReply_fdClosed) {
+    // Create a situation where the server shuts down a socket before
+    // an RPC response is sent.
+    TcpTransport server(locator);
+    TcpTransport client;
+    Transport::SessionRef session = client.getSession(*locator);
+    Buffer request1;
+    Buffer reply1;
+    request1.fillFromString("request1");
+    session->clientSend(&request1, &reply1);
+    TcpTransport::TcpServerRpc* serverRpc =
+            static_cast<TcpTransport::TcpServerRpc*>(
+            serviceManager->waitForRpc(1.0));
+    EXPECT_TRUE(serverRpc != NULL);
+    serverRpc->replyPayload.fillFromString("response1");
+    server.closeSocket(serverRpc->fd);
+    EXPECT_NO_THROW(serverRpc->sendReply());
+}
+
+TEST_F(TcpTransportTest, sendReply_fdReused) {
+    // Create a situation where the socket for an RPC has been closed
+    // and reused for a different connection before an RPC response is
+    // sent.
+    TcpTransport server(locator);
+    TcpTransport client;
+    Transport::SessionRef session = client.getSession(*locator);
+    Buffer request1;
+    Buffer reply1;
+    request1.fillFromString("request1");
+    session->clientSend(&request1, &reply1);
+    TcpTransport::TcpServerRpc* serverRpc1 =
+            static_cast<TcpTransport::TcpServerRpc*>(
+            serviceManager->waitForRpc(1.0));
+    EXPECT_TRUE(serverRpc1 != NULL);
+    serverRpc1->replyPayload.fillFromString("response1");
+
+    // First RPC is about to return.  Shut down its socket and
+    // create a new session that will reuse the same socket.
+    server.closeSocket(serverRpc1->fd);
+    session = NULL;
+    session = client.getSession(*locator);
+    Buffer request2;
+    Buffer reply2;
+    request2.fillFromString("request2");
+    Transport::ClientRpc* clientRpc2 = session->clientSend(&request2,
+            &reply2);
+    TcpTransport::TcpServerRpc* serverRpc2 =
+            static_cast<TcpTransport::TcpServerRpc*>(
+            serviceManager->waitForRpc(1.0));
+
+    // Attempt to send a reply, and make sure that it doesn't
+    // accidentally get sent to the wrong request.
+    serverRpc1->sendReply();
+    EXPECT_FALSE(TestUtil::waitForRpc(*clientRpc2, 5));
+
+    serverRpc2->sendReply();
+    EXPECT_TRUE(TestUtil::waitForRpc(*clientRpc2));
+}
+
 TEST_F(TcpTransportTest, sendReply) {
     // Generate 3 requests and respond to each.  Make the first response
     // short so it can be transmitted immediately; make the next response
