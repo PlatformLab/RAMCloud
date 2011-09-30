@@ -993,7 +993,7 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
                     recoverObj, i.getLength(), false, i.checksum());
                 ++metrics->master.objectAppendCount;
                 metrics->master.liveObjectBytes +=
-                    localObj->dataLength(i.getLength());
+                    recoverObj->dataLength(i.getLength());
 
                 // The TabletProfiler is updated asynchronously.
                 objectMap.replace(newObjHandle);
