@@ -24,6 +24,7 @@
 
 #include "BackupClient.h"
 #include "BackupService.h"
+#include "Context.h"
 #include "ShortMacros.h"
 #include "OptionParser.h"
 #include "MasterService.h"
@@ -37,162 +38,167 @@ static uint32_t replicas;
 
 int
 main(int argc, char *argv[])
-try
 {
     using namespace RAMCloud;
-
+    char locator[200] = "???";
     Context context(true);
     Context::Guard _(context);
+    try
+    {
+        ServerConfig masterConfig;
+        string masterTotalMemory, hashTableMemory;
 
-    ServerConfig masterConfig;
-    string masterTotalMemory, hashTableMemory;
+        BackupService::Config backupConfig;
+        bool inMemory;
+        uint32_t segmentCount;
+        string backupFile;
+        int backupStrategy;
 
-    BackupService::Config backupConfig;
-    bool inMemory;
-    uint32_t segmentCount;
-    string backupFile;
-    int backupStrategy;
+        bool masterOnly;
+        bool backupOnly;
 
-    bool masterOnly;
-    bool backupOnly;
+        OptionsDescription serverOptions("Server");
+        serverOptions.add_options()
+            ("backupInMemory,m",
+             ProgramOptions::bool_switch(&inMemory),
+             "Backup will store segment replicas in memory")
+            ("backupOnly,B",
+             ProgramOptions::bool_switch(&backupOnly),
+             "The server should run the backup service only (no master)")
+            ("backupStrategy",
+             ProgramOptions::value<int>(&backupStrategy)->
+               default_value(RANDOM_REFINE_AVG),
+             "0 random refine min, 1 random refine avg, 2 even distribution, "
+             "3 uniform random")
+            ("cpu,p",
+             ProgramOptions::value<int>(&cpu)->
+                default_value(-1),
+             "CPU mask to pin to")
+            ("file,f",
+             ProgramOptions::value<string>(&backupFile)->
+                default_value("/var/tmp/backup.log"),
+             "The file path to the backup storage.")
+            ("hashTableMemory,h",
+             ProgramOptions::value<string>(&hashTableMemory)->
+                default_value("10%"),
+             "Percentage or megabytes of master memory allocated to "
+             "the hash table")
+            ("masterOnly,M",
+             ProgramOptions::bool_switch(&masterOnly),
+             "The server should run the master service only (no backup)")
+            ("totalMasterMemory,t",
+             ProgramOptions::value<string>(&masterTotalMemory)->
+                default_value("10%"),
+             "Percentage or megabytes of system memory for master log & "
+             "hash table")
+            ("replicas,r",
+             ProgramOptions::value<uint32_t>(&replicas)->
+                default_value(0),
+             "Number of backup copies to make for each segment")
+            ("segments,s",
+             ProgramOptions::value<uint32_t>(&segmentCount)->
+                default_value(512),
+             "Number of segment frames in backup storage");
 
-    OptionsDescription serverOptions("Server");
-    serverOptions.add_options()
-        ("backupInMemory,m",
-         ProgramOptions::bool_switch(&inMemory),
-         "Backup will store segment replicas in memory")
-        ("backupOnly,B",
-         ProgramOptions::bool_switch(&backupOnly),
-         "The server should run the backup service only (no master)")
-        ("backupStrategy",
-         ProgramOptions::value<int>(&backupStrategy)->
-           default_value(RANDOM_REFINE_AVG),
-         "0 random refine min, 1 random refine avg, 2 even distribution, "
-         "3 uniform random")
-        ("cpu,p",
-         ProgramOptions::value<int>(&cpu)->
-            default_value(-1),
-         "CPU mask to pin to")
-        ("file,f",
-         ProgramOptions::value<string>(&backupFile)->
-            default_value("/var/tmp/backup.log"),
-         "The file path to the backup storage.")
-        ("hashTableMemory,h",
-         ProgramOptions::value<string>(&hashTableMemory)->
-            default_value("10%"),
-         "Percentage or megabytes of master memory allocated to the hash table")
-        ("masterOnly,M",
-         ProgramOptions::bool_switch(&masterOnly),
-         "The server should run the master service only (no backup)")
-        ("totalMasterMemory,t",
-         ProgramOptions::value<string>(&masterTotalMemory)->
-            default_value("10%"),
-         "Percentage or megabytes of system memory for master log & hash table")
-        ("replicas,r",
-         ProgramOptions::value<uint32_t>(&replicas)->
-            default_value(0),
-         "Number of backup copies to make for each segment")
-        ("segments,s",
-         ProgramOptions::value<uint32_t>(&segmentCount)->
-            default_value(512),
-         "Number of segment frames in backup storage");
+        OptionParser optionParser(serverOptions, argc, argv);
 
-    OptionParser optionParser(serverOptions, argc, argv);
+        // Log all the command-line arguments.
+        string args;
+        for (int i = 0; i < argc; i++) {
+            if (i != 0)
+                args.append(" ");
+            args.append(argv[i]);
+        }
+        LOG(NOTICE, "Command line: %s", args.c_str());
 
-    // Log all the command-line arguments.
-    string args;
-    for (int i = 0; i < argc; i++) {
-        if (i != 0)
-            args.append(" ");
-        args.append(argv[i]);
-    }
-    LOG(NOTICE, "Command line: %s", args.c_str());
+        if (masterOnly && backupOnly) {
+            DIE("Can't specify both -B and -M options");
+        }
 
-    if (masterOnly && backupOnly) {
-        DIE("Can't specify both -B and -M options");
-    }
-
-    const char* servicesInfo;
-    if (masterOnly)
-        servicesInfo = "master";
-    else if (backupOnly)
-        servicesInfo = "backup";
-    else
-        servicesInfo = "master and backup";
-
-    if (cpu != -1) {
-        if (!pinToCpu(cpu))
-            DIE("server: Couldn't pin to core %d", cpu);
-        LOG(DEBUG, "server: Pinned to core %d", cpu);
-    }
-
-    Context::get().transportManager->initialize(
-            optionParser.options.getLocalLocator().c_str());
-    LOG(NOTICE, "%s: Listening on %s", servicesInfo,
-        Context::get().transportManager->getListeningLocatorsString().c_str());
-    CoordinatorClient coordinator(
-        optionParser.options.getCoordinatorLocator().c_str());
-
-    Tub<MasterService> masterService;
-    if (!backupOnly) {
-        masterConfig.coordinatorLocator =
-                optionParser.options.getCoordinatorLocator();
-        masterConfig.localLocator =
-                Context::get().transportManager->getListeningLocatorsString();
-        LOG(NOTICE, "Using %u backups", replicas);
-        MasterService::sizeLogAndHashTable(masterTotalMemory,
-                                          hashTableMemory, &masterConfig);
-        masterService.construct(masterConfig, &coordinator, replicas);
-        Context::get().serviceManager->
-            addService(*masterService, MASTER_SERVICE);
-    }
-
-    std::unique_ptr<BackupStorage> storage;
-    Tub<BackupService> backupService;
-    if (!masterOnly) {
-        backupConfig.coordinatorLocator =
-                optionParser.options.getCoordinatorLocator();
-        backupConfig.localLocator =
-                Context::get().transportManager->getListeningLocatorsString();
-        backupConfig.backupStrategy = static_cast<BackupStrategy>(
-                backupStrategy);
-        if (inMemory)
-            storage.reset(new InMemoryStorage(Segment::SEGMENT_SIZE,
-                                              segmentCount));
+        const char* servicesInfo;
+        if (masterOnly)
+            servicesInfo = "master";
+        else if (backupOnly)
+            servicesInfo = "backup";
         else
-            storage.reset(new SingleFileStorage(Segment::SEGMENT_SIZE,
-                                                segmentCount,
-                                                backupFile.c_str(),
-                                                O_DIRECT | O_SYNC));
-        backupService.construct(backupConfig, *storage);
-        backupService->benchmark();
-        Context::get().serviceManager
-            ->addService(*backupService, BACKUP_SERVICE);
+            servicesInfo = "master and backup";
+
+        if (cpu != -1) {
+            if (!pinToCpu(cpu))
+                DIE("server: Couldn't pin to core %d", cpu);
+            LOG(DEBUG, "server: Pinned to core %d", cpu);
+        }
+
+        Context::get().transportManager->initialize(
+                optionParser.options.getLocalLocator().c_str());
+        LOG(NOTICE, "%s: Listening on %s", servicesInfo, Context::get().
+                transportManager->getListeningLocatorsString().c_str());
+        snprintf(locator, sizeof(locator), "%s", Context::get().
+                transportManager->getListeningLocatorsString().c_str());
+        CoordinatorClient coordinator(
+            optionParser.options.getCoordinatorLocator().c_str());
+
+        Tub<MasterService> masterService;
+        if (!backupOnly) {
+            masterConfig.coordinatorLocator =
+                    optionParser.options.getCoordinatorLocator();
+            masterConfig.localLocator = Context::get().
+                    transportManager->getListeningLocatorsString();
+            LOG(NOTICE, "Using %u backups", replicas);
+            MasterService::sizeLogAndHashTable(masterTotalMemory,
+                                              hashTableMemory, &masterConfig);
+            masterService.construct(masterConfig, &coordinator, replicas);
+            Context::get().serviceManager->
+                addService(*masterService, MASTER_SERVICE);
+        }
+
+        std::unique_ptr<BackupStorage> storage;
+        Tub<BackupService> backupService;
+        if (!masterOnly) {
+            backupConfig.coordinatorLocator =
+                    optionParser.options.getCoordinatorLocator();
+            backupConfig.localLocator = Context::get().
+                    transportManager->getListeningLocatorsString();
+            backupConfig.backupStrategy = static_cast<BackupStrategy>(
+                    backupStrategy);
+            if (inMemory)
+                storage.reset(new InMemoryStorage(Segment::SEGMENT_SIZE,
+                                                  segmentCount));
+            else
+                storage.reset(new SingleFileStorage(Segment::SEGMENT_SIZE,
+                                                    segmentCount,
+                                                    backupFile.c_str(),
+                                                    O_DIRECT | O_SYNC));
+            backupService.construct(backupConfig, *storage);
+            backupService->benchmark();
+            Context::get().serviceManager
+                ->addService(*backupService, BACKUP_SERVICE);
+        }
+        PingService pingService;
+        Context::get().serviceManager->addService(pingService, PING_SERVICE);
+
+        // Only pin down memory _after_ users of LargeBlockOfMemory have
+        // obtained their allocations (since LBOM probes are much slower if
+        // the memory needs to be pinned during mmap).
+        pinAllMemory();
+
+        // Enlist with the coordinator just before dedicating this thread
+        // to RPC dispatch. This reduces the window of being unavailable to
+        // service RPCs after enlisting with the coordinator (which can
+        // lead to session open timeouts).
+        if (masterService)
+            masterService->init();
+        if (backupService)
+            backupService->init();
+        Dispatch& dispatch = *Context::get().dispatch;
+        while (true) {
+            dispatch.poll();
+        }
+
+        return 0;
+    } catch (std::exception& e) {
+        using namespace RAMCloud;
+        LOG(ERROR, "Fatal error in server at %s: %s", locator, e.what());
+        return 1;
     }
-    PingService pingService;
-    Context::get().serviceManager->addService(pingService, PING_SERVICE);
-
-    // Only pin down memory _after_ users of LargeBlockOfMemory have obtained
-    // their allocations (since LBOM probes are much slower if the memory
-    // needs to be pinned during mmap).
-    pinAllMemory();
-
-    // Enlist with the coordinator just before dedicating this thread to RPC
-    // dispatch. This reduces the window of being unavailable to service RPCs
-    // after enlisting with the coordinator (which can lead to session open
-    // timeouts).
-    if (masterService)
-        masterService->init();
-    if (backupService)
-        backupService->init();
-    Dispatch& dispatch = *Context::get().dispatch;
-    while (true) {
-        dispatch.poll();
-    }
-
-    return 0;
-} catch (std::exception& e) {
-    using namespace RAMCloud;
-    LOG(ERROR, "server: %s", e.what());
-    return 1;
 }
