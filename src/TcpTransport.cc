@@ -520,8 +520,14 @@ TcpTransport::IncomingMessage::readMessage(int fd) {
  *
  * \param serviceLocator
  *      Identifies the server to which RPCs on this session will be sent.
+ * \param pingMs
+ *      A reasonable upper-bound on how long it should take servers to
+ *      respond to requests; if no response has been received within this
+ *      time then we will send a ping RPC to make sure the server is alive.
+ *      This value deviates from the default only during tests.
  */
-TcpTransport::TcpSession::TcpSession(const ServiceLocator& serviceLocator)
+TcpTransport::TcpSession::TcpSession(const ServiceLocator& serviceLocator,
+        int pingMs)
         : address(serviceLocator)
         , fd(-1), serial(1)
         , rpcsWaitingToSend()
@@ -531,7 +537,7 @@ TcpTransport::TcpSession::TcpSession(const ServiceLocator& serviceLocator)
         , message()
         , clientIoHandler()
         , errorInfo()
-        , alarm(*Context::get().sessionAlarmTimer, *this)
+        , alarm(*Context::get().sessionAlarmTimer, *this, pingMs)
 {
     fd = sys->socket(PF_INET, SOCK_STREAM, 0);
     if (fd == -1) {
@@ -697,16 +703,13 @@ TcpTransport::ClientSocketHandler::handleFileEvent(int events)
             }
         }
         if (events & Dispatch::FileEvent::WRITABLE) {
-            // We should only get here if an RPC could not be transmitted in
-            // its entirety because it would have blocked on I/O.
-            assert(!session->rpcsWaitingToSend.empty());
-            while (true) {
+            while (!session->rpcsWaitingToSend.empty()) {
                 TcpClientRpc& rpc = session->rpcsWaitingToSend.front();
                 session->bytesLeftToSend = TcpTransport::sendMessage(
                         session->fd, rpc.nonce, *(rpc.request),
                         session->bytesLeftToSend);
                 if (session->bytesLeftToSend != 0) {
-                    break;
+                    return;
                 }
                 // The current RPC is finished; start the next one, if
                 // there is one.
@@ -714,11 +717,8 @@ TcpTransport::ClientSocketHandler::handleFileEvent(int events)
                 session->rpcsWaitingForResponse.push_back(rpc);
                 rpc.sent = true;
                 session->bytesLeftToSend = -1;
-                if (session->rpcsWaitingToSend.empty()) {
-                    setEvents(Dispatch::FileEvent::READABLE);
-                    break;
-                }
             }
+            setEvents(Dispatch::FileEvent::READABLE);
         }
     } catch (TcpTransportEof& e) {
         // Close the session's socket in order to prevent an infinite loop of

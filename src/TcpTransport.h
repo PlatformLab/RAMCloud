@@ -39,6 +39,7 @@ namespace RAMCloud {
  */
 class TcpTransport : public Transport {
   public:
+
     explicit TcpTransport(const ServiceLocator* serviceLocator = NULL);
     ~TcpTransport();
     SessionRef getSession(const ServiceLocator& serviceLocator) {
@@ -242,6 +243,12 @@ class TcpTransport : public Transport {
         DISALLOW_COPY_AND_ASSIGN(ClientSocketHandler);
     };
 
+    // How long to wait before sending a ping to ensure that a server is
+    // alive.  The current value for this was chosen somewhat subjectively
+    // in 10/2011: TCP seems to incur occasional delays of 10s of ms, which
+    // makes the default provided by SessionAlarm too short.
+    static const int DEFAULT_PING_MS = 50;
+
     /**
      * The TCP implementation of Sessions (stored on a client to manage its
      * interactions with a particular server).
@@ -252,7 +259,8 @@ class TcpTransport : public Transport {
       friend class TcpClientRpc;
       friend class ClientSocketHandler;
       public:
-        explicit TcpSession(const ServiceLocator& serviceLocator);
+        explicit TcpSession(const ServiceLocator& serviceLocator,
+                int pingMs = DEFAULT_PING_MS);
         ~TcpSession();
         virtual void abort(const char* message);
         ClientRpc* clientSend(Buffer* request, Buffer* reply)
