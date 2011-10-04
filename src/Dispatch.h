@@ -102,7 +102,6 @@ class Dispatch {
         /// after Dispatch::reset).
         int slot;
         friend class Dispatch;
-        friend class DispatchTest;
         DISALLOW_COPY_AND_ASSIGN(Poller);
     };
 
@@ -163,7 +162,6 @@ class Dispatch {
 
       PRIVATE:
         friend class Dispatch;
-        friend class DispatchTest;
         DISALLOW_COPY_AND_ASSIGN(File);
     };
 
@@ -203,7 +201,6 @@ class Dispatch {
         int slot;
 
         friend class Dispatch;
-        friend class DispatchTest;
         DISALLOW_COPY_AND_ASSIGN(Timer);
     };
 
@@ -321,7 +318,6 @@ class Dispatch {
     friend class Poller;
     friend class File;
     friend class Timer;
-    friend class DispatchTest;
     DISALLOW_COPY_AND_ASSIGN(Dispatch);
 };
 

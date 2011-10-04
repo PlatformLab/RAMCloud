@@ -399,7 +399,7 @@ struct AutoMaster {
     {
         config.coordinatorLocator = "mock:host=coordinator";
         config.localLocator = locator;
-        MasterService::sizeLogAndHashTable("16", "1", &config);
+        MasterService::sizeLogAndHashTable("32", "1", &config);
         master = new MasterService(config, &coordinator, 0);
         transport.addService(*master, locator, MASTER_SERVICE);
         master->init();
@@ -478,15 +478,15 @@ TEST_F(RecoveryTest, start) {
             for (uint32_t partId = 0; partId < 2; ++partId) {
                 {
                     Buffer throwAway;
-                    backup1->getRecoveryData(99, 88, 0, throwAway);
+                    backup1->getRecoveryData(99, 88, partId, throwAway);
                 }
                 {
                     Buffer throwAway;
-                    backup1->getRecoveryData(99, 89, 0, throwAway);
+                    backup1->getRecoveryData(99, 89, partId, throwAway);
                 }
                 {
                     Buffer throwAway;
-                    backup2->getRecoveryData(99, 88, 0, throwAway);
+                    backup2->getRecoveryData(99, 88, partId, throwAway);
                 }
             }
         } catch (const RetryException& e) {

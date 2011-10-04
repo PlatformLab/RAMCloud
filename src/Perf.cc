@@ -227,6 +227,60 @@ double getThreadId()
     return Cycles::toSeconds(stop - start)/count;
 }
 
+// Object for the next test.
+class TestObject {
+  public:
+    TestObject(uint64_t key1, uint64_t key2)
+        : _key1(key1), _key2(key2)
+    {
+    }
+    uint64_t key1() { return _key1; }
+    uint64_t key2() { return _key2; }
+    uint64_t _key1;
+    uint64_t _key2;
+} __attribute__((aligned(64)));
+
+// Measure hash table lookup performance. Prefetching can
+// be enabled to measure its effect. This test is a lot
+// slower than the others (takes several seconds) due to the
+// set up cost, but we really need a large hash table to
+// avoid caching.
+template<int prefetchBucketAhead = 0, int prefetchReferentAhead = 0>
+double hashTableLookup()
+{
+    uint64_t numBuckets = 16777216;       // 16M * 64 = 1GB
+    int numLookups = 1000000;
+    HashTable<TestObject*> hashTable(numBuckets);
+
+    // fill with some objects to look up (enough to blow caches)
+    for (int i = 0; i < numLookups; i++)
+        hashTable.replace(new TestObject(0, i));
+
+    PerfHelper::flushCache();
+
+    // now look up the objects again
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < numLookups; i++) {
+        if (prefetchBucketAhead) {
+            if (i + prefetchBucketAhead < numLookups)
+                hashTable.prefetchBucket(0, i + prefetchBucketAhead);
+        }
+        if (prefetchReferentAhead) {
+            if (i + prefetchReferentAhead < numLookups)
+                hashTable.prefetchReferent(0, i + prefetchReferentAhead);
+        }
+
+        hashTable.lookup(0, i);
+    }
+    uint64_t stop = Cycles::rdtsc();
+
+    // clean up
+    for (int i = 0; i < numLookups; i++)
+        delete hashTable.lookup(0, i);
+
+    return Cycles::toSeconds((stop - start) / numLookups);
+}
+
 // Measure the cost of an lfence instruction.
 double lfence()
 {
@@ -355,6 +409,37 @@ double perfCyclesToSeconds()
     return Cycles::toSeconds(stop - start)/count;
 }
 
+// Measure the cost of the prefetch instruction.
+double prefetch()
+{
+    uint64_t totalTicks = 0;
+    int count = 10;
+    char buf[16 * 64];
+
+    for (int i = 0; i < count; i++) {
+        PerfHelper::flushCache();
+        CycleCounter<uint64_t> ticks(&totalTicks);
+        prefetch(&buf[576], 64);
+        prefetch(&buf[0],   64);
+        prefetch(&buf[512], 64);
+        prefetch(&buf[960], 64);
+        prefetch(&buf[640], 64);
+        prefetch(&buf[896], 64);
+        prefetch(&buf[256], 64);
+        prefetch(&buf[704], 64);
+        prefetch(&buf[320], 64);
+        prefetch(&buf[384], 64);
+        prefetch(&buf[128], 64);
+        prefetch(&buf[448], 64);
+        prefetch(&buf[768], 64);
+        prefetch(&buf[832], 64);
+        prefetch(&buf[64],  64);
+        prefetch(&buf[192], 64);
+    }
+
+    return Cycles::toSeconds(totalTicks) / count / 16;
+}
+
 // Measure the cost of an sfence instruction.
 double sfence()
 {
@@ -371,10 +456,10 @@ double sfence()
 struct SegmentEntryLessThan {
   public:
     bool
-    operator()(const SegmentEntryHandle a, const SegmentEntryHandle b)
+    operator()(const std::pair<SegmentEntryHandle, uint32_t> a,
+               const std::pair<SegmentEntryHandle, uint32_t> b)
     {
-        return a->userData<Object>()->timestamp <
-               b->userData<Object>()->timestamp;
+        return a.second < b.second;
     }
 };
 
@@ -388,7 +473,7 @@ double segmentEntrySort()
     const int avgObjectSize = 100;
 
     DECLARE_OBJECT(obj, 2 * avgObjectSize);
-    vector<SegmentEntryHandle> entries;
+    vector<std::pair<SegmentEntryHandle, uint32_t>> entries;
 
     int count;
     for (count = 0; ; count++) {
@@ -406,7 +491,8 @@ double segmentEntrySort()
     // appears to take about 1/8th the time
     for (SegmentIterator i(&s); !i.isDone(); i.next()) {
         if (i.getType() == LOG_ENTRY_TYPE_OBJ)
-            entries.push_back(i.getHandle());
+            entries.push_back(std::pair<SegmentEntryHandle, uint32_t>(
+                i.getHandle(), i.getHandle()->userData<Object>()->timestamp));
     }
 
     // the rest is, unsurprisingly, here
@@ -417,6 +503,57 @@ double segmentEntrySort()
     free(block);
 
     return Cycles::toSeconds(stop - start);
+}
+
+// Measure the time it takes to iterate over the entries in
+// a single Segment.
+template<uint32_t minObjectBytes, uint32_t maxObjectBytes>
+double segmentIterator()
+{
+    uint64_t numObjects = 0;
+    uint64_t nextObjId = 0;
+    Segment *segment;
+
+    // build a segment
+    void *p = Memory::xmemalign(HERE,
+        Segment::SEGMENT_SIZE, Segment::SEGMENT_SIZE);
+    segment = new Segment(0, 0, p, Segment::SEGMENT_SIZE, NULL);
+    while (1) {
+        uint32_t size = minObjectBytes;
+        if (minObjectBytes != maxObjectBytes) {
+            uint64_t rnd = generateRandom();
+            size += downCast<uint32_t>(rnd % (maxObjectBytes - minObjectBytes));
+        }
+        DECLARE_OBJECT(o, size);
+        o->id.objectId = nextObjId++;
+        o->id.tableId = 0;
+        o->version = 0;
+        const void *so = segment->append(LOG_ENTRY_TYPE_OBJ,
+                                         o,
+                                         o->objectLength(size));
+        if (so == NULL)
+            break;
+        numObjects++;
+    }
+    segment->close();
+
+    // scan through the segment
+    uint64_t totalBytes = 0;
+    uint64_t totalObjects = 0;
+    CycleCounter<uint64_t> counter;
+    SegmentIterator si(segment);
+    while (!si.isDone()) {
+        totalBytes += si.getLength();
+        totalObjects++;
+        si.next();
+    }
+    double time = Cycles::toSeconds(counter.stop());
+
+    // clean up
+    free(const_cast<void *>(segment->getBaseAddress()));
+    delete segment;
+
+    return time;
 }
 
 // Measure the cost of acquiring and releasing a SpinLock (assuming the
@@ -557,6 +694,10 @@ TestInfo tests[] = {
      "Call a function that has not been inlined"},
     {"getThreadId", getThreadId,
      "Retrieve thread id via ThreadId::get"},
+    {"hashTableLookup", hashTableLookup,
+     "Key lookup in a 1GB HashTable"},
+    {"hashTableLookupPf", hashTableLookup<20, 10>,
+     "Key lookup in a 1GB HashTable with prefetching"},
     {"lfence", lfence,
      "Lfence instruction"},
     {"lockInDispThrd", lockInDispThrd,
@@ -567,8 +708,12 @@ TestInfo tests[] = {
      "Cost of new allocations from an ObjectPool (no destroys)"},
     {"objectPoolRealloc", objectPoolAlloc<int, true>,
      "Cost of ObjectPool allocation after destroying an object"},
+    {"prefetch", prefetch,
+     "Prefetch instruction"},
     {"segmentEntrySort", segmentEntrySort,
      "Sort a Segment full of avg. 100-byte Objects by age"},
+    {"segmentIterator", segmentIterator<50, 150>,
+     "Iterate a Segment full of avg. 100-byte Objects"},
     {"sfence", sfence,
      "Sfence instruction"},
     {"spinLock", spinLock,
@@ -596,13 +741,13 @@ void runTest(TestInfo& info)
     double secs = info.func();
     int width = printf("%-18s ", info.name);
     if (secs < 1.0e-06) {
-        width += printf("%.2fns", 1e09*secs);
+        width += printf("%8.2fns", 1e09*secs);
     } else if (secs < 1.0e-03) {
-        width += printf("%.2fus", 1e06*secs);
+        width += printf("%8.2fus", 1e06*secs);
     } else if (secs < 1.0) {
-        width += printf("%.2fms", 1e03*secs);
+        width += printf("%8.2fms", 1e03*secs);
     } else {
-        width += printf("%.2fs", secs);
+        width += printf("%8.2fs", secs);
     }
     printf("%*s %s\n", 26-width, "", info.description);
 }

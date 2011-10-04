@@ -313,9 +313,6 @@ class MasterService : public Service {
                      uint32_t dataOffset, uint32_t dataLength,
                      uint64_t* newVersion, bool async)
         __attribute__((warn_unused_result));
-    friend class MasterServiceTest;
-    friend class MasterRecoverTest;
-    friend class CoordinatorServiceTest;
     friend class RecoverSegmentBenchmark;
     DISALLOW_COPY_AND_ASSIGN(MasterService);
 };

@@ -831,8 +831,6 @@ class HashTable {
             ue.ptr   = this->value         & 0x00007fffffffffffUL;
             return ue;
         }
-
-        friend class HashTableEntryTest;
     };
     static_assert(sizeof(Entry) == 8, "HashTable::Entry is not 8 bytes");
 
@@ -888,8 +886,6 @@ class HashTable {
      */
     PerfCounters perfCounters;
 
-    friend class HashTableEntryTest;
-    friend class HashTableTest;
     friend void hashTableBenchmark(uint64_t nkeys, uint64_t nlines);
     DISALLOW_COPY_AND_ASSIGN(HashTable);
 };

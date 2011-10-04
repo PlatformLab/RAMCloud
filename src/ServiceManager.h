@@ -106,7 +106,6 @@ class ServiceManager : Dispatch::Poller {
     static Syscall *sys;
 
     friend class Worker;
-    friend class ServiceManagerTest;
     DISALLOW_COPY_AND_ASSIGN(ServiceManager);
 };
 
@@ -182,7 +181,6 @@ class Worker {
 
   private:
     friend class ServiceManager;
-    friend class ServiceManagerTest;
     DISALLOW_COPY_AND_ASSIGN(Worker);
 };
 

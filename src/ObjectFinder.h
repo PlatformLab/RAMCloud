@@ -81,7 +81,6 @@ class ObjectFinder {
      */
     std::unique_ptr<ObjectFinder::TabletMapFetcher> tabletMapFetcher;
 
-    friend class ObjectFinderTest;
     DISALLOW_COPY_AND_ASSIGN(ObjectFinder);
 };
 

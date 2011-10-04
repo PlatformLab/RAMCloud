@@ -67,8 +67,6 @@ class FailureDetector {
         std::list<TimeoutEntry> entries;    /// Timeouts in non-descending order
         uint64_t timeoutUsecs;              /// Common timeout for all entries
 
-        friend class FailureDetectorTest;
-
         DISALLOW_COPY_AND_ASSIGN(TimeoutQueue);
     };
 
@@ -122,8 +120,6 @@ class FailureDetector {
     void alertCoordinator(TimeoutQueue::TimeoutEntry* te);
     void processPacket(int fd);
     void requestServerList();
-
-    friend class FailureDetectorTest;
 
     DISALLOW_COPY_AND_ASSIGN(FailureDetector);
 };

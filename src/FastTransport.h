@@ -120,9 +120,6 @@ class FastTransport : public Transport {
       PRIVATE:
         friend class FastTransport;
         friend class ClientSession;
-        friend class FastTransportTest;
-        friend class ClientRpcTest;
-        friend class ClientSessionTest;
         DISALLOW_COPY_AND_ASSIGN(ClientRpc);
     };
 
@@ -151,8 +148,6 @@ class FastTransport : public Transport {
         uint8_t channelId;
 
         friend class FastTransport;
-        friend class ServerSessionTest;
-        friend class FastTransportTest;
         DISALLOW_COPY_AND_ASSIGN(ServerRpc);
     };
 
@@ -528,8 +523,6 @@ class FastTransport : public Transport {
         /// server side and timeouts are handled by the client)
         bool useTimer;
 
-        friend class FastTransportTest;
-        friend class InboundMessageTest;
         DISALLOW_COPY_AND_ASSIGN(InboundMessage);
     };
 
@@ -640,8 +633,6 @@ class FastTransport : public Transport {
         /// server side and timeouts are handled by the client)
         bool useTimer;
 
-        friend class ClientSessionTest;
-        friend class OutboundMessageTest;
         DISALLOW_COPY_AND_ASSIGN(OutboundMessage);
     };
 
@@ -763,7 +754,6 @@ class FastTransport : public Transport {
         uint64_t token;
 
       PRIVATE:
-        friend class PollerTest;
         DISALLOW_COPY_AND_ASSIGN(Session);
     };
 
@@ -897,11 +887,8 @@ class FastTransport : public Transport {
          */
         uint32_t clientSessionHint;
 
-        friend class FastTransportTest;
-        friend class PollerTest;
         // template friend doesn't work - no idea why
         template <typename T> friend class SessionTable;
-        friend class ServerSessionTest;
         DISALLOW_COPY_AND_ASSIGN(ServerSession);
     };
 
@@ -1069,11 +1056,6 @@ class FastTransport : public Transport {
         void reassignChannel(ClientChannel* channel);
 
         template <typename T> friend class SessionTable;
-        friend class FastTransportTest;
-        friend class ClientSessionTest;
-        friend class ClientRpcTest;
-        friend class InboundMessageTest;
-        friend class OutboundMessageTest;
         DISALLOW_COPY_AND_ASSIGN(ClientSession);
     };
 
@@ -1240,7 +1222,6 @@ class FastTransport : public Transport {
         /// The transport to pass to the constructor of newly created Sessions.
         FastTransport* const transport;
 
-        friend class SessionTableTest;
         DISALLOW_COPY_AND_ASSIGN(SessionTable);
     };
 
@@ -1268,14 +1249,6 @@ class FastTransport : public Transport {
     // If non-zero, overrides the value of sessionTimeoutCycles during tests.
     static uint64_t sessionTimeoutCyclesOverride;
 
-    friend class FastTransportTest;
-    friend class PollerTest;
-    friend class ClientRpcTest;
-    friend class SessionTableTest;
-    friend class InboundMessageTest;
-    friend class OutboundMessageTest;
-    friend class ServerSessionTest;
-    friend class ClientSessionTest;
     friend class MockReceived;
     friend class Services;
     friend class Poller;

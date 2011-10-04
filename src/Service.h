@@ -76,7 +76,6 @@ class Service {
         bool replied;
 
         friend class ServiceManager;
-        friend class ServiceTest;
         DISALLOW_COPY_AND_ASSIGN(Rpc);
     };
 
@@ -138,7 +137,6 @@ class Service {
     }
 
   private:
-    friend class ServiceTest;
     friend class BindTransport;
     DISALLOW_COPY_AND_ASSIGN(Service);
 };

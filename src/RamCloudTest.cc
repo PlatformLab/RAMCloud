@@ -58,12 +58,12 @@ class RamCloudTest : public ::testing::Test {
         , tableId1(-1)
         , tableId2(-2)
     {
-        masterConfig1.coordinatorLocator = "mock:host=coordinatorService";
+        masterConfig1.coordinatorLocator = "mock:host=coordinator";
         masterConfig1.localLocator = "mock:host=master1";
-        MasterService::sizeLogAndHashTable("16", "1", &masterConfig1);
+        MasterService::sizeLogAndHashTable("32", "1", &masterConfig1);
         masterConfig2.coordinatorLocator = "mock:host=coordinator";
         masterConfig2.localLocator = "mock:host=master2";
-        MasterService::sizeLogAndHashTable("16", "1", &masterConfig2);
+        MasterService::sizeLogAndHashTable("32", "1", &masterConfig2);
 
         Context::get().transportManager->registerMock(&transport);
         transport.addService(coordinatorService,

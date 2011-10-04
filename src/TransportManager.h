@@ -167,7 +167,6 @@ class TransportManager {
      */
     SpinLock mutex;
 
-    friend class TransportManagerTest;
     DISALLOW_COPY_AND_ASSIGN(TransportManager);
 };
 
