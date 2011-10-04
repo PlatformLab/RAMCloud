@@ -797,18 +797,12 @@ Log::getFromFreeList(bool mayUseLastSegment)
                 "(last one is reserved for the next head)");
         }
 
-        // The next two checks essentially ensure that an emergency cleaning
+        // The next check essentially ensures that an emergency cleaning
         // pass has completed before we permit the last segment to be used.
         // The cleaner will guarantee that it generates enough segments to
         // both recoup the emergency segments used and to produce at least
         // one extra for the log to make forward progress.
-#if 0
-        if (cleanablePendingDigestList.size() == 0) {
-            throw LogOutOfMemoryException(HERE, "Log is out of space "
-                "(cannot allocate last segment because doing so would "
-                "free no additional segments in the future)");
-        }
-#endif
+
         if (emergencyCleanerList.size() +
           freePendingDigestAndReferenceList.size() <
           (EMERGENCY_CLEAN_SEGMENTS + 1)) {
@@ -816,8 +810,6 @@ Log::getFromFreeList(bool mayUseLastSegment)
                 "(cannot allocate last segment because doing so would not "
                 "replenish the emergency pool)");
         }
-
-        assert(cleanablePendingDigestList.size() != 0);
     }
 
     void *p = freeList.back();

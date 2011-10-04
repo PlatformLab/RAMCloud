@@ -115,7 +115,7 @@ TEST_F(SegmentTest, constructor) {
     // be sure we count the header written in the LogStats
     Tub<uint64_t> serverId2;
     serverId2.construct(0);
-    Log l(serverId2, 8192, 8192, 4298);
+    Log l(serverId2, 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
     Segment s2(&l, 0, alignedBuf, sizeof(alignedBuf), NULL,
                 LOG_ENTRY_TYPE_INVALID, NULL, 0);
     EXPECT_EQ(s2.getLiveBytes(), s2.tail);
@@ -267,7 +267,7 @@ TEST_F(SegmentTest, free) {
     // create a fake log so we can use the timestamp callback
     // (the Log-less segment constructor won't result in the
     // spaceTimeSum value being altered otherwise.
-    Log l({0}, 8192, 8192, 4298);
+    Log l({0}, 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
     l.registerType(LOG_ENTRY_TYPE_OBJ,
                    true,
                    livenessCallback, NULL,
@@ -289,7 +289,7 @@ TEST_F(SegmentTest, free) {
 }
 
 TEST_F(SegmentTest, setImplicitlyFreedCounts) {
-    Log l({0}, 8192, 8192, 4298);
+    Log l({0}, 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
     l.registerType(LOG_ENTRY_TYPE_OBJ,
                    true,
                    livenessCallback, NULL,
@@ -380,7 +380,7 @@ TEST_F(SegmentTest, forceAppendBlob) {
 
     Tub<uint64_t> serverId;
     serverId.construct(0);
-    Log l(serverId, 8192, 8192, 4298);
+    Log l(serverId, 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
     Segment s(&l, 445566, alignedBuf, sizeof(alignedBuf), NULL,
                 LOG_ENTRY_TYPE_INVALID, NULL, 0);
     uint64_t bytesBeforeAppend = s.getLiveBytes();
@@ -396,7 +396,7 @@ TEST_F(SegmentTest, forceAppendBlob) {
 
 TEST_F(SegmentTest, forceAppendWithEntry) {
     // create a fake log; see comment in test_free
-    Log l({0}, 8192, 8192, 4298);
+    Log l({0}, 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
     l.registerType(LOG_ENTRY_TYPE_OBJ,
                    true,
                    livenessCallback, NULL,
@@ -470,32 +470,32 @@ TEST_F(SegmentTest, getSegmentBaseAddress) {
 }
 
 TEST_F(SegmentTest, maximumSegmentsNeededForEntries) {
-    EXPECT_EQ(1,
+    EXPECT_EQ(1U,
         Segment::maximumSegmentsNeededForEntries(6,
                                                  6 * 1024 * 1024,
                                                  1 * 1024 * 1024,
                                                  8 * 1024 * 1024));
-    EXPECT_EQ(2,
+    EXPECT_EQ(2U,
         Segment::maximumSegmentsNeededForEntries(7,
                                                  7 * 1024 * 1024,
                                                  1 * 1024 * 1024,
                                                  8 * 1024 * 1024));
-    EXPECT_EQ(2,
+    EXPECT_EQ(2U,
         Segment::maximumSegmentsNeededForEntries(8,
                                                  8 * 1024 * 1024,
                                                  1 * 1024 * 1024,
                                                  8 * 1024 * 1024));
-    EXPECT_EQ(2,
+    EXPECT_EQ(2U,
         Segment::maximumSegmentsNeededForEntries(9,
                                                  9 * 1024 * 1024,
                                                  1 * 1024 * 1024,
                                                  8 * 1024 * 1024));
-    EXPECT_EQ(3,
+    EXPECT_EQ(3U,
         Segment::maximumSegmentsNeededForEntries(14,
                                                  14 * 1024 * 1024,
                                                   1 * 1024 * 1024,
                                                   8 * 1024 * 1024));
-    EXPECT_EQ(101,
+    EXPECT_EQ(101U,
         Segment::maximumSegmentsNeededForEntries(700,
                                                  700 * 1024 * 1024,
                                                    1 * 1024 * 1024,

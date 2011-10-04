@@ -70,10 +70,30 @@ runIt(RamCloud* client,
 {
     char objBuf[objectSize];
 
+    uint64_t bytesWritten = 0;
+    uint64_t objectsWritten = 0;
+    uint64_t startTime = Cycles::rdtsc();
+    double lastUpdateTime = 0;
+
     for (uint64_t i = 0; i < maxId * 20; i++) {
         uint64_t objId = nextId(maxId);
         // XXX- u32 table ids!!
         client->write((uint32_t)tableId, objId, objBuf, objectSize);
+
+        bytesWritten += objectSize;
+        objectsWritten++;
+
+        double totalTime = Cycles::toSeconds(Cycles::rdtsc() - startTime);
+        if (totalTime >= 1 + lastUpdateTime) {
+            lastUpdateTime = totalTime;
+            printf("\r%60s", "");
+            printf("\r%lu objects, %.2f MB  (%.1f objs/sec, %.1f MB/sec)",
+                objectsWritten,
+                static_cast<double>(bytesWritten) / 1024 / 1024,
+                static_cast<double>(objectsWritten) / totalTime,
+                static_cast<double>(bytesWritten) / totalTime / 1024 / 1024);
+            fflush(stdout);
+        }
     }
 }
 

@@ -227,7 +227,9 @@ LogCleaner::dumpCleaningPassStats(PerfCounters& before)
         delta.entriesRolledBack);
     LOG(NOTICE, "    Average Entry Size + Metadata:  %9lu   "
         "(%lu bytes overall)",
+        (delta.entriesLivenessChecked == 0) ? 0 :
         delta.liveEntryBytes / delta.entriesLivenessChecked,
+        (perfCounters.entriesLivenessChecked == 0) ? 0 :
         perfCounters.liveEntryBytes / perfCounters.entriesLivenessChecked);
     LOG(NOTICE, "    Cleaned Segment Utilisation:    %9.2f%%  (%.2f%% avg)",
         100.0 * static_cast<double>(delta.liveEntriesRelocated) /
@@ -357,8 +359,10 @@ LogCleaner::getCleanSegmentMemory(size_t segmentsNeeded,
                                   std::vector<void*>& cleanSegmentMemory)
 {
     try {
-        for (size_t i = 0; i < segmentsNeeded; i++)
-            cleanSegmentMemory.push_back(log->getSegmentMemoryForCleaning(false));
+        for (size_t i = 0; i < segmentsNeeded; i++) {
+            cleanSegmentMemory.push_back(
+                log->getSegmentMemoryForCleaning(false));
+        }
         return true;
     } catch (LogOutOfMemoryException& e) {
         // We didn't get enough. Return any allocated segment memory to the log.
@@ -624,6 +628,9 @@ LogCleaner::getSegmentsToClean(SegmentVector& segmentsToClean)
         size_t segmentIndex = cleanableSegments.size() - i - 1;
         segmentsToClean.push_back(cleanableSegments[segmentIndex].segment);
     }
+
+    // For unit testing's benefit.
+    LOG(DEBUG, "writeCost %.2f", cost);
 }
 
 /**
@@ -899,7 +906,8 @@ LogCleaner::moveLiveData(LiveSegmentEntryHandleVector& liveData,
     }
 
     // End game: try to get good utilisation out of the last Segment.
-    moveToFillSegment(segmentsAdded.back(), segmentsToClean);
+    if (segmentsAdded.size() > 0)
+        moveToFillSegment(segmentsAdded.back(), segmentsToClean);
 
     // Close and sync all newly created Segments.
     CycleCounter<uint64_t> syncTicks(&perfCounters.closeAndSyncTicks);
@@ -952,15 +960,13 @@ LogCleaner::setUpNormalCleaningPass(LiveSegmentEntryHandleVector& liveEntries,
 
     liveEntries.reserve(segmentsToClean.size() *
         (log->getSegmentCapacity() / MIN_ENTRY_BYTES));
-    uint64_t liveEntryBytes = getSortedLiveEntries(segmentsToClean, liveEntries);
+    uint64_t liveEntryBytes = getSortedLiveEntries(segmentsToClean,
+                                                   liveEntries);
     size_t segmentsNeeded = Segment::maximumSegmentsNeededForEntries(
                                                 liveEntries.size(),
                                                 liveEntryBytes,
                                                 log->maximumBytesPerAppend,
                                                 log->getSegmentCapacity());
-
-    perfCounters.writeCostSum += writeCost(segmentsToClean.size() *
-        log->getSegmentCapacity(), liveEntryBytes);
 
     // Try to allocate the number of clean segments we'll need to complete
     // this pass up front. There's no guarantee that we'll have enough. If we
@@ -970,6 +976,9 @@ LogCleaner::setUpNormalCleaningPass(LiveSegmentEntryHandleVector& liveEntries,
         LOG(WARNING, "Cleaning pass failed: insufficient free log memory!");
         return false;
     }
+
+    perfCounters.writeCostSum += writeCost(segmentsToClean.size() *
+        log->getSegmentCapacity(), liveEntryBytes);
 
     // We're guaranteed to succeed in this cleaning pass. Remove the segments
     // we'll be cleaning and proceed.
@@ -1017,7 +1026,7 @@ LogCleaner::setUpEmergencyCleaningPass(
     while (1) {
         void* memoryBlock = log->getSegmentMemoryForCleaning(true);
         if (memoryBlock == NULL)
-            break; 
+            break;
         cleanSegmentMemory.push_back(memoryBlock);
     }
 
@@ -1036,7 +1045,6 @@ LogCleaner::setUpEmergencyCleaningPass(
         Segment* s = cleanableSegments[segmentIndex].segment;
         segmentsToClean.push_back(s);
 
-        liveEntries.clear();
         totalCapacity += s->getCapacity();
         totalLiveBytes += getLiveEntries(s, liveEntries);
         size_t segmentsNeeded = Segment::maximumSegmentsNeededForEntries(
@@ -1060,7 +1068,7 @@ LogCleaner::setUpEmergencyCleaningPass(
     }
 
     if (i == cleanableSegments.size()) {
-        LOG(WARNING, "Could not find any segments to clean. Memory truly " 
+        LOG(WARNING, "Could not find any segments to clean. Memory truly "
             "exhausted. Please move your data!");
         abort = true;
     }
@@ -1072,9 +1080,8 @@ LogCleaner::setUpEmergencyCleaningPass(
         getSortedLiveEntries(empty, liveEntries);
 
         // Be sure to remove the Segments we'll clean from the list.
-        for (i = 0; i < segmentsToClean.size(); i++) {
+        for (i = 0; i < segmentsToClean.size(); i++)
             cleanableSegments.pop_back();
-        }
 
         // Also, calculate and update our write cost stats while here.
         double cost = writeCost(totalCapacity, totalLiveBytes);
@@ -1084,7 +1091,7 @@ LogCleaner::setUpEmergencyCleaningPass(
     }
 
     // We can't do any work now, so clean up.
-    
+
     // Return the emergency memory to the log.
     SegmentVector empty;
     log->cleaningComplete(empty, cleanSegmentMemory);
@@ -1093,6 +1100,9 @@ LogCleaner::setUpEmergencyCleaningPass(
     // counts may not be accurate), so scan some segments to update the counts
     // for the next pass.
     for (i = 0; i < EMERGENCY_CLEANING_RANDOM_FREE_SPACE_SCANS; i++) {
+        if (cleanableSegments.size() == 0)
+            break;
+
         size_t indexA = generateRandom() % cleanableSegments.size();
         size_t indexB = generateRandom() % cleanableSegments.size();
 

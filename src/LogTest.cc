@@ -36,6 +36,9 @@ class LogTest : public ::testing::Test {
 };
 
 TEST_F(LogTest, constructor) {
+    // silence LogCleaner
+    TestLog::Enable _;
+
     Tub<uint64_t> serverId;
     serverId.construct(57);
     Log l(serverId, 2 * 8192, 8192, 4298);
@@ -44,7 +47,8 @@ TEST_F(LogTest, constructor) {
     EXPECT_EQ(2 * 8192U, l.logCapacity);
     EXPECT_EQ(8192U, l.segmentCapacity);
     EXPECT_EQ(4298U, l.maximumBytesPerAppend);
-    EXPECT_EQ(2U, l.freeList.size());
+    EXPECT_EQ(1U, l.freeList.size());
+    EXPECT_EQ(1U, l.emergencyCleanerList.size());
     EXPECT_EQ(0U, l.cleanableNewList.size());
     EXPECT_EQ(0U, l.cleanablePendingDigestList.size());
     EXPECT_EQ(0U, l.freePendingDigestAndReferenceList.size());
@@ -61,9 +65,12 @@ TEST_F(LogTest, constructor) {
 }
 
 TEST_F(LogTest, allocateHead_basics) {
+    // silence LogCleaner
+    TestLog::Enable _;
+
     Tub<uint64_t> serverId;
     serverId.construct(57);
-    Log l(serverId, 3 * 8192, 8192, 4298);
+    Log l(serverId, 4 * 8192, 8192, 4298);
 
     {
         l.allocateHead();
@@ -112,7 +119,7 @@ TEST_F(LogTest, allocateHead_basics) {
 TEST_F(LogTest, allocateHead_lists) {
     Tub<uint64_t> serverId;
     serverId.construct(57);
-    Log l(serverId, 5 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
+    Log l(serverId, 6 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
 
     Segment* cleaned = new Segment(&l, l.allocateSegmentId(),
         l.getFromFreeList(false), 8192, NULL, LOG_ENTRY_TYPE_UNINIT,
@@ -151,23 +158,50 @@ TEST_F(LogTest, allocateHead_lists) {
     // Segments allocated above are deallocated in the Log destructor.
 }
 
-TEST_F(LogTest, addToFreeList) {
+TEST_F(LogTest, locklessAddToFreeList) {
     Tub<uint64_t> serverId;
     serverId.construct(57);
-    Log l(serverId, 1 * 8192, 8192, 4298);
+    Log l(serverId, 2 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
 
-    void *p = Memory::xmemalign(HERE, l.segmentCapacity, l.segmentCapacity);
-    l.addToFreeList(p);
-    Segment s((uint64_t)0, 0, p, 8192);
-EXPECT_TRUE(false); /// XXX need to address emergencyCleanerList changes here and in cleaningComplete.
+    // Ensure set up as expected.
+    EXPECT_EQ(1U, l.freeList.size());
+    EXPECT_EQ(1U, l.emergencyCleanerList.size());
+    EXPECT_EQ(1U, Log::EMERGENCY_CLEAN_SEGMENTS);
+
+    // freeList.size() == 0 => goes on freeList
+    void* tmp1 = l.freeList.back();
+    l.freeList.pop_back();
+    void* tmp2 = l.emergencyCleanerList.back();
+    l.emergencyCleanerList.pop_back();
+    l.locklessAddToFreeList(tmp1);
+    EXPECT_EQ(1U, l.freeList.size());
+    l.emergencyCleanerList.push_back(tmp2);
+
+    // emergencyCleanerList.size() == EMERGENCY_CLEAN_SEGMENTS => on freeList
+    void* p = Memory::xmemalign(HERE, l.segmentCapacity, l.segmentCapacity);
+    l.locklessAddToFreeList(p);
+    EXPECT_EQ(2U, l.freeList.size());
+
+    // emergencyCleanerList.size() < EMERGENCY_CLEAN_SEGMENTS => emerg. list
+    tmp1 = l.emergencyCleanerList.back();
+    l.emergencyCleanerList.pop_back();
+    l.locklessAddToFreeList(tmp1);
+    EXPECT_EQ(1U, l.emergencyCleanerList.size());
+
     EXPECT_EQ(2U, l.freeList.size());
     EXPECT_EQ(p, l.freeList[1]);
 }
 
 TEST_F(LogTest, getFromFreeList) {
+    // silence LogCleaner
+    TestLog::Enable _;
+
     Tub<uint64_t> serverId;
     serverId.construct(57);
-    Log l(serverId, 2 * 8192, 8192, 4298);
+    Log l(serverId, 3 * 8192, 8192, 4298, NULL, Log::INLINED_CLEANER);
+
+    // Ensure constant is right for testing.
+    EXPECT_EQ(1U, l.emergencyCleanerList.size());
 
     // Grab a segment and reduce from 2 to 1 free segments.
     void* seg2 = l.getFromFreeList(true);
@@ -179,10 +213,10 @@ TEST_F(LogTest, getFromFreeList) {
     EXPECT_THROW(l.getFromFreeList(false), LogOutOfMemoryException);
     EXPECT_THROW(l.getFromFreeList(true), LogOutOfMemoryException);
 
-    // Having a Segment on cleanablePendingDigestList should
+    // Having a Segment on freePendingDigestAndReferenceList should
     // alter the behaviour.
     Segment* s = new Segment(5, 5, seg2, 8192, l.backup);
-    l.cleanablePendingDigestList.push_back(*s);
+    l.freePendingDigestAndReferenceList.push_back(*s);
 
     EXPECT_THROW(l.getFromFreeList(false), LogOutOfMemoryException);
     EXPECT_TRUE(l.getFromFreeList(true) != NULL);
@@ -196,7 +230,7 @@ TEST_F(LogTest, getFromFreeList) {
 TEST_F(LogTest, isSegmentLive) {
     Tub<uint64_t> serverId;
     serverId.construct(57);
-    Log l(serverId, 2 * 8192, 8192, 4298);
+    Log l(serverId, 2 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
     l.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
         NULL, NULL, NULL, NULL, NULL);
     static char buf[64];
@@ -210,7 +244,7 @@ TEST_F(LogTest, isSegmentLive) {
 TEST_F(LogTest, getSegmentId) {
     Tub<uint64_t> serverId;
     serverId.construct(57);
-    Log l(serverId, 2 * 8192, 8192, 4298);
+    Log l(serverId, 2 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
     l.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
         NULL, NULL, NULL, NULL, NULL);
     static char buf[64];
@@ -225,7 +259,7 @@ TEST_F(LogTest, getSegmentId) {
 TEST_F(LogTest, append) {
     Tub<uint64_t> serverId;
     serverId.construct(57);
-    Log l(serverId, 2 * 8192, 8192, 8138, NULL, Log::CLEANER_DISABLED);
+    Log l(serverId, 3 * 8192, 8192, 8138, NULL, Log::CLEANER_DISABLED);
     l.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
         NULL, NULL, NULL, NULL, NULL);
     static char buf[13];
@@ -290,7 +324,7 @@ TEST_F(LogTest, append) {
 TEST_F(LogTest, free) {
     Tub<uint64_t> serverId;
     serverId.construct(57);
-    Log l(serverId, 2 * 8192, 8192, 4298);
+    Log l(serverId, 2 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
     l.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
         NULL, NULL, NULL, NULL, NULL);
     static char buf[64];
@@ -332,7 +366,7 @@ scanCallback(LogEntryHandle handle,
 TEST_F(LogTest, registerType) {
     Tub<uint64_t> serverId;
     serverId.construct(57);
-    Log l(serverId, 1 * 8192, 8192, 4298);
+    Log l(serverId, 1 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
 
     l.registerType(LOG_ENTRY_TYPE_OBJ,
                    true,
@@ -373,7 +407,7 @@ TEST_F(LogTest, registerType) {
 TEST_F(LogTest, getTypeInfo) {
     Tub<uint64_t> serverId;
     serverId.construct(57);
-    Log l(serverId, 1 * 8192, 8192, 4298);
+    Log l(serverId, 1 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
 
     l.registerType(LOG_ENTRY_TYPE_OBJ,
                    true,

@@ -473,7 +473,7 @@ Segment::getUtilisation()
 }
 
 /**
- * \copydoc Segment::getLiveBytes
+ * \copydoc Segment::locklessGetLiveBytes
  */
 uint32_t
 Segment::getLiveBytes()

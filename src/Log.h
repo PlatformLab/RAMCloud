@@ -289,8 +289,11 @@ class Log {
     /// Note that this value directly influences the utilisation we are
     /// able to clean at. For instance, a value of 10 means that we could
     /// only do emergency cleaning with segments of <= ~90% utilisation.
-    /// 
-    static const size_t EMERGENCY_CLEAN_SEGMENTS = 20;
+#if TESTING
+    enum { EMERGENCY_CLEAN_SEGMENTS = 1 };
+#else
+    enum { EMERGENCY_CLEAN_SEGMENTS = 20 };
+#endif
 
     /*
      * The following members track all Segments in the system. At any point
