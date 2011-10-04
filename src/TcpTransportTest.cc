@@ -33,7 +33,7 @@ class TcpTransportTest : public ::testing::Test {
             : serviceManager(Context::get().serviceManager),
               locator(NULL), sys(NULL), savedSyscall(NULL), logEnabler(NULL)
     {
-        locator = new ServiceLocator("tcp+ip: host=localhost, port=11000");
+        locator = new ServiceLocator("tcp+ip:host=localhost,port=11000");
         sys = new MockSyscall();
         savedSyscall = TcpTransport::sys;
         TcpTransport::sys = sys;
@@ -164,8 +164,8 @@ TEST_F(TcpTransportTest, constructor_reuseAddrError) {
 
 TEST_F(TcpTransportTest, constructor_bindError) {
     sys->bindErrno = EPERM;
-    EXPECT_EQ("TcpTransport couldn't bind to 'tcp+ip: "
-        "host=localhost, port=11000': Operation not permitted",
+    EXPECT_EQ("TcpTransport couldn't bind to 'tcp+ip:"
+        "host=localhost,port=11000': Operation not permitted",
         catchConstruct(locator));
 }
 
@@ -287,7 +287,7 @@ TEST_F(TcpTransportTest, AcceptHandler_handleFileEvent_acceptFailure) {
     sys->acceptErrno = EPERM;
     server.acceptHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     EXPECT_EQ("handleFileEvent: error in TcpTransport::AcceptHandler "
-            "accepting connection for 'tcp+ip: host=localhost, "
+            "accepting connection for 'tcp+ip:host=localhost,"
             "port=11000': Operation not permitted", TestLog::get());
     EXPECT_EQ(-1, server.listenSocket);
     EXPECT_EQ(1, sys->closeCount);
@@ -722,8 +722,9 @@ TEST_F(TcpTransportTest, sessionConstructor_connectError) {
     } catch (TransportException& e) {
         message = e.message;
     }
-    EXPECT_EQ("Session connect error in TcpTransport: "
-            "Operation not permitted", message);
+    EXPECT_EQ("TcpTransport couldn't connect to "
+            "tcp+ip:host=localhost,port=11000: Operation not permitted",
+            message);
     EXPECT_EQ(1, sys->closeCount);
 }
 
@@ -1239,7 +1240,8 @@ TEST_F(TcpTransportTest, sessionAlarm) {
         Context::get().sessionAlarmTimer->handleTimerEvent();
     }
     EXPECT_EQ(-1, session.fd);
-    EXPECT_EQ("server is not responding", session.errorInfo);
+    EXPECT_EQ("server at tcp+ip:host=localhost,port=11000 is not responding",
+            session.errorInfo);
 }
 
 }  // namespace RAMCloud

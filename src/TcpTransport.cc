@@ -539,6 +539,7 @@ TcpTransport::TcpSession::TcpSession(const ServiceLocator& serviceLocator,
         , errorInfo()
         , alarm(*Context::get().sessionAlarmTimer, *this, pingMs)
 {
+    setServiceLocator(serviceLocator.getOriginalString());
     fd = sys->socket(PF_INET, SOCK_STREAM, 0);
     if (fd == -1) {
         throw TransportException(HERE,
@@ -549,8 +550,9 @@ TcpTransport::TcpSession::TcpSession(const ServiceLocator& serviceLocator,
     if (r == -1) {
         sys->close(fd);
         fd = -1;
-        throw TransportException(HERE,
-                "Session connect error in TcpTransport", errno);
+        throw TransportException(HERE, format(
+                "TcpTransport couldn't connect to %s",
+                getServiceLocator().c_str()), errno);
     }
 
     /// Arrange for notification whenever the server sends us data.
@@ -570,7 +572,7 @@ TcpTransport::TcpSession::~TcpSession()
 
 // See documentation for Transport::Session::abort.
 void
-TcpTransport::TcpSession::abort(const char* message)
+TcpTransport::TcpSession::abort(const string& message)
 {
     errorInfo = message;
     close();

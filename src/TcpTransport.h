@@ -262,7 +262,7 @@ class TcpTransport : public Transport {
         explicit TcpSession(const ServiceLocator& serviceLocator,
                 int pingMs = DEFAULT_PING_MS);
         ~TcpSession();
-        virtual void abort(const char* message);
+        virtual void abort(const string& message);
         ClientRpc* clientSend(Buffer* request, Buffer* reply)
             __attribute__((warn_unused_result));
         Buffer* findRpc(Header& header);

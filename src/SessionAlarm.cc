@@ -160,7 +160,8 @@ SessionAlarmTimer::handleTimerEvent()
         if (alarm->waitingForResponseMs < alarm->pingMs)
             continue;
         if (alarm->waitingForResponseMs > alarm->abortMs) {
-            alarm->session.abort("server is not responding");
+            alarm->session.abort(format("server at %s is not responding",
+                    alarm->session.getServiceLocator().c_str()));
             continue;
         }
         if (pings.find(alarm) != pings.end()) {

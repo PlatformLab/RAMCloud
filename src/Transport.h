@@ -103,7 +103,7 @@ class Transport {
             return (finished.load() != 0);
         }
 
-        void cancel(string& message);
+        void cancel(const string& message);
         void cancel(const char* message = "");
 
       PROTECTED:
@@ -114,7 +114,7 @@ class Transport {
          * once it returns #cancel will mark the RPC finished.
          */
         virtual void cancelCleanup() {}
-        void markFinished(string& errorMessage);
+        void markFinished(const string& errorMessage);
         void markFinished(const char* errorMessage = NULL);
 
         /**
@@ -279,7 +279,7 @@ class Transport {
          * \param message
          *      Provides information about why the Session is being aborted.
          */
-        virtual void abort(const char* message) {
+        virtual void abort(const string& message) {
         }
 
         /// Used by boost::intrusive_ptr. Do not call explicitly.

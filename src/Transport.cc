@@ -75,7 +75,7 @@ Transport::ClientRpc::markFinished(const char* errorMessage)
  *      during the next invocation of #wait.
  */
 void
-Transport::ClientRpc::markFinished(string& errorMessage)
+Transport::ClientRpc::markFinished(const string& errorMessage)
 {
     this->errorMessage.construct(errorMessage);
     finished.store(1);
@@ -95,7 +95,7 @@ Transport::ClientRpc::markFinished(string& errorMessage)
  *      this is an empty string then a default message will be used.
  */
 void
-Transport::ClientRpc::cancel(string& message)
+Transport::ClientRpc::cancel(const string& message)
 {
     Dispatch::Lock lock;
     if (isReady())
