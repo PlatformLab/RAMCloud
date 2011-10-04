@@ -64,6 +64,7 @@ Log::Log(const Tub<uint64_t>& logId,
       segmentMemory(this->logCapacity),
       nextSegmentId(0),
       head(NULL),
+      emergencyCleanerList(),
       freeList(),
       cleanableNewList(),
       cleanableList(),
@@ -93,10 +94,9 @@ Log::Log(const Tub<uint64_t>& logId,
             "for given segmentCapacity");
     }
 
-
     for (uint64_t i = 0; i < logCapacity / segmentCapacity; i++) {
-        addSegmentMemory(static_cast<char*>(segmentMemory.get()) +
-                         i * segmentCapacity);
+        locklessAddToFreeList(static_cast<char*>(segmentMemory.get()) +
+            i * segmentCapacity);
     }
 
     Context::get().transportManager->registerMemory(segmentMemory.get(),
@@ -139,8 +139,13 @@ Log::allocateHead()
     // these currently also take listLock, so rather than have
     // unlocked versions of those methods or duplicating code,
     // just do them before taking the big lock for this method.
-    LogDigest::SegmentId newHeadId = allocateSegmentId();
     void* baseAddress = getFromFreeList(true);
+
+    // NB: Allocate an ID _after_ having acquired memory. If we don't,
+    //     the allocation could fail and we've just leaked a segment
+    //     identifier (feel free to read the comments in allocateSegmentId
+    //     if you don't know why this is bad.
+    LogDigest::SegmentId newHeadId = allocateSegmentId();
 
     boost::lock_guard<SpinLock> lock(listLock);
 
@@ -478,17 +483,47 @@ Log::getBytesFreed() const
  * Obtain Segment backing memory from the free list. This is only supposed
  * to be used by the LogCleaner.
  *
+ * \param useEmergencyReserve
+ *      When true, the cleaner is aware that we're tight on memory and will
+ *      be allocated free segments from the emergency reserve pool. If false,
+ *      allocate from the common free list as normal.
+ *
  * \return
  *      On success, a pointer to Segment backing memory of #segmentCapacity
- *      bytes, as provided in the #addSegmentMemory method.
+ *      bytes, as provided in the #addSegmentMemory method. If the boolean
+ *      useEmergencyReserve is true, return NULL on failure instead of
+ *      throwing an exception.
  *
  * \throw LogOutOfMemoryException
  *      If memory is exhausted.
  */
 void *
-Log::getSegmentMemoryForCleaning()
+Log::getSegmentMemoryForCleaning(bool useEmergencyReserve)
 {
+    if (useEmergencyReserve) {
+        boost::lock_guard<SpinLock> lock(listLock);
+
+        if (emergencyCleanerList.empty())
+            return NULL;
+
+        void* ret = emergencyCleanerList.back();
+        emergencyCleanerList.pop_back();
+        return ret;
+    }
+
     return getFromFreeList(false);
+}
+
+/**
+ * Obtain the number of free segment memory blocks left in the system.
+ */
+size_t
+Log::freeListCount()
+{
+    boost::lock_guard<SpinLock> lock(listLock);
+
+    // We always save one for the next Log head, so adjust accordingly.
+    return (freeList.size() > 0) ? freeList.size() - 1 : freeList.size();
 }
 
 /**
@@ -560,7 +595,7 @@ Log::cleaningComplete(SegmentVector& clean,
     // Return any unused segment memory the cleaner ended up
     // not needing directly to the free list.
     while (!unusedSegmentMemory.empty()) {
-        freeList.push_back(unusedSegmentMemory.back());
+        locklessAddToFreeList(unusedSegmentMemory.back());
         unusedSegmentMemory.pop_back();
     }
 
@@ -609,7 +644,7 @@ Log::cleaningComplete(SegmentVector& clean,
         activeBaseAddressMap.erase(s->getBaseAddress());
         freePendingReferenceList.erase(
             freePendingReferenceList.iterator_to(*s));
-        freeList.push_back(const_cast<void*>(s->getBaseAddress()));
+        locklessAddToFreeList(const_cast<void*>(s->getBaseAddress()));
         delete s;
         change = true;
     }
@@ -621,6 +656,12 @@ Log::cleaningComplete(SegmentVector& clean,
 /**
  * Allocate a unique Segment identifier. This is used to generate identifiers
  * for new Segments of the Log.
+ *
+ * NOTE: The ID allocated must be used. These cannot simply be thrown away.
+ *       The reasoning is that the LogCleaner scans segments in log order and
+ *       does not know about unused holes in the ID space. If you throw away
+ *       an ID, it will simply not make forward progress.
+ *
  * \returns
  *      The next valid Segment identifier.
  */
@@ -647,6 +688,9 @@ Log::dumpListStats()
     LOG(NOTICE, "  freeList:                           %6Zd  (%.2f%%)",
         freeList.size(),
         100.0 * static_cast<double>(freeList.size()) / total);
+    LOG(NOTICE, "  emergencyCleanerList:               %6Zd  (%.2f%%)",
+        emergencyCleanerList.size(),
+        100.0 * static_cast<double>(emergencyCleanerList.size()) / total);
     LOG(NOTICE, "  cleanableNewList:                   %6Zd  (%.2f%%)",
         cleanableNewList.size(),
         100.0 * static_cast<double>(cleanableNewList.size()) / total);
@@ -668,6 +712,7 @@ Log::dumpListStats()
         1.00 * static_cast<double>(freePendingReferenceList.size()) / total);
     LOG(NOTICE, "----- Total: %Zd (Segments in Log incl. head: %Zd)",
         freeList.size() +
+        emergencyCleanerList.size() +
         cleanableNewList.size() +
         cleanableList.size() +
         cleaningIntoList.size() +
@@ -678,17 +723,26 @@ Log::dumpListStats()
 }
 
 /**
- * Provide the Log with a single contiguous piece of backing Segment memory.
- * The memory provided must of at least as large as #segmentCapacity. 
- * This function must be called once for each Segment.
+ * Add a single contiguous piece of backing Segment memory to the Log's
+ * free list. The memory provided must of at least as large as
+ * #segmentCapacity.
+ *
+ * Note that the Log stashes extra segments for the cleaner to use during low
+ * memory situations. If this list is under a high watermark, the memory
+ * provided may be added to that list instead of the free list.
+ *
  * \param[in] p
  *      Memory to be added to the Log for use as segments.
  */
 void
-Log::addSegmentMemory(void *p)
+Log::locklessAddToFreeList(void *p)
 {
-    boost::lock_guard<SpinLock> lock(listLock);
-    freeList.push_back(p);
+    if (freeList.size() == 0 ||
+      emergencyCleanerList.size() == EMERGENCY_CLEAN_SEGMENTS) {
+        freeList.push_back(p);
+    } else {
+        emergencyCleanerList.push_back(p);
+    }
 }
 
 /**
@@ -702,17 +756,25 @@ Log::addSegmentMemory(void *p)
  * within #allocateHead.
  *
  * \param mayUseLastSegment
- *      If set to false and there is only one more free segment, an exception
- *      is thrown. If true and there is only one more free segment, then
- *      only return it if allocating this segment for the new head would
- *      eventually free some additional segments (due to cleaning), or if the
- *      cleaner is disabled entirely. If no segments would be freed by making
- *      this last segment the new head, then the cleaner would be unable to make
- *      forward progress so we must be very careful when allocations are
- *      permitted.
+ *      This parameter only affects allocation if there is just one free
+ *      block of segment memory and the cleaner is enabled. The following
+ *      explanation assumes this scenario.
  *
- *      This should only ever be set to true when allocating a segment to act
- *      as the new log head.
+ *      If set to false, an exception is always thrown. Only code allocating
+ *      a new log head should set this to true.
+ *
+ *      If true, then only return the last segment if allocating it for the
+ *      new head would eventually free sufficient additional segments to make
+ *      forward progress. What constitutes sufficient depends on the state of
+ *      the lists. A new head cannot be allocated if doing so will not make
+ *      at least one more segment cleanable (thus allowing another segment to
+ *      be cleaned in order to free up a new head). Furthermore, if the cleaner
+ *      is operating under severe memory pressure and is using the emergency
+ *      reserve of segments, a new head must not be allocated unless doing so
+ *      would replenish the emergency reserve back to its full capacity. The
+ *      cleaner ensures that it will only take from the emergency pool if it
+ *      can clean enough segments to both replenish it and provide at least
+ *      one more clean segment to the log to use for new appends. 
  *
  * \return
  *      On success, a pointer to Segment backing memory of #segmentCapacity
@@ -729,16 +791,33 @@ Log::getFromFreeList(bool mayUseLastSegment)
     if (freeList.empty())
         throw LogOutOfMemoryException(HERE, "Log is out of space");
 
-    if (freeList.size() == 1 && !mayUseLastSegment) {
-        throw LogOutOfMemoryException(HERE, "Log is out of space "
-            "(last one is reserved for the next head)");
-    }
+    if (freeList.size() == 1 && cleanerOption != CLEANER_DISABLED) {
+        if (!mayUseLastSegment) {
+            throw LogOutOfMemoryException(HERE, "Log is out of space "
+                "(last one is reserved for the next head)");
+        }
 
-    if (freeList.size() == 1 && cleanablePendingDigestList.size() == 0 &&
-      cleanerOption != CLEANER_DISABLED) {
-        throw LogOutOfMemoryException(HERE, "Log is out of space "
-            "(cannot allocate last segment because doing so would "
-            "free no additional segments)");
+        // The next two checks essentially ensure that an emergency cleaning
+        // pass has completed before we permit the last segment to be used.
+        // The cleaner will guarantee that it generates enough segments to
+        // both recoup the emergency segments used and to produce at least
+        // one extra for the log to make forward progress.
+#if 0
+        if (cleanablePendingDigestList.size() == 0) {
+            throw LogOutOfMemoryException(HERE, "Log is out of space "
+                "(cannot allocate last segment because doing so would "
+                "free no additional segments in the future)");
+        }
+#endif
+        if (emergencyCleanerList.size() +
+          freePendingDigestAndReferenceList.size() <
+          (EMERGENCY_CLEAN_SEGMENTS + 1)) {
+            throw LogOutOfMemoryException(HERE, "Log is out of space "
+                "(cannot allocate last segment because doing so would not "
+                "replenish the emergency pool)");
+        }
+
+        assert(cleanablePendingDigestList.size() != 0);
     }
 
     void *p = freeList.back();

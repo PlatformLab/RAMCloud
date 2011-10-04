@@ -213,7 +213,8 @@ class Log {
     void           cleaningInto(Segment* newSegment);
     void           cleaningComplete(SegmentVector &clean,
                                     std::vector<void*>& unusedSegmentMemory);
-    void          *getSegmentMemoryForCleaning();
+    void          *getSegmentMemoryForCleaning(bool useEmergencyReserve);
+    size_t         freeListCount();
     uint64_t       allocateSegmentId();
 
     // This class is shared between the Log and its consituent Segments
@@ -268,7 +269,7 @@ class Log {
     typedef boost::unordered_map<const void *, Segment *> BaseAddressMap;
 
     void        dumpListStats();
-    void        addSegmentMemory(void *p);
+    void        locklessAddToFreeList(void *p);
     void*       getFromFreeList(bool mayUseLastSegment);
     void        markActive(Segment *s);
     Segment*    getSegmentFromAddress(const void*);
@@ -280,6 +281,17 @@ class Log {
 
     uint64_t       nextSegmentId;
 
+    /// Number of clean segments to keep stashed away just in case we run
+    /// entirely out of memory. If the cleaner cannot proceed due to the
+    /// log not having enough free segments, it will clean so long as it
+    /// can both replenish this pool and free segments for the log to use.
+    ///
+    /// Note that this value directly influences the utilisation we are
+    /// able to clean at. For instance, a value of 10 means that we could
+    /// only do emergency cleaning with segments of <= ~90% utilisation.
+    /// 
+    static const size_t EMERGENCY_CLEAN_SEGMENTS = 20;
+
     /*
      * The following members track all Segments in the system. At any point
      * when #listInterlock is not held, every Segment is in one and only
@@ -289,6 +301,13 @@ class Log {
 
     /// Current head of the log.
     Segment *head;
+
+    /// List of free #segmentCapacity blocks to be allocated to the cleaner
+    /// under extreme memory pressure. The cleaner may only allocate from
+    /// this list if it promises to free enough segments to replenish it to
+    /// capacity (EMERGENCY_CLEAN_SEGMENTS) as well as to free at least one
+    /// segment for the log to use.
+    FreeList emergencyCleanerList;
 
     /// List of free #segmentCapacity blocks of memory that aren't associated
     /// with a Segment object. These can be used to create new Segments by

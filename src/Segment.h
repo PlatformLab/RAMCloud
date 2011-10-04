@@ -229,7 +229,7 @@ class Segment {
      * the largest possible entry, and the size of segments in the system,
      * compute the maximum number of segments needed to store all of the data.
      */
-    static int
+    static size_t
     maximumSegmentsNeededForEntries(uint64_t numberOfEntries,
                                     uint64_t totalBytesInEntries,
                                     uint32_t maxBytesPerEntry,
@@ -258,8 +258,8 @@ class Segment {
         uint64_t bytesNeeded = numberOfEntries * sizeof(SegmentEntry) +
             totalBytesInEntries;
 
-        int segmentsNeeded = downCast<int>(
-            (bytesNeeded + worstCaseSegment - 1) / worstCaseSegment);
+        size_t segmentsNeeded = (bytesNeeded + worstCaseSegment - 1) /
+            worstCaseSegment;
 
         return segmentsNeeded;
     }

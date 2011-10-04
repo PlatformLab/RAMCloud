@@ -91,7 +91,8 @@ class LogCleaner {
               implicitlyFreeableEntries(implicitlyFreeableEntries),
               implicitlyFreedEntries(0),
               implicitlyFreeableBytes(implicitlyFreeableBytes),
-              implicitlyFreedBytes(0)
+              implicitlyFreedBytes(0),
+              timesRandomlyScanned(0)
         {
         }
 
@@ -112,6 +113,10 @@ class LogCleaner {
 
         /// Number of bytes the claner has discovered to be free.
         uint32_t implicitlyFreedBytes;
+
+        /// Times this segment has been randomly scanned. Used to Mitzenmacher
+        /// between a few random choices to get appoximately even scanning.
+        uint64_t timesRandomlyScanned;
     };
 
     /**
@@ -161,6 +166,21 @@ class LogCleaner {
 
       private:
         uint64_t now;
+    };
+
+    /**
+     * Comparison functor that sorts a vector of Segments by utilisation.
+     * This is used during low memory conditions to choose the least-
+     * utilised segments in an attempt to make quick forward progress.
+     * Lower values (the better candidates) come last so that we can easily
+     * pop from the back of the list.
+     */
+    struct UtilisationLessThan {
+        bool
+        operator()(CleanableSegment a, CleanableSegment b)
+        {
+            return a.segment->getUtilisation() > b.segment->getUtilisation();
+        }
     };
 
     /**
@@ -227,6 +247,11 @@ class LogCleaner {
               cleanTicks(0),
               cleaningPassTicks(0),
               cleaningPasses(0),
+              emergencyCleaningPasses(0),
+              failedNormalPasses(0),
+              failedNormalPassTicks(0),
+              failedEmergencyPasses(0),
+              failedEmergencyPassTicks(0),
               writeCostSum(0),
               entriesLivenessChecked(0),
               liveEntryBytes(0),
@@ -274,6 +299,11 @@ class LogCleaner {
             _sub(cleanTicks);
             _sub(cleaningPassTicks);
             _sub(cleaningPasses);
+            _sub(emergencyCleaningPasses);
+            _sub(failedNormalPasses),
+            _sub(failedNormalPassTicks),
+            _sub(failedEmergencyPasses),
+            _sub(failedEmergencyPassTicks),
             _sub(writeCostSum);
             _sub(entriesLivenessChecked);
             _sub(liveEntryBytes);
@@ -311,6 +341,11 @@ class LogCleaner {
         uint64_t cleanTicks;                /// Total time in clean().
         uint64_t cleaningPassTicks;         /// Time in clean() when we clean.
         uint64_t cleaningPasses;            /// Total cleaning passes done.
+        uint64_t emergencyCleaningPasses;   /// Total emergency cleaning passes.
+        uint64_t failedNormalPasses;        /// Total normal passes that failed.
+        uint64_t failedNormalPassTicks;     /// Time in failed normal passes.
+        uint64_t failedEmergencyPasses;     /// Total emerg. passes that failed.
+        uint64_t failedEmergencyPassTicks;  /// Time in failed emerg. passes.
         double   writeCostSum;              /// Sum of wr costs for all passes.
         uint64_t entriesLivenessChecked;    /// Entries liveness checked for.
         uint64_t liveEntryBytes;            /// Total bytes in live entries.
@@ -463,6 +498,8 @@ class LogCleaner {
     static void cleanerThreadEntry(LogCleaner* logCleaner, Context* context);
 
     void dumpCleaningPassStats(PerfCounters& before);
+    bool getCleanSegmentMemory(size_t segmentsNeeded,
+                               std::vector<void*>& cleanSegmentMemory);
     double writeCost(uint64_t totalCapacity, uint64_t liveBytes);
     bool isCleanable(double _writeCost);
     void scanNewCleanableSegments();
@@ -472,22 +509,24 @@ class LogCleaner {
     void scanForFreeSpace();
     void scanSegmentForFreeSpace(CleanableSegment& cleanableSegment);
     void getSegmentsToClean(SegmentVector&);
-    int  getSortedLiveEntries(SegmentVector& segments,
-                              LiveSegmentEntryHandleVector& liveEntries);
+    size_t getLiveEntries(Segment* segment,
+                          LiveSegmentEntryHandleVector& liveEntries);
+    size_t getSortedLiveEntries(SegmentVector& segments,
+                                LiveSegmentEntryHandleVector& liveEntries);
     void moveToFillSegment(Segment* lastNewSegment,
                            SegmentVector& segmentsToClean);
     void moveLiveData(LiveSegmentEntryHandleVector& data,
                       std::vector<void*>& cleanSegmentMemory,
                       SegmentVector& segmentsToClean);
-
-    /// If we don't have enough free segments to clean, wait this long before
-    /// trying again. Hopefully next time there will be enough. Otherwise,
-    /// we'll need to clean at a higher write cost and/or lower the desired
-    /// number of cleaned segments per pass.
-    static const size_t CLEANER_LOW_MEMORY_WAIT_USEC = 500000;
+    bool setUpNormalCleaningPass(LiveSegmentEntryHandleVector& data,
+                                 std::vector<void*>& cleanSegmentMemory,
+                                 SegmentVector& segmentsToClean);
+    bool setUpEmergencyCleaningPass(LiveSegmentEntryHandleVector& data,
+                                    std::vector<void*>& cleanSegmentMemory,
+                                    SegmentVector& segmentsToClean);
 
     /// After cleaning, wake the cleaner again after this many microseconds.
-    static const size_t CLEANER_POLL_USEC = 50000;
+    static const size_t POLL_USEC = 50000;
 
     /// Number of clean Segments to produce in each cleaning pass.
     static const size_t CLEANED_SEGMENTS_PER_PASS = 10;
@@ -508,6 +547,13 @@ class LogCleaner {
     /// Approximation of the smallest entries we'll expect to see. Used to
     /// reserve space ahead of time, e.g. in SegmentEntryVectors.
     static const uint32_t MIN_ENTRY_BYTES = 50;
+
+
+    /// If an emergency cleaning pass fails (utilisation is too high), we're
+    /// either out of luck or our implicit utilisation counts are off. On
+    /// each failure, randomly select this many segments to scan and update
+    /// counts for.
+    static const size_t EMERGENCY_CLEANING_RANDOM_FREE_SPACE_SCANS = 20;
 
     /// The number of bytes that have been freed in the Log since the last
     /// cleaning operation completed. This is used to avoid invoking the

@@ -151,15 +151,15 @@ TEST_F(LogTest, allocateHead_lists) {
     // Segments allocated above are deallocated in the Log destructor.
 }
 
-TEST_F(LogTest, addSegmentMemory) {
+TEST_F(LogTest, addToFreeList) {
     Tub<uint64_t> serverId;
     serverId.construct(57);
     Log l(serverId, 1 * 8192, 8192, 4298);
 
     void *p = Memory::xmemalign(HERE, l.segmentCapacity, l.segmentCapacity);
-    l.addSegmentMemory(p);
+    l.addToFreeList(p);
     Segment s((uint64_t)0, 0, p, 8192);
-
+EXPECT_TRUE(false); /// XXX need to address emergencyCleanerList changes here and in cleaningComplete.
     EXPECT_EQ(2U, l.freeList.size());
     EXPECT_EQ(p, l.freeList[1]);
 }
