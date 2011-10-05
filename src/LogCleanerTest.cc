@@ -21,6 +21,7 @@
 #include "TestUtil.h"
 
 #include "Segment.h"
+#include "SegmentIterator.h"
 #include "Log.h"
 #include "LogTypes.h"
 #include "LogCleaner.h"
@@ -36,6 +37,37 @@ TEST(LogCleanerTest, constructor) {
     EXPECT_EQ(0U, cleaner->cleanableSegments.size());
     EXPECT_EQ(&log, cleaner->log);
     EXPECT_EQ(log.backup, cleaner->backup);
+}
+
+TEST(LogCleanerTest, getCleanSegmentMemory) {
+    Tub<uint64_t> serverId(0);
+    Log log(serverId, 5 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
+    LogCleaner* cleaner = &log.cleaner;
+
+    std::vector<void*> cleanMemory;
+    EXPECT_FALSE(cleaner->getCleanSegmentMemory(5, cleanMemory));
+    EXPECT_EQ(0U, cleanMemory.size());
+    EXPECT_TRUE(cleaner->getCleanSegmentMemory(4, cleanMemory));
+    EXPECT_EQ(4U, cleanMemory.size());
+
+    SegmentVector empty;
+    log.cleaningComplete(empty, cleanMemory);
+}
+
+TEST(LogCleaner, writeCost) {
+    EXPECT_DOUBLE_EQ(1.000, LogCleaner::writeCost(10, 0));
+    EXPECT_DOUBLE_EQ(1.1111111111111112, LogCleaner::writeCost(10, 1));
+    EXPECT_DOUBLE_EQ(2.000, LogCleaner::writeCost(10, 5));
+    EXPECT_DOUBLE_EQ(10.000, LogCleaner::writeCost(10, 9));
+}
+
+TEST(LogCleaner, isCleanable) {
+    EXPECT_TRUE(LogCleaner::isCleanable(
+        LogCleaner::MAXIMUM_CLEANABLE_WRITE_COST));
+    EXPECT_TRUE(LogCleaner::isCleanable(
+        LogCleaner::MAXIMUM_CLEANABLE_WRITE_COST - 0.00001));
+    EXPECT_FALSE(LogCleaner::isCleanable(
+        LogCleaner::MAXIMUM_CLEANABLE_WRITE_COST + 0.00001));
 }
 
 TEST(LogCleanerTest, scanNewCleanableSegments) {
@@ -62,7 +94,6 @@ TEST(LogCleanerTest, scanNewCleanableSegments) {
 }
 
 static int scanCbCalled = 0;
-
 static void
 scanCB(LogEntryHandle h, void* cookie)
 {
@@ -95,6 +126,158 @@ TEST(LogCleanerTest, scanSegment) {
     EXPECT_EQ(1, scanCbCalled);
 }
 
+static int scanCb2Called = 0;
+static void
+scanCB2(LogEntryHandle h, void* cookie)
+{
+    scanCb2Called++;
+}
+
+static int liveCBCalled = 0;
+static bool
+liveCB(LogEntryHandle h, void* cookie)
+{
+    liveCBCalled++;
+    return true;
+}
+
+TEST(LogCleanerTest, scanSegment_implicitlyFreed) {
+    Tub<uint64_t> serverId(0);
+    Log log(serverId, 3 * 1024, 1024, 768, NULL, Log::CLEANER_DISABLED);
+    LogCleaner* cleaner = &log.cleaner;
+
+    log.registerType(LOG_ENTRY_TYPE_OBJ,
+                     true,
+                     liveCB, NULL,
+                     NULL, NULL,
+                     NULL,
+                     scanCB2,
+                     reinterpret_cast<void*>(1234));
+
+    log.registerType(LOG_ENTRY_TYPE_OBJTOMB,
+                     false,
+                     liveCB, NULL,
+                     NULL, NULL,
+                     NULL,
+                     scanCB2,
+                     reinterpret_cast<void*>(1234));
+
+    char buf[513];
+    log.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
+    LogEntryHandle h = log.append(LOG_ENTRY_TYPE_OBJTOMB, buf, 27);
+
+    uint32_t impEntries = 0;
+    uint32_t impBytes = 0;
+    cleaner->scanSegment(log.head, &impEntries, &impBytes);
+
+    EXPECT_EQ(2, scanCb2Called);
+    EXPECT_EQ(1U, impEntries);
+    EXPECT_EQ(h->totalLength(), impBytes);
+}
+
+static int negativeLiveCBCalled = 0;
+static bool
+negativeLiveCB(LogEntryHandle h, void* cookie)
+{
+    negativeLiveCBCalled++;
+    return false;
+}
+
+TEST(LogCleanerTest, scanForFreeSpace) {
+    Tub<uint64_t> serverId(0);
+    Log log(serverId, 5 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
+    log.registerType(LOG_ENTRY_TYPE_OBJ,
+                     true,
+                     negativeLiveCB, NULL,
+                     NULL, NULL,
+                     NULL,
+                     NULL,
+                     NULL);
+    log.registerType(LOG_ENTRY_TYPE_OBJTOMB,
+                     false,
+                     negativeLiveCB, NULL,
+                     NULL, NULL,
+                     NULL,
+                     NULL,
+                     NULL);
+    LogCleaner* cleaner = &log.cleaner;
+
+    char sourceBuf[8192];
+
+    // Add a seg that's certainly cleanable and ensure it is
+    // not scanned.
+    char cleanableBuf[8192] __attribute__((aligned(8192)));
+    Segment cleanableSeg(1, 2, cleanableBuf, sizeof(cleanableBuf));
+    cleanableSeg.append(LOG_ENTRY_TYPE_OBJ, "hi", 2);
+    cleaner->cleanableSegments.push_back({ &cleanableSeg, 0, 0 });
+    cleaner->scanForFreeSpace();
+    EXPECT_EQ(0, negativeLiveCBCalled);
+
+    // Add a seg that's not cleanable and has no implicitly freeable bytes.
+    char notCleanableBuf[8192] __attribute__((aligned(8192)));
+    Segment notCleanableSeg(1, 2, notCleanableBuf, sizeof(notCleanableBuf));
+    notCleanableSeg.append(LOG_ENTRY_TYPE_OBJ, sourceBuf, 8100);
+    cleaner->cleanableSegments.push_back({ &notCleanableSeg, 0, 0 });
+    cleaner->scanForFreeSpace();
+    EXPECT_EQ(0, negativeLiveCBCalled);
+
+    // Add a seg that's not cleanable now, but could be due to implicit bytes.
+    // This one should be scanned.
+    char almostCleanableBuf[8192] __attribute__((aligned(8192)));
+    Segment almostCleanableSeg(1, 2, almostCleanableBuf,
+        sizeof(almostCleanableBuf));
+    almostCleanableSeg.append(LOG_ENTRY_TYPE_OBJ, "hi", 2);
+    LogEntryHandle h = almostCleanableSeg.append(
+        LOG_ENTRY_TYPE_OBJTOMB, sourceBuf, 8100);
+    cleaner->cleanableSegments.push_back(
+        { &almostCleanableSeg, 1, h->totalLength() });
+    cleaner->scanForFreeSpace();
+    EXPECT_EQ(1, negativeLiveCBCalled);
+
+    // Clean up.
+    for (int i = 0; i < 3; i++)
+        cleaner->cleanableSegments.pop_back();
+}
+
+static uint32_t
+fiveTimestampCB(LogEntryHandle h)
+{
+    return 5;
+}
+
+TEST(LogCleanerTest, scanSegmentForFreeSpace) {
+    Tub<uint64_t> serverId(0);
+    Log log(serverId, 8192 * 1000, 8192, 4298, NULL, Log::CLEANER_DISABLED);
+    log.registerType(LOG_ENTRY_TYPE_OBJ,
+                     true,
+                     liveCB, NULL,
+                     NULL, NULL,
+                     fiveTimestampCB,
+                     NULL,
+                     NULL);
+    log.registerType(LOG_ENTRY_TYPE_OBJTOMB,
+                     false,
+                     negativeLiveCB, NULL,
+                     NULL, NULL,
+                     fiveTimestampCB,
+                     NULL,
+                     NULL);
+    LogCleaner* cleaner = &log.cleaner;
+
+    char segBuf[8192] __attribute__((aligned(8192)));
+    Segment s(1, 2, segBuf, sizeof(segBuf));
+    *const_cast<Log**>(&s.log) = &log;
+    s.append(LOG_ENTRY_TYPE_OBJ, "i'm alive!", 10);
+    LogEntryHandle h = s.append(LOG_ENTRY_TYPE_OBJTOMB, "dead!", 5);
+
+    LogCleaner::CleanableSegment cs(&s, 1, h->totalLength());
+    cleaner->scanSegmentForFreeSpace(cs);
+    EXPECT_EQ(h->totalLength(), cs.implicitlyFreedBytes);
+    EXPECT_EQ(1U, cs.implicitlyFreedEntries);
+    EXPECT_EQ(h->totalLength(), s.bytesImplicitlyFreed);
+    EXPECT_EQ(5 * h->totalLength(), s.implicitlyFreedSpaceTimeSum);
+}
+
 TEST(LogCleanerTest, getSegmentsToClean) {
     Tub<uint64_t> serverId(0);
     Log log(serverId, 8192 * 1000, 8192, 4298, NULL, Log::CLEANER_DISABLED);
@@ -118,18 +301,16 @@ TEST(LogCleanerTest, getSegmentsToClean) {
     foreach (Segment* s, segmentsToClean)
         freeableBytes += s->getFreeBytes();
     EXPECT_GE(freeableBytes, minFreeBytesForCleaning);
-}
 
-#if 0
+    // Returned segments remain in the cleanableSegments list in case the
+    // caller wants to back out. It's up to them to pop_back() if they do
+    // clean.
     for (size_t i = 0; i < segmentsToClean.size(); i++) {
-        EXPECT_TRUE(segmentsToClean[i] != NULL);
-
-        // returned segments must no longer be in the cleanableSegments list,
-        // since we're presumed to clean them now
-        foreach (LogCleaner::CleanableSegment& cs, cleaner->cleanableSegments)
-            EXPECT_FALSE(cs.segment == segmentsToClean[i]);
+        EXPECT_EQ(segmentsToClean[i],
+                  cleaner->cleanableSegments.back().segment);
+        cleaner->cleanableSegments.pop_back();
     }
-#endif
+}
 
 static bool
 getSegmentsToCleanFilter(string s)
@@ -260,8 +441,43 @@ timestampCB(LogEntryHandle h)
 }
 
 static void
-scanCB2(LogEntryHandle h, void* cookie)
+scanCB3(LogEntryHandle h, void* cookie)
 {
+}
+
+TEST(LogCleanerTest, getLiveEntries) {
+    Tub<uint64_t> serverId(0);
+    Log log(serverId, 8192 * 20, 8192, 8000, NULL, Log::CLEANER_DISABLED);
+    LogCleaner* cleaner = &log.cleaner;
+
+    log.registerType(LOG_ENTRY_TYPE_OBJ,
+                     true,
+                     livenessCB, NULL,
+                     relocationCB, NULL,
+                     timestampCB,
+                     scanCB3, NULL);
+
+    log.registerType(LOG_ENTRY_TYPE_OBJTOMB,
+                     true,
+                     negativeLiveCB, NULL,
+                     relocationCB, NULL,
+                     timestampCB,
+                     scanCB3, NULL);
+
+    LogCleaner::LiveSegmentEntryHandleVector entries;
+    char buf[8192] __attribute__((aligned(8192)));
+    Segment s(1, 2, buf, sizeof(buf));
+    *const_cast<Log**>(&s.log) = &log;
+    LogEntryHandle h1 = s.append(LOG_ENTRY_TYPE_OBJ, "live", 4);
+    s.append(LOG_ENTRY_TYPE_OBJTOMB, "dead", 4);
+
+    wantNewer = h1;
+    size_t liveBytes = cleaner->getLiveEntries(&s, entries);
+    EXPECT_EQ(h1->length(), liveBytes);
+    EXPECT_EQ(1U, entries.size());
+    EXPECT_EQ(h1, entries[0].handle);
+    EXPECT_EQ(1000U, entries[0].timestamp);
+    EXPECT_EQ(h1->totalLength(), entries[0].totalLength);
 }
 
 TEST(LogCleanerTest, getSortedLiveEntries) {
@@ -274,7 +490,7 @@ TEST(LogCleanerTest, getSortedLiveEntries) {
                      livenessCB, NULL,
                      relocationCB, NULL,
                      timestampCB,
-                     scanCB2, NULL);
+                     scanCB3, NULL);
 
     SegmentVector segments;
     LogCleaner::LiveSegmentEntryHandleVector liveEntries;
@@ -286,11 +502,105 @@ TEST(LogCleanerTest, getSortedLiveEntries) {
     wantNewer = newer;
     log.append(LOG_ENTRY_TYPE_OBJ, buf, 8192 - 2048);   // force old head closed
 
-    cleaner->getSortedLiveEntries(segments, liveEntries);
+    size_t liveBytes = cleaner->getSortedLiveEntries(segments, liveEntries);
 
     EXPECT_EQ(2U, liveEntries.size());
     EXPECT_EQ(older, liveEntries[0].handle);
     EXPECT_EQ(newer, liveEntries[1].handle);
+    EXPECT_EQ(older->length() + newer->length(), liveBytes);
+}
+
+static bool
+relocationCBTrue(LogEntryHandle oldH, LogEntryHandle newH, void* cookie)
+{
+    return true;
+}
+
+static bool
+relocationCBFalse(LogEntryHandle oldH, LogEntryHandle newH, void* cookie)
+{
+    return false;
+}
+
+TEST(LogCleanerTest, moveToFillSegment) {
+    Tub<uint64_t> serverId(0);
+    Log log(serverId, 8192 * 20, 8192, 8000, NULL, Log::CLEANER_DISABLED);
+    LogCleaner* cleaner = &log.cleaner;
+
+    // live
+    log.registerType(LOG_ENTRY_TYPE_OBJ,
+                     true,
+                     livenessCB, NULL,
+                     relocationCBTrue, NULL,
+                     timestampCB,
+                     scanCB3, NULL);
+
+    // dead
+    log.registerType(LOG_ENTRY_TYPE_OBJTOMB,
+                     true,
+                     negativeLiveCB, NULL,
+                     relocationCBFalse, NULL,
+                     timestampCB,
+                     scanCB3, NULL);
+
+    // livenessCB says live, but dies before relocationCB
+    log.registerType(LOG_ENTRY_TYPE_LOGDIGEST,
+                     true,
+                     livenessCB, NULL,
+                     relocationCBFalse, NULL,
+                     timestampCB,
+                     scanCB3, NULL);
+
+    char sourceBuf[8192];
+    char buf1[8192] __attribute__((aligned(8192)));
+    char buf2[8192] __attribute__((aligned(8192)));
+    char buf3[8192] __attribute__((aligned(8192)));
+    Segment segToAppendTo(1, 1, buf1, sizeof(buf1));
+    Segment sourceSegFits(1, 2, buf2, sizeof(buf2));
+    Segment sourceSegDoesNotFit(1, 3, buf3, sizeof(buf3));
+
+    LogEntryHandle h1 =
+        segToAppendTo.append(LOG_ENTRY_TYPE_OBJ, sourceBuf, 5000);
+    LogEntryHandle h2 =
+        sourceSegFits.append(LOG_ENTRY_TYPE_OBJ, "live data fits", 14);
+    sourceSegFits.append(LOG_ENTRY_TYPE_LOGDIGEST, "live, then dead", 15);
+    sourceSegFits.append(LOG_ENTRY_TYPE_OBJTOMB, "dead data", 8);
+    sourceSegDoesNotFit.append(LOG_ENTRY_TYPE_OBJ, sourceBuf, 5000);
+
+    SegmentVector segsToClean;
+    cleaner->cleanableSegments.push_back({ &sourceSegDoesNotFit, 0, 0 });
+    uint32_t liveBefore = segToAppendTo.getLiveBytes();
+    cleaner->moveToFillSegment(&segToAppendTo, segsToClean);
+    EXPECT_EQ(liveBefore, segToAppendTo.getLiveBytes());
+    EXPECT_EQ(0U, segsToClean.size());
+
+    cleaner->cleanableSegments.push_back({ &sourceSegFits, 0, 0 });
+    EXPECT_EQ(2U, cleaner->cleanableSegments.size());
+    cleaner->moveToFillSegment(&segToAppendTo, segsToClean);
+    EXPECT_EQ(1U, segsToClean.size());
+    EXPECT_EQ(&sourceSegFits, segsToClean[0]);
+    EXPECT_EQ(1U, cleaner->cleanableSegments.size());
+    EXPECT_EQ(&sourceSegDoesNotFit, cleaner->cleanableSegments[0].segment);
+
+    int objs = 0;
+    int tombs = 0;
+    for (SegmentIterator it(&segToAppendTo); !it.isDone(); it.next()) {
+        if (it.getType() == LOG_ENTRY_TYPE_OBJ) {
+            if (objs == 0)
+                EXPECT_EQ(h1, it.getHandle());
+            if (objs == 1) {
+                EXPECT_EQ(h2->length(), it.getHandle()->length());
+                EXPECT_EQ(0, memcmp(h2->userData(),
+                                    it.getHandle()->userData(),
+                                    it.getHandle()->length()));
+            }
+            objs++;
+        }
+        if (it.getType() == LOG_ENTRY_TYPE_OBJTOMB)
+            tombs++;
+    }
+    EXPECT_EQ(2, objs);
+    EXPECT_EQ(0, tombs);
 }
 
 // Ensure we fill objects into older destination Segments in order

@@ -74,6 +74,8 @@ runIt(RamCloud* client,
     uint64_t objectsWritten = 0;
     uint64_t startTime = Cycles::rdtsc();
     double lastUpdateTime = 0;
+    uint64_t lastUpdateBytes = 0;
+    uint64_t lastUpdateObjects = 0;
 
     for (uint64_t i = 0; i < maxId * 20; i++) {
         uint64_t objId = nextId(maxId);
@@ -85,16 +87,25 @@ runIt(RamCloud* client,
 
         double totalTime = Cycles::toSeconds(Cycles::rdtsc() - startTime);
         if (totalTime >= 1 + lastUpdateTime) {
-            lastUpdateTime = totalTime;
+            double timeDelta = totalTime - lastUpdateTime;
+
             printf("\r%60s", "");
             printf("\r%lu objects, %.2f MB  (%.1f objs/sec, %.1f MB/sec)",
                 objectsWritten,
                 static_cast<double>(bytesWritten) / 1024 / 1024,
-                static_cast<double>(objectsWritten) / totalTime,
-                static_cast<double>(bytesWritten) / totalTime / 1024 / 1024);
+                static_cast<double>(objectsWritten - lastUpdateObjects) /
+                timeDelta,
+                static_cast<double>(bytesWritten - lastUpdateBytes) /
+                timeDelta / 1024 / 1024);
             fflush(stdout);
+
+            lastUpdateTime = totalTime;
+            lastUpdateBytes = bytesWritten;
+            lastUpdateObjects = objectsWritten;
         }
     }
+
+    printf("\n");
 }
 
 } // namespace RAMCloud

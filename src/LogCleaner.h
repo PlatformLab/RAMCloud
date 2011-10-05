@@ -61,21 +61,23 @@ class LogCleaner {
 
   PRIVATE:
     // Sorting a vector of handles is expensive since we have to take a few
-    // cache misses to access the ages for each comparison. Instead, include
-    // the age directly in the elements being sorted. We access the object
-    // anyhow as we scan (to check liveness), so this is essentially free.
-    // The sorted array is larger, but comparing elements is much faster.
+    // cache misses to access the timestamps for each comparison. Instead,
+    // include the timestamp directly in the elements being sorted. We access
+    // the object anyhow as we scan (to check liveness), so this is essentially
+    // free. The sorted array is larger, but comparing elements is much faster.
     // While we're here, also cache the total length for future prefetching.
     class LiveSegmentEntry {
       public:
-        LiveSegmentEntry(SegmentEntryHandle handle, uint32_t age)
-            : handle(handle), age(age), totalLength(handle->totalLength())
+        LiveSegmentEntry(SegmentEntryHandle handle, uint32_t timestamp)
+            : handle(handle),
+              timestamp(timestamp),
+              totalLength(handle->totalLength())
         {
             static_assert(sizeof(LiveSegmentEntry) == 16,
                 "LiveSegmentEntry isn't the expected size!");
         }
         SegmentEntryHandle handle;
-        uint32_t age;
+        uint32_t timestamp;
         uint32_t totalLength;
     };
     typedef std::vector<LiveSegmentEntry> LiveSegmentEntryHandleVector;
@@ -199,7 +201,7 @@ class LogCleaner {
         operator()(const LogCleaner::LiveSegmentEntry a,
                    const LogCleaner::LiveSegmentEntry b)
         {
-            return a.age < b.age;
+            return a.timestamp < b.timestamp;
         }
 
       private:
@@ -500,8 +502,8 @@ class LogCleaner {
     void dumpCleaningPassStats(PerfCounters& before);
     bool getCleanSegmentMemory(size_t segmentsNeeded,
                                std::vector<void*>& cleanSegmentMemory);
-    double writeCost(uint64_t totalCapacity, uint64_t liveBytes);
-    bool isCleanable(double _writeCost);
+    static double writeCost(uint64_t totalCapacity, uint64_t liveBytes);
+    static bool isCleanable(double _writeCost);
     void scanNewCleanableSegments();
     void scanSegment(Segment*  segment,
                      uint32_t* implicitlyFreeableEntries,

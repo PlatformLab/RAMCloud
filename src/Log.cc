@@ -683,34 +683,36 @@ Log::allocateSegmentId()
 void
 Log::dumpListStats()
 {
+    LogLevel level = DEBUG;
+
     double total = static_cast<double>(getNumberOfSegments());
-    LOG(NOTICE, "============ LOG LIST OCCUPANCY ============");
-    LOG(NOTICE, "  freeList:                           %6Zd  (%.2f%%)",
+    LOG(level, "============ LOG LIST OCCUPANCY ============");
+    LOG(level, "  freeList:                           %6Zd  (%.2f%%)",
         freeList.size(),
         100.0 * static_cast<double>(freeList.size()) / total);
-    LOG(NOTICE, "  emergencyCleanerList:               %6Zd  (%.2f%%)",
+    LOG(level, "  emergencyCleanerList:               %6Zd  (%.2f%%)",
         emergencyCleanerList.size(),
         100.0 * static_cast<double>(emergencyCleanerList.size()) / total);
-    LOG(NOTICE, "  cleanableNewList:                   %6Zd  (%.2f%%)",
+    LOG(level, "  cleanableNewList:                   %6Zd  (%.2f%%)",
         cleanableNewList.size(),
         100.0 * static_cast<double>(cleanableNewList.size()) / total);
-    LOG(NOTICE, "  cleanableList:                      %6Zd  (%.2f%%)",
+    LOG(level, "  cleanableList:                      %6Zd  (%.2f%%)",
         cleanableList.size(),
         100.0 * static_cast<double>(cleanableList.size()) / total);
-    LOG(NOTICE, "  cleaningIntoList:                   %6Zd  (%.2f%%)",
+    LOG(level, "  cleaningIntoList:                   %6Zd  (%.2f%%)",
         cleaningIntoList.size(),
         100.0 * static_cast<double>(cleaningIntoList.size()) / total);
-    LOG(NOTICE, "  cleanablePendingDigestList:         %6Zd  (%.2f%%)",
+    LOG(level, "  cleanablePendingDigestList:         %6Zd  (%.2f%%)",
         cleanablePendingDigestList.size(),
         100.0 * static_cast<double>(cleanablePendingDigestList.size()) / total);
-    LOG(NOTICE, "  freePendingDigestAndReferenceList:  %6Zd  (%.2f%%)",
+    LOG(level, "  freePendingDigestAndReferenceList:  %6Zd  (%.2f%%)",
         freePendingDigestAndReferenceList.size(),
         100.0 * static_cast<double>(
             freePendingDigestAndReferenceList.size()) / total);
-    LOG(NOTICE, "  freePendingReferenceList:           %6Zd  (%.2f%%)",
+    LOG(level, "  freePendingReferenceList:           %6Zd  (%.2f%%)",
         freePendingReferenceList.size(),
         1.00 * static_cast<double>(freePendingReferenceList.size()) / total);
-    LOG(NOTICE, "----- Total: %Zd (Segments in Log incl. head: %Zd)",
+    LOG(level, "----- Total: %Zd (Segments in Log incl. head: %Zd)",
         freeList.size() +
         emergencyCleanerList.size() +
         cleanableNewList.size() +

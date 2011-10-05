@@ -176,9 +176,11 @@ LogCleaner::cleanerThreadEntry(LogCleaner* logCleaner, Context* context)
 void
 LogCleaner::dumpCleaningPassStats(PerfCounters& before)
 {
+    LogLevel level = DEBUG;
+
     PerfCounters delta = perfCounters - before;
 
-    LOG(NOTICE, "============ %sCleaning Pass Complete ============",
+    LOG(level, "============ %sCleaning Pass Complete ============",
         delta.emergencyCleaningPasses ? "EMERGENCY " : "");
 
     double cleanedBytesPerSec =
@@ -196,63 +198,63 @@ LogCleaner::dumpCleaningPassStats(PerfCounters& before)
         static_cast<double>(log->getSegmentCapacity()) /
         Cycles::toSeconds(delta.cleaningPassTicks);
 
-    LOG(NOTICE, "  Counters/Rates:");
-    LOG(NOTICE, "    Total Cleaning Passes:          %9lu",
+    LOG(level, "  Counters/Rates:");
+    LOG(level, "    Total Cleaning Passes:          %9lu",
         perfCounters.cleaningPasses + perfCounters.emergencyCleaningPasses);
-    LOG(NOTICE, "      Emergency Cleaning Passes:    %9lu   (%.2f%%)",
+    LOG(level, "      Emergency Cleaning Passes:    %9lu   (%.2f%%)",
         perfCounters.emergencyCleaningPasses,
         100.0 * static_cast<double>(perfCounters.emergencyCleaningPasses) /
         static_cast<double>(perfCounters.cleaningPasses +
                             perfCounters.emergencyCleaningPasses));
-    LOG(NOTICE, "    Write Cost:                     %9.3f   (%.3f avg)",
+    LOG(level, "    Write Cost:                     %9.3f   (%.3f avg)",
         delta.writeCostSum,
         perfCounters.writeCostSum /
         static_cast<double>(perfCounters.cleaningPasses));
-    LOG(NOTICE, "    Segments Cleaned:               %9lu   (%.2f MB/s)",
+    LOG(level, "    Segments Cleaned:               %9lu   (%.2f MB/s)",
         delta.segmentsCleaned, cleanedBytesPerSec / 1024.0 / 1024.0);
-    LOG(NOTICE, "    Segments Generated:             %9lu   (%.2f MB/s)",
+    LOG(level, "    Segments Generated:             %9lu   (%.2f MB/s)",
         delta.segmentsGenerated, generatedBytesPerSec / 1024.0 / 1024.0);
-    LOG(NOTICE, "    Net Clean Segments:             %9lu   (%.2f MB/s)",
+    LOG(level, "    Net Clean Segments:             %9lu   (%.2f MB/s)",
         delta.segmentsCleaned - delta.segmentsGenerated,
         netCleanBytesPerSec / 1024.0 / 1024.0);
-    LOG(NOTICE, "    Entries Checked for Liveness:   %9lu   (%.2f us/callback)",
+    LOG(level, "    Entries Checked for Liveness:   %9lu   (%.2f us/callback)",
         delta.entriesLivenessChecked,
         1.0e6 * Cycles::toSeconds(delta.livenessCallbackTicks) /
         static_cast<double>(delta.entriesLivenessChecked));
-    LOG(NOTICE, "    Live Entries Relocated:         %9lu   (%.2f us/callback)",
+    LOG(level, "    Live Entries Relocated:         %9lu   (%.2f us/callback)",
         delta.liveEntriesRelocated,
         1.0e6 * Cycles::toSeconds(delta.relocationCallbackTicks) /
         static_cast<double>(delta.liveEntriesRelocated));
-    LOG(NOTICE, "    Entries Rolled Back:            %9lu",
+    LOG(level, "    Entries Rolled Back:            %9lu",
         delta.entriesRolledBack);
-    LOG(NOTICE, "    Average Entry Size + Metadata:  %9lu   "
+    LOG(level, "    Average Entry Size + Metadata:  %9lu   "
         "(%lu bytes overall)",
         (delta.entriesLivenessChecked == 0) ? 0 :
         delta.liveEntryBytes / delta.entriesLivenessChecked,
         (perfCounters.entriesLivenessChecked == 0) ? 0 :
         perfCounters.liveEntryBytes / perfCounters.entriesLivenessChecked);
-    LOG(NOTICE, "    Cleaned Segment Utilisation:    %9.2f%%  (%.2f%% avg)",
+    LOG(level, "    Cleaned Segment Utilisation:    %9.2f%%  (%.2f%% avg)",
         100.0 * static_cast<double>(delta.liveEntriesRelocated) /
         static_cast<double>(delta.entriesLivenessChecked),
         100.0 * static_cast<double>(perfCounters.liveEntriesRelocated) /
         static_cast<double>(perfCounters.entriesLivenessChecked));
-    LOG(NOTICE, "    Generated Segment Utilisation:  %9.2f%%  (%.2f%% avg)",
+    LOG(level, "    Generated Segment Utilisation:  %9.2f%%  (%.2f%% avg)",
         static_cast<double>(delta.generatedUtilisationSum) /
         static_cast<double>(delta.segmentsGenerated),
         static_cast<double>(perfCounters.generatedUtilisationSum) /
         static_cast<double>(perfCounters.segmentsGenerated));
-    LOG(NOTICE, "    Last Seg Packing Util Incr:     %9.1f%%  (%.1f%% avg)",
+    LOG(level, "    Last Seg Packing Util Incr:     %9.1f%%  (%.1f%% avg)",
         static_cast<double>(delta.packLastImprovementSum) /
         static_cast<double>(delta.cleaningPasses),
         static_cast<double>(perfCounters.packLastImprovementSum) /
         static_cast<double>(perfCounters.cleaningPasses));
-    LOG(NOTICE, "    Total Segs Pack Last Improved:  %9lu   (%.2f%% of passes)",
+    LOG(level, "    Total Segs Pack Last Improved:  %9lu   (%.2f%% of passes)",
         perfCounters.packLastDidWork,
         100.0 * static_cast<double>(perfCounters.packLastDidWork) /
         static_cast<double>(perfCounters.cleaningPasses));
-    LOG(NOTICE, "    Segs Scanned for Free Space:    %9lu   (%lu overall)",
+    LOG(level, "    Segs Scanned for Free Space:    %9lu   (%lu overall)",
         delta.scanForFreeSpaceSegments, perfCounters.scanForFreeSpaceSegments);
-    LOG(NOTICE, "      Attempts That Found Free Space: %7.3f%%   (overall)",
+    LOG(level, "      Attempts That Found Free Space: %7.3f%%   (overall)",
         100.0 * static_cast<double>(perfCounters.scanForFreeSpaceProgress) /
         static_cast<double>(perfCounters.scanForFreeSpaceSegments));
 
@@ -261,46 +263,46 @@ LogCleaner::dumpCleaningPassStats(PerfCounters& before)
         100.0 * static_cast<double>(delta._x) /         \
             static_cast<double>(delta.cleaningPassTicks)
 
-    LOG(NOTICE, "  Time Breakdown:");
-    LOG(NOTICE, "    Total:                       %9lu ms   (%lu avg)",
+    LOG(level, "  Time Breakdown:");
+    LOG(level, "    Total:                       %9lu ms   (%lu avg)",
         Cycles::toNanoseconds(delta.cleaningPassTicks) / 1000 / 1000,
         Cycles::toNanoseconds(perfCounters.cleaningPassTicks) /
         perfCounters.cleaningPasses / 1000 / 1000);
-    LOG(NOTICE, "      Scan New Segments:         %9lu ms   (%.2f%%)",
+    LOG(level, "      Scan New Segments:         %9lu ms   (%.2f%%)",
         _pctAndTime(newScanTicks));
-    LOG(NOTICE, "      Scan For Free Space:       %9lu ms   (%.2f%%)",
+    LOG(level, "      Scan For Free Space:       %9lu ms   (%.2f%%)",
         _pctAndTime(scanForFreeSpaceTicks));
-    LOG(NOTICE, "      Choose Segments:           %9lu ms   (%.2f%%)",
+    LOG(level, "      Choose Segments:           %9lu ms   (%.2f%%)",
         _pctAndTime(getSegmentsTicks));
-    LOG(NOTICE, "      Collect Live Data:         %9lu ms   (%.2f%%)",
+    LOG(level, "      Collect Live Data:         %9lu ms   (%.2f%%)",
         _pctAndTime(collectLiveEntriesTicks));
-    LOG(NOTICE, "        Check Liveness:          %9lu ms   (%.2f%%)",
+    LOG(level, "        Check Liveness:          %9lu ms   (%.2f%%)",
         _pctAndTime(livenessCallbackTicks));
-    LOG(NOTICE, "      Sort Live Data:            %9lu ms   (%.2f%%)",
+    LOG(level, "      Sort Live Data:            %9lu ms   (%.2f%%)",
         _pctAndTime(sortLiveEntriesTicks));
-    LOG(NOTICE, "      Move Live Data:            %9lu ms   (%.2f%%)",
+    LOG(level, "      Move Live Data:            %9lu ms   (%.2f%%)",
         _pctAndTime(moveLiveDataTicks));
-    LOG(NOTICE, "        Segment Append:          %9lu ms   (%.2f%%, "
+    LOG(level, "        Segment Append:          %9lu ms   (%.2f%%, "
         "%.2f MB/s)",
         _pctAndTime(segmentAppendTicks),
         static_cast<double>(delta.liveEntryBytes) / 1024.0 / 1024.0);
-    LOG(NOTICE, "        Relocation Callback:     %9lu ms   (%.2f%%)",
+    LOG(level, "        Relocation Callback:     %9lu ms   (%.2f%%)",
         _pctAndTime(relocationCallbackTicks));
-    LOG(NOTICE, "        Pack Last Seg:           %9lu ms   (%.2f%%)",
+    LOG(level, "        Pack Last Seg:           %9lu ms   (%.2f%%)",
         _pctAndTime(packLastTicks));
-    LOG(NOTICE, "        Close and Sync:          %9lu ms   (%.2f%%)",
+    LOG(level, "        Close and Sync:          %9lu ms   (%.2f%%)",
         _pctAndTime(closeAndSyncTicks));
-    LOG(NOTICE, "      Cleaning Complete:         %9lu ms   (%.2f%%)",
+    LOG(level, "      Cleaning Complete:         %9lu ms   (%.2f%%)",
         _pctAndTime(cleaningCompleteTicks));
 
     #undef _pctAndTime
 
     size_t i;
-    LOG(NOTICE, "  Entry Types Checked for Liveness:");
+    LOG(level, "  Entry Types Checked for Liveness:");
     for (i = 0; i < arrayLength(perfCounters.entryTypeCounts); i++) {
         if (perfCounters.entryTypeCounts[i] == 0)
             continue;
-        LOG(NOTICE, "      %3zd ('%c')           %18lu    "
+        LOG(level, "      %3zd ('%c')           %18lu    "
             "(%.2f%% avg, %.2f%% overall)",
             i, downCast<char>(i), delta.entryTypeCounts[i],
             100.0 * static_cast<double>(delta.entryTypeCounts[i]) /
@@ -309,11 +311,11 @@ LogCleaner::dumpCleaningPassStats(PerfCounters& before)
             static_cast<double>(perfCounters.entriesInCleanedSegments));
     }
 
-    LOG(NOTICE, "  Entry Types Relocated:");
+    LOG(level, "  Entry Types Relocated:");
     for (i = 0; i < arrayLength(perfCounters.relocEntryTypeCounts); i++) {
         if (perfCounters.relocEntryTypeCounts[i] == 0)
             continue;
-        LOG(NOTICE, "      %3zd ('%c')           %18lu    "
+        LOG(level, "      %3zd ('%c')           %18lu    "
             "(%.2f%% avg, %.2f%% overall)",
             i, downCast<char>(i), delta.relocEntryTypeCounts[i],
             100.0 * static_cast<double>(delta.relocEntryTypeCounts[i]) /
@@ -332,7 +334,7 @@ LogCleaner::dumpCleaningPassStats(PerfCounters& before)
         totalUtil += cs.segment->getUtilisation();
     }
     double cumulative = 0;
-    LOG(NOTICE, "  Cleanable Segment Utilisation Histogram (avg %.2f%%):",
+    LOG(level, "  Cleanable Segment Utilisation Histogram (avg %.2f%%):",
         static_cast<double>(totalUtil) /
         static_cast<double>(cleanableSegments.size()));
     for (i = 0; i < arrayLength(histogram); i++) {
@@ -344,7 +346,7 @@ LogCleaner::dumpCleaningPassStats(PerfCounters& before)
         cumulative += pct;
         char endChar = (i == arrayLength(histogram) - 1) ? ']' : ')';
 
-        LOG(NOTICE, "       [%2zd%% - %3zd%%%c:  %5.1f%%   %5.1f%%",
+        LOG(level, "       [%2zd%% - %3zd%%%c:  %5.1f%%   %5.1f%%",
             startPct, endPct, endChar, pct, cumulative);
     }
 }
@@ -644,6 +646,8 @@ LogCleaner::getSegmentsToClean(SegmentVector& segmentsToClean)
  *      Vector to put pointers to live entries on.
  * \return
  *      The number of bytes in live entries scanned from the input segment.
+ *      This tally does NOT include any Segment metadata overhead - only
+ *      the bytes in the entries themselves.
  */
 size_t
 LogCleaner::getLiveEntries(Segment* segment,
@@ -697,6 +701,8 @@ LogCleaner::getLiveEntries(Segment* segment,
  *      Vector to put pointers to live entries on.
  * \return
  *      The number of bytes in live entries scanned from the input segments.
+ *      This tally does NOT include any Segment metadata overhead - only
+ *      the bytes in the entries themselves.
  */
 size_t
 LogCleaner::getSortedLiveEntries(SegmentVector& segments,
@@ -878,7 +884,6 @@ LogCleaner::moveLiveData(LiveSegmentEntryHandleVector& liveData,
                                               backup,
                                               LOG_ENTRY_TYPE_UNINIT, NULL, 0);
 
-
                 segmentsAdded.push_back(newSeg);
                 segmentBins.addSegment(newSeg);
                 log->cleaningInto(newSeg);
@@ -977,6 +982,7 @@ LogCleaner::setUpNormalCleaningPass(LiveSegmentEntryHandleVector& liveEntries,
         return false;
     }
 
+    // XXX- liveEntryBytes does _not_ include SegmentEntry counts.
     perfCounters.writeCostSum += writeCost(segmentsToClean.size() *
         log->getSegmentCapacity(), liveEntryBytes);
 
@@ -1084,6 +1090,7 @@ LogCleaner::setUpEmergencyCleaningPass(
             cleanableSegments.pop_back();
 
         // Also, calculate and update our write cost stats while here.
+        // XXX- totalLiveBytes does _not_ include SegmentEntry counts.
         double cost = writeCost(totalCapacity, totalLiveBytes);
         perfCounters.writeCostSum += cost;
 
