@@ -23,7 +23,11 @@
 #ifndef RAMCLOUD_BACKUPSERVICE_H
 #define RAMCLOUD_BACKUPSERVICE_H
 
+#if __GNUC__ >= 4 && __GNUC_MINOR__ >= 5
+#include <atomic>
+#else
 #include <cstdatomic>
+#endif
 #include <boost/thread.hpp>
 #include <boost/scoped_ptr.hpp>
 #include <boost/pool/pool.hpp>

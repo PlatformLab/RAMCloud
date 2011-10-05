@@ -18,7 +18,11 @@
 #ifndef RAMCLOUD_RAWMETRICS_H
 #define RAMCLOUD_RAWMETRICS_H
 
+#if __GNUC__ >= 4 && __GNUC_MINOR__ >= 5
+#include <atomic>
+#else
 #include <cstdatomic>
+#endif
 #include <boost/thread.hpp>
 
 #if !DISABLE_METRICS
