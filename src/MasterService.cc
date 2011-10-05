@@ -1630,8 +1630,8 @@ tombstoneScanCallback(LogEntryHandle handle, void* cookie)
  *      version of the object, or VERSION_NONEXISTENT if the object does not
  *      exist.
  * \param async
- *      If true, this write will be replicated to backups before return.
- *      If false, the replication may happen sometime later.
+ *      If true, the replication may happen sometime later.
+ *      If false, this write will be replicated to backups before return.
  * \return
  *      STATUS_OK if the object was written. Otherwise, for example,
  *      STATUS_TABLE_DOESNT_EXIST may be returned.
