@@ -32,6 +32,7 @@
 #include "Segment.h"
 #include "ServerRpcPool.h"
 #include "ShortMacros.h"
+#include "SessionAlarm.h"
 #include "Transport.h"
 #include "Infiniband.h"
 
@@ -54,6 +55,7 @@ class InfRcTransport : public Transport {
     // forward declarations
   PRIVATE:
     class InfRCSession;
+    class Poller;
     typedef typename Infiniband::BufferDescriptor BufferDescriptor;
     typedef typename Infiniband::QueuePair QueuePair;
     typedef typename Infiniband::QueuePairTuple QueuePairTuple;
@@ -157,12 +159,24 @@ class InfRcTransport : public Transport {
             const ServiceLocator& sl);
         Transport::ClientRpc* clientSend(Buffer* request, Buffer* response)
             __attribute__((warn_unused_result));
+        virtual void abort(const string& message);
         void release();
 
-      private:
+      PRIVATE:
+        // Transport that manages this session.
         InfRcTransport *transport;
+
+        // Connection to the server; NULL means this socket has been aborted.
         QueuePair* qp;
+
+        // Used to detect server timeouts.
+        SessionAlarm alarm;
+
+        // Message explaining why the socket was aborted.
+        string abortMessage;
+
         friend class ClientRpc;
+        friend class Poller;
         DISALLOW_COPY_AND_ASSIGN(InfRCSession);
     };
 

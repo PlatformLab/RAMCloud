@@ -307,9 +307,12 @@ InfRcTransport<Infiniband>::setNonBlocking(int fd)
 template<typename Infiniband>
 InfRcTransport<Infiniband>::InfRCSession::InfRCSession(
     InfRcTransport *transport, const ServiceLocator& sl)
-    : transport(transport),
-      qp(NULL)
+    : transport(transport)
+    , qp(NULL)
+    , alarm(*Context::get().sessionAlarmTimer, *this)
+    , abortMessage()
 {
+    setServiceLocator(sl.getOriginalString());
     IpAddress address(sl);
 
     // create and set up a new queue pair for this client
@@ -324,7 +327,36 @@ template<typename Infiniband>
 void
 InfRcTransport<Infiniband>::InfRCSession::release()
 {
+    abort("session closed");
     delete this;
+}
+
+// See documentation for Transport::Session::abort.
+template<typename Infiniband>
+void
+InfRcTransport<Infiniband>::InfRCSession::abort(const string& message)
+{
+    abortMessage = message;
+    for (typename ClientRpcList::iterator
+            it(transport->clientSendQueue.begin());
+            it != transport->clientSendQueue.end(); ) {
+        typename ClientRpcList::iterator current(it);
+        it++;
+        if (current->session == this) {
+            current->cancel(message);
+        }
+    }
+    for (typename ClientRpcList::iterator
+            it(transport->outstandingRpcs.begin());
+            it != transport->outstandingRpcs.end(); ) {
+        typename ClientRpcList::iterator current(it);
+        it++;
+        if (current->session == this) {
+            current->cancel(message);
+        }
+    }
+    delete qp;
+    qp = NULL;
 }
 
 /**
@@ -345,6 +377,9 @@ InfRcTransport<Infiniband>::InfRCSession::clientSend(Buffer* request,
                                                      Buffer* response)
 {
     InfRcTransport *t = transport;
+    if (qp == NULL) {
+        throw TransportException(HERE, abortMessage);
+    }
 
     if (request->getTotalLength() > t->getMaxRpcSize()) {
         throw TransportException(HERE,
@@ -500,7 +535,8 @@ InfRcTransport<Infiniband>::clientTrySetupQueuePair(IpAddress& address)
         }
 
         if (!gotResponse) {
-            LOG(WARNING, "timed out waiting for response; retrying");
+            LOG(WARNING, "timed out waiting for response from %s; retrying",
+                address.toString().c_str());
             ++metrics->transport.retrySessionOpenCount;
             continue;
         }
@@ -875,6 +911,7 @@ InfRcTransport<Infiniband>::ClientRpc::sendOrQueue()
         request->truncateFront(sizeof(Header)); // for politeness
 
         t->outstandingRpcs.push_back(*this);
+        session->alarm.rpcStarted();
         ++t->numUsedClientSrqBuffers;
         state = REQUEST_SENT;
     } else {
@@ -883,12 +920,21 @@ InfRcTransport<Infiniband>::ClientRpc::sendOrQueue()
     }
 }
 
+/**
+ * This method is invoked by Transport::ClientRpc::cancel to perform
+ * transport-specific actions to abort an RPC that could be in any state
+ * of processing.
+ */
 template<typename Infiniband>
 void
 InfRcTransport<Infiniband>::ClientRpc::cancelCleanup()
 {
-    transport->outstandingRpcs.erase(
-            transport->outstandingRpcs.iterator_to(*this));
+    if (state == PENDING) {
+        erase(transport->clientSendQueue, *this);
+    } else {
+        erase(transport->outstandingRpcs, *this);
+        session->alarm.rpcFinished();
+    }
     state = RESPONSE_RECEIVED;
     if (transport->outstandingRpcs.empty())
         transport->clientRpcsActiveTime.destroy();
@@ -927,6 +973,7 @@ InfRcTransport<Infiniband>::Poller::poll()
                 if (rpc.nonce != header.nonce)
                     continue;
                 t->outstandingRpcs.erase(t->outstandingRpcs.iterator_to(rpc));
+                rpc.session->alarm.rpcFinished();
                 uint32_t len = wc.byte_len - downCast<uint32_t>(sizeof(header));
                 if (t->numUsedClientSrqBuffers >=
                         MAX_SHARED_RX_QUEUE_DEPTH / 2) {
