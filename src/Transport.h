@@ -67,8 +67,15 @@ class Transport {
       PROTECTED:
         /**
          * Constructor for ClientRpc.
+         *
+         * \param request
+         *      Holds the outgoing (request) message for the RPC.
+         * \param response
+         *      Used to hold the response message, when it arrives.
          */
-        ClientRpc() : finished(0), errorMessage() {}
+        ClientRpc(Buffer* request, Buffer* response)
+            : request(request), response(response), finished(0),
+              errorMessage() {}
 
       public:
 
@@ -105,6 +112,10 @@ class Transport {
 
         void cancel(const string& message);
         void cancel(const char* message = "");
+
+        // Request and response messages.
+        Buffer* request;
+        Buffer* response;
 
       PROTECTED:
         /**

@@ -44,14 +44,12 @@ class UnreliableTransport : public Transport {
   private:
     struct UnreliableClientRpc : public ClientRpc {
         UnreliableClientRpc(UnreliableTransport& t,
-                            Buffer& request,
-                            Buffer& response,
+                            Buffer* request,
+                            Buffer* response,
                             Driver::Address& serverAddress);
         // expose ClientRpc::markFinished, which is protected
         void markFinished() { ClientRpc::markFinished(); }
         UnreliableTransport& t;
-        Buffer& request;
-        Buffer& response;
         const uint32_t nonce;
         IntrusiveListHook listEntries;
         DISALLOW_COPY_AND_ASSIGN(UnreliableClientRpc);

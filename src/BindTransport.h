@@ -75,7 +75,8 @@ struct BindTransport : public Transport {
     };
 
     struct BindClientRpc : public ClientRpc {
-        BindClientRpc() {}
+        BindClientRpc(Buffer* request, Buffer* response)
+            : Transport::ClientRpc(request, response) {}
         friend class BindTransport;
         friend class BindSession;
         DISALLOW_COPY_AND_ASSIGN(BindClientRpc);
@@ -87,7 +88,8 @@ struct BindTransport : public Transport {
                              const string& locator)
             : transport(transport), services(services), locator(locator) {}
         ClientRpc* clientSend(Buffer* request, Buffer* response) {
-            BindClientRpc* result = new(response, MISC) BindClientRpc;
+            BindClientRpc* result = new(response, MISC)
+                    BindClientRpc(request, response);
             Service::Rpc rpc(NULL, *request, *response);
             if (transport.abortCounter > 0) {
                 transport.abortCounter--;

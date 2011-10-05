@@ -105,12 +105,6 @@ class FastTransport : public Transport {
         ClientRpc(ClientSession* session,
                   Buffer* request, Buffer* response);
 
-        /// Contains an RPC request payload including the RPC header.
-        Buffer* const requestBuffer;
-
-        /// The destination Buffer for the RPC response.
-        Buffer* const responseBuffer;
-
         /// The ClientSession on which to send/receive the RPC.
         ClientSession* const session;
 

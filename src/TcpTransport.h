@@ -162,15 +162,13 @@ class TcpTransport : public Transport {
         friend class TcpTransport;
         friend class TcpSession;
         explicit TcpClientRpc(TcpSession* session, Buffer*request,
-                Buffer* reply, uint64_t nonce)
-            : request(request), reply(reply), nonce(nonce),
+                Buffer* response, uint64_t nonce)
+            : Transport::ClientRpc(request, response), nonce(nonce),
               session(session), sent(false), queueEntries()
                { }
       PROTECTED:
         virtual void cancelCleanup();
       PRIVATE:
-        Buffer* request;          /// Contains request message.
-        Buffer* reply;            /// Client's buffer for response.
         uint64_t nonce;           /// Unique identifier for this RPC; used
                                   /// to pair the RPC with its response.
         TcpSession *session;      /// Session used for this RPC.

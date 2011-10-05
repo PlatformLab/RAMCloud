@@ -99,7 +99,7 @@ TEST_F(InfRcTransportTest, ClientRpc_cancelCleanup) {
     } catch (TransportException& e) {
         message = e.message;
     }
-    EXPECT_EQ("RPC cancelled", message);
+    EXPECT_EQ("unknown(25185) RPC cancelled", message);
 
     // Send the response, and make sure it is ignored by the client.
     serverRpc->replyPayload.fillFromString("klmn");

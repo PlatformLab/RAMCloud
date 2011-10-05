@@ -602,14 +602,14 @@ TcpTransport::TcpSession::close()
 
 // See Transport::Session::clientSend for documentation.
 TcpTransport::ClientRpc*
-TcpTransport::TcpSession::clientSend(Buffer* request, Buffer* reply)
+TcpTransport::TcpSession::clientSend(Buffer* request, Buffer* response)
 {
     if (fd == -1) {
         throw TransportException(HERE, errorInfo);
     }
     alarm.rpcStarted();
-    TcpClientRpc* rpc = new(reply, MISC) TcpClientRpc(this, request,
-            reply, serial);
+    TcpClientRpc* rpc = new(response, MISC) TcpClientRpc(this, request,
+            response, serial);
     serial++;
     if (!rpcsWaitingToSend.empty()) {
         // Can't transmit this request yet; there are already other
@@ -652,7 +652,7 @@ TcpTransport::TcpSession::findRpc(Header& header) {
     foreach (TcpClientRpc& rpc, rpcsWaitingForResponse) {
         if (rpc.nonce == header.nonce) {
             current = &rpc;
-            return rpc.reply;
+            return rpc.response;
         }
     }
     return NULL;

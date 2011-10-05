@@ -753,7 +753,7 @@ TEST_F(TcpTransportTest, TcpSession_abort) {
     } catch (TransportException& e) {
         message = e.message;
     }
-    EXPECT_EQ("RPC cancelled: aborted for test", message);
+    EXPECT_EQ("empty RPC cancelled: aborted for test", message);
 }
 
 TEST_F(TcpTransportTest, TcpSession_close_cancelRpcsWaitingToSend) {
@@ -785,14 +785,14 @@ TEST_F(TcpTransportTest, TcpSession_close_cancelRpcsWaitingToSend) {
     } catch (TransportException& e) {
         message1 = e.message;
     }
-    EXPECT_EQ("RPC cancelled: session closed", message1);
+    EXPECT_EQ("unknown(28535) RPC cancelled: session closed", message1);
     string message3("no exception");
     try {
         clientRpc3->wait();
     } catch (TransportException& e) {
         message3 = e.message;
     }
-    EXPECT_EQ("RPC cancelled: session closed", message3);
+    EXPECT_EQ("empty RPC cancelled: session closed", message3);
 }
 
 TEST_F(TcpTransportTest, TcpSession_close_cancelRequestsInProgress) {
@@ -836,14 +836,14 @@ TEST_F(TcpTransportTest, TcpSession_close_cancelRequestsInProgress) {
     } catch (TransportException& e) {
         message1 = e.message;
     }
-    EXPECT_EQ("RPC cancelled: session closed", message1);
+    EXPECT_EQ("empty RPC cancelled: session closed", message1);
     string message5("no exception");
     try {
         clientRpc5->wait();
     } catch (TransportException& e) {
         message5 = e.message;
     }
-    EXPECT_EQ("RPC cancelled: session closed", message5);
+    EXPECT_EQ("empty RPC cancelled: session closed", message5);
 }
 
 TEST_F(TcpTransportTest, clientSend_sessionClosed) {
@@ -1051,7 +1051,7 @@ TEST_F(TcpTransportTest, ClientSocketHandler_ioError) {
     } catch (TransportException& e) {
         message = e.message;
     }
-    EXPECT_EQ("RPC cancelled: I/O read error in TcpTransport: "
+    EXPECT_EQ("empty RPC cancelled: I/O read error in TcpTransport: "
             "Operation not permitted", message);
 }
 

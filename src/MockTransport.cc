@@ -98,7 +98,7 @@ MockTransport::MockSession::clientSend(Buffer* payload, Buffer* response)
     }
     transport->outputLog.append("clientSend: ");
     transport->outputLog.append(TestUtil::toString(payload));
-    return new(response, MISC) MockClientRpc(transport, response);
+    return new(response, MISC) MockClientRpc(transport, payload, response);
 }
 
 /**
@@ -168,12 +168,15 @@ MockTransport::MockServerRpc::sendReply()
  *
  * \param transport
  *      The MockTransport object that this RPC is associated with.
+ * \param[out] request
+ *      Buffer containing the request message.
  * \param[out] response
  *      Buffer in which the response message should be placed.
  */
 MockTransport::MockClientRpc::MockClientRpc(MockTransport* transport,
+                                            Buffer* request,
                                             Buffer* response)
-        : response(response)
+        : Transport::ClientRpc(request, response)
 {
     if (transport->inputMessage != NULL) {
         response->fillFromString(transport->inputMessage);

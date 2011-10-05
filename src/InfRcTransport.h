@@ -116,8 +116,6 @@ class InfRcTransport : public Transport {
 
             InfRcTransport*     transport;
             InfRCSession*       session;
-            Buffer*             request;
-            Buffer*             response;
             /// Uniquely identifies the RPC.
             uint64_t            nonce;
             enum {

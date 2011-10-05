@@ -30,6 +30,9 @@ class AlarmSession : public Transport::Session {
     }
 
     class ClientRpc: public Transport::ClientRpc {
+      public:
+        ClientRpc(Buffer* request, Buffer* response)
+            : Transport::ClientRpc(request, response) {}
         virtual void cancelCleanup()
         {
             if (log.length() != 0) {
@@ -44,7 +47,7 @@ class AlarmSession : public Transport::Session {
     virtual Transport::ClientRpc*
     clientSend(Buffer* request, Buffer* response)
     {
-        ClientRpc* rpc = new(response, MISC) ClientRpc();
+        ClientRpc* rpc = new(response, MISC) ClientRpc(request, response);
         rpcs.push_back(rpc);
         if (alarm != NULL)
             alarm->rpcStarted();

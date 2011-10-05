@@ -68,7 +68,7 @@ UnreliableTransport::UnreliableTransport(Driver* driver)
                     if (rpc.nonce == header->getNonce()) {
                         uint32_t len;
                         char* data = received->steal(&len);
-                        Driver::PayloadChunk::appendToBuffer(&rpc.response,
+                        Driver::PayloadChunk::appendToBuffer(rpc.response,
                              data + sizeof(Header),
                              len - downCast<uint32_t>(sizeof(Header)),
                              t.driver.get(),
@@ -194,7 +194,7 @@ UnreliableTransport::UnreliableSession::clientSend(Buffer* request,
     ++metrics->transport.transmit.messageCount;
     metrics->transport.transmit.iovecCount += request->getNumberChunks();
     metrics->transport.transmit.byteCount += request->getTotalLength();
-    return new(response, MISC) UnreliableClientRpc(t, *request, *response,
+    return new(response, MISC) UnreliableClientRpc(t, request, response,
                                                    *serverAddress.get());
 }
 
@@ -206,18 +206,17 @@ UnreliableTransport::UnreliableSession::release()
 
 UnreliableTransport::UnreliableClientRpc::UnreliableClientRpc(
                                             UnreliableTransport& t,
-                                            Buffer& request,
-                                            Buffer& response,
+                                            Buffer* request,
+                                            Buffer* response,
                                             Driver::Address& serverAddress)
-    : t(t)
-    , request(request)
-    , response(response)
+    : Transport::ClientRpc(request, response)
+    , t(t)
     , nonce(static_cast<uint32_t>(generateRandom() & Header::NONCE_MASK))
     , listEntries()
 {
     t.clientPendingList.push_back(*this);
     Header header = { 1, 0, nonce };
-    t.sendPacketized(&serverAddress, header, request);
+    t.sendPacketized(&serverAddress, header, *request);
 }
 
 } // namespace RAMCloud

@@ -471,8 +471,8 @@ class ClientRpcTest : public ::testing::Test {
 };
 
 TEST_F(ClientRpcTest, constructor) {
-    EXPECT_EQ(request, rpc->requestBuffer);
-    EXPECT_EQ(response, rpc->responseBuffer);
+    EXPECT_EQ(request, rpc->request);
+    EXPECT_EQ(response, rpc->response);
     EXPECT_EQ(session, rpc->session);
 }
 

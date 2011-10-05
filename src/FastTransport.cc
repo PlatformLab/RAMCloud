@@ -249,8 +249,7 @@ void FastTransport::handleIncomingPacket(Driver::Received* received)
 FastTransport::ClientRpc::ClientRpc(ClientSession* session,
                                     Buffer* request,
                                     Buffer* response)
-    : requestBuffer(request)
-    , responseBuffer(response)
+    : Transport::ClientRpc(request, response)
     , session(session)
     , channelQueueEntries()
 {
@@ -905,8 +904,8 @@ FastTransport::ServerSession::beginSending(uint8_t channelId)
     ServerChannel* channel = &channels[channelId];
     assert(channel->state == ServerChannel::PROCESSING);
     channel->state = ServerChannel::SENDING_WAITING;
-    Buffer* responseBuffer = &channel->currentRpc->replyPayload;
-    channel->outboundMsg.beginSending(responseBuffer);
+    Buffer* response = &channel->currentRpc->replyPayload;
+    channel->outboundMsg.beginSending(response);
     lastActivityTime = Context::get().dispatch->currentTime;
 }
 
@@ -1219,7 +1218,7 @@ FastTransport::ClientSession::clientSend(Buffer* request, Buffer* response)
             assert(channel->state == ClientChannel::IDLE);
             channel->state = ClientChannel::SENDING;
             channel->currentRpc = rpc;
-            channel->outboundMsg.beginSending(rpc->requestBuffer);
+            channel->outboundMsg.beginSending(rpc->request);
         }
     }
 
@@ -1499,7 +1498,7 @@ FastTransport::ClientSession::processReceivedData(ClientChannel* channel,
     if (channel->state == ClientChannel::SENDING) {
         channel->outboundMsg.reset();
         channel->inboundMsg.init(header->totalFrags,
-                                 channel->currentRpc->responseBuffer);
+                                 channel->currentRpc->response);
         channel->state = ClientChannel::RECEIVING;
     }
     if (channel->inboundMsg.processReceivedData(received)) {
@@ -1531,7 +1530,7 @@ FastTransport::ClientSession::reassignChannel(ClientChannel* channel)
         channelQueue.pop_front();
         channel->state = ClientChannel::SENDING;
         channel->currentRpc = rpc;
-        channel->outboundMsg.beginSending(rpc->requestBuffer);
+        channel->outboundMsg.beginSending(rpc->request);
     }
 }
 
@@ -1572,7 +1571,7 @@ FastTransport::ClientSession::processSessionOpenResponse(
         channelQueue.pop_front();
         channels[i].state = ClientChannel::SENDING;
         channels[i].currentRpc = rpc;
-        channels[i].outboundMsg.beginSending(rpc->requestBuffer);
+        channels[i].outboundMsg.beginSending(rpc->request);
     }
 }
 

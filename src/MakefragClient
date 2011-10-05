@@ -35,6 +35,7 @@ CLIENT_SRCFILES := \
 		   src/PingClient.cc \
 		   src/RamCloud.cc \
 		   src/RawMetrics.cc \
+		   src/Rpc.cc \
 		   src/ServerMetrics.cc \
 		   src/ServerRpcPool.cc \
 		   src/Service.cc \

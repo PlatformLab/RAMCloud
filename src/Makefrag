@@ -59,6 +59,7 @@ SHARED_SRCFILES := \
 		   src/RawMetrics.cc \
 		   src/Recovery.cc \
 		   src/RecoverySegmentIterator.cc \
+		   src/Rpc.cc \
 		   src/Segment.cc \
 		   src/SegmentIterator.cc \
 		   src/ServerMetrics.cc \

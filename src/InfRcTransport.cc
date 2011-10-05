@@ -791,10 +791,9 @@ InfRcTransport<Infiniband>::ClientRpc::ClientRpc(InfRcTransport* transport,
                                      Buffer* request,
                                      Buffer* response,
                                      uint64_t nonce)
-    : transport(transport),
+    : Transport::ClientRpc(request, response),
+      transport(transport),
       session(session),
-      request(request),
-      response(response),
       nonce(nonce),
       state(PENDING),
       queueEntries()
