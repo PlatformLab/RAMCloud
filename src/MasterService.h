@@ -50,11 +50,15 @@ struct ServerConfig {
     /// Total number of bytes to use for the HashTable.
     uint64_t hashTableBytes;
 
+    /// If true, disable the log cleaner entirely.
+    bool disableLogCleaner;
+
     ServerConfig()
         : coordinatorLocator()
         , localLocator()
         , logBytes(0)
         , hashTableBytes(0)
+        , disableLogCleaner(false)
     {
     }
 };

@@ -73,6 +73,10 @@ try
          ProgramOptions::value<int>(&cpu)->
             default_value(-1),
          "CPU mask to pin to")
+        ("disableLogCleaner,d",
+         ProgramOptions::bool_switch(&masterConfig.disableLogCleaner),
+         "Disable the log cleaner entirely. You will eventually run out "
+         "of memory, but at least you can do so faster this way.")
         ("file,f",
          ProgramOptions::value<string>(&backupFile)->
             default_value("/var/tmp/backup.log"),
