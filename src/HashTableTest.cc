@@ -448,9 +448,9 @@ TEST_F(HashTableTest, multiTable) {
 }
 
 /**
-    * Ensure that #RAMCloud::HashTable::hash() generates hashes using the full
-    * range of bits.
-    */
+ * Ensure that #RAMCloud::HashTable::hash() generates hashes using the full
+ * range of bits.
+ */
 TEST_F(HashTableTest, hash) {
     uint64_t observedBits = 0UL;
     srand(1);
@@ -475,9 +475,9 @@ TEST_F(HashTableTest, findBucket) {
 }
 
 /**
-    * Test #RAMCloud::HashTable::lookupEntry() when the object ID is not
-    * found.
-    */
+ * Test #RAMCloud::HashTable::lookupEntry() when the object ID is not
+ * found.
+ */
 TEST_F(HashTableTest, lookupEntry_notFound) {
     {
         SETUP(0, 0);
@@ -496,9 +496,9 @@ TEST_F(HashTableTest, lookupEntry_notFound) {
 }
 
 /**
-    * Test #RAMCloud::HashTable::lookupEntry() when the object ID is found in
-    * the first entry of the first cache line.
-    */
+ * Test #RAMCloud::HashTable::lookupEntry() when the object ID is found in
+ * the first entry of the first cache line.
+ */
 TEST_F(HashTableTest, lookupEntry_cacheLine0Entry0) {
     SETUP(0, 1);
     EXPECT_EQ(&entryAt(&ht, 0, 0),
@@ -506,9 +506,9 @@ TEST_F(HashTableTest, lookupEntry_cacheLine0Entry0) {
 }
 
 /**
-    * Test #RAMCloud::HashTable::lookupEntry() when the object ID is found in
-    * the last entry of the first cache line.
-    */
+ * Test #RAMCloud::HashTable::lookupEntry() when the object ID is found in
+ * the last entry of the first cache line.
+ */
 TEST_F(HashTableTest, lookupEntry_cacheLine0Entry7) {
     SETUP(0, TestObjectMap::ENTRIES_PER_CACHE_LINE);
     EXPECT_EQ(&entryAt(&ht, 0, seven),
@@ -516,9 +516,9 @@ TEST_F(HashTableTest, lookupEntry_cacheLine0Entry7) {
 }
 
 /**
-    * Test #RAMCloud::HashTable::lookupEntry() when the object ID is found in
-    * the first entry of the third cache line.
-    */
+ * Test #RAMCloud::HashTable::lookupEntry() when the object ID is found in
+ * the first entry of the third cache line.
+ */
 TEST_F(HashTableTest, lookupEntry_cacheLine2Entry0) {
     SETUP(0, TestObjectMap::ENTRIES_PER_CACHE_LINE * 5);
 
@@ -533,9 +533,9 @@ TEST_F(HashTableTest, lookupEntry_cacheLine2Entry0) {
 }
 
 /**
-    * Test #RAMCloud::HashTable::lookupEntry() when there is a hash collision
-    * with another Entry.
-    */
+ * Test #RAMCloud::HashTable::lookupEntry() when there is a hash collision
+ * with another Entry.
+ */
 TEST_F(HashTableTest, lookupEntry_hashCollision) {
     SETUP(0, 1);
     EXPECT_EQ(&entryAt(&ht, 0, 0),
@@ -593,9 +593,9 @@ TEST_F(HashTableTest, replace_normal) {
 }
 
 /**
-    * Test #RAMCloud::HashTable::replace() when the object ID is new and the
-    * first entry of the first cache line is available.
-    */
+ * Test #RAMCloud::HashTable::replace() when the object ID is new and the
+ * first entry of the first cache line is available.
+ */
 TEST_F(HashTableTest, replace_cacheLine0Entry0) {
     SETUP(0, 0);
     TestObject v(0, 83UL);
@@ -604,9 +604,9 @@ TEST_F(HashTableTest, replace_cacheLine0Entry0) {
 }
 
 /**
-    * Test #RAMCloud::HashTable::replace() when the object ID is new and the
-    * last entry of the first cache line is available.
-    */
+ * Test #RAMCloud::HashTable::replace() when the object ID is new and the
+ * last entry of the first cache line is available.
+ */
 TEST_F(HashTableTest, replace_cacheLine0Entry7) {
     SETUP(0, TestObjectMap::ENTRIES_PER_CACHE_LINE - 1);
     TestObject v(0, 83UL);
@@ -615,10 +615,10 @@ TEST_F(HashTableTest, replace_cacheLine0Entry7) {
 }
 
 /**
-    * Test #RAMCloud::HashTable::replace() when the object ID is new and the
-    * first entry of the third cache line is available. The third cache line
-    * is already chained onto the second.
-    */
+ * Test #RAMCloud::HashTable::replace() when the object ID is new and the
+ * first entry of the third cache line is available. The third cache line
+ * is already chained onto the second.
+ */
 TEST_F(HashTableTest, replace_cacheLine2Entry0) {
     SETUP(0, TestObjectMap::ENTRIES_PER_CACHE_LINE * 2);
     ht.buckets.get()[2].entries[0].clear();
@@ -630,10 +630,10 @@ TEST_F(HashTableTest, replace_cacheLine2Entry0) {
 }
 
 /**
-    * Test #RAMCloud::HashTable::replace() when the object ID is new and the
-    * first and only cache line is full. The second cache line needs to be
-    * allocated.
-    */
+ * Test #RAMCloud::HashTable::replace() when the object ID is new and the
+ * first and only cache line is full. The second cache line needs to be
+ * allocated.
+ */
 TEST_F(HashTableTest, replace_cacheLineFull) {
     SETUP(0, TestObjectMap::ENTRIES_PER_CACHE_LINE);
     TestObject v(0, 83UL);
@@ -653,8 +653,8 @@ struct ForEachTestStruct {
 };
 
 /**
-    * Callback used by test_forEach().
-    */ 
+ * Callback used by test_forEach().
+ */ 
 static void
 test_forEach_callback(ForEachTestStruct *p, void *cookie)
 {
@@ -663,9 +663,9 @@ test_forEach_callback(ForEachTestStruct *p, void *cookie)
 }
 
 /**
-    * Simple test for #RAMCloud::HashTable::forEach(), ensuring that it
-    * properly traverses multiple buckets and chained cachelines.
-    */
+ * Simple test for #RAMCloud::HashTable::forEach(), ensuring that it
+ * properly traverses multiple buckets and chained cachelines.
+ */
 TEST_F(HashTableTest, forEach) {
     HashTable<ForEachTestStruct*> ht(2);
     ForEachTestStruct checkoff[256];
