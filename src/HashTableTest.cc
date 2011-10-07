@@ -455,8 +455,9 @@ TEST_F(HashTableTest, hash) {
     uint64_t observedBits = 0UL;
     srand(1);
     for (uint32_t i = 0; i < 50; i++) {
-        uint64_t input = generateRandom();
-        observedBits |= TestObjectMap::hash(input);
+        uint64_t input1 = generateRandom();
+        uint64_t input2 = generateRandom();
+        observedBits |= TestObjectMap::hash(input1, input2);
     }
     EXPECT_EQ(~0UL, observedBits);
 }
@@ -467,7 +468,7 @@ TEST_F(HashTableTest, findBucket) {
     uint64_t hashValue;
     uint64_t secondaryHash;
     bucket = ht.findBucket(0, 4327, &secondaryHash);
-    hashValue = TestObjectMap::hash(0) ^ TestObjectMap::hash(4327);
+    hashValue = TestObjectMap::hash(0, 4327);
     EXPECT_EQ(static_cast<uint64_t>(bucket - ht.buckets.get()),
                             (hashValue & 0x0000ffffffffffffffffUL) % 1024);
     EXPECT_EQ(secondaryHash, hashValue >> 48);

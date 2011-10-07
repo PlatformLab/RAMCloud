@@ -50,6 +50,7 @@ SHARED_SRCFILES := \
 		   src/MasterClient.cc \
 		   src/MasterService.cc \
 		   src/Memory.cc \
+		   src/MurmurHash3.cc \
 		   src/ObjectFinder.cc \
 		   src/OptionParser.cc \
 		   src/PcapFile.cc \

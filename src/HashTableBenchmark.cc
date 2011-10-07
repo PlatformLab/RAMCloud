@@ -21,6 +21,7 @@
 #include <math.h>
 
 #include "Common.h"
+#include "Context.h"
 #include "Cycles.h"
 #include "HashTable.h"
 #include "Memory.h"
@@ -207,6 +208,9 @@ int
 main(int argc, char **argv)
 {
     using namespace RAMCloud;
+
+    Context context(true);
+    Context::Guard _(context);
 
     uint64_t hashTableMegs, numberOfKeys;
     double loadFactor;
