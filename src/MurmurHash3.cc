@@ -33,12 +33,12 @@
 
 #define	FORCE_INLINE __attribute__((always_inline))
 
-inline uint32_t rotl32 ( uint32_t x, int8_t r )
+static inline uint32_t rotl32 ( uint32_t x, int8_t r )
 {
   return (x << r) | (x >> (32 - r));
 }
 
-inline uint64_t rotl64 ( uint64_t x, int8_t r )
+static inline uint64_t rotl64 ( uint64_t x, int8_t r )
 {
   return (x << r) | (x >> (64 - r));
 }
@@ -50,16 +50,18 @@ inline uint64_t rotl64 ( uint64_t x, int8_t r )
 
 #endif // !defined(_MSC_VER)
 
+namespace RAMCloud {
+
 //-----------------------------------------------------------------------------
 // Block read - if your platform needs to do endian-swapping or can only
 // handle aligned reads, do the conversion here
 
-FORCE_INLINE uint32_t getblock ( const uint32_t * p, int i )
+FORCE_INLINE static uint32_t getblock ( const uint32_t * p, int i )
 {
   return p[i];
 }
 
-FORCE_INLINE uint64_t getblock ( const uint64_t * p, int i )
+FORCE_INLINE static uint64_t getblock ( const uint64_t * p, int i )
 {
   return p[i];
 }
@@ -67,7 +69,7 @@ FORCE_INLINE uint64_t getblock ( const uint64_t * p, int i )
 //-----------------------------------------------------------------------------
 // Finalization mix - force all bits of a hash block to avalanche
 
-FORCE_INLINE uint32_t fmix ( uint32_t h )
+FORCE_INLINE static uint32_t fmix ( uint32_t h )
 {
   h ^= h >> 16;
   h *= 0x85ebca6b;
@@ -80,7 +82,7 @@ FORCE_INLINE uint32_t fmix ( uint32_t h )
 
 //----------
 
-FORCE_INLINE uint64_t fmix ( uint64_t k )
+FORCE_INLINE static uint64_t fmix ( uint64_t k )
 {
   k ^= k >> 33;
   k *= BIG_CONSTANT(0xff51afd7ed558ccd);
@@ -335,3 +337,4 @@ void MurmurHash3_x64_128 ( const void * key, const int len,
 
 //-----------------------------------------------------------------------------
 
+} // namespace RAMCloud
