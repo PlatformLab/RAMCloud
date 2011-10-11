@@ -533,7 +533,7 @@ BackupManager::proceedNoMetrics()
     // send writes+closes
     i = 0;
     foreach (auto& segment, openSegmentList) {
-        if (i++ == 2) // pick something to throttle the number of write RPCs
+        if (i++ == 4) // pick something to throttle the number of write RPCs
             break;
         // check if 'segment' can proceed with a write/close
         bool nextOpenDone = true;

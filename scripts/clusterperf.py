@@ -205,7 +205,8 @@ simple_tests = [
     Test("basic", default),
     Test("broadcast", broadcast),
     Test("netBandwidth", netBandwidth),
-    Test("readNotFound", default)
+    Test("readNotFound", default),
+    Test("writeAsyncSync", default),
 ]
 
 graph_tests = [
