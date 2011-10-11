@@ -368,10 +368,8 @@ BackupManager::freeSegment(uint64_t segmentId)
 
     // Free the segment on its backups:
     const auto iters = segments.equal_range(segmentId);
-    foreach (auto item, iters) {
-        auto session = item.second;
-        BackupClient(session).freeSegment(*masterId, segmentId);
-    }
+    foreach (auto item, iters)
+        BackupClient(item.second.session).freeSegment(*masterId, segmentId);
     segments.erase(iters.first, iters.second);
 }
 
@@ -515,7 +513,8 @@ BackupManager::proceedNoMetrics()
                                         host->service_locator().c_str());
                 // TODO(stutsman): catch exceptions
                 backup.construct(session);
-                segments.insert({segment.segmentId, session});
+                segments.insert({segment.segmentId,
+                                 ReplicaLocation(host->server_id(), session)});
                 LOG(DEBUG, "Send open %lu.%lu", segment.segmentId,
                     &backup - &segment.backups[0]);
                 backup->rpc.construct(backup->client,

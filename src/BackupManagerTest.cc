@@ -387,7 +387,7 @@ TEST_F(BackupManagerTest, OpenSegmentConstructor) {
     std::set<string> segmentLocators;
     foreach (auto& s, mgr->segments) {
         EXPECT_EQ(88U, s.first);
-        segmentLocators.insert(s.second->getServiceLocator());
+        segmentLocators.insert(s.second.session->getServiceLocator());
     }
     EXPECT_EQ((std::set<string> {"mock:host=backup1", "mock:host=backup2"}),
               segmentLocators);
@@ -459,7 +459,7 @@ TEST_F(BackupManagerTest, writeSegment) {
     tablet.set_user_data(0); // partition id
 
     foreach (auto v, mgr->segments) {
-        BackupClient host(v.second);
+        BackupClient host(v.second.session);
         Buffer resp;
         BackupClient::StartReadingData::Result result;
         host.startReadingData(99, will, &result);

@@ -239,7 +239,25 @@ class BackupManager {
     const uint32_t replicas;
 
   PRIVATE:
-    typedef std::unordered_multimap<uint64_t, Transport::SessionRef>
+    /**
+     * The mapped_type in SegmentMap.
+     *
+     * Tracks where one replica is stored in the cluster.
+     */
+    struct ReplicaLocation {
+        ReplicaLocation(uint64_t backupId, Transport::SessionRef session)
+            : backupId(backupId)
+            , session(session)
+        {
+        }
+
+        /// The serverId where this replica is stored.
+        uint64_t backupId;
+
+        /// A SessionRef to the Backup where this replica is stored.
+        Transport::SessionRef session;
+    };
+    typedef std::unordered_multimap<uint64_t, ReplicaLocation>
             SegmentMap;
     /// Tells which backup each segment is stored on.
     SegmentMap segments;
