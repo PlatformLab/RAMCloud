@@ -826,7 +826,7 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
     {
         CycleCounter<RawMetric> recoveryTicks(&metrics->master.recoveryTicks);
         metrics->master.recoveryCount++;
-        metrics->master.replicas = backup.replicas;
+        metrics->master.replicas = backup.numReplicas;
 
         uint64_t masterId = reqHdr.masterId;
         uint64_t partitionId = reqHdr.partitionId;

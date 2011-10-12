@@ -313,7 +313,7 @@ TEST_F(BackupManagerTest, freeSegment) {
     mgr->freeSegment(90);
 
     ProtoBuf::Tablets will;
-    EXPECT_EQ(0U, mgr->segments.size());
+    EXPECT_EQ(0U, mgr->replicaLocations.size());
 
     {
         BackupClient::StartReadingData::Result result;
@@ -383,9 +383,9 @@ TEST_F(BackupManagerTest, OpenSegmentConstructor) {
     // TODO(ongaro): Unit test backup selection algorithm with varying disk
     // bandwidths
 
-    // make sure BackupManager::segments looks sane
+    // make sure BackupManager::replicaLocations looks sane
     std::set<string> segmentLocators;
-    foreach (auto& s, mgr->segments) {
+    foreach (auto& s, mgr->replicaLocations) {
         EXPECT_EQ(88U, s.first);
         segmentLocators.insert(s.second.session->getServiceLocator());
     }
@@ -458,7 +458,7 @@ TEST_F(BackupManagerTest, writeSegment) {
     tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
     tablet.set_user_data(0); // partition id
 
-    foreach (auto v, mgr->segments) {
+    foreach (auto v, mgr->replicaLocations) {
         BackupClient host(v.second.session);
         Buffer resp;
         BackupClient::StartReadingData::Result result;

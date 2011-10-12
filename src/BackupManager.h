@@ -60,8 +60,8 @@ class BackupManager {
          * Return the number of bytes of space required on which to construct
          * an OpenSegment instance.
          */
-        static size_t sizeOf(uint32_t replicas) {
-            return sizeof(OpenSegment) + sizeof(backups[0]) * replicas;
+        static size_t sizeOf(uint32_t numReplicas) {
+            return sizeof(OpenSegment) + sizeof(backups[0]) * numReplicas;
         }
 
         OpenSegment(BackupManager& backupManager, uint64_t segmentId,
@@ -159,7 +159,7 @@ class BackupManager {
 
     BackupManager(CoordinatorClient* coordinator,
                   const Tub<uint64_t>& masterId,
-                  uint32_t replicas);
+                  uint32_t numReplicas);
     explicit BackupManager(BackupManager* prototype);
     ~BackupManager();
 
@@ -236,11 +236,11 @@ class BackupManager {
 
   PUBLIC:
     /// The number of backups to replicate each segment on.
-    const uint32_t replicas;
+    const uint32_t numReplicas;
 
   PRIVATE:
     /**
-     * The mapped_type in SegmentMap.
+     * The mapped_type in ReplicaLocations.
      *
      * Tracks where one replica is stored in the cluster.
      */
@@ -258,9 +258,9 @@ class BackupManager {
         Transport::SessionRef session;
     };
     typedef std::unordered_multimap<uint64_t, ReplicaLocation>
-            SegmentMap;
+            ReplicaLocations;
     /// Tells which backup each segment is stored on.
-    SegmentMap segments;
+    ReplicaLocations replicaLocations;
 
     /// A pool from which all OpenSegment objects are allocated.
     boost::pool<> openSegmentPool;
