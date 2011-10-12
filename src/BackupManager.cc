@@ -361,6 +361,12 @@ BackupManager::freeSegment(uint64_t segmentId)
     // Make sure this segment isn't open:
     foreach (auto& openSegment, openSegmentList) {
         if (openSegment.segmentId == segmentId) {
+            foreach (auto& backup, openSegment.backups) {
+                if (backup && backup->rpc) {
+                    backup->rpc->cancel();
+                    backup->rpc.destroy();
+                }
+            }
             unopenSegment(&openSegment);
             break;
         }
