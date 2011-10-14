@@ -395,6 +395,9 @@ try
     LOG(NOTICE, "%d inserts took %lu ticks", count, Cycles::rdtsc() - b);
     LOG(NOTICE, "avg insert took %lu ticks", (Cycles::rdtsc() - b) / count);
 
+    LOG(NOTICE, "Reading one of the objects just inserted");
+    client.read(table, ids[0], &buffer);
+
     LOG(NOTICE, "Performing %u removals of objects just inserted", removeCount);
     for (int j = 0; j < count && j < removeCount; j++)
             client.remove(table, ids[j]);
