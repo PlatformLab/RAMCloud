@@ -66,7 +66,7 @@ namespace RAMCloud {
  *  - Dispatch::poll
  *  - Driver
  *  - FastTransport::handleIncomingPacket
- *  - ClientSession::processReceivedData
+ *  - ClientSession::processInboundPacket
  *  - ClientSession::processReceivedData
  *  - InboundMessage::processReceivedData
  */
@@ -190,18 +190,20 @@ class FastTransport : public Transport {
     /// Sender requests ack every REQ_ACK_AFTERth packet.
     enum { REQ_ACK_AFTER = 5 };
 
-    /// Time after last send for fragment before assuming lost/resending in ns.
+    /// If the other end of the connection does not respond when expected,
+    /// we send packets to wake it up at regular intervals.  The constant
+    /// below determines how many intervals can elapse before we give up and
+    /// abort the session.
+    enum { MAX_SILENT_INTERVALS = 5 };
+
+    /// Defines the normal return value for timeoutCycles, in nanoseconds.
     enum { TIMEOUT_NS = 10 * 1000 * 1000 }; // 10 ms
 
-    /// Periods of TIMEOUT_NS that can pass in a row before failing this RPC.
-    enum { TIMEOUTS_UNTIL_ABORTING = 500 }; // >= 5 s
-
-    /// Time after which a Session is considered dead if no activity is seen.
-    enum { SESSION_TIMEOUT_NS = 60lu * 60 * 1000 * 1000 * 1000 }; // 30 min
-
     /**
-     * Number of cycles this CPU's TSC should increment before considering
-     * a fragment to be timed out.
+     * Returns a "reasonable" amount of time (in rdtsc cycles) for a server
+     * to return a response or acknowledgment to a client after a request
+     * has been issued.  If more than this amount of time elapses, the client
+     * will retransmit or request an explicit acknowledgment.
      */
     static uint64_t
     timeoutCycles()
@@ -217,8 +219,10 @@ class FastTransport : public Transport {
     }
 
     /**
-     * Number of cycles this CPU's TSC should increment before considering
-     * a session to be timed out.
+     * Returns a value indicating how long we're willing to wait before
+     * considering a connection dead: if we've been actively trying to
+     * communicate but haven't gotten any responses in this much time,
+     * abort the session.
      */
     static uint64_t
     sessionTimeoutCycles()
@@ -229,7 +233,7 @@ class FastTransport : public Transport {
 #endif
         static uint64_t value = 0;
         if (value == 0)
-            value = Cycles::fromNanoseconds(SESSION_TIMEOUT_NS);
+            value = Cycles::fromNanoseconds(TIMEOUT_NS * MAX_SILENT_INTERVALS);
         return value;
     }
 
@@ -515,12 +519,18 @@ class FastTransport : public Transport {
             DISALLOW_COPY_AND_ASSIGN(Timer);
         };
 
-        /// Handles idle session cleanup and ACKs due to timeout.
+        /// Runs continuously between calls to init() and reset(); detects
+        /// server timeouts.
         Timer timer;
 
         /// False means we don't use the timer (typically means we're the
         /// server side and timeouts are handled by the client)
         bool useTimer;
+
+        /// Counts the number of timer intervals that have elapsed without
+        /// any packet arrivals from the server; reset to 0 whenever new
+        /// data arrives.
+        int silentIntervals;
 
         friend class FastTransportTest;
         friend class InboundMessageTest;
@@ -603,6 +613,13 @@ class FastTransport : public Transport {
         Window<uint64_t, MAX_STAGING_FRAGMENTS + 1> sentTimes;
 
         /**
+         * The time (in TSC units) when we received the most recent
+         * acknowledgment from our peer.  Used to issue retransmissions
+         * and to detect server timeouts.
+         */
+        uint64_t lastAckTime;
+
+        /**
          * The total number of fragments the receiving end has acknowledged, in
          * the range [0, totalFrags]. This is used for flow control, as the
          * sender guarantees to send only fragments whose numbers are below
@@ -650,7 +667,7 @@ class FastTransport : public Transport {
      * and OutboundMessage to be agnostic about which type of Session it is
      * associated with.
      */
-    class Session {
+    class Session : public Transport::Session {
       PROTECTED:
         /// Used to trash the token field; shouldn't be seen on the wire.
         static const uint64_t INVALID_TOKEN;
@@ -673,12 +690,6 @@ class FastTransport : public Transport {
       public:
         /// nop
         virtual ~Session() {}
-
-        /**
-         * Abort all ongoing and queued RPCs and reset the Session in to a
-         * reusable state.
-         */
-        virtual void close() = 0;
 
         /**
          * Close this ClientSession if it is not servicing any RPC.
@@ -770,11 +781,13 @@ class FastTransport : public Transport {
         ServerSession(FastTransport* transport, uint32_t sessionId);
         ~ServerSession();
         void beginSending(uint8_t channelId);
-        virtual void close();
+        virtual void abort(const string& message);
+        virtual ClientRpc* clientSend(Buffer* request, Buffer* response);
         virtual bool expire();
         virtual void fillHeader(Header* const header, uint8_t channelId) const;
         virtual const Driver::Address* getAddress();
         void processInboundPacket(Driver::Received* received);
+        virtual void release();
         void startSession(const Driver::Address* clientAddress,
                           uint32_t clientSessionHint);
 
@@ -903,14 +916,14 @@ class FastTransport : public Transport {
      * Manages RPCs between a particular client and server from
      * the client perspective.
      */
-    class ClientSession : public Session, public Transport::Session {
+    class ClientSession : public Session {
       public:
         ClientSession(FastTransport* transport, uint32_t sessionId);
         ~ClientSession();
 
         void cancelRpc(ClientRpc* rpc);
         ClientRpc* clientSend(Buffer* request, Buffer* response);
-        void close();
+        virtual void abort(const string& message);
         void connect();
         bool expire();
         void fillHeader(Header* const header, uint8_t channelId) const;
@@ -1048,9 +1061,15 @@ class FastTransport : public Transport {
 
         Timer timer; ///< Tracks timeout for SessionOpenRequests.
 
-        /// True means we have issued a SessionOpenRequest but have not yet
-        /// received an acknowledgment
-        bool sessionOpenRequestInFlight;
+        /// Nonzero means we are in the process of opening this session; the
+        /// value indicates how many session-open messages we have sent
+        /// without receiving a response.  Zero means no session open
+        /// operation is currently underway.
+        int sessionOpenAttempts;
+
+        /// If non-empty it means the session has been aborted, and the value
+        /// is the reason for the abort.
+        string abortMessage;
 
         void allocateChannels();
         void resetChannels();

@@ -228,9 +228,8 @@ TEST_F(FastTransportTest, getSession_reuseExpired) {
     EXPECT_EQ(0U, transport->clientSessions.size());
     Transport::Session* firstSession =
         transport->getSession(serviceLocator).get();
-    FastTransport::sessionTimeoutCyclesOverride =
-            FastTransport::SESSION_TIMEOUT_NS;
-    Context::get().dispatch->currentTime = FastTransport::SESSION_TIMEOUT_NS;
+    FastTransport::sessionTimeoutCyclesOverride = 10000U;
+    Context::get().dispatch->currentTime = 10000U;
     Transport::Session* lastSession =
         transport->getSession(serviceLocator).get();
     EXPECT_EQ(firstSession, lastSession);
@@ -485,6 +484,7 @@ class InboundMessageTest : public ::testing::Test {
     FastTransport::SessionRef session;
     Buffer* buffer;
     FastTransport::InboundMessage* msg;
+    FastTransport::ClientSession* clientSession;
 
     InboundMessageTest()
         : driver(NULL)
@@ -492,6 +492,7 @@ class InboundMessageTest : public ::testing::Test {
         , session()
         , buffer(NULL)
         , msg(NULL)
+        , clientSession(NULL)
     {
         setUp(2, false);
     }
@@ -510,8 +511,8 @@ class InboundMessageTest : public ::testing::Test {
         ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=1234");
         session = transport->getSession(serviceLocator);
 
-        FastTransport::ClientSession* clientSession =
-            static_cast<FastTransport::ClientSession*>(session.get());
+        clientSession =
+             static_cast<FastTransport::ClientSession*>(session.get());
         clientSession->numChannels =
                 FastTransport::MAX_NUM_CHANNELS_PER_SESSION;
         clientSession->allocateChannels();
@@ -652,6 +653,15 @@ TEST_F(InboundMessageTest, reset) {
                             "-, -, -, -,", s);
     EXPECT_EQ(0, msg->dataBuffer);
     EXPECT_EQ(2U, driver->releaseCount);
+}
+
+TEST_F(InboundMessageTest, processReceivedData_resetSilentInterval) {
+    // NOTE Make sure to keep the MockReceiveds on the stack until
+    // none of the data is in use as part of a buffer
+    MockReceived recvd(0, msg->totalFrags + 1, "God hates ponies.");
+    msg->silentIntervals = 24;
+    msg->processReceivedData(&recvd);
+    EXPECT_EQ(0, msg->silentIntervals);
 }
 
 TEST_F(InboundMessageTest, processReceivedData_totalFragMismatch) {
@@ -802,6 +812,29 @@ TEST_F(InboundMessageTest, processReceivedData_timerAdded) {
     msg->processReceivedData(&recvd);
 }
 
+TEST_F(InboundMessageTest, handleTimerEvent) {
+    msg->silentIntervals = 0;
+    msg->timer.handleTimerEvent();
+
+    // First call: don't generate an ack.
+    EXPECT_EQ(1, msg->silentIntervals);
+    EXPECT_EQ("", driver->outputLog);
+
+    // Next calls: generate acks
+    for (int i = 2; i <= FastTransport::MAX_SILENT_INTERVALS; i++) {
+        driver->outputLog.clear();
+        msg->timer.handleTimerEvent();
+        EXPECT_NE("", driver->outputLog);
+    }
+
+    // Timeout: abort session, but don't generate any more acks.
+    driver->outputLog.clear();
+    msg->timer.handleTimerEvent();
+    EXPECT_EQ("", driver->outputLog);
+    EXPECT_EQ("timeout waiting for response from server at fast+udp: "
+            "host=1.2.3.4, port=1234", clientSession->abortMessage);
+}
+
 // --- OutboundMessageTest ---
 
 class OutboundMessageTest: public ::testing::Test {
@@ -809,6 +842,7 @@ class OutboundMessageTest: public ::testing::Test {
     MockDriver* driver;
     FastTransport* transport;
     FastTransport::SessionRef session;
+    FastTransport::ClientSession* clientSession;
     Buffer* buffer;
     FastTransport::OutboundMessage* msg;
     uint64_t tsc;
@@ -817,6 +851,7 @@ class OutboundMessageTest: public ::testing::Test {
         : driver(NULL)
         , transport(NULL)
         , session()
+        , clientSession(NULL)
         , buffer(NULL)
         , msg(NULL)
         , tsc(999 + 2 * FastTransport::TIMEOUT_NS)
@@ -845,7 +880,7 @@ class OutboundMessageTest: public ::testing::Test {
 
         ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=1234");
         session = transport->getSession(serviceLocator);
-        FastTransport::ClientSession* clientSession =
+        clientSession =
             static_cast<FastTransport::ClientSession*>(session.get());
         clientSession->numChannels =
                 FastTransport::MAX_NUM_CHANNELS_PER_SESSION;
@@ -926,8 +961,6 @@ TEST_F(OutboundMessageTest, setup) {
     uint32_t channelId = 999;
     bool useTimer = false;
 
-    FastTransport::ClientSession* clientSession =
-        static_cast<FastTransport::ClientSession*>(session.get());
     msg->setup(transport, clientSession, channelId, useTimer);
 
     EXPECT_EQ(clientSession, msg->session);
@@ -994,13 +1027,21 @@ TEST_F(OutboundMessageTest, send_ackAfter) {
               s.substr(s.find("4/8"), 34));
 }
 
-TEST_F(OutboundMessageTest, send_dontAckLast) {
-    setUp(driver->getMaxPacketSize() * 4, false);
+TEST_F(OutboundMessageTest, send_retransmitLastFrag) {
+    setUp((driver->getMaxPacketSize() * 3) - 400, true);
 
+    msg->sentTimes[0] = FastTransport::OutboundMessage::ACKED;
+    msg->sentTimes[1] = FastTransport::OutboundMessage::ACKED;
+    msg->sentTimes[2] = FastTransport::OutboundMessage::ACKED;
+
+    msg->lastAckTime = tsc - FastTransport::timeoutCycles() - 1;
     msg->send();
-    string s = driver->outputLog;
-    EXPECT_EQ("4/5 frags channel:5 dir:0 reqACK:0",
-              s.substr(s.find("4/5"), 34));
+    EXPECT_EQ("", driver->outputLog);
+    msg->lastAckTime = tsc - FastTransport::timeoutCycles();
+    msg->firstMissingFrag = 3;
+    msg->send();
+    EXPECT_TRUE(TestUtil::matchesPosixRegex("2/3 frags",
+                driver->outputLog));
 }
 
 TEST_F(OutboundMessageTest, send_timers) {
@@ -1148,6 +1189,28 @@ TEST_F(OutboundMessageTest, sendOneData_requestAck) {
     EXPECT_EQ(0U, msg->packetsSinceAckReq);
 }
 
+TEST_F(OutboundMessageTest, handleTimerEvent) {
+    // First call should just resend a packet.
+    FastTransport::sessionTimeoutCyclesOverride = 100;
+    msg->sentTimes[0] = tsc - FastTransport::timeoutCycles() - 1;
+    msg->lastAckTime = tsc - FastTransport::sessionTimeoutCyclesOverride + 1;
+    msg->timer.handleTimerEvent();
+    EXPECT_NE("", driver->outputLog);
+    EXPECT_EQ("", clientSession->abortMessage);
+
+    // Second call should generate a timeout
+    msg->sentTimes[0] = tsc - FastTransport::timeoutCycles() - 1;
+    msg->lastAckTime = tsc -
+            FastTransport::sessionTimeoutCyclesOverride - 1;
+    driver->outputLog.clear();
+    msg->timer.handleTimerEvent();
+    EXPECT_EQ("", driver->outputLog);
+    EXPECT_EQ("timeout waiting for acknowledgment from server "
+            "at fast+udp: host=1.2.3.4, port=1234",
+            clientSession->abortMessage);
+    FastTransport::sessionTimeoutCyclesOverride = 100;
+}
+
 // --- ServerSessionTest ---
 
 class ServerSessionTest: public ::testing::Test {
@@ -1271,13 +1334,11 @@ TEST_F(ServerSessionTest, expire_channelRecvOrSendWait) {
 
 TEST_F(ServerSessionTest, processInboundPacket_badChannel) {
     TestLog::Enable dummy;
-    Context::get().dispatch->currentTime = 9898;
 
     MockReceived recvd(0, 1, "");
     recvd.getHeader()->channelId = FastTransport::NUM_CHANNELS_PER_SESSION;
 
     session->processInboundPacket(&recvd);
-    EXPECT_EQ(Context::get().dispatch->currentTime, session->lastActivityTime);
     EXPECT_EQ(
         "processInboundPacket: "
         "invalid channel id 8", TestLog::get());
@@ -1500,6 +1561,7 @@ class ClientSessionTest: public ::testing::Test {
         transport = new FastTransport(driver);
         session = new FastTransport::ClientSession(transport, sessionId);
         request = new Buffer();
+        request->fillFromString("request");
         response = new Buffer();
     }
 
@@ -1514,6 +1576,31 @@ class ClientSessionTest: public ::testing::Test {
   private:
     DISALLOW_COPY_AND_ASSIGN(ClientSessionTest);
 };
+
+TEST_F(ClientSessionTest, abort) {
+    session->numChannels = FastTransport::MAX_NUM_CHANNELS_PER_SESSION;
+    session->allocateChannels();
+
+    FastTransport::ClientRpc rpc1(session, request, response);
+    FastTransport::ClientRpc rpc2(session, request, response);
+    FastTransport::ClientRpc rpc3(session, request, response);
+    session->channelQueue.push_back(rpc3);
+
+    session->channels[0].currentRpc = &rpc1;
+    session->channels[1].currentRpc = &rpc2;
+
+    session->abort("test abort");
+    EXPECT_TRUE(rpc1.isReady());
+    EXPECT_EQ("test abort", *rpc1.errorMessage);
+    EXPECT_TRUE(rpc2.isReady());
+    EXPECT_EQ("test abort", *rpc2.errorMessage);
+    EXPECT_TRUE(session->channelQueue.empty());
+    EXPECT_EQ("test abort", *rpc3.errorMessage);
+    EXPECT_EQ(FastTransport::ClientSession::INVALID_HINT,
+              session->serverSessionHint);
+    EXPECT_EQ(FastTransport::ClientSession::INVALID_TOKEN,
+              session->token);
+}
 
 TEST_F(ClientSessionTest, clientSend_notConnected) {
     EXPECT_FALSE(session->isConnected());
@@ -1548,39 +1635,12 @@ TEST_F(ClientSessionTest, clientSend_availableChannel) {
     EXPECT_EQ(Context::get().dispatch->currentTime, session->lastActivityTime);
 }
 
-TEST_F(ClientSessionTest, close) {
-    session->numChannels = FastTransport::MAX_NUM_CHANNELS_PER_SESSION;
-    session->allocateChannels();
-
-    FastTransport::ClientRpc rpc1(session, request, response);
-    FastTransport::ClientRpc rpc2(session, request, response);
-    FastTransport::ClientRpc rpc3(session, request, response);
-    session->channelQueue.push_back(rpc3);
-
-    session->channels[0].currentRpc = &rpc1;
-    session->channels[1].currentRpc = &rpc2;
-
-    session->close();
-    EXPECT_TRUE(rpc1.isReady());
-    EXPECT_EQ("RPC aborted (session closed)", *rpc1.errorMessage);
-    EXPECT_TRUE(rpc2.isReady());
-    EXPECT_EQ("RPC aborted (session closed)", *rpc2.errorMessage);
-    EXPECT_TRUE(session->channelQueue.empty());
-    EXPECT_EQ("RPC aborted (session closed)", *rpc3.errorMessage);
-    EXPECT_EQ(FastTransport::ClientSession::INVALID_HINT,
-              session->serverSessionHint);
-    EXPECT_EQ(FastTransport::ClientSession::INVALID_TOKEN,
-              session->token);
-}
-
 TEST_F(ClientSessionTest, connect) {
-    Context::get().dispatch->currentTime = 91291;
-
     ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=12345");
     session->init(serviceLocator);
 
     session->connect();
-    EXPECT_TRUE(session->sessionOpenRequestInFlight);
+    EXPECT_EQ(1, session->sessionOpenAttempts);
 
     // ensure the second call doesn't send an additional SessionOpenReq
     session->connect();
@@ -1589,55 +1649,6 @@ TEST_F(ClientSessionTest, connect) {
         "clientSessionHint:98765432 serverSessionHint:cccccccc "
         "0/0 frags channel:0 dir:0 reqACK:0 drop:0 payloadType:2 } ",
         driver->outputLog);
-    EXPECT_EQ(Context::get().dispatch->currentTime, session->lastActivityTime);
-}
-
-TEST_F(ClientSessionTest, connect_sessionOpenRequestRetransmit) {
-    Cycles::mockTscValue = 91291;
-
-    ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=12345");
-    session->init(serviceLocator);
-
-    session->connect();
-    EXPECT_TRUE(session->sessionOpenRequestInFlight);
-
-
-    Cycles::mockTscValue = Context::get().dispatch->currentTime +
-            FastTransport::timeoutCycles() + 1;
-    Context::get().dispatch->poll();
-
-    EXPECT_EQ(
-        "{ sessionToken:cccccccccccccccc rpcId:0 "
-        "clientSessionHint:98765432 serverSessionHint:cccccccc "
-        "0/0 frags channel:0 dir:0 reqACK:0 drop:0 payloadType:2 }  | "
-        "{ sessionToken:cccccccccccccccc rpcId:0 "
-        "clientSessionHint:98765432 serverSessionHint:cccccccc "
-        "0/0 frags channel:0 dir:0 reqACK:0 drop:0 payloadType:2 } ",
-        driver->outputLog);
-    Cycles::mockTscValue = 0;
-}
-
-TEST_F(ClientSessionTest, connect_sessionOpenRequestTimeout) {
-    Context::get().dispatch->currentTime = 91291;
-    Cycles::mockTscValue = 91291;
-
-    ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=12345");
-    session->init(serviceLocator);
-
-    session->connect();
-    EXPECT_TRUE(session->sessionOpenRequestInFlight);
-
-    FastTransport::ClientRpc rpc(session, request, response);
-    session->channelQueue.push_back(rpc);
-
-    Cycles::mockTscValue = Context::get().dispatch->currentTime +
-            2*FastTransport::sessionTimeoutCycles();
-    Context::get().dispatch->poll();
-    EXPECT_FALSE(session->sessionOpenRequestInFlight);
-
-    EXPECT_EQ("RPC aborted (session closed)", *rpc.errorMessage);
-    EXPECT_FALSE(rpc.channelQueueEntries.is_linked());
-    Cycles::mockTscValue = 0;
 }
 
 TEST_F(ClientSessionTest, expire_activeRef) {
@@ -1847,8 +1858,6 @@ TEST_F(ClientSessionTest, processInboundPacket_stalePacket) {
 }
 
 TEST_F(ClientSessionTest, sendSessionOpenRequest) {
-    Context::get().dispatch->currentTime = 91291;
-
     ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=12345");
     session->init(serviceLocator);
     session->sendSessionOpenRequest();
@@ -1857,7 +1866,6 @@ TEST_F(ClientSessionTest, sendSessionOpenRequest) {
         "clientSessionHint:98765432 serverSessionHint:cccccccc "
         "0/0 frags channel:0 dir:0 reqACK:0 drop:0 payloadType:2 } ",
         driver->outputLog);
-    EXPECT_EQ(Context::get().dispatch->currentTime, session->lastActivityTime);
     session->timer.stop();
 }
 
@@ -1865,6 +1873,8 @@ TEST_F(ClientSessionTest, cancelRpc_rpcAssignedToChannel) {
     session->numChannels = 3;
     session->allocateChannels();
     Buffer request2, response2, request3, response3;
+    request2.fillFromString("request2");
+    request3.fillFromString("request3");
     session->clientSend(request, response);
     session->clientSend(&request2, &response2);
     FastTransport::ClientRpc* rpc3 = session->clientSend(
@@ -1872,13 +1882,15 @@ TEST_F(ClientSessionTest, cancelRpc_rpcAssignedToChannel) {
     EXPECT_TRUE(session->channels[2].currentRpc != NULL);
     rpc3->cancel();
     EXPECT_TRUE(session->channels[2].currentRpc == NULL);
-    session->close();
+    session->abort("cleanup");
 }
 
 TEST_F(ClientSessionTest, cancelRpc_rpcWaitingForChannel) {
     session->numChannels = 2;
     session->allocateChannels();
     Buffer request2, response2, request3, response3;
+    request2.fillFromString("request2");
+    request3.fillFromString("request3");
     session->clientSend(request, response);
     session->clientSend(&request2, &response2);
     FastTransport::ClientRpc* rpc3 = session->clientSend(
@@ -1886,7 +1898,7 @@ TEST_F(ClientSessionTest, cancelRpc_rpcWaitingForChannel) {
     EXPECT_EQ(1U, session->channelQueue.size());
     rpc3->cancel();
     EXPECT_EQ(0U, session->channelQueue.size());
-    session->close();
+    session->abort("cleanup");
 }
 
 TEST_F(ClientSessionTest, allocateChannels) {
@@ -2033,6 +2045,22 @@ TEST_F(ClientSessionTest, processSessionOpenResponse_tooManyChannelsOnServer) {
 
     EXPECT_EQ(FastTransport::NUM_CHANNELS_PER_SESSION,
               session->numChannels);
+}
+
+TEST_F(ClientSessionTest, handleTimerEvent) {
+    ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=12345");
+    session->init(serviceLocator);
+    session->connect();
+    EXPECT_EQ(1, session->sessionOpenAttempts);
+
+    for (int i = 2; i <= FastTransport::MAX_SILENT_INTERVALS; i++) {
+        session->timer.handleTimerEvent();
+        EXPECT_EQ(i, session->sessionOpenAttempts);
+    }
+    session->timer.handleTimerEvent();
+    EXPECT_EQ(0, session->sessionOpenAttempts);
+    EXPECT_EQ("timeout while opening session with fast+udp: host=1.2.3.4, "
+              "port=12345", session->abortMessage);
 }
 
 // --- SessionTableTest ---

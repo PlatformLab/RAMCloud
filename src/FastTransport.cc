@@ -311,6 +311,7 @@ FastTransport::InboundMessage::InboundMessage()
     , dataBuffer(NULL)
     , timer(this)
     , useTimer(false)
+    , silentIntervals(0)
 {
     // The staging window always starts with the packet *after*
     // firstMissingFrag.
@@ -402,6 +403,7 @@ FastTransport::InboundMessage::reset()
     firstMissingFrag = 0;
     dataBuffer = NULL;
     timer.stop();
+    silentIntervals = 0;
 }
 
 /**
@@ -439,6 +441,7 @@ FastTransport::InboundMessage::init(uint16_t totalFrags,
 bool
 FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
 {
+    silentIntervals = 0;
     assert(received->len >= sizeof(Header));
     Header *header = reinterpret_cast<Header*>(received->payload);
 
@@ -519,8 +522,6 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
 
     if (header->requestAck)
         sendAck();
-    if (useTimer)
-        timer.start(Context::get().dispatch->currentTime + timeoutCycles());
 
     return firstMissingFrag == totalFrags;
 }
@@ -541,26 +542,26 @@ FastTransport::InboundMessage::Timer::Timer(InboundMessage* const inboundMsg)
 }
 
 /**
- * If this message is taking too long then close it, otherwise send an
- * AckResponse.
- *
- * This prevents the connection from stalling if incoming fragments
- * with Header::requestAck set are lost.
- *
- * See FastTransport::Timer for general information on timers.
+ * This method is invoked by the dispatcher every timeoutCycles() when
+ * an InboundMessage is active.  If we haven't heard from the server
+ * recently, we send an acknowledgment to make sure it knows that it
+ * can send more data.  If the server is silent for too long then we
+ * abort the session.
  */
 void
 FastTransport::InboundMessage::Timer::handleTimerEvent()
 {
-    // NOTE: Kills the entire session if one message gets stalled.
-    //       We could make this less aggressive if we think they might recover.
-    if (Context::get().dispatch->currentTime -
-            inboundMsg->session->lastActivityTime
-            > sessionTimeoutCycles()) {
-        inboundMsg->session->close();
+    inboundMsg->silentIntervals++;
+    if (inboundMsg->silentIntervals > MAX_SILENT_INTERVALS) {
+        inboundMsg->session->abort(format(
+                "timeout waiting for response from server at %s",
+                inboundMsg->session->getServiceLocator().c_str()));
     } else {
+        // Note: silentIntervals == 1 isn't cause for concern, since we could
+        // have received the latest packet just before this timer fired.
+        if (inboundMsg->silentIntervals > 1)
+            inboundMsg->sendAck();
         start(Context::get().dispatch->currentTime + timeoutCycles());
-        inboundMsg->sendAck();
     }
 }
 
@@ -581,6 +582,7 @@ FastTransport::OutboundMessage::OutboundMessage()
     , totalFrags(0)
     , packetsSinceAckReq(0)
     , sentTimes()
+    , lastAckTime(0)
     , numAcked(0)
     , timer(this)
     , useTimer(false)
@@ -635,6 +637,7 @@ FastTransport::OutboundMessage::reset()
     totalFrags = 0;
     packetsSinceAckReq = 0;
     sentTimes.reset();
+    lastAckTime = 0;
     numAcked = 0;
     timer.stop();
 }
@@ -653,6 +656,7 @@ FastTransport::OutboundMessage::beginSending(Buffer* dataBuffer)
     assert(!sendBuffer);
     sendBuffer = dataBuffer;
     totalFrags = transport->numFrags(sendBuffer);
+    lastAckTime = Cycles::rdtsc();
     send();
 }
 
@@ -682,7 +686,7 @@ FastTransport::OutboundMessage::send()
      *  - If timers are enabled for this message then the timer is scheduled
      *    to fire when the next packet retransmit timeout occurs.
      */
-    uint64_t now = Context::get().dispatch->currentTime;
+    uint64_t now = Cycles::rdtsc();
 
     // First, decide on candidate range of packets to send/resend
     // Only fragments less than stop will be considered for (re-)send
@@ -704,21 +708,32 @@ FastTransport::OutboundMessage::send()
             continue;
         // isRetransmit if already sent and timed out (guaranteed by if above)
         bool isRetransmit = sentTime != 0;
-        // requestAck if retransmit or
-        // haven't asked for ack in awhile and this is not the last frag
+        // requestAck if retransmit or haven't asked for ack in awhile
         bool requestAck = isRetransmit ||
-            (packetsSinceAckReq == REQ_ACK_AFTER - 1 &&
-             fragNumber != totalFrags - 1);
+            (packetsSinceAckReq == REQ_ACK_AFTER - 1);
         sendOneData(fragNumber, requestAck);
         sentTimes[fragNumber] = now;
         if (isRetransmit)
             break;
     }
 
-    // find the packet that will cause timeout the earliest and
-    // schedule a timer just after that
+    // If this is the client end of the connection, must perform additional
+    // work to detect server timeouts.
     if (useTimer) {
-        uint64_t oldest = ~(0lu);
+        // Even if the entire message has been sent, must occasionally
+        // retransmit the last fragment to make sure the server is alive.
+        // This will stop when the first packet of the response received
+        // (this object will get reset).
+        uint64_t oldestSentTime = lastAckTime;
+        if (firstMissingFrag >= totalFrags) {
+            if (now >= (lastAckTime + timeoutCycles())) {
+                sendOneData(totalFrags-1, true);
+                oldestSentTime = now;
+            }
+        }
+
+        // Find the oldest unacknowledged fragment, and schedule the timer
+        // based on that.
         for (uint32_t fragNumber = firstMissingFrag; fragNumber < stop;
                 fragNumber++) {
             uint64_t sentTime = sentTimes[fragNumber];
@@ -726,11 +741,10 @@ FastTransport::OutboundMessage::send()
             if (!sentTime)
                 break;
             if (sentTime != ACKED && sentTime > 0)
-                if (sentTime < oldest)
-                    oldest = sentTime;
+                if (sentTime < oldestSentTime)
+                    oldestSentTime = sentTime;
         }
-        if (oldest != ~(0lu))
-            timer.start(Cycles::rdtsc() + timeoutCycles() - (now - oldest));
+        timer.start(oldestSentTime + timeoutCycles());
     }
 }
 
@@ -753,6 +767,7 @@ FastTransport::OutboundMessage::send()
 bool
 FastTransport::OutboundMessage::processReceivedAck(Driver::Received* received)
 {
+    lastAckTime = Context::get().dispatch->currentTime;
     if (!sendBuffer)
         return false;
 
@@ -844,11 +859,11 @@ FastTransport::OutboundMessage::Timer::Timer(OutboundMessage* const outboundMsg)
 void
 FastTransport::OutboundMessage::Timer::handleTimerEvent()
 {
-    if (Context::get().dispatch->currentTime -
-            outboundMsg->session->lastActivityTime
+    if (Context::get().dispatch->currentTime - outboundMsg->lastAckTime
             > sessionTimeoutCycles()) {
-        LOG(DEBUG, "closing session due to timeout");
-        outboundMsg->session->close();
+        outboundMsg->session->abort(format(
+                "timeout waiting for acknowledgment from server at %s",
+                outboundMsg->session->getServiceLocator().c_str()));
     } else {
         outboundMsg->send();
     }
@@ -888,6 +903,13 @@ FastTransport::ServerSession::~ServerSession()
     assert(expire());
 }
 
+/// This shouldn't ever be called.
+void
+FastTransport::ServerSession::abort(const string& message)
+{
+    LOG(WARNING, "invoked unexpectedly: %s", message.c_str());
+}
+
 /**
  * Switch from PROCESSING to SENDING_WAITING and initiate transfer of the
  * RPC response from the server to the client.
@@ -910,10 +932,11 @@ FastTransport::ServerSession::beginSending(uint8_t channelId)
 }
 
 /// This shouldn't ever be called.
-void
-FastTransport::ServerSession::close()
+FastTransport::ClientRpc*
+FastTransport::ServerSession::clientSend(Buffer* request, Buffer* response)
 {
-    LOG(WARNING, "should never be called");
+    LOG(WARNING, "invoked unexpectedly");
+    return NULL;
 }
 
 // See Session::expire().
@@ -1023,6 +1046,13 @@ FastTransport::ServerSession::processInboundPacket(Driver::Received* received)
         LOG(WARNING, "packet from old RPC (packet rpcId: %d, channel rpcId: %d",
             header->rpcId, channel->rpcId);
     }
+}
+
+/// This shouldn't ever be called.
+void
+FastTransport::ServerSession::release()
+{
+    LOG(WARNING, "invoked unexpectedly");
 }
 
 /**
@@ -1163,7 +1193,8 @@ FastTransport::ClientSession::ClientSession(FastTransport* transport,
     , serverAddress()
     , serverSessionHint(INVALID_HINT)
     , timer(this)
-    , sessionOpenRequestInFlight(false)
+    , sessionOpenAttempts(0)
+    , abortMessage()
 {
 }
 
@@ -1172,22 +1203,23 @@ FastTransport::ClientSession::~ClientSession()
     assert(expire());
 }
 
-// See Session::close().
+// See Transport::ClientSession::abort().
 void
-FastTransport::ClientSession::close()
+FastTransport::ClientSession::abort(const string& message)
 {
-    LOG(DEBUG, "closing session");
+    LOG(DEBUG, "aborting connection to %s: %s", getServiceLocator().c_str(),
+        message.c_str());
+    abortMessage = message;
     for (uint32_t i = 0; i < numChannels; i++) {
         if (channels[i].currentRpc) {
-            channels[i].currentRpc->markFinished(
-                "RPC aborted (session closed)");
+            channels[i].currentRpc->markFinished(message);
         }
     }
     ChannelQueue::iterator iter(channelQueue.begin());
     while (iter != channelQueue.end()) {
         ClientRpc& rpc(*iter);
         iter = channelQueue.erase(iter);
-        rpc.markFinished("RPC aborted (session closed)");
+        rpc.markFinished(message);
     }
     resetChannels();
     serverSessionHint = INVALID_HINT;
@@ -1232,7 +1264,7 @@ FastTransport::ClientSession::clientSend(Buffer* request, Buffer* response)
 void
 FastTransport::ClientSession::connect()
 {
-    if (!sessionOpenRequestInFlight)
+    if (sessionOpenAttempts == 0)
         sendSessionOpenRequest();
 }
 
@@ -1248,7 +1280,7 @@ FastTransport::ClientSession::expire()
     }
     if (!channelQueue.empty())
         return false;
-    close();
+    abort("session expired");
     return true;
 }
 
@@ -1279,6 +1311,7 @@ void
 FastTransport::ClientSession::init(const ServiceLocator& serviceLocator)
 {
     serverAddress.reset(transport->driver->newAddress(serviceLocator));
+    setServiceLocator(serviceLocator.getOriginalString());
 }
 
 /**
@@ -1374,8 +1407,7 @@ FastTransport::ClientSession::sendSessionOpenRequest()
     header.payloadType = Header::SESSION_OPEN;
     transport->sendPacket(serverAddress.get(),
                           &header, NULL);
-    lastActivityTime = Context::get().dispatch->currentTime;
-    sessionOpenRequestInFlight = true;
+    sessionOpenAttempts++;
 
     // Schedule the timer to resend if no response.
     timer.start(Cycles::rdtsc() + timeoutCycles());
@@ -1573,6 +1605,7 @@ FastTransport::ClientSession::processSessionOpenResponse(
         channels[i].currentRpc = rpc;
         channels[i].outboundMsg.beginSending(rpc->request);
     }
+    sessionOpenAttempts = 0;
 }
 
 // --- ClientSession::Timer ---
@@ -1585,10 +1618,10 @@ FastTransport::ClientSession::Timer::Timer(ClientSession* session)
 void
 FastTransport::ClientSession::Timer::handleTimerEvent()
 {
-    if (Context::get().dispatch->currentTime - session->lastActivityTime
-            > sessionTimeoutCycles()) {
-        session->sessionOpenRequestInFlight = false;
-        session->close();
+    if (session->sessionOpenAttempts >= MAX_SILENT_INTERVALS) {
+        session->sessionOpenAttempts = 0;
+        session->abort(format("timeout while opening session with %s",
+                session->getServiceLocator().c_str()));
     } else {
         session->sendSessionOpenRequest();
     }
