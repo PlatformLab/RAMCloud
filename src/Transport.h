@@ -290,8 +290,7 @@ class Transport {
          * \param message
          *      Provides information about why the Session is being aborted.
          */
-        virtual void abort(const string& message) {
-        }
+        virtual void abort(const string& message) = 0;
 
         /// Used by boost::intrusive_ptr. Do not call explicitly.
         friend void intrusive_ptr_add_ref(Session* session) {

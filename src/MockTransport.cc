@@ -77,6 +77,20 @@ MockTransport::MockSession::~MockSession()
 }
 
 /**
+ * Abort this session; this method does nothing except create a
+ * log message.
+ */
+void
+MockTransport::MockSession::abort(const string& message)
+{
+    if (transport->outputLog.length() != 0) {
+        transport->outputLog.append(" | ");
+    }
+    transport->outputLog.append("abort: ");
+    transport->outputLog.append(message);
+}
+
+/**
  * Issue an RPC request using this transport.
  *
  * This is a fake method; it simply logs information about the request.

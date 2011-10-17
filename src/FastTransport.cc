@@ -1227,6 +1227,29 @@ FastTransport::ClientSession::abort(const string& message)
     timer.stop();
 }
 
+/**
+ * This method is invoked by ClientRpc::cancelCleanup to carry out all of its work.
+ *
+ * \param rpc
+ *      The remote procedure call to cancel.
+ */
+void FastTransport::ClientSession::cancelRpc(FastTransport::ClientRpc* rpc)
+{
+    // First, see if the RPC has already been assigned a channel.  If so,
+    // separate it from the channel and reassign the channel.
+    bool rpcHasChannel = false;
+    for (uint32_t i = 0; i < numChannels; i++) {
+        if (channels[i].currentRpc == rpc) {
+            rpcHasChannel = true;
+            reassignChannel(&channels[i]);
+        }
+    }
+    if (!rpcHasChannel) {
+        // The RPC must be waiting on ChannelQueue; remove it from the queue.
+        erase(channelQueue, *rpc);
+    }
+}
+
 // See Transport::Session::clientSend().
 FastTransport::ClientRpc*
 FastTransport::ClientSession::clientSend(Buffer* request, Buffer* response)
@@ -1411,29 +1434,6 @@ FastTransport::ClientSession::sendSessionOpenRequest()
 
     // Schedule the timer to resend if no response.
     timer.start(Cycles::rdtsc() + timeoutCycles());
-}
-
-/**
- * This method is invoked by ClientRpc::cancelCleanup to carry out all of its work.
- *
- * \param rpc
- *      The remote procedure call to cancel.
- */
-void FastTransport::ClientSession::cancelRpc(FastTransport::ClientRpc* rpc)
-{
-    // First, see if the RPC has already been assigned a channel.  If so,
-    // separate it from the channel and reassign the channel.
-    bool rpcHasChannel = false;
-    for (uint32_t i = 0; i < numChannels; i++) {
-        if (channels[i].currentRpc == rpc) {
-            rpcHasChannel = true;
-            reassignChannel(&channels[i]);
-        }
-    }
-    if (!rpcHasChannel) {
-        // The RPC must be waiting on ChannelQueue; remove it from the queue.
-        erase(channelQueue, *rpc);
-    }
 }
 
 // - private -

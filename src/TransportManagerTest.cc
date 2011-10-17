@@ -261,4 +261,18 @@ TEST_F(TransportManagerTest, workerSessionSyncWithDispatchThread) {
     child.join();
 }
 
+TEST_F(TransportManagerTest, abort) {
+    MockTransport transport;
+    Buffer request;
+    Buffer reply;
+    request.fillFromString("abcdefg");
+    MockTransport::sessionDeleteCount = 0;
+
+    Transport::Session* wrappedSession = new TransportManager::WorkerSession(
+            transport.getSession());
+
+    wrappedSession->abort("test message");
+    EXPECT_STREQ("abort: test message", transport.outputLog.c_str());
+}
+
 }  // namespace RAMCloud

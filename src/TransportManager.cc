@@ -388,6 +388,16 @@ TransportManager::WorkerSession::WorkerSession(Transport::SessionRef wrapped)
     TEST_LOG("created");
 }
 
+// See Transport::Session::abort for documentation.
+void
+TransportManager::WorkerSession::abort(const string& message)
+{
+    // Must make sure that the dispatch thread isn't running when we
+    // invoked the real abort.
+    Dispatch::Lock lock;
+    return wrapped->abort(message);
+}
+
 // See Transport::Session::clientSend for documentation.
 Transport::ClientRpc*
 TransportManager::WorkerSession::clientSend(Buffer* request, Buffer* reply)

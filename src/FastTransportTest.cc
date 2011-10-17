@@ -1602,6 +1602,38 @@ TEST_F(ClientSessionTest, abort) {
               session->token);
 }
 
+TEST_F(ClientSessionTest, cancelRpc_rpcAssignedToChannel) {
+    session->numChannels = 3;
+    session->allocateChannels();
+    Buffer request2, response2, request3, response3;
+    request2.fillFromString("request2");
+    request3.fillFromString("request3");
+    session->clientSend(request, response);
+    session->clientSend(&request2, &response2);
+    FastTransport::ClientRpc* rpc3 = session->clientSend(
+            &request3, &response3);
+    EXPECT_TRUE(session->channels[2].currentRpc != NULL);
+    rpc3->cancel();
+    EXPECT_TRUE(session->channels[2].currentRpc == NULL);
+    session->abort("cleanup");
+}
+
+TEST_F(ClientSessionTest, cancelRpc_rpcWaitingForChannel) {
+    session->numChannels = 2;
+    session->allocateChannels();
+    Buffer request2, response2, request3, response3;
+    request2.fillFromString("request2");
+    request3.fillFromString("request3");
+    session->clientSend(request, response);
+    session->clientSend(&request2, &response2);
+    FastTransport::ClientRpc* rpc3 = session->clientSend(
+            &request3, &response3);
+    EXPECT_EQ(1U, session->channelQueue.size());
+    rpc3->cancel();
+    EXPECT_EQ(0U, session->channelQueue.size());
+    session->abort("cleanup");
+}
+
 TEST_F(ClientSessionTest, clientSend_notConnected) {
     EXPECT_FALSE(session->isConnected());
     EXPECT_TRUE(session->channelQueue.empty());
@@ -1867,38 +1899,6 @@ TEST_F(ClientSessionTest, sendSessionOpenRequest) {
         "0/0 frags channel:0 dir:0 reqACK:0 drop:0 payloadType:2 } ",
         driver->outputLog);
     session->timer.stop();
-}
-
-TEST_F(ClientSessionTest, cancelRpc_rpcAssignedToChannel) {
-    session->numChannels = 3;
-    session->allocateChannels();
-    Buffer request2, response2, request3, response3;
-    request2.fillFromString("request2");
-    request3.fillFromString("request3");
-    session->clientSend(request, response);
-    session->clientSend(&request2, &response2);
-    FastTransport::ClientRpc* rpc3 = session->clientSend(
-            &request3, &response3);
-    EXPECT_TRUE(session->channels[2].currentRpc != NULL);
-    rpc3->cancel();
-    EXPECT_TRUE(session->channels[2].currentRpc == NULL);
-    session->abort("cleanup");
-}
-
-TEST_F(ClientSessionTest, cancelRpc_rpcWaitingForChannel) {
-    session->numChannels = 2;
-    session->allocateChannels();
-    Buffer request2, response2, request3, response3;
-    request2.fillFromString("request2");
-    request3.fillFromString("request3");
-    session->clientSend(request, response);
-    session->clientSend(&request2, &response2);
-    FastTransport::ClientRpc* rpc3 = session->clientSend(
-            &request3, &response3);
-    EXPECT_EQ(1U, session->channelQueue.size());
-    rpc3->cancel();
-    EXPECT_EQ(0U, session->channelQueue.size());
-    session->abort("cleanup");
 }
 
 TEST_F(ClientSessionTest, allocateChannels) {

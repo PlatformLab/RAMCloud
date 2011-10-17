@@ -87,6 +87,7 @@ struct BindTransport : public Transport {
         explicit BindSession(BindTransport& transport, ServiceArray* services,
                              const string& locator)
             : transport(transport), services(services), locator(locator) {}
+        void abort(const string& message) {}
         ClientRpc* clientSend(Buffer* request, Buffer* response) {
             BindClientRpc* result = new(response, MISC)
                     BindClientRpc(request, response);

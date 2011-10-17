@@ -106,8 +106,9 @@ class TransportManager {
       public:
         explicit WorkerSession(Transport::SessionRef wrapped);
         ~WorkerSession() {}
-        Transport::ClientRpc* clientSend(Buffer* request, Buffer* reply)
-            __attribute__((warn_unused_result));
+        virtual void abort(const string& message);
+        virtual Transport::ClientRpc* clientSend(Buffer* request,
+                Buffer* reply) __attribute__((warn_unused_result));
         void release() {
             delete this;
         }

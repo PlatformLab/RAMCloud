@@ -70,6 +70,7 @@ class UnreliableTransport : public Transport {
     struct UnreliableSession : public Session {
         UnreliableSession(UnreliableTransport& t,
                           const ServiceLocator& serviceLocator);
+        void abort(const string& message) {}
         ClientRpc* clientSend(Buffer* request, Buffer* response);
         void release();
         UnreliableTransport& t;
