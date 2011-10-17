@@ -36,8 +36,8 @@ RamCloud::RamCloud(const char* serviceLocator)
     , clientContext(*realClientContext.construct(false))
     , constructorContext(clientContext)
     , status(STATUS_OK)
-    , coordinator(serviceLocator)
-    , objectFinder(coordinator)
+    , coordinator(new CoordinatorClient(serviceLocator))
+    , objectFinder(*coordinator)
 {
     // This should be the last line on all return paths of this constructor.
     constructorContext.leave();
@@ -54,11 +54,22 @@ RamCloud::RamCloud(Context& context, const char* serviceLocator)
     , clientContext(context)
     , constructorContext(clientContext)
     , status(STATUS_OK)
-    , coordinator(serviceLocator)
-    , objectFinder(coordinator)
+    , coordinator(new CoordinatorClient(serviceLocator))
+    , objectFinder(*coordinator)
 {
     // This should be the last line on all return paths of this constructor.
     constructorContext.leave();
+}
+
+/**
+ * Destructor for RamCloud objects.
+ */
+RamCloud::~RamCloud()
+{
+    // It's important for coordinator to be destroyed before clientContext
+    // (coordinator contains a reference to a session in a transport that's
+    // part of clientContext); deleting coordinator explicitly ensures that.
+    delete coordinator;
 }
 
 /// \copydoc CoordinatorClient::createTable
@@ -66,7 +77,7 @@ void
 RamCloud::createTable(const char* name)
 {
     Context::Guard _(clientContext);
-    coordinator.createTable(name);
+    coordinator->createTable(name);
 }
 
 /// \copydoc CoordinatorClient::dropTable
@@ -74,7 +85,7 @@ void
 RamCloud::dropTable(const char* name)
 {
     Context::Guard _(clientContext);
-    coordinator.dropTable(name);
+    coordinator->dropTable(name);
 }
 
 /// \copydoc CoordinatorClient::openTable
@@ -82,7 +93,7 @@ uint32_t
 RamCloud::openTable(const char* name)
 {
     Context::Guard _(clientContext);
-    return coordinator.openTable(name);
+    return coordinator->openTable(name);
 }
 
 /// \copydoc MasterClient::create

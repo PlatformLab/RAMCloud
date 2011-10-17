@@ -164,7 +164,7 @@ runRecovery(RamCloud& client,
     // client.ping();
 
     LOG(NOTICE, "- quiescing writes");
-    client.coordinator.quiesce();
+    client.coordinator->quiesce();
 
     Transport::SessionRef session = client.objectFinder.lookup(tables[0], 0);
     LOG(NOTICE, "--- hinting that the server is down: %s ---",
@@ -174,7 +174,7 @@ runRecovery(RamCloud& client,
     ClusterMetrics metricsBefore(&client);
 
     uint64_t b = Cycles::rdtsc();
-    client.coordinator.hintServerDown(
+    client.coordinator->hintServerDown(
         session->getServiceLocator().c_str());
 
     client.objectFinder.waitForAllTabletsNormal();

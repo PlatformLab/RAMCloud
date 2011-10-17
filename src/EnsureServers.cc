@@ -58,7 +58,7 @@ try
         try {
             RamCloud(context,
                      optionParser.options.getCoordinatorLocator().c_str())
-                .coordinator.getServerList(serverList);
+                .coordinator->getServerList(serverList);
         } catch (const TransportException& e) {
             usleep(10000);
             continue;

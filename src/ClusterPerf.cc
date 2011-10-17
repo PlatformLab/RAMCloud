@@ -1299,6 +1299,7 @@ try
             }
         }
     }
+    delete cluster;
 }
 catch (std::exception& e) {
     RAMCLOUD_LOG(ERROR, "%s", e.what());
