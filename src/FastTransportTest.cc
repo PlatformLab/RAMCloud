@@ -164,7 +164,8 @@ class FastTransportTest : public ::testing::Test {
     {
         delete transport;
         FastTransport::timeoutCyclesOverride = 0;
-        FastTransport::sessionTimeoutCyclesOverride = 0;
+        FastTransport::sessionAbortCyclesOverride = 0;
+        FastTransport::sessionExpireCyclesOverride = 0;
     }
 
     DISALLOW_COPY_AND_ASSIGN(FastTransportTest);
@@ -228,7 +229,7 @@ TEST_F(FastTransportTest, getSession_reuseExpired) {
     EXPECT_EQ(0U, transport->clientSessions.size());
     Transport::Session* firstSession =
         transport->getSession(serviceLocator).get();
-    FastTransport::sessionTimeoutCyclesOverride = 10000U;
+    FastTransport::sessionExpireCyclesOverride = 10000U;
     Context::get().dispatch->currentTime = 10000U;
     Transport::Session* lastSession =
         transport->getSession(serviceLocator).get();
@@ -301,9 +302,9 @@ TEST_F(FastTransportTest, handleIncomingPacket_dropped) {
 TEST_F(FastTransportTest, handleIncomingPacket_c2sBadHintOpenSession) {
     TestLog::Enable _(&tppPred);
 
-    FastTransport::sessionTimeoutCyclesOverride = 2000;
+    FastTransport::sessionAbortCyclesOverride = 2000;
     Context::get().dispatch->currentTime =
-        FastTransport::sessionTimeoutCycles() * 2;
+        FastTransport::sessionAbortCycles() * 2;
     FastTransport::SessionOpenResponse sessResp =
             { FastTransport::NUM_CHANNELS_PER_SESSION };
     MockReceived recvd(0, 1, &sessResp, sizeof(sessResp));
@@ -1191,9 +1192,9 @@ TEST_F(OutboundMessageTest, sendOneData_requestAck) {
 
 TEST_F(OutboundMessageTest, handleTimerEvent) {
     // First call should just resend a packet.
-    FastTransport::sessionTimeoutCyclesOverride = 100;
+    FastTransport::sessionAbortCyclesOverride = 100;
     msg->sentTimes[0] = tsc - FastTransport::timeoutCycles() - 1;
-    msg->lastAckTime = tsc - FastTransport::sessionTimeoutCyclesOverride + 1;
+    msg->lastAckTime = tsc - FastTransport::sessionAbortCyclesOverride + 1;
     msg->timer.handleTimerEvent();
     EXPECT_NE("", driver->outputLog);
     EXPECT_EQ("", clientSession->abortMessage);
@@ -1201,14 +1202,14 @@ TEST_F(OutboundMessageTest, handleTimerEvent) {
     // Second call should generate a timeout
     msg->sentTimes[0] = tsc - FastTransport::timeoutCycles() - 1;
     msg->lastAckTime = tsc -
-            FastTransport::sessionTimeoutCyclesOverride - 1;
+            FastTransport::sessionAbortCyclesOverride - 1;
     driver->outputLog.clear();
     msg->timer.handleTimerEvent();
     EXPECT_EQ("", driver->outputLog);
     EXPECT_EQ("timeout waiting for acknowledgment from server "
             "at fast+udp: host=1.2.3.4, port=1234",
             clientSession->abortMessage);
-    FastTransport::sessionTimeoutCyclesOverride = 100;
+    FastTransport::sessionAbortCyclesOverride = 100;
 }
 
 // --- ServerSessionTest ---
@@ -2159,7 +2160,7 @@ TEST_F(SessionTableTest, put) {
 
 TEST_F(SessionTableTest, expire) {
     Context::get().dispatch->currentTime =
-        FastTransport::sessionTimeoutCycles();
+        FastTransport::sessionExpireCycles();
     FastTransport::SessionTable<MockSession> st(NULL);
 
     // Make sure it runs/doesn't segfault on 0 length

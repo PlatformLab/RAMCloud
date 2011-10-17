@@ -199,6 +199,9 @@ class FastTransport : public Transport {
     /// Defines the normal return value for timeoutCycles, in nanoseconds.
     enum { TIMEOUT_NS = 10 * 1000 * 1000 }; // 10 ms
 
+    /// Defines the normal return value for sessionExpireCycles, in seconds.
+    enum { EXPIRE_SECONDS = 10 };
+
     /**
      * Returns a "reasonable" amount of time (in rdtsc cycles) for a server
      * to return a response or acknowledgment to a client after a request
@@ -225,15 +228,33 @@ class FastTransport : public Transport {
      * abort the session.
      */
     static uint64_t
-    sessionTimeoutCycles()
+    sessionAbortCycles()
     {
 #if TESTING
-        if (sessionTimeoutCyclesOverride)
-            return sessionTimeoutCyclesOverride;
+        if (sessionAbortCyclesOverride)
+            return sessionAbortCyclesOverride;
 #endif
         static uint64_t value = 0;
         if (value == 0)
             value = Cycles::fromNanoseconds(TIMEOUT_NS * MAX_SILENT_INTERVALS);
+        return value;
+    }
+
+    /**
+     * Returns a value indicating how long a session can remain idle before
+     * we close it (so that we don't have zillions of old sessions eating up
+     * memory).
+     */
+    static uint64_t
+    sessionExpireCycles()
+    {
+#if TESTING
+        if (sessionExpireCyclesOverride)
+            return sessionExpireCyclesOverride;
+#endif
+        static uint64_t value = 0;
+        if (value == 0)
+            value = Cycles::fromSeconds(EXPIRE_SECONDS);
         return value;
     }
 
@@ -1198,7 +1219,7 @@ class FastTransport : public Transport {
 
         /**
          * Scan the table looking for Session whose lastActivityTime is
-         * beyond sessionTimeoutCycles(), calling Session::expire() on them
+         * beyond sessionExpireCycles(), calling Session::expire() on them
          * and returning them to the free list if possible.
          *
          * This implementation checks 5 sessions to see if they are ready
@@ -1218,7 +1239,7 @@ class FastTransport : public Transport {
                 T* session = sessions[lastCleanedIndex];
                 if (session->nextFree == NONE &&
                     (session->lastActivityTime +
-                     sessionTimeoutCycles() <= now)) {
+                     sessionExpireCycles() <= now)) {
                     if (session->expire())
                         put(session);
                 }
@@ -1278,8 +1299,11 @@ class FastTransport : public Transport {
     // If non-zero, overrides the value of timeoutCycles during tests.
     static uint64_t timeoutCyclesOverride;
 
-    // If non-zero, overrides the value of sessionTimeoutCycles during tests.
-    static uint64_t sessionTimeoutCyclesOverride;
+    // If non-zero, overrides the value of sessionAbortCycles during tests.
+    static uint64_t sessionAbortCyclesOverride;
+
+    // If non-zero, overrides the value of sessionExpireCycles during tests.
+    static uint64_t sessionExpireCyclesOverride;
 
     friend class FastTransportTest;
     friend class PollerTest;

@@ -84,7 +84,8 @@ FastTransport::getSession(const ServiceLocator& serviceLocator)
 // - private -
 
 uint64_t FastTransport::timeoutCyclesOverride = 0;
-uint64_t FastTransport::sessionTimeoutCyclesOverride = 0;
+uint64_t FastTransport::sessionAbortCyclesOverride = 0;
+uint64_t FastTransport::sessionExpireCyclesOverride = 0;
 
 /**
  * \return
@@ -860,7 +861,7 @@ void
 FastTransport::OutboundMessage::Timer::handleTimerEvent()
 {
     if (Context::get().dispatch->currentTime - outboundMsg->lastAckTime
-            > sessionTimeoutCycles()) {
+            > sessionAbortCycles()) {
         outboundMsg->session->abort(format(
                 "timeout waiting for acknowledgment from server at %s",
                 outboundMsg->session->getServiceLocator().c_str()));
