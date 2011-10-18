@@ -1273,10 +1273,13 @@ TEST_F(ServerSessionTest, beginSending) {
 }
 
 TEST_F(ServerSessionTest, expire_channelStillProcessing) {
+    TestLog::Enable _;
     session->lastActivityTime = 1;
     session->channels[FastTransport::NUM_CHANNELS_PER_SESSION - 1].state =
         FastTransport::ServerSession::ServerChannel::PROCESSING;
-    EXPECT_FALSE(session->expire());
+    EXPECT_FALSE(session->expire(true));
+    EXPECT_EQ("expire: channel 7 active", TestLog::get());
+
     session->channels[FastTransport::NUM_CHANNELS_PER_SESSION - 1].state =
         FastTransport::ServerSession::ServerChannel::IDLE;
 }
@@ -1561,6 +1564,7 @@ class ClientSessionTest: public ::testing::Test {
         driver = new MockDriver(FastTransport::Header::headerToString);
         transport = new FastTransport(driver);
         session = new FastTransport::ClientSession(transport, sessionId);
+        session->setServiceLocator("dummyService");
         request = new Buffer();
         request->fillFromString("request");
         response = new Buffer();
@@ -1685,34 +1689,41 @@ TEST_F(ClientSessionTest, connect) {
 }
 
 TEST_F(ClientSessionTest, expire_activeRef) {
+    TestLog::Enable _;
     session->numChannels = FastTransport::MAX_NUM_CHANNELS_PER_SESSION;
     session->allocateChannels();
     FastTransport::SessionRef s(session);
-    bool didClose = session->expire();
-    EXPECT_FALSE(didClose);
+    EXPECT_FALSE(session->expire(true));
+    EXPECT_EQ("expire: refCount 1 in session for dummyService",
+              TestLog::get());
 }
 
 TEST_F(ClientSessionTest, expire_activeOnChannel) {
+    TestLog::Enable _;
     session->numChannels = FastTransport::MAX_NUM_CHANNELS_PER_SESSION;
     session->allocateChannels();
 
     FastTransport::ClientRpc rpc(session, request, response);
     session->channels[0].currentRpc = &rpc;
 
-    bool didClose = session->expire();
-    EXPECT_FALSE(didClose);
+    EXPECT_FALSE(session->expire(true));
+    EXPECT_EQ("expire: channel 0 active in session for dummyService",
+              TestLog::get());
+
     session->channels[0].currentRpc = NULL;
 }
 
 TEST_F(ClientSessionTest, expire_rpcQueued) {
+    TestLog::Enable _;
     session->numChannels = FastTransport::MAX_NUM_CHANNELS_PER_SESSION;
     session->allocateChannels();
 
     FastTransport::ClientRpc rpc(session, request, response);
     session->channelQueue.push_back(rpc);
 
-    bool didClose = session->expire();
-    EXPECT_FALSE(didClose);
+    EXPECT_FALSE(session->expire(true));
+    EXPECT_EQ("expire: channelQueue not empty in session for dummyService",
+              TestLog::get());
 
     session->channelQueue.pop_front(); // satisfy boost assertion;
 }

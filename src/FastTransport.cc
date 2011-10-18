@@ -901,7 +901,7 @@ FastTransport::ServerSession::ServerSession(FastTransport* transport,
 
 FastTransport::ServerSession::~ServerSession()
 {
-    assert(expire());
+    assert(expire(true));
 }
 
 /// This shouldn't ever be called.
@@ -942,11 +942,14 @@ FastTransport::ServerSession::clientSend(Buffer* request, Buffer* response)
 
 // See Session::expire().
 bool
-FastTransport::ServerSession::expire()
+FastTransport::ServerSession::expire(bool expectIdle)
 {
     for (uint32_t i = 0; i < NUM_CHANNELS_PER_SESSION; i++) {
-        if (channels[i].state == ServerChannel::PROCESSING)
+        if (channels[i].state == ServerChannel::PROCESSING) {
+            if (expectIdle)
+                LOG(ERROR, "channel %u active", i);
             return false;
+        }
     }
 
     for (uint32_t i = 0; i < NUM_CHANNELS_PER_SESSION; i++) {
@@ -1201,7 +1204,7 @@ FastTransport::ClientSession::ClientSession(FastTransport* transport,
 
 FastTransport::ClientSession::~ClientSession()
 {
-    assert(expire());
+    assert(expire(true));
 }
 
 // See Transport::ClientSession::abort().
@@ -1294,16 +1297,28 @@ FastTransport::ClientSession::connect()
 
 // See Session::expire().
 bool
-FastTransport::ClientSession::expire()
+FastTransport::ClientSession::expire(bool expectIdle)
 {
-    if (refCount > 0)
+    if (refCount > 0) {
+        if (expectIdle)
+            LOG(ERROR, "refCount %d in session for %s", refCount,
+                getServiceLocator().c_str());
         return false;
-    for (uint32_t i = 0; i < numChannels; i++) {
-        if (channels[i].currentRpc)
-            return false;
     }
-    if (!channelQueue.empty())
+    for (uint32_t i = 0; i < numChannels; i++) {
+        if (channels[i].currentRpc) {
+            if (expectIdle)
+                LOG(ERROR, "channel %u active in session for %s", i,
+                    getServiceLocator().c_str());
+            return false;
+        }
+    }
+    if (!channelQueue.empty()) {
+        if (expectIdle)
+            LOG(ERROR, "channelQueue not empty in session for %s",
+                getServiceLocator().c_str());
         return false;
+    }
     abort("session expired");
     return true;
 }

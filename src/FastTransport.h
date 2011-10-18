@@ -713,16 +713,19 @@ class FastTransport : public Transport {
         virtual ~Session() {}
 
         /**
-         * Close this ClientSession if it is not servicing any RPC.
+         * This method destroys all of the state associated with a session,
+         * but only if the session is not in active use for any RPCs.
          *
-         * Called periodically to try to reclaim inactive sessions, generally
-         * just before Session is allocated (e.g. before the serverSessionTable
-         * is expanded, or during getClientSession()).
+         * \param expectIdle
+         *      True means the caller expects the session to be idle; if not,
+         *      an error message should be logged.
          *
          * \return
-         *      Whether the ClientSession is now closed.
+         *      True means that the session was idle, so its state was
+         *      destroyed.  False means the session was in use, so it couldn't
+         *      be cleaned up.
          */
-        virtual bool expire() = 0;
+        virtual bool expire(bool expectIdle = false) = 0;
 
         /**
          * Populate a Header with all the fields necessary to send it to
@@ -804,7 +807,7 @@ class FastTransport : public Transport {
         void beginSending(uint8_t channelId);
         virtual void abort(const string& message);
         virtual ClientRpc* clientSend(Buffer* request, Buffer* response);
-        virtual bool expire();
+        virtual bool expire(bool expectIdle = false);
         virtual void fillHeader(Header* const header, uint8_t channelId) const;
         virtual const Driver::Address* getAddress();
         void processInboundPacket(Driver::Received* received);
@@ -946,7 +949,7 @@ class FastTransport : public Transport {
         ClientRpc* clientSend(Buffer* request, Buffer* response);
         virtual void abort(const string& message);
         void connect();
-        bool expire();
+        bool expire(bool expectIdle = false);
         void fillHeader(Header* const header, uint8_t channelId) const;
         const Driver::Address* getAddress();
         void init(const ServiceLocator& serviceLocator);
