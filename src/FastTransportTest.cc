@@ -317,7 +317,7 @@ TEST_F(FastTransportTest, handleIncomingPacket_c2sBadHintOpenSession) {
     transport->handleIncomingPacket(&recvd);
     EXPECT_EQ(
         "handleIncomingPacket: "
-        "opening session 0", TestLog::get());
+        "opening session 0 from mock:", TestLog::get());
     EXPECT_EQ(1U, transport->serverSessions.size());
 }
 

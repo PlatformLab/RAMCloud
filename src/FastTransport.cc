@@ -189,7 +189,9 @@ void FastTransport::handleIncomingPacket(Driver::Received* received)
         if (header->serverSessionHint >= serverSessions.size()) {
             if (header->getPayloadType() == Header::SESSION_OPEN) {
                 // Start a new session on this server for the client.
-                LOG(DEBUG, "opening session %d", header->clientSessionHint);
+                LOG(DEBUG, "opening session %d from %s",
+                        header->clientSessionHint,
+                        received->sender->toString().c_str());
                 serverSessions.expire();
                 ServerSession* session = serverSessions.get();
                 session->startSession(received->sender,
@@ -1639,6 +1641,8 @@ FastTransport::ClientSession::Timer::handleTimerEvent()
         session->abort(format("timeout while opening session with %s",
                 session->getServiceLocator().c_str()));
     } else {
+        LOG(NOTICE, "retrying session open with %s",
+            session->getServiceLocator().c_str());
         session->sendSessionOpenRequest();
     }
 }
