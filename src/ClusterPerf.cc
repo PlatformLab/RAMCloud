@@ -1272,7 +1272,8 @@ try
         exit(1);
     }
 
-    cluster = new RamCloud(context, coordinatorLocator.c_str());
+    RamCloud r(context, coordinatorLocator.c_str());
+    cluster = &r;
     cluster->createTable("data");
     dataTable = cluster->openTable("data");
     cluster->createTable("control");
@@ -1299,7 +1300,6 @@ try
             }
         }
     }
-    delete cluster;
 }
 catch (std::exception& e) {
     RAMCLOUD_LOG(ERROR, "%s", e.what());
