@@ -180,10 +180,6 @@ clean: tests-clean docs-clean tags-clean
 check:
 	$(LINT) $$(./pragmas.py -f CPPLINT:5 $$(find $(TOP)/src -name '*.cc' -or -name '*.h' -or -name '*.c'))
 
-install: client-lib-install
-
-uninstall: client-lib-uninstall
-
 # This magic automatically generates makefile dependencies
 # for header files included from C source files we compile,
 # and keeps those dependencies up-to-date every time we recompile.
@@ -222,4 +218,4 @@ tags-clean:
 print-%:
 	@echo $* = $($*)
 
-.PHONY: all always clean check doc docs docs-clean tags tags-clean test tests install uninstall
+.PHONY: all always clean check doc docs docs-clean tags tags-clean test tests
