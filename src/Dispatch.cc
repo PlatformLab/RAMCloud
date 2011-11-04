@@ -180,15 +180,42 @@ Dispatch::poll()
     if (currentTime >= earliestTriggerTime) {
         // Looks like a timer may have triggered. Check all the timers and
         // invoke any that have triggered.
-        for (uint32_t i = 0; i < timers.size(); ) {
+        //
+        // There are two goals here:
+        // * Invoke every timer that has triggered.
+        // * Don't invoke any timer more than once (in particular, if the
+        //   handler for a timer reschedules the timer in the past, don't
+        //   run it a second time; otherwise an infinite loop could result).
+        //
+        // The code meets these goals, except that if the handler for one
+        // timer A stops another timer B, this could cause a third timer
+        // C to move into A's slot in the timers vector, and this could
+        // potentially cause C to be missed in this pass (if we have
+        // already passed that slot).  However, C will be invoked the
+        // next time this method is called.
+        uint32_t end = downCast<uint32_t>(timers.size());
+        for (uint32_t i = 0; i < end; ) {
             Timer* timer = timers[i];
             if (timer->triggerTime <= currentTime) {
                 timer->stop();
                 timer->handleTimerEvent();
+
+                // Since we just removed the timer that triggered, reduce
+                // the endpoint of the loop to reflect this (this prevents
+                // the timer from being invoked a second time if its handler
+                // reschedules it; the rescheduled time or would end up at
+                // the end of the timers vector).  However, it's possible
+                // that the timer handler also deleted other timers, so
+                // shrink the endpoint even more if needed to keep it in
+                // range.
+                end--;
+                if (timers.size() < end)
+                    end = downCast<uint32_t>(timers.size());
             } else {
                 // Only increment i if the current timer did not trigger.
                 // If it did trigger, it got removed from the vector and
-                // we need to process the timer that got moved its place.
+                // we need to process the timer that got moved into its
+                // slot.
                 i++;
             }
         }
