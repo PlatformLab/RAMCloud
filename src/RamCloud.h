@@ -84,6 +84,10 @@ class RamCloud {
             // constructor.
             constructorContext.leave();
         }
+        void cancel() {
+            Context::Guard _(ramCloud.clientContext);
+            masterRead.cancel();
+        }
         bool isReady() {
             Context::Guard _(ramCloud.clientContext);
             return masterRead.isReady();

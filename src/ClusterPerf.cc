@@ -501,17 +501,19 @@ getCommand(char* buffer, uint32_t size)
  *      return until the object's value matches the string.
  * \param value
  *      The actual value of the object is returned here.
+ * \param timeout
+ *      Seconds to wait before giving up and throwing an Exception.
  */
 void
 waitForObject(uint32_t tableId, uint64_t objectId, const char* desired,
-        Buffer& value)
+        Buffer& value, double timeout = 1.0)
 {
     uint64_t start = Cycles::rdtsc();
     size_t length = desired ? strlen(desired) : -1;
     while (true) {
         try {
             double elapsed = Cycles::toSeconds(Cycles::rdtsc() - start);
-            if (elapsed > 1.0) {
+            if (elapsed > timeout) {
                 // Slave is taking too long; time out.
                 throw Exception(HERE, format(
                         "Object <%u, %lu> didn't reach desired state",
@@ -544,12 +546,14 @@ waitForObject(uint32_t tableId, uint64_t objectId, const char* desired,
  *      Index of the slave (1 corresponds to the first slave).
  * \param state
  *      A string identifying the desired state for the slave.
+ * \param timeout
+ *      Seconds to wait before giving up and throwing an Exception.
  */
 void
-waitSlave(int slave, const char* state)
+waitSlave(int slave, const char* state, double timeout = 1.0)
 {
     Buffer value;
-    waitForObject(controlTable, objectId(slave, STATE), state, value);
+    waitForObject(controlTable, objectId(slave, STATE), state, value, timeout);
 }
 
 /**
@@ -945,6 +949,89 @@ netBandwidth()
             "slowest client");
 }
 
+// Each client reads a single object from each master.  Good for
+// testing that each host in the cluster can send/receive RPCs
+// from every other host.
+void
+readAllToAll()
+{
+    if (clientIndex > 0) {
+        char command[20];
+        do {
+            getCommand(command, sizeof(command));
+            usleep(10 * 1000);
+        } while (strcmp(command, "run") != 0);
+        setSlaveState("running");
+        std::cout << "Slave id " << clientIndex
+                  << " reading from all masters" << std::endl;
+
+        for (int tableNum = 0; tableNum < numTables; ++tableNum) {
+            string tableName = format("table%d", tableNum);
+            try {
+                int tableId = cluster->openTable(tableName.c_str());
+
+                Buffer result;
+                uint64_t startCycles = Cycles::rdtsc();
+                RamCloud::Read read(*cluster, tableId, 0, &result);
+                while (!read.isReady()) {
+                    Context::get().dispatch->poll();
+                    double secsWaiting =
+                        Cycles::toSeconds(Cycles::rdtsc() - startCycles);
+                    if (secsWaiting > 1.0) {
+                        RAMCLOUD_LOG(ERROR,
+                                    "Client %d couldn't read from table %s",
+                                    clientIndex, tableName.c_str());
+                        read.cancel();
+                        continue;
+                    }
+                }
+                read();
+            } catch (ClientException& e) {
+                RAMCLOUD_LOG(ERROR,
+                    "Client %d got exception reading from table %s: %s",
+                    clientIndex, tableName.c_str(), e.what());
+            } catch (...) {
+                RAMCLOUD_LOG(ERROR,
+                    "Client %d got unknown exception reading from table %s",
+                    clientIndex, tableName.c_str());
+            }
+        }
+        setSlaveState("done");
+        return;
+    }
+
+    int size = objectSize;
+    if (size < 0)
+        size = 100;
+    int* tableIds = createTables(numTables, size);
+
+    std::cout << "Master client reading from all masters" << std::endl;
+    for (int i = 0; i < numTables; ++i) {
+        int tableId = tableIds[i];
+        Buffer result;
+        uint64_t startCycles = Cycles::rdtsc();
+        RamCloud::Read read(*cluster, tableId, 0, &result);
+        while (!read.isReady()) {
+            Context::get().dispatch->poll();
+            if (Cycles::toSeconds(Cycles::rdtsc() - startCycles) > 1.0) {
+                RAMCLOUD_LOG(ERROR,
+                            "Master client %d couldn't read from tableId %d",
+                            clientIndex, tableId);
+                return;
+            }
+        }
+        read();
+    }
+
+    for (int slaveIndex = 1; slaveIndex < numClients; ++slaveIndex) {
+        sendCommand("run", "running", slaveIndex);
+        // Give extra time if clients have to contact a lot of masters.
+        waitSlave(slaveIndex, "done", 1.0 + 0.1 * numTables);
+    }
+
+    delete[] tableIds;
+}
+
 // This benchmark measures the latency and server throughput for reads
 // when several clients are simultaneously reading the same object.
 void
@@ -1260,6 +1347,7 @@ TestInfo tests[] = {
     {"basic", basic},
     {"broadcast", broadcast},
     {"netBandwidth", netBandwidth},
+    {"readAllToAll", readAllToAll},
     {"readLoaded", readLoaded},
     {"readNotFound", readNotFound},
     {"readRandom", readRandom},
