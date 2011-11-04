@@ -2,7 +2,7 @@
   @mainpage RAMCloud
 
 
-  See http://fiz.stanford.edu:8081/display/ramcloud/Contributing for further details.
+  See https://ramcloud.stanford.edu/wiki/display/ramcloud/General+Information+for+Developers for further details.
 
 
 
@@ -30,37 +30,54 @@ Using GNU make, type:
 
 $ make
 
-# make install
-
-This will build the client, server, and backups.  The install step
-simply installs the RAMCloud client library and headers in /usr/local.
-
+This will build the client, server, and coordinator.
 
 ====================================
 2. Running
 ====================================
 
-To run you must have 3 things.  A running backup, a running server,
-and some kind of client. Note that the backup must be started first.
+To run you must have 3 things.  A running coordinator, a running master,
+and some kind of client.  These all need to be run on the same host;
+running on separate hosts requires more flags (see -C and -L on both
+the coordinator and server binary).
 
-2.1 Starting a backup
+2.1 Starting a coordinator
 
-$ ./obj.master/backup
+$ ./obj.master/coordinator
 
 2.2 Starting a server
 
-$ ./obj.master/server
+$ ./obj.master/server -M -r 0
 
-2.3 Using the libramcloud.so library
+This starts a RAMCloud process acting only as a master using 0 backups.
+If the master can communicate with the coordinator process you should
+see a log message ending with "My server ID is 1" after a second or so.
+
+2.3
+
+To make sure things are really working try running
+
+$ ./obj.master/client
+
+It should connect to the master and perform a few random operations.
+If it is working then you have a working basic RAMCloud and you can
+start writing more interesting applications.
+
+2.4 Using the libramcloud.so library
 
 Write a client application using the interface described in
-/usr/local/include/ramcloud/client.h.  Compile with:
+src/RamCloud.h (see RamCloudMain.cc for an example).
 
-$ gcc -lramcloud -I/usr/local/include/ramcloud -o test-client test-client.c
+Until we have a proper 'install' target compile with:
 
-2.4 Using the Python bindings:
+$ g++ -Lobj.master -lramcloud -Isrc -Iobj.master -o TestClient TestClient.cc
 
-$ PYTHONPATH=bindings/python python
+This is assuming TestClient.cc is in the ramcloud directory just above src.
+Adjust your paths accordingly.
+
+2.5 Using the Python bindings:
+
+$ LD_LIBRARY_PATH=$LD_LIBRARY_PATH:obj.master PYTHONPATH=bindings/python python
 
 >>> import ramcloud
 
@@ -76,7 +93,6 @@ $ PYTHONPATH=bindings/python python
 ====================================
 3. Testing
 ====================================
-
 3.1 Static Style Checking
 
 $ make check

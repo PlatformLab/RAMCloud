@@ -90,30 +90,11 @@ $(OBJDIR)/ensureServers: $(OBJDIR)/EnsureServers.o $(OBJDIR)/OptionParser.o $(OB
 	@mkdir -p $(@D)
 	$(CXX) $(LIBS) -o $@ $^ -L$(OBJDIR)
 
-.PHONY: client client-lib client-lib-static client-lib-shared client-lib-install client-lib-uninstall ensureServers
+.PHONY: client client-lib client-lib-static client-lib-shared ensureServers
 
 client-lib-static: $(OBJDIR)/libramcloud.a
 client-lib-shared: $(OBJDIR)/libramcloud.so
 client-lib: client-lib-static client-lib-shared
-
-# TODO(stutsman) need to rethink includes because right now this requires
-# -lramcloud -I/usr/local/include/ramcloud
-CLIENT_LIB_INSTALL_PREFIX := /usr/local
-client-lib-install:
-	-mkdir -p $(CLIENT_LIB_INSTALL_PREFIX)/lib
-	install -m 644 $(OBJDIR)/libramcloud.a $(CLIENT_LIB_INSTALL_PREFIX)/lib
-	install -m 644 $(OBJDIR)/libramcloud.so $(CLIENT_LIB_INSTALL_PREFIX)/lib
-	-mkdir -p $(CLIENT_LIB_INSTALL_PREFIX)/include/ramcloud
-	install -m 644 $(TOP)/src/RamCloudClient.h $(CLIENT_LIB_INSTALL_PREFIX)/include/ramcloud
-	-mkdir -p $(CLIENT_LIB_INSTALL_PREFIX)/include/ramcloud
-	install -m 644 $(TOP)/src/Net.h $(CLIENT_LIB_INSTALL_PREFIX)/include/ramcloud
-	install -m 644 $(TOP)/src/net_user.h $(CLIENT_LIB_INSTALL_PREFIX)/include/ramcloud
-	install -m 644 $(TOP)/src/net_udp.h $(CLIENT_LIB_INSTALL_PREFIX)/include/ramcloud
-	install -m 644 $(TOP)/src/net_tcp.h $(CLIENT_LIB_INSTALL_PREFIX)/include/ramcloud
-	install -m 644 $(TOP)/src/rcrpc.h $(CLIENT_LIB_INSTALL_PREFIX)/include/ramcloud
-
-client-lib-uninstall:
-	rm -rfv $(CLIENT_LIB_INSTALL_PREFIX){/lib/libramcloud*,/include/ramcloud}
 
 client: $(OBJDIR)/client $(OBJDIR)/ensureServers $(OBJDIR)/libramcloud.a $(OBJDIR)/libramcloud.so
 
