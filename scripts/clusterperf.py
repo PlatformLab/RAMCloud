@@ -146,15 +146,15 @@ def default(
     This function is used as the invocation function for most tests;
     it simply invokes ClusterPerf via cluster.run and prints the result.
     """
-    cluster.run(client='obj.master/ClusterPerf %s %s' %
-            (flatten_args(client_args), name), **cluster_args)
+    cluster.run(client='%s/ClusterPerf %s %s' %
+            (obj_path, flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
 
 def broadcast(name, options, cluster_args, client_args):
     if 'num_clients' not in cluster_args:
         cluster_args['num_clients'] = 10
-    cluster.run(client='obj.master/ClusterPerf %s %s' %
-            (flatten_args(client_args), name), **cluster_args)
+    cluster.run(client='%s/ClusterPerf %s %s' %
+            (obj_path, flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
 
 def netBandwidth(name, options, cluster_args, client_args):
@@ -168,15 +168,15 @@ def netBandwidth(name, options, cluster_args, client_args):
         client_args['--size'] = options.size
     else:
         client_args['--size'] = 1024*1024;
-    cluster.run(client='obj.master/ClusterPerf %s %s' %
-            (flatten_args(client_args), name), **cluster_args)
+    cluster.run(client='%s/ClusterPerf %s %s' %
+            (obj_path, flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
 
 def readLoaded(name, options, cluster_args, client_args):
     if 'num_clients' not in cluster_args:
         cluster_args['num_clients'] = 20
-    cluster.run(client='obj.master/ClusterPerf %s %s' %
-            (flatten_args(client_args), name), **cluster_args)
+    cluster.run(client='%s/ClusterPerf %s %s' %
+            (obj_path, flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
 
 def readRandom(name, options, cluster_args, client_args):
@@ -186,8 +186,8 @@ def readRandom(name, options, cluster_args, client_args):
     if options.num_servers == None:
         cluster_args['num_servers'] = 10
     client_args['--numTables'] = cluster_args['num_servers'];
-    cluster.run(client='obj.master/ClusterPerf %s %s' %
-            (flatten_args(client_args), name), **cluster_args)
+    cluster.run(client='%s/ClusterPerf %s %s' %
+            (obj_path, flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
     
 #-------------------------------------------------------------------
