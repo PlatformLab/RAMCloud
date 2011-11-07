@@ -28,10 +28,10 @@ import sys
 import time
 
 hosts = []
-for i in range(1, 61):
+for i in range(22, 40):
     hosts.append(('rc%02d' % i,
                   '192.168.1.%d' % (100 + i)))
-coordinatorHost = ('rcmaster', '192.168.1.1')
+coordinatorHost = ('rc21', '192.168.1.121')
 clientHost = coordinatorHost
 oldMasterHost = coordinatorHost
 serverHosts = hosts
@@ -39,7 +39,7 @@ serverHosts = hosts
 obj_path = '%s/%s' % (top_path, obj_dir)
 coordinatorBin = '%s/coordinator' % obj_path
 serverBin = '%s/server' % obj_path
-clientBin = '%s/client' % obj_path
+recoveryBin = '%s/recovery' % obj_path
 ensureServersBin = '%s/ensureServers' % obj_path
 
 def recover(numBackups=1,             # Number of hosts on which to start
@@ -171,8 +171,8 @@ def recover(numBackups=1,             # Number of hosts on which to start
 
         # start client
         client = sandbox.rsh(clientHost[0],
-                 ('%s -d -C %s --logFile %s/client.%s.log -n %d -r %d -s %d '
-                  '-t %d -k %d %s' % (clientBin, coordinatorLocator, run,
+                 ('%s -C %s --logFile %s/client.%s.log -n %d -r %d -s %d '
+                  '-t %d -k %d %s' % (recoveryBin, coordinatorLocator, run,
                   clientHost[0], numObjects, numRemovals, objectSize,
                   numPartitions, numPartitions, clientArgs)),
                  bg=True, stderr=subprocess.STDOUT)
@@ -216,7 +216,7 @@ if __name__ == '__main__':
     args['objectSize'] = 1024
     args['disk'] = 3
     args['numObjects'] = 592415 # 600MB
-    args['oldMasterArgs'] = '-t %d' % (700 * args['numPartitions'])
+    args['oldMasterArgs'] = '-t %d' % (800 * args['numPartitions'])
     args['newMasterArgs'] = '-t 8000'
     args['replicas'] = 3
     stats = recover(**args)
