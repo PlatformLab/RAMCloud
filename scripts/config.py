@@ -96,3 +96,9 @@ default_disk1 = '-f /dev/sda2'
 # store its segment replicas.
 default_disk2 = '-f /dev/sdb2'
 
+# Try to include local overrides.
+try:
+    from localconfig import *
+except:
+    pass
+
