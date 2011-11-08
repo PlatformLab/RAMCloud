@@ -46,6 +46,8 @@ int
 main(int argc, char *argv[])
 try
 {
+    int clientIndex;
+    int numClients;
     int count, removeCount;
     uint32_t objectDataSize;
     uint32_t tableCount;
@@ -57,6 +59,10 @@ try
 
     OptionsDescription clientOptions("Client");
     clientOptions.add_options()
+        ("clientIndex",
+         ProgramOptions::value<int>(&clientIndex)->
+            default_value(0),
+         "Index of this client (first client is 0)")
         ("fast,f",
          ProgramOptions::bool_switch(&fillWithTestData),
          "Use a single fillWithTestData rpc to insert recovery objects.")
@@ -69,6 +75,10 @@ try
             default_value(1),
          "The number of empty tables to create per real table."
          "An enormous hack to create partitions on the crashed master.")
+        ("numClients",
+         ProgramOptions::value<int>(&numClients)->
+            default_value(1),
+         "Total number of clients running")
         ("number,n",
          ProgramOptions::value<int>(&count)->
             default_value(1024),

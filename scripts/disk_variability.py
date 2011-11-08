@@ -18,6 +18,7 @@
 
 from __future__ import division, print_function
 from common import *
+import config
 from glob import glob
 import math
 import metrics
@@ -35,22 +36,20 @@ def median(l):
 if len(sys.argv) > 1:
     recovery_dir = sys.argv[1]
 else:
-    recovery_dir = 'recovery/latest'
+    recovery_dir = 'logs/latest'
 
-NUMBACKUPS = 36
+NUMBACKUPS = len(config.hosts)
 TRIALS = 25
 backups = [[] for i in range(NUMBACKUPS)]
 for trial in range(TRIALS):
     args = {}
-    args['numBackups'] = NUMBACKUPS
-    args['numPartitions'] = 12
-    args['objectSize'] = 1024
-    args['disk'] = 1
+    args['num_servers'] = NUMBACKUPS
+    args['backups_per_server'] = 1
+    args['num_partitions'] = 12
+    args['object_size'] = 1024
     args['replicas'] = 3
-    args['numObjects'] = (626012 * args['numBackups'] * 80 //
-                          args['numPartitions'] // 640)
-    args['oldMasterArgs'] = '-t 17000'
-    args['newMasterArgs'] = '-t 16000'
+    args['num_objects'] = (626012 * args['num_servers'] * 80 //
+                           args['num_partitions'] // 640)
     r = recovery.insist(**args)
     print('->', r['ns'] / 1e6, 'ms', '(run %s)' % r['run'])
     for i, backup in enumerate(r['metrics'].backups):

@@ -71,10 +71,52 @@ coord_locator_templates = {
     'unreliable+infeth': 'fast+udp:host=%(host)s,port=%(port)d',
 }
 
+def server_locator(transport, host, port=server_port):
+    """Generate a service locator for a master/backup process.
+
+    @param transport: A transport name (e.g. infrc, fast+udp, tcp, ...)
+    @type  transport: C{str}
+
+    @param host: A 3-tuple of (hostname, ip, id).
+    @type  host: C{(str, str, int)}
+
+    @param port: Port which should be part of the locator (if any).
+                 Allows multiple services to be started on the same host.
+    @type  port: C{int}
+
+    @return: A service locator.
+    @rtype: C{str}
+    """
+    locator = (server_locator_templates[transport] %
+               {'host': host[1],
+                'host1g': host[0],
+                'port': port,
+                'id': host[2]})
+    return locator
+
+def coord_locator(transport, host):
+    """Generate a service locator for a coordinator process.
+
+    @param transport: A transport name (e.g. infrc, fast+udp, tcp, ...)
+    @type  transport: C{str}
+
+    @param host: A 3-tuple of (hostname, ip, id).
+    @type  host: C{(str, str, int)}
+
+    @return: A service locator.
+    @rtype: C{str}
+    """
+    locator = (coord_locator_templates[transport] %
+               {'host': host[1],
+                'host1g': host[0],
+                'port': coordinator_port,
+                'id': host[2]})
+    return locator
+
 def run(
         num_servers=4,             # Number of hosts on which to start
                                    # servers (not including coordinator).
-        num_backups=1,             # Number of backups to run on each
+        backups_per_server=1,      # Number of backups to run on each
                                    # server host (0, 1, or 2).
         replicas=3,                # Replication factor to use for each
                                    # log segment.
@@ -83,7 +125,7 @@ def run(
                                    # on each server.
         disk2=default_disk2,       # Server arguments specifying the
                                    # backing device for the first backup
-                                   # on each server (if num_backups = 2).
+                                   # on each server (if backups_per_server= 2).
         timeout=20,                # How many seconds to wait for the
                                    # clients to complete.
         coordinator_args='',       # Additional arguments for the
@@ -112,13 +154,21 @@ def run(
         transport='infrc',         # Name of transport to use for servers.
         verbose=False,             # Print information about progress in
                                    # starting clients and servers
-        debug=False                # If True, pause after starting all
+        debug=False,               # If True, pause after starting all
                                    # to allow for debugging setup such as
                                    # attaching gdb.
+        old_master_host=None,      # Pass a (hostname, ip, id) tuple to
+                                   # construct a large master on that host
+                                   # before the others are started.  Useful
+                                   # for creating the old master for
+                                   # recoveries.
+        old_master_args=""         # Additional arguments to run on the
+                                   # old master (e.g. total RAM).
         ):       
     """
     Start a coordinator and servers, as indicated by the arguments.
     Then start one or more client processes and wait for them to complete.
+    @return: string indicating the path to the log files for this run.
     """
 
     if num_servers > len(hosts):
@@ -145,11 +195,7 @@ def run(
         # Start coordinator
         if num_servers > 0:
             coordinator_host = hosts[0]
-            coordinator_locator = (coord_locator_templates[transport] %
-                                    {'host': coordinator_host[1],
-                                     'host1g': coordinator_host[0],
-                                     'port': coordinator_port,
-                                     'id': coordinator_host[2]})
+            coordinator_locator = coord_locator(transport, coordinator_host)
             coordinator = sandbox.rsh(coordinator_host[0],
                       ('%s -C %s -l %s --logFile %s/coordinator.%s.log %s' %
                        (coordinator_binary, coordinator_locator, log_level,
@@ -160,53 +206,68 @@ def run(
                 print "Coordinator started on %s at %s" % (coordinator_host[0],
                         coordinator_locator)
 
+        # Track how many services are registered with the coordinator
+        # for ensure_servers
+        services_started = 0
+
+        # Start old master - a specialized master for recovery with lots of data
+        if old_master_host:
+            host = old_master_host
+            command = ('%s -C %s -L %s -M -r %d -l %s '
+                       '--logFile %s/oldMaster.%s.log %s' %
+                       (server_binary, coordinator_locator,
+                        server_locator(transport, host),
+                        replicas, log_level, log_subdir, host[0],
+                        old_master_args))
+            servers.append(sandbox.rsh(host[0], command, bg=True,
+                           stderr=subprocess.STDOUT))
+            services_started += 1
+            ensure_servers(services_started)
+
         # Start servers
         for i in range(num_servers):
             # First start the main server on this host, which runs a master
             # and possibly a backup.  The first server shares the same machine
             # as the coordinator.
             host = hosts[i];
-            server_locator = (server_locator_templates[transport] %
-                              {'host': host[1],
-                               'host1g': host[0],
-                               'port': server_port,
-                               'id': host[2]})
             command = ('%s -C %s -L %s -r %d -l %s '
                        '--logFile %s/server.%s.log %s' %
-                       (server_binary, coordinator_locator, server_locator,
+                       (server_binary, coordinator_locator,
+                        server_locator(transport, host),
                         replicas, log_level, log_subdir, host[0],
                         master_args))
-            if num_backups > 0:
+            if backups_per_server > 0:
                 command += ' %s %s' % (disk1, backup_args)
+                services_started += 2
             else:
                 command += ' -M'
+                services_started += 1
             servers.append(sandbox.rsh(host[0], command, bg=True,
                            stderr=subprocess.STDOUT))
             if verbose:
-                print "Server started on %s at %s" % (host[0], server_locator)
+                print "Server started on %s at %s" % (host[0],
+                                                      server_locator(tranposrt,
+                                                                     host))
             
             # Start an extra backup server in this host, if needed.
-            if num_backups == 2:
-                server_locator = (server_locator_templates[transport] %
-                                  {'host': host[1],
-                                   'host1g': host[0],
-                                   'port': second_backup_port,
-                                   'id': host[2]})
+            if backups_per_server == 2:
                 command = ('%s -C %s -L %s -B %s -l %s '
                            '--logFile %s/server.%s.log %s' %
-                           (server_binary, coordinator_locator, host[1],
+                           (server_binary, coordinator_locator,
+                            server_locator(transport, host, second_backup_port),
                             disk2, log_level, log_subdir, host[0],
                             backup_args))
                 servers.append(sandbox.rsh(host[0], command, bg=True,
                                            stderr=subprocess.STDOUT))
+                services_started += 1
                 if verbose:
                     print "Extra backup started on %s at %s" % (host[0],
-                            server_locator)
+                            server_locator(transport, host, second_backup_port))
         if debug:
             print "Servers started; pausing for debug setup."
             raw_input("Type <Enter> to continue: ")
-        if num_servers > 0:
-            ensure_servers(num_servers*(1 + num_backups))
+        if services_started > 0:
+            ensure_servers(services_started)
             if verbose:
                 print "All servers running"
 
@@ -243,6 +304,8 @@ def run(
             if verbose:
                 print "Client %d finished" % i
 
+        return log_subdir
+
 if __name__ == '__main__':
     parser = OptionParser(description=
             'Start RAMCloud servers and run a client application.',
@@ -252,7 +315,7 @@ if __name__ == '__main__':
             help='Additional command-line arguments to pass to '
                  'each backup')
     parser.add_option('-b', '--backups', type=int, default=1,
-            metavar='N', dest='num_backups',
+            metavar='N', dest='backups_per_server',
             help='Number of backups to run on each server host '
                  '(0, 1, or 2)')
     parser.add_option('--client', metavar='ARGS', default='echo',

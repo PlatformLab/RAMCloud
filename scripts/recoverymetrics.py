@@ -392,7 +392,7 @@ class Section(object):
 def parseRecovery(recovery_dir):
     data = AttrDict()
     data.log_dir = os.path.realpath(os.path.expanduser(recovery_dir))
-    logFile = glob('%s/client.*.log' % recovery_dir)[0]
+    logFile = glob('%s/client*.*.log' % recovery_dir)[0]
 
     data.backups = []
     data.masters = []
@@ -414,7 +414,7 @@ def parseRecovery(recovery_dir):
     data.totalNodes = len(set([server.server for server in data.servers])) - 1
         
     data.client = AttrDict()
-    for line in open(glob('%s/client.*.log' % recovery_dir)[0]):
+    for line in open(glob('%s/client*.*.log' % recovery_dir)[0]):
         m = re.search(r'\bRecovery completed in (\d+) ns\b', line)
         if m:
             data.client.recoveryNs = int(m.group(1))
@@ -831,7 +831,7 @@ def textReport(data):
         pass
     efficiencySection.avgMinFrac('Memory bandwidth (backup copies)',
         [(backup.backup.writeCopyBytes / 2**30) /
-         (backup.backup.writeCopyTicks / backup.clockFrequency)
+         (1 + backup.backup.writeCopyTicks / backup.clockFrequency)
          for backup in backups], pointFormat= '{0:6.2f} GB/s')
 
     networkSection = report.add(Section('Network Utilization'))
@@ -998,7 +998,7 @@ def main():
     if len(args) > 0:
         recovery_dir = args[0]
     else:
-        recovery_dir = 'recovery/latest'
+        recovery_dir = 'logs/latest'
 
     data = parseRecovery(recovery_dir)
 

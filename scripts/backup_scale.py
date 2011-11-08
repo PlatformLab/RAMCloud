@@ -21,22 +21,22 @@ Varies the number of backups feeding data to one recovery master.
 
 from __future__ import division, print_function
 from common import *
+import config
 import metrics
 import recovery
 import subprocess
 
 dat = open('%s/recovery/backup_scale.data' % top_path, 'w', 1)
 
-for numBackups in range(3, 37):
+for numBackups in range(3, len(config.hosts)):
     print('Running recovery with %d backup(s)' % numBackups)
     args = {}
-    args['numBackups'] = numBackups
-    args['numPartitions'] = 1
-    args['objectSize'] = 1024
-    args['disk'] = 1
-    args['numObjects'] = 592415 # 600MB
-    args['oldMasterArgs'] = '-t %d' % (800 * args['numPartitions'])
-    args['newMasterArgs'] = '-t 8000'
+    args['num_servers'] = numBackups
+    args['backups_per_server'] = 1
+    args['num_partitions'] = 1
+    args['object_size'] = 1024
+    args['num_objects'] = 592415 # 600MB
+    args['master_ram'] = 8000
     args['replicas'] = 3
     r = recovery.insist(**args)
     print('->', r['ns'] / 1e6, 'ms', '(run %s)' % r['run'])
