@@ -225,7 +225,7 @@ try
     // Take an initial snapshot of performance metrics.
     ClusterMetrics metricsBefore(&client);
 
-    uint64_t b = Cycles::rdtsc();
+    uint64_t startTime = Cycles::rdtsc();
     client.coordinator.hintServerDown(
         session->getServiceLocator().c_str());
 
@@ -248,9 +248,12 @@ try
             session->getServiceLocator().c_str(), nb.getTotalLength());
     }
     LOG(NOTICE, "Recovery completed in %lu ns",
-        Cycles::toNanoseconds(stopTime - b));
+        Cycles::toNanoseconds(stopTime - startTime));
 
-    b = Cycles::rdtsc();
+    // Take another snapshot of performance metrics.
+    ClusterMetrics metricsAfter(&client);
+
+    uint64_t verificationStart = Cycles::rdtsc();
     if (verify) {
         LOG(NOTICE, "Verifying all data.");
 
@@ -291,12 +294,10 @@ try
         }
 
         LOG(NOTICE, "Verification took %lu ns",
-            Cycles::toNanoseconds(Cycles::rdtsc() - b));
+            Cycles::toNanoseconds(Cycles::rdtsc() - verificationStart));
     }
 
-    // Take another snapshot of performance metrics, and log all of the
-    // deltas.
-    ClusterMetrics metricsAfter(&client);
+    // Log the delta of the recovery time statistics
     ClusterMetrics diff = metricsAfter.difference(metricsBefore);
     if (metricsAfter.size() != diff.size()) {
         LOG(ERROR, "Metrics mismatches: %lu",
