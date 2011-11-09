@@ -28,6 +28,7 @@ import re
 import subprocess
 import sys
 import time
+from optparse import OptionParser
 
 def recover(num_servers,
             backups_per_server,
@@ -38,8 +39,12 @@ def recover(num_servers,
             master_ram=None,
             old_master_ram=None,
             num_removals=0,
+            timeout=60,
+            log_level='NOTICE',
+            log_dir='logs',
             transport='infrc',
-            timeout=60):
+            verbose=False,
+            debug=False):
     """Run a recovery on the cluster specified in the config module and
     return statisitics about the recovery.
 
@@ -88,12 +93,29 @@ def recover(num_servers,
                          recoveries where some of the log contains tombstones.
     @type  num_removals: C{int}
 
-    @param transport: A transport name (e.g. infrc, fast+udp, tcp, ...)
-    @type  transport: C{str}
-
     @param timeout: Seconds to wait before giving up and declaring the recovery
                     to have failed.
     @type  timeout: C{int}
+
+    @param log_level: Log level to use for all servers.
+                      DEBUG, NOTICE, WARNING, or ERROR.
+    @type  log_level: C{str}
+
+    @param log_dir: Top-level directory in which to write log files.
+                    A separate subdirectory will be created in this
+                    directory for the log files from this run.
+    @type  log_dir: C{str}
+
+    @param transport: A transport name (e.g. infrc, fast+udp, tcp, ...)
+    @type  transport: C{str}
+
+    @param verbose: Print information about progress in starting clients
+                    and servers.
+    @type  verbose: C{bool}
+
+    @param debug: If True, pause after starting all to allow for debugging
+                  setup such as attaching gdb.
+    @type  debug: C{bool}
 
     @return: A recoverymetrics stats struct (see recoverymetrics.parseRecovery).
     """
@@ -105,8 +127,12 @@ def recover(num_servers,
     args['num_servers'] = num_servers
     args['backups_per_server'] = backups_per_server
     args['replicas'] = replicas
-    args['transport'] = transport
     args['timeout'] = timeout
+    args['log_level'] = log_level
+    args['log_dir'] = log_dir
+    args['transport'] = transport
+    args['verbose'] = verbose
+    args['debug'] = debug
     # Just a guess of about how much capacity a master will have to have
     # to hold all the data from all the partitions
     if master_ram:
@@ -153,13 +179,81 @@ def insist(*args, **kwargs):
         time.sleep(0.1)
 
 if __name__ == '__main__':
+    parser = OptionParser(description=
+            'Run a recovery on a RAMCloud cluster.',
+            usage='%prog [options] ...',
+            conflict_handler='resolve')
+    parser.add_option('--debug', action='store_true', default=False,
+            help='Pause after starting servers but before running '
+                 'to enable debugging setup')
+    parser.add_option('-d', '--logDir', default='logs', metavar='DIR',
+            dest='log_dir',
+            help='Top level directory for log files; the files for '
+                 'each invocation will go in a subdirectory.')
+    parser.add_option('-l', '--logLevel', default='NOTICE',
+            choices=['DEBUG', 'NOTICE', 'WARNING', 'ERROR', 'SILENT'],
+            metavar='L', dest='log_level',
+            help='Controls degree of logging in servers')
+    parser.add_option('-b', '--numBackups', type=int, default=1,
+            metavar='N', dest='backups_per_server',
+            help='Number of backups to run on each server host '
+                 '(0, 1, or 2)')
+    parser.add_option('-r', '--replicas', type=int, default=3,
+            metavar='N',
+            help='Number of disk backup copies for each segment')
+    parser.add_option('--servers', type=int, default=10,
+            metavar='N', dest='num_servers',
+            help='Number of hosts on which to run servers')
+    parser.add_option('-s', '--size', type=int, default=1024,
+            help='Object size in bytes')
+    parser.add_option('-n', '--numObjects', type=int,
+            metavar='N', dest='num_objects', default=592415,
+            help='Number of objects per partition')
+    parser.add_option('-t', '--timeout', type=int, default=20,
+            metavar='SECS',
+            help="Abort if the client application doesn't finish within "
+                 'SECS seconds')
+    parser.add_option('-T', '--transport', default='infrc',
+            help='Transport to use for communication with servers')
+    parser.add_option('-v', '--verbose', action='store_true', default=False,
+            help='Print progress messages')
+    parser.add_option('-p', '--partitions', type=int, default=5,
+            metavar='N', dest='num_partitions',
+            help=('Number of partitions on the old master )' +
+                  '(also number of recovery masters part of recovery'))
+    parser.add_option('--masterRam', type=int,
+            metavar='N', dest='master_ram',
+            help='Megabytes to allocate for the log per recovery master')
+    parser.add_option('--oldMasterRam', type=int,
+            metavar='N', dest='old_master_ram',
+            help='Megabytes to allocate for the log of the old master')
+    parser.add_option('--removals', type=int,
+            metavar='N', dest='num_removals', default=0,
+            help='Perform this many removals after filling the old master')
+    (options, args) = parser.parse_args()
+
     args = {}
-    args['num_servers'] = 10
-    args['backups_per_server'] = 2
-    args['num_partitions'] = 10
-    args['object_size'] = 1024
-    args['num_objects'] = 592415 # 600MB
-    args['replicas'] = 3
-    args['transport'] = 'infrc'
-    stats = recover(**args)
-    print('Recovery time: %.3fs' % (stats['ns']/1e09))
+    args['num_servers'] = options.num_servers
+    args['backups_per_server'] = options.backups_per_server
+    args['num_partitions'] = options.num_partitions
+    args['object_size'] = options.size
+    args['num_objects'] = options.num_objects
+    args['replicas'] = options.replicas
+    args['master_ram'] = options.master_ram
+    args['old_master_ram'] = options.old_master_ram
+    args['num_removals'] = options.num_removals
+    args['timeout'] = options.timeout
+    args['log_level'] = options.log_level
+    args['log_dir'] = options.log_dir
+    args['transport'] = options.transport
+    args['verbose'] = options.verbose
+    args['debug'] = options.debug
+
+    try:
+        stats = recover(**args)
+        print('Recovery time: %.3fs' % (stats['ns']/1e09))
+    finally:
+        log_info = log.scan("%s/latest" % (options.log_dir),
+                            ["WARNING", "ERROR"])
+        if len(log_info) > 0:
+            print(log_info)

@@ -246,7 +246,7 @@ def run(
                            stderr=subprocess.STDOUT))
             if verbose:
                 print "Server started on %s at %s" % (host[0],
-                                                      server_locator(tranposrt,
+                                                      server_locator(transport,
                                                                      host))
             
             # Start an extra backup server in this host, if needed.
