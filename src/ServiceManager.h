@@ -16,7 +16,11 @@
 #ifndef RAMCLOUD_SERVICEMANAGER_H
 #define RAMCLOUD_SERVICEMANAGER_H
 
+#if __GNUC__ >= 4 && __GNUC_MINOR__ >= 5
+#include <atomic>
+#else
 #include <cstdatomic>
+#endif
 #include <queue>
 
 #include "atomicPatch.h"

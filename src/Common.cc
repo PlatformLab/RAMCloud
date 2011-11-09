@@ -267,4 +267,22 @@ void pinAllMemory() {
 }
 
 
+/// Return true if haystack begins with needle.
+bool
+startsWith(const string& haystack, const string& needle)
+{
+    return (haystack.compare(0, needle.length(), needle) == 0);
+}
+
+/// Return true if haystack ends with needle.
+bool
+endsWith(const string& haystack, const string& needle)
+{
+    if (haystack.length() < needle.length())
+        return false;
+    return (haystack.compare(haystack.length() - needle.length(),
+                             needle.length(), needle) == 0);
+}
+
+
 } // namespace RAMCloud

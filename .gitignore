@@ -5,6 +5,10 @@
 *.hi
 *.dump
 *.log
+*.rej
+*.orig
+*.patch
+*.diff
 
 /docs/doxygen/
 /docs/epydoc/
