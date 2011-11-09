@@ -54,14 +54,12 @@ TEST(LogCleanerTest, getCleanSegmentMemory) {
     log.cleaningComplete(empty, cleanMemory);
 }
 
-#if 0
 TEST(LogCleaner, writeCost) {
     EXPECT_DOUBLE_EQ(1.000, LogCleaner::writeCost(10, 0));
     EXPECT_DOUBLE_EQ(1.1111111111111112, LogCleaner::writeCost(10, 1));
     EXPECT_DOUBLE_EQ(2.000, LogCleaner::writeCost(10, 5));
     EXPECT_DOUBLE_EQ(10.000, LogCleaner::writeCost(10, 9));
 }
-#endif
 
 TEST(LogCleaner, isCleanable) {
     EXPECT_TRUE(LogCleaner::isCleanable(
