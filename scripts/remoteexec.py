@@ -15,6 +15,11 @@
 
 """A wrapper for executing commands over ssh.
 
+Usage: remoteexec.py command wd
+
+Changes working directory to "wd" (if it is specified), then runs
+bash command "command".
+
 Remote ssh commands from a script do not run in a terminal, so they don't get
 SIGHUP when the ssh client is closed. This script will read on stdin until EOF
 instead.
@@ -39,6 +44,8 @@ if __name__ == '__main__':
 
     # bash will source this before running the command
     os.environ['BASH_ENV'] = '~/.bashrc.ssh'
+    if len(sys.argv) > 2:
+        os.chdir(sys.argv[2])
     command = ['bash', '-c', sys.argv[1]]
     p = subprocess.Popen(command)
     signal.signal(signal.SIGCHLD, lambda signum, frame: sys.exit(p.wait()))

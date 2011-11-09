@@ -135,8 +135,10 @@ def run(
         def ensure_servers(qty):
             sandbox.checkFailures()
             try:
-                sandbox.rsh(hosts[0][0], '%s -C %s -n %d -l 1 -t 5' %
-                            (ensure_servers_bin, coordinator_locator, qty))
+                sandbox.rsh(hosts[0][0], '%s -C %s -n %d -l 1 -t 5 '
+                            '--logFile %s/ensureServers.log' %
+                            (ensure_servers_bin, coordinator_locator,
+                             qty, log_subdir))
             except:
                 # prefer exceptions from dead processes to timeout error
                 sandbox.checkFailures()

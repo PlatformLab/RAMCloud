@@ -78,7 +78,7 @@ class Sandbox(object):
         else:
             sh_command = ['ssh', host,
                           '%s/remoteexec.py' % scripts_path,
-                          "'%s'" % command]
+                          "'%s'" % command, os.getcwd()]
             subprocess.check_call(sh_command, **kwargs)
     def __enter__(self):
         return self

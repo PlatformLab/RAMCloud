@@ -101,8 +101,10 @@ def recover(numBackups=1,             # Number of hosts on which to start
         def ensureServers(qty):
             sandbox.checkFailures()
             try:
-                sandbox.rsh(clientHost[0], '%s -C %s -n %d -l 1 -t 30' %
-                            (ensureServersBin, coordinatorLocator, qty))
+                sandbox.rsh(clientHost[0], '%s -C %s -n %d -l 1 -t 30 ' 
+                            '--logFile %s/ensureServers.log' %
+                            (ensureServersBin, coordinatorLocator,
+                             qty, run))
             except:
                 # prefer exceptions from dead processes to timeout error
                 sandbox.checkFailures()
