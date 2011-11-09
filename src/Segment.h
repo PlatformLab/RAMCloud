@@ -119,6 +119,59 @@ typedef const _SegmentEntryHandle* SegmentEntryHandle;
 /// Vector of Segment pointers.
 typedef std::vector<Segment*> SegmentVector;
 
+class SegmentMultiAppendEntry {
+  public:
+    SegmentMultiAppendEntry(LogEntryType type,
+                            const void* buffer,
+                            uint32_t length,
+                            Tub<SegmentChecksum::ResultType> expectedChecksum =
+                                Tub<SegmentChecksum::ResultType>())
+        : type(type),
+          buffer(buffer),
+          length(length),
+          expectedChecksum(expectedChecksum)
+    {
+    }
+
+    SegmentMultiAppendEntry(const SegmentMultiAppendEntry& other)
+        : type(other.type),
+          buffer(other.buffer),
+          length(other.length),
+          expectedChecksum(other.expectedChecksum)
+    {
+    }
+
+    SegmentMultiAppendEntry&
+    operator=(const RAMCloud::SegmentMultiAppendEntry& other)
+    {
+        type = other.type;
+        buffer = other.buffer;
+        length = other.length;
+        expectedChecksum = other.expectedChecksum;
+        return *this;
+    }
+
+    LogEntryType type;
+    const void* buffer;
+    uint32_t length;
+    Tub<SegmentChecksum::ResultType> expectedChecksum;
+};
+
+/// XXX
+/// These are actually used in the write fast path. We should probably
+/// use a different allocator (or stack allocated memory) to avoid having
+/// the vectors call new and delete each time we append.
+typedef std::vector<SegmentMultiAppendEntry> SegmentMultiAppendVector;
+typedef std::vector<SegmentEntryHandle> SegmentEntryHandleVector;
+
+/**
+ * Methods and metadata for a segment stored in memory. Segments objects
+ * wrap a contiguous region of memory that hold entries that were appended
+ * there. This chunk of memory is self-describing, so the Segment object
+ * is really just a series of operations on that memory and cached state
+ * about it. The cached state could be recomputed if necessary and this
+ * is effectively what happens during recovery and cold start.
+ */
 class Segment {
   public:
     /// The class used to calculate segment checksums.
@@ -139,14 +192,19 @@ class Segment {
                                 Tub<SegmentChecksum::ResultType>());
     SegmentEntryHandle append(SegmentEntryHandle handle,
                               bool sync);
+    SegmentEntryHandleVector
+                       multiAppend(SegmentMultiAppendVector& appends,
+                                   bool sync = true);
     void               rollBack(SegmentEntryHandle handle);
     void               free(SegmentEntryHandle entry);
+    void               setImplicitlyFreedCounts(uint32_t freeByteSum,
+                                                uint64_t freeSpaceTimeSum);
     void               close(bool sync = true);
     void               sync();
     const void        *getBaseAddress() const;
     uint64_t           getId() const;
     uint32_t           getCapacity() const;
-    uint32_t           appendableBytes(size_t afterEntryBytes = 0);
+    uint32_t           appendableBytes();
     int                getUtilisation();
     uint32_t           getLiveBytes();
     uint32_t           getFreeBytes();
@@ -166,6 +224,62 @@ class Segment {
         return reinterpret_cast<const void*>(addr & ~(wideCapacity - 1));
     }
 
+    /**
+     * Given a number of entries, the total number of bytes they'd consume,
+     * the largest possible entry, and the size of segments in the system,
+     * compute the maximum number of segments needed to store all of the data.
+     */
+    static size_t
+    maximumSegmentsNeededForEntries(uint64_t numberOfEntries,
+                                    uint64_t totalBytesInEntries,
+                                    uint32_t maxBytesPerEntry,
+                                    uint32_t segmentCapacity)
+    {
+        uint32_t overHead = sizeof(SegmentEntry) * 2 +
+                            sizeof(SegmentHeader) +
+                            sizeof(SegmentFooter);
+
+        assert(overHead < segmentCapacity);
+        assert(maxBytesPerEntry < segmentCapacity);
+
+        uint32_t usableCapacity = segmentCapacity - overHead;
+
+        // The worst case is that we want to write the largest possible entry
+        // to the end of each Segment and miss being able to fit it by just one
+        // byte.
+        //
+        // Note that this does overestimate in some cases (e.g. the base case
+        // where we could fit all data in a single Segment), but only by at
+        // most one Segment.
+        uint32_t largestPossibleEntry = downCast<uint32_t>(
+            maxBytesPerEntry + sizeof(SegmentEntry));
+        uint32_t worstCaseSegment = usableCapacity - largestPossibleEntry + 1;
+
+        uint64_t bytesNeeded = numberOfEntries * sizeof(SegmentEntry) +
+            totalBytesInEntries;
+
+        size_t segmentsNeeded = (bytesNeeded + worstCaseSegment - 1) /
+            worstCaseSegment;
+
+        return segmentsNeeded;
+    }
+
+    /**
+     * Given a Segment capacity, compute the largest append that would
+     * ever be possible on it.
+     */
+    static uint32_t
+    maximumAppendableBytes(uint32_t segmentCapacity)
+    {
+        uint32_t overHead = downCast<uint32_t>((sizeof(SegmentEntry) * 3) +
+            sizeof(SegmentHeader) + sizeof(SegmentFooter));
+
+        if (segmentCapacity > overHead)
+            return segmentCapacity - overHead;
+        else
+            return 0;
+    }
+
 #ifdef VALGRIND
     // can't use more than 1M, see http://bugs.kde.org/show_bug.cgi?id=203877
     static const uint32_t  SEGMENT_SIZE = 1024 * 1024;
@@ -177,7 +291,13 @@ class Segment {
   PRIVATE:
     void               commonConstructor(LogEntryType type,
                                          const void *buffer, uint32_t length);
-    uint32_t           locklessAppendableBytes(size_t afterEntryBytes = 0)const;
+    SegmentEntryHandle locklessAppend(LogEntryType type,
+                            const void *buffer, uint32_t length, bool sync,
+                            Tub<SegmentChecksum::ResultType> expectedChecksum);
+    uint32_t           locklessGetLiveBytes() const;
+    uint32_t           locklessAppendableBytes() const;
+    bool               locklessCanAppendEntries(size_t numberOfEntries,
+                                           size_t numberOfBytesInEntries) const;
     void               locklessSync();
     void               incrementSpaceTimeSum(SegmentEntryHandle handle);
     void               decrementSpaceTimeSum(SegmentEntryHandle handle);
@@ -193,27 +313,96 @@ class Segment {
                              Tub<SegmentChecksum::ResultType> expectedChecksum =
                                  Tub<SegmentChecksum::ResultType>());
 
-    BackupManager    *backup;       // makes operations on this segment durable
-    void             *baseAddress;  // base address for the Segment
-    Log              *const log;    // optional pointer to Log (for stats, CBs)
-    const uint64_t    logId;        // log this belongs to, passed to backups
-    const uint64_t    id;           // segment identification number
-    const uint32_t    capacity;     // total byte length of segment when empty
-    uint32_t          tail;         // offset to the next free byte in Segment
-    uint32_t          bytesFreed;   // bytes free()'d in this Segment
-    uint64_t          spaceTimeSum; // sum of live datas' space-time products
-    Checksum          checksum;     // Latest Segment checksum (crc32c)
-    Checksum          prevChecksum; // Checksum as of the penultimate append
-    bool              canRollBack;  // Can we roll back the last entry?
-    bool              closed;       // When true, no appends permitted
-    SpinLock          mutex;        // Lock to protect against concurrent access
+    /// BackupManager used to replicate this Segment. This is responsible for
+    /// making operations on this Segment durable.
+    BackupManager    *backup;
+
+    /// Base address for the Segment. The base address must be aligned to at
+    /// least the size of the Segment.
+    void             *baseAddress;
+
+    /// Optional pointer to Log. This is needed to obtain callback information
+    /// on SegmentEntry types in order to update usage counters.
+    Log              *const log;
+
+    /// ID of the Log this Segment belongs to. This is written to the header of
+    /// the Segment and passed down into the BackupManager.
+    const uint64_t    logId;
+
+    /// Segment identification number. This uniquely identifies this Segment in
+    /// the Log. Segment IDs are never recycled.
+    const uint64_t    id;
+
+    /// Total byte length of segment when empty.
+    const uint32_t    capacity;
+
+    /// Offset to the next free byte in Segment.
+    uint32_t          tail;
+
+    /// Bytes freed in this Segment by invocation of the #free method on a
+    /// particular entry handle.
+    uint32_t          bytesExplicitlyFreed;
+
+    /// Bytes freed in this Segment by discovery in the LogCleaner. When
+    /// types are registered with the Log, entries of that type are designed
+    /// either explicitly freed or not. For explicitly freed entries, the user
+    /// of the Log must call #free when an entry is no longer needed.
+    //
+    /// Implicitly freed entries are used for things like tombstones, where the
+    /// user doesn't want to keep track of their liveness state. Instead, the
+    /// LogCleaner periodcally scans and discovers if these entries are free
+    /// using the liveness callback. Since no state is kept describing which
+    /// entries we know to be free or not from previous passes, the cleaner
+    /// recomputes this value each time, rather than simply incrementing it.
+    uint32_t          bytesImplicitlyFreed;
+
+    /// Sum of live datas' space-time products. I.e., for each entry multiply
+    /// its timestamp by its size in bytes and add to this counter. This is
+    /// used to compute an average age per byte in the Segment, which in turn
+    /// is used for the cleaner's cost-benefit analysis.
+    uint64_t          spaceTimeSum;
+
+    /// Sum of implicitly freed datas' space-time products. When the LogCleaner
+    /// updates the byteImplicitlyFreed count, it also supplies the timestamp
+    /// sums from the entries freed and this value is computed. Thus the actual
+    /// space-time sum at any point is really:
+    ///     spaceTimeSum - implicitlyFreedTimestampSum
+    uint64_t          implicitlyFreedSpaceTimeSum;
+
+    /// Latest Segment checksum (crc32c). This is a checksum of all individual
+    /// entries' checksums.
+    Checksum          checksum;
+
+    /// Checksum as of the penultimate append. This is kept to enable the
+    /// rollBack feature.
+    Checksum          prevChecksum;
+
+    /// We may only roll back the last entry written under special
+    /// circumstances. This acts as an interlock to catch invalid rollbacks.
+    bool              canRollBack;
+
+    // When true, no appends are permitted (the Segment is immutable).
+    bool              closed;
+
+    /// Lock to protect against concurrent access. XXX- This should go away.
+    SpinLock          mutex;
+
+    /// The number of each type of entry present in the Segment. Note that this
+    /// counts all entries, both dead and live.
+    uint32_t          entryCountsByType[256];
 
     /*
      * The following fields are only used externally by the Log class;
      * the Segment code does not touch them.
      */
-    IntrusiveListHook listEntries;  // list ptr for Log code to track state
-    uint64_t          cleanedEpoch; // epoch when this Segment was cleaned
+
+    /// List pointer for Log code to track the state of this Segment (e.g. is
+    /// it live, free, cleaned but waiting to be freed, etc).
+    IntrusiveListHook listEntries;
+
+    /// The Epoch in which this Segment was cleaned. Used to determine when it
+    /// is safe to return the memory backing this Segment to the free list.
+    uint64_t          cleanedEpoch;
 
     /**
      * A handle to the open segment on backups,
@@ -221,9 +410,6 @@ class Segment {
      */
     BackupManager::OpenSegment* backupSegment;
 
-    friend class SegmentTest;
-    friend class SegmentIteratorTest;
-    friend class LogTest;
     friend class Log;
 
     DISALLOW_COPY_AND_ASSIGN(Segment);

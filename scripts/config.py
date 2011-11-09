@@ -76,6 +76,10 @@ for i in range(1, 61):
                   '192.168.1.%d' % (100 + i),
                   i))
 
+# Host on which old master is run for running recoveries.
+# Need not be a member of hosts
+old_master_host = ('rcmaster', '192.168.1.1', 81)
+
 # Full path to the directory containing RAMCloud executables.
 obj_path = '%s/%s' % (top_path, obj_dir)
 
@@ -91,4 +95,10 @@ default_disk1 = '-f /dev/sda2'
 # Command-line argument specifying where the second backup should
 # store its segment replicas.
 default_disk2 = '-f /dev/sdb2'
+
+# Try to include local overrides.
+try:
+    from localconfig import *
+except:
+    pass
 

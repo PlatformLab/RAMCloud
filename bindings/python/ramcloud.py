@@ -200,7 +200,7 @@ class RAMCloud(object):
             raise VersionError(reject_rules.given_version, actual_version)
         raise RCException(status)
 
-    def connect(self, serverLocator='fast+udp:ip=127.0.0.1,port=12242'):
+    def connect(self, serverLocator='fast+udp:host=127.0.0.1,port=12242'):
         s = so.rc_connect(serverLocator, ctypes.byref(self.client))
         self.handle_error(s)
 

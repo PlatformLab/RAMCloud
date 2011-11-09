@@ -127,7 +127,6 @@ class Window {
                                   //!< i of this array will hold virtual array
                                   //!< elements i, i+length, i+2*length, etc.
 
-    friend class WindowTest;
     DISALLOW_COPY_AND_ASSIGN(Window);
 };
 

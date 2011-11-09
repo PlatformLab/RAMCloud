@@ -102,6 +102,7 @@ class MasterClient : public Client {
         Read(MasterClient& client,
              uint32_t tableId, uint64_t id, Buffer* value,
              const RejectRules* rejectRules, uint64_t* version);
+        void cancel() { state.cancel(); }
         bool isReady() { return state.isReady(); }
         void operator()();
       private:

@@ -22,6 +22,7 @@ from 0-50% of the total partition size.
 
 from __future__ import division, print_function
 from common import *
+import config
 import recovery
 import subprocess
 
@@ -32,31 +33,33 @@ minObjBytes = 36                        # 0-length object is 36 bytes in the log
 objectBytes = tombBytes - minObjBytes   # how many bytes for equal tomb/obj size
 partitionBytes = 600 * 1024 * 1024      # use a 600MB partition
 
+num_hosts = len(config.hosts)
+
 for tombPct in range(0, 51, 10):
     tombPct /= 100.0
     numObjs = ((1.0 - tombPct) * partitionBytes) / (objectBytes + minObjBytes)
     numTombs = (tombPct * partitionBytes) / tombBytes
+    print('# backups:', num_hosts, file=dat)
     print('# objectBytes, numObjs, numTombs, tombPct:', objectBytes,
         numObjs, numTombs, tombPct * 100.0, file=dat)
 
     args = {}
-    args['numBackups'] = 36
-    args['numPartitions'] = 1
-    args['objectSize'] = objectBytes
-    args['disk'] = 1
+    args['num_servers'] = num_hosts
+    args['backups_per_server'] = 1
+    args['num_partitions'] = 1
+    args['object_size'] = objectBytes
     args['replicas'] = 3
+    args['num_objects'] = numObjs
+    args['num_removals'] = numTombs
+    args['master_ram'] = 1600
+    args['old_master_ram'] = 1600
+    args['timeout'] = 180
+    print('Using %d backups' % num_hosts)
     print('Running with objects of size %d for a %d MB partition with '
           '%d objs, %d tombstones (%.2f%% of space is tombstones)' %
           (objectBytes, partitionBytes / 1024 / 1024, numObjs, numTombs,
            tombPct * 100.0))
-
-    r = recovery.insist(
-        oldMasterArgs='-m 1600',
-        newMasterArgs='-m 16000',
-        numObjects=numObjs,
-        numRemovals=numTombs,
-        timeout=180,
-        **args)
+    r = recovery.insist(**args)
     print('->', r['ns'] / 1e6, 'ms', '(run %s)' % r['run'])
     print(objectBytes, partitionBytes / 1024 / 1024, numObjs, numTombs,
           tombPct * 100.0, r['ns'] / 1e6, file=dat)

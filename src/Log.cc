@@ -35,6 +35,9 @@ namespace RAMCloud {
  *      Total size of the Log in bytes.
  * \param[in] segmentCapacity
  *      Size of each Segment that will be used in this Log in bytes.
+ * \param[in] maximumBytesPerAppend
+ *      The maximum number of bytes that will ever be appended to this
+ *      log in a single append operation.
  * \param[in] backup
  *      The BackupManager that will be used to make each of this Log's
  *      Segments durable.
@@ -50,16 +53,18 @@ namespace RAMCloud {
 Log::Log(const Tub<uint64_t>& logId,
          uint64_t logCapacity,
          uint32_t segmentCapacity,
+         uint32_t maximumBytesPerAppend,
          BackupManager *backup,
          CleanerOption cleanerOption)
     : stats(),
-      logId(logId),
       logCapacity((logCapacity / segmentCapacity) * segmentCapacity),
       segmentCapacity(segmentCapacity),
+      maximumBytesPerAppend(maximumBytesPerAppend),
+      logId(logId),
       segmentMemory(this->logCapacity),
       nextSegmentId(0),
-      maximumAppendableBytes(0),
       head(NULL),
+      emergencyCleanerList(),
       freeList(),
       cleanableNewList(),
       cleanableList(),
@@ -69,7 +74,7 @@ Log::Log(const Tub<uint64_t>& logId,
       freePendingReferenceList(),
       activeIdMap(),
       activeBaseAddressMap(),
-      callbackMap(),
+      logTypeMap(),
       listLock(),
       backup(backup),
       cleanerOption(cleanerOption),
@@ -81,10 +86,19 @@ Log::Log(const Tub<uint64_t>& logId,
         throw LogException(HERE,
                            "insufficient Log memory for even one segment!");
     }
-    for (uint64_t i = 0; i < logCapacity / segmentCapacity; i++) {
-        addSegmentMemory(static_cast<char*>(segmentMemory.get()) +
-                         i * segmentCapacity);
+
+    // This doesn't include the LogDigest, but is a reasonable sanity check.
+    if (Segment::maximumAppendableBytes(segmentCapacity) <
+      maximumBytesPerAppend) {
+        throw LogException(HERE, "maximumBytesPerAppend too large "
+            "for given segmentCapacity");
     }
+
+    for (uint64_t i = 0; i < logCapacity / segmentCapacity; i++) {
+        locklessAddToFreeList(static_cast<char*>(segmentMemory.get()) +
+            i * segmentCapacity);
+    }
+
     Context::get().transportManager->registerMemory(segmentMemory.get(),
                                                   segmentMemory.length);
 }
@@ -96,7 +110,7 @@ Log::~Log()
 {
     cleaner.halt();
 
-    foreach (CallbackMap::value_type& typeCallbackPair, callbackMap)
+    foreach (LogTypeMap::value_type& typeCallbackPair, logTypeMap)
         delete typeCallbackPair.second;
 
     cleanableNewList.clear_and_dispose(SegmentDisposer());
@@ -116,7 +130,7 @@ Log::~Log()
  * The current head is closed and replaced with the new one, though closure
  * does not occur until after the new head has been opened on backups.
  *
- * \throw LogException
+ * \throw LogOutOfMemoryException
  *      If no Segments are free.
  */
 void
@@ -125,8 +139,13 @@ Log::allocateHead()
     // these currently also take listLock, so rather than have
     // unlocked versions of those methods or duplicating code,
     // just do them before taking the big lock for this method.
+    void* baseAddress = getFromFreeList(true);
+
+    // NB: Allocate an ID _after_ having acquired memory. If we don't,
+    //     the allocation could fail and we've just leaked a segment
+    //     identifier (feel free to read the comments in allocateSegmentId
+    //     if you don't know why this is bad.
     LogDigest::SegmentId newHeadId = allocateSegmentId();
-    void* baseAddress = getFromFreeList();
 
     boost::lock_guard<SpinLock> lock(listLock);
 
@@ -234,38 +253,76 @@ Log::getSegmentId(const void *p)
  *      A LogEntryHandle is returned, which points to the ``buffer''
  *      written. The handle is guaranteed to be valid, i.e. non-NULL.
  * \throw LogException
- *      An exception is thrown if the append exceeds the maximum permitted
- *      append length, as returned by #getMaximumAppendableBytes, or the log
- *      ran out of space.
+ *      An exception is thrown if the append is too large to fit in any
+ *      one Segment of the Log.
+ * \throw LogOutOfMemoryException
+ *      This exception is thrown if the Log is full.
  */
 LogEntryHandle
-Log::append(LogEntryType type, const void *buffer, const uint64_t length,
+Log::append(LogEntryType type, const void *buffer, const uint32_t length,
     bool sync, Tub<SegmentChecksum::ResultType> expectedChecksum)
 {
-    if (length > maximumAppendableBytes)
-        throw LogException(HERE, "append exceeded maximum possible length");
+    if (length > maximumBytesPerAppend)
+        throw LogException(HERE, "append exceeds maximum given to constructor");
 
-    SegmentEntryHandle seh = NULL;
+    LogMultiAppendVector appends;
+    appends.push_back({ type, buffer, length, expectedChecksum });
+    SegmentEntryHandleVector handles = multiAppend(appends, sync);
+    assert(handles.size() == 1);
+    return handles[0];
+}
+
+LogEntryHandleVector
+Log::multiAppend(LogMultiAppendVector& appends, bool sync)
+{
+    SegmentEntryHandleVector handles;
+    bool allocatedHead = false;
+
+    for (size_t i = 0; i < appends.size(); i++) {
+        assert(getTypeInfo(appends[i].type) != NULL);
+        if (appends[i].length > maximumBytesPerAppend)
+            throw LogException(HERE, "append exceeds maximum "
+                "given to constructor");
+    }
 
     do {
-        if (head != NULL) {
-            seh = head->append(type, buffer, downCast<uint32_t>(length),
-                sync, expectedChecksum);
-        }
+        if (head != NULL)
+            handles = head->multiAppend(appends, sync);
 
-        // if either the head Segment is full, or we've never allocated one,
+        // If either the head Segment is full, or we've never allocated one,
         // get a new head.
-        if (seh == NULL)
-            allocateHead();
-    } while (seh == NULL);
+        if (handles.size() == 0) {
+            // If we couldn't fit in the old head and allocated a new one and
+            // still cannot fit, then the request is simply too big.
+            if (allocatedHead) {
+                throw LogException(HERE, "WARNING: multiAppend simply won't "
+                    "fit: object(s) too large");
+            }
 
-    stats.totalAppends++;
-    stats.totalBytesAppended += seh->totalLength();
+            // allocateHead could throw if we're low on segments (we need to
+            // keep spares so that the cleaner can make forward progress).
+            try {
+                allocateHead();
+                allocatedHead = true;
+            } catch (LogOutOfMemoryException& e) {
+                if (cleanerOption == INLINED_CLEANER)
+                    cleaner.clean();
+                throw e;
+            }
+        }
+    } while (handles.size() == 0);
+
+    assert(handles.size() == appends.size());
+
+    for (size_t i = 0; i < handles.size(); i++) {
+        stats.totalAppends++;
+        stats.totalBytesAppended += handles[i]->totalLength();
+    }
 
     if (cleanerOption == INLINED_CLEANER)
         cleaner.clean();
 
-    return seh;
+    return handles;
 }
 
 /**
@@ -284,6 +341,8 @@ Log::free(LogEntryHandle entry)
     // This debug-only check should catch invalid free()s within legitimate
     // Segments.
     assert(entry->isChecksumValid());
+    assert(getTypeInfo(entry->type()) != NULL);
+    assert(getTypeInfo(entry->type())->explicitlyFreed);
 
     s->free(entry);
     stats.totalFrees++;
@@ -304,28 +363,47 @@ Log::free(LogEntryHandle entry)
  * \param[in] type
  *      The type to be registered with the Log. Types may only be registered
  *      once.
+ * \param[in] explicitlyFreed
+ *      Set to true if the user of this Log will explicitly free space
+ *      when an entry is no longer need (via the #free method). If set
+ *      to false, the LogCleaner will periodically invoke the liveness
+ *      callback to determine which entries of this type are no longer
+ *      in use.
  * \param[in] livenessCB
  *      The liveness callback to be registered with the provided type.
+ *      The callback takes a handle to an entry of this type and must
+ *      return true if the entry is still in use (live), or false if it
+ *      is not and can be discarded.
  * \param[in] livenessArg
  *      A void* argument to be passed to the liveness callback.
  * \param[in] relocationCB
  *      The relocation callback to be registered with the provided type.
+ *      The callback is invoked by the cleaner and takes a handle to an
+ *      existing entry that will expire after the callback returns, and
+ *      a handle to a new copy that will continue to exist. The callback
+ *      must determine if the entry is still live. If it is, references
+ *      must be switched to the new handle and the method must return
+ *      true. If not, the method simply returns false and both handles
+ *      are garbage collected. 
  * \param[in] relocationArg
  *      A void* argument to be passed to the relocation callback.
  * \param[in] timestampCB
- *      The callback to determine the modification time of objects of this
+ *      The callback to determine the modification time of entries of this
  *      type in RAMCloud seconds (see #secondsTimestamp).
  * \param[in] scanCB
  *      A callback that is invoked on entries in log order. The callback is
- *      fired on all entries at least once. If an object has been relocated
- *      by the cleaner, it is subject to another callback.
+ *      fired on all entries at least once: once after it is appended to
+ *      the log and again each time it is relocated by the cleaner to a
+ *      new segment.
  * \param[in] scanArg
  *      A void* argument to be passed to the scan callback.
  * \throw LogException
- *      An exception is thrown if the type has already been registered.
+ *      An exception is thrown if the type has already been registered
+ *      or if the parameters given are invalid.
  */
 void
 Log::registerType(LogEntryType type,
+                  bool explicitlyFreed,
                   log_liveness_cb_t livenessCB,
                   void *livenessArg,
                   log_relocation_cb_t relocationCB,
@@ -334,21 +412,28 @@ Log::registerType(LogEntryType type,
                   log_scan_cb_t scanCB,
                   void *scanArg)
 {
-    if (contains(callbackMap, type))
+    if (contains(logTypeMap, type))
         throw LogException(HERE, "type already registered with the Log");
 
-    callbackMap[type] = new LogTypeCallback(type,
-                                            livenessCB,
-                                            livenessArg,
-                                            relocationCB,
-                                            relocationArg,
-                                            timestampCB,
-                                            scanCB,
-                                            scanArg);
+    if (!explicitlyFreed && livenessCB == NULL) {
+        throw LogException(HERE, "types not explicitly freed require a "
+            "liveness callback");
+    }
+
+    logTypeMap[type] = new LogTypeInfo(type,
+                                       explicitlyFreed,
+                                       livenessCB,
+                                       livenessArg,
+                                       relocationCB,
+                                       relocationArg,
+                                       timestampCB,
+                                       scanCB,
+                                       scanArg);
 }
 
 /**
- * Return the callbacks associated with a particular type.
+ * Return the information that was registered with a specific type. This
+ * includes callbacks, among other state.
  *
  * \param[in] type
  *      The type registered with the log.
@@ -356,11 +441,11 @@ Log::registerType(LogEntryType type,
  *      NULL if 'type' was not registered, else a pointer to the
  *      associated LogTypeCallback.
  */
-const LogTypeCallback*
-Log::getCallbacks(LogEntryType type)
+const LogTypeInfo*
+Log::getTypeInfo(LogEntryType type)
 {
-    if (contains(callbackMap, type))
-        return callbackMap[type];
+    if (contains(logTypeMap, type))
+        return logTypeMap[type];
 
     return NULL;
 }
@@ -373,16 +458,6 @@ Log::sync()
 {
     if (head)
         head->sync();
-}
-
-/**
- * Obtain the maximum number of bytes that can ever be appended to the
- * Log at once. Appends that exceed this maximum will throw an exception.
- */
-uint64_t
-Log::getMaximumAppendableBytes() const
-{
-    return maximumAppendableBytes;
 }
 
 /**
@@ -405,25 +480,50 @@ Log::getBytesFreed() const
 }
 
 /**
- * Obtain Segment backing memory from the free list.
+ * Obtain Segment backing memory from the free list. This is only supposed
+ * to be used by the LogCleaner.
+ *
+ * \param useEmergencyReserve
+ *      When true, the cleaner is aware that we're tight on memory and will
+ *      be allocated free segments from the emergency reserve pool. If false,
+ *      allocate from the common free list as normal.
+ *
  * \return
  *      On success, a pointer to Segment backing memory of #segmentCapacity
- *      bytes, as provided in the #addSegmentMemory method.
- * \throw LogException
+ *      bytes, as provided in the #addSegmentMemory method. If the boolean
+ *      useEmergencyReserve is true, return NULL on failure instead of
+ *      throwing an exception.
+ *
+ * \throw LogOutOfMemoryException
  *      If memory is exhausted.
  */
 void *
-Log::getFromFreeList()
+Log::getSegmentMemoryForCleaning(bool useEmergencyReserve)
+{
+    if (useEmergencyReserve) {
+        boost::lock_guard<SpinLock> lock(listLock);
+
+        if (emergencyCleanerList.empty())
+            return NULL;
+
+        void* ret = emergencyCleanerList.back();
+        emergencyCleanerList.pop_back();
+        return ret;
+    }
+
+    return getFromFreeList(false);
+}
+
+/**
+ * Obtain the number of free segment memory blocks left in the system.
+ */
+size_t
+Log::freeListCount()
 {
     boost::lock_guard<SpinLock> lock(listLock);
 
-    if (freeList.empty())
-        throw LogException(HERE, "Log is out of space");
-
-    void *p = freeList.back();
-    freeList.pop_back();
-
-    return p;
+    // We always save one for the next Log head, so adjust accordingly.
+    return (freeList.size() > 0) ? freeList.size() - 1 : freeList.size();
 }
 
 /**
@@ -479,13 +579,25 @@ Log::cleaningInto(Segment* segment)
  *
  * \param[in] clean
  *      Vector of pointers to Segments that have been cleaned.
+ *
+ * \param[in] unusedSegmentMemory
+ *      Vector of pointers to segment memory that were allocated for
+ *      cleaning via #getSegmentMemoryForCleaning, but were not used. These
+ *      will be immediately returned to the free list.
  */
 void
-Log::cleaningComplete(SegmentVector& clean)
+Log::cleaningComplete(SegmentVector& clean,
+                      std::vector<void*>& unusedSegmentMemory)
 {
     boost::lock_guard<SpinLock> lock(listLock);
+    bool change = false;
 
-    debugDumpLists();
+    // Return any unused segment memory the cleaner ended up
+    // not needing directly to the free list.
+    while (!unusedSegmentMemory.empty()) {
+        locklessAddToFreeList(unusedSegmentMemory.back());
+        unusedSegmentMemory.pop_back();
+    }
 
     // New Segments we've added during cleaning need to wait
     // until the next head is written before they become part
@@ -494,6 +606,7 @@ Log::cleaningComplete(SegmentVector& clean)
         Segment& s = cleaningIntoList.front();
         cleaningIntoList.pop_front();
         cleanablePendingDigestList.push_back(s);
+        change = true;
     }
 
     // Increment the current epoch and save the last epoch any
@@ -510,6 +623,7 @@ Log::cleaningComplete(SegmentVector& clean)
         s->cleanedEpoch = epoch;
         cleanableList.erase(cleanableList.iterator_to(*s));
         freePendingDigestAndReferenceList.push_back(*s);
+        change = true;
     }
 
     // This is a good time to check cleaned Segments that are no
@@ -530,14 +644,24 @@ Log::cleaningComplete(SegmentVector& clean)
         activeBaseAddressMap.erase(s->getBaseAddress());
         freePendingReferenceList.erase(
             freePendingReferenceList.iterator_to(*s));
-        freeList.push_back(const_cast<void*>(s->getBaseAddress()));
+        locklessAddToFreeList(const_cast<void*>(s->getBaseAddress()));
         delete s;
+        change = true;
     }
+
+    if (change)
+        dumpListStats();
 }
 
 /**
  * Allocate a unique Segment identifier. This is used to generate identifiers
  * for new Segments of the Log.
+ *
+ * NOTE: The ID allocated must be used. These cannot simply be thrown away.
+ *       The reasoning is that the LogCleaner scans segments in log order and
+ *       does not know about unused holes in the ID space. If you throw away
+ *       an ID, it will simply not make forward progress.
+ *
  * \returns
  *      The next valid Segment identifier.
  */
@@ -557,24 +681,40 @@ Log::allocateSegmentId()
  * Print various Segment list counts to the debug log.
  */
 void
-Log::debugDumpLists()
+Log::dumpListStats()
 {
-    LOG(DEBUG, "============ LOG LIST OCCUPANCY ============");
-    LOG(DEBUG, "  freeList:                           %Zd", freeList.size());
-    LOG(DEBUG, "  cleanableNewList:                   %Zd",
-        cleanableNewList.size());
-    LOG(DEBUG, "  cleanableList:                      %Zd",
-        cleanableList.size());
-    LOG(DEBUG, "  cleaningIntoList:                   %Zd",
-        cleaningIntoList.size());
-    LOG(DEBUG, "  cleanablePendingDigestList:         %Zd",
-        cleanablePendingDigestList.size());
-    LOG(DEBUG, "  freePendingDigestAndReferenceList:  %Zd",
-        freePendingDigestAndReferenceList.size());
-    LOG(DEBUG, "  freePendingReferenceList:           %Zd",
-        freePendingReferenceList.size());
-    LOG(DEBUG, "----- Total: %Zd (Segments in Log (incl. head): %Zd)",
+    LogLevel level = DEBUG;
+
+    double total = static_cast<double>(getNumberOfSegments());
+    LOG(level, "============ LOG LIST OCCUPANCY ============");
+    LOG(level, "  freeList:                           %6Zd  (%.2f%%)",
+        freeList.size(),
+        100.0 * static_cast<double>(freeList.size()) / total);
+    LOG(level, "  emergencyCleanerList:               %6Zd  (%.2f%%)",
+        emergencyCleanerList.size(),
+        100.0 * static_cast<double>(emergencyCleanerList.size()) / total);
+    LOG(level, "  cleanableNewList:                   %6Zd  (%.2f%%)",
+        cleanableNewList.size(),
+        100.0 * static_cast<double>(cleanableNewList.size()) / total);
+    LOG(level, "  cleanableList:                      %6Zd  (%.2f%%)",
+        cleanableList.size(),
+        100.0 * static_cast<double>(cleanableList.size()) / total);
+    LOG(level, "  cleaningIntoList:                   %6Zd  (%.2f%%)",
+        cleaningIntoList.size(),
+        100.0 * static_cast<double>(cleaningIntoList.size()) / total);
+    LOG(level, "  cleanablePendingDigestList:         %6Zd  (%.2f%%)",
+        cleanablePendingDigestList.size(),
+        100.0 * static_cast<double>(cleanablePendingDigestList.size()) / total);
+    LOG(level, "  freePendingDigestAndReferenceList:  %6Zd  (%.2f%%)",
+        freePendingDigestAndReferenceList.size(),
+        100.0 * static_cast<double>(
+            freePendingDigestAndReferenceList.size()) / total);
+    LOG(level, "  freePendingReferenceList:           %6Zd  (%.2f%%)",
+        freePendingReferenceList.size(),
+        1.00 * static_cast<double>(freePendingReferenceList.size()) / total);
+    LOG(level, "----- Total: %Zd (Segments in Log incl. head: %Zd)",
         freeList.size() +
+        emergencyCleanerList.size() +
         cleanableNewList.size() +
         cleanableList.size() +
         cleaningIntoList.size() +
@@ -585,24 +725,99 @@ Log::debugDumpLists()
 }
 
 /**
- * Provide the Log with a single contiguous piece of backing Segment memory.
- * The memory provided must of at least as large as #segmentCapacity. 
- * This function must be called once for each Segment.
+ * Add a single contiguous piece of backing Segment memory to the Log's
+ * free list. The memory provided must of at least as large as
+ * #segmentCapacity.
+ *
+ * Note that the Log stashes extra segments for the cleaner to use during low
+ * memory situations. If this list is under a high watermark, the memory
+ * provided may be added to that list instead of the free list.
+ *
  * \param[in] p
  *      Memory to be added to the Log for use as segments.
  */
 void
-Log::addSegmentMemory(void *p)
+Log::locklessAddToFreeList(void *p)
+{
+    if (freeList.size() == 0 ||
+      emergencyCleanerList.size() == EMERGENCY_CLEAN_SEGMENTS) {
+        freeList.push_back(p);
+    } else {
+        emergencyCleanerList.push_back(p);
+    }
+}
+
+/**
+ * Obtain Segment backing memory from the free list. This method ensures that
+ * the last remaining free segment is not allocated unless explicitly asked
+ * for. The last Segment is important because it's needed to make forward
+ * progress with respect to the cleaner (i.e. a new log digest must be
+ * written out before more segments can be freed).
+ *
+ * Note that this method is only intended to be used by the LogCleaner and
+ * within #allocateHead.
+ *
+ * \param mayUseLastSegment
+ *      This parameter only affects allocation if there is just one free
+ *      block of segment memory and the cleaner is enabled. The following
+ *      explanation assumes this scenario.
+ *
+ *      If set to false, an exception is always thrown. Only code allocating
+ *      a new log head should set this to true.
+ *
+ *      If true, then only return the last segment if allocating it for the
+ *      new head would eventually free sufficient additional segments to make
+ *      forward progress. What constitutes sufficient depends on the state of
+ *      the lists. A new head cannot be allocated if doing so will not make
+ *      at least one more segment cleanable (thus allowing another segment to
+ *      be cleaned in order to free up a new head). Furthermore, if the cleaner
+ *      is operating under severe memory pressure and is using the emergency
+ *      reserve of segments, a new head must not be allocated unless doing so
+ *      would replenish the emergency reserve back to its full capacity. The
+ *      cleaner ensures that it will only take from the emergency pool if it
+ *      can clean enough segments to both replenish it and provide at least
+ *      one more clean segment to the log to use for new appends. 
+ *
+ * \return
+ *      On success, a pointer to Segment backing memory of #segmentCapacity
+ *      bytes, as provided in the #addSegmentMemory method.
+ *
+ * \throw LogOutOfMemoryException
+ *      If memory is exhausted.
+ */
+void *
+Log::getFromFreeList(bool mayUseLastSegment)
 {
     boost::lock_guard<SpinLock> lock(listLock);
 
-    freeList.push_back(p);
+    if (freeList.empty())
+        throw LogOutOfMemoryException(HERE, "Log is out of space");
 
-    if (maximumAppendableBytes == 0) {
-        Segment s((uint64_t)0, 0, p, segmentCapacity);
-        maximumAppendableBytes = s.appendableBytes(
-            LogDigest::getBytesFromCount(getNumberOfSegments()));
+    if (freeList.size() == 1 && cleanerOption != CLEANER_DISABLED) {
+        if (!mayUseLastSegment) {
+            throw LogOutOfMemoryException(HERE, "Log is out of space "
+                "(last one is reserved for the next head)");
+        }
+
+        // The next check essentially ensures that an emergency cleaning
+        // pass has completed before we permit the last segment to be used.
+        // The cleaner will guarantee that it generates enough segments to
+        // both recoup the emergency segments used and to produce at least
+        // one extra for the log to make forward progress.
+
+        if (emergencyCleanerList.size() +
+          freePendingDigestAndReferenceList.size() <
+          (EMERGENCY_CLEAN_SEGMENTS + 1)) {
+            throw LogOutOfMemoryException(HERE, "Log is out of space "
+                "(cannot allocate last segment because doing so would not "
+                "replenish the emergency pool)");
+        }
     }
+
+    void *p = freeList.back();
+    freeList.pop_back();
+
+    return p;
 }
 
 /**

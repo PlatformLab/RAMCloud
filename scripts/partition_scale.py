@@ -21,23 +21,25 @@ Keeps partition size constant and scales the number of recovery masters.
 
 from __future__ import division, print_function
 from common import *
+import config
 import metrics
 import recovery
 import subprocess
 
 dat = open('%s/recovery/partition_scale.data' % top_path, 'w', 1)
 
-for numPartitions in range(1, 36):
+num_hosts = len(config.hosts)
+print('#', num_hosts, 'backups', file=dat)
+for numPartitions in range(1, num_hosts):
     args = {}
-    args['numBackups'] = 36
-    args['numPartitions'] = numPartitions
-    args['objectSize'] = 1024
-    args['disk'] = 1
+    args['num_servers'] = num_hosts
+    args['backups_per_server'] = 1
+    args['num_partitions'] = numPartitions
+    args['object_size'] = 1024
     args['replicas'] = 3
-    args['numObjects'] = 626012 * 400 // 640
-    args['oldMasterArgs'] = '-t 17000'
-    args['newMasterArgs'] = '-t 16000'
+    args['num_objects'] = 626012 * 400 // 640
     args['timeout'] = 180
+    print(num_hosts, 'backups')
     print(numPartitions, 'partitions')
     r = recovery.insist(**args)
     print('->', r['ns'] / 1e6, 'ms', '(run %s)' % r['run'])

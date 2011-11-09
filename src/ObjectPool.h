@@ -29,7 +29,7 @@
  * the individual mallocs can cause poor cache locality when small
  * objects are used.
  *
- * Compared to the Object boost-based ObjectPool, for very small
+ * Compared to the former boost-based ObjectPool, for very small
  * objects a fast allocation is about 70% slower (6.2ns vs 3.6ns;
  * due to cache effects) for 4-byte objects. For 64-byte objects
  * they're about the same. Slow allocation (no pool memory left)
@@ -43,6 +43,18 @@ struct ObjectPoolException : public Exception {
         : Exception(where, msg) {}
 };
 
+/**
+ * ObjectPool is a simple templated allocator that provides fast
+ * allocation in cases where objects are frequently constructed and
+ * then deleted. It initially allocates memory from malloc, but when
+ * the pool is given an object to destroy it caches the backing
+ * memory for more efficient future allocations.
+ *
+ * Use ObjectPool in cases where you want to be able to repeatedly
+ * new and delete an relatively fixed set of objects very quickly.
+ * For example, transports use ObjectPool to allocate short-lived rpc
+ * objects that cannot be kept in a stack context.
+ */
 template <typename T>
 class ObjectPool
 {

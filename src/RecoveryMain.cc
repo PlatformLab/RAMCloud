@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Stanford University
+/* Copyright (c) 2009-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -42,14 +42,66 @@ bool verify = false;
  */
 bool fillWithTestData = false;
 
-void
-runRecovery(RamCloud& client,
-            int count,
-            int removeCount,
-            uint32_t objectDataSize,
-            int tableCount,
-            int tableSkip)
+int
+main(int argc, char *argv[])
+try
 {
+    int clientIndex;
+    int numClients;
+    int count, removeCount;
+    uint32_t objectDataSize;
+    uint32_t tableCount;
+    uint32_t tableSkip;
+
+    // need external context to set log levels with OptionParser
+    Context context(true);
+    Context::Guard _(context);
+
+    OptionsDescription clientOptions("Client");
+    clientOptions.add_options()
+        ("clientIndex",
+         ProgramOptions::value<int>(&clientIndex)->
+            default_value(0),
+         "Index of this client (first client is 0)")
+        ("fast,f",
+         ProgramOptions::bool_switch(&fillWithTestData),
+         "Use a single fillWithTestData rpc to insert recovery objects.")
+        ("tables,t",
+         ProgramOptions::value<uint32_t>(&tableCount)->
+            default_value(1),
+         "The number of tables to create with number objects on the master.")
+        ("skip,k",
+         ProgramOptions::value<uint32_t>(&tableSkip)->
+            default_value(1),
+         "The number of empty tables to create per real table."
+         "An enormous hack to create partitions on the crashed master.")
+        ("numClients",
+         ProgramOptions::value<int>(&numClients)->
+            default_value(1),
+         "Total number of clients running")
+        ("number,n",
+         ProgramOptions::value<int>(&count)->
+            default_value(1024),
+         "The number of values to insert.")
+        ("removals,r",
+         ProgramOptions::value<int>(&removeCount)->default_value(0),
+         "The number of values inserted to remove (creating tombstones).")
+        ("size,s",
+         ProgramOptions::value<uint32_t>(&objectDataSize)->
+            default_value(1024),
+         "Number of bytes to insert per object during insert phase.")
+        ("verify,v",
+         ProgramOptions::bool_switch(&verify),
+         "Verify the contents of all objects after recovery completes.");
+
+    OptionParser optionParser(clientOptions, argc, argv);
+
+    LOG(NOTICE, "client: Connecting to %s",
+        optionParser.options.getCoordinatorLocator().c_str());
+
+    RamCloud client(context,
+                    optionParser.options.getCoordinatorLocator().c_str());
+
     if (removeCount > count)
         DIE("cannot remove more objects than I create!");
     if (verify && objectDataSize < 20)
@@ -60,7 +112,7 @@ runRecovery(RamCloud& client,
     char tableName[20];
     int tables[tableCount];
 
-    for (int t = 0; t < tableCount; t++) {
+    for (uint32_t t = 0; t < tableCount; t++) {
         snprintf(tableName, sizeof(tableName), "%d", t);
         client.createTable(tableName);
         tables[t] = client.openTable(tableName);
@@ -68,7 +120,7 @@ runRecovery(RamCloud& client,
         // Create tables on the other masters so we skip back around to the
         // first in round-robin order to create multiple tables in the same
         // will
-        for (int tt = 0; tt < tableSkip; tt++) {
+        for (uint32_t tt = 0; tt < tableSkip; tt++) {
             snprintf(tableName, sizeof(tableName), "junk%d.%d", t, tt);
             client.createTable(tableName);
 
@@ -103,7 +155,7 @@ runRecovery(RamCloud& client,
         Tub<RamCloud::Create> createRpcs[8];
         uint64_t b = Cycles::rdtsc();
         for (int j = 0; j < count - 1; j++) {
-            for (int t = 0; t < tableCount; t++) {
+            for (uint32_t t = 0; t < tableCount; t++) {
                 auto& createRpc = createRpcs[(j * tableCount + t) %
                                              arrayLength(createRpcs)];
                 if (createRpc)
@@ -144,14 +196,14 @@ runRecovery(RamCloud& client,
 
     // remove objects if we've been instructed. just start from table 0, obj 0.
     LOG(NOTICE, "Performing %u removals of objects just created", removeCount);
-    for (int t = 0; t < tableCount; t++) {
+    for (uint32_t t = 0; t < tableCount; t++) {
         for (int j = 0; removeCount > 0; j++, removeCount--)
             client.remove(tables[t], j);
 
     }
 
     // dump the tablet map
-    for (int t = 0; t < tableCount; t++) {
+    for (uint32_t t = 0; t < tableCount; t++) {
         Transport::SessionRef session =
             client.objectFinder.lookup(tables[t], 0);
         LOG(NOTICE, "%s has table %u",
@@ -173,7 +225,7 @@ runRecovery(RamCloud& client,
     // Take an initial snapshot of performance metrics.
     ClusterMetrics metricsBefore(&client);
 
-    uint64_t b = Cycles::rdtsc();
+    uint64_t startTime = Cycles::rdtsc();
     client.coordinator->hintServerDown(
         session->getServiceLocator().c_str());
 
@@ -183,7 +235,7 @@ runRecovery(RamCloud& client,
     Buffer nb;
     uint64_t stopTime = Cycles::rdtsc();
     // Check a value in each table to make sure we're good
-    for (int t = 0; t < tableCount; t++) {
+    for (uint32_t t = 0; t < tableCount; t++) {
         int table = tables[t];
         try {
             client.read(table, 0, &nb);
@@ -196,9 +248,12 @@ runRecovery(RamCloud& client,
             session->getServiceLocator().c_str(), nb.getTotalLength());
     }
     LOG(NOTICE, "Recovery completed in %lu ns",
-        Cycles::toNanoseconds(stopTime - b));
+        Cycles::toNanoseconds(stopTime - startTime));
 
-    b = Cycles::rdtsc();
+    // Take another snapshot of performance metrics.
+    ClusterMetrics metricsAfter(&client);
+
+    uint64_t verificationStart = Cycles::rdtsc();
     if (verify) {
         LOG(NOTICE, "Verifying all data.");
 
@@ -206,7 +261,7 @@ runRecovery(RamCloud& client,
         int tenPercent = total / 10;
         int logCount = 0;
         for (int j = 0; j < count - 1; j++) {
-            for (int t = 0; t < tableCount; t++) {
+            for (uint32_t t = 0; t < tableCount; t++) {
                 try {
                     client.read(tables[t], j, &nb);
                 } catch (...) {
@@ -239,12 +294,10 @@ runRecovery(RamCloud& client,
         }
 
         LOG(NOTICE, "Verification took %lu ns",
-            Cycles::toNanoseconds(Cycles::rdtsc() - b));
+            Cycles::toNanoseconds(Cycles::rdtsc() - verificationStart));
     }
 
-    // Take another snapshot of performance metrics, and log all of the
-    // deltas.
-    ClusterMetrics metricsAfter(&client);
+    // Log the delta of the recovery time statistics
     ClusterMetrics diff = metricsAfter.difference(metricsBefore);
     if (metricsAfter.size() != diff.size()) {
         LOG(ERROR, "Metrics mismatches: %lu",
@@ -260,149 +313,6 @@ runRecovery(RamCloud& client,
                     metricIt->second);
         }
     }
-}
-
-int
-main(int argc, char *argv[])
-try
-{
-    bool hintServerDown;
-    int count, removeCount;
-    uint32_t objectDataSize;
-    uint32_t tableCount;
-    uint32_t skipCount;
-
-    // need external context to set log levels with OptionParser
-    Context context(true);
-    Context::Guard _(context);
-
-    OptionsDescription clientOptions("Client");
-    clientOptions.add_options()
-        ("down,d",
-         ProgramOptions::bool_switch(&hintServerDown),
-         "Report the master we're talking to as down just before exit.")
-        ("fast,f",
-         ProgramOptions::bool_switch(&fillWithTestData),
-         "Use a single fillWithTestData rpc to insert recovery objects.")
-        ("tables,t",
-         ProgramOptions::value<uint32_t>(&tableCount)->
-            default_value(1),
-         "The number of tables to create with number objects on the master.")
-        ("skip,k",
-         ProgramOptions::value<uint32_t>(&skipCount)->
-            default_value(1),
-         "The number of empty tables to create per real table."
-         "An enormous hack to create partitions on the crashed master.")
-        ("number,n",
-         ProgramOptions::value<int>(&count)->
-            default_value(1024),
-         "The number of values to insert.")
-        ("removals,r",
-         ProgramOptions::value<int>(&removeCount)->default_value(0),
-         "The number of values inserted to remove (creating tombstones).")
-        ("size,s",
-         ProgramOptions::value<uint32_t>(&objectDataSize)->
-            default_value(1024),
-         "Number of bytes to insert per object during insert phase.")
-        ("verify,v",
-         ProgramOptions::bool_switch(&verify),
-         "Verify the contents of all objects after recovery completes.");
-
-    OptionParser optionParser(clientOptions, argc, argv);
-
-    LOG(NOTICE, "client: Connecting to %s",
-        optionParser.options.getCoordinatorLocator().c_str());
-
-    RamCloud client(context,
-                    optionParser.options.getCoordinatorLocator().c_str());
-
-    if (hintServerDown) {
-        runRecovery(client, count, removeCount,
-            objectDataSize, tableCount, skipCount);
-        return 0;
-    }
-
-    uint64_t b;
-
-    b = Cycles::rdtsc();
-    client.createTable("test");
-    uint32_t table;
-    table = client.openTable("test");
-    LOG(NOTICE, "create+open table took %lu ticks", Cycles::rdtsc() - b);
-
-    b = Cycles::rdtsc();
-    client.ping(optionParser.options.getCoordinatorLocator().c_str(),
-                12345, 100000000);
-    LOG(NOTICE, "coordinator ping took %lu ticks", Cycles::rdtsc() - b);
-
-    b = Cycles::rdtsc();
-    client.ping(table, 42, 12345, 100000000);
-    LOG(NOTICE, "master ping took %lu ticks", Cycles::rdtsc() - b);
-
-    b = Cycles::rdtsc();
-    client.write(table, 42, "Hello, World!", 14);
-    LOG(NOTICE, "write took %lu ticks", Cycles::rdtsc() - b);
-
-    b = Cycles::rdtsc();
-    const char *value = "0123456789012345678901234567890"
-        "123456789012345678901234567890123456789";
-    client.write(table, 43, value, downCast<uint32_t>(strlen(value) + 1));
-    LOG(NOTICE, "write took %lu ticks", Cycles::rdtsc() - b);
-
-    Buffer buffer;
-    b = Cycles::rdtsc();
-    uint32_t length;
-
-    client.read(table, 43, &buffer);
-    LOG(NOTICE, "read took %lu ticks", Cycles::rdtsc() - b);
-
-    length = buffer.getTotalLength();
-    LOG(NOTICE, "Got back [%s] len %u",
-        static_cast<const char*>(buffer.getRange(0, length)),
-        length);
-
-    client.read(table, 42, &buffer);
-    LOG(NOTICE, "read took %lu ticks", Cycles::rdtsc() - b);
-    length = buffer.getTotalLength();
-    LOG(NOTICE, "Got back [%s] len %u",
-        static_cast<const char*>(buffer.getRange(0, length)),
-        length);
-
-    b = Cycles::rdtsc();
-    uint64_t id = 0xfffffff;
-    id = client.create(table, "Hello, World?", 14);
-    LOG(NOTICE, "insert took %lu ticks", Cycles::rdtsc() - b);
-    LOG(NOTICE, "Got back [%lu] id", id);
-
-    b = Cycles::rdtsc();
-    client.read(table, id, &buffer);
-    LOG(NOTICE, "read took %lu ticks", Cycles::rdtsc() - b);
-    length = buffer.getTotalLength();
-    LOG(NOTICE, "Got back [%s] len %u",
-        static_cast<const char*>(buffer.getRange(0, length)),
-        length);
-
-    char val[objectDataSize];
-    memset(val, 0xcc, objectDataSize);
-    id = 0xfffffff;
-
-    LOG(NOTICE, "Performing %u inserts of %u byte objects",
-        count, objectDataSize);
-    uint64_t* ids = static_cast<uint64_t*>(malloc(sizeof(ids[0]) * count));
-    b = Cycles::rdtsc();
-    for (int j = 0; j < count; j++)
-        ids[j] = client.create(table, val, downCast<uint32_t>(strlen(val) + 1));
-    LOG(NOTICE, "%d inserts took %lu ticks", count, Cycles::rdtsc() - b);
-    LOG(NOTICE, "avg insert took %lu ticks", (Cycles::rdtsc() - b) / count);
-
-    LOG(NOTICE, "Reading one of the objects just inserted");
-    client.read(table, ids[0], &buffer);
-
-    LOG(NOTICE, "Performing %u removals of objects just inserted", removeCount);
-    for (int j = 0; j < count && j < removeCount; j++)
-            client.remove(table, ids[j]);
-
-    client.dropTable("test");
 
     return 0;
 } catch (RAMCloud::ClientException& e) {

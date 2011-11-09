@@ -16,8 +16,10 @@
 
 """Runs a recovery of a master."""
 
-from __future__ import division
+from __future__ import division, print_function
 from common import *
+import cluster
+import config
 import log
 import recoverymetrics
 import os
@@ -27,176 +29,114 @@ import subprocess
 import sys
 import time
 
-hosts = []
-for i in range(1, 61):
-    hosts.append(('rc%02d' % i,
-                  '192.168.1.%d' % (100 + i)))
-coordinatorHost = ('rcmaster', '192.168.1.1')
-clientHost = coordinatorHost
-oldMasterHost = coordinatorHost
-serverHosts = hosts
+def recover(num_servers,
+            backups_per_server,
+            num_partitions,
+            object_size,
+            num_objects,
+            replicas,
+            master_ram=None,
+            old_master_ram=None,
+            num_removals=0,
+            transport='infrc',
+            timeout=60):
+    """Run a recovery on the cluster specified in the config module and
+    return statisitics about the recovery.
 
-obj_path = '%s/%s' % (top_path, obj_dir)
-coordinatorBin = '%s/coordinator' % obj_path
-serverBin = '%s/server' % obj_path
-clientBin = '%s/client' % obj_path
-ensureServersBin = '%s/ensureServers' % obj_path
+    See the config module for more parameters that affect how the recovery
+    will be run.  In particular config.hosts and config.old_master_host which
+    select which hosts in the cluster recovery will be run on.
 
-def recover(numBackups=1,             # Number of hosts on which to start
-                                      # backups (*not* # of backup servers).
-            numPartitions=1,
-            objectSize=1024,
-            numObjects=626012,        # Number of objects in each partition.
-            numRemovals=0,
-            replicas=1,
-            disk=1,
-            timeout=60,
-            coordinatorArgs='',
-            backupArgs='',
-            oldMasterArgs='-t 2048',
-            newMasterArgs='-t 2048',
-            clientArgs='-f',
-            hostAllocationStrategy=0,
-            debug=0):
+    @param num_servers: Number of hosts on which to run Masters.
+    @type  num_servers: C{int}
 
-    # Figure out which ranges of serverHosts will serve as backups, as
-    # recovery masters, and as dual-backups (if we're using two disks
-    # on each backup).
-    if disk < 3:
-        doubleBackupEnd = 0;
+    @param backups_per_server: Number of Backups to colocate on the same host
+                               with each Master.  If this is 1 the Backup is
+                               run in the same process as the Master.  If this
+                               is 2 then an additional process is started to
+                               run the second Backup.
+    @type  backups_per_server: C{int}
+
+    @param num_partitions: Number of partitions to create on the old Master
+                           before it is crashed.  This also determines how many
+                           Recovery Masters will participate in recovery.
+    @type  num_partitions: C{int}
+
+    @param object_size: Size of objects to fill old Master with before crash.
+    @type  object_size: C{int}
+
+    @param num_objects: Number of objects to fill old Master with before crash.
+    @type  num_objects: C{int}
+
+    @param replicas: Number of times each segment is replicated to different
+                     backups in the cluster.
+    @type  replicas: C{int}
+
+    @param master_ram: Megabytes of space allocated in each of the Masters
+                       (except the old Master, see old_master_ram).  If left
+                       unspecified same sane default will be attempted based
+                       on num_objects and object_size.
+    @type  master_ram: C{int}
+
+    @param old_master_ram: Megabytes of space allocated in the old Master that
+                           will eventually be crashed.  If left unspecified same
+                           sane default will be attempted based on num_objects
+                           and object_size.
+    @type  old_master_ram: C{int}
+
+    @param num_removals: Number of erases to do after inserts.  Allows
+                         recoveries where some of the log contains tombstones.
+    @type  num_removals: C{int}
+
+    @param transport: A transport name (e.g. infrc, fast+udp, tcp, ...)
+    @type  transport: C{str}
+
+    @param timeout: Seconds to wait before giving up and declaring the recovery
+                    to have failed.
+    @type  timeout: C{int}
+
+    @return: A recoverymetrics stats struct (see recoverymetrics.parseRecovery).
+    """
+    server_binary = '%s/server' % obj_path
+    client_binary = '%s/recovery' % obj_path
+    ensure_servers_bin = '%s/ensureServers' % obj_path
+
+    args = {}
+    args['num_servers'] = num_servers
+    args['backups_per_server'] = backups_per_server
+    args['replicas'] = replicas
+    args['transport'] = transport
+    args['timeout'] = timeout
+    # Just a guess of about how much capacity a master will have to have
+    # to hold all the data from all the partitions
+    if master_ram:
+        log_space_per_partition = master_ram
     else:
-        doubleBackupEnd = numBackups
-    if hostAllocationStrategy == 1:
-        masterEnd = len(serverHosts) - 1
+        log_space_per_partition = (200 + (1.3 * num_objects / object_size))
+    args['master_args'] = '-t %d' % log_space_per_partition
+    args['client'] = ('%s -f -n %d -r %d -s %d '
+                      '-t %d -k %d' % (client_binary,
+                      num_objects, num_removals, object_size,
+                      num_partitions, num_servers))
+    args['old_master_host'] = config.old_master_host
+    if old_master_ram:
+        args['old_master_args'] = '-t %d' % old_master_ram
     else:
-        masterEnd = numPartitions
-    masterStart = masterEnd - numPartitions
-
-    # Figure out which disk will be used by each of primary and secondary
-    # backup
-    if disk == 0:
-        primaryDisk = '-m'
-    elif disk == 1:
-        primaryDisk = '-f /dev/sda2'
-    elif disk == 2:
-        primaryDisk = '-f /dev/sdb2'
-    elif disk == 3:
-        primaryDisk = '-f /dev/sda2'
-        secondaryDisk = '-f /dev/sdb2'
-    elif disk == 4:
-        primaryDisk = '-m'
-        secondaryDisk = '-m'
-    else:
-        raise Exception('Disk should be an integer between 0 and 4')
-
-
-    run = log.createDir('recovery')
-
-    coordinator = None
-    oldMaster = None
-    servers = []
-    extraBackups = []
-    client = None
-    with Sandbox() as sandbox:
-        def ensureServers(qty):
-            sandbox.checkFailures()
-            try:
-                sandbox.rsh(clientHost[0], '%s -C %s -n %d -l 1 -t 30 ' 
-                            '--logFile %s/ensureServers.log' %
-                            (ensureServersBin, coordinatorLocator,
-                             qty, run))
-            except:
-                # prefer exceptions from dead processes to timeout error
-                sandbox.checkFailures()
-                raise
-
-        # start coordinator
-        coordinatorLocator = 'infrc:host=%s,port=12246' % coordinatorHost[0]
-        coordinator = sandbox.rsh(coordinatorHost[0],
-                  ('%s -C %s --logFile %s/coordinator.%s.log %s' %
-                   (coordinatorBin, coordinatorLocator, run,
-                    coordinatorHost[0], coordinatorArgs)),
-                  bg=True, stderr=subprocess.STDOUT)
-        ensureServers(0)
-
-        # start dying master
-        oldMasterLocator = 'infrc:host=%s,port=12242' % oldMasterHost[0]
-        oldMaster = sandbox.rsh(oldMasterHost[0],
-                ('%s -C %s -L %s --logFile %s/oldMaster.%s.log -r %d -M %s' %
-                 (serverBin, coordinatorLocator, oldMasterLocator,
-                  run, oldMasterHost[0], replicas, oldMasterArgs)),
-                 bg=True)
-        ensureServers(1)
-
-        # start other servers
-        totalServers = 1
-        for i in range(len(serverHosts)):
-            # first start the main server on this host, which runs either or
-            # both of recovery master & backup
-            host = serverHosts[i]
-            command = ('%s -C %s -L infrc:host=%s,port=12243 '
-                       '--logFile %s/server.%s.log' %
-                       (serverBin, coordinatorLocator, host[0], run, host[0]))
-            isBackup = isMaster = False
-            if (i >= masterStart) and (i < masterEnd):
-                isMaster = True
-                command += ' -r %d %s' % (replicas, newMasterArgs)
-                totalServers += 1
-            else:
-                command += ' -B'
-            if i < numBackups:
-                isBackup = True
-                command += ' %s %s' % (primaryDisk, backupArgs)
-                totalServers += 1
-            else:
-                command += ' -M'
-            if isMaster or isBackup:
-                servers.append(sandbox.rsh(host[0], command, bg=True,
-                               stderr=subprocess.STDOUT))
-
-            # start extra backup server on this host, if we are using
-            # dual disks.
-            if isBackup and disk >= 3:
-                command = ('%s -C %s -L infrc:host=%s,port=12244 '
-                           '--logFile %s/backup.%s.log -B %s %s' %
-                           (serverBin, coordinatorLocator, host[0],
-                            run, host[0], secondaryDisk, backupArgs))
-                extraBackups.append(sandbox.rsh(host[0], command, bg=True,
-                                             stderr=subprocess.STDOUT))
-                totalServers += 1
-        ensureServers(totalServers)
-
-        # pause for debugging setup, if requested
-        if debug:
-            print "Servers started; pausing for debug setup."
-            raw_input("Type <Enter> to continue: ")
-
-        # start client
-        client = sandbox.rsh(clientHost[0],
-                 ('%s -d -C %s --logFile %s/client.%s.log -n %d -r %d -s %d '
-                  '-t %d -k %d %s' % (clientBin, coordinatorLocator, run,
-                  clientHost[0], numObjects, numRemovals, objectSize,
-                  numPartitions, numPartitions, clientArgs)),
-                 bg=True, stderr=subprocess.STDOUT)
-
-        start = time.time()
-        while client.returncode is None:
-            sandbox.checkFailures()
-            time.sleep(.1)
-            if time.time() - start > timeout:
-                raise Exception('timeout exceeded')
+        args['old_master_args'] = '-t %d' % (log_space_per_partition *
+                                             num_partitions)
+    recovery_logs = cluster.run(**args)
 
     # Collect metrics information.
     stats = {}
-    stats['metrics'] = recoverymetrics.parseRecovery(run)
+    stats['metrics'] = recoverymetrics.parseRecovery(recovery_logs)
     report = recoverymetrics.textReport(stats['metrics'])
-    f = open('%s/metrics' % (run), 'w')
+    f = open('%s/metrics' % (recovery_logs), 'w')
     f.write(str(report))
     f.write('\n')
     f.close()
-    stats['run'] = run
-    stats['count'] = numObjects
-    stats['size'] = objectSize
+    stats['run'] = recovery_logs
+    stats['count'] = num_objects
+    stats['size'] = object_size
     stats['ns'] = stats['metrics'].client.recoveryNs
     return stats
 
@@ -208,18 +148,18 @@ def insist(*args, **kwargs):
         except KeyboardInterrupt, e:
             raise
         except Exception, e:
-            print 'Recovery failed:', e
-            print 'Trying again...'
+            print('Recovery failed:', e)
+            print('Trying again...')
+        time.sleep(0.1)
 
 if __name__ == '__main__':
     args = {}
-    args['numBackups'] = 5
-    args['numPartitions'] = 5
-    args['objectSize'] = 1024
-    args['disk'] = 3
-    args['numObjects'] = 592415 # 600MB
-    args['oldMasterArgs'] = '-t %d' % (700 * args['numPartitions'])
-    args['newMasterArgs'] = '-t 8000'
+    args['num_servers'] = 10
+    args['backups_per_server'] = 2
+    args['num_partitions'] = 10
+    args['object_size'] = 1024
+    args['num_objects'] = 592415 # 600MB
     args['replicas'] = 3
+    args['transport'] = 'infrc'
     stats = recover(**args)
     print('Recovery time: %.3fs' % (stats['ns']/1e09))

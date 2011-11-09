@@ -45,6 +45,7 @@
 namespace po = boost::program_options;
 
 #include "RamCloud.h"
+#include "CycleCounter.h"
 #include "Cycles.h"
 
 using namespace RAMCloud;
@@ -500,10 +501,12 @@ getCommand(char* buffer, uint32_t size)
  *      return until the object's value matches the string.
  * \param value
  *      The actual value of the object is returned here.
+ * \param timeout
+ *      Seconds to wait before giving up and throwing an Exception.
  */
 void
 waitForObject(uint32_t tableId, uint64_t objectId, const char* desired,
-        Buffer& value)
+        Buffer& value, double timeout = 1.0)
 {
     uint64_t start = Cycles::rdtsc();
     size_t length = desired ? strlen(desired) : -1;
@@ -519,7 +522,7 @@ waitForObject(uint32_t tableId, uint64_t objectId, const char* desired,
                 return;
             }
             double elapsed = Cycles::toSeconds(Cycles::rdtsc() - start);
-            if (elapsed > 1.0) {
+            if (elapsed > timeout) {
                 // Slave is taking too long; time out.
                 throw Exception(HERE, format(
                         "Object <%u, %lu> didn't reach desired state '%s' "
@@ -545,12 +548,14 @@ waitForObject(uint32_t tableId, uint64_t objectId, const char* desired,
  *      Index of the slave (1 corresponds to the first slave).
  * \param state
  *      A string identifying the desired state for the slave.
+ * \param timeout
+ *      Seconds to wait before giving up and throwing an Exception.
  */
 void
-waitSlave(int slave, const char* state)
+waitSlave(int slave, const char* state, double timeout = 1.0)
 {
     Buffer value;
-    waitForObject(controlTable, objectId(slave, STATE), state, value);
+    waitForObject(controlTable, objectId(slave, STATE), state, value, timeout);
 }
 
 /**
@@ -946,6 +951,89 @@ netBandwidth()
             "slowest client");
 }
 
+// Each client reads a single object from each master.  Good for
+// testing that each host in the cluster can send/receive RPCs
+// from every other host.
+void
+readAllToAll()
+{
+    if (clientIndex > 0) {
+        char command[20];
+        do {
+            getCommand(command, sizeof(command));
+            usleep(10 * 1000);
+        } while (strcmp(command, "run") != 0);
+        setSlaveState("running");
+        std::cout << "Slave id " << clientIndex
+                  << " reading from all masters" << std::endl;
+
+        for (int tableNum = 0; tableNum < numTables; ++tableNum) {
+            string tableName = format("table%d", tableNum);
+            try {
+                int tableId = cluster->openTable(tableName.c_str());
+
+                Buffer result;
+                uint64_t startCycles = Cycles::rdtsc();
+                RamCloud::Read read(*cluster, tableId, 0, &result);
+                while (!read.isReady()) {
+                    Context::get().dispatch->poll();
+                    double secsWaiting =
+                        Cycles::toSeconds(Cycles::rdtsc() - startCycles);
+                    if (secsWaiting > 1.0) {
+                        RAMCLOUD_LOG(ERROR,
+                                    "Client %d couldn't read from table %s",
+                                    clientIndex, tableName.c_str());
+                        read.cancel();
+                        continue;
+                    }
+                }
+                read();
+            } catch (ClientException& e) {
+                RAMCLOUD_LOG(ERROR,
+                    "Client %d got exception reading from table %s: %s",
+                    clientIndex, tableName.c_str(), e.what());
+            } catch (...) {
+                RAMCLOUD_LOG(ERROR,
+                    "Client %d got unknown exception reading from table %s",
+                    clientIndex, tableName.c_str());
+            }
+        }
+        setSlaveState("done");
+        return;
+    }
+
+    int size = objectSize;
+    if (size < 0)
+        size = 100;
+    int* tableIds = createTables(numTables, size);
+
+    std::cout << "Master client reading from all masters" << std::endl;
+    for (int i = 0; i < numTables; ++i) {
+        int tableId = tableIds[i];
+        Buffer result;
+        uint64_t startCycles = Cycles::rdtsc();
+        RamCloud::Read read(*cluster, tableId, 0, &result);
+        while (!read.isReady()) {
+            Context::get().dispatch->poll();
+            if (Cycles::toSeconds(Cycles::rdtsc() - startCycles) > 1.0) {
+                RAMCLOUD_LOG(ERROR,
+                            "Master client %d couldn't read from tableId %d",
+                            clientIndex, tableId);
+                return;
+            }
+        }
+        read();
+    }
+
+    for (int slaveIndex = 1; slaveIndex < numClients; ++slaveIndex) {
+        sendCommand("run", "running", slaveIndex);
+        // Give extra time if clients have to contact a lot of masters.
+        waitSlave(slaveIndex, "done", 1.0 + 0.1 * numTables);
+    }
+
+    delete[] tableIds;
+}
+
 // This benchmark measures the latency and server throughput for reads
 // when several clients are simultaneously reading the same object.
 void
@@ -1192,6 +1280,63 @@ readRandom()
     sendCommand("done", "done", 1, numClients-1);
 }
 
+// This benchmark measures the latency and server throughput for write
+// when some data is written asynchronously and then some smaller value
+// is written synchronously.
+void
+writeAsyncSync()
+{
+    if (clientIndex > 0)
+        return;
+
+    const uint32_t count = 100;
+    const uint32_t syncObjectSize = 100;
+    const uint32_t asyncObjectSizes[] = { 100, 1000, 10000, 100000, 1000000 };
+    const uint32_t arrayElts = sizeof(asyncObjectSizes) /
+                               sizeof(asyncObjectSizes[0]);
+
+    uint32_t maxSize = syncObjectSize;
+    for (uint32_t j = 0; j < arrayElts; ++j)
+        maxSize = std::max(maxSize, asyncObjectSizes[j]);
+
+    char* garbage = new char[maxSize];
+    // prime
+    cluster->write(dataTable, 111, &garbage[0], syncObjectSize);
+    cluster->write(dataTable, 111, &garbage[0], syncObjectSize);
+
+    printf("# RAMCloud %u B write performance during interleaved\n",
+           syncObjectSize);
+    printf("# asynchronous writes of various sizes\n");
+    printf("# Generated by 'clusterperf.py writeAsyncSync'\n#\n");
+    printf("# firstWriteIsSync firstObjectSize firstWriteLatency(us) "
+            "syncWriteLatency(us)\n");
+    printf("#--------------------------------------------------------"
+            "--------------------\n");
+    for (int sync = 0; sync < 2; ++sync) {
+        for (uint32_t j = 0; j < arrayElts; ++j) {
+            const uint32_t asyncObjectSize = asyncObjectSizes[j];
+            uint64_t asyncTicks = 0;
+            uint64_t syncTicks = 0;
+            for (uint32_t i = 0; i < count; ++i) {
+                {
+                    CycleCounter<> _(&asyncTicks);
+                    cluster->write(dataTable, 111, &garbage[0], asyncObjectSize,
+                                   NULL, NULL, !sync);
+                }
+                {
+                    CycleCounter<> _(&syncTicks);
+                    cluster->write(dataTable, 111, &garbage[0], syncObjectSize);
+                }
+            }
+            printf("%18d %15u %21.1f %20.1f\n", sync, asyncObjectSize,
+                   Cycles::toSeconds(asyncTicks) * 1e6 / count,
+                   Cycles::toSeconds(syncTicks) * 1e6 / count);
+        }
+    }
+
+    delete garbage;
+}
+
 // The following struct and table define each performance test in terms of
 // a string name and a function that implements the test.
 struct TestInfo {
@@ -1204,9 +1349,11 @@ TestInfo tests[] = {
     {"basic", basic},
     {"broadcast", broadcast},
     {"netBandwidth", netBandwidth},
+    {"readAllToAll", readAllToAll},
     {"readLoaded", readLoaded},
     {"readNotFound", readNotFound},
     {"readRandom", readRandom},
+    {"writeAsyncSync", writeAsyncSync},
 };
 
 int

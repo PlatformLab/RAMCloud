@@ -46,7 +46,7 @@ class StringKeyAdapterTest : public ::testing::Test {
                 COORDINATOR_SERVICE);
         coordinator.construct("mock:host=coordinator");
 
-        MasterService::sizeLogAndHashTable("16", "1", &config);
+        MasterService::sizeLogAndHashTable("32", "1", &config);
         config.localLocator = "mock:host=master";
         config.coordinatorLocator = "mock:host=coordinator";
         masterService.construct(config, coordinator.get(), 0);

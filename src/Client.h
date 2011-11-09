@@ -224,7 +224,6 @@ class Client {
         __attribute__((noreturn));
 
   private:
-    friend class ClientTest;
     DISALLOW_COPY_AND_ASSIGN(Client);
 };
 

@@ -387,8 +387,6 @@ class BackupService : public Service {
 
         friend class IoScheduler;
         friend class RecoverySegmentBuilder;
-        friend class BackupServiceTest;
-        friend class SegmentInfoTest;
         DISALLOW_COPY_AND_ASSIGN(SegmentInfo);
     };
 
@@ -585,8 +583,6 @@ class BackupService : public Service {
     /// Used to ensure that init() is invoked before the dispatcher runs.
     bool initCalled;
 
-    friend class BackupServiceTest;
-    friend class SegmentInfoTest;
     DISALLOW_COPY_AND_ASSIGN(BackupService);
 };
 

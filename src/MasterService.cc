@@ -72,7 +72,9 @@ MasterService::MasterService(const ServerConfig config,
     , serverId()
     , backup(coordinator, serverId, replicas)
     , bytesWritten(0)
-    , log(serverId, config.logBytes, Segment::SEGMENT_SIZE, &backup)
+    , log(serverId, config.logBytes, Segment::SEGMENT_SIZE,
+        MAX_OBJECT_SIZE, &backup, config.disableLogCleaner ?
+          Log::CLEANER_DISABLED : Log::CONCURRENT_CLEANER)
     , objectMap(config.hashTableBytes /
         HashTable<LogEntryHandle>::bytesPerCacheLine())
     , tablets()
@@ -81,6 +83,7 @@ MasterService::MasterService(const ServerConfig config,
     , objectUpdateLock()
 {
     log.registerType(LOG_ENTRY_TYPE_OBJ,
+                     true,
                      objectLivenessCallback,
                      this,
                      objectRelocationCallback,
@@ -89,6 +92,7 @@ MasterService::MasterService(const ServerConfig config,
                      objectScanCallback,
                      this);
     log.registerType(LOG_ENTRY_TYPE_OBJTOMB,
+                     false,
                      tombstoneLivenessCallback,
                      this,
                      tombstoneRelocationCallback,
@@ -355,7 +359,8 @@ recoveryCleanup(LogEntryHandle maybeTomb, void *cookie)
         MasterService *server = reinterpret_cast<MasterService*>(cookie);
         bool r = server->objectMap.remove(tomb->id.tableId, tomb->id.objectId);
         assert(r);
-        server->log.free(maybeTomb);
+        // Tombstones are not explicitly freed in the log. The cleaner will
+        // figure out that they're dead.
     }
 }
 
@@ -993,14 +998,12 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
                     recoverObj, i.getLength(), false, i.checksum());
                 ++metrics->master.objectAppendCount;
                 metrics->master.liveObjectBytes +=
-                    localObj->dataLength(i.getLength());
+                    recoverObj->dataLength(i.getLength());
 
                 // The TabletProfiler is updated asynchronously.
                 objectMap.replace(newObjHandle);
 
-                // nuke the tombstone, if it existed
-                if (tomb != NULL)
-                    log.free(handle);
+                // The cleaner will figure out that the tombstone is dead.
 
                 // nuke the old object, if it existed
                 if (localObj != NULL) {
@@ -1053,9 +1056,7 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
                     recoverTomb, sizeof(*recoverTomb), false, i.checksum());
                 objectMap.replace(newTomb);
 
-                // nuke the old tombstone, if it existed
-                if (tomb != NULL)
-                    log.free(handle);
+                // The cleaner will figure out that the tombstone is dead.
 
                 // nuke the object, if it existed
                 if (localObj != NULL) {
@@ -1109,17 +1110,22 @@ MasterService::remove(const RemoveRpc::Request& reqHdr,
         return;
     }
 
-    table->RaiseVersion(obj->version + 1);
-
     ObjectTombstone tomb(log.getSegmentId(obj), obj);
 
-    // Mark the deleted object as free first, since the append could
-    // invalidate it
-    log.free(handle);
+    // Write the tombstone into the Log, increment the tablet version
+    // number, and remove from the hash table.
+    try {
+        log.append(LOG_ENTRY_TYPE_OBJTOMB, &tomb, sizeof(tomb));
+    } catch (LogException& e) {
+        // The log is out of space. Tell the client to retry and hope
+        // that either the cleaner makes space soon or we shift load
+        // off of this server.
+        respHdr.common.status = STATUS_RETRY;
+        return;
+    }
 
-    // Write the tombstone into the Log, update our tablet
-    // counters, and remove from the hash table.
-    log.append(LOG_ENTRY_TYPE_OBJTOMB, &tomb, sizeof(tomb));
+    table->RaiseVersion(obj->version + 1);
+    log.free(handle);
     objectMap.remove(reqHdr.tableId, reqHdr.id);
 }
 
@@ -1400,9 +1406,9 @@ objectRelocationCallback(LogEntryHandle oldHandle,
         }
     }
 
-    // Remove the evicted entry whether it is discarded or not.
-    // If it isn't to be discarded, we'll track it again in the
-    // #tombstoneScanCallback function.
+    // Remove the evicted entry whether it is discarded or not. If
+    // we keep it we'll track it again in the objectScanCallback
+    // function.
     table->profiler.untrack(evictObj->id.objectId,
                             oldHandle->totalLength(),
                             oldHandle->logTime());
@@ -1488,13 +1494,6 @@ tombstoneLivenessCallback(LogEntryHandle handle, void* cookie)
     const ObjectTombstone* tomb = handle->userData<ObjectTombstone>();
     assert(tomb != NULL);
 
-    boost::lock_guard<SpinLock> lock(svr->objectUpdateLock);
-
-    Table* t = svr->getTable(downCast<uint32_t>(tomb->id.tableId),
-                             tomb->id.objectId);
-    if (t == NULL)
-        return false;
-
     return svr->log.isSegmentLive(tomb->segmentId);
 }
 
@@ -1535,24 +1534,20 @@ tombstoneRelocationCallback(LogEntryHandle oldHandle,
     const ObjectTombstone* tomb = oldHandle->userData<ObjectTombstone>();
     assert(tomb != NULL);
 
-    boost::lock_guard<SpinLock> lock(svr->objectUpdateLock);
-
-    Table* table = svr->getTable(downCast<uint32_t>(tomb->id.tableId),
-                             tomb->id.objectId);
-    if (table == NULL) {
-        // That tablet doesn't exist on this server anymore.
-        return false;
-    }
-
     // see if the referent is still there
     bool keepNewTomb = svr->log.isSegmentLive(tomb->segmentId);
 
-    // Remove the evicted entry whether it is discarded or not.
-    // If it isn't to be discarded, we'll track it again in the
-    // #tombstoneScanCallback function.
-    table->profiler.untrack(tomb->id.objectId,
-                            oldHandle->totalLength(),
-                            oldHandle->logTime());
+    // Remove the entry from the TabletProfiler whether it is to be
+    // discarded or not. If we keep it we'll track it again in the
+    // tombstoneScanCallback function.
+    boost::lock_guard<SpinLock> lock(svr->objectUpdateLock);
+    Table* table = svr->getTable(downCast<uint32_t>(tomb->id.tableId),
+                                 tomb->id.objectId);
+    if (table != NULL) {
+        table->profiler.untrack(tomb->id.objectId,
+                                oldHandle->totalLength(),
+                                oldHandle->logTime());
+    }
 
     return keepNewTomb;
 }
@@ -1565,13 +1560,13 @@ tombstoneRelocationCallback(LogEntryHandle oldHandle,
  * \param[in]  handle
  *      LogEntryHandle to the entry being examined.
  * \return
- *      The current timestamp always.
+ *      The tombstone's creation timestamp.
  */
 uint32_t
 tombstoneTimestampCallback(LogEntryHandle handle)
 {
     assert(handle->type() == LOG_ENTRY_TYPE_OBJTOMB);
-    return secondsTimestamp();  // XXX- will this be too expensive?
+    return handle->userData<ObjectTombstone>()->timestamp;
 }
 
 /**
@@ -1636,8 +1631,8 @@ tombstoneScanCallback(LogEntryHandle handle, void* cookie)
  *      version of the object, or VERSION_NONEXISTENT if the object does not
  *      exist.
  * \param async
- *      If true, this write will be replicated to backups before return.
- *      If false, the replication may happen sometime later.
+ *      If true, the replication may happen sometime later.
+ *      If false, this write will be replicated to backups before return.
  * \return
  *      STATUS_OK if the object was written. Otherwise, for example,
  *      STATUS_TABLE_DOESNT_EXIST may be returned.
@@ -1707,40 +1702,41 @@ MasterService::storeData(uint64_t tableId,
     assert(obj == NULL || newObject->version > obj->version);
     data->copy(dataOffset, dataLength, newObject->data);
 
-    //// XXXXX- I think that the following is broken. If we write the tombstone
-    //          and crash before writing the new object, we've just lost data.
-    //          We probably want to atomically replace. A failure should either
-    //          result in seeing the old data, or the new data, but not have it
-    //          go missing.
-    //
-    //          I guess this just means writing the object first, but this code
-    //          had tricky cleaner interactions before, so I need to think about
-    //          it.
+    // Perform a multi-append to atomically add the tombstone and
+    // new object (if we need a tombstone for the prior one).
+    LogMultiAppendVector appends;
 
-    // If the Object is being overwritten, we need to mark the previous space
-    // used as free and add a tombstone that references it.
+    // Need this space to stay in scope on the stack.
+    Tub<ObjectTombstone> tomb;
+
     if (obj != NULL) {
-        // Mark the old object as freed _before_ writing the new object to the
-        // log. If we do it afterwards, the LogCleaner could be triggered and
-        // `o' could be reclaimed before log->append() returns. The subsequent
-        // free then breaks, as that Segment may have been cleaned.
-        log.free(handle);
-
         uint64_t segmentId = log.getSegmentId(obj);
-        ObjectTombstone tomb(segmentId, obj);
-        // Request an async append explicitly so that the tombstone
-        // and the object are sent out together to the backups.
-        bool sync = false;
-        log.append(LOG_ENTRY_TYPE_OBJTOMB, &tomb, sizeof(tomb), sync);
+        tomb.construct(segmentId, obj);
+        appends.push_back({ LOG_ENTRY_TYPE_OBJTOMB,
+                            tomb.get(),
+                            sizeof(*tomb.get()) });
     }
 
-    LogEntryHandle objHandle = log.append(LOG_ENTRY_TYPE_OBJ, newObject,
-        newObject->objectLength(dataLength), !async);
-    objectMap.replace(objHandle);
-
-    *newVersion = newObject->version;
-    bytesWritten += dataLength;
-    return STATUS_OK;
+    try {
+        appends.push_back({ LOG_ENTRY_TYPE_OBJ,
+                            newObject,
+                            newObject->objectLength(dataLength) });
+        LogEntryHandleVector objHandles = log.multiAppend(appends, !async);
+        if (obj == NULL) {
+            objectMap.replace(objHandles[0]);
+        } else {
+            objectMap.replace(objHandles[1]);
+            log.free(handle);
+        }
+        *newVersion = newObject->version;
+        bytesWritten += dataLength;
+        return STATUS_OK;
+    } catch (LogOutOfMemoryException& e) {
+        // The log is out of space. Tell the client to retry and hope
+        // that either the cleaner makes space soon or we shift load
+        // off of this server.
+        return STATUS_RETRY;
+    }
 }
 
 } // namespace RAMCloud

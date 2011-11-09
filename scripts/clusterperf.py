@@ -100,7 +100,7 @@ def run_test(
         'debug':       options.debug,
         'log_dir':     options.log_dir,
         'log_level':   options.log_level,
-        'num_backups': options.num_backups,
+        'backups_per_server': options.backups_per_server,
         'num_servers': options.num_servers,
         'replicas':    options.replicas,
         'timeout':     options.timeout,
@@ -146,15 +146,15 @@ def default(
     This function is used as the invocation function for most tests;
     it simply invokes ClusterPerf via cluster.run and prints the result.
     """
-    cluster.run(client='obj.master/ClusterPerf %s %s' %
-            (flatten_args(client_args), name), **cluster_args)
+    cluster.run(client='%s/ClusterPerf %s %s' %
+            (obj_path, flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
 
 def broadcast(name, options, cluster_args, client_args):
     if 'num_clients' not in cluster_args:
         cluster_args['num_clients'] = 10
-    cluster.run(client='obj.master/ClusterPerf %s %s' %
-            (flatten_args(client_args), name), **cluster_args)
+    cluster.run(client='%s/ClusterPerf %s %s' %
+            (obj_path, flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
 
 def netBandwidth(name, options, cluster_args, client_args):
@@ -168,15 +168,27 @@ def netBandwidth(name, options, cluster_args, client_args):
         client_args['--size'] = options.size
     else:
         client_args['--size'] = 1024*1024;
-    cluster.run(client='obj.master/ClusterPerf %s %s' %
-            (flatten_args(client_args), name), **cluster_args)
+    cluster.run(client='%s/ClusterPerf %s %s' %
+            (obj_path, flatten_args(client_args), name), **cluster_args)
+    print(get_client_log(), end='')
+
+def readAllToAll(name, options, cluster_args, client_args):
+    cluster_args['backups_per_server'] = 0
+    cluster_args['replicas'] = 0
+    if 'num_clients' not in cluster_args:
+        cluster_args['num_clients'] = len(hosts)
+    if options.num_servers == None:
+        cluster_args['num_servers'] = len(hosts)
+    client_args['--numTables'] = cluster_args['num_servers'];
+    cluster.run(client='%s/ClusterPerf %s %s' %
+            (obj_path, flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
 
 def readLoaded(name, options, cluster_args, client_args):
     if 'num_clients' not in cluster_args:
         cluster_args['num_clients'] = 20
-    cluster.run(client='obj.master/ClusterPerf %s %s' %
-            (flatten_args(client_args), name), **cluster_args)
+    cluster.run(client='%s/ClusterPerf %s %s' %
+            (obj_path, flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
 
 def readRandom(name, options, cluster_args, client_args):
@@ -186,10 +198,10 @@ def readRandom(name, options, cluster_args, client_args):
     if options.num_servers == None:
         cluster_args['num_servers'] = 10
     client_args['--numTables'] = cluster_args['num_servers'];
-    cluster.run(client='obj.master/ClusterPerf %s %s' %
-            (flatten_args(client_args), name), **cluster_args)
+    cluster.run(client='%s/ClusterPerf %s %s' %
+            (obj_path, flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
-    
+
 #-------------------------------------------------------------------
 #  End of driver functions.
 #-------------------------------------------------------------------
@@ -205,7 +217,9 @@ simple_tests = [
     Test("basic", default),
     Test("broadcast", broadcast),
     Test("netBandwidth", netBandwidth),
-    Test("readNotFound", default)
+    Test("readAllToAll", readAllToAll),
+    Test("readNotFound", default),
+    Test("writeAsyncSync", default),
 ]
 
 graph_tests = [
@@ -236,7 +250,7 @@ if __name__ == '__main__':
             metavar='L', dest='log_level',
             help='Controls degree of logging in servers')
     parser.add_option('-b', '--numBackups', type=int, default=1,
-            metavar='N', dest='num_backups',
+            metavar='N', dest='backups_per_server',
             help='Number of backups to run on each server host '
                  '(0, 1, or 2)')
     parser.add_option('-r', '--replicas', type=int, default=3,

@@ -57,7 +57,6 @@ class TcpTransport : public Transport {
     class ClientSocketHandler;
     class Socket;
     class TcpSession;
-    friend class TcpTransportTest;
     friend class AcceptHandler;
     friend class ServerSocketHandler;
     /**
@@ -82,7 +81,6 @@ class TcpTransport : public Transport {
      */
     class IncomingMessage {
       friend class ServerSocketHandler;
-      friend class TcpTransportTest;
       friend class TcpServerRpc;
       public:
         IncomingMessage(Buffer* buffer, TcpSession* session);
@@ -123,7 +121,6 @@ class TcpTransport : public Transport {
      */
     class TcpServerRpc : public Transport::ServerRpc {
       friend class ServerSocketHandler;
-      friend class TcpTransportTest;
       friend class TcpTransport;
       friend class ObjectPool<TcpServerRpc>;     // Since constructor is private
       public:
@@ -158,7 +155,6 @@ class TcpTransport : public Transport {
      */
     class TcpClientRpc : public Transport::ClientRpc {
       public:
-        friend class TcpTransportTest;
         friend class TcpTransport;
         friend class TcpSession;
         explicit TcpClientRpc(TcpSession* session, Buffer*request,
@@ -253,7 +249,6 @@ class TcpTransport : public Transport {
      */
     class TcpSession : public Session {
       friend class ClientIncomingMessage;
-      friend class TcpTransportTest;
       friend class TcpClientRpc;
       friend class ClientSocketHandler;
       public:

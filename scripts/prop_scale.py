@@ -22,6 +22,7 @@ of recovery masters and backups.
 
 from __future__ import division, print_function
 from common import *
+import config
 from ordereddict import OrderedDict
 import metrics
 import recovery
@@ -42,27 +43,20 @@ def write(data, filename):
         for x, ys in data.items():
             print(x, *ys, file=f)
 
-# If using disks (6 backup processes per master), try the following changes:
-#   1) Set maxPartitions = 20
-#   2) Use range(1, maxPartitions + 1)
-#   3) Set args['numBackups'] = numPartitions * 3
-
 data = AveragingDict()
-maxPartitions = 60
+maxPartitions = len(config.hosts)
 for trial in range(5):
     print('Trial', trial)
     for numPartitions in range(2, maxPartitions + 1, 2):
         print(numPartitions, ' partitions')
 
         args = {}
-        args['numBackups'] = numPartitions
-        args['numPartitions'] = numPartitions
-        args['objectSize'] = 1024
-        args['disk'] = 3
+        args['num_servers'] = numPartitions
+        args['backups_per_server'] = 2
+        args['num_partitions'] = numPartitions
+        args['object_size'] = 1024
         args['replicas'] = 3
-        args['numObjects'] = 592415
-        args['oldMasterArgs'] = '-t %d' % (700 * numPartitions)
-        args['newMasterArgs'] = '-t 8000'
+        args['num_objects'] = 592415
         args['timeout'] = 300
         r = recovery.insist(**args)
         print('->', r['ns'] / 1e6, 'ms', '(run %s)' % r['run'])

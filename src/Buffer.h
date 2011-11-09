@@ -124,9 +124,6 @@ class Buffer {
      * </pre>
      */
     class Allocation {
-        friend class BufferAllocationTest;
-        friend class BufferTest;
-
         /**
          * An integer that indexes into #data.
          * This type is used for the tops of the prepend, append, and chunk
@@ -211,9 +208,6 @@ class Buffer {
      */
     class Chunk {
       friend class Buffer;
-      friend class BufferTest;
-      friend class BufferChunkTest;
-      friend class BufferIteratorTest;
       friend void* ::operator new(size_t numBytes, Buffer* buffer,
                                   RAMCloud::PREPEND_T prepend);
       friend void* ::operator new(size_t numBytes, Buffer* buffer,
@@ -415,8 +409,6 @@ class Buffer {
          * be computed still or not.
          */
         uint32_t numberChunksIsValid;
-
-      friend class BufferIteratorTest;
     };
 
     Buffer();
@@ -568,9 +560,6 @@ class Buffer {
     uint32_t nextAllocationSize;
 
     friend class Iterator;
-    friend class BufferTest;  // For CppUnit testing purposes.
-    friend class BufferAllocationTest;
-    friend class BufferIteratorTest;
 
     DISALLOW_COPY_AND_ASSIGN(Buffer);
 };

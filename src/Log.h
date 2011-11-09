@@ -45,25 +45,43 @@ struct LogException : public Exception {
         : Exception(where, msg, errNo) {}
 };
 
+/**
+ * Special exception for when the log runs out of memory entirely.
+ */
+struct LogOutOfMemoryException : public Exception {
+    LogOutOfMemoryException(const CodeLocation& where, std::string msg)
+            : Exception(where, msg) {}
+};
+
 // Use the same handle for Segments and the Log.
 typedef SegmentEntryHandle LogEntryHandle;
+
+typedef SegmentMultiAppendVector LogMultiAppendVector;
+typedef SegmentEntryHandleVector LogEntryHandleVector;
 
 typedef bool (*log_liveness_cb_t)(LogEntryHandle, void *);
 typedef bool (*log_relocation_cb_t)(LogEntryHandle, LogEntryHandle, void *);
 typedef uint32_t (*log_timestamp_cb_t)(LogEntryHandle);
 typedef void (*log_scan_cb_t)(LogEntryHandle, void *);
 
-class LogTypeCallback {
+/**
+ * Each append operation on a Log writes a typed blob. Types must
+ * be registered with the Log before appending. This class describes
+ * these types.
+ */
+class LogTypeInfo {
   public:
-    LogTypeCallback(LogEntryType type,
-                    log_liveness_cb_t livenessCB,
-                    void *livenessArg,
-                    log_relocation_cb_t relocationCB,
-                    void *relocationArg,
-                    log_timestamp_cb_t timestampCB,
-                    log_scan_cb_t scanCB,
-                    void *scanArg)
+    LogTypeInfo(LogEntryType type,
+                bool explicitlyFreed,
+                log_liveness_cb_t livenessCB,
+                void *livenessArg,
+                log_relocation_cb_t relocationCB,
+                void *relocationArg,
+                log_timestamp_cb_t timestampCB,
+                log_scan_cb_t scanCB,
+                void *scanArg)
         : type(type),
+          explicitlyFreed(explicitlyFreed),
           livenessCB(livenessCB),
           livenessArg(livenessArg),
           relocationCB(relocationCB),
@@ -74,19 +92,71 @@ class LogTypeCallback {
     {
     }
 
+    /// Unique type identifier (see LogTypes.h). These are enums for
+    /// type safety, but they are assumed by the Segment code to fit
+    /// in 8 bits.
     const LogEntryType        type;
+
+    /// If true, whenever an entry of this type is no longer needed the
+    /// user of the Log will explicitly call #free on it. If false, it
+    /// will be up to the LogCleaner to determine if entries of this type
+    /// are free or not.
+    const bool                explicitlyFreed;
+
+    /// Callback used to determine if a specific entry of this type if
+    /// still alive or not. Used primarily by the LogCleaner.
     const log_liveness_cb_t   livenessCB;
+
+    /// Opaque cookie passed to the liveness callback.
     void                     *livenessArg;
+
+    /// Callback used to notify the log's user when the entry is being
+    /// moved by the LogCleaner. The user must either update any pointers
+    /// to the entry's new location if they want to continue referencing
+    /// it.
     const log_relocation_cb_t relocationCB;
+
+    /// Opaque cookie passed to the relocation callback.
     void                     *relocationArg;
+
+    /// Callback used to obtain the timestamp of the entry. Not all entries
+    /// have timestamps so they're not kept internally in the log.
     const log_timestamp_cb_t  timestampCB;
+
+    /// Callback used to iterate over entries in log order. Every time an
+    /// entry is written to the log, this callback is eventually fired on
+    /// it. If an entry is moved by the cleaner to a new segment, this callback
+    /// will fire again. This is currently used to maintain the TabletProfilers
+    /// asynchronously.
     const log_scan_cb_t       scanCB;
+
+    /// Opaque cookie passed to the scan callback.
     void                     *scanArg;
 
   PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(LogTypeCallback);
+    DISALLOW_COPY_AND_ASSIGN(LogTypeInfo);
 };
 
+/**
+ * The Log class provides an immutable object store. Each object stored is
+ * called an 'entry' and all entries are typed. Once a type has been
+ * registered with the Log, one can then append any entries of that type
+ * to it.
+ *
+ * When objects are no longer needed, they may either be freed explicitly or
+ * discovered automatically. That is, on a per-type basis, the user can choose
+ * to either explicitly free old entries or have the Log's special garabage
+ * collector (the LogCleaner) determine which are free.
+ *
+ * A Log can be thought of as an infinitely long stretch of memory. New
+ * entries are written to the current end of the log (the head). Since we don't
+ * have infinite memory, the Log is divided into fixed-sized Segments. The
+ * LogCleaner actively defragments old Segments, providing fresh ones to use at
+ * the head.
+ *
+ * This class is essentially just a manager of Segments, threading them together
+ * to form the logical Log.
+ */
 class Log {
   public:
     /// We have various options for cleaning. We can disable it entirely,
@@ -103,18 +173,23 @@ class Log {
     Log(const Tub<uint64_t>& logId,
         uint64_t logCapacity,
         uint32_t segmentCapacity,
+        uint32_t maximumBytesPerAppend,
         BackupManager *backup = NULL,
         CleanerOption cleanerOption = CONCURRENT_CLEANER);
     ~Log();
     void           allocateHead();
     LogEntryHandle append(LogEntryType type,
                           const void *buffer,
-                          uint64_t length,
+                          uint32_t length,
                           bool sync = true,
                           Tub<SegmentChecksum::ResultType> expectedChecksum =
                             Tub<SegmentChecksum::ResultType>());
+    LogEntryHandleVector
+                   multiAppend(LogMultiAppendVector& appends,
+                               bool sync = true);
     void           free(LogEntryHandle entry);
     void           registerType(LogEntryType type,
+                                bool explicitlyFreed,
                                 log_liveness_cb_t livenessCB,
                                 void *livenessArg,
                                 log_relocation_cb_t relocationCB,
@@ -122,11 +197,10 @@ class Log {
                                 log_timestamp_cb_t timestampCB,
                                 log_scan_cb_t scanCB,
                                 void* scanArg);
-    const LogTypeCallback* getCallbacks(LogEntryType type);
+    const LogTypeInfo* getTypeInfo(LogEntryType type);
     void           sync();
     uint64_t       getSegmentId(const void *p);
     bool           isSegmentLive(uint64_t segmentId);
-    uint64_t       getMaximumAppendableBytes() const;
     uint64_t       getBytesAppended() const;
     uint64_t       getBytesFreed() const;
     uint64_t       getId() const;
@@ -137,8 +211,10 @@ class Log {
     // These public methods are only to be externally used by the cleaner.
     void           getNewCleanableSegments(SegmentVector& out);
     void           cleaningInto(Segment* newSegment);
-    void           cleaningComplete(SegmentVector &clean);
-    void          *getFromFreeList();
+    void           cleaningComplete(SegmentVector &clean,
+                                    std::vector<void*>& unusedSegmentMemory);
+    void          *getSegmentMemoryForCleaning(bool useEmergencyReserve);
+    size_t         freeListCount();
     uint64_t       allocateSegmentId();
 
     // This class is shared between the Log and its consituent Segments
@@ -158,10 +234,18 @@ class Log {
         uint64_t totalFrees;
 
         friend class Log;
-        friend class LogTest;
     };
 
-    LogStats    stats;
+    LogStats stats;
+
+     // Total log capacity in bytes.
+    const uint64_t logCapacity;
+
+    // Capacity of each log segment in bytes.
+    const uint32_t segmentCapacity;
+
+    // The largest entry that can be appended via the #append method.
+    const uint32_t maximumBytesPerAppend;
 
   PRIVATE:
     /**
@@ -180,24 +264,36 @@ class Log {
     // typedefs for various lists and maps
     INTRUSIVE_LIST_TYPEDEF(Segment, listEntries) SegmentList;
     typedef std::vector<void*> FreeList;
-    typedef boost::unordered_map<LogEntryType, LogTypeCallback *> CallbackMap;
+    typedef boost::unordered_map<LogEntryType, LogTypeInfo*> LogTypeMap;
     typedef boost::unordered_map<uint64_t, Segment *> ActiveIdMap;
     typedef boost::unordered_map<const void *, Segment *> BaseAddressMap;
 
-    void        debugDumpLists();
-    void        addSegmentMemory(void *p);
+    void        dumpListStats();
+    void        locklessAddToFreeList(void *p);
+    void*       getFromFreeList(bool mayUseLastSegment);
     void        markActive(Segment *s);
     Segment*    getSegmentFromAddress(const void*);
 
     const Tub<uint64_t>& logId;
-    uint64_t       logCapacity;
-    uint32_t       segmentCapacity;
 
     /// A very large memory allocation that backs all segments.
     LargeBlockOfMemory<> segmentMemory;
 
     uint64_t       nextSegmentId;
-    uint64_t       maximumAppendableBytes;
+
+    /// Number of clean segments to keep stashed away just in case we run
+    /// entirely out of memory. If the cleaner cannot proceed due to the
+    /// log not having enough free segments, it will clean so long as it
+    /// can both replenish this pool and free segments for the log to use.
+    ///
+    /// Note that this value directly influences the utilisation we are
+    /// able to clean at. For instance, a value of 10 means that we could
+    /// only do emergency cleaning with segments of <= ~90% utilisation.
+#if TESTING
+    enum { EMERGENCY_CLEAN_SEGMENTS = 1 };
+#else
+    enum { EMERGENCY_CLEAN_SEGMENTS = 20 };
+#endif
 
     /*
      * The following members track all Segments in the system. At any point
@@ -208,6 +304,13 @@ class Log {
 
     /// Current head of the log.
     Segment *head;
+
+    /// List of free #segmentCapacity blocks to be allocated to the cleaner
+    /// under extreme memory pressure. The cleaner may only allocate from
+    /// this list if it promises to free enough segments to replenish it to
+    /// capacity (EMERGENCY_CLEAN_SEGMENTS) as well as to free at least one
+    /// segment for the log to use.
+    FreeList emergencyCleanerList;
 
     /// List of free #segmentCapacity blocks of memory that aren't associated
     /// with a Segment object. These can be used to create new Segments by
@@ -275,7 +378,7 @@ class Log {
     BaseAddressMap activeBaseAddressMap;
 
     /// Per-LogEntryType callbacks (e.g. for relocation).
-    CallbackMap callbackMap;
+    LogTypeMap logTypeMap;
 
     /// Used to serialise access between the Log code and the LogCleaner
     /// (which only interacts with the Log vi Log methods). The interlock
@@ -293,11 +396,18 @@ class Log {
     /// BackupManager from the Log's.
     LogCleaner     cleaner;
 
-    friend class LogTest;
-
     DISALLOW_COPY_AND_ASSIGN(Log);
 };
 
+/**
+ * The LogDigest is a special entry that is written to the front of every new
+ * head Segment. It simply contains a list of all Segment IDs that are part
+ * of the Log as of that head's creation. This is used during recovery to
+ * discover all needed Segments and determine when data loss has occurred.
+ * That is, once the latest head Segment is found, the recovery process need
+ * only find copies of all Segments referenced by the head's LogDigest. If it
+ * finds them all (and they pass checksums), it knows it has the complete Log.
+ */
 class LogDigest {
   public:
     typedef uint64_t SegmentId;
@@ -394,9 +504,6 @@ class LogDigest {
 
     LogDigestData* ldd;
     uint32_t       currentSegment;
-
-    friend class LogTest;
-    friend class LogDigestTest;
 };
 
 } // namespace

@@ -21,6 +21,7 @@
 #include "CycleCounter.h"
 #include "LargeBlockOfMemory.h"
 #include "Memory.h"
+#include "MurmurHash3.h"
 
 namespace RAMCloud {
 
@@ -541,18 +542,13 @@ class HashTable {
      * This is a helper to #findBucket().
      */
     static uint64_t
-    hash(uint64_t key)
+    hash(uint64_t key1, uint64_t key2)
     {
-        // This appears to be hash64shift by Thomas Wang from
-        // http://www.concentric.net/~Ttwang/tech/inthash.htm
-        key = (~key) + (key << 21); // key = (key << 21) - key - 1;
-        key = key ^ (key >> 24);
-        key = (key + (key << 3)) + (key << 8); // key * 265
-        key = key ^ (key >> 14);
-        key = (key + (key << 2)) + (key << 4); // key * 21
-        key = key ^ (key >> 28);
-        key = key + (key << 31);
-        return key;
+        uint64_t in[2] = { key1, key2 };
+        uint64_t out[2];
+        uint32_t seed = 0;
+        MurmurHash3_x64_128(in, sizeof(in), seed, &out);
+        return out[0];
     }
 
     /**
@@ -572,7 +568,7 @@ class HashTable {
     findBucket(uint64_t key1, uint64_t key2,
                uint64_t *secondaryHash) //const
     {
-        uint64_t hashValue = hash(key1) ^ hash(key2);
+        uint64_t hashValue = hash(key1, key2);
         uint64_t bucketHash = hashValue & 0x0000ffffffffffffUL;
         *secondaryHash = hashValue >> 48;
         return &buckets.get()[bucketHash & (numBuckets - 1)];
@@ -831,8 +827,6 @@ class HashTable {
             ue.ptr   = this->value         & 0x00007fffffffffffUL;
             return ue;
         }
-
-        friend class HashTableEntryTest;
     };
     static_assert(sizeof(Entry) == 8, "HashTable::Entry is not 8 bytes");
 
@@ -888,8 +882,6 @@ class HashTable {
      */
     PerfCounters perfCounters;
 
-    friend class HashTableEntryTest;
-    friend class HashTableTest;
     friend void hashTableBenchmark(uint64_t nkeys, uint64_t nlines);
     DISALLOW_COPY_AND_ASSIGN(HashTable);
 };

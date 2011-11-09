@@ -120,7 +120,6 @@ class Logger {
      */
     LogLevel logLevels[NUM_LOG_MODULES];
 
-    friend class LoggingTest;
     DISALLOW_COPY_AND_ASSIGN(Logger);
 };
 

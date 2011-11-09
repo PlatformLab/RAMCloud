@@ -91,7 +91,7 @@ class MasterServiceTest : public ::testing::Test {
         config.coordinatorLocator = "mock:host=coordinator";
         backupConfig.localLocator = "mock:host=backup1";
         backupConfig.coordinatorLocator = "mock:host=coordinator";
-        MasterService::sizeLogAndHashTable("16", "1", &config);
+        MasterService::sizeLogAndHashTable("32", "1", &config);
         transport = new BindTransport();
         Context::get().transportManager->registerMock(transport);
         coordinatorService = new CoordinatorService();
@@ -1036,7 +1036,7 @@ class MasterRecoverTest : public ::testing::Test {
     {
         ServerConfig config;
         config.coordinatorLocator = "mock:host=coordinator";
-        MasterService::sizeLogAndHashTable("16", "1", &config);
+        MasterService::sizeLogAndHashTable("32", "1", &config);
         MasterService* s = new MasterService(config, coordinator, 2);
         s->init();
         return s;
