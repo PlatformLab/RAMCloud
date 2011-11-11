@@ -100,7 +100,8 @@ UnreliableTransport::getServiceLocator()
 }
 
 Transport::SessionRef
-UnreliableTransport::getSession(const ServiceLocator& serviceLocator)
+UnreliableTransport::getSession(const ServiceLocator& serviceLocator,
+                                uint32_t timeoutMs)
 {
     return new UnreliableSession(*this, serviceLocator);
 }

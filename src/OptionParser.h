@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -68,6 +68,7 @@ class OptionParser {
             : coordinatorLocator()
             , localLocator()
             , pcapFilePath()
+            , transportTimeout(0)
         {
         }
 
@@ -95,10 +96,20 @@ class OptionParser {
             return pcapFilePath;
         }
 
+        /**
+         * Returns the time (in ms) after which transports should assume that
+         * a connection has failed.  0 means use a transport-specific default.
+         */
+        uint32_t getTransportTimeout() const
+        {
+            return transportTimeout;
+        }
+
       private:
         string coordinatorLocator;      ///< See getLocalLocator().
         string localLocator;            ///< See getCoordinatorLocator().
         string pcapFilePath;            ///< Packet log file, "" to disable.
+        uint32_t transportTimeout;      ///< See getTransportTimeout().
 
         friend class OptionParser;
     };

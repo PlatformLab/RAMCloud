@@ -35,7 +35,7 @@ class MockTransport : public Transport {
     virtual string getServiceLocator();
 
     virtual Transport::SessionRef
-    getSession(const ServiceLocator& serviceLocator);
+    getSession(const ServiceLocator& serviceLocator, uint32_t timeoutMs = 0);
 
     virtual Transport::SessionRef
     getSession();

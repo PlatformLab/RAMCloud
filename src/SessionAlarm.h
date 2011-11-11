@@ -15,8 +15,11 @@
 
 /**
  * \file
- * This file defines classes that are used to detect when RPCs are hung
- * because of connection or server problems.
+ * This file defines classes that are used by several of the RAMCloud
+ * transports to detect when RPCs are hung because of connection or server
+ * problems.  In order for transport to use this file it must support
+ * multiple concurrent RPCs on a single session (so we can send a ping
+ * request at the same time that another request is outstanding).
  */
 
 #ifndef RAMCLOUD_SESSIONALARM_H
@@ -40,7 +43,7 @@ class SessionAlarmTimer;
 class SessionAlarm {
   public:
     SessionAlarm(SessionAlarmTimer& timer, Transport::Session& session,
-            int expectedResponseMs = 0);
+            int timeoutMs);
     ~SessionAlarm();
     void rpcStarted();
     void rpcFinished();

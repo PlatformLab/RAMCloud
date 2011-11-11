@@ -120,7 +120,7 @@ TEST_F(SessionAlarmTest, basics) {
     // sure that at least once a timeout occurs in a period that we'd
     // expect (scheduling glitches on the machine could cause timeouts
     // to occasionally take longer than this).
-    SessionAlarm alarm(timer, session);
+    SessionAlarm alarm(timer, session, 0);
     session.alarm = &alarm;
     double elapsed = 0.0;
     double desired = .035;
@@ -156,14 +156,14 @@ TEST_F(SessionAlarmTest, constructor_timeoutTooShort) {
 
 TEST_F(SessionAlarmTest, destructor_cleanupOutstandingRpcs) {
     Tub<SessionAlarm> alarm;
-    alarm.construct(timer, session);
+    alarm.construct(timer, session, 0);
     alarm->rpcStarted();
     alarm.destroy();
     EXPECT_EQ(0U, timer.activeAlarms.size());
 }
 
 TEST_F(SessionAlarmTest, rpcStarted) {
-    SessionAlarm alarm(timer, session);
+    SessionAlarm alarm(timer, session, 0);
 
     // First RPC starts: must start timer.
     alarm.rpcStarted();
@@ -178,20 +178,20 @@ TEST_F(SessionAlarmTest, rpcStarted) {
     EXPECT_TRUE(timer.isRunning());
 
     // Start another RPC on a different alarm.
-    SessionAlarm alarm2(timer, session);
+    SessionAlarm alarm2(timer, session, 0);
     alarm2.rpcStarted();
     EXPECT_EQ(1, alarm2.outstandingRpcs);
     EXPECT_EQ(2U, timer.activeAlarms.size());
 }
 
 TEST_F(SessionAlarmTest, rpcFinished_removeFromActiveAlarms) {
-    SessionAlarm alarm1(timer, session);
+    SessionAlarm alarm1(timer, session, 0);
     alarm1.rpcStarted();
-    SessionAlarm alarm2(timer, session);
+    SessionAlarm alarm2(timer, session, 0);
     alarm2.rpcStarted();
     alarm2.rpcStarted();
     alarm2.waitingForResponseMs = 10;
-    SessionAlarm alarm3(timer, session);
+    SessionAlarm alarm3(timer, session, 0);
     alarm3.rpcStarted();
 
     alarm2.rpcFinished();
@@ -214,10 +214,10 @@ TEST_F(SessionAlarmTest, rpcFinished_removeFromActiveAlarms) {
 TEST_F(SessionAlarmTimerTest, destructor) {
     Tub<SessionAlarmTimer> timer2;
     timer2.construct(dispatch);
-    SessionAlarm alarm1(*timer2, session);
+    SessionAlarm alarm1(*timer2, session, 0);
     alarm1.rpcStarted();
     alarm1.rpcStarted();
-    SessionAlarm alarm2(*timer2, session);
+    SessionAlarm alarm2(*timer2, session, 0);
     alarm2.rpcStarted();
 
     // Wait until ping RPCs get sent on each alarm.
@@ -234,8 +234,8 @@ TEST_F(SessionAlarmTimerTest, destructor) {
 }
 
 TEST_F(SessionAlarmTimerTest, handleTimerEvent_incrementResponseTime) {
-    SessionAlarm alarm1(timer, session);
-    SessionAlarm alarm2(timer, session);
+    SessionAlarm alarm1(timer, session, 0);
+    SessionAlarm alarm2(timer, session, 0);
     alarm1.rpcStarted();
     alarm2.rpcStarted();
     alarm2.waitingForResponseMs = 5;
@@ -246,7 +246,7 @@ TEST_F(SessionAlarmTimerTest, handleTimerEvent_incrementResponseTime) {
 }
 
 TEST_F(SessionAlarmTimerTest, handleTimerEvent_pingAndabortSession) {
-    SessionAlarm alarm1(timer, session);
+    SessionAlarm alarm1(timer, session, 0);
     alarm1.rpcStarted();
     alarm1.waitingForResponseMs = 25;
 
@@ -261,17 +261,17 @@ TEST_F(SessionAlarmTimerTest, handleTimerEvent_pingAndabortSession) {
 
 TEST_F(SessionAlarmTest, handleTimerEvent_cleanupPings) {
     // Create 3 different alarms.
-    SessionAlarm alarm1(timer, session);
+    SessionAlarm alarm1(timer, session, 0);
     session.alarm = &alarm1;
     alarm1.rpcStarted();
 
     AlarmSession session2;
-    SessionAlarm alarm2(timer, session2);
+    SessionAlarm alarm2(timer, session2, 0);
     session2.alarm = &alarm2;
     alarm2.rpcStarted();
 
     AlarmSession session3;
-    SessionAlarm alarm3(timer, session3);
+    SessionAlarm alarm3(timer, session3, 0);
     session3.alarm = &alarm3;
     alarm3.rpcStarted();
 
@@ -298,7 +298,7 @@ TEST_F(SessionAlarmTimerTest, handleTimerEvent_restartTimer) {
     Cycles::mockTscValue = 1000;
     timer.timerIntervalTicks = 100;
     dispatch.poll();
-    SessionAlarm alarm1(timer, session);
+    SessionAlarm alarm1(timer, session, 0);
     alarm1.rpcStarted();
     Cycles::mockTscValue = 2000;
     dispatch.poll();

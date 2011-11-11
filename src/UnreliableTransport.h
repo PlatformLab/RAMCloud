@@ -39,7 +39,8 @@ class UnreliableTransport : public Transport {
     explicit UnreliableTransport(Driver* driver);
     ~UnreliableTransport();
     string getServiceLocator();
-    SessionRef getSession(const ServiceLocator& serviceLocator);
+    SessionRef getSession(const ServiceLocator& serviceLocator,
+            uint32_t timeoutMs = 0);
 
   private:
     struct UnreliableClientRpc : public ClientRpc {

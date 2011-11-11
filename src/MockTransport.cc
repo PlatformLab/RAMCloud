@@ -53,7 +53,8 @@ MockTransport::getServiceLocator()
 }
 
 Transport::SessionRef
-MockTransport::getSession(const ServiceLocator& serviceLocator)
+MockTransport::getSession(const ServiceLocator& serviceLocator,
+        uint32_t timeoutMs)
 {
     // magic hook to invoke failed getSession in testing
     if (serviceLocator.getOriginalString() == "mock:host=error")

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -335,8 +335,15 @@ class Transport {
 
     /**
      * Return a session that will communicate with the given service locator.
-     * This function may be called from worker threads and should contain any
-     * necessary synchronization.
+     * This function is normally only invoked by TransportManager; clients
+     * call TransportManager::getSession.
+     *
+     * \param serviceLocator
+     *      Identifies the server this session will communicate with.
+     * \param timeoutMs
+     *      If the server becomes nonresponsive for this many milliseconds
+     *      the session will be aborted.  0 means the session will pick a
+     *      suitable default value.
      * \throw NoSuchKeyException
      *      Service locator option missing.
      * \throw BadValueException
@@ -344,7 +351,8 @@ class Transport {
      * \throw TransportException
      *      The transport can't open a session for \a serviceLocator.
      */
-    virtual SessionRef getSession(const ServiceLocator& serviceLocator) = 0;
+    virtual SessionRef getSession(const ServiceLocator& serviceLocator,
+            uint32_t timeoutMs = 0) = 0;
 
     /**
      * Return the ServiceLocator for this Transport. If the transport
@@ -374,6 +382,15 @@ class Transport {
 
     /// Dump out performance and debugging statistics.
     virtual void dumpStats() {}
+
+    /// Default timeout for transports (individual transports can choose to
+    /// use their own default instead of this).  This is the total time
+    /// after which a session will be aborted if there has been no sign of
+    /// life from the server. Transports may use shorter internal timeouts
+    /// to trigger retransmissions.  The current value for this was chosen
+    /// somewhat subjectively in 10/2011, based observations of a few 10s
+    /// of ms delay occasionally in TcpTransport.
+    static const uint32_t DEFAULT_TIMEOUT_MS = 50;
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(Transport);

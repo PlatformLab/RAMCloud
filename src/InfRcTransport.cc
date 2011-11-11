@@ -303,13 +303,18 @@ InfRcTransport<Infiniband>::setNonBlocking(int fd)
  *      The transport this Session will be associated with.
  * \param sl
  *      The ServiceLocator describing the server to communicate with.
+ * \param timeoutMs
+ *      If there is an active RPC and we can't get any signs of life out
+ *      of the server within this many milliseconds then the session will
+ *      be aborted.  0 means we get to pick a reasonable default.
  */
 template<typename Infiniband>
 InfRcTransport<Infiniband>::InfRCSession::InfRCSession(
-    InfRcTransport *transport, const ServiceLocator& sl)
+    InfRcTransport *transport, const ServiceLocator& sl, uint32_t timeoutMs)
     : transport(transport)
     , qp(NULL)
-    , alarm(*Context::get().sessionAlarmTimer, *this)
+    , alarm(*Context::get().sessionAlarmTimer, *this,
+            (timeoutMs != 0) ? timeoutMs/2 : DEFAULT_TIMEOUT_MS)
     , abortMessage()
 {
     setServiceLocator(sl.getOriginalString());

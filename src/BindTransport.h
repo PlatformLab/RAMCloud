@@ -53,7 +53,7 @@ struct BindTransport : public Transport {
     }
 
     Transport::SessionRef
-    getSession(const ServiceLocator& serviceLocator) {
+    getSession(const ServiceLocator& serviceLocator, uint32_t timeoutMs) {
         const string& locator = serviceLocator.getOriginalString();
         ServiceMap::iterator it = services.find(locator);
         if (it == services.end()) {

@@ -42,8 +42,9 @@ class TcpTransport : public Transport {
 
     explicit TcpTransport(const ServiceLocator* serviceLocator = NULL);
     ~TcpTransport();
-    SessionRef getSession(const ServiceLocator& serviceLocator) {
-        return new TcpSession(serviceLocator);
+    SessionRef getSession(const ServiceLocator& serviceLocator,
+            uint32_t timeoutMs = 0) {
+        return new TcpSession(serviceLocator, timeoutMs);
     }
     string getServiceLocator() {
         return locatorString;
@@ -80,8 +81,8 @@ class TcpTransport : public Transport {
      * using an event-based approach.
      */
     class IncomingMessage {
-      friend class ServerSocketHandler;
-      friend class TcpServerRpc;
+        friend class ServerSocketHandler;
+        friend class TcpServerRpc;
       public:
         IncomingMessage(Buffer* buffer, TcpSession* session);
         bool readMessage(int fd);
@@ -237,12 +238,6 @@ class TcpTransport : public Transport {
         DISALLOW_COPY_AND_ASSIGN(ClientSocketHandler);
     };
 
-    // How long to wait before sending a ping to ensure that a server is
-    // alive.  The current value for this was chosen somewhat subjectively
-    // in 10/2011: TCP seems to incur occasional delays of 10s of ms, which
-    // makes the default provided by SessionAlarm too short.
-    static const int DEFAULT_PING_MS = 50;
-
     /**
      * The TCP implementation of Sessions (stored on a client to manage its
      * interactions with a particular server).
@@ -253,7 +248,7 @@ class TcpTransport : public Transport {
       friend class ClientSocketHandler;
       public:
         explicit TcpSession(const ServiceLocator& serviceLocator,
-                int pingMs = DEFAULT_PING_MS);
+                uint32_t timeoutMs = 0);
         ~TcpSession();
         virtual void abort(const string& message);
         ClientRpc* clientSend(Buffer* request, Buffer* reply)
@@ -267,7 +262,7 @@ class TcpTransport : public Transport {
         TcpSession() : address(), fd(-1), serial(1), rpcsWaitingToSend(),
             bytesLeftToSend(0), rpcsWaitingForResponse(), current(NULL),
             message(), clientIoHandler(), errorInfo(),
-            alarm(*Context::get().sessionAlarmTimer, *this) { }
+            alarm(*Context::get().sessionAlarmTimer, *this, 0) { }
 #endif
         void close();
         static void tryReadReply(int fd, int16_t event, void *arg);

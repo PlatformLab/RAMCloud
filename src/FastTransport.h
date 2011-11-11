@@ -118,7 +118,7 @@ class FastTransport : public Transport {
     };
 
     virtual Transport::SessionRef
-    getSession(const ServiceLocator& serviceLocator);
+    getSession(const ServiceLocator& serviceLocator, uint32_t timeoutMs = 0);
 
     /**
      * Serves as a unit of storage allocation for per Rpc server state.
@@ -191,49 +191,8 @@ class FastTransport : public Transport {
     /// abort the session.
     enum { MAX_SILENT_INTERVALS = 5 };
 
-    /// Defines the normal return value for timeoutCycles, in nanoseconds.
-    enum { TIMEOUT_NS = 10 * 1000 * 1000 }; // 10 ms
-
     /// Defines the normal return value for sessionExpireCycles, in seconds.
     enum { EXPIRE_SECONDS = 10 };
-
-    /**
-     * Returns a "reasonable" amount of time (in rdtsc cycles) for a server
-     * to return a response or acknowledgment to a client after a request
-     * has been issued.  If more than this amount of time elapses, the client
-     * will retransmit or request an explicit acknowledgment.
-     */
-    static uint64_t
-    timeoutCycles()
-    {
-#if TESTING
-        if (timeoutCyclesOverride)
-            return timeoutCyclesOverride;
-#endif
-        static uint64_t value = 0;
-        if (value == 0)
-            value = Cycles::fromNanoseconds(TIMEOUT_NS);
-        return value;
-    }
-
-    /**
-     * Returns a value indicating how long we're willing to wait before
-     * considering a connection dead: if we've been actively trying to
-     * communicate but haven't gotten any responses in this much time,
-     * abort the session.
-     */
-    static uint64_t
-    sessionAbortCycles()
-    {
-#if TESTING
-        if (sessionAbortCyclesOverride)
-            return sessionAbortCyclesOverride;
-#endif
-        static uint64_t value = 0;
-        if (value == 0)
-            value = Cycles::fromNanoseconds(TIMEOUT_NS * MAX_SILENT_INTERVALS);
-        return value;
-    }
 
     /**
      * Returns a value indicating how long a session can remain idle before
@@ -629,11 +588,11 @@ class FastTransport : public Transport {
         Window<uint64_t, MAX_STAGING_FRAGMENTS + 1> sentTimes;
 
         /**
-         * The time (in TSC units) when we received the most recent
-         * acknowledgment from our peer.  Used to issue retransmissions
-         * and to detect server timeouts.
+         * Counts the number of times the timer for this message has fired
+         * since we last received an acknowledgment from the other side.
+         * Used to tell when to retransmit or abort the session.
          */
-        uint64_t lastAckTime;
+        int silentIntervals;
 
         /**
          * The total number of fragments the receiving end has acknowledged, in
@@ -698,6 +657,7 @@ class FastTransport : public Transport {
             : id(id)
             , lastActivityTime(Context::get().dispatch->currentTime)
             , transport(transport)
+            , timeoutCycles(0)
             , token(INVALID_TOKEN)
         {}
 
@@ -773,6 +733,12 @@ class FastTransport : public Transport {
 
         /// The FastTransport this session is associated with.
         FastTransport* const transport;
+
+        /**
+         * Time interval, measured in RDTSC ticks, after which we retransmit
+         * if we haven't received a response (only used for ClientSessions).
+         */
+        uint64_t timeoutCycles;
 
       PROTECTED:
         /**
@@ -941,7 +907,7 @@ class FastTransport : public Transport {
         bool expire(bool expectIdle = false);
         void fillHeader(Header* const header, uint8_t channelId) const;
         const Driver::Address* getAddress();
-        void init(const ServiceLocator& serviceLocator);
+        void init(const ServiceLocator& serviceLocator, uint32_t timeoutMs);
         bool isConnected();
         void processInboundPacket(Driver::Received* received);
         void release() { expire(); }
@@ -1281,12 +1247,6 @@ class FastTransport : public Transport {
 
     /// Pool allocator for our ServerRpc objects.
     ServerRpcPool<ServerRpc> serverRpcPool;
-
-    // If non-zero, overrides the value of timeoutCycles during tests.
-    static uint64_t timeoutCyclesOverride;
-
-    // If non-zero, overrides the value of sessionAbortCycles during tests.
-    static uint64_t sessionAbortCyclesOverride;
 
     // If non-zero, overrides the value of sessionExpireCycles during tests.
     static uint64_t sessionExpireCyclesOverride;

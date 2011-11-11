@@ -163,8 +163,6 @@ class FastTransportTest : public ::testing::Test {
     ~FastTransportTest()
     {
         delete transport;
-        FastTransport::timeoutCyclesOverride = 0;
-        FastTransport::sessionAbortCyclesOverride = 0;
         FastTransport::sessionExpireCyclesOverride = 0;
     }
 
@@ -302,9 +300,6 @@ TEST_F(FastTransportTest, handleIncomingPacket_dropped) {
 TEST_F(FastTransportTest, handleIncomingPacket_c2sBadHintOpenSession) {
     TestLog::Enable _(&tppPred);
 
-    FastTransport::sessionAbortCyclesOverride = 2000;
-    Context::get().dispatch->currentTime =
-        FastTransport::sessionAbortCycles() * 2;
     FastTransport::SessionOpenResponse sessResp =
             { FastTransport::NUM_CHANNELS_PER_SESSION };
     MockReceived recvd(0, 1, &sessResp, sizeof(sessResp));
@@ -855,7 +850,7 @@ class OutboundMessageTest: public ::testing::Test {
         , clientSession(NULL)
         , buffer(NULL)
         , msg(NULL)
-        , tsc(999 + 2 * FastTransport::TIMEOUT_NS)
+        , tsc(999)
     {
         setUp(1600, false);
     }
@@ -993,7 +988,7 @@ TEST_F(OutboundMessageTest, send) {
 }
 
 TEST_F(OutboundMessageTest, send_nothingToSend) {
-    msg->sentTimes[0] = tsc - FastTransport::timeoutCycles();
+    msg->sentTimes[0] = tsc - msg->session->timeoutCycles;
     msg->sentTimes[1] = FastTransport::OutboundMessage::ACKED;
     msg->numAcked = 1;
 
@@ -1002,8 +997,9 @@ TEST_F(OutboundMessageTest, send_nothingToSend) {
 }
 
 TEST_F(OutboundMessageTest, send_dueToTimeout) {
+    msg->useTimer = true;
     // this will get resent due to timeout
-    msg->sentTimes[0] = tsc - FastTransport::timeoutCycles() - 1;
+    msg->sentTimes[0] = tsc - msg->session->timeoutCycles - 1;
     // note that though this is ready to send it will not go out
     // because the protocol out sends out a single packet when
     // a retransmit occurs
@@ -1035,10 +1031,10 @@ TEST_F(OutboundMessageTest, send_retransmitLastFrag) {
     msg->sentTimes[1] = FastTransport::OutboundMessage::ACKED;
     msg->sentTimes[2] = FastTransport::OutboundMessage::ACKED;
 
-    msg->lastAckTime = tsc - FastTransport::timeoutCycles() - 1;
+    msg->silentIntervals = 0;
     msg->send();
     EXPECT_EQ("", driver->outputLog);
-    msg->lastAckTime = tsc - FastTransport::timeoutCycles();
+    msg->silentIntervals = 1;
     msg->firstMissingFrag = 3;
     msg->send();
     EXPECT_TRUE(TestUtil::matchesPosixRegex("2/3 frags",
@@ -1115,7 +1111,7 @@ TEST_F(OutboundMessageTest, processReceivedAck_noneMissing) {
     msg->send();
     string s;
     sentTimesWindowToString(msg->sentTimes, s);
-    EXPECT_EQ("20000999, 20000999, 0, 0, 0, "
+    EXPECT_EQ("999, 999, 0, 0, 0, "
               "0, 0, 0, 0, 0, 0, "
               "0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "
               "0, 0, 0, 0, 0, 0,", s);
@@ -1146,7 +1142,7 @@ TEST_F(OutboundMessageTest, processReceivedAck_oneMissing) {
 
     string s;
     sentTimesWindowToString(msg->sentTimes, s);
-    EXPECT_EQ("20000999, 20000999, 0, 0, 0, "
+    EXPECT_EQ("999, 999, 0, 0, 0, "
               "0, 0, 0, 0, 0, 0, "
               "0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "
               "0, 0, 0, 0, 0, 0,", s);
@@ -1162,7 +1158,7 @@ TEST_F(OutboundMessageTest, processReceivedAck_oneMissing) {
     s = "";
     sentTimesWindowToString(msg->sentTimes, s);
     EXPECT_EQ(
-        "20000999, ACKED, ACKED, ACKED, ACKED, ACKED, "
+        "999, ACKED, ACKED, ACKED, ACKED, ACKED, "
         "ACKED, ACKED, ACKED, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "
         "0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,",
         s);
@@ -1192,24 +1188,21 @@ TEST_F(OutboundMessageTest, sendOneData_requestAck) {
 
 TEST_F(OutboundMessageTest, handleTimerEvent) {
     // First call should just resend a packet.
-    FastTransport::sessionAbortCyclesOverride = 100;
-    msg->sentTimes[0] = tsc - FastTransport::timeoutCycles() - 1;
-    msg->lastAckTime = tsc - FastTransport::sessionAbortCyclesOverride + 1;
+    msg->useTimer = true;
+    msg->sentTimes[0] = tsc - msg->session->timeoutCycles - 1;
+    msg->silentIntervals = 4;
     msg->timer.handleTimerEvent();
     EXPECT_NE("", driver->outputLog);
     EXPECT_EQ("", clientSession->abortMessage);
 
     // Second call should generate a timeout
-    msg->sentTimes[0] = tsc - FastTransport::timeoutCycles() - 1;
-    msg->lastAckTime = tsc -
-            FastTransport::sessionAbortCyclesOverride - 1;
+    msg->sentTimes[0] = tsc - msg->session->timeoutCycles - 1;
     driver->outputLog.clear();
     msg->timer.handleTimerEvent();
     EXPECT_EQ("", driver->outputLog);
     EXPECT_EQ("timeout waiting for acknowledgment from server "
             "at fast+udp: host=1.2.3.4, port=1234",
             clientSession->abortMessage);
-    FastTransport::sessionAbortCyclesOverride = 100;
 }
 
 // --- ServerSessionTest ---
@@ -1674,7 +1667,7 @@ TEST_F(ClientSessionTest, clientSend_availableChannel) {
 
 TEST_F(ClientSessionTest, connect) {
     ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=12345");
-    session->init(serviceLocator);
+    session->init(serviceLocator, 0);
 
     session->connect();
     EXPECT_EQ(1, session->sessionOpenAttempts);
@@ -1749,9 +1742,13 @@ TEST_F(ClientSessionTest, fillHeader) {
 }
 
 TEST_F(ClientSessionTest, init) {
+    Cycles::cyclesPerSec = 1000000000.0;
     ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=0x3742");
-    session->init(serviceLocator);
+    session->init(serviceLocator, 0);
     EXPECT_TRUE(NULL != session->serverAddress.get());
+    EXPECT_EQ(10000000UL, session->timeoutCycles);
+    session->init(serviceLocator, 20000);
+    EXPECT_EQ(1000000000UL*4UL, session->timeoutCycles);
 }
 
 TEST_F(ClientSessionTest, processInboundPacket_sessionOpen) {
@@ -1903,7 +1900,7 @@ TEST_F(ClientSessionTest, processInboundPacket_stalePacket) {
 
 TEST_F(ClientSessionTest, sendSessionOpenRequest) {
     ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=12345");
-    session->init(serviceLocator);
+    session->init(serviceLocator, 0);
     session->sendSessionOpenRequest();
     EXPECT_EQ(
         "{ sessionToken:cccccccccccccccc rpcId:0 "
@@ -2061,7 +2058,7 @@ TEST_F(ClientSessionTest, processSessionOpenResponse_tooManyChannelsOnServer) {
 
 TEST_F(ClientSessionTest, handleTimerEvent) {
     ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=12345");
-    session->init(serviceLocator);
+    session->init(serviceLocator, 0);
     session->connect();
     EXPECT_EQ(1, session->sessionOpenAttempts);
 

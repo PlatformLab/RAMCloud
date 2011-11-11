@@ -48,6 +48,8 @@ main(int argc, char *argv[])
 
         pinAllMemory();
         localLocator = optionParser.options.getCoordinatorLocator();
+        Context::get().transportManager->setTimeout(
+                optionParser.options.getTransportTimeout());
         Context::get().transportManager->initialize(localLocator.c_str());
         localLocator = Context::get().transportManager->
                                 getListeningLocatorsString();

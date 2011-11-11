@@ -28,23 +28,22 @@ namespace RAMCloud {
  * \param session
  *      The transport session to monitor in this alarm.  Any RPCs in this
  *      session should result in calls to rpcStarted and rpcFinished.
- * \param expectedResponseMs
- *      Time (in milliseconds) within which we can expect almost all RPCs
- *      to complete: if an RPC is taking longer than this then we'll ping
- *      the server to make sure it's alive.  This value should be defaulted
- *      except for transports with very large internal retransmission
- *      times (such as TCP).
+ * \param timeoutMs
+ *      If this many milliseconds elapse in an RPC with no sign of life from
+ *      from the server, then the session will be aborted.  After half this
+ *      time has elapsed we will send a ping RPC to the server; as long as
+ *      it responds to the pings there will be no abort.
  */
 SessionAlarm::SessionAlarm(SessionAlarmTimer& timer,
         Transport::Session& session,
-        int expectedResponseMs)
+        int timeoutMs)
     : session(session)
     , timer(timer)
     , timerIndex(0)
     , outstandingRpcs(0)
     , waitingForResponseMs(0)
-    , pingMs(expectedResponseMs)
-    , abortMs(2*expectedResponseMs)
+    , pingMs(timeoutMs/2)
+    , abortMs(timeoutMs)
 {
     // Because of estimation errors in SessionAlarmTimer, we need to enforce
     // a minimum threshold for pingMs.

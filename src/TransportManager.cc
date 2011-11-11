@@ -112,6 +112,7 @@ TransportManager::TransportManager()
     , registeredBases()
     , registeredSizes()
     , mutex()
+    , timeoutMs(0)
 {
     transportFactories.push_back(&tcpTransportFactory);
     transportFactories.push_back(&fastUdpTransportFactory);
@@ -277,7 +278,7 @@ TransportManager::getSession(const char* serviceLocator)
 
             transportSupported = true;
             try {
-                auto session = transports[i]->getSession(locator);
+                auto session = transports[i]->getSession(locator, timeoutMs);
                 if (isServer) {
                     session = new WorkerSession(session);
                 }
@@ -341,6 +342,17 @@ TransportManager::registerMemory(void* base, size_t bytes)
     }
     registeredBases.push_back(base);
     registeredSizes.push_back(bytes);
+}
+
+/**
+ * Use a particular timeout value for all new transports created from now on.
+ *
+ * \param timeoutMs
+ *      Timeout period (in ms) to pass to transports.
+ */
+void TransportManager::setTimeout(uint32_t timeoutMs)
+{
+    this->timeoutMs = timeoutMs;
 }
 
 /**

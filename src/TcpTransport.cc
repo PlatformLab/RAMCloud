@@ -43,12 +43,12 @@ Syscall* TcpTransport::sys = &defaultSyscall;
  *      If NULL this transport will be used only for outgoing requests.
  */
 TcpTransport::TcpTransport(const ServiceLocator* serviceLocator)
-        : locatorString(),
-          listenSocket(-1),
-          acceptHandler(),
-          sockets(),
-          nextSocketId(100),
-          serverRpcPool()
+        : locatorString()
+        , listenSocket(-1)
+        , acceptHandler()
+        , sockets()
+        , nextSocketId(100)
+        , serverRpcPool()
 {
     if (serviceLocator == NULL)
         return;
@@ -520,14 +520,13 @@ TcpTransport::IncomingMessage::readMessage(int fd) {
  *
  * \param serviceLocator
  *      Identifies the server to which RPCs on this session will be sent.
- * \param pingMs
- *      A reasonable upper-bound on how long it should take servers to
- *      respond to requests; if no response has been received within this
- *      time then we will send a ping RPC to make sure the server is alive.
- *      This value deviates from the default only during tests.
+ * \param timeoutMs
+ *      If there is an active RPC and we can't get any signs of life out
+ *      of the server within this many milliseconds then the session will
+ *      be aborted.  0 means we get to pick a reasonable default.
  */
 TcpTransport::TcpSession::TcpSession(const ServiceLocator& serviceLocator,
-        int pingMs)
+        uint32_t timeoutMs)
         : address(serviceLocator)
         , fd(-1), serial(1)
         , rpcsWaitingToSend()
@@ -537,7 +536,8 @@ TcpTransport::TcpSession::TcpSession(const ServiceLocator& serviceLocator,
         , message()
         , clientIoHandler()
         , errorInfo()
-        , alarm(*Context::get().sessionAlarmTimer, *this, pingMs)
+        , alarm(*Context::get().sessionAlarmTimer, *this,
+                (timeoutMs != 0) ? timeoutMs/2 : DEFAULT_TIMEOUT_MS)
 {
     setServiceLocator(serviceLocator.getOriginalString());
     fd = sys->socket(PF_INET, SOCK_STREAM, 0);

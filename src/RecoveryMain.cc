@@ -95,6 +95,8 @@ try
          "Verify the contents of all objects after recovery completes.");
 
     OptionParser optionParser(clientOptions, argc, argv);
+    Context::get().transportManager->setTimeout(
+            optionParser.options.getTransportTimeout());
 
     LOG(NOTICE, "client: Connecting to %s",
         optionParser.options.getCoordinatorLocator().c_str());

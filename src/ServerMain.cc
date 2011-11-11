@@ -133,6 +133,8 @@ main(int argc, char *argv[])
             LOG(DEBUG, "server: Pinned to core %d", cpu);
         }
 
+        Context::get().transportManager->setTimeout(
+                optionParser.options.getTransportTimeout());
         Context::get().transportManager->initialize(
                 optionParser.options.getLocalLocator().c_str());
         LOG(NOTICE, "%s: Listening on %s", servicesInfo, Context::get().

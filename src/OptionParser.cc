@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -148,7 +148,12 @@ OptionParser::setup(int argc, char* argv[])
                default_value(""),
              "File to log transmitted and received packets to in pcap format. "
              "Only works with InfUdDriver based transports for now; "
-             "use tcpdump to capture kernel-based packet formats.");
+             "use tcpdump to capture kernel-based packet formats.")
+            ("timeout",
+             ProgramOptions::value<uint32_t>(&options.transportTimeout)->
+                default_value(0),
+             "How long transports should wait (ms) before declaring that a "
+             "connection is dead.  0 means use transport-specific default.");
 
         // Do one pass with just help/config file options so we can get
         // the alternate config file location, if specified.  Then

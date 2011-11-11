@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -1214,7 +1214,7 @@ TEST_F(TcpTransportTest, TcpClientRpc_cancelCleanup_rpcsWaitingToSend) {
 TEST_F(TcpTransportTest, sessionAlarm) {
     TcpTransport server(locator);
     TcpTransport client;
-    TcpTransport::TcpSession session(*locator, 15);
+    TcpTransport::TcpSession session(*locator, 30);
     Buffer request1;
     Buffer reply1;
 

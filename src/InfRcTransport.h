@@ -64,8 +64,8 @@ class InfRcTransport : public Transport {
   public:
     explicit InfRcTransport(const ServiceLocator* sl = NULL);
     ~InfRcTransport();
-    SessionRef getSession(const ServiceLocator& sl) {
-        return new InfRCSession(this, sl);
+    SessionRef getSession(const ServiceLocator& sl, uint32_t timeoutMs = 0) {
+        return new InfRCSession(this, sl, timeoutMs);
     }
     string getServiceLocator();
     void dumpStats() {
@@ -156,7 +156,7 @@ class InfRcTransport : public Transport {
     class InfRCSession : public Session {
       public:
         explicit InfRCSession(InfRcTransport *transport,
-            const ServiceLocator& sl);
+            const ServiceLocator& sl, uint32_t timeoutMs);
         Transport::ClientRpc* clientSend(Buffer* request, Buffer* response)
             __attribute__((warn_unused_result));
         virtual void abort(const string& message);
