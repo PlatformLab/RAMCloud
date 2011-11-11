@@ -185,7 +185,7 @@ def run(
         def ensure_servers(qty):
             sandbox.checkFailures()
             try:
-                sandbox.rsh(hosts[0][0], '%s -C %s -n %d -l 1 -t 5 '
+                sandbox.rsh(hosts[0][0], '%s -C %s -n %d -l 1 --maxwait 5 '
                             '--logFile %s/ensureServers.log' %
                             (ensure_servers_bin, coordinator_locator,
                              qty, log_subdir))

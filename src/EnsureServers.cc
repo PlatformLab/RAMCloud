@@ -40,9 +40,10 @@ try
         ("number,n",
          ProgramOptions::value<int>(&number),
              "The number of servers desired.")
-        ("timeout,t",
+        ("maxwait,m",
          ProgramOptions::value<int>(&timeout),
-             "The number of seconds for which to wait.");
+             "Give up if the servers aren't available within this many "
+             "seconds.");
 
     OptionParser optionParser(clientOptions, argc, argv);
 
