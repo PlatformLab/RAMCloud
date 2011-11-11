@@ -215,10 +215,6 @@ get(const Map& map, const typename Map::key_type& key)
     return it->second;
 }
 
-// conveniences for dealing with strings
-bool startsWith(const string& haystack, const string& needle);
-bool endsWith(const string& haystack, const string& needle);
-
 /**
  * Return the offset of a field in a structure. This is identical to the
  * "offsetof" macro except that it uses 100 as the base address instead of

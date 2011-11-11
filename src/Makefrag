@@ -69,6 +69,7 @@ SHARED_SRCFILES := \
 		   src/ServiceManager.cc \
 		   src/SpinLock.cc \
 		   src/Status.cc \
+		   src/StringUtil.cc \
 		   src/TabletProfiler.cc \
 		   src/TcpTransport.cc \
 		   src/TestLog.cc \
