@@ -408,7 +408,7 @@ class Segment {
      * A handle to the open segment on backups,
      * or NULL if the segment is closed.
      */
-    BackupManager::OpenSegment* backupSegment;
+    OpenSegment* backupSegment;
 
     friend class Log;
 

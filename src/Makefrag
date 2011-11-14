@@ -31,6 +31,7 @@ SHARED_SRCFILES := \
 		   src/Crc32C.cc \
 		   src/BackupClient.cc \
 		   src/BackupManager.cc \
+		   src/BackupSelector.cc \
 		   src/Buffer.cc \
 		   src/ClientException.cc \
 		   src/ClusterMetrics.cc \
@@ -39,6 +40,7 @@ SHARED_SRCFILES := \
 		   src/Cycles.cc \
 		   src/Dispatch.cc \
 		   src/Driver.cc \
+		   src/DurableSegment.cc \
 		   src/FastTransport.cc \
 		   src/FailureDetector.cc \
 		   src/IpAddress.cc \
