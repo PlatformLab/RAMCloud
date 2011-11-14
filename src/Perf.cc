@@ -347,6 +347,25 @@ double lockNonDispThrd()
     return Cycles::toSeconds(stop - start)/count;
 }
 
+// Benchmark MurmurHash3 hashing performance on cached data.
+// Uses the version generating 128-bit hashes with code
+// optimised for 64-bit processors.
+template <int keyLength>
+double murmur3()
+{
+    int count = 100000;
+    char buf[keyLength];
+    uint32_t seed = 11051955;
+    uint64_t out[2];
+
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++)
+        MurmurHash3_x64_128(buf, sizeof(buf), seed, &out);
+    uint64_t stop = Cycles::rdtsc();
+
+    return Cycles::toSeconds(stop - start)/count;
+}
+
 // Starting with a new ObjectPool, measure the cost of Object
 // allocations. The pool may optionally be primed first to
 // measure the best-case performance.
@@ -707,6 +726,10 @@ TestInfo tests[] = {
      "Acquire/release Dispatch::Lock (in dispatch thread)"},
     {"lockNonDispThrd", lockNonDispThrd,
      "Acquire/release Dispatch::Lock (non-dispatch thread)"},
+    {"murmur3", murmur3<1>,
+     "128-bit MurmurHash3 (64-bit optimised) on 1 byte of data"},
+    {"murmur3", murmur3<256>,
+     "128-bit MurmurHash3 hash (64-bit optimised) on 256 bytes of data"},
     {"objectPoolAlloc", objectPoolAlloc<int, false>,
      "Cost of new allocations from an ObjectPool (no destroys)"},
     {"objectPoolRealloc", objectPoolAlloc<int, true>,
