@@ -72,9 +72,13 @@ MasterService::MasterService(const ServerConfig config,
     , serverId()
     , backup(coordinator, serverId, replicas)
     , bytesWritten(0)
-    , log(serverId, config.logBytes, Segment::SEGMENT_SIZE,
-        MAX_OBJECT_SIZE, &backup, config.disableLogCleaner ?
-          Log::CLEANER_DISABLED : Log::CONCURRENT_CLEANER)
+    , log(serverId,
+          config.logBytes,
+          Segment::SEGMENT_SIZE,
+          sizeof(Object) + MAX_OBJECT_SIZE,
+          &backup,
+          config.disableLogCleaner ? Log::CLEANER_DISABLED :
+                                     Log::CONCURRENT_CLEANER)
     , objectMap(config.hashTableBytes /
         HashTable<LogEntryHandle>::bytesPerCacheLine())
     , tablets()

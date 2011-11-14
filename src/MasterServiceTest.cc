@@ -73,13 +73,17 @@ class MasterServiceTest : public ::testing::Test {
     CoordinatorService* coordinatorService;
     TestLog::Enable logSilencer;
 
-    MasterServiceTest()
+    // To make tests that don't need big segments faster, set a smaller default
+    // segmentSize. Since we can't provide arguments to it in gtest, nor can we
+    // apparently template easily on that, we need to subclass this if we want
+    // to provide a fixture with a different value.
+    explicit MasterServiceTest(uint32_t segmentSize = 1 << 16)
         : config()
         , backupConfig()
         , backupService()
         , storage(NULL)
         , segmentFrames(2)
-        , segmentSize(1 << 16)
+        , segmentSize(segmentSize)
         , service(NULL)
         , transport(NULL)
         , client(NULL)
@@ -937,6 +941,32 @@ TEST_F(MasterServiceTest, rejectOperation) {
               STATUS_WRONG_VERSION);
 }
 
+/**
+ * Unit tests requiring a full segment size (rather than the smaller default
+ * allocation that's done to make tests faster).
+ */
+class MasterServiceFullSegmentSizeTest : public MasterServiceTest {
+  public:
+    MasterServiceFullSegmentSizeTest()
+        : MasterServiceTest(Segment::SEGMENT_SIZE)
+    {
+    }
+
+    DISALLOW_COPY_AND_ASSIGN(MasterServiceFullSegmentSizeTest);
+};
+
+TEST_F(MasterServiceFullSegmentSizeTest, write_maximumObjectSize) {
+    char* buf = new char[MAX_OBJECT_SIZE+1];
+
+    // should fail
+    EXPECT_THROW(client->create(0, buf, MAX_OBJECT_SIZE+1),
+        LogException);
+
+    // should succeed
+    client->create(0, buf, MAX_OBJECT_SIZE);
+
+    delete[] buf;
+}
 
 /**
 * Unit tests for Master::_recover.
@@ -964,7 +994,7 @@ class MasterRecoverTest : public ::testing::Test {
         , coordinatorService()
         , config1()
         , config2()
-        , segmentSize(1 << 16)
+        , segmentSize(1 << 16)      // Smaller than usual to make tests faster.
         , segmentFrames(2)
         , storage1()
         , storage2()
