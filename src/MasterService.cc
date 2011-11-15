@@ -453,8 +453,8 @@ namespace {
  * in the anonymous namespace so it doesn't need to appear in the header
  * file.
  */
-struct Task {
-    Task(uint64_t masterId,
+struct RecoveryTask {
+    RecoveryTask(uint64_t masterId,
          uint64_t partitionId,
          ProtoBuf::ServerList::Entry& backupHost)
         : masterId(masterId)
@@ -470,7 +470,7 @@ struct Task {
         rpc.construct(client, masterId, backupHost.segment_id(),
                       partitionId, response);
     }
-    ~Task()
+    ~RecoveryTask()
     {
         if (rpc && !rpc->isReady()) {
             LOG(WARNING, "Task destroyed while RPC active: segment %lu, "
@@ -495,7 +495,7 @@ struct Task {
     /// If we have to retry a request, this variable indicates the rdtsc time at
     /// which we should retry.  0 means we're not waiting for a retry.
     uint64_t resendTime;
-    DISALLOW_COPY_AND_ASSIGN(Task);
+    DISALLOW_COPY_AND_ASSIGN(RecoveryTask);
 };
 }
 
@@ -632,7 +632,7 @@ MasterService::recover(uint64_t masterId,
     foreach (auto& backup, *backups.mutable_server())
         backup.set_user_data(REC_REQ_NOT_STARTED);
 
-    Tub<Task> tasks[4];
+    Tub<RecoveryTask> tasks[4];
     uint32_t activeRequests = 0;
 
     auto notStarted = backups.mutable_server()->begin();
