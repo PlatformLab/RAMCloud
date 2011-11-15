@@ -144,6 +144,7 @@ class BackupClient : public Client {
                      const void *buf,
                      uint32_t length,
                      BackupWriteRpc::Flags flags = BackupWriteRpc::NONE);
+        void cancel() { state.cancel(); }
         bool isReady() { return state.isReady(); }
         void operator()();
       private:

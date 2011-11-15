@@ -214,15 +214,15 @@ BackupManager::dumpOpenSegments()
         LOG(ERROR, "Segment %lu", segment.segmentId);
         LOG(ERROR, "  data: %p", segment.data);
         LOG(ERROR, "  openLen: %u", segment.openLen);
-        LOG(ERROR, "  offsetQueued: %u", segment.offsetQueued);
-        LOG(ERROR, "  closeQueued: %u", segment.closeQueued);
+        LOG(ERROR, "  queued.bytes: %u", segment.queued.bytes);
+        LOG(ERROR, "  queued.close: %u", segment.queued.close);
         foreach (auto& backup, segment.backups) {
             LOG(ERROR, "  Backup:%s", backup ? "" : " inactive");
             if (!backup)
                 continue;
-            LOG(ERROR, "    openIsDone: %u", backup->openIsDone);
-            LOG(ERROR, "    offsetSent: %u", backup->offsetSent);
-            LOG(ERROR, "    closeSent: %u", backup->closeSent);
+            LOG(ERROR, "    done.open: %u", backup->done.open);
+            LOG(ERROR, "    sent.bytes: %u", backup->sent.bytes);
+            LOG(ERROR, "    sent.close: %u", backup->sent.close);
             LOG(ERROR, "    RPC: %s", backup->rpc ? "active" : "inactive");
         }
         LOG(ERROR, " ");
@@ -313,7 +313,7 @@ TEST_F(BackupManagerTest, freeSegment) {
     mgr->freeSegment(90);
 
     ProtoBuf::Tablets will;
-    EXPECT_EQ(0U, mgr->segments.size());
+    EXPECT_EQ(0U, mgr->replicaLocations.size());
 
     {
         BackupClient::StartReadingData::Result result;
@@ -361,11 +361,11 @@ TEST_F(BackupManagerTest, OpenSegmentConstructor) {
 
     // make sure we think data was written
     EXPECT_EQ(data, openSegment->data);
-    EXPECT_EQ(arrayLength(data), openSegment->offsetQueued);
-    EXPECT_FALSE(openSegment->closeQueued);
+    EXPECT_EQ(arrayLength(data), openSegment->queued.bytes);
+    EXPECT_FALSE(openSegment->queued.close);
     foreach (auto& backup, openSegment->backups) {
-        EXPECT_EQ(arrayLength(data), backup->offsetSent);
-        EXPECT_FALSE(backup->closeSent);
+        EXPECT_EQ(arrayLength(data), backup->sent.bytes);
+        EXPECT_FALSE(backup->sent.close);
         EXPECT_FALSE(backup->rpc);
     }
     EXPECT_EQ(arrayLength(data), backupService1->bytesWritten);
@@ -383,11 +383,11 @@ TEST_F(BackupManagerTest, OpenSegmentConstructor) {
     // TODO(ongaro): Unit test backup selection algorithm with varying disk
     // bandwidths
 
-    // make sure BackupManager::segments looks sane
+    // make sure BackupManager::replicaLocations looks sane
     std::set<string> segmentLocators;
-    foreach (auto& s, mgr->segments) {
+    foreach (auto& s, mgr->replicaLocations) {
         EXPECT_EQ(88U, s.first);
-        segmentLocators.insert(s.second->getServiceLocator());
+        segmentLocators.insert(s.second.session->getServiceLocator());
     }
     EXPECT_EQ((std::set<string> {"mock:host=backup1", "mock:host=backup2"}),
               segmentLocators);
@@ -458,8 +458,8 @@ TEST_F(BackupManagerTest, writeSegment) {
     tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
     tablet.set_user_data(0); // partition id
 
-    foreach (auto v, mgr->segments) {
-        BackupClient host(v.second);
+    foreach (auto v, mgr->replicaLocations) {
+        BackupClient host(v.second.session);
         Buffer resp;
         BackupClient::StartReadingData::Result result;
         host.startReadingData(99, will, &result);

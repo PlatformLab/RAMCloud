@@ -61,6 +61,7 @@ TESTS_SRCFILES := \
 		  src/SpinLockTest.cc \
 		  src/StatusTest.cc \
 		  src/StringKeyAdapterTest.cc \
+		  src/StringUtilTest.cc \
 		  src/TabletProfilerTest.cc \
 		  src/TcpTransportTest.cc \
 		  src/TestRunner.cc \

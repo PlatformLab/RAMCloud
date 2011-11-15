@@ -249,10 +249,9 @@ BackupManager::OpenSegment::OpenSegment(BackupManager& backupManager,
     , segmentId(segmentId)
     , data(data)
     , openLen(len)
-    , offsetQueued(len)
-    , closeQueued(false)
+    , queued(true, len, false)
     , listEntries()
-    , backups(backupManager.replicas)
+    , backups(backupManager.numReplicas)
 {
 }
 
@@ -278,14 +277,14 @@ BackupManager::OpenSegment::write(uint32_t offset,
              *backupManager.masterId, segmentId, offset, closeSegment);
 
     // offset monotonically increases
-    assert(offset >= offsetQueued);
-    offsetQueued = offset;
+    assert(offset >= queued.bytes);
+    queued.bytes = offset;
 
     // immutable after close
-    assert(!closeQueued);
-    closeQueued = closeSegment;
-    if (closeQueued) {
-        LOG(DEBUG, "Segment %lu closed (length %d)", segmentId, offsetQueued);
+    assert(!queued.close);
+    queued.close = closeSegment;
+    if (queued.close) {
+        LOG(DEBUG, "Segment %lu closed (length %d)", segmentId, queued.bytes);
         ++metrics->master.segmentCloseCount;
     }
 }
@@ -299,18 +298,18 @@ BackupManager::OpenSegment::write(uint32_t offset,
  *      \copydoc coordinator
  * \param masterId
  *      \copydoc masterId
- * \param replicas
- *      \copydoc replicas
+ * \param numReplicas
+ *      \copydoc numReplicas
  */
 BackupManager::BackupManager(CoordinatorClient* coordinator,
                              const Tub<uint64_t>& masterId,
-                             uint32_t replicas)
+                             uint32_t numReplicas)
     : coordinator(coordinator)
     , masterId(masterId)
     , backupSelector(coordinator)
-    , replicas(replicas)
-    , segments()
-    , openSegmentPool(OpenSegment::sizeOf(replicas))
+    , numReplicas(numReplicas)
+    , replicaLocations()
+    , openSegmentPool(OpenSegment::sizeOf(numReplicas))
     , openSegmentList()
     , outstandingRpcs(0)
     , activeTime()
@@ -333,9 +332,9 @@ BackupManager::BackupManager(BackupManager* prototype)
     : coordinator(prototype->coordinator)
     , masterId(prototype->masterId)
     , backupSelector(prototype->coordinator)
-    , replicas(prototype->replicas)
-    , segments()
-    , openSegmentPool(OpenSegment::sizeOf(replicas))
+    , numReplicas(prototype->numReplicas)
+    , replicaLocations()
+    , openSegmentPool(OpenSegment::sizeOf(numReplicas))
     , openSegmentList()
     , outstandingRpcs(0)
     , activeTime()
@@ -361,18 +360,23 @@ BackupManager::freeSegment(uint64_t segmentId)
     // Make sure this segment isn't open:
     foreach (auto& openSegment, openSegmentList) {
         if (openSegment.segmentId == segmentId) {
+            foreach (auto& backup, openSegment.backups) {
+                if (backup && backup->rpc) {
+                    backup->rpc->cancel();
+                    backup->rpc.destroy();
+                    outstandingRpcs--;
+                }
+            }
             unopenSegment(&openSegment);
             break;
         }
     }
 
     // Free the segment on its backups:
-    const auto iters = segments.equal_range(segmentId);
-    foreach (auto item, iters) {
-        auto session = item.second;
-        BackupClient(session).freeSegment(*masterId, segmentId);
-    }
-    segments.erase(iters.first, iters.second);
+    const auto iters = replicaLocations.equal_range(segmentId);
+    foreach (auto item, iters)
+        BackupClient(item.second.session).freeSegment(*masterId, segmentId);
+    replicaLocations.erase(iters.first, iters.second);
 }
 
 /**
@@ -410,16 +414,10 @@ BackupManager::isSynced()
     // TODO(ongaro): Change to return (rpcsInFlight == 0)?
     //               Will need to call proceed in openSegment and write.
     foreach (auto& segment, openSegmentList) {
-        if (replicas == 0 && segment.closeQueued)
+        if (segment.getDone() != segment.queued)
             return false;
-        foreach (auto& backup, segment.backups) {
-            if (!backup || backup->rpc)
-                return false;
-            if (backup->closeSent != segment.closeQueued ||
-                backup->offsetSent != segment.offsetQueued) {
-                return false;
-            }
-        }
+        if (numReplicas == 0 && segment.queued.close)
+            return false;
     }
     return true;
 }
@@ -462,26 +460,25 @@ BackupManager::proceedNoMetrics()
     while (it != openSegmentList.end()) {
         auto& segment = *it;
         ++it;
-        if (!replicas || segment.backups[0]) {
-            bool closeDone = segment.closeQueued;
-            foreach (auto& backup, segment.backups) {
-                if (backup->rpc && backup->rpc->isReady()) {
-                    LOG(DEBUG, "Wait %lu.%lu", segment.segmentId,
-                        &backup - &segment.backups[0]);
-                    (*backup->rpc)();
-                    backup->rpc.destroy();
-                    outstandingRpcs--;
-                    backup->openIsDone = true;
-                    if (backup->closeSent)
-                        backup->closeTicks.destroy();
-                }
-                closeDone &= (!backup->rpc && backup->closeSent);
-            }
-            if (closeDone) {
-                 LOG(DEBUG, "Closed segment %lu, %lu",
-                     *masterId, segment.segmentId);
-                unopenSegment(&segment);
-            }
+        if (numReplicas && !segment.backups[0])
+            break;
+        foreach (auto& backup, segment.backups) {
+            if (backup->rpc && backup->rpc->isReady()) {
+                LOG(DEBUG, "Wait %lu.%lu", segment.segmentId,
+                    &backup - &segment.backups[0]);
+                (*backup->rpc)();
+                // TODO(ongaro): catch exceptions
+                backup->rpc.destroy();
+                outstandingRpcs--;
+                backup->done = backup->sent;
+                if (backup->done.close)
+                    backup->closeTicks.destroy();
+             }
+         }
+        if (segment.getDone().close) {
+             LOG(DEBUG, "Closed segment %lu, %lu",
+                 *masterId, segment.segmentId);
+            unopenSegment(&segment);
         }
     }
 
@@ -490,40 +487,40 @@ BackupManager::proceedNoMetrics()
     foreach (auto& segment, openSegmentList) {
         if (i++ == 4) // pick something >= 3 to throttle number of open RPCs
             break;
-        bool openDone = true;
-        foreach (auto& backup, segment.backups)
-            openDone &= backup && backup->openIsDone;
-        if (openDone)
+        if (segment.getDone().open) // skip to first segment that needs open
             continue;
 
-        if (replicas != 0 && !segment.backups[0]) {
+        if (numReplicas != 0 && !segment.backups[0]) {
             // No open request has been sent:
             // select backups, initialize backups,
             // and tell each of the backups to open the segment.
-            ProtoBuf::ServerList::Entry* backupHosts[replicas];
-            backupSelector.select(replicas, backupHosts);
+            ProtoBuf::ServerList::Entry* backupHosts[numReplicas];
+            backupSelector.select(numReplicas, backupHosts);
             auto flags = BackupWriteRpc::OPENPRIMARY;
 
-            uint32_t i = 0;
+            uint32_t j = 0;
             foreach (auto& backup, segment.backups) {
-                auto host = backupHosts[i++];
+                auto host = backupHosts[j++];
 
                 LOG(DEBUG, "Opening segment %lu, %lu.%lu on backup %s",
                     *masterId, segment.segmentId, &backup - &segment.backups[0],
                     host->service_locator().c_str());
                 auto session = Context::get().transportManager->getSession(
                                         host->service_locator().c_str());
-                // TODO(stutsman): catch exceptions
+                // TODO(stutsman): catch exceptions?
                 backup.construct(session);
-                segments.insert({segment.segmentId, session});
+                replicaLocations.insert(
+                        {segment.segmentId,
+                                 ReplicaLocation(host->server_id(), session)});
                 LOG(DEBUG, "Send open %lu.%lu", segment.segmentId,
                     &backup - &segment.backups[0]);
                 backup->rpc.construct(backup->client,
                                       *masterId, segment.segmentId,
                                       0, segment.data, segment.openLen,
                                       flags);
+                backup->sent.open = true;
+                backup->sent.bytes = segment.openLen;
                 flags = BackupWriteRpc::OPEN;
-                backup->offsetSent = segment.openLen;
                 outstandingRpcs++;
             }
         }
@@ -535,27 +532,23 @@ BackupManager::proceedNoMetrics()
     foreach (auto& segment, openSegmentList) {
         if (i++ == 4) // pick something to throttle the number of write RPCs
             break;
-        // check if 'segment' can proceed with a write/close
-        bool nextOpenDone = true;
-        auto next = openSegmentList.iterator_to(segment);
-        ++next;
-        if (next != openSegmentList.end()) {
-            foreach (auto& backup, next->backups)
-                nextOpenDone &= backup && backup->openIsDone;
-        }
-        if (segment.closeQueued && !nextOpenDone)
-            break; // waiting for next segment's open response
+        if (segment.queued.close) {
+            // check if 'segment' can proceed with a write/close
+            auto next = openSegmentList.iterator_to(segment);
+            ++next;
+            if (next != openSegmentList.end() && !next->getDone().open)
+                break; // waiting for next segment's open response
+         }
 
         foreach (auto& backup, segment.backups) {
             if (!backup)
                 break; // haven't started open yet
             if (backup->rpc)
                 continue; // RPC already active
-            if (backup->closeSent == segment.closeQueued &&
-                backup->offsetSent == segment.offsetQueued)
+            if (backup->done == segment.queued)
                 continue; // already synced
-            if (segment.closeQueued &&
-                &backup == &segment.backups[0] + replicas - 1) {
+            if (segment.queued.close &&
+                &backup == &segment.backups[numReplicas - 1]) {
                 if (metrics->master.logSyncBytes) {
                     backup->closeTicks.construct(
                         &metrics->master.logSyncCloseTicks);
@@ -567,8 +560,8 @@ BackupManager::proceedNoMetrics()
                 }
             }
 
-            uint32_t writeBytes = segment.offsetQueued - backup->offsetSent;
-            BackupWriteRpc::Flags flags = segment.closeQueued ?
+            uint32_t writeBytes = segment.queued.bytes - backup->sent.bytes;
+            BackupWriteRpc::Flags flags = segment.queued.close ?
                 BackupWriteRpc::CLOSE : BackupWriteRpc::NONE;
 
             // Throttle the largest sync we're willing to send. This avoids
@@ -582,16 +575,16 @@ BackupManager::proceedNoMetrics()
             backup->rpc.construct(backup->client,
                                   *masterId,
                                   segment.segmentId,
-                                  backup->offsetSent,
+                                  backup->sent.bytes,
                                   (static_cast<const char*>(segment.data) +
-                                   backup->offsetSent),
+                                   backup->sent.bytes),
                                   writeBytes,
                                   flags);
-            backup->offsetSent += writeBytes;
-            backup->closeSent = (flags == BackupWriteRpc::CLOSE);
+            backup->sent.bytes += writeBytes;
+            backup->sent.close = (flags == BackupWriteRpc::CLOSE);
             LOG(DEBUG, "Send write %lu.%lu (close=%d, offset=%d)",
                 segment.segmentId, &backup - &segment.backups[0],
-                segment.closeQueued, segment.offsetQueued);
+                segment.queued.close, segment.queued.bytes);
             outstandingRpcs++;
         }
     }

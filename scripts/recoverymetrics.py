@@ -855,7 +855,7 @@ def textReport(data):
         note='overall')
     networkSection.avgMinSum('  Master out during replication',
         [(master.master.replicationBytes * 8 / 2**30) /
-          (master.master.replicationTicks / master.clockFrequency)
+          (1 + (master.master.replicationTicks / master.clockFrequency))
          for master in masters],
         '{0:4.2f} Gb/s',
         note='overall')

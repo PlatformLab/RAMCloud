@@ -103,10 +103,7 @@ main(int argc, char *argv[])
     po::options_description configOptions("TestRunner");
     configOptions.add_options()
         ("help,h", "Produce help message")
-        ("verbose,v",
-         po::value<bool>(&progress)->
-            default_value(false),
-         "Show test progress");
+        ("verbose,v", "Show test progress");
     po::variables_map vm;
     po::store(po::parse_command_line(argc, argv, configOptions), vm);
     po::notify(vm);
@@ -114,6 +111,7 @@ main(int argc, char *argv[])
         std::cerr << configOptions << std::endl;
         exit(1);
     }
+    progress = vm.count("verbose");
 
     int googleArgc = 0;
     char* googleArgv[] = {NULL};

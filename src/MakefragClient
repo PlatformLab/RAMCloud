@@ -45,6 +45,7 @@ CLIENT_SRCFILES := \
 		   src/SpinLock.cc \
 		   src/Status.cc \
 		   src/StringKeyAdapter.cc \
+		   src/StringUtil.cc \
 		   src/TcpTransport.cc \
 		   src/TestLog.cc \
 		   src/ThreadId.cc \
