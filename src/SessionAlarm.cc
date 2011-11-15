@@ -178,6 +178,8 @@ SessionAlarmTimer::handleTimerEvent()
         Transport::ClientRpc* rpc = alarm->session.clientSend(request,
                 response);
         pings[alarm] = {rpc, request, response};
+        RAMCLOUD_LOG(NOTICE, "initiated ping request to %s",
+                alarm->session.getServiceLocator().c_str());
     }
 
     // Clean up ping RPCs that completed successfully.
@@ -185,6 +187,14 @@ SessionAlarmTimer::handleTimerEvent()
         PingMap::iterator current = it;
         it++;
         if (current->second.rpc->isReady()) {
+            try {
+                current->second.rpc->wait();
+                RAMCLOUD_LOG(NOTICE, "received ping response from %s",
+                        current->first->session.getServiceLocator().c_str());
+            }
+            catch (TransportException& e) {
+                RAMCLOUD_LOG(ERROR, "%s", e.message.c_str());
+            }
             delete current->second.request;
             delete current->second.response;
             pings.erase(current);

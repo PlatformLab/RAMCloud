@@ -120,6 +120,7 @@ TEST_F(SessionAlarmTest, basics) {
     // sure that at least once a timeout occurs in a period that we'd
     // expect (scheduling glitches on the machine could cause timeouts
     // to occasionally take longer than this).
+    TestLog::Enable _;
     SessionAlarm alarm(timer, session, 0);
     session.alarm = &alarm;
     double elapsed = 0.0;
@@ -245,7 +246,8 @@ TEST_F(SessionAlarmTimerTest, handleTimerEvent_incrementResponseTime) {
     EXPECT_EQ(10, alarm2.waitingForResponseMs);
 }
 
-TEST_F(SessionAlarmTimerTest, handleTimerEvent_pingAndabortSession) {
+TEST_F(SessionAlarmTimerTest, handleTimerEvent_pingAndAbortSession) {
+    TestLog::Enable _;
     SessionAlarm alarm1(timer, session, 0);
     alarm1.rpcStarted();
     alarm1.waitingForResponseMs = 25;
@@ -254,12 +256,15 @@ TEST_F(SessionAlarmTimerTest, handleTimerEvent_pingAndabortSession) {
     EXPECT_EQ(format("clientSend: opcode %d", RpcOpcode::PING),
             AlarmSession::log);
     AlarmSession::log.clear();
+    EXPECT_EQ("handleTimerEvent: initiated ping request to test:alarm",
+            TestLog::get());
     timer.handleTimerEvent();
     EXPECT_EQ("abort: server at test:alarm is not responding",
             AlarmSession::log);
 }
 
 TEST_F(SessionAlarmTest, handleTimerEvent_cleanupPings) {
+    TestLog::Enable _;
     // Create 3 different alarms.
     SessionAlarm alarm1(timer, session, 0);
     session.alarm = &alarm1;
@@ -280,6 +285,11 @@ TEST_F(SessionAlarmTest, handleTimerEvent_cleanupPings) {
         timer.handleTimerEvent();
     }
     EXPECT_EQ(3U, timer.pings.size());
+    EXPECT_EQ("handleTimerEvent: initiated ping request to test:alarm | "
+            "handleTimerEvent: initiated ping request to test:alarm | "
+            "handleTimerEvent: initiated ping request to test:alarm",
+            TestLog::get());
+    TestLog::reset();
 
     // Finish 2 of the pings (and check for proper cleanup).
     session.finishRpcs("done");
@@ -287,11 +297,15 @@ TEST_F(SessionAlarmTest, handleTimerEvent_cleanupPings) {
     timer.handleTimerEvent();
     EXPECT_EQ(1U, timer.pings.size());
     EXPECT_EQ(&alarm3, timer.pings.begin()->first);
+    EXPECT_EQ("handleTimerEvent: done | handleTimerEvent: done",
+            TestLog::get());
+    TestLog::reset();
 
     // Finish the third pings and check for cleanup.
     session3.finishRpcs("done");
     timer.handleTimerEvent();
     EXPECT_EQ(0U, timer.pings.size());
+    EXPECT_EQ("handleTimerEvent: done", TestLog::get());
 }
 
 TEST_F(SessionAlarmTimerTest, handleTimerEvent_restartTimer) {
