@@ -22,8 +22,9 @@
 #include "Common.h"
 #include "BoostIntrusive.h"
 #include "BackupSelector.h"
-#include "DurableSegment.h"
 #include "RawMetrics.h"
+#include "ReplicatedSegment.h"
+#include "TaskManager.h"
 #include "Tub.h"
 
 namespace RAMCloud {
@@ -36,6 +37,12 @@ namespace RAMCloud {
  */
 class BackupManager {
   PUBLIC:
+    /// Maximum number of bytes we'll send in any single write RPC
+    /// to backups. The idea is to avoid starving other RPCs to the
+    /// backup by not inundating it with segment-sized writes on
+    /// recovery.
+    enum { MAX_BYTES_PER_WRITE_RPC = 1024 * 1024 };
+
     BackupManager(CoordinatorClient* coordinator,
                   const Tub<uint64_t>& masterId,
                   uint32_t numReplicas);
@@ -46,26 +53,12 @@ class BackupManager {
     OpenSegment* openSegment(uint64_t segmentId,
                              const void* data, uint32_t len);
         __attribute__((warn_unused_result));
-    void sync();
     void proceed();
-    void dumpDurableSegments(); // defined for testing only
+    void sync();
+    void dumpReplicatedSegments(); // defined for testing only
 
     /// The number of backups to replicate each segment on.
     const uint32_t numReplicas;
-
-  PRIVATE:
-    void proceedNoMetrics();
-    bool isSynced();
-    void forgetDurableSegment(DurableSegment* durableSegment);
-
-    /// Maximum number of bytes we'll send in any single write RPC
-    /// to backups. The idea is to avoid starving other RPCs to the
-    /// backup by not inundating it with segment-sized writes on
-    /// recovery.
-    enum { MAX_WRITE_RPC_BYTES = 1024 * 1024 };
-
-    /// Cluster coordinator. May be NULL for testing purposes.
-    CoordinatorClient* const coordinator;
 
     /**
      * The coordinator-assigned server ID for this master or, equivalently, its
@@ -73,24 +66,35 @@ class BackupManager {
      */
     const Tub<uint64_t>& masterId;
 
+  PRIVATE:
+    void scheduleWorkIfNeeded();
+    void forgetReplicatedSegment(ReplicatedSegment* replicatedSegment);
+    bool isSynced();
+    void proceedNoMetrics();
+
+    /// Cluster coordinator. May be NULL for testing purposes.
+    CoordinatorClient* const coordinator;
+
     BackupSelector backupSelector; ///< See #BackupSelector.
 
-  PRIVATE:
-    typedef std::unordered_map<uint64_t, DurableSegment*>
+    typedef std::unordered_map<uint64_t, ReplicatedSegment*>
             SegmentMap;
     /// Tells which backup each segment is stored on.
     SegmentMap segments;
 
-    /// A pool from which all DurableSegment objects are allocated.
-    boost::pool<> durableSegmentPool;
+    /// A pool from which all ReplicatedSegment objects are allocated.
+    boost::pool<> replicatedSegmentPool;
 
-    INTRUSIVE_LIST_TYPEDEF(DurableSegment, listEntries) DurableSegmentList;
+    INTRUSIVE_LIST_TYPEDEF(ReplicatedSegment, listEntries)
+        ReplicatedSegmentList;
 
     /**
-     * A FIFO queue of all existing DurableSegment objects.
+     * A FIFO queue of all existing ReplicatedSegment objects.
      * Newly opened segments are pushed to the back of this list.
      */
-    DurableSegmentList durableSegmentList;
+    ReplicatedSegmentList replicatedSegmentList;
+
+    TaskManager taskManager;
 
     /// The number of RPCs that have been issued to backups but have not yet
     /// completed.

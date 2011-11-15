@@ -36,12 +36,13 @@ BackupManager::BackupManager(CoordinatorClient* coordinator,
                              const Tub<uint64_t>& masterId,
                              uint32_t numReplicas)
     : numReplicas(numReplicas)
-    , coordinator(coordinator)
     , masterId(masterId)
+    , coordinator(coordinator)
     , backupSelector(coordinator)
     , segments()
-    , durableSegmentPool(DurableSegment::sizeOf(numReplicas))
-    , durableSegmentList()
+    , replicatedSegmentPool(ReplicatedSegment::sizeOf(numReplicas))
+    , replicatedSegmentList()
+    , taskManager()
     , outstandingRpcs(0)
     , activeTime()
 {
@@ -61,12 +62,13 @@ BackupManager::BackupManager(CoordinatorClient* coordinator,
  */
 BackupManager::BackupManager(BackupManager* prototype)
     : numReplicas(prototype->numReplicas)
-    , coordinator(prototype->coordinator)
     , masterId(prototype->masterId)
+    , coordinator(prototype->coordinator)
     , backupSelector(prototype->coordinator)
     , segments()
-    , durableSegmentPool(DurableSegment::sizeOf(numReplicas))
-    , durableSegmentList()
+    , replicatedSegmentPool(ReplicatedSegment::sizeOf(numReplicas))
+    , replicatedSegmentList()
+    , taskManager()
     , outstandingRpcs(0)
     , activeTime()
 {
@@ -75,8 +77,8 @@ BackupManager::BackupManager(BackupManager* prototype)
 BackupManager::~BackupManager()
 {
     sync();
-    while (!durableSegmentList.empty())
-        forgetDurableSegment(&durableSegmentList.front());
+    while (!replicatedSegmentList.empty())
+        forgetReplicatedSegment(&replicatedSegmentList.front());
 }
 
 /**
@@ -108,24 +110,25 @@ BackupManager::openSegment(uint64_t segmentId, const void* data, uint32_t len)
 {
     CycleCounter<RawMetric> _(&metrics->master.backupManagerTicks);
     LOG(DEBUG, "openSegment %lu, %lu, ..., %u", *masterId, segmentId, len);
-    auto* p = durableSegmentPool.malloc();
+    auto* p = replicatedSegmentPool.malloc();
     if (p == NULL)
         DIE("Out of memory");
-    auto* durableSegment = new(p) DurableSegment(*this, segmentId,
-                                                 data, len, numReplicas);
-    durableSegmentList.push_back(*durableSegment);
-    return &durableSegment->openSegment;
+    auto* replicatedSegment = new(p) ReplicatedSegment(*this, segmentId,
+                                                        data, len, numReplicas);
+    replicatedSegmentList.push_back(*replicatedSegment);
+    return &replicatedSegment->openSegment;
 }
 
-/// Internal helper for #sync().
-bool
-BackupManager::isSynced()
+/**
+ * Make progress on replicating the log to backups, but don't block.
+ * This method checks for completion of outstanding backup operations and
+ * starts new ones when possible.
+ */
+void
+BackupManager::proceed()
 {
-    foreach (auto& segment, durableSegmentList) {
-        if (!segment.isSynced())
-            return false;
-    }
-    return true;
+    CycleCounter<RawMetric> _(&metrics->master.backupManagerTicks);
+    proceedNoMetrics();
 }
 
 /**
@@ -141,20 +144,38 @@ BackupManager::sync()
             proceedNoMetrics();
         }
     } // block ensures that _ is destroyed and counter stops
-    // TODO(stutsman): may need to rethink or rename this (outstandingWriteRpcs?)
+    // TODO(stutsman): may need to rename this (outstandingWriteRpcs?)
     assert(outstandingRpcs == 0);
 }
 
+// - private -
+
 /**
- * Make progress on replicating the log to backups, but don't block.
- * This method checks for completion of outstanding backup operations and
- * starts new ones when possible.
+ * Walk through all segments the BackupManager is responsible for and make
+ * sure that all their durability invariants hold.
+ * If some invariant is not met then this method schedules the appropriate
+ * tasks so that #proceed() will restore the invariant.
  */
 void
-BackupManager::proceed()
+BackupManager::scheduleWorkIfNeeded()
 {
-    CycleCounter<RawMetric> _(&metrics->master.backupManagerTicks);
-    proceedNoMetrics();
+    foreach (const auto& entry, segments) {
+        ReplicatedSegment* segment = entry.second;
+        // TODO(stutsman): Should we have an explicit recheck invariants
+        // call or should it be implicit in performTask?
+        segment->performTask(taskManager);
+    }
+}
+
+/// Internal helper for #sync().
+bool
+BackupManager::isSynced()
+{
+    foreach (auto& segment, replicatedSegmentList) {
+        if (!segment.isSynced())
+            return false;
+    }
+    return true;
 }
 
 /// \copydoc proceed()
@@ -163,19 +184,17 @@ BackupManager::proceedNoMetrics()
 {
 }
 
-// - private -
-
 /**
- * Remove the segment from durableSegmentList, call its destructor,
+ * Remove the segment from replicatedSegmentList, call its destructor,
  * and free its memory.
  * This is the opposite of #openSegment.
  */
 void
-BackupManager::forgetDurableSegment(DurableSegment* durableSegment)
+BackupManager::forgetReplicatedSegment(ReplicatedSegment* replicatedSegment)
 {
-    erase(durableSegmentList, *durableSegment);
-    durableSegment->~DurableSegment();
-    durableSegmentPool.free(durableSegment);
+    erase(replicatedSegmentList, *replicatedSegment);
+    replicatedSegment->~ReplicatedSegment();
+    replicatedSegmentPool.free(replicatedSegment);
 }
 
 } // namespace RAMCloud

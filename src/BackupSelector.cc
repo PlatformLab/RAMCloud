@@ -131,7 +131,7 @@ BackupSelector::select(uint32_t numBackups, Backup* backups[])
  */
 BackupSelector::Backup*
 BackupSelector::selectAdditional(uint32_t numBackups,
-                                                const Backup* const backups[])
+                                 const Backup* const backups[])
 {
     while (true) {
         for (uint32_t i = 0; i < uint32_t(hosts.server_size()) * 2; ++i) {

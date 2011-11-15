@@ -13,20 +13,24 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_DURABLESEGMENT_H
-#define RAMCLOUD_DURABLESEGMENT_H
+#ifndef RAMCLOUD_REPLICATEDSEGMENT_H
+#define RAMCLOUD_REPLICATEDSEGMENT_H
 
 #include "Common.h"
 #include "BackupClient.h"
 #include "BoostIntrusive.h"
 #include "RawMetrics.h"
 #include "Transport.h"
+#include "TaskManager.h"
 #include "VarLenArray.h"
 
 namespace RAMCloud {
 
-class BackupManager;     // forward-declaration
-class DurableSegment;    // forward-declaration
+// forward declarations
+class TaskManager;
+class Task;
+class BackupManager;
+class ReplicatedSegment;
 
 /**
  * A segment that is being replicated to backups.
@@ -39,13 +43,13 @@ class OpenSegment {
     void write(uint32_t offset, bool closeSegment);
 
   PRIVATE:
-    OpenSegment(DurableSegment& segment)
+    explicit OpenSegment(ReplicatedSegment& segment)
         : segment(segment) {}
 
     /// Internal state managing and tracking durability for this segment.
-    DurableSegment& segment;
+    ReplicatedSegment& segment;
 
-    friend class DurableSegment;
+    friend class ReplicatedSegment;
     DISALLOW_COPY_AND_ASSIGN(OpenSegment);
 };
 
@@ -53,10 +57,13 @@ class OpenSegment {
  * A segment that is being replicated to backups or is durable on backups.
  * Most of this class is used to store state internal to the BackupManager.
  */
-class DurableSegment {
+class ReplicatedSegment : public Task {
   PUBLIC:
-    DurableSegment(BackupManager& backupManager, uint64_t segmentId,
-                const void* data, uint32_t len, uint32_t numReplicas);
+    ReplicatedSegment(BackupManager& backupManager, uint64_t segmentId,
+                   const void* data, uint32_t len, uint32_t numReplicas);
+    ~ReplicatedSegment();
+
+    void performTask(TaskManager& taskManager);
 
     /// See OpenSegment::close().
     void close() {
@@ -66,13 +73,13 @@ class DurableSegment {
 
     /**
      * Return the number of bytes of space required on which to construct
-     * an DurableSegment instance.
+     * an ReplicatedSegment instance.
      */
     static size_t sizeOf(uint32_t numReplicas) {
-        return sizeof(DurableSegment) + sizeof(backups[0]) * numReplicas;
+        return sizeof(ReplicatedSegment) + sizeof(replicas[0]) * numReplicas;
     }
 
-    /// Intrusive list entries for #BackupManager::durableSegmentList.
+    /// Intrusive list entries for #BackupManager::replicatedSegmentList.
     IntrusiveListHook listEntries;
 
     /// A handle to hand out to client classes for them to schedule data.
@@ -163,25 +170,101 @@ class DurableSegment {
         {
             return !(*this == other);
         }
+
+        /**
+         * Return true if this Progress is less than another.
+         *
+         * \param other
+         *      Another Progress to compare against.
+         */
+        bool operator<(const Progress& other) const
+        {
+            if (open < other.open)
+                return true;
+            else if (bytes < other.bytes)
+                return true;
+            else if (close < other.close)
+                return true;
+            else
+                return false;
+        }
+
+        /**
+         * Return true if this Progress is greater or equal to another.
+         *
+         * \param other
+         *      Another Progress to compare against.
+         */
+        bool operator>=(const Progress& other) const
+        {
+            return !(*this < other);
+        }
     };
 
+    /// The state needed for a single (partial) replica of this segment.
+    struct Replica {
+        explicit Replica(Transport::SessionRef session)
+            : client(session)
+            , sent()
+            , done()
+            , closeTicks()
+            , writeRpc()
+            , freeRpc()
+        {
+        }
+
+        /// A client to the remote backup server.
+        BackupClient client;
+
+        /**
+         * Tracks whether open and closes have been sent for this segment
+         * and how many bytes of log data have been sent to this Backup.
+         * (Note: but not necessarily acknowledged, see #done).
+         */
+        Progress sent;
+
+        /**
+         * Tracks whether open and closes have been synced for this segment
+         * and how many bytes of log data have been synced to this Backup.
+         */
+        Progress done;
+
+        /// Measures the amount of time the close RPC is active.
+        Tub<CycleCounter<RawMetric>> closeTicks;
+
+        /// The outstanding write operation to this backup, if any.
+        Tub<BackupClient::WriteSegment> writeRpc;
+
+        /// The outstanding free operation to this backup, if any.
+        Tub<BackupClient::FreeSegment> freeRpc;
+
+        DISALLOW_COPY_AND_ASSIGN(Replica);
+    };
+
+    void scheduleOpen(TaskManager& taskManager, Replica& replica);
+    void scheduleWrite(TaskManager& taskManager, Replica& replica);
+
     /**
-     * Return the minimum Progress made in syncing this segment to Backups
-     * for any of the Backups.
+     * Return the minimum Progress made in syncing this replica to Backups
+     * for any of the replicas.
      */
     Progress getDone() {
         Progress p = queued;
-        foreach (auto& backup, backups) {
-            if (backup)
-                p.min(backup->done);
+        foreach (auto& replica, replicas) {
+            if (replica)
+                p.min(replica->done);
             else
                 return Progress();
         }
         return p;
     }
 
+    bool replicaIsPrimary(Replica& replica) {
+        return &replica== replicas[0].get();
+    }
+
     /**
-     * The BackupManager instance which owns this DurableSegment.
+     * The BackupManager instance which owns this ReplicatedSegment.
      */
     BackupManager& backupManager;
 
@@ -209,52 +292,12 @@ class DurableSegment {
     Progress queued;
 
     /**
-     * The state needed for a single (partial) replica of this segment.
-     */
-    struct Backup {
-        explicit Backup(Transport::SessionRef session)
-            : client(session)
-            , sent()
-            , done()
-            , closeTicks()
-            , rpc()
-        {
-        }
-
-        /**
-         * A handle to the remote backup server.
-         */
-        BackupClient client;
-
-        /**
-         * Tracks whether open and closes have been sent for this segment
-         * and how many bytes of log data have been sent to this Backup.
-         * (Note: but not necessarily acknowledged, see #done).
-         */
-        Progress sent;
-
-        /**
-         * Tracks whether open and closes have been synced for this segment
-         * and how many bytes of log data have been synced to this Backup.
-         */
-        Progress done;
-
-        /// Measures the amount of time the close RPC is active.
-        Tub<CycleCounter<RawMetric>> closeTicks;
-
-        /**
-         * Space for an asynchronous RPC call.
-         */
-        Tub<BackupClient::WriteSegment> rpc;
-    };
-
-    /**
      * An array of #BackupManager::replica backups on which to replicate
      * the segment.
      */
-    VarLenArray<Tub<Backup>> backups; // must be last member of class
+    VarLenArray<Tub<Replica>> replicas; // must be last member of class
 
-    DISALLOW_COPY_AND_ASSIGN(DurableSegment);
+    DISALLOW_COPY_AND_ASSIGN(ReplicatedSegment);
 };
 
 } // namespace RAMCloud

@@ -40,7 +40,6 @@ SHARED_SRCFILES := \
 		   src/Cycles.cc \
 		   src/Dispatch.cc \
 		   src/Driver.cc \
-		   src/DurableSegment.cc \
 		   src/FastTransport.cc \
 		   src/FailureDetector.cc \
 		   src/IpAddress.cc \
@@ -62,6 +61,7 @@ SHARED_SRCFILES := \
 		   src/RawMetrics.cc \
 		   src/Recovery.cc \
 		   src/RecoverySegmentIterator.cc \
+		   src/ReplicatedSegment.cc \
 		   src/Rpc.cc \
 		   src/Segment.cc \
 		   src/SegmentIterator.cc \
