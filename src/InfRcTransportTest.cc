@@ -103,7 +103,7 @@ TEST_F(InfRcTransportTest, InfRCSession_abort_onClientSendQueue) {
     } catch (TransportException& e) {
         message = e.message;
     }
-    EXPECT_EQ("empty RPC cancelled: aborted by test", message);
+    EXPECT_EQ("null RPC cancelled: aborted by test", message);
 }
 
 TEST_F(InfRcTransportTest, InfRCSession_abort_onOutstandingRpcs) {
@@ -134,7 +134,7 @@ TEST_F(InfRcTransportTest, InfRCSession_abort_onOutstandingRpcs) {
     } catch (TransportException& e) {
         message = e.message;
     }
-    EXPECT_EQ("empty RPC cancelled: aborted by test", message);
+    EXPECT_EQ("null RPC cancelled: aborted by test", message);
 }
 
 TEST_F(InfRcTransportTest, ClientRpc_cancelCleanup_rpcPending) {

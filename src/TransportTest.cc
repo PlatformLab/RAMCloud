@@ -170,7 +170,7 @@ TEST_F(TransportTest, cancel_charArgument) {
     } catch (TransportException& e) {
         message = e.message;
     }
-    EXPECT_EQ("empty RPC cancelled: message2", message);
+    EXPECT_EQ("null RPC cancelled: message2", message);
 }
 TEST_F(TransportTest, cancel_defaultMessage) {
     Transport::ClientRpc rpc(&request, &response);
@@ -181,7 +181,7 @@ TEST_F(TransportTest, cancel_defaultMessage) {
     } catch (TransportException& e) {
         message = e.message;
     }
-    EXPECT_EQ("empty RPC cancelled", message);
+    EXPECT_EQ("null RPC cancelled", message);
 }
 
 } // namespace RAMCloud

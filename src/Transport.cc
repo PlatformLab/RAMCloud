@@ -102,10 +102,8 @@ Transport::ClientRpc::cancel(const string& message)
     if (isReady())
         return;
     cancelCleanup();
-    const RpcRequestCommon* header = request->getStart<RpcRequestCommon>();
     string fullMessage = format("%s RPC cancelled",
-            (header != NULL) ?
-            Rpc::opcodeToSymbol(RpcOpcode(header->opcode)) : "empty");
+            Rpc::opcodeSymbol(*request));
     if (message.size() > 0) {
         fullMessage.append(": ");
         fullMessage.append(message);

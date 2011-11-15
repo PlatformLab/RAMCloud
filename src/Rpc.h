@@ -47,7 +47,7 @@ enum RpcServiceType {
  * change this table you must also reflect the changes in the following
  * locations:
  * - The definition of rpc in scripts/rawmetrics.py.
- * - The method opcodeToSymbol in Rpc.c.
+ * - The method opcodeSymbol in Rpc.c.
  */
 enum RpcOpcode {
     PING                    = 7,
@@ -597,7 +597,8 @@ struct ProxyPingRpc {
 };
 
 namespace Rpc {
-    extern const char* opcodeToSymbol(RpcOpcode opcode);
+    extern const char* opcodeSymbol(uint32_t opcode);
+    extern const char* opcodeSymbol(Buffer& buffer);
 }
 
 // --- Magic numbers ---

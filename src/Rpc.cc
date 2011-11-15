@@ -14,6 +14,7 @@
  */
 
 #include "Rpc.h"
+#include "Buffer.h"
 
 namespace RAMCloud {
 
@@ -29,7 +30,7 @@ namespace RAMCloud {
  *      See above.
  */
 const char*
-Rpc::opcodeToSymbol(RpcOpcode opcode)
+Rpc::opcodeSymbol(uint32_t opcode)
 {
     switch (opcode) {
         case PING:                       return "PING";
@@ -72,6 +73,26 @@ Rpc::opcodeToSymbol(RpcOpcode opcode)
     static char symbol[50];
     snprintf(symbol, sizeof(symbol), "unknown(%d)", opcode);
     return symbol;
+}
+
+
+/**
+ * Given a buffer containing an RPC request, return a human-readable string
+ * containing the symbolic name for the request's opcode, such as "PING".
+ *
+ * \param buffer
+ *      Must contain a well-formed RPC request.
+ *
+ * \return
+ *      A symbolic name for the request's opcode.
+ */
+const char*
+Rpc::opcodeSymbol(Buffer& buffer)
+{
+    const RpcRequestCommon* header = buffer.getStart<RpcRequestCommon>();
+    if (header == NULL)
+        return "null";
+    return opcodeSymbol(header->opcode);
 }
 
 }  // namespace RAMCloud

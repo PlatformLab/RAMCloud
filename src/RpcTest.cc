@@ -27,20 +27,30 @@ class RpcTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(RpcTest);
 };
 
-TEST_F(RpcTest, opcodeToSymbol) {
+TEST_F(RpcTest, opcodeSymbol_integer) {
     // Sample a few opcode values.
-    EXPECT_STREQ("PING", Rpc::opcodeToSymbol(PING));
-    EXPECT_STREQ("GET_TABLET_MAP", Rpc::opcodeToSymbol(GET_TABLET_MAP));
-    EXPECT_STREQ("ILLEGAL_RPC_TYPE", Rpc::opcodeToSymbol(ILLEGAL_RPC_TYPE));
+    EXPECT_STREQ("PING", Rpc::opcodeSymbol(PING));
+    EXPECT_STREQ("GET_TABLET_MAP", Rpc::opcodeSymbol(GET_TABLET_MAP));
+    EXPECT_STREQ("ILLEGAL_RPC_TYPE", Rpc::opcodeSymbol(ILLEGAL_RPC_TYPE));
 
     // Test out-of-range values.
-    EXPECT_STREQ("unknown(37)",
-            Rpc::opcodeToSymbol(RpcOpcode(ILLEGAL_RPC_TYPE+1)));
+    EXPECT_STREQ("unknown(37)", Rpc::opcodeSymbol(ILLEGAL_RPC_TYPE+1));
 
     // Make sure the next-to-last value is defined (this will fail if
-    // someone adds a new opcode and doesn't update opcodeToSymbol).
-    EXPECT_TRUE(NULL == strstr(Rpc::opcodeToSymbol(
-            RpcOpcode(ILLEGAL_RPC_TYPE-1)), "unknown"));
+    // someone adds a new opcode and doesn't update opcodeSymbol).
+    EXPECT_TRUE(NULL == strstr(Rpc::opcodeSymbol(ILLEGAL_RPC_TYPE-1),
+            "unknown"));
+}
+
+TEST_F(RpcTest, opcodeSymbol_buffer) {
+    // First, try an empty buffer with a valid header.
+    Buffer b;
+    EXPECT_STREQ("null", Rpc::opcodeSymbol(b));
+
+    // Now try a buffer with a valid header.
+    RpcRequestCommon* header = new(&b, APPEND) RpcRequestCommon;
+    header->opcode = PING;
+    EXPECT_STREQ("PING", Rpc::opcodeSymbol(b));
 }
 
 }  // namespace RAMCloud
