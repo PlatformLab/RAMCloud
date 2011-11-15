@@ -43,6 +43,8 @@ BackupClient::~BackupClient()
  * ensure the data contained in this segment is not provided during recovery
  * of masterId.  This allows the backup server to reuse its storage.
  *
+ * \param client
+ *      The BackupClient whose Session should be used for the call.
  * \param masterId
  *      The id of the master of the segment to be freed.
  * \param segmentId
@@ -50,16 +52,31 @@ BackupClient::~BackupClient()
  * \throw BackupBadSegmentIdException
  *      If the segment is not open or is unknown to the backup server.
  */
-void
-BackupClient::freeSegment(uint64_t masterId,
-                          uint64_t segmentId)
+BackupClient::FreeSegment::FreeSegment(BackupClient& client,
+                                       uint64_t masterId,
+                                       uint64_t segmentId)
+    : client(client)
+    , requestBuffer()
+    , responseBuffer()
+    , state()
 {
-    Buffer req, resp;
-    BackupFreeRpc::Request& reqHdr(allocHeader<BackupFreeRpc>(req));
+    BackupFreeRpc::Request& reqHdr(
+        client.allocHeader<BackupFreeRpc>(requestBuffer));
     reqHdr.masterId = masterId;
     reqHdr.segmentId = segmentId;
-    sendRecv<BackupFreeRpc>(session, req, resp);
-    checkStatus(HERE);
+    state = client.send<BackupFreeRpc>(client.session,
+                                       requestBuffer,
+                                       responseBuffer);
+}
+
+/**
+ * Block until the freeSegment call has completed.
+ */
+void
+BackupClient::FreeSegment::operator()()
+{
+    client.recv<BackupFreeRpc>(state);
+    client.checkStatus(HERE);
 }
 
 /**
