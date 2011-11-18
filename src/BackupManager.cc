@@ -37,9 +37,8 @@ BackupManager::BackupManager(CoordinatorClient* coordinator,
                              uint32_t numReplicas)
     : numReplicas(numReplicas)
     , masterId(masterId)
-    , coordinator(coordinator)
     , backupSelector(coordinator)
-    , segments()
+    , coordinator(coordinator)
     , replicatedSegmentPool(ReplicatedSegment::sizeOf(numReplicas))
     , replicatedSegmentList()
     , taskManager()
@@ -63,9 +62,8 @@ BackupManager::BackupManager(CoordinatorClient* coordinator,
 BackupManager::BackupManager(BackupManager* prototype)
     : numReplicas(prototype->numReplicas)
     , masterId(prototype->masterId)
-    , coordinator(prototype->coordinator)
     , backupSelector(prototype->coordinator)
-    , segments()
+    , coordinator(prototype->coordinator)
     , replicatedSegmentPool(ReplicatedSegment::sizeOf(numReplicas))
     , replicatedSegmentList()
     , taskManager()
@@ -88,6 +86,16 @@ void
 BackupManager::freeSegment(uint64_t segmentId)
 {
     CycleCounter<RawMetric> _(&metrics->master.backupManagerTicks);
+
+    // TODO(stutsman): Don't allow free on an open segment.
+
+    // Note: cannot use foreach since forgetReplicatedSegment
+    // modifies the replicatedSegmentList.
+    auto it = replicatedSegmentList.begin();
+    while (it != replicatedSegmentList.end()) {
+        it->free();
+        forgetReplicatedSegment(&*it);
+    }
 }
 
 /**
@@ -116,6 +124,7 @@ BackupManager::openSegment(uint64_t segmentId, const void* data, uint32_t len)
     auto* replicatedSegment = new(p) ReplicatedSegment(*this, segmentId,
                                                         data, len, numReplicas);
     replicatedSegmentList.push_back(*replicatedSegment);
+    scheduleTask(replicatedSegment);
     return &replicatedSegment->openSegment;
 }
 
@@ -159,11 +168,10 @@ BackupManager::sync()
 void
 BackupManager::scheduleWorkIfNeeded()
 {
-    foreach (const auto& entry, segments) {
-        ReplicatedSegment* segment = entry.second;
-        // TODO(stutsman): Should we have an explicit recheck invariants
-        // call or should it be implicit in performTask?
-        segment->performTask(taskManager);
+    foreach (auto& segment, replicatedSegmentList) {
+        bool needsAttention = segment.performTask();
+        if (needsAttention)
+            scheduleTask(&segment);
     }
 }
 
@@ -182,6 +190,7 @@ BackupManager::isSynced()
 void
 BackupManager::proceedNoMetrics()
 {
+    taskManager.proceed();
 }
 
 /**

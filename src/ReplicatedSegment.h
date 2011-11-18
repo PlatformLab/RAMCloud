@@ -60,11 +60,12 @@ class OpenSegment {
 class ReplicatedSegment : public Task {
   PUBLIC:
     ReplicatedSegment(BackupManager& backupManager, uint64_t segmentId,
-                   const void* data, uint32_t len, uint32_t numReplicas);
+                      const void* data, uint32_t len, uint32_t numReplicas);
     ~ReplicatedSegment();
 
-    void performTask(TaskManager& taskManager);
+    bool performTask();
 
+    void free();
     /// See OpenSegment::close().
     void close() {
         write(queued.bytes, true);
@@ -241,8 +242,10 @@ class ReplicatedSegment : public Task {
         DISALLOW_COPY_AND_ASSIGN(Replica);
     };
 
-    void scheduleOpen(TaskManager& taskManager, Replica& replica);
-    void scheduleWrite(TaskManager& taskManager, Replica& replica);
+    bool performFree(Tub<Replica>& replica);
+    bool performWrite(Tub<Replica>& replica);
+    void constructOpen(Replica& replica);
+    void constructWrite(Replica& replica);
 
     /**
      * Return the minimum Progress made in syncing this replica to Backups
@@ -259,8 +262,12 @@ class ReplicatedSegment : public Task {
         return p;
     }
 
+    bool replicaIsPrimary(Tub<Replica>& replica) {
+        return &replica == &replicas[0];
+    }
+
     bool replicaIsPrimary(Replica& replica) {
-        return &replica== replicas[0].get();
+        return &replica == replicas[0].get();
     }
 
     /**
@@ -290,6 +297,9 @@ class ReplicatedSegment : public Task {
      * to Backups.
      */
     Progress queued;
+
+    /// True if all known replicas of this segment should be eliminated.
+    bool freeQueued;
 
     /**
      * An array of #BackupManager::replica backups on which to replicate

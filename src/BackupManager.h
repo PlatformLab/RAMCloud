@@ -57,6 +57,9 @@ class BackupManager {
     void sync();
     void dumpReplicatedSegments(); // defined for testing only
 
+    // TODO(stutsman): The public stuff below is for ReplicatedSegment
+    // I'd really like to hide this from the higher level interface.
+
     /// The number of backups to replicate each segment on.
     const uint32_t numReplicas;
 
@@ -66,21 +69,18 @@ class BackupManager {
      */
     const Tub<uint64_t>& masterId;
 
+    void forgetReplicatedSegment(ReplicatedSegment* replicatedSegment);
+    void scheduleTask(Task* task) { taskManager.add(task); }
+
+    BackupSelector backupSelector; ///< See #BackupSelector.
+
   PRIVATE:
     void scheduleWorkIfNeeded();
-    void forgetReplicatedSegment(ReplicatedSegment* replicatedSegment);
     bool isSynced();
     void proceedNoMetrics();
 
     /// Cluster coordinator. May be NULL for testing purposes.
     CoordinatorClient* const coordinator;
-
-    BackupSelector backupSelector; ///< See #BackupSelector.
-
-    typedef std::unordered_map<uint64_t, ReplicatedSegment*>
-            SegmentMap;
-    /// Tells which backup each segment is stored on.
-    SegmentMap segments;
 
     /// A pool from which all ReplicatedSegment objects are allocated.
     boost::pool<> replicatedSegmentPool;

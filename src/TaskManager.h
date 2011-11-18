@@ -26,9 +26,20 @@ class TaskManager;      // forward-declaration
 
 class Task {
   PUBLIC:
+    Task()
+        : scheduled(false)
+    {
+    }
+
     /// Returns true if the Task is finished.
-    virtual void performTask(TaskManager& manager) = 0;
+    virtual bool performTask() = 0;
     virtual ~Task() {}
+    bool isScheduled() { return scheduled; }
+
+  PRIVATE:
+    bool scheduled;
+
+    friend class TaskManager;
 };
 
 class TaskManager {
@@ -39,6 +50,9 @@ class TaskManager {
     }
 
     void add(Task* task) {
+        if (task->isScheduled())
+            return;
+        task->scheduled = true;
         tasks.push(task);
     }
 
@@ -46,11 +60,14 @@ class TaskManager {
         // TODO(stutsman): what's best to do with exceptions?
         // how can we log it?  should we auto retry?
         size_t numTasks = tasks.size();
-        for (size_t i = numTasks; i < numTasks; ++i) {
+        for (size_t i = 0; i < numTasks; ++i) {
             assert(!tasks.empty());
             Task* task = tasks.front();
             tasks.pop();
-            task->performTask(*this);
+            task->scheduled = false;
+            bool needsMoreAttention = task->performTask();
+            if (needsMoreAttention)
+                add(task);
         }
     }
 

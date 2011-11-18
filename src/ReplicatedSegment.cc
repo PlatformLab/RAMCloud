@@ -66,6 +66,7 @@ ReplicatedSegment::ReplicatedSegment(BackupManager& backupManager,
     , data(data)
     , openLen(len)
     , queued(true, len, false)
+    , freeQueued(false)
     , replicas(numReplicas)
 {
 }
@@ -74,77 +75,113 @@ ReplicatedSegment::~ReplicatedSegment()
 {
 }
 
-void
-ReplicatedSegment::performTask(TaskManager& taskManager)
+// Return whether this replica has been freed.
+bool
+ReplicatedSegment::performFree(Tub<Replica>& replica)
 {
-    /*
-    if (freeing) {
-        if (outstanding rpcs) {
-            taskManager.add;
-            return;
+    if (!replica) {
+        return true;
+    } else if (replica->freeRpc && replica->freeRpc->isReady()) {
+        try {
+            (*replica->freeRpc)();
+            //LOG(ERROR, "Backup free completed");
+            replica.destroy();
+        } catch (ClientException& e) {
+            // TODO(stutsman): What do we want to do here?
+            //  a) move forward, lose storage
+            //  b) wedge?
+            // TODO(stutsman): Need a better log message once
+            // correct host details are in the Replica.
+            LOG(WARNING,
+                "Failure while freeing replica on backup: %s",
+                e.what());
+            DIE("TODO: Haven't decided what to do when a free to "
+                "a backup fails");
         }
+        return true;
+    } else if (!replica->writeRpc) {
+        replica->freeRpc.construct(replica->client,
+                                   *backupManager.masterId, segmentId);
     }
 
-    if (no replicas created yet) {
-        select replicas;
-        scheduleOpen();
-        taskManager.add;
-        return;
-    }
-    */
+    return false;
+}
 
-    // TODO(stutsman): if still in send mode
-    foreach (auto& replica, replicas) {
-        if (!replica) {
-            // Replica state can be reset if it was lost due to a failure.
-            // Select a new backup for that replica and start over.
-            // TODO(stutsman): choose a random backup
-            //replica.construct(...session here...);
-            scheduleOpen(taskManager, *replica);
-            continue;
+// Return whether all outstanding work for this replica is completed.
+bool
+ReplicatedSegment::performWrite(Tub<Replica>& replica)
+{
+    if (!replica) {
+        // Replica state can be reset if it was lost due to a failure.
+        // Select a new backup for that replica and start over.
+        BackupSelector::Backup* backup;
+        // TODO(stutsman): take care of the conflict arrays
+        // maybe push this stuff down into the constOpen
+        if (replicaIsPrimary(replica))
+            backup = backupManager.backupSelector.selectPrimary(0, NULL);
+        else
+            backup = backupManager.backupSelector.selectSecondary(0, NULL);
+        const string& serviceLocator = backup->service_locator();
+        Transport::SessionRef session =
+            Context::get().transportManager->getSession(serviceLocator.c_str());
+        replica.construct(session);
+        constructOpen(*replica);
+    } else if (replica->writeRpc && replica->writeRpc->isReady()) {
+        try {
+            (*replica->writeRpc)();
+            replica->done = replica->sent;
+            //LOG(ERROR, "Backup write completed");
+            replica->writeRpc.destroy();
+        } catch (ClientException& e) {
+            // TODO(stutsman): What do we want to do here?
+            LOG(WARNING,
+                "Failure while writing replica on backup: %s",
+                e.what());
+            DIE("TODO: Haven't decided what to do when a write to "
+                "a backup fails");
         }
-        if (replica->writeRpc || replica->freeRpc)
-            continue;
-        if (replica->sent < queued) {
-            // This backup doesn't have an outstanding task and it
-            // has some data which hasn't been sent to the backup.
-            scheduleWrite(taskManager, *replica);
-        }
+        //LOG(ERROR, "Backup write completed");
+        return true;
+    } else if (!replica->writeRpc && replica->sent < queued) {
+        // This backup doesn't have an outstanding task and it
+        // has some data which hasn't been sent to the backup.
+        constructWrite(*replica);
     }
-    // TODO(stutsman): else if in free mode then schedule a free
-    taskManager.add(this);
+
+    return false;
+}
+
+bool
+ReplicatedSegment::performTask()
+{
+    if (freeQueued) {
+        uint32_t numFreed = 0;
+        foreach (auto& replica, replicas)
+            numFreed += performFree(replica);
+        if (numFreed == backupManager.numReplicas) {
+            // Everything is freed, destroy ourself.
+            backupManager.forgetReplicatedSegment(this);
+            // Note: "this" is no longer valid make sure to return false asap.
+            return false;
+        } else {
+            return true;
+        }
+    } else {
+        bool workDone = true;
+        foreach (auto& replica, replicas)
+            workDone &= performWrite(replica);
+        return !workDone;
+    }
 }
 
 void
-ReplicatedSegment::scheduleOpen(TaskManager& taskManager,
-                                Replica& replica)
+ReplicatedSegment::free()
 {
-    BackupWriteRpc::Flags flags = BackupWriteRpc::OPEN;
-    if (replicaIsPrimary(replica))
-        flags = BackupWriteRpc::OPENPRIMARY;
-    replica.writeRpc.construct(replica.client,
-                               *backupManager.masterId, segmentId,
-                               0, data, openLen, flags);
-}
-
-void
-ReplicatedSegment::scheduleWrite(TaskManager& taskManager,
-                              Replica& replica)
-{
-    uint32_t offset = replica.sent.bytes;
-    uint32_t length = queued.bytes - replica.sent.bytes;
-    BackupWriteRpc::Flags flags = queued.close ?
-                                    BackupWriteRpc::CLOSE :
-                                    BackupWriteRpc::NONE;
-
-    if (length > BackupManager::MAX_BYTES_PER_WRITE_RPC) {
-        length = BackupManager::MAX_BYTES_PER_WRITE_RPC;
-        flags = BackupWriteRpc::NONE;
-    }
-
-    replica.writeRpc.construct(replica.client,
-                               *backupManager.masterId, segmentId,
-                               offset, data, length, flags);
+    freeQueued = true;
+    // Note: Need to construct a free task in order for this to take place.
+    // Hence the BackupManager constructWorkIfNeeded immediately following
+    // this call.
+    backupManager.scheduleTask(this);
 }
 
 /// See OpenSegment::write.
@@ -163,6 +200,49 @@ ReplicatedSegment::write(uint32_t offset,
         LOG(DEBUG, "Segment %lu closed (length %d)", segmentId, queued.bytes);
         ++metrics->master.segmentCloseCount;
     }
+
+    backupManager.scheduleTask(this);
+}
+
+// - private -
+
+void
+ReplicatedSegment::constructOpen(Replica& replica)
+{
+    BackupWriteRpc::Flags flags = BackupWriteRpc::OPEN;
+    if (replicaIsPrimary(replica))
+        flags = BackupWriteRpc::OPENPRIMARY;
+    //LOG(ERROR, "Sending backup opening write");
+    replica.writeRpc.construct(replica.client,
+                               *backupManager.masterId, segmentId,
+                               0, data, openLen, flags);
+    replica.sent.open = true;
+    replica.sent.bytes = openLen;
+}
+
+void
+ReplicatedSegment::constructWrite(Replica& replica)
+{
+    assert(!replica.writeRpc);
+    assert(!replica.freeRpc);
+    assert(!replica.sent.close);
+    uint32_t offset = replica.sent.bytes;
+    uint32_t length = queued.bytes - replica.sent.bytes;
+    BackupWriteRpc::Flags flags = queued.close ?
+                                    BackupWriteRpc::CLOSE :
+                                    BackupWriteRpc::NONE;
+
+    if (length > BackupManager::MAX_BYTES_PER_WRITE_RPC) {
+        length = BackupManager::MAX_BYTES_PER_WRITE_RPC;
+        flags = BackupWriteRpc::NONE;
+    }
+
+    //LOG(ERROR, "Sending backup write");
+    replica.writeRpc.construct(replica.client,
+                               *backupManager.masterId, segmentId,
+                               offset, data, length, flags);
+    replica.sent.bytes += length;
+    replica.sent.close = (flags == BackupWriteRpc::CLOSE);
 }
 
 } // namespace RAMCloud
