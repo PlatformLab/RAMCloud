@@ -65,7 +65,6 @@ struct AbuserData{
                                   1024 / 1024 / bandwidth);
     }
 };
-
 } // anonymous namespace
 
 // --- BackupSelector ---
@@ -73,7 +72,7 @@ struct AbuserData{
 /**
  * Constructor.
  * \param coordinator
- *      See #coordinator.
+ *      The coordinator from which the server list is fetched to find backups.
  */
 BackupSelector::BackupSelector(CoordinatorClient* coordinator)
     : updateHostListThrower()
@@ -85,26 +84,22 @@ BackupSelector::BackupSelector(CoordinatorClient* coordinator)
 }
 
 /**
- * Choose backups for a segment.
+ * From a set of 5 backups that does not conflict with an existing set of
+ * backups choose the one that will minimize expected time to read replicas
+ * from disk in the case that this master should crash.
  * \param[in] numBackups
- *      The number of backups to choose.
- * \param[out] backups
- *      An array of numBackups entries in which to return the chosen backups.
- *      The first entry should store the primary replica.
+ *      The number of entries in the \a backups array.
+ * \param[in] backups
+ *      An array of numBackups entries, none of which may conflict with the
+ *      returned backup.
  */
-void
-BackupSelector::select(uint32_t numBackups, Backup* backups[])
+BackupSelector::Backup*
+BackupSelector::selectPrimary(uint32_t numBackups,
+                              const uint64_t backupIds[])
 {
-    if (numBackups == 0)
-        return;
-    while (hosts.server_size() == 0)
-        updateHostListFromCoordinator();
-
-    // Select primary (the least loaded of 5 random backups):
-    auto& primary = backups[0];
-    primary = getRandomHost();
+    auto* primary = selectSecondary(numBackups, backupIds);
     for (uint32_t i = 0; i < 5 - 1; ++i) {
-        auto candidate = getRandomHost();
+        auto* candidate = selectSecondary(numBackups, backupIds);
         if (AbuserData(primary).getMs() > AbuserData(candidate).getMs())
             primary = candidate;
     }
@@ -115,9 +110,7 @@ BackupSelector::select(uint32_t numBackups, Backup* backups[])
     ++h->numSegments;
     primary->set_user_data(h->user_data);
 
-    // Select secondaries:
-    for (uint32_t i = 1; i < numBackups; ++i)
-        backups[i] = selectAdditional(i, backups);
+    return primary;
 }
 
 /**
@@ -130,13 +123,13 @@ BackupSelector::select(uint32_t numBackups, Backup* backups[])
  *      returned backup.
  */
 BackupSelector::Backup*
-BackupSelector::selectAdditional(uint32_t numBackups,
-                                 const Backup* const backups[])
+BackupSelector::selectSecondary(uint32_t numBackups,
+                                const uint64_t backupIds[])
 {
     while (true) {
         for (uint32_t i = 0; i < uint32_t(hosts.server_size()) * 2; ++i) {
             auto host = getRandomHost();
-            if (!conflictWithAny(host, numBackups, backups))
+            if (!conflictWithAny(host, numBackups, backupIds))
                 return host;
         }
         // The constraints must be unsatisfiable with the current backup list.
@@ -182,30 +175,36 @@ BackupSelector::getRandomHost()
 }
 
 /**
- * Return whether it is unwise to place a replica on backup 'a' given that a
- * replica exists on backup 'b'. For example, it is unwise to place two
- * replicas on the same backup or on backups that share a common power source.
+ * Return whether it is unwise to place a replica on backup 'backup' given
+ * that a replica exists on backup 'otherBackupId'.
+ * For example, it is unwise to place two replicas on the same backup or
+ * on backups that share a common power source.
  */
 bool
-BackupSelector::conflict(const Backup* a, const Backup* b) const
+BackupSelector::conflict(const Backup* backup,
+                         const uint64_t otherBackupId) const
 {
-    if (a == b)
+    if (backup->server_id() == otherBackupId)
         return true;
     // TODO(ongaro): Add other notions of conflicts, such as same rack.
+    // TODO(stutsman): This doesn't even capture the notion of a master
+    // confliciting with its local backup.  It only prevents us from
+    // choosing the same backup more than once in odd edge cases of the
+    // algorithm.
     return false;
 }
 
 /**
- * Return whether it is unwise to place a replica on backup 'a' given that
- * replica exists on 'backups'. See #conflict.
+ * Return whether it is unwise to place a replica on backup 'backup' given
+ * that replica exists on 'backups'. See #conflict.
  */
 bool
-BackupSelector::conflictWithAny(const Backup* a,
-                                           uint32_t numBackups,
-                                           const Backup* const backups[]) const
+BackupSelector::conflictWithAny(const Backup* backup,
+                                uint32_t numBackups,
+                                const uint64_t backupIds[]) const
 {
     for (uint32_t i = 0; i < numBackups; ++i) {
-        if (conflict(a, backups[i]))
+        if (conflict(backup, backupIds[i]))
             return true;
     }
     return false;

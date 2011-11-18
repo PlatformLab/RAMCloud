@@ -29,14 +29,17 @@ class BackupSelector {
   PUBLIC:
     typedef ProtoBuf::ServerList::Entry Backup;
     explicit BackupSelector(CoordinatorClient* coordinator);
-    void select(uint32_t numBackups, Backup* backups[]);
-    Backup* selectAdditional(uint32_t numBackups,
-                             const Backup* const backups[]);
+    Backup* selectPrimary(uint32_t numBackups,
+                          const uint64_t backupIds[]);
+    Backup* selectSecondary(uint32_t numBackups,
+                            const uint64_t backupIds[]);
   PRIVATE:
     Backup* getRandomHost();
-    bool conflict(const Backup* a, const Backup* b) const;
-    bool conflictWithAny(const Backup* a, uint32_t numBackups,
-                             const Backup* const backups[]) const;
+    bool conflict(const Backup* backup,
+                  const uint64_t otherBackupId) const;
+    bool conflictWithAny(const Backup* backup,
+                         uint32_t numBackups,
+                         const uint64_t backupIds[]) const;
     void updateHostListFromCoordinator();
 
     /// A hook for testing purposes.
