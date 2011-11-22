@@ -33,44 +33,31 @@ class BackupManager;
 class ReplicatedSegment;
 
 /**
- * A segment that is being replicated to backups.
- * This is a simple handle that presents a limited interface to client
- * abstractions (e.g. Log).
- */
-class OpenSegment {
-  PUBLIC:
-    void close();
-    void write(uint32_t offset, bool closeSegment);
-
-  PRIVATE:
-    explicit OpenSegment(ReplicatedSegment& segment)
-        : segment(segment) {}
-
-    /// Internal state managing and tracking durability for this segment.
-    ReplicatedSegment& segment;
-
-    friend class ReplicatedSegment;
-    DISALLOW_COPY_AND_ASSIGN(OpenSegment);
-};
-
-/**
+ * TODO: Violates JO no more info than the name rule.
+ * TODO: Who calls, what does it do (from external perspective), what is involved?
  * A segment that is being replicated to backups or is durable on backups.
  * Most of this class is used to store state internal to the BackupManager.
  */
 class ReplicatedSegment : public Task {
   PUBLIC:
-    ReplicatedSegment(BackupManager& backupManager, uint64_t segmentId,
-                      const void* data, uint32_t len, uint32_t numReplicas);
-    ~ReplicatedSegment();
-
-    bool performTask();
-
     void free();
+
     /// See OpenSegment::close().
     void close() {
         write(queued.bytes, true);
     }
+
     void write(uint32_t offset, bool closeSegment);
+
+  PRIVATE:
+    friend class BackupManager;
+
+    ReplicatedSegment(BackupManager& backupManager, TaskManager& taskManager,
+                      uint64_t segmentId, const void* data, uint32_t len,
+                      uint32_t numReplicas);
+    ~ReplicatedSegment();
+
+    void performTask();
 
     /**
      * Return the number of bytes of space required on which to construct
@@ -83,9 +70,6 @@ class ReplicatedSegment : public Task {
     /// Intrusive list entries for #BackupManager::replicatedSegmentList.
     IntrusiveListHook listEntries;
 
-    /// A handle to hand out to client classes for them to schedule data.
-    OpenSegment openSegment;
-
     /**
      * Returns true when any data queued for this segment is durably
      * synced to #numReplicas including any outstanding flags.
@@ -94,9 +78,8 @@ class ReplicatedSegment : public Task {
         return getDone() == queued;
     }
 
-  PRIVATE:
     /**
-     * Tracks progress in replicating a segment replica.
+     * TODO Tracks something.
      * Different instances can track progress of different statuses.
      * For example, BackupManager tracks progress queued, sent, and
      * done replicating.
@@ -242,10 +225,8 @@ class ReplicatedSegment : public Task {
         DISALLOW_COPY_AND_ASSIGN(Replica);
     };
 
-    bool performFree(Tub<Replica>& replica);
-    bool performWrite(Tub<Replica>& replica);
-    void constructOpen(Replica& replica);
-    void constructWrite(Replica& replica);
+    void performFree(Tub<Replica>& replica);
+    void performWrite(Tub<Replica>& replica);
 
     /**
      * Return the minimum Progress made in syncing this replica to Backups
@@ -264,10 +245,6 @@ class ReplicatedSegment : public Task {
 
     bool replicaIsPrimary(Tub<Replica>& replica) {
         return &replica == &replicas[0];
-    }
-
-    bool replicaIsPrimary(Replica& replica) {
-        return &replica == replicas[0].get();
     }
 
     /**
@@ -309,6 +286,9 @@ class ReplicatedSegment : public Task {
 
     DISALLOW_COPY_AND_ASSIGN(ReplicatedSegment);
 };
+
+// TODO: Remove this once OpenSegment is removed from other classes.
+typedef ReplicatedSegment OpenSegment;
 
 } // namespace RAMCloud
 

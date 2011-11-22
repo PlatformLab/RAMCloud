@@ -87,10 +87,10 @@ BackupSelector::BackupSelector(CoordinatorClient* coordinator)
  * From a set of 5 backups that does not conflict with an existing set of
  * backups choose the one that will minimize expected time to read replicas
  * from disk in the case that this master should crash.
- * \param[in] numBackups
- *      The number of entries in the \a backups array.
- * \param[in] backups
- *      An array of numBackups entries, none of which may conflict with the
+ * \param numBackups
+ *      The number of entries in the \a backupIds array.
+ * \param backupIds
+ *      An array of numBackups backup ids, none of which may conflict with the
  *      returned backup.
  */
 BackupSelector::Backup*
@@ -116,10 +116,10 @@ BackupSelector::selectPrimary(uint32_t numBackups,
 /**
  * Choose a random backup that does not conflict with an existing set of
  * backups.
- * \param[in] numBackups
+ * \param numBackups
  *      The number of entries in the \a backups array.
- * \param[in] backups
- *      An array of numBackups entries, none of which may conflict with the
+ * \param backupIds
+ *      An array of numBackups backup ids, none of which may conflict with the
  *      returned backup.
  */
 BackupSelector::Backup*
@@ -187,7 +187,7 @@ BackupSelector::conflict(const Backup* backup,
     if (backup->server_id() == otherBackupId)
         return true;
     // TODO(ongaro): Add other notions of conflicts, such as same rack.
-    // TODO(stutsman): This doesn't even capture the notion of a master
+    // TODO: This doesn't even capture the notion of a master
     // confliciting with its local backup.  It only prevents us from
     // choosing the same backup more than once in odd edge cases of the
     // algorithm.

@@ -67,6 +67,7 @@ TESTS_SRCFILES := \
 		  src/StringKeyAdapterTest.cc \
 		  src/StringUtilTest.cc \
 		  src/TabletProfilerTest.cc \
+		  src/TaskManagerTest.cc \
 		  src/TcpTransportTest.cc \
 		  src/TestRunner.cc \
 		  src/TestUtil.cc \

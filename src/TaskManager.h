@@ -24,55 +24,69 @@ namespace RAMCloud {
 
 class TaskManager;      // forward-declaration
 
+/**
+ * Abstract class which represents some work that can be queued up and executed
+ * at a later time.  This makes it easy to quickly schedule asynchronous jobs
+ * which are periodically checked for completeness out of a performance
+ * sensitive context.
+ *
+ * Users subclass Task and provide an implementation for #performTask()
+ * specific to the deferred work they want done.  Each task is associated with
+ * a TaskManager which eventually performs it whenever the task is scheduled
+ * (see #schedule()).
+ *
+ * Importantly, creators of tasks must take care to ensure that a task is not
+ * scheduled when it is destroyed, otherwise future calls to
+ * taskManager.proceed() will result in undefined behavior.
+ */
 class Task {
   PUBLIC:
-    Task()
-        : scheduled(false)
-    {
-    }
+    Task(TaskManager& taskManager);
+    virtual ~Task();
 
-    /// Returns true if the Task is finished.
-    virtual bool performTask() = 0;
-    virtual ~Task() {}
-    bool isScheduled() { return scheduled; }
+    /**
+     * Pure virtual method implemented by subclasses; its execution
+     * is deferred to a later time perform work asynchronously.
+     * See #schedule() and TaskManager::proceed().
+     */
+    virtual void performTask() = 0;
+
+    bool isScheduled();
+    void schedule();
 
   PRIVATE:
+    /// Executes this Task when it #isScheduled() on #taskManager.proceed().
+    TaskManager& taskManager;
+
+    /// True if #performTask() will be run on the next #taskManager.proceed().
     bool scheduled;
 
     friend class TaskManager;
 };
 
+/**
+ * Queues up tasks and exceutes them at a later time.  This makes it easy to
+ * quickly schedule asynchronous jobs which are periodically checked for
+ * completeness out of a performance sensitive context.
+ * See Task for details on how to create tasks and releated gotchas.
+ */
 class TaskManager {
   PUBLIC:
-    TaskManager()
-        : tasks()
-    {
-    }
-
-    void add(Task* task) {
-        if (task->isScheduled())
-            return;
-        task->scheduled = true;
-        tasks.push(task);
-    }
-
-    void proceed() {
-        // TODO(stutsman): what's best to do with exceptions?
-        // how can we log it?  should we auto retry?
-        size_t numTasks = tasks.size();
-        for (size_t i = 0; i < numTasks; ++i) {
-            assert(!tasks.empty());
-            Task* task = tasks.front();
-            tasks.pop();
-            task->scheduled = false;
-            bool needsMoreAttention = task->performTask();
-            if (needsMoreAttention)
-                add(task);
-        }
-    }
+    TaskManager();
+    ~TaskManager();
+    bool isIdle();
+    void proceed();
 
   PRIVATE:
+    void schedule(Task* task);
+
+    /**
+     * Points to tasks which should be executed on the next call to #proceed().
+     * Provides FIFO order for task scheduling.
+     */
     std::queue<Task*> tasks;
+
+    friend class Task;
 };
 
 } // namespace RAMCloud

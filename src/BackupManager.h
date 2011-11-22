@@ -57,10 +57,10 @@ class BackupManager {
     void sync();
     void dumpReplicatedSegments(); // defined for testing only
 
-    // TODO(stutsman): The public stuff below is for ReplicatedSegment
+    // TODO: The public stuff below is for ReplicatedSegment
     // I'd really like to hide this from the higher level interface.
 
-    /// The number of backups to replicate each segment on.
+    /// The number of backups to replicate each segment on. Only used by ReplicatedSegment.
     const uint32_t numReplicas;
 
     /**
@@ -70,12 +70,11 @@ class BackupManager {
     const Tub<uint64_t>& masterId;
 
     void forgetReplicatedSegment(ReplicatedSegment* replicatedSegment);
-    void scheduleTask(Task* task) { taskManager.add(task); }
 
     BackupSelector backupSelector; ///< See #BackupSelector.
 
   PRIVATE:
-    void scheduleWorkIfNeeded();
+    void scheduleWorkIfNeeded(); // TODO configurationChanged?
     bool isSynced();
     void proceedNoMetrics();
 

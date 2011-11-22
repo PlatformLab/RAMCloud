@@ -75,6 +75,9 @@ BackupManager::BackupManager(BackupManager* prototype)
 BackupManager::~BackupManager()
 {
     sync();
+    // Waiting for sync() is insufficient, may have outstanding frees, etc.
+    while (!taskManager.isIdle())
+        proceed();
     while (!replicatedSegmentList.empty())
         forgetReplicatedSegment(&replicatedSegmentList.front());
 }
@@ -87,14 +90,16 @@ BackupManager::freeSegment(uint64_t segmentId)
 {
     CycleCounter<RawMetric> _(&metrics->master.backupManagerTicks);
 
-    // TODO(stutsman): Don't allow free on an open segment.
+    // TODO: Don't allow free on an open segment.
 
     // Note: cannot use foreach since forgetReplicatedSegment
     // modifies the replicatedSegmentList.
     auto it = replicatedSegmentList.begin();
     while (it != replicatedSegmentList.end()) {
         it->free();
-        forgetReplicatedSegment(&*it);
+        ++it;
+        while (!taskManager.isIdle())
+            proceed();
     }
 }
 
@@ -121,11 +126,12 @@ BackupManager::openSegment(uint64_t segmentId, const void* data, uint32_t len)
     auto* p = replicatedSegmentPool.malloc();
     if (p == NULL)
         DIE("Out of memory");
-    auto* replicatedSegment = new(p) ReplicatedSegment(*this, segmentId,
-                                                        data, len, numReplicas);
+    auto* replicatedSegment = new(p) ReplicatedSegment(*this, taskManager,
+                                                       segmentId, data, len,
+                                                       numReplicas);
     replicatedSegmentList.push_back(*replicatedSegment);
-    scheduleTask(replicatedSegment);
-    return &replicatedSegment->openSegment;
+    replicatedSegment->schedule();
+    return replicatedSegment;
 }
 
 /**
@@ -153,13 +159,14 @@ BackupManager::sync()
             proceedNoMetrics();
         }
     } // block ensures that _ is destroyed and counter stops
-    // TODO(stutsman): may need to rename this (outstandingWriteRpcs?)
+    // TODO: may need to rename this (outstandingWriteRpcs?)
     assert(outstandingRpcs == 0);
 }
 
 // - private -
 
 /**
+ * TODO: this is a lot of how
  * Walk through all segments the BackupManager is responsible for and make
  * sure that all their durability invariants hold.
  * If some invariant is not met then this method schedules the appropriate
@@ -168,11 +175,8 @@ BackupManager::sync()
 void
 BackupManager::scheduleWorkIfNeeded()
 {
-    foreach (auto& segment, replicatedSegmentList) {
-        bool needsAttention = segment.performTask();
-        if (needsAttention)
-            scheduleTask(&segment);
-    }
+    foreach (auto& segment, replicatedSegmentList)
+        segment.performTask();
 }
 
 /// Internal helper for #sync().
@@ -194,9 +198,9 @@ BackupManager::proceedNoMetrics()
 }
 
 /**
- * Remove the segment from replicatedSegmentList, call its destructor,
- * and free its memory.
- * This is the opposite of #openSegment.
+ * Invoked by ReplicatedSegment to indicate that the BackupManager no longer
+ * needs to keep an information about this segment (e.g. when all
+ * replicas are freed on backups or during shutdown).
  */
 void
 BackupManager::forgetReplicatedSegment(ReplicatedSegment* replicatedSegment)
