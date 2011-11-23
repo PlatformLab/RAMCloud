@@ -470,6 +470,14 @@ struct Task {
         rpc.construct(client, masterId, backupHost.segment_id(),
                       partitionId, response);
     }
+    ~Task()
+    {
+        if (rpc && !rpc->isReady()) {
+            LOG(WARNING, "Task destroyed while RPC active: segment %lu, "
+                    "server %s", backupHost.segment_id(),
+                    backupHost.service_locator().c_str());
+        }
+    }
     void resend() {
         LOG(DEBUG, "Resend %lu", backupHost.segment_id());
         response.reset();
@@ -648,7 +656,7 @@ MasterService::recover(uint64_t masterId,
                 ++metrics->master.segmentReadCount;
                 ++activeRequests;
             } catch (const TransportException& e) {
-                LOG(DEBUG, "Couldn't contact %s, trying next backup; "
+                LOG(WARNING, "Couldn't contact %s, trying next backup; "
                     "failure was: %s",
                     backup->service_locator().c_str(),
                     e.str().c_str());
@@ -703,8 +711,9 @@ MasterService::recover(uint64_t masterId,
                         0 - metrics->transport.transmit.byteCount;
                     gotFirstGRD = true;
                 }
-                LOG(DEBUG, "Got getRecoveryData response, took %.1f us "
+                LOG(DEBUG, "Got getRecoveryData response from %s, took %.1f us "
                     "on channel %ld",
+                    task->backupHost.service_locator().c_str(),
                     Cycles::toSeconds(grdTime)*1e06,
                     &task - &tasks[0]);
 
@@ -738,15 +747,16 @@ MasterService::recover(uint64_t masterId,
                     static_cast<int>(Cycles::perSecond()/1000.0);
                 continue;
             } catch (const TransportException& e) {
-                LOG(DEBUG, "Couldn't contact %s, trying next backup; "
-                    "failure was: %s",
+                LOG(WARNING, "Couldn't contact %s for segment %lu, "
+                    "trying next backup; failure was: %s",
                     task->backupHost.service_locator().c_str(),
+                    task->backupHost.segment_id(),
                     e.str().c_str());
                 task->backupHost.set_user_data(REC_REQ_FAILED);
                 runningSet.erase(task->backupHost.segment_id());
             } catch (const ClientException& e) {
-                LOG(DEBUG, "getRecoveryData failed on %s, trying next backup; "
-                    "failure was: %s",
+                LOG(WARNING, "getRecoveryData failed on %s, "
+                    "trying next backup; failure was: %s",
                     task->backupHost.service_locator().c_str(),
                     e.str().c_str());
                 task->backupHost.set_user_data(REC_REQ_FAILED);
@@ -781,7 +791,7 @@ MasterService::recover(uint64_t masterId,
                     runningSet.insert(backup->segment_id());
                     ++metrics->master.segmentReadCount;
                 } catch (const TransportException& e) {
-                    LOG(DEBUG, "Couldn't contact %s, trying next backup; "
+                    LOG(WARNING, "Couldn't contact %s, trying next backup; "
                         "failure was: %s",
                         backup->service_locator().c_str(),
                         e.str().c_str());

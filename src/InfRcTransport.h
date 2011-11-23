@@ -288,6 +288,12 @@ class InfRcTransport : public Transport {
      */
     uint32_t numUsedClientSrqBuffers;
 
+    /**
+     * Number of server receive buffers that are currently available for
+     * new requests.
+     */
+    uint32_t numFreeServerSrqBuffers;
+
     /// RPCs which are awaiting their responses from the network.
     ClientRpcList outstandingRpcs;
 

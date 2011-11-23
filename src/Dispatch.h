@@ -315,6 +315,12 @@ class Dispatch {
      */
     bool hasDedicatedThread;
 
+    /**
+     * Threshold (in cycles) used to print warnings when the poller loop is taking
+     * an unusually long time. 
+     */
+    uint64_t slowPollerCycles;
+
     static Syscall *sys;
 
     friend class Poller;

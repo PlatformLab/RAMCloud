@@ -242,6 +242,7 @@ void worker(Context* context, Transport::SessionRef session) {
 TEST_F(TransportManagerTest, workerSessionSyncWithDispatchThread) {
     Context context(true);
     Context::Guard _(context);
+    TestLog::Enable logSilencer;
 
     MockTransport transport;
     Transport::SessionRef wrappedSession = new TransportManager::WorkerSession(

@@ -309,6 +309,7 @@ TEST_F(SessionAlarmTest, handleTimerEvent_cleanupPings) {
 }
 
 TEST_F(SessionAlarmTimerTest, handleTimerEvent_restartTimer) {
+    TestLog::Enable _;
     Cycles::mockTscValue = 1000;
     timer.timerIntervalTicks = 100;
     dispatch.poll();

@@ -134,6 +134,7 @@ InfRcTransport<Infiniband>::InfRcTransport(const ServiceLocator *sl)
       queuePairMap(),
       clientSendQueue(),
       numUsedClientSrqBuffers(MAX_SHARED_RX_QUEUE_DEPTH),
+      numFreeServerSrqBuffers(0),
       outstandingRpcs(),
       clientRpcsActiveTime(),
       locatorString(),
@@ -348,6 +349,9 @@ InfRcTransport<Infiniband>::InfRCSession::abort(const string& message)
         typename ClientRpcList::iterator current(it);
         it++;
         if (current->session == this) {
+            LOG(NOTICE, "Infiniband aborting %s request to %s",
+                    Rpc::opcodeSymbol(*current->request),
+                    getServiceLocator().c_str());
             current->cancel(message);
         }
     }
@@ -357,6 +361,9 @@ InfRcTransport<Infiniband>::InfRCSession::abort(const string& message)
         typename ClientRpcList::iterator current(it);
         it++;
         if (current->session == this) {
+            LOG(NOTICE, "Infiniband aborting %s request to %s",
+                    Rpc::opcodeSymbol(*current->request),
+                    getServiceLocator().c_str());
             current->cancel(message);
         }
     }
@@ -653,6 +660,8 @@ InfRcTransport<Infiniband>::postSrqReceiveAndKickTransmit(ibv_srq* srq,
             clientSendQueue.pop_front();
             rpc.sendOrQueue();
         }
+    } else {
+        ++numFreeServerSrqBuffers;
     }
 }
 
@@ -672,6 +681,21 @@ InfRcTransport<Infiniband>::getTransmitBuffer()
     // if we've drained our free tx buffer pool, we must wait.
     while (freeTxBuffers.empty()) {
         reapTxBuffers();
+
+        if (freeTxBuffers.empty()) {
+            // We are temporarily out of buffers. Time how long it takes
+            // before a transmit buffer becomes available again (a long
+            // time could indicate deadlock); in the normal case this code
+            // is not invoked.
+            uint64_t start = Cycles::rdtsc();
+            while (freeTxBuffers.empty())
+                reapTxBuffers();
+            double waitMs = 1e03 * Cycles::toSeconds(Cycles::rdtsc() - start);
+            if (waitMs > 1.0)  {
+                LOG(WARNING, "Long delay waiting for transmit buffers "
+                        "(%.1f ms); possible deadlock?", waitMs);
+            }
+        }
     }
 
     BufferDescriptor* bd = freeTxBuffers.back();
@@ -680,7 +704,6 @@ InfRcTransport<Infiniband>::getTransmitBuffer()
     if (!transmitCycleCounter) {
         transmitCycleCounter.construct();
     }
-
     return bd;
 }
 
@@ -1027,6 +1050,7 @@ InfRcTransport<Infiniband>::Poller::poll()
 
             BufferDescriptor* bd =
                 reinterpret_cast<BufferDescriptor*>(wc.wr_id);
+            --t->numFreeServerSrqBuffers;
 
             if (wc.status != IBV_WC_SUCCESS) {
                 LOG(ERROR, "failed to receive rpc!");
@@ -1034,6 +1058,11 @@ InfRcTransport<Infiniband>::Poller::poll()
                 goto done;
             }
 
+            if (t->numFreeServerSrqBuffers < MAX_SHARED_RX_QUEUE_DEPTH / 2) {
+                LOG(WARNING, "Running low on server receive buffers: "
+                    "%d left", t->numFreeServerSrqBuffers);
+            }
+            assert(t->numFreeServerSrqBuffers <= MAX_SHARED_RX_QUEUE_DEPTH);
             Header& header(*reinterpret_cast<Header*>(bd->buffer));
             ServerRpc *r = t->serverRpcPool.construct(t, qp, header.nonce);
             PayloadChunk::appendToBuffer(&r->requestPayload,

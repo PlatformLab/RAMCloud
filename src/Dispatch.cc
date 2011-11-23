@@ -68,6 +68,7 @@ Dispatch::Dispatch(bool hasDedicatedThread)
     , lockNeeded(0)
     , locked(0)
     , hasDedicatedThread(hasDedicatedThread)
+    , slowPollerCycles(Cycles::fromSeconds(.001))
 {
     exitPipeFds[0] = exitPipeFds[1] = -1;
 }
@@ -124,7 +125,12 @@ void
 Dispatch::poll()
 {
     assert(isDispatchThread());
+    uint64_t previous = currentTime;
     currentTime = Cycles::rdtsc();
+    if (((currentTime - previous) > slowPollerCycles) && hasDedicatedThread) {
+        LOG(WARNING, "Long gap in poller: %.1f ms",
+                Cycles::toSeconds(currentTime - previous)*1e03);
+    }
     if (lockNeeded.load() != 0) {
         // Someone wants us locked. Indicate that we are locked,
         // then wait for the lock to be released.
@@ -135,6 +141,12 @@ Dispatch::poll()
         }
         locked.store(0);
         Fence::enter();
+        uint64_t newCurrent = Cycles::rdtsc();
+        if ((newCurrent - currentTime) > 10000000) {
+            LOG(WARNING, "Long lockout in poller: %.1f ms",
+                    Cycles::toSeconds(newCurrent - currentTime)*1e03);
+        }
+        currentTime = newCurrent;
     }
     for (uint32_t i = 0; i < pollers.size(); i++) {
         pollers[i]->poll();
