@@ -62,6 +62,8 @@ SHARED_SRCFILES := \
 		   src/RecoverySegmentIterator.cc \
 		   src/Segment.cc \
 		   src/SegmentIterator.cc \
+		   src/ServerId.cc \
+		   src/ServerList.cc \
 		   src/ServerMetrics.cc \
 		   src/ServerRpcPool.cc \
 		   src/Service.cc \

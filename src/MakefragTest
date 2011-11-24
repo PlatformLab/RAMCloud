@@ -51,8 +51,11 @@ TESTS_SRCFILES := \
 		  src/RecoveryTest.cc \
 		  src/SegmentTest.cc \
 		  src/SegmentIteratorTest.cc \
+		  src/ServerIdTest.cc \
+		  src/ServerListTest.cc \
 		  src/ServerMetricsTest.cc \
 		  src/ServerRpcPoolTest.cc \
+		  src/ServerTrackerTest.cc \
 		  src/ServiceTest.cc \
 		  src/ServiceManagerTest.cc \
 		  src/ServiceLocatorTest.cc \
