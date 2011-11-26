@@ -68,7 +68,7 @@ Dispatch::Dispatch(bool hasDedicatedThread)
     , lockNeeded(0)
     , locked(0)
     , hasDedicatedThread(hasDedicatedThread)
-    , slowPollerCycles(Cycles::fromSeconds(.001))
+    , slowPollerCycles(Cycles::fromSeconds(.01))
 {
     exitPipeFds[0] = exitPipeFds[1] = -1;
 }
@@ -142,7 +142,7 @@ Dispatch::poll()
         locked.store(0);
         Fence::enter();
         uint64_t newCurrent = Cycles::rdtsc();
-        if ((newCurrent - currentTime) > 10000000) {
+        if ((newCurrent - currentTime) > slowPollerCycles) {
             LOG(WARNING, "Long lockout in poller: %.1f ms",
                     Cycles::toSeconds(newCurrent - currentTime)*1e03);
         }

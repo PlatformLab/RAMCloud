@@ -169,8 +169,14 @@ ServiceManager::handleRpc(Transport::ServerRpc* rpc)
     // Find a thread to execute the RPC, and hand off the RPC.
     Worker* worker;
     if (idleThreads.empty()) {
+        uint64_t cyclesBefore = Cycles::rdtsc();
         worker = new Worker(Context::get());
         worker->thread.construct(workerMain, worker);
+        double seconds = Cycles::toSeconds(Cycles::rdtsc() - cyclesBefore);
+        if (seconds > 0.003) {
+            LOG(NOTICE, "Long gap starting new thread: %.1f ms",
+                    1e03 * seconds);
+        }
     } else {
         worker = idleThreads.back();
         idleThreads.pop_back();
