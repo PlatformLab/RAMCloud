@@ -393,6 +393,9 @@ InfRcTransport<Infiniband>::InfRCSession::clientSend(Buffer* request,
         throw TransportException(HERE, abortMessage);
     }
 
+    LOG(DEBUG, "Sending %s request to %s with %u bytes",
+            Rpc::opcodeSymbol(*request), getServiceLocator().c_str(),
+            request->getTotalLength());
     if (request->getTotalLength() > t->getMaxRpcSize()) {
         throw TransportException(HERE,
              format("client request exceeds maximum rpc size "
@@ -533,7 +536,8 @@ InfRcTransport<Infiniband>::clientTrySetupQueuePair(IpAddress& address)
     for (uint32_t i = 0; i < QP_EXCHANGE_MAX_TIMEOUTS; i++) {
         QueuePairTuple outgoingQpt(downCast<uint16_t>(lid),
                                    qp->getLocalQpNumber(),
-                                   qp->getInitialPsn(), generateRandom());
+                                   qp->getInitialPsn(), generateRandom(),
+                                   name);
         QueuePairTuple incomingQpt;
         bool gotResponse;
 
@@ -613,6 +617,7 @@ InfRcTransport<Infiniband>::ServerConnectHandler::handleFileEvent(int events)
             MAX_TX_QUEUE_DEPTH,
             MAX_SHARED_RX_QUEUE_DEPTH);
     qp->plumb(&incomingQpt);
+    qp->setPeerName(incomingQpt.getPeerName());
 
     // now send the client back our queue pair information so they can
     // complete the initialisation.
@@ -693,7 +698,7 @@ InfRcTransport<Infiniband>::getTransmitBuffer()
             double waitMs = 1e03 * Cycles::toSeconds(Cycles::rdtsc() - start);
             if (waitMs > 1.0)  {
                 LOG(WARNING, "Long delay waiting for transmit buffers "
-                        "(%.1f ms); possible deadlock?", waitMs);
+                        "(%.1f ms); deadlock or target crashed?", waitMs);
             }
         }
     }
@@ -765,6 +770,21 @@ InfRcTransport<Infiniband>::getServiceLocator()
     return locatorString;
 }
 
+/**
+ * Record a name that we can use to identify this application/machine
+ * to peers.
+ *
+ * \param debugName
+ *      Name suitable for use in log messages on servers that we
+ *      interact with.
+ */
+template<typename Infiniband>
+void
+InfRcTransport<Infiniband>::setName(const char* debugName)
+{
+    snprintf(name, sizeof(name), "%s", debugName);
+}
+
 //-------------------------------------
 // InfRcTransport::ServerRpc class
 //-------------------------------------
@@ -819,6 +839,10 @@ InfRcTransport<Infiniband>::ServerRpc::sendReply()
     }
 
     BufferDescriptor* bd = t->getTransmitBuffer();
+    LOG(DEBUG, "%s RPC from %s at %lu replying with transmit buffer %lu",
+        Rpc::opcodeSymbol(requestPayload), qp->getPeerName(),
+        reinterpret_cast<uint64_t>(this),
+        reinterpret_cast<uint64_t>(bd));
     new(&replyPayload, PREPEND) Header(nonce);
     {
         CycleCounter<RawMetric> copyTicks(
@@ -1197,5 +1221,7 @@ InfRcTransport<Infiniband>::PayloadChunk::PayloadChunk(void* data,
 }
 
 template class InfRcTransport<RealInfiniband>;
+template<typename Infiniband> char InfRcTransport<Infiniband>::name[50]
+        = "?unknown?";
 
 }  // namespace RAMCloud

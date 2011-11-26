@@ -25,6 +25,7 @@
 #include "BackupClient.h"
 #include "BackupService.h"
 #include "Context.h"
+#include "InfRcTransport.h"
 #include "ShortMacros.h"
 #include "OptionParser.h"
 #include "MasterService.h"
@@ -133,6 +134,8 @@ main(int argc, char *argv[])
             LOG(DEBUG, "server: Pinned to core %d", cpu);
         }
 
+        InfRcTransport<>::setName(
+                optionParser.options.getLocalLocator().c_str());
         Context::get().transportManager->setTimeout(
                 optionParser.options.getTransportTimeout());
         Context::get().transportManager->initialize(

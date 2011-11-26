@@ -86,6 +86,7 @@ class InfRcTransport : public Transport {
         logMemoryBytes = bytes;
         RAMCLOUD_LOG(NOTICE, "Registered %Zd bytes at %p", bytes, base);
     }
+    static void setName(const char* name);
 
   PRIVATE:
     class ServerRpc : public Transport::ServerRpc {
@@ -355,6 +356,10 @@ class InfRcTransport : public Transport {
 
     /// Pool allocator for our ServerRpc objects.
     ServerRpcPool<ServerRpc> serverRpcPool;
+
+    /// Name for this machine/application (passed from clients to servers so
+    /// servers know who they are talking to).
+    static char name[50];
 
     DISALLOW_COPY_AND_ASSIGN(InfRcTransport);
 };
