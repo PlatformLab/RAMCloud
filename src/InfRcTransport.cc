@@ -734,7 +734,8 @@ InfRcTransport<Infiniband>::reapTxBuffers()
         freeTxBuffers.push_back(bd);
 
         if (retArray[i].status != IBV_WC_SUCCESS) {
-            LOG(ERROR, "Transmit failed: %s",
+            LOG(ERROR, "Transmit failed for buffer %lu: %s",
+                reinterpret_cast<uint64_t>(bd),
                 infiniband->wcStatusToString(retArray[i].status));
         }
     }
@@ -839,7 +840,7 @@ InfRcTransport<Infiniband>::ServerRpc::sendReply()
     }
 
     BufferDescriptor* bd = t->getTransmitBuffer();
-    LOG(DEBUG, "%s RPC from %s at %lu replying with transmit buffer %lu",
+    LOG(DEBUG, "Replying to %s RPC from %s at %lu with transmit buffer %lu",
         Rpc::opcodeSymbol(requestPayload), qp->getPeerName(),
         reinterpret_cast<uint64_t>(this),
         reinterpret_cast<uint64_t>(bd));
@@ -1049,6 +1050,9 @@ InfRcTransport<Infiniband>::Poller::poll()
                 metrics->transport.receive.byteCount +=
                     rpc.response->getTotalLength();
                 metrics->transport.receive.ticks += receiveTicks.stop();
+                LOG(DEBUG, "Received reply for %s request to %s",
+                        Rpc::opcodeSymbol(*rpc.request),
+                        rpc.session->getServiceLocator().c_str());
                 rpc.markFinished();
                 if (t->outstandingRpcs.empty())
                     t->clientRpcsActiveTime.destroy();
@@ -1081,18 +1085,28 @@ InfRcTransport<Infiniband>::Poller::poll()
                 t->postSrqReceiveAndKickTransmit(t->serverSrq, bd);
                 goto done;
             }
-
-            if (t->numFreeServerSrqBuffers < MAX_SHARED_RX_QUEUE_DEPTH / 2) {
-                LOG(WARNING, "Running low on server receive buffers: "
-                    "%d left", t->numFreeServerSrqBuffers);
-            }
-            assert(t->numFreeServerSrqBuffers <= MAX_SHARED_RX_QUEUE_DEPTH);
             Header& header(*reinterpret_cast<Header*>(bd->buffer));
             ServerRpc *r = t->serverRpcPool.construct(t, qp, header.nonce);
-            PayloadChunk::appendToBuffer(&r->requestPayload,
-                bd->buffer + downCast<uint32_t>(sizeof(header)),
-                wc.byte_len - downCast<uint32_t>(sizeof(header)),
-                t, t->serverSrq, bd);
+
+            uint32_t len = wc.byte_len - downCast<uint32_t>(sizeof(header));
+            if (t->numFreeServerSrqBuffers < 2) {
+                // Running low on buffers; copy the data so we can return
+                // the buffer immediately.
+                LOG(NOTICE, "Receive buffers running low; copying request");
+                memcpy(new(&r->requestPayload, APPEND) char[len],
+                        bd->buffer + sizeof(header), len);
+                t->postSrqReceiveAndKickTransmit(t->serverSrq, bd);
+            } else {
+                // Let the request use the NIC's buffer directly in order
+                // to avoid copying; it will be returned when the request
+                // buffer is destroyed.
+                PayloadChunk::appendToBuffer(&r->requestPayload,
+                    bd->buffer + downCast<uint32_t>(sizeof(header)),
+                    len, t, t->serverSrq, bd);
+            }
+            LOG(NOTICE, "Received %s request from %s",
+                    Rpc::opcodeSymbol(r->requestPayload),
+                    qp->getPeerName());
             Context::get().serviceManager->handleRpc(r);
             ++metrics->transport.receive.messageCount;
             ++metrics->transport.receive.packetCount;
