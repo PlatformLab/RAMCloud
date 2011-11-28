@@ -388,9 +388,9 @@ class Transport {
     /// after which a session will be aborted if there has been no sign of
     /// life from the server. Transports may use shorter internal timeouts
     /// to trigger retransmissions.  The current value for this was chosen
-    /// somewhat subjectively in 10/2011, based observations of a few 10s
-    /// of ms delay occasionally in TcpTransport.
-    static const uint32_t DEFAULT_TIMEOUT_MS = 50;
+    /// somewhat subjectively in 11/2011, based on the presence of time gaps
+    /// in the poller of as much as 250ms.
+    static const uint32_t DEFAULT_TIMEOUT_MS = 500;
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(Transport);

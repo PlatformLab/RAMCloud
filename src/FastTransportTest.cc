@@ -1746,7 +1746,7 @@ TEST_F(ClientSessionTest, init) {
     ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=0x3742");
     session->init(serviceLocator, 0);
     EXPECT_TRUE(NULL != session->serverAddress.get());
-    EXPECT_EQ(10000000UL, session->timeoutCycles);
+    EXPECT_EQ(100000000UL, session->timeoutCycles);
     session->init(serviceLocator, 20000);
     EXPECT_EQ(1000000000UL*4UL, session->timeoutCycles);
 }
