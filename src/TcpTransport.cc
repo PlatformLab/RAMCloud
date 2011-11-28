@@ -537,7 +537,7 @@ TcpTransport::TcpSession::TcpSession(const ServiceLocator& serviceLocator,
         , clientIoHandler()
         , errorInfo()
         , alarm(*Context::get().sessionAlarmTimer, *this,
-                (timeoutMs != 0) ? timeoutMs/2 : DEFAULT_TIMEOUT_MS)
+                (timeoutMs != 0) ? timeoutMs : DEFAULT_TIMEOUT_MS)
 {
     setServiceLocator(serviceLocator.getOriginalString());
     fd = sys->socket(PF_INET, SOCK_STREAM, 0);

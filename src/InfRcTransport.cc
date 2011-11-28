@@ -315,7 +315,7 @@ InfRcTransport<Infiniband>::InfRCSession::InfRCSession(
     : transport(transport)
     , qp(NULL)
     , alarm(*Context::get().sessionAlarmTimer, *this,
-            (timeoutMs != 0) ? timeoutMs/2 : DEFAULT_TIMEOUT_MS)
+            (timeoutMs != 0) ? timeoutMs : DEFAULT_TIMEOUT_MS)
     , abortMessage()
 {
     setServiceLocator(sl.getOriginalString());
