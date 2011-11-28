@@ -72,12 +72,12 @@ TEST_F(InfRcTransportTest, sanityCheck) {
     EXPECT_EQ("ok", TestUtil::checkLargeBuffer(&reply, 50000));
 }
 
-TEST_F(InfRcTransportTest, InfRCSession_abort_onClientSendQueue) {
+TEST_F(InfRcTransportTest, InfRcSession_abort_onClientSendQueue) {
     TestLog::Enable _;
     // Create a server and a client.
     InfRcTransport<RealInfiniband> server(locator);
     InfRcTransport<RealInfiniband> client;
-    InfRcTransport<RealInfiniband>::InfRCSession session(&client, *locator, 0);
+    InfRcTransport<RealInfiniband>::InfRcSession session(&client, *locator, 0);
 
     // Arrange for 2 messages on clientSendQueue.
     Buffer request1, request2;
@@ -106,12 +106,12 @@ TEST_F(InfRcTransportTest, InfRCSession_abort_onClientSendQueue) {
     EXPECT_EQ("null RPC cancelled: aborted by test", message);
 }
 
-TEST_F(InfRcTransportTest, InfRCSession_abort_onOutstandingRpcs) {
+TEST_F(InfRcTransportTest, InfRcSession_abort_onOutstandingRpcs) {
     TestLog::Enable _;
     // Create a server and a client.
     InfRcTransport<RealInfiniband> server(locator);
     InfRcTransport<RealInfiniband> client;
-    InfRcTransport<RealInfiniband>::InfRCSession session(&client, *locator, 0);
+    InfRcTransport<RealInfiniband>::InfRcSession session(&client, *locator, 0);
 
     // Arrange for 2 messages on outstandingRpcs.
     Buffer request1, request2;
@@ -142,7 +142,7 @@ TEST_F(InfRcTransportTest, ClientRpc_cancelCleanup_rpcPending) {
     // Create a server and a client.
     InfRcTransport<RealInfiniband> server(locator);
     InfRcTransport<RealInfiniband> client;
-    InfRcTransport<RealInfiniband>::InfRCSession session(&client, *locator, 0);
+    InfRcTransport<RealInfiniband>::InfRcSession session(&client, *locator, 0);
 
     // Send a message, then cancel before the response is received.
     Buffer request;
@@ -171,7 +171,7 @@ TEST_F(InfRcTransportTest, ClientRpc_cancelCleanup_rpcSent) {
     // Create a server and a client.
     InfRcTransport<RealInfiniband> server(locator);
     InfRcTransport<RealInfiniband> client;
-    InfRcTransport<RealInfiniband>::InfRCSession session(&client, *locator, 0);
+    InfRcTransport<RealInfiniband>::InfRcSession session(&client, *locator, 0);
 
     // Send a message, then cancel before the response is received.
     Buffer request;
@@ -226,7 +226,7 @@ TEST_F(InfRcTransportTest, ClientRpc_cancelCleanup_rpcSent) {
 TEST_F(InfRcTransportTest, ClientRpc_clientSend_sessionAborted) {
     InfRcTransport<RealInfiniband> server(locator);
     InfRcTransport<RealInfiniband> client;
-    InfRcTransport<RealInfiniband>::InfRCSession session(&client, *locator, 0);
+    InfRcTransport<RealInfiniband>::InfRcSession session(&client, *locator, 0);
     session.abort("test abort");
     Buffer request;
     Buffer reply;

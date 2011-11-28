@@ -54,7 +54,7 @@ template<typename Infiniband = RealInfiniband>
 class InfRcTransport : public Transport {
     // forward declarations
   PRIVATE:
-    class InfRCSession;
+    class InfRcSession;
     class Poller;
     typedef typename Infiniband::BufferDescriptor BufferDescriptor;
     typedef typename Infiniband::QueuePair QueuePair;
@@ -65,7 +65,7 @@ class InfRcTransport : public Transport {
     explicit InfRcTransport(const ServiceLocator* sl = NULL);
     ~InfRcTransport();
     SessionRef getSession(const ServiceLocator& sl, uint32_t timeoutMs = 0) {
-        return new InfRCSession(this, sl, timeoutMs);
+        return new InfRcSession(this, sl, timeoutMs);
     }
     string getServiceLocator();
     void dumpStats() {
@@ -105,7 +105,7 @@ class InfRcTransport : public Transport {
     class ClientRpc : public Transport::ClientRpc {
         public:
             explicit ClientRpc(InfRcTransport* transport,
-                               InfRCSession* session,
+                               InfRcSession* session,
                                Buffer* request,
                                Buffer* response,
                                uint64_t nonce);
@@ -118,7 +118,7 @@ class InfRcTransport : public Transport {
             tryZeroCopy(Buffer* request);
 
             InfRcTransport*     transport;
-            InfRCSession*       session;
+            InfRcSession*       session;
             /// Uniquely identifies the RPC.
             uint64_t            nonce;
             enum {
@@ -128,7 +128,7 @@ class InfRcTransport : public Transport {
             } state;
         public:
             IntrusiveListHook   queueEntries;
-            friend class InfRCSession;
+            friend class InfRcSession;
             friend class InfRcTransport;
             DISALLOW_COPY_AND_ASSIGN(ClientRpc);
     };
@@ -154,9 +154,9 @@ class InfRcTransport : public Transport {
 
     INTRUSIVE_LIST_TYPEDEF(ClientRpc, queueEntries) ClientRpcList;
 
-    class InfRCSession : public Session {
+    class InfRcSession : public Session {
       public:
-        explicit InfRCSession(InfRcTransport *transport,
+        explicit InfRcSession(InfRcTransport *transport,
             const ServiceLocator& sl, uint32_t timeoutMs);
         Transport::ClientRpc* clientSend(Buffer* request, Buffer* response)
             __attribute__((warn_unused_result));
@@ -178,7 +178,7 @@ class InfRcTransport : public Transport {
 
         friend class ClientRpc;
         friend class Poller;
-        DISALLOW_COPY_AND_ASSIGN(InfRCSession);
+        DISALLOW_COPY_AND_ASSIGN(InfRcSession);
     };
 
     /**

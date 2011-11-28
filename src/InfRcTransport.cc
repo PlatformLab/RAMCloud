@@ -310,7 +310,7 @@ InfRcTransport<Infiniband>::setNonBlocking(int fd)
  *      be aborted.  0 means we get to pick a reasonable default.
  */
 template<typename Infiniband>
-InfRcTransport<Infiniband>::InfRCSession::InfRCSession(
+InfRcTransport<Infiniband>::InfRcSession::InfRcSession(
     InfRcTransport *transport, const ServiceLocator& sl, uint32_t timeoutMs)
     : transport(transport)
     , qp(NULL)
@@ -331,7 +331,7 @@ InfRcTransport<Infiniband>::InfRCSession::InfRCSession(
  */
 template<typename Infiniband>
 void
-InfRcTransport<Infiniband>::InfRCSession::release()
+InfRcTransport<Infiniband>::InfRcSession::release()
 {
     abort("session closed");
     delete this;
@@ -340,7 +340,7 @@ InfRcTransport<Infiniband>::InfRCSession::release()
 // See documentation for Transport::Session::abort.
 template<typename Infiniband>
 void
-InfRcTransport<Infiniband>::InfRCSession::abort(const string& message)
+InfRcTransport<Infiniband>::InfRcSession::abort(const string& message)
 {
     abortMessage = message;
     for (typename ClientRpcList::iterator
@@ -385,7 +385,7 @@ InfRcTransport<Infiniband>::InfRCSession::abort(const string& message)
  */
 template<typename Infiniband>
 Transport::ClientRpc*
-InfRcTransport<Infiniband>::InfRCSession::clientSend(Buffer* request,
+InfRcTransport<Infiniband>::InfRcSession::clientSend(Buffer* request,
                                                      Buffer* response)
 {
     InfRcTransport *t = transport;
@@ -876,7 +876,7 @@ InfRcTransport<Infiniband>::ServerRpc::sendReply()
  */
 template<typename Infiniband>
 InfRcTransport<Infiniband>::ClientRpc::ClientRpc(InfRcTransport* transport,
-                                     InfRCSession* session,
+                                     InfRcSession* session,
                                      Buffer* request,
                                      Buffer* response,
                                      uint64_t nonce)
