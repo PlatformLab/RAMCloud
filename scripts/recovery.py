@@ -174,15 +174,15 @@ def recover(num_servers,
     # Collect metrics information.
     stats = {}
     stats['metrics'] = recoverymetrics.parseRecovery(recovery_logs)
-    report = recoverymetrics.textReport(stats['metrics'])
-    f = open('%s/metrics' % (recovery_logs), 'w')
-    f.write(str(report))
-    f.write('\n')
+    report = recoverymetrics.makeReport(stats['metrics']).jsonable()
+    f = open('%s/metrics' % recovery_logs, 'w')
+    getDumpstr().print_report(report, file=f)
     f.close()
     stats['run'] = recovery_logs
     stats['count'] = num_objects
     stats['size'] = object_size
     stats['ns'] = stats['metrics'].client.recoveryNs
+    stats['report'] = report
     return stats
 
 def insist(*args, **kwargs):
@@ -261,6 +261,9 @@ if __name__ == '__main__':
     parser.add_option('--removals', type=int,
             metavar='N', dest='num_removals', default=0,
             help='Perform this many removals after filling the old master')
+    parser.add_option('--trend',
+            dest='trends', action='append',
+            help='Add to dumpstr trend line (may be repeated)')
     (options, args) = parser.parse_args()
 
     args = {}
@@ -285,7 +288,27 @@ if __name__ == '__main__':
 
     try:
         stats = recover(**args)
-        print('Recovery time: %.3fs' % (stats['ns']/1e09))
+
+        # set up trend points for dumpstr
+        trends = ['recovery']
+        if options.trends is not None:
+            for trend in options.trends:
+                if trend not in trends:
+                    trends.append(trend)
+        trends = zip(trends,
+                     [stats['ns'] / 1e9] * len(trends))
+
+        # print and upload dumpstr report
+        dumpstr = getDumpstr()
+        dumpstr.print_report(stats['report'])
+        s = dumpstr.upload_report('recovery', stats['report'], trends=trends)
+        print('You can view your report at %s' % s['url'])
+
+        # write the dumpstr URL to the metrics log file
+        f = open('%s/metrics' % stats['run'], 'a')
+        print('You can view your report at %s' % s['url'], file=f)
+        f.close()
+
     finally:
         log_info = log.scan("%s/latest" % (options.log_dir),
                             ["WARNING", "ERROR"])
