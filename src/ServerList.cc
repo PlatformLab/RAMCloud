@@ -65,9 +65,9 @@ ServerList::add(ServerId id, ServiceLocator locator)
 
     uint32_t index = id.indexNumber();
 
-    if (serverList.size() >= index) {
+    if (index >= serverList.size()) {
         // XXX- Sanity check this first?
-        serverList.reserve(index + 1);
+        serverList.resize(index + 1);
     }
 
     // If we happen to get an ADD for a server that overwrites a slot
@@ -77,31 +77,33 @@ ServerList::add(ServerId id, ServiceLocator locator)
     // to suppress it. If we see an ADD for a ServerId less than the one
     // currently stored at the same index, drop it. Finally, if we get
     // duplicate ADDs, just suppress them as well.
-    if (serverList[index].first != ServerId::INVALID_SERVERID) {
+    if (serverList[index]) {
         // Duplicate ADD.
-        if (serverList[index].first == id) {
+        if (serverList[index]->first == id) {
             LOG(WARNING, "Duplicate add of ServerId %lu!", id.getId());
             return;
         }
 
         // ADD of older ServerId.
         uint32_t newGen = id.generationNumber();
-        if (newGen < serverList[index].first.generationNumber()) {
+        if (newGen < serverList[index]->first.generationNumber()) {
             LOG(WARNING, "Dropping addition of ServerId older than the current "
                 "entry (%lu < %lu)!", id.getId(),
-                serverList[index].first.getId());
+                serverList[index]->first.getId());
             return;
         }
 
         // ADD before previous REMOVE.
-        ServerId oldId = serverList[index].first;
+        ServerId oldId = serverList[index]->first;
         LOG(WARNING, "Addition of %lu seen before removal of %lu! Issuing "
             "removal before addition.", id.getId(), oldId.getId());
         foreach (ServerTrackerInterface* tracker, trackers)
-            tracker->handleChange(id, ServerChangeEvent::SERVER_REMOVED);
+            tracker->handleChange(oldId, ServerChangeEvent::SERVER_REMOVED);
+
+        serverList[index].destroy();
     }
 
-    serverList[index] = std::pair<ServerId, ServiceLocator>(id, locator);
+    serverList[index].construct(id, locator);
 
     foreach (ServerTrackerInterface* tracker, trackers)
         tracker->handleChange(id, ServerChangeEvent::SERVER_ADDED);
@@ -133,15 +135,30 @@ ServerList::remove(ServerId id)
     // reordered and arrives after the removal notification, or if a
     // new server that occupies the same index has an addition
     // notification arrive before the previous one's removal.
-    if (index >= serverList.size() || serverList[index].first != id) {
+    if (index >= serverList.size() ||
+      !serverList[index] ||
+      id.generationNumber() < serverList[index]->first.generationNumber()) {
         LOG(WARNING, "Ignoring removal of unknown ServerId %lu", id.getId());
         return;
     }
 
-    serverList[index].first = ServerId::INVALID_SERVERID;
+    // In theory it's possible we could have missed both a prior removal and
+    // the next addition, and then see the removal for something newer than
+    // what's stored. Unlikely, but let's log it just in case.
+    if (id.generationNumber() > serverList[index]->first.generationNumber()) {
+        LOG(WARNING, "Removing ServerId %lu because removal for a newer "
+            "generation number was received (%lu)",
+            serverList[index]->first.getId(), id.getId());
+    }
 
-    foreach (ServerTrackerInterface* tracker, trackers)
-        tracker->handleChange(id, ServerChangeEvent::SERVER_REMOVED);
+    // Be sure to use the stored id, not the advertised one, just in case we're
+    // removing an older entry (see previous comment above).
+    foreach (ServerTrackerInterface* tracker, trackers) {
+        tracker->handleChange(serverList[index]->first,
+            ServerChangeEvent::SERVER_REMOVED);
+    }
+
+    serverList[index].destroy();
 }
 
 /**
@@ -166,8 +183,8 @@ ServerList::registerTracker(ServerTrackerInterface& tracker)
 
     // Push ADDs for all known servers to this tracker.
     for (size_t i = 0; i < serverList.size(); i++) {
-        if (serverList[i].first != ServerId::INVALID_SERVERID) {
-            tracker.handleChange(serverList[i].first,
+        if (serverList[i]) {
+            tracker.handleChange(serverList[i]->first,
                                  ServerChangeEvent::SERVER_ADDED);
         }
     }

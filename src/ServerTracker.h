@@ -21,6 +21,7 @@
 #ifndef RAMCLOUD_SERVERTRACKER_H
 #define RAMCLOUD_SERVERTRACKER_H
 
+#include <queue>
 #include <boost/thread/locks.hpp>
 
 #include "ServerId.h"
@@ -89,7 +90,7 @@ class ServerTrackerInterface {
  * concurrency issues while providing a convenient way to associate information
  * with a ServerId that is (or was recently) active.
  */
-template<typename T>
+template<typename T, class EventCallback = void (*)()>
 class ServerTracker : public ServerTrackerInterface {
   PUBLIC:
     /**
@@ -123,8 +124,19 @@ class ServerTracker : public ServerTrackerInterface {
 
     /**
      * Constructor for ServerTracker.
+     */
+    explicit ServerTracker()
+        : ServerTrackerInterface(),
+          serverList(),
+          changes(),
+          eventCallback()
+    {
+    }
+
+    /**
+     * Constructor for ServerTracker.
      *
-     * \param callback
+     * \param eventCallback
      *      A callback functor to be invoked whenever there is an
      *      upcoming change to the list. This functor will execute
      *      in the context of the ServerList that has fed us the
@@ -132,11 +144,11 @@ class ServerTracker : public ServerTrackerInterface {
      *      hold up delivery of the same or future events to other
      *      ServerTrackers.
      */ 
-    ServerTracker(/*callback*/)
+    explicit ServerTracker(EventCallback eventCallback)
         : ServerTrackerInterface(),
           serverList(),
-          changes()
-          //callback(callback)
+          changes(),
+          eventCallback(eventCallback)
     {
     }
 
@@ -167,19 +179,13 @@ class ServerTracker : public ServerTrackerInterface {
         uint32_t index = serverId.indexNumber();
 
         if (index >= serverList.size())
-            serverList.reserve(index + 1);
+            serverList.resize(index + 1);
 
-        // Ensure that the ServerList guarantees hold.
-        assert((event == SERVER_ADDED &&
-                serverList[index].first == ServerId::INVALID_SERVERID) ||
-               (event == SERVER_REMOVED &&
-                serverList[index].first == serverId));
-        
         changes.addChange(serverId, event);
 
         // Fire the callback to notify that the queue has a new entry.
-        //if (callback)
-        //  callback();
+        if (eventCallback)
+            (*eventCallback)();
     }
 
     /**
@@ -202,8 +208,14 @@ class ServerTracker : public ServerTrackerInterface {
     getChange()
     {
         ServerChange change = changes.getChange();
-
         uint32_t index = change.serverId.indexNumber();
+
+        // Ensure that the ServerList guarantees hold.
+        assert((change.event == SERVER_ADDED &&
+                serverList[index].first == ServerId::INVALID_SERVERID) ||
+               (change.event == SERVER_REMOVED &&
+                serverList[index].first == change.serverId));
+
         if (change.event == SERVER_ADDED) {
             serverList[index].first = change.serverId;
             assert(!serverList[index].second);
@@ -284,7 +296,7 @@ class ServerTracker : public ServerTrackerInterface {
         addChange(ServerId serverId, ServerChangeEvent event)
         {
             boost::lock_guard<SpinLock> lock(vectorLock);
-            changes.push_back(ServerChange(serverId, event));
+            changes.push(ServerChange(serverId, event));
         }
 
         /**
@@ -300,8 +312,8 @@ class ServerTracker : public ServerTrackerInterface {
             boost::lock_guard<SpinLock> lock(vectorLock);
             if (changes.empty())
                 throw Exception(HERE, "ChangeQueue is empty - cannot dequeue!");
-            ServerChange ret = *changes->back();
-            changes.pop_back();
+            ServerChange ret = changes.front();
+            changes.pop();
             return ret;
         }
 
@@ -318,9 +330,9 @@ class ServerTracker : public ServerTrackerInterface {
 
       PRIVATE:
         /// Fifo queue of changes to cluster membership.
-        std::vector<ServerChange> changes;
+        std::queue<ServerChange> changes;
 
-        /// Lock to protect the vector from concurrent access.
+        /// Lock to protect the queue from concurrent access.
         SpinLock vectorLock;
     };
 
@@ -330,8 +342,9 @@ class ServerTracker : public ServerTrackerInterface {
     /// Queue of list membership changes.
     ChangeQueue changes;
 
-    /// Optional callback to fire each time an entry is added to the queue.
-    //Callback callback;
+    /// Optional callback to fire each time an entry (i.e. a server add or
+    /// remove notice) is added to queue
+    Tub<EventCallback> eventCallback;
 
     DISALLOW_COPY_AND_ASSIGN(ServerTracker);
 };

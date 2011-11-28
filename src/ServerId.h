@@ -92,7 +92,7 @@ class ServerId {
      * Obtain the ServerId's uint64_t serialised form.
      */
     uint64_t
-    getId()
+    getId() const
     {
         return serverId;
     }
@@ -101,7 +101,7 @@ class ServerId {
      * Obtain the index number for this ServerId.
      */
     uint32_t
-    indexNumber()
+    indexNumber() const
     {
         return serverId & 0xffffffffUL;
     }
@@ -110,7 +110,7 @@ class ServerId {
      * Obtain the generation number for this ServerId.
      */
     uint32_t
-    generationNumber()
+    generationNumber() const
     {
         return downCast<uint32_t>(serverId >> 32);
     }
@@ -128,7 +128,7 @@ class ServerId {
      * Test the inequality of two ServerIds.
      */
     bool
-    operator!=(const RAMCloud::ServerId& other)
+    operator!=(const RAMCloud::ServerId& other) const
     {
         return !operator==(other);
     }

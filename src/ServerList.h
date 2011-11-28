@@ -25,6 +25,7 @@
 #include "ServerTracker.h"
 #include "ServiceLocator.h"
 #include "SpinLock.h"
+#include "Tub.h"
 
 namespace RAMCloud {
 
@@ -56,7 +57,7 @@ class ServerList {
 
   PRIVATE:
     /// Slots in the server list.
-    std::vector<std::pair<ServerId, ServiceLocator>> serverList;
+    std::vector<Tub<std::pair<ServerId, ServiceLocator>>> serverList;
 
     /// ServerTrackers that have registered with us and will receive updates
     /// regarding additions or removals from this list.
