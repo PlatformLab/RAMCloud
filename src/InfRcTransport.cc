@@ -696,7 +696,7 @@ InfRcTransport<Infiniband>::getTransmitBuffer()
             while (freeTxBuffers.empty())
                 reapTxBuffers();
             double waitMs = 1e03 * Cycles::toSeconds(Cycles::rdtsc() - start);
-            if (waitMs > 1.0)  {
+            if (waitMs > 5.0)  {
                 LOG(WARNING, "Long delay waiting for transmit buffers "
                         "(%.1f ms); deadlock or target crashed?", waitMs);
             }
@@ -1104,7 +1104,7 @@ InfRcTransport<Infiniband>::Poller::poll()
                     bd->buffer + downCast<uint32_t>(sizeof(header)),
                     len, t, t->serverSrq, bd);
             }
-            LOG(NOTICE, "Received %s request from %s",
+            LOG(DEBUG, "Received %s request from %s",
                     Rpc::opcodeSymbol(r->requestPayload),
                     qp->getPeerName());
             Context::get().serviceManager->handleRpc(r);

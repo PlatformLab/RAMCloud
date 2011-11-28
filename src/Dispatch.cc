@@ -68,7 +68,7 @@ Dispatch::Dispatch(bool hasDedicatedThread)
     , lockNeeded(0)
     , locked(0)
     , hasDedicatedThread(hasDedicatedThread)
-    , slowPollerCycles(Cycles::fromSeconds(.01))
+    , slowPollerCycles(Cycles::fromSeconds(.05))
 {
     exitPipeFds[0] = exitPipeFds[1] = -1;
 }
@@ -128,7 +128,7 @@ Dispatch::poll()
     uint64_t previous = currentTime;
     currentTime = Cycles::rdtsc();
     if (((currentTime - previous) > slowPollerCycles) && hasDedicatedThread) {
-        LOG(WARNING, "Long gap in poller: %.1f ms",
+        LOG(NOTICE, "Long gap in dispatcher: %.1f ms",
                 Cycles::toSeconds(currentTime - previous)*1e03);
     }
     if (lockNeeded.load() != 0) {
