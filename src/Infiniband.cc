@@ -560,6 +560,7 @@ Infiniband::QueuePair::QueuePair(Infiniband& infiniband, ibv_qp_type type,
       rxcq(rxcq),
       initialPsn(generateRandom() & 0xffffff)
 {
+    snprintf(peerName, sizeof(peerName), "?unknown?");
     if (type != IBV_QPT_RC && type != IBV_QPT_UD && type != IBV_QPT_RAW_ETH)
         throw TransportException(HERE, "invalid queue pair type");
 
@@ -847,6 +848,47 @@ Infiniband::QueuePair::getState() const
         throw TransportException(HERE, r);
     }
     return qpa.qp_state;
+}
+
+/**
+ * Return true if the queue pair is in an error state, false otherwise.
+ *
+ * \throw
+ *      TransportException is thrown if querying the queue pair
+ *      fails.
+ */
+bool
+Infiniband::QueuePair::isError() const
+{
+    ibv_qp_attr qpa;
+    ibv_qp_init_attr qpia;
+
+    int r = ibv_query_qp(qp, &qpa, -1, &qpia);
+    if (r) {
+        // XXX log?!?
+        throw TransportException(HERE, r);
+    }
+    return qpa.cur_qp_state == IBV_QPS_ERR;
+}
+
+/**
+ * Provide information that can be used in log messages to identify the
+ * other end of this connection.
+ *
+ * \param name
+ *      Human-readable name for the application or machine at the other
+ *      end of this connection.
+ */
+void
+Infiniband::QueuePair::setPeerName(const char* name)
+{
+    snprintf(peerName, sizeof(peerName), "%s", name);
+}
+
+const char*
+Infiniband::QueuePair::getPeerName() const
+{
+    return peerName;
 }
 
 /**

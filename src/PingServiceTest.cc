@@ -55,8 +55,8 @@ TEST_F(PingServiceTest, getMetrics) {
 TEST_F(PingServiceTest, ping_basics) {
     TestLog::Enable _;
     EXPECT_EQ(0x1234512345U, client.ping("mock:host=ping", 0x1234512345, 0));
-    EXPECT_EQ("ping: nonce: 78187144005 | checkStatus: status: 0",
-              TestLog::get());
+    EXPECT_EQ("ping: received ping request with nonce 78187144005 | "
+            "checkStatus: status: 0", TestLog::get());
 }
 TEST_F(PingServiceTest, ping_timeout) {
     uint64_t start = Cycles::rdtsc();

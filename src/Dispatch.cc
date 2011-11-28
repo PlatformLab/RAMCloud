@@ -46,7 +46,7 @@ Syscall* Dispatch::sys = &defaultSyscall;
 
 /**
  * Constructor for Dispatch objects.
- * @param hasDedicatedThread
+ * \param hasDedicatedThread
  *      Pass true if there is a thread which owns this dispatch (this is
  *      true on RAMCloud servers), if false then the dispatch performs
  *      no synchronization and callers must guarantee mutual exclusion
@@ -68,6 +68,7 @@ Dispatch::Dispatch(bool hasDedicatedThread)
     , lockNeeded(0)
     , locked(0)
     , hasDedicatedThread(hasDedicatedThread)
+    , slowPollerCycles(Cycles::fromSeconds(.05))
 {
     exitPipeFds[0] = exitPipeFds[1] = -1;
 }
@@ -124,7 +125,12 @@ void
 Dispatch::poll()
 {
     assert(isDispatchThread());
+    uint64_t previous = currentTime;
     currentTime = Cycles::rdtsc();
+    if (((currentTime - previous) > slowPollerCycles) && hasDedicatedThread) {
+        LOG(NOTICE, "Long gap in dispatcher: %.1f ms",
+                Cycles::toSeconds(currentTime - previous)*1e03);
+    }
     if (lockNeeded.load() != 0) {
         // Someone wants us locked. Indicate that we are locked,
         // then wait for the lock to be released.
@@ -135,6 +141,12 @@ Dispatch::poll()
         }
         locked.store(0);
         Fence::enter();
+        uint64_t newCurrent = Cycles::rdtsc();
+        if ((newCurrent - currentTime) > slowPollerCycles) {
+            LOG(WARNING, "Long lockout in poller: %.1f ms",
+                    Cycles::toSeconds(newCurrent - currentTime)*1e03);
+        }
+        currentTime = newCurrent;
     }
     for (uint32_t i = 0; i < pollers.size(); i++) {
         pollers[i]->poll();
@@ -180,15 +192,42 @@ Dispatch::poll()
     if (currentTime >= earliestTriggerTime) {
         // Looks like a timer may have triggered. Check all the timers and
         // invoke any that have triggered.
-        for (uint32_t i = 0; i < timers.size(); ) {
+        //
+        // There are two goals here:
+        // * Invoke every timer that has triggered.
+        // * Don't invoke any timer more than once (in particular, if the
+        //   handler for a timer reschedules the timer in the past, don't
+        //   run it a second time; otherwise an infinite loop could result).
+        //
+        // The code meets these goals, except that if the handler for one
+        // timer A stops another timer B, this could cause a third timer
+        // C to move into A's slot in the timers vector, and this could
+        // potentially cause C to be missed in this pass (if we have
+        // already passed that slot).  However, C will be invoked the
+        // next time this method is called.
+        uint32_t end = downCast<uint32_t>(timers.size());
+        for (uint32_t i = 0; i < end; ) {
             Timer* timer = timers[i];
             if (timer->triggerTime <= currentTime) {
                 timer->stop();
                 timer->handleTimerEvent();
+
+                // Since we just removed the timer that triggered, reduce
+                // the endpoint of the loop to reflect this (this prevents
+                // the timer from being invoked a second time if its handler
+                // reschedules it; the rescheduled time or would end up at
+                // the end of the timers vector).  However, it's possible
+                // that the timer handler also deleted other timers, so
+                // shrink the endpoint even more if needed to keep it in
+                // range.
+                end--;
+                if (timers.size() < end)
+                    end = downCast<uint32_t>(timers.size());
             } else {
                 // Only increment i if the current timer did not trigger.
                 // If it did trigger, it got removed from the vector and
-                // we need to process the timer that got moved its place.
+                // we need to process the timer that got moved into its
+                // slot.
                 i++;
             }
         }
@@ -500,6 +539,16 @@ Dispatch::Timer::Timer(Dispatch& dispatch, uint64_t cycles)
 Dispatch::Timer::~Timer()
 {
     if (owner != NULL) stop();
+}
+
+/**
+ * This method is overridden by a subclass and invoked when the
+ * timer expires.
+ */
+void
+Dispatch::Timer::handleTimerEvent()
+{
+    // Empty default is useful for some tests.
 }
 
 /**

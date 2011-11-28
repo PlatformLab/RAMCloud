@@ -242,6 +242,7 @@ void worker(Context* context, Transport::SessionRef session) {
 TEST_F(TransportManagerTest, workerSessionSyncWithDispatchThread) {
     Context context(true);
     Context::Guard _(context);
+    TestLog::Enable logSilencer;
 
     MockTransport transport;
     Transport::SessionRef wrappedSession = new TransportManager::WorkerSession(
@@ -259,6 +260,20 @@ TEST_F(TransportManagerTest, workerSessionSyncWithDispatchThread) {
     }
     EXPECT_STREQ("clientSend: abcdefg/0", transport.outputLog.c_str());
     child.join();
+}
+
+TEST_F(TransportManagerTest, abort) {
+    MockTransport transport;
+    Buffer request;
+    Buffer reply;
+    request.fillFromString("abcdefg");
+    MockTransport::sessionDeleteCount = 0;
+
+    Transport::Session* wrappedSession = new TransportManager::WorkerSession(
+            transport.getSession());
+
+    wrappedSession->abort("test message");
+    EXPECT_STREQ("abort: test message", transport.outputLog.c_str());
 }
 
 }  // namespace RAMCloud

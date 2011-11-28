@@ -36,6 +36,9 @@ def recover(num_servers,
             object_size,
             num_objects,
             replicas,
+            coordinator_args='',
+            master_args='',
+            backup_args='',
             master_ram=None,
             old_master_ram=None,
             num_removals=0,
@@ -76,6 +79,18 @@ def recover(num_servers,
     @param replicas: Number of times each segment is replicated to different
                      backups in the cluster.
     @type  replicas: C{int}
+
+    @param coordinator_args: Additional command-line arguments to pass to
+                             the coordinator.
+    @type  coordinator_args: C{str}
+
+    @param master_args: Additional command-line arguments to pass to
+                        each server that acts as a master.
+    @type  master_args: C{str}
+
+    @param backup_args: Additional command-line arguments to pass to
+                        each server that acts as a backup.
+    @type  backup_args: C{str}
 
     @param master_ram: Megabytes of space allocated in each of the Masters
                        (except the old Master, see old_master_ram).  If left
@@ -133,6 +148,8 @@ def recover(num_servers,
     args['transport'] = transport
     args['verbose'] = verbose
     args['debug'] = debug
+    args['coordinator_args'] = coordinator_args
+    args['backup_args'] = backup_args
     # Just a guess of about how much capacity a master will have to have
     # to hold all the data from all the partitions
     if master_ram:
@@ -140,6 +157,8 @@ def recover(num_servers,
     else:
         log_space_per_partition = (200 + (1.3 * num_objects / object_size))
     args['master_args'] = '-t %d' % log_space_per_partition
+    if master_args:
+        args['master_args'] += ' ' + master_args;
     args['client'] = ('%s -f -n %d -r %d -s %d '
                       '-t %d -k %d' % (client_binary,
                       num_objects, num_removals, object_size,
@@ -155,15 +174,15 @@ def recover(num_servers,
     # Collect metrics information.
     stats = {}
     stats['metrics'] = recoverymetrics.parseRecovery(recovery_logs)
-    report = recoverymetrics.textReport(stats['metrics'])
-    f = open('%s/metrics' % (recovery_logs), 'w')
-    f.write(str(report))
-    f.write('\n')
+    report = recoverymetrics.makeReport(stats['metrics']).jsonable()
+    f = open('%s/metrics' % recovery_logs, 'w')
+    getDumpstr().print_report(report, file=f)
     f.close()
     stats['run'] = recovery_logs
     stats['count'] = num_objects
     stats['size'] = object_size
     stats['ns'] = stats['metrics'].client.recoveryNs
+    stats['report'] = report
     return stats
 
 def insist(*args, **kwargs):
@@ -183,6 +202,14 @@ if __name__ == '__main__':
             'Run a recovery on a RAMCloud cluster.',
             usage='%prog [options] ...',
             conflict_handler='resolve')
+    parser.add_option('--backupArgs', metavar='ARGS', default='',
+            dest='backup_args',
+            help='Additional command-line arguments to pass to '
+                 'each backup')
+    parser.add_option('--coordinatorArgs', metavar='ARGS', default='',
+            dest='coordinator_args',
+            help='Additional command-line arguments to pass to the '
+                 'cluster coordinator')
     parser.add_option('--debug', action='store_true', default=False,
             help='Pause after starting servers but before running '
                  'to enable debugging setup')
@@ -198,6 +225,10 @@ if __name__ == '__main__':
             metavar='N', dest='backups_per_server',
             help='Number of backups to run on each server host '
                  '(0, 1, or 2)')
+    parser.add_option('--masterArgs', metavar='ARGS', default='',
+            dest='master_args',
+            help='Additional command-line arguments to pass to '
+                 'each master')
     parser.add_option('-r', '--replicas', type=int, default=3,
             metavar='N',
             help='Number of disk backup copies for each segment')
@@ -230,6 +261,9 @@ if __name__ == '__main__':
     parser.add_option('--removals', type=int,
             metavar='N', dest='num_removals', default=0,
             help='Perform this many removals after filling the old master')
+    parser.add_option('--trend',
+            dest='trends', action='append',
+            help='Add to dumpstr trend line (may be repeated)')
     (options, args) = parser.parse_args()
 
     args = {}
@@ -248,10 +282,33 @@ if __name__ == '__main__':
     args['transport'] = options.transport
     args['verbose'] = options.verbose
     args['debug'] = options.debug
+    args['coordinator_args'] = options.coordinator_args
+    args['master_args'] = options.master_args
+    args['backup_args'] = options.backup_args
 
     try:
         stats = recover(**args)
-        print('Recovery time: %.3fs' % (stats['ns']/1e09))
+
+        # set up trend points for dumpstr
+        trends = ['recovery']
+        if options.trends is not None:
+            for trend in options.trends:
+                if trend not in trends:
+                    trends.append(trend)
+        trends = zip(trends,
+                     [stats['ns'] / 1e9] * len(trends))
+
+        # print and upload dumpstr report
+        dumpstr = getDumpstr()
+        dumpstr.print_report(stats['report'])
+        s = dumpstr.upload_report('recovery', stats['report'], trends=trends)
+        print('You can view your report at %s' % s['url'])
+
+        # write the dumpstr URL to the metrics log file
+        f = open('%s/metrics' % stats['run'], 'a')
+        print('You can view your report at %s' % s['url'], file=f)
+        f.close()
+
     finally:
         log_info = log.scan("%s/latest" % (options.log_dir),
                             ["WARNING", "ERROR"])

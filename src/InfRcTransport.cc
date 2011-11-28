@@ -134,6 +134,7 @@ InfRcTransport<Infiniband>::InfRcTransport(const ServiceLocator *sl)
       queuePairMap(),
       clientSendQueue(),
       numUsedClientSrqBuffers(MAX_SHARED_RX_QUEUE_DEPTH),
+      numFreeServerSrqBuffers(0),
       outstandingRpcs(),
       clientRpcsActiveTime(),
       locatorString(),
@@ -303,13 +304,21 @@ InfRcTransport<Infiniband>::setNonBlocking(int fd)
  *      The transport this Session will be associated with.
  * \param sl
  *      The ServiceLocator describing the server to communicate with.
+ * \param timeoutMs
+ *      If there is an active RPC and we can't get any signs of life out
+ *      of the server within this many milliseconds then the session will
+ *      be aborted.  0 means we get to pick a reasonable default.
  */
 template<typename Infiniband>
-InfRcTransport<Infiniband>::InfRCSession::InfRCSession(
-    InfRcTransport *transport, const ServiceLocator& sl)
-    : transport(transport),
-      qp(NULL)
+InfRcTransport<Infiniband>::InfRcSession::InfRcSession(
+    InfRcTransport *transport, const ServiceLocator& sl, uint32_t timeoutMs)
+    : transport(transport)
+    , qp(NULL)
+    , alarm(*Context::get().sessionAlarmTimer, *this,
+            (timeoutMs != 0) ? timeoutMs : DEFAULT_TIMEOUT_MS)
+    , abortMessage()
 {
+    setServiceLocator(sl.getOriginalString());
     IpAddress address(sl);
 
     // create and set up a new queue pair for this client
@@ -322,9 +331,44 @@ InfRcTransport<Infiniband>::InfRCSession::InfRCSession(
  */
 template<typename Infiniband>
 void
-InfRcTransport<Infiniband>::InfRCSession::release()
+InfRcTransport<Infiniband>::InfRcSession::release()
 {
+    abort("session closed");
     delete this;
+}
+
+// See documentation for Transport::Session::abort.
+template<typename Infiniband>
+void
+InfRcTransport<Infiniband>::InfRcSession::abort(const string& message)
+{
+    abortMessage = message;
+    for (typename ClientRpcList::iterator
+            it(transport->clientSendQueue.begin());
+            it != transport->clientSendQueue.end(); ) {
+        typename ClientRpcList::iterator current(it);
+        it++;
+        if (current->session == this) {
+            LOG(NOTICE, "Infiniband aborting %s request to %s",
+                    Rpc::opcodeSymbol(*current->request),
+                    getServiceLocator().c_str());
+            current->cancel(message);
+        }
+    }
+    for (typename ClientRpcList::iterator
+            it(transport->outstandingRpcs.begin());
+            it != transport->outstandingRpcs.end(); ) {
+        typename ClientRpcList::iterator current(it);
+        it++;
+        if (current->session == this) {
+            LOG(NOTICE, "Infiniband aborting %s request to %s",
+                    Rpc::opcodeSymbol(*current->request),
+                    getServiceLocator().c_str());
+            current->cancel(message);
+        }
+    }
+    delete qp;
+    qp = NULL;
 }
 
 /**
@@ -341,11 +385,17 @@ InfRcTransport<Infiniband>::InfRCSession::release()
  */
 template<typename Infiniband>
 Transport::ClientRpc*
-InfRcTransport<Infiniband>::InfRCSession::clientSend(Buffer* request,
+InfRcTransport<Infiniband>::InfRcSession::clientSend(Buffer* request,
                                                      Buffer* response)
 {
     InfRcTransport *t = transport;
+    if (qp == NULL) {
+        throw TransportException(HERE, abortMessage);
+    }
 
+    LOG(DEBUG, "Sending %s request to %s with %u bytes",
+            Rpc::opcodeSymbol(*request), getServiceLocator().c_str(),
+            request->getTotalLength());
     if (request->getTotalLength() > t->getMaxRpcSize()) {
         throw TransportException(HERE,
              format("client request exceeds maximum rpc size "
@@ -486,7 +536,8 @@ InfRcTransport<Infiniband>::clientTrySetupQueuePair(IpAddress& address)
     for (uint32_t i = 0; i < QP_EXCHANGE_MAX_TIMEOUTS; i++) {
         QueuePairTuple outgoingQpt(downCast<uint16_t>(lid),
                                    qp->getLocalQpNumber(),
-                                   qp->getInitialPsn(), generateRandom());
+                                   qp->getInitialPsn(), generateRandom(),
+                                   name);
         QueuePairTuple incomingQpt;
         bool gotResponse;
 
@@ -500,7 +551,8 @@ InfRcTransport<Infiniband>::clientTrySetupQueuePair(IpAddress& address)
         }
 
         if (!gotResponse) {
-            LOG(WARNING, "timed out waiting for response; retrying");
+            LOG(WARNING, "timed out waiting for response from %s; retrying",
+                address.toString().c_str());
             ++metrics->transport.retrySessionOpenCount;
             continue;
         }
@@ -565,6 +617,7 @@ InfRcTransport<Infiniband>::ServerConnectHandler::handleFileEvent(int events)
             MAX_TX_QUEUE_DEPTH,
             MAX_SHARED_RX_QUEUE_DEPTH);
     qp->plumb(&incomingQpt);
+    qp->setPeerName(incomingQpt.getPeerName());
 
     // now send the client back our queue pair information so they can
     // complete the initialisation.
@@ -612,6 +665,8 @@ InfRcTransport<Infiniband>::postSrqReceiveAndKickTransmit(ibv_srq* srq,
             clientSendQueue.pop_front();
             rpc.sendOrQueue();
         }
+    } else {
+        ++numFreeServerSrqBuffers;
     }
 }
 
@@ -631,6 +686,21 @@ InfRcTransport<Infiniband>::getTransmitBuffer()
     // if we've drained our free tx buffer pool, we must wait.
     while (freeTxBuffers.empty()) {
         reapTxBuffers();
+
+        if (freeTxBuffers.empty()) {
+            // We are temporarily out of buffers. Time how long it takes
+            // before a transmit buffer becomes available again (a long
+            // time could indicate deadlock); in the normal case this code
+            // is not invoked.
+            uint64_t start = Cycles::rdtsc();
+            while (freeTxBuffers.empty())
+                reapTxBuffers();
+            double waitMs = 1e03 * Cycles::toSeconds(Cycles::rdtsc() - start);
+            if (waitMs > 5.0)  {
+                LOG(WARNING, "Long delay waiting for transmit buffers "
+                        "(%.1f ms); deadlock or target crashed?", waitMs);
+            }
+        }
     }
 
     BufferDescriptor* bd = freeTxBuffers.back();
@@ -639,7 +709,6 @@ InfRcTransport<Infiniband>::getTransmitBuffer()
     if (!transmitCycleCounter) {
         transmitCycleCounter.construct();
     }
-
     return bd;
 }
 
@@ -665,7 +734,8 @@ InfRcTransport<Infiniband>::reapTxBuffers()
         freeTxBuffers.push_back(bd);
 
         if (retArray[i].status != IBV_WC_SUCCESS) {
-            LOG(ERROR, "Transmit failed: %s",
+            LOG(ERROR, "Transmit failed for buffer %lu: %s",
+                reinterpret_cast<uint64_t>(bd),
                 infiniband->wcStatusToString(retArray[i].status));
         }
     }
@@ -699,6 +769,21 @@ string
 InfRcTransport<Infiniband>::getServiceLocator()
 {
     return locatorString;
+}
+
+/**
+ * Record a name that we can use to identify this application/machine
+ * to peers.
+ *
+ * \param debugName
+ *      Name suitable for use in log messages on servers that we
+ *      interact with.
+ */
+template<typename Infiniband>
+void
+InfRcTransport<Infiniband>::setName(const char* debugName)
+{
+    snprintf(name, sizeof(name), "%s", debugName);
 }
 
 //-------------------------------------
@@ -755,6 +840,10 @@ InfRcTransport<Infiniband>::ServerRpc::sendReply()
     }
 
     BufferDescriptor* bd = t->getTransmitBuffer();
+    LOG(DEBUG, "Replying to %s RPC from %s at %lu with transmit buffer %lu",
+        Rpc::opcodeSymbol(requestPayload), qp->getPeerName(),
+        reinterpret_cast<uint64_t>(this),
+        reinterpret_cast<uint64_t>(bd));
     new(&replyPayload, PREPEND) Header(nonce);
     {
         CycleCounter<RawMetric> copyTicks(
@@ -787,14 +876,13 @@ InfRcTransport<Infiniband>::ServerRpc::sendReply()
  */
 template<typename Infiniband>
 InfRcTransport<Infiniband>::ClientRpc::ClientRpc(InfRcTransport* transport,
-                                     InfRCSession* session,
+                                     InfRcSession* session,
                                      Buffer* request,
                                      Buffer* response,
                                      uint64_t nonce)
-    : transport(transport),
+    : Transport::ClientRpc(request, response),
+      transport(transport),
       session(session),
-      request(request),
-      response(response),
       nonce(nonce),
       state(PENDING),
       queueEntries()
@@ -876,6 +964,7 @@ InfRcTransport<Infiniband>::ClientRpc::sendOrQueue()
         request->truncateFront(sizeof(Header)); // for politeness
 
         t->outstandingRpcs.push_back(*this);
+        session->alarm.rpcStarted();
         ++t->numUsedClientSrqBuffers;
         state = REQUEST_SENT;
     } else {
@@ -884,12 +973,21 @@ InfRcTransport<Infiniband>::ClientRpc::sendOrQueue()
     }
 }
 
+/**
+ * This method is invoked by Transport::ClientRpc::cancel to perform
+ * transport-specific actions to abort an RPC that could be in any state
+ * of processing.
+ */
 template<typename Infiniband>
 void
 InfRcTransport<Infiniband>::ClientRpc::cancelCleanup()
 {
-    transport->outstandingRpcs.erase(
-            transport->outstandingRpcs.iterator_to(*this));
+    if (state == PENDING) {
+        erase(transport->clientSendQueue, *this);
+    } else {
+        erase(transport->outstandingRpcs, *this);
+        session->alarm.rpcFinished();
+    }
     state = RESPONSE_RECEIVED;
     if (transport->outstandingRpcs.empty())
         transport->clientRpcsActiveTime.destroy();
@@ -928,6 +1026,7 @@ InfRcTransport<Infiniband>::Poller::poll()
                 if (rpc.nonce != header.nonce)
                     continue;
                 t->outstandingRpcs.erase(t->outstandingRpcs.iterator_to(rpc));
+                rpc.session->alarm.rpcFinished();
                 uint32_t len = wc.byte_len - downCast<uint32_t>(sizeof(header));
                 if (t->numUsedClientSrqBuffers >=
                         MAX_SHARED_RX_QUEUE_DEPTH / 2) {
@@ -951,6 +1050,9 @@ InfRcTransport<Infiniband>::Poller::poll()
                 metrics->transport.receive.byteCount +=
                     rpc.response->getTotalLength();
                 metrics->transport.receive.ticks += receiveTicks.stop();
+                LOG(DEBUG, "Received reply for %s request to %s",
+                        Rpc::opcodeSymbol(*rpc.request),
+                        rpc.session->getServiceLocator().c_str());
                 rpc.markFinished();
                 if (t->outstandingRpcs.empty())
                     t->clientRpcsActiveTime.destroy();
@@ -976,19 +1078,35 @@ InfRcTransport<Infiniband>::Poller::poll()
 
             BufferDescriptor* bd =
                 reinterpret_cast<BufferDescriptor*>(wc.wr_id);
+            --t->numFreeServerSrqBuffers;
 
             if (wc.status != IBV_WC_SUCCESS) {
                 LOG(ERROR, "failed to receive rpc!");
                 t->postSrqReceiveAndKickTransmit(t->serverSrq, bd);
                 goto done;
             }
-
             Header& header(*reinterpret_cast<Header*>(bd->buffer));
             ServerRpc *r = t->serverRpcPool.construct(t, qp, header.nonce);
-            PayloadChunk::appendToBuffer(&r->requestPayload,
-                bd->buffer + downCast<uint32_t>(sizeof(header)),
-                wc.byte_len - downCast<uint32_t>(sizeof(header)),
-                t, t->serverSrq, bd);
+
+            uint32_t len = wc.byte_len - downCast<uint32_t>(sizeof(header));
+            if (t->numFreeServerSrqBuffers < 2) {
+                // Running low on buffers; copy the data so we can return
+                // the buffer immediately.
+                LOG(NOTICE, "Receive buffers running low; copying request");
+                memcpy(new(&r->requestPayload, APPEND) char[len],
+                        bd->buffer + sizeof(header), len);
+                t->postSrqReceiveAndKickTransmit(t->serverSrq, bd);
+            } else {
+                // Let the request use the NIC's buffer directly in order
+                // to avoid copying; it will be returned when the request
+                // buffer is destroyed.
+                PayloadChunk::appendToBuffer(&r->requestPayload,
+                    bd->buffer + downCast<uint32_t>(sizeof(header)),
+                    len, t, t->serverSrq, bd);
+            }
+            LOG(DEBUG, "Received %s request from %s",
+                    Rpc::opcodeSymbol(r->requestPayload),
+                    qp->getPeerName());
             Context::get().serviceManager->handleRpc(r);
             ++metrics->transport.receive.messageCount;
             ++metrics->transport.receive.packetCount;
@@ -1117,5 +1235,7 @@ InfRcTransport<Infiniband>::PayloadChunk::PayloadChunk(void* data,
 }
 
 template class InfRcTransport<RealInfiniband>;
+template<typename Infiniband> char InfRcTransport<Infiniband>::name[50]
+        = "?unknown?";
 
 }  // namespace RAMCloud

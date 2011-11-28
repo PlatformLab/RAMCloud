@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -71,8 +71,15 @@ class Transport {
       PROTECTED:
         /**
          * Constructor for ClientRpc.
+         *
+         * \param request
+         *      Holds the outgoing (request) message for the RPC.
+         * \param response
+         *      Used to hold the response message, when it arrives.
          */
-        ClientRpc() : finished(0), errorMessage() {}
+        ClientRpc(Buffer* request, Buffer* response)
+            : request(request), response(response), finished(0),
+              errorMessage() {}
 
       public:
 
@@ -107,8 +114,12 @@ class Transport {
             return (finished.load() != 0);
         }
 
-        void cancel(string& message);
+        void cancel(const string& message);
         void cancel(const char* message = "");
+
+        // Request and response messages.
+        Buffer* request;
+        Buffer* response;
 
       PROTECTED:
         /**
@@ -118,7 +129,7 @@ class Transport {
          * once it returns #cancel will mark the RPC finished.
          */
         virtual void cancelCleanup() {}
-        void markFinished(string& errorMessage);
+        void markFinished(const string& errorMessage);
         void markFinished(const char* errorMessage = NULL);
 
         /**
@@ -277,6 +288,14 @@ class Transport {
             serviceLocator = locator;
         }
 
+        /**
+         * Shut down this session: abort any RPCs in progress and reject
+         * any future calls to \c clientSend.
+         * \param message
+         *      Provides information about why the Session is being aborted.
+         */
+        virtual void abort(const string& message) = 0;
+
         /// Used by boost::intrusive_ptr. Do not call explicitly.
         friend void intrusive_ptr_add_ref(Session* session) {
             ++session->refCount;
@@ -316,8 +335,15 @@ class Transport {
 
     /**
      * Return a session that will communicate with the given service locator.
-     * This function may be called from worker threads and should contain any
-     * necessary synchronization.
+     * This function is normally only invoked by TransportManager; clients
+     * call TransportManager::getSession.
+     *
+     * \param serviceLocator
+     *      Identifies the server this session will communicate with.
+     * \param timeoutMs
+     *      If the server becomes nonresponsive for this many milliseconds
+     *      the session will be aborted.  0 means the session will pick a
+     *      suitable default value.
      * \throw NoSuchKeyException
      *      Service locator option missing.
      * \throw BadValueException
@@ -325,7 +351,8 @@ class Transport {
      * \throw TransportException
      *      The transport can't open a session for \a serviceLocator.
      */
-    virtual SessionRef getSession(const ServiceLocator& serviceLocator) = 0;
+    virtual SessionRef getSession(const ServiceLocator& serviceLocator,
+            uint32_t timeoutMs = 0) = 0;
 
     /**
      * Return the ServiceLocator for this Transport. If the transport
@@ -355,6 +382,15 @@ class Transport {
 
     /// Dump out performance and debugging statistics.
     virtual void dumpStats() {}
+
+    /// Default timeout for transports (individual transports can choose to
+    /// use their own default instead of this).  This is the total time
+    /// after which a session will be aborted if there has been no sign of
+    /// life from the server. Transports may use shorter internal timeouts
+    /// to trigger retransmissions.  The current value for this was chosen
+    /// somewhat subjectively in 11/2011, based on the presence of time gaps
+    /// in the poller of as much as 250ms.
+    static const uint32_t DEFAULT_TIMEOUT_MS = 500;
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(Transport);

@@ -17,6 +17,7 @@
 #include "Dispatch.h"
 #include "ServiceManager.h"
 #include "ShortMacros.h"
+#include "SessionAlarm.h"
 #include "TransportManager.h"
 
 namespace RAMCloud {
@@ -64,6 +65,7 @@ Context::Context(bool hasDedicatedDispatchThread)
     , mockContextMember2(NULL)
     , transportManager(NULL)
     , serviceManager(NULL)
+    , sessionAlarmTimer(NULL)
 {
     // The constructors of inner members may try to access the outer members.
     // Set the current context while running the constructors to allow this.
@@ -80,6 +82,7 @@ Context::Context(bool hasDedicatedDispatchThread)
 #endif
         transportManager = new TransportManager();
         serviceManager = new ServiceManager();
+        sessionAlarmTimer = new SessionAlarmTimer(*dispatch);
     } catch (...) {
         destroy();
         throw;

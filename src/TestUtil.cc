@@ -426,15 +426,17 @@ const char *TestUtil::getStatus(Buffer* buffer)
  *
  * \param rpc
  *      RPC request that is expected to finish very soon.
+ * \param ms
+ *      How long to weight (in milliseconds) before giving up.
  *
  * \result
  *      True if the request finishes within a reasonable time period,
  *      false if it doesn't.
  */
 bool
-TestUtil::waitForRpc(Transport::ClientRpc& rpc)
+TestUtil::waitForRpc(Transport::ClientRpc& rpc, int ms)
 {
-    for (int i = 0; i < 1000; i++) {
+    for (int i = 0; i < ms; i++) {
         Context::get().dispatch->poll();
         if (rpc.isReady())
             return true;

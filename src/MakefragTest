@@ -49,6 +49,7 @@ TESTS_SRCFILES := \
 		  src/Recovery.cc \
 		  src/RecoverySegmentIteratorTest.cc \
 		  src/RecoveryTest.cc \
+		  src/RpcTest.cc \
 		  src/SegmentTest.cc \
 		  src/SegmentIteratorTest.cc \
 		  src/ServerIdTest.cc \
@@ -59,6 +60,7 @@ TESTS_SRCFILES := \
 		  src/ServiceTest.cc \
 		  src/ServiceManagerTest.cc \
 		  src/ServiceLocatorTest.cc \
+		  src/SessionAlarmTest.cc \
 		  src/SpinLockTest.cc \
 		  src/StatusTest.cc \
 		  src/StringKeyAdapterTest.cc \

@@ -53,6 +53,7 @@ class TransportManager {
     void registerMemory(void* base, size_t bytes);
     void dumpStats();
     void dumpTransportFactories();
+    void setTimeout(uint32_t timeoutMs);
 
 #if TESTING
     /**
@@ -106,8 +107,9 @@ class TransportManager {
       public:
         explicit WorkerSession(Transport::SessionRef wrapped);
         ~WorkerSession() {}
-        Transport::ClientRpc* clientSend(Buffer* request, Buffer* reply)
-            __attribute__((warn_unused_result));
+        virtual void abort(const string& message);
+        virtual Transport::ClientRpc* clientSend(Buffer* request,
+                Buffer* reply) __attribute__((warn_unused_result));
         void release() {
             delete this;
         }
@@ -166,6 +168,13 @@ class TransportManager {
      * Used for mutual exclusion in multi-threaded environments.
      */
     SpinLock mutex;
+
+    /**
+     * Used for detecting dead servers: if we can't get any response out
+     * a server in this many milliseconds, the session gets aborted.  0
+     * means that each transport gets to pick its own default.
+     */
+    uint32_t timeoutMs;
 
     DISALLOW_COPY_AND_ASSIGN(TransportManager);
 };

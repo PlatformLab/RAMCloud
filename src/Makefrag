@@ -60,6 +60,7 @@ SHARED_SRCFILES := \
 		   src/RawMetrics.cc \
 		   src/Recovery.cc \
 		   src/RecoverySegmentIterator.cc \
+		   src/Rpc.cc \
 		   src/Segment.cc \
 		   src/SegmentIterator.cc \
 		   src/ServerId.cc \
@@ -69,6 +70,7 @@ SHARED_SRCFILES := \
 		   src/Service.cc \
 		   src/ServiceLocator.cc \
 		   src/ServiceManager.cc \
+		   src/SessionAlarm.cc \
 		   src/SpinLock.cc \
 		   src/Status.cc \
 		   src/StringUtil.cc \

@@ -72,26 +72,90 @@ TEST_F(InfRcTransportTest, sanityCheck) {
     EXPECT_EQ("ok", TestUtil::checkLargeBuffer(&reply, 50000));
 }
 
-TEST_F(InfRcTransportTest, ClientRpc_cancelCleanup) {
+TEST_F(InfRcTransportTest, InfRcSession_abort_onClientSendQueue) {
     TestLog::Enable _;
     // Create a server and a client.
     InfRcTransport<RealInfiniband> server(locator);
     InfRcTransport<RealInfiniband> client;
-    Transport::SessionRef session = client.getSession(*locator);
+    InfRcTransport<RealInfiniband>::InfRcSession session(&client, *locator, 0);
+
+    // Arrange for 2 messages on clientSendQueue.
+    Buffer request1, request2;
+    Buffer reply1, reply2;
+    request1.fillFromString("r1");
+    request2.fillFromString("r2");
+    client.numUsedClientSrqBuffers =
+            InfRcTransport<RealInfiniband>::MAX_SHARED_RX_QUEUE_DEPTH+1;
+    Transport::ClientRpc* clientRpc1 = session.clientSend(&request1,
+            &reply1);
+    Transport::ClientRpc* clientRpc2 = session.clientSend(&request2,
+            &reply2);
+    EXPECT_EQ(2U, client.clientSendQueue.size());
+
+    session.abort("aborted by test");
+    EXPECT_EQ(0U, client.clientSendQueue.size());
+    EXPECT_EQ(0, session.alarm.outstandingRpcs);
+    EXPECT_TRUE(clientRpc1->isReady());
+    EXPECT_TRUE(clientRpc2->isReady());
+    string message("no exception");
+    try {
+        clientRpc1->wait();
+    } catch (TransportException& e) {
+        message = e.message;
+    }
+    EXPECT_EQ("null RPC cancelled: aborted by test", message);
+}
+
+TEST_F(InfRcTransportTest, InfRcSession_abort_onOutstandingRpcs) {
+    TestLog::Enable _;
+    // Create a server and a client.
+    InfRcTransport<RealInfiniband> server(locator);
+    InfRcTransport<RealInfiniband> client;
+    InfRcTransport<RealInfiniband>::InfRcSession session(&client, *locator, 0);
+
+    // Arrange for 2 messages on outstandingRpcs.
+    Buffer request1, request2;
+    Buffer reply1, reply2;
+    request1.fillFromString("r1");
+    request2.fillFromString("r2");
+    Transport::ClientRpc* clientRpc1 = session.clientSend(&request1,
+            &reply1);
+    Transport::ClientRpc* clientRpc2 = session.clientSend(&request2,
+            &reply2);
+    EXPECT_EQ(2U, client.outstandingRpcs.size());
+
+    session.abort("aborted by test");
+    EXPECT_EQ(0U, client.outstandingRpcs.size());
+    EXPECT_TRUE(clientRpc1->isReady());
+    EXPECT_TRUE(clientRpc2->isReady());
+    string message("no exception");
+    try {
+        clientRpc1->wait();
+    } catch (TransportException& e) {
+        message = e.message;
+    }
+    EXPECT_EQ("null RPC cancelled: aborted by test", message);
+}
+
+TEST_F(InfRcTransportTest, ClientRpc_cancelCleanup_rpcPending) {
+    TestLog::Enable _;
+    // Create a server and a client.
+    InfRcTransport<RealInfiniband> server(locator);
+    InfRcTransport<RealInfiniband> client;
+    InfRcTransport<RealInfiniband>::InfRcSession session(&client, *locator, 0);
 
     // Send a message, then cancel before the response is received.
     Buffer request;
     Buffer reply;
     request.fillFromString("abcdefg");
-    Transport::ClientRpc* clientRpc = session->clientSend(&request,
+    client.numUsedClientSrqBuffers =
+            InfRcTransport<RealInfiniband>::MAX_SHARED_RX_QUEUE_DEPTH+1;
+    Transport::ClientRpc* clientRpc = session.clientSend(&request,
             &reply);
-    Transport::ServerRpc* serverRpc =
-            Context::get().serviceManager->waitForRpc(1.0);
-    EXPECT_TRUE(serverRpc != NULL);
-    EXPECT_FALSE(clientRpc->isReady());
-    EXPECT_EQ(1U, client.outstandingRpcs.size());
-    clientRpc->cancel();
-    EXPECT_EQ(0U, client.outstandingRpcs.size());
+    EXPECT_EQ(1U, client.clientSendQueue.size());
+    clientRpc->cancel("cancelled by test");
+    EXPECT_EQ(0U, client.clientSendQueue.size());
+    EXPECT_EQ(0, session.alarm.outstandingRpcs);
     EXPECT_TRUE(clientRpc->isReady());
     string message("no exception");
     try {
@@ -99,7 +163,39 @@ TEST_F(InfRcTransportTest, ClientRpc_cancelCleanup) {
     } catch (TransportException& e) {
         message = e.message;
     }
-    EXPECT_EQ("RPC cancelled", message);
+    EXPECT_EQ("unknown(25185) RPC cancelled: cancelled by test", message);
+}
+
+TEST_F(InfRcTransportTest, ClientRpc_cancelCleanup_rpcSent) {
+    TestLog::Enable _;
+    // Create a server and a client.
+    InfRcTransport<RealInfiniband> server(locator);
+    InfRcTransport<RealInfiniband> client;
+    InfRcTransport<RealInfiniband>::InfRcSession session(&client, *locator, 0);
+
+    // Send a message, then cancel before the response is received.
+    Buffer request;
+    Buffer reply;
+    request.fillFromString("abcdefg");
+    Transport::ClientRpc* clientRpc = session.clientSend(&request,
+            &reply);
+    Transport::ServerRpc* serverRpc =
+            Context::get().serviceManager->waitForRpc(1.0);
+    EXPECT_TRUE(serverRpc != NULL);
+    EXPECT_FALSE(clientRpc->isReady());
+    EXPECT_EQ(1U, client.outstandingRpcs.size());
+    EXPECT_EQ(1, session.alarm.outstandingRpcs);
+    clientRpc->cancel();
+    EXPECT_EQ(0U, client.outstandingRpcs.size());
+    EXPECT_EQ(0, session.alarm.outstandingRpcs);
+    EXPECT_TRUE(clientRpc->isReady());
+    string message("no exception");
+    try {
+        clientRpc->wait();
+    } catch (TransportException& e) {
+        message = e.message;
+    }
+    EXPECT_EQ("unknown(25185) RPC cancelled", message);
 
     // Send the response, and make sure it is ignored by the client.
     serverRpc->replyPayload.fillFromString("klmn");
@@ -110,7 +206,7 @@ TEST_F(InfRcTransportTest, ClientRpc_cancelCleanup) {
     request.reset();
     request.fillFromString("xyzzy");
     reply.reset();
-    clientRpc = session->clientSend(&request, &reply);
+    clientRpc = session.clientSend(&request, &reply);
     serverRpc = Context::get().serviceManager->waitForRpc(1.0);
 
     // Note: the log entry for the unrecognized response to the canceled
@@ -125,6 +221,24 @@ TEST_F(InfRcTransportTest, ClientRpc_cancelCleanup) {
     serverRpc->sendReply();
     clientRpc->wait();
     EXPECT_EQ("response2/0", TestUtil::toString(&reply));
+}
+
+TEST_F(InfRcTransportTest, ClientRpc_clientSend_sessionAborted) {
+    InfRcTransport<RealInfiniband> server(locator);
+    InfRcTransport<RealInfiniband> client;
+    InfRcTransport<RealInfiniband>::InfRcSession session(&client, *locator, 0);
+    session.abort("test abort");
+    Buffer request;
+    Buffer reply;
+    string message("no exception");
+    try {
+        Transport::ClientRpc* clientRpc = session.clientSend(&request, &reply);
+        // Must use clientRpc to keep compiler happy.
+        clientRpc->isReady();
+    } catch (TransportException& e) {
+        message = e.message;
+    }
+    EXPECT_EQ("test abort", message);
 }
 
 }  // namespace RAMCloud

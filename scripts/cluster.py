@@ -185,8 +185,10 @@ def run(
         def ensure_servers(qty):
             sandbox.checkFailures()
             try:
-                sandbox.rsh(hosts[0][0], '%s -C %s -n %d -l 1 -t 5' %
-                            (ensure_servers_bin, coordinator_locator, qty))
+                sandbox.rsh(hosts[0][0], '%s -C %s -n %d -l 1 --maxwait 5 '
+                            '--logFile %s/ensureServers.log' %
+                            (ensure_servers_bin, coordinator_locator,
+                             qty, log_subdir))
             except:
                 # prefer exceptions from dead processes to timeout error
                 sandbox.checkFailures()
@@ -252,7 +254,7 @@ def run(
             # Start an extra backup server in this host, if needed.
             if backups_per_server == 2:
                 command = ('%s -C %s -L %s -B %s -l %s '
-                           '--logFile %s/server.%s.log %s' %
+                           '--logFile %s/backup.%s.log %s' %
                            (server_binary, coordinator_locator,
                             server_locator(transport, host, second_backup_port),
                             disk2, log_level, log_subdir, host[0],

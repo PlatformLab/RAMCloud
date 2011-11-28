@@ -44,16 +44,21 @@ class RealInfiniband {
       public:
         QueuePairTuple() : qpn(0), psn(0), lid(0), nonce(0)
         {
-            static_assert(sizeof(QueuePairTuple) == 18,
+            static_assert(sizeof(QueuePairTuple) == 68,
                               "QueuePairTuple has unexpected size");
         }
         QueuePairTuple(uint16_t lid, uint32_t qpn, uint32_t psn,
-                       uint64_t nonce)
-            : qpn(qpn), psn(psn), lid(lid), nonce(nonce) {}
-        uint16_t getLid() const { return lid; }
-        uint32_t getQpn() const { return qpn; }
-        uint32_t getPsn() const { return psn; }
-        uint64_t getNonce() const { return nonce; }
+                       uint64_t nonce, const char* peerName = "?unknown?")
+            : qpn(qpn), psn(psn), lid(lid), nonce(nonce)
+        {
+            snprintf(this->peerName, sizeof(this->peerName), "%s",
+                peerName);
+        }
+        uint16_t    getLid() const      { return lid; }
+        uint32_t    getQpn() const      { return qpn; }
+        uint32_t    getPsn() const      { return psn; }
+        uint64_t    getNonce() const    { return nonce; }
+        const char* getPeerName() const { return peerName; }
 
       private:
         uint32_t qpn;            // queue pair number
@@ -61,6 +66,8 @@ class RealInfiniband {
         uint16_t lid;            // infiniband address: "local id"
         uint64_t nonce;          // random nonce used to confirm replies are
                                  // for received requests
+        char peerName[50];       // Optional name for the sender (intended for
+                                 // use in error messages); null-terminated.
     } __attribute__((packed));
 
     explicit RealInfiniband(const char* deviceName);
@@ -174,13 +181,16 @@ class RealInfiniband {
             pd(NULL), srq(NULL), qp(NULL), txcq(NULL), rxcq(NULL),
             initialPsn(-1) {}
         ~QueuePair();
-        uint32_t getInitialPsn() const;
-        uint32_t getLocalQpNumber() const;
-        uint32_t getRemoteQpNumber() const;
-        uint16_t getRemoteLid() const;
-        int      getState() const;
-        void     plumb(QueuePairTuple *qpt);
-        void     activate(const Tub<MacAddress>& localMac);
+        uint32_t    getInitialPsn() const;
+        uint32_t    getLocalQpNumber() const;
+        uint32_t    getRemoteQpNumber() const;
+        uint16_t    getRemoteLid() const;
+        int         getState() const;
+        bool        isError() const;
+        void        plumb(QueuePairTuple *qpt);
+        void        setPeerName(const char *peerName);
+        const char* getPeerName() const;
+        void        activate(const Tub<MacAddress>& localMac);
 
       //private: XXXXX- move send/recv functionality into the queue pair shit
         Infiniband&  infiniband;     // Infiniband to which this QP belongs
@@ -193,6 +203,9 @@ class RealInfiniband {
         ibv_cq*      txcq;           // transmit completion queue
         ibv_cq*      rxcq;           // receive completion queue
         uint32_t     initialPsn;     // initial packet sequence number
+        char         peerName[50];   // Optional name for the sender
+                                     // (intended for use in error messages);
+                                     // null-terminated.
 
         DISALLOW_COPY_AND_ASSIGN(QueuePair);
     };

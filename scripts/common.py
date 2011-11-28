@@ -25,7 +25,7 @@ import subprocess
 import sys
 import time
 
-__all__ = ['sh', 'captureSh', 'Sandbox']
+__all__ = ['sh', 'captureSh', 'Sandbox', 'getDumpstr']
 
 def sh(command, bg=False, **kwargs):
     """Execute a local command."""
@@ -42,10 +42,9 @@ def captureSh(command, **kwargs):
     kwargs['shell'] = True
     kwargs['stdout'] = subprocess.PIPE
     p = subprocess.Popen(command, **kwargs)
-    rc = p.wait()
-    if rc:
-        raise subprocess.CalledProcessError(rc, command)
-    output = p.stdout.read()
+    output = p.communicate()[0]
+    if p.returncode:
+        raise subprocess.CalledProcessError(p.returncode, command)
     if output.count('\n') and output[-1] == '\n':
         return output[:-1]
     else:
@@ -78,7 +77,7 @@ class Sandbox(object):
         else:
             sh_command = ['ssh', host,
                           '%s/remoteexec.py' % scripts_path,
-                          "'%s'" % command]
+                          "'%s'" % command, os.getcwd()]
             subprocess.check_call(sh_command, **kwargs)
     def __enter__(self):
         return self
@@ -134,3 +133,26 @@ def delayedInterrupts():
 from config import *
 import config
 __all__.extend(config.__all__)
+
+def getDumpstr():
+    """Returns an instance of Dumpstr for uploading reports.
+
+    You should set dumpstr_base_url in your config file if you want to use this
+    to upload reports. See the dumpstr README for more info. You might be able
+    to find that README on the web at
+    https://github.com/ongardie/dumpstr/blob/master/README.rst
+    """
+
+    from dumpstr import Dumpstr
+    try:
+        url = config.dumpstr_base_url
+    except AttributeError:
+        d = Dumpstr("")
+        def error(*args, **kwargs):
+            raise Exception(
+                "You did not set your dumpstr_base_url "
+                "in local_config.py, so you can't upload reports.")
+        d.upload_report = error
+        return d
+    else:
+        return Dumpstr(url)

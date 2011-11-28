@@ -33,7 +33,7 @@ import sys
 
 from common import *
 
-__all__ = ['average', 'avgAndStdDev', 'parseRecovery']
+__all__ = ['parseRecovery', 'makeReport']
 
 ### Utilities:
 
@@ -97,42 +97,6 @@ def parse(f):
         raise Exception, 'no metrics in %s' % f.name
     return list
 
-def average(points):
-    """Return the average of a sequence of numbers."""
-    return sum(points)/len(points)
-
-def avgAndStdDev(points):
-    """Return the (average, standard deviation) of a sequence of numbers."""
-    avg = average(points)
-    variance = average([p**2 for p in points]) - avg**2
-    if variance < 0:
-        # poor floating point arithmetic made variance negative
-        assert variance > -0.1
-        stddev = 0.0
-    else:
-        stddev = math.sqrt(variance)
-    return (avg, stddev)
-
-def avgAndMax(points):
-    """Return the (average, max) of a sequence of numbers."""
-    if len(points) == 0:
-        return (0, 0)
-    max = points[0]
-    for p in points:
-        if p > max:
-            max = p
-    return (average(points), max)
-
-def avgAndMin(points):
-    """Return the (average, min) of a sequence of numbers."""
-    if len(points) == 0:
-        return (0, 0)
-    min = points[0]
-    for p in points:
-        if p < min:
-            min = p
-    return (average(points), min)
-
 def maxTuple(tuples):
     """Return the tuple whose first element is largest."""
     maxTuple = None;
@@ -153,241 +117,237 @@ def minTuple(tuples):
             minTuple = tuple
     return minTuple
 
-def seq(x):
-    """Turn the argument into a sequence.
+def values(s):
+    """Return a sequence of the second items from a sequence."""
+    return [p[1] for p in s]
 
-    If x is already a sequence, do nothing. If it is not, wrap it in a list.
+def scale(points, scalar):
+    """Try really hard to scale 'points' by 'scalar'.
+
+    @type  points: mixed
+    @param points: Points can either be:
+
+        - a sequence of pairs, in which case the second item will be scaled,
+        - a list, or
+        - a number
+
+    @type  scalar: number
+    @param scalar: the amount to multiply points by
     """
-    try:
-        iter(x)
-    except TypeError:
-        return [x]
+
+    if type(points) is list:
+        try:
+            return [(k, p * scalar) for k, p in points]
+        except TypeError:
+            return [p * scalar for p in points]
     else:
-        return x
+        return points * scalar
 
-### Report formatting:
-
-def defaultFormat(x):
-    """Return a reasonable format string for the argument."""
+def toString(x):
+    """Return a reasonable string conversion for the argument."""
     if type(x) is int:
-        return '{0:6d}'
+        return '{0:7d}'.format(x)
     elif type(x) is float:
-        return '{0:6.1f}'
+        return '{0:7.2f}'.format(x)
     else:
-        return '{0:>6s}'
+        return '{0:>7s}'.format(x)
+
+### Summary functions
+# This is a group of functions that can be passed in to Section.line() to
+# affect how the line is summarized.
+# Each one takes the following arguments:
+#  - values, which is a list of numbers
+#  - unit, which is a short string specifying the units for values
+# Each returns a list, possibly empty, of strings to contribute to the summary
+# text. The summary strings are later displayed with a delimiter or line break
+# in between.
+
+def AVG(values, unit):
+    """Returns the average of its values."""
+    if max(values) > min(values):
+        r = toString(sum(values) / len(values))
+        if unit:
+            r += ' ' + unit
+        r += ' avg'
+    else:
+        r = toString(values[0])
+        if unit:
+            r += ' ' + unit
+    return [r]
+
+def MIN(values, unit):
+    """Returns the minimum of the values if the range is non-zero."""
+    if len(values) < 2 or max(values) == min(values):
+        return []
+    r = toString(min(values))
+    if unit:
+        r += ' ' + unit
+    r += ' min'
+    return [r]
+
+def MAX(values, unit):
+    """Returns the maximum of the values if the range is non-zero."""
+    if len(values) < 2 or max(values) == min(values):
+        return []
+    r = toString(max(values))
+    if unit:
+        r += ' ' + unit
+    r += ' max'
+    return [r]
+
+def SUM(values, unit):
+    """Returns the sum of the values if there are any."""
+    if len(values) == 0:
+        return []
+    r = toString(sum(values))
+    if unit:
+        r += ' ' + unit
+    r += ' total'
+    return [r]
+
+def FRAC(total):
+    """Returns a function that shows the average percentage of the values from
+    the total given."""
+    def realFrac(values, unit):
+        r = toString(sum(values) / len(values) / total * 100)
+        r += '%'
+        if max(values) > min(values):
+            r += ' avg'
+        return [r]
+    return realFrac
+
+def CUSTOM(s):
+    """Returns a function that returns the string or list of strings given.
+
+    This is useful when you need custom processing that doesn't fit in any of
+    the other summary functions and is too specific to merit a new summary
+    function.
+    """
+    def realCustom(values, unit):
+        if type(s) is list:
+            return s
+        else:
+            return [s]
+    return realCustom
+
+
+### Report structure:
 
 class Report(object):
-    """A concatenation of Sections."""
+    """This produces a report which can be uploaded to dumpstr.
+
+    It is essentially a list of Sections.
+    """
+
     def __init__(self):
         self.sections = []
+
     def add(self, section):
+        """Add a new Section to the report."""
         self.sections.append(section)
         return section
-    def __str__(self):
-        return '\n\n'.join([str(section)
-                            for section in self.sections if section])
+
+    def jsonable(self):
+        """Return a representation of the report that can be JSON-encoded in
+        dumpstr format.
+        """
+
+        doc = [section.jsonable() for section in self.sections if section]
+        return doc
 
 class Section(object):
     """A part of a Report consisting of lines with present metrics."""
 
-    def __init__(self, title):
-        self.title = title
+    def __init__(self, key):
+        """
+        @type  key: string
+        @param key: a stable, unique string identifying the section
+
+            This should not ever be changed, as dumpstr's labels and
+            descriptions are looked up by this key.
+        """
+
+        self.key = key
         self.lines = []
 
     def __len__(self):
         return len(self.lines)
 
-    def __str__(self):
-        if not self.lines:
-            return ''
-        lines = []
-        lines.append('=== {0:} ==='.format(self.title))
-        maxLabelLength = max([len(label) for label, columns in self.lines])
-        for label, columns in self.lines:
-            lines.append('{0:<{labelWidth:}} {1:}'.format(
-                '{0:}:'.format(label), columns,
-                labelWidth=(maxLabelLength + 1)))
-        return '\n'.join(lines)
-
-    def line(self, label, columns, note=''):
-        """Add a line of text to the Section.
-
-        It will look like this:
-            label: columns[0] / ... / columns[-1] (note)
+    def jsonable(self):
+        """Return a representation of the section that can be JSON-encoded in
+        dumpstr format.
         """
-        columns = ' / '.join(columns)
-        if note:
-            right = '{0:s}  ({1:s})'.format(columns, note)
-        else:
-            right = columns
-        self.lines.append((label, right))
+        return {'key': self.key, 'lines': self.lines}
 
-    def avgMinSum(self, label, points, pointFormat=None, note=''):
-        """Add a line with the average, minimum, and sum of a set of points.
+    def line(self, key, points, unit='',
+             summaryFns=[AVG, MAX]):
+        """Add a line to the Section.
 
-        label and note are passed onto line()
+        @type  key: string
+        @param key: a stable, unique string identifying the line
 
-        If more than one point is given, the columns will be the average,
-        standard deviation, and sum of the points. If, however, only one point
-        is given, the only column will be one showing that point.
+            This should not ever be changed, as dumpstr's labels and
+            descriptions are looked up by this key.
 
-        If pointFormat is not given, a reasonable default will be determined
-        with defaultFormat(). A floating point format will be used for the
-        average and standard deviation.
+        @type  points: number, string, list of numbers, or
+                       list of pairs of (string label, number)
+        @param points: the data, in detail
+
+        @type  unit: string
+        @param unit: a short string specifying the units for values
+
+        @type  summaryFn: list of summary functions
+        @param summaryFn: used to create a short summary of the data
+
+            See the big comment block under "Summary functions" above.
         """
-        points = seq(points)
-        columns = []
-        if len(points) == 1:
-            point = points[0]
-            if pointFormat is None:
-                pointFormat = defaultFormat(point)
-            columns.append(pointFormat.format(point))
+
+        if unit:
+            spaceUnit = ' ' + unit
         else:
-            if pointFormat is None:
-                avgStdFormat = '{0:6.1f}'
-                sumFormat = defaultFormat(points[0])
+            spaceUnit = ''
+
+        if type(points) is str:
+            summary = points
+        else:
+            values = []
+            if type(points) is list:
+                for point in points:
+                    try:
+                        label, point = point
+                    except TypeError:
+                        pass
+                    assert type(point) in [int, float]
+                    values.append(point)
             else:
-                avgStdFormat = pointFormat
-                sumFormat = pointFormat
-            avg, min = avgAndMin(points)
-            columns.append('{0:} avg'.format(avgStdFormat.format(avg)))
-            columns.append('min {0:}'.format(avgStdFormat.format(min)))
-            columns.append('{0:} total'.format(sumFormat.format(sum(points))))
-        self.line(label, columns, note)
+                assert type(points) in [int, float]
+                values.append(points)
 
-    def avgStdFrac(self, label, points, pointFormat=None,
-                 total=None, fractionLabel='', note=''):
-        """Add a line with the average, std dev, and avg percentage of a
-        set of points.
+            summary = []
+            for fn in summaryFns:
+                summary += fn(values, unit)
 
-        label and note are passed onto line()
+        self.lines.append({'key': key,
+                           'summary': summary,
+                           'points': points,
+                           'unit': unit})
 
-        If more than one point is given, the columns will be the average and
-        standard deviation of the points. If total is given, an additional
-        column will show the percentage of total that the average of the points
-        make up.
+    def ms(self, key, points, total=None):
+        """A commonly used line type for printing in milliseconds.
 
-        If, however, only one point is given, the first column will be one
-        showing that point. If total is given, an additional column will show
-        the percentage of total that the point makes up.
+        @param key: see line
 
-        If pointFormat is not given, a reasonable default will be determined
-        with defaultFormat(). A floating point format will be used for the
-        average and standard deviation.
+        @param ponts: The points given in units of seconds (they will be
+        scaled by 1000 internally).
 
-        If total and fractionLabel are given, fractionLabel will be printed
-        next to the percentage of total that points make up.
+        @param total: If the time is a fraction of some total, this is that
+                      total, in seconds.
+
         """
-        points = seq(points)
-        if fractionLabel:
-            fractionLabel = ' {0:}'.format(fractionLabel)
-        columns = []
-        if len(points) == 1:
-            point = points[0]
-            if pointFormat is None:
-                pointFormat = defaultFormat(point)
-            columns.append(pointFormat.format(point))
-            if total is not None:
-                columns.append('{0:6.2%}{1:}'.format(point / total,
-                                                     fractionLabel))
-        else:
-            if pointFormat is None:
-                pointFormat = '{0:6.1f}'
-            avg, stddev = avgAndStdDev(points)
-            columns.append('{0:} avg'.format(pointFormat.format(avg)))
-            columns.append('stddev {0:}'.format(pointFormat.format(stddev)))
-            if total is not None:
-                columns.append('{0:6.2%} avg{1:}'.format(avg / total,
-                                                         fractionLabel))
-        self.line(label, columns, note)
-
-    def avgMaxFrac(self, label, points, pointFormat=None,
-                 total=None, fractionLabel='', note=''):
-        """Add a line with the average, largest, and avg percentage of a
-        set of points.
-
-        label and note are passed onto line()
-
-        If more than one point is given, the columns will be the average and
-        maximum of the points. If total is given, an additional column will
-        show the percentage of total that the average of the points make up.
-
-        If, however, only one point is given, the first column will be one
-        showing that point. If total is given, an additional column will show
-        the percentage of total that the point makes up.
-
-        If pointFormat is not given, a reasonable default will be determined
-        with defaultFormat(). A floating point format will be used for the
-        average and standard deviation.
-
-        If total and fractionLabel are given, fractionLabel will be printed
-        next to the percentage of total that points make up.
-        """
-        points = seq(points)
-        if fractionLabel:
-            fractionLabel = ' {0:}'.format(fractionLabel)
-        columns = []
-        if len(points) == 1:
-            point = points[0]
-            if pointFormat is None:
-                pointFormat = defaultFormat(point)
-            columns.append(pointFormat.format(point))
-            if total is not None:
-                columns.append('{0:6.2%}{1:}'.format(point / total,
-                                                     fractionLabel))
-        else:
-            if pointFormat is None:
-                pointFormat = '{0:6.1f}'
-            avg, max = avgAndMax(points)
-            columns.append('{0:} avg'.format(pointFormat.format(avg)))
-            columns.append('max {0:}'.format(pointFormat.format(max)))
-            if total is not None:
-                columns.append('{0:6.2%} avg{1:}'.format(avg / total,
-                                                         fractionLabel))
-        self.line(label, columns, note)
-
-    def avgMinFrac(self, label, points, pointFormat=None,
-                 total=None, fractionLabel='', note=''):
-        """Same as avgMaxFrac except print mimimum value rather than max.
-        """
-        points = seq(points)
-        if fractionLabel:
-            fractionLabel = ' {0:}'.format(fractionLabel)
-        columns = []
-        if len(points) == 1:
-            point = points[0]
-            if pointFormat is None:
-                pointFormat = defaultFormat(point)
-            columns.append(pointFormat.format(point))
-            if total is not None:
-                columns.append('{0:6.2%}{1:}'.format(point / total,
-                                                     fractionLabel))
-        else:
-            if pointFormat is None:
-                pointFormat = '{0:6.1f}'
-            avg, min = avgAndMin(points)
-            columns.append('{0:} avg'.format(pointFormat.format(avg)))
-            columns.append('min {0:}'.format(pointFormat.format(min)))
-            if total is not None:
-                columns.append('{0:6.2%} avg{1:}'.format(avg / total,
-                                                         fractionLabel))
-        self.line(label, columns, note)
-
-    avgStd = avgStdFrac
-    """Same as avgStdFrac.
-
-    The intent is that you don't pass total, so you won't get the Frac part.
-    """
-
-    def ms(self, label, points, **kwargs):
-        """Calls avgMaxFrac to print the points shown in milliseconds.
-
-        points and total should still be provided in full seconds!
-        """
-        kwargs['pointFormat'] = '{0:6.1f} ms'
-        if 'total' in kwargs:
-            kwargs['total'] *= 1000
-        self.avgMaxFrac(label, [p * 1000 for p in seq(points)], **kwargs)
+        summaryFns = [AVG, MAX]
+        if total:
+            summaryFns.append(FRAC(total * 1000))
+        self.line(key, scale(points, 1000), unit='ms', summaryFns=summaryFns)
 
 def parseRecovery(recovery_dir):
     data = AttrDict()
@@ -439,7 +399,7 @@ def rawFull(data):
 
     pprint(data)
 
-def textReport(data):
+def makeReport(data):
     """Generate ASCII report"""
 
     coord = data.coordinator
@@ -452,79 +412,96 @@ def textReport(data):
 
     # TODO(ongaro): Size distributions of filtered segments
 
+    def make_fail_fun(fun, fail):
+        """Wrap fun to return fail instead of throwing ZeroDivisionError."""
+        def fun2(x):
+            try:
+                return fun(x)
+            except ZeroDivisionError:
+                return fail
+        return fun2
+
+    def on_masters(fun, fail=0):
+        """Call a function on each master,
+        replacing ZeroDivisionErrors with 'fail'."""
+        fun2 = make_fail_fun(fun, fail)
+        return [(master.serverId, fun2(master)) for master in masters]
+
+    def on_backups(fun, fail=0):
+        """Call a function on each backup,
+        replacing ZeroDivisionErrors with 'fail'."""
+        fun2 = make_fail_fun(fun, fail)
+        return [(backup.serverId, fun2(backup)) for backup in backups]
+
+
     summary = report.add(Section('Summary'))
-    summary.avgStd('Recovery time', recoveryTime, '{0:6.3f} s')
-    summary.avgStd('Masters', len(masters))
-    summary.avgStd('Backups', len(backups))
-    summary.avgStd('Total nodes', data.totalNodes)
-    summary.avgStd('Replicas',
-                   masters[0].master.replicas)
-    summary.avgMaxFrac('Objects per master',
-                   [master.master.liveObjectCount
-                        for master in masters])
-    summary.avgMaxFrac('Object size',
-                   [master.master.liveObjectBytes /
-                    master.master.liveObjectCount
-                    for master in masters],
-                   '{0:6.0f} bytes')
-    summary.avgStd('Total live objects',
-                   sum([master.master.liveObjectCount
-                        for master in masters]))
-    totalLiveObjectMB = sum([master.master.liveObjectBytes
-                            for master in masters]) / 1024.0 / 1024.0
-    totalRecoverySegmentMBWithOverhead = sum(
-                            [master.master.segmentReadByteCount
-                            for master in masters]) / 1024.0 / 1024.0
-    totalrecoverySegentEntryMB = sum([master.master.recoverySegmentEntryBytes
-                                     for master in masters]) / 1024.0 / 1024.0
-    summary.avgStd('Total recovery segment entries',
-                   sum([master.master.recoverySegmentEntryCount
+    summary.line('Recovery time', recoveryTime, 's')
+    summary.line('Masters', len(masters))
+    summary.line('Backups', len(backups))
+    summary.line('Total nodes', data.totalNodes)
+    summary.line('Replicas',
+                 masters[0].master.replicas)
+    summary.line('Objects per master',
+                 on_masters(lambda m: m.master.liveObjectCount))
+    summary.line('Object size',
+                 on_masters(lambda m: m.master.liveObjectBytes /
+                                      m.master.liveObjectCount),
+                 'bytes')
+
+    summary.line('Total recovery segment entries',
+                 sum([master.master.recoverySegmentEntryCount
                       for master in masters]))
-    summary.avgStd('Total live object space', totalLiveObjectMB, '{0:6.2f} MB')
-    summary.avgStd('Total recovery segment space w/ overhead',
-                   totalRecoverySegmentMBWithOverhead, '{0:6.2f} MB')
+
+    summary.line('Total live object space',
+                 sum([master.master.liveObjectBytes
+                      for master in masters]) / 1024.0 / 1024.0,
+                 'MB')
+
+    summary.line('Total recovery segment space w/ overhead',
+                 sum([master.master.segmentReadByteCount
+                      for master in masters]) / 1024.0 / 1024.0,
+                 'MB')
 
     if backups:
         storageTypes = set([backup.backup.storageType for backup in backups])
         if len(storageTypes) > 1:
-            storageType = 'mixed'
+            storageTypeStr = 'mixed'
         else:
-            storageType = {1: 'memory',
-                           2: 'disk'}.get(int(storageTypes.pop()),
-                                          'unknown')
-        summary.line('Storage type', [storageType])
-    summary.line('Log directory', [data.log_dir])
+            storageType = storageTypes.pop()
+            if storageType == 1:
+                storageTypeStr = 'memory'
+            elif storageType == 2:
+                storageTypeStr = 'disk'
+            else:
+                storageTypeStr = 'unknown (%s)' % storageType
+        summary.line('Storage type', storageTypeStr)
+    summary.line('Log directory', data.log_dir)
 
     coordSection = report.add(Section('Coordinator Time'))
     coordSection.ms('Total',
-        coord.coordinator.recoveryTicks / coord.clockFrequency,
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    coordSection.ms('  Starting recovery on backups',
+                    coord.coordinator.recoveryTicks /
+                    coord.clockFrequency,
+                    total=recoveryTime)
+
+    coordSection.ms('Starting recovery on backups',
         coord.coordinator.recoveryConstructorTicks / coord.clockFrequency,
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    coordSection.ms('  Starting recovery on masters',
+        total=recoveryTime)
+    coordSection.ms('Starting recovery on masters',
         coord.coordinator.recoveryStartTicks / coord.clockFrequency,
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    coordSection.ms('  Tablets recovered',
+        total=recoveryTime)
+    coordSection.ms('Tablets recovered',
         coord.rpc.tabletsRecoveredTicks / coord.clockFrequency,
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    coordSection.ms('    Completing recovery on backups',
+        total=recoveryTime)
+    coordSection.ms('Completing recovery on backups',
         coord.coordinator.recoveryCompleteTicks / coord.clockFrequency,
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    coordSection.ms('  Set will',
+        total=recoveryTime)
+    coordSection.ms('Set will',
         coord.rpc.setWillTicks / coord.clockFrequency,
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    coordSection.ms('  Get tablet map',
+        total=recoveryTime)
+    coordSection.ms('Get tablet map',
         coord.rpc.getTabletMapTicks / coord.clockFrequency,
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    coordSection.ms('  Other',
+        total=recoveryTime)
+    coordSection.ms('Other',
         ((coord.coordinator.recoveryTicks -
           coord.coordinator.recoveryConstructorTicks -
           coord.coordinator.recoveryStartTicks -
@@ -532,424 +509,322 @@ def textReport(data):
           coord.rpc.getTabletMapTicks -
           coord.rpc.tabletsRecoveredTicks) /
          coord.clockFrequency),
-        total=recoveryTime,
-        fractionLabel='of total recovery')
+        total=recoveryTime)
     coordSection.ms('Receiving in transport',
         coord.transport.receive.ticks / coord.clockFrequency,
-        total=recoveryTime,
-        fractionLabel='of total recovery')
+        total=recoveryTime)
 
     masterSection = report.add(Section('Master Time'))
-    masterSection.ms('Total',
-        [master.master.recoveryTicks / master.clockFrequency
-         for master in masters],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    masterSection.ms('Waiting for incoming segments',
-        [master.master.segmentReadStallTicks / master.clockFrequency
-         for master in masters],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    masterSection.ms('Inside recoverSegment',
-        [master.master.recoverSegmentTicks / master.clockFrequency
-         for master in masters],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    masterSection.ms('  Backup.proceed',
-        [master.master.backupInRecoverTicks / master.clockFrequency
-         for master in masters],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    masterSection.ms('  Verify checksum',
-        [master.master.verifyChecksumTicks / master.clockFrequency
-         for master in masters],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    masterSection.ms('  Segment append',
-        [master.master.segmentAppendTicks / master.clockFrequency
-         for master in masters],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    masterSection.ms('    Segment append copy',
-        [master.master.segmentAppendCopyTicks / master.clockFrequency
-         for master in masters],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    masterSection.ms('    Segment append checksum',
-        [master.master.segmentAppendChecksumTicks / master.clockFrequency
-         for master in masters],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    masterSection.ms('  Other (HT, etc.)',
-        [(master.master.recoverSegmentTicks -
-          master.master.backupInRecoverTicks -
-          master.master.verifyChecksumTicks -
-          master.master.segmentAppendTicks) /
-         master.clockFrequency
-         for master in masters],
-        total=recoveryTime,
-        fractionLabel='of total recovery',
-        note='other')
-    masterSection.ms('Final log sync',
-        [master.master.logSyncTicks / master.clockFrequency
-         for master in masters],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    masterSection.ms('Removing tombstones',
-        [master.master.removeTombstoneTicks / master.clockFrequency
-         for master in masters],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
+
+    def master_ticks(label, field):
+        """This is a shortcut for adding to the masterSection a recorded number
+        of ticks that are a fraction of the total recovery.
+
+        @type  label: string
+        @param label: the key for the line
+
+        @type  field: string
+        @param field: the field within a master's metrics that collected ticks
+        """
+        masterSection.ms(label,
+                         on_masters(lambda m: eval('m.' + field) /
+                                              m.clockFrequency),
+                         total=recoveryTime)
+
+    master_ticks('Total',
+                 'master.recoveryTicks')
+    master_ticks('Waiting for incoming segments',
+                 'master.segmentReadStallTicks')
+    master_ticks('Inside recoverSegment',
+                 'master.recoverSegmentTicks')
+    master_ticks('Backup.proceed',
+                 'master.backupInRecoverTicks')
+    master_ticks('Verify checksum',
+                 'master.verifyChecksumTicks')
+    master_ticks('Segment append',
+                 'master.segmentAppendTicks')
+    master_ticks('Segment append copy',
+                 'master.segmentAppendCopyTicks')
+    master_ticks('Segment append checksum',
+                 'master.segmentAppendChecksumTicks')
+    masterSection.ms('Other recoverSegment',
+                     on_masters(lambda m: (m.master.recoverSegmentTicks -
+                                           m.master.backupInRecoverTicks -
+                                           m.master.verifyChecksumTicks -
+                                           m.master.segmentAppendTicks) /
+                                          m.clockFrequency),
+                     total=recoveryTime)
+    master_ticks('Final log sync',
+                 'master.logSyncTicks')
+    master_ticks('Removing tombstones',
+                 'master.removeTombstoneTicks')
     masterSection.ms('Other',
-        [(master.master.recoveryTicks -
-          master.master.segmentReadStallTicks -
-          master.master.recoverSegmentTicks -
-          master.master.logSyncTicks -
-          master.master.removeTombstoneTicks) /
-         master.clockFrequency
-         for master in masters],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    masterSection.ms('Receiving in transport',
-        [master.transport.receive.ticks / master.clockFrequency
-         for master in masters],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    masterSection.ms('Transmitting in transport',
-        [master.transport.transmit.ticks / master.clockFrequency
-         for master in masters],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    if (any([master.transport.sessionOpenCount for master in masters])):
-        masterSection.ms('Opening sessions',
-            [master.transport.sessionOpenTicks / master.clockFrequency
-             for master in masters],
-            total=recoveryTime,
-            fractionLabel='of total recovery')
-        if sum([master.transport.retrySessionOpenCount for master in masters]):
-            masterSection.avgStd('  Timeouts:',
-                [master.transport.retrySessionOpenCount for master in masters],
-                label='!!!')
-        sessionOpens = []
-        for master in masters:
-            if master.transport.sessionOpenCount > 0:
-                avg = (master.transport.sessionOpenTicks /
-                       master.transport.sessionOpenCount)
-                if avg**2 > 2**64 - 1:
-                    stddev = -1.0 # 64-bit arithmetic could have overflowed
-                else:
-                    variance = (master.transport.sessionOpenSquaredTicks /
-                                master.transport.sessionOpenCount) - avg**2
-                    if variance < 0:
-                        # poor floating point arithmetic made variance negative
-                        assert variance > -0.1
-                        stddev = 0.0
-                    else:
-                        stddev = math.sqrt(variance)
-                    stddev /= master.clockFrequency / 1e3
-                avg /= master.clockFrequency / 1e3
-                sessionOpens.append((avg, stddev))
-            else:
-                sessionOpens.append((0, 0))
-        masterSection.avgMaxFrac('  Avg per session',
-                             [x[0] for x in sessionOpens],
-                             pointFormat='{0:6.1f} ms')
-        masterSection.avgMaxFrac('  Std dev per session',
-                             [x[1] for x in sessionOpens],
-                             pointFormat='{0:6.1f} ms')
+                     on_masters(lambda m: (m.master.recoveryTicks -
+                                           m.master.segmentReadStallTicks -
+                                           m.master.recoverSegmentTicks -
+                                           m.master.logSyncTicks -
+                                           m.master.removeTombstoneTicks) /
+                                          m.clockFrequency),
+                     total=recoveryTime)
 
-    masterSection.ms('Replicating one segment',
-        [(master.master.replicationTicks / master.clockFrequency) /
-         math.ceil(master.master.replicationBytes / master.segmentSize) /
-          master.master.replicas
-         for master in masters])
-    try:
-        masterSection.ms('  During replay',
-            [((master.master.replicationTicks - master.master.logSyncTicks) /
-              master.clockFrequency) /
-             math.ceil((master.master.replicationBytes - master.master.logSyncBytes) /
-               master.segmentSize) / master.master.replicas
-             for master in masters])
-    except:
-        pass
-    masterSection.ms('  During log sync',
-        [(master.master.logSyncTicks / master.clockFrequency) /
-         math.ceil(master.master.logSyncBytes / master.segmentSize) /
-         master.master.replicas
-         for master in masters])
-    try:
-        masterSection.ms('RPC latency replicating one segment',
-            [(master.master.backupCloseTicks + master.master.logSyncCloseTicks) /
-             master.clockFrequency /
-             (master.master.backupCloseCount + master.master.logSyncCloseCount)
-             for master in masters],
-            note='for R-th replica')
-    except:
-        pass
-    try:
-        masterSection.ms('  During replay',
-            [master.master.backupCloseTicks / master.clockFrequency /
-             master.master.backupCloseCount
-             for master in masters],
-            note='for R-th replica')
-    except:
-        pass
-    try:
-        masterSection.ms('  During log sync',
-            [master.master.logSyncCloseTicks / master.clockFrequency /
-             master.master.logSyncCloseCount
-             for master in masters],
-            note='for R-th replica')
-    except:
-        pass
+    master_ticks('Receiving in transport',
+                 'transport.receive.ticks')
+    master_ticks('Transmitting in transport',
+                 'transport.transmit.ticks')
 
-    masterSection.ms('Replication',
-        [master.master.replicationTicks / master.clockFrequency
-         for master in masters],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    masterSection.ms('Client RPCs Active',
-        [master.transport.clientRpcsActiveTicks / master.clockFrequency
-         for master in masters],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
+    master_ticks('Opening sessions',
+                 'transport.sessionOpenTicks')
+    # There used to be a bunch of code here for analyzing the variance in
+    # session open times. We don't open sessions during recovery anymore, so
+    # I've deleted this code. Look in the git repo for mid-2011 if you want it
+    # back. -Diego
+
+    masterSection.ms('Replicating each segment',
+        on_masters(lambda m: (
+            (m.master.replicationTicks / m.clockFrequency) /
+            math.ceil(m.master.replicationBytes / m.segmentSize) /
+            m.master.replicas)))
+    masterSection.ms('Replicating each segment during replay',
+        on_masters(lambda m: (
+            ((m.master.replicationTicks - m.master.logSyncTicks) /
+             m.clockFrequency) /
+            math.ceil((m.master.replicationBytes - m.master.logSyncBytes) /
+                      m.segmentSize) /
+            m.master.replicas)))
+    masterSection.ms('Replicating each segment during log sync',
+        on_masters(lambda m: (
+            (m.master.logSyncTicks / m.clockFrequency) /
+            math.ceil(m.master.logSyncBytes / m.segmentSize) /
+            m.master.replicas)))
+    masterSection.ms('RPC latency replicating each segment',
+        on_masters(lambda m: (
+            (m.master.backupCloseTicks + m.master.logSyncCloseTicks) /
+            m.clockFrequency /
+            (m.master.backupCloseCount + m.master.logSyncCloseCount))))
+    masterSection.ms('RPC latency replicating each segment during replay',
+        on_masters(lambda m: m.master.backupCloseTicks / m.clockFrequency /
+                             m.master.backupCloseCount))
+    masterSection.ms('RPC latency replicating each segment during log sync',
+        on_masters(lambda m: m.master.logSyncCloseTicks / m.clockFrequency /
+                             m.master.logSyncCloseCount))
+
+    master_ticks('Replication',
+                 'master.replicationTicks')
+    master_ticks('Client RPCs Active',
+                 'transport.clientRpcsActiveTicks')
     masterSection.ms('Average GRD completion time',
-        [(master.master.segmentReadTicks / master.master.segmentReadCount)
-         / master.clockFrequency
-         for master in masters])
+        on_masters(lambda m: (m.master.segmentReadTicks /
+                              m.master.segmentReadCount /
+                              m.clockFrequency)))
 
     backupSection = report.add(Section('Backup Time'))
-    backupSection.ms('RPC service time',
-        [backup.backup.serviceTicks / backup.clockFrequency
-         for backup in backups],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    backupSection.ms('  startReadingData',
-        [backup.rpc.backupStartReadingDataTicks / backup.clockFrequency
-         for backup in backups],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    backupSection.ms('  Open/write segment',
-        [backup.rpc.backupWriteTicks / backup.clockFrequency
-         for backup in backups],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    backupSection.ms('    Open segment memset',
-        [backup.backup.writeClearTicks / backup.clockFrequency
-         for backup in backups],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    backupSection.ms('    Copy',
-        [backup.backup.writeCopyTicks / backup.clockFrequency
-         for backup in backups],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    backupSection.ms('    Other',
-        [(backup.rpc.backupWriteTicks -
-          backup.backup.writeClearTicks -
-          backup.backup.writeCopyTicks) / backup.clockFrequency
-         for backup in backups],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    backupSection.ms('  getRecoveryData',
-        [backup.rpc.backupGetRecoveryDataTicks / backup.clockFrequency
-         for backup in backups],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    backupSection.ms('  Other',
-        [(backup.backup.serviceTicks -
-          backup.rpc.backupStartReadingDataTicks -
-          backup.rpc.backupWriteTicks -
-          backup.rpc.backupGetRecoveryDataTicks) /
-         backup.clockFrequency
-         for backup in backups],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    backupSection.ms('Transmitting in transport',
-        [backup.transport.transmit.ticks / backup.clockFrequency
-         for backup in backups],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    backupSection.ms('Filtering segments',
-        [backup.backup.filterTicks / backup.clockFrequency
-         for backup in backups],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    backupSection.ms('Reading segments',
-        [backup.backup.readingDataTicks / backup.clockFrequency
-         for backup in backups],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    backupSection.ms('  Using disk',
-        [backup.backup.storageReadTicks / backup.clockFrequency
-         for backup in backups],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    backupSection.avgMaxFrac('getRecoveryData completions',
-        [backup.backup.readCompletionCount for backup in backups],
-        '{0:.0f}')
-    backupSection.avgMaxFrac('getRecoveryData retry fraction',
-        [(backup.rpc.backupGetRecoveryDataCount - backup.backup.readCompletionCount)
-         /backup.rpc.backupGetRecoveryDataCount
-         for backup in backups
-         if (backup.rpc.backupGetRecoveryDataCount > 0)], '{0:0.3f}')
+
+    def backup_ticks(label, field):
+        """This is a shortcut for adding to the backupSection a recorded number
+        of ticks that are a fraction of the total recovery.
+
+        @type  label: string
+        @param label: the key for the line
+
+        @type  field: string
+        @param field: the field within a backup's metrics that collected ticks
+        """
+        backupSection.ms(label,
+                         on_backups(lambda b: eval('b.' + field) /
+                                              b.clockFrequency),
+                         total=recoveryTime)
+
+    backup_ticks('RPC service time',
+                 'backup.serviceTicks')
+    backup_ticks('startReadingData RPC',
+                 'rpc.backupStartReadingDataTicks')
+    backup_ticks('write RPC',
+                 'rpc.backupWriteTicks')
+    backup_ticks('Open segment memset',
+                 'backup.writeClearTicks')
+    backup_ticks('Write copy',
+                 'backup.writeCopyTicks')
+    backupSection.ms('Other write RPC',
+        on_backups(lambda b: (b.rpc.backupWriteTicks -
+                              b.backup.writeClearTicks -
+                              b.backup.writeCopyTicks) /
+                             b.clockFrequency),
+        total=recoveryTime)
+    backup_ticks('getRecoveryData RPC',
+                 'rpc.backupGetRecoveryDataTicks')
+    backupSection.ms('Other',
+        on_backups(lambda b: (b.backup.serviceTicks -
+                              b.rpc.backupStartReadingDataTicks -
+                              b.rpc.backupWriteTicks -
+                              b.rpc.backupGetRecoveryDataTicks) /
+                             b.clockFrequency),
+        total=recoveryTime)
+    backup_ticks('Transmitting in transport',
+                 'transport.transmit.ticks')
+    backup_ticks('Filtering segments',
+                 'backup.filterTicks')
+    backup_ticks('Reading segments',
+                 'backup.readingDataTicks')
+    backup_ticks('Using disk',
+                 'backup.storageReadTicks')
+    backupSection.line('getRecoveryData completions',
+        on_backups(lambda b: b.backup.readCompletionCount))
+    backupSection.line('getRecoveryData retry fraction',
+        on_backups(lambda b: (b.rpc.backupGetRecoveryDataCount -
+                              b.backup.readCompletionCount) /
+                   b.rpc.backupGetRecoveryDataCount))
+
 
     efficiencySection = report.add(Section('Efficiency'))
 
-    # TODO(ongaro): get stddev among segments
-    efficiencySection.avgStd('recoverSegment CPU',
-        (sum([master.master.recoverSegmentTicks / master.clockFrequency
-              for master in masters]) * 1000 /
-         sum([master.master.segmentReadCount
-              for master in masters])),
-        pointFormat='{0:6.2f} ms avg',
-        note='per filtered segment')
+    efficiencySection.line('recoverSegment CPU',
+         (sum([m.master.recoverSegmentTicks / m.clockFrequency
+              for m in masters]) * 1000 /
+          sum([m.master.segmentReadCount
+               for m in masters])),
+        unit='ms avg')
 
-    # TODO(ongaro): get stddev among segments
-    try:
-        efficiencySection.avgStd('Writing a segment',
-            (sum([backup.rpc.backupWriteTicks / backup.clockFrequency
-                  for backup in backups]) * 1000 /
-        # Divide count by 2 since each segment does two writes: one to open the segment
-        # and one to write the data.
-            sum([backup.rpc.backupWriteCount / 2
-                 for backup in backups])),
-            pointFormat='{0:6.2f} ms avg',
-            note='backup RPC thread')
-    except:
-        pass
+    efficiencySection.line('Writing a segment',
+        (sum([b.rpc.backupWriteTicks / b.clockFrequency
+              for b in backups]) * 1000 /
+        # Divide count by 2 since each segment does two writes:
+        # one to open the segment and one to write the data.
+        sum([b.rpc.backupWriteCount / 2
+             for b in backups])),
+        unit='ms avg')
 
-    # TODO(ongaro): get stddev among segments
-    try:
-        efficiencySection.avgStd('Filtering a segment',
-            sum([backup.backup.filterTicks / backup.clockFrequency * 1000
-                  for backup in backups]) /
-            sum([backup.backup.storageReadCount
-                 for backup in backups]),
-            pointFormat='{0:6.2f} ms avg')
-    except:
-        pass
-    efficiencySection.avgMinFrac('Memory bandwidth (backup copies)',
-        [(backup.backup.writeCopyBytes / 2**30) /
-         (1 + backup.backup.writeCopyTicks / backup.clockFrequency)
-         for backup in backups], pointFormat= '{0:6.2f} GB/s')
+    efficiencySection.line('Filtering a segment',
+        sum([b.backup.filterTicks / b.clockFrequency * 1000
+             for b in backups]) /
+        sum([b.backup.storageReadCount
+             for b in backups]),
+        unit='ms avg')
+
+    efficiencySection.line('Memory bandwidth (backup copies)',
+        on_backups(lambda b: (
+            (b.backup.writeCopyBytes / 2**30) /
+            (b.backup.writeCopyTicks / b.clockFrequency))),
+        unit='GB/s',
+        summaryFns=[AVG, MIN])
 
     networkSection = report.add(Section('Network Utilization'))
-    networkSection.avgStdFrac('Aggregate',
+    networkSection.line('Aggregate',
         (sum([host.transport.transmit.byteCount
               for host in [coord] + masters + backups]) *
          8 / 2**30 / recoveryTime),
-        '{0:4.2f} Gb/s',
-        total=data.totalNodes*25,
-        fractionLabel='of network capacity',
-        note='overall')
-    networkSection.avgMinSum('Master in',
-        [(master.transport.receive.byteCount * 8 / 2**30) /
-         recoveryTime for master in masters],
-        '{0:4.2f} Gb/s',
-        note='overall')
-    networkSection.avgMinSum('Master out',
-        [(master.transport.transmit.byteCount * 8 / 2**30) /
-         recoveryTime for master in masters],
-        '{0:4.2f} Gb/s',
-        note='overall')
-    networkSection.avgMinSum('  Master out during replication',
-        [(master.master.replicationBytes * 8 / 2**30) /
-          (1 + (master.master.replicationTicks / master.clockFrequency))
-         for master in masters],
-        '{0:4.2f} Gb/s',
-        note='overall')
-    networkSection.avgMinSum('  Master out during log sync',
-        [(master.master.logSyncBytes * 8 / 2**30) /
-         (master.master.logSyncTicks / master.clockFrequency)
-         for master in masters],
-        '{0:4.2f} Gb/s',
-        note='overall')
-    networkSection.avgMinSum('Backup in',
-        [(backup.transport.receive.byteCount * 8 / 2**30) /
-         recoveryTime for backup in backups],
-        '{0:4.2f} Gb/s',
-        note='overall')
-    networkSection.avgMinSum('Backup out',
-        [(backup.transport.transmit.byteCount * 8 / 2**30) /
-         recoveryTime for backup in backups],
-        '{0:4.2f} Gb/s',
-        note='overall')
+        unit='Gb/s',
+        summaryFns=[AVG, FRAC(data.totalNodes*25)])
+
+    networkSection.line('Master in',
+        on_masters(lambda m: (m.transport.receive.byteCount * 8 / 2**30) /
+                             recoveryTime),
+        unit='Gb/s',
+        summaryFns=[AVG, MIN, SUM])
+    networkSection.line('Master out',
+        on_masters(lambda m: (m.transport.transmit.byteCount * 8 / 2**30) /
+                             recoveryTime),
+        unit='Gb/s',
+        summaryFns=[AVG, MIN, SUM])
+    networkSection.line('Master out during replication',
+        on_masters(lambda m: (m.master.replicationBytes * 8 / 2**30) /
+                             (m.master.replicationTicks / m.clockFrequency)),
+        unit='Gb/s',
+        summaryFns=[AVG, MIN, SUM])
+    networkSection.line('Master out during log sync',
+        on_masters(lambda m: (m.master.logSyncBytes * 8 / 2**30) /
+                             (m.master.logSyncTicks / m.clockFrequency)),
+        unit='Gb/s',
+        summaryFns=[AVG, MIN, SUM])
+
+    networkSection.line('Backup in',
+        on_backups(lambda b: (b.transport.receive.byteCount * 8 / 2**30) /
+                             recoveryTime),
+        unit='Gb/s',
+        summaryFns=[AVG, MIN, SUM])
+    networkSection.line('Backup out',
+        on_backups(lambda b: (b.transport.transmit.byteCount * 8 / 2**30) /
+                             recoveryTime),
+        unit='Gb/s',
+        summaryFns=[AVG, MIN, SUM])
+
 
     diskSection = report.add(Section('Disk Utilization'))
-    diskSection.avgMinSum('Effective bandwidth',
-        [(backup.backup.storageReadBytes + backup.backup.storageWriteBytes) /
-         2**20 / recoveryTime
-         for backup in backups],
-        '{0:6.2f} MB/s')
-    try:
-        diskSection.avgMinSum('Active bandwidth',
-            [((backup.backup.storageReadBytes + backup.backup.storageWriteBytes) /
-              2**20) /
-             ((backup.backup.storageReadTicks + backup.backup.storageWriteTicks) /
-              backup.clockFrequency)
-             for backup in backups
-             if (backup.backup.storageReadTicks +
-                 backup.backup.storageWriteTicks)],
-            '{0:6.2f} MB/s')
-    except:
-        pass
-    diskSection.avgMinSum('  Reading',
-        [(backup.backup.storageReadBytes / 2**20 /
-            (backup.backup.storageReadTicks / backup.clockFrequency))
-            for backup in backups
-            if backup.backup.storageReadTicks],
-        '{0:6.2f} MB/s')
-    diskSection.avgMinSum('  Writing',
-        [(backup.backup.storageWriteBytes / 2**20 /
-            (backup.backup.storageWriteTicks / backup.clockFrequency))
-            for backup in backups
-            if backup.backup.storageWriteTicks],
-        '{0:6.2f} MB/s')
-        
-    diskSection.avgMaxFrac('Disk active',
-        [((backup.backup.storageReadTicks + backup.backup.storageWriteTicks) *
-          100 / backup.clockFrequency) /
-         recoveryTime
-         for backup in backups],
-        '{0:6.2f}%',
-        note='of total recovery')
-    diskSection.avgMaxFrac('  Reading',
-        [100 * (backup.backup.storageReadTicks / backup.clockFrequency) /
-         recoveryTime
-         for backup in backups],
-        '{0:6.2f}%',
-        note='of total recovery')
-    diskSection.avgMaxFrac('  Writing',
-        [100 * (backup.backup.storageWriteTicks / backup.clockFrequency) /
-         recoveryTime
-         for backup in backups],
-        '{0:6.2f}%',
-        note='of total recovery')
+    diskSection.line('Effective bandwidth',
+        on_backups(lambda b: (b.backup.storageReadBytes +
+                              b.backup.storageWriteBytes) /
+                             2**20 / recoveryTime),
+        unit='MB/s',
+        summaryFns=[AVG, MIN, SUM])
+
+    def active_bandwidth(b):
+        totalBytes = b.backup.storageReadBytes + b.backup.storageWriteBytes
+        totalTicks = b.backup.storageReadTicks + b.backup.storageWriteTicks
+        return ((totalBytes / 2**20) /
+                (totalTicks / b.clockFrequency))
+    diskSection.line('Active bandwidth',
+        on_backups(active_bandwidth),
+        unit='MB/s',
+        summaryFns=[AVG, MIN, SUM])
+
+    diskSection.line('Active bandwidth reading',
+        on_backups(lambda b: (b.backup.storageReadBytes / 2**20) /
+                             (b.backup.storageReadTicks / b.clockFrequency)),
+        unit='MB/s',
+        summaryFns=[AVG, MIN, SUM])
+
+    diskSection.line('Active bandwidth writing',
+        on_backups(lambda b: (b.backup.storageWriteBytes / 2**20) /
+                             (b.backup.storageWriteTicks / b.clockFrequency)),
+        unit='MB/s',
+        summaryFns=[AVG, MIN, SUM])
+
+    diskSection.line('Disk active time',
+        on_backups(lambda b: 100 * (b.backup.storageReadTicks +
+                                    b.backup.storageWriteTicks) /
+                             b.clockFrequency /
+                             recoveryTime),
+        unit='%')
+    diskSection.line('Disk reading time',
+        on_backups(lambda b: 100 * b.backup.storageReadTicks /
+                             b.clockFrequency /
+                             recoveryTime),
+        unit='%')
+    diskSection.line('Disk writing time',
+        on_backups(lambda b: 100 * b.backup.storageWriteTicks /
+                             b.clockFrequency /
+                             recoveryTime),
+        unit='%')
 
     backupSection = report.add(Section('Backup Events'))
-    backupSection.avgMaxFrac('Segments read',
-        [backup.backup.storageReadCount for backup in backups])
-    backupSection.avgMaxFrac('Primary segments loaded',
-        [backup.backup.primaryLoadCount for backup in backups])
-    backupSection.avgMaxFrac('Secondary segments loaded',
-        [backup.backup.secondaryLoadCount for backup in backups])
+    backupSection.line('Segments read',
+        on_backups(lambda b: b.backup.storageReadCount))
+    backupSection.line('Primary segments loaded',
+        on_backups(lambda b: b.backup.primaryLoadCount))
+    backupSection.line('Secondary segments loaded',
+        on_backups(lambda b: b.backup.secondaryLoadCount))
 
     slowSection = report.add(Section('Slowest Servers'))
+
     slowest = maxTuple([
             [1e03 * (master.master.backupManagerTicks - 
              master.master.logSyncTicks) / master.clockFrequency,
              master.server] for master in masters])
     if slowest:
         slowSection.line('Backup opens, writes',
-                ['{1:s} ({0:.1f} ms)'.format(*slowest)])
+            slowest[0],
+            summaryFns=[CUSTOM(slowest[1]),
+                        CUSTOM('{0:.1f} ms'.format(slowest[0]))])
+
     slowest = maxTuple([
             [1e03 * master.master.segmentReadStallTicks /
              master.clockFrequency, master.server]
              for master in masters])
     if slowest:
         slowSection.line('Stalled reading segs from backups',
-                ['{1:s} ({0:.1f} ms)'.format(*slowest)])
+            slowest[0],
+            summaryFns=[CUSTOM(slowest[1]),
+                        CUSTOM('{0:.1f} ms'.format(slowest[0]))])
+
     slowest = minTuple([
             [(backup.backup.storageReadBytes / 2**20) / 
              (backup.backup.storageReadTicks / backup.clockFrequency),
@@ -957,7 +832,10 @@ def textReport(data):
              if (backup.backup.storageReadTicks > 0)])
     if slowest:
         slowSection.line('Reading from disk',
-                ['{1:s} ({0:.1f} MB/s)'.format(*slowest)])
+            slowest[0],
+            summaryFns=[CUSTOM(slowest[1]),
+                        CUSTOM('{0:.1f} MB/s'.format(slowest[0]))])
+
     slowest = minTuple([
             [(backup.backup.storageWriteBytes / 2**20) / 
              (backup.backup.storageWriteTicks / backup.clockFrequency),
@@ -965,24 +843,27 @@ def textReport(data):
              if backup.backup.storageWriteTicks])
     if slowest:
         slowSection.line('Writing to disk',
-                ['{1:s} ({0:.1f} MB/s)'.format(*slowest)])
+            slowest[0],
+            summaryFns=[CUSTOM(slowest[1]),
+                        CUSTOM('{0:.1f} MB/s'.format(slowest[0]))])
 
     tempSection = report.add(Section('Temporary Metrics'))
     for i in range(10):
         field = 'ticks{0:}'.format(i)
-        points = [host.temp[field] / host.clockFrequency
-                    for host in servers]
-        if any(points):
-            tempSection.ms('temp.%s' % (field),
-                            points,
-                            total=recoveryTime,
-                            fractionLabel='of total recovery')
+        points = [(host.serverId, host.temp[field] / host.clockFrequency)
+                  for host in servers]
+        if any(values(points)):
+            tempSection.ms('temp.%s' % field,
+                           points,
+                           total=recoveryTime)
     for i in range(10):
         field = 'count{0:}'.format(i)
-        points = [host.temp[field] for host in servers]
-        if any(points):
-            tempSection.avgMaxFrac('temp.%s' % (field),
-                                points)
+        points = [(host.serverId, host.temp[field])
+                  for host in servers]
+        if any(values(points)):
+            tempSection.line('temp.%s' % field,
+                             points)
+
     return report
 
 def main():
@@ -1008,12 +889,8 @@ def main():
         else:
             rawSample(data)
 
-    print(textReport(data))
+    report = makeReport(data).jsonable()
+    getDumpstr().print_report(report)
 
 if __name__ == '__main__':
-    # x = AttrDict()
-    # x.assign([["a.b.c", 2], ["d", 3], ["a.b.x", 4], ["a.z", 19]])
-    # x.a.x.y = 19
-    # print(x)
     sys.exit(main())
-

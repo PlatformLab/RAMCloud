@@ -466,7 +466,14 @@ BackupManager::proceedNoMetrics()
             if (backup->rpc && backup->rpc->isReady()) {
                 LOG(DEBUG, "Wait %lu.%lu", segment.segmentId,
                     &backup - &segment.backups[0]);
-                (*backup->rpc)();
+                try {
+                    (*backup->rpc)();
+                } catch (const Exception& e) {
+                    LOG(ERROR, "Backup write operation failed for "
+                            "segment %lu: %s",
+                            segment.segmentId, e.str().c_str());
+                    throw;
+                }
                 // TODO(ongaro): catch exceptions
                 backup->rpc.destroy();
                 outstandingRpcs--;

@@ -86,6 +86,8 @@ try
          "Verify the contents of all objects after recovery completes.");
 
     OptionParser optionParser(clientOptions, argc, argv);
+    Context::get().transportManager->setTimeout(
+            optionParser.options.getTransportTimeout());
 
     LOG(NOTICE, "client: Connecting to %s",
         optionParser.options.getCoordinatorLocator().c_str());
@@ -163,6 +165,9 @@ try
         ids[j] = client.create(table, val, downCast<uint32_t>(strlen(val) + 1));
     LOG(NOTICE, "%d inserts took %lu ticks", count, Cycles::rdtsc() - b);
     LOG(NOTICE, "avg insert took %lu ticks", (Cycles::rdtsc() - b) / count);
+
+    LOG(NOTICE, "Reading one of the objects just inserted");
+    client.read(table, ids[0], &buffer);
 
     LOG(NOTICE, "Performing %u removals of objects just inserted", removeCount);
     for (int j = 0; j < count && j < removeCount; j++)

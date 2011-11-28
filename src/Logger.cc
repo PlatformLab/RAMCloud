@@ -292,7 +292,10 @@ Logger::logMessage(LogModule module, LogLevel level,
     static int pid = getpid();
     va_list ap;
     struct timespec now;
-    FILE* f = (stream != NULL) ? stream : stderr;
+    FILE* f = stream;
+    if (stream == NULL) {
+        f = stderr;
+    }
 
     clock_gettime(CLOCK_REALTIME, &now);
     FileLocker _(f);

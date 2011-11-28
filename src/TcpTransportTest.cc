@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -33,7 +33,7 @@ class TcpTransportTest : public ::testing::Test {
             : serviceManager(Context::get().serviceManager),
               locator(NULL), sys(NULL), savedSyscall(NULL), logEnabler(NULL)
     {
-        locator = new ServiceLocator("tcp+ip: host=localhost, port=11000");
+        locator = new ServiceLocator("tcp+ip:host=localhost,port=11000");
         sys = new MockSyscall();
         savedSyscall = TcpTransport::sys;
         TcpTransport::sys = sys;
@@ -164,8 +164,8 @@ TEST_F(TcpTransportTest, constructor_reuseAddrError) {
 
 TEST_F(TcpTransportTest, constructor_bindError) {
     sys->bindErrno = EPERM;
-    EXPECT_EQ("TcpTransport couldn't bind to 'tcp+ip: "
-        "host=localhost, port=11000': Operation not permitted",
+    EXPECT_EQ("TcpTransport couldn't bind to 'tcp+ip:"
+        "host=localhost,port=11000': Operation not permitted",
         catchConstruct(locator));
 }
 
@@ -287,7 +287,7 @@ TEST_F(TcpTransportTest, AcceptHandler_handleFileEvent_acceptFailure) {
     sys->acceptErrno = EPERM;
     server.acceptHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     EXPECT_EQ("handleFileEvent: error in TcpTransport::AcceptHandler "
-            "accepting connection for 'tcp+ip: host=localhost, "
+            "accepting connection for 'tcp+ip:host=localhost,"
             "port=11000': Operation not permitted", TestLog::get());
     EXPECT_EQ(-1, server.listenSocket);
     EXPECT_EQ(1, sys->closeCount);
@@ -610,7 +610,7 @@ TEST_F(TcpTransportTest, readMessage_getBufferFromSession) {
     write(fd, "abcde", 5);
     EXPECT_TRUE(incoming.readMessage(serverFd));
     EXPECT_EQ("abcde", TestUtil::toString(&reply));
-    session.close();
+    session.abort("session closed");
 
     close(fd);
 }
@@ -722,8 +722,9 @@ TEST_F(TcpTransportTest, sessionConstructor_connectError) {
     } catch (TransportException& e) {
         message = e.message;
     }
-    EXPECT_EQ("Session connect error in TcpTransport: "
-            "Operation not permitted", message);
+    EXPECT_EQ("TcpTransport couldn't connect to "
+            "tcp+ip:host=localhost,port=11000: Operation not permitted",
+            message);
     EXPECT_EQ(1, sys->closeCount);
 }
 
@@ -733,6 +734,26 @@ TEST_F(TcpTransportTest, sessionDestructor) {
     Transport::SessionRef session = client.getSession(*locator);
     session = NULL;
     EXPECT_EQ(1, sys->closeCount);
+}
+
+TEST_F(TcpTransportTest, TcpSession_abort) {
+    TcpTransport server(locator);
+    TcpTransport client;
+    Transport::SessionRef session = client.getSession(*locator);
+    Buffer request1;
+    Buffer reply1;
+
+    Transport::ClientRpc* clientRpc1 = session->clientSend(&request1,
+            &reply1);
+    session->abort("aborted for test");
+    EXPECT_TRUE(clientRpc1->isReady());
+    string message("no exception");
+    try {
+        clientRpc1->wait();
+    } catch (TransportException& e) {
+        message = e.message;
+    }
+    EXPECT_EQ("null RPC cancelled: aborted for test", message);
 }
 
 TEST_F(TcpTransportTest, TcpSession_close_cancelRpcsWaitingToSend) {
@@ -764,14 +785,14 @@ TEST_F(TcpTransportTest, TcpSession_close_cancelRpcsWaitingToSend) {
     } catch (TransportException& e) {
         message1 = e.message;
     }
-    EXPECT_EQ("RPC cancelled: session closed", message1);
+    EXPECT_EQ("unknown(28535) RPC cancelled: session closed", message1);
     string message3("no exception");
     try {
         clientRpc3->wait();
     } catch (TransportException& e) {
         message3 = e.message;
     }
-    EXPECT_EQ("RPC cancelled: session closed", message3);
+    EXPECT_EQ("null RPC cancelled: session closed", message3);
 }
 
 TEST_F(TcpTransportTest, TcpSession_close_cancelRequestsInProgress) {
@@ -815,14 +836,14 @@ TEST_F(TcpTransportTest, TcpSession_close_cancelRequestsInProgress) {
     } catch (TransportException& e) {
         message1 = e.message;
     }
-    EXPECT_EQ("RPC cancelled: session closed", message1);
+    EXPECT_EQ("null RPC cancelled: session closed", message1);
     string message5("no exception");
     try {
         clientRpc5->wait();
     } catch (TransportException& e) {
         message5 = e.message;
     }
-    EXPECT_EQ("RPC cancelled: session closed", message5);
+    EXPECT_EQ("null RPC cancelled: session closed", message5);
 }
 
 TEST_F(TcpTransportTest, clientSend_sessionClosed) {
@@ -831,8 +852,7 @@ TEST_F(TcpTransportTest, clientSend_sessionClosed) {
     Transport::SessionRef session = client.getSession(*locator);
     TcpTransport::TcpSession* rawSession =
             reinterpret_cast<TcpTransport::TcpSession*>(session.get());
-    rawSession->close();
-    rawSession->errorInfo = "session closed";
+    rawSession->abort("session closed");
     string message("no exception");
     try {
         Buffer request, reply;
@@ -898,7 +918,7 @@ TEST_F(TcpTransportTest, findRpc) {
     EXPECT_EQ("3333", TestUtil::toString(session.findRpc(header)));
     header.nonce = 334UL;
     EXPECT_TRUE(session.findRpc(header) == NULL);
-    session.close();
+    session.abort("session closed");
 }
 
 TEST_F(TcpTransportTest, ClientSocketHandler_handleFileEvent_readResponse) {
@@ -1031,8 +1051,67 @@ TEST_F(TcpTransportTest, ClientSocketHandler_ioError) {
     } catch (TransportException& e) {
         message = e.message;
     }
-    EXPECT_EQ("RPC cancelled: I/O read error in TcpTransport: "
+    EXPECT_EQ("null RPC cancelled: I/O read error in TcpTransport: "
             "Operation not permitted", message);
+}
+
+TEST_F(TcpTransportTest, sendReply_fdClosed) {
+    // Create a situation where the server shuts down a socket before
+    // an RPC response is sent.
+    TcpTransport server(locator);
+    TcpTransport client;
+    Transport::SessionRef session = client.getSession(*locator);
+    Buffer request1;
+    Buffer reply1;
+    request1.fillFromString("request1");
+    session->clientSend(&request1, &reply1);
+    TcpTransport::TcpServerRpc* serverRpc =
+            static_cast<TcpTransport::TcpServerRpc*>(
+            serviceManager->waitForRpc(1.0));
+    EXPECT_TRUE(serverRpc != NULL);
+    serverRpc->replyPayload.fillFromString("response1");
+    server.closeSocket(serverRpc->fd);
+    EXPECT_NO_THROW(serverRpc->sendReply());
+}
+
+TEST_F(TcpTransportTest, sendReply_fdReused) {
+    // Create a situation where the socket for an RPC has been closed
+    // and reused for a different connection before an RPC response is
+    // sent.
+    TcpTransport server(locator);
+    TcpTransport client;
+    Transport::SessionRef session = client.getSession(*locator);
+    Buffer request1;
+    Buffer reply1;
+    request1.fillFromString("request1");
+    session->clientSend(&request1, &reply1);
+    TcpTransport::TcpServerRpc* serverRpc1 =
+            static_cast<TcpTransport::TcpServerRpc*>(
+            serviceManager->waitForRpc(1.0));
+    EXPECT_TRUE(serverRpc1 != NULL);
+    serverRpc1->replyPayload.fillFromString("response1");
+
+    // First RPC is about to return.  Shut down its socket and
+    // create a new session that will reuse the same socket.
+    server.closeSocket(serverRpc1->fd);
+    session = NULL;
+    session = client.getSession(*locator);
+    Buffer request2;
+    Buffer reply2;
+    request2.fillFromString("request2");
+    Transport::ClientRpc* clientRpc2 = session->clientSend(&request2,
+            &reply2);
+    TcpTransport::TcpServerRpc* serverRpc2 =
+            static_cast<TcpTransport::TcpServerRpc*>(
+            serviceManager->waitForRpc(1.0));
+
+    // Attempt to send a reply, and make sure that it doesn't
+    // accidentally get sent to the wrong request.
+    serverRpc1->sendReply();
+    EXPECT_FALSE(TestUtil::waitForRpc(*clientRpc2, 5));
+
+    serverRpc2->sendReply();
+    EXPECT_TRUE(TestUtil::waitForRpc(*clientRpc2));
 }
 
 TEST_F(TcpTransportTest, sendReply) {
@@ -1130,6 +1209,39 @@ TEST_F(TcpTransportTest, TcpClientRpc_cancelCleanup_rpcsWaitingToSend) {
     EXPECT_EQ(1U, rawSession->rpcsWaitingToSend.size());
     clientRpc1->cancel();
     EXPECT_EQ(0U, rawSession->rpcsWaitingToSend.size());
+}
+
+TEST_F(TcpTransportTest, sessionAlarm) {
+    TcpTransport server(locator);
+    TcpTransport client;
+    TcpTransport::TcpSession session(*locator, 30);
+    Buffer request1;
+    Buffer reply1;
+
+    // First, let a request complete successfully, and make sure that
+    // things get cleaned up well enough that a timeout doesn't occur.
+    Transport::ClientRpc* clientRpc = session.clientSend(&request1,
+            &reply1);
+    Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
+    serverRpc->replyPayload.fillFromString("response1");
+    serverRpc->sendReply();
+    EXPECT_TRUE(TestUtil::waitForRpc(*clientRpc));
+    for (int i = 0; i < 20; i++) {
+        Context::get().sessionAlarmTimer->handleTimerEvent();
+    }
+    EXPECT_NE(-1, session.fd);
+    EXPECT_EQ("", session.errorInfo);
+
+    // Issue a second request, don't respond to it, and make sure it
+    // times out.
+    request1.reset();
+    clientRpc = session.clientSend(&request1, &reply1);
+    for (int i = 0; i < 20; i++) {
+        Context::get().sessionAlarmTimer->handleTimerEvent();
+    }
+    EXPECT_EQ(-1, session.fd);
+    EXPECT_EQ("server at tcp+ip:host=localhost,port=11000 is not responding",
+            session.errorInfo);
 }
 
 }  // namespace RAMCloud

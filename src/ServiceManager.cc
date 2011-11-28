@@ -20,6 +20,10 @@
 #include "ServerRpcPool.h"
 #include "ServiceManager.h"
 
+// If the following line is uncommented, trace records will be generated that
+// allow service times to be computed for all RPCs.
+// #define LOG_RPCS 1
+
 namespace RAMCloud {
 /**
  * Default object used to make system calls.
@@ -137,6 +141,12 @@ ServiceManager::handleRpc(Transport::ServerRpc* rpc)
         return;
     }
     ServiceInfo* serviceInfo = services[header->service].get();
+#ifdef LOG_RPCS
+    LOG(NOTICE, "Received %s RPC at %lu with %u bytes",
+            Rpc::opcodeSymbol(rpc->requestPayload),
+            reinterpret_cast<uint64_t>(rpc),
+            rpc->requestPayload.getTotalLength());
+#endif
 
     // See if we have exceeded the concurrency limit for the service.
     if (serviceInfo->requestsRunning >= serviceInfo->maxThreads) {
@@ -159,8 +169,14 @@ ServiceManager::handleRpc(Transport::ServerRpc* rpc)
     // Find a thread to execute the RPC, and hand off the RPC.
     Worker* worker;
     if (idleThreads.empty()) {
+        uint64_t cyclesBefore = Cycles::rdtsc();
         worker = new Worker(Context::get());
         worker->thread.construct(workerMain, worker);
+        double seconds = Cycles::toSeconds(Cycles::rdtsc() - cyclesBefore);
+        if (seconds > 0.003) {
+            LOG(NOTICE, "Long gap starting new thread: %.1f ms",
+                    1e03 * seconds);
+        }
     } else {
         worker = idleThreads.back();
         idleThreads.pop_back();
@@ -206,6 +222,12 @@ ServiceManager::poll()
         // The worker is either post-processing or idle; in either case, if
         // there is an RPC that we haven't yet responded to, respond now.
         if (worker->rpc != NULL) {
+#ifdef LOG_RPCS
+            LOG(NOTICE, "Sending reply for %s at %lu with %u bytes",
+                    Rpc::opcodeSymbol(worker->rpc->requestPayload),
+                    reinterpret_cast<uint64_t>(worker->rpc),
+                    worker->rpc->replyPayload.getTotalLength());
+#endif
             worker->rpc->sendReply();
             worker->rpc = NULL;
         }

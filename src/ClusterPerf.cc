@@ -512,22 +512,24 @@ waitForObject(uint32_t tableId, uint64_t objectId, const char* desired,
     size_t length = desired ? strlen(desired) : -1;
     while (true) {
         try {
-            double elapsed = Cycles::toSeconds(Cycles::rdtsc() - start);
-            if (elapsed > timeout) {
-                // Slave is taking too long; time out.
-                throw Exception(HERE, format(
-                        "Object <%u, %lu> didn't reach desired state",
-                        tableId, objectId));
-                exit(1);
-            }
             cluster->read(tableId, objectId, &value);
             if (desired == NULL) {
                 return;
             }
+            const char *actual = value.getStart<char>();
             if ((length == value.getTotalLength()) &&
-                    (memcmp(value.getRange(0, downCast<int>(length)),
-                    desired, length) == 0)) {
+                    (memcmp(actual, desired, length) == 0)) {
                 return;
+            }
+            double elapsed = Cycles::toSeconds(Cycles::rdtsc() - start);
+            if (elapsed > timeout) {
+                // Slave is taking too long; time out.
+                throw Exception(HERE, format(
+                        "Object <%u, %lu> didn't reach desired state '%s' "
+                        "(actual: '%.*s')",
+                        tableId, objectId, desired, downCast<int>(length),
+                        actual));
+                exit(1);
             }
         }
         catch (TableDoesntExistException& e) {
@@ -1419,7 +1421,8 @@ try
         exit(1);
     }
 
-    cluster = new RamCloud(context, coordinatorLocator.c_str());
+    RamCloud r(context, coordinatorLocator.c_str());
+    cluster = &r;
     cluster->createTable("data");
     dataTable = cluster->openTable("data");
     cluster->createTable("control");

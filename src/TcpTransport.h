@@ -24,6 +24,7 @@
 #include "IpAddress.h"
 #include "Tub.h"
 #include "ServerRpcPool.h"
+#include "SessionAlarm.h"
 #include "Syscall.h"
 #include "Transport.h"
 
@@ -38,10 +39,12 @@ namespace RAMCloud {
  */
 class TcpTransport : public Transport {
   public:
+
     explicit TcpTransport(const ServiceLocator* serviceLocator = NULL);
     ~TcpTransport();
-    SessionRef getSession(const ServiceLocator& serviceLocator) {
-        return new TcpSession(serviceLocator);
+    SessionRef getSession(const ServiceLocator& serviceLocator,
+            uint32_t timeoutMs = 0) {
+        return new TcpSession(serviceLocator, timeoutMs);
     }
     string getServiceLocator() {
         return locatorString;
@@ -78,8 +81,8 @@ class TcpTransport : public Transport {
      * using an event-based approach.
      */
     class IncomingMessage {
-      friend class ServerSocketHandler;
-      friend class TcpServerRpc;
+        friend class ServerSocketHandler;
+        friend class TcpServerRpc;
       public:
         IncomingMessage(Buffer* buffer, TcpSession* session);
         bool readMessage(int fd);
@@ -129,12 +132,15 @@ class TcpTransport : public Transport {
         void sendReply();
       PRIVATE:
         TcpServerRpc(Socket* socket, int fd, TcpTransport* transport)
-            : fd(fd), socket(socket), message(&requestPayload, NULL),
+            : fd(fd), socketId(socket->id), message(&requestPayload, NULL),
             queueEntries(), transport(transport) { }
 
         int fd;                   /// File descriptor of the socket on
                                   /// which the request was received.
-        Socket* socket;           /// Transport state corresponding to fd.
+        uint64_t socketId;        /// Uniquely identifies this connection;
+                                  /// must match sockets[fd].id.  Allows us
+                                  /// to detect if fd has been closed and
+                                  /// reused for a different connection.
         IncomingMessage message;  /// Records state of partially-received
                                   /// request.
         IntrusiveListHook queueEntries;
@@ -153,15 +159,13 @@ class TcpTransport : public Transport {
         friend class TcpTransport;
         friend class TcpSession;
         explicit TcpClientRpc(TcpSession* session, Buffer*request,
-                Buffer* reply, uint64_t nonce)
-            : request(request), reply(reply), nonce(nonce),
+                Buffer* response, uint64_t nonce)
+            : Transport::ClientRpc(request, response), nonce(nonce),
               session(session), sent(false), queueEntries()
                { }
       PROTECTED:
         virtual void cancelCleanup();
       PRIVATE:
-        Buffer* request;          /// Contains request message.
-        Buffer* reply;            /// Client's buffer for response.
         uint64_t nonce;           /// Unique identifier for this RPC; used
                                   /// to pair the RPC with its response.
         TcpSession *session;      /// Session used for this RPC.
@@ -243,8 +247,10 @@ class TcpTransport : public Transport {
       friend class TcpClientRpc;
       friend class ClientSocketHandler;
       public:
-        explicit TcpSession(const ServiceLocator& serviceLocator);
+        explicit TcpSession(const ServiceLocator& serviceLocator,
+                uint32_t timeoutMs = 0);
         ~TcpSession();
+        virtual void abort(const string& message);
         ClientRpc* clientSend(Buffer* request, Buffer* reply)
             __attribute__((warn_unused_result));
         Buffer* findRpc(Header& header);
@@ -255,7 +261,8 @@ class TcpTransport : public Transport {
 #if TESTING
         TcpSession() : address(), fd(-1), serial(1), rpcsWaitingToSend(),
             bytesLeftToSend(0), rpcsWaitingForResponse(), current(NULL),
-            message(), clientIoHandler(), errorInfo() { }
+            message(), clientIoHandler(), errorInfo(),
+            alarm(*Context::get().sessionAlarmTimer, *this, 0) { }
 #endif
         void close();
         static void tryReadReply(int fd, int16_t event, void *arg);
@@ -291,6 +298,7 @@ class TcpTransport : public Transport {
                                   /// arrives.
         string errorInfo;         /// If the session is no longer usable,
                                   /// this variable indicates why.
+        SessionAlarm alarm;       /// Used to detect server timeouts.
         DISALLOW_COPY_AND_ASSIGN(TcpSession);
     };
 
@@ -313,11 +321,17 @@ class TcpTransport : public Transport {
     class Socket {
         public:
         Socket(int fd, TcpTransport *transport)
-                : transport(transport), rpc(NULL),
-                ioHandler(fd, transport, this),
-                rpcsWaitingToReply(), bytesLeftToSend(0) { }
+                : transport(transport), id(transport->nextSocketId),
+                rpc(NULL), ioHandler(fd, transport, this),
+                rpcsWaitingToReply(), bytesLeftToSend(0)
+        {
+            transport->nextSocketId++;
+        }
         ~Socket();
         TcpTransport* transport;  /// The parent TcpTransport object.
+        uint64_t id;              /// Unique identifier: no other Socket
+                                  /// for this transport instance will use
+                                  /// the same value.
         TcpServerRpc* rpc;        /// Incoming RPC that is in progress for
                                   /// this fd, or NULL if none.
         ServerSocketHandler ioHandler;
@@ -340,6 +354,9 @@ class TcpTransport : public Transport {
     /// information about file descriptor i (NULL means no client
     /// is currently connected).
     std::vector<Socket*> sockets;
+
+    /// Used to assign increasing id values to Sockets.
+    uint64_t nextSocketId;
 
     /// Counts the number of nonzero-size partial messages sent by
     /// sendMessage (for testing only).

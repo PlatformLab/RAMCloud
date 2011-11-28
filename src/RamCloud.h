@@ -159,6 +159,7 @@ class RamCloud {
 
     explicit RamCloud(const char* serviceLocator);
     RamCloud(Context& context, const char* serviceLocator);
+    ~RamCloud();
     void createTable(const char* name);
     void dropTable(const char* name);
     uint32_t openTable(const char* name);
@@ -218,7 +219,11 @@ class RamCloud {
     Status status;
 
   public: // public for now to make administrative calls from clients
-    CoordinatorClient coordinator;
+    // It's important for coordinator to be destroyed before clientContext
+    // (coordinator contains a reference to a session in a transport that's
+    // part of clientContext); making coordinator a pointer allows us to
+    // control the deletion order in the destructor.
+    CoordinatorClient* coordinator;
     ObjectFinder objectFinder;
 
   private:

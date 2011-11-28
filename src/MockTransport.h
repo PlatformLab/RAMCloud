@@ -35,7 +35,7 @@ class MockTransport : public Transport {
     virtual string getServiceLocator();
 
     virtual Transport::SessionRef
-    getSession(const ServiceLocator& serviceLocator);
+    getSession(const ServiceLocator& serviceLocator, uint32_t timeoutMs = 0);
 
     virtual Transport::SessionRef
     getSession();
@@ -61,9 +61,9 @@ class MockTransport : public Transport {
 
     class MockClientRpc : public ClientRpc {
         public:
-            explicit MockClientRpc(MockTransport* transport, Buffer* response);
+            explicit MockClientRpc(MockTransport* transport, Buffer* request,
+                                   Buffer* response);
         private:
-            Buffer* response;
             DISALLOW_COPY_AND_ASSIGN(MockClientRpc);
     };
 
@@ -76,6 +76,7 @@ class MockTransport : public Transport {
                         const ServiceLocator& serviceLocator)
                 : transport(transport), serviceLocator(serviceLocator) {}
             virtual ~MockSession();
+            void abort(const string& message);
             virtual ClientRpc* clientSend(Buffer* payload, Buffer* response);
             virtual void release() {
                 delete this;

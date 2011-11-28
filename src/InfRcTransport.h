@@ -32,6 +32,7 @@
 #include "Segment.h"
 #include "ServerRpcPool.h"
 #include "ShortMacros.h"
+#include "SessionAlarm.h"
 #include "Transport.h"
 #include "Infiniband.h"
 
@@ -53,7 +54,8 @@ template<typename Infiniband = RealInfiniband>
 class InfRcTransport : public Transport {
     // forward declarations
   PRIVATE:
-    class InfRCSession;
+    class InfRcSession;
+    class Poller;
     typedef typename Infiniband::BufferDescriptor BufferDescriptor;
     typedef typename Infiniband::QueuePair QueuePair;
     typedef typename Infiniband::QueuePairTuple QueuePairTuple;
@@ -62,8 +64,8 @@ class InfRcTransport : public Transport {
   public:
     explicit InfRcTransport(const ServiceLocator* sl = NULL);
     ~InfRcTransport();
-    SessionRef getSession(const ServiceLocator& sl) {
-        return new InfRCSession(this, sl);
+    SessionRef getSession(const ServiceLocator& sl, uint32_t timeoutMs = 0) {
+        return new InfRcSession(this, sl, timeoutMs);
     }
     string getServiceLocator();
     void dumpStats() {
@@ -84,6 +86,7 @@ class InfRcTransport : public Transport {
         logMemoryBytes = bytes;
         RAMCLOUD_LOG(NOTICE, "Registered %Zd bytes at %p", bytes, base);
     }
+    static void setName(const char* name);
 
   PRIVATE:
     class ServerRpc : public Transport::ServerRpc {
@@ -102,7 +105,7 @@ class InfRcTransport : public Transport {
     class ClientRpc : public Transport::ClientRpc {
         public:
             explicit ClientRpc(InfRcTransport* transport,
-                               InfRCSession* session,
+                               InfRcSession* session,
                                Buffer* request,
                                Buffer* response,
                                uint64_t nonce);
@@ -115,9 +118,7 @@ class InfRcTransport : public Transport {
             tryZeroCopy(Buffer* request);
 
             InfRcTransport*     transport;
-            InfRCSession*       session;
-            Buffer*             request;
-            Buffer*             response;
+            InfRcSession*       session;
             /// Uniquely identifies the RPC.
             uint64_t            nonce;
             enum {
@@ -127,7 +128,7 @@ class InfRcTransport : public Transport {
             } state;
         public:
             IntrusiveListHook   queueEntries;
-            friend class InfRCSession;
+            friend class InfRcSession;
             friend class InfRcTransport;
             DISALLOW_COPY_AND_ASSIGN(ClientRpc);
     };
@@ -153,19 +154,31 @@ class InfRcTransport : public Transport {
 
     INTRUSIVE_LIST_TYPEDEF(ClientRpc, queueEntries) ClientRpcList;
 
-    class InfRCSession : public Session {
+    class InfRcSession : public Session {
       public:
-        explicit InfRCSession(InfRcTransport *transport,
-            const ServiceLocator& sl);
+        explicit InfRcSession(InfRcTransport *transport,
+            const ServiceLocator& sl, uint32_t timeoutMs);
         Transport::ClientRpc* clientSend(Buffer* request, Buffer* response)
             __attribute__((warn_unused_result));
+        virtual void abort(const string& message);
         void release();
 
-      private:
+      PRIVATE:
+        // Transport that manages this session.
         InfRcTransport *transport;
+
+        // Connection to the server; NULL means this socket has been aborted.
         QueuePair* qp;
+
+        // Used to detect server timeouts.
+        SessionAlarm alarm;
+
+        // Message explaining why the socket was aborted.
+        string abortMessage;
+
         friend class ClientRpc;
-        DISALLOW_COPY_AND_ASSIGN(InfRCSession);
+        friend class Poller;
+        DISALLOW_COPY_AND_ASSIGN(InfRcSession);
     };
 
     /**
@@ -276,6 +289,12 @@ class InfRcTransport : public Transport {
      */
     uint32_t numUsedClientSrqBuffers;
 
+    /**
+     * Number of server receive buffers that are currently available for
+     * new requests.
+     */
+    uint32_t numFreeServerSrqBuffers;
+
     /// RPCs which are awaiting their responses from the network.
     ClientRpcList outstandingRpcs;
 
@@ -337,6 +356,10 @@ class InfRcTransport : public Transport {
 
     /// Pool allocator for our ServerRpc objects.
     ServerRpcPool<ServerRpc> serverRpcPool;
+
+    /// Name for this machine/application (passed from clients to servers so
+    /// servers know who they are talking to).
+    static char name[50];
 
     DISALLOW_COPY_AND_ASSIGN(InfRcTransport);
 };

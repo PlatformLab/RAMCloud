@@ -40,7 +40,7 @@ ClusterMetrics::load(RamCloud* cluster)
 {
     // Get information about all servers in the cluster.
     ProtoBuf::ServerList serverList;
-    cluster->coordinator.getServerList(serverList);
+    cluster->coordinator->getServerList(serverList);
 
     // Create one ServerMetrics for each unique service locator, starting
     // with the coordinator.

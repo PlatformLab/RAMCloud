@@ -26,8 +26,16 @@ namespace RAMCloud {
 /**
  * An object of this class holds metrics from all of the servers in a
  * RAMCloud cluster, including the coordinator, indexed by the service
- * locator for each server.  ClusterMetrics is a thin layer on top of
- * unordered_map, so you can use standard map mechanisms like [].
+ * locator for each server.  It is typically used by benchmarking
+ * applications in the following way:
+ * - Fetch ClusterMetrics from the cluster before running a benchmark.
+ * - Run the benchmark.
+ * - Fetch another set of ClusterMetrics and take the difference
+ *   between the two sets.
+ * - Analyze interesting metrics from the difference.
+ *
+ * ClusterMetrics is a thin layer on top of unordered_map, so you can
+ * use most standard map methods, such as operator[].
  */
 class ClusterMetrics {
   public:

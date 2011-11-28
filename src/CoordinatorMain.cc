@@ -30,9 +30,10 @@ int
 main(int argc, char *argv[])
 {
     using namespace RAMCloud;
+    string localLocator("???");
+    Context context(true);
+    Context::Guard _(context);
     try {
-        Context context(true);
-        Context::Guard _(context);
         OptionParser optionParser(OptionsDescription("Coordinator"),
                                   argc, argv);
 
@@ -46,7 +47,9 @@ main(int argc, char *argv[])
         LOG(NOTICE, "Command line: %s", args.c_str());
 
         pinAllMemory();
-        string localLocator = optionParser.options.getCoordinatorLocator();
+        localLocator = optionParser.options.getCoordinatorLocator();
+        Context::get().transportManager->setTimeout(
+                optionParser.options.getTransportTimeout());
         Context::get().transportManager->initialize(localLocator.c_str());
         localLocator = Context::get().transportManager->
                                 getListeningLocatorsString();
@@ -62,7 +65,8 @@ main(int argc, char *argv[])
         }
         return 0;
     } catch (RAMCloud::Exception& e) {
-        LOG(ERROR, "coordinator: %s", e.str().c_str());
+        LOG(ERROR, "Fatal error in coordinator at %s: %s",
+            localLocator.c_str(), e.str().c_str());
         return 1;
     }
 }

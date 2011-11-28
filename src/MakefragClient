@@ -35,11 +35,13 @@ CLIENT_SRCFILES := \
 		   src/PingClient.cc \
 		   src/RamCloud.cc \
 		   src/RawMetrics.cc \
+		   src/Rpc.cc \
 		   src/ServerMetrics.cc \
 		   src/ServerRpcPool.cc \
 		   src/Service.cc \
 		   src/ServiceLocator.cc \
 		   src/ServiceManager.cc \
+		   src/SessionAlarm.cc \
 		   src/SpinLock.cc \
 		   src/Status.cc \
 		   src/StringKeyAdapter.cc \

@@ -112,6 +112,7 @@ TransportManager::TransportManager()
     , registeredBases()
     , registeredSizes()
     , mutex()
+    , timeoutMs(0)
 {
     transportFactories.push_back(&tcpTransportFactory);
     transportFactories.push_back(&fastUdpTransportFactory);
@@ -277,7 +278,7 @@ TransportManager::getSession(const char* serviceLocator)
 
             transportSupported = true;
             try {
-                auto session = transports[i]->getSession(locator);
+                auto session = transports[i]->getSession(locator, timeoutMs);
                 if (isServer) {
                     session = new WorkerSession(session);
                 }
@@ -344,6 +345,17 @@ TransportManager::registerMemory(void* base, size_t bytes)
 }
 
 /**
+ * Use a particular timeout value for all new transports created from now on.
+ *
+ * \param timeoutMs
+ *      Timeout period (in ms) to pass to transports.
+ */
+void TransportManager::setTimeout(uint32_t timeoutMs)
+{
+    this->timeoutMs = timeoutMs;
+}
+
+/**
  * Calls dumpStats() on all existing transports.
  */
 void
@@ -386,6 +398,16 @@ TransportManager::WorkerSession::WorkerSession(Transport::SessionRef wrapped)
     : wrapped(wrapped)
 {
     TEST_LOG("created");
+}
+
+// See Transport::Session::abort for documentation.
+void
+TransportManager::WorkerSession::abort(const string& message)
+{
+    // Must make sure that the dispatch thread isn't running when we
+    // invoked the real abort.
+    Dispatch::Lock lock;
+    return wrapped->abort(message);
 }
 
 // See Transport::Session::clientSend for documentation.

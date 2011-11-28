@@ -26,6 +26,7 @@ class Dispatch;
 class MockContextMember;
 class TransportManager;
 class ServiceManager;
+class SessionAlarmTimer;
 
 /**
  * Context is a container for global variables.
@@ -95,6 +96,7 @@ class Context {
     MockContextMember* mockContextMember2; ///< for testing purposes
     TransportManager* transportManager;
     ServiceManager* serviceManager;
+    SessionAlarmTimer* sessionAlarmTimer;
 
   PRIVATE:
     static Context& friendlyGet();

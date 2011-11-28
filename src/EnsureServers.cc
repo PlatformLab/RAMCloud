@@ -40,15 +40,15 @@ try
         ("number,n",
          ProgramOptions::value<int>(&number),
              "The number of servers desired.")
-        ("timeout,t",
+        ("maxwait,m",
          ProgramOptions::value<int>(&timeout),
-             "The number of seconds for which to wait.");
+             "Give up if the servers aren't available within this many "
+             "seconds.");
 
     OptionParser optionParser(clientOptions, argc, argv);
 
     LOG(NOTICE, "client: Connecting to %s",
         optionParser.options.getCoordinatorLocator().c_str());
-
 
     uint64_t quitTime = Cycles::rdtsc() + Cycles::fromNanoseconds(
         1000000000UL * timeout);
@@ -58,8 +58,10 @@ try
         try {
             RamCloud(context,
                      optionParser.options.getCoordinatorLocator().c_str())
-                .coordinator.getServerList(serverList);
+                .coordinator->getServerList(serverList);
         } catch (const TransportException& e) {
+            LOG(ERROR, "couldn't query cluster membership: %s\n",
+                e.str().c_str());
             usleep(10000);
             continue;
         }
@@ -69,11 +71,13 @@ try
             return 0;
         usleep(10000);
     } while (Cycles::rdtsc() < quitTime);
-    return (actual - number);
+    LOG(ERROR, "need %d active servers, but found only %d",
+        number, actual);
+    return 1;
 } catch (const ClientException& e) {
-    fprintf(stderr, "RAMCloud exception: %s\n", e.str().c_str());
-    return 111;
+    LOG(ERROR, "RAMCloud exception: %s\n", e.str().c_str());
+    return 1;
 } catch (const Exception& e) {
-    fprintf(stderr, "RAMCloud exception: %s\n", e.str().c_str());
-    return 112;
+    LOG(ERROR, "RAMCloud exception: %s\n", e.str().c_str());
+    return 1;
 }

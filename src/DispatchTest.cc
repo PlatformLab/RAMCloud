@@ -422,6 +422,55 @@ TEST_F(DispatchTest, poll_triggerTimers) {
     EXPECT_EQ(180UL, td->earliestTriggerTime);
 }
 
+TEST_F(DispatchTest, poll_callEachTimerOnlyOnce) {
+    // The timer below will reschedule itself the first few times
+    // it's invoked.
+    class LoopTimer : public DummyTimer {
+      public:
+        explicit LoopTimer(const char *name, Dispatch* dispatch)
+            : DummyTimer(name, dispatch), dispatch(dispatch), count(3) { }
+        void handleTimerEvent() {
+            count--;
+            if (count != 0) {
+                start(dispatch->currentTime);
+            }
+            DummyTimer::handleTimerEvent();
+        }
+        Dispatch* dispatch;
+        int count;
+        DISALLOW_COPY_AND_ASSIGN(LoopTimer);
+    };
+    DummyTimer t1("t1", td);
+    LoopTimer t2("t2", td);
+    t1.start(150);
+    t2.start(160);
+    Cycles::mockTscValue = 175;
+    td->poll();
+
+    // t2 had better be invoked only once, even though it rescheduled
+    // itself and is actually runnable.
+    EXPECT_EQ("timer t1 invoked; timer t2 invoked", *localLog);
+    localLog->clear();
+    td->poll();
+    EXPECT_EQ("timer t2 invoked", *localLog);
+}
+
+TEST_F(DispatchTest, poll_handlerDeletesTimers) {
+    // If one timer deletes others, make sure that the loop index doesn't
+    // overflow the length of the "timers" vector.
+    DummyTimer t1("t1", td), t4("t4", td);
+    DummyTimer* t2 = new DummyTimer("t2", td);
+    DummyTimer* t3 = new DummyTimer("t3", td);
+    t1.start(150);
+    t2->start(160);
+    t3->start(180);
+    t4.start(170);
+    t1.deleteWhenInvoked(t2);
+    t1.deleteWhenInvoked(t3);
+    Cycles::mockTscValue = 175;
+    td->poll();
+    EXPECT_EQ("timer t1 invoked; timer t4 invoked", *localLog);
+}
 
 // Helper function that runs in a separate thread for the following test.
 static void checkDispatchThread(Dispatch* td, bool* result) {

@@ -39,19 +39,18 @@ class UnreliableTransport : public Transport {
     explicit UnreliableTransport(Driver* driver);
     ~UnreliableTransport();
     string getServiceLocator();
-    SessionRef getSession(const ServiceLocator& serviceLocator);
+    SessionRef getSession(const ServiceLocator& serviceLocator,
+            uint32_t timeoutMs = 0);
 
   private:
     struct UnreliableClientRpc : public ClientRpc {
         UnreliableClientRpc(UnreliableTransport& t,
-                            Buffer& request,
-                            Buffer& response,
+                            Buffer* request,
+                            Buffer* response,
                             Driver::Address& serverAddress);
         // expose ClientRpc::markFinished, which is protected
         void markFinished() { ClientRpc::markFinished(); }
         UnreliableTransport& t;
-        Buffer& request;
-        Buffer& response;
         const uint32_t nonce;
         IntrusiveListHook listEntries;
         DISALLOW_COPY_AND_ASSIGN(UnreliableClientRpc);
@@ -72,6 +71,7 @@ class UnreliableTransport : public Transport {
     struct UnreliableSession : public Session {
         UnreliableSession(UnreliableTransport& t,
                           const ServiceLocator& serviceLocator);
+        void abort(const string& message) {}
         ClientRpc* clientSend(Buffer* request, Buffer* response);
         void release();
         UnreliableTransport& t;

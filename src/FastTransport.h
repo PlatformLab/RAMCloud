@@ -66,7 +66,7 @@ namespace RAMCloud {
  *  - Dispatch::poll
  *  - Driver
  *  - FastTransport::handleIncomingPacket
- *  - ClientSession::processReceivedData
+ *  - ClientSession::processInboundPacket
  *  - ClientSession::processReceivedData
  *  - InboundMessage::processReceivedData
  */
@@ -105,12 +105,6 @@ class FastTransport : public Transport {
         ClientRpc(ClientSession* session,
                   Buffer* request, Buffer* response);
 
-        /// Contains an RPC request payload including the RPC header.
-        Buffer* const requestBuffer;
-
-        /// The destination Buffer for the RPC response.
-        Buffer* const responseBuffer;
-
         /// The ClientSession on which to send/receive the RPC.
         ClientSession* const session;
 
@@ -124,7 +118,7 @@ class FastTransport : public Transport {
     };
 
     virtual Transport::SessionRef
-    getSession(const ServiceLocator& serviceLocator);
+    getSession(const ServiceLocator& serviceLocator, uint32_t timeoutMs = 0);
 
     /**
      * Serves as a unit of storage allocation for per Rpc server state.
@@ -191,46 +185,30 @@ class FastTransport : public Transport {
     /// Sender requests ack every REQ_ACK_AFTERth packet.
     enum { REQ_ACK_AFTER = 5 };
 
-    /// Time after last send for fragment before assuming lost/resending in ns.
-    enum { TIMEOUT_NS = 10 * 1000 * 1000 }; // 10 ms
+    /// If the other end of the connection does not respond when expected,
+    /// we send packets to wake it up at regular intervals.  The constant
+    /// below determines how many intervals can elapse before we give up and
+    /// abort the session.
+    enum { MAX_SILENT_INTERVALS = 5 };
 
-    /// Periods of TIMEOUT_NS that can pass in a row before failing this RPC.
-    enum { TIMEOUTS_UNTIL_ABORTING = 500 }; // >= 5 s
-
-    /// Time after which a Session is considered dead if no activity is seen.
-    enum { SESSION_TIMEOUT_NS = 60lu * 60 * 1000 * 1000 * 1000 }; // 30 min
+    /// Defines the normal return value for sessionExpireCycles, in seconds.
+    enum { EXPIRE_SECONDS = 10 };
 
     /**
-     * Number of cycles this CPU's TSC should increment before considering
-     * a fragment to be timed out.
+     * Returns a value indicating how long a session can remain idle before
+     * we close it (so that we don't have zillions of old sessions eating up
+     * memory).
      */
     static uint64_t
-    timeoutCycles()
+    sessionExpireCycles()
     {
 #if TESTING
-        if (timeoutCyclesOverride)
-            return timeoutCyclesOverride;
+        if (sessionExpireCyclesOverride)
+            return sessionExpireCyclesOverride;
 #endif
         static uint64_t value = 0;
         if (value == 0)
-            value = Cycles::fromNanoseconds(TIMEOUT_NS);
-        return value;
-    }
-
-    /**
-     * Number of cycles this CPU's TSC should increment before considering
-     * a session to be timed out.
-     */
-    static uint64_t
-    sessionTimeoutCycles()
-    {
-#if TESTING
-        if (sessionTimeoutCyclesOverride)
-            return sessionTimeoutCyclesOverride;
-#endif
-        static uint64_t value = 0;
-        if (value == 0)
-            value = Cycles::fromNanoseconds(SESSION_TIMEOUT_NS);
+            value = Cycles::fromSeconds(EXPIRE_SECONDS);
         return value;
     }
 
@@ -516,13 +494,21 @@ class FastTransport : public Transport {
             DISALLOW_COPY_AND_ASSIGN(Timer);
         };
 
-        /// Handles idle session cleanup and ACKs due to timeout.
+        /// Runs continuously between calls to init() and reset(); detects
+        /// server timeouts.
         Timer timer;
 
         /// False means we don't use the timer (typically means we're the
         /// server side and timeouts are handled by the client)
         bool useTimer;
 
+        /// Counts the number of timer intervals that have elapsed without
+        /// any packet arrivals from the server; reset to 0 whenever new
+        /// data arrives.
+        int silentIntervals;
+
+        friend class FastTransportTest;
+        friend class InboundMessageTest;
         DISALLOW_COPY_AND_ASSIGN(InboundMessage);
     };
 
@@ -602,6 +588,13 @@ class FastTransport : public Transport {
         Window<uint64_t, MAX_STAGING_FRAGMENTS + 1> sentTimes;
 
         /**
+         * Counts the number of times the timer for this message has fired
+         * since we last received an acknowledgment from the other side.
+         * Used to tell when to retransmit or abort the session.
+         */
+        int silentIntervals;
+
+        /**
          * The total number of fragments the receiving end has acknowledged, in
          * the range [0, totalFrags]. This is used for flow control, as the
          * sender guarantees to send only fragments whose numbers are below
@@ -647,7 +640,7 @@ class FastTransport : public Transport {
      * and OutboundMessage to be agnostic about which type of Session it is
      * associated with.
      */
-    class Session {
+    class Session : public Transport::Session {
       PROTECTED:
         /// Used to trash the token field; shouldn't be seen on the wire.
         static const uint64_t INVALID_TOKEN;
@@ -664,6 +657,7 @@ class FastTransport : public Transport {
             : id(id)
             , lastActivityTime(Context::get().dispatch->currentTime)
             , transport(transport)
+            , timeoutCycles(0)
             , token(INVALID_TOKEN)
         {}
 
@@ -672,22 +666,19 @@ class FastTransport : public Transport {
         virtual ~Session() {}
 
         /**
-         * Abort all ongoing and queued RPCs and reset the Session in to a
-         * reusable state.
-         */
-        virtual void close() = 0;
-
-        /**
-         * Close this ClientSession if it is not servicing any RPC.
+         * This method destroys all of the state associated with a session,
+         * but only if the session is not in active use for any RPCs.
          *
-         * Called periodically to try to reclaim inactive sessions, generally
-         * just before Session is allocated (e.g. before the serverSessionTable
-         * is expanded, or during getClientSession()).
+         * \param expectIdle
+         *      True means the caller expects the session to be idle; if not,
+         *      an error message should be logged.
          *
          * \return
-         *      Whether the ClientSession is now closed.
+         *      True means that the session was idle, so its state was
+         *      destroyed.  False means the session was in use, so it couldn't
+         *      be cleaned up.
          */
-        virtual bool expire() = 0;
+        virtual bool expire(bool expectIdle = false) = 0;
 
         /**
          * Populate a Header with all the fields necessary to send it to
@@ -743,6 +734,12 @@ class FastTransport : public Transport {
         /// The FastTransport this session is associated with.
         FastTransport* const transport;
 
+        /**
+         * Time interval, measured in RDTSC ticks, after which we retransmit
+         * if we haven't received a response (only used for ClientSessions).
+         */
+        uint64_t timeoutCycles;
+
       PROTECTED:
         /**
          * Authentication token provided by the server. For ClientSession
@@ -766,11 +763,13 @@ class FastTransport : public Transport {
         ServerSession(FastTransport* transport, uint32_t sessionId);
         ~ServerSession();
         void beginSending(uint8_t channelId);
-        virtual void close();
-        virtual bool expire();
+        virtual void abort(const string& message);
+        virtual ClientRpc* clientSend(Buffer* request, Buffer* response);
+        virtual bool expire(bool expectIdle = false);
         virtual void fillHeader(Header* const header, uint8_t channelId) const;
         virtual const Driver::Address* getAddress();
         void processInboundPacket(Driver::Received* received);
+        virtual void release();
         void startSession(const Driver::Address* clientAddress,
                           uint32_t clientSessionHint);
 
@@ -896,19 +895,19 @@ class FastTransport : public Transport {
      * Manages RPCs between a particular client and server from
      * the client perspective.
      */
-    class ClientSession : public Session, public Transport::Session {
+    class ClientSession : public Session {
       public:
         ClientSession(FastTransport* transport, uint32_t sessionId);
         ~ClientSession();
 
         void cancelRpc(ClientRpc* rpc);
         ClientRpc* clientSend(Buffer* request, Buffer* response);
-        void close();
+        virtual void abort(const string& message);
         void connect();
-        bool expire();
+        bool expire(bool expectIdle = false);
         void fillHeader(Header* const header, uint8_t channelId) const;
         const Driver::Address* getAddress();
-        void init(const ServiceLocator& serviceLocator);
+        void init(const ServiceLocator& serviceLocator, uint32_t timeoutMs);
         bool isConnected();
         void processInboundPacket(Driver::Received* received);
         void release() { expire(); }
@@ -1041,9 +1040,15 @@ class FastTransport : public Transport {
 
         Timer timer; ///< Tracks timeout for SessionOpenRequests.
 
-        /// True means we have issued a SessionOpenRequest but have not yet
-        /// received an acknowledgment
-        bool sessionOpenRequestInFlight;
+        /// Nonzero means we are in the process of opening this session; the
+        /// value indicates how many session-open messages we have sent
+        /// without receiving a response.  Zero means no session open
+        /// operation is currently underway.
+        int sessionOpenAttempts;
+
+        /// If non-empty it means the session has been aborted, and the value
+        /// is the reason for the abort.
+        string abortMessage;
 
         void allocateChannels();
         void resetChannels();
@@ -1167,7 +1172,7 @@ class FastTransport : public Transport {
 
         /**
          * Scan the table looking for Session whose lastActivityTime is
-         * beyond sessionTimeoutCycles(), calling Session::expire() on them
+         * beyond sessionExpireCycles(), calling Session::expire() on them
          * and returning them to the free list if possible.
          *
          * This implementation checks 5 sessions to see if they are ready
@@ -1187,7 +1192,7 @@ class FastTransport : public Transport {
                 T* session = sessions[lastCleanedIndex];
                 if (session->nextFree == NONE &&
                     (session->lastActivityTime +
-                     sessionTimeoutCycles() <= now)) {
+                     sessionExpireCycles() <= now)) {
                     if (session->expire())
                         put(session);
                 }
@@ -1243,11 +1248,8 @@ class FastTransport : public Transport {
     /// Pool allocator for our ServerRpc objects.
     ServerRpcPool<ServerRpc> serverRpcPool;
 
-    // If non-zero, overrides the value of timeoutCycles during tests.
-    static uint64_t timeoutCyclesOverride;
-
-    // If non-zero, overrides the value of sessionTimeoutCycles during tests.
-    static uint64_t sessionTimeoutCyclesOverride;
+    // If non-zero, overrides the value of sessionExpireCycles during tests.
+    static uint64_t sessionExpireCyclesOverride;
 
     friend class MockReceived;
     friend class Services;

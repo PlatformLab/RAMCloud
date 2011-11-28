@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -22,6 +22,7 @@
 #ifndef RAMCLOUD_RPC_H
 #define RAMCLOUD_RPC_H
 
+#include "Common.h"
 #include "RejectRules.h"
 #include "Status.h"
 
@@ -42,9 +43,11 @@ enum RpcServiceType {
 /**
  * This enum defines the choices for the "opcode" field in RPC
  * headers, which selects a particular operation to perform.  Each
- * RAMCloud service implements a subset of these operations.  Note:
- * changes to this table should also be reflected in the definition
- * of rpc in scripts/rawmetrics.py.
+ * RAMCloud service implements a subset of these operations.  If you
+ * change this table you must also reflect the changes in the following
+ * locations:
+ * - The definition of rpc in scripts/rawmetrics.py.
+ * - The method opcodeSymbol in Rpc.c.
  */
 enum RpcOpcode {
     PING                    = 7,
@@ -592,6 +595,11 @@ struct ProxyPingRpc {
                                        // value is -1.
     };
 };
+
+namespace Rpc {
+    extern const char* opcodeSymbol(uint32_t opcode);
+    extern const char* opcodeSymbol(Buffer& buffer);
+}
 
 // --- Magic numbers ---
 

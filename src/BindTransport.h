@@ -53,7 +53,7 @@ struct BindTransport : public Transport {
     }
 
     Transport::SessionRef
-    getSession(const ServiceLocator& serviceLocator) {
+    getSession(const ServiceLocator& serviceLocator, uint32_t timeoutMs) {
         const string& locator = serviceLocator.getOriginalString();
         ServiceMap::iterator it = services.find(locator);
         if (it == services.end()) {
@@ -75,7 +75,8 @@ struct BindTransport : public Transport {
     };
 
     struct BindClientRpc : public ClientRpc {
-        BindClientRpc() {}
+        BindClientRpc(Buffer* request, Buffer* response)
+            : Transport::ClientRpc(request, response) {}
         friend class BindTransport;
         friend class BindSession;
         DISALLOW_COPY_AND_ASSIGN(BindClientRpc);
@@ -86,8 +87,10 @@ struct BindTransport : public Transport {
         explicit BindSession(BindTransport& transport, ServiceArray* services,
                              const string& locator)
             : transport(transport), services(services), locator(locator) {}
+        void abort(const string& message) {}
         ClientRpc* clientSend(Buffer* request, Buffer* response) {
-            BindClientRpc* result = new(response, MISC) BindClientRpc;
+            BindClientRpc* result = new(response, MISC)
+                    BindClientRpc(request, response);
             Service::Rpc rpc(NULL, *request, *response);
             if (transport.abortCounter > 0) {
                 transport.abortCounter--;

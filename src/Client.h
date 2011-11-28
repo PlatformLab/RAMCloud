@@ -134,8 +134,6 @@ class Client {
      */
     Status status;
 
-  PROTECTED:
-
     // begin RPC proxy method helpers
 
     /**
@@ -143,8 +141,8 @@ class Client {
      * You should call this before every use of #sendRecv().
      */
     template <typename Rpc>
-    typename Rpc::Request&
-    allocHeader(Buffer& requestBuffer) const
+    static typename Rpc::Request&
+    allocHeader(Buffer& requestBuffer)
     {
         assert(requestBuffer.getTotalLength() == 0);
         typename Rpc::Request& requestHeader(
@@ -154,6 +152,8 @@ class Client {
         requestHeader.common.service = Rpc::service;
         return requestHeader;
     }
+
+  PROTECTED:
 
     /// An opaque handle returned by #send() and passed into #recv().
     struct AsyncState {

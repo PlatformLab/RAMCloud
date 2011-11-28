@@ -59,7 +59,7 @@ class TestUtil {
     static string readFile(const char* fileName);
     static string toString(const char *buf, uint32_t length);
     static string toString(Buffer* buffer);
-    static bool waitForRpc(Transport::ClientRpc& rpc);
+    static bool waitForRpc(Transport::ClientRpc& rpc, int ms = 1000);
 };
 
 } // namespace RAMCloud

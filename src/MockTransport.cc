@@ -53,7 +53,8 @@ MockTransport::getServiceLocator()
 }
 
 Transport::SessionRef
-MockTransport::getSession(const ServiceLocator& serviceLocator)
+MockTransport::getSession(const ServiceLocator& serviceLocator,
+        uint32_t timeoutMs)
 {
     // magic hook to invoke failed getSession in testing
     if (serviceLocator.getOriginalString() == "mock:host=error")
@@ -74,6 +75,20 @@ MockTransport::getSession()
 MockTransport::MockSession::~MockSession()
 {
     MockTransport::sessionDeleteCount++;
+}
+
+/**
+ * Abort this session; this method does nothing except create a
+ * log message.
+ */
+void
+MockTransport::MockSession::abort(const string& message)
+{
+    if (transport->outputLog.length() != 0) {
+        transport->outputLog.append(" | ");
+    }
+    transport->outputLog.append("abort: ");
+    transport->outputLog.append(message);
 }
 
 /**
@@ -98,7 +113,7 @@ MockTransport::MockSession::clientSend(Buffer* payload, Buffer* response)
     }
     transport->outputLog.append("clientSend: ");
     transport->outputLog.append(TestUtil::toString(payload));
-    return new(response, MISC) MockClientRpc(transport, response);
+    return new(response, MISC) MockClientRpc(transport, payload, response);
 }
 
 /**
@@ -168,12 +183,15 @@ MockTransport::MockServerRpc::sendReply()
  *
  * \param transport
  *      The MockTransport object that this RPC is associated with.
+ * \param[out] request
+ *      Buffer containing the request message.
  * \param[out] response
  *      Buffer in which the response message should be placed.
  */
 MockTransport::MockClientRpc::MockClientRpc(MockTransport* transport,
+                                            Buffer* request,
                                             Buffer* response)
-        : response(response)
+        : Transport::ClientRpc(request, response)
 {
     if (transport->inputMessage != NULL) {
         response->fillFromString(transport->inputMessage);

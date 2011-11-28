@@ -178,19 +178,17 @@ class Dispatch {
         explicit Timer(Dispatch& dispatch);
         explicit Timer(Dispatch& dispatch, uint64_t cycles);
         virtual ~Timer();
+        virtual void handleTimerEvent();
         bool isRunning();
         void start(uint64_t cycles);
         void stop();
 
-        /**
-         * This method is defined by a subclass and invoked when the
-         * timer expires.
-         */
-        virtual void handleTimerEvent() = 0;
-      PRIVATE:
+      PROTECTED:
         /// The Dispatch object that owns this Timer.  NULL means the
         /// Dispatch has been deleted.
         Dispatch* owner;
+
+      PRIVATE:
 
         /// If the timer is running it will be invoked as soon as #rdtsc
         /// returns a value greater or equal to this. This value is only
@@ -316,6 +314,12 @@ class Dispatch {
      * is disabled in the Dispatch).
      */
     bool hasDedicatedThread;
+
+    /**
+     * Threshold (in cycles) used to print warnings when the poller loop is taking
+     * an unusually long time. 
+     */
+    uint64_t slowPollerCycles;
 
     static Syscall *sys;
 

@@ -458,8 +458,20 @@ double prefetch()
         prefetch(&buf[64],  64);
         prefetch(&buf[192], 64);
     }
-
     return Cycles::toSeconds(totalTicks) / count / 16;
+}
+
+// Measure the cost of reading the fine-grain cycle counter.
+double rdtscTest()
+{
+    int count = 1000000;
+    uint64_t start = Cycles::rdtsc();
+    uint64_t total = 0;
+    for (int i = 0; i < count; i++) {
+        total += Cycles::rdtsc();
+    }
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
 }
 
 // Measure the cost of an sfence instruction.
@@ -593,11 +605,26 @@ double spinLock()
     return Cycles::toSeconds(stop - start)/count;
 }
 
+// Measure the cost of starting and stopping a Dispatch::Timer.
+double startStopTimer()
+{
+    int count = 1000000;
+    Dispatch dispatch(false);
+    Dispatch::Timer timer(dispatch);
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        timer.start(12345U);
+        timer.stop();
+    }
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
+}
+
 // Measure the cost of throwing and catching an int. This uses an integer as
 // the value thrown, which is presumably as fast as possible.
 double throwInt()
 {
-    int count = 100000;
+    int count = 10000;
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
         try {
@@ -613,7 +640,7 @@ double throwInt()
 // Measure the cost of throwing and catching an int from a function call.
 double throwIntNL()
 {
-    int count = 100000;
+    int count = 10000;
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
         try {
@@ -630,7 +657,7 @@ double throwIntNL()
 // exception as the value thrown, which may be slower than throwInt.
 double throwException()
 {
-    int count = 100000;
+    int count = 10000;
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
         try {
@@ -646,7 +673,7 @@ double throwException()
 // Measure the cost of throwing and catching an Exception from a function call.
 double throwExceptionNL()
 {
-    int count = 100000;
+    int count = 10000;
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
         try {
@@ -663,7 +690,7 @@ double throwExceptionNL()
 // ClientException::throwException.
 double throwSwitch()
 {
-    int count = 100000;
+    int count = 10000;
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
         try {
@@ -674,6 +701,31 @@ double throwSwitch()
     }
     uint64_t stop = Cycles::rdtsc();
     return Cycles::toSeconds(stop - start)/count;
+}
+
+// Measure the cost of pushing a new element on a std::vector, copying
+// from the end to an internal element, and popping the end element.
+double vectorPushPop()
+{
+    int count = 100000;
+    std::vector<int> vector;
+    vector.push_back(1);
+    vector.push_back(2);
+    vector.push_back(3);
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        vector.push_back(i);
+        vector.push_back(i+1);
+        vector.push_back(i+2);
+        vector[2] = vector.back();
+        vector.pop_back();
+        vector[0] = vector.back();
+        vector.pop_back();
+        vector[1] = vector.back();
+        vector.pop_back();
+    }
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/(count*3);
 }
 
 // The following struct and table define each performance test in terms of
@@ -736,6 +788,8 @@ TestInfo tests[] = {
      "Cost of ObjectPool allocation after destroying an object"},
     {"prefetch", prefetch,
      "Prefetch instruction"},
+    {"rdtsc", rdtscTest,
+     "Read the fine-grain cycle counter"},
     {"segmentEntrySort", segmentEntrySort,
      "Sort a Segment full of avg. 100-byte Objects by age"},
     {"segmentIterator", segmentIterator<50, 150>,
@@ -744,6 +798,8 @@ TestInfo tests[] = {
      "Sfence instruction"},
     {"spinLock", spinLock,
      "Acquire/release SpinLock"},
+    {"startStopTimer", startStopTimer,
+     "Start and stop a Dispatch::Timer"},
     {"throwInt", throwInt,
      "Throw an int"},
     {"throwIntNL", throwIntNL,
@@ -754,6 +810,8 @@ TestInfo tests[] = {
      "Throw an Exception in a function call"},
     {"throwSwitch", throwSwitch,
      "Throw an Exception using ClientException::throwException"},
+    {"vectorPushPop", vectorPushPop,
+     "Push and pop a std::vector"},
 };
 
 /**

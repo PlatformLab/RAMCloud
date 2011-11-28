@@ -95,6 +95,8 @@ try
          "Verify the contents of all objects after recovery completes.");
 
     OptionParser optionParser(clientOptions, argc, argv);
+    Context::get().transportManager->setTimeout(
+            optionParser.options.getTransportTimeout());
 
     LOG(NOTICE, "client: Connecting to %s",
         optionParser.options.getCoordinatorLocator().c_str());
@@ -216,7 +218,7 @@ try
     // client.ping();
 
     LOG(NOTICE, "- quiescing writes");
-    client.coordinator.quiesce();
+    client.coordinator->quiesce();
 
     Transport::SessionRef session = client.objectFinder.lookup(tables[0], 0);
     LOG(NOTICE, "--- hinting that the server is down: %s ---",
@@ -226,7 +228,7 @@ try
     ClusterMetrics metricsBefore(&client);
 
     uint64_t startTime = Cycles::rdtsc();
-    client.coordinator.hintServerDown(
+    client.coordinator->hintServerDown(
         session->getServiceLocator().c_str());
 
     client.objectFinder.waitForAllTabletsNormal();

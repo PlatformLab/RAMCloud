@@ -14,6 +14,7 @@
  */
 
 #include "TestUtil.h"
+#include "Client.h"
 #include "Transport.h"
 
 namespace RAMCloud {
@@ -41,7 +42,8 @@ class TransportTestPoller : public Dispatch::Poller {
 
 class TransportTest : public ::testing::Test {
   public:
-    TransportTest() { }
+    Buffer request, response;
+    TransportTest() : request(), response() { }
     ~TransportTest() { }
     DISALLOW_COPY_AND_ASSIGN(TransportTest);
 };
@@ -50,7 +52,7 @@ TEST_F(TransportTest, wait_noError) {
     Context context(true);
     Context::Guard _(context);
     int count = 3;
-    Transport::ClientRpc rpc;
+    Transport::ClientRpc rpc(&request, &response);
     TransportTestPoller poller(&count, &rpc, NULL);
     rpc.wait();
     EXPECT_EQ(0, count);
@@ -67,7 +69,7 @@ TEST_F(TransportTest, wait_notDispatchThread) {
     Context context(true);
     Context::Guard _(context);
     int count = 3;
-    Transport::ClientRpc rpc;
+    Transport::ClientRpc rpc(&request, &response);
     TransportTestPoller poller(&count, &rpc, NULL);
     const char *state = "not finished";
     boost::thread(waitOnRpc, &Context::get(), &rpc, &state).detach();
@@ -95,7 +97,7 @@ TEST_F(TransportTest, wait_error) {
     Context context(true);
     Context::Guard _(context);
     int count = 3;
-    Transport::ClientRpc rpc;
+    Transport::ClientRpc rpc(&request, &response);
     TransportTestPoller poller(&count, &rpc, "test error message");
     string message("no exception");
     try {
@@ -108,14 +110,14 @@ TEST_F(TransportTest, wait_error) {
 
 TEST_F(TransportTest, markFinished) {
     // No error.
-    Transport::ClientRpc rpc;
+    Transport::ClientRpc rpc(&request, &response);
     EXPECT_FALSE(rpc.isReady());
     rpc.markFinished();
     EXPECT_TRUE(rpc.isReady());
     rpc.wait();
 
     // Error via char*.
-    Transport::ClientRpc rpc2;
+    Transport::ClientRpc rpc2(&request, &response);
     rpc2.markFinished("error XXX");
     EXPECT_TRUE(rpc2.isReady());
     string message("no exception");
@@ -127,7 +129,7 @@ TEST_F(TransportTest, markFinished) {
     EXPECT_EQ("error XXX", message);
 
     // Error via string.
-    Transport::ClientRpc rpc3;
+    Transport::ClientRpc rpc3(&request, &response);
     string msg2("error 123");
     rpc3.markFinished(msg2);
     EXPECT_TRUE(rpc3.isReady());
@@ -141,13 +143,14 @@ TEST_F(TransportTest, markFinished) {
 }
 
 TEST_F(TransportTest, cancel_alreadyFinished) {
-    Transport::ClientRpc rpc;
+    Transport::ClientRpc rpc(&request, &response);
     rpc.markFinished();
     rpc.cancel();
     EXPECT_NO_THROW(rpc.wait());
 }
 TEST_F(TransportTest, cancel_stringArgument) {
-    Transport::ClientRpc rpc;
+    Client::allocHeader<PingRpc>(request);
+    Transport::ClientRpc rpc(&request, &response);
     string s("test message");
     rpc.cancel(s);
     string message("no exception");
@@ -156,10 +159,10 @@ TEST_F(TransportTest, cancel_stringArgument) {
     } catch (TransportException& e) {
         message = e.message;
     }
-    EXPECT_EQ("RPC cancelled: test message", message);
+    EXPECT_EQ("PING RPC cancelled: test message", message);
 }
 TEST_F(TransportTest, cancel_charArgument) {
-    Transport::ClientRpc rpc;
+    Transport::ClientRpc rpc(&request, &response);
     rpc.cancel("message2");
     string message("no exception");
     try {
@@ -167,10 +170,10 @@ TEST_F(TransportTest, cancel_charArgument) {
     } catch (TransportException& e) {
         message = e.message;
     }
-    EXPECT_EQ("RPC cancelled: message2", message);
+    EXPECT_EQ("null RPC cancelled: message2", message);
 }
 TEST_F(TransportTest, cancel_defaultMessage) {
-    Transport::ClientRpc rpc;
+    Transport::ClientRpc rpc(&request, &response);
     rpc.cancel();
     string message("no exception");
     try {
@@ -178,7 +181,7 @@ TEST_F(TransportTest, cancel_defaultMessage) {
     } catch (TransportException& e) {
         message = e.message;
     }
-    EXPECT_EQ("RPC cancelled", message);
+    EXPECT_EQ("null RPC cancelled", message);
 }
 
 } // namespace RAMCloud

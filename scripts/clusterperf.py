@@ -78,14 +78,20 @@ def get_client_log(
         ):
     """
     Given the index of a client, read the client's log file
-    from the current log directory and return its contents.
+    from the current log directory and return its contents,
+    ignoring RAMCloud log messages (what's left should be a
+    summary of the results from a test.
     """
 
     globResult = glob.glob('%s/latest/client%d*.log' %
             (options.log_dir, index))
     if len(globResult) == 0:
         raise Exception("couldn't find log file for client %d" % (index))
-    return open(globResult[0], 'r').read()
+    result = "";
+    for line in open(globResult[0], 'r'):
+        if not re.match('([0-9]+\.[0-9]+) ', line):
+            result += line
+    return result
 
 def run_test(
         test,                     # Test object describing the test to run.
