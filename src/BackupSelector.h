@@ -23,16 +23,28 @@
 namespace RAMCloud {
 
 /**
- * Selects backups on which to store replicas.
+ * See BackupSelector; base class only used to virtualize some calls for testing.
  */
-class BackupSelector {
+class BaseBackupSelector {
   PUBLIC:
     typedef ProtoBuf::ServerList::Entry Backup;
+    virtual Backup* selectPrimary(uint32_t numBackups,
+                                  const uint64_t backupIds[]) = 0;
+    virtual Backup* selectSecondary(uint32_t numBackups,
+                                    const uint64_t backupIds[]) = 0;
+    virtual ~BaseBackupSelector() {}
+};
+
+/**
+ * Selects backups on which to store replicas while obeying replica placement
+ * constraints.  Logically part of the BackupManager.
+ */
+class BackupSelector : public BaseBackupSelector {
+  PUBLIC:
     explicit BackupSelector(CoordinatorClient* coordinator);
-    Backup* selectPrimary(uint32_t numBackups,
-                          const uint64_t backupIds[]);
-    Backup* selectSecondary(uint32_t numBackups,
-                            const uint64_t backupIds[]);
+    Backup* selectPrimary(uint32_t numBackups, const uint64_t backupIds[]);
+    Backup* selectSecondary(uint32_t numBackups, const uint64_t backupIds[]);
+
   PRIVATE:
     Backup* getRandomHost();
     bool conflict(const Backup* backup,

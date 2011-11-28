@@ -13,7 +13,6 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <string>
 #include <queue>
 
 #include "Transport.h"

@@ -50,6 +50,7 @@ TESTS_SRCFILES := \
 		  src/Recovery.cc \
 		  src/RecoverySegmentIteratorTest.cc \
 		  src/RecoveryTest.cc \
+		  src/ReplicatedSegmentTest.cc \
 		  src/RpcTest.cc \
 		  src/SegmentTest.cc \
 		  src/SegmentIteratorTest.cc \

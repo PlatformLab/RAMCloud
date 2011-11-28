@@ -35,14 +35,8 @@ namespace RAMCloud {
  * servers on a segment-by-segment basis and replicates local segments to
  * remote backups.
  */
-class BackupManager {
+class BackupManager : public ReplicatedSegment::Deleter {
   PUBLIC:
-    /// Maximum number of bytes we'll send in any single write RPC
-    /// to backups. The idea is to avoid starving other RPCs to the
-    /// backup by not inundating it with segment-sized writes on
-    /// recovery.
-    enum { MAX_BYTES_PER_WRITE_RPC = 1024 * 1024 };
-
     BackupManager(CoordinatorClient* coordinator,
                   const Tub<uint64_t>& masterId,
                   uint32_t numReplicas);
@@ -60,23 +54,23 @@ class BackupManager {
     // TODO: The public stuff below is for ReplicatedSegment
     // I'd really like to hide this from the higher level interface.
 
+    void destroyAndFreeReplicatedSegment(ReplicatedSegment* replicatedSegment);
+
     /// The number of backups to replicate each segment on. Only used by ReplicatedSegment.
     const uint32_t numReplicas;
+
+  PRIVATE:
+    void scheduleWorkIfNeeded(); // TODO configurationChanged?
+    bool isSynced();
+    void proceedNoMetrics();
+
+    BackupSelector backupSelector; ///< See #BackupSelector.
 
     /**
      * The coordinator-assigned server ID for this master or, equivalently, its
      * globally unique #Log ID.
      */
     const Tub<uint64_t>& masterId;
-
-    void forgetReplicatedSegment(ReplicatedSegment* replicatedSegment);
-
-    BackupSelector backupSelector; ///< See #BackupSelector.
-
-  PRIVATE:
-    void scheduleWorkIfNeeded(); // TODO configurationChanged?
-    bool isSynced();
-    void proceedNoMetrics();
 
     /// Cluster coordinator. May be NULL for testing purposes.
     CoordinatorClient* const coordinator;

@@ -36,8 +36,8 @@ BackupManager::BackupManager(CoordinatorClient* coordinator,
                              const Tub<uint64_t>& masterId,
                              uint32_t numReplicas)
     : numReplicas(numReplicas)
-    , masterId(masterId)
     , backupSelector(coordinator)
+    , masterId(masterId)
     , coordinator(coordinator)
     , replicatedSegmentPool(ReplicatedSegment::sizeOf(numReplicas))
     , replicatedSegmentList()
@@ -61,8 +61,8 @@ BackupManager::BackupManager(CoordinatorClient* coordinator,
  */
 BackupManager::BackupManager(BackupManager* prototype)
     : numReplicas(prototype->numReplicas)
-    , masterId(prototype->masterId)
     , backupSelector(prototype->coordinator)
+    , masterId(prototype->masterId)
     , coordinator(prototype->coordinator)
     , replicatedSegmentPool(ReplicatedSegment::sizeOf(numReplicas))
     , replicatedSegmentList()
@@ -79,7 +79,7 @@ BackupManager::~BackupManager()
     while (!taskManager.isIdle())
         proceed();
     while (!replicatedSegmentList.empty())
-        forgetReplicatedSegment(&replicatedSegmentList.front());
+        destroyAndFreeReplicatedSegment(&replicatedSegmentList.front());
 }
 
 /**
@@ -90,10 +90,11 @@ BackupManager::freeSegment(uint64_t segmentId)
 {
     CycleCounter<RawMetric> _(&metrics->master.backupManagerTicks);
 
-    // TODO: Don't allow free on an open segment.
+    // TODO: Don't allow free on an open segment. (Already enforced in new
+    // interface, should just work once we can delete this method).
 
-    // Note: cannot use foreach since forgetReplicatedSegment
-    // modifies the replicatedSegmentList.
+    // Note: cannot use foreach since proceed() can delete elements
+    // of replicatedSegmentList.
     auto it = replicatedSegmentList.begin();
     while (it != replicatedSegmentList.end()) {
         it->free();
@@ -126,9 +127,11 @@ BackupManager::openSegment(uint64_t segmentId, const void* data, uint32_t len)
     auto* p = replicatedSegmentPool.malloc();
     if (p == NULL)
         DIE("Out of memory");
-    auto* replicatedSegment = new(p) ReplicatedSegment(*this, taskManager,
-                                                       segmentId, data, len,
-                                                       numReplicas);
+    auto* replicatedSegment =
+        new(p) ReplicatedSegment(taskManager, backupSelector,
+                                 *this,
+                                 *masterId, segmentId,
+                                 data, len, numReplicas);
     replicatedSegmentList.push_back(*replicatedSegment);
     replicatedSegment->schedule();
     return replicatedSegment;
@@ -176,7 +179,8 @@ void
 BackupManager::scheduleWorkIfNeeded()
 {
     foreach (auto& segment, replicatedSegmentList)
-        segment.performTask();
+        segment.schedule();
+    taskManager.proceed();
 }
 
 /// Internal helper for #sync().
@@ -199,11 +203,11 @@ BackupManager::proceedNoMetrics()
 
 /**
  * Invoked by ReplicatedSegment to indicate that the BackupManager no longer
- * needs to keep an information about this segment (e.g. when all
+ * needs to keep an information about this segment (for example. when all
  * replicas are freed on backups or during shutdown).
  */
 void
-BackupManager::forgetReplicatedSegment(ReplicatedSegment* replicatedSegment)
+BackupManager::destroyAndFreeReplicatedSegment(ReplicatedSegment* replicatedSegment)
 {
     erase(replicatedSegmentList, *replicatedSegment);
     replicatedSegment->~ReplicatedSegment();

@@ -18,6 +18,7 @@
 
 #include "Common.h"
 #include "BackupClient.h"
+#include "BackupSelector.h"
 #include "BoostIntrusive.h"
 #include "RawMetrics.h"
 #include "Transport.h"
@@ -33,70 +34,66 @@ class BackupManager;
 class ReplicatedSegment;
 
 /**
- * TODO: Violates JO no more info than the name rule.
- * TODO: Who calls, what does it do (from external perspective), what is involved?
- * A segment that is being replicated to backups or is durable on backups.
- * Most of this class is used to store state internal to the BackupManager.
+ * Tracks state of replication of a log segment and reacts to cluster changes to
+ * restore replication invariants; logically part of BackupManager.
+ *
+ * There are two users of ReplicatedSegment:
+ * 1) The log module calls BackupManager::openSegment() which returns a pointer
+ *    to a ReplicatedSegment.  From the log's perspective only the public
+ *    methods are interesting.  They allow the log to queue portions of the
+ *    log segment data for replication and to eventually free replicas of the
+ *    log segment once the segment has been cleaned.
+ * 2) The BackupManager uses ReplicatedSegment to track the progress made in
+ *    replicating the log segment's data.  The basic idea is that when cluster
+ *    failures occur the ReplicatedSegment is made aware of the failure.  The
+ *    ReplicatedSegment then schedules itself as part of the work that the
+ *    BackupManager does and attempts to restore the replication invariants
+ *    for its assocaited log segment.  Anytime the ReplicatedSegment meets
+ *    all replication invariants for its log segment data it deschedules itself
+ *    and only "wakes up" on future cluster membership changes that might
+ *    affect replication invariants for its log segment.
  */
 class ReplicatedSegment : public Task {
   PUBLIC:
-    void free();
-
-    /// See OpenSegment::close().
-    void close() {
-        write(queued.bytes, true);
-    }
-
-    void write(uint32_t offset, bool closeSegment);
+    /**
+     * Describes what to do whenever we don't want to go on living.
+     * BackupManager needs to do some specicalize cleanup after
+     * ReplicatedSegments, but ReplicatedSegment best know when to destroy
+     * themselves.
+     * The default logic does nothing which is useful for ReplicatedSegment
+     * during unit testing.
+     * Must be public because otherwise it is impossible to subclass this;
+     * the friend declaration for BackupManager doesn't work; it seems C++ doesn't
+     * consider the subclass list to be part of the superclass's scope.
+     */
+    struct Deleter {
+        virtual void destroyAndFreeReplicatedSegment(ReplicatedSegment*
+                                                        replicatedSegment) {}
+        virtual ~Deleter() {}
+    };
 
   PRIVATE:
-    friend class BackupManager;
-
-    ReplicatedSegment(BackupManager& backupManager, TaskManager& taskManager,
-                      uint64_t segmentId, const void* data, uint32_t len,
-                      uint32_t numReplicas);
-    ~ReplicatedSegment();
-
-    void performTask();
-
     /**
-     * Return the number of bytes of space required on which to construct
-     * an ReplicatedSegment instance.
-     */
-    static size_t sizeOf(uint32_t numReplicas) {
-        return sizeof(ReplicatedSegment) + sizeof(replicas[0]) * numReplicas;
-    }
-
-    /// Intrusive list entries for #BackupManager::replicatedSegmentList.
-    IntrusiveListHook listEntries;
-
-    /**
-     * Returns true when any data queued for this segment is durably
-     * synced to #numReplicas including any outstanding flags.
-     */
-    bool isSynced() {
-        return getDone() == queued;
-    }
-
-    /**
-     * TODO Tracks something.
-     * Different instances can track progress of different statuses.
-     * For example, BackupManager tracks progress queued, sent, and
-     * done replicating.
+     * Represents "how much" of a segment or replica. Has value semantics.
+     * ReplicatedSegment must track "how much" of a segment or replica has
+     * reached some status.  Concretely, separate instances are used to track
+     * how much data the log module expects us to replicate, how much has been
+     * sent to each backup, and how much has been acknowledged as at least
+     * buffered by each backup.  This isn't simply a count of bytes because its
+     * important to track the status of the open and closed flags as part of
+     * the "how much".
      */
     struct Progress {
-        /// Whether an open has "happened" for this replica.
+        /// Whether an open has been queued/sent/acknowledged.
         bool open;
 
-        /// Bytes that have reached a certain status.
+        /// Bytes that have been queued/sent/acknowledged.
         uint32_t bytes;
 
-        /// Whether a close has "happened" for this replica.
+        /// Whether a close has been queued/sent/acknowledged.
         bool close;
 
-        /**
-         * Create an instance representing no progress.
-         */
+        /// Create an instance representing no progress.
         Progress()
             : open(false), bytes(0), close(false) {}
 
@@ -104,27 +101,24 @@ class ReplicatedSegment : public Task {
          * Create an instance representing a specific amount of progress.
          *
          * \param open
-         *      Whether the open operation on this replica has reached
-         *      a certain status.
+         *      Whether the open operation has been queued/sent/acknowledged.
          * \param bytes
-         *      Bytes that have reached a certain status.
+         *      Bytes that have been queued/sent/acknowledged.
          * \param close
-         *      Whether the close operation on this replica has reached
-         *      a certain status.
+         *      Whether the close operation has been queued/sent/acknowledged.
          */
         Progress(bool open, uint32_t bytes, bool close)
             : open(open), bytes(bytes), close(close) {}
 
         /**
          * Update in place with the minimum progress on each of field
-         * between this instance and another.
+         * between this Progress and another.
          *
          * \param other
          *      Another Progress which will "shorten" this Progress if
-         *      any of its fields have only reached a lesser progress.
+         *      any of its fields have made less progress.
          */
-        void min(const Progress& other)
-        {
+        void min(const Progress& other) {
             open &= other.open;
             if (bytes > other.bytes)
                 bytes = other.bytes;
@@ -137,8 +131,7 @@ class ReplicatedSegment : public Task {
          * \param other
          *      Another Progress to compare against.
          */
-        bool operator==(const Progress& other) const
-        {
+        bool operator==(const Progress& other) const {
             return (open == other.open &&
                     bytes == other.bytes &&
                     close == other.close);
@@ -150,8 +143,7 @@ class ReplicatedSegment : public Task {
          * \param other
          *      Another Progress to compare against.
          */
-        bool operator!=(const Progress& other) const
-        {
+        bool operator!=(const Progress& other) const {
             return !(*this == other);
         }
 
@@ -161,8 +153,7 @@ class ReplicatedSegment : public Task {
          * \param other
          *      Another Progress to compare against.
          */
-        bool operator<(const Progress& other) const
-        {
+        bool operator<(const Progress& other) const {
             if (open < other.open)
                 return true;
             else if (bytes < other.bytes)
@@ -185,36 +176,33 @@ class ReplicatedSegment : public Task {
         }
     };
 
-    /// The state needed for a single (partial) replica of this segment.
+    /**
+     * Stores all state for a single (potentially incomplete) replica of
+     * a ReplicatedSegment.
+     */
     struct Replica {
         explicit Replica(Transport::SessionRef session)
             : client(session)
             , sent()
-            , done()
-            , closeTicks()
+            , acked()
             , writeRpc()
-            , freeRpc()
-        {
-        }
+            , freeRpc() {}
 
-        /// A client to the remote backup server.
+        /// Client to remote backup server where this replica is (to be) stored.
         BackupClient client;
 
         /**
-         * Tracks whether open and closes have been sent for this segment
-         * and how many bytes of log data have been sent to this Backup.
-         * (Note: but not necessarily acknowledged, see #done).
+         * Tracks how much of a segment has been sent to be buffered
+         * durably on a backup.
+         * (Note: but not necessarily acknowledged, see #acked).
          */
         Progress sent;
 
         /**
-         * Tracks whether open and closes have been synced for this segment
-         * and how many bytes of log data have been synced to this Backup.
+         * Tracks how much of a segment has been acknowledged as buffered
+         * durably on a backup.
          */
-        Progress done;
-
-        /// Measures the amount of time the close RPC is active.
-        Tub<CycleCounter<RawMetric>> closeTicks;
+        Progress acked;
 
         /// The outstanding write operation to this backup, if any.
         Tub<BackupClient::WriteSegment> writeRpc;
@@ -225,6 +213,25 @@ class ReplicatedSegment : public Task {
         DISALLOW_COPY_AND_ASSIGN(Replica);
     };
 
+// --- ReplicatedSegment ---
+  PUBLIC:
+    void free();
+    void close() { write(queued.bytes, true); }
+    void write(uint32_t offset, bool closeSegment);
+
+  PRIVATE:
+    friend class BackupManager;
+
+    ReplicatedSegment(TaskManager& taskManager,
+                      BaseBackupSelector& backupSelector,
+                      Deleter& deleter,
+                      uint64_t masterId, uint64_t segmentId,
+                      const void* data, uint32_t openLen,
+                      uint32_t numReplicas,
+                      uint32_t maxBytesPerWriteRpc = 1024 * 1024);
+    ~ReplicatedSegment();
+
+    void performTask();
     void performFree(Tub<Replica>& replica);
     void performWrite(Tub<Replica>& replica);
 
@@ -232,55 +239,75 @@ class ReplicatedSegment : public Task {
      * Return the minimum Progress made in syncing this replica to Backups
      * for any of the replicas.
      */
-    Progress getDone() {
+    Progress getAcked() {
         Progress p = queued;
         foreach (auto& replica, replicas) {
             if (replica)
-                p.min(replica->done);
+                p.min(replica->acked);
             else
                 return Progress();
         }
         return p;
     }
 
+    /**
+     * Returns true when all data queued for writing by the log module for this
+     * segment is durably synced to #numReplicas including any outstanding flags.
+     */
+    bool isSynced() { return getAcked() == queued; }
+
+    /// Return true if this replica should be considered the primary replica.
     bool replicaIsPrimary(Tub<Replica>& replica) {
         return &replica == &replicas[0];
     }
 
-    /**
-     * The BackupManager instance which owns this ReplicatedSegment.
-     */
-    BackupManager& backupManager;
+    /// Return the bytes required to construct an ReplicatedSegment instance.
+    static size_t sizeOf(uint32_t numReplicas) {
+        return sizeof(ReplicatedSegment) + sizeof(replicas[0]) * numReplicas;
+    }
 
-    /**
-     * A unique ID for the segment.
-     */
+// - member variables -
+    /// Used to choose where to store replicas. Shared among ReplicatedSegments.
+    BaseBackupSelector& backupSelector;
+
+    /// The server id of the Master whose log this segment belongs to.
+    const uint64_t masterId;
+
+    /// Id for the segment, must match the segmentId given by the log module.
     const uint64_t segmentId;
 
-    /**
-     * The start of an array of bytes to be replicated.
-     */
+    /// The start of raw bytes of the in-memory log segment to be replicated.
     const void* data;
 
-    /**
-     * The number of bytes to send atomically to backups with the open
-     * segment RPC.
-     */
-    uint32_t openLen;
+    /// Bytes to send atomically to backups with the open segment RPC.
+    const uint32_t openLen;
 
     /**
-     * Tracks whether open and closes have been queued for this segment
-     * and how many bytes of log data have been queued for replication
-     * to Backups.
+     * Maximum number of bytes we'll send in any single write RPC
+     * to backups. The idea is to avoid starving other RPCs to the
+     * backup by not inundating it with segment-sized writes on
+     * recovery.
+     */
+    const uint32_t maxBytesPerWriteRpc;
+
+    /**
+     * Tracks how much of a segment the log module has made available for
+     * replication.
      */
     Progress queued;
 
-    /// True if all known replicas of this segment should be eliminated.
+    /// True if all known replicas of this segment should be freed on backups.
     bool freeQueued;
 
+    /// Intrusive list entries for #BackupManager::replicatedSegmentList.
+    IntrusiveListHook listEntries;
+
+    /// Deletes this when this determines it is no longer needed.  See #Deleter.
+    Deleter& deleter;
+
     /**
-     * An array of #BackupManager::replica backups on which to replicate
-     * the segment.
+     * An array of #BackupManager::replica backups on which the segment is
+     * (being) replicated.
      */
     VarLenArray<Tub<Replica>> replicas; // must be last member of class
 
