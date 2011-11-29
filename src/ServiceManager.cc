@@ -97,6 +97,18 @@ ServiceManager::addService(Service& service, RpcServiceType type) {
     assert(!services[type]);
     services[type].construct(service);
     serviceCount++;
+
+    // Create all the threads that this service will ever need;  do
+    // it here rather than waiting until the thread is needed in
+    // handleRpc, because thread creation can be quite slow on Linux
+    // (> 250ms sometimes, see RAM-343) and a long stall in handleRpc
+    // can cause timeouts.
+
+    for (int i = services[type]->maxThreads; i > 0; i--) {
+        Worker* worker = new Worker(Context::get());
+        worker->thread.construct(workerMain, worker);
+        idleThreads.push_back(worker);
+    }
 }
 
 /**
@@ -166,21 +178,10 @@ ServiceManager::handleRpc(Transport::ServerRpc* rpc)
 
     serviceInfo->requestsRunning++;
 
-    // Find a thread to execute the RPC, and hand off the RPC.
-    Worker* worker;
-    if (idleThreads.empty()) {
-        uint64_t cyclesBefore = Cycles::rdtsc();
-        worker = new Worker(Context::get());
-        worker->thread.construct(workerMain, worker);
-        double seconds = Cycles::toSeconds(Cycles::rdtsc() - cyclesBefore);
-        if (seconds > 0.003) {
-            LOG(NOTICE, "Long gap starting new thread: %.1f ms",
-                    1e03 * seconds);
-        }
-    } else {
-        worker = idleThreads.back();
-        idleThreads.pop_back();
-    }
+    // Hand off the RPC to a worker thread.
+    assert(!idleThreads.empty());
+    Worker* worker = idleThreads.back();
+    idleThreads.pop_back();
     worker->serviceInfo = serviceInfo;
     worker->handoff(rpc);
     worker->busyIndex = downCast<int>(busyThreads.size());

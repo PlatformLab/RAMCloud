@@ -26,8 +26,9 @@ namespace RAMCloud {
 class MockService : public Service {
   public:
 
-    MockService() : mutex(), log(), gate(0), sendReply(false),
-            threadLimit(3) { }
+    explicit MockService(int threadLimit = 3) : mutex(), log(),
+            gate(0), sendReply(false),
+            threadLimit(threadLimit) { }
     virtual ~MockService() {}
     virtual void dispatch(RpcOpcode opcode, Rpc& rpc)
     {
