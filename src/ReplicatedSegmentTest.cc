@@ -170,7 +170,7 @@ TEST_F(ReplicatedSegmentTest, performTaskFreeOneReplicaToFree) {
     segment->free();
 
     Transport::SessionRef session = transport.getSession();
-    segment->replicas[0].construct(session);
+    segment->replicas[0].construct(666, session);
     taskManager.proceed();
     EXPECT_TRUE(segment->isScheduled());
     EXPECT_EQ(0u, deleter.count);
@@ -198,7 +198,7 @@ TEST_F(ReplicatedSegmentTest, performFreeRpcIsReady) {
     Transport::SessionRef session = transport.getSession();
 
     segment->freeQueued = true;
-    segment->replicas[0].construct(session);
+    segment->replicas[0].construct(666, session);
     segment->replicas[0]->freeRpc.construct(segment->replicas[0]->client,
                                             masterId, segmentId);
     EXPECT_STREQ("clientSend: 0x4001d 0 999 0 888 0",

@@ -252,18 +252,24 @@ ReplicatedSegment::performWrite(Tub<Replica>& replica)
         // TODO: add the conflict arrays
         // maybe push this stuff down into the constructOpen
         BackupWriteRpc::Flags flags = BackupWriteRpc::OPEN;
+        uint64_t conflicts[replicas.numElements - 1];
+        uint32_t numConflicts = 0;
+        foreach (auto& conflictingReplica, replicas) {
+            if (conflictingReplica)
+                conflicts[numConflicts++] = conflictingReplica->backupId;
+            assert(numConflicts < replicas.numElements);
+        }
         if (replicaIsPrimary(replica)) {
-            backup = backupSelector.selectPrimary(0, NULL);
+            backup = backupSelector.selectPrimary(numConflicts, conflicts);
             flags = BackupWriteRpc::OPENPRIMARY;
         } else {
-            backup = backupSelector.selectSecondary(0, NULL);
+            backup = backupSelector.selectSecondary(numConflicts, conflicts);
         }
         const string& serviceLocator = backup->service_locator();
         Transport::SessionRef session =
             Context::get().transportManager->getSession(serviceLocator.c_str());
-        replica.construct(session);
-        LOG(ERROR, "Sending backup opening write: seg %lu off %u len %u flags %u to %s",
-            segmentId, 0, openLen, flags, serviceLocator.c_str());
+        replica.construct(backup->server_id(), session);
+        //LOG(ERROR, "Sending backup opening write: seg %lu off %u len %u flags %u to %lu", segmentId, 0, openLen, flags, replica->backupId);
         replica->writeRpc.construct(replica->client, masterId, segmentId,
                                     0, data, openLen, flags);
         replica->sent.open = true;
@@ -315,8 +321,7 @@ ReplicatedSegment::performWrite(Tub<Replica>& replica)
                 flags = BackupWriteRpc::NONE;
             }
 
-            LOG(ERROR, "Sending backup write: seg %lu off %u len %u flags %u to %s",
-                segmentId, offset, length, flags, replica->client.session->getServiceLocator().c_str());
+            //LOG(ERROR, "Sending backup write: seg %lu off %u len %u flags %u to %lu", segmentId, offset, length, flags, replica->backupId);
             replica->writeRpc.construct(replica->client, masterId, segmentId,
                                         offset, data, length, flags);
             replica->sent.bytes += length;

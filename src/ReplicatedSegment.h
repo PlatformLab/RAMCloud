@@ -181,12 +181,16 @@ class ReplicatedSegment : public Task {
      * a ReplicatedSegment.
      */
     struct Replica {
-        explicit Replica(Transport::SessionRef session)
-            : client(session)
+        explicit Replica(uint64_t backupId, Transport::SessionRef session)
+            : backupId(backupId)
+            , client(session)
             , sent()
             , acked()
             , writeRpc()
             , freeRpc() {}
+
+        /// Id of remote backup server where this replica is (to be) stored.
+        const uint64_t backupId;
 
         /// Client to remote backup server where this replica is (to be) stored.
         BackupClient client;
