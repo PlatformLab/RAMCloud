@@ -168,39 +168,62 @@ ReplicatedSegment::performTask()
 void
 ReplicatedSegment::performFree(Tub<Replica>& replica)
 {
+    /*
+     * Internally this method is written as a set of nested
+     * if-with-unqualified-else clauses with explicit returns at the end of
+     * each block.  This repeatedly splits the segment states between
+     * two cases until exactly one of the cases is executed.
+     * This makes it easy ensure all cases are covered and which case a
+     * particular state will fall into.
+     */
+
     if (!replica) {
-        // Do nothing is there was no replica.
+        // Do nothing is there was no replica, no need to reschedule.
         return;
-    } else if (replica->freeRpc && replica->freeRpc->isReady()) {
-        // Wait for the replica's outstanding free to complete.
-        try {
-            (*replica->freeRpc)();
-            replica.destroy();
-        } catch (ClientException& e) {
-            // TODO: When do I get an Exception?  Only when the backup
-            // is permanently out of the cluster?  If so, just keep
-            // retrying until the coordinator kills one of the two of us.
-            // TODO: Need a better log message once
-            // correct host details are in the Replica.
-            LOG(WARNING,
-                "Failure while freeing replica on backup: %s",
-                e.what());
-            DIE("TODO: Haven't decided what to do when a free to "
-                "a backup fails");
+    } // else...
+
+    if (replica->freeRpc) {
+        // A free rpc is outstanding to the backup storing this replica.
+        if (replica->freeRpc->isReady()) {
+            // Request is finished, clean up the state, no need to reschedule.
+            try {
+                (*replica->freeRpc)();
+                replica.destroy();
+            } catch (ClientException& e) {
+                // TODO: When do I get an Exception?  Only when the backup
+                // is permanently out of the cluster?  If so, just keep
+                // retrying until the coordinator kills one of the two of us.
+                // TODO: Need a better log message once
+                // correct host details are in the Replica.
+                LOG(WARNING,
+                    "Failure while freeing replica on backup: %s",
+                    e.what());
+                DIE("TODO: Haven't decided what to do when a free to "
+                    "a backup fails");
+            }
+            return;
+        } else {
+            // Request is not yet finished, stay scheduled to wait on it.
+            schedule();
+            return;
         }
-        return;
-    } else if (!replica->writeRpc) {
-        // Issue a free RPC for this replica.
-        replica->freeRpc.construct(replica->client, masterId, segmentId);
-        schedule();
-        return;
     } else {
-        // Couldn't issue a free because a write is outstanding. Wait on it.
-        performWrite(replica);
-        // Stay scheduled even if synced since we have to do free still.
-        schedule();
-        return;
+        // No free rpc is outstanding.
+        if (replica->writeRpc) {
+            // Cannot issue free, a write is outstanding. Make progress on it.
+            performWrite(replica);
+            // Stay scheduled even if synced since we have to do free still.
+            schedule();
+            return;
+        } else {
+            // Issue a free RPC for this replica, reschedule to wait on it.
+            assert(!replica->freeRpc);
+            replica->freeRpc.construct(replica->client, masterId, segmentId);
+            schedule();
+            return;
+        }
     }
+    assert(false); // Unreachable by construction.
 }
 
 /**
@@ -213,6 +236,14 @@ ReplicatedSegment::performFree(Tub<Replica>& replica)
 void
 ReplicatedSegment::performWrite(Tub<Replica>& replica)
 {
+    if (replica && replica->acked == queued) {
+        // If this replica is synced no further work is needed.
+        return;
+    } else {
+        // Otherwise, ask for future attention and perform the next step.
+        schedule();
+    } // and continue on...
+
     // TODO: make ::close take pointer to the next log segment
     if (!replica /* TODO && nextSegment->getAcked().open */) {
         // This replica does not exist yet. Choose a backup and send the open.
@@ -231,62 +262,75 @@ ReplicatedSegment::performWrite(Tub<Replica>& replica)
         Transport::SessionRef session =
             Context::get().transportManager->getSession(serviceLocator.c_str());
         replica.construct(session);
-        //LOG(ERROR, "Sending backup opening write: seg %lu off %u len %u flags %u",
-        //    segmentId, 0, openLen, flags);
+        LOG(ERROR, "Sending backup opening write: seg %lu off %u len %u flags %u to %s",
+            segmentId, 0, openLen, flags, serviceLocator.c_str());
         replica->writeRpc.construct(replica->client, masterId, segmentId,
                                     0, data, openLen, flags);
         replica->sent.open = true;
         replica->sent.bytes = openLen;
-    } else if (replica->writeRpc && replica->writeRpc->isReady()) {
-        // This backup has a write request outstanding to a backup.
-        // Wait for it to complete if it is ready.
-        try {
-            (*replica->writeRpc)();
-            replica->acked = replica->sent;
-            //LOG(ERROR, "Backup write completed");
-            replica->writeRpc.destroy();
-        } catch (ClientException& e) {
-            // TODO: What do we want to do here?
-            LOG(WARNING,
-                "Failure while writing replica on backup: %s",
-                e.what());
-            DIE("TODO: Haven't decided what to do when a write to "
-                "a backup fails");
-        }
-        //LOG(ERROR, "Backup write completed");
-    } else if (replica->sent < queued) {
-        // More data needs to be sent to the backup for this replica.
-        // Send out a write RPC if one isn't already outstanding.
-        schedule();
-        if (replica->writeRpc)
-            goto done;
-
-        assert(!replica->freeRpc);
-        assert(!replica->sent.close);
-
-        uint32_t offset = replica->sent.bytes;
-        uint32_t length = queued.bytes - replica->sent.bytes;
-        BackupWriteRpc::Flags flags = queued.close ?
-                                        BackupWriteRpc::CLOSE :
-                                        BackupWriteRpc::NONE;
-
-        if (length > maxBytesPerWriteRpc) {
-            length = maxBytesPerWriteRpc;
-            flags = BackupWriteRpc::NONE;
-        }
-
-        //LOG(ERROR, "Sending backup write: seg %lu off %u len %u flags %u",
-        //    segmentId, offset, length, flags);
-        replica->writeRpc.construct(replica->client, masterId, segmentId,
-                                    offset, data, length, flags);
-        replica->sent.bytes += length;
-        replica->sent.close = (flags == BackupWriteRpc::CLOSE);
+        assert(isScheduled());
         return;
-    }
+    } // else
 
-  done:
-    if (!isSynced())
-        schedule();
+    if (replica->writeRpc) {
+        // This backup has a write request outstanding to a backup.
+        if (replica->writeRpc->isReady()) {
+            // Wait for it to complete if it is ready.
+            try {
+                (*replica->writeRpc)();
+                replica->acked = replica->sent;
+                //LOG(ERROR, "Backup write completed");
+                replica->writeRpc.destroy();
+            } catch (ClientException& e) {
+                // TODO: What do we want to do here?
+                LOG(WARNING,
+                    "Failure while writing replica on backup: %s",
+                    e.what());
+                DIE("TODO: Haven't decided what to do when a write to "
+                    "a backup fails");
+            }
+            //LOG(ERROR, "Backup write completed");
+            assert(isScheduled());
+            return;
+        } else {
+            // Request is not yet finished, stay scheduled to wait on it.
+            assert(isScheduled());
+            return;
+        }
+    } else {
+        // No outstanding write but not yet synced.
+        if (replica->sent < queued) {
+            // Some part of the data hasn't been sent yet.  Send it.
+            assert(!replica->freeRpc);
+            assert(!replica->sent.close);
+
+            uint32_t offset = replica->sent.bytes;
+            uint32_t length = queued.bytes - replica->sent.bytes;
+            BackupWriteRpc::Flags flags = queued.close ?
+                                            BackupWriteRpc::CLOSE :
+                                            BackupWriteRpc::NONE;
+
+            if (length > maxBytesPerWriteRpc) {
+                length = maxBytesPerWriteRpc;
+                flags = BackupWriteRpc::NONE;
+            }
+
+            LOG(ERROR, "Sending backup write: seg %lu off %u len %u flags %u to %s",
+                segmentId, offset, length, flags, replica->client.session->getServiceLocator().c_str());
+            replica->writeRpc.construct(replica->client, masterId, segmentId,
+                                        offset, data, length, flags);
+            replica->sent.bytes += length;
+            replica->sent.close = (flags == BackupWriteRpc::CLOSE);
+            assert(isScheduled());
+            return;
+        } else {
+            // Replica not synced, no rpc outstanding, but all data was sent.
+            // Impossible in the one in-flight rpc per replica case.
+            assert(false);
+            return;
+        }
+    }
+    assert(false); // Unreachable by construction
 }
 
 } // namespace RAMCloud
