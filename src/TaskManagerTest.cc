@@ -26,7 +26,7 @@ namespace RAMCloud {
 
 struct TaskManagerTest : public ::testing::Test {
     struct MockTask : Task {
-        MockTask(TaskManager& taskManager)
+        explicit MockTask(TaskManager& taskManager)
             : Task(taskManager)
             , count(0)
         {
@@ -42,7 +42,7 @@ struct TaskManagerTest : public ::testing::Test {
     };
 
     struct ReschedulingMockTask : Task {
-        ReschedulingMockTask(TaskManager& taskManager)
+        explicit ReschedulingMockTask(TaskManager& taskManager)
             : Task(taskManager)
             , count(0)
         {

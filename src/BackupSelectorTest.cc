@@ -124,7 +124,7 @@ TEST_F(BackupSelectorTest, selectPrimaryAllEqual) {
     addEqualHosts(coordinator, ids);
 
     BackupSelector::Backup* backup = selector->selectPrimary(0, NULL); // use 2
-    EXPECT_EQ(ids[1], backup->server_id()); 
+    EXPECT_EQ(ids[1], backup->server_id());
 }
 
 TEST_F(BackupSelectorTest, selectPrimaryAllEqualOneConstraint) {

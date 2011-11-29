@@ -56,7 +56,7 @@ class BackupManager : public ReplicatedSegment::Deleter {
 
     void destroyAndFreeReplicatedSegment(ReplicatedSegment* replicatedSegment);
 
-    /// The number of backups to replicate each segment on. Only used by ReplicatedSegment.
+    /// Number replicas to keep of each segment.
     const uint32_t numReplicas;
 
   PRIVATE:

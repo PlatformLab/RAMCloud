@@ -41,7 +41,7 @@ class TaskManager;      // forward-declaration
  */
 class Task {
   PUBLIC:
-    Task(TaskManager& taskManager);
+    explicit Task(TaskManager& taskManager);
     virtual ~Task();
 
     /**

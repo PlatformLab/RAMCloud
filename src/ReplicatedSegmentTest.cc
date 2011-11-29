@@ -29,7 +29,7 @@ namespace RAMCloud {
  * replay them.  No bounds checking done, use it carefully.
  */
 struct MockBackupSelector : public BaseBackupSelector {
-    MockBackupSelector(size_t count)
+    explicit MockBackupSelector(size_t count)
         : backups()
         , nextIndex(0)
     {
@@ -110,10 +110,10 @@ struct ReplicatedSegmentTest : public ::testing::Test {
         transport.setInput("0");
         void* segMem = operator new(ReplicatedSegment::sizeOf(numReplicas));
         segment = std::unique_ptr<ReplicatedSegment>(
-                new (segMem) ReplicatedSegment(taskManager, backupSelector,
-                                               deleter, masterId, segmentId,
-                                               data, openLen, numReplicas,
-                                               MAX_BYTES_PER_WRITE));
+                new(segMem) ReplicatedSegment(taskManager, backupSelector,
+                                              deleter, masterId, segmentId,
+                                              data, openLen, numReplicas,
+                                              MAX_BYTES_PER_WRITE));
         const char* msg = "abcedfghijklmnopqrstuvwxyz";
         size_t msgLen = strlen(msg);
         for (int i = 0; i < DATA_LEN; ++i)

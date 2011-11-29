@@ -207,7 +207,8 @@ BackupManager::proceedNoMetrics()
  * replicas are freed on backups or during shutdown).
  */
 void
-BackupManager::destroyAndFreeReplicatedSegment(ReplicatedSegment* replicatedSegment)
+BackupManager::destroyAndFreeReplicatedSegment(ReplicatedSegment*
+                                                    replicatedSegment)
 {
     erase(replicatedSegmentList, *replicatedSegment);
     replicatedSegment->~ReplicatedSegment();
