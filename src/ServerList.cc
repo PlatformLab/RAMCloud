@@ -30,7 +30,7 @@ namespace RAMCloud {
  * Constructor for ServerList.
  */
 ServerList::ServerList()
-    : serverList(),
+    : serverList(1),        // Avoid having to return -1 in getHighestIndex().
       trackers(),
       mutex()
 {
@@ -58,8 +58,8 @@ ServerList::add(ServerId id, ServiceLocator locator)
 {
     boost::lock_guard<SpinLock> lock(mutex);
 
-    if (id == ServerId::INVALID_SERVERID) {
-        LOG(WARNING, "Ignoring addition of INVALID_SERVERID.");
+    if (!id.isValid()) {
+        LOG(WARNING, "Ignoring addition of invalid ServerId.");
         return;
     }
 
@@ -79,26 +79,26 @@ ServerList::add(ServerId id, ServiceLocator locator)
     // duplicate ADDs, just suppress them as well.
     if (serverList[index]) {
         // Duplicate ADD.
-        if (serverList[index]->first == id) {
+        if (serverList[index]->serverId == id) {
             LOG(WARNING, "Duplicate add of ServerId %lu!", id.getId());
             return;
         }
 
         // ADD of older ServerId.
         uint32_t newGen = id.generationNumber();
-        if (newGen < serverList[index]->first.generationNumber()) {
+        if (newGen < serverList[index]->serverId.generationNumber()) {
             LOG(WARNING, "Dropping addition of ServerId older than the current "
                 "entry (%lu < %lu)!", id.getId(),
-                serverList[index]->first.getId());
+                serverList[index]->serverId.getId());
             return;
         }
 
         // ADD before previous REMOVE.
-        ServerId oldId = serverList[index]->first;
+        ServerId oldId = serverList[index]->serverId;
         LOG(WARNING, "Addition of %lu seen before removal of %lu! Issuing "
             "removal before addition.", id.getId(), oldId.getId());
         foreach (ServerTrackerInterface* tracker, trackers)
-            tracker->handleChange(oldId, ServerChangeEvent::SERVER_REMOVED);
+            tracker->enqueueChange(oldId, ServerChangeEvent::SERVER_REMOVED);
 
         serverList[index].destroy();
     }
@@ -106,7 +106,7 @@ ServerList::add(ServerId id, ServiceLocator locator)
     serverList[index].construct(id, locator);
 
     foreach (ServerTrackerInterface* tracker, trackers)
-        tracker->handleChange(id, ServerChangeEvent::SERVER_ADDED);
+        tracker->enqueueChange(id, ServerChangeEvent::SERVER_ADDED);
 }
 
 /**
@@ -121,8 +121,8 @@ ServerList::remove(ServerId id)
 {
     boost::lock_guard<SpinLock> lock(mutex);
 
-    if (id == ServerId::INVALID_SERVERID) {
-        LOG(WARNING, "Ignoring removal of INVALID_SERVERID.");
+    if (!id.isValid()) {
+        LOG(WARNING, "Ignoring removal of invalid ServerId.");
         return;
     }
 
@@ -137,7 +137,7 @@ ServerList::remove(ServerId id)
     // notification arrive before the previous one's removal.
     if (index >= serverList.size() ||
       !serverList[index] ||
-      id.generationNumber() < serverList[index]->first.generationNumber()) {
+      id.generationNumber() < serverList[index]->serverId.generationNumber()) {
         LOG(WARNING, "Ignoring removal of unknown ServerId %lu", id.getId());
         return;
     }
@@ -145,20 +145,48 @@ ServerList::remove(ServerId id)
     // In theory it's possible we could have missed both a prior removal and
     // the next addition, and then see the removal for something newer than
     // what's stored. Unlikely, but let's log it just in case.
-    if (id.generationNumber() > serverList[index]->first.generationNumber()) {
+    if (id.generationNumber() >
+      serverList[index]->serverId.generationNumber()) {
         LOG(WARNING, "Removing ServerId %lu because removal for a newer "
             "generation number was received (%lu)",
-            serverList[index]->first.getId(), id.getId());
+            serverList[index]->serverId.getId(), id.getId());
     }
 
     // Be sure to use the stored id, not the advertised one, just in case we're
     // removing an older entry (see previous comment above).
     foreach (ServerTrackerInterface* tracker, trackers) {
-        tracker->handleChange(serverList[index]->first,
+        tracker->enqueueChange(serverList[index]->serverId,
             ServerChangeEvent::SERVER_REMOVED);
     }
 
     serverList[index].destroy();
+}
+
+/**
+ * Return the highest index that has ever been used in this ServerList.
+ *
+ * XXX- Would we prefer the highest currently active index? The two
+ *      should be the same or close, but perhaps there's a good argument
+ *      for the alternative.
+ */
+uint32_t
+ServerList::getHighestIndex()
+{
+    assert(serverList.size() > 0);
+    return downCast<uint32_t>(serverList.size() - 1);
+}
+
+/**
+ * Return the ServerId associated with a given index. If there is none,
+ * an invalid ServerId is returned (i.e. the isValid() method will return
+ * false.
+ */
+ServerId
+ServerList::getServerId(uint32_t index)
+{
+    if (index >= serverList.size() || !serverList[index])
+        return ServerId(/* invalid id */);
+    return serverList[index]->serverId;
 }
 
 /**
@@ -184,7 +212,7 @@ ServerList::registerTracker(ServerTrackerInterface& tracker)
     // Push ADDs for all known servers to this tracker.
     for (size_t i = 0; i < serverList.size(); i++) {
         if (serverList[i]) {
-            tracker.handleChange(serverList[i]->first,
+            tracker.enqueueChange(serverList[i]->serverId,
                                  ServerChangeEvent::SERVER_ADDED);
         }
     }

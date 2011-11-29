@@ -27,13 +27,17 @@ class ServerIdTest : public ::testing::Test {
 };
 
 TEST_F(ServerIdTest, invalidServerId) {
-    EXPECT_EQ(static_cast<uint64_t>(-1), ServerId::INVALID_SERVERID_U64);
-    EXPECT_EQ(ServerId(-1), ServerId::INVALID_SERVERID);
+    EXPECT_EQ(static_cast<uint32_t>(-1),
+        ServerId::INVALID_SERVERID_GENERATION_NUMBER);
+    EXPECT_EQ(ServerId()._generationNumber(),
+        ServerId::INVALID_SERVERID_GENERATION_NUMBER);
 }
 
 TEST_F(ServerIdTest, constructors) {
     ServerId a;
-    EXPECT_EQ(ServerId::INVALID_SERVERID_U64, a.serverId);
+    EXPECT_EQ(static_cast<uint64_t>(
+        ServerId::INVALID_SERVERID_GENERATION_NUMBER) << 32, a.serverId);
+    EXPECT_FALSE(a.isValid());
 
     ServerId b(57);
     EXPECT_EQ(57U, b.serverId);
@@ -57,6 +61,13 @@ TEST_F(ServerIdTest, generationNumber) {
     EXPECT_EQ(947273U, a.generationNumber());
 }
 
+TEST_F(ServerIdTest, isValid) {
+    EXPECT_TRUE(ServerId(0, 0).isValid());
+    EXPECT_TRUE(ServerId(0, -2).isValid());
+    EXPECT_FALSE(ServerId(0, -1).isValid());
+    EXPECT_FALSE(ServerId(2347, -1).isValid());
+}
+
 TEST_F(ServerIdTest, operatorEquals) {
     ServerId a(23742, 77650);
     ServerId b(23742, 77650);
@@ -70,6 +81,11 @@ TEST_F(ServerIdTest, operatorEquals) {
     EXPECT_FALSE(a == d);
     EXPECT_FALSE(b == d);
     EXPECT_FALSE(c == d);
+
+    // Two different invalids are equal.
+    ServerId invA(234234, -1);
+    ServerId invB(7572, -1);
+    EXPECT_TRUE(invA == invB);
 }
 
 TEST_F(ServerIdTest, operatorNotEquals) {

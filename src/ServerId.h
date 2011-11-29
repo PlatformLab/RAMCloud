@@ -56,7 +56,8 @@ class ServerId {
      * allocating arrays of these that should be uninitialised by default.
      */
     ServerId()
-        : serverId(INVALID_SERVERID_U64)
+        : serverId(static_cast<uint64_t>(
+            INVALID_SERVERID_GENERATION_NUMBER) << 32)
     {
     }
 
@@ -94,6 +95,7 @@ class ServerId {
     uint64_t
     getId() const
     {
+        assert(isValid());
         return serverId;
     }
 
@@ -103,6 +105,7 @@ class ServerId {
     uint32_t
     indexNumber() const
     {
+        assert(isValid());
         return serverId & 0xffffffffUL;
     }
 
@@ -112,7 +115,18 @@ class ServerId {
     uint32_t
     generationNumber() const
     {
-        return downCast<uint32_t>(serverId >> 32);
+        assert(isValid());
+        return _generationNumber();
+    }
+
+    /**
+     * Returns true if this ServerId is valid, false otherwise. An invalid
+     * ServerId is any one where the generation number is -1 (all bits set).
+     */
+    bool
+    isValid() const
+    {
+        return (_generationNumber() != INVALID_SERVERID_GENERATION_NUMBER);
     }
 
     /**
@@ -121,6 +135,9 @@ class ServerId {
     bool
     operator==(const ServerId& other) const
     {
+        // Invalid is invalid, regardless of the index number.
+        if (!isValid() && !other.isValid())
+            return true;
         return serverId == other.serverId;
     }
 
@@ -143,14 +160,21 @@ class ServerId {
         return *this;
     }
 
-    /// Integer representing an invalid ServerId. This value must never be
-    /// allocated to a server process.
-    enum { INVALID_SERVERID_U64 = (uint64_t)-1 };   // NOLINT
-
-    /// The invalid ServerId object to compare against to test validity.
-    static const ServerId INVALID_SERVERID;
+    /// Integer representing an invalid generation number. Any ServerId with
+    /// this generation number (despite the index number value) is invalid.
+    /// This value must never be allocated as any legitimate ServerId's
+    /// generation number.
+    enum { INVALID_SERVERID_GENERATION_NUMBER = (uint32_t)-1 };   // NOLINT
 
   PRIVATE:
+    // Used only to avoid cyclical dependency between #isValid and
+    // #generationNumber() when asserting #isValid is #generationNumber.
+    uint32_t
+    _generationNumber() const
+    {
+        return downCast<uint32_t>(serverId >> 32);
+    }
+
     /// The uint64_t representation of this ServerId.
     uint64_t serverId;
 };

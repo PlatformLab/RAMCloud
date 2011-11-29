@@ -17,14 +17,15 @@
 
 #include "TestUtil.h"
 #include "ServerList.h"
+#include "ServerTracker.h"
 
 namespace RAMCloud {
 
-static std::queue<std::pair<ServerId, ServerChangeEvent>> changes;
+static std::queue<ServerTracker<int>::ServerChange> changes;
 
 class MockServerTracker : public ServerTrackerInterface {
     void
-    handleChange(ServerId serverId, ServerChangeEvent event)
+    enqueueChange(ServerId serverId, ServerChangeEvent event)
     {
         changes.push({serverId, event});
     }
@@ -54,17 +55,18 @@ TEST_F(ServerListTest, add) {
     sl.registerTracker(tr);
     TestLog::Enable _(&addFilter);
 
-    sl.add(ServerId(ServerId::INVALID_SERVERID), ServiceLocator("mock:"));
-    EXPECT_EQ("add: Ignoring addition of INVALID_SERVERID.", TestLog::get());
+    sl.add(ServerId(ServerId(/*invalid id*/)), ServiceLocator("mock:"));
+    EXPECT_EQ("add: Ignoring addition of invalid ServerId.", TestLog::get());
     TestLog::reset();
 
-    EXPECT_EQ(0U, sl.serverList.size());
+    EXPECT_EQ(1U, sl.serverList.size());
+    EXPECT_FALSE(sl.serverList[0]);
     sl.add(ServerId(57, 1), ServiceLocator("mock:"));
     EXPECT_EQ(58U, sl.serverList.size());
-    EXPECT_EQ(ServerId(57, 1), sl.serverList[57]->first);
+    EXPECT_EQ(ServerId(57, 1), sl.serverList[57]->serverId);
     EXPECT_EQ(1U, changes.size());
-    EXPECT_EQ(ServerId(57, 1), changes.front().first);
-    EXPECT_EQ(ServerChangeEvent::SERVER_ADDED, changes.front().second);
+    EXPECT_EQ(ServerId(57, 1), changes.front().serverId);
+    EXPECT_EQ(ServerChangeEvent::SERVER_ADDED, changes.front().event);
     changes.pop();
 
     // Duplicate ADD
@@ -86,11 +88,11 @@ TEST_F(ServerListTest, add) {
         "Issuing removal before addition.", TestLog::get());
     TestLog::reset();
     EXPECT_EQ(2U, changes.size());
-    EXPECT_EQ(ServerId(57, 1), changes.front().first);
-    EXPECT_EQ(ServerChangeEvent::SERVER_REMOVED, changes.front().second);
+    EXPECT_EQ(ServerId(57, 1), changes.front().serverId);
+    EXPECT_EQ(ServerChangeEvent::SERVER_REMOVED, changes.front().event);
     changes.pop();
-    EXPECT_EQ(ServerId(57, 2), changes.front().first);
-    EXPECT_EQ(ServerChangeEvent::SERVER_ADDED, changes.front().second);
+    EXPECT_EQ(ServerId(57, 2), changes.front().serverId);
+    EXPECT_EQ(ServerChangeEvent::SERVER_ADDED, changes.front().event);
     changes.pop();
 }
 
@@ -104,11 +106,11 @@ TEST_F(ServerListTest, remove) {
     sl.registerTracker(tr);
     TestLog::Enable _(&removeFilter);
 
-    sl.remove(ServerId(ServerId::INVALID_SERVERID));
-    EXPECT_EQ("remove: Ignoring removal of INVALID_SERVERID.", TestLog::get());
+    sl.remove(ServerId(/* invalid id */));
+    EXPECT_EQ("remove: Ignoring removal of invalid ServerId.", TestLog::get());
     TestLog::reset();
 
-    EXPECT_EQ(0U, sl.serverList.size());
+    EXPECT_EQ(1U, sl.serverList.size());
     sl.remove(ServerId(0, 0));
     sl.add(ServerId(1, 1), ServiceLocator("mock:"));
     changes.pop();
@@ -126,8 +128,8 @@ TEST_F(ServerListTest, remove) {
     sl.remove(ServerId(1, 1));
     EXPECT_FALSE(sl.serverList[1]);
     EXPECT_EQ(1U, changes.size());
-    EXPECT_EQ(ServerId(1, 1), changes.front().first);
-    EXPECT_EQ(ServerChangeEvent::SERVER_REMOVED, changes.front().second);
+    EXPECT_EQ(ServerId(1, 1), changes.front().serverId);
+    EXPECT_EQ(ServerChangeEvent::SERVER_REMOVED, changes.front().event);
     changes.pop();
 
     // Newer one.
@@ -139,8 +141,8 @@ TEST_F(ServerListTest, remove) {
     TestLog::reset();
     EXPECT_FALSE(sl.serverList[1]);
     EXPECT_EQ(1U, changes.size());
-    EXPECT_EQ(ServerId(1, 1), changes.front().first);
-    EXPECT_EQ(ServerChangeEvent::SERVER_REMOVED, changes.front().second);
+    EXPECT_EQ(ServerId(1, 1), changes.front().serverId);
+    EXPECT_EQ(ServerChangeEvent::SERVER_REMOVED, changes.front().event);
     changes.pop();
 }
 
@@ -161,14 +163,14 @@ TEST_F(ServerListTest, registerTracker_pushAdds) {
 
     // Should be in order, but missing (2, 3)
     EXPECT_EQ(3U, changes.size());
-    EXPECT_EQ(ServerId(0, 1), changes.front().first);
-    EXPECT_EQ(ServerChangeEvent::SERVER_ADDED, changes.front().second);
+    EXPECT_EQ(ServerId(0, 1), changes.front().serverId);
+    EXPECT_EQ(ServerChangeEvent::SERVER_ADDED, changes.front().event);
     changes.pop();
-    EXPECT_EQ(ServerId(1, 2), changes.front().first);
-    EXPECT_EQ(ServerChangeEvent::SERVER_ADDED, changes.front().second);
+    EXPECT_EQ(ServerId(1, 2), changes.front().serverId);
+    EXPECT_EQ(ServerChangeEvent::SERVER_ADDED, changes.front().event);
     changes.pop();
-    EXPECT_EQ(ServerId(3, 4), changes.front().first);
-    EXPECT_EQ(ServerChangeEvent::SERVER_ADDED, changes.front().second);
+    EXPECT_EQ(ServerId(3, 4), changes.front().serverId);
+    EXPECT_EQ(ServerChangeEvent::SERVER_ADDED, changes.front().event);
     changes.pop();
 }
 

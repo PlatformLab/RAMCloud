@@ -24,7 +24,9 @@
 #include <queue>
 #include <boost/thread/locks.hpp>
 
+#include "Common.h"
 #include "ServerId.h"
+#include "ShortMacros.h"
 #include "SpinLock.h"
 #include "Tub.h"
 
@@ -55,7 +57,7 @@ enum ServerChangeEvent {
 class ServerTrackerInterface {
   PUBLIC:
     virtual ~ServerTrackerInterface() { }
-    virtual void handleChange(ServerId serverId, ServerChangeEvent event) = 0;
+    virtual void enqueueChange(ServerId serverId, ServerChangeEvent event) = 0;
 };
 
 /**
@@ -94,42 +96,15 @@ template<typename T, class EventCallback = void (*)()>
 class ServerTracker : public ServerTrackerInterface {
   PUBLIC:
     /**
-     * A ServerChange represents a single addition or removal of a server
-     * in the system. In the case of removals, it contains a copy of the
-     * data once stored with that particular ServerId. Once the event has
-     * been delivered, that original data will have been discarded and the
-     * location may soon be overwritten if a new server is added into the
-     * same slot as the previous one.
-     */
-    class ServerChange {
-      PUBLIC:
-        ServerChange(ServerId serverId, ServerChangeEvent event)
-            : serverId(serverId),
-              event(event),
-              removedData()
-        {
-        }
-
-        /// ServerId of the server that has been added to or removed from the
-        /// system.
-        ServerId serverId;
-
-        /// Event type: either addition or removal.
-        ServerChangeEvent event;
-
-        /// If a removal occurred, this will contain a copy of the data
-        /// previously associated with that ServerId.
-        Tub<T> removedData;
-    };
-
-    /**
      * Constructor for ServerTracker.
      */
     explicit ServerTracker()
         : ServerTrackerInterface(),
           serverList(),
           changes(),
-          eventCallback()
+          lastRemovedIndex(-1),
+          eventCallback(),
+          testing_avoidGetChangeAssertion(false)
     {
     }
 
@@ -148,7 +123,9 @@ class ServerTracker : public ServerTrackerInterface {
         : ServerTrackerInterface(),
           serverList(),
           changes(),
-          eventCallback(eventCallback)
+          lastRemovedIndex(-1),
+          eventCallback(eventCallback),
+          testing_avoidGetChangeAssertion(false)
     {
     }
 
@@ -174,7 +151,7 @@ class ServerTracker : public ServerTrackerInterface {
      * newer ServerIds before the REMOVAL of the currently stored one).
      */
     void
-    handleChange(ServerId serverId, ServerChangeEvent event)
+    enqueueChange(ServerId serverId, ServerChangeEvent event)
     {
         uint32_t index = serverId.indexNumber();
 
@@ -200,41 +177,95 @@ class ServerTracker : public ServerTrackerInterface {
 
     /**
      * Returns the next enqueued change to the ServerList, if there
-     * is one. For a removal, any data associated with the removed
-     * ServerId will be passed back as part of the ServerChange
-     * object and cleared from the ServerTracker.
+     * is one. If the event indicates removal, then the caller must
+     * NULL out any pointer they were storing with the associated
+     * ServerId before the next invocation of #getChange(). This
+     * helps to ensure that the caller is properly handling objects
+     * that were referenced by this tracker. After the subsequent
+     * call to #getChange, the old ServerId cannot be used to index
+     * into the tracker anymore.
+     *
+     * To be clear, this means that something like the following idiom
+     * must always be used:
+     *   if (!getChange(&serverId, &event)) return;
+     *   if (event == SERVER_ADDED) {
+     *      ...
+     *      tracker[serverId] = new T(...);
+     *      ...
+     *   } else if (event == SERVER_REMOVED) {
+     *      ...
+     *      T* p = tracker[serverId];
+     *      // 'delete p;' or stash the pointer elsewhere, perhaps
+     *      ...
+     *
+     *      // THE FOLLOWING MUST BE DONE BEFORE #getChange IS CALLED
+     *      // AGAIN (tracker[serverId] will return a valid ref until
+     *      // then):
+     *      tracker[serverId] = NULL;
+     *      ...
+     *   }
+     *
+     * \param[out] serverId
+     *      ServerId of the server that was added to or removed from
+     *      the system.
+     *
+     * \param[out] event
+     *      Type of event (SERVER_ADDED or SERVER_REMOVED).
+     *
+     * \return
+     *      True if there was a change returned, else false.
      */
-    ServerChange
-    getChange()
+    bool
+    getChange(ServerId& serverId, ServerChangeEvent& event)
     {
+        if (lastRemovedIndex != static_cast<uint32_t>(-1)) {
+            if (serverList[lastRemovedIndex].pointer != NULL) {
+                // If this trips, then you're not clearing the pointer you
+                // stored with the last ServerId that was removed. This
+                // exists solely to ensure that you aren't leaking anything.
+                LOG(WARNING, "User of this ServerTracker did not NULL out "
+                    "previous pointer for index %u (ServerId %lu)!",
+                    lastRemovedIndex,
+                    serverList[lastRemovedIndex].serverId.getId());
+                assert(testing_avoidGetChangeAssertion);
+            }
+
+            serverList[lastRemovedIndex].serverId = ServerId(/* invalid id */);
+            serverList[lastRemovedIndex].pointer = NULL;
+            lastRemovedIndex = -1;
+        }
+
+        if (!changes.areChanges())
+            return false;
+
         ServerChange change = changes.getChange();
         uint32_t index = change.serverId.indexNumber();
 
         // Ensure that the ServerList guarantees hold.
         assert((change.event == SERVER_ADDED &&
-                serverList[index].first == ServerId::INVALID_SERVERID) ||
+                !serverList[index].serverId.isValid()) ||
                (change.event == SERVER_REMOVED &&
-                serverList[index].first == change.serverId));
+                serverList[index].serverId == change.serverId));
 
         if (change.event == SERVER_ADDED) {
-            serverList[index].first = change.serverId;
-            assert(!serverList[index].second);
+            serverList[index].serverId = change.serverId;
+            assert(serverList[index].pointer == NULL);
         } else if (change.event == SERVER_REMOVED) {
-            serverList[index].first = ServerId::INVALID_SERVERID;
-            if (serverList[index].second) {
-                change.removedData = serverList[index].second;
-                serverList[index].second.destroy();
-            }
+            lastRemovedIndex = index;
         } else {
             assert(0);
         }
 
-        return change;
+        serverId = change.serverId;
+        event = change.event;
+
+        return true;
     }
 
     /**
      * Obtain a random ServerId stored in this tracker. If these are none,
-     * return ServerId::INVALID_SERVERID instead.
+     * return an invalid ServerId instead. The caller should use the
+     * ServerId::isValid() method to check validity.
      */
     ServerId
     getRandomServerId()
@@ -248,19 +279,18 @@ class ServerTracker : public ServerTrackerInterface {
             size_t start = generateRandom() % serverList.size();
             size_t i = start;
             do {
-                if (serverList[i].first != ServerId::INVALID_SERVERID)
-                    return serverList[i].first;
+                if (i != lastRemovedIndex && serverList[i].serverId.isValid())
+                    return serverList[i].serverId;
                 i = (i + 1) % serverList.size();
             } while (i != start);
         }
 
-        return ServerId::INVALID_SERVERID;
+        return ServerId(/* invalid id */);
     }
 
     /**
-     * Return a reference to the Tub<T> we're associating with an active
-     * ServerId. If the exact serverId given does not exist an exception
-     * is thrown.
+     * Return a reference to the T* we're associating with an active ServerId.
+     * If the exact serverId given does not exist an exception is thrown.
      *
      * Since the data stored may be invalidated when #getChange() is called
      * (e.g. a server is removed or re-added), callers must not hold a
@@ -269,17 +299,40 @@ class ServerTracker : public ServerTrackerInterface {
      * a ServerTracker, rather than storing a reference and risking it later
      * being invalidated.
      */
-    Tub<T>&
+    T*&
     operator[](const ServerId& serverId)
     {
         uint32_t index = serverId.indexNumber();
-        if (index >= serverList.size() || serverList[index].first != serverId)
+        if (index >= serverList.size() ||
+          serverList[index].serverId != serverId) {
             throw Exception(HERE, "ServerId given is not in this tracker.");
+        }
 
-        return serverList[index].second;
+        return serverList[index].pointer;
     }
 
   PRIVATE:
+    /**
+     * A ServerChange represents a single addition or removal of a server
+     * in the system. It's only used to logically group ServerIds and
+     * ServerChangeEvents in the ChangeQueue (defined below).
+     */
+    class ServerChange {
+      PUBLIC:
+        ServerChange(ServerId serverId, ServerChangeEvent event)
+            : serverId(serverId),
+              event(event)
+        {
+        }
+
+        /// ServerId of the server that has been added to or removed from the
+        /// system.
+        ServerId serverId;
+
+        /// Event type: either addition or removal.
+        ServerChangeEvent event;
+    };
+
     /**
      * A ChangeQueue is used to communicate additions and removals from a
      * ServerList to some consumer. It is used by ServerTrackers to have
@@ -336,15 +389,44 @@ class ServerTracker : public ServerTrackerInterface {
         SpinLock vectorLock;
     };
 
+    /**
+     * This class is only used to group ServerIds and T*s in the serverList
+     * vector.
+     */
+    class ServerIdTypePtrPair {
+      PUBLIC:
+        ServerIdTypePtrPair()
+            : serverId(ServerId(/* invalid id */)),
+              pointer(NULL)
+        {
+        }
+
+        /// ServerId associated with this index in the serverList.
+        ServerId serverId;
+
+        /// Pointer type T associated with this ServerId in the serverList.
+        T* pointer;
+    };
+
     /// Slots in the server list.
-    std::vector<std::pair<ServerId, Tub<T>>> serverList;
+    std::vector<ServerIdTypePtrPair> serverList;
 
     /// Queue of list membership changes.
     ChangeQueue changes;
 
+    /// Previous change index. This is set when a SERVER_REMOVE event is pulled
+    /// via #getChange(). On the next #getChange() invocation, we check to see
+    /// if the user has NULLed out the pointer for that index and remove the
+    /// entry. This sanity check helps to ensure that the user of this class is
+    /// playing by the rules. -1 implies the previous event was not a removal.
+    uint32_t lastRemovedIndex;
+
     /// Optional callback to fire each time an entry (i.e. a server add or
     /// remove notice) is added to queue
     Tub<EventCallback> eventCallback;
+
+    /// Normally false. Only set for testing purposes.
+    bool testing_avoidGetChangeAssertion;
 
     DISALLOW_COPY_AND_ASSIGN(ServerTracker);
 };

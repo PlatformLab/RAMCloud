@@ -52,12 +52,33 @@ class ServerList {
     ~ServerList();
     void add(ServerId id, ServiceLocator locator);
     void remove(ServerId id);
+    uint32_t getHighestIndex();
+    ServerId getServerId(uint32_t indexNumber);
     void registerTracker(ServerTrackerInterface& tracker);
     void unregisterTracker(ServerTrackerInterface& tracker);
 
   PRIVATE:
+    /**
+     * This class is only used to group ServerIds and ServiceLocators in the
+     * serverList vector.
+     */
+    class ServerIdServiceLocatorPair {
+      PUBLIC:
+        ServerIdServiceLocatorPair(ServerId id, ServiceLocator& sl)
+            : serverId(id),
+              serviceLocator(sl)
+        {
+        }
+
+        /// ServerId associated with this index in the serverList.
+        ServerId serverId;
+
+        /// ServiceLocator associated with this serverId in the serverList.
+        ServiceLocator serviceLocator;
+    };
+
     /// Slots in the server list.
-    std::vector<Tub<std::pair<ServerId, ServiceLocator>>> serverList;
+    std::vector<Tub<ServerIdServiceLocatorPair>> serverList;
 
     /// ServerTrackers that have registered with us and will receive updates
     /// regarding additions or removals from this list.
