@@ -146,6 +146,21 @@ TEST_F(ServerListTest, remove) {
     changes.pop();
 }
 
+TEST_F(ServerListTest, getHighestIndex) {
+    EXPECT_EQ(sl.serverList.size() - 1, sl.getHighestIndex());
+    sl.add(ServerId(572, 0), ServiceLocator("mock:"));
+    EXPECT_EQ(572U, sl.getHighestIndex());
+}
+
+TEST_F(ServerListTest, getServerId) {
+    EXPECT_FALSE(sl.getServerId(0).isValid());
+    EXPECT_FALSE(sl.getServerId(183742).isValid());
+    sl.add(ServerId(7572, 2734), ServiceLocator("mock:"));
+    EXPECT_EQ(ServerId(7572, 2734), sl.getServerId(7572));
+    sl.remove(ServerId(7572, 2734));
+    EXPECT_FALSE(sl.getServerId(7572).isValid());
+}
+
 TEST_F(ServerListTest, registerTracker) {
     sl.registerTracker(tr);
     EXPECT_EQ(1U, sl.trackers.size());
