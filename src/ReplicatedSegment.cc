@@ -248,10 +248,6 @@ ReplicatedSegment::performWrite(Tub<Replica>& replica)
     if (!replica /* TODO && nextSegment->getAcked().open */) {
         // This replica does not exist yet. Choose a backup and send the open.
         // Happens for a new segment or if a replica was known to be lost.
-        BackupSelector::Backup* backup;
-        // TODO: add the conflict arrays
-        // maybe push this stuff down into the constructOpen
-        BackupWriteRpc::Flags flags = BackupWriteRpc::OPEN;
         uint64_t conflicts[replicas.numElements - 1];
         uint32_t numConflicts = 0;
         foreach (auto& conflictingReplica, replicas) {
@@ -259,6 +255,8 @@ ReplicatedSegment::performWrite(Tub<Replica>& replica)
                 conflicts[numConflicts++] = conflictingReplica->backupId;
             assert(numConflicts < replicas.numElements);
         }
+        BackupSelector::Backup* backup;
+        BackupWriteRpc::Flags flags = BackupWriteRpc::OPEN;
         if (replicaIsPrimary(replica)) {
             backup = backupSelector.selectPrimary(numConflicts, conflicts);
             flags = BackupWriteRpc::OPENPRIMARY;
@@ -269,12 +267,10 @@ ReplicatedSegment::performWrite(Tub<Replica>& replica)
         Transport::SessionRef session =
             Context::get().transportManager->getSession(serviceLocator.c_str());
         replica.construct(backup->server_id(), session);
-        //LOG(ERROR, "Sending backup opening write: seg %lu off %u len %u flags %u to %lu", segmentId, 0, openLen, flags, replica->backupId);
         replica->writeRpc.construct(replica->client, masterId, segmentId,
                                     0, data, openLen, flags);
         replica->sent.open = true;
         replica->sent.bytes = openLen;
-        assert(isScheduled());
         return;
     } // else
 
@@ -285,7 +281,6 @@ ReplicatedSegment::performWrite(Tub<Replica>& replica)
             try {
                 (*replica->writeRpc)();
                 replica->acked = replica->sent;
-                //LOG(ERROR, "Backup write completed");
                 replica->writeRpc.destroy();
             } catch (ClientException& e) {
                 // TODO: What do we want to do here?
@@ -295,12 +290,9 @@ ReplicatedSegment::performWrite(Tub<Replica>& replica)
                 DIE("TODO: Haven't decided what to do when a write to "
                     "a backup fails");
             }
-            //LOG(ERROR, "Backup write completed");
-            assert(isScheduled());
             return;
         } else {
             // Request is not yet finished, stay scheduled to wait on it.
-            assert(isScheduled());
             return;
         }
     } else {
@@ -321,12 +313,11 @@ ReplicatedSegment::performWrite(Tub<Replica>& replica)
                 flags = BackupWriteRpc::NONE;
             }
 
-            //LOG(ERROR, "Sending backup write: seg %lu off %u len %u flags %u to %lu", segmentId, offset, length, flags, replica->backupId);
+            const char* src = static_cast<const char*>(data) + offset;
             replica->writeRpc.construct(replica->client, masterId, segmentId,
-                                        offset, data, length, flags);
+                                        offset, src, length, flags);
             replica->sent.bytes += length;
             replica->sent.close = (flags == BackupWriteRpc::CLOSE);
-            assert(isScheduled());
             return;
         } else {
             // Replica not synced, no rpc outstanding, but all data was sent.

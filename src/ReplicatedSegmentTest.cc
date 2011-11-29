@@ -214,18 +214,33 @@ TEST_F(ReplicatedSegmentTest, performFreeWriteRpcInProgress) {
     TransportManager::MockRegistrar _(transport);
 
     segment->write(openLen, true);
-    taskManager.proceed();
+    taskManager.proceed(); // writeRpc created
     segment->free();
 
     // make sure the backup "free" opcode was not sent
     EXPECT_TRUE(TestUtil::doesNotMatchPosixRegex("0x4001d",
                                                  transport.outputLog));
-
-    EXPECT_TRUE(segment->replicas[0]);
+    ASSERT_TRUE(segment->replicas[0]);
+    EXPECT_TRUE(segment->replicas[0]->writeRpc);
     EXPECT_FALSE(segment->replicas[0]->freeRpc);
     EXPECT_TRUE(segment->isScheduled());
-    EXPECT_EQ(0u, deleter.count);
-    reset();
+
+    taskManager.proceed(); // performFree reaps the write, remains scheduled
+    ASSERT_TRUE(segment->replicas[0]);
+    EXPECT_FALSE(segment->replicas[0]->writeRpc);
+    EXPECT_FALSE(segment->replicas[0]->freeRpc);
+    EXPECT_TRUE(segment->isScheduled());
+
+    taskManager.proceed(); // now it schedules the free
+    ASSERT_TRUE(segment->replicas[0]);
+    EXPECT_FALSE(segment->replicas[0]->writeRpc);
+    EXPECT_TRUE(segment->replicas[0]->freeRpc);
+    EXPECT_TRUE(segment->isScheduled());
+
+    taskManager.proceed(); // free is reaped and the replica is destroyed
+    EXPECT_FALSE(segment->replicas[0]);
+    EXPECT_FALSE(segment->isScheduled());
+    EXPECT_EQ(1u, deleter.count);
 }
 
 TEST_F(ReplicatedSegmentTest, performWriteNotOpen) {
@@ -257,7 +272,7 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcIsReady) {
     taskManager.proceed();
     ASSERT_TRUE(segment->replicas[0]);
     EXPECT_EQ(openLen, segment->replicas[0]->acked.bytes);
-    EXPECT_TRUE(segment->isScheduled()); // TODO: Do we want one-shot O/W/C?
+    EXPECT_TRUE(segment->isScheduled());
     EXPECT_FALSE(segment->replicas[0]->writeRpc);
     EXPECT_EQ(0u, deleter.count);
     reset();
@@ -276,8 +291,8 @@ TEST_F(ReplicatedSegmentTest, performWriteMoreToSend) {
 
     // "20 4" is length 20 (PRIMARY), "20 0" is length 20 NONE
     EXPECT_STREQ(
-        "clientSend: 0x40021 0 999 0 888 0 10 20 2 0 abcedfghijklmnopqrst | "
-        "clientSend: 0x40021 0 999 0 888 0 10 20 2 0 abcedfghijklmnopqrst",
+        "clientSend: 0x40021 0 999 0 888 0 10 20 2 0 klmnopqrstuvwxyzabce | "
+        "clientSend: 0x40021 0 999 0 888 0 10 20 2 0 klmnopqrstuvwxyzabce",
         transport.outputLog.c_str());
     EXPECT_TRUE(segment->isScheduled());
     EXPECT_TRUE(segment->replicas[0]->writeRpc);
@@ -297,8 +312,8 @@ TEST_F(ReplicatedSegmentTest, performWriteClosedButLongerThanMaxTxLimit) {
 
     // "21 0" is length 21 NONE, "21 0" is length 21 NONE
     EXPECT_STREQ(
-        "clientSend: 0x40021 0 999 0 888 0 10 21 0 0 abcedfghijklmnopqrstu | "
-        "clientSend: 0x40021 0 999 0 888 0 10 21 0 0 abcedfghijklmnopqrstu",
+        "clientSend: 0x40021 0 999 0 888 0 10 21 0 0 klmnopqrstuvwxyzabced | "
+        "clientSend: 0x40021 0 999 0 888 0 10 21 0 0 klmnopqrstuvwxyzabced",
         transport.outputLog.c_str());
     EXPECT_TRUE(segment->isScheduled());
     EXPECT_TRUE(segment->replicas[0]->writeRpc);
@@ -308,19 +323,13 @@ TEST_F(ReplicatedSegmentTest, performWriteClosedButLongerThanMaxTxLimit) {
     taskManager.proceed(); // send third (closing) round
 
     // "1 2" is length 1 CLOSE, "1 2" is length 1 CLOSE
-    EXPECT_STREQ("clientSend: 0x40021 0 999 0 888 0 31 1 2 0 a | "
-                 "clientSend: 0x40021 0 999 0 888 0 31 1 2 0 a",
+    EXPECT_STREQ("clientSend: 0x40021 0 999 0 888 0 31 1 2 0 f | "
+                 "clientSend: 0x40021 0 999 0 888 0 31 1 2 0 f",
                  transport.outputLog.c_str());
     EXPECT_TRUE(segment->isScheduled());
     EXPECT_TRUE(segment->replicas[0]->writeRpc);
 
     EXPECT_EQ(0u, deleter.count);
-    reset();
-}
-
-TEST_F(ReplicatedSegmentTest, performWriteEverythingIsInFlight) {
-    // TODO: Test write RPC outstanding, make sure we stay
-    // scheduled; hard to test with MockTransport.
     reset();
 }
 
