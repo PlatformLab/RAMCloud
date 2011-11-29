@@ -223,4 +223,15 @@ TEST_F(ServiceLocatorTest, hasOption) {
     EXPECT_FALSE(sl.hasOption("moo"));
 }
 
-}  // namespace RAMClodu
+TEST_F(ServiceLocatorTest, assignmentOperator) {
+    // Ensure this works as expected to narrow down some other bug...
+    ServiceLocator sl("foo: bar=314159");
+    ServiceLocator copy = sl;
+    EXPECT_TRUE(sl == copy);
+
+    ServiceLocator sl2("mock:");
+    ServiceLocator copy2 = sl2;
+    EXPECT_TRUE(sl2 == copy2);
+}
+
+}  // namespace RAMCloud
