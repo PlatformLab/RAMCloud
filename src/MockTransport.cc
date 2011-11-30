@@ -174,6 +174,17 @@ MockTransport::MockServerRpc::sendReply()
     delete this;
 }
 
+/**
+ * Normally used to return ServiceLocator-like string associated
+ * with the client that issued this RPC. It's not currently used
+ * for testing, so return a blank string instead.
+ */
+string
+MockTransport::MockServerRpc::getClientServiceLocator()
+{
+    return "";
+}
+
 //-------------------------------------
 // MockTransport::MockClientRpc class
 //-------------------------------------

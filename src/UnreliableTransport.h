@@ -61,6 +61,7 @@ class UnreliableTransport : public Transport {
                             const uint32_t nonce,
                             const Driver::Address* clientAddress);
         void sendReply();
+        string getClientServiceLocator();
         UnreliableTransport& t;
         const uint32_t nonce;
         const Driver::Address* clientAddress;

@@ -241,4 +241,25 @@ TEST_F(InfRcTransportTest, ClientRpc_clientSend_sessionAborted) {
     EXPECT_EQ("test abort", message);
 }
 
+TEST_F(InfRcTransportTest, ServerRpc_getClientServiceLocator) {
+
+    // Create a server and a client and verify that we can
+    // send a request, receive it, send a reply, and receive it.
+    // Then try a second request with bigger chunks of data.
+
+    InfRcTransport<RealInfiniband> server(locator);
+    InfRcTransport<RealInfiniband> client;
+    Transport::SessionRef session = client.getSession(*locator);
+    Buffer request, reply;
+    Transport::ClientRpc* clientRpc = session->clientSend(&request, &reply);
+    Transport::ServerRpc* serverRpc =
+            Context::get().serviceManager->waitForRpc(1.0);
+    EXPECT_TRUE(serverRpc != NULL);
+    EXPECT_TRUE(TestUtil::matchesPosixRegex(
+        "infrc:host=127\\.0\\.0\\.1,port=[0-9][0-9]*",
+        serverRpc->getClientServiceLocator()));
+    serverRpc->sendReply();
+    clientRpc->wait();
+}
+
 }  // namespace RAMCloud

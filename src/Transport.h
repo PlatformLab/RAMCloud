@@ -187,6 +187,17 @@ class Transport {
         virtual void sendReply() = 0;
 
         /**
+         * Return a ServiceLocator string describing the client that initiated
+         * this RPC. Since it's a client this string can't be used to address
+         * anything, but it can be useful for debugging purposes.
+         *
+         * Note that for performance reasons Transports may defer constructing
+         * the string until this method is called (since it is expected to be
+         * used only off of the fast path).
+         */
+        virtual string getClientServiceLocator() = 0;
+
+        /**
          * Returns false if the epoch was not set, else true. Used to assert
          * that no RPCs are pushed through the ServiceManager without an epoch.
          */

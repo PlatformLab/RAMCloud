@@ -130,6 +130,7 @@ class TcpTransport : public Transport {
             RAMCLOUD_TEST_LOG("deleted");
         }
         void sendReply();
+        string getClientServiceLocator();
       PRIVATE:
         TcpServerRpc(Socket* socket, int fd, TcpTransport* transport)
             : fd(fd), socketId(socket->id), message(&requestPayload, NULL),
@@ -320,13 +321,7 @@ class TcpTransport : public Transport {
     /// a socket, on which RPC requests may arrive.
     class Socket {
         public:
-        Socket(int fd, TcpTransport *transport)
-                : transport(transport), id(transport->nextSocketId),
-                rpc(NULL), ioHandler(fd, transport, this),
-                rpcsWaitingToReply(), bytesLeftToSend(0)
-        {
-            transport->nextSocketId++;
-        }
+        Socket(int fd, TcpTransport *transport, sockaddr_in& sin);
         ~Socket();
         TcpTransport* transport;  /// The parent TcpTransport object.
         uint64_t id;              /// Unique identifier: no other Socket
@@ -347,6 +342,9 @@ class TcpTransport : public Transport {
                                   /// need to be transmitted, once fd becomes
                                   /// writable again.  -1 or 0 means there are
                                   /// no RPCs waiting.
+        struct sockaddr_in sin;   /// sockaddr_in of the client host on the
+                                  /// other end of the socket. Used to
+                                  /// implement #getClientServiceLocator().
         DISALLOW_COPY_AND_ASSIGN(Socket);
     };
 

@@ -635,6 +635,9 @@ InfRcTransport<Infiniband>::ServerConnectHandler::handleFileEvent(int events)
 
     // maintain the qpn -> qp mapping
     transport->queuePairMap[qp->getLocalQpNumber()] = qp;
+
+    // store some identifying client information
+    qp->handshakeSin = sin;
 }
 
 /**
@@ -854,6 +857,17 @@ InfRcTransport<Infiniband>::ServerRpc::sendReply()
     metrics->transport.transmit.byteCount += replyPayload.getTotalLength();
     t->infiniband->postSend(qp, bd, replyPayload.getTotalLength());
     replyPayload.truncateFront(sizeof(Header)); // for politeness
+}
+
+/**
+ * Return the RPC source's (i.e. client's) address in string form.
+ */
+template<typename Infiniband>
+string
+InfRcTransport<Infiniband>::ServerRpc::getClientServiceLocator()
+{
+    return format("infrc:host=%s,port=%d",
+        inet_ntoa(qp->handshakeSin.sin_addr), ntohs(qp->handshakeSin.sin_port));
 }
 
 //-------------------------------------

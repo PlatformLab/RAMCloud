@@ -91,5 +91,18 @@ xmemalign(const CodeLocation& where, size_t alignment, size_t len)
     return p;
 }
 
+char*
+xstrdup(const CodeLocation& where, const char* str)
+{
+    char *p = strdup(str);
+    if (p == NULL) {
+        fprintf(stderr, "strdup(%s) failed: %s:%d (%s)\n",
+                str, where.file, where.line, where.function);
+        exit(1);
+    }
+
+    return p;
+}
+
 } // namespace Memory
 } // namespace RAMCloud

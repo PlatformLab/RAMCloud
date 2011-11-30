@@ -21,11 +21,9 @@
 namespace RAMCloud {
 namespace Memory {
 
-void*
-xmalloc(const CodeLocation& where, size_t len);
-
-void*
-xmemalign(const CodeLocation& where, size_t alignment, size_t len);
+void* xmalloc(const CodeLocation& where, size_t len);
+void* xmemalign(const CodeLocation& where, size_t alignment, size_t len);
+char* xstrdup(const CodeLocation& where, const char* str);
 
 } // end Memory
 } // end RAMCloud

@@ -94,6 +94,7 @@ class InfRcTransport : public Transport {
             explicit ServerRpc(InfRcTransport* transport, QueuePair* qp,
                                uint64_t nonce);
             void sendReply();
+            string getClientServiceLocator();
         private:
             InfRcTransport* transport;
             QueuePair*      qp;

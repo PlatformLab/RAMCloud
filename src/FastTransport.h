@@ -128,6 +128,7 @@ class FastTransport : public Transport {
         ServerRpc(ServerSession* session, uint8_t channelId);
         virtual ~ServerRpc();
         void sendReply();
+        string getClientServiceLocator();
 
       PRIVATE:
         void maybeDequeue();

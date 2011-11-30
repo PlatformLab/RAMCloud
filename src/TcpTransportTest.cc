@@ -1244,4 +1244,20 @@ TEST_F(TcpTransportTest, sessionAlarm) {
             session.errorInfo);
 }
 
+TEST_F(TcpTransportTest, TcpServerRpc_getClientServiceLocator) {
+    TcpTransport server(locator);
+    TcpTransport client;
+    Transport::SessionRef session = client.getSession(*locator);
+    Buffer request, reply;
+    TcpTransport::messageChunks = 0;
+    Transport::ClientRpc* clientRpc = session->clientSend(&request, &reply);
+    Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
+    EXPECT_TRUE(serverRpc != NULL);
+    EXPECT_TRUE(TestUtil::matchesPosixRegex(
+        "tcp:host=127\\.0\\.0\\.1,port=[0-9][0-9]*",
+        serverRpc->getClientServiceLocator()));
+    serverRpc->sendReply();
+    EXPECT_TRUE(TestUtil::waitForRpc(*clientRpc));
+}
+
 }  // namespace RAMCloud

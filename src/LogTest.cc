@@ -457,6 +457,7 @@ TEST_F(LogTest, getNewCleanableSegments) {
 // Need a do-nothing subclass of the abstract parent type.
 class TestServerRpc : public Transport::ServerRpc {
     void sendReply() {}
+    string getClientServiceLocator() { return ""; }
 };
 
 TEST_F(LogTest, cleaningComplete) {

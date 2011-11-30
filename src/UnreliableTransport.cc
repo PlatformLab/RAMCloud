@@ -179,6 +179,11 @@ UnreliableTransport::UnreliableServerRpc::sendReply()
     metrics->transport.transmit.byteCount += replyPayload.getTotalLength();
 }
 
+string
+UnreliableTransport::UnreliableServerRpc::getClientServiceLocator()
+{
+    return "[getClientServiceLocator not implemented for UnreliableTransport]";
+}
 
 UnreliableTransport::UnreliableSession::UnreliableSession(
                                         UnreliableTransport& t,

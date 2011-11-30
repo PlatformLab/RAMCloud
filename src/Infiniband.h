@@ -13,6 +13,8 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #include <infiniband/verbs.h>
 
 #include "Common.h"
@@ -179,7 +181,7 @@ class RealInfiniband {
         explicit QueuePair(Infiniband& infiniband)
             : infiniband(infiniband), type(0), ctxt(NULL), ibPhysicalPort(-1),
             pd(NULL), srq(NULL), qp(NULL), txcq(NULL), rxcq(NULL),
-            initialPsn(-1) {}
+            initialPsn(-1), handshakeSin() {}
         ~QueuePair();
         uint32_t    getInitialPsn() const;
         uint32_t    getLocalQpNumber() const;
@@ -203,6 +205,8 @@ class RealInfiniband {
         ibv_cq*      txcq;           // transmit completion queue
         ibv_cq*      rxcq;           // receive completion queue
         uint32_t     initialPsn;     // initial packet sequence number
+        sockaddr_in  handshakeSin;   // UDP address of the remote end used to
+                                     // handshake when using RC queue pairs.
         char         peerName[50];   // Optional name for the sender
                                      // (intended for use in error messages);
                                      // null-terminated.

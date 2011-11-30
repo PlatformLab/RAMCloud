@@ -27,6 +27,7 @@ namespace RAMCloud {
 // Need a do-nothing subclass of the abstract parent type.
 class TestServerRpc : public Transport::ServerRpc {
     void sendReply() {}
+    string getClientServiceLocator() { return ""; }
 };
 
 TEST(ServerRpcPoolTest, constructor) {

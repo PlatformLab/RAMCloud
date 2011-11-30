@@ -295,6 +295,24 @@ FastTransport::ServerRpc::sendReply()
     session->beginSending(channelId);
 }
 
+/**
+ * Return the RPC source's (i.e. client's) address in string form.
+ */
+string
+FastTransport::ServerRpc::getClientServiceLocator()
+{
+    // NB: This won't return a parseable ServiceLocator since at least the
+    //     IpAddress class doesn't return a suitable SL suffix in the
+    //     toString method (it returns "w.y.y.z:p" rather than the necessary
+    //     "host=x.y.w.z,port=p"). Since we support multiple drivers, some
+    //     of which (InfUdDriver) don't even use IP addressing, we won't try
+    //     to kludge it here. If it's a problem, perhaps we should adjust the
+    //     output of the various Driver::Address subclasses.
+    return ServiceLocator(
+        session->transport->getServiceLocator()).getProtocol() + ":" +
+        session->getAddress()->toString();
+}
+
 // --- InboundMessage ---
 
 /**

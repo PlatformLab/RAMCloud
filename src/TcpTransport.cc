@@ -13,6 +13,10 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
 #include "Common.h"
 #include "ShortMacros.h"
 #include "ServiceManager.h"
@@ -125,6 +129,21 @@ TcpTransport::closeSocket(int fd) {
 }
 
 /**
+ * Constructor for Sockets.
+ */
+TcpTransport::Socket::Socket(int fd, TcpTransport *transport, sockaddr_in& sin)
+  : transport(transport),
+    id(transport->nextSocketId),
+    rpc(NULL),
+    ioHandler(fd, transport, this),
+    rpcsWaitingToReply(),
+    bytesLeftToSend(0),
+    sin(sin)
+{
+    transport->nextSocketId++;
+}
+
+/**
  * Destructor for Sockets.
  */
 TcpTransport::Socket::~Socket() {
@@ -168,7 +187,12 @@ TcpTransport::AcceptHandler::AcceptHandler(int fd, TcpTransport* transport)
 void
 TcpTransport::AcceptHandler::handleFileEvent(int events)
 {
-    int acceptedFd = sys->accept(transport->listenSocket, NULL, NULL);
+    struct sockaddr_in sin;
+    socklen_t socklen = sizeof(sin);
+
+    int acceptedFd = sys->accept(transport->listenSocket,
+                                 reinterpret_cast<sockaddr*>(&sin),
+                                 &socklen);
     if (acceptedFd < 0) {
         switch (errno) {
             // According to the man page for accept, you're supposed to
@@ -209,7 +233,7 @@ TcpTransport::AcceptHandler::handleFileEvent(int events)
             static_cast<unsigned int>(acceptedFd)) {
         transport->sockets.resize(acceptedFd + 1);
     }
-    transport->sockets[acceptedFd] = new Socket(acceptedFd, transport);
+    transport->sockets[acceptedFd] = new Socket(acceptedFd, transport, sin);
 }
 
 /**
@@ -762,6 +786,15 @@ TcpTransport::TcpServerRpc::sendReply()
     // The whole response was sent immediately (this should be the
     // common case).  Recycle the RPC object.
     transport->serverRpcPool.destroy(this);
+}
+
+// See Transport::ServerRpc::getclientServiceLocator for documentation.
+string
+TcpTransport::TcpServerRpc::getClientServiceLocator()
+{
+    Socket* socket = transport->sockets[fd];
+    return format("tcp:host=%s,port=%d", inet_ntoa(socket->sin.sin_addr),
+        ntohs(socket->sin.sin_port));
 }
 
 // See Transport::ClientRpc::cancelCleanup for documentation.

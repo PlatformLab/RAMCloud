@@ -558,7 +558,8 @@ Infiniband::QueuePair::QueuePair(Infiniband& infiniband, ibv_qp_type type,
       qp(NULL),
       txcq(txcq),
       rxcq(rxcq),
-      initialPsn(generateRandom() & 0xffffff)
+      initialPsn(generateRandom() & 0xffffff),
+      handshakeSin()
 {
     snprintf(peerName, sizeof(peerName), "?unknown?");
     if (type != IBV_QPT_RC && type != IBV_QPT_UD && type != IBV_QPT_RAW_ETH)

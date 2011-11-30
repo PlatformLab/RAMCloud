@@ -420,6 +420,28 @@ TEST_F(FastTransportTest, handleIncomingPacket_s2cBadHint) {
         "bad client session hint 0", TestLog::get());
 }
 
+TEST_F(FastTransportTest, ServerRpc_getClientServiceLocator) {
+    ServiceLocator serverLocator("fast+udp: host=localhost, port=11101");
+    UdpDriver* serverDriver = new UdpDriver(&serverLocator);
+    FastTransport server(serverDriver);
+    UdpDriver* clientDriver = new UdpDriver();
+    FastTransport client(clientDriver);
+    Transport::SessionRef session = client.getSession(serverLocator);
+
+    Buffer request, reply;
+    request.fillFromString("acdefg");
+    Transport::ClientRpc* clientRpc = session->clientSend(&request, &reply);
+    Transport::ServerRpc* serverRpc =
+        Context::get().serviceManager->waitForRpc(1.0);
+    EXPECT_TRUE(serverRpc != NULL);
+    EXPECT_TRUE(TestUtil::matchesPosixRegex(
+        "fast+udp:127\\.0\\.0\\.1:[0-9][0-9]*",
+        serverRpc->getClientServiceLocator()));
+    reply.fillFromString("hijlkm");
+    serverRpc->sendReply();
+    EXPECT_TRUE(TestUtil::waitForRpc(*clientRpc));
+}
+
 // --- ClientRpcTest ---
 
 class ClientRpcTest : public ::testing::Test {

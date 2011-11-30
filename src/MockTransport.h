@@ -54,6 +54,7 @@ class MockTransport : public Transport {
             explicit MockServerRpc(MockTransport* transport,
                                    const char* message);
             void sendReply();
+            string getClientServiceLocator();
         private:
             MockTransport* transport;
             DISALLOW_COPY_AND_ASSIGN(MockServerRpc);
