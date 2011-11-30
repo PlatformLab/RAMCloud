@@ -82,15 +82,12 @@ ReplicatedSegment::~ReplicatedSegment()
 
 /**
  * Eventually free all known replicas of a segment from its backups.
- * Requires that the segment has been closed (it does not require that
- * the close has been sent and acknowledged by the backups, though).
  * The caller's ReplicatedSegment pointer is invalidated upon the return
  * of this function.
  */
 void
 ReplicatedSegment::free()
 {
-    assert(queued.close);
     freeQueued = true;
     schedule();
 }
@@ -113,6 +110,8 @@ void
 ReplicatedSegment::write(uint32_t offset,
                          bool closeSegment)
 {
+    TEST_LOG("%lu, %lu, %u, %d", masterId, segmentId, offset, closeSegment);
+
     // offset monotonically increases
     assert(offset >= queued.bytes);
     queued.bytes = offset;

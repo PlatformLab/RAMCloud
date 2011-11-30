@@ -91,6 +91,8 @@ void
 BackupManager::freeSegment(uint64_t segmentId)
 {
     CycleCounter<RawMetric> _(&metrics->master.backupManagerTicks);
+    TEST_LOG("%lu, %lu", *masterId, segmentId);
+
 
     // TODO: Don't allow free on an open segment. (Already enforced in new
     // interface, should just work once we can delete this method).

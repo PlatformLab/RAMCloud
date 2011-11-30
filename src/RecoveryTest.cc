@@ -62,10 +62,12 @@ class RecoveryTest : public ::testing::Test {
         {
             mgr = new BackupManager(NULL, masterIdTub,
                                     downCast<uint32_t>(locators.size()));
+            uint32_t backupId = 0;
             foreach (const auto& locator, locators) {
                 ProtoBuf::ServerList::Entry& e(*backupList.add_server());
                 e.set_service_locator(locator);
                 e.set_server_type(ProtoBuf::BACKUP);
+                e.set_server_id(backupId++);
             }
 
             // TODO(ongaro): Rework this to not muck with mgr's internal state

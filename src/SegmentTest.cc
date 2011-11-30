@@ -332,9 +332,8 @@ TEST_F(SegmentTest, close) {
     TestLog::Enable _;
     s.close();
     EXPECT_EQ("write: 1, 2, 44, 1 | "
-                            "write: Segment 2 closed (length 44) | "
-                            "proceedNoMetrics: Closed segment 1, 2",
-                            TestLog::get());
+              "write: Segment 2 closed (length 44)",
+              TestLog::get());
 
     SegmentEntry *se = reinterpret_cast<SegmentEntry *>(
                         reinterpret_cast<char *>(s.baseAddress) +
