@@ -41,8 +41,7 @@ BackupManager::BackupManager(CoordinatorClient* coordinator,
     , replicatedSegmentPool(ReplicatedSegment::sizeOf(numReplicas))
     , replicatedSegmentList()
     , taskManager()
-    , outstandingRpcs(0)
-    , activeTime()
+    , writeRpcsInFlight(0)
 {
 }
 
@@ -69,8 +68,7 @@ BackupManager::BackupManager(BackupManager* prototype)
     , replicatedSegmentPool(ReplicatedSegment::sizeOf(numReplicas))
     , replicatedSegmentList()
     , taskManager()
-    , outstandingRpcs(0)
-    , activeTime()
+    , writeRpcsInFlight(0)
 {
 }
 
@@ -134,9 +132,8 @@ BackupManager::openSegment(uint64_t segmentId, const void* data, uint32_t len)
     if (p == NULL)
         DIE("Out of memory");
     auto* replicatedSegment =
-        new(p) ReplicatedSegment(taskManager, backupSelector,
-                                 *this,
-                                 *masterId, segmentId,
+        new(p) ReplicatedSegment(taskManager, backupSelector, *this,
+                                 writeRpcsInFlight, *masterId, segmentId,
                                  data, len, numReplicas);
     replicatedSegmentList.push_back(*replicatedSegment);
     replicatedSegment->schedule();
@@ -168,8 +165,6 @@ BackupManager::sync()
             taskManager.proceed();
         }
     } // block ensures that _ is destroyed and counter stops
-    // TODO: may need to rename this (outstandingWriteRpcs?)
-    assert(outstandingRpcs == 0);
 }
 
 // - private -

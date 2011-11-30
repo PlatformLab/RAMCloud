@@ -79,6 +79,7 @@ struct ReplicatedSegmentTest : public ::testing::Test {
     enum { DATA_LEN = 100 };
     enum { MAX_BYTES_PER_WRITE = 21 };
     TaskManager taskManager;
+    uint32_t writeRpcsInFlight;
     CountingDeleter deleter;
     const uint64_t masterId;
     const uint64_t segmentId;
@@ -92,6 +93,7 @@ struct ReplicatedSegmentTest : public ::testing::Test {
 
     ReplicatedSegmentTest()
         : taskManager()
+        , writeRpcsInFlight(0)
         , deleter()
         , masterId(999)
         , segmentId(888)
@@ -111,7 +113,8 @@ struct ReplicatedSegmentTest : public ::testing::Test {
         void* segMem = operator new(ReplicatedSegment::sizeOf(numReplicas));
         segment = std::unique_ptr<ReplicatedSegment>(
                 new(segMem) ReplicatedSegment(taskManager, backupSelector,
-                                              deleter, masterId, segmentId,
+                                              deleter, writeRpcsInFlight,
+                                              masterId, segmentId,
                                               data, openLen, numReplicas,
                                               MAX_BYTES_PER_WRITE));
         const char* msg = "abcedfghijklmnopqrstuvwxyz";
@@ -266,6 +269,46 @@ TEST_F(ReplicatedSegmentTest, performWriteNotOpen) {
     EXPECT_TRUE(segment->isScheduled());
     EXPECT_EQ(0u, deleter.count);
     reset();
+}
+
+TEST_F(ReplicatedSegmentTest, performWriteNotOpenTooManyInFlight) {
+    writeRpcsInFlight = ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT;
+    segment->write(openLen, false);
+    taskManager.proceed(); // try to send writes
+
+    EXPECT_FALSE(segment->replicas[0]);
+    EXPECT_EQ(ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT, writeRpcsInFlight);
+
+    writeRpcsInFlight = ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT - 1;
+    taskManager.proceed(); // retry writes since a slot freed up
+    EXPECT_STREQ("clientSend: 0x40021 0 999 0 888 0 0 10 5 0 abcedfghij",
+                 transport.outputLog.c_str());
+    EXPECT_EQ(ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT, writeRpcsInFlight);
+    ASSERT_TRUE(segment->replicas[0]);
+    EXPECT_TRUE(segment->replicas[0]->writeRpc);
+    EXPECT_TRUE(segment->replicas[0]->sent.open);
+    EXPECT_EQ(openLen, segment->replicas[0]->sent.bytes);
+    EXPECT_FALSE(segment->replicas[1]); // make sure only one was started
+    EXPECT_TRUE(segment->isScheduled());
+
+    taskManager.proceed(); // reap write and send the second replica's rpc
+    EXPECT_STREQ("clientSend: 0x40021 0 999 0 888 0 0 10 5 0 abcedfghij | "
+                 "clientSend: 0x40021 0 999 0 888 0 0 10 1 0 abcedfghij",
+                 transport.outputLog.c_str());
+    EXPECT_EQ(ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT, writeRpcsInFlight);
+    ASSERT_TRUE(segment->replicas[1]);
+    EXPECT_TRUE(segment->replicas[1]->writeRpc);
+    EXPECT_TRUE(segment->replicas[1]->sent.open);
+    EXPECT_EQ(openLen, segment->replicas[1]->sent.bytes);
+    EXPECT_FALSE(segment->replicas[0]->writeRpc); // make sure one was started
+    EXPECT_TRUE(segment->isScheduled());
+
+    taskManager.proceed(); // reap write
+    EXPECT_FALSE(segment->replicas[1]->writeRpc);
+    EXPECT_EQ(uint32_t(ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT - 1),
+              writeRpcsInFlight);
+    EXPECT_FALSE(segment->isScheduled());
+    EXPECT_EQ(0u, deleter.count);
 }
 
 TEST_F(ReplicatedSegmentTest, performWriteRpcIsReady) {

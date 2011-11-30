@@ -85,11 +85,11 @@ class BackupManager : public ReplicatedSegment::Deleter {
     /// Tracks segments that need replication/freeing and dispatches work.
     TaskManager taskManager;
 
-    /// Number of RPCs that have been issued to backups but have not completed.
-    int outstandingRpcs;
-
-    /// Used to count the amount of time that outstandingRpcs > 0.
-    Tub<CycleCounter<RawMetric>> activeTime;
+    /**
+     * Number of collective outstanding write RPCs to all backups.
+     * Used by ReplicatedSegment to throttle RPC creation.
+     */
+    uint32_t writeRpcsInFlight;
 
   PUBLIC:
     // Only used by ReplicatedSegment.

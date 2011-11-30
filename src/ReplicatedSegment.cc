@@ -30,6 +30,9 @@ namespace RAMCloud {
  *      is called.
  * \param backupSelector
  *      Used to choose where to store replicas. Shared among ReplicatedSegments.
+ * \param writeRpcsInFlight
+ *      Number of outstanding write RPCs to backups across all
+ *      ReplicatedSegments.  Used to throttle write RPCs.
  * \param deleter
  *      Deletes this when this determines it is no longer needed.
  * \param masterId
@@ -49,6 +52,7 @@ namespace RAMCloud {
 ReplicatedSegment::ReplicatedSegment(TaskManager& taskManager,
                                      BaseBackupSelector& backupSelector,
                                      Deleter& deleter,
+                                     uint32_t& writeRpcsInFlight,
                                      uint64_t masterId,
                                      uint64_t segmentId,
                                      const void* data,
@@ -57,6 +61,7 @@ ReplicatedSegment::ReplicatedSegment(TaskManager& taskManager,
                                      uint32_t maxBytesPerWriteRpc)
     : Task(taskManager)
     , backupSelector(backupSelector)
+    , writeRpcsInFlight(writeRpcsInFlight)
     , masterId(masterId)
     , segmentId(segmentId)
     , data(data)
@@ -236,10 +241,19 @@ ReplicatedSegment::performFree(Tub<Replica>& replica)
 void
 ReplicatedSegment::performWrite(Tub<Replica>& replica)
 {
+    if (replica && replica->acked == queued) {
+        // If this replica is synced no further work is needed for now.
+        return;
+    }
+
     // TODO: make ::close take pointer to the next log segment
     if (!replica /* TODO && nextSegment->getAcked().open */) {
         // This replica does not exist yet. Choose a backup and send the open.
         // Happens for a new segment or if a replica was known to be lost.
+        if (writeRpcsInFlight == MAX_WRITE_RPCS_IN_FLIGHT) {
+            schedule();
+            return;
+        }
         uint64_t conflicts[replicas.numElements - 1];
         uint32_t numConflicts = 0;
         foreach (auto& conflictingReplica, replicas) {
@@ -261,6 +275,7 @@ ReplicatedSegment::performWrite(Tub<Replica>& replica)
         replica.construct(backup->server_id(), session);
         replica->writeRpc.construct(replica->client, masterId, segmentId,
                                     0, data, openLen, flags);
+        ++writeRpcsInFlight;
         replica->sent.open = true;
         replica->sent.bytes = openLen;
         schedule();
@@ -275,6 +290,7 @@ ReplicatedSegment::performWrite(Tub<Replica>& replica)
                 (*replica->writeRpc)();
                 replica->acked = replica->sent;
                 replica->writeRpc.destroy();
+                --writeRpcsInFlight;
             } catch (ClientException& e) {
                 // TODO: What do we want to do here?
                 LOG(WARNING,

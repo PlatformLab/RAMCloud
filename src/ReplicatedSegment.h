@@ -226,9 +226,12 @@ class ReplicatedSegment : public Task {
   PRIVATE:
     friend class BackupManager;
 
+    enum { MAX_WRITE_RPCS_IN_FLIGHT = 4 };
+
     ReplicatedSegment(TaskManager& taskManager,
                       BaseBackupSelector& backupSelector,
                       Deleter& deleter,
+                      uint32_t& writeRpcsInFlight,
                       uint64_t masterId, uint64_t segmentId,
                       const void* data, uint32_t openLen,
                       uint32_t numReplicas,
@@ -273,6 +276,12 @@ class ReplicatedSegment : public Task {
 // - member variables -
     /// Used to choose where to store replicas. Shared among ReplicatedSegments.
     BaseBackupSelector& backupSelector;
+
+    /**
+     * Number of outstanding write RPCs to backups across all
+     * ReplicatedSegments.  Used to throttle write RPCs.
+     */
+    uint32_t& writeRpcsInFlight;
 
     /// The server id of the Master whose log this segment belongs to.
     const uint64_t masterId;
