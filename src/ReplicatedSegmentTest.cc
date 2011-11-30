@@ -128,6 +128,13 @@ struct ReplicatedSegmentTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(ReplicatedSegmentTest);
 };
 
+TEST_F(ReplicatedSegmentTest, varLenArrayAtEnd) {
+    // replicas[0] must be the last member of ReplicatedSegment
+    EXPECT_EQ(static_cast<void*>(segment.get() + 1),
+              static_cast<void*>(&segment.get()->replicas[0]));
+    reset();
+}
+
 TEST_F(ReplicatedSegmentTest, constructor) {
     EXPECT_EQ(openLen, segment->queued.bytes);
     EXPECT_TRUE(segment->queued.open);
@@ -332,5 +339,8 @@ TEST_F(ReplicatedSegmentTest, performWriteClosedButLongerThanMaxTxLimit) {
     EXPECT_EQ(0u, deleter.count);
     reset();
 }
+
+// TODO: Tests to ensure segments reset from a corrupted state schedule and work.
+// TODO: Test that close gets sent if open + 0 byte closing write are queued.
 
 } // namespace RAMCloud

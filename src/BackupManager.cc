@@ -23,14 +23,13 @@
 namespace RAMCloud {
 
 /**
- * Create a BackupManager, initially with no backup hosts to communicate
- * with.
+ * Create a BackupManager.
  * \param coordinator
- *      \copydoc coordinator
+ *      Cluster coordinator. May be NULL for testing purposes.
  * \param masterId
- *      \copydoc masterId
+ *      Server id of master that this will be managing replicas for.
  * \param numReplicas
- *      \copydoc numReplicas
+ *      Number replicas to keep of each segment.
  */
 BackupManager::BackupManager(CoordinatorClient* coordinator,
                              const Tub<uint64_t>& masterId,
@@ -48,11 +47,14 @@ BackupManager::BackupManager(CoordinatorClient* coordinator,
 }
 
 /**
- * Create a BackupManager, initially with no backup hosts to communicate
- * with. This manager is constructed the same way as a previous manager.
+ * Create a BackupManager.
+ * This manager is constructed the same way as a previous manager.
  * This is used, for instance, by the LogCleaner to obtain a private
  * BackupManager that is configured equivalently to the Log's own
  * manager (without having to share the two).
+ *
+ * TODO: This is completely broken and needs to be done away with.
+ * TODO: Eliminate #coordinator when this is fixed.
  * 
  * \param prototype
  *      The BackupManager that serves as a prototype for this newly
@@ -75,7 +77,7 @@ BackupManager::BackupManager(BackupManager* prototype)
 BackupManager::~BackupManager()
 {
     sync();
-    // Waiting for sync() is insufficient, may have outstanding frees, etc.
+    // sync() is insufficient, may have outstanding frees, etc. Done below.
     while (!taskManager.isIdle())
         proceed();
     while (!replicatedSegmentList.empty())
@@ -84,6 +86,8 @@ BackupManager::~BackupManager()
 
 /**
  * Ask backups to discard a segment.
+ *
+ * TODO: Deprecated in favor of ReplicatedSegment::free().
  */
 void
 BackupManager::freeSegment(uint64_t segmentId)
@@ -105,21 +109,23 @@ BackupManager::freeSegment(uint64_t segmentId)
 }
 
 /**
- * Eventually begin replicating a segment on backups.
+ * Begin replicating a segment on backups.  Allocates and returns a
+ * ReplicatedSegment which acts as a handle for the log module to perform
+ * future operations related to this segment (like queueing more data for
+ * replication, waiting for data to be replicated, or freeing replicas).
  *
  * \param segmentId
- *      A unique identifier for this segment. The caller must ensure this
- *      segment is not already open.
+ *      A unique identifier for this segment. The caller must ensure a
+ *      segment with this segmentId is not already open.
  * \param data
- *      Location at which data to be replicated for this segment begins.
+ *      Starting location of the raw segment data to be replicated.
  * \param len
- *      The number of bytes to send atomically to backups with the open segment
- *      RPC.
+ *      Number of bytes to send atomically to backups with open segment RPC.
  * \return
- *      A pointer to an OpenSegment object that is valid only until that
- *      segment is closed.
+ *      Pointer to a ReplicatedSegment that is valid until
+ *      ReplicatedSegment::free() is called on it.
  */
-OpenSegment*
+ReplicatedSegment*
 BackupManager::openSegment(uint64_t segmentId, const void* data, uint32_t len)
 {
     CycleCounter<RawMetric> _(&metrics->master.backupManagerTicks);
@@ -146,7 +152,7 @@ void
 BackupManager::proceed()
 {
     CycleCounter<RawMetric> _(&metrics->master.backupManagerTicks);
-    proceedNoMetrics();
+    taskManager.proceed();
 }
 
 /**
@@ -159,7 +165,7 @@ BackupManager::sync()
     {
         CycleCounter<RawMetric> _(&metrics->master.backupManagerTicks);
         while (!isSynced()) {
-            proceedNoMetrics();
+            taskManager.proceed();
         }
     } // block ensures that _ is destroyed and counter stops
     // TODO: may need to rename this (outstandingWriteRpcs?)
@@ -169,21 +175,24 @@ BackupManager::sync()
 // - private -
 
 /**
- * TODO: this is a lot of how
- * Walk through all segments the BackupManager is responsible for and make
- * sure that all their durability invariants hold.
- * If some invariant is not met then this method schedules the appropriate
- * tasks so that #proceed() will restore the invariant.
+ * Respond to a change in cluster configuration by scheduling any work that
+ * is needed to restore durablity guarantees.  The work is queued into
+ * #taskManager which is then executed during calls to #proceed().  One call
+ * is sufficient since tasks reschedule themselves until all guarantees are
+ * restored.
  */
 void
-BackupManager::scheduleWorkIfNeeded()
+BackupManager::clusterConfigurationChanged()
 {
     foreach (auto& segment, replicatedSegmentList)
         segment.schedule();
-    taskManager.proceed();
 }
 
-/// Internal helper for #sync().
+/**
+ * Internal helper for #sync().
+ * Returns true when all data queued for replication by the log module is
+ * durably replicated.
+ */
 bool
 BackupManager::isSynced()
 {
@@ -194,22 +203,17 @@ BackupManager::isSynced()
     return true;
 }
 
-/// \copydoc proceed()
-void
-BackupManager::proceedNoMetrics()
-{
-    taskManager.proceed();
-}
-
 /**
  * Invoked by ReplicatedSegment to indicate that the BackupManager no longer
- * needs to keep an information about this segment (for example. when all
+ * needs to keep an information about this segment (for example, when all
  * replicas are freed on backups or during shutdown).
+ * Only used by ReplicatedSegment.
  */
 void
 BackupManager::destroyAndFreeReplicatedSegment(ReplicatedSegment*
                                                     replicatedSegment)
 {
+    assert(!replicatedSegment->isScheduled());
     erase(replicatedSegmentList, *replicatedSegment);
     replicatedSegment->~ReplicatedSegment();
     replicatedSegmentPool.free(replicatedSegment);

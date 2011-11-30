@@ -236,14 +236,6 @@ ReplicatedSegment::performFree(Tub<Replica>& replica)
 void
 ReplicatedSegment::performWrite(Tub<Replica>& replica)
 {
-    if (replica && replica->acked == queued) {
-        // If this replica is synced no further work is needed.
-        return;
-    } else {
-        // Otherwise, ask for future attention and perform the next step.
-        schedule();
-    } // and continue on...
-
     // TODO: make ::close take pointer to the next log segment
     if (!replica /* TODO && nextSegment->getAcked().open */) {
         // This replica does not exist yet. Choose a backup and send the open.
@@ -271,6 +263,7 @@ ReplicatedSegment::performWrite(Tub<Replica>& replica)
                                     0, data, openLen, flags);
         replica->sent.open = true;
         replica->sent.bytes = openLen;
+        schedule();
         return;
     } // else
 
@@ -290,9 +283,12 @@ ReplicatedSegment::performWrite(Tub<Replica>& replica)
                 DIE("TODO: Haven't decided what to do when a write to "
                     "a backup fails");
             }
+            if (replica->acked != queued)
+                schedule();
             return;
         } else {
             // Request is not yet finished, stay scheduled to wait on it.
+            schedule();
             return;
         }
     } else {
@@ -318,6 +314,7 @@ ReplicatedSegment::performWrite(Tub<Replica>& replica)
                                         offset, src, length, flags);
             replica->sent.bytes += length;
             replica->sent.close = (flags == BackupWriteRpc::CLOSE);
+            schedule();
             return;
         } else {
             // Replica not synced, no rpc outstanding, but all data was sent.

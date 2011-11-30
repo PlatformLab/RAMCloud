@@ -30,10 +30,13 @@
 namespace RAMCloud {
 
 /**
- * Replicates segments to backup servers. This class is used on masters to
- * replicate segments of the log to backups. It handles selecting backup
- * servers on a segment-by-segment basis and replicates local segments to
- * remote backups.
+ * Manages durable replicas of local in-memory log segments on remote backups.
+ * The master's log module issues requests to the BackupManager to have log
+ * data replicated and to free all known replicas of a segment in the cluster.
+ * BackupManager responds to changes in cluster configuration; it restores
+ * durablity of segments and transparently masks backup failures(both for
+ * closed segments and for segments which are actively being written when a
+ * backup fails).
  */
 class BackupManager : public ReplicatedSegment::Deleter {
   PUBLIC:
@@ -44,57 +47,53 @@ class BackupManager : public ReplicatedSegment::Deleter {
     ~BackupManager();
 
     void freeSegment(uint64_t segmentId);
-    OpenSegment* openSegment(uint64_t segmentId,
-                             const void* data, uint32_t len);
+    ReplicatedSegment* openSegment(uint64_t segmentId,
+                                   const void* data, uint32_t len);
         __attribute__((warn_unused_result));
     void proceed();
     void sync();
-    void dumpReplicatedSegments(); // defined for testing only
-
-    // TODO: The public stuff below is for ReplicatedSegment
-    // I'd really like to hide this from the higher level interface.
-
-    void destroyAndFreeReplicatedSegment(ReplicatedSegment* replicatedSegment);
 
     /// Number replicas to keep of each segment.
     const uint32_t numReplicas;
 
   PRIVATE:
-    void scheduleWorkIfNeeded(); // TODO configurationChanged?
+    void clusterConfigurationChanged();
     bool isSynced();
-    void proceedNoMetrics();
 
-    BackupSelector backupSelector; ///< See #BackupSelector.
+    /// Selects backups to store replicas while obeying placement constraints.
+    BackupSelector backupSelector;
 
-    /**
-     * The coordinator-assigned server ID for this master or, equivalently, its
-     * globally unique #Log ID.
-     */
+    /// Id of master that this will be managing replicas for.
     const Tub<uint64_t>& masterId;
 
+    // TODO: Remove this once the alt constructor has been eliminated.
     /// Cluster coordinator. May be NULL for testing purposes.
     CoordinatorClient* const coordinator;
 
-    /// A pool from which all ReplicatedSegment objects are allocated.
+    /// Allows fast reuse of ReplicatedSegment allocations.
     boost::pool<> replicatedSegmentPool;
 
     INTRUSIVE_LIST_TYPEDEF(ReplicatedSegment, listEntries)
         ReplicatedSegmentList;
 
     /**
-     * A FIFO queue of all existing ReplicatedSegment objects.
-     * Newly opened segments are pushed to the back of this list.
+     * A list all ReplicatedSegments (one for each segment in the log
+     * which hasn't been freed). Newly opened segments are pushed to the back.
      */
     ReplicatedSegmentList replicatedSegmentList;
 
+    /// Tracks segments that need replication/freeing and dispatches work.
     TaskManager taskManager;
 
-    /// The number of RPCs that have been issued to backups but have not yet
-    /// completed.
+    /// Number of RPCs that have been issued to backups but have not completed.
     int outstandingRpcs;
 
     /// Used to count the amount of time that outstandingRpcs > 0.
     Tub<CycleCounter<RawMetric>> activeTime;
+
+  PUBLIC:
+    // Only used by ReplicatedSegment.
+    void destroyAndFreeReplicatedSegment(ReplicatedSegment* replicatedSegment);
 
     DISALLOW_COPY_AND_ASSIGN(BackupManager);
 };
