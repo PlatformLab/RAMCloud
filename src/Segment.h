@@ -404,10 +404,7 @@ class Segment {
     /// is safe to return the memory backing this Segment to the free list.
     uint64_t          cleanedEpoch;
 
-    /**
-     * A handle to the open segment on backups,
-     * or NULL if the segment is closed.
-     */
+     /// Handle to the open segment on backups, or NULL if the segment is freed.
     ReplicatedSegment* backupSegment;
 
     friend class Log;

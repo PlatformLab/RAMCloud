@@ -83,32 +83,6 @@ BackupManager::~BackupManager()
 }
 
 /**
- * Ask backups to discard a segment.
- *
- * TODO: Deprecated in favor of ReplicatedSegment::free().
- */
-void
-BackupManager::freeSegment(uint64_t segmentId)
-{
-    CycleCounter<RawMetric> _(&metrics->master.backupManagerTicks);
-    TEST_LOG("%lu, %lu", *masterId, segmentId);
-
-
-    // TODO: Don't allow free on an open segment. (Already enforced in new
-    // interface, should just work once we can delete this method).
-
-    // Note: cannot use foreach since proceed() can delete elements
-    // of replicatedSegmentList.
-    auto it = replicatedSegmentList.begin();
-    while (it != replicatedSegmentList.end()) {
-        it->free();
-        ++it;
-        while (!taskManager.isIdle())
-            proceed();
-    }
-}
-
-/**
  * Begin replicating a segment on backups.  Allocates and returns a
  * ReplicatedSegment which acts as a handle for the log module to perform
  * future operations related to this segment (like queueing more data for

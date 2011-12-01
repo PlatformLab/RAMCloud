@@ -46,7 +46,6 @@ class BackupManager : public ReplicatedSegment::Deleter {
     explicit BackupManager(BackupManager* prototype);
     ~BackupManager();
 
-    void freeSegment(uint64_t segmentId);
     ReplicatedSegment* openSegment(uint64_t segmentId,
                                    const void* data, uint32_t len);
         __attribute__((warn_unused_result));

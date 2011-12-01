@@ -42,9 +42,9 @@ class SegmentTest : public ::testing::Test {
     }
 
     static bool
-    freeSegmentFilter(string s)
+    freeFilter(string s)
     {
-        return s == "freeSegment";
+        return s == "free";
     }
 
     static bool
@@ -135,7 +135,7 @@ TEST_F(SegmentTest, constructor) {
 }
 
 TEST_F(SegmentTest, destructor) {
-    TestLog::Enable _(&freeSegmentFilter);
+    TestLog::Enable _(&freeFilter);
     {
         char alignedBuf[8192] __attribute__((aligned(8192)));
         Tub<uint64_t> serverId;
@@ -143,7 +143,7 @@ TEST_F(SegmentTest, destructor) {
         BackupManager backup(NULL, serverId, 0);
         Segment s(1, 2, alignedBuf, sizeof(alignedBuf), &backup);
     }
-    EXPECT_EQ("freeSegment: 1, 2", TestLog::get());
+    EXPECT_EQ("free: 1, 2", TestLog::get());
 }
 
 TEST_F(SegmentTest, append) {

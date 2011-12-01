@@ -88,6 +88,7 @@ ReplicatedSegment::~ReplicatedSegment()
 void
 ReplicatedSegment::free()
 {
+    TEST_LOG("%lu, %lu", masterId, segmentId);
     freeQueued = true;
     schedule();
 }

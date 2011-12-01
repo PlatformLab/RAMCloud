@@ -192,7 +192,7 @@ Segment::~Segment()
     // TODO(ongaro): I'm not convinced this makes any sense. sync is probably
     // better.
     if (backup)
-        backup->freeSegment(id);
+        backupSegment->free();
 }
 
 /**
@@ -404,7 +404,6 @@ Segment::close(bool sync)
 
     if (backup) {
         backupSegment->write(tail, true); // start replicating immediately
-        backupSegment = NULL;
         if (sync) // sync determines whether to wait for the acks
             backup->sync();
     }
