@@ -36,7 +36,7 @@ namespace RAMCloud {
  * \param deleter
  *      Deletes this when this determines it is no longer needed.
  * \param masterId
- *      The server id of the Master whose log this segment belongs to.
+ *      The server id of the master whose log this segment belongs to.
  * \param segmentId
  *      ID for the segment, must match the segmentId given by the log module.
  * \param data
@@ -81,9 +81,10 @@ ReplicatedSegment::~ReplicatedSegment()
 }
 
 /**
- * Eventually free all known replicas of a segment from its backups.
- * The caller's ReplicatedSegment pointer is invalidated upon the return
- * of this function.
+ * Request the eventual freeing all known replicas of a segment from its
+ * backups.  The caller's ReplicatedSegment pointer is invalidated upon the
+ * return of this function.  There is currently no way to synchronously force
+ * free operations to complete outside of destroying the BackupManager.
  */
 void
 ReplicatedSegment::free()
@@ -94,9 +95,10 @@ ReplicatedSegment::free()
 }
 
 /**
- * Eventually replicate bytes of data ending at \a offset non-inclusive on
- * a set backups for durability.  Guarantees that no replica will see this
- * write until it has seen all previous writes on this segment.
+ * Request the eventual replication of data ending at \a offset non-inclusive 
+ * on a set backups for durability.  Guarantees that no replica will see this
+ * write until it has seen all previous writes on this segment.  sync() must
+ * be called after write() calls where the operation must be durable.
  *
  * \pre
  *      All previous segments have been closed (at least locally).
@@ -166,7 +168,7 @@ ReplicatedSegment::performTask()
 /**
  * Make progress, if possible, in freeing a known replica of a segment
  * regardless of what state the replica is in (both locally and remotely).
- * If this future work is required this method automatically re-schedules this
+ * If future work is required this method automatically re-schedules this
  * segment for future attention from the BackupManager.
  * \pre freeQueued must be true, otherwise behavior is undefined.
  */
@@ -175,11 +177,12 @@ ReplicatedSegment::performFree(Tub<Replica>& replica)
 {
     /*
      * Internally this method is written as a set of nested
-     * if-with-unqualified-else clauses with explicit returns at the end of
-     * each block.  This repeatedly splits the segment states between
-     * two cases until exactly one of the cases is executed.
-     * This makes it easy ensure all cases are covered and which case a
-     * particular state will fall into.
+     * if-with-unqualified-else clauses (sometimes the else is implicit) with
+     * explicit returns at the end of each block.  This repeatedly splits the
+     * segment states between two cases until exactly one of the cases is
+     * executed.  This makes it easy ensure all cases are covered and which
+     * case a particular state will fall into.  performWrite() is written
+     * is a similar style for the same reason.
      */
 
     if (!replica) {
@@ -233,9 +236,8 @@ ReplicatedSegment::performFree(Tub<Replica>& replica)
 
 /**
  * Make progress, if possible, in durably writing segment data to a particular
- * replica.
- * If this future work is required this method automatically re-schedules this
- * segment for future attention from the BackupManager.
+ * replica.  If future work is required this method automatically re-schedules
+ * this segment for future attention from the BackupManager.
  * \pre freeQueued must be false, otherwise behavior is undefined.
  */
 void

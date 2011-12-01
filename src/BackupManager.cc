@@ -24,7 +24,8 @@ namespace RAMCloud {
 /**
  * Create a BackupManager.
  * \param coordinator
- *      Cluster coordinator. May be NULL for testing purposes.
+ *      Cluster coordinator; used to get a list of backup servers.
+ *      May be NULL for testing purposes.
  * \param masterId
  *      Server id of master that this will be managing replicas for.
  * \param numReplicas
@@ -45,7 +46,7 @@ BackupManager::BackupManager(CoordinatorClient* coordinator,
 }
 
 /**
- * Create a BackupManager.
+ * Create a BackupManager; extremely broken, do not use this.
  * This manager is constructed the same way as a previous manager.
  * This is used, for instance, by the LogCleaner to obtain a private
  * BackupManager that is configured equivalently to the Log's own
@@ -71,6 +72,11 @@ BackupManager::BackupManager(BackupManager* prototype)
 {
 }
 
+/**
+ * Sync replicas with all queued operations, wait for any outstanding frees
+ * to complete, then cleanup and release an local resources (all durably
+ * stored but unfreed replicas will remain on backups).
+ */
 BackupManager::~BackupManager()
 {
     sync();
@@ -82,10 +88,12 @@ BackupManager::~BackupManager()
 }
 
 /**
- * Begin replicating a segment on backups.  Allocates and returns a
+ * Queue a segment for replication on backups.  Allocates and returns a
  * ReplicatedSegment which acts as a handle for the log module to perform
  * future operations related to this segment (like queueing more data for
  * replication, waiting for data to be replicated, or freeing replicas).
+ * Note, the segment isn't guaranteed to be durably open on backups until
+ * #sync() is called.
  *
  * \param segmentId
  *      A unique identifier for this segment. The caller must ensure a
@@ -93,7 +101,9 @@ BackupManager::~BackupManager()
  * \param data
  *      Starting location of the raw segment data to be replicated.
  * \param len
- *      Number of bytes to send atomically to backups with open segment RPC.
+ *      Number of bytes to send atomically to backups with open segment RPC;
+ *      used to send the segment header and log digest (when applicable) along
+ *      with the open RPC to a backup.
  * \return
  *      Pointer to a ReplicatedSegment that is valid until
  *      ReplicatedSegment::free() is called on it.
@@ -116,9 +126,9 @@ BackupManager::openSegment(uint64_t segmentId, const void* data, uint32_t len)
 }
 
 /**
- * Make progress on replicating the log to backups, but don't block.
- * This method checks for completion of outstanding backup operations and
- * starts new ones when possible.
+ * Make progress on replicating the log to backups and freeing unneeded
+ * replicas, but don't block.  This method checks for completion of outstanding
+ * backup operations and starts new ones when possible.
  */
 void
 BackupManager::proceed()
@@ -128,8 +138,10 @@ BackupManager::proceed()
 }
 
 /**
- * Wait until all written data has been acknowledged by the backups for all
- * segments.
+ * Wait until all data enqueued for replication has been acknowledged by the
+ * backups for all segments (where acknowledged means the data is durably
+ * buffered by each backup).  This must be called after any openSegment()
+ * or ReplicatedSegment::write() calls where the operation must be durable.
  */
 void
 BackupManager::sync()
@@ -177,7 +189,7 @@ BackupManager::isSynced()
  * Invoked by ReplicatedSegment to indicate that the BackupManager no longer
  * needs to keep an information about this segment (for example, when all
  * replicas are freed on backups or during shutdown).
- * Only used by ReplicatedSegment.
+ * Only used by ReplicatedSegment and ~BackupManager.
  */
 void
 BackupManager::destroyAndFreeReplicatedSegment(ReplicatedSegment*

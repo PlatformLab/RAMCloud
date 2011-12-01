@@ -383,7 +383,7 @@ TEST_F(ReplicatedSegmentTest, performWriteClosedButLongerThanMaxTxLimit) {
     reset();
 }
 
-// TODO: Tests to ensure segments reset from a corrupted state schedule and work.
+// TODO: Tests to ensure segments reset from corrupted state schedule and work.
 // TODO: Test that close gets sent if open + 0 byte closing write are queued.
 
 } // namespace RAMCloud

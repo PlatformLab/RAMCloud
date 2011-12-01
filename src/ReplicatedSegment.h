@@ -42,23 +42,26 @@ namespace RAMCloud {
  *    failures occur the ReplicatedSegment is made aware of the failure.  The
  *    ReplicatedSegment then schedules itself as part of the work that the
  *    BackupManager does and attempts to restore the replication invariants
- *    for its assocaited log segment.  Anytime the ReplicatedSegment meets
+ *    for its associated log segment.  Anytime the ReplicatedSegment meets
  *    all replication invariants for its log segment data it deschedules itself
  *    and only "wakes up" on future cluster membership changes that might
- *    affect replication invariants for its log segment.
+ *    affect replication invariants for its log segment.  The scheduling and
+ *    task management is provided by TaskManager; ReplicatedSegment is a
+ *    subclass of Task which allows it to notify the BackupManager that work
+ *    is needed by calling schedule().
  */
 class ReplicatedSegment : public Task {
   PUBLIC:
     /**
-     * Describes what to do whenever we don't want to go on living.
-     * BackupManager needs to do some specicalize cleanup after
-     * ReplicatedSegments, but ReplicatedSegment best know when to destroy
-     * themselves.
-     * The default logic does nothing which is useful for ReplicatedSegment
-     * during unit testing.
-     * Must be public because otherwise it is impossible to subclass this;
-     * the friend declaration for BackupManager doesn't work; it seems C++ doesn't
-     * consider the subclass list to be part of the superclass's scope.
+     * Internal to BackupManager; describes what to do whenever we don't want
+     * to go on living.
+     * BackupManager needs to do some special cleanup after ReplicatedSegments,
+     * but ReplicatedSegment best know when to destroy themselves.  The default
+     * logic does nothing which is useful for ReplicatedSegment during unit
+     * testing.  Must be public because otherwise it is impossible to subclass
+     * this; the friend declaration for BackupManager doesn't work; it seems
+     * C++ doesn't consider the subclass list to be part of the superclass's
+     * scope.
      */
     struct Deleter {
         virtual void destroyAndFreeReplicatedSegment(ReplicatedSegment*
@@ -68,14 +71,14 @@ class ReplicatedSegment : public Task {
 
   PRIVATE:
     /**
-     * Represents "how much" of a segment or replica. Has value semantics.
+     * Represents "how much" of a segment or replica.
      * ReplicatedSegment must track "how much" of a segment or replica has
      * reached some status.  Concretely, separate instances are used to track
      * how much data the log module expects us to replicate, how much has been
      * sent to each backup, and how much has been acknowledged as at least
      * buffered by each backup.  This isn't simply a count of bytes because its
      * important to track the status of the open and closed flags as part of
-     * the "how much".
+     * the "how much".  Has value semantics.
      */
     struct Progress {
         /// Whether an open has been queued/sent/acknowledged.
@@ -263,7 +266,7 @@ class ReplicatedSegment : public Task {
         return &replica == &replicas[0];
     }
 
-    /// Return the bytes required to construct an ReplicatedSegment instance.
+    /// Bytes needed to hold a ReplicatedSegment instance due to VarLenArray.
     static size_t sizeOf(uint32_t numReplicas) {
         return sizeof(ReplicatedSegment) + sizeof(replicas[0]) * numReplicas;
     }

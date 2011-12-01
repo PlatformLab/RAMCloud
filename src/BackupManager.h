@@ -30,18 +30,41 @@ namespace RAMCloud {
 
 /**
  * Manages durable replicas of local in-memory log segments on remote backups.
- * The master's log module issues requests to the BackupManager to have log
- * data replicated and to free all known replicas of a segment in the cluster.
- * BackupManager responds to changes in cluster configuration; it restores
- * durablity of segments and transparently masks backup failures(both for
- * closed segments and for segments which are actively being written when a
- * backup fails).
+ *
+ * Executive summary: A master's log module issues requests to its
+ * BackupManager which replicates data and can be used to free replicas of a
+ * segment from backups in the cluster.  BackupManager responds to changes in
+ * cluster configuration; it restores durability of segments and transparently
+ * masks backup failures (both for closed segments and for segments which are
+ * actively being written when a backup fails).
+ *
+ * Details: Initially, a master constructs a single BackupManager to replicate
+ * segments from its in-memory log.  There must be exactly one BackupManager
+ * per log otherwise behavior is undefined.  The log module can then use
+ * #openSegment to make the BackupManager aware of an in-memory segment which
+ * must be replicated.  All operations issued to the BackupManager are only
+ * queued.  To force all queued operations to complete #sync() must be called,
+ * otherwise the BackupManager casually tries to perform some replication
+ * whenever #proceed() is called.  After a call to #sync() all queued
+ * operations have been successfully "applied" to the required number of
+ * replicas (though, keep in mind, host failures could have eliminated some
+ * replicas even as sync returns).  "Applied" means all state for each replica
+ * is at least buffered on some backups.
+ *
+ * See ReplicatedSegment::write() and ReplicatedSegment::free() for details on
+ * how the log module informs the BackupManager of changes to the in-memory
+ * segment image and what guarantees the BackupManager provides.
+ *
+ * BackupManager is intended to mask any failures that can occur in replication
+ * (for example, naming, network, or host failures).  Eventually, BackupManager
+ * will be made aware of cluster configuration changes using ServerTracker and
+ * will automatically restore durablity of ReplicatedSegment which have lost
+ * some of their replicas.
  */
 class BackupManager : public ReplicatedSegment::Deleter {
-  PUBLIC:
+   PUBLIC:
     BackupManager(CoordinatorClient* coordinator,
-                  const Tub<uint64_t>& masterId,
-                  uint32_t numReplicas);
+                  const Tub<uint64_t>& masterId, uint32_t numReplicas);
     explicit BackupManager(BackupManager* prototype);
     ~BackupManager();
 
