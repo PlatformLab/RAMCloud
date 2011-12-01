@@ -98,7 +98,7 @@ struct BackupManagerTest : public ::testing::Test {
         mgr.construct(coordinator.get(), serverId, 2);
     }
 
-    void dumpOpenSegments()
+    void dumpReplicatedSegments()
     {
         LOG(ERROR, "%lu open segments:", mgr->replicatedSegmentList.size());
         foreach (auto& segment, mgr->replicatedSegmentList) {

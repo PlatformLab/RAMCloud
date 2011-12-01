@@ -327,9 +327,6 @@ class ReplicatedSegment : public Task {
     DISALLOW_COPY_AND_ASSIGN(ReplicatedSegment);
 };
 
-// TODO: Remove this once OpenSegment is removed from other classes.
-typedef ReplicatedSegment OpenSegment;
-
 } // namespace RAMCloud
 
 #endif
