@@ -793,8 +793,8 @@ string
 TcpTransport::TcpServerRpc::getClientServiceLocator()
 {
     Socket* socket = transport->sockets[fd];
-    return format("tcp:host=%s,port=%d", inet_ntoa(socket->sin.sin_addr),
-        ntohs(socket->sin.sin_port));
+    return format("tcp:host=%s,port=%hu", inet_ntoa(socket->sin.sin_addr),
+        NTOHS(socket->sin.sin_port));
 }
 
 // See Transport::ClientRpc::cancelCleanup for documentation.

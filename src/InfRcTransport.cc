@@ -866,8 +866,8 @@ template<typename Infiniband>
 string
 InfRcTransport<Infiniband>::ServerRpc::getClientServiceLocator()
 {
-    return format("infrc:host=%s,port=%d",
-        inet_ntoa(qp->handshakeSin.sin_addr), ntohs(qp->handshakeSin.sin_port));
+    return format("infrc:host=%s,port=%hu",
+        inet_ntoa(qp->handshakeSin.sin_addr), NTOHS(qp->handshakeSin.sin_port));
 }
 
 //-------------------------------------
