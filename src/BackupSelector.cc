@@ -75,11 +75,11 @@ struct AbuserData{
  *      The coordinator from which the server list is fetched to find backups.
  */
 BackupSelector::BackupSelector(CoordinatorClient* coordinator)
-    : updateHostListThrower()
-    , coordinator(coordinator)
+    : coordinator(coordinator)
     , hosts()
     , hostsOrder()
     , numUsedHosts(0)
+    , updateHostListThrower()
 {
 }
 
@@ -139,42 +139,6 @@ BackupSelector::selectSecondary(uint32_t numBackups,
 }
 
 /**
- * Return a random backup.
- * Guaranteed to return all backups at least once after
- * any hosts.server_size() * 2 consecutive calls.
- * \pre
- *      The backup list is not empty.
- * \return
- *      A random backup.
- *
- * Conceptually, the algorithm operates as follows:
- * A set of candidate backups is initialized with the entire list of backups,
- * and a set of used backups starts off empty. With each call to getRandomHost,
- * one backup is chosen from the set of candidates and is moved into the set of
- * used backups. This is the backup that is returned. Once the set of
- * candidates is exhausted, start over.
- *
- * In practice, the algorithm is implemented efficiently:
- * Every index into the list of hosts is stored in the #hostsOrder array. The
- * backups referred to by hostsOrder[0] through hostsOrder[numUsedHosts - 1]
- * make up the set of used hosts, while the backups referred to by the
- * remainder of the array make up the candidate backups.
- */
-BackupSelector::Backup*
-BackupSelector::getRandomHost()
-{
-    assert(hosts.server_size() > 0);
-    if (numUsedHosts >= hostsOrder.size())
-        numUsedHosts = 0;
-    uint32_t i = numUsedHosts;
-    ++numUsedHosts;
-    uint32_t j = i + downCast<uint32_t>(generateRandom() %
-                                        (hostsOrder.size() - i));
-    std::swap(hostsOrder[i], hostsOrder[j]);
-    return hosts.mutable_server(hostsOrder[i]);
-}
-
-/**
  * Return whether it is unwise to place a replica on backup 'backup' given
  * that a replica exists on backup 'otherBackupId'.
  * For example, it is unwise to place two replicas on the same backup or
@@ -208,6 +172,42 @@ BackupSelector::conflictWithAny(const Backup* backup,
             return true;
     }
     return false;
+}
+
+/**
+ * Return a random backup.
+ * Guaranteed to return all backups at least once after
+ * any hosts.server_size() * 2 consecutive calls.
+ * \pre
+ *      The backup list is not empty.
+ * \return
+ *      A random backup.
+ *
+ * Conceptually, the algorithm operates as follows:
+ * A set of candidate backups is initialized with the entire list of backups,
+ * and a set of used backups starts off empty. With each call to getRandomHost,
+ * one backup is chosen from the set of candidates and is moved into the set of
+ * used backups. This is the backup that is returned. Once the set of
+ * candidates is exhausted, start over.
+ *
+ * In practice, the algorithm is implemented efficiently:
+ * Every index into the list of hosts is stored in the #hostsOrder array. The
+ * backups referred to by hostsOrder[0] through hostsOrder[numUsedHosts - 1]
+ * make up the set of used hosts, while the backups referred to by the
+ * remainder of the array make up the candidate backups.
+ */
+BackupSelector::Backup*
+BackupSelector::getRandomHost()
+{
+    assert(hosts.server_size() > 0);
+    if (numUsedHosts >= hostsOrder.size())
+        numUsedHosts = 0;
+    uint32_t i = numUsedHosts;
+    ++numUsedHosts;
+    uint32_t j = i + downCast<uint32_t>(generateRandom() %
+                                        (hostsOrder.size() - i));
+    std::swap(hostsOrder[i], hostsOrder[j]);
+    return hosts.mutable_server(hostsOrder[i]);
 }
 
 /**

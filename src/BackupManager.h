@@ -22,7 +22,6 @@
 #include "Common.h"
 #include "BoostIntrusive.h"
 #include "BackupSelector.h"
-#include "RawMetrics.h"
 #include "ReplicatedSegment.h"
 #include "TaskManager.h"
 #include "Tub.h"
@@ -62,12 +61,12 @@ class BackupManager : public ReplicatedSegment::Deleter {
     /// Selects backups to store replicas while obeying placement constraints.
     BackupSelector backupSelector;
 
-    /// Id of master that this will be managing replicas for.
-    const Tub<uint64_t>& masterId;
-
     // TODO: Remove this once the alt constructor has been eliminated.
     /// Cluster coordinator. May be NULL for testing purposes.
     CoordinatorClient* const coordinator;
+
+    /// Id of master that this will be managing replicas for.
+    const Tub<uint64_t>& masterId;
 
     /// Allows fast reuse of ReplicatedSegment allocations.
     boost::pool<> replicatedSegmentPool;

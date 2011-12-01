@@ -18,7 +18,6 @@
 #include "CycleCounter.h"
 #include "ShortMacros.h"
 #include "RawMetrics.h"
-#include "Segment.h"
 
 namespace RAMCloud {
 
@@ -36,8 +35,8 @@ BackupManager::BackupManager(CoordinatorClient* coordinator,
                              uint32_t numReplicas)
     : numReplicas(numReplicas)
     , backupSelector(coordinator)
-    , masterId(masterId)
     , coordinator(coordinator)
+    , masterId(masterId)
     , replicatedSegmentPool(ReplicatedSegment::sizeOf(numReplicas))
     , replicatedSegmentList()
     , taskManager()
@@ -63,8 +62,8 @@ BackupManager::BackupManager(CoordinatorClient* coordinator,
 BackupManager::BackupManager(BackupManager* prototype)
     : numReplicas(prototype->numReplicas)
     , backupSelector(prototype->coordinator)
-    , masterId(prototype->masterId)
     , coordinator(prototype->coordinator)
+    , masterId(prototype->masterId)
     , replicatedSegmentPool(ReplicatedSegment::sizeOf(numReplicas))
     , replicatedSegmentList()
     , taskManager()

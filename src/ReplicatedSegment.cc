@@ -61,6 +61,7 @@ ReplicatedSegment::ReplicatedSegment(TaskManager& taskManager,
                                      uint32_t maxBytesPerWriteRpc)
     : Task(taskManager)
     , backupSelector(backupSelector)
+    , deleter(deleter)
     , writeRpcsInFlight(writeRpcsInFlight)
     , masterId(masterId)
     , segmentId(segmentId)
@@ -70,7 +71,6 @@ ReplicatedSegment::ReplicatedSegment(TaskManager& taskManager,
     , queued(true, openLen, false)
     , freeQueued(false)
     , listEntries()
-    , deleter(deleter)
     , replicas(numReplicas)
 {
     schedule(); // schedule to replicate the opening data
@@ -185,7 +185,7 @@ ReplicatedSegment::performFree(Tub<Replica>& replica)
     if (!replica) {
         // Do nothing is there was no replica, no need to reschedule.
         return;
-    } // else...
+    }
 
     if (replica->freeRpc) {
         // A free rpc is outstanding to the backup storing this replica.
@@ -280,7 +280,7 @@ ReplicatedSegment::performWrite(Tub<Replica>& replica)
         replica->sent.bytes = openLen;
         schedule();
         return;
-    } // else
+    }
 
     if (replica->writeRpc) {
         // This backup has a write request outstanding to a backup.

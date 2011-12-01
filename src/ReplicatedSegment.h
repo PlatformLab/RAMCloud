@@ -27,12 +27,6 @@
 
 namespace RAMCloud {
 
-// forward declarations
-class TaskManager;
-class Task;
-class BackupManager;
-class ReplicatedSegment;
-
 /**
  * Tracks state of replication of a log segment and reacts to cluster changes to
  * restore replication invariants; logically part of BackupManager.
@@ -184,10 +178,11 @@ class ReplicatedSegment : public Task {
         explicit Replica(uint64_t backupId, Transport::SessionRef session)
             : backupId(backupId)
             , client(session)
-            , sent()
             , acked()
+            , sent()
+            , freeRpc()
             , writeRpc()
-            , freeRpc() {}
+        {}
 
         /// Id of remote backup server where this replica is (to be) stored.
         const uint64_t backupId;
@@ -196,23 +191,23 @@ class ReplicatedSegment : public Task {
         BackupClient client;
 
         /**
+         * Tracks how much of a segment has been acknowledged as buffered
+         * durably on a backup.
+         */
+        Progress acked;
+
+        /**
          * Tracks how much of a segment has been sent to be buffered
          * durably on a backup.
          * (Note: but not necessarily acknowledged, see #acked).
          */
         Progress sent;
 
-        /**
-         * Tracks how much of a segment has been acknowledged as buffered
-         * durably on a backup.
-         */
-        Progress acked;
+        /// The outstanding free operation to this backup, if any.
+        Tub<BackupClient::FreeSegment> freeRpc;
 
         /// The outstanding write operation to this backup, if any.
         Tub<BackupClient::WriteSegment> writeRpc;
-
-        /// The outstanding free operation to this backup, if any.
-        Tub<BackupClient::FreeSegment> freeRpc;
 
         DISALLOW_COPY_AND_ASSIGN(Replica);
     };
@@ -246,7 +241,7 @@ class ReplicatedSegment : public Task {
      * Return the minimum Progress made in syncing this replica to Backups
      * for any of the replicas.
      */
-    Progress getAcked() {
+    Progress getAcked() const {
         Progress p = queued;
         foreach (auto& replica, replicas) {
             if (replica)
@@ -261,10 +256,10 @@ class ReplicatedSegment : public Task {
      * Returns true when all data queued for writing by the log module for this
      * segment is durably synced to #numReplicas including any outstanding flags.
      */
-    bool isSynced() { return getAcked() == queued; }
+    bool isSynced() const { return getAcked() == queued; }
 
     /// Return true if this replica should be considered the primary replica.
-    bool replicaIsPrimary(Tub<Replica>& replica) {
+    bool replicaIsPrimary(Tub<Replica>& replica) const {
         return &replica == &replicas[0];
     }
 
@@ -276,6 +271,9 @@ class ReplicatedSegment : public Task {
 // - member variables -
     /// Used to choose where to store replicas. Shared among ReplicatedSegments.
     BaseBackupSelector& backupSelector;
+
+    /// Deletes this when this determines it is no longer needed.  See #Deleter.
+    Deleter& deleter;
 
     /**
      * Number of outstanding write RPCs to backups across all
@@ -314,9 +312,6 @@ class ReplicatedSegment : public Task {
 
     /// Intrusive list entries for #BackupManager::replicatedSegmentList.
     IntrusiveListHook listEntries;
-
-    /// Deletes this when this determines it is no longer needed.  See #Deleter.
-    Deleter& deleter;
 
     /**
      * An array of #BackupManager::replica backups on which the segment is

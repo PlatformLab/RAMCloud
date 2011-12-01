@@ -46,16 +46,13 @@ class BackupSelector : public BaseBackupSelector {
     Backup* selectSecondary(uint32_t numBackups, const uint64_t backupIds[]);
 
   PRIVATE:
-    Backup* getRandomHost();
     bool conflict(const Backup* backup,
                   const uint64_t otherBackupId) const;
     bool conflictWithAny(const Backup* backup,
                          uint32_t numBackups,
                          const uint64_t backupIds[]) const;
+    Backup* getRandomHost();
     void updateHostListFromCoordinator();
-
-    /// A hook for testing purposes.
-    DelayedThrower<> updateHostListThrower;
 
     /// Cluster coordinator. May be NULL for testing purposes.
     CoordinatorClient* const coordinator;
@@ -75,6 +72,9 @@ class BackupSelector : public BaseBackupSelector {
      * #hosts list.
      */
     uint32_t numUsedHosts;
+
+    /// A hook for testing purposes.
+    DelayedThrower<> updateHostListThrower;
 
     DISALLOW_COPY_AND_ASSIGN(BackupSelector);
 };
