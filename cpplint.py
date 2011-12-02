@@ -2467,7 +2467,7 @@ def CheckLanguage(filename, clean_lines, linenum, file_extension, include_state,
 
   if (Search(r'\b(ntohs|htons)\b', line)):
       error(filename, linenum, 'runtime/ntohs,htons', 5,
-            'Use the NTOHS or HTONS macros instead or DEBUG=no breaks')
+            'Use the NTOHS or HTONS macros instead of DEBUG=no breaks')
 
   # Check if some verboten operator overloading is going on
   # TODO(unknown): catch out-of-line unary operator&:
