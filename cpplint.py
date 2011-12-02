@@ -2465,6 +2465,10 @@ def CheckLanguage(filename, clean_lines, linenum, file_extension, include_state,
       error(filename, linenum, 'ramcloud/object_pool', 5,
             'Use RAMCloud::ObjectPool rather than boost::object_pool')
 
+  if (Search(r'\b(ntohs|htons)\b', line)):
+      error(filename, linenum, 'runtime/ntohs,htons', 5,
+            'Use the NTOHS or HTONS macros instead or DEBUG=no breaks')
+
   # Check if some verboten operator overloading is going on
   # TODO(unknown): catch out-of-line unary operator&:
   #   class X {};

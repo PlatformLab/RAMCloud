@@ -1571,7 +1571,7 @@ class ClientSessionTest: public ::testing::Test {
         , port(12345)
     {
         addr.sin_family = AF_INET;
-        addr.sin_port = htons(port);
+        addr.sin_port = HTONS(port);
         assert(inet_aton(&address[0], &addr.sin_addr));
         addrLen = sizeof(addr);
         addrp = reinterpret_cast<sockaddr*>(&addr);

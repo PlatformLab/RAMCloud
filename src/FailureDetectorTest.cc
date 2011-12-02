@@ -108,17 +108,17 @@ TEST_F(FailureDetectorTest, serviceLocatorStringToSockaddrIn) {
     sockaddr_in sin;
     sin = fd.serviceLocatorStringToSockaddrIn("infrc:host=1.2.3.4,port=52");
     EXPECT_STREQ("1.2.3.4", inet_ntoa(sin.sin_addr));
-    EXPECT_EQ(52 + 2111, ntohs(sin.sin_port));
+    EXPECT_EQ(52 + 2111, NTOHS(sin.sin_port));
 
     sin = fd.serviceLocatorStringToSockaddrIn("tcp:host=4.3.2.1,port=0;"
         "fast+udp:host=1.9.8.5,port=59;infrc:host=1.2.3.4,port=52");
     EXPECT_STREQ("1.2.3.4", inet_ntoa(sin.sin_addr));
-    EXPECT_EQ(52 + 2111, ntohs(sin.sin_port));
+    EXPECT_EQ(52 + 2111, NTOHS(sin.sin_port));
 
     sin = fd.serviceLocatorStringToSockaddrIn("tcp:host=4.3.2.1,port=0;"
         "fast+udp:host=1.9.8.5,port=59");
     EXPECT_STREQ("1.9.8.5", inet_ntoa(sin.sin_addr));
-    EXPECT_EQ(59 + 2111, ntohs(sin.sin_port));
+    EXPECT_EQ(59 + 2111, NTOHS(sin.sin_port));
 
     EXPECT_THROW(
         fd.serviceLocatorStringToSockaddrIn("bogus:foo=bar"),
