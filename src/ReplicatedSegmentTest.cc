@@ -42,6 +42,8 @@ struct MockBackupSelector : public BaseBackupSelector {
 
     Backup* selectSecondary(uint32_t numBackups, const uint64_t backupIds[]) {
         assert(backups.size());
+        for (uint32_t i = 0; i < numBackups; ++i)
+            TEST_LOG("conflicting backupId: %lu", backupIds[i]);
         Backup* backup = &backups[nextIndex++];
         nextIndex %= backups.size();
         return backup;
@@ -260,10 +262,15 @@ TEST_F(ReplicatedSegmentTest, performFreeWriteRpcInProgress) {
     EXPECT_EQ(1u, deleter.count);
 }
 
-TEST_F(ReplicatedSegmentTest, performWriteNotOpen) {
+TEST_F(ReplicatedSegmentTest, performWriteOpen) {
     segment->write(openLen);
     segment->close(NULL);
-    taskManager.proceed();
+    {
+        TestLog::Enable _;
+        taskManager.proceed();
+        EXPECT_STREQ("selectSecondary: conflicting backupId: 0",
+                     TestLog::get().c_str());
+    }
 
     // "10 5" is length 10 (OPEN | PRIMARY), "10 1" is length 10 OPEN
     EXPECT_STREQ("clientSend: 0x40021 0 999 0 888 0 0 10 5 0 abcedfghij | "
@@ -279,7 +286,7 @@ TEST_F(ReplicatedSegmentTest, performWriteNotOpen) {
     reset();
 }
 
-TEST_F(ReplicatedSegmentTest, performWriteNotOpenTooManyInFlight) {
+TEST_F(ReplicatedSegmentTest, performWriteOpenTooManyInFlight) {
     writeRpcsInFlight = ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT;
     segment->write(openLen);
     taskManager.proceed(); // try to send writes
@@ -394,6 +401,48 @@ TEST_F(ReplicatedSegmentTest, performWriteClosedButLongerThanMaxTxLimit) {
     reset();
 }
 
+TEST_F(ReplicatedSegmentTest, performWriteEnsureNewHeadOpenAckedBeforeClose) {
+    taskManager.proceed(); // send segment open
+    taskManager.proceed(); // reap segment open
+
+    void* segMem = operator new(ReplicatedSegment::sizeOf(numReplicas));
+    auto newHead = std::unique_ptr<ReplicatedSegment>(
+            new(segMem) ReplicatedSegment(taskManager, backupSelector,
+                                          deleter, writeRpcsInFlight,
+                                          masterId, segmentId + 1,
+                                          data, openLen, numReplicas,
+                                          MAX_BYTES_PER_WRITE));
+
+    segment->close(newHead.get());
+
+    taskManager.proceed(); // send newHead open, try segment close but can't
+
+    EXPECT_TRUE(newHead->isScheduled());
+    ASSERT_TRUE(newHead->replicas[0]);
+    EXPECT_TRUE(newHead->replicas[0]->writeRpc);
+    EXPECT_TRUE(newHead->replicas[0]->sent.open);
+    EXPECT_FALSE(newHead->replicas[0]->acked.open);
+
+    EXPECT_TRUE(segment->isScheduled());
+    ASSERT_TRUE(segment->replicas[0]);
+    EXPECT_FALSE(segment->replicas[0]->writeRpc);
+    EXPECT_FALSE(segment->replicas[0]->sent.close);
+
+    taskManager.proceed(); // reap newHead open, try segment close should work
+
+    EXPECT_FALSE(newHead->isScheduled());
+    ASSERT_TRUE(newHead->replicas[0]);
+    EXPECT_FALSE(newHead->replicas[0]->writeRpc);
+    EXPECT_TRUE(newHead->replicas[0]->acked.open);
+
+    EXPECT_TRUE(segment->isScheduled());
+    ASSERT_TRUE(segment->replicas[0]);
+    EXPECT_TRUE(segment->replicas[0]->writeRpc);
+    EXPECT_TRUE(segment->replicas[0]->sent.close);
+
+    EXPECT_EQ(0u, deleter.count);
+    reset();
+}
 // TODO: Tests to ensure segments reset from corrupted state schedule and work.
 // TODO: Test that close gets sent if open + 0 byte closing write are queued.
 
