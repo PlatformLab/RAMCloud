@@ -189,10 +189,6 @@ Segment::commonConstructor(LogEntryType type,
 
 Segment::~Segment()
 {
-    // TODO(ongaro): I'm not convinced this makes any sense. sync is probably
-    // better.
-    if (backup)
-        backupSegment->free();
 }
 
 /**
@@ -264,8 +260,12 @@ Segment::multiAppend(SegmentMultiAppendVector& appends, bool sync)
     }
 
     // Sync once, if needed, in order to write everything atomically.
-    if (sync)
-        locklessSync();
+    if (backup) {
+        backupSegment->write(tail);
+        if (sync) {
+            backup->sync();
+        }
+    }
 
     return handles;
 }
@@ -386,7 +386,7 @@ Segment::setImplicitlyFreedCounts(uint32_t freeByteSum,
  *      An exception is thrown if the Segment has already been closed.
  */
 void
-Segment::close(bool sync)
+Segment::close(const Segment* nextHead, bool sync)
 {
     boost::lock_guard<SpinLock> lock(mutex);
 
@@ -403,21 +403,38 @@ Segment::close(bool sync)
     closed = true;
 
     if (backup) {
-        backupSegment->write(tail, true); // start replicating immediately
+        backupSegment->close(nextHead ?  nextHead->backupSegment : NULL);
         if (sync) // sync determines whether to wait for the acks
             backup->sync();
     }
 }
 
 /**
- * \copydoc Segment::locklessSync
+ * Wait for the segment to be fully replicated.
  */
 void
 Segment::sync()
 {
     boost::lock_guard<SpinLock> lock(mutex);
-    locklessSync();
+    if (backup)
+        backup->sync();
 }
+
+/**
+ * Request the eventual freeing all known replicas of a segment from its
+ * backups.  Requires that the segment has been closed.
+ */
+void
+Segment::freeReplicas()
+{
+    assert(closed);
+    assert(!backup || backupSegment);
+    if (backup) {
+        backupSegment->free();
+        backupSegment = NULL;
+    }
+}
+
 
 /**
  * Obtain a const pointer to the first byte of backing memory for this Segment.
@@ -629,22 +646,6 @@ Segment::locklessCanAppendEntries(size_t numberOfEntries,
 }
 
 /**
- * Wait for the segment to be fully replicated.
- */
-void
-Segment::locklessSync()
-{
-    if (backup) {
-        if (backupSegment) {
-            backupSegment->write(tail, closed);
-            if (closed)
-                backupSegment = NULL;
-        }
-        backup->sync();
-    }
-}
-
-/**
  * Increment the spaceTime product sum in light of a new entry.
  *
  * \param[in] handle
@@ -803,8 +804,14 @@ Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
         forceAppendBlob(buffer, length);
     }
 
-    if (sync)
-        locklessSync();
+    if (backup && backupSegment) {
+        // backupSegment can be NULL while initial opening entries for the
+        // segment header are appended but before openSegment is called.
+        backupSegment->write(tail);
+        if (sync) {
+            backup->sync();
+        }
+    }
 
     SegmentEntryHandle handle =
         reinterpret_cast<SegmentEntryHandle>(entryPointer);

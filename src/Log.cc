@@ -120,7 +120,7 @@ Log::~Log()
     freePendingReferenceList.clear_and_dispose(SegmentDisposer());
 
     if (head) {
-        head->close();
+        head->sync();
         delete head;
     }
 }
@@ -190,7 +190,7 @@ Log::allocateHead()
 
     // only close the old head _after_ we've opened up the new head!
     if (head) {
-        head->close(false); // an exception here would be problematic...
+        head->close(nextHead, false); // an exception here would be problematic.
     }
 
     head = nextHead;
@@ -647,6 +647,7 @@ Log::cleaningComplete(SegmentVector& clean,
         freePendingReferenceList.erase(
             freePendingReferenceList.iterator_to(*s));
         locklessAddToFreeList(const_cast<void*>(s->getBaseAddress()));
+        s->freeReplicas();
         delete s;
         change = true;
     }

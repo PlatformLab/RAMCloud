@@ -69,7 +69,7 @@ class RecoverSegmentBenchmark {
                     break;
                 numObjects++;
             }
-            segments[i]->close();
+            segments[i]->close(NULL);
         }
 
         /* Update the list of Tablets */
@@ -108,6 +108,7 @@ class RecoverSegmentBenchmark {
         // clean up
         for (int i = 0; i < numSegments; i++) {
             free(const_cast<void *>(segments[i]->getBaseAddress()));
+            segments[i]->freeReplicas();
             delete segments[i];
         }
     }

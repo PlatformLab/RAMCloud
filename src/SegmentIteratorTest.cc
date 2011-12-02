@@ -152,7 +152,7 @@ TEST_F(SegmentIteratorTest, next) {
         Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf));
         SegmentIterator si(&s);
 
-        s.close();
+        s.close(NULL);
         si.next();
         EXPECT_EQ(LOG_ENTRY_TYPE_SEGFOOTER, si.type);
         EXPECT_EQ(sizeof(SegmentFooter), si.length);
@@ -221,7 +221,7 @@ TEST_F(SegmentIteratorTest, isSegmentChecksumValid) {
     EXPECT_THROW(SegmentIterator(
         s.baseAddress, s.capacity).isSegmentChecksumValid(),
         SegmentIteratorException);
-    s.close();
+    s.close(NULL);
 
     EXPECT_TRUE(SegmentIterator(
         s.baseAddress, s.capacity).isSegmentChecksumValid());

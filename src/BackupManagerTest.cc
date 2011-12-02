@@ -177,7 +177,7 @@ TEST_F(BackupManagerTest, writeSegment) {
     object.id.tableId = 123;
     object.version = 0;
     seg.append(LOG_ENTRY_TYPE_OBJ, &object, sizeof(object));
-    seg.close();
+    seg.close(NULL);
 
     EXPECT_EQ(1U, mgr->replicatedSegmentList.size());
 
@@ -219,7 +219,7 @@ TEST_F(BackupManagerTest, writeSegment) {
 }
 
 TEST_F(BackupManagerTest, proceed) {
-    mgr->openSegment(89, NULL, 0)->close();
+    mgr->openSegment(89, NULL, 0)->close(NULL);
     auto& segment = mgr->replicatedSegmentList.front();
     EXPECT_FALSE(segment.replicas[0]);
     mgr->proceed();
@@ -228,9 +228,9 @@ TEST_F(BackupManagerTest, proceed) {
 }
 
 TEST_F(BackupManagerTest, sync) {
-    mgr->openSegment(89, NULL, 0)->close();
-    mgr->openSegment(90, NULL, 0)->close();
-    mgr->openSegment(91, NULL, 0)->close();
+    mgr->openSegment(89, NULL, 0)->close(NULL);
+    mgr->openSegment(90, NULL, 0)->close(NULL);
+    mgr->openSegment(91, NULL, 0)->close(NULL);
     mgr->sync();
 }
 
@@ -239,8 +239,8 @@ TEST_F(BackupManagerTest, clusterConfigurationChanged) {
 }
 
 TEST_F(BackupManagerTest, isSynced) {
-    mgr->openSegment(89, NULL, 0)->close();
-    mgr->openSegment(90, NULL, 0)->close();
+    mgr->openSegment(89, NULL, 0)->close(NULL);
+    mgr->openSegment(90, NULL, 0)->close(NULL);
     EXPECT_FALSE(mgr->isSynced());
     mgr->proceed(); // send opens
     EXPECT_FALSE(mgr->isSynced());

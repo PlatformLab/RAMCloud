@@ -199,8 +199,9 @@ class Segment {
     void               free(SegmentEntryHandle entry);
     void               setImplicitlyFreedCounts(uint32_t freeByteSum,
                                                 uint64_t freeSpaceTimeSum);
-    void               close(bool sync = true);
+    void               close(const Segment* nextHead, bool sync = true);
     void               sync();
+    void               freeReplicas();
     const void        *getBaseAddress() const;
     uint64_t           getId() const;
     uint32_t           getCapacity() const;
@@ -298,7 +299,6 @@ class Segment {
     uint32_t           locklessAppendableBytes() const;
     bool               locklessCanAppendEntries(size_t numberOfEntries,
                                            size_t numberOfBytesInEntries) const;
-    void               locklessSync();
     void               incrementSpaceTimeSum(SegmentEntryHandle handle);
     void               decrementSpaceTimeSum(SegmentEntryHandle handle);
     void               adjustSpaceTimeSum(SegmentEntryHandle handle,

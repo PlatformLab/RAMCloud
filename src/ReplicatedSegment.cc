@@ -70,6 +70,7 @@ ReplicatedSegment::ReplicatedSegment(TaskManager& taskManager,
     , maxBytesPerWriteRpc(maxBytesPerWriteRpc)
     , queued(true, openLen, false)
     , freeQueued(false)
+    , nextHeadSegment(NULL)
     , listEntries()
     , replicas(numReplicas)
 {
@@ -91,6 +92,29 @@ ReplicatedSegment::free()
 {
     TEST_LOG("%lu, %lu", masterId, segmentId);
     freeQueued = true;
+    // TODO: Must wait to ensure all writeRpcs are done here.
+    schedule();
+}
+
+/**
+ * TODO
+ *      Whether to close the segment after writing this data.  If this is
+ *      true no subsequent writes to this segment are permitted (free is
+ *      the only valid operation at that point).
+ */
+void
+ReplicatedSegment::close(const ReplicatedSegment* nextHeadSegment)
+{
+    TEST_LOG("%lu, %lu, %lu", masterId, segmentId, nextHeadSegment ?
+                                            nextHeadSegment->segmentId : 0);
+
+    // immutable after close
+    assert(!queued.close);
+    queued.close = true;
+    this->nextHeadSegment = nextHeadSegment;
+    LOG(DEBUG, "Segment %lu closed (length %d)", segmentId, queued.bytes);
+    ++metrics->master.segmentCloseCount;
+
     schedule();
 }
 
@@ -104,28 +128,17 @@ ReplicatedSegment::free()
  *      All previous segments have been closed (at least locally).
  * \param offset
  *      The number of bytes into the segment to replicate.
- * \param closeSegment
- *      Whether to close the segment after writing this data.  If this is
- *      true no subsequent writes to this segment are permitted (free is
- *      the only valid operation at that point).
  */
 void
-ReplicatedSegment::write(uint32_t offset,
-                         bool closeSegment)
+ReplicatedSegment::write(uint32_t offset)
 {
-    TEST_LOG("%lu, %lu, %u, %d", masterId, segmentId, offset, closeSegment);
-
-    // offset monotonically increases
-    assert(offset >= queued.bytes);
-    queued.bytes = offset;
+    TEST_LOG("%lu, %lu, %u", masterId, segmentId, offset);
 
     // immutable after close
     assert(!queued.close);
-    queued.close = closeSegment;
-    if (queued.close) {
-        LOG(DEBUG, "Segment %lu closed (length %d)", segmentId, queued.bytes);
-        ++metrics->master.segmentCloseCount;
-    }
+    // offset monotonically increases
+    assert(offset >= queued.bytes);
+    queued.bytes = offset;
 
     schedule();
 }
@@ -248,8 +261,7 @@ ReplicatedSegment::performWrite(Tub<Replica>& replica)
         return;
     }
 
-    // TODO: make ::close take pointer to the next log segment
-    if (!replica /* TODO && nextSegment->getAcked().open */) {
+    if (!replica) {
         // This replica does not exist yet. Choose a backup and send the open.
         // Happens for a new segment or if a replica was known to be lost.
         if (writeRpcsInFlight == MAX_WRITE_RPCS_IN_FLIGHT) {
@@ -322,9 +334,30 @@ ReplicatedSegment::performWrite(Tub<Replica>& replica)
                                             BackupWriteRpc::CLOSE :
                                             BackupWriteRpc::NONE;
 
+            // TODO: This is a bug, breaks atomicity of log entries.
             if (length > maxBytesPerWriteRpc) {
                 length = maxBytesPerWriteRpc;
                 flags = BackupWriteRpc::NONE;
+            }
+
+            if (flags == BackupWriteRpc::CLOSE) {
+                // Do not send a closing write RPC for this replica until
+                // some other segment later in the log has been durably
+                // opened.  This ensures that the coordinator will find
+                // an open segment during recovery whichs lets it know
+                // the entire log has been found (that is, log isn't missing
+                // some head segments).
+                if (nextHeadSegment) {
+                    if (!nextHeadSegment->getAcked().open) {
+                        schedule();
+                        return;
+                    }
+                } else {
+                    LOG(WARNING, "Issuing a closing write for a segment when "
+                        "the log provided no next log segment to ensure "
+                        "open-next-segment-before-close (threatens the "
+                        "integrity of the head of the log).");
+                }
             }
 
             const char* src = static_cast<const char*>(data) + offset;

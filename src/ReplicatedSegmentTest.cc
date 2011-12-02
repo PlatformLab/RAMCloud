@@ -110,6 +110,7 @@ struct ReplicatedSegmentTest : public ::testing::Test {
         transport.setInput("0");
         transport.setInput("0");
         transport.setInput("0");
+
         void* segMem = operator new(ReplicatedSegment::sizeOf(numReplicas));
         segment = std::unique_ptr<ReplicatedSegment>(
                 new(segMem) ReplicatedSegment(taskManager, backupSelector,
@@ -117,6 +118,7 @@ struct ReplicatedSegmentTest : public ::testing::Test {
                                               masterId, segmentId,
                                               data, openLen, numReplicas,
                                               MAX_BYTES_PER_WRITE));
+
         const char* msg = "abcedfghijklmnopqrstuvwxyz";
         size_t msgLen = strlen(msg);
         for (int i = 0; i < DATA_LEN; ++i)
@@ -147,7 +149,8 @@ TEST_F(ReplicatedSegmentTest, constructor) {
 }
 
 TEST_F(ReplicatedSegmentTest, free) {
-    segment->write(openLen, true);
+    segment->write(openLen);
+    segment->close(NULL);
     segment->free();
     EXPECT_TRUE(segment->freeQueued);
     EXPECT_TRUE(segment->isScheduled());
@@ -157,18 +160,20 @@ TEST_F(ReplicatedSegmentTest, free) {
 }
 
 TEST_F(ReplicatedSegmentTest, write) {
-    segment->write(openLen + 10, false);
+    segment->write(openLen + 10);
     EXPECT_TRUE(segment->isScheduled());
     ASSERT_FALSE(taskManager.isIdle());
     EXPECT_EQ(segment.get(), taskManager.tasks.front());
     reset();
-    segment->write(openLen + 10, true);
+    segment->write(openLen + 10);
+    segment->close(NULL);
     EXPECT_TRUE(segment->queued.close);
     reset();
 }
 
 TEST_F(ReplicatedSegmentTest, performTaskFreeNothingToDo) {
-    segment->write(openLen + 10, true);
+    segment->write(openLen + 10);
+    segment->close(NULL);
     segment->free();
     taskManager.proceed();
     EXPECT_FALSE(segment->isScheduled());
@@ -176,7 +181,8 @@ TEST_F(ReplicatedSegmentTest, performTaskFreeNothingToDo) {
 }
 
 TEST_F(ReplicatedSegmentTest, performTaskFreeOneReplicaToFree) {
-    segment->write(openLen, true);
+    segment->write(openLen);
+    segment->close(NULL);
     segment->free();
 
     Transport::SessionRef session = transport.getSession();
@@ -223,7 +229,8 @@ TEST_F(ReplicatedSegmentTest, performFreeWriteRpcInProgress) {
     MockTransport transport;
     TransportManager::MockRegistrar _(transport);
 
-    segment->write(openLen, true);
+    segment->write(openLen);
+    segment->close(NULL);
     taskManager.proceed(); // writeRpc created
     segment->free();
 
@@ -254,7 +261,8 @@ TEST_F(ReplicatedSegmentTest, performFreeWriteRpcInProgress) {
 }
 
 TEST_F(ReplicatedSegmentTest, performWriteNotOpen) {
-    segment->write(openLen, true);
+    segment->write(openLen);
+    segment->close(NULL);
     taskManager.proceed();
 
     // "10 5" is length 10 (OPEN | PRIMARY), "10 1" is length 10 OPEN
@@ -273,7 +281,7 @@ TEST_F(ReplicatedSegmentTest, performWriteNotOpen) {
 
 TEST_F(ReplicatedSegmentTest, performWriteNotOpenTooManyInFlight) {
     writeRpcsInFlight = ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT;
-    segment->write(openLen, false);
+    segment->write(openLen);
     taskManager.proceed(); // try to send writes
 
     EXPECT_FALSE(segment->replicas[0]);
@@ -312,7 +320,8 @@ TEST_F(ReplicatedSegmentTest, performWriteNotOpenTooManyInFlight) {
 }
 
 TEST_F(ReplicatedSegmentTest, performWriteRpcIsReady) {
-    segment->write(openLen, true);
+    segment->write(openLen);
+    segment->close(NULL);
 
     taskManager.proceed();
     ASSERT_TRUE(segment->replicas[0]);
@@ -331,7 +340,8 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcIsReady) {
 // TODO: Unit test performWriteRpcFailed once we have the right code there
 
 TEST_F(ReplicatedSegmentTest, performWriteMoreToSend) {
-    segment->write(openLen + 20, true);
+    segment->write(openLen + 20);
+    segment->close(segment.get()); // dubious, but should work for testing
     taskManager.proceed(); // send open
     EXPECT_TRUE(segment->isScheduled());
     taskManager.proceed(); // reap opens
@@ -352,7 +362,8 @@ TEST_F(ReplicatedSegmentTest, performWriteMoreToSend) {
 }
 
 TEST_F(ReplicatedSegmentTest, performWriteClosedButLongerThanMaxTxLimit) {
-    segment->write(segment->maxBytesPerWriteRpc + segment->openLen + 1, true);
+    segment->write(segment->maxBytesPerWriteRpc + segment->openLen + 1);
+    segment->close(segment.get()); // dubious, but should work for testing.
     taskManager.proceed(); // send open
     EXPECT_TRUE(segment->isScheduled());
     taskManager.proceed(); // reap opens

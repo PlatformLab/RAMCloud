@@ -109,7 +109,7 @@ TEST_F(LogTest, allocateHead_basics) {
         EXPECT_EQ(2, ld.getSegmentCount());
         EXPECT_EQ(s->getId(), ld.getSegmentIds()[1]);
 
-        EXPECT_THROW(oldHead->close(), SegmentException);
+        EXPECT_THROW(oldHead->close(NULL), SegmentException);
         EXPECT_TRUE(s != oldHead);
     }
 
@@ -470,6 +470,7 @@ TEST_F(LogTest, cleaningComplete) {
     Segment* cleanSeg = new Segment(&l, l.allocateSegmentId(),
         l.getFromFreeList(false), 8192, NULL, LOG_ENTRY_TYPE_UNINIT,
         NULL, 0);
+    cleanSeg->close(NULL);
 
     Segment* liveSeg = new Segment(&l, l.allocateSegmentId(),
         l.getFromFreeList(false), 8192, NULL, LOG_ENTRY_TYPE_UNINIT,

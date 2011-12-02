@@ -146,9 +146,10 @@ BackupManager::proceed()
 void
 BackupManager::sync()
 {
+    TEST_LOG("syncing");
     {
         CycleCounter<RawMetric> _(&metrics->master.backupManagerTicks);
-        while (!isSynced()) {
+        while (!taskManager.isIdle()) {
             taskManager.proceed();
         }
     } // block ensures that _ is destroyed and counter stops

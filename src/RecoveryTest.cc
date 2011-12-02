@@ -89,7 +89,7 @@ class RecoveryTest : public ::testing::Test {
                         downCast<uint32_t>(sizeof(temp)));
 
             if (close)
-                seg->close();
+                seg->close(seg); // dubious, but should work for testing
         }
 
         ~WriteValidSegment()

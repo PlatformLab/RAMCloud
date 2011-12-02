@@ -37,6 +37,7 @@ namespace RAMCloud {
  *    methods are interesting.  They allow the log to queue portions of the
  *    log segment data for replication and to eventually free replicas of the
  *    log segment once the segment has been cleaned.
+ *
  * 2) The BackupManager uses ReplicatedSegment to track the progress made in
  *    replicating the log segment's data.  The basic idea is that when cluster
  *    failures occur the ReplicatedSegment is made aware of the failure.  The
@@ -218,8 +219,8 @@ class ReplicatedSegment : public Task {
 // --- ReplicatedSegment ---
   PUBLIC:
     void free();
-    void close() { write(queued.bytes, true); }
-    void write(uint32_t offset, bool closeSegment);
+    void close(const ReplicatedSegment* nextHeadSegment);
+    void write(uint32_t offset);
 
   PRIVATE:
     friend class BackupManager;
@@ -312,6 +313,9 @@ class ReplicatedSegment : public Task {
 
     /// True if all known replicas of this segment should be freed on backups.
     bool freeQueued;
+
+    /// Segment that must be durably open before closes can be sent.
+    const ReplicatedSegment* nextHeadSegment;
 
     /// Intrusive list entries for #BackupManager::replicatedSegmentList.
     IntrusiveListHook listEntries;

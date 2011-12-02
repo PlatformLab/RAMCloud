@@ -569,7 +569,7 @@ double segmentIterator()
             break;
         numObjects++;
     }
-    segment->close();
+    segment->close(NULL);
 
     // scan through the segment
     uint64_t totalBytes = 0;

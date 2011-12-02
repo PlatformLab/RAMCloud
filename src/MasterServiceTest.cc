@@ -124,7 +124,7 @@ class MasterServiceTest : public ::testing::Test {
         const void *p = s.append(LOG_ENTRY_TYPE_OBJ, newObject,
             newObject->objectLength(len))->userData();
         assert(p != NULL);
-        s.close();
+        s.close(NULL);
         return downCast<uint32_t>(static_cast<const char*>(p) - segmentBuf);
     }
 
@@ -137,7 +137,7 @@ class MasterServiceTest : public ::testing::Test {
         const void *p = s.append(LOG_ENTRY_TYPE_OBJTOMB,
             tomb, sizeof(*tomb))->userData();
         assert(p != NULL);
-        s.close();
+        s.close(NULL);
         return downCast<uint32_t>(static_cast<const char*>(p) - segmentBuf);
     }
 
@@ -1082,11 +1082,11 @@ TEST_F(MasterRecoverTest, recover) {
     serverId.construct(99);
     BackupManager mgr(coordinator, serverId, 2);
     Segment s1(99, 87, segMem1, segmentSize, &mgr);
-    s1.close();
+    s1.close(NULL);
     char* segMem2 = static_cast<char*>(Memory::xmemalign(HERE, segmentSize,
                                                          segmentSize));
     Segment s2(99, 88, segMem2, segmentSize, &mgr);
-    s2.close();
+    s2.close(NULL);
 
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
