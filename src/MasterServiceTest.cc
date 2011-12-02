@@ -962,8 +962,12 @@ TEST_F(MasterServiceFullSegmentSizeTest, write_maximumObjectSize) {
     EXPECT_THROW(client->create(0, buf, MAX_OBJECT_SIZE+1),
         LogException);
 
-    // should succeed
-    client->create(0, buf, MAX_OBJECT_SIZE);
+    // creation should succeed
+    uint64_t objId;
+    EXPECT_NO_THROW(objId = client->create(0, buf, MAX_OBJECT_SIZE));
+
+    // overwrite should also succeed
+    EXPECT_NO_THROW(client->write(0, objId, buf, MAX_OBJECT_SIZE));
 
     delete[] buf;
 }

@@ -262,9 +262,10 @@ LogEntryHandle
 Log::append(LogEntryType type, const void *buffer, const uint32_t length,
     bool sync, Tub<SegmentChecksum::ResultType> expectedChecksum)
 {
-    if (length > maximumBytesPerAppend)
+    if (length > maximumBytesPerAppend) {
         throw LogException(HERE, format("append length (%d) exceeds "
                 "maximum allowed (%d)", length, maximumBytesPerAppend));
+    }
 
     LogMultiAppendVector appends;
     appends.push_back({ type, buffer, length, expectedChecksum });
@@ -281,10 +282,11 @@ Log::multiAppend(LogMultiAppendVector& appends, bool sync)
 
     for (size_t i = 0; i < appends.size(); i++) {
         assert(getTypeInfo(appends[i].type) != NULL);
-        if (appends[i].length > maximumBytesPerAppend)
+        if (appends[i].length > maximumBytesPerAppend) {
             throw LogException(HERE, format("append length (%d) exceeds "
                 "maximum allowed (%d)", appends[i].length,
                 maximumBytesPerAppend));
+        }
     }
 
     do {
