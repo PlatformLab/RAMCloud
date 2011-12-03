@@ -172,6 +172,8 @@ ServerList::remove(ServerId id)
 uint32_t
 ServerList::getHighestIndex()
 {
+    boost::lock_guard<SpinLock> lock(mutex);
+
     assert(serverList.size() > 0);
     return downCast<uint32_t>(serverList.size() - 1);
 }
@@ -184,6 +186,8 @@ ServerList::getHighestIndex()
 ServerId
 ServerList::getServerId(uint32_t index)
 {
+    boost::lock_guard<SpinLock> lock(mutex);
+
     if (index >= serverList.size() || !serverList[index])
         return ServerId(/* invalid id */);
     return serverList[index]->serverId;
