@@ -379,6 +379,13 @@ Segment::setImplicitlyFreedCounts(uint32_t freeByteSum,
  * Close the Segment. Once a Segment has been closed, it is considered
  * closed, i.e. it cannot be appended to. Calling #free on a closed
  * Segment to maintain utilisation counts is still permitted. 
+ * \param nextHead
+ *      For a normal log segment this is a pointer to the Segment
+ *      which logically will follow this segment in the log.  Used to check
+ *      ordering constraints of backup replication operations, see above.
+ *      Pass NULL for log cleaning or during unit testing to bypass the
+ *      ordering constraints.  See ReplicatedSegment::close for details
+ *      about the contraints which are critical for log integrity.
  * \param sync
  *      Whether to wait for the replicas to acknowledge that the segment is
  *      closed.
@@ -386,7 +393,7 @@ Segment::setImplicitlyFreedCounts(uint32_t freeByteSum,
  *      An exception is thrown if the Segment has already been closed.
  */
 void
-Segment::close(const Segment* nextHead, bool sync)
+Segment::close(Segment* nextHead, bool sync)
 {
     boost::lock_guard<SpinLock> lock(mutex);
 

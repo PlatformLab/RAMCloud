@@ -199,7 +199,7 @@ class Segment {
     void               free(SegmentEntryHandle entry);
     void               setImplicitlyFreedCounts(uint32_t freeByteSum,
                                                 uint64_t freeSpaceTimeSum);
-    void               close(const Segment* nextHead, bool sync = true);
+    void               close(Segment* nextHead, bool sync = true);
     void               sync();
     void               freeReplicas();
     const void        *getBaseAddress() const;

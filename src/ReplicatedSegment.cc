@@ -85,23 +85,105 @@ ReplicatedSegment::~ReplicatedSegment()
 /**
  * Request the eventual freeing all known replicas of a segment from its
  * backups.  The caller's ReplicatedSegment pointer is invalidated upon the
- * return of this function.  There is currently no way to synchronously force
- * free operations to complete outside of destroying the BackupManager.
+ * return of this function.  After the return of this call all outstanding
+ * write rpcs for this segment are guaranteed to have completed so the log
+ * memory associated with this segment is free for reuse.
+ *
+ * Currently there is a hack in BackupManager::sync() which ensures all
+ * enqueued free operations have completed when BackupManager::sync() returns.
  */
 void
 ReplicatedSegment::free()
 {
     TEST_LOG("%lu, %lu", masterId, segmentId);
+
+    while (true) {
+        bool someWriteInFlight = false;
+        foreach (auto& replica, replicas)
+            someWriteInFlight = replica && replica->writeRpc;
+        if (!someWriteInFlight)
+            break;
+        performTask();
+    }
+
     freeQueued = true;
-    // TODO: Must wait to ensure all writeRpcs are done here.
     schedule();
 }
 
 /**
- * TODO
- *      Whether to close the segment after writing this data.  If this is
- *      true no subsequent writes to this segment are permitted (free is
- *      the only valid operation at that point).
+ * Request the eventual close of the replicas of a segment on its backups;
+ * please read the documentation for this call carefully.
+ *
+ * Once close() is called the only valid operation on the segment is free(),
+ * no further write() calls are permitted.  sync() must be called if the
+ * caller wishes to ensure that the closed status of the segment is
+ * reflected durably in its replicas.
+ *
+ * The timing of when a close is replicated for a segment relative to
+ * open and write requests for the following segment affects the integrity
+ * of the log during recovery.  During log cleaning and unit testing this
+ * ordering isn't important (see Log cleaning and unit testing below).
+ *
+ * Normal operation:
+ *
+ * #followingSegment is used to enforce a safe ordering of operations issued
+ * to backups; therefore, its correct use is critical to ensure:
+ *  1) That log is not mistakenly detected as incomplete, and
+ *  2) That all data loss is detected during recovery.
+ *
+ * For a log transitioning from a full head segment s1 to a new, empty
+ * head segment s2 the caller must guarantee:
+ *  1) s1.close(s2) is called (#followingSegment is the new head), and
+ *  2) No call to s2.write(...) precedes the call to s1.close(s2).
+ *
+ * Details:
+ *
+ * Problem 1.
+ * If the coordinator cannot find an open log segment during recovery it
+ * has no way of knowing if it has all of the log (any number of segments
+ * from the head may have been lost).  Because of this it is critical that
+ * there always be at least one segment durably marked as open on backups.
+ * Call this the open-before-close rule.  #followingSegment allows an easy
+ * check to make sure that the new head segment in the log is durably open
+ * before issuing any close rpcs for old head segment.
+ * Not obeying open-before-close threatens the integrity of the entire log
+ * during recovery.
+ *
+ * Problem 2.
+ * If log data is (even durably) stored in an open segment while other
+ * segments which precede it in the log are still open the data may not be
+ * detected as lost if it is lost.  This is because if all the replicas for
+ * the segment with the data in it are lost the coordinator will still
+ * conclude it has recovered the entire log since it was able to find an
+ * open segment (and thus the head of the log).
+ * Call this the no-write-before-preceding-close rule; not obeying this rule
+ * can result in data loss after recovery.
+ *
+ * Together these two rules transitively create the following flow during
+ * normal operation for any two segments s1 and s2 which follows s1:
+ * s2 is durably opened -> s1 is durably closed -> writes are issued for s2.
+ * This cycle repeats as segments are added to the log.
+ *
+ * Internally, #followingSegment is sufficient to ensure this ordering.
+ *
+ * Log cleaning and unit testing:
+ *
+ * During log cleaning many segments at a time are allocated and written
+ * (writes for different cleaned segments can be interleaved) and sync() is
+ * called explicitly at the end to ensure all operations on them have been
+ * completed before they are added to the log.  Since they are spliced into
+ * the log atomically as part of another open segment they do not (and cannot
+ * obey these extra ordering constraints).  To bypass these constraints the
+ * log cleaner can simply pass NULL is for #followingSegment.  Similarly,
+ * since unit tests should almost alway pass NULL to avoid these extra
+ * ordering checks.
+ *
+ * \param followingSegment
+ *      For a normal log segment this is a pointer to the ReplicatedSegment
+ *      which logically will follow this segment in the log.  Used to check
+ *      ordering constraints of backup replication operations, see above.
+ *      Pass NULL for log cleaning or during unit testing to bypass the
+ *      ordering constraints.
  */
 void
 ReplicatedSegment::close(ReplicatedSegment* followingSegment)

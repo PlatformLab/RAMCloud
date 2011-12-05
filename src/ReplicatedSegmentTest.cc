@@ -159,15 +159,29 @@ TEST_F(ReplicatedSegmentTest, free) {
     reset();
 }
 
-TEST_F(ReplicatedSegmentTest, write) {
-    segment->write(openLen + 10);
-    EXPECT_TRUE(segment->isScheduled());
-    ASSERT_FALSE(taskManager.isIdle());
-    EXPECT_EQ(segment.get(), taskManager.tasks.front());
-    reset();
-    segment->write(openLen + 10);
+TEST_F(ReplicatedSegmentTest, freeWriteRpcInProgress) {
+    MockTransport transport;
+    TransportManager::MockRegistrar _(transport);
+
+    segment->write(openLen);
     segment->close(NULL);
-    EXPECT_TRUE(segment->queued.close);
+    taskManager.proceed(); // writeRpc created
+    segment->free();
+
+    // make sure the backup "free" opcode was not sent
+    EXPECT_TRUE(TestUtil::doesNotMatchPosixRegex("0x4001d",
+                                                 transport.outputLog));
+    ASSERT_TRUE(segment->replicas[0]);
+    EXPECT_FALSE(segment->replicas[0]->writeRpc); // ensure the write completed
+    EXPECT_FALSE(segment->replicas[0]->freeRpc);
+    EXPECT_TRUE(segment->isScheduled());
+
+    taskManager.proceed();
+    ASSERT_TRUE(segment->replicas[0]);
+    EXPECT_FALSE(segment->replicas[0]->writeRpc);
+    EXPECT_TRUE(segment->replicas[0]->freeRpc); // ensure free gets sent
+    EXPECT_TRUE(segment->isScheduled());
+
     reset();
 }
 
@@ -236,13 +250,20 @@ TEST_F(ReplicatedSegmentTest, performFreeRpcIsReady) {
 // TODO: Unit test performFreeRpcFailed once we have the right code there
 
 TEST_F(ReplicatedSegmentTest, performFreeWriteRpcInProgress) {
+    // It should be impossible to get into this situation now that free()
+    // synchronously finishes outstanding write rpcs before starting the
+    // free, but its worth keeping the code since it is more robust if
+    // the code knows how to deal with queued frees while there are
+    // outstanding writes in progress.
+
     MockTransport transport;
     TransportManager::MockRegistrar _(transport);
 
     segment->write(openLen);
     segment->close(NULL);
     taskManager.proceed(); // writeRpc created
-    segment->free();
+    segment->freeQueued = true;
+    segment->schedule();
 
     // make sure the backup "free" opcode was not sent
     EXPECT_TRUE(TestUtil::doesNotMatchPosixRegex("0x4001d",

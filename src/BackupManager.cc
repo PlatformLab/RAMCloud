@@ -22,12 +22,14 @@
 namespace RAMCloud {
 
 /**
- * Create a BackupManager.
+ * Create a BackupManager.  Creating more than one BackupManager for a single
+ * log results in undefined behavior.
  * \param coordinator
  *      Cluster coordinator; used to get a list of backup servers.
  *      May be NULL for testing purposes.
  * \param masterId
- *      Server id of master that this will be managing replicas for.
+ *      Server id of master that this will be managing replicas for (also
+ *      serves as the log id).
  * \param numReplicas
  *      Number replicas to keep of each segment.
  */
@@ -88,16 +90,28 @@ BackupManager::~BackupManager()
 }
 
 /**
- * Queue a segment for replication on backups.  Allocates and returns a
- * ReplicatedSegment which acts as a handle for the log module to perform
- * future operations related to this segment (like queueing more data for
- * replication, waiting for data to be replicated, or freeing replicas).
- * Note, the segment isn't guaranteed to be durably open on backups until
- * #sync() is called.
+ * Enqueue a segment for replication on backups, return a handle to schedule
+ * future operations on the segment.  Selection of backup locations and
+ * replication are performed at a later time.  The segment data isn't
+ * guaranteed to be durably open on backups until #sync() is called.  The
+ * returned handle allows future operations like enqueueing more data for
+ * replication, waiting for data to be replicated, or freeing replicas.  Read
+ * the documentation for ReplicatedSegment::write, ReplicatedSegment::close,
+ * ReplicatedSegment::free carefully; some of the requirements and guarantees
+ * in order to ensure data is recovered correctly after a crash are subtle.
+ *
+ * The caller must not enqueue writes before ReplicatedSegment::close is
+ * called on the ReplicatedSegment that logically precedes this one in the
+ * log; see ReplicatedSegment::close for details on how this works.
+ *
+ * The caller must not reuse the memory starting at #data up through the bytes
+ * enqueued via ReplicatedSegment::write until after ReplicatedSegment::free
+ * is called and returns.
  *
  * \param segmentId
- *      A unique identifier for this segment. The caller must ensure a
- *      segment with this segmentId is not already open.
+ *      The unique identifier for this segment given to it by the log module.
+ *      The caller must ensure a segment with this segmentId has never been
+ *      opened before as part of the log this BackupManager is managing.
  * \param data
  *      Starting location of the raw segment data to be replicated.
  * \param len
@@ -106,8 +120,10 @@ BackupManager::~BackupManager()
  *      with the open RPC to a backup.
  * \return
  *      Pointer to a ReplicatedSegment that is valid until
- *      ReplicatedSegment::free() is called on it.
+ *      ReplicatedSegment::free() is called on it or until the BackupManager
+ *      is destroyed.
  */
+
 ReplicatedSegment*
 BackupManager::openSegment(uint64_t segmentId, const void* data, uint32_t len)
 {
@@ -128,7 +144,7 @@ BackupManager::openSegment(uint64_t segmentId, const void* data, uint32_t len)
 /**
  * Make progress on replicating the log to backups and freeing unneeded
  * replicas, but don't block.  This method checks for completion of outstanding
- * backup operations and starts new ones when possible.
+ * replication or replica freeing operations and starts new ones when possible.
  */
 void
 BackupManager::proceed()
@@ -138,10 +154,16 @@ BackupManager::proceed()
 }
 
 /**
- * Wait until all data enqueued for replication has been acknowledged by the
- * backups for all segments (where acknowledged means the data is durably
- * buffered by each backup).  This must be called after any openSegment()
- * or ReplicatedSegment::write() calls where the operation must be durable.
+ * Wait until all data enqueued for replication is durable on the proper number
+ * of backups (durable may mean durably buffered) and will be recovered in the
+ * case that the master crashes (provided warnings on ReplicatedSegment::close
+ * are obeyed).  This must be called after any openSegment() or
+ * ReplicatedSegment::write() calls where the operation must be immediately
+ * durable (though, keep in mind, host failures could have eliminated some
+ * replicas even as sync returns).  The implementation currently only returns
+ * after any outstanding free requests have been acknowledged as well since
+ * there isn't currently another context in which to complete them; this may
+ * not be the case in future implementations.
  */
 void
 BackupManager::sync()
@@ -149,10 +171,9 @@ BackupManager::sync()
     TEST_LOG("syncing");
     {
         CycleCounter<RawMetric> _(&metrics->master.backupManagerTicks);
-        while (!taskManager.isIdle()) {
+        while (!isSynced() || !taskManager.isIdle())
             taskManager.proceed();
-        }
-    } // block ensures that _ is destroyed and counter stops
+    }
 }
 
 // - private -
@@ -162,7 +183,8 @@ BackupManager::sync()
  * is needed to restore durablity guarantees.  The work is queued into
  * #taskManager which is then executed during calls to #proceed().  One call
  * is sufficient since tasks reschedule themselves until all guarantees are
- * restored.
+ * restored.  This method will be superceded by its pending integration with
+ * the ServerTracker.
  */
 void
 BackupManager::clusterConfigurationChanged()
@@ -172,9 +194,8 @@ BackupManager::clusterConfigurationChanged()
 }
 
 /**
- * Internal helper for #sync().
- * Returns true when all data queued for replication by the log module is
- * durably replicated.
+ * Internal helper for #sync(); returns true when all data enqueued for
+ * replication is durable on the proper number of backups.
  */
 bool
 BackupManager::isSynced()
@@ -187,10 +208,10 @@ BackupManager::isSynced()
 }
 
 /**
+ * Only used by ReplicatedSegment and ~BackupManager.
  * Invoked by ReplicatedSegment to indicate that the BackupManager no longer
  * needs to keep an information about this segment (for example, when all
  * replicas are freed on backups or during shutdown).
- * Only used by ReplicatedSegment and ~BackupManager.
  */
 void
 BackupManager::destroyAndFreeReplicatedSegment(ReplicatedSegment*

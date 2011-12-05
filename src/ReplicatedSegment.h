@@ -28,41 +28,48 @@
 namespace RAMCloud {
 
 /**
- * Tracks state of replication of a log segment and reacts to cluster changes to
- * restore replication invariants; logically part of BackupManager.
+ * Acts as a handle for the log module to enqueue changes to its segments for
+ * eventual replication and freeing; logically part of the BackupMananger.
+ * The log module calls BackupManager::openSegment() to allocate and acquire
+ * a ReplicatedSegment.  Users of this class should carefully read the
+ * documentation for free(), close(), and write() to understand what
+ * requirements they must meet and what guarantees are provided.
  *
- * There are two users of ReplicatedSegment:
- * 1) The log module calls BackupManager::openSegment() which returns a pointer
- *    to a ReplicatedSegment.  From the log's perspective only the public
- *    methods are interesting.  They allow the log to queue portions of the
- *    log segment data for replication and to eventually free replicas of the
- *    log segment once the segment has been cleaned.
+ * ReplicatedSegment is also used internally by BackupManager, unless you are
+ * interested in the guts of BackupManager and ReplicatedSegment you should
+ * stop reading now.
  *
- * 2) The BackupManager uses ReplicatedSegment to track the progress made in
- *    replicating the log segment's data.  The basic idea is that when cluster
- *    failures occur the ReplicatedSegment is made aware of the failure.  The
- *    ReplicatedSegment then schedules itself as part of the work that the
- *    BackupManager does and attempts to restore the replication invariants
- *    for its associated log segment.  Anytime the ReplicatedSegment meets
- *    all replication invariants for its log segment data it deschedules itself
- *    and only "wakes up" on future cluster membership changes that might
- *    affect replication invariants for its log segment.  The scheduling and
- *    task management is provided by TaskManager; ReplicatedSegment is a
- *    subclass of Task which allows it to notify the BackupManager that work
- *    is needed by calling schedule().
+ * The BackupManager uses ReplicatedSegment to track the state of replication
+ * of a log segment.  Because this class must internally handle and mask a wide
+ * variety of failures from higher-level code it has a specialized style.  In
+ * particular, each segment always tries to make progress (either trying to
+ * replicate or trying free its replicas), whenever a failure occurs replica
+ * state is reset to some well-known starting point.  For example, if a replica
+ * has failed its state is reset to the same state as if the replica had never
+ * been created to begin with.  Because of this the code order itself is
+ * generally *not* used to sequence operations which means the code is
+ * ambivelent if some replica's state reverts (due to a failure); whether its
+ * the first time or the 30th the segment simply queues up the next step needed
+ * to get the replicas in the state the log module has requested.  Continuing
+ * the example, the segment would inspect its replicas' states and find it was
+ * missing one replica.  In that case, it would proceed as normal (choosing a
+ * new backup, sending out open rpcs, etc.).  ReplicatedSegments subclass Task
+ * and are scheduled as part of the BackupManager's TaskManager whenever their
+ * state changed in a way that may cause them to need to perform work (write(),
+ * close(), free(), or host failure).  ReplicatedSegments keep themselves
+ * scheduled until they are in the state the log module has requested.
  */
 class ReplicatedSegment : public Task {
   PUBLIC:
     /**
      * Internal to BackupManager; describes what to do whenever we don't want
-     * to go on living.
-     * BackupManager needs to do some special cleanup after ReplicatedSegments,
-     * but ReplicatedSegment best know when to destroy themselves.  The default
-     * logic does nothing which is useful for ReplicatedSegment during unit
-     * testing.  Must be public because otherwise it is impossible to subclass
-     * this; the friend declaration for BackupManager doesn't work; it seems
-     * C++ doesn't consider the subclass list to be part of the superclass's
-     * scope.
+     * to go on living.  BackupManager needs to do some special cleanup after
+     * ReplicatedSegments, but ReplicatedSegments know best when to destroy
+     * themselves.  The default logic does nothing which is useful for
+     * ReplicatedSegment during unit testing.  Must be public because otherwise
+     * it is impossible to subclass this; the friend declaration for
+     * BackupManager doesn't work; it seems C++ doesn't consider the subclass
+     * list to be part of the superclass's scope.
      */
     struct Deleter {
         virtual void destroyAndFreeReplicatedSegment(ReplicatedSegment*
@@ -72,7 +79,7 @@ class ReplicatedSegment : public Task {
 
   PRIVATE:
     /**
-     * Represents "how much" of a segment or replica.
+     * For internal use; Represents "how much" of a segment or replica.
      * ReplicatedSegment must track "how much" of a segment or replica has
      * reached some status.  Concretely, separate instances are used to track
      * how much data the log module expects us to replicate, how much has been
@@ -175,8 +182,8 @@ class ReplicatedSegment : public Task {
     };
 
     /**
-     * Stores all state for a single (potentially incomplete) replica of
-     * a ReplicatedSegment.
+     * For internal use; stores all state for a single (potentially incomplete)
+     * replica of a ReplicatedSegment.
      */
     struct Replica {
         explicit Replica(uint64_t backupId, Transport::SessionRef session)
@@ -219,7 +226,7 @@ class ReplicatedSegment : public Task {
 // --- ReplicatedSegment ---
   PUBLIC:
     void free();
-    void close(ReplicatedSegment* nextHeadSegment);
+    void close(ReplicatedSegment* followingSegment);
     void write(uint32_t offset);
 
   PRIVATE:
@@ -315,8 +322,7 @@ class ReplicatedSegment : public Task {
     bool freeQueued;
 
     /**
-     * The segment that logically follows this one in the log.
-     *
+     * The segment that logically follows this one in the log; set by close().
      * Needed to make two guarantees.
      * 1) A new head segment is durably open before closes can be sent for
      *    this segment (by checking followingSegment.getAcked().open).
@@ -324,6 +330,7 @@ class ReplicatedSegment : public Task {
      *    this segment is durably closed (by setting
      *    followingSegment.precedingSegmentCloseAcked) when
      *    this->getAcked().close is set).
+     * See close() for more details about these guarantees.
      */
     ReplicatedSegment* followingSegment;
 
@@ -337,8 +344,7 @@ class ReplicatedSegment : public Task {
      * segment as its followingSegment).  This happens immedately after the
      * preceding segment is durably closed on backups.  The goal is to prevent
      * data written in this segment from being undetectably lost in the case
-     * that all replicas of it are lost.  (The coordinator must conclude the
-     * log has lost data since it cannot find a open segment at the head).
+     * that all replicas of it are lost.
      */
     bool precedingSegmentCloseAcked;
 
