@@ -108,10 +108,8 @@ struct ReplicatedSegmentTest : public ::testing::Test {
         , segment(NULL)
     {
         // Queue STATUS_OK responses. Works to ack both frees and writes.
-        transport.setInput("0");
-        transport.setInput("0");
-        transport.setInput("0");
-        transport.setInput("0");
+        for (int i = 0; i < 100; ++i)
+            transport.setInput("0");
 
         void* segMem = operator new(ReplicatedSegment::sizeOf(numReplicas));
         segment = std::unique_ptr<ReplicatedSegment>(
@@ -169,6 +167,16 @@ TEST_F(ReplicatedSegmentTest, write) {
     reset();
     segment->write(openLen + 10);
     segment->close(NULL);
+    EXPECT_TRUE(segment->queued.close);
+    reset();
+}
+
+TEST_F(ReplicatedSegmentTest, close) {
+    reset();
+    segment->close(NULL);
+    EXPECT_TRUE(segment->isScheduled());
+    ASSERT_FALSE(taskManager.isIdle());
+    EXPECT_EQ(segment.get(), taskManager.tasks.front());
     EXPECT_TRUE(segment->queued.close);
     reset();
 }
@@ -348,7 +356,7 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcIsReady) {
 
 TEST_F(ReplicatedSegmentTest, performWriteMoreToSend) {
     segment->write(openLen + 20);
-    segment->close(segment.get()); // dubious, but should work for testing
+    segment->close(NULL);
     taskManager.proceed(); // send open
     EXPECT_TRUE(segment->isScheduled());
     taskManager.proceed(); // reap opens
@@ -370,7 +378,7 @@ TEST_F(ReplicatedSegmentTest, performWriteMoreToSend) {
 
 TEST_F(ReplicatedSegmentTest, performWriteClosedButLongerThanMaxTxLimit) {
     segment->write(segment->maxBytesPerWriteRpc + segment->openLen + 1);
-    segment->close(segment.get()); // dubious, but should work for testing.
+    segment->close(NULL);
     taskManager.proceed(); // send open
     EXPECT_TRUE(segment->isScheduled());
     taskManager.proceed(); // reap opens
@@ -443,7 +451,54 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureNewHeadOpenAckedBeforeClose) {
     EXPECT_EQ(0u, deleter.count);
     reset();
 }
+
+TEST_F(ReplicatedSegmentTest, performWriteEnsureCloseBeforeNewHeadWrittenTo) {
+    void* segMem = operator new(ReplicatedSegment::sizeOf(numReplicas));
+    auto newHead = std::unique_ptr<ReplicatedSegment>(
+            new(segMem) ReplicatedSegment(taskManager, backupSelector,
+                                          deleter, writeRpcsInFlight,
+                                          masterId, segmentId + 1,
+                                          data, openLen, numReplicas,
+                                          MAX_BYTES_PER_WRITE));
+    taskManager.proceed(); // send segment open for both
+    taskManager.proceed(); // reap segment open for both
+
+    segment->close(newHead.get()); // close queued
+    newHead->write(openLen + 10); // write queued
+
+    taskManager.proceed(); // send close rpc, try newHead write but can't
+
+    EXPECT_TRUE(newHead->isScheduled());
+    EXPECT_FALSE(newHead->precedingSegmentCloseAcked);
+    ASSERT_TRUE(newHead->replicas[0]);
+    EXPECT_FALSE(newHead->replicas[0]->writeRpc);
+    EXPECT_TRUE(newHead->replicas[0]->acked.open);
+    EXPECT_EQ(openLen, newHead->replicas[0]->sent.bytes);
+
+    EXPECT_TRUE(segment->isScheduled());
+    ASSERT_TRUE(segment->replicas[0]);
+    EXPECT_TRUE(segment->replicas[0]->writeRpc);
+    EXPECT_TRUE(segment->replicas[0]->sent.close);
+    EXPECT_FALSE(segment->replicas[0]->acked.close);
+
+    taskManager.proceed(); // reap close rpc, send newHead write
+
+    EXPECT_TRUE(newHead->isScheduled());
+    EXPECT_TRUE(newHead->precedingSegmentCloseAcked);
+    ASSERT_TRUE(newHead->replicas[0]);
+    EXPECT_TRUE(newHead->replicas[0]->writeRpc);
+    EXPECT_EQ(openLen + 10, newHead->replicas[0]->sent.bytes);
+
+    EXPECT_FALSE(segment->isScheduled());
+    ASSERT_TRUE(segment->replicas[0]);
+    EXPECT_FALSE(segment->replicas[0]->writeRpc);
+    EXPECT_TRUE(segment->replicas[0]->acked.close);
+
+    EXPECT_EQ(0u, deleter.count);
+    newHead->scheduled = false;
+    reset();
+}
+
 // TODO: Tests to ensure segments reset from corrupted state schedule and work.
 // TODO: Test that close gets sent if open + 0 byte closing write are queued.
-
 } // namespace RAMCloud

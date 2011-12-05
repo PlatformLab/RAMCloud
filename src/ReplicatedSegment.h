@@ -219,7 +219,7 @@ class ReplicatedSegment : public Task {
 // --- ReplicatedSegment ---
   PUBLIC:
     void free();
-    void close(const ReplicatedSegment* nextHeadSegment);
+    void close(ReplicatedSegment* nextHeadSegment);
     void write(uint32_t offset);
 
   PRIVATE:
@@ -314,8 +314,33 @@ class ReplicatedSegment : public Task {
     /// True if all known replicas of this segment should be freed on backups.
     bool freeQueued;
 
-    /// Segment that must be durably open before closes can be sent.
-    const ReplicatedSegment* nextHeadSegment;
+    /**
+     * The segment that logically follows this one in the log.
+     *
+     * Needed to make two guarantees.
+     * 1) A new head segment is durably open before closes can be sent for
+     *    this segment (by checking followingSegment.getAcked().open).
+     * 2) followingSegment receives no writes (beyond its opening write) before
+     *    this segment is durably closed (by setting
+     *    followingSegment.precedingSegmentCloseAcked) when
+     *    this->getAcked().close is set).
+     */
+    ReplicatedSegment* followingSegment;
+
+    /**
+     * No write rpcs (beyond the opening write rpc) for this segment are allowed
+     * until precedingSegmentCloseAcked becomes true.  This constraint is only
+     * enforced for segments which have a followingSegment (see close(), other
+     * segments created as part of the log cleaner and unit tests skip this check).
+     * This segment must wait to send write rpcs until the preceding segment in
+     * the log sets it to true (the preceding segment is the one which has this
+     * segment as its followingSegment).  This happens immedately after the
+     * preceding segment is durably closed on backups.  The goal is to prevent
+     * data written in this segment from being undetectably lost in the case
+     * that all replicas of it are lost.  (The coordinator must conclude the
+     * log has lost data since it cannot find a open segment at the head).
+     */
+    bool precedingSegmentCloseAcked;
 
     /// Intrusive list entries for #BackupManager::replicatedSegmentList.
     IntrusiveListHook listEntries;

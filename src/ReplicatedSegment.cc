@@ -70,7 +70,8 @@ ReplicatedSegment::ReplicatedSegment(TaskManager& taskManager,
     , maxBytesPerWriteRpc(maxBytesPerWriteRpc)
     , queued(true, openLen, false)
     , freeQueued(false)
-    , nextHeadSegment(NULL)
+    , followingSegment(NULL)
+    , precedingSegmentCloseAcked(true)
     , listEntries()
     , replicas(numReplicas)
 {
@@ -103,15 +104,24 @@ ReplicatedSegment::free()
  *      the only valid operation at that point).
  */
 void
-ReplicatedSegment::close(const ReplicatedSegment* nextHeadSegment)
+ReplicatedSegment::close(ReplicatedSegment* followingSegment)
 {
-    TEST_LOG("%lu, %lu, %lu", masterId, segmentId, nextHeadSegment ?
-                                            nextHeadSegment->segmentId : 0);
+    TEST_LOG("%lu, %lu, %lu", masterId, segmentId, followingSegment ?
+                                            followingSegment->segmentId : 0);
 
     // immutable after close
     assert(!queued.close);
     queued.close = true;
-    this->nextHeadSegment = nextHeadSegment;
+    this->followingSegment = followingSegment;
+    if (followingSegment) {
+        if (followingSegment->openLen != followingSegment->queued.bytes) {
+            LOG(ERROR, "Caller provided followingSegment to request "
+                       "enforcement of close-segment-before-write-to-next, "
+                       "but the following segment has already writes queued "
+                       "before close was called");
+        }
+        followingSegment->precedingSegmentCloseAcked = false;
+    }
     LOG(DEBUG, "Segment %lu closed (length %d)", segmentId, queued.bytes);
     ++metrics->master.segmentCloseCount;
 
@@ -303,6 +313,8 @@ ReplicatedSegment::performWrite(Tub<Replica>& replica)
             try {
                 (*replica->writeRpc)();
                 replica->acked = replica->sent;
+                if (replica->sent.close && followingSegment)
+                    followingSegment->precedingSegmentCloseAcked = true;
                 replica->writeRpc.destroy();
                 --writeRpcsInFlight;
             } catch (ClientException& e) {
@@ -328,6 +340,17 @@ ReplicatedSegment::performWrite(Tub<Replica>& replica)
             assert(!replica->freeRpc);
             assert(!replica->sent.close);
 
+            if (!precedingSegmentCloseAcked) {
+                // This segment must wait to send write rpcs until the
+                // preceding segment in the log sets precedingSegmentCloseAcked
+                // to true.  The goal is to prevent data written in this
+                // segment from being undetectably lost in the case that all
+                // replicas of it are lost. See #precedingSegmentCloseAcked.
+
+                schedule();
+                return;
+            }
+
             uint32_t offset = replica->sent.bytes;
             uint32_t length = queued.bytes - replica->sent.bytes;
             BackupWriteRpc::Flags flags = queued.close ?
@@ -347,16 +370,11 @@ ReplicatedSegment::performWrite(Tub<Replica>& replica)
                 // an open segment during recovery whichs lets it know
                 // the entire log has been found (that is, log isn't missing
                 // some head segments).
-                if (nextHeadSegment) {
-                    if (!nextHeadSegment->getAcked().open) {
+                if (followingSegment) {
+                    if (!followingSegment->getAcked().open) {
                         schedule();
                         return;
                     }
-                } else {
-                    LOG(WARNING, "Issuing a closing write for a segment when "
-                        "the log provided no next log segment to ensure "
-                        "open-next-segment-before-close (threatens the "
-                        "integrity of the head of the log).");
                 }
             }
 
