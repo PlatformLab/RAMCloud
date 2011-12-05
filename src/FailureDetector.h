@@ -22,103 +22,67 @@
 #include "Rpc.h"
 #include "ServiceLocator.h"
 #include "ServerList.pb.h"
-#include "Syscall.h"
 #include "Tub.h"
 
 namespace RAMCloud {
 
+/**
+ * This class instantiates and manages the failure detector. Once you contruct a
+ * FailureDetector you may use start() and halt() to start and stop the
+ * FailureDetector thread.
+ */
 class FailureDetector {
   public:
-    FailureDetector(string coordinatorLocatorString,
-        string listeningLocatorsString, ServerType type);
+    FailureDetector(const string &coordinatorLocatorString,
+                    const string &listeningLocatorsString);
     ~FailureDetector();
-    void mainLoop();
+    void start();
+    void halt();
 
   PRIVATE:
-    /// The TimeoutQueue contains a list of previously-issued pings,
-    /// in non-descending cycle count order of transmission. It abstracts
-    /// out the tracking of outstanding requests, their timing out, how
-    /// long we need to wait for the next one, and other piddly little
-    /// details that are hard to do in-line.
-    class TimeoutQueue {
-      public:
-        /// Each entry in our queue uses the following structure. It's simply
-        /// a container for a single probe.
-        class TimeoutEntry {
-          public:
-            TimeoutEntry(uint64_t startUsec, string locator, uint64_t nonce)
-                : startUsec(startUsec),
-                  locator(locator),
-                  nonce(nonce)
-            {
-            }
-            uint64_t startUsec;
-            string   locator;
-            uint64_t nonce;
-        };
-
-        explicit TimeoutQueue(uint64_t timeoutUsec);
-        void enqueue(string locator, uint64_t nonce);
-        Tub<TimeoutEntry> dequeue();
-        Tub<TimeoutEntry> dequeue(uint64_t nonce);
-        uint64_t microsUntilNextTimeout();
-
-      PRIVATE:
-        std::list<TimeoutEntry> entries;    /// Timeouts in non-descending order
-        uint64_t timeoutUsecs;              /// Common timeout for all entries
-
-        DISALLOW_COPY_AND_ASSIGN(TimeoutQueue);
-    };
-
-    /// Maximum payload in any datagram. This should be enough to get 40
-    /// machines worth of ServiceLocators for our cluster. Try to temper
-    /// your disgust with the fact that this whole class is a temporary
-    /// hack.
-    static const int MAXIMUM_MTU_BYTES = 9000;
-
     /// Number of microseconds between probes.
-    static const int PROBE_INTERVAL_USECS = 10 * 1000;
+    static const int PROBE_INTERVAL_USECS = 100 * 1000;
 
-    /// Number of microseconds before a probe is considered to have timed out.
+    /**
+     * Number of microseconds before a probe is considered to have timed out.
+     * Some machines have be known to freeze for approximately 250ms, but this
+     * threshold is intentionally smaller. We allow the coordinator to try again
+     * with a longer timeout for those false-positives. If the coordinator ends
+     * up becoming a bottleneck we may need to increase this timeout and move to
+     * an asynchronous model.
+     */
     static const int TIMEOUT_USECS = 50 * 1000;
 
-    /// Socket used for outbound pings and their incoming responses, i.e.
-    /// what we use to ping out and hear back.
-    int clientFd;
+    static_assert(TIMEOUT_USECS <= PROBE_INTERVAL_USECS,
+                  "Timeout us should be less than probe interval.");
 
-    /// Socket used for incoming ping requests and their outgoing responses,
-    /// i.e. what others use to ping us and for us to respond on.
-    int serverFd;
+    /// Number of iterations before querying the server list
+    static const int QUERY_SERVER_LIST_INTERVAL = 10;
 
-    /// Socket used for coordinator "rpcs", since the Transport isn't
-    /// thread-safe.
-    int coordFd;
+    /// Our local ServiceLocator string.
+    const string         localLocator;
+    /// List of servers to probe.
+    ProtoBuf::ServerList serverList;
+    /// Failure detector thread
+    Tub<boost::thread>   thread;
 
-    ServerType           type;            /// Type of servers we're to probe.
-    string               coordinator;     /// Coordinator's serviceLocator str.
-    string               localLocator;    /// Our local ServiceLocator string.
-    ProtoBuf::ServerList serverList;      /// List of servers to probe.
-    bool                 terminate;       /// Way to abort mainLoop for testing.
-    TimeoutQueue         queue;           /// Queue of previous probes.
+    // Service Clients
+    /// PingClient instance
+    PingClient           pingClient;
+    /// CoordinatorClient instance
+    CoordinatorClient    coordinatorClient;
 
-    /// Only complain once when we go to ping a random server and there
-    /// are none available in our list.
+    /**
+     * This variable is used to prevent excessive logging when we detect that
+     * there are no other servers on the list. We only allow ourselves to log
+     * once when we detect this condition, and we reset the variable once we see
+     * other servers on the list.
+     */
     bool                 haveLoggedNoServers;
 
-    /// System calls used for socket operations. When testing, replaced with
-    /// special stubs.
-    static Syscall*      sys;
-
-    sockaddr_in serviceLocatorStringToSockaddrIn(string sl);
-    void handleIncomingRequest(char* buf, ssize_t bytes,
-        sockaddr_in* sourceAddress);
-    void handleIncomingResponse(char* buf, ssize_t bytes,
-        sockaddr_in* sourceAddress);
-    void handleCoordinatorResponse(char* buf, ssize_t bytes,
-        sockaddr_in* sourceAddress);
+    static void detectorThreadEntry(FailureDetector* detector, Context* ctx);
     void pingRandomServer();
-    void alertCoordinator(TimeoutQueue::TimeoutEntry* te);
-    void processPacket(int fd);
+    void alertCoordinator(string locator);
     void requestServerList();
 
     DISALLOW_COPY_AND_ASSIGN(FailureDetector);

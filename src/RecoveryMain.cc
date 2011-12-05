@@ -26,6 +26,7 @@
 #include "OptionParser.h"
 #include "RamCloud.h"
 #include "Tub.h"
+#include "PingClient.h"
 
 using namespace RAMCloud;
 
@@ -221,16 +222,26 @@ try
     client.coordinator->quiesce();
 
     Transport::SessionRef session = client.objectFinder.lookup(tables[0], 0);
-    LOG(NOTICE, "--- hinting that the server is down: %s ---",
+    LOG(NOTICE, "--- Terminating master %s ---",
         session->getServiceLocator().c_str());
 
     // Take an initial snapshot of performance metrics.
     ClusterMetrics metricsBefore(&client);
 
+    MasterClient oldMaster(session);
+    PingClient pingClient;
     uint64_t startTime = Cycles::rdtsc();
-    client.coordinator->hintServerDown(
-        session->getServiceLocator().c_str());
+    PingClient::Kill killOp(pingClient, session->getServiceLocator().c_str());
 
+    // Wait for failure to be detected
+    client.objectFinder.waitForTabletDown();
+    uint64_t downTime = Cycles::rdtsc();
+    LOG(NOTICE, "tablet down");
+
+    // Cancel the kill RPC
+    killOp.cancel();
+    
+    // Wait for recovery to complete
     client.objectFinder.waitForAllTabletsNormal();
     LOG(NOTICE, "all tablets now normal");
 
@@ -249,8 +260,9 @@ try
         LOG(NOTICE, "recovered value read from %s has length %u",
             session->getServiceLocator().c_str(), nb.getTotalLength());
     }
-    LOG(NOTICE, "Recovery completed in %lu ns",
-        Cycles::toNanoseconds(stopTime - startTime));
+    LOG(NOTICE, "Recovery completed in %lu ns, failure detected in %lu ns",
+        Cycles::toNanoseconds(stopTime - startTime),
+        Cycles::toNanoseconds(downTime - startTime));
 
     // Take another snapshot of performance metrics.
     ClusterMetrics metricsAfter(&client);

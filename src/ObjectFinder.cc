@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -143,8 +143,34 @@ ObjectFinder::multiLookup(MasterClient::ReadObject* requests[],
 }
 
 /**
+ * Flush the tablet map and refresh it until we detect that at least one tablet
+ * has a state set to something other than normal.
+ *
+ * Used only by RecoveryMain.c to detect when the failure is detected by the
+ * coordinator.
+ */
+void
+ObjectFinder::waitForTabletDown()
+{
+    flush();
+
+    for (;;) {
+        foreach (const ProtoBuf::Tablets::Tablet& tablet, tabletMap.tablet()) {
+            if (tablet.state() != ProtoBuf::Tablets_Tablet_State_NORMAL) {
+                return;
+            }
+        }
+        usleep(200);
+        tabletMapFetcher->getTabletMap(tabletMap);
+    }
+}
+
+
+/**
  * Flush the tablet map and refresh it until it is non-empty and all of
  * the tablets have normal status.
+ *
+ * Used only by RecoveryMain.c to detect when the recovery is complete.
  */
 void
 ObjectFinder::waitForAllTabletsNormal()

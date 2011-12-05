@@ -16,6 +16,7 @@
 #include <boost/scoped_ptr.hpp>
 
 #include "BackupClient.h"
+#include "PingClient.h"
 #include "CoordinatorService.h"
 #include "ShortMacros.h"
 #include "MasterClient.h"
@@ -304,13 +305,59 @@ CoordinatorService::hintServerDown(const HintServerDownRpc::Request& reqHdr,
                                    HintServerDownRpc::Response& respHdr,
                                    Rpc& rpc)
 {
+    bool isServerReallyDown = false;
+    PingClient pingClient;
     string serviceLocator(getString(rpc.requestPayload, sizeof(reqHdr),
                                     reqHdr.serviceLocatorLength));
     rpc.sendReply();
 
     // reqHdr, respHdr, and rpc are off-limits now
 
+    // Is the server really down or could it be a false-positive?
+#if TESTING
+    if ((serviceLocator == "mock:host=backup") || (serviceLocator == "mock:host=master")) {
+        isServerReallyDown = true;
+    }
+#endif /* TESTING */
+
+    // Skip the real ping if this is from a unit test
+    if (!isServerReallyDown) {
+        try {
+            uint64_t nonce = generateRandom();
+            pingClient.ping(serviceLocator.c_str(), nonce, TIMEOUT_USECS * 1000);
+        } catch (TimeoutException &te) {
+            // Fall through
+            isServerReallyDown = true;
+        }
+    }
+
+    if (!isServerReallyDown) {
+        LOG(NOTICE, "Hint server down false-positive: %s", serviceLocator.c_str());
+        return;
+    }
+
     LOG(NOTICE, "Hint server down: %s", serviceLocator.c_str());
+
+    /*
+     * If this machine has a backup and master on the same host we need to
+     * remove the dead backup before initiating recovery. Otherwise, other hosts
+     * may try to backup onto a dead machine and we will be in more trouble.
+     */
+
+    // is it a backup?
+    for (int32_t i = 0; i < backupList.server_size(); i++) {
+        const ProtoBuf::ServerList::Entry& backup(backupList.server(i));
+        if (backup.service_locator() == serviceLocator) {
+            backupList.mutable_server()->SwapElements(
+                                            backupList.server_size() - 1, i);
+            backupList.mutable_server()->RemoveLast();
+
+            // backup is off-limits now
+
+            // TODO(ongaro): inform masters they need to replicate more
+            break;
+        }
+    }
 
     // is it a master?
     for (int32_t i = 0; i < masterList.server_size(); i++) {
@@ -356,22 +403,7 @@ CoordinatorService::hintServerDown(const HintServerDownRpc::Request& reqHdr,
 
             recovery->start();
 
-            return;
-        }
-    }
-
-    // is it a backup?
-    for (int32_t i = 0; i < backupList.server_size(); i++) {
-        const ProtoBuf::ServerList::Entry& backup(backupList.server(i));
-        if (backup.service_locator() == serviceLocator) {
-            backupList.mutable_server()->SwapElements(
-                                            backupList.server_size() - 1, i);
-            backupList.mutable_server()->RemoveLast();
-
-            // backup is off-limits now
-
-            // TODO(ongaro): inform masters they need to replicate more
-            return;
+            break;
         }
     }
 }

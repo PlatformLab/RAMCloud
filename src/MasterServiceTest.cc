@@ -28,35 +28,9 @@
 #include "MasterService.h"
 #include "ShortMacros.h"
 #include "TransportManager.h"
+#include "ServerListBuilder.h"
 
 namespace RAMCloud {
-
-namespace {
-struct ServerListBuilder {
-    explicit ServerListBuilder(ProtoBuf::ServerList& servers)
-        : servers(servers)
-    {
-    }
-
-    ServerListBuilder&
-    operator()(ProtoBuf::ServerType type,
-               uint64_t id,
-               uint64_t segmentId,
-               const char* locator,
-               uint64_t userData = 0)
-    {
-        ProtoBuf::ServerList_Entry& server(*servers.add_server());
-        server.set_server_type(type);
-        server.set_server_id(id);
-        server.set_segment_id(segmentId);
-        server.set_service_locator(locator);
-        server.set_user_data(userData);
-        return *this;
-    }
-
-    ProtoBuf::ServerList& servers;
-};
-}
 
 class MasterServiceTest : public ::testing::Test {
   public:
@@ -1178,5 +1152,10 @@ TEST_F(MasterRecoverTest, failedToRecoverAll) {
         "trying next backup; failure was: bad segment id",
         log.substr(0, log.find(" thrown at")));
 }
+
+/*
+ * We should add a test for the kill method, but all process ending tests
+ * were removed previously for performance reasons.
+ */
 
 }  // namespace RAMCloud

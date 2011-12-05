@@ -53,15 +53,16 @@ def captureSh(command, **kwargs):
 class Sandbox(object):
     """A context manager for launching and cleaning up remote processes."""
     class Process(object):
-        def __init__(self, host, command, kwargs, sonce, proc):
+        def __init__(self, host, command, kwargs, sonce, proc, ignoreFailures):
             self.host = host
             self.command = command
             self.kwargs = kwargs
             self.sonce = sonce
             self.proc = proc
+            self.ignoreFailures = ignoreFailures
     def __init__(self):
         self.processes = []
-    def rsh(self, host, command, bg=False, **kwargs):
+    def rsh(self, host, command, ignoreFailures=False, bg=False, **kwargs):
         """Execute a remote command."""
         if bg:
             sonce = ''.join([chr(random.choice(range(ord('a'), ord('z'))))
@@ -71,8 +72,8 @@ class Sandbox(object):
                           '%s/regexec' % scripts_path, sonce,
                           os.getcwd(), "'%s'" % command]
             p = subprocess.Popen(sh_command, **kwargs)
-            self.processes.append(self.Process(host, command,
-                                               kwargs, sonce, p))
+            self.processes.append(self.Process(host, command, kwargs, sonce,
+                                               p, ignoreFailures))
             return p
         else:
             sh_command = ['ssh', host,
@@ -101,9 +102,10 @@ class Sandbox(object):
     def checkFailures(self):
         """Raise exception if any process has exited with a non-zero status."""
         for p in self.processes:
-            rc = p.proc.poll()
-            if rc is not None and rc != 0:
-                raise subprocess.CalledProcessError(rc, p.command)
+            if (p.ignoreFailures == False):
+                rc = p.proc.poll()
+                if rc is not None and rc != 0:
+                    raise subprocess.CalledProcessError(rc, p.command)
 
 @contextlib.contextmanager
 def delayedInterrupts():

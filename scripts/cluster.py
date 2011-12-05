@@ -221,8 +221,8 @@ def run(
                         server_locator(transport, host),
                         replicas, log_level, log_subdir, host[0],
                         old_master_args))
-            servers.append(sandbox.rsh(host[0], command, bg=True,
-                           stderr=subprocess.STDOUT))
+            servers.append(sandbox.rsh(host[0], command, ignoreFailures=True,
+                           bg=True, stderr=subprocess.STDOUT))
             services_started += 1
             ensure_servers(services_started)
 
