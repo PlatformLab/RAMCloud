@@ -35,6 +35,7 @@ Rpc::opcodeSymbol(uint32_t opcode)
     switch (opcode) {
         case PING:                       return "PING";
         case PROXY_PING:                 return "PROXY_PING";
+        case KILL:                       return "KILL";
         case CREATE_TABLE:               return "CREATE_TABLE";
         case OPEN_TABLE:                 return "OPEN_TABLE";
         case DROP_TABLE:                 return "DROP_TABLE";

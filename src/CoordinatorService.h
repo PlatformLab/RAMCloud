@@ -40,6 +40,12 @@ class CoordinatorService : public Service {
                   Rpc& rpc);
 
   PRIVATE:
+    /**
+     * The ping timeout used when the Coordinator verifies an incoming
+     * hint server down message. Until we resolve the scheduler issues that we
+     * have been seeing this timeout should be at least 250ms.
+     */
+    static const int TIMEOUT_USECS = 250 * 1000;
     void createTable(const CreateTableRpc::Request& reqHdr,
                      CreateTableRpc::Response& respHdr,
                      Rpc& rpc);

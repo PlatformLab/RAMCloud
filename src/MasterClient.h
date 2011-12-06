@@ -194,10 +194,10 @@ class MasterClient : public Client {
     uint64_t create(uint32_t tableId, const void* buf, uint32_t length,
                     uint64_t* version = NULL, bool async = false);
     void fillWithTestData(uint32_t numObjects, uint32_t objectSize);
+    void multiRead(std::vector<ReadObject*> requests);
     void read(uint32_t tableId, uint64_t id, Buffer* value,
               const RejectRules* rejectRules = NULL,
               uint64_t* version = NULL);
-    void multiRead(std::vector<ReadObject*> requests);
     void recover(uint64_t masterId, uint64_t partitionId,
                  const ProtoBuf::Tablets& tablets,
                  const ProtoBuf::ServerList& backups);

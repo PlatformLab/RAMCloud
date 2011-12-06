@@ -87,6 +87,22 @@ PingService::proxyPing(const ProxyPingRpc::Request& reqHdr,
 }
 
 /**
+ * For debugging and testing this function tells the server to kill itself.
+ * There will be no response to the RPC for this message, and the process
+ * will exit with status code 0.
+ *
+ * XXX: Should be only for debugging and performance testing.
+ */
+void
+PingService::kill(const KillRpc::Request& reqHdr,
+                  KillRpc::Response& respHdr,
+                  Rpc& rpc)
+{
+    LOG(ERROR, "Server remotely told to kill itself.");
+    exit(0);
+}
+
+/**
  * Dispatch an RPC to the right handler based on its opcode.
  */
 void
@@ -103,6 +119,10 @@ PingService::dispatch(RpcOpcode opcode, Rpc& rpc)
         case ProxyPingRpc::opcode:
             callHandler<ProxyPingRpc, PingService,
                         &PingService::proxyPing>(rpc);
+            break;
+        case KillRpc::opcode:
+            callHandler<KillRpc, PingService,
+                        &PingService::kill>(rpc);
             break;
         default:
             throw UnimplementedRequestError(HERE);

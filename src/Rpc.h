@@ -47,39 +47,40 @@ enum RpcServiceType {
  * change this table you must also reflect the changes in the following
  * locations:
  * - The definition of rpc in scripts/rawmetrics.py.
- * - The method opcodeSymbol in Rpc.c.
+ * - The method opcodeSymbol in Rpc.cc.
  */
 enum RpcOpcode {
     PING                    = 7,
     PROXY_PING              = 8,
-    CREATE_TABLE            = 9,
-    OPEN_TABLE              = 10,
-    DROP_TABLE              = 11,
-    CREATE                  = 12,
-    READ                    = 13,
-    WRITE                   = 14,
-    REMOVE                  = 15,
-    ENLIST_SERVER           = 16,
-    GET_SERVER_LIST         = 17,
-    GET_TABLET_MAP          = 18,
-    SET_TABLETS             = 19,
-    RECOVER                 = 20,
-    HINT_SERVER_DOWN        = 21,
-    TABLETS_RECOVERED       = 22,
-    SET_WILL                = 23,
-    REREPLICATE_SEGMENTS    = 24,
-    FILL_WITH_TEST_DATA     = 25,
-    MULTI_READ              = 26,
-    GET_METRICS             = 27,
-    BACKUP_CLOSE            = 28,
-    BACKUP_FREE             = 29,
-    BACKUP_GETRECOVERYDATA  = 30,
-    BACKUP_OPEN             = 31,
-    BACKUP_STARTREADINGDATA = 32,
-    BACKUP_WRITE            = 33,
-    BACKUP_RECOVERYCOMPLETE = 34,
-    BACKUP_QUIESCE          = 35,
-    ILLEGAL_RPC_TYPE        = 36,  // 1 + the highest legitimate RpcOpcode
+    KILL                    = 9,
+    CREATE_TABLE            = 10,
+    OPEN_TABLE              = 11,
+    DROP_TABLE              = 12,
+    CREATE                  = 13,
+    READ                    = 14,
+    WRITE                   = 15,
+    REMOVE                  = 16,
+    ENLIST_SERVER           = 17,
+    GET_SERVER_LIST         = 18,
+    GET_TABLET_MAP          = 19,
+    SET_TABLETS             = 20,
+    RECOVER                 = 21,
+    HINT_SERVER_DOWN        = 22,
+    TABLETS_RECOVERED       = 23,
+    SET_WILL                = 24,
+    REREPLICATE_SEGMENTS    = 25,
+    FILL_WITH_TEST_DATA     = 26,
+    MULTI_READ              = 27,
+    GET_METRICS             = 28,
+    BACKUP_CLOSE            = 29,
+    BACKUP_FREE             = 30,
+    BACKUP_GETRECOVERYDATA  = 31,
+    BACKUP_OPEN             = 32,
+    BACKUP_STARTREADINGDATA = 33,
+    BACKUP_WRITE            = 34,
+    BACKUP_RECOVERYCOMPLETE = 35,
+    BACKUP_QUIESCE          = 36,
+    ILLEGAL_RPC_TYPE        = 37,  // 1 + the highest legitimate RpcOpcode
 };
 
 /**
@@ -593,6 +594,17 @@ struct ProxyPingRpc {
         uint64_t replyNanoseconds;     // Number of nanoseconds it took to get
                                        // the reply. If a timeout occurred, the
                                        // value is -1.
+    };
+};
+
+struct KillRpc {
+    static const RpcOpcode opcode = KILL;
+    static const RpcServiceType service = PING_SERVICE;
+    struct Request {
+        RpcRequestCommon common;
+    };
+    struct Response {
+        RpcResponseCommon common;
     };
 };
 

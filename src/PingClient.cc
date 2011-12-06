@@ -22,6 +22,38 @@
 namespace RAMCloud {
 
 /**
+ * Tells the host to print an error message and exit with a status of zero.
+ * The host will not respond to this RPC, so the caller needs to cancel the RPC
+ * to reclaim its resources. However, the caller should not cancel the RPC
+ * until it is sure that the host has exited, by querying the coordinator.
+ * Otherwise, there could be a race where the RPC is still in the client's
+ * queue when it is canceled.
+ *
+ * \warning This should only be used for testing!
+ *
+ * \param client 
+ *      The PingClient instance over which the RPC should be issued.
+ * \param serviceLocator
+ *      The service locator of the host you wish to kill.
+ *
+ * \exception InternalError
+ */
+PingClient::Kill::Kill(PingClient& client, const char *serviceLocator)
+    : client(client)
+    , requestBuffer()
+    , responseBuffer()
+    , state()
+{
+    responseBuffer.reset();
+    client.allocHeader<KillRpc>(requestBuffer);
+    Transport::SessionRef session =
+            Context::get().transportManager->getSession(serviceLocator);
+    state = client.send<KillRpc>(session,
+                                 requestBuffer,
+                                 responseBuffer);
+}
+
+/**
  * Retrieve performance counters from a given server.
  *
  * \param serviceLocator

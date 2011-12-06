@@ -43,6 +43,9 @@ class PingService : public Service {
     void proxyPing(const ProxyPingRpc::Request& reqHdr,
               ProxyPingRpc::Response& respHdr,
               Rpc& rpc);
+    void kill(const KillRpc::Request& reqHdr,
+               KillRpc::Response& respHdr,
+               Rpc& rpc);
     DISALLOW_COPY_AND_ASSIGN(PingService);
 };
 

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -14,6 +14,7 @@
  */
 
 #include <string>
+#include <queue>
 
 #include "Transport.h"
 
@@ -103,7 +104,7 @@ class MockTransport : public Transport {
     /**
      * Used as the next input message required by wait.
      */
-    const char* inputMessage;
+    std::queue<const char*> inputMessages;
 
     // The following variables count calls to various methods, for use
     // by tests.

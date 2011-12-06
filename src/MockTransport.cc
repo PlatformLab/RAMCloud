@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -30,7 +30,7 @@ uint32_t RAMCloud::MockTransport::sessionDeleteCount = 0;
 MockTransport::MockTransport(const ServiceLocator *serviceLocator)
             : outputLog()
             , status(Status(STATUS_MAX_VALUE+1))
-            , inputMessage(NULL)
+            , inputMessages()
             , serverSendCount(0)
             , clientSendCount(0)
             , clientRecvCount(0)
@@ -119,7 +119,8 @@ MockTransport::MockSession::clientSend(Buffer* payload, Buffer* response)
 /**
  * This method is invoked by tests to provide a string that will
  * be used to synthesize an input message the next time one is
- * needed (such as for an RPC result).
+ * needed (such as for an RPC result). The value NULL may be used when
+ * one wants to throw a transport exception instead of a response.
  *
  * \param s
  *      A string representation of the contents of a buffer,
@@ -128,7 +129,7 @@ MockTransport::MockSession::clientSend(Buffer* payload, Buffer* response)
 void
 MockTransport::setInput(const char* s)
 {
-    inputMessage = s;
+    inputMessages.push(s);
 }
 
 //-------------------------------------
@@ -204,9 +205,12 @@ MockTransport::MockClientRpc::MockClientRpc(MockTransport* transport,
                                             Buffer* response)
         : Transport::ClientRpc(request, response)
 {
-    if (transport->inputMessage != NULL) {
-        response->fillFromString(transport->inputMessage);
-        transport->inputMessage = NULL;
+    if (!transport->inputMessages.empty()) {
+        const char *resp = transport->inputMessages.front();
+        transport->inputMessages.pop();
+        if (resp == NULL)
+            throw TransportException(HERE, "Fake exception!");
+        response->fillFromString(resp);
     }
     markFinished();
 }

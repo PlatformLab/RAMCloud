@@ -25,13 +25,16 @@
 #include "BackupClient.h"
 #include "BackupService.h"
 #include "Context.h"
+#include "CoordinatorClient.h"
 #include "InfRcTransport.h"
-#include "ShortMacros.h"
-#include "OptionParser.h"
 #include "MasterService.h"
+#include "OptionParser.h"
+#include "PingClient.h"
+#include "FailureDetector.h"
 #include "PingService.h"
 #include "Segment.h"
 #include "ServiceManager.h"
+#include "ShortMacros.h"
 #include "TransportManager.h"
 
 static int cpu;
@@ -46,6 +49,7 @@ main(int argc, char *argv[])
     Context::Guard _(context);
     try
     {
+        Tub<FailureDetector> failureDetector;
         ServerConfig masterConfig;
         string masterTotalMemory, hashTableMemory;
 
@@ -55,6 +59,7 @@ main(int argc, char *argv[])
         string backupFile;
         int backupStrategy;
 
+        bool disableFailureDetector;
         bool masterOnly;
         bool backupOnly;
 
@@ -103,7 +108,10 @@ main(int argc, char *argv[])
             ("segments,s",
              ProgramOptions::value<uint32_t>(&segmentCount)->
                 default_value(512),
-             "Number of segment frames in backup storage");
+             "Number of segment frames in backup storage")
+            ("disableFailureDetector",
+             ProgramOptions::bool_switch(&disableFailureDetector),
+             "Disable the randomized failure detector");
 
         OptionParser optionParser(serverOptions, argc, argv);
 
@@ -206,6 +214,14 @@ main(int argc, char *argv[])
             masterService->init();
         if (backupService)
             backupService->init();
+        if (!disableFailureDetector) {
+            // Initialize failure detector
+            failureDetector.construct(
+                    optionParser.options.getCoordinatorLocator(),
+                    Context::get().transportManager->getListeningLocatorsString());
+            failureDetector->start();
+        }
+
         while (true) {
             dispatch.poll();
         }

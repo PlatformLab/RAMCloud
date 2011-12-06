@@ -27,6 +27,19 @@ namespace RAMCloud {
  */
 class PingClient : public Client {
   public:
+    /// An asynchronous remote kill operation.
+    class Kill {
+      public:
+        Kill(PingClient& client, const char *serviceLocator);
+        void cancel() { state.cancel(); }
+      private:
+        PingClient& client;
+        Buffer requestBuffer;
+        Buffer responseBuffer;
+        AsyncState state;
+        DISALLOW_COPY_AND_ASSIGN(Kill);
+    };
+
     PingClient() {}
     ServerMetrics getMetrics(const char* serviceLocator);
     uint64_t ping(const char* serviceLocator, uint64_t nonce,
