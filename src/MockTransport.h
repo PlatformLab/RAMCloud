@@ -47,6 +47,7 @@ class MockTransport : public Transport {
                           locatorString.c_str());
     }
 
+    void clearInput();
     void setInput(const char* message);
 
     class MockServerRpc : public ServerRpc {

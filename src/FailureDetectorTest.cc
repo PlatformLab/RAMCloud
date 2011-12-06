@@ -99,12 +99,11 @@ TEST_F(FailureDetectorTest, pingRandomServer_pingFailureAndCoordFailure) {
     mockTransport.setInput(NULL); // ping timeout
     mockTransport.setInput(NULL); // coordinator timeout
     fd->pingRandomServer();
-    EXPECT_EQ("alertCoordinator: Ping timeout to server mock: | "
-              "alertCoordinator: Hint server down failed. "
-              "Maybe the network is disconnected: "
-              "RAMCloud::TransportException: Fake exception! "
-              "thrown at MockClientRpc at src/MockTransport.cc:212",
-              TestLog::get());
+    EXPECT_TRUE(TestUtil::matchesPosixRegex(
+        "alertCoordinator: Ping timeout to server mock: | "
+        "alertCoordinator: Hint server down failed. Maybe the "
+        "network is disconnected: "
+        "RAMCloud::TransportException: testing thrown", TestLog::get()));
 }
 
 } // namespace RAMCloud

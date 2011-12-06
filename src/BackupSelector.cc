@@ -151,8 +151,8 @@ BackupSelector::conflict(const Backup* backup,
     if (backup->server_id() == otherBackupId)
         return true;
     // TODO(ongaro): Add other notions of conflicts, such as same rack.
-    // TODO: This doesn't even capture the notion of a master
-    // confliciting with its local backup.  It only prevents us from
+    // TODO(stutsman): This doesn't even capture the notion of a master
+    // conflicting with its local backup.  It only prevents us from
     // choosing the same backup more than once in odd edge cases of the
     // algorithm.
     return false;

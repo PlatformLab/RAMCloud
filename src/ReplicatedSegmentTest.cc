@@ -247,7 +247,34 @@ TEST_F(ReplicatedSegmentTest, performFreeRpcIsReady) {
     EXPECT_FALSE(segment->replicas[0]);
 }
 
-// TODO: Unit test performFreeRpcFailed once we have the right code there
+TEST_F(ReplicatedSegmentTest, performFreeRpcFailed) {
+    transport.clearInput();
+    transport.setInput(NULL); // error response to replica free
+
+    reset();
+    Transport::SessionRef session = transport.getSession();
+
+    segment->freeQueued = true;
+    segment->replicas[0].construct(666, session);
+    segment->replicas[0]->freeRpc.construct(segment->replicas[0]->client,
+                                            masterId, segmentId);
+    EXPECT_STREQ("clientSend: 0x4001e 0 999 0 888 0",
+                 transport.outputLog.c_str());
+    {
+        TestLog::Enable _;
+        segment->performFree(segment->replicas[0]);
+        EXPECT_TRUE(TestUtil::matchesPosixRegex(
+            "performFree: Failure freeing replica on backup, retrying: "
+            "RAMCloud::TransportException: testing thrown", TestLog::get()));
+    }
+    EXPECT_TRUE(segment->freeQueued);
+    EXPECT_TRUE(segment->isScheduled());
+    ASSERT_TRUE(segment->replicas[0]);
+    EXPECT_FALSE(segment->replicas[0]->freeRpc);
+
+    EXPECT_EQ(0u, deleter.count);
+    reset();
+}
 
 TEST_F(ReplicatedSegmentTest, performFreeWriteRpcInProgress) {
     // It should be impossible to get into this situation now that free()
@@ -373,7 +400,39 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcIsReady) {
     reset();
 }
 
-// TODO: Unit test performWriteRpcFailed once we have the right code there
+TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
+    transport.clearInput();
+    transport.setInput("0"); // ok response to the first replica write
+    transport.setInput(NULL); // error response to second replica write
+
+    segment->write(openLen);
+    segment->close(NULL);
+
+    taskManager.proceed();  // send write requests
+    ASSERT_TRUE(segment->replicas[0]);
+    EXPECT_EQ(openLen, segment->replicas[0]->sent.bytes);
+    EXPECT_EQ(0u, segment->replicas[0]->acked.bytes);
+    ASSERT_TRUE(segment->replicas[1]);
+    EXPECT_EQ(openLen, segment->replicas[1]->sent.bytes);
+
+    {
+        TestLog::Enable _;
+        taskManager.proceed();  // reap rpcs, second replica got error
+        EXPECT_TRUE(TestUtil::matchesPosixRegex(
+            "performWrite: Failure writing replica on backup, retrying: "
+            "RAMCloud::TransportException: testing thrown", TestLog::get()));
+    }
+    EXPECT_TRUE(segment->isScheduled());
+    ASSERT_TRUE(segment->replicas[0]);
+    EXPECT_EQ(openLen, segment->replicas[0]->acked.bytes);
+    EXPECT_FALSE(segment->replicas[0]->writeRpc);
+    ASSERT_TRUE(segment->replicas[1]);
+    EXPECT_EQ(0u , segment->replicas[1]->acked.bytes);
+    EXPECT_FALSE(segment->replicas[1]->writeRpc);
+
+    EXPECT_EQ(0u, deleter.count);
+    reset();
+}
 
 TEST_F(ReplicatedSegmentTest, performWriteMoreToSend) {
     segment->write(openLen + 20);
@@ -520,6 +579,4 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureCloseBeforeNewHeadWrittenTo) {
     reset();
 }
 
-// TODO: Tests to ensure segments reset from corrupted state schedule and work.
-// TODO: Test that close gets sent if open + 0 byte closing write are queued.
 } // namespace RAMCloud

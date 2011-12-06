@@ -125,10 +125,6 @@ struct BackupManagerTest : public ::testing::Test {
 
 };
 
-TEST_F(BackupManagerTest, destructor) {
-    // TODO
-}
-
 TEST_F(BackupManagerTest, openSegment) {
     MockRandom _(1);
     const char data[] = "Hello world!";
@@ -235,7 +231,7 @@ TEST_F(BackupManagerTest, sync) {
 }
 
 TEST_F(BackupManagerTest, clusterConfigurationChanged) {
-    // TODO: Write this once this method actually does something interesting.
+    // TODO(stutsman): Write once this method does something interesting.
 }
 
 TEST_F(BackupManagerTest, isSynced) {

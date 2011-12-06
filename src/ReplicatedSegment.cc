@@ -301,19 +301,16 @@ ReplicatedSegment::performFree(Tub<Replica>& replica)
             // Request is finished, clean up the state, no need to reschedule.
             try {
                 (*replica->freeRpc)();
-                replica.destroy();
-            } catch (ClientException& e) {
-                // TODO: When do I get an Exception?  Only when the backup
-                // is permanently out of the cluster?  If so, just keep
-                // retrying until the coordinator kills one of the two of us.
-                // TODO: Need a better log message once
-                // correct host details are in the Replica.
+            } catch (TransportException& e) {
+                // Retry, if it down the server list will let us know.
                 LOG(WARNING,
-                    "Failure while freeing replica on backup: %s",
+                    "Failure freeing replica on backup, retrying: %s",
                     e.what());
-                DIE("TODO: Haven't decided what to do when a free to "
-                    "a backup fails");
+                replica->freeRpc.destroy();
+                schedule();
+                return;
             }
+            replica.destroy();
             return;
         } else {
             // Request is not yet finished, stay scheduled to wait on it.
@@ -397,16 +394,14 @@ ReplicatedSegment::performWrite(Tub<Replica>& replica)
                 replica->acked = replica->sent;
                 if (replica->sent.close && followingSegment)
                     followingSegment->precedingSegmentCloseAcked = true;
-                replica->writeRpc.destroy();
-                --writeRpcsInFlight;
-            } catch (ClientException& e) {
-                // TODO: What do we want to do here?
+            } catch (TransportException& e) {
+                // Retry, if it is down the server list will let us know.
                 LOG(WARNING,
-                    "Failure while writing replica on backup: %s",
+                    "Failure writing replica on backup, retrying: %s",
                     e.what());
-                DIE("TODO: Haven't decided what to do when a write to "
-                    "a backup fails");
             }
+            replica->writeRpc.destroy();
+            --writeRpcsInFlight;
             if (replica->acked != queued)
                 schedule();
             return;
@@ -439,7 +434,8 @@ ReplicatedSegment::performWrite(Tub<Replica>& replica)
                                             BackupWriteRpc::CLOSE :
                                             BackupWriteRpc::NONE;
 
-            // TODO: This is a bug, breaks atomicity of log entries.
+            // Breaks atomicity of log entries, but it could happen anyway
+            // if a segment gets partially written to disk.
             if (length > maxBytesPerWriteRpc) {
                 length = maxBytesPerWriteRpc;
                 flags = BackupWriteRpc::NONE;
@@ -449,7 +445,7 @@ ReplicatedSegment::performWrite(Tub<Replica>& replica)
                 // Do not send a closing write RPC for this replica until
                 // some other segment later in the log has been durably
                 // opened.  This ensures that the coordinator will find
-                // an open segment during recovery whichs lets it know
+                // an open segment during recovery which lets it know
                 // the entire log has been found (that is, log isn't missing
                 // some head segments).
                 if (followingSegment) {
