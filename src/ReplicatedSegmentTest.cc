@@ -402,19 +402,26 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcIsReady) {
 
 TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
     transport.clearInput();
-    transport.setInput("0"); // ok response to the first replica write
-    transport.setInput(NULL); // error response to second replica write
+    transport.setInput("0"); // ok first replica open
+    transport.setInput(NULL); // error second replica open
+    transport.setInput("0"); // ok second replica reopen
+    transport.setInput(NULL); // error first replica close
+    transport.setInput("0"); // ok second replica close
+    transport.setInput("0"); // ok first replica reclose
 
     segment->write(openLen);
-    segment->close(NULL);
 
-    taskManager.proceed();  // send write requests
+    taskManager.proceed();  // send open requests
     ASSERT_TRUE(segment->replicas[0]);
     EXPECT_EQ(openLen, segment->replicas[0]->sent.bytes);
     EXPECT_EQ(0u, segment->replicas[0]->acked.bytes);
     ASSERT_TRUE(segment->replicas[1]);
     EXPECT_EQ(openLen, segment->replicas[1]->sent.bytes);
 
+    EXPECT_STREQ("clientSend: 0x40022 0 999 0 888 0 0 10 5 0 abcedfghij | "
+                 "clientSend: 0x40022 0 999 0 888 0 0 10 1 0 abcedfghij",
+                 transport.outputLog.c_str());
+    transport.outputLog = "";
     {
         TestLog::Enable _;
         taskManager.proceed();  // reap rpcs, second replica got error
@@ -426,9 +433,46 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
     ASSERT_TRUE(segment->replicas[0]);
     EXPECT_EQ(openLen, segment->replicas[0]->acked.bytes);
     EXPECT_FALSE(segment->replicas[0]->writeRpc);
+    ASSERT_FALSE(segment->replicas[1]);
+
+    taskManager.proceed();  // resend second open request
+    EXPECT_STREQ("clientSend: 0x40022 0 999 0 888 0 0 10 1 0 abcedfghij",
+                 transport.outputLog.c_str());
+    transport.outputLog = "";
+    taskManager.proceed();  // reap second open request
+
+    segment->write(openLen + 10);
+    segment->close(NULL);
+    taskManager.proceed();  // send close requests
+    EXPECT_STREQ("clientSend: 0x40022 0 999 0 888 0 10 10 2 0 klmnopqrst | "
+                 "clientSend: 0x40022 0 999 0 888 0 10 10 2 0 klmnopqrst",
+                 transport.outputLog.c_str());
+    transport.outputLog = "";
+    {
+        TestLog::Enable _;
+        taskManager.proceed();  // reap rpcs, first replica got error
+        EXPECT_TRUE(TestUtil::matchesPosixRegex(
+            "performWrite: Failure writing replica on backup, retrying: "
+            "RAMCloud::TransportException: testing thrown", TestLog::get()));
+    }
+    EXPECT_TRUE(segment->isScheduled());
+    ASSERT_TRUE(segment->replicas[0]);
+    EXPECT_EQ(openLen, segment->replicas[0]->acked.bytes);
+    EXPECT_EQ(openLen, segment->replicas[0]->sent.bytes);
+    EXPECT_FALSE(segment->replicas[0]->writeRpc);
     ASSERT_TRUE(segment->replicas[1]);
-    EXPECT_EQ(0u , segment->replicas[1]->acked.bytes);
+    EXPECT_EQ(openLen + 10, segment->replicas[1]->acked.bytes);
+    EXPECT_EQ(openLen + 10, segment->replicas[1]->sent.bytes);
     EXPECT_FALSE(segment->replicas[1]->writeRpc);
+
+    taskManager.proceed();  // resend first close request
+    EXPECT_STREQ("clientSend: 0x40022 0 999 0 888 0 10 10 2 0 klmnopqrst",
+                 transport.outputLog.c_str());
+    transport.outputLog = "";
+    EXPECT_TRUE(segment->isScheduled());
+    ASSERT_TRUE(segment->replicas[0]);
+    EXPECT_EQ(openLen + 10, segment->replicas[0]->sent.bytes);
+    EXPECT_TRUE(segment->replicas[0]->writeRpc);
 
     EXPECT_EQ(0u, deleter.count);
     reset();

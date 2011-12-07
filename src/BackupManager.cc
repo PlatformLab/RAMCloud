@@ -54,8 +54,8 @@ BackupManager::BackupManager(CoordinatorClient* coordinator,
  * BackupManager that is configured equivalently to the Log's own
  * manager (without having to share the two).
  *
- * TODO: This is completely broken and needs to be done away with.
- * TODO: Eliminate #coordinator when this is fixed.
+ * TODO(stutsman): This is completely broken and needs to be done away with.
+ * TODO(stutsman): Eliminate #coordinator when this is fixed.
  * 
  * \param prototype
  *      The BackupManager that serves as a prototype for this newly
@@ -93,7 +93,7 @@ BackupManager::~BackupManager()
  * Enqueue a segment for replication on backups, return a handle to schedule
  * future operations on the segment.  Selection of backup locations and
  * replication are performed at a later time.  The segment data isn't
- * guaranteed to be durably open on backups until #sync() is called.  The
+ * guaranteed to be durably open on backups until sync() is called.  The
  * returned handle allows future operations like enqueueing more data for
  * replication, waiting for data to be replicated, or freeing replicas.  Read
  * the documentation for ReplicatedSegment::write, ReplicatedSegment::close,
@@ -106,7 +106,8 @@ BackupManager::~BackupManager()
  *
  * The caller must not reuse the memory starting at #data up through the bytes
  * enqueued via ReplicatedSegment::write until after ReplicatedSegment::free
- * is called and returns.
+ * is called and returns (until that time outstanding backup write rpcs may
+ * still refer to the segment data).
  *
  * \param segmentId
  *      The unique identifier for this segment given to it by the log module.
@@ -114,10 +115,10 @@ BackupManager::~BackupManager()
  *      opened before as part of the log this BackupManager is managing.
  * \param data
  *      Starting location of the raw segment data to be replicated.
- * \param len
- *      Number of bytes to send atomically to backups with open segment RPC;
+ * \param openLen
+ *      Number of bytes to send atomically to backups with open segment rpc;
  *      used to send the segment header and log digest (when applicable) along
- *      with the open RPC to a backup.
+ *      with the open rpc to a backup.
  * \return
  *      Pointer to a ReplicatedSegment that is valid until
  *      ReplicatedSegment::free() is called on it or until the BackupManager
@@ -125,17 +126,18 @@ BackupManager::~BackupManager()
  */
 
 ReplicatedSegment*
-BackupManager::openSegment(uint64_t segmentId, const void* data, uint32_t len)
+BackupManager::openSegment(uint64_t segmentId, const void* data,
+                           uint32_t openLen)
 {
     CycleCounter<RawMetric> _(&metrics->master.backupManagerTicks);
-    LOG(DEBUG, "openSegment %lu, %lu, ..., %u", *masterId, segmentId, len);
+    LOG(DEBUG, "openSegment %lu, %lu, ..., %u", *masterId, segmentId, openLen);
     auto* p = replicatedSegmentPool.malloc();
     if (p == NULL)
         DIE("Out of memory");
     auto* replicatedSegment =
         new(p) ReplicatedSegment(taskManager, backupSelector, *this,
                                  writeRpcsInFlight, *masterId, segmentId,
-                                 data, len, numReplicas);
+                                 data, openLen, numReplicas);
     replicatedSegmentList.push_back(*replicatedSegment);
     replicatedSegment->schedule();
     return replicatedSegment;
@@ -179,12 +181,10 @@ BackupManager::sync()
 // - private -
 
 /**
- * Respond to a change in cluster configuration by scheduling any work that
- * is needed to restore durablity guarantees.  The work is queued into
- * #taskManager which is then executed during calls to #proceed().  One call
- * is sufficient since tasks reschedule themselves until all guarantees are
- * restored.  This method will be superceded by its pending integration with
- * the ServerTracker.
+ * Respond to a change in cluster configuration by scheduling any work that is
+ * needed to restore durablity guarantees.  One call is sufficient since tasks
+ * reschedule themselves until all guarantees are restored.  This method will
+ * be superceded by its pending integration with the ServerTracker.
  */
 void
 BackupManager::clusterConfigurationChanged()

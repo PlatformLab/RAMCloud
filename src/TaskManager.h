@@ -26,14 +26,14 @@ class TaskManager;      // forward-declaration
 
 /**
  * Abstract class which represents some work that can be queued up and executed
- * at a later time.  This makes it easy to quickly schedule asynchronous jobs
+ * at a later time.  This makes it easy to quickly create asynchronous jobs
  * which are periodically checked for completeness out of a performance
  * sensitive context.
  *
- * Users subclass Task and provide an implementation for #performTask()
+ * Users subclass Task and provide an implementation for performTask()
  * specific to the deferred work they want done.  Each task is associated with
  * a TaskManager which eventually performs it whenever the task is scheduled
- * (see #schedule()).
+ * (see schedule()).
  *
  * Importantly, creators of tasks must take care to ensure that a task is not
  * scheduled when it is destroyed, otherwise future calls to
@@ -47,7 +47,7 @@ class Task {
     /**
      * Pure virtual method implemented by subclasses; its execution
      * is deferred to a later time perform work asynchronously.
-     * See #schedule() and TaskManager::proceed().
+     * See schedule() and TaskManager::proceed().
      */
     virtual void performTask() = 0;
 
@@ -55,10 +55,10 @@ class Task {
     void schedule();
 
   PRIVATE:
-    /// Executes this Task when it #isScheduled() on #taskManager.proceed().
+    /// Executes this Task when it isScheduled() on taskManager.proceed().
     TaskManager& taskManager;
 
-    /// True if #performTask() will be run on the next #taskManager.proceed().
+    /// True if performTask() will be run on the next taskManager.proceed().
     bool scheduled;
 
     friend class TaskManager;
@@ -81,7 +81,7 @@ class TaskManager {
     void schedule(Task* task);
 
     /**
-     * Points to tasks which should be executed on the next call to #proceed().
+     * Points to tasks which should be executed on the next call to proceed().
      * Provides FIFO order for task scheduling.
      */
     std::queue<Task*> tasks;

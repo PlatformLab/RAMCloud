@@ -382,7 +382,7 @@ Segment::setImplicitlyFreedCounts(uint32_t freeByteSum,
  * \param nextHead
  *      For a normal log segment this is a pointer to the Segment
  *      which logically will follow this segment in the log.  Used to check
- *      ordering constraints of backup replication operations, see above.
+ *      ordering constraints of backup replication operations.
  *      Pass NULL for log cleaning or during unit testing to bypass the
  *      ordering constraints.  See ReplicatedSegment::close for details
  *      about the contraints which are critical for log integrity.

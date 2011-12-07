@@ -31,8 +31,8 @@ namespace RAMCloud {
  * \param backupSelector
  *      Used to choose where to store replicas. Shared among ReplicatedSegments.
  * \param writeRpcsInFlight
- *      Number of outstanding write RPCs to backups across all
- *      ReplicatedSegments.  Used to throttle write RPCs.
+ *      Number of outstanding write rpcs to backups across all
+ *      ReplicatedSegments.  Used to throttle write rpcs.
  * \param deleter
  *      Deletes this when this determines it is no longer needed.
  * \param masterId
@@ -42,11 +42,11 @@ namespace RAMCloud {
  * \param data
  *      The start of raw bytes of the in-memory log segment to be replicated.
  * \param openLen
- *      Bytes to send atomically to backups with the open segment RPC.
+ *      Bytes to send atomically to backups with the open segment rpc.
  * \param numReplicas
  *      Number of replicas of this segment that must be maintained.
  * \param maxBytesPerWriteRpc
- *      Maximum bytes to send in a single write RPC; can help latency of
+ *      Maximum bytes to send in a single write rpc; can help latency of
  *      GetRecoveryDataRequests by unclogging backups a bit.
  */
 ReplicatedSegment::ReplicatedSegment(TaskManager& taskManager,
@@ -80,6 +80,7 @@ ReplicatedSegment::ReplicatedSegment(TaskManager& taskManager,
 
 ReplicatedSegment::~ReplicatedSegment()
 {
+    assert(!isScheduled());
 }
 
 /**
@@ -112,12 +113,13 @@ ReplicatedSegment::free()
 
 /**
  * Request the eventual close of the replicas of a segment on its backups;
- * please read the documentation for this call carefully.
+ * please read the documentation for this function carefully.
  *
- * Once close() is called the only valid operation on the segment is free(),
+ * Once close() is called the only valid operation on the segment is free();
  * no further write() calls are permitted.  sync() must be called if the
  * caller wishes to ensure that the closed status of the segment is
- * reflected durably in its replicas.
+ * reflected durably in its replicas (along with any earlier writes which
+ * were not explicitly synced).
  *
  * The timing of when a close is replicated for a segment relative to
  * open and write requests for the following segment affects the integrity
@@ -126,24 +128,24 @@ ReplicatedSegment::free()
  *
  * Normal operation:
  *
- * #followingSegment is used to enforce a safe ordering of operations issued
+ * \a followingSegment is used to enforce a safe ordering of operations issued
  * to backups; therefore, its correct use is critical to ensure:
- *  1) That log is not mistakenly detected as incomplete, and
+ *  1) That log is not mistakenly detected as incomplete during recovery, and
  *  2) That all data loss is detected during recovery.
  *
  * For a log transitioning from a full head segment s1 to a new, empty
  * head segment s2 the caller must guarantee:
- *  1) s1.close(s2) is called (#followingSegment is the new head), and
+ *  1) s1.close(s2) is called (\a followingSegment is the new head), and
  *  2) No call to s2.write(...) precedes the call to s1.close(s2).
  *
- * Details:
+ * Explanation of the problems which can occur:
  *
  * Problem 1.
  * If the coordinator cannot find an open log segment during recovery it
  * has no way of knowing if it has all of the log (any number of segments
  * from the head may have been lost).  Because of this it is critical that
  * there always be at least one segment durably marked as open on backups.
- * Call this the open-before-close rule.  #followingSegment allows an easy
+ * Call this the open-before-close rule.  \a followingSegment allows an easy
  * check to make sure that the new head segment in the log is durably open
  * before issuing any close rpcs for old head segment.
  * Not obeying open-before-close threatens the integrity of the entire log
@@ -157,14 +159,16 @@ ReplicatedSegment::free()
  * conclude it has recovered the entire log since it was able to find an
  * open segment (and thus the head of the log).
  * Call this the no-write-before-preceding-close rule; not obeying this rule
- * can result in data loss after recovery.
+ * can result in loss of data acknowledged to applications as durable after
+ * a recovery.
  *
  * Together these two rules transitively create the following flow during
  * normal operation for any two segments s1 and s2 which follows s1:
  * s2 is durably opened -> s1 is durably closed -> writes are issued for s2.
  * This cycle repeats as segments are added to the log.
  *
- * Internally, #followingSegment is sufficient to ensure this ordering.
+ * Internally, \a followingSegment is sufficient to ensure this ordering.
+ * See #followingSegment for an explanation of the checks performed.
  *
  * Log cleaning and unit testing:
  *
@@ -174,8 +178,8 @@ ReplicatedSegment::free()
  * completed before they are added to the log.  Since they are spliced into
  * the log atomically as part of another open segment they do not (and cannot
  * obey these extra ordering constraints).  To bypass these constraints the
- * log cleaner can simply pass NULL is for #followingSegment.  Similarly,
- * since unit tests should almost alway pass NULL to avoid these extra
+ * log cleaner can simply pass NULL is for \a followingSegment.  Similarly,
+ * since unit tests should almost always pass NULL to avoid these extra
  * ordering checks.
  *
  * \param followingSegment
@@ -238,8 +242,8 @@ ReplicatedSegment::write(uint32_t offset)
 // - private -
 
 /**
- * Check replication state and make progress in restoring invariants; never
- * invoke this directly, instead use schedule().
+ * Check replication state and make progress in restoring invariants;
+ * generally don't invoke this directly, instead use schedule().
  *
  * This method must be called (indirectly via schedule()) when the
  * state of this ReplicatedSegment changes in a non-trivial way in order to
@@ -289,7 +293,6 @@ ReplicatedSegment::performFree(Tub<Replica>& replica)
      * case a particular state will fall into.  performWrite() is written
      * is a similar style for the same reason.
      */
-
     if (!replica) {
         // Do nothing is there was no replica, no need to reschedule.
         return;
@@ -298,7 +301,7 @@ ReplicatedSegment::performFree(Tub<Replica>& replica)
     if (replica->freeRpc) {
         // A free rpc is outstanding to the backup storing this replica.
         if (replica->freeRpc->isReady()) {
-            // Request is finished, clean up the state, no need to reschedule.
+            // Request is finished, clean up the state.
             try {
                 (*replica->freeRpc)();
             } catch (TransportException& e) {
@@ -311,6 +314,7 @@ ReplicatedSegment::performFree(Tub<Replica>& replica)
                 return;
             }
             replica.destroy();
+            // Free completed, no need to reschedule.
             return;
         } else {
             // Request is not yet finished, stay scheduled to wait on it.
@@ -326,8 +330,7 @@ ReplicatedSegment::performFree(Tub<Replica>& replica)
             schedule();
             return;
         } else {
-            // Issue a free RPC for this replica, reschedule to wait on it.
-            assert(!replica->freeRpc);
+            // Issue a free rpc for this replica, reschedule to wait on it.
             replica->freeRpc.construct(replica->client, masterId, segmentId);
             schedule();
             return;
@@ -340,7 +343,6 @@ ReplicatedSegment::performFree(Tub<Replica>& replica)
  * Make progress, if possible, in durably writing segment data to a particular
  * replica.  If future work is required this method automatically re-schedules
  * this segment for future attention from the BackupManager.
- * \pre freeQueued must be false, otherwise behavior is undefined.
  */
 void
 ReplicatedSegment::performWrite(Tub<Replica>& replica)
@@ -396,6 +398,7 @@ ReplicatedSegment::performWrite(Tub<Replica>& replica)
                     followingSegment->precedingSegmentCloseAcked = true;
             } catch (TransportException& e) {
                 // Retry, if it is down the server list will let us know.
+                replica->sent = replica->acked;
                 LOG(WARNING,
                     "Failure writing replica on backup, retrying: %s",
                     e.what());
@@ -404,6 +407,12 @@ ReplicatedSegment::performWrite(Tub<Replica>& replica)
             --writeRpcsInFlight;
             if (replica->acked != queued)
                 schedule();
+            if (!replica->acked.open) {
+                // If there was a TransportException then it may be
+                // that the open hasn't been acknowledged yet. In that
+                // case we reset to a state where the open will be retried.
+                replica.destroy();
+            }
             return;
         } else {
             // Request is not yet finished, stay scheduled to wait on it.
@@ -442,7 +451,7 @@ ReplicatedSegment::performWrite(Tub<Replica>& replica)
             }
 
             if (flags == BackupWriteRpc::CLOSE) {
-                // Do not send a closing write RPC for this replica until
+                // Do not send a closing write rpc for this replica until
                 // some other segment later in the log has been durably
                 // opened.  This ensures that the coordinator will find
                 // an open segment during recovery which lets it know

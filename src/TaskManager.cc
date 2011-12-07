@@ -23,25 +23,30 @@ namespace RAMCloud {
  * Create a Task which will be run by #taskManager if scheduled.
  *
  * \param taskManager
- *      TaskManager which will execute #performTask().
+ *      TaskManager which will execute performTask().
  */ Task::Task(TaskManager& taskManager)
     : taskManager(taskManager)
     , scheduled(false)
 {
 }
 
-/// Virtual destructor; does nothing.
+/**
+ * Virtual destructor; does nothing.
+ * Subclasses of Task will often want to ensure that an outstanding task
+ * completes before it is destroyed (otherwise it remains in the TaskManager's
+ * queue and will result in undefined behavior on the next iteration); they can
+ * easily do so since they have access to the undestructed state belonging to
+ * the subclass.  This destructor cannot performTask() until scheduled == false
+ * here, it's too late because the virtual destructors of our subclasses have
+ * already been called.
+ */
 Task::~Task()
 {
-    // We cannot wait until scheduled == false here, it's too late
-    // because the virtual destructors of our subclasses have already
-    // been called.
-    assert(!scheduled);
 }
 
 /**
  * Return true if this Task will be executed by #taskManager
- * (that is, #performTask() will be called the next time
+ * (that is, performTask() will be called the next time
  * taskManager.proceed() is called).
  */
 bool
@@ -52,15 +57,15 @@ Task::isScheduled()
 
 /**
  * Ensure this Task will be executed (once) by #taskManager (that is,
- * #performTask() will be called the next time taskManager.proceed() is
+ * performTask() will be called the next time taskManager.proceed() is
  * called).
  *
- * Just before taskManager executes this task, #isScheduled() is reset to
+ * Just before taskManager executes this task, isScheduled() is reset to
  * false and this task will not be executed on subsequent passes made
- * by #taskManager unless #schedule() is called again.  It is perfectly
- * legal to call #schedule() during a call to #performTask(), which indicates
+ * by #taskManager unless schedule() is called again.  It is perfectly
+ * legal to call schedule() during a call to performTask(), which indicates
  * that the task should be run again on the next pass of the #taskManager.
- * Calling #schedule() when #isScheduled() == true has no effect.
+ * Calling schedule() when isScheduled() == true has no effect.
  *
  * Importantly, creators of tasks must take care to ensure that a task is not
  * scheduled when it is destroyed, otherwise future calls to
@@ -82,7 +87,6 @@ TaskManager::TaskManager()
 
 TaskManager::~TaskManager()
 {
-    assert(tasks.size() == 0);
 }
 
 /// Returns true if no tasks are waiting to run on the next call to proceed().
@@ -93,14 +97,14 @@ TaskManager::isIdle()
 }
 
 /**
- * Execute all tasks scheduled since the last call to #proceed() (by
+ * Execute all tasks scheduled since the last call to proceed() (by
  * calling their performTask() virtual method).
  *
  * Just before taskManager executes this task, task->isScheduled() is reset to
- * false and this task will not be executed on subsequent #proceed() calls
+ * false and this task will not be executed on subsequent proceed() calls
  * unless Task::schedule() is called again.  It is perfectly
- * legal to call Task::schedule() during a call to #performTask(), which
- * indicates that the task should be run again on the next call to #proceed().
+ * legal to call Task::schedule() during a call to performTask(), which
+ * indicates that the task should be run again on the next call to proceed().
  */
 void
 TaskManager::proceed()
@@ -118,11 +122,11 @@ TaskManager::proceed()
 // -- private --
 
 /**
- * Queue #task for execution on the next call to #proceed().
+ * Queue \a task for execution on the next call to proceed().
  * Only called by Task::schedule().
  *
  * \param task
- *      Asynchronous job to be executed on the next call to #proceed().
+ *      Asynchronous job to be executed on the next call to proceed().
  */
 void
 TaskManager::schedule(Task* task)

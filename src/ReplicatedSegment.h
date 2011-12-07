@@ -79,7 +79,7 @@ class ReplicatedSegment : public Task {
 
   PRIVATE:
     /**
-     * For internal use; Represents "how much" of a segment or replica.
+     * For internal use; represents "how much" of a segment or replica.
      * ReplicatedSegment must track "how much" of a segment or replica has
      * reached some status.  Concretely, separate instances are used to track
      * how much data the log module expects us to replicate, how much has been
@@ -232,6 +232,10 @@ class ReplicatedSegment : public Task {
   PRIVATE:
     friend class BackupManager;
 
+    /**
+     * Maximum number of simultaenously outstanding write rpcs to backups
+     * to allow across all ReplicatedSegments.
+     */
     enum { MAX_WRITE_RPCS_IN_FLIGHT = 4 };
 
     ReplicatedSegment(TaskManager& taskManager,
@@ -265,7 +269,8 @@ class ReplicatedSegment : public Task {
 
     /**
      * Returns true when all data queued for writing by the log module for this
-     * segment is durably synced to #numReplicas including any outstanding flags.
+     * segment is durably synced to #numReplicas including any outstanding
+     * flags.
      */
     bool isSynced() const { return getAcked() == queued; }
 
@@ -287,8 +292,8 @@ class ReplicatedSegment : public Task {
     Deleter& deleter;
 
     /**
-     * Number of outstanding write RPCs to backups across all
-     * ReplicatedSegments.  Used to throttle write RPCs.
+     * Number of outstanding write rpcs to backups across all
+     * ReplicatedSegments.  Used to throttle write rpcs.
      */
     uint32_t& writeRpcsInFlight;
 
@@ -301,12 +306,12 @@ class ReplicatedSegment : public Task {
     /// The start of raw bytes of the in-memory log segment to be replicated.
     const void* data;
 
-    /// Bytes to send atomically to backups with the open segment RPC.
+    /// Bytes to send atomically to backups with the open segment rpc.
     const uint32_t openLen;
 
     /**
-     * Maximum number of bytes we'll send in any single write RPC
-     * to backups. The idea is to avoid starving other RPCs to the
+     * Maximum number of bytes to send in any single write rpc
+     * to backups. The idea is to avoid starving other rpcs to the
      * backup by not inundating it with segment-sized writes on
      * recovery.
      */
@@ -335,16 +340,16 @@ class ReplicatedSegment : public Task {
     ReplicatedSegment* followingSegment;
 
     /**
-     * No write rpcs (beyond the opening write rpc) for this segment are allowed
-     * until precedingSegmentCloseAcked becomes true.  This constraint is only
-     * enforced for segments which have a followingSegment (see close(), other
-     * segments created as part of the log cleaner and unit tests skip this check).
-     * This segment must wait to send write rpcs until the preceding segment in
-     * the log sets it to true (the preceding segment is the one which has this
-     * segment as its followingSegment).  This happens immedately after the
-     * preceding segment is durably closed on backups.  The goal is to prevent
-     * data written in this segment from being undetectably lost in the case
-     * that all replicas of it are lost.
+     * No write rpcs (beyond the opening write rpc) for this segment are
+     * allowed until precedingSegmentCloseAcked becomes true.  This constraint
+     * is only enforced for segments which have a followingSegment (see
+     * close(), other segments created as part of the log cleaner and unit
+     * tests skip this check).  This segment must wait to send write rpcs until
+     * the preceding segment in the log sets it to true (the preceding segment
+     * is the one which has this segment as its followingSegment).  This
+     * happens immedately after the preceding segment is durably closed on
+     * backups.  The goal is to prevent data written in this segment from being
+     * undetectably lost in the case that all replicas of it are lost.
      */
     bool precedingSegmentCloseAcked;
 

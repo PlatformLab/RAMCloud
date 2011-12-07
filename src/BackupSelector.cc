@@ -117,7 +117,7 @@ BackupSelector::selectPrimary(uint32_t numBackups,
  * Choose a random backup that does not conflict with an existing set of
  * backups.
  * \param numBackups
- *      The number of entries in the \a backups array.
+ *      The number of entries in the \a backupIds array.
  * \param backupIds
  *      An array of numBackups backup ids, none of which may conflict with the
  *      returned backup.
@@ -139,8 +139,8 @@ BackupSelector::selectSecondary(uint32_t numBackups,
 }
 
 /**
- * Return whether it is unwise to place a replica on backup 'backup' given
- * that a replica exists on backup 'otherBackupId'.
+ * Return whether it is unwise to place a replica on \a backup given
+ * that a replica exists on backup \a otherBackupId.
  * For example, it is unwise to place two replicas on the same backup or
  * on backups that share a common power source.
  */
@@ -160,7 +160,7 @@ BackupSelector::conflict(const Backup* backup,
 
 /**
  * Return whether it is unwise to place a replica on backup 'backup' given
- * that replica exists on 'backups'. See #conflict.
+ * that replica exists on 'backups'. See conflict().
  */
 bool
 BackupSelector::conflictWithAny(const Backup* backup,
