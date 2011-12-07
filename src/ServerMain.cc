@@ -217,8 +217,8 @@ main(int argc, char *argv[])
         if (!disableFailureDetector) {
             // Initialize failure detector
             failureDetector.construct(
-                    optionParser.options.getCoordinatorLocator(),
-                    Context::get().transportManager->getListeningLocatorsString());
+                optionParser.options.getCoordinatorLocator(),
+                Context::get().transportManager->getListeningLocatorsString());
             failureDetector->start();
         }
 

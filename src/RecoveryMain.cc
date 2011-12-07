@@ -240,7 +240,7 @@ try
 
     // Cancel the kill RPC
     killOp.cancel();
-    
+
     // Wait for recovery to complete
     client.objectFinder.waitForAllTabletsNormal();
     LOG(NOTICE, "all tablets now normal");

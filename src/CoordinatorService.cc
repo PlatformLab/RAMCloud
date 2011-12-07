@@ -315,7 +315,8 @@ CoordinatorService::hintServerDown(const HintServerDownRpc::Request& reqHdr,
 
     // Is the server really down or could it be a false-positive?
 #if TESTING
-    if ((serviceLocator == "mock:host=backup") || (serviceLocator == "mock:host=master")) {
+    if (serviceLocator == "mock:host=backup" ||
+        serviceLocator == "mock:host=master") {
         isServerReallyDown = true;
     }
 #endif /* TESTING */
@@ -324,7 +325,8 @@ CoordinatorService::hintServerDown(const HintServerDownRpc::Request& reqHdr,
     if (!isServerReallyDown) {
         try {
             uint64_t nonce = generateRandom();
-            pingClient.ping(serviceLocator.c_str(), nonce, TIMEOUT_USECS * 1000);
+            pingClient.ping(serviceLocator.c_str(),
+                            nonce, TIMEOUT_USECS * 1000);
         } catch (TimeoutException &te) {
             // Fall through
             isServerReallyDown = true;
@@ -332,7 +334,8 @@ CoordinatorService::hintServerDown(const HintServerDownRpc::Request& reqHdr,
     }
 
     if (!isServerReallyDown) {
-        LOG(NOTICE, "Hint server down false-positive: %s", serviceLocator.c_str());
+        LOG(NOTICE, "Hint server down false-positive: %s",
+                    serviceLocator.c_str());
         return;
     }
 
