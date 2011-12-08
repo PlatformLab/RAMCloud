@@ -17,7 +17,6 @@
 
 #include "TestUtil.h"
 #include "BindTransport.h"
-#include "BackupManager.h"
 #include "BackupService.h"
 #include "BackupStorage.h"
 #include "CoordinatorClient.h"
@@ -25,6 +24,7 @@
 #include "MasterService.h"
 #include "Memory.h"
 #include "Recovery.h"
+#include "ReplicaManager.h"
 #include "ShortMacros.h"
 #include "Tablets.pb.h"
 #include "TransportManager.h"
@@ -44,7 +44,7 @@ class RecoveryTest : public ::testing::Test {
     struct WriteValidSegment {
         ProtoBuf::ServerList backupList;
         Tub<uint64_t> masterIdTub;
-        BackupManager* mgr;
+        ReplicaManager* mgr;
         void *segMem;
         Segment* seg;
 
@@ -60,8 +60,8 @@ class RecoveryTest : public ::testing::Test {
             , segMem()
             , seg()
         {
-            mgr = new BackupManager(NULL, masterIdTub,
-                                    downCast<uint32_t>(locators.size()));
+            mgr = new ReplicaManager(NULL, masterIdTub,
+                                     downCast<uint32_t>(locators.size()));
             uint32_t backupId = 0;
             foreach (const auto& locator, locators) {
                 ProtoBuf::ServerList::Entry& e(*backupList.add_server());

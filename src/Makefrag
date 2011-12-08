@@ -30,7 +30,6 @@ SHARED_SRCFILES := \
 		   src/CoordinatorClient.cc \
 		   src/Crc32C.cc \
 		   src/BackupClient.cc \
-		   src/BackupManager.cc \
 		   src/BackupSelector.cc \
 		   src/Buffer.cc \
 		   src/ClientException.cc \
@@ -61,6 +60,7 @@ SHARED_SRCFILES := \
 		   src/RawMetrics.cc \
 		   src/Recovery.cc \
 		   src/RecoverySegmentIterator.cc \
+		   src/ReplicaManager.cc \
 		   src/ReplicatedSegment.cc \
 		   src/Rpc.cc \
 		   src/Segment.cc \

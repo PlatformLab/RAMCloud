@@ -15,12 +15,8 @@
 
 #include "TestUtil.h"
 #include "Common.h"
-#include "BackupClient.h"
-#include "BackupManager.h"
-#include "BindTransport.h"
-#include "CoordinatorClient.h"
-#include "CoordinatorService.h"
 #include "ShortMacros.h"
+#include "TaskManager.h"
 
 namespace RAMCloud {
 

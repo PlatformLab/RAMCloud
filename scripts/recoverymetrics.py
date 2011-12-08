@@ -806,7 +806,7 @@ def makeReport(data):
     slowSection = report.add(Section('Slowest Servers'))
 
     slowest = maxTuple([
-            [1e03 * (master.master.backupManagerTicks - 
+            [1e03 * (master.master.replicaManagerTicks -
              master.master.logSyncTicks) / master.clockFrequency,
              master.server] for master in masters])
     if slowest:

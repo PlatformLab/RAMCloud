@@ -31,8 +31,8 @@ namespace RAMCloud {
  *
  * \param[in] log
  *      Pointer to the Log we'll be cleaning.
- * \param[in] backup
- *      The BackupManager to use for Segments written out by
+ * \param[in] replicaManager
+ *      The ReplicaManager to use for Segments written out by
  *      the cleaner.
  * \param[in] startThread
  *      If true, start a new thread that polls for work and calls
@@ -40,13 +40,15 @@ namespace RAMCloud {
  *      this object will call the #clean method when they want cleaning
  *      to occur.
  */
-LogCleaner::LogCleaner(Log* log, BackupManager *backup, bool startThread)
+LogCleaner::LogCleaner(Log* log,
+                       ReplicaManager *replicaManager,
+                       bool startThread)
     : bytesFreedBeforeLastCleaning(0),
       scanList(),
       nextScannedSegmentId(0),
       cleanableSegments(),
       log(log),
-      backup(backup),
+      replicaManager(replicaManager),
       thread(),
       perfCounters()
 {
@@ -881,7 +883,7 @@ LogCleaner::moveLiveData(LiveSegmentEntryHandleVector& liveData,
                                               log->allocateSegmentId(),
                                               segmentMemory,
                                               log->getSegmentCapacity(),
-                                              backup,
+                                              replicaManager,
                                               LOG_ENTRY_TYPE_UNINIT, NULL, 0);
 
                 segmentsAdded.push_back(newSeg);

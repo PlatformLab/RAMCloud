@@ -20,10 +20,10 @@
 #include <vector>
 
 #include "Common.h"
-#include "BackupManager.h"
 #include "LogTypes.h"
 #include "Log.h"
 #include "Segment.h"
+#include "ReplicaManager.h"
 
 namespace RAMCloud {
 
@@ -54,7 +54,8 @@ class Log;
  */
 class LogCleaner {
   public:
-    explicit LogCleaner(Log* log, BackupManager* backup, bool startThread);
+    explicit LogCleaner(Log* log, ReplicaManager* replicaManager,
+                        bool startThread);
     ~LogCleaner();
     bool clean();
     void halt();
@@ -582,10 +583,10 @@ class LogCleaner {
     /// The Log we're cleaning.
     Log* log;
 
-    /// Our own private BackupManager (not the Log's). BackupManager isn't
+    /// Our own private ReplicaManager (not the Log's). ReplicaManager isn't
     /// reentrant, and there's little reason for it to be, so use this one
-    // to manage the Segments we create while cleaning.
-    BackupManager* backup;
+    /// to manage the Segments we create while cleaning.
+    ReplicaManager* replicaManager;
 
     // Tub containing our cleaning thread, if we're told to instantiate one
     // by whoever constructs this object.

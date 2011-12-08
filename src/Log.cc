@@ -38,8 +38,8 @@ namespace RAMCloud {
  * \param[in] maximumBytesPerAppend
  *      The maximum number of bytes that will ever be appended to this
  *      log in a single append operation.
- * \param[in] backup
- *      The BackupManager that will be used to make each of this Log's
+ * \param[in] replicaManager
+ *      The ReplicaManager that will be used to make each of this Log's
  *      Segments durable.
  * \param[in] cleanerOption
  *      Cleaner option from the Log::CleanerOption enum. This lets the
@@ -54,7 +54,7 @@ Log::Log(const Tub<uint64_t>& logId,
          uint64_t logCapacity,
          uint32_t segmentCapacity,
          uint32_t maximumBytesPerAppend,
-         BackupManager *backup,
+         ReplicaManager *replicaManager,
          CleanerOption cleanerOption)
     : stats(),
       logCapacity((logCapacity / segmentCapacity) * segmentCapacity),
@@ -76,10 +76,11 @@ Log::Log(const Tub<uint64_t>& logId,
       activeBaseAddressMap(),
       logTypeMap(),
       listLock(),
-      backup(backup),
+      replicaManager(replicaManager),
       cleanerOption(cleanerOption),
       cleaner(this,
-              (backup == NULL) ? NULL : new BackupManager(backup),
+              (replicaManager == NULL) ?
+                    NULL : new ReplicaManager(replicaManager),
               cleanerOption == CONCURRENT_CLEANER)
 {
     if (logCapacity == 0) {
@@ -182,7 +183,7 @@ Log::allocateHead()
     }
 
     Segment* nextHead = new Segment(this, newHeadId, baseAddress,
-        segmentCapacity, backup, LOG_ENTRY_TYPE_LOGDIGEST, temp,
+        segmentCapacity, replicaManager, LOG_ENTRY_TYPE_LOGDIGEST, temp,
         downCast<uint32_t>(digestBytes));
 
     activeIdMap[nextHead->getId()] = nextHead;

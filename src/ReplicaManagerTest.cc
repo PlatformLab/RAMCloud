@@ -23,18 +23,18 @@
 #include "CoordinatorClient.h"
 #include "CoordinatorService.h"
 #include "BackupClient.h"
-#include "BackupManager.h"
 #include "BackupService.h"
 #include "BackupStorage.h"
 #include "BindTransport.h"
 #include "MasterService.h"
 #include "Memory.h"
+#include "ReplicaManager.h"
 #include "Segment.h"
 #include "ShortMacros.h"
 
 namespace RAMCloud {
 
-struct BackupManagerTest : public ::testing::Test {
+struct ReplicaManagerTest : public ::testing::Test {
     const uint32_t segmentSize;
     const uint32_t segmentFrames;
     const char* coordinatorLocator;
@@ -51,9 +51,9 @@ struct BackupManagerTest : public ::testing::Test {
     Tub<BackupClient> backup1;
     Tub<BackupClient> backup2;
     Tub<uint64_t> serverId;
-    Tub<BackupManager> mgr;
+    Tub<ReplicaManager> mgr;
 
-    BackupManagerTest()
+    ReplicaManagerTest()
         : segmentSize(1 << 16)
         , segmentFrames(4)
         , coordinatorLocator("mock:host=coordinator")
@@ -125,7 +125,7 @@ struct BackupManagerTest : public ::testing::Test {
 
 };
 
-TEST_F(BackupManagerTest, openSegment) {
+TEST_F(ReplicaManagerTest, openSegment) {
     MockRandom _(1);
     const char data[] = "Hello world!";
 
@@ -163,7 +163,7 @@ TEST_F(BackupManagerTest, openSegment) {
 
 // This is a test that really belongs in SegmentTest.cc, but the setup
 // overhead is too high.
-TEST_F(BackupManagerTest, writeSegment) {
+TEST_F(ReplicaManagerTest, writeSegment) {
     void* segMem = Memory::xmemalign(HERE, segmentSize, segmentSize);
     Segment seg(99, 88, segMem, segmentSize, mgr.get());
     SegmentHeader header = { 99, 88, segmentSize };
@@ -214,7 +214,7 @@ TEST_F(BackupManagerTest, writeSegment) {
     free(segMem);
 }
 
-TEST_F(BackupManagerTest, proceed) {
+TEST_F(ReplicaManagerTest, proceed) {
     mgr->openSegment(89, NULL, 0)->close(NULL);
     auto& segment = mgr->replicatedSegmentList.front();
     EXPECT_FALSE(segment.replicas[0]);
@@ -223,18 +223,18 @@ TEST_F(BackupManagerTest, proceed) {
     EXPECT_TRUE(segment.replicas[0]->writeRpc);
 }
 
-TEST_F(BackupManagerTest, sync) {
+TEST_F(ReplicaManagerTest, sync) {
     mgr->openSegment(89, NULL, 0)->close(NULL);
     mgr->openSegment(90, NULL, 0)->close(NULL);
     mgr->openSegment(91, NULL, 0)->close(NULL);
     mgr->sync();
 }
 
-TEST_F(BackupManagerTest, clusterConfigurationChanged) {
+TEST_F(ReplicaManagerTest, clusterConfigurationChanged) {
     // TODO(stutsman): Write once this method does something interesting.
 }
 
-TEST_F(BackupManagerTest, isSynced) {
+TEST_F(ReplicaManagerTest, isSynced) {
     mgr->openSegment(89, NULL, 0)->close(NULL);
     mgr->openSegment(90, NULL, 0)->close(NULL);
     EXPECT_FALSE(mgr->isSynced());
@@ -248,7 +248,7 @@ TEST_F(BackupManagerTest, isSynced) {
     EXPECT_TRUE(mgr->isSynced());
 }
 
-TEST_F(BackupManagerTest, destroyAndFreeReplicatedSegment) {
+TEST_F(ReplicaManagerTest, destroyAndFreeReplicatedSegment) {
     auto* segment = mgr->openSegment(89, NULL, 0);
     mgr->sync();
     EXPECT_FALSE(mgr->replicatedSegmentList.empty());
