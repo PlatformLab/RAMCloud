@@ -153,7 +153,7 @@ def getDumpstr():
         def error(*args, **kwargs):
             raise Exception(
                 "You did not set your dumpstr_base_url "
-                "in local_config.py, so you can't upload reports.")
+                "in localconfig.py, so you can't upload reports.")
         d.upload_report = error
         return d
     else:

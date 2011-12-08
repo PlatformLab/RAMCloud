@@ -71,14 +71,14 @@ os.environ['LD_LIBRARY_PATH'] = ':'.join(ld_library_path)
 # to use for creating service locators. and an id for generating
 # Ethernet addresses.
 hosts = []
-for i in range(22, 40):
+for i in range(1, 61):
     hosts.append(('rc%02d' % i,
                   '192.168.1.%d' % (100 + i),
                   i))
 
 # Host on which old master is run for running recoveries.
 # Need not be a member of hosts
-old_master_host = ('rc21', '192.168.1.121', 21)
+old_master_host = ('rcmaster', '192.168.1.1', 81)
 
 # Full path to the directory containing RAMCloud executables.
 obj_path = '%s/%s' % (top_path, obj_dir)
