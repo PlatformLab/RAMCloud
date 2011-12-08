@@ -13,7 +13,6 @@ endif
 
 TESTS_SRCFILES := \
 		  src/AtomicIntTest.cc \
-		  src/BackupManagerTest.cc \
 		  src/BackupSelectorTest.cc \
 		  src/BackupServiceTest.cc \
 		  src/BackupStorageTest.cc \
@@ -51,6 +50,7 @@ TESTS_SRCFILES := \
 		  src/Recovery.cc \
 		  src/RecoverySegmentIteratorTest.cc \
 		  src/RecoveryTest.cc \
+		  src/ReplicaManagerTest.cc \
 		  src/ReplicatedSegmentTest.cc \
 		  src/RpcTest.cc \
 		  src/SegmentTest.cc \

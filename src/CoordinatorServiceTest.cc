@@ -14,7 +14,7 @@
  */
 
 #include "TestUtil.h"
-#include "BackupManager.h"
+#include "ReplicaManager.h"
 #include "CoordinatorClient.h"
 #include "CoordinatorService.h"
 #include "MasterService.h"

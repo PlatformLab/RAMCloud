@@ -36,7 +36,7 @@ TEST(LogCleanerTest, constructor) {
     EXPECT_EQ(0U, cleaner->bytesFreedBeforeLastCleaning);
     EXPECT_EQ(0U, cleaner->cleanableSegments.size());
     EXPECT_EQ(&log, cleaner->log);
-    EXPECT_EQ(log.backup, cleaner->backup);
+    EXPECT_EQ(log.replicaManager, cleaner->replicaManager);
 }
 
 TEST(LogCleanerTest, getCleanSegmentMemory) {

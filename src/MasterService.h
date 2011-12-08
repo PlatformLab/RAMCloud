@@ -20,14 +20,14 @@
 
 #include "Common.h"
 #include "CoordinatorClient.h"
-#include "Object.h"
 #include "Log.h"
 #include "LogCleaner.h"
-#include "BackupManager.h"
 #include "HashTable.h"
+#include "Object.h"
 #include "RecoverySegmentIterator.h"
-#include "Service.h"
+#include "ReplicaManager.h"
 #include "SegmentIterator.h"
+#include "Service.h"
 #include "SpinLock.h"
 #include "Table.h"
 
@@ -246,7 +246,8 @@ class MasterService : public Service {
     /// Maximum number of referents (objs) per partition. For Will calculation.
     static const uint64_t maxReferentsPerPartition = 10UL * 1000 * 1000;
 
-    BackupManager backup;
+    /// Creates and tracks replicas of in-memory log segments on remote backups.
+    ReplicaManager replicaManager;
 
     /// Track total bytes of object data written (not including log overhead).
     uint64_t bytesWritten;

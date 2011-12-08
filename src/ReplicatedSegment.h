@@ -30,16 +30,16 @@ namespace RAMCloud {
 /**
  * Acts as a handle for the log module to enqueue changes to its segments for
  * eventual replication and freeing; logically part of the BackupMananger.
- * The log module calls BackupManager::openSegment() to allocate and acquire
+ * The log module calls ReplicaManager::openSegment() to allocate and acquire
  * a ReplicatedSegment.  Users of this class should carefully read the
  * documentation for free(), close(), and write() to understand what
  * requirements they must meet and what guarantees are provided.
  *
- * ReplicatedSegment is also used internally by BackupManager, unless you are
- * interested in the guts of BackupManager and ReplicatedSegment you should
+ * ReplicatedSegment is also used internally by ReplicaManager, unless you are
+ * interested in the guts of ReplicaManager and ReplicatedSegment you should
  * stop reading now.
  *
- * The BackupManager uses ReplicatedSegment to track the state of replication
+ * The ReplicaManager uses ReplicatedSegment to track the state of replication
  * of a log segment.  Because this class must internally handle and mask a wide
  * variety of failures from higher-level code it has a specialized style.  In
  * particular, each segment always tries to make progress (either trying to
@@ -54,7 +54,7 @@ namespace RAMCloud {
  * the example, the segment would inspect its replicas' states and find it was
  * missing one replica.  In that case, it would proceed as normal (choosing a
  * new backup, sending out open rpcs, etc.).  ReplicatedSegments subclass Task
- * and are scheduled as part of the BackupManager's TaskManager whenever their
+ * and are scheduled as part of the ReplicaManager's TaskManager whenever their
  * state changed in a way that may cause them to need to perform work (write(),
  * close(), free(), or host failure).  ReplicatedSegments keep themselves
  * scheduled until they are in the state the log module has requested.
@@ -62,13 +62,13 @@ namespace RAMCloud {
 class ReplicatedSegment : public Task {
   PUBLIC:
     /**
-     * Internal to BackupManager; describes what to do whenever we don't want
-     * to go on living.  BackupManager needs to do some special cleanup after
+     * Internal to ReplicaManager; describes what to do whenever we don't want
+     * to go on living.  ReplicaManager needs to do some special cleanup after
      * ReplicatedSegments, but ReplicatedSegments know best when to destroy
      * themselves.  The default logic does nothing which is useful for
      * ReplicatedSegment during unit testing.  Must be public because otherwise
      * it is impossible to subclass this; the friend declaration for
-     * BackupManager doesn't work; it seems C++ doesn't consider the subclass
+     * ReplicaManager doesn't work; it seems C++ doesn't consider the subclass
      * list to be part of the superclass's scope.
      */
     struct Deleter {
@@ -230,7 +230,7 @@ class ReplicatedSegment : public Task {
     void write(uint32_t offset);
 
   PRIVATE:
-    friend class BackupManager;
+    friend class ReplicaManager;
 
     /**
      * Maximum number of simultaenously outstanding write rpcs to backups
@@ -353,11 +353,11 @@ class ReplicatedSegment : public Task {
      */
     bool precedingSegmentCloseAcked;
 
-    /// Intrusive list entries for #BackupManager::replicatedSegmentList.
+    /// Intrusive list entries for #ReplicaManager::replicatedSegmentList.
     IntrusiveListHook listEntries;
 
     /**
-     * An array of #BackupManager::replica backups on which the segment is
+     * An array of #ReplicaManager::replica backups on which the segment is
      * (being) replicated.
      */
     VarLenArray<Tub<Replica>> replicas; // must be last member of class

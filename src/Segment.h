@@ -18,13 +18,13 @@
 
 #include <vector>
 
-#include "BackupManager.h"
 #include "BitOps.h"
 #include "BoostIntrusive.h"
 #include "Common.h"
 #include "Crc32C.h"
 #include "LogTypes.h"
 #include "Object.h"
+#include "ReplicaManager.h"
 #include "SpinLock.h"
 
 namespace RAMCloud {
@@ -178,10 +178,10 @@ class Segment {
     typedef SegmentChecksum Checksum;
 
     Segment(Log *log, uint64_t segmentId, void *baseAddress,
-            uint32_t capacity, BackupManager* backup, LogEntryType type,
-            const void *buffer, uint32_t length);
+            uint32_t capacity, ReplicaManager* replicaManager,
+            LogEntryType type, const void *buffer, uint32_t length);
     Segment(uint64_t logId, uint64_t segmentId, void *baseAddress,
-            uint32_t capacity, BackupManager* backup = NULL);
+            uint32_t capacity, ReplicaManager* replicaManager = NULL);
     ~Segment();
 
     SegmentEntryHandle append(LogEntryType type,
@@ -313,9 +313,9 @@ class Segment {
                              Tub<SegmentChecksum::ResultType> expectedChecksum =
                                  Tub<SegmentChecksum::ResultType>());
 
-    /// BackupManager used to replicate this Segment. This is responsible for
+    /// ReplicaManager used to replicate this Segment. This is responsible for
     /// making operations on this Segment durable.
-    BackupManager    *backup;
+    ReplicaManager    *replicaManager;
 
     /// Base address for the Segment. The base address must be aligned to at
     /// least the size of the Segment.
@@ -326,7 +326,7 @@ class Segment {
     Log              *const log;
 
     /// ID of the Log this Segment belongs to. This is written to the header of
-    /// the Segment and passed down into the BackupManager.
+    /// the Segment and passed down into the ReplicaManager.
     const uint64_t    logId;
 
     /// Segment identification number. This uniquely identifies this Segment in
@@ -405,7 +405,7 @@ class Segment {
     uint64_t          cleanedEpoch;
 
      /// Handle to the open segment on backups, or NULL if the segment is freed.
-    ReplicatedSegment* backupSegment;
+    ReplicatedSegment* replicatedSegment;
 
     friend class Log;
 

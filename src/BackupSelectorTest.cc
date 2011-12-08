@@ -18,7 +18,6 @@
 #include "CoordinatorClient.h"
 #include "CoordinatorService.h"
 #include "BackupClient.h"
-#include "BackupManager.h"
 #include "BindTransport.h"
 #include "ShortMacros.h"
 

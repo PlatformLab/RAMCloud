@@ -13,8 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_BACKUPMANAGER_H
-#define RAMCLOUD_BACKUPMANAGER_H
+#ifndef RAMCLOUD_REPLICAMANAGER_H
+#define RAMCLOUD_REPLICAMANAGER_H
 
 #include <unordered_map>
 #include <boost/pool/pool.hpp>
@@ -31,33 +31,33 @@ namespace RAMCloud {
 /**
  * Creates and tracks replicas of local in-memory segments on remote backups.
  *
- * A master's log module issues requests to a BackupManager which replicates
+ * A master's log module issues requests to a ReplicaManager which replicates
  * log data and can be used to free replicas of segments from backups in the
- * cluster.  BackupManager also responds to changes in cluster configuration;
+ * cluster.  ReplicaManager also responds to changes in cluster configuration;
  * it restores durability of segments and transparently masks backup failures
  * (both for closed segments and for segments which are actively being written
- * when a backup fails). BackupManager tries to mask all failures that can
+ * when a backup fails). ReplicaManager tries to mask all failures that can
  * occur in replication (for example, naming, network, or host failures).
  *
- * All operations issued to the BackupManager are only queued.  To force all
+ * All operations issued to the ReplicaManager are only queued.  To force all
  * queued operations to complete sync() must be called, otherwise the
- * BackupManager casually tries to perform some replication whenever proceed()
+ * ReplicaManager casually tries to perform some replication whenever proceed()
  * is called.
  *
- * The log module uses openSegment() to make the BackupManager aware of
+ * The log module uses openSegment() to make the ReplicaManager aware of
  * an in-memory segment which must be replicated.  See ReplicatedSegment for
- * details on how the log module informs the BackupManager of changes to the
- * in-memory segment image and what guarantees the BackupManager provides.
+ * details on how the log module informs the ReplicaManager of changes to the
+ * in-memory segment image and what guarantees the ReplicaManager provides.
  *
- * There must be exactly one BackupManager per log otherwise behavior is
+ * There must be exactly one ReplicaManager per log otherwise behavior is
  * undefined.
  */
-class BackupManager : public ReplicatedSegment::Deleter {
+class ReplicaManager : public ReplicatedSegment::Deleter {
    PUBLIC:
-    BackupManager(CoordinatorClient* coordinator,
-                  const Tub<uint64_t>& masterId, uint32_t numReplicas);
-    explicit BackupManager(BackupManager* prototype);
-    ~BackupManager();
+    ReplicaManager(CoordinatorClient* coordinator,
+                   const Tub<uint64_t>& masterId, uint32_t numReplicas);
+    explicit ReplicaManager(ReplicaManager* prototype);
+    ~ReplicaManager();
 
     ReplicatedSegment* openSegment(uint64_t segmentId,
                                    const void* data, uint32_t openLen);
@@ -110,7 +110,7 @@ class BackupManager : public ReplicatedSegment::Deleter {
     // Only used by ReplicatedSegment.
     void destroyAndFreeReplicatedSegment(ReplicatedSegment* replicatedSegment);
 
-    DISALLOW_COPY_AND_ASSIGN(BackupManager);
+    DISALLOW_COPY_AND_ASSIGN(ReplicaManager);
 };
 
 } // namespace RAMCloud

@@ -13,8 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "ReplicaManager.h"
 #include "ReplicatedSegment.h"
-#include "BackupManager.h"
 #include "ShortMacros.h"
 #include "TaskManager.h"
 
@@ -23,10 +23,10 @@ namespace RAMCloud {
 // --- ReplicatedSegment ---
 
 /**
- * Create a ReplicatedSegment.  Only called by BackupManager.
+ * Create a ReplicatedSegment.  Only called by ReplicaManager.
  *
  * \param taskManager
- *      The BackupManager's work queue, this is added to it when schedule()
+ *      The ReplicaManager's work queue, this is added to it when schedule()
  *      is called.
  * \param backupSelector
  *      Used to choose where to store replicas. Shared among ReplicatedSegments.
@@ -90,8 +90,8 @@ ReplicatedSegment::~ReplicatedSegment()
  * write rpcs for this segment are guaranteed to have completed so the log
  * memory associated with this segment is free for reuse.
  *
- * Currently there is a hack in BackupManager::sync() which ensures all
- * enqueued free operations have completed when BackupManager::sync() returns.
+ * Currently there is a hack in ReplicaManager::sync() which ensures all
+ * enqueued free operations have completed when ReplicaManager::sync() returns.
  */
 void
 ReplicatedSegment::free()
@@ -278,7 +278,7 @@ ReplicatedSegment::performTask()
  * Make progress, if possible, in freeing a known replica of a segment
  * regardless of what state the replica is in (both locally and remotely).
  * If future work is required this method automatically re-schedules this
- * segment for future attention from the BackupManager.
+ * segment for future attention from the ReplicaManager.
  * \pre freeQueued must be true, otherwise behavior is undefined.
  */
 void
@@ -342,7 +342,7 @@ ReplicatedSegment::performFree(Tub<Replica>& replica)
 /**
  * Make progress, if possible, in durably writing segment data to a particular
  * replica.  If future work is required this method automatically re-schedules
- * this segment for future attention from the BackupManager.
+ * this segment for future attention from the ReplicaManager.
  */
 void
 ReplicatedSegment::performWrite(Tub<Replica>& replica)

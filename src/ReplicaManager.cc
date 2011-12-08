@@ -14,16 +14,16 @@
  */
 
 #include "BackupClient.h"
-#include "BackupManager.h"
 #include "CycleCounter.h"
 #include "ShortMacros.h"
 #include "RawMetrics.h"
+#include "ReplicaManager.h"
 
 namespace RAMCloud {
 
 /**
- * Create a BackupManager.  Creating more than one BackupManager for a single
- * log results in undefined behavior.
+ * Create a ReplicaManager.  Creating more than one ReplicaManager for a
+ * single log results in undefined behavior.
  * \param coordinator
  *      Cluster coordinator; used to get a list of backup servers.
  *      May be NULL for testing purposes.
@@ -33,7 +33,7 @@ namespace RAMCloud {
  * \param numReplicas
  *      Number replicas to keep of each segment.
  */
-BackupManager::BackupManager(CoordinatorClient* coordinator,
+ReplicaManager::ReplicaManager(CoordinatorClient* coordinator,
                              const Tub<uint64_t>& masterId,
                              uint32_t numReplicas)
     : numReplicas(numReplicas)
@@ -48,21 +48,21 @@ BackupManager::BackupManager(CoordinatorClient* coordinator,
 }
 
 /**
- * Create a BackupManager; extremely broken, do not use this.
+ * Create a ReplicaManager; extremely broken, do not use this.
  * This manager is constructed the same way as a previous manager.
  * This is used, for instance, by the LogCleaner to obtain a private
- * BackupManager that is configured equivalently to the Log's own
+ * ReplicaManager that is configured equivalently to the Log's own
  * manager (without having to share the two).
  *
  * TODO(stutsman): This is completely broken and needs to be done away with.
  * TODO(stutsman): Eliminate #coordinator when this is fixed.
- * 
+ *
  * \param prototype
- *      The BackupManager that serves as a prototype for this newly
+ *      The ReplicaManager that serves as a prototype for this newly
  *      created one. The same masterId, number of replicas, and
  *      coordinator are used.
  */
-BackupManager::BackupManager(BackupManager* prototype)
+ReplicaManager::ReplicaManager(ReplicaManager* prototype)
     : numReplicas(prototype->numReplicas)
     , backupSelector(prototype->coordinator)
     , coordinator(prototype->coordinator)
@@ -79,7 +79,7 @@ BackupManager::BackupManager(BackupManager* prototype)
  * to complete, then cleanup and release an local resources (all durably
  * stored but unfreed replicas will remain on backups).
  */
-BackupManager::~BackupManager()
+ReplicaManager::~ReplicaManager()
 {
     sync();
     // sync() is insufficient, may have outstanding frees, etc. Done below.
@@ -112,7 +112,7 @@ BackupManager::~BackupManager()
  * \param segmentId
  *      The unique identifier for this segment given to it by the log module.
  *      The caller must ensure a segment with this segmentId has never been
- *      opened before as part of the log this BackupManager is managing.
+ *      opened before as part of the log this ReplicaManager is managing.
  * \param data
  *      Starting location of the raw segment data to be replicated.
  * \param openLen
@@ -121,15 +121,15 @@ BackupManager::~BackupManager()
  *      with the open rpc to a backup.
  * \return
  *      Pointer to a ReplicatedSegment that is valid until
- *      ReplicatedSegment::free() is called on it or until the BackupManager
+ *      ReplicatedSegment::free() is called on it or until the ReplicaManager
  *      is destroyed.
  */
 
 ReplicatedSegment*
-BackupManager::openSegment(uint64_t segmentId, const void* data,
-                           uint32_t openLen)
+ReplicaManager::openSegment(uint64_t segmentId, const void* data,
+                            uint32_t openLen)
 {
-    CycleCounter<RawMetric> _(&metrics->master.backupManagerTicks);
+    CycleCounter<RawMetric> _(&metrics->master.replicaManagerTicks);
     LOG(DEBUG, "openSegment %lu, %lu, ..., %u", *masterId, segmentId, openLen);
     auto* p = replicatedSegmentPool.malloc();
     if (p == NULL)
@@ -149,9 +149,9 @@ BackupManager::openSegment(uint64_t segmentId, const void* data,
  * replication or replica freeing operations and starts new ones when possible.
  */
 void
-BackupManager::proceed()
+ReplicaManager::proceed()
 {
-    CycleCounter<RawMetric> _(&metrics->master.backupManagerTicks);
+    CycleCounter<RawMetric> _(&metrics->master.replicaManagerTicks);
     taskManager.proceed();
 }
 
@@ -168,11 +168,11 @@ BackupManager::proceed()
  * not be the case in future implementations.
  */
 void
-BackupManager::sync()
+ReplicaManager::sync()
 {
     TEST_LOG("syncing");
     {
-        CycleCounter<RawMetric> _(&metrics->master.backupManagerTicks);
+        CycleCounter<RawMetric> _(&metrics->master.replicaManagerTicks);
         while (!isSynced() || !taskManager.isIdle())
             taskManager.proceed();
     }
@@ -187,7 +187,7 @@ BackupManager::sync()
  * be superceded by its pending integration with the ServerTracker.
  */
 void
-BackupManager::clusterConfigurationChanged()
+ReplicaManager::clusterConfigurationChanged()
 {
     foreach (auto& segment, replicatedSegmentList)
         segment.schedule();
@@ -198,7 +198,7 @@ BackupManager::clusterConfigurationChanged()
  * replication is durable on the proper number of backups.
  */
 bool
-BackupManager::isSynced()
+ReplicaManager::isSynced()
 {
     foreach (auto& segment, replicatedSegmentList) {
         if (!segment.isSynced())
@@ -208,13 +208,13 @@ BackupManager::isSynced()
 }
 
 /**
- * Only used by ReplicatedSegment and ~BackupManager.
- * Invoked by ReplicatedSegment to indicate that the BackupManager no longer
+ * Only used by ReplicatedSegment and ~ReplicaManager.
+ * Invoked by ReplicatedSegment to indicate that the ReplicaManager no longer
  * needs to keep an information about this segment (for example, when all
  * replicas are freed on backups or during shutdown).
  */
 void
-BackupManager::destroyAndFreeReplicatedSegment(ReplicatedSegment*
+ReplicaManager::destroyAndFreeReplicatedSegment(ReplicatedSegment*
                                                     replicatedSegment)
 {
     assert(!replicatedSegment->isScheduled());

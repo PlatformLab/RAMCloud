@@ -70,7 +70,7 @@ class ServerTrackerInterface {
  *  2) Associating state with servers known to the system. Users of this
  *     class may find it convenient to store some typed, copyable state
  *     with some or all of the servers known to it. For example, the
- *     BackupManager could use this to keep track of segments replicated
+ *     ReplicaManager could use this to keep track of segments replicated
  *     on various machines.
  *
  * ServerTrackers are fed server notifications (ServerChanges) from a 

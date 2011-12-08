@@ -38,7 +38,7 @@ class BaseBackupSelector {
 /**
  * Selects backups on which to store replicas while obeying replica placement
  * constraints and balancing expected work among backups for recovery.
- * Logically part of the BackupManager.
+ * Logically part of the ReplicaManager.
  */
 class BackupSelector : public BaseBackupSelector {
   PUBLIC:

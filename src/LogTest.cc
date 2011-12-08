@@ -215,7 +215,7 @@ TEST_F(LogTest, getFromFreeList) {
 
     // Having a Segment on freePendingDigestAndReferenceList should
     // alter the behaviour.
-    Segment* s = new Segment(5, 5, seg2, 8192, l.backup);
+    Segment* s = new Segment(5, 5, seg2, 8192, l.replicaManager);
     l.freePendingDigestAndReferenceList.push_back(*s);
 
     EXPECT_THROW(l.getFromFreeList(false), LogOutOfMemoryException);

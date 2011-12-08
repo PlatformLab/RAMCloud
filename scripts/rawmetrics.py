@@ -168,7 +168,7 @@ master = Group('Master', 'metrics for masters')
 master.metric('recoveryCount',
     'number of recoveries in which this master participated')
 master.metric('recoveryTicks', 'the elapsed time during recoveries')
-master.metric('backupManagerTicks', 'time spent in BackupManager')
+master.metric('replicaManagerTicks', 'time spent in ReplicaManager')
 master.metric('segmentAppendTicks', 'time spent in Segment::append')
 master.metric('segmentAppendCopyTicks',
     'time spent copying in Segment::append')
@@ -187,7 +187,7 @@ master.metric('verifyChecksumTicks',
 master.metric('recoverSegmentTicks',
     'spent in MasterService::recoverSegment')
 master.metric('backupInRecoverTicks',
-    'time spent in BackupManager::proceed '
+    'time spent in ReplicaManager::proceed '
     'called from MasterService::recoverSegment')
 master.metric('segmentCloseCount',
     'number of complete segments written to backups')
@@ -223,9 +223,9 @@ master.metric('replicationBytes',
 master.metric('replicas',
     'number of backups on which to replicate each segment')
 master.metric('backupCloseTicks',
-    'time closing segments in BackupManager')
+    'time closing segments in ReplicaManager')
 master.metric('backupCloseCount',
-    'number of segments closed in BackupManager')
+    'number of segments closed in ReplicaManager')
 master.metric('logSyncCloseTicks',
     'time close segments during log sync')
 master.metric('logSyncCloseCount',

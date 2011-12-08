@@ -26,7 +26,7 @@
 #include "LogTypes.h"
 #include "Segment.h"
 #include "SpinLock.h"
-#include "BackupManager.h"
+#include "ReplicaManager.h"
 
 namespace RAMCloud {
 
@@ -174,7 +174,7 @@ class Log {
         uint64_t logCapacity,
         uint32_t segmentCapacity,
         uint32_t maximumBytesPerAppend,
-        BackupManager *backup = NULL,
+        ReplicaManager *replicaManager = NULL,
         CleanerOption cleanerOption = CONCURRENT_CLEANER);
     ~Log();
     void           allocateHead();
@@ -387,13 +387,13 @@ class Log {
     SpinLock listLock;
 
     /// Given to Segments to make them durable
-    BackupManager *backup;
+    ReplicaManager *replicaManager;
 
     /// If true, never run the cleaner. Only ever used for testing.
     CleanerOption  cleanerOption;
 
     /// Cleaner. Must come after backup so that it can create its own
-    /// BackupManager from the Log's.
+    /// ReplicaManager from the Log's.
     LogCleaner     cleaner;
 
     DISALLOW_COPY_AND_ASSIGN(Log);

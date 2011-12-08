@@ -70,13 +70,13 @@ MasterService::MasterService(const ServerConfig config,
     : config(config)
     , coordinator(coordinator)
     , serverId()
-    , backup(coordinator, serverId, replicas)
+    , replicaManager(coordinator, serverId, replicas)
     , bytesWritten(0)
     , log(serverId,
           config.logBytes,
           Segment::SEGMENT_SIZE,
           sizeof(Object) + MAX_OBJECT_SIZE,
-          &backup,
+          &replicaManager,
           config.disableLogCleaner ? Log::CLEANER_DISABLED :
                                      Log::CONCURRENT_CLEANER)
     , objectMap(config.hashTableBytes /
@@ -259,7 +259,7 @@ MasterService::fillWithTestData(const FillWithTestDataRpc::Request& reqHdr,
             return;
         }
         if ((objects % 50) == 0) {
-            backup.proceed();
+            replicaManager.proceed();
         }
     }
 
@@ -683,7 +683,7 @@ MasterService::recover(uint64_t masterId,
     while (activeRequests) {
         if (!readStallTicks)
             readStallTicks.construct(&metrics->master.segmentReadStallTicks);
-        this->backup.proceed();
+        replicaManager.proceed();
         uint64_t currentTime = Cycles::rdtsc();
         foreach (auto& task, tasks) {
             if (!task)
@@ -840,7 +840,7 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
     {
         CycleCounter<RawMetric> recoveryTicks(&metrics->master.recoveryTicks);
         metrics->master.recoveryCount++;
-        metrics->master.replicas = backup.numReplicas;
+        metrics->master.replicas = replicaManager.numReplicas;
 
         uint64_t masterId = reqHdr.masterId;
         uint64_t partitionId = reqHdr.partitionId;
@@ -960,7 +960,7 @@ void
 MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
                               uint32_t bufferLength)
 {
-    uint64_t startBackupTicks = metrics->master.backupManagerTicks;
+    uint64_t startReplicationTicks = metrics->master.replicaManagerTicks;
     LOG(DEBUG, "recoverSegment %lu, ...", segmentId);
     CycleCounter<RawMetric> _(&metrics->master.recoverSegmentTicks);
 
@@ -973,7 +973,7 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
 
         if (i.getOffset() > lastOffsetBackupProgress + 50000) {
             lastOffsetBackupProgress = i.getOffset();
-            this->backup.proceed();
+            replicaManager.proceed();
         }
 
         recoverSegmentPrefetcher(prefetch);
@@ -1088,7 +1088,7 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
     }
     LOG(DEBUG, "Segment %lu replay complete", segmentId);
     metrics->master.backupInRecoverTicks +=
-        metrics->master.backupManagerTicks - startBackupTicks;
+        metrics->master.replicaManagerTicks - startReplicationTicks;
 }
 
 /**

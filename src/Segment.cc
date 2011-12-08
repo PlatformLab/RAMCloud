@@ -43,8 +43,8 @@ namespace RAMCloud {
  * \param[in] capacity
  *      The size of the backing memory pointed to by baseAddress in bytes. Must
  *      be a power of two.
- * \param[in] backup
- *      The BackupManager responsible for this Segment's durability.
+ * \param[in] replicaManager
+ *      The ReplicaManager responsible for this Segment's durability.
  * \param[in] type
  *      See #append. Used for transmitting a LogDigest atomically with the RPC
  *      that opens the segment.
@@ -61,11 +61,11 @@ Segment::Segment(Log *log,
                  uint64_t segmentId,
                  void *baseAddress,
                  uint32_t capacity,
-                 BackupManager *backup,
+                 ReplicaManager *replicaManager,
                  LogEntryType type,
                  const void *buffer,
                  uint32_t length)
-    : backup(backup),
+    : replicaManager(replicaManager),
       baseAddress(baseAddress),
       log(log),
       logId(log->getId()),
@@ -84,7 +84,7 @@ Segment::Segment(Log *log,
       entryCountsByType(),
       listEntries(),
       cleanedEpoch(-1),
-      backupSegment(NULL)
+      replicatedSegment(NULL)
 {
     commonConstructor(type, buffer, length);
 }
@@ -101,8 +101,8 @@ Segment::Segment(Log *log,
  * \param[in] capacity
  *      The size of the backing memory pointed to by baseAddress in bytes. Must
  *      be a power of two.
- * \param[in] backup
- *      The BackupManager responsible for this Segment's durability.
+ * \param[in] replicaManager
+ *      The ReplicaManager responsible for this Segment's durability.
  * \return
  *      The newly constructed Segment object.
  */
@@ -110,8 +110,8 @@ Segment::Segment(uint64_t logId,
                  uint64_t segmentId,
                  void *baseAddress,
                  uint32_t capacity,
-                 BackupManager *backup)
-    : backup(backup),
+                 ReplicaManager *replicaManager)
+    : replicaManager(replicaManager),
       baseAddress(baseAddress),
       log(NULL),
       logId(logId),
@@ -130,14 +130,14 @@ Segment::Segment(uint64_t logId,
       entryCountsByType(),
       listEntries(),
       cleanedEpoch(-1),
-      backupSegment(NULL)
+      replicatedSegment(NULL)
 {
     commonConstructor(LOG_ENTRY_TYPE_INVALID, NULL, 0);
 }
 
 /**
  * Perform actions common to all Segment constructors, including writing
- * the header and opening the backup.
+ * the header and opening the replica on backups.
  * \param[in] type
  *      See #append. Used for transmitting a LogDigest atomically with the RPC
  *      that opens the segment.
@@ -177,8 +177,8 @@ Segment::commonConstructor(LogEntryType type,
                                                     buffer, length, false);
         assert(h != NULL);
     }
-    if (backup)
-        backupSegment = backup->openSegment(id, baseAddress, tail);
+    if (replicaManager)
+        replicatedSegment = replicaManager->openSegment(id, baseAddress, tail);
 
     // Even if we're not backing up synchronously, we shouldn't be able to roll
     // back this metadata.
@@ -260,10 +260,10 @@ Segment::multiAppend(SegmentMultiAppendVector& appends, bool sync)
     }
 
     // Sync once, if needed, in order to write everything atomically.
-    if (backup) {
-        backupSegment->write(tail);
+    if (replicaManager) {
+        replicatedSegment->write(tail);
         if (sync) {
-            backup->sync();
+            replicaManager->sync();
         }
     }
 
@@ -409,10 +409,11 @@ Segment::close(Segment* nextHead, bool sync)
     // ensure that any future append() will fail
     closed = true;
 
-    if (backup) {
-        backupSegment->close(nextHead ?  nextHead->backupSegment : NULL);
+    if (replicaManager) {
+        replicatedSegment->close(nextHead ?
+                                    nextHead->replicatedSegment : NULL);
         if (sync) // sync determines whether to wait for the acks
-            backup->sync();
+            replicaManager->sync();
     }
 }
 
@@ -423,8 +424,8 @@ void
 Segment::sync()
 {
     boost::lock_guard<SpinLock> lock(mutex);
-    if (backup)
-        backup->sync();
+    if (replicaManager)
+        replicaManager->sync();
 }
 
 /**
@@ -435,10 +436,10 @@ void
 Segment::freeReplicas()
 {
     assert(closed);
-    assert(!backup || backupSegment);
-    if (backup) {
-        backupSegment->free();
-        backupSegment = NULL;
+    assert(!replicaManager || replicatedSegment);
+    if (replicaManager) {
+        replicatedSegment->free();
+        replicatedSegment = NULL;
     }
 }
 
@@ -811,12 +812,12 @@ Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
         forceAppendBlob(buffer, length);
     }
 
-    if (backup && backupSegment) {
-        // backupSegment can be NULL while initial opening entries for the
+    if (replicaManager && replicatedSegment) {
+        // replicatedSegment can be NULL while initial opening entries for the
         // segment header are appended but before openSegment is called.
-        backupSegment->write(tail);
+        replicatedSegment->write(tail);
         if (sync) {
-            backup->sync();
+            replicaManager->sync();
         }
     }
 

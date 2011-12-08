@@ -15,7 +15,6 @@
 
 #include <boost/scoped_ptr.hpp>
 #include "TestUtil.h"
-#include "BackupManager.h"
 #include "BackupService.h"
 #include "BackupStorage.h"
 #include "BindTransport.h"
@@ -26,9 +25,10 @@
 #include "Memory.h"
 #include "MasterClient.h"
 #include "MasterService.h"
+#include "ReplicaManager.h"
+#include "ServerListBuilder.h"
 #include "ShortMacros.h"
 #include "TransportManager.h"
-#include "ServerListBuilder.h"
 
 namespace RAMCloud {
 
@@ -352,7 +352,7 @@ TEST_F(MasterServiceTest, recover_basics) {
                                                         segmentSize));
     Tub<uint64_t> serverId;
     serverId.construct(123);
-    BackupManager mgr(coordinator, serverId, 1);
+    ReplicaManager mgr(coordinator, serverId, 1);
     Segment _(123, 87, segMem, segmentSize, &mgr);
     mgr.sync();
 
@@ -433,7 +433,7 @@ TEST_F(MasterServiceTest, recover) {
                                                         segmentSize));
     Tub<uint64_t> serverId;
     serverId.construct(123);
-    BackupManager mgr(coordinator, serverId, 1);
+    ReplicaManager mgr(coordinator, serverId, 1);
     Segment __(123, 88, segMem, segmentSize, &mgr);
     mgr.sync();
 
@@ -1084,7 +1084,7 @@ TEST_F(MasterRecoverTest, recover) {
                                                          segmentSize));
     Tub<uint64_t> serverId;
     serverId.construct(99);
-    BackupManager mgr(coordinator, serverId, 2);
+    ReplicaManager mgr(coordinator, serverId, 2);
     Segment s1(99, 87, segMem1, segmentSize, &mgr);
     s1.close(NULL);
     char* segMem2 = static_cast<char*>(Memory::xmemalign(HERE, segmentSize,
