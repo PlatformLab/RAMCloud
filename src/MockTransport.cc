@@ -117,6 +117,16 @@ MockTransport::MockSession::clientSend(Buffer* payload, Buffer* response)
 }
 
 /**
+ * Clear all testing RPC responses; see setInput().
+ */
+void
+MockTransport::clearInput()
+{
+    while (!inputMessages.empty())
+        inputMessages.pop();
+}
+
+/**
  * This method is invoked by tests to provide a string that will
  * be used to synthesize an input message the next time one is
  * needed (such as for an RPC result). The value NULL may be used when
@@ -205,13 +215,17 @@ MockTransport::MockClientRpc::MockClientRpc(MockTransport* transport,
                                             Buffer* response)
         : Transport::ClientRpc(request, response)
 {
-    if (!transport->inputMessages.empty()) {
-        const char *resp = transport->inputMessages.front();
-        transport->inputMessages.pop();
-        if (resp == NULL)
-            throw TransportException(HERE, "Fake exception!");
-        response->fillFromString(resp);
+    if (transport->inputMessages.empty()) {
+        markFinished("no responses enqueued for MockTransport");
+        return;
     }
+    const char *resp = transport->inputMessages.front();
+    transport->inputMessages.pop();
+    if (resp == NULL) {
+        markFinished("testing");
+        return;
+    }
+    response->fillFromString(resp);
     markFinished();
 }
 

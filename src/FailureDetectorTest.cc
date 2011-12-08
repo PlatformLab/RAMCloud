@@ -62,14 +62,16 @@ class FailureDetectorTest : public ::testing::Test {
 
 TEST_F(FailureDetectorTest, pingRandomServer_noServers) {
     fd->pingRandomServer();
-    EXPECT_EQ("pingRandomServer: No servers besides myself to probe! List has 0 entries.", TestLog::get());
+    EXPECT_EQ("pingRandomServer: No servers besides myself to probe! "
+              "List has 0 entries.", TestLog::get());
 }
 
 TEST_F(FailureDetectorTest, pingRandomServer_onlySelfServers) {
     ServerListBuilder{fd->serverList}
         (true, false, 123, 87, "mock:local");
     fd->pingRandomServer();
-    EXPECT_EQ("pingRandomServer: No servers besides myself to probe! List has 1 entries.", TestLog::get());
+    EXPECT_EQ("pingRandomServer: No servers besides myself to probe! "
+              "List has 1 entries.", TestLog::get());
 }
 
 TEST_F(FailureDetectorTest, pingRandomServer_pingSuccess) {
@@ -77,7 +79,8 @@ TEST_F(FailureDetectorTest, pingRandomServer_pingSuccess) {
         (true, false, 123, 87, "mock:");
     mockTransport.setInput("0 0 55 0");
     fd->pingRandomServer();
-    EXPECT_EQ("checkStatus: status: 0 | pingRandomServer: Ping succeeded to server mock:", TestLog::get());
+    EXPECT_EQ("checkStatus: status: 0 | pingRandomServer: "
+              "Ping succeeded to server mock:", TestLog::get());
 }
 
 TEST_F(FailureDetectorTest, pingRandomServer_pingFailure) {
@@ -86,7 +89,8 @@ TEST_F(FailureDetectorTest, pingRandomServer_pingFailure) {
     mockTransport.setInput(NULL); // ping timeout
     mockTransport.setInput("0");
     fd->pingRandomServer();
-    EXPECT_EQ("alertCoordinator: Ping timeout to server mock: | checkStatus: status: 0", TestLog::get());
+    EXPECT_EQ("alertCoordinator: Ping timeout to server mock: | "
+              "checkStatus: status: 0", TestLog::get());
 }
 
 TEST_F(FailureDetectorTest, pingRandomServer_pingFailureAndCoordFailure) {
@@ -95,10 +99,11 @@ TEST_F(FailureDetectorTest, pingRandomServer_pingFailureAndCoordFailure) {
     mockTransport.setInput(NULL); // ping timeout
     mockTransport.setInput(NULL); // coordinator timeout
     fd->pingRandomServer();
-    EXPECT_EQ("alertCoordinator: Ping timeout to server mock: | "
-              "alertCoordinator: Hint server down failed. Maybe the network is disconnected: "
-              "RAMCloud::TransportException: Fake exception! thrown at MockClientRpc at "
-              "src/MockTransport.cc:212", TestLog::get());
+    EXPECT_TRUE(TestUtil::matchesPosixRegex(
+        "alertCoordinator: Ping timeout to server mock: | "
+        "alertCoordinator: Hint server down failed. Maybe the "
+        "network is disconnected: "
+        "RAMCloud::TransportException: testing thrown", TestLog::get()));
 }
 
 } // namespace RAMCloud

@@ -825,7 +825,7 @@ TEST_F(SegmentInfoTest, appendRecoverySegment) {
     object.version = 0;
     segment.append(LOG_ENTRY_TYPE_OBJ, &object, sizeof(object));
 
-    segment.close();
+    segment.close(NULL);
     info.close();
     info.setRecovering();
     info.startLoading();
@@ -861,7 +861,7 @@ TEST_F(SegmentInfoTest, appendRecoverySegmentSecondarySegment) {
     object.version = 0;
     segment.append(LOG_ENTRY_TYPE_OBJ, &object, sizeof(object));
 
-    segment.close();
+    segment.close(NULL);
     info.close();
 
     ProtoBuf::Tablets partitions;
@@ -928,7 +928,7 @@ TEST_F(SegmentInfoTest, appendRecoverySegmentNotYetRecovered) {
 TEST_F(SegmentInfoTest, appendRecoverySegmentPartitionOutOfBounds) {
     info.open();
     Segment segment(123, 88, info.segment, segmentSize);
-    segment.close();
+    segment.close(NULL);
     info.close();
     info.setRecovering();
     info.startLoading();
@@ -988,7 +988,7 @@ TEST_F(SegmentInfoTest, buildRecoverySegment) {
     object.version = 0;
     segment.append(LOG_ENTRY_TYPE_OBJ, &object, sizeof(object));
 
-    segment.close();
+    segment.close(NULL);
     info.close();
     info.setRecovering();
     info.startLoading();
@@ -1025,7 +1025,7 @@ TEST_F(SegmentInfoTest, buildRecoverySegmentMalformedSegment) {
 TEST_F(SegmentInfoTest, buildRecoverySegmentNoTablets) {
     info.open();
     Segment segment(123, 88, info.segment, segmentSize);
-    segment.close();
+    segment.close(NULL);
     info.setRecovering();
     info.startLoading();
     info.buildRecoverySegments(ProtoBuf::Tablets());

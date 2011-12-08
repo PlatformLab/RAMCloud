@@ -13,6 +13,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#ifndef RAMCLOUD_SERVERLISTBUILDER_H
+#define RAMCLOUD_SERVERLISTBUILDER_H
+
 namespace RAMCloud {
 
 /**
@@ -62,3 +65,5 @@ struct ServerListBuilder {
 };
 
 } // namespace RAMCloud
+
+#endif // RAMCLOUD_SERVERLISTBUILDER_H

@@ -917,7 +917,7 @@ LogCleaner::moveLiveData(LiveSegmentEntryHandleVector& liveData,
     // Close and sync all newly created Segments.
     CycleCounter<uint64_t> syncTicks(&perfCounters.closeAndSyncTicks);
     foreach (Segment* segment, segmentsAdded)
-        segment->close(true);
+        segment->close(NULL, true);
     syncTicks.stop();
 
     // Now we're done. Save some stats.

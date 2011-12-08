@@ -14,6 +14,7 @@ endif
 TESTS_SRCFILES := \
 		  src/AtomicIntTest.cc \
 		  src/BackupManagerTest.cc \
+		  src/BackupSelectorTest.cc \
 		  src/BackupServiceTest.cc \
 		  src/BackupStorageTest.cc \
 		  src/BitOpsTest.cc \
@@ -50,6 +51,7 @@ TESTS_SRCFILES := \
 		  src/Recovery.cc \
 		  src/RecoverySegmentIteratorTest.cc \
 		  src/RecoveryTest.cc \
+		  src/ReplicatedSegmentTest.cc \
 		  src/RpcTest.cc \
 		  src/SegmentTest.cc \
 		  src/SegmentIteratorTest.cc \
@@ -67,6 +69,7 @@ TESTS_SRCFILES := \
 		  src/StringKeyAdapterTest.cc \
 		  src/StringUtilTest.cc \
 		  src/TabletProfilerTest.cc \
+		  src/TaskManagerTest.cc \
 		  src/TcpTransportTest.cc \
 		  src/TestRunner.cc \
 		  src/TestUtil.cc \

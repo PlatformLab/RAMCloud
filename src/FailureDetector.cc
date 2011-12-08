@@ -179,7 +179,8 @@ FailureDetector::alertCoordinator(string locator)
     try {
         coordinatorClient.hintServerDown(locator);
     } catch (TransportException &te) {
-        LOG(WARNING, "Hint server down failed. Maybe the network is disconnected: %s", te.what());
+        LOG(WARNING, "Hint server down failed. "
+                     "Maybe the network is disconnected: %s", te.what());
     }
 }
 
@@ -196,7 +197,8 @@ FailureDetector::requestServerList()
     try {
         coordinatorClient.getServerList(serverList);
     } catch (TransportException &te) {
-        LOG(WARNING, "Failed to update the server list from the coordinator: %s", te.what());
+        LOG(WARNING, "Failed to update the server list from the coordinator: "
+                     "%s", te.what());
     }
 }
 

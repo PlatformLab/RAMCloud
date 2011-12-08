@@ -42,9 +42,9 @@ class SegmentTest : public ::testing::Test {
     }
 
     static bool
-    freeSegmentFilter(string s)
+    freeFilter(string s)
     {
-        return s == "freeSegment";
+        return s == "free";
     }
 
     static bool
@@ -132,18 +132,6 @@ TEST_F(SegmentTest, constructor) {
         NULL, LOG_ENTRY_TYPE_INVALID, NULL, 0), SegmentException);
     EXPECT_THROW(Segment(&l, 0, &alignedBuf[8], sizeof(alignedBuf),
         NULL, LOG_ENTRY_TYPE_INVALID, NULL, 0), SegmentException);
-}
-
-TEST_F(SegmentTest, destructor) {
-    TestLog::Enable _(&freeSegmentFilter);
-    {
-        char alignedBuf[8192] __attribute__((aligned(8192)));
-        Tub<uint64_t> serverId;
-        serverId.construct(1);
-        BackupManager backup(NULL, serverId, 0);
-        Segment s(1, 2, alignedBuf, sizeof(alignedBuf), &backup);
-    }
-    EXPECT_EQ("freeSegment: 1, 2", TestLog::get());
 }
 
 TEST_F(SegmentTest, append) {
@@ -330,11 +318,10 @@ TEST_F(SegmentTest, close) {
     BackupManager backup(NULL, serverId, 0);
     Segment s(1, 2, alignedBuf, sizeof(alignedBuf), &backup);
     TestLog::Enable _;
-    s.close();
-    EXPECT_EQ("write: 1, 2, 44, 1 | "
-                            "write: Segment 2 closed (length 44) | "
-                            "proceedNoMetrics: Closed segment 1, 2",
-                            TestLog::get());
+    s.close(NULL, false);
+    EXPECT_EQ("write: 1, 2, 44 | close: 1, 2, 0 | "
+              "close: Segment 2 closed (length 44)",
+              TestLog::get());
 
     SegmentEntry *se = reinterpret_cast<SegmentEntry *>(
                         reinterpret_cast<char *>(s.baseAddress) +
@@ -367,7 +354,7 @@ TEST_F(SegmentTest, appendableBytes) {
     EXPECT_EQ(87, i);
     EXPECT_EQ(57U, s.appendableBytes());
 
-    s.close();
+    s.close(NULL);
     EXPECT_EQ(0U, s.appendableBytes());
 }
 
@@ -445,10 +432,23 @@ TEST_F(SegmentTest, syncToBackup) {
     static SegmentHeader header;
     TestLog::Enable _;
     s.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header), false);
-    EXPECT_EQ("", TestLog::get());
+    EXPECT_EQ("write: 1, 2, 60",
+              TestLog::get());
     s.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header), true);
-    EXPECT_EQ("write: 1, 2, 90, 0",
-                            TestLog::get());
+    EXPECT_EQ("write: 1, 2, 60 | write: 1, 2, 90 | sync: syncing",
+              TestLog::get());
+}
+
+TEST_F(SegmentTest, freeReplicas) {
+    TestLog::Enable _(&freeFilter);
+    char alignedBuf[8192] __attribute__((aligned(8192)));
+    Tub<uint64_t> serverId;
+    serverId.construct(1);
+    BackupManager backup(NULL, serverId, 0);
+    Segment s(1, 2, alignedBuf, sizeof(alignedBuf), &backup);
+    s.close(NULL);
+    s.freeReplicas();
+    EXPECT_EQ("free: 1, 2", TestLog::get());
 }
 
 TEST_F(SegmentTest, getSegmentBaseAddress) {

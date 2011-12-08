@@ -38,6 +38,28 @@ class BackupClient : public Client {
   public:
 
     /**
+     * Free a segment replica stored on a backup.  This object is a
+     * continuation that blocks until #responseBuffer is populated
+     * when invoked.
+     */
+    class FreeSegment {
+      public:
+        FreeSegment(BackupClient& client,
+                    uint64_t masterId,
+                    uint64_t segmentId);
+        void cancel() { state.cancel(); }
+        bool isReady() { return state.isReady(); }
+        void operator()();
+      private:
+        BackupClient& client;
+        Buffer requestBuffer;
+        Buffer responseBuffer;
+        AsyncState state;
+        DISALLOW_COPY_AND_ASSIGN(FreeSegment);
+    };
+    DEF_SYNC_RPC_METHOD(freeSegment, FreeSegment);
+
+    /**
      * Get the objects stored for the given tablets of the given server.  This
      * object is a continuation that blocks until #responseBuffer is populated
      * when invoked.
@@ -166,7 +188,6 @@ class BackupClient : public Client {
                      BackupWriteRpc::CLOSE);
     }
 
-    void freeSegment(uint64_t masterId, uint64_t segmentId);
     Transport::SessionRef getSession();
 
     void openSegment(uint64_t masterId,

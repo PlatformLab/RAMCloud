@@ -199,8 +199,9 @@ class Segment {
     void               free(SegmentEntryHandle entry);
     void               setImplicitlyFreedCounts(uint32_t freeByteSum,
                                                 uint64_t freeSpaceTimeSum);
-    void               close(bool sync = true);
+    void               close(Segment* nextHead, bool sync = true);
     void               sync();
+    void               freeReplicas();
     const void        *getBaseAddress() const;
     uint64_t           getId() const;
     uint32_t           getCapacity() const;
@@ -298,7 +299,6 @@ class Segment {
     uint32_t           locklessAppendableBytes() const;
     bool               locklessCanAppendEntries(size_t numberOfEntries,
                                            size_t numberOfBytesInEntries) const;
-    void               locklessSync();
     void               incrementSpaceTimeSum(SegmentEntryHandle handle);
     void               decrementSpaceTimeSum(SegmentEntryHandle handle);
     void               adjustSpaceTimeSum(SegmentEntryHandle handle,
@@ -404,11 +404,8 @@ class Segment {
     /// is safe to return the memory backing this Segment to the free list.
     uint64_t          cleanedEpoch;
 
-    /**
-     * A handle to the open segment on backups,
-     * or NULL if the segment is closed.
-     */
-    BackupManager::OpenSegment* backupSegment;
+     /// Handle to the open segment on backups, or NULL if the segment is freed.
+    ReplicatedSegment* backupSegment;
 
     friend class Log;
 

@@ -62,10 +62,12 @@ class RecoveryTest : public ::testing::Test {
         {
             mgr = new BackupManager(NULL, masterIdTub,
                                     downCast<uint32_t>(locators.size()));
+            uint64_t backupId = 1;
             foreach (const auto& locator, locators) {
                 ProtoBuf::ServerList::Entry& e(*backupList.add_server());
                 e.set_service_locator(locator);
-                e.set_is_master(true);
+                e.set_server_id(backupId++);
+                e.set_is_backup(true);
             }
 
             // TODO(ongaro): Rework this to not muck with mgr's internal state
@@ -87,7 +89,7 @@ class RecoveryTest : public ::testing::Test {
                         downCast<uint32_t>(sizeof(temp)));
 
             if (close)
-                seg->close();
+                seg->close(NULL);
         }
 
         ~WriteValidSegment()

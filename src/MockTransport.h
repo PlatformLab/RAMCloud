@@ -13,7 +13,6 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <string>
 #include <queue>
 
 #include "Transport.h"
@@ -48,6 +47,7 @@ class MockTransport : public Transport {
                           locatorString.c_str());
     }
 
+    void clearInput();
     void setInput(const char* message);
 
     class MockServerRpc : public ServerRpc {

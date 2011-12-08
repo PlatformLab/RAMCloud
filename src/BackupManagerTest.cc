@@ -34,202 +34,7 @@
 
 namespace RAMCloud {
 
-struct BackupSelectorTest : public ::testing::Test {
-    typedef BackupManager::BackupSelector BackupSelector;
-    Tub<BindTransport> transport;
-    Tub<TransportManager::MockRegistrar> mockRegistrar;
-    Tub<CoordinatorService> coordinatorService;
-    Tub<CoordinatorClient> coordinator;
-    Tub<BackupSelector> selector;
-
-    BackupSelectorTest() {
-        transport.construct();
-        mockRegistrar.construct(*transport);
-
-        coordinatorService.construct();
-        transport->addService(*coordinatorService,
-                              "mock:host=coordinator", COORDINATOR_SERVICE);
-
-        coordinator.construct("mock:host=coordinator");
-        selector.construct(coordinator.get());
-    }
-
-    char lastChar(const string& s) {
-        return *(s.end() - 1);
-    }
-
-    string condenseBackups(uint32_t numBackups,
-                           BackupSelector::Backup* backups[]) {
-        string r;
-        for (uint32_t i = 0; i < numBackups; ++i) {
-            if (backups[i] == NULL)
-                r.push_back('x');
-            else
-                r.push_back(lastChar(backups[i]->service_locator()));
-        }
-        return r;
-    }
-
-    string randomRound() {
-        BackupSelector::Backup* randomBackups[] = {
-            selector->getRandomHost(),
-            selector->getRandomHost(),
-            selector->getRandomHost(),
-        };
-        return condenseBackups(3, randomBackups);
-    }
-};
-
-TEST_F(BackupSelectorTest, selectNoHosts) {
-    BackupSelector::Backup* returned[4] = {};
-
-    selector->select(0, returned);
-    EXPECT_EQ("xxxx", condenseBackups(4, returned));
-
-    selector->updateHostListThrower.tillThrow = 10;
-    EXPECT_THROW(selector->select(1, returned), TestingException);
-    EXPECT_EQ("xxxx", condenseBackups(4, returned));
-}
-
-TEST_F(BackupSelectorTest, selectAllEqual) {
-    BackupSelector::Backup* returned[4] = {};
-    MockRandom _(1); // getRandomHost will return: 2 4 6 8 5 1 3 7 9
-    coordinator->enlistServer(BACKUP, "mock:host=backup1", 100);
-    coordinator->enlistServer(BACKUP, "mock:host=backup2", 100);
-    coordinator->enlistServer(BACKUP, "mock:host=backup3", 100);
-    coordinator->enlistServer(BACKUP, "mock:host=backup4", 100);
-    coordinator->enlistServer(BACKUP, "mock:host=backup5", 100);
-    coordinator->enlistServer(BACKUP, "mock:host=backup6", 100);
-    coordinator->enlistServer(BACKUP, "mock:host=backup7", 100);
-    coordinator->enlistServer(BACKUP, "mock:host=backup8", 100);
-    coordinator->enlistServer(BACKUP, "mock:host=backup9", 100);
-    selector->select(3, returned);
-    EXPECT_EQ("213x", condenseBackups(4, returned));
-}
-
-TEST_F(BackupSelectorTest, selectDifferentSpeeds) {
-    BackupSelector::Backup* returned[4] = {};
-    MockRandom _(1); // getRandomHost will return: 2 4 6 8 5 1 3 7 9
-    coordinator->enlistServer(BACKUP, "mock:host=backup1", 10);
-    coordinator->enlistServer(BACKUP, "mock:host=backup2", 20);
-    coordinator->enlistServer(BACKUP, "mock:host=backup3", 30);
-    coordinator->enlistServer(BACKUP, "mock:host=backup4", 40);
-    coordinator->enlistServer(BACKUP, "mock:host=backup5", 50);
-    coordinator->enlistServer(BACKUP, "mock:host=backup6", 60);
-    coordinator->enlistServer(BACKUP, "mock:host=backup7", 70);
-    coordinator->enlistServer(BACKUP, "mock:host=backup8", 80);
-    coordinator->enlistServer(BACKUP, "mock:host=backup9", 90);
-    selector->select(3, returned);
-    EXPECT_EQ("813x", condenseBackups(4, returned));
-}
-
-TEST_F(BackupSelectorTest, selectEvenPrimaryPlacement) {
-    coordinator->enlistServer(BACKUP, "mock:host=backup1", 100);
-    coordinator->enlistServer(BACKUP, "mock:host=backup2", 100);
-    coordinator->enlistServer(BACKUP, "mock:host=backup3", 100);
-    coordinator->enlistServer(BACKUP, "mock:host=backup4", 100);
-    coordinator->enlistServer(BACKUP, "mock:host=backup5", 100);
-    coordinator->enlistServer(BACKUP, "mock:host=backup6", 100);
-    coordinator->enlistServer(BACKUP, "mock:host=backup7", 100);
-    coordinator->enlistServer(BACKUP, "mock:host=backup8", 100);
-    coordinator->enlistServer(BACKUP, "mock:host=backup9", 100);
-    uint32_t primaryCounts[9] = {};
-    for (uint32_t i = 0; i < 900; ++i) {
-        BackupSelector::Backup* primary;
-        selector->select(1, &primary);
-        ++primaryCounts[lastChar(primary->service_locator()) - '1'];
-    }
-    EXPECT_LT(*std::max_element(primaryCounts, primaryCounts + 9) -
-              *std::min_element(primaryCounts, primaryCounts + 9),
-              5U); // range < 5 won't fail often
-}
-
-TEST_F(BackupSelectorTest, selectAdditional) {
-    selector->updateHostListThrower.tillThrow = 10;
-    EXPECT_THROW(selector->selectAdditional(0, NULL), TestingException);
-
-    coordinator->enlistServer(BACKUP, "mock:host=backup1");
-    selector->updateHostListFromCoordinator();
-    EXPECT_EQ(selector->hosts.mutable_server(0),
-              selector->selectAdditional(0, NULL));
-
-    BackupSelector::Backup* conflicts[] =
-        { selector->hosts.mutable_server(0) };
-    selector->updateHostListThrower.tillThrow = 10;
-    EXPECT_THROW(selector->selectAdditional(1, conflicts), TestingException);
-}
-
-
-TEST_F(BackupSelectorTest, getRandomHost) {
-    coordinator->enlistServer(BACKUP, "mock:host=backup1");
-    coordinator->enlistServer(BACKUP, "mock:host=backup2");
-    coordinator->enlistServer(BACKUP, "mock:host=backup3");
-    selector->updateHostListFromCoordinator();
-    MockRandom _(1);
-    EXPECT_EQ("213", randomRound());
-    EXPECT_EQ("132", randomRound());
-    EXPECT_EQ("312", randomRound());
-}
-
-TEST_F(BackupSelectorTest, conflict) {
-    BackupSelector::Backup x, y;
-    EXPECT_FALSE(selector->conflict(&x, &y));
-    EXPECT_TRUE(selector->conflict(&x, &x));
-}
-
-TEST_F(BackupSelectorTest, conflictWithAny) {
-    BackupSelector::Backup w, x, y, z;
-    BackupSelector::Backup* existing[] = { &x, &y , &z };
-    EXPECT_FALSE(selector->conflictWithAny(&w, 0, NULL));
-    EXPECT_FALSE(selector->conflictWithAny(&w, 3, existing));
-    EXPECT_TRUE(selector->conflictWithAny(&x, 3, existing));
-    EXPECT_TRUE(selector->conflictWithAny(&y, 3, existing));
-    EXPECT_TRUE(selector->conflictWithAny(&z, 3, existing));
-}
-
-TEST_F(BackupSelectorTest, updateHostListFromCoordinator) {
-    selector->updateHostListFromCoordinator();
-    EXPECT_EQ(0, selector->hosts.server_size());
-    EXPECT_EQ(0U, selector->hostsOrder.size());
-    EXPECT_EQ(0U, selector->numUsedHosts);
-
-    coordinator->enlistServer(BACKUP, "mock:host=backup1");
-    coordinator->enlistServer(BACKUP, "mock:host=backup2");
-    coordinator->enlistServer(BACKUP, "mock:host=backup3");
-    selector->updateHostListFromCoordinator();
-    EXPECT_EQ(3, selector->hosts.server_size());
-    EXPECT_EQ(3u, selector->hostsOrder.size());
-    EXPECT_EQ(0U, selector->hostsOrder[0]);
-    EXPECT_EQ(1U, selector->hostsOrder[1]);
-    EXPECT_EQ(2U, selector->hostsOrder[2]);
-    EXPECT_EQ(0U, selector->numUsedHosts);
-}
-
-void
-BackupManager::dumpOpenSegments()
-{
-    BackupManager* mgr = const_cast<BackupManager*>(this);
-    LOG(ERROR, "%lu open segments:", mgr->openSegmentList.size());
-    foreach (auto& segment, mgr->openSegmentList) {
-        LOG(ERROR, "Segment %lu", segment.segmentId);
-        LOG(ERROR, "  data: %p", segment.data);
-        LOG(ERROR, "  openLen: %u", segment.openLen);
-        LOG(ERROR, "  queued.bytes: %u", segment.queued.bytes);
-        LOG(ERROR, "  queued.close: %u", segment.queued.close);
-        foreach (auto& backup, segment.backups) {
-            LOG(ERROR, "  Backup:%s", backup ? "" : " inactive");
-            if (!backup)
-                continue;
-            LOG(ERROR, "    done.open: %u", backup->done.open);
-            LOG(ERROR, "    sent.bytes: %u", backup->sent.bytes);
-            LOG(ERROR, "    sent.close: %u", backup->sent.close);
-            LOG(ERROR, "    RPC: %s", backup->rpc ? "active" : "inactive");
-        }
-        LOG(ERROR, " ");
-    }
-}
-
-struct BackupManagerBaseTest : public ::testing::Test {
+struct BackupManagerTest : public ::testing::Test {
     const uint32_t segmentSize;
     const uint32_t segmentFrames;
     const char* coordinatorLocator;
@@ -248,7 +53,7 @@ struct BackupManagerBaseTest : public ::testing::Test {
     Tub<uint64_t> serverId;
     Tub<BackupManager> mgr;
 
-    BackupManagerBaseTest()
+    BackupManagerTest()
         : segmentSize(1 << 16)
         , segmentFrames(4)
         , coordinatorLocator("mock:host=coordinator")
@@ -281,6 +86,9 @@ struct BackupManagerBaseTest : public ::testing::Test {
         transport->addService(*backupService2, "mock:host=backup2",
                 BACKUP_SERVICE);
 
+        backupService1->init();
+        backupService2->init();
+
         backup1.construct(Context::get().transportManager->getSession(
                             "mock:host=backup1"));
         backup2.construct(Context::get().transportManager->getSession(
@@ -289,153 +97,71 @@ struct BackupManagerBaseTest : public ::testing::Test {
         serverId.construct(99);
         mgr.construct(coordinator.get(), serverId, 2);
     }
+
+    void dumpReplicatedSegments()
+    {
+        LOG(ERROR, "%lu open segments:", mgr->replicatedSegmentList.size());
+        foreach (auto& segment, mgr->replicatedSegmentList) {
+            LOG(ERROR, "Segment %lu", segment.segmentId);
+            LOG(ERROR, "  data: %p", segment.data);
+            LOG(ERROR, "  openLen: %u", segment.openLen);
+            LOG(ERROR, "  queued.bytes: %u", segment.queued.bytes);
+            LOG(ERROR, "  queued.close: %u", segment.queued.close);
+            foreach (auto& replica, segment.replicas) {
+                LOG(ERROR, "  Replica:%s", replica ? "" : " non-existent");
+                if (!replica)
+                    continue;
+                LOG(ERROR, "    acked.open: %u", replica->acked.open);
+                LOG(ERROR, "    sent.bytes: %u", replica->sent.bytes);
+                LOG(ERROR, "    sent.close: %u", replica->sent.close);
+                LOG(ERROR, "    Write RPC: %s", replica->writeRpc ?
+                                                    "active" : "inactive");
+                LOG(ERROR, "    Free RPC: %s", replica->freeRpc ?
+                                                    "active" : "inactive");
+            }
+            LOG(ERROR, " ");
+        }
+    }
 };
 
-struct BackupManagerTest : public BackupManagerBaseTest {
-    BackupManagerTest() {
-        backupService1->init();
-        backupService2->init();
-    }
-};
-
-TEST_F(BackupManagerBaseTest, selectOpenHostsNotEnoughBackups) {
-    mgr->backupSelector.updateHostListThrower.tillThrow = 10;
-    auto seg = mgr->openSegment(88, NULL, 0);
-    EXPECT_THROW(mgr->proceed(), TestingException);
-    mgr->unopenSegment(seg); // so that destructor's sync is a no-op
-}
-
-TEST_F(BackupManagerTest, freeSegment) {
-    mgr->freeSegment(88);
-    mgr->openSegment(89, NULL, 0)->close();
-    mgr->freeSegment(89);
-    IGNORE_RESULT(mgr->openSegment(90, NULL, 0));
-    mgr->freeSegment(90);
-
-    ProtoBuf::Tablets will;
-    EXPECT_EQ(0U, mgr->replicaLocations.size());
-
-    {
-        BackupClient::StartReadingData::Result result;
-        backup1->startReadingData(ServerId(99), will, &result);
-        EXPECT_EQ(0U, result.segmentIdAndLength.size());
-    }
-
-    {
-        BackupClient::StartReadingData::Result result;
-        backup2->startReadingData(ServerId(99), will, &result);
-        EXPECT_EQ(0U, result.segmentIdAndLength.size());
-    }
-}
-
-TEST_F(BackupManagerTest, sync) {
-    mgr->openSegment(89, NULL, 0)->close();
-    mgr->openSegment(90, NULL, 0)->close();
-    mgr->openSegment(91, NULL, 0)->close();
-    mgr->sync();
-}
-
-TEST_F(BackupManagerTest, openSegmentInsertOrder) {
-    IGNORE_RESULT(mgr->openSegment(89, NULL, 0));
-    IGNORE_RESULT(mgr->openSegment(79, NULL, 0));
-    IGNORE_RESULT(mgr->openSegment(99, NULL, 0));
-    auto it = mgr->openSegmentList.begin();
-    EXPECT_EQ(89U, it++->segmentId);
-    EXPECT_EQ(79U, it++->segmentId);
-    EXPECT_EQ(99U, it++->segmentId);
-}
-
-TEST_F(BackupManagerTest, OpenSegmentVarLenArray) {
-    // backups[0] must be the last member of OpenSegment
-    BackupManager::OpenSegment* openSegment = NULL;
-    EXPECT_EQ(static_cast<void*>(openSegment + 1),
-              static_cast<void*>(&openSegment->backups[0]));
-}
-
-TEST_F(BackupManagerTest, OpenSegmentConstructor) {
+TEST_F(BackupManagerTest, openSegment) {
     MockRandom _(1);
     const char data[] = "Hello world!";
 
-    auto openSegment = mgr->openSegment(88, data, arrayLength(data));
+    auto segment = mgr->openSegment(88, data, arrayLength(data));
+
+    ASSERT_FALSE(mgr->taskManager.isIdle());
+    EXPECT_EQ(segment, mgr->taskManager.tasks.front());
+    EXPECT_EQ(1u, mgr->replicatedSegmentList.size());
+    EXPECT_EQ(segment, &mgr->replicatedSegmentList.front());
+
     mgr->sync();
 
     // make sure we think data was written
-    EXPECT_EQ(data, openSegment->data);
-    EXPECT_EQ(arrayLength(data), openSegment->queued.bytes);
-    EXPECT_FALSE(openSegment->queued.close);
-    foreach (auto& backup, openSegment->backups) {
-        EXPECT_EQ(arrayLength(data), backup->sent.bytes);
-        EXPECT_FALSE(backup->sent.close);
-        EXPECT_FALSE(backup->rpc);
+    EXPECT_EQ(data, segment->data);
+    EXPECT_EQ(arrayLength(data), segment->queued.bytes);
+    EXPECT_FALSE(segment->queued.close);
+    foreach (auto& replica, segment->replicas) {
+        EXPECT_EQ(arrayLength(data), replica->sent.bytes);
+        EXPECT_FALSE(replica->sent.close);
+        EXPECT_FALSE(replica->writeRpc);
+        EXPECT_FALSE(replica->freeRpc);
     }
     EXPECT_EQ(arrayLength(data), backupService1->bytesWritten);
     EXPECT_EQ(arrayLength(data), backupService2->bytesWritten);
 
-    // make sure OpenSegment::backups point to reasonable service locators
+    // make sure ReplicatedSegment::replicas point to ok service locators
     vector<string> backupLocators;
-    foreach (auto& backup, openSegment->backups) {
+    foreach (auto& replica, segment->replicas) {
         backupLocators.push_back(
-            backup->client.getSession()->getServiceLocator());
+            replica->client.getSession()->getServiceLocator());
     }
     EXPECT_EQ((vector<string> {"mock:host=backup2", "mock:host=backup1"}),
               backupLocators);
-
-    // TODO(ongaro): Unit test backup selection algorithm with varying disk
-    // bandwidths
-
-    // make sure BackupManager::replicaLocations looks sane
-    std::set<string> segmentLocators;
-    foreach (auto& s, mgr->replicaLocations) {
-        EXPECT_EQ(88U, s.first);
-        segmentLocators.insert(s.second.session->getServiceLocator());
-    }
-    EXPECT_EQ((std::set<string> {"mock:host=backup1", "mock:host=backup2"}),
-              segmentLocators);
 }
 
-#if 0 // the sync method was deleted,
-      // not sure if there's valuable stuff in here
-TEST_F(BackupManagerTest, OpenSegmentsync) {
-    const char data[] = "Hello world!";
-
-    auto openSegment = mgr->openSegment(88, data, 0);
-    openSegment->sync();
-    openSegment->sync();
-    openSegment->write(4, false);
-    foreach (auto& backup, openSegment->backups) {
-        EXPECT_EQ(4U, backup->offsetSent);
-        EXPECT_FALSE(backup->closeSent);
-        EXPECT_TRUE(backup->rpc);
-    }
-    openSegment->sync();
-    foreach (auto& backup, openSegment->backups) {
-        EXPECT_EQ(4U, backup->offsetSent);
-        EXPECT_FALSE(backup->closeSent);
-        EXPECT_FALSE(backup->rpc);
-    }
-    openSegment->write(6, false);
-    openSegment->write(8, false);
-    openSegment->sync();
-    foreach (auto& backup, openSegment->backups) {
-        EXPECT_EQ(8U, backup->offsetSent);
-        EXPECT_FALSE(backup->closeSent);
-        EXPECT_FALSE(backup->rpc);
-    }
-    EXPECT_EQ(8U, backupService1->bytesWritten);
-    EXPECT_EQ(8U, backupService2->bytesWritten);
-
-    openSegment->write(9, true);
-    openSegment = NULL;
-
-    mgr->sync();
-    EXPECT_EQ(9U, backupService1->bytesWritten);
-    EXPECT_EQ(9U, backupService2->bytesWritten);
-    EXPECT_EQ(0U, mgr->openSegmentList.size());
-}
-#endif
-
-// TODO(ongaro): This is a test that really belongs in SegmentTest.cc, but the
-// setup overhead is too high.
+// This is a test that really belongs in SegmentTest.cc, but the setup
+// overhead is too high.
 TEST_F(BackupManagerTest, writeSegment) {
     void* segMem = Memory::xmemalign(HERE, segmentSize, segmentSize);
     Segment seg(99, 88, segMem, segmentSize, mgr.get());
@@ -446,9 +172,9 @@ TEST_F(BackupManagerTest, writeSegment) {
     object.id.tableId = 123;
     object.version = 0;
     seg.append(LOG_ENTRY_TYPE_OBJ, &object, sizeof(object));
-    seg.close();
+    seg.close(NULL);
 
-    ASSERT_EQ(0U, mgr->openSegmentList.size());
+    EXPECT_EQ(1U, mgr->replicatedSegmentList.size());
 
     ProtoBuf::Tablets will;
     ProtoBuf::Tablets::Tablet& tablet(*will.add_tablet());
@@ -458,30 +184,76 @@ TEST_F(BackupManagerTest, writeSegment) {
     tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
     tablet.set_user_data(0); // partition id
 
-    foreach (auto v, mgr->replicaLocations) {
-        BackupClient host(v.second.session);
-        Buffer resp;
-        BackupClient::StartReadingData::Result result;
-        host.startReadingData(ServerId(99), will, &result);
-        while (true) {
-            try {
-                host.getRecoveryData(99, 88, 0, resp);
-            } catch (const RetryException& e) {
-                resp.reset();
-                continue;
+    foreach (auto& segment, mgr->replicatedSegmentList) {
+        foreach (auto& replica, segment.replicas) {
+            ASSERT_TRUE(replica);
+            BackupClient& host(replica->client);
+            Buffer resp;
+            BackupClient::StartReadingData::Result result;
+            host.startReadingData(ServerId(99), will, &result);
+            while (true) {
+                try {
+                    host.getRecoveryData(99, 88, 0, resp);
+                } catch (const RetryException& e) {
+                    resp.reset();
+                    continue;
+                }
+                break;
             }
-            break;
+            auto* entry = resp.getStart<SegmentEntry>();
+            EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, entry->type);
+            EXPECT_EQ(sizeof(Object), entry->length);
+            resp.truncateFront(sizeof(*entry));
+            auto* obj = resp.getStart<Object>();
+            EXPECT_EQ(10U, obj->id.objectId);
+            EXPECT_EQ(123U, obj->id.tableId);
         }
-        auto* entry = resp.getStart<SegmentEntry>();
-        EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, entry->type);
-        EXPECT_EQ(sizeof(Object), entry->length);
-        resp.truncateFront(sizeof(*entry));
-        auto* obj = resp.getStart<Object>();
-        EXPECT_EQ(10U, obj->id.objectId);
-        EXPECT_EQ(123U, obj->id.tableId);
     }
 
     free(segMem);
+}
+
+TEST_F(BackupManagerTest, proceed) {
+    mgr->openSegment(89, NULL, 0)->close(NULL);
+    auto& segment = mgr->replicatedSegmentList.front();
+    EXPECT_FALSE(segment.replicas[0]);
+    mgr->proceed();
+    ASSERT_TRUE(segment.replicas[0]);
+    EXPECT_TRUE(segment.replicas[0]->writeRpc);
+}
+
+TEST_F(BackupManagerTest, sync) {
+    mgr->openSegment(89, NULL, 0)->close(NULL);
+    mgr->openSegment(90, NULL, 0)->close(NULL);
+    mgr->openSegment(91, NULL, 0)->close(NULL);
+    mgr->sync();
+}
+
+TEST_F(BackupManagerTest, clusterConfigurationChanged) {
+    // TODO(stutsman): Write once this method does something interesting.
+}
+
+TEST_F(BackupManagerTest, isSynced) {
+    mgr->openSegment(89, NULL, 0)->close(NULL);
+    mgr->openSegment(90, NULL, 0)->close(NULL);
+    EXPECT_FALSE(mgr->isSynced());
+    mgr->proceed(); // send opens
+    EXPECT_FALSE(mgr->isSynced());
+    mgr->proceed(); // reap opens
+    EXPECT_FALSE(mgr->isSynced());
+    mgr->proceed(); // send closes
+    EXPECT_FALSE(mgr->isSynced());
+    mgr->proceed(); // reap closes
+    EXPECT_TRUE(mgr->isSynced());
+}
+
+TEST_F(BackupManagerTest, destroyAndFreeReplicatedSegment) {
+    auto* segment = mgr->openSegment(89, NULL, 0);
+    mgr->sync();
+    EXPECT_FALSE(mgr->replicatedSegmentList.empty());
+    EXPECT_EQ(segment, &mgr->replicatedSegmentList.front());
+    mgr->destroyAndFreeReplicatedSegment(segment);
+    EXPECT_TRUE(mgr->replicatedSegmentList.empty());
 }
 
 } // namespace RAMCloud

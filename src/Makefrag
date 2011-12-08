@@ -32,6 +32,7 @@ SHARED_SRCFILES := \
 		   src/Crc32C.cc \
 		   src/BackupClient.cc \
 		   src/BackupManager.cc \
+		   src/BackupSelector.cc \
 		   src/Buffer.cc \
 		   src/ClientException.cc \
 		   src/ClusterMetrics.cc \
@@ -61,6 +62,7 @@ SHARED_SRCFILES := \
 		   src/RawMetrics.cc \
 		   src/Recovery.cc \
 		   src/RecoverySegmentIterator.cc \
+		   src/ReplicatedSegment.cc \
 		   src/Rpc.cc \
 		   src/Segment.cc \
 		   src/SegmentIterator.cc \
@@ -75,6 +77,7 @@ SHARED_SRCFILES := \
 		   src/Status.cc \
 		   src/StringUtil.cc \
 		   src/TabletProfiler.cc \
+		   src/TaskManager.cc \
 		   src/TcpTransport.cc \
 		   src/TestLog.cc \
 		   src/ThreadId.cc \
