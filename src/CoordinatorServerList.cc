@@ -302,7 +302,10 @@ CoordinatorServerList::getReferenceFromServerId(const ServerId& serverId) const
 /**
  * Obtain a pointer to the entry at the given index of the list. This can
  * be used to iterate over the entire list (in conjunction with the #size
- * method). If there is no entry at the given index, NULL is returned.
+ * method), or by . If there is no entry at the given index, NULL is returned.
+ *
+ * XXX- Should this method always return NULL (i.e. not throw if the index
+ *      is out of bounds)?.
  *
  * \param index
  *      The index of the entry to return, if there is one.
@@ -330,7 +333,7 @@ CoordinatorServerList::getPointerFromIndex(size_t index) const
  * Construct a new Entry, which contains the data a coordinator
  * needs to maintain about an enlisted server.
  *
- * \param id
+ * \param serverId
  *      The ServerId of the server this entry describes.
  *
  * \param serviceLocatorString

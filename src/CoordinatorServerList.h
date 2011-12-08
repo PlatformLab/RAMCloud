@@ -99,7 +99,10 @@ class CoordinatorServerList {
 
   PRIVATE:
     /**
-     * XXX
+     * The list of servers is just a vector of the following structure,
+     * containing a permanent generation number that increments each
+     * time an index is reused, and a Tubbed Entry, which describes the
+     * server currently allocated to that slot, if there is one.
      */
     class GenerationNumberEntryPair {
       public:
