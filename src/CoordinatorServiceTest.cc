@@ -46,7 +46,6 @@ class CoordinatorServiceTest : public ::testing::Test {
         transport = new BindTransport();
         Context::get().transportManager->registerMock(transport);
         service = new CoordinatorService();
-        service->nextServerId = 2;
         transport->addService(*service, "mock:host=coordinator",
                     COORDINATOR_SERVICE);
         client = new CoordinatorClient("mock:host=coordinator");
@@ -87,19 +86,18 @@ TEST_F(CoordinatorServiceTest, createTable) {
     EXPECT_EQ(1U, get(service->tables, "bar"));
     EXPECT_EQ("tablet { table_id: 0 start_object_id: 0 "
               "end_object_id: 18446744073709551615 "
-              "state: NORMAL server_id: 2 "
+              "state: NORMAL server_id: 1 "
               "service_locator: \"mock:host=master\" } "
               "tablet { table_id: 1 start_object_id: 0 "
               "end_object_id: 18446744073709551615 "
-              "state: NORMAL server_id: 3 "
+              "state: NORMAL server_id: 2 "
               "service_locator: \"mock:host=master2\" } "
               "tablet { table_id: 2 start_object_id: 0 "
               "end_object_id: 18446744073709551615 "
-              "state: NORMAL server_id: 2 "
+              "state: NORMAL server_id: 1 "
               "service_locator: \"mock:host=master\" }",
               service->tabletMap.ShortDebugString());
-    ProtoBuf::Tablets& will1(*reinterpret_cast<ProtoBuf::Tablets*>(
-                                service->masterList.server(0).user_data()));
+    ProtoBuf::Tablets& will1 = *service->serverList[1]->will;
     EXPECT_EQ("tablet { table_id: 0 start_object_id: 0 "
               "end_object_id: 18446744073709551615 "
               "state: NORMAL user_data: 0 } "
@@ -107,8 +105,7 @@ TEST_F(CoordinatorServiceTest, createTable) {
               "end_object_id: 18446744073709551615 "
               "state: NORMAL user_data: 1 }",
               will1.ShortDebugString());
-    ProtoBuf::Tablets& will2(*reinterpret_cast<ProtoBuf::Tablets*>(
-                                service->masterList.server(1).user_data()));
+    ProtoBuf::Tablets& will2 = *service->serverList[2]->will;
     EXPECT_EQ("tablet { table_id: 1 start_object_id: 0 "
               "end_object_id: 18446744073709551615 "
               "state: NORMAL user_data: 0 }",
@@ -122,20 +119,26 @@ TEST_F(CoordinatorServiceTest, createTable) {
 // TODO(ongaro): test drop, open table
 
 TEST_F(CoordinatorServiceTest, enlistServer) {
-    EXPECT_EQ(2U, *master->serverId);
-    EXPECT_EQ(3LU, client->enlistServer(BACKUP, "mock:host=backup"));
+    EXPECT_EQ(1U, *master->serverId);
+    EXPECT_EQ(2LU, client->enlistServer(BACKUP, "mock:host=backup"));
+
+    ProtoBuf::ServerList masterList;
+    service->serverList.serialise(masterList, true, false);
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-                "server { server_type: MASTER server_id: 2 "
+                "server { is_master: true is_backup: false server_id: 1 "
                 "service_locator: \"mock:host=master\" "
                 "user_data: [0-9]\\+ }",
-                service->masterList.ShortDebugString()));
-    ProtoBuf::Tablets& will(*reinterpret_cast<ProtoBuf::Tablets*>(
-                                service->masterList.server(0).user_data()));
+                masterList.ShortDebugString()));
+
+    ProtoBuf::Tablets& will = *service->serverList[1]->will;
     EXPECT_EQ(0, will.tablet_size());
-    EXPECT_EQ("server { server_type: BACKUP server_id: 3 "
+
+    ProtoBuf::ServerList backupList;
+    service->serverList.serialise(backupList, false, true);
+    EXPECT_EQ("server { is_master: false is_backup: true server_id: 2 "
               "service_locator: \"mock:host=backup\" "
               "user_data: 0 }",
-              service->backupList.ShortDebugString());
+              backupList.ShortDebugString());
 }
 
 TEST_F(CoordinatorServiceTest, getMasterList) {
@@ -144,7 +147,7 @@ TEST_F(CoordinatorServiceTest, getMasterList) {
     client->getMasterList(masterList);
     // need to avoid non-deterministic 'user_data' field.
     EXPECT_EQ(0U, masterList.ShortDebugString().find(
-              "server { server_type: MASTER server_id: 2 "
+              "server { is_master: true is_backup: false server_id: 1 "
               "service_locator: \"mock:host=master\" "
               "user_data: "));
 }
@@ -155,9 +158,9 @@ TEST_F(CoordinatorServiceTest, getBackupList) {
     client->enlistServer(BACKUP, "mock:host=backup2");
     ProtoBuf::ServerList backupList;
     client->getBackupList(backupList);
-    EXPECT_EQ("server { server_type: BACKUP server_id: 3 "
+    EXPECT_EQ("server { is_master: false is_backup: true server_id: 2 "
               "service_locator: \"mock:host=backup1\" user_data: 0 } "
-              "server { server_type: BACKUP server_id: 4 "
+              "server { is_master: false is_backup: true server_id: 3 "
               "service_locator: \"mock:host=backup2\" user_data: 0 }",
                             backupList.ShortDebugString());
 }
@@ -168,8 +171,10 @@ TEST_F(CoordinatorServiceTest, getServerList) {
     ProtoBuf::ServerList serverList;
     client->getServerList(serverList);
     EXPECT_EQ(2, serverList.server_size());
-    EXPECT_EQ(MASTER, downCast<int>(serverList.server(0).server_type()));
-    EXPECT_EQ(BACKUP, downCast<int>(serverList.server(1).server_type()));
+    EXPECT_TRUE(serverList.server(0).is_master());
+    EXPECT_FALSE(serverList.server(0).is_backup());
+    EXPECT_FALSE(serverList.server(1).is_master());
+    EXPECT_TRUE(serverList.server(1).is_backup());
 }
 
 TEST_F(CoordinatorServiceTest, getTabletMap) {
@@ -178,7 +183,7 @@ TEST_F(CoordinatorServiceTest, getTabletMap) {
     client->getTabletMap(tabletMap);
     EXPECT_EQ("tablet { table_id: 0 start_object_id: 0 "
               "end_object_id: 18446744073709551615 "
-              "state: NORMAL server_id: 2 "
+              "state: NORMAL server_id: 1 "
               "service_locator: \"mock:host=master\" }",
               tabletMap.ShortDebugString());
 }
@@ -188,29 +193,32 @@ TEST_F(CoordinatorServiceTest, hintServerDown_master) {
         explicit MyMockRecovery(CoordinatorServiceTest& test)
             : test(test), called(false) {}
         void
-        operator()(uint64_t masterId,
+        operator()(ServerId masterId,
                     const ProtoBuf::Tablets& will,
-                    const ProtoBuf::ServerList& masterHosts,
-                    const ProtoBuf::ServerList& backupHosts) {
+                    const CoordinatorServerList& serverList) {
+
+            ProtoBuf::ServerList masterHosts, backupHosts;
+            serverList.serialise(masterHosts, true, false);
+            serverList.serialise(backupHosts, false, true);
 
             EXPECT_EQ("tablet { table_id: 0 start_object_id: 0 "
                     "end_object_id: 18446744073709551615 "
-                    "state: RECOVERING server_id: 2 "
+                    "state: RECOVERING server_id: 1 "
                     "service_locator: \"mock:host=master\" }",
                     test.service->tabletMap.ShortDebugString());
-            EXPECT_EQ(2LU, masterId);
+            EXPECT_EQ(1LU, masterId.getId());
             EXPECT_EQ("tablet { table_id: 0 start_object_id: 0 "
                       "end_object_id: 18446744073709551615 "
                       "state: NORMAL user_data: 0 }",
                       will.ShortDebugString());
             EXPECT_TRUE(TestUtil::matchesPosixRegex(
-                        "server { server_type: MASTER "
-                        "server_id: 3 service_locator: "
+                        "server { is_master: true is_backup: false "
+                        "server_id: 2 service_locator: "
                         "\"mock:host=master2\" "
                         "user_data: [0-9]\\+ }",
                         masterHosts.ShortDebugString()));
-            EXPECT_EQ("server { server_type: BACKUP "
-                      "server_id: 4 "
+            EXPECT_EQ("server { is_master: false is_backup: true "
+                      "server_id: 3 "
                       "service_locator: \"mock:host=backup\" "
                       "user_data: 0 }",
                       backupHosts.ShortDebugString());
@@ -240,8 +248,9 @@ TEST_F(CoordinatorServiceTest, hintServerDown_master) {
 
 TEST_F(CoordinatorServiceTest, hintServerDown_backup) {
     client->enlistServer(BACKUP, "mock:host=backup");
+    EXPECT_EQ(1U, service->serverList.backupCount());
     client->hintServerDown("mock:host=backup");
-    EXPECT_EQ("", service->backupList.ShortDebugString());
+    EXPECT_EQ(0U, service->serverList.backupCount());
 }
 
 static bool
@@ -284,16 +293,16 @@ TEST_F(CoordinatorServiceTest, tabletsRecovered_basics) {
 
     {
         TestLog::Enable _(&tabletsRecoveredFilter);
-        client->tabletsRecovered(2, tablets, will);
+        client->tabletsRecovered(1, tablets, will);
         EXPECT_EQ(
-            "tabletsRecovered: called by masterId 2 with 1 tablets, "
+            "tabletsRecovered: called by masterId 1 with 1 tablets, "
             "1 will entries | "
             "tabletsRecovered: Recovery complete on tablet "
             "0,0,18446744073709551615 | "
             "tabletsRecovered: Recovery completed | "
             "tabletsRecovered: Coordinator tabletMap: | "
             "tabletsRecovered: table: 0 [0:18446744073709551615] "
-            "state: 0 owner: 3",
+            "state: 0 owner: 2",
                                 TestLog::get());
     }
 

@@ -25,6 +25,23 @@
 
 using namespace RAMCloud;
 
+/**
+ * Count the number of master and backup services enlisted. This is needed
+ * since each process may have multiple different services.
+ */
+void
+countServices(ProtoBuf::ServerList& serverList, int& masters, int &backups)
+{
+    masters = 0;
+    backups = 0;
+    for (int i = 0; i < serverList.server_size(); i++) {
+        if (serverList.server(i).is_master())
+            masters++;
+        if (serverList.server(i).is_backup())
+            backups++;
+    }
+}
+
 int
 main(int argc, char *argv[])
 try
@@ -34,13 +51,17 @@ try
     Context::Guard _(context);
 
     OptionsDescription clientOptions("EnsureServers");
-    int number = 0;
+    int numMasters = 0;
+    int numBackups = 0;
     int timeout = 20;
     clientOptions.add_options()
-        ("number,n",
-         ProgramOptions::value<int>(&number),
-             "The number of servers desired.")
-        ("maxwait,m",
+        ("masters,m",
+         ProgramOptions::value<int>(&numMasters),
+             "The desired number of enlisted master services.")
+        ("backups,b",
+         ProgramOptions::value<int>(&numBackups),
+             "The desired number of enlisted backup services.")
+        ("wait,w",
          ProgramOptions::value<int>(&timeout),
              "Give up if the servers aren't available within this many "
              "seconds.");
@@ -52,7 +73,9 @@ try
 
     uint64_t quitTime = Cycles::rdtsc() + Cycles::fromNanoseconds(
         1000000000UL * timeout);
-    int actual = -1;
+    int actualMasters = -1;
+    int actualBackups = -1;
+    int actualServers = -1;
     do {
         ProtoBuf::ServerList serverList;
         try {
@@ -65,14 +88,17 @@ try
             usleep(10000);
             continue;
         }
-        actual = serverList.server_size();
-        LOG(DEBUG, "found %d servers", actual);
-        if (number == actual)
+        actualServers = serverList.server_size();
+        countServices(serverList, actualMasters, actualBackups);
+        LOG(DEBUG, "found %d masters, %d backups (in %d servers)",
+            actualMasters, actualBackups, actualServers);
+        if (numMasters == actualMasters && numBackups == actualBackups)
             return 0;
         usleep(10000);
     } while (Cycles::rdtsc() < quitTime);
-    LOG(ERROR, "need %d active servers, but found only %d",
-        number, actual);
+    LOG(ERROR, "want %d/%d active masters/backups, but found %d/%d "
+        "(in %d servers)", numMasters, numBackups, actualMasters,
+        actualBackups, actualServers);
     return 1;
 } catch (const ClientException& e) {
     LOG(ERROR, "RAMCloud exception: %s\n", e.str().c_str());

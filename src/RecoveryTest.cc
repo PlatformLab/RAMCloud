@@ -65,7 +65,7 @@ class RecoveryTest : public ::testing::Test {
             foreach (const auto& locator, locators) {
                 ProtoBuf::ServerList::Entry& e(*backupList.add_server());
                 e.set_service_locator(locator);
-                e.set_server_type(ProtoBuf::BACKUP);
+                e.set_is_master(true);
             }
 
             // TODO(ongaro): Rework this to not muck with mgr's internal state
@@ -111,8 +111,7 @@ class RecoveryTest : public ::testing::Test {
     BackupService::Config* config1;
     BackupService::Config* config2;
     BackupService::Config* config3;
-    ProtoBuf::ServerList* masterHosts;
-    ProtoBuf::ServerList* backupHosts;
+    CoordinatorServerList* serverList;
     const uint32_t segmentFrames;
     const uint32_t segmentSize;
     vector<WriteValidSegment*> segmentsToFree;
@@ -134,8 +133,7 @@ class RecoveryTest : public ::testing::Test {
         , config1()
         , config2()
         , config3()
-        , masterHosts()
-        , backupHosts()
+        , serverList()
         , segmentFrames(3)
         , segmentSize(1 << 16)
         , segmentsToFree()
@@ -194,42 +192,18 @@ class RecoveryTest : public ::testing::Test {
         backup3 =
             new BackupClient(transportManager.getSession("mock:host=backup3"));
 
-        masterHosts = new ProtoBuf::ServerList();
-        {
-            ProtoBuf::ServerList::Entry& host(*masterHosts->add_server());
-            host.set_server_type(ProtoBuf::MASTER);
-            host.set_server_id(9999998);
-            host.set_service_locator("mock:host=master1");
-        }{
-            ProtoBuf::ServerList::Entry& host(*masterHosts->add_server());
-            host.set_server_type(ProtoBuf::MASTER);
-            host.set_server_id(9999999);
-            host.set_service_locator("mock:host=master2");
-        }
+        serverList = &coordinatorService->serverList;
 
-        backupHosts = new ProtoBuf::ServerList();
-        {
-            ProtoBuf::ServerList::Entry& host(*backupHosts->add_server());
-            host.set_server_type(ProtoBuf::BACKUP);
-            host.set_server_id(backupService1->getServerId());
-            host.set_service_locator("mock:host=backup1");
-        }{
-            ProtoBuf::ServerList::Entry& host(*backupHosts->add_server());
-            host.set_server_type(ProtoBuf::BACKUP);
-            host.set_server_id(backupService2->getServerId());
-            host.set_service_locator("mock:host=backup2");
-        }{
-            ProtoBuf::ServerList::Entry& host(*backupHosts->add_server());
-            host.set_server_type(ProtoBuf::BACKUP);
-            host.set_server_id(backupService3->getServerId());
-            host.set_service_locator("mock:host=backup3");
-        }
+        /*
+         * Create some fake masters. Note that real backups have already
+         * enlisted themselves as part of init().
+         */
+        coordinator->enlistServer(MASTER, "mock:host=master1");
+        coordinator->enlistServer(MASTER, "mock:host=master2");
     }
 
     ~RecoveryTest()
     {
-        delete backupHosts;
-        delete masterHosts;
         foreach (WriteValidSegment* s, segmentsToFree)
             delete s;
         delete backup3;
@@ -272,7 +246,7 @@ TEST_F(RecoveryTest, buildSegmentIdToBackups) {
     // Zero segs on backup3
 
     ProtoBuf::Tablets tablets;
-    Recovery recovery(99, tablets, *masterHosts, *backupHosts);
+    Recovery recovery(ServerId(99), tablets, *serverList);
 
     EXPECT_EQ(3, recovery.backups.server_size());
     {
@@ -280,19 +254,22 @@ TEST_F(RecoveryTest, buildSegmentIdToBackups) {
             backup(recovery.backups.server(0));
         EXPECT_EQ(89U, backup.segment_id());
         EXPECT_EQ("mock:host=backup1", backup.service_locator());
-        EXPECT_EQ(ProtoBuf::BACKUP, backup.server_type());
+        EXPECT_TRUE(backup.is_backup());
+        EXPECT_FALSE(backup.is_master());
     }{
         const ProtoBuf::ServerList::Entry&
             backup(recovery.backups.server(1));
         EXPECT_EQ(88U, backup.segment_id());
         EXPECT_EQ("mock:host=backup2", backup.service_locator());
-        EXPECT_EQ(ProtoBuf::BACKUP, backup.server_type());
+        EXPECT_TRUE(backup.is_backup());
+        EXPECT_FALSE(backup.is_master());
     }{
         const ProtoBuf::ServerList::Entry&
             backup(recovery.backups.server(2));
         EXPECT_EQ(88U, backup.segment_id());
         EXPECT_EQ("mock:host=backup1", backup.service_locator());
-        EXPECT_EQ(ProtoBuf::BACKUP, backup.server_type());
+        EXPECT_TRUE(backup.is_backup());
+        EXPECT_FALSE(backup.is_master());
     }
 }
 
@@ -323,7 +300,7 @@ TEST_F(RecoveryTest, buildSegmentIdToBackups_secondariesEarlyInSomeList) {
             {"mock:host=backup2", "mock:host=backup3"}, true));
 
     ProtoBuf::Tablets tablets;
-    Recovery recovery(99, tablets, *masterHosts, *backupHosts);
+    Recovery recovery(ServerId(99), tablets, *serverList);
 
     EXPECT_EQ(4, recovery.backups.server_size());
     bool sawSecondary = false;
@@ -348,7 +325,7 @@ TEST_F(RecoveryTest, verifyCompleteLog) {
     TestLog::Enable _(&verifyCompleteLogFilter);
 #if 0
     ProtoBuf::Tablets tablets;
-    Recovery recovery(99, tablets, *masterHosts, *backupHosts);
+    Recovery recovery(ServerId(99), tablets, serverList);
 
     vector<Recovery::SegmentAndDigestTuple> oldDigestList =
         recovery.digestList;
@@ -466,7 +443,7 @@ TEST_F(RecoveryTest, start) {
         tablet.set_user_data(1); // partition 1
     }
 
-    Recovery recovery(99, tablets, *masterHosts, *backupHosts);
+    Recovery recovery(ServerId(99), tablets, *serverList);
 
     /*
      * Make sure all segments are partitioned on the backups before proceeding,
@@ -529,8 +506,8 @@ TEST_F(RecoveryTest, start_notEnoughMasters) {
             {"mock:host=backup2"}, true));
     // Zero segs on backup3
 
-    AutoMaster am1(*transport, *coordinator, "mock:host=master1");
-    AutoMaster am2(*transport, *coordinator, "mock:host=master2");
+    // Constructor should have created two masters.
+    EXPECT_EQ(2U, coordinatorService->serverList.masterCount());
 
     ProtoBuf::Tablets tablets; {
         ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
@@ -555,7 +532,7 @@ TEST_F(RecoveryTest, start_notEnoughMasters) {
         tablet.set_user_data(2); // partition 2
     }
 
-    Recovery recovery(99, tablets, *masterHosts, *backupHosts);
+    Recovery recovery(ServerId(99), tablets, *serverList);
     MockRandom __(1); // triggers deterministic rand().
     TestLog::Enable _(&getRecoveryDataFilter);
     EXPECT_THROW(recovery.start(), FatalError);

@@ -205,7 +205,7 @@ MasterClient::create(uint32_t tableId, const void* buf, uint32_t length,
  * Recover a set of tablets on behalf of a crashed master.
  *
  * \param masterId
- *      The id of the crashed master whose data is to be recovered.
+ *      The ServerId of the crashed master whose data is to be recovered.
  * \param partitionId
  *      The partition id of #tablets inside the crashed master's will.
  * \param tablets
@@ -219,13 +219,13 @@ MasterClient::create(uint32_t tableId, const void* buf, uint32_t length,
  *      many times.
  */
 void
-MasterClient::recover(uint64_t masterId, uint64_t partitionId,
+MasterClient::recover(ServerId masterId, uint64_t partitionId,
                       const ProtoBuf::Tablets& tablets,
                       const ProtoBuf::ServerList& backups)
 {
     Buffer req, resp;
     RecoverRpc::Request& reqHdr(allocHeader<RecoverRpc>(req));
-    reqHdr.masterId = masterId;
+    reqHdr.masterId = masterId.getId();
     reqHdr.partitionId = partitionId;
     reqHdr.tabletsLength = serializeToResponse(req, tablets);
     reqHdr.serverListLength = serializeToResponse(req, backups);
@@ -234,7 +234,7 @@ MasterClient::recover(uint64_t masterId, uint64_t partitionId,
 }
 
 MasterClient::Recover::Recover(MasterClient& client,
-                               uint64_t masterId, uint64_t partitionId,
+                               ServerId masterId, uint64_t partitionId,
                                const ProtoBuf::Tablets& tablets,
                                const char* backups, uint32_t backupsLen)
     : client(client)
@@ -243,7 +243,7 @@ MasterClient::Recover::Recover(MasterClient& client,
     , state()
 {
     RecoverRpc::Request& reqHdr(client.allocHeader<RecoverRpc>(requestBuffer));
-    reqHdr.masterId = masterId;
+    reqHdr.masterId = masterId.getId();
     reqHdr.partitionId = partitionId;
     reqHdr.tabletsLength = serializeToResponse(requestBuffer, tablets);
     reqHdr.serverListLength = backupsLen;
@@ -261,7 +261,7 @@ MasterClient::Recover::operator()()
 }
 
 void
-MasterClient::recover(uint64_t masterId, uint64_t partitionId,
+MasterClient::recover(ServerId masterId, uint64_t partitionId,
                       const ProtoBuf::Tablets& tablets,
                       const char* backups, uint32_t backupsLen)
 {

@@ -67,14 +67,14 @@ TEST_F(FailureDetectorTest, pingRandomServer_noServers) {
 
 TEST_F(FailureDetectorTest, pingRandomServer_onlySelfServers) {
     ServerListBuilder{fd->serverList}
-        (ProtoBuf::MASTER, 123, 87, "mock:local");
+        (true, false, 123, 87, "mock:local");
     fd->pingRandomServer();
     EXPECT_EQ("pingRandomServer: No servers besides myself to probe! List has 1 entries.", TestLog::get());
 }
 
 TEST_F(FailureDetectorTest, pingRandomServer_pingSuccess) {
     ServerListBuilder{fd->serverList}
-        (ProtoBuf::MASTER, 123, 87, "mock:");
+        (true, false, 123, 87, "mock:");
     mockTransport.setInput("0 0 55 0");
     fd->pingRandomServer();
     EXPECT_EQ("checkStatus: status: 0 | pingRandomServer: Ping succeeded to server mock:", TestLog::get());
@@ -82,7 +82,7 @@ TEST_F(FailureDetectorTest, pingRandomServer_pingSuccess) {
 
 TEST_F(FailureDetectorTest, pingRandomServer_pingFailure) {
     ServerListBuilder{fd->serverList}
-        (ProtoBuf::MASTER, 123, 87, "mock:");
+        (true, false, 123, 87, "mock:");
     mockTransport.setInput(NULL); // ping timeout
     mockTransport.setInput("0");
     fd->pingRandomServer();
@@ -91,7 +91,7 @@ TEST_F(FailureDetectorTest, pingRandomServer_pingFailure) {
 
 TEST_F(FailureDetectorTest, pingRandomServer_pingFailureAndCoordFailure) {
     ServerListBuilder{fd->serverList}
-        (ProtoBuf::MASTER, 123, 87, "mock:");
+        (true, false, 123, 87, "mock:");
     mockTransport.setInput(NULL); // ping timeout
     mockTransport.setInput(NULL); // coordinator timeout
     fd->pingRandomServer();

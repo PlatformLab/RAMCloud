@@ -49,7 +49,7 @@ PingService::ping(const PingRpc::Request& reqHdr,
              PingRpc::Response& respHdr,
              Rpc& rpc)
 {
-    LOG(NOTICE, "received ping request with nonce %ld", reqHdr.nonce);
+    LOG(DEBUG, "received ping request with nonce %ld", reqHdr.nonce);
     respHdr.nonce = reqHdr.nonce;
 }
 

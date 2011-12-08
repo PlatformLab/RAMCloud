@@ -24,6 +24,7 @@
 #include "Memory.h"
 #include "Object.h"
 #include "ProtoBuf.h"
+#include "ServerId.h"
 #include "ServerList.pb.h"
 #include "Transport.h"
 
@@ -114,7 +115,7 @@ class BackupClient : public Client {
         };
 
         StartReadingData(BackupClient& client,
-                         uint64_t masterId,
+                         ServerId masterId,
                          const ProtoBuf::Tablets& partitions);
         bool isReady() { return state.isReady(); }
         void operator()(Result* result);
@@ -129,7 +130,7 @@ class BackupClient : public Client {
 
     // This method is currently only used for testing.
     void
-    startReadingData(uint64_t masterId, const ProtoBuf::Tablets& partitions,
+    startReadingData(ServerId masterId, const ProtoBuf::Tablets& partitions,
         StartReadingData::Result* result)
     {
         StartReadingData(*this, masterId, partitions)(result);
@@ -182,7 +183,7 @@ class BackupClient : public Client {
 
     class RecoveryComplete {
       public:
-        RecoveryComplete(BackupClient& client, uint64_t masterId);
+        RecoveryComplete(BackupClient& client, ServerId masterId);
         bool isReady() { return state.isReady(); }
         void operator()();
       private:

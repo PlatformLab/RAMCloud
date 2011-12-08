@@ -24,6 +24,7 @@
 #include "RawMetrics.h"
 #include "Recovery.h"
 #include "Rpc.h"
+#include "ServerId.h"
 #include "Service.h"
 #include "TransportManager.h"
 
@@ -83,27 +84,24 @@ class CoordinatorService : public Service {
                  SetWillRpc::Response& respHdr,
                  Rpc& rpc);
 
-    bool setWill(uint64_t masterId, Buffer& buffer,
+    bool setWill(ServerId masterId, Buffer& buffer,
                  uint32_t offset, uint32_t length);
+    uint32_t serializeMasterList(Buffer& replyPayload);
+    uint32_t serializeBackupList(Buffer& replyPayload);
 
     /**
-     * The server id for the next server to register.
-     * These are guaranteed to be unique.
+     * List of all servers in the system. This structure is used to allocate
+     * ServerIds as well as to keep track of any information we need to keep
+     * for individual servers (e.g. ServiceLocator strings, Wills, etc).
+     *
+     * If the server is a master, then the user_data field of its will is set
+     * as follows:
+     *      In the will, the user_data field is the partition
+     *      ID that is to recover that tablet, starting from 0.
+     * XXX: Whatever that means. This magic use of user_data should going away
+     * soon.
      */
-    uint64_t nextServerId;
-
-    /**
-     * All known backups.
-     */
-    ProtoBuf::ServerList backupList;
-
-    /**
-     * All known masters.
-     * The user_data field points to a heap-allocated ProtoBuf::Tablets object
-     * representing the will. In the will, the user_data field is the partition
-     * ID that is to recover that tablet, starting from 0.
-     */
-    ProtoBuf::ServerList masterList;
+    CoordinatorServerList serverList;
 
     /**
      * What are the tablets, and who is the master for each.

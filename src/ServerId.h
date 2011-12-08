@@ -48,6 +48,9 @@ namespace RAMCloud {
  * and checking the generation number, rather than going through a hash table.
  * Admittedly the performance gain is small, but then so is the implementation
  * complexity.
+ *
+ * Note that ServerIds with an index of 0 are reserved. The coordinator will
+ * never allocate them to enlisting servers.
  */
 class ServerId {
   PUBLIC:

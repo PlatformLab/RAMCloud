@@ -26,9 +26,7 @@
 namespace RAMCloud {
 
 CoordinatorService::CoordinatorService()
-    : nextServerId(1)
-    , backupList()
-    , masterList()
+    : serverList()
     , tabletMap()
     , tables()
     , nextTableId(0)
@@ -39,9 +37,15 @@ CoordinatorService::CoordinatorService()
 
 CoordinatorService::~CoordinatorService()
 {
-    // delete wills
-    foreach (const ProtoBuf::ServerList::Entry& master, masterList.server())
-        delete reinterpret_cast<ProtoBuf::Tablets*>(master.user_data());
+    // Delete wills. They aren't automatically deleted in the
+    // CoordinatorServerList::Entry destructor because we may
+    // want to stash a copy of the entry and then remove from
+    // the list before using it (e.g. when we start recovery).
+    for (size_t i = 0; i < serverList.size(); i++) {
+        CoordinatorServerList::Entry* entry = serverList[i];
+        if (entry != NULL && entry->isMaster && entry->will != NULL)
+            delete entry->will;
+    }
 }
 
 void
@@ -103,7 +107,7 @@ CoordinatorService::createTable(const CreateTableRpc::Request& reqHdr,
                                 CreateTableRpc::Response& respHdr,
                                 Rpc& rpc)
 {
-    if (masterList.server_size() == 0) {
+    if (serverList.masterCount() == 0) {
         respHdr.common.status = STATUS_RETRY;
         return;
     }
@@ -115,8 +119,15 @@ CoordinatorService::createTable(const CreateTableRpc::Request& reqHdr,
     uint32_t tableId = nextTableId++;
     tables[name] = tableId;
 
-    uint32_t masterIdx = nextTableMasterIdx++ % masterList.server_size();
-    ProtoBuf::ServerList_Entry& master(*masterList.mutable_server(masterIdx));
+    // Find the next master in the list.
+    CoordinatorServerList::Entry* master = NULL;
+    while (true) {
+        size_t masterIdx = nextTableMasterIdx++ % serverList.size();
+        if (serverList[masterIdx] != NULL && serverList[masterIdx]->isMaster) {
+            master = serverList[masterIdx];
+            break;
+        }
+    }
 
     // Create tablet map entry.
     ProtoBuf::Tablets_Tablet& tablet(*tabletMap.add_tablet());
@@ -124,13 +135,12 @@ CoordinatorService::createTable(const CreateTableRpc::Request& reqHdr,
     tablet.set_start_object_id(0);
     tablet.set_end_object_id(~0UL);
     tablet.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
-    tablet.set_server_id(master.server_id());
-    tablet.set_service_locator(master.service_locator());
+    tablet.set_server_id(master->serverId.getId());
+    tablet.set_service_locator(master->serviceLocator);
 
     // Create will entry. The tablet is empty, so it doesn't matter where it
     // goes or in how many partitions, initially. It just has to go somewhere.
-    ProtoBuf::Tablets& will(
-        *reinterpret_cast<ProtoBuf::Tablets*>(master.user_data()));
+    ProtoBuf::Tablets& will = *master->will;
     ProtoBuf::Tablets_Tablet& willEntry(*will.add_tablet());
     willEntry.set_table_id(tableId);
     willEntry.set_start_object_id(0);
@@ -144,18 +154,18 @@ CoordinatorService::createTable(const CreateTableRpc::Request& reqHdr,
     willEntry.set_user_data(maxPartitionId + 1);
 
     // Inform the master.
-    const char* locator = master.service_locator().c_str();
+    const char* locator = master->serviceLocator.c_str();
     MasterClient masterClient(
         Context::get().transportManager->getSession(locator));
     ProtoBuf::Tablets masterTabletMap;
     foreach (const ProtoBuf::Tablets::Tablet& tablet, tabletMap.tablet()) {
-        if (tablet.server_id() == master.server_id())
+        if (tablet.server_id() == master->serverId.getId())
             *masterTabletMap.add_tablet() = tablet;
     }
     masterClient.setTablets(masterTabletMap);
 
     LOG(NOTICE, "Created table '%s' with id %u on master %lu",
-                name, tableId, master.server_id());
+                name, tableId, master->serverId.getId());
     LOG(DEBUG, "There are now %d tablets in the map", tabletMap.tablet_size());
 }
 
@@ -185,11 +195,18 @@ CoordinatorService::dropTable(const DropTableRpc::Request& reqHdr,
             ++i;
         }
     }
+
     // TODO(ongaro): update only affected masters, filter tabletMap for those
     // tablets belonging to each master
-    const char* locator = masterList.server(0).service_locator().c_str();
-    MasterClient master(Context::get().transportManager->getSession(locator));
-    master.setTablets(tabletMap);
+
+    for (size_t i = 0; i < serverList.size(); i++) {
+        if (serverList[i] == NULL || !serverList[i]->isMaster)
+            continue;
+        const char* locator = serverList[i]->serviceLocator.c_str();
+        MasterClient master(
+            Context::get().transportManager->getSession(locator));
+        master.setTablets(tabletMap);
+    }
 
     LOG(NOTICE, "Dropped table '%s' with id %u", name, tableId);
     LOG(DEBUG, "There are now %d tablets in the map", tabletMap.tablet_size());
@@ -223,39 +240,62 @@ CoordinatorService::enlistServer(const EnlistServerRpc::Request& reqHdr,
                                  EnlistServerRpc::Response& respHdr,
                                  Rpc& rpc)
 {
-    uint64_t serverId = nextServerId++;
-    ProtoBuf::ServerType serverType =
-        static_cast<ProtoBuf::ServerType>(reqHdr.serverType);
+    ServerType serverType = static_cast<ServerType>(reqHdr.serverType);
     const uint32_t readSpeed = reqHdr.readSpeed;
     const uint32_t writeSpeed = reqHdr.writeSpeed;
     const char *serviceLocator = getString(rpc.requestPayload, sizeof(reqHdr),
                                            reqHdr.serviceLocatorLength);
 
-    ProtoBuf::ServerList& serverList(serverType == ProtoBuf::MASTER
-                                     ? masterList
-                                     : backupList);
-    ProtoBuf::ServerList_Entry& server(*serverList.add_server());
-    server.set_server_type(serverType);
-    server.set_server_id(serverId);
-    server.set_service_locator(serviceLocator);
-    LOG(NOTICE, "Enlisting new %s at %s (server id %ld)",
-            (serverType == ProtoBuf::MASTER) ? "master" : "backup",
-            serviceLocator, serverId);
+#if 0
+    ServerId newServerId = serverList.add(serviceLocator,
+                                          (serverType == MASTER));
+#else
+    // Since servers may register multiple times (MASTER, BACKUP) for same
+    // serviceLocator and the coordinator otherwise assumes just one
+    // registration per process, catch subsequent enlists for the same SL
+    // here.
+    ServerId newServerId;
+    for (size_t i = 0; i < serverList.size(); i++) {
+        if (serverList[i] == NULL)
+            continue;
 
-    if (server.server_type() == ProtoBuf::MASTER) {
+        if (serverList[i]->serviceLocator == serviceLocator) {
+            newServerId = serverList[i]->serverId;
+            if (serverType == MASTER) {
+                serverList[i]->isMaster = true;
+                serverList.numberOfMasters++;
+            } else {
+                serverList[i]->isBackup = true;
+                serverList.numberOfBackups++;
+            }
+            LOG(NOTICE, "Enlisting same process again as %lu (this time it's "
+                "a %s)", newServerId.getId(),
+                (serverType == MASTER) ? "master" : "backup");
+            break;
+        }
+    }
+    if (!newServerId.isValid()) {
+        newServerId = serverList.add(serviceLocator, (serverType == MASTER));
+    }
+#endif
+
+    LOG(NOTICE, "Enlisting new %s at %s (server id %lu)",
+            (serverType == MASTER) ? "master" : "backup",
+            serviceLocator, newServerId.getId());
+
+    if (serverType == MASTER) {
         // create empty will
-        server.set_user_data(
-            reinterpret_cast<uint64_t>(new ProtoBuf::Tablets));
-        LOG(DEBUG, "Master enlisted with id %lu, sl [%s]", serverId,
+        serverList[newServerId].will = new ProtoBuf::Tablets;
+        LOG(DEBUG, "Master enlisted with id %lu, sl [%s]", newServerId.getId(),
             serviceLocator);
     } else {
-        LOG(DEBUG, "Backup enlisted with id %lu, sl [%s]", serverId,
+        LOG(DEBUG, "Backup enlisted with id %lu, sl [%s]", newServerId.getId(),
             serviceLocator);
         LOG(DEBUG, "Backup id %lu has %u MB/s read %u MB/s write ",
-            serverId, readSpeed, writeSpeed);
-        server.set_user_data(readSpeed);
+            newServerId.getId(), readSpeed, writeSpeed);
+        serverList[newServerId].backupReadMegsPerSecond = readSpeed;
     }
-    respHdr.serverId = serverId;
+    respHdr.serverId = newServerId.getId();
 }
 
 /**
@@ -267,20 +307,28 @@ CoordinatorService::getServerList(const GetServerListRpc::Request& reqHdr,
                                   GetServerListRpc::Response& respHdr,
                                   Rpc& rpc)
 {
+    ProtoBuf::ServerList serialServerList;
+
+    // XXX- Should this just be a bitfield?
     switch (reqHdr.serverType) {
     case MASTER:
-        respHdr.serverListLength = serializeToResponse(rpc.replyPayload,
-                                                       masterList);
+        serverList.serialise(serialServerList, true, false);
         break;
 
     case BACKUP:
-        respHdr.serverListLength = serializeToResponse(rpc.replyPayload,
-                                                       backupList);
+        serverList.serialise(serialServerList, false, true);
+        break;
+
+    case ALL:
+        serverList.serialise(serialServerList, true, true);
         break;
 
     default:
         throw RequestFormatError(HERE);
     }
+
+    respHdr.serverListLength =
+        serializeToResponse(rpc.replyPayload, serialServerList);
 }
 
 /**
@@ -338,73 +386,67 @@ CoordinatorService::hintServerDown(const HintServerDownRpc::Request& reqHdr,
 
     LOG(NOTICE, "Hint server down: %s", serviceLocator.c_str());
 
+    // Find the ServerId for this ServiceLocator string first. This will go away
+    // once we pass the ServerId in the HSD RPC, rather than the locator.
+    ServerId serverId;
+    for (size_t i = 0; i < serverList.size(); i++) {
+        if (serverList[i] == NULL)
+            continue;
+        if (serverList[i]->serviceLocator == serviceLocator) {
+            serverId = serverList[i]->serverId;
+            break;
+        }
+    }
+    if (!serverId.isValid()) {
+        LOG(WARNING, "Hint server down on unknown server: %s!",
+            serviceLocator.c_str());
+        return;
+    }
+
     /*
      * If this machine has a backup and master on the same host we need to
      * remove the dead backup before initiating recovery. Otherwise, other hosts
      * may try to backup onto a dead machine and we will be in more trouble.
      */
 
-    // is it a backup?
-    for (int32_t i = 0; i < backupList.server_size(); i++) {
-        const ProtoBuf::ServerList::Entry& backup(backupList.server(i));
-        if (backup.service_locator() == serviceLocator) {
-            backupList.mutable_server()->SwapElements(
-                                            backupList.server_size() - 1, i);
-            backupList.mutable_server()->RemoveLast();
+    CoordinatorServerList::Entry serverEntry = serverList[serverId];
+    serverList.remove(serverId);
 
-            // backup is off-limits now
-
-            // TODO(ongaro): inform masters they need to replicate more
-            break;
-        }
+    if (serverEntry.isBackup) {
+        // TODO(ongaro): inform masters they need to replicate more
     }
 
-    // is it a master?
-    for (int32_t i = 0; i < masterList.server_size(); i++) {
-        const ProtoBuf::ServerList::Entry& master(masterList.server(i));
-        if (master.service_locator() == serviceLocator) {
-            uint64_t serverId = master.server_id();
-            boost::scoped_ptr<ProtoBuf::Tablets> will(
-                reinterpret_cast<ProtoBuf::Tablets*>(master.user_data()));
+    if (serverEntry.isMaster) {
+        boost::scoped_ptr<ProtoBuf::Tablets> will(serverEntry.will);
 
-            masterList.mutable_server()->SwapElements(
-                                            masterList.server_size() - 1, i);
-            masterList.mutable_server()->RemoveLast();
-
-            // master is off-limits now
-
-            foreach (ProtoBuf::Tablets::Tablet& tablet,
-                     *tabletMap.mutable_tablet()) {
-                if (tablet.server_id() == serverId)
-                    tablet.set_state(ProtoBuf::Tablets_Tablet::RECOVERING);
-            }
-
-            LOG(NOTICE, "Recovering master %lu (%s) on %u recovery masters "
-                "using %u backups", serverId,
-                master.service_locator().c_str(),
-                masterList.server_size(),
-                backupList.server_size());
-
-            BaseRecovery* recovery = NULL;
-            if (mockRecovery != NULL) {
-                (*mockRecovery)(serverId, *will, masterList, backupList);
-                recovery = mockRecovery;
-            } else {
-                recovery = new Recovery(serverId, *will,
-                                        masterList, backupList);
-            }
-
-            // Keep track of recovery for each of the tablets its working on
-            foreach (ProtoBuf::Tablets::Tablet& tablet,
-                     *tabletMap.mutable_tablet()) {
-                if (tablet.server_id() == serverId)
-                    tablet.set_user_data(reinterpret_cast<uint64_t>(recovery));
-            }
-
-            recovery->start();
-
-            break;
+        foreach (ProtoBuf::Tablets::Tablet& tablet,
+                 *tabletMap.mutable_tablet()) {
+            if (tablet.server_id() == serverId.getId())
+                tablet.set_state(ProtoBuf::Tablets_Tablet::RECOVERING);
         }
+
+        LOG(NOTICE, "Recovering master %lu (%s) on %u recovery masters "
+            "using %u backups", serverId.getId(),
+            serverEntry.serviceLocator.c_str(),
+            serverList.masterCount(),
+            serverList.backupCount());
+
+        BaseRecovery* recovery = NULL;
+        if (mockRecovery != NULL) {
+            (*mockRecovery)(serverId, *will, serverList);
+            recovery = mockRecovery;
+        } else {
+            recovery = new Recovery(serverId, *will, serverList);
+        }
+
+        // Keep track of recovery for each of the tablets its working on
+        foreach (ProtoBuf::Tablets::Tablet& tablet,
+                 *tabletMap.mutable_tablet()) {
+            if (tablet.server_id() == serverId.getId())
+                tablet.set_user_data(reinterpret_cast<uint64_t>(recovery));
+        }
+
+        recovery->start();
     }
 }
 
@@ -438,7 +480,7 @@ CoordinatorService::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
         newWill->tablet_size());
 
     // update the will
-    setWill(reqHdr.masterId, rpc.requestPayload,
+    setWill(ServerId(reqHdr.masterId), rpc.requestPayload,
         downCast<uint32_t>(sizeof(reqHdr)) + reqHdr.tabletsLength,
         reqHdr.willLength);
 
@@ -495,9 +537,11 @@ CoordinatorService::quiesce(const BackupQuiesceRpc::Request& reqHdr,
                             BackupQuiesceRpc::Response& respHdr,
                             Rpc& rpc)
 {
-    foreach (auto& server, backupList.server()) {
-        BackupClient(Context::get().transportManager->getSession(
-                        server.service_locator().c_str())).quiesce();
+    for (size_t i = 0; i < serverList.size(); i++) {
+        if (serverList[i] != NULL && serverList[i]->isBackup) {
+            BackupClient(Context::get().transportManager->getSession(
+                serverList[i]->serviceLocator.c_str())).quiesce();
+        }
     }
 }
 
@@ -513,7 +557,7 @@ CoordinatorService::setWill(const SetWillRpc::Request& reqHdr,
                             SetWillRpc::Response& respHdr,
                             Rpc& rpc)
 {
-    if (!setWill(reqHdr.masterId, rpc.requestPayload, sizeof(reqHdr),
+    if (!setWill(ServerId(reqHdr.masterId), rpc.requestPayload, sizeof(reqHdr),
         reqHdr.willLength)) {
         // TODO(ongaro): should be some other error or silent
         throw RequestFormatError(HERE);
@@ -521,27 +565,29 @@ CoordinatorService::setWill(const SetWillRpc::Request& reqHdr,
 }
 
 bool
-CoordinatorService::setWill(uint64_t masterId, Buffer& buffer,
+CoordinatorService::setWill(ServerId masterId, Buffer& buffer,
                             uint32_t offset, uint32_t length)
 {
-    foreach (auto& master, *masterList.mutable_server()) {
-        if (master.server_id() == masterId) {
-            ProtoBuf::Tablets* oldWill =
-                reinterpret_cast<ProtoBuf::Tablets*>(master.user_data());
-
-            ProtoBuf::Tablets* newWill = new ProtoBuf::Tablets();
-            ProtoBuf::parseFromResponse(buffer, offset, length, *newWill);
-            master.set_user_data(reinterpret_cast<uint64_t>(newWill));
-
-            LOG(NOTICE, "Master %lu updated its Will (now %d entries, was %d)",
-                masterId, newWill->tablet_size(), oldWill->tablet_size());
-
-            delete oldWill;
-            return true;
+    if (serverList.contains(masterId)) {
+        CoordinatorServerList::Entry& master = serverList[masterId];
+        if (!master.isMaster) {
+            LOG(WARNING, "Server %lu is not a master!!", masterId.getId());
+            return false;
         }
+
+        ProtoBuf::Tablets* oldWill = master.will;
+        ProtoBuf::Tablets* newWill = new ProtoBuf::Tablets();
+        ProtoBuf::parseFromResponse(buffer, offset, length, *newWill);
+        master.will = newWill;
+
+        LOG(NOTICE, "Master %lu updated its Will (now %d entries, was %d)",
+            masterId.getId(), newWill->tablet_size(), oldWill->tablet_size());
+
+        delete oldWill;
+        return true;
     }
 
-    LOG(WARNING, "Master %lu could not be found!!", masterId);
+    LOG(WARNING, "Master %lu could not be found!!", masterId.getId());
     return false;
 }
 

@@ -21,6 +21,7 @@
 #include "CoordinatorClient.h"
 #include "Transport.h"
 #include "Buffer.h"
+#include "ServerId.h"
 #include "Tub.h"
 
 namespace RAMCloud {
@@ -117,7 +118,7 @@ class MasterClient : public Client {
     class Recover {
       public:
         Recover(MasterClient& client,
-                uint64_t masterId, uint64_t partitionId,
+                ServerId masterId, uint64_t partitionId,
                 const ProtoBuf::Tablets& tablets,
                 const char* backups, uint32_t backupsLen);
         bool isReady() { return state.isReady(); }
@@ -198,10 +199,10 @@ class MasterClient : public Client {
     void read(uint32_t tableId, uint64_t id, Buffer* value,
               const RejectRules* rejectRules = NULL,
               uint64_t* version = NULL);
-    void recover(uint64_t masterId, uint64_t partitionId,
+    void recover(ServerId masterId, uint64_t partitionId,
                  const ProtoBuf::Tablets& tablets,
                  const ProtoBuf::ServerList& backups);
-    void recover(uint64_t masterId, uint64_t partitionId,
+    void recover(ServerId masterId, uint64_t partitionId,
                  const ProtoBuf::Tablets& tablets,
                  const char* backups, uint32_t backupsLen);
     void remove(uint32_t tableId, uint64_t id,

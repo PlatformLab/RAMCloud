@@ -325,9 +325,14 @@ struct OpenTableRpc {
     };
 };
 
+/**
+ * XXX- This needs to be turned into a bitmask. In fact, it probably should
+ *      just be merged with the FOO_SERVICE enums.
+ */
 enum ServerType {
     MASTER = 0,
     BACKUP = 1,
+    ALL = 2
 };
 
 struct EnlistServerRpc {

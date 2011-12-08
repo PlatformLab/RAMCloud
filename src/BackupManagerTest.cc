@@ -317,13 +317,13 @@ TEST_F(BackupManagerTest, freeSegment) {
 
     {
         BackupClient::StartReadingData::Result result;
-        backup1->startReadingData(99, will, &result);
+        backup1->startReadingData(ServerId(99), will, &result);
         EXPECT_EQ(0U, result.segmentIdAndLength.size());
     }
 
     {
         BackupClient::StartReadingData::Result result;
-        backup2->startReadingData(99, will, &result);
+        backup2->startReadingData(ServerId(99), will, &result);
         EXPECT_EQ(0U, result.segmentIdAndLength.size());
     }
 }
@@ -462,7 +462,7 @@ TEST_F(BackupManagerTest, writeSegment) {
         BackupClient host(v.second.session);
         Buffer resp;
         BackupClient::StartReadingData::Result result;
-        host.startReadingData(99, will, &result);
+        host.startReadingData(ServerId(99), will, &result);
         while (true) {
             try {
                 host.getRecoveryData(99, 88, 0, resp);

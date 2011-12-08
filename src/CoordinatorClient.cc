@@ -181,10 +181,7 @@ CoordinatorClient::getServerList(ServerType type,
 void
 CoordinatorClient::getServerList(ProtoBuf::ServerList& serverList)
 {
-    getServerList(MASTER, serverList);
-    ProtoBuf::ServerList mergeList;
-    getServerList(BACKUP, mergeList);
-    serverList.MergeFrom(mergeList);
+    getServerList(ALL, serverList);
 }
 
 /**

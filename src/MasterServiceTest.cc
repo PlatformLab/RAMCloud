@@ -327,11 +327,11 @@ TEST_F(MasterServiceTest, detectSegmentRecoveryFailure_success) {
     typedef MasterService MS;
     ProtoBuf::ServerList backups;
     ServerListBuilder{backups}
-        (ProtoBuf::BACKUP, 123, 87, "mock:host=backup1", MS::REC_REQ_FAILED)
-        (ProtoBuf::BACKUP, 123, 88, "mock:host=backup1", MS::REC_REQ_OK)
-        (ProtoBuf::BACKUP, 123, 89, "mock:host=backup1", MS::REC_REQ_OK)
-        (ProtoBuf::BACKUP, 123, 88, "mock:host=backup1", MS::REC_REQ_OK)
-        (ProtoBuf::BACKUP, 123, 87, "mock:host=backup1", MS::REC_REQ_OK)
+        (false, true, 123, 87, "mock:host=backup1", MS::REC_REQ_FAILED)
+        (false, true, 123, 88, "mock:host=backup1", MS::REC_REQ_OK)
+        (false, true, 123, 89, "mock:host=backup1", MS::REC_REQ_OK)
+        (false, true, 123, 88, "mock:host=backup1", MS::REC_REQ_OK)
+        (false, true, 123, 87, "mock:host=backup1", MS::REC_REQ_OK)
     ;
     detectSegmentRecoveryFailure(99, 3, backups);
 }
@@ -340,8 +340,8 @@ TEST_F(MasterServiceTest, detectSegmentRecoveryFailure_failure) {
     typedef MasterService MS;
     ProtoBuf::ServerList backups;
     ServerListBuilder{backups}
-        (ProtoBuf::BACKUP, 123, 87, "mock:host=backup1", MS::REC_REQ_FAILED)
-        (ProtoBuf::BACKUP, 123, 88, "mock:host=backup1", MS::REC_REQ_OK)
+        (false, true, 123, 87, "mock:host=backup1", MS::REC_REQ_FAILED)
+        (false, true, 123, 88, "mock:host=backup1", MS::REC_REQ_OK)
     ;
     EXPECT_THROW(detectSegmentRecoveryFailure(99, 3, backups),
                   SegmentRecoveryFailedException);
@@ -360,15 +360,15 @@ TEST_F(MasterServiceTest, recover_basics) {
     createTabletList(tablets);
     BackupClient::StartReadingData::Result result;
     BackupClient(Context::get().transportManager->getSession(
-                                                "mock:host=backup1")).
-        startReadingData(123, tablets, &result);
+                                                "mock:host=backup1"))
+        .startReadingData(ServerId(123), tablets, &result);
 
     ProtoBuf::ServerList backups;
     ServerListBuilder{backups}
-        (ProtoBuf::BACKUP, 123, 87, "mock:host=backup1");
+        (false, true, 123, 87, "mock:host=backup1");
 
     TestLog::Enable __(&recoverSegmentFilter);
-    client->recover(123, 0, tablets, backups);
+    client->recover(ServerId(123), 0, tablets, backups);
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
         "recover: Starting recovery of 4 tablets on masterId 2 | "
         "setTablets: Now serving tablets: | "
@@ -449,30 +449,30 @@ TEST_F(MasterServiceTest, recover) {
     createTabletList(tablets);
     BackupClient::StartReadingData::Result result;
     BackupClient(Context::get().transportManager->getSession(
-                                                    "mock:host=backup1")).
-        startReadingData(123, tablets, &result);
+                                                    "mock:host=backup1"))
+        .startReadingData(ServerId(123), tablets, &result);
 
     ProtoBuf::ServerList backups;
     ServerListBuilder{backups}
         // Started in initial round of RPCs - eventually fails
-        (ProtoBuf::BACKUP, 123, 87, "mock:host=backup1")
+        (false, true, 123, 87, "mock:host=backup1")
         // Skipped in initial round of RPCs (prior is in-flight)
         // starts later after failure from earlier entry
-        (ProtoBuf::BACKUP, 123, 87, "mock:host=backup2")
+        (false, true, 123, 87, "mock:host=backup2")
         // Started in initial round of RPCs - eventually succeeds
-        (ProtoBuf::BACKUP, 123, 88, "mock:host=backup1")
+        (false, true, 123, 88, "mock:host=backup1")
         // Skipped in all rounds of RPCs (prior succeeds)
-        (ProtoBuf::BACKUP, 123, 88, "mock:host=backup2")
+        (false, true, 123, 88, "mock:host=backup2")
         // Started in initial round of RPCs - eventually fails
-        (ProtoBuf::BACKUP, 123, 89, "mock:host=backup1")
+        (false, true, 123, 89, "mock:host=backup1")
         // Fails to start in initial round of RPCs - bad locator
-        (ProtoBuf::BACKUP, 123, 90, "mock:host=backup3")
+        (false, true, 123, 90, "mock:host=backup3")
         // Started in initial round of RPCs - eventually fails
-        (ProtoBuf::BACKUP, 123, 91, "mock:host=backup1")
+        (false, true, 123, 91, "mock:host=backup1")
         // Fails to start in later rounds of RPCs - bad locator
-        (ProtoBuf::BACKUP, 123, 92, "mock:host=backup4")
+        (false, true, 123, 92, "mock:host=backup4")
         // Started in later rounds of RPCs - eventually fails
-        (ProtoBuf::BACKUP, 123, 93, "mock:host=backup1")
+        (false, true, 123, 93, "mock:host=backup1")
     ;
 
     TestLog::Enable _;
@@ -1098,20 +1098,20 @@ TEST_F(MasterRecoverTest, recover) {
         BackupClient::StartReadingData::Result result;
         BackupClient(Context::get().transportManager->getSession(
                                                     "mock:host=backup1"))
-            .startReadingData(99, tablets, &result);
+            .startReadingData(ServerId(99), tablets, &result);
     }
     {
         BackupClient::StartReadingData::Result result;
         BackupClient(Context::get().transportManager->getSession(
                                                     "mock:host=backup2"))
-            .startReadingData(99, tablets, &result);
+            .startReadingData(ServerId(99), tablets, &result);
     }
 
     ProtoBuf::ServerList backups;
     ServerListBuilder{backups}
-        (ProtoBuf::BACKUP, 99, 87, "mock:host=backup1")
-        (ProtoBuf::BACKUP, 99, 88, "mock:host=backup1")
-        (ProtoBuf::BACKUP, 99, 88, "mock:host=backup2")
+        (false, true, 99, 87, "mock:host=backup1")
+        (false, true, 99, 88, "mock:host=backup1")
+        (false, true, 99, 88, "mock:host=backup2")
     ;
 
     MockRandom __(1); // triggers deterministic rand().
@@ -1135,8 +1135,8 @@ TEST_F(MasterRecoverTest, failedToRecoverAll) {
     ProtoBuf::Tablets tablets;
     ProtoBuf::ServerList backups;
     ServerListBuilder{backups}
-        (ProtoBuf::BACKUP, 99, 87, "mock:host=backup1")
-        (ProtoBuf::BACKUP, 99, 88, "mock:host=backup1")
+        (false, true, 99, 87, "mock:host=backup1")
+        (false, true, 99, 88, "mock:host=backup1")
     ;
 
     MockRandom __(1); // triggers deterministic rand().

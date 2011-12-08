@@ -271,7 +271,7 @@ TEST_F(BackupServiceTest, getRecoveryData) {
     offset += writeFooter(99, 88, offset);
     client->closeSegment(99, 88);
     BackupClient::StartReadingData::Result result;
-    client->startReadingData(99, tablets, &result);
+    client->startReadingData(ServerId(99), tablets, &result);
 
     Buffer response;
     while (true) {
@@ -333,7 +333,7 @@ TEST_F(BackupServiceTest, getRecoveryData_moreThanOneSegmentStored) {
     createTabletList(tablets);
 
     BackupClient::StartReadingData::Result result;
-    client->startReadingData(99, tablets, &result);
+    client->startReadingData(ServerId(99), tablets, &result);
 
     {
         Buffer response;
@@ -391,7 +391,7 @@ TEST_F(BackupServiceTest, getRecoveryData_malformedSegment) {
     client->closeSegment(99, 88);
 
     BackupClient::StartReadingData::Result result;
-    client->startReadingData(99, ProtoBuf::Tablets(), &result);
+    client->startReadingData(ServerId(99), ProtoBuf::Tablets(), &result);
 
     while (true) {
         Buffer response;
@@ -494,7 +494,7 @@ TEST_F(BackupServiceTest, startReadingData) {
     client->openSegment(99, 99, false);
 
     BackupClient::StartReadingData::Result result;
-    client->startReadingData(99, ProtoBuf::Tablets(), &result);
+    client->startReadingData(ServerId(99), ProtoBuf::Tablets(), &result);
     EXPECT_EQ(4U, result.segmentIdAndLength.size());
 
     EXPECT_EQ(88U, result.segmentIdAndLength[0].first);
@@ -537,7 +537,7 @@ TEST_F(BackupServiceTest, startReadingData) {
 
 TEST_F(BackupServiceTest, startReadingData_empty) {
     BackupClient::StartReadingData::Result result;
-    client->startReadingData(99, ProtoBuf::Tablets(), &result);
+    client->startReadingData(ServerId(99), ProtoBuf::Tablets(), &result);
     EXPECT_EQ(0U, result.segmentIdAndLength.size());
     EXPECT_EQ(0U, result.logDigestBytes);
     EXPECT_TRUE(NULL == result.logDigestBuffer);
@@ -550,7 +550,7 @@ TEST_F(BackupServiceTest, startReadingData_logDigest_simple) {
         writeDigestedSegment(99, 88, { 0x3f17c2451f0cafUL });
 
         BackupClient::StartReadingData::Result result;
-        client->startReadingData(99, ProtoBuf::Tablets(), &result);
+        client->startReadingData(ServerId(99), ProtoBuf::Tablets(), &result);
         EXPECT_EQ(LogDigest::getBytesFromCount(1),
             result.logDigestBytes);
         EXPECT_EQ(88U, result.logDigestSegmentId);
@@ -566,7 +566,7 @@ TEST_F(BackupServiceTest, startReadingData_logDigest_simple) {
         writeDigestedSegment(99, 89, { 0x5d8ec445d537e15UL });
 
         BackupClient::StartReadingData::Result result;
-        client->startReadingData(99, ProtoBuf::Tablets(), &result);
+        client->startReadingData(ServerId(99), ProtoBuf::Tablets(), &result);
         EXPECT_EQ(LogDigest::getBytesFromCount(1),
             result.logDigestBytes);
         EXPECT_EQ(89U, result.logDigestSegmentId);
@@ -588,7 +588,7 @@ TEST_F(BackupServiceTest, startReadingData_logDigest_latest) {
     client->closeSegment(99, 89);
     {
         BackupClient::StartReadingData::Result result;
-        client->startReadingData(99, ProtoBuf::Tablets(), &result);
+        client->startReadingData(ServerId(99), ProtoBuf::Tablets(), &result);
         EXPECT_EQ(88U, result.logDigestSegmentId);
         EXPECT_EQ(52U, result.logDigestSegmentLen);
         EXPECT_EQ(LogDigest::getBytesFromCount(1),
@@ -607,7 +607,7 @@ TEST_F(BackupServiceTest, startReadingData_logDigest_none) {
     client->closeSegment(99, 88);
     {
         BackupClient::StartReadingData::Result result;
-        client->startReadingData(99, ProtoBuf::Tablets(), &result);
+        client->startReadingData(ServerId(99), ProtoBuf::Tablets(), &result);
         EXPECT_EQ(1U, result.segmentIdAndLength.size());
         EXPECT_EQ(0U, result.logDigestBytes);
         EXPECT_TRUE(NULL == result.logDigestBuffer);

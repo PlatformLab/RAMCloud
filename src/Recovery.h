@@ -21,6 +21,7 @@
 #include <boost/unordered_map.hpp>
 
 #include "Common.h"
+#include "CoordinatorServerList.h"
 #include "CycleCounter.h"
 #include "Log.h"
 #include "RawMetrics.h"
@@ -46,10 +47,9 @@ class BaseRecovery {
      * constructor cannot be used because the mocks are instantiated
      * early.
      */
-    virtual void operator()(uint64_t masterId,
+    virtual void operator()(ServerId masterId,
                             const ProtoBuf::Tablets& will,
-                            const ProtoBuf::ServerList& masterHosts,
-                            const ProtoBuf::ServerList& backupHosts)
+                            const CoordinatorServerList& serverList)
     {}
     virtual bool tabletsRecovered(const ProtoBuf::Tablets& tablets)
     { return true; }
@@ -61,22 +61,20 @@ class BaseRecovery {
  */
 class Recovery : public BaseRecovery {
   public:
-    Recovery(uint64_t masterId,
+    Recovery(ServerId masterId,
              const ProtoBuf::Tablets& will,
-             const ProtoBuf::ServerList& masterHosts,
-             const ProtoBuf::ServerList& backupHosts);
+             const CoordinatorServerList& serverList);
     ~Recovery();
 
     void buildSegmentIdToBackups();
-    void createBackupList(ProtoBuf::ServerList& backups) const;
     void start();
     bool tabletsRecovered(const ProtoBuf::Tablets& tablets);
 
   PRIVATE:
     // Only used in Recovery::buildSegmentIdToBackups().
     struct BackupStartTask {
-        BackupStartTask(const ProtoBuf::ServerList::Entry& backupHost,
-             uint64_t crashedMasterId,
+        BackupStartTask(const CoordinatorServerList::Entry& backupHost,
+             ServerId crashedMasterId,
              const ProtoBuf::Tablets& partitions)
             : backupHost(backupHost)
             , response()
@@ -88,10 +86,10 @@ class Recovery : public BaseRecovery {
             response.construct();
             client.construct(
                 Context::get().transportManager->getSession(
-                    backupHost.service_locator().c_str()));
+                    backupHost.serviceLocator.c_str()));
             rpc.construct(*client, crashedMasterId, partitions);
             RAMCLOUD_LOG(DEBUG, "Starting startReadingData on %s",
-                         backupHost.service_locator().c_str());
+                         backupHost.serviceLocator.c_str());
         }
 
         bool isDone() const { return done; }
@@ -107,7 +105,7 @@ class Recovery : public BaseRecovery {
             done = true;
         }
 
-        const ProtoBuf::ServerList::Entry& backupHost;
+        const CoordinatorServerList::Entry& backupHost;
         Tub<Buffer> response;
         Tub<BackupClient> client;
         Tub<BackupClient::StartReadingData> rpc;
@@ -140,13 +138,10 @@ class Recovery : public BaseRecovery {
     ProtoBuf::ServerList backups;
 
     /// The list of all masters.
-    const ProtoBuf::ServerList& masterHosts;
-
-    /// The list of all backups.
-    const ProtoBuf::ServerList& backupHosts;
+    const CoordinatorServerList& serverList;
 
     /// The id of the crashed master whose is being recovered.
-    uint64_t masterId;
+    ServerId masterId;
 
     /// Number of tablets left to recover before done.
     uint32_t tabletsUnderRecovery;

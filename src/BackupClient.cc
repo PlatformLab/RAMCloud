@@ -145,7 +145,7 @@ BackupClient::quiesce()
  * will then free any resources it has for the recovered master.
  */
 BackupClient::RecoveryComplete::RecoveryComplete(BackupClient& client,
-                                                 uint64_t masterId)
+                                                 ServerId masterId)
     : client(client)
     , requestBuffer()
     , responseBuffer()
@@ -153,7 +153,7 @@ BackupClient::RecoveryComplete::RecoveryComplete(BackupClient& client,
 {
     auto& reqHdr =
         client.allocHeader<BackupRecoveryCompleteRpc>(requestBuffer);
-    reqHdr.masterId = masterId;
+    reqHdr.masterId = masterId.getId();
     state = client.send<BackupRecoveryCompleteRpc>(client.session,
                                                    requestBuffer,
                                                    responseBuffer);
@@ -179,7 +179,7 @@ BackupClient::RecoveryComplete::operator()()
  */
 BackupClient::StartReadingData::StartReadingData(
     BackupClient& client,
-    uint64_t masterId,
+    ServerId masterId,
     const ProtoBuf::Tablets& partitions)
     : client(client)
     , requestBuffer()
@@ -188,7 +188,7 @@ BackupClient::StartReadingData::StartReadingData(
 {
     BackupStartReadingDataRpc::Request&
         reqHdr(client.allocHeader<BackupStartReadingDataRpc>(requestBuffer));
-    reqHdr.masterId = masterId;
+    reqHdr.masterId = masterId.getId();
     reqHdr.partitionsLength = ProtoBuf::serializeToResponse(requestBuffer,
                                                             partitions);
     Transport::SessionRef session(client.getSession());

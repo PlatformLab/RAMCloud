@@ -30,16 +30,15 @@ namespace RecoveryInternal {
 /// Used in #Recovery::start().
 struct MasterStartTask {
     MasterStartTask(Recovery& recovery,
-                    uint32_t& recoveryMasterIndex,
+                    const CoordinatorServerList::Entry& masterEntry,
                     uint32_t partitionId,
                     const char* backups, uint32_t backupsLen)
         : recovery(recovery)
-        , recoveryMasterIndex(recoveryMasterIndex)
+        , masterEntry(masterEntry)
         , backups(backups)
         , backupsLen(backupsLen)
         , partitionId(partitionId)
         , tablets()
-        , masterHost()
         , masterClient()
         , rpc()
         , done(false)
@@ -47,14 +46,7 @@ struct MasterStartTask {
     bool isReady() { return rpc && rpc->isReady(); }
     bool isDone() { return done; }
     void send() {
-        if (recoveryMasterIndex ==
-            static_cast<uint32_t>(recovery.masterHosts.server_size())) {
-            // TODO(ongaro): this is not ok in a real system
-            DIE("not enough recovery masters to complete recovery "
-                "(only %d available)", recoveryMasterIndex);
-        }
-        masterHost = &recovery.masterHosts.server(recoveryMasterIndex++);
-        auto locator = masterHost->service_locator().c_str();
+        auto locator = masterEntry.serviceLocator.c_str();
         LOG(NOTICE, "Initiating recovery with recovery master %s, "
             "partition %d", locator, partitionId);
         try {
@@ -78,13 +70,13 @@ struct MasterStartTask {
         try {
             (*rpc)();
         } catch (const TransportException& e) {
-            auto locator = masterHost->service_locator().c_str();
+            auto locator = masterEntry.serviceLocator.c_str();
             LOG(WARNING, "Couldn't contact %s, trying next master; "
                 "failure was: %s", locator, e.message.c_str());
             send();
             return;
         } catch (const ClientException& e) {
-            auto locator = masterHost->service_locator().c_str();
+            auto locator = masterEntry.serviceLocator.c_str();
             LOG(WARNING, "recover failed on %s, trying next master; "
                 "failure was: %s", locator, e.toString());
             send();
@@ -93,13 +85,18 @@ struct MasterStartTask {
         recovery.tabletsUnderRecovery += tablets.tablet_size();
         done = true;
     }
+
+    /// The parent recovery object.
     Recovery& recovery;
-    uint32_t& recoveryMasterIndex;
+
+    /// The master server to kick off this partition's recovery on.
+    const CoordinatorServerList::Entry& masterEntry;
+
+    /// XXX- Document me for the love of God.
     const char* backups;
     const uint32_t backupsLen;
     const uint32_t partitionId;
     ProtoBuf::Tablets tablets;
-    const ProtoBuf::ServerList::Entry* masterHost;
     Tub<MasterClient> masterClient;
     Tub<MasterClient::Recover> rpc;
     bool done;
@@ -107,7 +104,7 @@ struct MasterStartTask {
 };
 
 struct BackupEndTask {
-    BackupEndTask(const string& serviceLocator, uint64_t masterId)
+    BackupEndTask(const string& serviceLocator, ServerId masterId)
         : masterId(masterId)
         , serviceLocator(serviceLocator)
         , client()
@@ -150,7 +147,7 @@ struct BackupEndTask {
         }
         done = true;
     }
-    const uint64_t masterId;
+    const ServerId masterId;
     const string& serviceLocator; // NOLINT
     Tub<BackupClient> client;
     Tub<BackupClient::RecoveryComplete> rpc;
@@ -176,26 +173,22 @@ using namespace RecoveryInternal; // NOLINT
  *      any other partition that has more than 0 entries.  This
  *      is because the recovery recovers partitions up but excluding the
  *      first with no entries.
- * \param masterHosts
- *      A list of all master hosts in the RAMCloud.  This is used to select
- *      recovery masters. The user_data field is ignored.
- * \param backupHosts
- *      A list of all backup hosts in the RAMCloud.  This is used to find all
- *      the backup data for the crashed master. The user_data field is ignored.
+ * \param serverList
+ *      Reference to the Coordinator's list of all servers in RAMCloud. This
+ *      is used to select recovery masters and to find all backup data for
+ *      the crashed master.
  */
-Recovery::Recovery(uint64_t masterId,
+Recovery::Recovery(ServerId masterId,
                    const ProtoBuf::Tablets& will,
-                   const ProtoBuf::ServerList& masterHosts,
-                   const ProtoBuf::ServerList& backupHosts)
+                   const CoordinatorServerList& serverList)
 
     : recoveryTicks(&metrics->coordinator.recoveryTicks)
     , backups()
-    , masterHosts(masterHosts)
-    , backupHosts(backupHosts)
+    , serverList(serverList)
     , masterId(masterId)
     , tabletsUnderRecovery()
     , will(will)
-    , tasks(new Tub<BackupStartTask>[backupHosts.server_size()])
+    , tasks(new Tub<BackupStartTask>[serverList.backupCount()])
 {
     CycleCounter<RawMetric> _(&metrics->coordinator.recoveryConstructorTicks);
     metrics->coordinator.recoveryCount++;
@@ -227,18 +220,21 @@ Recovery::buildSegmentIdToBackups()
     LOG(DEBUG, "Getting segment lists from backups and preparing "
                "them for recovery");
 
-    const uint32_t numBackups = backupHosts.server_size();
+    const uint32_t numBackups = serverList.backupCount();
     const uint32_t maxActiveBackupHosts = 10;
     uint32_t activeBackupHosts = 0;
-    uint32_t firstNotIssued = 0;
+    uint32_t numberIssued = 0;
+    uint32_t nextIssueIndex = 0;
 
     // Start off first round of RPCs
-    while (firstNotIssued < numBackups &&
+    while (numberIssued < numBackups &&
            activeBackupHosts < maxActiveBackupHosts) {
-        tasks[firstNotIssued].construct(backupHosts.server(firstNotIssued),
-                                        masterId, will);
-        ++firstNotIssued;
+        nextIssueIndex = serverList.nextBackupIndex(nextIssueIndex);
+        tasks[numberIssued].construct(*serverList[nextIssueIndex],
+                                      masterId, will);
         ++activeBackupHosts;
+        ++numberIssued;
+        ++nextIssueIndex;
     }
 
     // As RPCs complete kick off new ones
@@ -251,27 +247,28 @@ Recovery::buildSegmentIdToBackups()
             try {
                 (*task)();
                 LOG(DEBUG, "Backup %lu has %lu segments",
-                    task->backupHost.server_id(),
+                    task->backupHost.serverId.getId(),
                     task->result.segmentIdAndLength.size());
             } catch (const TransportException& e) {
                 LOG(WARNING, "Couldn't contact %s, "
                     "failure was: %s",
-                    task->backupHost.service_locator().c_str(),
+                    task->backupHost.serviceLocator.c_str(),
                     e.str().c_str());
                 task.destroy();
             } catch (const ClientException& e) {
                 LOG(WARNING, "startReadingData failed on %s, "
                     "failure was: %s",
-                    task->backupHost.service_locator().c_str(),
+                    task->backupHost.serviceLocator.c_str(),
                     e.str().c_str());
                 task.destroy();
             }
 
-            if (firstNotIssued < numBackups) {
-                tasks[firstNotIssued].construct(
-                        backupHosts.server(firstNotIssued),
-                        masterId, will);
-                ++firstNotIssued;
+            if (numberIssued < numBackups) {
+                nextIssueIndex = serverList.nextBackupIndex(nextIssueIndex);
+                tasks[numberIssued].construct(*serverList[nextIssueIndex],
+                                              masterId, will);
+                ++numberIssued;
+                ++nextIssueIndex;
             } else {
                 --activeBackupHosts;
             }
@@ -281,7 +278,7 @@ Recovery::buildSegmentIdToBackups()
     // Map of Segment Ids -> counts of backup copies that were found.
     // This is used to cross-check with the log digest.
     boost::unordered_map<uint64_t, uint32_t> segmentMap;
-    for (int j = 0; j < backupHosts.server_size(); ++j) {
+    for (size_t j = 0; j < serverList.backupCount(); ++j) {
         const auto& task = tasks[j];
         if (!task)
             continue;
@@ -294,7 +291,7 @@ Recovery::buildSegmentIdToBackups()
     // List of serialised LogDigests from possible log heads, including
     // the corresponding Segment IDs and lengths.
     vector<SegmentAndDigestTuple> digestList;
-    for (int i = 0; i < backupHosts.server_size(); i++) {
+    for (size_t i = 0; i < serverList.backupCount(); i++) {
         const auto& task = tasks[i];
 
         // If this backup returned a potential head of the log and it
@@ -308,7 +305,7 @@ Recovery::buildSegmentIdToBackups()
             if (task->result.logDigestSegmentId == (uint32_t)-1) {
                 LOG(ERROR, "segment %lu has a LogDigest, but len "
                     "== -1!! from %s\n", task->result.logDigestSegmentId,
-                    task->backupHost.service_locator().c_str());
+                    task->backupHost.serviceLocator.c_str());
             }
         }
     }
@@ -368,14 +365,21 @@ Recovery::buildSegmentIdToBackups()
     // Order primaries (and even secondaries among themselves anyway) based
     // on when they are expected to be loaded in from disk.
     vector<ProtoBuf::ServerList::Entry> backupsToSort;
-    for (int j = 0; j < backupHosts.server_size(); ++j) {
-        if (!tasks[j])
+    for (uint32_t nextBackupIndex = 0, taskIndex = 0; taskIndex < numBackups;
+      nextBackupIndex++, taskIndex++) {
+        nextBackupIndex = serverList.nextBackupIndex(nextBackupIndex);
+        assert(nextBackupIndex != (uint32_t)-1);
+
+        if (!tasks[taskIndex])
             continue;
-        const auto& task = tasks[j];
-        const auto& backup = backupHosts.server(j);
-        const uint64_t speed = backup.user_data();
+
+        const auto& task = tasks[taskIndex];
+        const auto* backup = serverList[nextBackupIndex];
+        const uint64_t speed = backup->backupReadMegsPerSecond;
+
         LOG(DEBUG, "Adding all segments from %s with bench speed of %lu",
-            backup.service_locator().c_str(), speed);
+            backup->serviceLocator.c_str(), speed);
+
         for (size_t i = 0; i < task->result.segmentIdAndLength.size(); ++i) {
             uint64_t expectedLoadTimeMs;
             if (i < task->result.primarySegmentCount) {
@@ -393,7 +397,8 @@ Recovery::buildSegmentIdToBackups()
             uint64_t segmentLen = task->result.segmentIdAndLength[i].second;
             if (segmentId < headId ||
                 (segmentId == headId && segmentLen == headLen)) {
-                ProtoBuf::ServerList::Entry newEntry = backup;
+                ProtoBuf::ServerList::Entry newEntry;
+                backup->serialise(newEntry);
                 newEntry.set_user_data(expectedLoadTimeMs);
                 newEntry.set_segment_id(segmentId);
                 backupsToSort.push_back(newEntry);
@@ -447,12 +452,22 @@ Recovery::start()
             numPartitions = downCast<uint32_t>(tablet.user_data()) + 1;
     }
 
+    if (serverList.masterCount() < numPartitions) {
+        // TODO(ongaro): this is not ok in a real system
+        DIE("not enough recovery masters to complete recovery "
+            "(only %d available)", serverList.masterCount());
+    }
+
     // Set up the tasks to execute the RPCs.
-    uint32_t recoveryMasterIndex = 0;
+    uint32_t nextMasterIndex = 0;
     Tub<MasterStartTask> recoverTasks[numPartitions];
     for (uint32_t i = 0; i < numPartitions; i++) {
         auto& task = recoverTasks[i];
-        task.construct(*this, recoveryMasterIndex, i, backupsBuf, backupsLen);
+        nextMasterIndex = serverList.nextMasterIndex(nextMasterIndex);
+        task.construct(*this, *serverList[nextMasterIndex],
+            i, backupsBuf, backupsLen);
+        nextMasterIndex++;
+
     }
     foreach (auto& tablet, will.tablet()) {
         auto& task = recoverTasks[tablet.user_data()];
@@ -473,11 +488,13 @@ Recovery::tabletsRecovered(const ProtoBuf::Tablets& tablets)
 
     CycleCounter<RawMetric> ticks(&metrics->coordinator.recoveryCompleteTicks);
     // broadcast to backups that recovery is done
-    uint32_t numBackups = static_cast<uint32_t>(backupHosts.server_size());
+    uint32_t numBackups = serverList.backupCount();
     Tub<BackupEndTask> tasks[numBackups];
-    for (uint32_t i = 0; i < numBackups; ++i) {
-        auto& backup = backupHosts.server(i);
-        tasks[i].construct(backup.service_locator(), masterId);
+    for (size_t i = 0, taskNum = 0; i < serverList.size(); i++) {
+        if (serverList[i] == NULL || !serverList[i]->isBackup)
+            continue;
+        auto& backup = *serverList[i];
+        tasks[taskNum++].construct(backup.serviceLocator, masterId);
     }
     parallelRun(tasks, numBackups, 10);
     return true;
