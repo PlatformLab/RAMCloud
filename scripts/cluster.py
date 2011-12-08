@@ -182,13 +182,13 @@ def run(
     servers = []
     clients = []
     with Sandbox() as sandbox:
-        def ensure_servers(qty):
+        def ensure_servers(numMasters, numBackups):
             sandbox.checkFailures()
             try:
-                sandbox.rsh(hosts[0][0], '%s -C %s -n %d -l 1 --maxwait 5 '
+                sandbox.rsh(hosts[0][0], '%s -C %s -m %d -b %d -l 1 --wait 5 '
                             '--logFile %s/ensureServers.log' %
                             (ensure_servers_bin, coordinator_locator,
-                             qty, log_subdir))
+                             numMasters, numBackups, log_subdir))
             except:
                 # prefer exceptions from dead processes to timeout error
                 sandbox.checkFailures()
@@ -203,14 +203,15 @@ def run(
                        (coordinator_binary, coordinator_locator, log_level,
                         log_subdir, coordinator_host[0], coordinator_args)),
                       bg=True, stderr=subprocess.STDOUT)
-            ensure_servers(0)
+            ensure_servers(0, 0)
             if verbose:
                 print "Coordinator started on %s at %s" % (coordinator_host[0],
                         coordinator_locator)
 
         # Track how many services are registered with the coordinator
         # for ensure_servers
-        services_started = 0
+        masters_started = 0
+        backups_started = 0
 
         # Start old master - a specialized master for recovery with lots of data
         if old_master_host:
@@ -223,8 +224,8 @@ def run(
                         old_master_args))
             servers.append(sandbox.rsh(host[0], command, ignoreFailures=True,
                            bg=True, stderr=subprocess.STDOUT))
-            services_started += 1
-            ensure_servers(services_started)
+            masters_started += 1
+            ensure_servers(masters_started, 0)
 
         # Start servers
         for i in range(num_servers):
@@ -240,10 +241,11 @@ def run(
                         master_args))
             if backups_per_server > 0:
                 command += ' %s %s' % (disk1, backup_args)
-                services_started += 2
+                masters_started += 1
+                backups_started += 1
             else:
                 command += ' -M'
-                services_started += 1
+                masters_started += 1
             servers.append(sandbox.rsh(host[0], command, bg=True,
                            stderr=subprocess.STDOUT))
             if verbose:
@@ -261,15 +263,15 @@ def run(
                             backup_args))
                 servers.append(sandbox.rsh(host[0], command, bg=True,
                                            stderr=subprocess.STDOUT))
-                services_started += 1
+                backups_started += 1
                 if verbose:
                     print "Extra backup started on %s at %s" % (host[0],
                             server_locator(transport, host, second_backup_port))
         if debug:
             print "Servers started; pausing for debug setup."
             raw_input("Type <Enter> to continue: ")
-        if services_started > 0:
-            ensure_servers(services_started)
+        if masters_started > 0 or backups_started > 0:
+            ensure_servers(masters_started, backups_started)
             if verbose:
                 print "All servers running"
 
