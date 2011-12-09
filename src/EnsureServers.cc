@@ -81,7 +81,7 @@ try
         try {
             RamCloud(context,
                      optionParser.options.getCoordinatorLocator().c_str())
-                .coordinator->getServerList(serverList);
+                .coordinator.getServerList(serverList);
         } catch (const TransportException& e) {
             LOG(ERROR, "couldn't query cluster membership: %s\n",
                 e.str().c_str());
