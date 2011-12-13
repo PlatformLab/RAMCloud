@@ -430,10 +430,9 @@ TEST_F(SegmentTest, syncToBackup) {
     static SegmentHeader header;
     TestLog::Enable _;
     s.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header), false);
-    EXPECT_EQ("write: 1, 2, 60",
-              TestLog::get());
+    EXPECT_EQ("", TestLog::get());
     s.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header), true);
-    EXPECT_EQ("write: 1, 2, 60 | write: 1, 2, 90 | sync: syncing",
+    EXPECT_EQ("write: 1, 2, 90 | sync: syncing",
               TestLog::get());
 }
 

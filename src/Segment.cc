@@ -410,6 +410,7 @@ Segment::close(Segment* nextHead, bool sync)
     closed = true;
 
     if (replicaManager) {
+        replicatedSegment->write(tail);
         replicatedSegment->close(nextHead ?
                                     nextHead->replicatedSegment : NULL);
         if (sync) // sync determines whether to wait for the acks
@@ -812,13 +813,11 @@ Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
         forceAppendBlob(buffer, length);
     }
 
-    if (replicaManager && replicatedSegment) {
+    if (sync && replicaManager && replicatedSegment) {
         // replicatedSegment can be NULL while initial opening entries for the
         // segment header are appended but before openSegment is called.
         replicatedSegment->write(tail);
-        if (sync) {
-            replicaManager->sync();
-        }
+        replicaManager->sync();
     }
 
     SegmentEntryHandle handle =
