@@ -219,7 +219,7 @@ try
     // client.ping();
 
     LOG(NOTICE, "- quiescing writes");
-    client.coordinator->quiesce();
+    client.coordinator.quiesce();
 
     Transport::SessionRef session = client.objectFinder.lookup(tables[0], 0);
     LOG(NOTICE, "--- Terminating master %s ---",
