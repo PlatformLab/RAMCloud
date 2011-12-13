@@ -29,9 +29,9 @@ class BaseBackupSelector {
   PUBLIC:
     typedef ProtoBuf::ServerList::Entry Backup;
     virtual Backup* selectPrimary(uint32_t numBackups,
-                                  const uint64_t backupIds[]) = 0;
+                                  const ServerId backupIds[]) = 0;
     virtual Backup* selectSecondary(uint32_t numBackups,
-                                    const uint64_t backupIds[]) = 0;
+                                    const ServerId backupIds[]) = 0;
     virtual ~BaseBackupSelector() {}
 };
 
@@ -43,15 +43,15 @@ class BaseBackupSelector {
 class BackupSelector : public BaseBackupSelector {
   PUBLIC:
     explicit BackupSelector(CoordinatorClient* coordinator);
-    Backup* selectPrimary(uint32_t numBackups, const uint64_t backupIds[]);
-    Backup* selectSecondary(uint32_t numBackups, const uint64_t backupIds[]);
+    Backup* selectPrimary(uint32_t numBackups, const ServerId backupIds[]);
+    Backup* selectSecondary(uint32_t numBackups, const ServerId backupIds[]);
 
   PRIVATE:
     bool conflict(const Backup* backup,
-                  const uint64_t otherBackupId) const;
+                  const ServerId otherBackupId) const;
     bool conflictWithAny(const Backup* backup,
                          uint32_t numBackups,
-                         const uint64_t backupIds[]) const;
+                         const ServerId backupIds[]) const;
     Backup* getRandomHost();
     void updateHostListFromCoordinator();
 

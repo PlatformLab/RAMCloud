@@ -170,7 +170,7 @@ class Log {
         INLINED_CLEANER    = 2
     } CleanerOption;
 
-    Log(const Tub<uint64_t>& logId,
+    Log(const Tub<ServerId>& logId,
         uint64_t logCapacity,
         uint32_t segmentCapacity,
         uint32_t maximumBytesPerAppend,
@@ -274,7 +274,7 @@ class Log {
     void        markActive(Segment *s);
     Segment*    getSegmentFromAddress(const void*);
 
-    const Tub<uint64_t>& logId;
+    const Tub<ServerId>& logId;
 
     /// A very large memory allocation that backs all segments.
     LargeBlockOfMemory<> segmentMemory;

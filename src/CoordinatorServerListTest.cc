@@ -34,7 +34,7 @@ TEST_F(CoordinatorServerListTest, add) {
     EXPECT_EQ(0U, sl.serverList.size());
     EXPECT_EQ(0U, sl.numberOfMasters);
     EXPECT_EQ(0U, sl.numberOfBackups);
-    EXPECT_EQ(ServerId(1, 0), sl.add("hi", true));
+    EXPECT_EQ(ServerId(1, 0), sl.add("hi", MASTER_SERVICE));
     EXPECT_TRUE(sl.serverList[1].entry);
     EXPECT_FALSE(sl.serverList[0].entry);
     EXPECT_EQ(1U, sl.numberOfMasters);
@@ -45,7 +45,7 @@ TEST_F(CoordinatorServerListTest, add) {
     EXPECT_FALSE(sl.serverList[1].entry->isBackup);
     EXPECT_EQ(1U, sl.serverList[1].nextGenerationNumber);
 
-    EXPECT_EQ(ServerId(2, 0), sl.add("hi again", false));
+    EXPECT_EQ(ServerId(2, 0), sl.add("hi again", BACKUP_SERVICE));
     EXPECT_TRUE(sl.serverList[2].entry);
     EXPECT_EQ(ServerId(2, 0), sl.serverList[2].entry->serverId);
     EXPECT_EQ("hi again", sl.serverList[2].entry->serviceLocator);
@@ -59,14 +59,14 @@ TEST_F(CoordinatorServerListTest, add) {
 TEST_F(CoordinatorServerListTest, remove) {
     EXPECT_THROW(sl.remove(ServerId(0, 0)), Exception);
 
-    sl.add("hi!", true);
+    sl.add("hi!", MASTER_SERVICE);
     EXPECT_NO_THROW(sl.remove(ServerId(1, 0)));
     EXPECT_FALSE(sl.serverList[1].entry);
     EXPECT_THROW(sl.remove(ServerId(1, 0)), Exception);
     EXPECT_EQ(0U, sl.numberOfMasters);
     EXPECT_EQ(0U, sl.numberOfBackups);
 
-    sl.add("hi, again", false);
+    sl.add("hi, again", BACKUP_SERVICE);
     EXPECT_TRUE(sl.serverList[1].entry);
     EXPECT_THROW(sl.remove(ServerId(1, 2)), Exception);
     EXPECT_NO_THROW(sl.remove(ServerId(1, 1)));
@@ -76,7 +76,7 @@ TEST_F(CoordinatorServerListTest, remove) {
 
 TEST_F(CoordinatorServerListTest, indexOperator) {
     EXPECT_THROW(sl[ServerId(0, 0)], Exception);
-    sl.add("yo!", true);
+    sl.add("yo!", MASTER_SERVICE);
     EXPECT_EQ(ServerId(1, 0), sl[ServerId(1, 0)].serverId);
     EXPECT_EQ("yo!", sl[ServerId(1, 0)].serviceLocator);
     sl.remove(ServerId(1, 0));
@@ -87,10 +87,10 @@ TEST_F(CoordinatorServerListTest, contains) {
     EXPECT_FALSE(sl.contains(ServerId(0, 0)));
     EXPECT_FALSE(sl.contains(ServerId(1, 0)));
 
-    sl.add("I love it when a plan comes together", false);
+    sl.add("I love it when a plan comes together", BACKUP_SERVICE);
     EXPECT_TRUE(sl.contains(ServerId(1, 0)));
 
-    sl.add("Come with me if you want to live", true);
+    sl.add("Come with me if you want to live", MASTER_SERVICE);
     EXPECT_TRUE(sl.contains(ServerId(2, 0)));
 
     sl.remove(ServerId(1, 0));
@@ -99,18 +99,18 @@ TEST_F(CoordinatorServerListTest, contains) {
     sl.remove(ServerId(2, 0));
     EXPECT_FALSE(sl.contains(ServerId(2, 0)));
 
-    sl.add("I'm running out 80s shows and action movie quotes", false);
+    sl.add("I'm running out 80s shows and action movie quotes", BACKUP_SERVICE);
     EXPECT_TRUE(sl.contains(ServerId(1, 1)));
 }
 
 TEST_F(CoordinatorServerListTest, nextMasterIndex) {
     EXPECT_EQ(-1U, sl.nextMasterIndex(0));
-    sl.add("", false);
-    sl.add("", true);
-    sl.add("", false);
-    sl.add("", false);
-    sl.add("", true);
-    sl.add("", false);
+    sl.add("", BACKUP_SERVICE);
+    sl.add("", MASTER_SERVICE);
+    sl.add("", BACKUP_SERVICE);
+    sl.add("", BACKUP_SERVICE);
+    sl.add("", MASTER_SERVICE);
+    sl.add("", BACKUP_SERVICE);
 
     EXPECT_EQ(2U, sl.nextMasterIndex(0));
     EXPECT_EQ(2U, sl.nextMasterIndex(2));
@@ -120,9 +120,9 @@ TEST_F(CoordinatorServerListTest, nextMasterIndex) {
 
 TEST_F(CoordinatorServerListTest, nextBackupIndex) {
     EXPECT_EQ(-1U, sl.nextMasterIndex(0));
-    sl.add("", true);
-    sl.add("", false);
-    sl.add("", true);
+    sl.add("", MASTER_SERVICE);
+    sl.add("", BACKUP_SERVICE);
+    sl.add("", MASTER_SERVICE);
 
     EXPECT_EQ(2U, sl.nextBackupIndex(0));
     EXPECT_EQ(2U, sl.nextBackupIndex(2));
@@ -138,10 +138,10 @@ TEST_F(CoordinatorServerListTest, serialise) {
         EXPECT_EQ(0, serverList.server_size());
     }
 
-    ServerId first = sl.add("", true);
-    sl.add("", true);
-    sl.add("", true);
-    sl.add("", false);
+    ServerId first = sl.add("", MASTER_SERVICE);
+    sl.add("", MASTER_SERVICE);
+    sl.add("", MASTER_SERVICE);
+    sl.add("", BACKUP_SERVICE);
     sl.remove(first);       // ensure removed entries are skipped
 
     {
@@ -181,9 +181,9 @@ TEST_F(CoordinatorServerListTest, firstFreeIndex) {
     EXPECT_EQ(0U, sl.serverList.size());
     EXPECT_EQ(1U, sl.firstFreeIndex());
     EXPECT_EQ(2U, sl.serverList.size());
-    sl.add("hi", true);
+    sl.add("hi", MASTER_SERVICE);
     EXPECT_EQ(2U, sl.firstFreeIndex());
-    sl.add("hi again", true);
+    sl.add("hi again", MASTER_SERVICE);
     EXPECT_EQ(3U, sl.firstFreeIndex());
     sl.remove(ServerId(2, 0));
     EXPECT_EQ(2U, sl.firstFreeIndex());
@@ -195,7 +195,7 @@ TEST_F(CoordinatorServerListTest, getReferenceFromServerId) {
     EXPECT_THROW(sl.getReferenceFromServerId(ServerId(0, 0)), Exception);
     EXPECT_THROW(sl.getReferenceFromServerId(ServerId(1, 0)), Exception);
 
-    sl.add("", true);
+    sl.add("", MASTER_SERVICE);
     EXPECT_THROW(sl.getReferenceFromServerId(ServerId(0, 0)), Exception);
     EXPECT_NO_THROW(sl.getReferenceFromServerId(ServerId(1, 0)));
     EXPECT_THROW(sl.getReferenceFromServerId(ServerId(2, 0)), Exception);
@@ -205,7 +205,7 @@ TEST_F(CoordinatorServerListTest, getPointerFromIndex) {
     EXPECT_THROW(sl.getPointerFromIndex(0), Exception);
     EXPECT_THROW(sl.getPointerFromIndex(1), Exception);
 
-    sl.add("", true);
+    sl.add("", MASTER_SERVICE);
     EXPECT_EQ(static_cast<const CoordinatorServerList::Entry*>(NULL),
         sl.getPointerFromIndex(0));
     EXPECT_EQ(static_cast<const CoordinatorServerList::Entry*>(
@@ -219,7 +219,7 @@ TEST_F(CoordinatorServerListTest, getPointerFromIndex) {
 
 TEST_F(CoordinatorServerListTest, Entry_constructor) {
     CoordinatorServerList::Entry a(ServerId(52, 374),
-        "You forgot your boarding pass", true);
+        "You forgot your boarding pass", MASTER_SERVICE);
     EXPECT_EQ(ServerId(52, 374), a.serverId);
     EXPECT_EQ("You forgot your boarding pass", a.serviceLocator);
     EXPECT_TRUE(a.isMaster);
@@ -228,7 +228,7 @@ TEST_F(CoordinatorServerListTest, Entry_constructor) {
     EXPECT_EQ(0U, a.backupReadMegsPerSecond);
 
     CoordinatorServerList::Entry b(ServerId(27, 72),
-        "I ain't got time to bleed", false);
+        "I ain't got time to bleed", BACKUP_SERVICE);
     EXPECT_EQ(ServerId(27, 72), b.serverId);
     EXPECT_EQ("I ain't got time to bleed", b.serviceLocator);
     EXPECT_FALSE(b.isMaster);
@@ -261,7 +261,8 @@ compareEntries(CoordinatorServerList::Entry& a,
 }
 
 TEST_F(CoordinatorServerListTest, Entry_copyConstructor) {
-    CoordinatorServerList::Entry source(ServerId(234, 273), "hi!", false);
+    CoordinatorServerList::Entry source(
+        ServerId(234, 273), "hi!", BACKUP_SERVICE);
     source.backupReadMegsPerSecond = 57;
     source.will = reinterpret_cast<ProtoBuf::Tablets*>(0x11deadbeef22UL);
     CoordinatorServerList::Entry dest(source);
@@ -269,16 +270,16 @@ TEST_F(CoordinatorServerListTest, Entry_copyConstructor) {
 }
 
 TEST_F(CoordinatorServerListTest, Entry_assignmentOperator) {
-    CoordinatorServerList::Entry source(ServerId(73, 72), "hi", false);
+    CoordinatorServerList::Entry source(ServerId(73, 72), "hi", BACKUP_SERVICE);
     source.backupReadMegsPerSecond = 785;
     source.will = reinterpret_cast<ProtoBuf::Tablets*>(0x11beefcafe22UL);
-    CoordinatorServerList::Entry dest(ServerId(0, 0), "bye", true);
+    CoordinatorServerList::Entry dest(ServerId(0, 0), "bye", MASTER_SERVICE);
     dest = source;
     EXPECT_TRUE(compareEntries(source, dest));
 }
 
 TEST_F(CoordinatorServerListTest, Entry_serialise) {
-    CoordinatorServerList::Entry entry(ServerId(0, 0), "", false);
+    CoordinatorServerList::Entry entry(ServerId(0, 0), "", BACKUP_SERVICE);
     entry.isMaster = false;
     entry.isBackup = true;
     entry.serverId = ServerId(5234, 23482);

@@ -240,61 +240,33 @@ CoordinatorService::enlistServer(const EnlistServerRpc::Request& reqHdr,
                                  EnlistServerRpc::Response& respHdr,
                                  Rpc& rpc)
 {
-    ServerType serverType = static_cast<ServerType>(reqHdr.serverType);
+    ServiceTypeMask serviceMask =
+         static_cast<ServiceTypeMask>(reqHdr.serviceMask);
     const uint32_t readSpeed = reqHdr.readSpeed;
     const uint32_t writeSpeed = reqHdr.writeSpeed;
     const char *serviceLocator = getString(rpc.requestPayload, sizeof(reqHdr),
                                            reqHdr.serviceLocatorLength);
 
-#if 0
-    ServerId newServerId = serverList.add(serviceLocator,
-                                          (serverType == MASTER));
-#else
-    // Since servers may register multiple times (MASTER, BACKUP) for same
-    // serviceLocator and the coordinator otherwise assumes just one
-    // registration per process, catch subsequent enlists for the same SL
-    // here.
-    ServerId newServerId;
-    for (size_t i = 0; i < serverList.size(); i++) {
-        if (serverList[i] == NULL)
-            continue;
+    ServerId newServerId = serverList.add(serviceLocator, serviceMask);
+    CoordinatorServerList::Entry& entry = serverList[newServerId];
 
-        if (serverList[i]->serviceLocator == serviceLocator) {
-            newServerId = serverList[i]->serverId;
-            if (serverType == MASTER) {
-                serverList[i]->isMaster = true;
-                serverList.numberOfMasters++;
-            } else {
-                serverList[i]->isBackup = true;
-                serverList.numberOfBackups++;
-            }
-            LOG(NOTICE, "Enlisting same process again as %lu (this time it's "
-                "a %s)", newServerId.getId(),
-                (serverType == MASTER) ? "master" : "backup");
-            break;
-        }
-    }
-    if (!newServerId.isValid()) {
-        newServerId = serverList.add(serviceLocator, (serverType == MASTER));
-    }
-#endif
+    LOG(NOTICE, "Enlisting new server at %s (server id %lu) supporting "
+        "services: %s%s",
+        serviceLocator, newServerId.getId(),
+        entry.isMaster ? "master " : "",
+        entry.isBackup ? "backup " : "");
 
-    LOG(NOTICE, "Enlisting new %s at %s (server id %lu)",
-            (serverType == MASTER) ? "master" : "backup",
-            serviceLocator, newServerId.getId());
-
-    if (serverType == MASTER) {
+    if (entry.isMaster) {
         // create empty will
-        serverList[newServerId].will = new ProtoBuf::Tablets;
-        LOG(DEBUG, "Master enlisted with id %lu, sl [%s]", newServerId.getId(),
-            serviceLocator);
-    } else {
-        LOG(DEBUG, "Backup enlisted with id %lu, sl [%s]", newServerId.getId(),
-            serviceLocator);
-        LOG(DEBUG, "Backup id %lu has %u MB/s read %u MB/s write ",
-            newServerId.getId(), readSpeed, writeSpeed);
-        serverList[newServerId].backupReadMegsPerSecond = readSpeed;
+        entry.will = new ProtoBuf::Tablets;
     }
+
+    if (entry.isBackup) {
+        LOG(DEBUG, "Backup at id %lu has %u MB/s read %u MB/s write ",
+            newServerId.getId(), readSpeed, writeSpeed);
+        entry.backupReadMegsPerSecond = readSpeed;
+    }
+
     respHdr.serverId = newServerId.getId();
 }
 
@@ -307,25 +279,13 @@ CoordinatorService::getServerList(const GetServerListRpc::Request& reqHdr,
                                   GetServerListRpc::Response& respHdr,
                                   Rpc& rpc)
 {
+    ServiceTypeMask serviceMask =
+         static_cast<ServiceTypeMask>(reqHdr.serviceMask);
+
     ProtoBuf::ServerList serialServerList;
-
-    // XXX- Should this just be a bitfield?
-    switch (reqHdr.serverType) {
-    case MASTER:
-        serverList.serialise(serialServerList, true, false);
-        break;
-
-    case BACKUP:
-        serverList.serialise(serialServerList, false, true);
-        break;
-
-    case ALL:
-        serverList.serialise(serialServerList, true, true);
-        break;
-
-    default:
-        throw RequestFormatError(HERE);
-    }
+    serverList.serialise(serialServerList,
+                         serviceMask & MASTER_SERVICE,
+                         serviceMask & BACKUP_SERVICE);
 
     respHdr.serverListLength =
         serializeToResponse(rpc.replyPayload, serialServerList);

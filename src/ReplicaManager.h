@@ -55,7 +55,7 @@ namespace RAMCloud {
 class ReplicaManager : public ReplicatedSegment::Deleter {
    PUBLIC:
     ReplicaManager(CoordinatorClient* coordinator,
-                   const Tub<uint64_t>& masterId, uint32_t numReplicas);
+                   const Tub<ServerId>& masterId, uint32_t numReplicas);
     explicit ReplicaManager(ReplicaManager* prototype);
     ~ReplicaManager();
 
@@ -80,7 +80,7 @@ class ReplicaManager : public ReplicatedSegment::Deleter {
     CoordinatorClient* const coordinator;
 
     /// Id of master that this will be managing replicas for.
-    const Tub<uint64_t>& masterId;
+    const Tub<ServerId>& masterId;
 
     /// Allows fast reuse of ReplicatedSegment allocations.
     boost::pool<> replicatedSegmentPool;

@@ -104,19 +104,21 @@ CoordinatorClient::openTable(const char* name)
 
 /**
  * Servers call this when they come online to beg for work.
- * \param serverType
- *      Master, etc.
+ * \param serviceMask
+ *      MASTER_SERVICE, BACKUP_SERVICE, etc.
  * \param localServiceLocator
  *      The service locator describing how other hosts can contact the server.
  * \param readSpeed
- *      Read speed of the backup in MB/s if serverType is BACKUP, ignored otherwise.
+ *      Read speed of the backup in MB/s if serviceMask includes BACKUP,
+ *      otherwise ignored.
  * \param writeSpeed
- *      Write speed of the backup in MB/s if serverType is BACKUP, ignored otherwise.
+ *      Write speed of the backup in MB/s if serviceMask includes BACKUP,
+ *      otherwise ignored.
  * \return
- *      A server ID guaranteed never to have been used before.
+ *      A ServerId guaranteed never to have been used before.
  */
-uint64_t
-CoordinatorClient::enlistServer(ServerType serverType,
+ServerId
+CoordinatorClient::enlistServer(ServiceTypeMask serviceMask,
                                 string localServiceLocator,
                                 uint32_t readSpeed,
                                 uint32_t writeSpeed)
@@ -127,7 +129,7 @@ CoordinatorClient::enlistServer(ServerType serverType,
             Buffer resp;
             EnlistServerRpc::Request& reqHdr(
                 allocHeader<EnlistServerRpc>(req));
-            reqHdr.serverType = serverType;
+            reqHdr.serviceMask = downCast<uint8_t>(serviceMask);
             reqHdr.readSpeed = readSpeed;
             reqHdr.writeSpeed = writeSpeed;
             reqHdr.serviceLocatorLength =
@@ -138,7 +140,7 @@ CoordinatorClient::enlistServer(ServerType serverType,
             const EnlistServerRpc::Response& respHdr(
                 sendRecv<EnlistServerRpc>(session, req, resp));
             checkStatus(HERE);
-            return respHdr.serverId;
+            return ServerId(respHdr.serverId);
         } catch (TransportException& e) {
             LOG(NOTICE,
                 "TransportException trying to talk to coordinator: %s",
@@ -150,21 +152,24 @@ CoordinatorClient::enlistServer(ServerType serverType,
 }
 
 /**
- * List all live servers of the given type.
- * \param[in] type
- *      The type of server to get a list of. Presently either MASTER or BACKUP.
+ * List all live servers providing services of the given types.
+ * \param[in] types
+ *      Used to restrict the server list returned to containing only servers
+ *      that support the specified services. Presently only some combination of
+ *      MASTER_SERVICE and BACKUP_SERVICE is meaningful here.
  * \param[out] serverList
- *      An empty ServerList that will be filled with current master servers.
+ *      An empty ServerList that will be filled with current servers supporting
+ *      the desired services.
  */
 void
-CoordinatorClient::getServerList(ServerType type,
+CoordinatorClient::getServerList(ServiceTypeMask types,
                                  ProtoBuf::ServerList& serverList)
 {
     Buffer req;
     Buffer resp;
     GetServerListRpc::Request& reqHdr(
         allocHeader<GetServerListRpc>(req));
-    reqHdr.serverType = type;
+    reqHdr.serviceMask = downCast<uint8_t>(types);
     const GetServerListRpc::Response& respHdr(
         sendRecv<GetServerListRpc>(session, req, resp));
     checkStatus(HERE);
@@ -181,7 +186,7 @@ CoordinatorClient::getServerList(ServerType type,
 void
 CoordinatorClient::getServerList(ProtoBuf::ServerList& serverList)
 {
-    getServerList(ALL, serverList);
+    getServerList(MASTER_SERVICE | BACKUP_SERVICE, serverList);
 }
 
 /**
@@ -193,7 +198,7 @@ CoordinatorClient::getServerList(ProtoBuf::ServerList& serverList)
 void
 CoordinatorClient::getMasterList(ProtoBuf::ServerList& serverList)
 {
-    getServerList(MASTER, serverList);
+    getServerList(MASTER_SERVICE, serverList);
 }
 
 /**
@@ -206,7 +211,7 @@ CoordinatorClient::getMasterList(ProtoBuf::ServerList& serverList)
 void
 CoordinatorClient::getBackupList(ProtoBuf::ServerList& serverList)
 {
-    getServerList(BACKUP, serverList);
+    getServerList(BACKUP_SERVICE, serverList);
 }
 
 /**

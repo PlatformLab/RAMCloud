@@ -103,6 +103,15 @@ class ServerId {
     }
 
     /**
+     * \copydetails getId
+     */
+    uint64_t
+    operator*() const
+    {
+        return getId();
+    }
+
+    /**
      * Obtain the index number for this ServerId.
      */
     uint32_t

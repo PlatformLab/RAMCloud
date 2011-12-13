@@ -14,6 +14,7 @@
  */
 
 #include "Common.h"
+#include "BitOps.h"
 #include "Service.h"
 #include "TransportManager.h"
 
@@ -48,7 +49,8 @@ struct BindTransport : public Transport {
     }
 
     void
-    addService(Service& service, const string locator, RpcServiceType type) {
+    addService(Service& service, const string locator, ServiceTypeMask type) {
+        assert(BitOps::countBitsSet(type) == 1);
         services[locator].services[type] = &service;
     }
 

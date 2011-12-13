@@ -52,7 +52,9 @@ class StringKeyAdapterTest : public ::testing::Test {
         masterService.construct(config, coordinator.get(), 0);
         transport.addService(*masterService, "mock:host=master",
                 MASTER_SERVICE);
-        masterService->init();
+        masterService->init(CoordinatorClient(
+            config.coordinatorLocator.c_str()).enlistServer(
+                MASTER_SERVICE, "mock:host=master", 0, 0));
         master.construct(Context::get().transportManager->getSession(
                                                         "mock:host=master"));
 

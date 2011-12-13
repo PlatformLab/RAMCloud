@@ -166,22 +166,17 @@ MasterService::dispatch(RpcOpcode opcode, Rpc& rpc)
 
 
 /**
- * Make connections with the coordinator and backups, so that the service
- * is ready to begin handling requests.
+ * Perform once-only initialization for the master service after having
+ * enlisted the process with the coordinator.
  */
 void
-MasterService::init()
+MasterService::init(ServerId id)
 {
     assert(!initCalled);
 
-    // Permit a NULL coordinator for testing/benchmark purposes.
-    if (coordinator) {
-        // Enlist with the coordinator.
-        serverId.construct(coordinator->enlistServer(MASTER,
-                                                     config.localLocator));
-        LOG(NOTICE, "My server ID is %lu", *serverId);
-        metrics->serverId = *serverId;
-    }
+    serverId.construct(id);
+    LOG(NOTICE, "My server ID is %lu", serverId->getId());
+    metrics->serverId = serverId->getId();
 
     initCalled = true;
 }
@@ -454,7 +449,7 @@ namespace {
  * file.
  */
 struct RecoveryTask {
-    RecoveryTask(uint64_t masterId,
+    RecoveryTask(ServerId masterId,
          uint64_t partitionId,
          ProtoBuf::ServerList::Entry& backupHost)
         : masterId(masterId)
@@ -484,7 +479,7 @@ struct RecoveryTask {
         rpc.construct(client, masterId, backupHost.segment_id(),
                       partitionId, response);
     }
-    uint64_t masterId;
+    ServerId masterId;
     uint64_t partitionId;
     ProtoBuf::ServerList::Entry& backupHost;
     Buffer response;
@@ -517,7 +512,7 @@ struct RecoveryTask {
  *      a valid replacement for the crashed master.
  */
 void
-detectSegmentRecoveryFailure(const uint64_t masterId,
+detectSegmentRecoveryFailure(const ServerId masterId,
                              const uint64_t partitionId,
                              const ProtoBuf::ServerList& backups)
 {
@@ -539,7 +534,7 @@ detectSegmentRecoveryFailure(const uint64_t masterId,
     }
     if (!failures.empty()) {
         LOG(ERROR, "Recovery master failed to recover master %lu "
-            "partition %lu", masterId, partitionId);
+            "partition %lu", *masterId, partitionId);
         foreach (auto segmentId, failures)
             LOG(ERROR, "Unable to recover segment %lu", segmentId);
         throw SegmentRecoveryFailedException(HERE);
@@ -569,9 +564,9 @@ detectSegmentRecoveryFailure(const uint64_t masterId,
  *      a valid replacement for the crashed master.
  */
 void
-MasterService::recover(uint64_t masterId,
-                      uint64_t partitionId,
-                      ProtoBuf::ServerList& backups)
+MasterService::recover(ServerId masterId,
+                       uint64_t partitionId,
+                       ProtoBuf::ServerList& backups)
 {
     /* Overview of the internals of this method and its structures.
      *
@@ -626,7 +621,7 @@ MasterService::recover(uint64_t masterId,
     uint64_t usefulTime = 0;
     uint64_t start = Cycles::rdtsc();
     LOG(NOTICE, "Recovering master %lu, partition %lu, %u replicas available",
-        masterId, partitionId, backups.server_size());
+        *masterId, partitionId, backups.server_size());
 
     boost::unordered_set<uint64_t> runningSet;
     foreach (auto& backup, *backups.mutable_server())
@@ -842,7 +837,7 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
         metrics->master.recoveryCount++;
         metrics->master.replicas = replicaManager.numReplicas;
 
-        uint64_t masterId = reqHdr.masterId;
+        ServerId masterId(reqHdr.masterId);
         uint64_t partitionId = reqHdr.partitionId;
         ProtoBuf::Tablets recoveryTablets;
         ProtoBuf::parseFromResponse(rpc.requestPayload, sizeof(reqHdr),
@@ -854,7 +849,7 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
                                     reqHdr.serverListLength,
                                     backups);
         LOG(DEBUG, "Starting recovery of %u tablets on masterId %lu",
-            recoveryTablets.tablet_size(), *serverId);
+            recoveryTablets.tablet_size(), serverId->getId());
         rpc.sendReply();
 
         // reqHdr, respHdr, and rpc are off-limits now
@@ -882,9 +877,9 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
             LOG(NOTICE, "set tablet %lu %lu %lu to locator %s, id %lu",
                      tablet.table_id(), tablet.start_object_id(),
                      tablet.end_object_id(), config.localLocator.c_str(),
-                     *serverId);
+                     serverId->getId());
             tablet.set_service_locator(config.localLocator);
-            tablet.set_server_id(*serverId);
+            tablet.set_server_id(serverId->getId());
         }
 
         // TODO(ongaro): don't need to calculate a new will here
@@ -896,7 +891,8 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
         }
 
         {
-            coordinator->tabletsRecovered(*serverId, recoveryTablets,
+            coordinator->tabletsRecovered(serverId->getId(),
+                                          recoveryTablets,
                                           recoveryWill);
         }
         // Ok - we're free to start serving now.

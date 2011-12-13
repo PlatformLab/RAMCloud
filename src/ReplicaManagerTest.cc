@@ -50,7 +50,7 @@ struct ReplicaManagerTest : public ::testing::Test {
     Tub<BackupService> backupService2;
     Tub<BackupClient> backup1;
     Tub<BackupClient> backup2;
-    Tub<uint64_t> serverId;
+    Tub<ServerId> serverId;
     Tub<ReplicaManager> mgr;
 
     ReplicaManagerTest()
@@ -86,15 +86,17 @@ struct ReplicaManagerTest : public ::testing::Test {
         transport->addService(*backupService2, "mock:host=backup2",
                 BACKUP_SERVICE);
 
-        backupService1->init();
-        backupService2->init();
+        backupService1->init(coordinator->enlistServer(BACKUP_SERVICE,
+            backupServiceConfig1->localLocator.c_str(), 0, 0));
+        backupService2->init(coordinator->enlistServer(BACKUP_SERVICE,
+            backupServiceConfig2->localLocator.c_str(), 0, 0));
 
         backup1.construct(Context::get().transportManager->getSession(
                             "mock:host=backup1"));
         backup2.construct(Context::get().transportManager->getSession(
                             "mock:host=backup2"));
 
-        serverId.construct(99);
+        serverId.construct(ServerId(99, 0));
         mgr.construct(coordinator.get(), serverId, 2);
     }
 
@@ -193,7 +195,7 @@ TEST_F(ReplicaManagerTest, writeSegment) {
             host.startReadingData(ServerId(99), will, &result);
             while (true) {
                 try {
-                    host.getRecoveryData(99, 88, 0, resp);
+                    host.getRecoveryData(ServerId(99, 0), 88, 0, resp);
                 } catch (const RetryException& e) {
                     resp.reset();
                     continue;

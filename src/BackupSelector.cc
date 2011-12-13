@@ -95,7 +95,7 @@ BackupSelector::BackupSelector(CoordinatorClient* coordinator)
  */
 BackupSelector::Backup*
 BackupSelector::selectPrimary(uint32_t numBackups,
-                              const uint64_t backupIds[])
+                              const ServerId backupIds[])
 {
     auto* primary = selectSecondary(numBackups, backupIds);
     for (uint32_t i = 0; i < 5 - 1; ++i) {
@@ -124,7 +124,7 @@ BackupSelector::selectPrimary(uint32_t numBackups,
  */
 BackupSelector::Backup*
 BackupSelector::selectSecondary(uint32_t numBackups,
-                                const uint64_t backupIds[])
+                                const ServerId backupIds[])
 {
     while (true) {
         for (uint32_t i = 0; i < uint32_t(hosts.server_size()) * 2; ++i) {
@@ -146,9 +146,9 @@ BackupSelector::selectSecondary(uint32_t numBackups,
  */
 bool
 BackupSelector::conflict(const Backup* backup,
-                         const uint64_t otherBackupId) const
+                         const ServerId otherBackupId) const
 {
-    if (backup->server_id() == otherBackupId)
+    if (backup->server_id() == *otherBackupId)
         return true;
     // TODO(ongaro): Add other notions of conflicts, such as same rack.
     // TODO(stutsman): This doesn't even capture the notion of a master
@@ -165,7 +165,7 @@ BackupSelector::conflict(const Backup* backup,
 bool
 BackupSelector::conflictWithAny(const Backup* backup,
                                 uint32_t numBackups,
-                                const uint64_t backupIds[]) const
+                                const ServerId backupIds[]) const
 {
     for (uint32_t i = 0; i < numBackups; ++i) {
         if (conflict(backup, backupIds[i]))

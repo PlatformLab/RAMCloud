@@ -66,7 +66,9 @@ class BackupServiceTest : public ::testing::Test {
                     COORDINATOR_SERVICE);
         backup = new BackupService(*config, *storage);
         transport->addService(*backup, "mock:host=backup", BACKUP_SERVICE);
-        backup->init();
+        backup->init(CoordinatorClient(
+            config->coordinatorLocator.c_str()).enlistServer(BACKUP_SERVICE,
+                "mock:host=backup", 0, 0));
         client =
             new BackupClient(Context::get().transportManager->getSession(
                                  "mock:host=backup"));
@@ -86,7 +88,7 @@ class BackupServiceTest : public ::testing::Test {
     }
 
     uint32_t
-    writeEntry(uint64_t masterId, uint64_t segmentId, LogEntryType type,
+    writeEntry(ServerId masterId, uint64_t segmentId, LogEntryType type,
                uint32_t offset, const void *data, uint32_t bytes)
     {
         SegmentEntry entry(type, bytes);
@@ -100,7 +102,7 @@ class BackupServiceTest : public ::testing::Test {
     }
 
     uint32_t
-    writeObject(uint64_t masterId, uint64_t segmentId,
+    writeObject(ServerId masterId, uint64_t segmentId,
                 uint32_t offset, const char *data, uint32_t bytes,
                 uint64_t tableId, uint64_t objectId)
     {
@@ -116,7 +118,7 @@ class BackupServiceTest : public ::testing::Test {
     }
 
     uint32_t
-    writeTombstone(uint64_t masterId, uint64_t segmentId,
+    writeTombstone(ServerId masterId, uint64_t segmentId,
                    uint32_t offset, uint64_t tableId, uint64_t objectId)
     {
         ObjectTombstone tombstone(segmentId, tableId, objectId, 0);
@@ -125,10 +127,10 @@ class BackupServiceTest : public ::testing::Test {
     }
 
     uint32_t
-    writeHeader(uint64_t masterId, uint64_t segmentId)
+    writeHeader(ServerId masterId, uint64_t segmentId)
     {
         SegmentHeader header;
-        header.logId = masterId;
+        header.logId = *masterId;
         header.segmentId = segmentId;
         header.segmentCapacity = segmentSize;
         return writeEntry(masterId, segmentId, LOG_ENTRY_TYPE_SEGHEADER, 0,
@@ -136,7 +138,7 @@ class BackupServiceTest : public ::testing::Test {
     }
 
     uint32_t
-    writeFooter(uint64_t masterId, uint64_t segmentId, uint32_t offset)
+    writeFooter(ServerId masterId, uint64_t segmentId, uint32_t offset)
     {
         SegmentFooter footer;
         footer.checksum =
@@ -182,7 +184,7 @@ class BackupServiceTest : public ::testing::Test {
     // Helper method for the LogDigest tests. This writes a proper Segment
     // with a LogDigest containing the given IDs.
     void
-    writeDigestedSegment(uint64_t masterId, uint64_t segmentId,
+    writeDigestedSegment(ServerId masterId, uint64_t segmentId,
         vector<uint64_t> digestIds)
     {
         void* segBuf = Memory::xmemalign(HERE, 1024 * 1024, 1024 * 1024);
@@ -211,36 +213,37 @@ class BackupServiceTest : public ::testing::Test {
 
 
 TEST_F(BackupServiceTest, findSegmentInfo) {
-    EXPECT_TRUE(NULL == backup->findSegmentInfo(99, 88));
-    client->openSegment(99, 88);
-    client->closeSegment(99, 88);
-    BackupService::SegmentInfo* infop = backup->findSegmentInfo(99, 88);
+    EXPECT_TRUE(NULL == backup->findSegmentInfo(ServerId(99, 0), 88));
+    client->openSegment(ServerId(99, 0), 88);
+    client->closeSegment(ServerId(99, 0), 88);
+    BackupService::SegmentInfo* infop =
+        backup->findSegmentInfo(ServerId(99, 0), 88);
     EXPECT_TRUE(infop != NULL);
     EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
 }
 
 TEST_F(BackupServiceTest, findSegmentInfo_notIn) {
-    EXPECT_TRUE(NULL == backup->findSegmentInfo(99, 88));
+    EXPECT_TRUE(NULL == backup->findSegmentInfo(ServerId(99, 0), 88));
 }
 
 TEST_F(BackupServiceTest, freeSegment) {
-    client->openSegment(99, 88);
-    client->writeSegment(99, 88, 10, "test", 4);
-    client->closeSegment(99, 88);
+    client->openSegment(ServerId(99, 0), 88);
+    client->writeSegment(ServerId(99, 0), 88, 10, "test", 4);
+    client->closeSegment(ServerId(99, 0), 88);
     {
         TestLog::Enable _(&inMemoryStorageFreePred);
-        client->freeSegment(99, 88);
+        client->freeSegment(ServerId(99, 0), 88);
         EXPECT_EQ("free: called", TestLog::get());
     }
-    EXPECT_TRUE(NULL == backup->findSegmentInfo(99, 88));
-    client->freeSegment(99, 88);
-    EXPECT_TRUE(NULL == backup->findSegmentInfo(99, 88));
+    EXPECT_TRUE(NULL == backup->findSegmentInfo(ServerId(99, 0), 88));
+    client->freeSegment(ServerId(99, 0), 88);
+    EXPECT_TRUE(NULL == backup->findSegmentInfo(ServerId(99, 0), 88));
 }
 
 TEST_F(BackupServiceTest, freeSegment_stillOpen) {
-    client->openSegment(99, 88);
-    client->freeSegment(99, 88);
-    EXPECT_TRUE(NULL == backup->findSegmentInfo(99, 88));
+    client->openSegment(ServerId(99, 0), 88);
+    client->freeSegment(ServerId(99, 0), 88);
+    EXPECT_TRUE(NULL == backup->findSegmentInfo(ServerId(99, 0), 88));
 }
 
 TEST_F(BackupServiceTest, getRecoveryData) {
@@ -248,35 +251,36 @@ TEST_F(BackupServiceTest, getRecoveryData) {
     createTabletList(tablets);
 
     uint32_t offset = 0;
-    client->openSegment(99, 88);
-    offset = writeHeader(99, 88);
+    client->openSegment(ServerId(99, 0), 88);
+    offset = writeHeader(ServerId(99, 0), 88);
     // Objects
     // Barely in tablet
-    offset += writeObject(99, 88, offset, "test1", 6, 123, 29);
+    offset += writeObject(ServerId(99, 0), 88, offset, "test1", 6, 123, 29);
     // Barely out of tablets
-    offset += writeObject(99, 88, offset, "test2", 6, 123, 30);
+    offset += writeObject(ServerId(99, 0), 88, offset, "test2", 6, 123, 30);
     // In on other table
-    offset += writeObject(99, 88, offset, "test3", 6, 124, 20);
+    offset += writeObject(ServerId(99, 0), 88, offset, "test3", 6, 124, 20);
     // Not in any table
-    offset += writeObject(99, 88, offset, "test4", 6, 125, 20);
+    offset += writeObject(ServerId(99, 0), 88, offset, "test4", 6, 125, 20);
     // Tombstones
     // Barely in tablet
-    offset += writeTombstone(99, 88, offset, 123, 29);
+    offset += writeTombstone(ServerId(99, 0), 88, offset, 123, 29);
     // Barely out of tablets
-    offset += writeTombstone(99, 88, offset, 123, 30);
+    offset += writeTombstone(ServerId(99, 0), 88, offset, 123, 30);
     // In on other table
-    offset += writeTombstone(99, 88, offset, 124, 20);
+    offset += writeTombstone(ServerId(99, 0), 88, offset, 124, 20);
     // Not in any table
-    offset += writeTombstone(99, 88, offset, 125, 20);
-    offset += writeFooter(99, 88, offset);
-    client->closeSegment(99, 88);
+    offset += writeTombstone(ServerId(99, 0), 88, offset, 125, 20);
+    offset += writeFooter(ServerId(99, 0), 88, offset);
+    client->closeSegment(ServerId(99, 0), 88);
     BackupClient::StartReadingData::Result result;
-    client->startReadingData(ServerId(99), tablets, &result);
+    client->startReadingData(ServerId(99, 0), tablets, &result);
 
     Buffer response;
     while (true) {
         try {
-            BackupClient::GetRecoveryData(*client, 99, 88, 0, response)();
+            BackupClient::GetRecoveryData(
+                *client, ServerId(99, 0), 88, 0, response)();
         } catch (const RetryException& e) {
             response.reset();
             continue;
@@ -317,29 +321,29 @@ TEST_F(BackupServiceTest, getRecoveryData) {
 
 TEST_F(BackupServiceTest, getRecoveryData_moreThanOneSegmentStored) {
     uint32_t offset = 0;
-    client->openSegment(99, 87);
-    offset = writeHeader(99, 87);
-    offset += writeObject(99, 87, offset, "test1", 6, 123, 9);
-    offset += writeFooter(99, 87, offset);
-    client->closeSegment(99, 87);
+    client->openSegment(ServerId(99, 0), 87);
+    offset = writeHeader(ServerId(99, 0), 87);
+    offset += writeObject(ServerId(99, 0), 87, offset, "test1", 6, 123, 9);
+    offset += writeFooter(ServerId(99, 0), 87, offset);
+    client->closeSegment(ServerId(99, 0), 87);
 
-    client->openSegment(99, 88);
-    offset = writeHeader(99, 88);
-    offset += writeObject(99, 88, offset, "test2", 6, 123, 10);
-    offset += writeFooter(99, 88, offset);
-    client->closeSegment(99, 88);
+    client->openSegment(ServerId(99, 0), 88);
+    offset = writeHeader(ServerId(99, 0), 88);
+    offset += writeObject(ServerId(99, 0), 88, offset, "test2", 6, 123, 10);
+    offset += writeFooter(ServerId(99, 0), 88, offset);
+    client->closeSegment(ServerId(99, 0), 88);
 
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
 
     BackupClient::StartReadingData::Result result;
-    client->startReadingData(ServerId(99), tablets, &result);
+    client->startReadingData(ServerId(99, 0), tablets, &result);
 
     {
         Buffer response;
         while (true) {
             try {
-                BackupClient::GetRecoveryData(*client, 99, 88, 0,
+                BackupClient::GetRecoveryData(*client, ServerId(99, 0), 88, 0,
                                                 response)();
             } catch (const RetryException& e) {
                 response.reset();
@@ -362,7 +366,7 @@ TEST_F(BackupServiceTest, getRecoveryData_moreThanOneSegmentStored) {
         Buffer response;
         while (true) {
             try {
-                BackupClient::GetRecoveryData(*client, 99, 87, 0,
+                BackupClient::GetRecoveryData(*client, ServerId(99, 0), 87, 0,
                                                 response)();
             } catch (const RetryException& e) {
                 response.reset();
@@ -382,20 +386,20 @@ TEST_F(BackupServiceTest, getRecoveryData_moreThanOneSegmentStored) {
         EXPECT_TRUE(it.isDone());
     }
 
-    client->freeSegment(99, 87);
-    client->freeSegment(99, 88);
+    client->freeSegment(ServerId(99, 0), 87);
+    client->freeSegment(ServerId(99, 0), 88);
 }
 
 TEST_F(BackupServiceTest, getRecoveryData_malformedSegment) {
-    client->openSegment(99, 88);
-    client->closeSegment(99, 88);
+    client->openSegment(ServerId(99, 0), 88);
+    client->closeSegment(ServerId(99, 0), 88);
 
     BackupClient::StartReadingData::Result result;
-    client->startReadingData(ServerId(99), ProtoBuf::Tablets(), &result);
+    client->startReadingData(ServerId(99, 0), ProtoBuf::Tablets(), &result);
 
     while (true) {
         Buffer response;
-        BackupClient::GetRecoveryData cont(*client, 99, 88,
+        BackupClient::GetRecoveryData cont(*client, ServerId(99, 0), 88,
                                             0, response);
         EXPECT_THROW(
             try {
@@ -412,13 +416,13 @@ TEST_F(BackupServiceTest, getRecoveryData_malformedSegment) {
 
 TEST_F(BackupServiceTest, getRecoveryData_notRecovered) {
     uint32_t offset = 0;
-    client->openSegment(99, 88);
-    offset += writeHeader(99, 88);
-    offset += writeObject(99, 88, offset, "test2", 6, 123, 10);
-    offset += writeFooter(99, 88, offset);
+    client->openSegment(ServerId(99, 0), 88);
+    offset += writeHeader(ServerId(99, 0), 88);
+    offset += writeObject(ServerId(99, 0), 88, offset, "test2", 6, 123, 10);
+    offset += writeFooter(ServerId(99, 0), 88, offset);
     Buffer response;
 
-    BackupClient::GetRecoveryData cont(*client, 99, 88,
+    BackupClient::GetRecoveryData cont(*client, ServerId(99, 0), 88,
                                         0, response);
     EXPECT_THROW(cont(), BackupBadSegmentIdException);
 
@@ -427,25 +431,25 @@ TEST_F(BackupServiceTest, getRecoveryData_notRecovered) {
 
 TEST_F(BackupServiceTest, recoverySegmentBuilder) {
     uint32_t offset = 0;
-    client->openSegment(99, 87);
-    offset = writeHeader(99, 87);
-    offset += writeObject(99, 87, offset, "test1", 6, 123, 9);
-    offset += writeFooter(99, 87, offset);
-    client->closeSegment(99, 87);
+    client->openSegment(ServerId(99, 0), 87);
+    offset = writeHeader(ServerId(99, 0), 87);
+    offset += writeObject(ServerId(99, 0), 87, offset, "test1", 6, 123, 9);
+    offset += writeFooter(ServerId(99, 0), 87, offset);
+    client->closeSegment(ServerId(99, 0), 87);
 
-    client->openSegment(99, 88);
-    offset = writeHeader(99, 88);
-    offset += writeObject(99, 88, offset, "test2", 6, 123, 30);
-    offset += writeFooter(99, 88, offset);
-    client->closeSegment(99, 88);
+    client->openSegment(ServerId(99, 0), 88);
+    offset = writeHeader(ServerId(99, 0), 88);
+    offset += writeObject(ServerId(99, 0), 88, offset, "test2", 6, 123, 30);
+    offset += writeFooter(ServerId(99, 0), 88, offset);
+    client->closeSegment(ServerId(99, 0), 88);
 
     vector<BackupService::SegmentInfo*> toBuild;
-    auto info = backup->findSegmentInfo(99, 87);
+    auto info = backup->findSegmentInfo(ServerId(99, 0), 87);
     EXPECT_TRUE(NULL != info);
     info->setRecovering();
     info->startLoading();
     toBuild.push_back(info);
-    info = backup->findSegmentInfo(99, 88);
+    info = backup->findSegmentInfo(ServerId(99, 0), 88);
     EXPECT_TRUE(NULL != info);
     info->setRecovering();
     info->startLoading();
@@ -487,20 +491,21 @@ TEST_F(BackupServiceTest, recoverySegmentBuilder) {
 
 TEST_F(BackupServiceTest, startReadingData) {
     MockRandom _(1);
-    client->openSegment(99, 88);
-    client->writeSegment(99, 88, 0, "test", 4);
-    client->openSegment(99, 89);
-    client->openSegment(99, 98, false);
-    client->openSegment(99, 99, false);
+    client->openSegment(ServerId(99, 0), 88);
+    client->writeSegment(ServerId(99, 0), 88, 0, "test", 4);
+    client->openSegment(ServerId(99, 0), 89);
+    client->openSegment(ServerId(99, 0), 98, false);
+    client->openSegment(ServerId(99, 0), 99, false);
 
     BackupClient::StartReadingData::Result result;
-    client->startReadingData(ServerId(99), ProtoBuf::Tablets(), &result);
+    client->startReadingData(ServerId(99, 0), ProtoBuf::Tablets(), &result);
     EXPECT_EQ(4U, result.segmentIdAndLength.size());
 
     EXPECT_EQ(88U, result.segmentIdAndLength[0].first);
     EXPECT_EQ(4U, result.segmentIdAndLength[0].second);
     {
-        BackupService::SegmentInfo& info = *backup->findSegmentInfo(99, 88);
+        BackupService::SegmentInfo& info =
+            *backup->findSegmentInfo(ServerId(99, 0), 88);
         BackupService::SegmentInfo::Lock lock(info.mutex);
         EXPECT_EQ(BackupService::SegmentInfo::RECOVERING, info.state);
     }
@@ -508,7 +513,8 @@ TEST_F(BackupServiceTest, startReadingData) {
     EXPECT_EQ(89U, result.segmentIdAndLength[1].first);
     EXPECT_EQ(0U, result.segmentIdAndLength[1].second);
     {
-        BackupService::SegmentInfo& info = *backup->findSegmentInfo(99, 89);
+        BackupService::SegmentInfo& info =
+            *backup->findSegmentInfo(ServerId(99, 0), 89);
         BackupService::SegmentInfo::Lock lock(info.mutex);
         EXPECT_EQ(BackupService::SegmentInfo::RECOVERING, info.state);
     }
@@ -516,7 +522,8 @@ TEST_F(BackupServiceTest, startReadingData) {
     EXPECT_EQ(98U, result.segmentIdAndLength[2].first);
     EXPECT_EQ(0U, result.segmentIdAndLength[2].second);
     {
-        BackupService::SegmentInfo& info = *backup->findSegmentInfo(99, 98);
+        BackupService::SegmentInfo& info =
+            *backup->findSegmentInfo(ServerId(99, 0), 98);
         BackupService::SegmentInfo::Lock lock(info.mutex);
         EXPECT_EQ(BackupService::SegmentInfo::RECOVERING, info.state);
         EXPECT_TRUE(info.recoveryPartitions);
@@ -524,9 +531,11 @@ TEST_F(BackupServiceTest, startReadingData) {
 
     EXPECT_EQ(99U, result.segmentIdAndLength[3].first);
     EXPECT_EQ(0U, result.segmentIdAndLength[3].second);
-    EXPECT_TRUE(backup->findSegmentInfo(99, 99)->recoveryPartitions);
+    EXPECT_TRUE(backup->findSegmentInfo(
+        ServerId(99, 0), 99)->recoveryPartitions);
     {
-        BackupService::SegmentInfo& info = *backup->findSegmentInfo(99, 99);
+        BackupService::SegmentInfo& info =
+            *backup->findSegmentInfo(ServerId(99, 0), 99);
         BackupService::SegmentInfo::Lock lock(info.mutex);
         EXPECT_EQ(BackupService::SegmentInfo::RECOVERING, info.state);
         EXPECT_TRUE(info.recoveryPartitions);
@@ -537,7 +546,7 @@ TEST_F(BackupServiceTest, startReadingData) {
 
 TEST_F(BackupServiceTest, startReadingData_empty) {
     BackupClient::StartReadingData::Result result;
-    client->startReadingData(ServerId(99), ProtoBuf::Tablets(), &result);
+    client->startReadingData(ServerId(99, 0), ProtoBuf::Tablets(), &result);
     EXPECT_EQ(0U, result.segmentIdAndLength.size());
     EXPECT_EQ(0U, result.logDigestBytes);
     EXPECT_TRUE(NULL == result.logDigestBuffer);
@@ -545,12 +554,12 @@ TEST_F(BackupServiceTest, startReadingData_empty) {
 
 TEST_F(BackupServiceTest, startReadingData_logDigest_simple) {
     // ensure that we get the LogDigest back at all.
-    client->openSegment(99, 88);
+    client->openSegment(ServerId(99, 0), 88);
     {
-        writeDigestedSegment(99, 88, { 0x3f17c2451f0cafUL });
+        writeDigestedSegment(ServerId(99, 0), 88, { 0x3f17c2451f0cafUL });
 
         BackupClient::StartReadingData::Result result;
-        client->startReadingData(ServerId(99), ProtoBuf::Tablets(), &result);
+        client->startReadingData(ServerId(99, 0), ProtoBuf::Tablets(), &result);
         EXPECT_EQ(LogDigest::getBytesFromCount(1),
             result.logDigestBytes);
         EXPECT_EQ(88U, result.logDigestSegmentId);
@@ -561,12 +570,12 @@ TEST_F(BackupServiceTest, startReadingData_logDigest_simple) {
     }
 
     // add a newer Segment and check that we get its LogDigest instead.
-    client->openSegment(99, 89);
+    client->openSegment(ServerId(99, 0), 89);
     {
-        writeDigestedSegment(99, 89, { 0x5d8ec445d537e15UL });
+        writeDigestedSegment(ServerId(99, 0), 89, { 0x5d8ec445d537e15UL });
 
         BackupClient::StartReadingData::Result result;
-        client->startReadingData(ServerId(99), ProtoBuf::Tablets(), &result);
+        client->startReadingData(ServerId(99, 0), ProtoBuf::Tablets(), &result);
         EXPECT_EQ(LogDigest::getBytesFromCount(1),
             result.logDigestBytes);
         EXPECT_EQ(89U, result.logDigestSegmentId);
@@ -578,17 +587,17 @@ TEST_F(BackupServiceTest, startReadingData_logDigest_simple) {
 }
 
 TEST_F(BackupServiceTest, startReadingData_logDigest_latest) {
-    client->openSegment(99, 88);
-    writeDigestedSegment(99, 88, { 0x39e874a1e85fcUL });
+    client->openSegment(ServerId(99, 0), 88);
+    writeDigestedSegment(ServerId(99, 0), 88, { 0x39e874a1e85fcUL });
 
-    client->openSegment(99, 89);
-    writeDigestedSegment(99, 89, { 0xbe5fbc1e62af6UL });
+    client->openSegment(ServerId(99, 0), 89);
+    writeDigestedSegment(ServerId(99, 0), 89, { 0xbe5fbc1e62af6UL });
 
     // close the new one. we should get the old one now.
-    client->closeSegment(99, 89);
+    client->closeSegment(ServerId(99, 0), 89);
     {
         BackupClient::StartReadingData::Result result;
-        client->startReadingData(ServerId(99), ProtoBuf::Tablets(), &result);
+        client->startReadingData(ServerId(99, 0), ProtoBuf::Tablets(), &result);
         EXPECT_EQ(88U, result.logDigestSegmentId);
         EXPECT_EQ(52U, result.logDigestSegmentLen);
         EXPECT_EQ(LogDigest::getBytesFromCount(1),
@@ -601,13 +610,13 @@ TEST_F(BackupServiceTest, startReadingData_logDigest_latest) {
 
 TEST_F(BackupServiceTest, startReadingData_logDigest_none) {
     // closed segments don't count.
-    client->openSegment(99, 88);
-    writeDigestedSegment(99, 88, { 0xe966e17be4aUL });
+    client->openSegment(ServerId(99, 0), 88);
+    writeDigestedSegment(ServerId(99, 0), 88, { 0xe966e17be4aUL });
 
-    client->closeSegment(99, 88);
+    client->closeSegment(ServerId(99, 0), 88);
     {
         BackupClient::StartReadingData::Result result;
-        client->startReadingData(ServerId(99), ProtoBuf::Tablets(), &result);
+        client->startReadingData(ServerId(99, 0), ProtoBuf::Tablets(), &result);
         EXPECT_EQ(1U, result.segmentIdAndLength.size());
         EXPECT_EQ(0U, result.logDigestBytes);
         EXPECT_TRUE(NULL == result.logDigestBuffer);
@@ -615,11 +624,12 @@ TEST_F(BackupServiceTest, startReadingData_logDigest_none) {
 }
 
 TEST_F(BackupServiceTest, writeSegment) {
-    client->openSegment(99, 88);
+    client->openSegment(ServerId(99, 0), 88);
     // test for idempotence
     for (int i = 0; i < 2; ++i) {
-        client->writeSegment(99, 88, 10, "test", 5);
-        BackupService::SegmentInfo &info = *backup->findSegmentInfo(99, 88);
+        client->writeSegment(ServerId(99, 0), 88, 10, "test", 5);
+        BackupService::SegmentInfo &info =
+            *backup->findSegmentInfo(ServerId(99, 0), 88);
         EXPECT_TRUE(NULL != info.segment);
         EXPECT_STREQ("test", &info.segment[10]);
         EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
@@ -628,61 +638,62 @@ TEST_F(BackupServiceTest, writeSegment) {
 
 TEST_F(BackupServiceTest, writeSegment_segmentNotOpen) {
     EXPECT_THROW(
-        client->writeSegment(99, 88, 0, "test", 4),
+        client->writeSegment(ServerId(99, 0), 88, 0, "test", 4),
         BackupBadSegmentIdException);
 }
 
 TEST_F(BackupServiceTest, writeSegment_segmentClosed) {
-    client->openSegment(99, 88);
-    client->closeSegment(99, 88);
+    client->openSegment(ServerId(99, 0), 88);
+    client->closeSegment(ServerId(99, 0), 88);
     EXPECT_THROW(
-        client->writeSegment(99, 88, 0, "test", 4),
+        client->writeSegment(ServerId(99, 0), 88, 0, "test", 4),
         BackupBadSegmentIdException);
     EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
 }
 
 TEST_F(BackupServiceTest, writeSegment_segmentClosedRedundantClosingWrite) {
-    client->openSegment(99, 88);
-    client->closeSegment(99, 88);
-    BackupClient::WriteSegment::WriteSegment(*client, 99, 88, 0, "test", 4,
-                                                BackupWriteRpc::CLOSE)();
+    client->openSegment(ServerId(99, 0), 88);
+    client->closeSegment(ServerId(99, 0), 88);
+    BackupClient::WriteSegment::WriteSegment(
+        *client, ServerId(99, 0), 88, 0, "test", 4, BackupWriteRpc::CLOSE)();
     EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
 }
 
 TEST_F(BackupServiceTest, writeSegment_badOffset) {
-    client->openSegment(99, 88);
+    client->openSegment(ServerId(99, 0), 88);
     EXPECT_THROW(
-        client->writeSegment(99, 88, 500000, "test", 0),
+        client->writeSegment(ServerId(99, 0), 88, 500000, "test", 0),
         BackupSegmentOverflowException);
     EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
 }
 
 TEST_F(BackupServiceTest, writeSegment_badLength) {
-    client->openSegment(99, 88);
+    client->openSegment(ServerId(99, 0), 88);
     char junk[70000];
     EXPECT_THROW(
-        client->writeSegment(99, 88, 0, junk,
+        client->writeSegment(ServerId(99, 0), 88, 0, junk,
                                 downCast<uint32_t>(sizeof(junk))),
         BackupSegmentOverflowException);
     EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
 }
 
 TEST_F(BackupServiceTest, writeSegment_badOffsetPlusLength) {
-    client->openSegment(99, 88);
+    client->openSegment(ServerId(99, 0), 88);
     char junk[50000];
     EXPECT_THROW(
-        client->writeSegment(99, 88, 50000, junk, 50000),
+        client->writeSegment(ServerId(99, 0), 88, 50000, junk, 50000),
         BackupSegmentOverflowException);
     EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
 }
 
 TEST_F(BackupServiceTest, writeSegment_closeSegment) {
-    client->openSegment(99, 88);
-    client->writeSegment(99, 88, 10, "test", 5);
+    client->openSegment(ServerId(99, 0), 88);
+    client->writeSegment(ServerId(99, 0), 88, 10, "test", 5);
     // loop to test for idempotence
     for (int i = 0; i > 2; ++i) {
-        client->closeSegment(99, 88);
-        BackupService::SegmentInfo &info = *backup->findSegmentInfo(99, 88);
+        client->closeSegment(ServerId(99, 0), 88);
+        BackupService::SegmentInfo &info =
+            *backup->findSegmentInfo(ServerId(99, 0), 88);
         char* storageAddress =
             static_cast<InMemoryStorage::Handle*>(info.storageHandle)->
                 getAddress();
@@ -699,15 +710,16 @@ TEST_F(BackupServiceTest, writeSegment_closeSegment) {
 }
 
 TEST_F(BackupServiceTest, writeSegment_closeSegmentSegmentNotOpen) {
-    EXPECT_THROW(client->closeSegment(99, 88),
+    EXPECT_THROW(client->closeSegment(ServerId(99, 0), 88),
                             BackupBadSegmentIdException);
 }
 
 TEST_F(BackupServiceTest, writeSegment_openSegment) {
     // loop to test for idempotence
     for (int i = 0; i < 2; ++i) {
-        client->openSegment(99, 88);
-        BackupService::SegmentInfo &info = *backup->findSegmentInfo(99, 88);
+        client->openSegment(ServerId(99, 0), 88);
+        BackupService::SegmentInfo &info =
+            *backup->findSegmentInfo(ServerId(99, 0), 88);
         EXPECT_TRUE(NULL != info.segment);
         EXPECT_EQ(0, *info.segment);
         EXPECT_TRUE(info.primary);
@@ -720,18 +732,19 @@ TEST_F(BackupServiceTest, writeSegment_openSegment) {
 }
 
 TEST_F(BackupServiceTest, writeSegment_openSegmentSecondary) {
-    client->openSegment(99, 88, false);
-    BackupService::SegmentInfo &info = *backup->findSegmentInfo(99, 88);
+    client->openSegment(ServerId(99, 0), 88, false);
+    BackupService::SegmentInfo &info =
+        *backup->findSegmentInfo(ServerId(99, 0), 88);
     EXPECT_TRUE(!info.primary);
 }
 
 TEST_F(BackupServiceTest, writeSegment_openSegmentOutOfStorage) {
-    client->openSegment(99, 86);
-    client->openSegment(99, 87);
-    client->openSegment(99, 88);
-    client->openSegment(99, 89);
+    client->openSegment(ServerId(99, 0), 86);
+    client->openSegment(ServerId(99, 0), 87);
+    client->openSegment(ServerId(99, 0), 88);
+    client->openSegment(ServerId(99, 0), 89);
     EXPECT_THROW(
-        client->openSegment(99, 90),
+        client->openSegment(ServerId(99, 0), 90),
         BackupStorageException);
     EXPECT_EQ(4, BackupStorage::Handle::getAllocatedHandlesCount());
 }
@@ -746,7 +759,8 @@ class SegmentInfoTest : public ::testing::Test {
         , storage{segmentSize, 2}
         , ioScheduler()
         , ioThread(boost::ref(ioScheduler))
-        , info{storage, pool, ioScheduler, 99, 88, segmentSize, true}
+        , info{storage, pool, ioScheduler,
+            ServerId(99, 0), 88, segmentSize, true}
     {
     }
 
@@ -766,7 +780,8 @@ class SegmentInfoTest : public ::testing::Test {
 TEST_F(SegmentInfoTest, destructor) {
     TestLog::Enable _;
     {
-        SegmentInfo info{storage, pool, ioScheduler, 99, 88, segmentSize, true};
+        SegmentInfo info{storage, pool, ioScheduler,
+            ServerId(99, 0), 88, segmentSize, true};
         info.open();
         EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
     }
@@ -778,7 +793,8 @@ TEST_F(SegmentInfoTest, destructor) {
 
 TEST_F(SegmentInfoTest, destructorLoading) {
     {
-        SegmentInfo info{storage, pool, ioScheduler, 99, 88, segmentSize, true};
+        SegmentInfo info{storage, pool, ioScheduler,
+            ServerId(99, 0), 88, segmentSize, true};
         info.open();
         EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
         info.close();
@@ -848,7 +864,8 @@ TEST_F(SegmentInfoTest, appendRecoverySegment) {
 }
 
 TEST_F(SegmentInfoTest, appendRecoverySegmentSecondarySegment) {
-    SegmentInfo info{storage, pool, ioScheduler, 99, 88, segmentSize, false};
+    SegmentInfo info{storage, pool, ioScheduler,
+        ServerId(99, 0), 88, segmentSize, false};
     info.open();
     Segment segment(123, 88, info.segment, segmentSize);
 
@@ -1078,7 +1095,8 @@ TEST_F(SegmentInfoTest, free) {
 }
 
 TEST_F(SegmentInfoTest, freeRecoveringSecondary) {
-    SegmentInfo info{storage, pool, ioScheduler, 99, 88, segmentSize, false};
+    SegmentInfo info{storage, pool, ioScheduler,
+        ServerId(99, 0), 88, segmentSize, false};
     info.open();
     info.close();
     info.setRecovering(ProtoBuf::Tablets());
@@ -1098,7 +1116,8 @@ TEST_F(SegmentInfoTest, open) {
 
 TEST_F(SegmentInfoTest, openStorageAllocationFailure) {
     InMemoryStorage storage{segmentSize, 0};
-    SegmentInfo info{storage, pool, ioScheduler, 99, 88, segmentSize, true};
+    SegmentInfo info{storage, pool, ioScheduler,
+        ServerId(99, 0), 88, segmentSize, true};
     EXPECT_THROW(info.open(), BackupStorageException);
     ASSERT_EQ(static_cast<char*>(NULL), info.segment);
     EXPECT_EQ(static_cast<Handle*>(NULL), info.storageHandle);

@@ -74,8 +74,8 @@ struct BackupSelectorTest : public ::testing::Test {
     }
 
     void addEqualHosts(Tub<CoordinatorClient>& coordinator,
-                       std::vector<uint64_t>& ids) {
-        auto B = BACKUP;
+                       std::vector<ServerId>& ids) {
+        auto B = BACKUP_SERVICE;
         ids.push_back(coordinator->enlistServer(B, "mock:host=backup1", 100));
         ids.push_back(coordinator->enlistServer(B, "mock:host=backup2", 100));
         ids.push_back(coordinator->enlistServer(B, "mock:host=backup3", 100));
@@ -88,8 +88,8 @@ struct BackupSelectorTest : public ::testing::Test {
     }
 
     void addDifferentHosts(Tub<CoordinatorClient>& coordinator,
-                           std::vector<uint64_t>& ids) {
-        auto B = BACKUP;
+                           std::vector<ServerId>& ids) {
+        auto B = BACKUP_SERVICE;
         ids.push_back(coordinator->enlistServer(B, "mock:host=backup1", 10));
         ids.push_back(coordinator->enlistServer(B, "mock:host=backup2", 20));
         ids.push_back(coordinator->enlistServer(B, "mock:host=backup3", 30));
@@ -110,7 +110,7 @@ TEST_F(BackupSelectorTest, selectPrimaryNoHosts) {
 
 TEST_F(BackupSelectorTest, selectPrimaryAllConflict) {
     MockRandom _(1); // getRandomHost will return: 2 4 6 8 5 1 3 7 9
-    std::vector<uint64_t> ids;
+    std::vector<ServerId> ids;
     addEqualHosts(coordinator, ids);
 
     selector->updateHostListThrower.tillThrow = 10;
@@ -119,62 +119,62 @@ TEST_F(BackupSelectorTest, selectPrimaryAllConflict) {
 
 TEST_F(BackupSelectorTest, selectPrimaryAllEqual) {
     MockRandom _(1); // getRandomHost will return: 2 4 6 8 5 1 3 7 9
-    std::vector<uint64_t> ids;
+    std::vector<ServerId> ids;
     addEqualHosts(coordinator, ids);
 
     BackupSelector::Backup* backup = selector->selectPrimary(0, NULL); // use 2
-    EXPECT_EQ(ids[1], backup->server_id());
+    EXPECT_EQ(*ids[1], backup->server_id());
 }
 
 TEST_F(BackupSelectorTest, selectPrimaryAllEqualOneConstraint) {
     MockRandom _(1); // getRandomHost will return: 2 4 6 8 5 1 3 7 9
-    std::vector<uint64_t> ids;
+    std::vector<ServerId> ids;
     addEqualHosts(coordinator, ids);
 
     BackupSelector::Backup* backup =
         selector->selectPrimary(1, &ids[1]); // must skip 2, use 4
-    EXPECT_EQ(ids[3], backup->server_id());
+    EXPECT_EQ(*ids[3], backup->server_id());
 }
 
 TEST_F(BackupSelectorTest, selectPrimaryAllEqualThreeConstraints) {
     MockRandom _(1); // getRandomHost will return: 2 4 6 8 5 1 3 7 9
-    std::vector<uint64_t> ids;
+    std::vector<ServerId> ids;
     addEqualHosts(coordinator, ids);
 
     BackupSelector::Backup* backup =
         selector->selectPrimary(3, &ids[1]); // must skip 2, 4, use 6
-    EXPECT_EQ(ids[5], backup->server_id());
+    EXPECT_EQ(*ids[5], backup->server_id());
 }
 
 TEST_F(BackupSelectorTest, selectPrimaryDifferentSpeeds) {
     MockRandom _(1); // getRandomHost will return: 2 4 6 8 5 1 3 7 9
-    std::vector<uint64_t> ids;
+    std::vector<ServerId> ids;
     addDifferentHosts(coordinator, ids);
 
     BackupSelector::Backup* backup = selector->selectPrimary(0, NULL);
-    EXPECT_EQ(ids[7], backup->server_id());
+    EXPECT_EQ(*ids[7], backup->server_id());
 }
 
 TEST_F(BackupSelectorTest, selectPrimaryDifferentSpeedsOneConstraint) {
     MockRandom _(1); // getRandomHost will return: 2 4 6 8 5 1 3 7 9
-    std::vector<uint64_t> ids;
+    std::vector<ServerId> ids;
     addDifferentHosts(coordinator, ids);
 
     BackupSelector::Backup* backup = selector->selectPrimary(1, &ids[7]);
-    EXPECT_EQ(ids[5], backup->server_id());
+    EXPECT_EQ(*ids[5], backup->server_id());
 }
 
 TEST_F(BackupSelectorTest, selectPrimaryDifferentSpeedsFourConstraints) {
     MockRandom _(1); // getRandomHost will return: 2 4 6 8 5 1 3 7 9
-    std::vector<uint64_t> ids;
+    std::vector<ServerId> ids;
     addDifferentHosts(coordinator, ids);
 
     BackupSelector::Backup* backup = selector->selectPrimary(4, &ids[4]);
-    EXPECT_EQ(ids[8], backup->server_id());
+    EXPECT_EQ(*ids[8], backup->server_id());
 }
 
 TEST_F(BackupSelectorTest, selectPrimaryEvenPrimaryPlacement) {
-    std::vector<uint64_t> ids;
+    std::vector<ServerId> ids;
     addEqualHosts(coordinator, ids);
 
     uint32_t primaryCounts[9] = {};
@@ -191,20 +191,22 @@ TEST_F(BackupSelectorTest, selectSecondary) {
     selector->updateHostListThrower.tillThrow = 10;
     EXPECT_THROW(selector->selectSecondary(0, NULL), TestingException);
 
-    coordinator->enlistServer(BACKUP, "mock:host=backup1");
+    coordinator->enlistServer(BACKUP_SERVICE, "mock:host=backup1");
     selector->updateHostListFromCoordinator();
     EXPECT_EQ(selector->hosts.mutable_server(0),
               selector->selectSecondary(0, NULL));
 
-    const uint64_t conflicts[] = { selector->hosts.server(0).server_id() };
+    const ServerId conflicts[] = {
+        ServerId(selector->hosts.server(0).server_id())
+    };
     selector->updateHostListThrower.tillThrow = 10;
     EXPECT_THROW(selector->selectSecondary(1, conflicts), TestingException);
 }
 
 TEST_F(BackupSelectorTest, getRandomHost) {
-    coordinator->enlistServer(BACKUP, "mock:host=backup1");
-    coordinator->enlistServer(BACKUP, "mock:host=backup2");
-    coordinator->enlistServer(BACKUP, "mock:host=backup3");
+    coordinator->enlistServer(BACKUP_SERVICE, "mock:host=backup1");
+    coordinator->enlistServer(BACKUP_SERVICE, "mock:host=backup2");
+    coordinator->enlistServer(BACKUP_SERVICE, "mock:host=backup3");
     selector->updateHostListFromCoordinator();
     MockRandom _(1);
     EXPECT_EQ("213", randomRound());
@@ -214,8 +216,8 @@ TEST_F(BackupSelectorTest, getRandomHost) {
 
 TEST_F(BackupSelectorTest, conflict) {
     BackupSelector::Backup backup;
-    const uint64_t conflictingId = backup.server_id();
-    const uint64_t nonConflictingId = conflictingId + 1;
+    const ServerId conflictingId(backup.server_id());
+    const ServerId nonConflictingId(*conflictingId + 1);
     EXPECT_FALSE(selector->conflict(&backup, nonConflictingId));
     EXPECT_TRUE(selector->conflict(&backup, conflictingId));
 }
@@ -225,7 +227,11 @@ TEST_F(BackupSelectorTest, conflictWithAny) {
     x.set_server_id(1);
     y.set_server_id(2);
     z.set_server_id(3);
-    const uint64_t existing[] = { 1, 2, 3 };
+    const ServerId existing[] = {
+        ServerId(1, 0),
+        ServerId(2, 0),
+        ServerId(3, 0)
+    };
     EXPECT_FALSE(selector->conflictWithAny(&w, 0, NULL));
     EXPECT_FALSE(selector->conflictWithAny(&w, 3, existing));
     EXPECT_TRUE(selector->conflictWithAny(&x, 3, existing));
@@ -239,9 +245,9 @@ TEST_F(BackupSelectorTest, updateHostListFromCoordinator) {
     EXPECT_EQ(0U, selector->hostsOrder.size());
     EXPECT_EQ(0U, selector->numUsedHosts);
 
-    coordinator->enlistServer(BACKUP, "mock:host=backup1");
-    coordinator->enlistServer(BACKUP, "mock:host=backup2");
-    coordinator->enlistServer(BACKUP, "mock:host=backup3");
+    coordinator->enlistServer(BACKUP_SERVICE, "mock:host=backup1");
+    coordinator->enlistServer(BACKUP_SERVICE, "mock:host=backup2");
+    coordinator->enlistServer(BACKUP_SERVICE, "mock:host=backup3");
     selector->updateHostListFromCoordinator();
     EXPECT_EQ(3, selector->hosts.server_size());
     EXPECT_EQ(3u, selector->hostsOrder.size());

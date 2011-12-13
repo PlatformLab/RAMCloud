@@ -53,7 +53,7 @@ BackupClient::~BackupClient()
  *      If the segment is not open or is unknown to the backup server.
  */
 BackupClient::FreeSegment::FreeSegment(BackupClient& client,
-                                       uint64_t masterId,
+                                       ServerId masterId,
                                        uint64_t segmentId)
     : client(client)
     , requestBuffer()
@@ -62,7 +62,7 @@ BackupClient::FreeSegment::FreeSegment(BackupClient& client,
 {
     BackupFreeRpc::Request& reqHdr(
         client.allocHeader<BackupFreeRpc>(requestBuffer));
-    reqHdr.masterId = masterId;
+    reqHdr.masterId = *masterId;
     reqHdr.segmentId = segmentId;
     state = client.send<BackupFreeRpc>(client.session,
                                        requestBuffer,
@@ -99,7 +99,7 @@ BackupClient::FreeSegment::operator()()
  *      upon return.
  */
 BackupClient::GetRecoveryData::GetRecoveryData(BackupClient& client,
-                                               uint64_t masterId,
+                                               ServerId masterId,
                                                uint64_t segmentId,
                                                uint64_t partitionId,
                                                Buffer& responseBuffer)
@@ -110,7 +110,7 @@ BackupClient::GetRecoveryData::GetRecoveryData(BackupClient& client,
 {
     BackupGetRecoveryDataRpc::Request&
         reqHdr(client.allocHeader<BackupGetRecoveryDataRpc>(requestBuffer));
-    reqHdr.masterId = masterId;
+    reqHdr.masterId = *masterId;
     reqHdr.segmentId = segmentId;
     reqHdr.partitionId = partitionId;
     Transport::SessionRef session(client.getSession());
@@ -279,7 +279,7 @@ BackupClient::StartReadingData::operator()(
  *      neither.  Defaults to neither.
  */
 BackupClient::WriteSegment::WriteSegment(BackupClient& client,
-                                         uint64_t masterId,
+                                         ServerId masterId,
                                          uint64_t segmentId,
                                          uint32_t offset,
                                          const void *buf,
@@ -292,7 +292,7 @@ BackupClient::WriteSegment::WriteSegment(BackupClient& client,
 {
     BackupWriteRpc::Request& reqHdr(
         client.allocHeader<BackupWriteRpc>(requestBuffer));
-    reqHdr.masterId = masterId;
+    reqHdr.masterId = *masterId;
     reqHdr.segmentId = segmentId;
     reqHdr.offset = offset;
     reqHdr.length = length;

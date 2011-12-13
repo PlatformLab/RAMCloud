@@ -199,7 +199,7 @@ class BackupService : public Service {
 
         SegmentInfo(BackupStorage& storage, ThreadSafePool& pool,
                     IoScheduler& ioScheduler,
-                    uint64_t masterId, uint64_t segmentId,
+                    ServerId masterId, uint64_t segmentId,
                     uint32_t segmentSize, bool primary);
         ~SegmentInfo();
         Status appendRecoverySegment(uint64_t partitionId, Buffer& buffer)
@@ -270,7 +270,7 @@ class BackupService : public Service {
         }
 
         /// The id of the master from which this segment came.
-        const uint64_t masterId;
+        const ServerId masterId;
 
         /**
          * True if this is the primary copy of this segment for the master
@@ -488,16 +488,16 @@ class BackupService : public Service {
     explicit BackupService(const Config& config,
                            BackupStorage& storage);
     virtual ~BackupService();
-    void benchmark();
+    void benchmark(uint32_t& readSpeed, uint32_t& writeSpeed);
     void dispatch(RpcOpcode opcode, Rpc& rpc);
-    uint64_t getServerId() const;
-    void init();
+    ServerId getServerId() const;
+    void init(ServerId id);
 
   PRIVATE:
     void freeSegment(const BackupFreeRpc::Request& reqHdr,
                      BackupFreeRpc::Response& respHdr,
                      Rpc& rpc);
-    SegmentInfo* findSegmentInfo(uint64_t masterId, uint64_t segmentId);
+    SegmentInfo* findSegmentInfo(ServerId masterId, uint64_t segmentId);
     void getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
                          BackupGetRecoveryDataRpc::Response& respHdr,
                          Rpc& rpc);
@@ -523,7 +523,7 @@ class BackupService : public Service {
     CoordinatorClient coordinator;
 
     /// Coordinator-assigned ID for this backup service
-    uint64_t serverId;
+    ServerId serverId;
 
     /**
      * Times each recovery. This is an Tub that is reset on every
@@ -542,7 +542,7 @@ class BackupService : public Service {
 
     /// Type of the key for the segments map.
     struct MasterSegmentIdPair {
-        MasterSegmentIdPair(uint64_t masterId, uint64_t segmentId)
+        MasterSegmentIdPair(ServerId masterId, uint64_t segmentId)
             : masterId(masterId)
             , segmentId(segmentId)
         {
@@ -552,11 +552,11 @@ class BackupService : public Service {
         bool
         operator<(const MasterSegmentIdPair& right) const
         {
-            return std::make_pair(masterId, segmentId) <
-                   std::make_pair(right.masterId, right.segmentId);
+            return std::make_pair(*masterId, segmentId) <
+                   std::make_pair(*right.masterId, right.segmentId);
         }
 
-        uint64_t masterId;
+        ServerId masterId;
         uint64_t segmentId;
     };
     /// Type of the segments map.

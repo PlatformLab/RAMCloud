@@ -44,7 +44,7 @@ class ServiceManager : Dispatch::Poller {
     explicit ServiceManager();
     ~ServiceManager();
 
-    void addService(Service& service, RpcServiceType type);
+    void addService(Service& service, ServiceTypeMask type);
     void exitWorker();
     void handleRpc(Transport::ServerRpc* rpc);
     bool idle();

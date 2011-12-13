@@ -45,7 +45,7 @@ class BackupClient : public Client {
     class FreeSegment {
       public:
         FreeSegment(BackupClient& client,
-                    uint64_t masterId,
+                    ServerId masterId,
                     uint64_t segmentId);
         void cancel() { state.cancel(); }
         bool isReady() { return state.isReady(); }
@@ -67,7 +67,7 @@ class BackupClient : public Client {
     class GetRecoveryData {
       public:
         GetRecoveryData(BackupClient& client,
-                        uint64_t masterId,
+                        ServerId masterId,
                         uint64_t segmentId,
                         uint64_t partitionId,
                         Buffer& responseBuffer);
@@ -161,7 +161,7 @@ class BackupClient : public Client {
     class WriteSegment {
       public:
         WriteSegment(BackupClient& client,
-                     uint64_t masterId,
+                     ServerId masterId,
                      uint64_t segmentId,
                      uint32_t offset,
                      const void *buf,
@@ -182,7 +182,7 @@ class BackupClient : public Client {
     explicit BackupClient(Transport::SessionRef session);
     ~BackupClient();
 
-    void closeSegment(uint64_t masterId, uint64_t segmentId) {
+    void closeSegment(ServerId masterId, uint64_t segmentId) {
         writeSegment(masterId, segmentId,
                      0, static_cast<const void*>(NULL), 0,
                      BackupWriteRpc::CLOSE);
@@ -190,7 +190,7 @@ class BackupClient : public Client {
 
     Transport::SessionRef getSession();
 
-    void openSegment(uint64_t masterId,
+    void openSegment(ServerId masterId,
                      uint64_t segmentId,
                      bool primary = true)
     {

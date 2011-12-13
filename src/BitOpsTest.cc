@@ -60,6 +60,16 @@ TEST(BitOpsTest, findLastSet) {
     EXPECT_EQ(64, BitOps::findLastSet(0UL - 1));
 }
 
+TEST(BitOpsTest, countBitsSet) {
+    EXPECT_EQ(0, BitOps::countBitsSet(0));
+    EXPECT_EQ(1, BitOps::countBitsSet(1));
+    EXPECT_EQ(2, BitOps::countBitsSet(1U << 31 | 8));
+    EXPECT_EQ(1, BitOps::countBitsSet(1UL << 63));
+    EXPECT_EQ(2, BitOps::countBitsSet(1UL << 63 | 1));
+    EXPECT_EQ(32, BitOps::countBitsSet(~0U));
+    EXPECT_EQ(64, BitOps::countBitsSet(~0UL));
+}
+
 TEST(BitOpsTest, powerOfTwoGreaterOrEqual) {
     EXPECT_EQ(1, BitOps::powerOfTwoGreaterOrEqual(0));
     EXPECT_EQ(1, BitOps::powerOfTwoGreaterOrEqual(1));

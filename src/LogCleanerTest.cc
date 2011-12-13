@@ -22,14 +22,30 @@
 
 #include "Segment.h"
 #include "SegmentIterator.h"
+#include "ServerId.h"
 #include "Log.h"
 #include "LogTypes.h"
 #include "LogCleaner.h"
 
 namespace RAMCloud {
 
-TEST(LogCleanerTest, constructor) {
-    Tub<uint64_t> serverId(0);
+/**
+ * Unit tests for LogCleaner.
+ */
+class LogCleanerTest : public ::testing::Test {
+  public:
+    LogCleanerTest()
+        : serverId(ServerId(5, 23))
+    {
+    }
+
+    Tub<ServerId> serverId;
+
+  private:
+    DISALLOW_COPY_AND_ASSIGN(LogCleanerTest);
+};
+
+TEST_F(LogCleanerTest, constructor) {
     Log log(serverId, 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
     LogCleaner* cleaner = &log.cleaner;
 
@@ -39,8 +55,7 @@ TEST(LogCleanerTest, constructor) {
     EXPECT_EQ(log.replicaManager, cleaner->replicaManager);
 }
 
-TEST(LogCleanerTest, getCleanSegmentMemory) {
-    Tub<uint64_t> serverId(0);
+TEST_F(LogCleanerTest, getCleanSegmentMemory) {
     Log log(serverId, 5 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
     LogCleaner* cleaner = &log.cleaner;
 
@@ -54,14 +69,14 @@ TEST(LogCleanerTest, getCleanSegmentMemory) {
     log.cleaningComplete(empty, cleanMemory);
 }
 
-TEST(LogCleaner, writeCost) {
+TEST_F(LogCleanerTest, writeCost) {
     EXPECT_DOUBLE_EQ(1.000, LogCleaner::writeCost(10, 0));
     EXPECT_DOUBLE_EQ(1.1111111111111112, LogCleaner::writeCost(10, 1));
     EXPECT_DOUBLE_EQ(2.000, LogCleaner::writeCost(10, 5));
     EXPECT_DOUBLE_EQ(10.000, LogCleaner::writeCost(10, 9));
 }
 
-TEST(LogCleaner, isCleanable) {
+TEST_F(LogCleanerTest, isCleanable) {
     EXPECT_TRUE(LogCleaner::isCleanable(
         LogCleaner::MAXIMUM_CLEANABLE_WRITE_COST));
     EXPECT_TRUE(LogCleaner::isCleanable(
@@ -70,8 +85,7 @@ TEST(LogCleaner, isCleanable) {
         LogCleaner::MAXIMUM_CLEANABLE_WRITE_COST + 0.00001));
 }
 
-TEST(LogCleanerTest, scanNewCleanableSegments) {
-    Tub<uint64_t> serverId(0);
+TEST_F(LogCleanerTest, scanNewCleanableSegments) {
     Log log(serverId, 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
     LogCleaner* cleaner = &log.cleaner;
     char alignedBuf0[8192] __attribute__((aligned(8192)));
@@ -102,8 +116,7 @@ scanCB(LogEntryHandle h, void* cookie)
     scanCbCalled++;
 }
 
-TEST(LogCleanerTest, scanSegment) {
-    Tub<uint64_t> serverId(0);
+TEST_F(LogCleanerTest, scanSegment) {
     Log log(serverId, 3 * 1024, 1024, 768, NULL, Log::CLEANER_DISABLED);
     LogCleaner* cleaner = &log.cleaner;
 
@@ -141,8 +154,7 @@ liveCB(LogEntryHandle h, void* cookie)
     return true;
 }
 
-TEST(LogCleanerTest, scanSegment_implicitlyFreed) {
-    Tub<uint64_t> serverId(0);
+TEST_F(LogCleanerTest, scanSegment_implicitlyFreed) {
     Log log(serverId, 3 * 1024, 1024, 768, NULL, Log::CLEANER_DISABLED);
     LogCleaner* cleaner = &log.cleaner;
 
@@ -183,8 +195,7 @@ negativeLiveCB(LogEntryHandle h, void* cookie)
     return false;
 }
 
-TEST(LogCleanerTest, scanForFreeSpace) {
-    Tub<uint64_t> serverId(0);
+TEST_F(LogCleanerTest, scanForFreeSpace) {
     Log log(serverId, 5 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
     log.registerType(LOG_ENTRY_TYPE_OBJ,
                      true,
@@ -245,8 +256,7 @@ fiveTimestampCB(LogEntryHandle h)
     return 5;
 }
 
-TEST(LogCleanerTest, scanSegmentForFreeSpace) {
-    Tub<uint64_t> serverId(0);
+TEST_F(LogCleanerTest, scanSegmentForFreeSpace) {
     Log log(serverId, 8192 * 1000, 8192, 4298, NULL, Log::CLEANER_DISABLED);
     log.registerType(LOG_ENTRY_TYPE_OBJ,
                      true,
@@ -278,8 +288,7 @@ TEST(LogCleanerTest, scanSegmentForFreeSpace) {
     EXPECT_EQ(5 * h->totalLength(), s.implicitlyFreedSpaceTimeSum);
 }
 
-TEST(LogCleanerTest, getSegmentsToClean) {
-    Tub<uint64_t> serverId(0);
+TEST_F(LogCleanerTest, getSegmentsToClean) {
     Log log(serverId, 8192 * 1000, 8192, 4298, NULL, Log::CLEANER_DISABLED);
     log.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
         NULL, NULL, NULL, NULL, NULL);
@@ -319,7 +328,7 @@ getSegmentsToCleanFilter(string s)
 }
 
 // sanity check the write cost calculation
-TEST(LogCleanerTest, getSegmentsToClean_writeCost) {
+TEST_F(LogCleanerTest, getSegmentsToClean_writeCost) {
     struct TestSetup {
         int freeEveryNth;       // after N appends, free one (0 => no frees)
         double minWriteCost;    // min acceptable writeCost (0 => no min)
@@ -346,7 +355,6 @@ TEST(LogCleanerTest, getSegmentsToClean_writeCost) {
             continue;
         }
 
-        Tub<uint64_t> serverId(0);
         Log log(serverId, 8192 * 1000, 8192, 4298, NULL, Log::CLEANER_DISABLED);
         log.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
             NULL, NULL, NULL, NULL, NULL);
@@ -378,8 +386,7 @@ TEST(LogCleanerTest, getSegmentsToClean_writeCost) {
     }
 }
 
-TEST(LogCleanerTest, getSegmentsToClean_costBenefitOrder) {
-    Tub<uint64_t> serverId(0);
+TEST_F(LogCleanerTest, getSegmentsToClean_costBenefitOrder) {
     Log log(serverId, 8192 * 1000, 8192, 4298, NULL, Log::CLEANER_DISABLED);
     log.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
         NULL, NULL, NULL, NULL, NULL);
@@ -445,8 +452,7 @@ scanCB3(LogEntryHandle h, void* cookie)
 {
 }
 
-TEST(LogCleanerTest, getLiveEntries) {
-    Tub<uint64_t> serverId(0);
+TEST_F(LogCleanerTest, getLiveEntries) {
     Log log(serverId, 8192 * 20, 8192, 8000, NULL, Log::CLEANER_DISABLED);
     LogCleaner* cleaner = &log.cleaner;
 
@@ -480,8 +486,7 @@ TEST(LogCleanerTest, getLiveEntries) {
     EXPECT_EQ(h1->totalLength(), entries[0].totalLength);
 }
 
-TEST(LogCleanerTest, getSortedLiveEntries) {
-    Tub<uint64_t> serverId(0);
+TEST_F(LogCleanerTest, getSortedLiveEntries) {
     Log log(serverId, 8192 * 20, 8192, 8000, NULL, Log::CLEANER_DISABLED);
     LogCleaner* cleaner = &log.cleaner;
 
@@ -522,8 +527,7 @@ relocationCBFalse(LogEntryHandle oldH, LogEntryHandle newH, void* cookie)
     return false;
 }
 
-TEST(LogCleanerTest, moveToFillSegment) {
-    Tub<uint64_t> serverId(0);
+TEST_F(LogCleanerTest, moveToFillSegment) {
     Log log(serverId, 8192 * 20, 8192, 8000, NULL, Log::CLEANER_DISABLED);
     LogCleaner* cleaner = &log.cleaner;
 
@@ -605,13 +609,13 @@ TEST(LogCleanerTest, moveToFillSegment) {
 
 // Ensure we fill objects into older destination Segments in order
 // to get better utilisation.
-TEST(LogCleanerTest, moveLiveData_packOldFirst) {
+TEST_F(LogCleanerTest, moveLiveData_packOldFirst) {
     // XXX
 }
 
 // Ensure that if we're left with significant space in the last Segment
 // we try to fill it with the live data from some other Segment.
-TEST(LogCleanerTest, moveLiveData_packLastSegment) {
+TEST_F(LogCleanerTest, moveLiveData_packLastSegment) {
     // XXX
 }
 

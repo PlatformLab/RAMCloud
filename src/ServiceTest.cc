@@ -153,7 +153,7 @@ TEST_F(ServiceTest, sendReply) {
     service.sendReply = true;
     MockTransport transport;
     ServiceManager manager;
-    manager.addService(service, RpcServiceType(2));
+    manager.addService(service, 2);
     MockTransport::MockServerRpc* rpc = new MockTransport::MockServerRpc(
             &transport, "0x20000 3 4");
     manager.handleRpc(rpc);

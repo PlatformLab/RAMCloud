@@ -52,26 +52,25 @@ CoordinatorServerList::~CoordinatorServerList()
  * \param serviceLocator
  *      The ServiceLocator string of the server to add.
  *
- * \param isMaster
- *      True if this server is a master, otherwise false.
- *      XXX: This should probably change to a bitfield in the future when
- *           we enlist once per process, not once per master/backup service.
+ * \param serviceMask
+ *      Bit mask of services this server supports. This means some combination
+ *      of MASTER_SERVICE, BACKUP_SERVICE, etc.
  *
  * \return
  *      The unique ServerId assigned to this server.
  */
 ServerId
-CoordinatorServerList::add(string serviceLocator, bool isMaster)
+CoordinatorServerList::add(string serviceLocator, ServiceTypeMask serviceMask)
 {
     uint32_t index = firstFreeIndex();
 
     ServerId id(index, serverList[index].nextGenerationNumber);
     serverList[index].nextGenerationNumber++;
-    serverList[index].entry.construct(id, serviceLocator, isMaster);
+    serverList[index].entry.construct(id, serviceLocator, serviceMask);
 
-    if (isMaster)
+    if (serviceMask & MASTER_SERVICE)
         numberOfMasters++;
-    else
+    if (serviceMask & BACKUP_SERVICE)
         numberOfBackups++;
 
     return id;
@@ -340,17 +339,17 @@ CoordinatorServerList::getPointerFromIndex(size_t index) const
  *      The ServiceLocator string that can be used to address this
  *      entry's server.
  *
- * \param isMaster
- *      True if this server is a master, else false.
- *      XXXX: There should be a corresponding isBackup.
+ * \param serviceMask
+ *      Bit mask of services this server supports. This means some combination
+ *      of MASTER_SERVICE, BACKUP_SERVICE, etc.
  */
 CoordinatorServerList::Entry::Entry(ServerId serverId,
                                     string serviceLocatorString,
-                                    bool isMaster)
+                                    ServiceTypeMask serviceMask)
     : serverId(serverId),
       serviceLocator(serviceLocatorString),
-      isMaster(isMaster),
-      isBackup(!isMaster),
+      isMaster(serviceMask & MASTER_SERVICE),
+      isBackup(serviceMask & BACKUP_SERVICE),
       will(NULL),
       backupReadMegsPerSecond(0)
 {

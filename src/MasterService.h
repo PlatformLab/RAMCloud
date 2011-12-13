@@ -35,7 +35,7 @@ namespace RAMCloud {
 
 #if TESTING
 void
-detectSegmentRecoveryFailure(const uint64_t masterId,
+detectSegmentRecoveryFailure(const ServerId masterId,
                              const uint64_t partitionId,
                              const ProtoBuf::ServerList& backups);
 #endif
@@ -76,7 +76,7 @@ class MasterService : public Service {
                   CoordinatorClient* coordinator,
                   uint32_t replicas);
     virtual ~MasterService();
-    void init();
+    void init(ServerId id);
     void dispatch(RpcOpcode opcode,
                   Rpc& rpc);
 
@@ -212,7 +212,7 @@ class MasterService : public Service {
     void recoverSegment(uint64_t segmentId, const void *buffer,
                         uint32_t bufferLength);
 
-    void recover(uint64_t masterId,
+    void recover(ServerId masterId,
                  uint64_t partitionId,
                  ProtoBuf::ServerList& backups);
 
@@ -237,7 +237,7 @@ class MasterService : public Service {
   public:
     CoordinatorClient* coordinator;
 
-    Tub<uint64_t> serverId;
+    Tub<ServerId> serverId;
 
   PRIVATE:
     /// Maximum number of bytes per partition. For Will calculation.

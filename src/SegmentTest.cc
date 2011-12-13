@@ -27,7 +27,10 @@ namespace RAMCloud {
  */
 class SegmentTest : public ::testing::Test {
   public:
-    SegmentTest() {}
+    SegmentTest()
+        : serverId(ServerId(1, 0))
+    {
+    }
 
     static bool
     openSegmentFilter(string s)
@@ -74,6 +77,8 @@ class SegmentTest : public ::testing::Test {
     {
     }
 
+    Tub<ServerId> serverId;
+
   private:
     DISALLOW_COPY_AND_ASSIGN(SegmentTest);
 };
@@ -81,8 +86,7 @@ class SegmentTest : public ::testing::Test {
 TEST_F(SegmentTest, constructor) {
     char alignedBuf[8192] __attribute__((aligned(8192)));
 
-    Tub<uint64_t> serverId;
-    serverId.construct(1020304050);
+    Tub<ServerId> serverId(ServerId(1020304050, 0));
     ReplicaManager replicaManager(NULL, serverId, 0);
     TestLog::Enable _(&openSegmentFilter);
     Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf),
@@ -114,8 +118,7 @@ TEST_F(SegmentTest, constructor) {
     EXPECT_EQ(sizeof(alignedBuf), sh->segmentCapacity);
 
     // be sure we count the header written in the LogStats
-    Tub<uint64_t> serverId2;
-    serverId2.construct(0);
+    Tub<ServerId> serverId2(ServerId(42, 0));
     Log l(serverId2, 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
     Segment s2(&l, 0, alignedBuf, sizeof(alignedBuf), NULL,
                 LOG_ENTRY_TYPE_INVALID, NULL, 0);
@@ -139,8 +142,7 @@ TEST_F(SegmentTest, append) {
     char alignedBuf[8192] __attribute__((aligned(8192)));
     SegmentEntryHandle seh;
 
-    Tub<uint64_t> serverId;
-    serverId.construct(1);
+    Tub<ServerId> serverId(ServerId(1, 0));
     ReplicaManager replicaManager(NULL, serverId, 0);
     TestLog::Enable _;
     Segment s(1, 2, alignedBuf, sizeof(alignedBuf), &replicaManager);
@@ -256,7 +258,7 @@ TEST_F(SegmentTest, free) {
     // create a fake log so we can use the timestamp callback
     // (the Log-less segment constructor won't result in the
     // spaceTimeSum value being altered otherwise.
-    Log l({0}, 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
+    Log l(serverId, 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
     l.registerType(LOG_ENTRY_TYPE_OBJ,
                    true,
                    livenessCallback, NULL,
@@ -278,7 +280,7 @@ TEST_F(SegmentTest, free) {
 }
 
 TEST_F(SegmentTest, setImplicitlyFreedCounts) {
-    Log l({0}, 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
+    Log l(serverId, 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
     l.registerType(LOG_ENTRY_TYPE_OBJ,
                    true,
                    livenessCallback, NULL,
@@ -314,8 +316,7 @@ TEST_F(SegmentTest, setImplicitlyFreedCounts) {
 TEST_F(SegmentTest, close) {
     char alignedBuf[8192] __attribute__((aligned(8192)));
 
-    Tub<uint64_t> serverId;
-    serverId.construct(1);
+    Tub<ServerId> serverId(ServerId(1, 0));
     ReplicaManager replicaManager(NULL, serverId, 0);
     Segment s(1, 2, alignedBuf, sizeof(alignedBuf), &replicaManager);
     TestLog::Enable _;
@@ -366,8 +367,6 @@ TEST_F(SegmentTest, forceAppendBlob) {
     for (unsigned int i = 0; i < sizeof(buf); i++)
         buf[i] = static_cast<char>(i);
 
-    Tub<uint64_t> serverId;
-    serverId.construct(0);
     Log l(serverId, 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
     Segment s(&l, 445566, alignedBuf, sizeof(alignedBuf), NULL,
                 LOG_ENTRY_TYPE_INVALID, NULL, 0);
@@ -384,7 +383,7 @@ TEST_F(SegmentTest, forceAppendBlob) {
 
 TEST_F(SegmentTest, forceAppendWithEntry) {
     // create a fake log; see comment in test_free
-    Log l({0}, 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
+    Log l(serverId, 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
     l.registerType(LOG_ENTRY_TYPE_OBJ,
                    true,
                    livenessCallback, NULL,
@@ -426,8 +425,6 @@ TEST_F(SegmentTest, forceAppendWithEntry) {
 
 TEST_F(SegmentTest, syncToBackup) {
     char alignedBuf[8192] __attribute__((aligned(8192)));
-    Tub<uint64_t> serverId;
-    serverId.construct(1);
     ReplicaManager replicaManager(NULL, serverId, 0);
     Segment s(1, 2, alignedBuf, sizeof(alignedBuf), &replicaManager);
     static SegmentHeader header;
@@ -443,8 +440,6 @@ TEST_F(SegmentTest, syncToBackup) {
 TEST_F(SegmentTest, freeReplicas) {
     TestLog::Enable _(&freeFilter);
     char alignedBuf[8192] __attribute__((aligned(8192)));
-    Tub<uint64_t> serverId;
-    serverId.construct(1);
     ReplicaManager replicaManager(NULL, serverId, 0);
     Segment s(1, 2, alignedBuf, sizeof(alignedBuf), &replicaManager);
     s.close(NULL);

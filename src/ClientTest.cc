@@ -91,7 +91,7 @@ class MockRestartingTask {
 
 struct TestRpc {
     static const RpcOpcode opcode = PING;
-    static const RpcServiceType service = RpcServiceType(0);
+    static const ServiceTypeMask service = 0;
     struct Request {
         // set x to garbage to test that it's zeroed later
         Request() : common(), x(0xcccccccc) {}

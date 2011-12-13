@@ -36,7 +36,7 @@ struct BitOpsException : public Exception {
 };
 
 class BitOps {
-  public:
+  PUBLIC:
     /**
      * Determine if the integer provided is a power of two or not.
      * 
@@ -50,6 +50,24 @@ class BitOps {
     isPowerOfTwo(T n)
     {
         return (n > 0 && (n & (n - 1)) == 0);
+    }
+
+    /**
+     * Count the number of bits set in a word.
+     *
+     * \param n
+     *      The number whose bits we're counting.
+     *
+     * \return
+     *      The number of bits set.
+     */
+    template<typename T>
+    static int
+    countBitsSet(T n)
+    {
+        // TODO(anyone): If you want to speed this up, test cpuid for popcnt and
+        // call the faster x86 method.
+        return countBitsSet_portable(n);
     }
 
     /**
@@ -154,6 +172,41 @@ class BitOps {
             throw BitOpsException(HERE, "Cannot round down past zero!");
 
         return (downCast<T>(1UL << (findLastSet(static_cast<uint64_t>(n))-1)));
+    }
+
+  PRIVATE:
+    /**
+     * \copydetails countBitsSet
+     *
+     * SSE version for newer x86_64 chips.
+     */
+    template<typename T>
+    static int
+    countBitsSet_x86(T n)
+    {
+        int64_t result = 0;
+        uint64_t input = n;
+        __asm__("popcntq %0,%1" : "=r"(result) : "r"(input));
+        return downCast<int>(result);
+    }
+
+    /**
+     * \copydetails countBitsSet
+     *
+     * Naive portable approach. Insert more clever method for your caveman CPU.
+     */
+    template<typename T>
+    static int
+    countBitsSet_portable(T n)
+    {
+        int64_t result = 0;
+
+        for (size_t i = 0; i < sizeof(n) * 8; i++) {
+            if (n & (1ULL << i))
+                result++;
+        }
+
+        return downCast<int>(result);
     }
 };
 

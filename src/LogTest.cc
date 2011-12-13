@@ -29,7 +29,12 @@ namespace RAMCloud {
  */
 class LogTest : public ::testing::Test {
   public:
-    LogTest() {}
+    LogTest()
+        : serverId(ServerId(57, 0))
+    {
+    }
+
+    Tub<ServerId> serverId;
 
   private:
     DISALLOW_COPY_AND_ASSIGN(LogTest);
@@ -39,11 +44,9 @@ TEST_F(LogTest, constructor) {
     // silence LogCleaner
     TestLog::Enable _;
 
-    Tub<uint64_t> serverId;
-    serverId.construct(57);
     Log l(serverId, 2 * 8192, 8192, 4298);
 
-    EXPECT_EQ(57U, *l.logId);
+    EXPECT_EQ(ServerId(57, 0), *l.logId);
     EXPECT_EQ(2 * 8192U, l.logCapacity);
     EXPECT_EQ(8192U, l.segmentCapacity);
     EXPECT_EQ(4298U, l.maximumBytesPerAppend);
@@ -68,8 +71,6 @@ TEST_F(LogTest, allocateHead_basics) {
     // silence LogCleaner
     TestLog::Enable _;
 
-    Tub<uint64_t> serverId;
-    serverId.construct(57);
     Log l(serverId, 4 * 8192, 8192, 4298);
 
     {
@@ -117,8 +118,6 @@ TEST_F(LogTest, allocateHead_basics) {
 }
 
 TEST_F(LogTest, allocateHead_lists) {
-    Tub<uint64_t> serverId;
-    serverId.construct(57);
     Log l(serverId, 6 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
 
     Segment* cleaned = new Segment(&l, l.allocateSegmentId(),
@@ -159,8 +158,6 @@ TEST_F(LogTest, allocateHead_lists) {
 }
 
 TEST_F(LogTest, locklessAddToFreeList) {
-    Tub<uint64_t> serverId;
-    serverId.construct(57);
     Log l(serverId, 2 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
 
     // Ensure set up as expected.
@@ -196,8 +193,6 @@ TEST_F(LogTest, getFromFreeList) {
     // silence LogCleaner
     TestLog::Enable _;
 
-    Tub<uint64_t> serverId;
-    serverId.construct(57);
     Log l(serverId, 3 * 8192, 8192, 4298, NULL, Log::INLINED_CLEANER);
 
     // Ensure constant is right for testing.
@@ -228,8 +223,6 @@ TEST_F(LogTest, getFromFreeList) {
 }
 
 TEST_F(LogTest, isSegmentLive) {
-    Tub<uint64_t> serverId;
-    serverId.construct(57);
     Log l(serverId, 2 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
     l.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
         NULL, NULL, NULL, NULL, NULL);
@@ -242,8 +235,6 @@ TEST_F(LogTest, isSegmentLive) {
 }
 
 TEST_F(LogTest, getSegmentId) {
-    Tub<uint64_t> serverId;
-    serverId.construct(57);
     Log l(serverId, 2 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
     l.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
         NULL, NULL, NULL, NULL, NULL);
@@ -257,8 +248,6 @@ TEST_F(LogTest, getSegmentId) {
 }
 
 TEST_F(LogTest, append) {
-    Tub<uint64_t> serverId;
-    serverId.construct(57);
     Log l(serverId, 3 * 8192, 8192, 8138, NULL, Log::CLEANER_DISABLED);
     l.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
         NULL, NULL, NULL, NULL, NULL);
@@ -322,8 +311,6 @@ TEST_F(LogTest, append) {
 }
 
 TEST_F(LogTest, free) {
-    Tub<uint64_t> serverId;
-    serverId.construct(57);
     Log l(serverId, 2 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
     l.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
         NULL, NULL, NULL, NULL, NULL);
@@ -364,8 +351,6 @@ scanCallback(LogEntryHandle handle,
 }
 
 TEST_F(LogTest, registerType) {
-    Tub<uint64_t> serverId;
-    serverId.construct(57);
     Log l(serverId, 1 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
 
     l.registerType(LOG_ENTRY_TYPE_OBJ,
@@ -405,8 +390,6 @@ TEST_F(LogTest, registerType) {
 }
 
 TEST_F(LogTest, getTypeInfo) {
-    Tub<uint64_t> serverId;
-    serverId.construct(57);
     Log l(serverId, 1 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
 
     l.registerType(LOG_ENTRY_TYPE_OBJ,
@@ -425,8 +408,6 @@ TEST_F(LogTest, getTypeInfo) {
 }
 
 TEST_F(LogTest, getNewCleanableSegments) {
-    Tub<uint64_t> serverId;
-    serverId.construct(57);
     Log l(serverId, 2 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
 
     mockWallTimeValue = 1;
@@ -461,8 +442,6 @@ class TestServerRpc : public Transport::ServerRpc {
 };
 
 TEST_F(LogTest, cleaningComplete) {
-    Tub<uint64_t> serverId;
-    serverId.construct(57);
     Log l(serverId, 3 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
 
     ServerRpcPoolInternal::currentEpoch = 5;

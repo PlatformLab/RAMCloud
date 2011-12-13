@@ -186,7 +186,7 @@ class ReplicatedSegment : public Task {
      * replica of a ReplicatedSegment.
      */
     struct Replica {
-        explicit Replica(uint64_t backupId, Transport::SessionRef session)
+        explicit Replica(ServerId backupId, Transport::SessionRef session)
             : backupId(backupId)
             , client(session)
             , acked()
@@ -196,7 +196,7 @@ class ReplicatedSegment : public Task {
         {}
 
         /// Id of remote backup server where this replica is (to be) stored.
-        const uint64_t backupId;
+        const ServerId backupId;
 
         /// Client to remote backup server where this replica is (to be) stored.
         BackupClient client;
@@ -242,7 +242,7 @@ class ReplicatedSegment : public Task {
                       BaseBackupSelector& backupSelector,
                       Deleter& deleter,
                       uint32_t& writeRpcsInFlight,
-                      uint64_t masterId, uint64_t segmentId,
+                      ServerId masterId, uint64_t segmentId,
                       const void* data, uint32_t openLen,
                       uint32_t numReplicas,
                       uint32_t maxBytesPerWriteRpc = 1024 * 1024);
@@ -298,7 +298,7 @@ class ReplicatedSegment : public Task {
     uint32_t& writeRpcsInFlight;
 
     /// The server id of the Master whose log this segment belongs to.
-    const uint64_t masterId;
+    const ServerId masterId;
 
     /// Id for the segment, must match the segmentId given by the log module.
     const uint64_t segmentId;

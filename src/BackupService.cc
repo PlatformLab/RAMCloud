@@ -66,7 +66,7 @@ uint64_t recoveryStart;
 BackupService::SegmentInfo::SegmentInfo(BackupStorage& storage,
                                         ThreadSafePool& pool,
                                         IoScheduler& ioScheduler,
-                                        uint64_t masterId,
+                                        ServerId masterId,
                                         uint64_t segmentId,
                                         uint32_t segmentSize,
                                         bool primary)
@@ -102,7 +102,7 @@ BackupService::SegmentInfo::~SegmentInfo()
 
     if (state == OPEN) {
         LOG(NOTICE, "Backup shutting down with open segment <%lu,%lu>, "
-            "closing out to storage", masterId, segmentId);
+            "closing out to storage", *masterId, segmentId);
         state = CLOSED;
         CycleCounter<RawMetric> _(&metrics->backup.storageWriteTicks);
         ++metrics->backup.storageWriteCount;
@@ -158,14 +158,15 @@ BackupService::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
 
     if (state != RECOVERING) {
         LOG(WARNING, "Asked for segment <%lu,%lu> which isn't recovering",
-            masterId, segmentId);
+            *masterId, segmentId);
         throw BackupBadSegmentIdException(HERE);
     }
 
     if (!primary) {
         if (!isRecovered() && !recoveryException) {
             LOG(DEBUG, "Requested segment <%lu,%lu> is secondary, "
-                "starting build of recovery segments now", masterId, segmentId);
+                "starting build of recovery segments now",
+                *masterId, segmentId);
             waitForOngoingOps(lock);
             ioScheduler.load(*this);
             ++storageOpCount;
@@ -177,7 +178,7 @@ BackupService::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
 
     if (!isRecovered() && !recoveryException) {
         LOG(DEBUG, "Deferring because <%lu,%lu> not yet filtered",
-            masterId, segmentId);
+            *masterId, segmentId);
         return STATUS_RETRY;
     }
     assert(state == RECOVERING);
@@ -196,7 +197,7 @@ BackupService::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
     if (partitionId >= recoverySegmentsLength) {
         LOG(WARNING, "Asked for recovery segment %lu from segment <%lu,%lu> "
                      "but there are only %u partitions",
-            partitionId, masterId, segmentId, recoverySegmentsLength);
+            partitionId, *masterId, segmentId, recoverySegmentsLength);
         throw BackupBadSegmentIdException(HERE);
     }
 
@@ -206,7 +207,7 @@ BackupService::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
         Buffer::Chunk::appendToBuffer(&buffer, it.getData(), it.getLength());
     }
 
-    LOG(DEBUG, "appendRecoverySegment <%lu,%lu>", masterId, segmentId);
+    LOG(DEBUG, "appendRecoverySegment <%lu,%lu>", *masterId, segmentId);
     return STATUS_OK;
 }
 
@@ -328,7 +329,7 @@ BackupService::SegmentInfo::buildRecoverySegments(
 #if TESTING
         for (uint64_t i = 0; i < recoverySegmentsLength; ++i) {
             LOG(DEBUG, "Recovery segment for <%lu,%lu> partition %lu is %u B",
-                masterId, segmentId, i, recoverySegments[i].getTotalLength());
+                *masterId, segmentId, i, recoverySegments[i].getTotalLength());
         }
 #endif
     } catch (const SegmentIteratorException& e) {
@@ -351,7 +352,7 @@ BackupService::SegmentInfo::buildRecoverySegments(
     }
     LOG(DEBUG, "<%lu,%lu> recovery segments took %lu ms to construct, "
                "notifying other threads",
-        masterId, segmentId,
+        *masterId, segmentId,
         Cycles::toNanoseconds(Cycles::rdtsc() - start) / 1000 / 1000);
     condition.notify_all();
 }
@@ -436,7 +437,7 @@ BackupService::SegmentInfo::open()
     BackupStorage::Handle* handle;
     try {
         // Reserve the space for this on disk
-        handle = storage.allocate(masterId, segmentId);
+        handle = storage.allocate(*masterId, segmentId);
     } catch (...) {
         // Release the staging memory if storage.allocate throws
         pool.free(segment);
@@ -572,11 +573,11 @@ BackupService::IoScheduler::operator()()
 
         if (isLoad) {
             LOG(DEBUG, "Dispatching load of <%lu,%lu>",
-                info->masterId, info->segmentId);
+                *info->masterId, info->segmentId);
             doLoad(*info);
         } else {
             LOG(DEBUG, "Dispatching store of <%lu,%lu>",
-                info->masterId, info->segmentId);
+                *info->masterId, info->segmentId);
             doStore(*info);
         }
     }
@@ -598,7 +599,7 @@ BackupService::IoScheduler::load(SegmentInfo& info)
     loadQueue.push(&info);
     uint32_t count = downCast<uint32_t>(loadQueue.size() + storeQueue.size());
     LOG(DEBUG, "Queued load of <%lu,%lu> (%u segments waiting for IO)",
-        info.masterId, info.segmentId, count);
+        *info.masterId, info.segmentId, count);
     queueCond.notify_all();
 #endif
 }
@@ -632,7 +633,7 @@ BackupService::IoScheduler::store(SegmentInfo& info)
     storeQueue.push(&info);
     uint32_t count = downCast<uint32_t>(loadQueue.size() + storeQueue.size());
     LOG(DEBUG, "Queued store of <%lu,%lu> (%u segments waiting for IO)",
-        info.masterId, info.segmentId, count);
+        *info.masterId, info.segmentId, count);
     queueCond.notify_all();
 #endif
 }
@@ -682,10 +683,10 @@ BackupService::IoScheduler::doLoad(SegmentInfo& info) const
 #endif
     ReferenceDecrementer<int> _(info.storageOpCount);
 
-    LOG(DEBUG, "Loading segment <%lu,%lu>", info.masterId, info.segmentId);
+    LOG(DEBUG, "Loading segment <%lu,%lu>", *info.masterId, info.segmentId);
     if (info.inMemory()) {
         LOG(DEBUG, "Already in memory, skipping load on <%lu,%lu>",
-            info.masterId, info.segmentId);
+            *info.masterId, info.segmentId);
         info.condition.notify_all();
         return;
     }
@@ -700,7 +701,7 @@ BackupService::IoScheduler::doLoad(SegmentInfo& info) const
         uint64_t transferTime = Cycles::toNanoseconds(Cycles::rdtsc() -
             startTime);
         LOG(DEBUG, "Load of <%lu,%lu> took %lu us (%f MB/s)",
-            info.masterId, info.segmentId,
+            *info.masterId, info.segmentId,
             transferTime / 1000,
             (info.segmentSize / (1 << 20)) /
             (static_cast<double>(transferTime) / 1000000000lu));
@@ -731,7 +732,7 @@ BackupService::IoScheduler::doStore(SegmentInfo& info) const
 #endif
     ReferenceDecrementer<int> _(info.storageOpCount);
 
-    LOG(DEBUG, "Storing segment <%lu,%lu>", info.masterId, info.segmentId);
+    LOG(DEBUG, "Storing segment <%lu,%lu>", *info.masterId, info.segmentId);
     try {
         CycleCounter<RawMetric> _(&metrics->backup.storageWriteTicks);
         ++metrics->backup.storageWriteCount;
@@ -741,20 +742,21 @@ BackupService::IoScheduler::doStore(SegmentInfo& info) const
         uint64_t transferTime = Cycles::toNanoseconds(Cycles::rdtsc() -
             startTime);
         LOG(DEBUG, "Store of <%lu,%lu> took %lu us (%f MB/s)",
-            info.masterId, info.segmentId,
+            *info.masterId, info.segmentId,
             transferTime / 1000,
             (info.segmentSize / (1 << 20)) /
             (static_cast<double>(transferTime) / 1000000000lu));
     } catch (...) {
         LOG(WARNING, "Problem storing segment <%lu,%lu>",
-            info.masterId, info.segmentId);
+            *info.masterId, info.segmentId);
         info.condition.notify_all();
         throw;
     }
     info.pool.free(info.segment);
     info.segment = NULL;
     --outstandingStores;
-    LOG(DEBUG, "Done storing segment <%lu,%lu>", info.masterId, info.segmentId);
+    LOG(DEBUG, "Done storing segment <%lu,%lu>",
+        *info.masterId, info.segmentId);
     info.condition.notify_all();
 }
 
@@ -923,7 +925,7 @@ BackupService::~BackupService()
 }
 
 /// Returns the serverId granted to this backup by the coordinator.
-uint64_t
+ServerId
 BackupService::getServerId() const
 {
     return serverId;
@@ -941,8 +943,10 @@ BackupService::getServerId() const
  * completes for all services).
  */
 void
-BackupService::benchmark() {
+BackupService::benchmark(uint32_t& readSpeed, uint32_t& writeSpeed) {
     storageBenchmarkResults = storage.benchmark(config.backupStrategy);
+    readSpeed = storageBenchmarkResults.first;
+    writeSpeed = storageBenchmarkResults.second;
 }
 
 // See Server::dispatch.
@@ -1006,7 +1010,8 @@ BackupService::freeSegment(const BackupFreeRpc::Request& reqHdr,
     LOG(DEBUG, "Handling: %lu %lu", reqHdr.masterId, reqHdr.segmentId);
 
     SegmentsMap::iterator it =
-        segments.find(MasterSegmentIdPair(reqHdr.masterId, reqHdr.segmentId));
+        segments.find(MasterSegmentIdPair(ServerId(reqHdr.masterId),
+                                                   reqHdr.segmentId));
     if (it == segments.end()) {
         LOG(WARNING, "Master tried to free non-existent segment: <%lu,%lu>",
             reqHdr.masterId, reqHdr.segmentId);
@@ -1031,7 +1036,7 @@ BackupService::freeSegment(const BackupFreeRpc::Request& reqHdr,
  *      none exists.
  */
 BackupService::SegmentInfo*
-BackupService::findSegmentInfo(uint64_t masterId, uint64_t segmentId)
+BackupService::findSegmentInfo(ServerId masterId, uint64_t segmentId)
 {
     SegmentsMap::iterator it =
         segments.find(MasterSegmentIdPair(masterId, segmentId));
@@ -1067,7 +1072,8 @@ BackupService::getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
     LOG(DEBUG, "getRecoveryData masterId %lu, segmentId %lu, partitionId %lu",
         reqHdr.masterId, reqHdr.segmentId, reqHdr.partitionId);
 
-    SegmentInfo* info = findSegmentInfo(reqHdr.masterId, reqHdr.segmentId);
+    SegmentInfo* info = findSegmentInfo(ServerId(reqHdr.masterId),
+                                                 reqHdr.segmentId);
     if (!info) {
         LOG(WARNING, "Asked for bad segment <%lu,%lu>",
             reqHdr.masterId, reqHdr.segmentId);
@@ -1086,20 +1092,24 @@ BackupService::getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
 }
 
 /**
- * Perform once-only initialization for the backup server, such as enlisting
- * with the coordinator.
+ * Perform once-only initialization for the backup service after having
+ * enlisted the process with the coordinator
  */
 void
-BackupService::init()
+BackupService::init(ServerId id)
 {
-    assert(!initCalled);
-
-    serverId = coordinator.enlistServer(BACKUP, config.localLocator,
+#if 0
+    coordinator.enlistServer(BACKUP, config.localLocator,
                                         storageBenchmarkResults.first,
                                         storageBenchmarkResults.second);
-    LOG(NOTICE, "My server ID is %lu", serverId);
+#endif
+
+    assert(!initCalled);
+
+    serverId = id;
+    LOG(NOTICE, "My server ID is %lu", *id);
     if (metrics->serverId == 0) {
-        metrics->serverId = serverId;
+        metrics->serverId = *serverId;
     }
 
     initCalled = true;
@@ -1217,9 +1227,9 @@ BackupService::startReadingData(
     for (SegmentsMap::iterator it = segments.begin();
          it != segments.end(); it++)
     {
-        uint64_t masterId = it->first.masterId;
+        ServerId masterId = it->first.masterId;
         SegmentInfo* info = it->second;
-        if (masterId == reqHdr.masterId) {
+        if (*masterId == reqHdr.masterId) {
             (info->primary ?
                 primarySegments :
                 secondarySegments).push_back(info);
@@ -1257,7 +1267,7 @@ BackupService::startReadingData(
         new(&rpc.replyPayload, APPEND) pair<uint64_t, uint32_t>
             (info->segmentId, info->getRightmostWrittenOffset());
         LOG(DEBUG, "Crashed master %lu had segment %lu (primary)",
-            info->masterId, info->segmentId);
+            *info->masterId, info->segmentId);
         info->setRecovering();
     }
     foreach (auto info, secondarySegments) {
@@ -1265,7 +1275,7 @@ BackupService::startReadingData(
             (info->segmentId, info->getRightmostWrittenOffset());
         LOG(DEBUG, "Crashed master %lu had segment %lu (secondary), "
             "stored partitions for deferred recovery segment construction",
-            info->masterId, info->segmentId);
+            *info->masterId, info->segmentId);
         info->setRecovering(partitions);
     }
     respHdr.segmentIdCount = downCast<uint32_t>(primarySegments.size() +
@@ -1335,14 +1345,14 @@ BackupService::writeSegment(const BackupWriteRpc::Request& reqHdr,
                             BackupWriteRpc::Response& respHdr,
                             Rpc& rpc)
 {
-    uint64_t masterId = reqHdr.masterId;
+    ServerId masterId(reqHdr.masterId);
     uint64_t segmentId = reqHdr.segmentId;
 
     SegmentInfo* info = findSegmentInfo(masterId, segmentId);
 
     // peform open, if any
     if ((reqHdr.flags & BackupWriteRpc::OPEN) && !info) {
-        LOG(DEBUG, "Opening <%lu,%lu>", masterId, segmentId);
+        LOG(DEBUG, "Opening <%lu,%lu>", *masterId, segmentId);
         try {
 #ifdef SINGLE_THREADED_BACKUP
             bool primary = false;

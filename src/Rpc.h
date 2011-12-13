@@ -29,16 +29,19 @@
 namespace RAMCloud {
 
 /**
- * This enum defines the traces for the "service" field in RPC headers,
+ * This enum defines the values for the "service" field in RPC headers,
  * which selects the particular service that will implement a given RPC.
+ * Although an RPC may only be sent to one particular service, these bits
+ * are sometimes masked together to describe multiple services. For example,
+ * they are used when enlisting a server process (which supports one or more
+ * distinct services) with the coordinator.
  */
-enum RpcServiceType {
-    MASTER_SERVICE          = 3,
-    BACKUP_SERVICE          = 4,
-    COORDINATOR_SERVICE     = 5,
-    PING_SERVICE            = 6,
-    MAX_SERVICE             = 6,   // Highest legitimate value.
-};
+typedef uint32_t ServiceTypeMask;
+enum { MASTER_SERVICE       = 0x01 };
+enum { BACKUP_SERVICE       = 0x02 };
+enum { COORDINATOR_SERVICE  = 0x04 };
+enum { PING_SERVICE         = 0x08 };
+enum { MAX_SERVICE          = 0x08 };            // Highest legitimate bit.
 
 /**
  * This enum defines the choices for the "opcode" field in RPC
@@ -90,8 +93,8 @@ struct RpcRequestCommon {
     uint16_t opcode;              // Operation to be performed (one of the
                                   // values in the RpcOpcode enum above).
     uint16_t service;             // Service to invoke for this RPC (one of
-                                  // the values in the RpcServiceType enum
-                                  // above).
+                                  // the values in the ServiceTypeMask enum
+                                  // above - i.e. only one bit should be set).
 };
 
 /**
@@ -119,7 +122,7 @@ struct RpcResponseCommon {
 
 struct CreateRpc {
     static const RpcOpcode opcode = CREATE;
-    static const RpcServiceType service = MASTER_SERVICE;
+    static const ServiceTypeMask service = MASTER_SERVICE;
     struct Request {
         RpcRequestCommon common;
         uint32_t tableId;
@@ -137,7 +140,7 @@ struct CreateRpc {
 
 struct FillWithTestDataRpc {
     static const RpcOpcode opcode = FILL_WITH_TEST_DATA;
-    static const RpcServiceType service = MASTER_SERVICE;
+    static const ServiceTypeMask service = MASTER_SERVICE;
     struct Request {
         RpcRequestCommon common;
         uint32_t numObjects;        // Number of objects to add to tables
@@ -151,7 +154,7 @@ struct FillWithTestDataRpc {
 
 struct MultiReadRpc {
     static const RpcOpcode opcode = MULTI_READ;
-    static const RpcServiceType service = MASTER_SERVICE;
+    static const ServiceTypeMask service = MASTER_SERVICE;
     struct Request {
         RpcRequestCommon common;
         uint32_t count;
@@ -175,7 +178,7 @@ struct MultiReadRpc {
 
 struct ReadRpc {
     static const RpcOpcode opcode = READ;
-    static const RpcServiceType service = MASTER_SERVICE;
+    static const ServiceTypeMask service = MASTER_SERVICE;
     struct Request {
         RpcRequestCommon common;
         uint32_t tableId;
@@ -195,7 +198,7 @@ struct ReadRpc {
 
 struct RecoverRpc {
     static const RpcOpcode opcode = RECOVER;
-    static const RpcServiceType service = MASTER_SERVICE;
+    static const ServiceTypeMask service = MASTER_SERVICE;
     struct Request {
         RpcRequestCommon common;
         uint64_t masterId;
@@ -216,7 +219,7 @@ struct RecoverRpc {
 
 struct RereplicateSegmentsRpc {
     static const RpcOpcode opcode = REREPLICATE_SEGMENTS;
-    static const RpcServiceType service = MASTER_SERVICE;
+    static const ServiceTypeMask service = MASTER_SERVICE;
     struct Request {
         RpcRequestCommon common;
         uint64_t backupId;        // The server id of a crashed backup.
@@ -228,7 +231,7 @@ struct RereplicateSegmentsRpc {
 
 struct RemoveRpc {
     static const RpcOpcode opcode = REMOVE;
-    static const RpcServiceType service = MASTER_SERVICE;
+    static const ServiceTypeMask service = MASTER_SERVICE;
     struct Request {
         RpcRequestCommon common;
         uint64_t id;
@@ -244,7 +247,7 @@ struct RemoveRpc {
 
 struct SetTabletsRpc {
     static const RpcOpcode opcode = SET_TABLETS;
-    static const RpcServiceType service = MASTER_SERVICE;
+    static const ServiceTypeMask service = MASTER_SERVICE;
     struct Request {
         RpcRequestCommon common;
         uint32_t tabletsLength;    // Number of bytes in the tablet map.
@@ -260,7 +263,7 @@ struct SetTabletsRpc {
 
 struct WriteRpc {
     static const RpcOpcode opcode = WRITE;
-    static const RpcServiceType service = MASTER_SERVICE;
+    static const ServiceTypeMask service = MASTER_SERVICE;
     struct Request {
         RpcRequestCommon common;
         uint64_t id;
@@ -281,7 +284,7 @@ struct WriteRpc {
 
 struct CreateTableRpc {
     static const RpcOpcode opcode = CREATE_TABLE;
-    static const RpcServiceType service = COORDINATOR_SERVICE;
+    static const ServiceTypeMask service = COORDINATOR_SERVICE;
     struct Request {
         RpcRequestCommon common;
         uint32_t nameLength;          // Number of bytes in the name,
@@ -296,7 +299,7 @@ struct CreateTableRpc {
 
 struct DropTableRpc {
     static const RpcOpcode opcode = DROP_TABLE;
-    static const RpcServiceType service = COORDINATOR_SERVICE;
+    static const ServiceTypeMask service = COORDINATOR_SERVICE;
     struct Request {
         RpcRequestCommon common;
         uint32_t nameLength;          // Number of bytes in the name,
@@ -311,7 +314,7 @@ struct DropTableRpc {
 
 struct OpenTableRpc {
     static const RpcOpcode opcode = OPEN_TABLE;
-    static const RpcServiceType service = COORDINATOR_SERVICE;
+    static const ServiceTypeMask service = COORDINATOR_SERVICE;
     struct Request {
         RpcRequestCommon common;
         uint32_t nameLength;          // Number of bytes in the name,
@@ -325,22 +328,12 @@ struct OpenTableRpc {
     };
 };
 
-/**
- * XXX- This needs to be turned into a bitmask. In fact, it probably should
- *      just be merged with the FOO_SERVICE enums.
- */
-enum ServerType {
-    MASTER = 0,
-    BACKUP = 1,
-    ALL = 2
-};
-
 struct EnlistServerRpc {
     static const RpcOpcode opcode = ENLIST_SERVER;
-    static const RpcServiceType service = COORDINATOR_SERVICE;
+    static const ServiceTypeMask service = COORDINATOR_SERVICE;
     struct Request {
         RpcRequestCommon common;
-        uint8_t serverType;
+        uint8_t serviceMask;
         uint8_t pad[3];
         uint32_t readSpeed;            // MB/s read speed if a BACKUP
         uint32_t writeSpeed;           // MB/s write speed if a BACKUP
@@ -357,10 +350,11 @@ struct EnlistServerRpc {
 
 struct GetServerListRpc {
     static const RpcOpcode opcode = GET_SERVER_LIST;
-    static const RpcServiceType service = COORDINATOR_SERVICE;
+    static const ServiceTypeMask service = COORDINATOR_SERVICE;
     struct Request {
         RpcRequestCommon common;
-        uint8_t serverType;        // Type of servers to get: MASTER or BACKUP
+        uint8_t serviceMask;       // Only get servers that support specified
+                                   // services.
     };
     struct Response {
         RpcResponseCommon common;
@@ -373,7 +367,7 @@ struct GetServerListRpc {
 
 struct GetTabletMapRpc {
     static const RpcOpcode opcode = GET_TABLET_MAP;
-    static const RpcServiceType service = COORDINATOR_SERVICE;
+    static const ServiceTypeMask service = COORDINATOR_SERVICE;
     struct Request {
         RpcRequestCommon common;
     };
@@ -388,7 +382,7 @@ struct GetTabletMapRpc {
 
 struct HintServerDownRpc {
     static const RpcOpcode opcode = HINT_SERVER_DOWN;
-    static const RpcServiceType service = COORDINATOR_SERVICE;
+    static const ServiceTypeMask service = COORDINATOR_SERVICE;
     struct Request {
         RpcRequestCommon common;
         uint32_t serviceLocatorLength; // Number of bytes in the serviceLocator,
@@ -403,7 +397,7 @@ struct HintServerDownRpc {
 
 struct TabletsRecoveredRpc {
     static const RpcOpcode opcode = TABLETS_RECOVERED;
-    static const RpcServiceType service = COORDINATOR_SERVICE;
+    static const ServiceTypeMask service = COORDINATOR_SERVICE;
     struct Request {
         RpcRequestCommon common;
         uint64_t masterId;         // Server Id from whom the request is coming.
@@ -424,7 +418,7 @@ struct TabletsRecoveredRpc {
 
 struct SetWillRpc {
     static const RpcOpcode opcode = SET_WILL;
-    static const RpcServiceType service = COORDINATOR_SERVICE;
+    static const ServiceTypeMask service = COORDINATOR_SERVICE;
     struct Request {
         RpcRequestCommon common;
         uint64_t masterId;         // Server Id from whom the request is coming.
@@ -442,7 +436,7 @@ struct SetWillRpc {
 
 struct BackupFreeRpc {
     static const RpcOpcode opcode = BACKUP_FREE;
-    static const RpcServiceType service = BACKUP_SERVICE;
+    static const ServiceTypeMask service = BACKUP_SERVICE;
     struct Request {
         RpcRequestCommon common;
         uint64_t masterId;      ///< Server Id from whom the request is coming.
@@ -455,7 +449,7 @@ struct BackupFreeRpc {
 
 struct BackupGetRecoveryDataRpc {
     static const RpcOpcode opcode = BACKUP_GETRECOVERYDATA;
-    static const RpcServiceType service = BACKUP_SERVICE;
+    static const ServiceTypeMask service = BACKUP_SERVICE;
     struct Request {
         RpcRequestCommon common;
         uint64_t masterId;      ///< Server Id from whom the request is coming.
@@ -470,7 +464,7 @@ struct BackupGetRecoveryDataRpc {
 // Note: this RPC is supported by the coordinator service as well as backups.
 struct BackupQuiesceRpc {
     static const RpcOpcode opcode = BACKUP_QUIESCE;
-    static const RpcServiceType service = BACKUP_SERVICE;
+    static const ServiceTypeMask service = BACKUP_SERVICE;
     struct Request {
         RpcRequestCommon common;
     };
@@ -481,7 +475,7 @@ struct BackupQuiesceRpc {
 
 struct BackupRecoveryCompleteRpc {
     static const RpcOpcode opcode = BACKUP_RECOVERYCOMPLETE;
-    static const RpcServiceType service = BACKUP_SERVICE;
+    static const ServiceTypeMask service = BACKUP_SERVICE;
     struct Request {
         RpcRequestCommon common;
         uint64_t masterId;      ///< Server Id which was recovered.
@@ -493,7 +487,7 @@ struct BackupRecoveryCompleteRpc {
 
 struct BackupStartReadingDataRpc {
     static const RpcOpcode opcode = BACKUP_STARTREADINGDATA;
-    static const RpcServiceType service = BACKUP_SERVICE;
+    static const ServiceTypeMask service = BACKUP_SERVICE;
     struct Request {
         RpcRequestCommon common;
         uint64_t masterId;         ///< Server Id from whom the request is
@@ -522,7 +516,7 @@ struct BackupStartReadingDataRpc {
 
 struct BackupWriteRpc {
     static const RpcOpcode opcode = BACKUP_WRITE;
-    static const RpcServiceType service = BACKUP_SERVICE;
+    static const ServiceTypeMask service = BACKUP_SERVICE;
     enum Flags {
         NONE = 0,
         OPEN = 1,
@@ -550,7 +544,7 @@ struct BackupWriteRpc {
 
 struct GetMetricsRpc {
     static const RpcOpcode opcode = RpcOpcode::GET_METRICS;
-    static const RpcServiceType service = PING_SERVICE;
+    static const ServiceTypeMask service = PING_SERVICE;
     struct Request {
         RpcRequestCommon common;
     };
@@ -567,7 +561,7 @@ struct GetMetricsRpc {
 
 struct PingRpc {
     static const RpcOpcode opcode = RpcOpcode::PING;
-    static const RpcServiceType service = PING_SERVICE;
+    static const ServiceTypeMask service = PING_SERVICE;
     struct Request {
         RpcRequestCommon common;
         uint64_t nonce;             // The nonce may be used to identify
@@ -583,7 +577,7 @@ struct PingRpc {
 
 struct ProxyPingRpc {
     static const RpcOpcode opcode = PROXY_PING;
-    static const RpcServiceType service = PING_SERVICE;
+    static const ServiceTypeMask service = PING_SERVICE;
     struct Request {
         RpcRequestCommon common;
         uint64_t timeoutNanoseconds;   // Number of nanoseconds to wait for a
@@ -604,7 +598,7 @@ struct ProxyPingRpc {
 
 struct KillRpc {
     static const RpcOpcode opcode = KILL;
-    static const RpcServiceType service = PING_SERVICE;
+    static const ServiceTypeMask service = PING_SERVICE;
     struct Request {
         RpcRequestCommon common;
     };

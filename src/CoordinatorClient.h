@@ -23,6 +23,7 @@
 #include "Client.h"
 #include "ClientException.h"
 #include "Rpc.h"
+#include "ServerId.h"
 #include "TransportManager.h"
 
 namespace RAMCloud {
@@ -42,8 +43,10 @@ class CoordinatorClient : public Client {
     void dropTable(const char* name);
     uint32_t openTable(const char* name);
 
-    uint64_t enlistServer(ServerType serverType, string localServiceLocator,
-                          uint32_t readSpeed = 0, uint32_t writeSpeed = 0);
+    ServerId enlistServer(ServiceTypeMask serviceMask,
+                          string localServiceLocator,
+                          uint32_t readSpeed = 0,
+                          uint32_t writeSpeed = 0);
     void getServerList(ProtoBuf::ServerList& serverList);
     void getMasterList(ProtoBuf::ServerList& serverList);
     void getBackupList(ProtoBuf::ServerList& serverList);
@@ -56,7 +59,7 @@ class CoordinatorClient : public Client {
     void setWill(uint64_t masterId, const ProtoBuf::Tablets& will);
 
   private:
-    void getServerList(ServerType type, ProtoBuf::ServerList& serverList);
+    void getServerList(ServiceTypeMask types, ProtoBuf::ServerList& serverList);
 
     Transport::SessionRef session;
     DISALLOW_COPY_AND_ASSIGN(CoordinatorClient);

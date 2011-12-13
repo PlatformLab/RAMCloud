@@ -13,6 +13,7 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "BitOps.h"
 #include "Cycles.h"
 #include "Fence.h"
 #include "Initialize.h"
@@ -93,7 +94,8 @@ ServiceManager::~ServiceManager()
  */
 
 void
-ServiceManager::addService(Service& service, RpcServiceType type) {
+ServiceManager::addService(Service& service, ServiceTypeMask type) {
+    assert(BitOps::countBitsSet(type) == 1);
     assert(!services[type]);
     services[type].construct(service);
     serviceCount++;

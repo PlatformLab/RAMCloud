@@ -34,8 +34,8 @@ namespace RAMCloud {
  *      Number replicas to keep of each segment.
  */
 ReplicaManager::ReplicaManager(CoordinatorClient* coordinator,
-                             const Tub<uint64_t>& masterId,
-                             uint32_t numReplicas)
+                               const Tub<ServerId>& masterId,
+                               uint32_t numReplicas)
     : numReplicas(numReplicas)
     , backupSelector(coordinator)
     , coordinator(coordinator)
@@ -130,14 +130,15 @@ ReplicaManager::openSegment(uint64_t segmentId, const void* data,
                             uint32_t openLen)
 {
     CycleCounter<RawMetric> _(&metrics->master.replicaManagerTicks);
-    LOG(DEBUG, "openSegment %lu, %lu, ..., %u", *masterId, segmentId, openLen);
+    LOG(DEBUG, "openSegment %lu, %lu, ..., %u",
+        masterId->getId(), segmentId, openLen);
     auto* p = replicatedSegmentPool.malloc();
     if (p == NULL)
         DIE("Out of memory");
     auto* replicatedSegment =
         new(p) ReplicatedSegment(taskManager, backupSelector, *this,
-                                 writeRpcsInFlight, *masterId, segmentId,
-                                 data, openLen, numReplicas);
+                                 writeRpcsInFlight, *masterId,
+                                 segmentId, data, openLen, numReplicas);
     replicatedSegmentList.push_back(*replicatedSegment);
     replicatedSegment->schedule();
     return replicatedSegment;

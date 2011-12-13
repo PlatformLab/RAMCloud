@@ -128,13 +128,18 @@ main(int argc, char *argv[])
             DIE("Can't specify both -B and -M options");
         }
 
+        ServiceTypeMask services = 0;
         const char* servicesInfo;
-        if (masterOnly)
+        if (masterOnly) {
             servicesInfo = "master";
-        else if (backupOnly)
+            services = MASTER_SERVICE;
+        } else if (backupOnly) {
             servicesInfo = "backup";
-        else
+            services = BACKUP_SERVICE;
+        } else {
             servicesInfo = "master and backup";
+            services = MASTER_SERVICE | BACKUP_SERVICE;
+        }
 
         if (cpu != -1) {
             if (!pinToCpu(cpu))
@@ -171,6 +176,7 @@ main(int argc, char *argv[])
 
         std::unique_ptr<BackupStorage> storage;
         Tub<BackupService> backupService;
+        uint32_t backupReadSpeed = 0, backupWriteSpeed = 0;
         if (!masterOnly) {
             backupConfig.coordinatorLocator =
                     optionParser.options.getCoordinatorLocator();
@@ -187,7 +193,7 @@ main(int argc, char *argv[])
                                                     backupFile.c_str(),
                                                     O_DIRECT | O_SYNC));
             backupService.construct(backupConfig, *storage);
-            backupService->benchmark();
+            backupService->benchmark(backupReadSpeed, backupWriteSpeed);
             Context::get().serviceManager
                 ->addService(*backupService, BACKUP_SERVICE);
         }
@@ -210,10 +216,14 @@ main(int argc, char *argv[])
         // to RPC dispatch. This reduces the window of being unavailable to
         // service RPCs after enlisting with the coordinator (which can
         // lead to session open timeouts).
+        ServerId serverId = coordinator.enlistServer(services,
+            Context::get().transportManager->getListeningLocatorsString(),
+            backupReadSpeed, backupWriteSpeed);
+
         if (masterService)
-            masterService->init();
+            masterService->init(serverId);
         if (backupService)
-            backupService->init();
+            backupService->init(serverId);
         if (!disableFailureDetector) {
             // Initialize failure detector
             failureDetector.construct(

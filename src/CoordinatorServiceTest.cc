@@ -55,7 +55,8 @@ class CoordinatorServiceTest : public ::testing::Test {
         master = static_cast<MasterService*>(malloc(sizeof(MasterService)));
         transport->addService(*master, "mock:host=master", MASTER_SERVICE);
         master = new(master) MasterService(masterConfig, client, 0);
-        master->init();
+        master->init(client->enlistServer(
+            MASTER_SERVICE, "mock:host=master", 0, 0));
         TestLog::enable();
     }
 
@@ -74,9 +75,9 @@ class CoordinatorServiceTest : public ::testing::Test {
 
 TEST_F(CoordinatorServiceTest, createTable) {
     MasterService master2(masterConfig, NULL, 0);
-    master2.init();
     transport->addService(master2, "mock:host=master2", MASTER_SERVICE);
-    client->enlistServer(MASTER, "mock:host=master2");
+    master2.init(client->enlistServer(
+        MASTER_SERVICE, "mock:host=master2", 0, 0));
     // master is already enlisted
     client->createTable("foo");
     client->createTable("foo"); // should be no-op
@@ -119,8 +120,9 @@ TEST_F(CoordinatorServiceTest, createTable) {
 // TODO(ongaro): test drop, open table
 
 TEST_F(CoordinatorServiceTest, enlistServer) {
-    EXPECT_EQ(1U, *master->serverId);
-    EXPECT_EQ(2LU, client->enlistServer(BACKUP, "mock:host=backup"));
+    EXPECT_EQ(1U, master->serverId->getId());
+    EXPECT_EQ(ServerId(2, 0),
+        client->enlistServer(BACKUP_SERVICE, "mock:host=backup"));
 
     ProtoBuf::ServerList masterList;
     service->serverList.serialise(masterList, true, false);
@@ -154,8 +156,8 @@ TEST_F(CoordinatorServiceTest, getMasterList) {
 
 TEST_F(CoordinatorServiceTest, getBackupList) {
     // master is already enlisted
-    client->enlistServer(BACKUP, "mock:host=backup1");
-    client->enlistServer(BACKUP, "mock:host=backup2");
+    client->enlistServer(BACKUP_SERVICE, "mock:host=backup1");
+    client->enlistServer(BACKUP_SERVICE, "mock:host=backup2");
     ProtoBuf::ServerList backupList;
     client->getBackupList(backupList);
     EXPECT_EQ("server { is_master: false is_backup: true server_id: 2 "
@@ -167,7 +169,7 @@ TEST_F(CoordinatorServiceTest, getBackupList) {
 
 TEST_F(CoordinatorServiceTest, getServerList) {
     // master is already enlisted
-    client->enlistServer(BACKUP, "mock:host=backup1");
+    client->enlistServer(BACKUP_SERVICE, "mock:host=backup1");
     ProtoBuf::ServerList serverList;
     client->getServerList(serverList);
     EXPECT_EQ(2, serverList.server_size());
@@ -230,8 +232,8 @@ TEST_F(CoordinatorServiceTest, hintServerDown_master) {
     } mockRecovery(*this);
     service->mockRecovery = &mockRecovery;
     // master is already enlisted
-    client->enlistServer(MASTER, "mock:host=master2");
-    client->enlistServer(BACKUP, "mock:host=backup");
+    client->enlistServer(MASTER_SERVICE, "mock:host=master2");
+    client->enlistServer(BACKUP_SERVICE, "mock:host=backup");
     client->createTable("foo");
     client->hintServerDown("mock:host=master");
     EXPECT_TRUE(mockRecovery.called);
@@ -239,7 +241,7 @@ TEST_F(CoordinatorServiceTest, hintServerDown_master) {
     foreach (const ProtoBuf::Tablets::Tablet& tablet,
                 service->tabletMap.tablet())
     {
-        if (tablet.server_id() == *master->serverId) {
+        if (tablet.server_id() == master->serverId->getId()) {
             EXPECT_TRUE(&mockRecovery ==
                 reinterpret_cast<MyMockRecovery*>(tablet.user_data()));
         }
@@ -247,7 +249,7 @@ TEST_F(CoordinatorServiceTest, hintServerDown_master) {
 }
 
 TEST_F(CoordinatorServiceTest, hintServerDown_backup) {
-    client->enlistServer(BACKUP, "mock:host=backup");
+    client->enlistServer(BACKUP_SERVICE, "mock:host=backup");
     EXPECT_EQ(1U, service->serverList.backupCount());
     client->hintServerDown("mock:host=backup");
     EXPECT_EQ(0U, service->serverList.backupCount());
@@ -262,8 +264,9 @@ TEST_F(CoordinatorServiceTest, tabletsRecovered_basics) {
     typedef ProtoBuf::Tablets::Tablet Tablet;
     typedef ProtoBuf::Tablets Tablets;
 
-    uint64_t master2Id = client->enlistServer(MASTER, "mock:host=master2");
-    client->enlistServer(BACKUP, "mock:host=backup");
+    ServerId master2Id = client->enlistServer(MASTER_SERVICE,
+        "mock:host=master2");
+    client->enlistServer(BACKUP_SERVICE, "mock:host=backup");
 
     Tablets tablets;
     Tablet& tablet(*tablets.add_tablet());
@@ -272,7 +275,7 @@ TEST_F(CoordinatorServiceTest, tabletsRecovered_basics) {
     tablet.set_end_object_id(~(0ul));
     tablet.set_state(ProtoBuf::Tablets::Tablet::NORMAL);
     tablet.set_service_locator("mock:host=master2");
-    tablet.set_server_id(master2Id);
+    tablet.set_server_id(*master2Id);
     tablet.set_user_data(0);
 
     Tablet& stablet(*service->tabletMap.add_tablet());
@@ -311,7 +314,7 @@ TEST_F(CoordinatorServiceTest, tabletsRecovered_basics) {
               service->tabletMap.tablet(0).state());
     EXPECT_EQ("mock:host=master2",
               service->tabletMap.tablet(0).service_locator());
-    EXPECT_EQ(master2Id, service->tabletMap.tablet(0).server_id());
+    EXPECT_EQ(*master2Id, service->tabletMap.tablet(0).server_id());
 }
 
 static bool
@@ -320,7 +323,7 @@ setWillFilter(string s) {
 }
 
 TEST_F(CoordinatorServiceTest, setWill) {
-    client->enlistServer(MASTER, "mock:host=master2");
+    client->enlistServer(MASTER_SERVICE, "mock:host=master2");
 
     ProtoBuf::Tablets will;
     ProtoBuf::Tablets::Tablet& t(*will.add_tablet());

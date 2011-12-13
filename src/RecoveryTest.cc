@@ -43,19 +43,19 @@ class RecoveryTest : public ::testing::Test {
      */
     struct WriteValidSegment {
         ProtoBuf::ServerList backupList;
-        Tub<uint64_t> masterIdTub;
+        Tub<ServerId> masterIdTub;
         ReplicaManager* mgr;
         void *segMem;
         Segment* seg;
 
-        WriteValidSegment(uint64_t masterId,
+        WriteValidSegment(ServerId serverId,
                           uint64_t segmentId,
                           vector<uint64_t> digestIds,
                           const uint32_t segmentSize,
                           const vector<const char*> locators,
                           bool close)
             : backupList()
-            , masterIdTub(masterId)
+            , masterIdTub(serverId)
             , mgr()
             , segMem()
             , seg()
@@ -76,7 +76,8 @@ class RecoveryTest : public ::testing::Test {
                 mgr->backupSelector.hostsOrder.push_back(i);
 
             segMem = Memory::xmemalign(HERE, segmentSize, segmentSize);
-            seg = new Segment(masterId, segmentId, segMem, segmentSize, mgr);
+            seg = new Segment(masterIdTub->getId(), segmentId,
+                              segMem, segmentSize, mgr);
 
             char temp[LogDigest::getBytesFromCount(
                                         downCast<uint32_t>(digestIds.size()))];
@@ -183,9 +184,13 @@ class RecoveryTest : public ::testing::Test {
         transport->addService(*backupService3, "mock:host=backup3",
                 BACKUP_SERVICE);
 
-        backupService1->init();
-        backupService2->init();
-        backupService3->init();
+        /* Enlist the backups and init them */
+        backupService1->init(
+            coordinator->enlistServer(BACKUP_SERVICE, "mock:host=backup1"));
+        backupService2->init(
+            coordinator->enlistServer(BACKUP_SERVICE, "mock:host=backup2"));
+        backupService3->init(
+            coordinator->enlistServer(BACKUP_SERVICE, "mock:host=backup3"));
 
         backup1 =
             new BackupClient(transportManager.getSession("mock:host=backup1"));
@@ -197,11 +202,10 @@ class RecoveryTest : public ::testing::Test {
         serverList = &coordinatorService->serverList;
 
         /*
-         * Create some fake masters. Note that real backups have already
-         * enlisted themselves as part of init().
+         * Create some fake masters.
          */
-        coordinator->enlistServer(MASTER, "mock:host=master1");
-        coordinator->enlistServer(MASTER, "mock:host=master2");
+        coordinator->enlistServer(MASTER_SERVICE, "mock:host=master1");
+        coordinator->enlistServer(MASTER_SERVICE, "mock:host=master2");
     }
 
     ~RecoveryTest()
@@ -236,14 +240,14 @@ TEST_F(RecoveryTest, buildSegmentIdToBackups) {
     MockRandom _(1);
     // Two segs on backup1, one that overlaps with backup2
     segmentsToFree.push_back(
-        new WriteValidSegment(99, 88, { 88 }, segmentSize,
+        new WriteValidSegment(ServerId(99, 0), 88, { 88 }, segmentSize,
             {"mock:host=backup1"}, true));
     segmentsToFree.push_back(
-        new WriteValidSegment(99, 89, { 88, 89 }, segmentSize,
+        new WriteValidSegment(ServerId(99, 0), 89, { 88, 89 }, segmentSize,
             {"mock:host=backup1"}, false));
     // One seg on backup2
     segmentsToFree.push_back(
-        new WriteValidSegment(99, 88, { 88 }, segmentSize,
+        new WriteValidSegment(ServerId(99, 0), 88, { 88 }, segmentSize,
             {"mock:host=backup2"}, true));
     // Zero segs on backup3
 
@@ -278,14 +282,14 @@ TEST_F(RecoveryTest, buildSegmentIdToBackups) {
 TEST_F(RecoveryTest, buildSegmentIdToBackups_secondariesEarlyInSomeList) {
     // Two segs on backup1, one that overlaps with backup2
     segmentsToFree.push_back(
-        new WriteValidSegment(99, 88, { 88 }, segmentSize,
+        new WriteValidSegment(ServerId(99, 0), 88, { 88 }, segmentSize,
             {"mock:host=backup1"}, true));
     segmentsToFree.push_back(
-        new WriteValidSegment(99, 89, { 88, 89 }, segmentSize,
+        new WriteValidSegment(ServerId(99, 0), 89, { 88, 89 }, segmentSize,
             {"mock:host=backup1"}, true));
     // One seg on backup2
     segmentsToFree.push_back(
-        new WriteValidSegment(99, 88, { 88 }, segmentSize,
+        new WriteValidSegment(ServerId(99, 0), 88, { 88 }, segmentSize,
             {"mock:host=backup2"}, true));
     // Zero segs on backup3
     // Add one more primary to backup1
@@ -295,11 +299,11 @@ TEST_F(RecoveryTest, buildSegmentIdToBackups_secondariesEarlyInSomeList) {
     // in slot 3).  Check to make sure the code prevents this secondary
     // from showing up before any primary in the list.
     segmentsToFree.push_back(
-        new WriteValidSegment(99, 90, { 88, 89, 90 }, segmentSize,
+        new WriteValidSegment(ServerId(99, 0), 90, { 88, 89, 90 }, segmentSize,
             {"mock:host=backup1"}, false));
     segmentsToFree.push_back(
-        new WriteValidSegment(99, 91, { 88, 89, 90, 91 }, segmentSize,
-            {"mock:host=backup2", "mock:host=backup3"}, true));
+        new WriteValidSegment(ServerId(99, 0), 91, { 88, 89, 90, 91 },
+            segmentSize, {"mock:host=backup2", "mock:host=backup3"}, true));
 
     ProtoBuf::Tablets tablets;
     Recovery recovery(ServerId(99), tablets, *serverList);
@@ -376,12 +380,13 @@ struct AutoMaster {
         : config()
         , master()
     {
+        static uint32_t nextServerIndex = 90;
         config.coordinatorLocator = "mock:host=coordinator";
         config.localLocator = locator;
         MasterService::sizeLogAndHashTable("32", "1", &config);
         master = new MasterService(config, &coordinator, 0);
         transport.addService(*master, locator, MASTER_SERVICE);
-        master->init();
+        master->init(ServerId(nextServerIndex++, 0));
     }
 
     ~AutoMaster()
@@ -407,14 +412,14 @@ TEST_F(RecoveryTest, start) {
 
     // Two segs on backup1, one that overlaps with backup2
     segmentsToFree.push_back(
-        new WriteValidSegment(99, 88, { 88 }, segmentSize,
+        new WriteValidSegment(ServerId(99, 0), 88, { 88 }, segmentSize,
             {"mock:host=backup1"}, true));
     segmentsToFree.push_back(
-        new WriteValidSegment(99, 89, { 88, 89 }, segmentSize,
+        new WriteValidSegment(ServerId(99, 0), 89, { 88, 89 }, segmentSize,
             {"mock:host=backup1"}, false));
     // One seg on backup2
     segmentsToFree.push_back(
-        new WriteValidSegment(99, 88, { 88 }, segmentSize,
+        new WriteValidSegment(ServerId(99, 0), 88, { 88 }, segmentSize,
             {"mock:host=backup2"}, true));
     // Zero segs on backup3
 
@@ -457,15 +462,18 @@ TEST_F(RecoveryTest, start) {
             for (uint32_t partId = 0; partId < 2; ++partId) {
                 {
                     Buffer throwAway;
-                    backup1->getRecoveryData(99, 88, partId, throwAway);
+                    backup1->getRecoveryData(
+                        ServerId(99, 0), 88, partId, throwAway);
                 }
                 {
                     Buffer throwAway;
-                    backup1->getRecoveryData(99, 89, partId, throwAway);
+                    backup1->getRecoveryData(
+                        ServerId(99, 0), 89, partId, throwAway);
                 }
                 {
                     Buffer throwAway;
-                    backup2->getRecoveryData(99, 88, partId, throwAway);
+                    backup2->getRecoveryData(
+                        ServerId(99, 0), 88, partId, throwAway);
                 }
             }
         } catch (const RetryException& e) {
@@ -497,14 +505,14 @@ TEST_F(RecoveryTest, start) {
 TEST_F(RecoveryTest, start_notEnoughMasters) {
     // Two segs on backup1, one that overlaps with backup2
     segmentsToFree.push_back(
-        new WriteValidSegment(99, 88, { 88 }, segmentSize,
+        new WriteValidSegment(ServerId(99, 0), 88, { 88 }, segmentSize,
             {"mock:host=backup1"}, true));
     segmentsToFree.push_back(
-        new WriteValidSegment(99, 89, { 88, 89 }, segmentSize,
+        new WriteValidSegment(ServerId(99, 0), 89, { 88, 89 }, segmentSize,
             {"mock:host=backup1"}, false));
     // One seg on backup2
     segmentsToFree.push_back(
-        new WriteValidSegment(99, 88, { 88 }, segmentSize,
+        new WriteValidSegment(ServerId(99, 0), 88, { 88 }, segmentSize,
             {"mock:host=backup2"}, true));
     // Zero segs on backup3
 

@@ -24,6 +24,7 @@
 #include "ServerList.pb.h"
 #include "Tablets.pb.h"
 
+#include "Rpc.h"
 #include "ServerId.h"
 #include "Tub.h"
 
@@ -54,7 +55,9 @@ class CoordinatorServerList {
      */
     class Entry {
       public:
-        Entry(ServerId serverId, string serviceLocatorString, bool isMaster);
+        Entry(ServerId serverId,
+              string serviceLocatorString,
+              ServiceTypeMask serviceMask);
         Entry(const Entry& other);
         Entry& operator=(const Entry& other);
         void serialise(ProtoBuf::ServerList_Entry& dest) const;
@@ -81,7 +84,7 @@ class CoordinatorServerList {
 
     CoordinatorServerList();
     ~CoordinatorServerList();
-    ServerId add(string serviceLocator, bool isMaster);
+    ServerId add(string serviceLocator, ServiceTypeMask serviceMask);
     void remove(ServerId serverId);
     const Entry& operator[](const ServerId& serverId) const;
     Entry& operator[](const ServerId& serverId);

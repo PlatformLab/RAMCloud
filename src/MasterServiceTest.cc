@@ -81,11 +81,13 @@ class MasterServiceTest : public ::testing::Test {
         backupService = new BackupService(backupConfig, *storage);
         transport->addService(*backupService, "mock:host=backup1",
                 BACKUP_SERVICE);
-        backupService->init();
+        backupService->init(coordinator->enlistServer(BACKUP_SERVICE,
+            "mock:host=backup1", 0, 0));
 
         service = new MasterService(config, coordinator, 1);
         transport->addService(*service, "mock:host=master", MASTER_SERVICE);
-        service->init();
+        service->init(coordinator->enlistServer(MASTER_SERVICE,
+            "mock:host=master", 0, 0));
         client = new MasterClient(Context::get().transportManager->getSession(
                                         "mock:host=master"));
         ProtoBuf::Tablets_Tablet& tablet(*service->tablets.add_tablet());
@@ -333,7 +335,7 @@ TEST_F(MasterServiceTest, detectSegmentRecoveryFailure_success) {
         (false, true, 123, 88, "mock:host=backup1", MS::REC_REQ_OK)
         (false, true, 123, 87, "mock:host=backup1", MS::REC_REQ_OK)
     ;
-    detectSegmentRecoveryFailure(99, 3, backups);
+    detectSegmentRecoveryFailure(ServerId(99, 0), 3, backups);
 }
 
 TEST_F(MasterServiceTest, detectSegmentRecoveryFailure_failure) {
@@ -343,15 +345,14 @@ TEST_F(MasterServiceTest, detectSegmentRecoveryFailure_failure) {
         (false, true, 123, 87, "mock:host=backup1", MS::REC_REQ_FAILED)
         (false, true, 123, 88, "mock:host=backup1", MS::REC_REQ_OK)
     ;
-    EXPECT_THROW(detectSegmentRecoveryFailure(99, 3, backups),
+    EXPECT_THROW(detectSegmentRecoveryFailure(ServerId(99, 0), 3, backups),
                   SegmentRecoveryFailedException);
 }
 
 TEST_F(MasterServiceTest, recover_basics) {
     char* segMem = static_cast<char*>(Memory::xmemalign(HERE, segmentSize,
                                                         segmentSize));
-    Tub<uint64_t> serverId;
-    serverId.construct(123);
+    Tub<ServerId> serverId(ServerId(123, 0));
     ReplicaManager mgr(coordinator, serverId, 1);
     Segment _(123, 87, segMem, segmentSize, &mgr);
     mgr.sync();
@@ -431,8 +432,7 @@ TEST_F(MasterServiceTest, recover_basics) {
 TEST_F(MasterServiceTest, recover) {
     char* segMem = static_cast<char*>(Memory::xmemalign(HERE, segmentSize,
                                                         segmentSize));
-    Tub<uint64_t> serverId;
-    serverId.construct(123);
+    Tub<ServerId> serverId(ServerId(123, 0));
     ReplicaManager mgr(coordinator, serverId, 1);
     Segment __(123, 88, segMem, segmentSize, &mgr);
     mgr.sync();
@@ -443,7 +443,8 @@ TEST_F(MasterServiceTest, recover) {
     BackupService backupService2{backupConfig2, *storage};
     transport->addService(backupService2, "mock:host=backup2",
             BACKUP_SERVICE);
-    backupService2.init();
+    backupService2.init(coordinator->enlistServer(BACKUP_SERVICE,
+        "mock:host=backup2", 0, 0));
 
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
@@ -476,7 +477,7 @@ TEST_F(MasterServiceTest, recover) {
     ;
 
     TestLog::Enable _;
-    EXPECT_THROW(service->recover(123, 0, backups),
+    EXPECT_THROW(service->recover(ServerId(123, 0), 0, backups),
                  SegmentRecoveryFailedException);
     // 1,2,3) 87 was requested from the first server list entry.
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
@@ -1014,8 +1015,10 @@ class MasterRecoverTest : public ::testing::Test {
         transport->addService(*backupService2, "mock:host=backup2",
                 BACKUP_SERVICE);
 
-        backupService1->init();
-        backupService2->init();
+        backupService1->init(coordinator->enlistServer(BACKUP_SERVICE,
+            "mock:host=backup1", 0, 0));
+        backupService2->init(coordinator->enlistServer(BACKUP_SERVICE,
+            "mock:host=backup2", 0, 0));
     }
 
     ~MasterRecoverTest()
@@ -1046,7 +1049,8 @@ class MasterRecoverTest : public ::testing::Test {
         config.coordinatorLocator = "mock:host=coordinator";
         MasterService::sizeLogAndHashTable("32", "1", &config);
         MasterService* s = new MasterService(config, coordinator, 2);
-        s->init();
+        s->init(coordinator->enlistServer(MASTER_SERVICE,
+            "mock:host=masterFoo", 0, 0));
         return s;
     }
 
@@ -1082,8 +1086,7 @@ TEST_F(MasterRecoverTest, recover) {
     // destructor until after the test.
     char* segMem1 = static_cast<char*>(Memory::xmemalign(HERE, segmentSize,
                                                          segmentSize));
-    Tub<uint64_t> serverId;
-    serverId.construct(99);
+    Tub<ServerId> serverId(ServerId(99, 0));
     ReplicaManager mgr(coordinator, serverId, 2);
     Segment s1(99, 87, segMem1, segmentSize, &mgr);
     s1.close(NULL);
@@ -1116,7 +1119,7 @@ TEST_F(MasterRecoverTest, recover) {
 
     MockRandom __(1); // triggers deterministic rand().
     TestLog::Enable _(&recoverSegmentFilter);
-    master->recover(99, 0, backups);
+    master->recover(ServerId(99, 0), 0, backups);
     EXPECT_EQ(0U, TestLog::get().find(
         "recover: Recovering master 99, partition 0, 3 replicas "
         "available"));
@@ -1141,7 +1144,7 @@ TEST_F(MasterRecoverTest, failedToRecoverAll) {
 
     MockRandom __(1); // triggers deterministic rand().
     TestLog::Enable _(&recoverSegmentFilter);
-    EXPECT_THROW(master->recover(99, 0, backups),
+    EXPECT_THROW(master->recover(ServerId(99, 0), 0, backups),
                  SegmentRecoveryFailedException);
     string log = TestLog::get();
     EXPECT_EQ(

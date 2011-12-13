@@ -53,7 +53,7 @@ ReplicatedSegment::ReplicatedSegment(TaskManager& taskManager,
                                      BaseBackupSelector& backupSelector,
                                      Deleter& deleter,
                                      uint32_t& writeRpcsInFlight,
-                                     uint64_t masterId,
+                                     ServerId masterId,
                                      uint64_t segmentId,
                                      const void* data,
                                      uint32_t openLen,
@@ -96,7 +96,7 @@ ReplicatedSegment::~ReplicatedSegment()
 void
 ReplicatedSegment::free()
 {
-    TEST_LOG("%lu, %lu", masterId, segmentId);
+    TEST_LOG("%lu, %lu", *masterId, segmentId);
 
     while (true) {
         bool someWriteInFlight = false;
@@ -192,7 +192,7 @@ ReplicatedSegment::free()
 void
 ReplicatedSegment::close(ReplicatedSegment* followingSegment)
 {
-    TEST_LOG("%lu, %lu, %lu", masterId, segmentId, followingSegment ?
+    TEST_LOG("%lu, %lu, %lu", *masterId, segmentId, followingSegment ?
                                             followingSegment->segmentId : 0);
 
     // immutable after close
@@ -228,7 +228,7 @@ ReplicatedSegment::close(ReplicatedSegment* followingSegment)
 void
 ReplicatedSegment::write(uint32_t offset)
 {
-    TEST_LOG("%lu, %lu, %u", masterId, segmentId, offset);
+    TEST_LOG("%lu, %lu, %u", *masterId, segmentId, offset);
 
     // immutable after close
     assert(!queued.close);
@@ -359,7 +359,7 @@ ReplicatedSegment::performWrite(Tub<Replica>& replica)
             schedule();
             return;
         }
-        uint64_t conflicts[replicas.numElements - 1];
+        ServerId conflicts[replicas.numElements - 1];
         uint32_t numConflicts = 0;
         foreach (auto& conflictingReplica, replicas) {
             if (conflictingReplica)
@@ -377,7 +377,7 @@ ReplicatedSegment::performWrite(Tub<Replica>& replica)
         const string& serviceLocator = backup->service_locator();
         Transport::SessionRef session =
             Context::get().transportManager->getSession(serviceLocator.c_str());
-        replica.construct(backup->server_id(), session);
+        replica.construct(ServerId(backup->server_id()), session);
         replica->writeRpc.construct(replica->client, masterId, segmentId,
                                     0, data, openLen, flags);
         ++writeRpcsInFlight;
