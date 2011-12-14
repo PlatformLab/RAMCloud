@@ -98,13 +98,16 @@ ReplicatedSegment::free()
 {
     TEST_LOG("%lu, %lu", *masterId, segmentId);
 
-    while (true) {
-        bool someWriteInFlight = false;
-        foreach (auto& replica, replicas)
-            someWriteInFlight = replica && replica->writeRpc;
-        if (!someWriteInFlight)
-            break;
-        performTask();
+    checkAgain:
+    foreach (auto& replica, replicas) {
+        if (replica && replica->writeRpc) {
+            // It's safe to wait just on this writeRpc because we know the
+            // rpc has already been issued (generally, called performTask
+            // in a loop is a good way to deadlock because this task may
+            // not be able to make progress if it is waiting on another).
+            performTask();
+            goto checkAgain;
+        }
     }
 
     freeQueued = true;
