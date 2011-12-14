@@ -160,9 +160,6 @@ TEST_F(ReplicatedSegmentTest, free) {
 }
 
 TEST_F(ReplicatedSegmentTest, freeWriteRpcInProgress) {
-    MockTransport transport;
-    TransportManager::MockRegistrar _(transport);
-
     segment->write(openLen);
     segment->close(NULL);
     taskManager.proceed(); // writeRpc created
@@ -193,6 +190,76 @@ TEST_F(ReplicatedSegmentTest, close) {
     EXPECT_EQ(segment.get(), taskManager.tasks.front());
     EXPECT_TRUE(segment->queued.close);
     reset();
+}
+
+TEST_F(ReplicatedSegmentTest, sync) {
+    segment->sync(); // first sync sends the opens
+    EXPECT_EQ("clientSend: 0x20022 0 999 0 888 0 0 10 5 0 abcedfghij | "
+              "clientSend: 0x20022 0 999 0 888 0 0 10 1 0 abcedfghij",
+               transport.outputLog);
+    transport.outputLog = "";
+    EXPECT_TRUE(segment->getAcked().open);
+    EXPECT_EQ(openLen, segment->getAcked().bytes);
+
+    segment->sync(); // second sync doesn't need to send anything
+    EXPECT_EQ("", transport.outputLog);
+    transport.outputLog = "";
+    EXPECT_EQ(openLen, segment->getAcked().bytes);
+
+    segment->write(openLen + 10);
+    segment->sync(openLen); // doesn't send anything
+    EXPECT_EQ("", transport.outputLog);
+    transport.outputLog = "";
+    segment->sync(openLen + 1); // will wait until after the next send
+    EXPECT_EQ("clientSend: 0x20022 0 999 0 888 0 10 10 0 0 klmnopqrst | "
+              "clientSend: 0x20022 0 999 0 888 0 10 10 0 0 klmnopqrst",
+               transport.outputLog);
+    transport.outputLog = "";
+    EXPECT_EQ(openLen + 10, segment->getAcked().bytes);
+}
+
+TEST_F(ReplicatedSegmentTest, syncDoubleCheckCrossSegmentOrderingConstraints) {
+    void* segMem = operator new(ReplicatedSegment::sizeOf(numReplicas));
+    auto newHead = std::unique_ptr<ReplicatedSegment>(
+            new(segMem) ReplicatedSegment(taskManager, backupSelector,
+                                          deleter, writeRpcsInFlight,
+                                          masterId, segmentId + 1,
+                                          data, openLen, numReplicas,
+                                          MAX_BYTES_PER_WRITE));
+    segment->close(newHead.get()); // close queued
+    newHead->write(openLen + 10); // write queued
+
+    // Mess up the queue order to simulate reorder due to failure.
+    // This means newHead will be going first at 'taking turns'
+    // with segment.
+    {
+        Task* t = taskManager.tasks.front();
+        taskManager.tasks.pop();
+        taskManager.tasks.push(t);
+    }
+
+    // Queued order of ops would be:
+    // open newHead
+    // open segment
+    // write newHead
+    // close segment
+
+    // Required by constraints (and checked here):
+    // open segment | open newHead (either order between these)
+    // close segment
+    // write newHead
+
+    EXPECT_EQ("", transport.outputLog);
+    newHead->sync();
+    EXPECT_EQ("clientSend: 0x20022 0 999 0 889 0 0 10 5 0 abcedfghij | "
+              "clientSend: 0x20022 0 999 0 889 0 0 10 1 0 abcedfghij | "
+              "clientSend: 0x20022 0 999 0 888 0 0 10 5 0 abcedfghij | "
+              "clientSend: 0x20022 0 999 0 888 0 0 10 1 0 abcedfghij | "
+              "clientSend: 0x20022 0 999 0 888 0 10 0 2 0 | "
+              "clientSend: 0x20022 0 999 0 888 0 10 0 2 0 | "
+              "clientSend: 0x20022 0 999 0 889 0 10 10 0 0 klmnopqrst | "
+              "clientSend: 0x20022 0 999 0 889 0 10 10 0 0 klmnopqrst",
+              transport.outputLog);
 }
 
 TEST_F(ReplicatedSegmentTest, performTaskFreeNothingToDo) {
@@ -282,10 +349,6 @@ TEST_F(ReplicatedSegmentTest, performFreeWriteRpcInProgress) {
     // free, but its worth keeping the code since it is more robust if
     // the code knows how to deal with queued frees while there are
     // outstanding writes in progress.
-
-    MockTransport transport;
-    TransportManager::MockRegistrar _(transport);
-
     segment->write(openLen);
     segment->close(NULL);
     taskManager.proceed(); // writeRpc created

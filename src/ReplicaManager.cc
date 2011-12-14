@@ -81,7 +81,8 @@ ReplicaManager::ReplicaManager(ReplicaManager* prototype)
  */
 ReplicaManager::~ReplicaManager()
 {
-    sync();
+    foreach (auto& segment, replicatedSegmentList)
+        segment.sync();
     // sync() is insufficient, may have outstanding frees, etc. Done below.
     while (!taskManager.isIdle())
         proceed();
@@ -156,29 +157,6 @@ ReplicaManager::proceed()
     taskManager.proceed();
 }
 
-/**
- * Wait until all data enqueued for replication is durable on the proper number
- * of backups (durable may mean durably buffered) and will be recovered in the
- * case that the master crashes (provided warnings on ReplicatedSegment::close
- * are obeyed).  This must be called after any openSegment() or
- * ReplicatedSegment::write() calls where the operation must be immediately
- * durable (though, keep in mind, host failures could have eliminated some
- * replicas even as sync returns).  The implementation currently only returns
- * after any outstanding free requests have been acknowledged as well since
- * there isn't currently another context in which to complete them; this may
- * not be the case in future implementations.
- */
-void
-ReplicaManager::sync()
-{
-    TEST_LOG("syncing");
-    {
-        CycleCounter<RawMetric> _(&metrics->master.replicaManagerTicks);
-        while (!isSynced() || !taskManager.isIdle())
-            taskManager.proceed();
-    }
-}
-
 // - private -
 
 /**
@@ -192,20 +170,6 @@ ReplicaManager::clusterConfigurationChanged()
 {
     foreach (auto& segment, replicatedSegmentList)
         segment.schedule();
-}
-
-/**
- * Internal helper for #sync(); returns true when all data enqueued for
- * replication is durable on the proper number of backups.
- */
-bool
-ReplicaManager::isSynced()
-{
-    foreach (auto& segment, replicatedSegmentList) {
-        if (!segment.isSynced())
-            return false;
-    }
-    return true;
 }
 
 /**

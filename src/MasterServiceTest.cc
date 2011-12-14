@@ -355,7 +355,7 @@ TEST_F(MasterServiceTest, recover_basics) {
     Tub<ServerId> serverId(ServerId(123, 0));
     ReplicaManager mgr(coordinator, serverId, 1);
     Segment _(123, 87, segMem, segmentSize, &mgr);
-    mgr.sync();
+    _.sync();
 
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
@@ -435,7 +435,7 @@ TEST_F(MasterServiceTest, recover) {
     Tub<ServerId> serverId(ServerId(123, 0));
     ReplicaManager mgr(coordinator, serverId, 1);
     Segment __(123, 88, segMem, segmentSize, &mgr);
-    mgr.sync();
+    __.sync();
 
     InMemoryStorage storage2{segmentSize, segmentFrames};
     BackupService::Config backupConfig2 = backupConfig;

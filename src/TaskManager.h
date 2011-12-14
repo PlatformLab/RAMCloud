@@ -54,10 +54,11 @@ class Task {
     bool isScheduled();
     void schedule();
 
-  PRIVATE:
+  PROTECTED:
     /// Executes this Task when it isScheduled() on taskManager.proceed().
     TaskManager& taskManager;
 
+  PRIVATE:
     /// True if performTask() will be run on the next taskManager.proceed().
     bool scheduled;
 

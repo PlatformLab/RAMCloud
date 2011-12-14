@@ -137,7 +137,7 @@ TEST_F(ReplicaManagerTest, openSegment) {
     EXPECT_EQ(1u, mgr->replicatedSegmentList.size());
     EXPECT_EQ(segment, &mgr->replicatedSegmentList.front());
 
-    mgr->sync();
+    segment->sync();
 
     // make sure we think data was written
     EXPECT_EQ(data, segment->data);
@@ -224,34 +224,15 @@ TEST_F(ReplicaManagerTest, proceed) {
     EXPECT_TRUE(segment.replicas[0]->writeRpc);
 }
 
-TEST_F(ReplicaManagerTest, sync) {
-    mgr->openSegment(89, NULL, 0)->close(NULL);
-    mgr->openSegment(90, NULL, 0)->close(NULL);
-    mgr->openSegment(91, NULL, 0)->close(NULL);
-    mgr->sync();
-}
-
 TEST_F(ReplicaManagerTest, clusterConfigurationChanged) {
     // TODO(stutsman): Write once this method does something interesting.
 }
 
-TEST_F(ReplicaManagerTest, isSynced) {
-    mgr->openSegment(89, NULL, 0)->close(NULL);
-    mgr->openSegment(90, NULL, 0)->close(NULL);
-    EXPECT_FALSE(mgr->isSynced());
-    mgr->proceed(); // send opens
-    EXPECT_FALSE(mgr->isSynced());
-    mgr->proceed(); // reap opens
-    EXPECT_FALSE(mgr->isSynced());
-    mgr->proceed(); // send closes
-    EXPECT_FALSE(mgr->isSynced());
-    mgr->proceed(); // reap closes
-    EXPECT_TRUE(mgr->isSynced());
-}
-
 TEST_F(ReplicaManagerTest, destroyAndFreeReplicatedSegment) {
     auto* segment = mgr->openSegment(89, NULL, 0);
-    mgr->sync();
+    segment->sync();
+    while (!mgr->taskManager.isIdle())
+        mgr->proceed(); // Make sure the close gets pushed out as well.
     EXPECT_FALSE(mgr->replicatedSegmentList.empty());
     EXPECT_EQ(segment, &mgr->replicatedSegmentList.front());
     mgr->destroyAndFreeReplicatedSegment(segment);

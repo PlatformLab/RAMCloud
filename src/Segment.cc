@@ -260,11 +260,10 @@ Segment::multiAppend(SegmentMultiAppendVector& appends, bool sync)
     }
 
     // Sync once, if needed, in order to write everything atomically.
-    if (replicaManager) {
+    if (replicatedSegment) {
         replicatedSegment->write(tail);
-        if (sync) {
-            replicaManager->sync();
-        }
+        if (sync)
+            replicatedSegment->sync(tail);
     }
 
     return handles;
@@ -409,12 +408,12 @@ Segment::close(Segment* nextHead, bool sync)
     // ensure that any future append() will fail
     closed = true;
 
-    if (replicaManager) {
+    if (replicatedSegment) {
         replicatedSegment->write(tail);
         replicatedSegment->close(nextHead ?
                                     nextHead->replicatedSegment : NULL);
         if (sync) // sync determines whether to wait for the acks
-            replicaManager->sync();
+            replicatedSegment->sync(tail);
     }
 }
 
@@ -425,8 +424,8 @@ void
 Segment::sync()
 {
     boost::lock_guard<SpinLock> lock(mutex);
-    if (replicaManager)
-        replicaManager->sync();
+    if (replicatedSegment)
+        replicatedSegment->sync(tail);
 }
 
 /**
@@ -438,7 +437,7 @@ Segment::freeReplicas()
 {
     assert(closed);
     assert(!replicaManager || replicatedSegment);
-    if (replicaManager) {
+    if (replicatedSegment) {
         replicatedSegment->free();
         replicatedSegment = NULL;
     }
@@ -813,11 +812,11 @@ Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
         forceAppendBlob(buffer, length);
     }
 
-    if (sync && replicaManager && replicatedSegment) {
+    if (sync && replicatedSegment) {
         // replicatedSegment can be NULL while initial opening entries for the
         // segment header are appended but before openSegment is called.
         replicatedSegment->write(tail);
-        replicaManager->sync();
+        replicatedSegment->sync(tail);
     }
 
     SegmentEntryHandle handle =

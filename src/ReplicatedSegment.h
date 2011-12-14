@@ -227,6 +227,8 @@ class ReplicatedSegment : public Task {
   PUBLIC:
     void free();
     void close(ReplicatedSegment* followingSegment);
+    void sync();
+    void sync(uint32_t offset);
     void write(uint32_t offset);
 
   PRIVATE:

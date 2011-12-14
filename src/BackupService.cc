@@ -1248,8 +1248,6 @@ BackupService::startReadingData(
                     logDigestPtr = newDigest;
                     LOG(DEBUG, "Segment %lu's LogDigest queued for response",
                         segmentId);
-                } else {
-                    LOG(WARNING, "Segment %lu missing LogDigest", segmentId);
                 }
             }
         }

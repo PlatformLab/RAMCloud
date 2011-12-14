@@ -90,8 +90,8 @@ ReplicatedSegment::~ReplicatedSegment()
  * write rpcs for this segment are guaranteed to have completed so the log
  * memory associated with this segment is free for reuse.
  *
- * Currently there is a hack in ReplicaManager::sync() which ensures all
- * enqueued free operations have completed when ReplicaManager::sync() returns.
+ * Currently, there is no public interface to ensure all enqueued free
+ * operations have completed.
  */
 void
 ReplicatedSegment::free()
@@ -116,10 +116,9 @@ ReplicatedSegment::free()
  * please read the documentation for this function carefully.
  *
  * Once close() is called the only valid operation on the segment is free();
- * no further write() calls are permitted.  sync() must be called if the
- * caller wishes to ensure that the closed status of the segment is
- * reflected durably in its replicas (along with any earlier writes which
- * were not explicitly synced).
+ * no further write() calls are permitted.  The caller cannot ensure that the
+ * closed status of the segment is reflected durably in its replicas without
+ * getting creative; this class takes care of that detail for callers.
  *
  * The timing of when a close is replicated for a segment relative to
  * open and write requests for the following segment affects the integrity
@@ -174,13 +173,21 @@ ReplicatedSegment::free()
  *
  * During log cleaning many segments at a time are allocated and written
  * (writes for different cleaned segments can be interleaved) and sync() is
- * called explicitly at the end to ensure all operations on them have been
+ * called explicitly at the end to ensure all writes on them have been
  * completed before they are added to the log.  Since they are spliced into
  * the log atomically as part of another open segment they do not (and cannot
  * obey these extra ordering constraints).  To bypass these constraints the
  * log cleaner can simply pass NULL is for \a followingSegment.  Similarly,
  * since unit tests should almost always pass NULL to avoid these extra
  * ordering checks.
+ *
+ * Cleaned log segment replicas can appear as open during recovery without
+ * issue (neither this class or the caller are expected to wait for those
+ * segments to be durably closed).  This is because the system will not
+ * consider segments without a digest to be the head of the log and a cleaned
+ * replica can only be considered part of the log if it was named in a log
+ * digest.  Cleaned segment replicas are simply sync()'ed before being
+ * spliced into the log to ensure all the data is durable.
  *
  * \param followingSegment
  *      For a normal log segment this is a pointer to the ReplicatedSegment
@@ -212,6 +219,43 @@ ReplicatedSegment::close(ReplicatedSegment* followingSegment)
     ++metrics->master.segmentCloseCount;
 
     schedule();
+}
+
+/**
+ * Wait for the durable replication of all data queued for replication in this
+ * segment; see sync(uint32_t offset).
+ */
+void
+ReplicatedSegment::sync()
+{
+    sync(queued.bytes);
+}
+
+
+/**
+ * Wait for the durable replication (meaning at least durably buffered on
+ * backups) of data starting at the beginning of the segment up through \a
+ * offset bytes (non-inclusive).  Also implies the data will be recovered in
+ * the case that the master crashes (provided warnings on
+ * ReplicatedSegment::close are obeyed).  Note, this method can wait forever if
+ * \a offset bytes are never enqueued for replication.
+ *
+ * This must be called after any openSegment() or ReplicatedSegment::write()
+ * calls where the operation must be immediately durable (though, keep in mind,
+ * host failures could have eliminated some replicas even as sync returns).
+ *
+ * \param offset
+ *      The number of bytes of the segment that must be replicated before the
+ *      call will return.
+ */
+void
+ReplicatedSegment::sync(uint32_t offset)
+{
+    TEST_LOG("syncing");
+    CycleCounter<RawMetric> _(&metrics->master.replicaManagerTicks);
+    while (getAcked().bytes < offset) {
+        taskManager.proceed();
+    }
 }
 
 /**
@@ -394,8 +438,11 @@ ReplicatedSegment::performWrite(Tub<Replica>& replica)
             try {
                 (*replica->writeRpc)();
                 replica->acked = replica->sent;
-                if (replica->sent.close && followingSegment)
+                if (replica->sent.close && followingSegment) {
                     followingSegment->precedingSegmentCloseAcked = true;
+                    // Don't poke at potentially non-existent segments later.
+                    followingSegment = NULL;
+                }
             } catch (TransportException& e) {
                 // Retry, if it is down the server list will let us know.
                 replica->sent = replica->acked;

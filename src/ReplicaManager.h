@@ -63,14 +63,12 @@ class ReplicaManager : public ReplicatedSegment::Deleter {
                                    const void* data, uint32_t openLen);
         __attribute__((warn_unused_result));
     void proceed();
-    void sync();
 
     /// Number replicas to keep of each segment.
     const uint32_t numReplicas;
 
   PRIVATE:
     void clusterConfigurationChanged();
-    bool isSynced();
 
     /// Selects backups to store replicas while obeying placement constraints.
     BackupSelector backupSelector;
