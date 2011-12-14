@@ -18,6 +18,7 @@
 
 #include <unordered_map>
 #include <boost/pool/pool.hpp>
+#include <boost/thread.hpp>
 
 #include "Common.h"
 #include "BoostIntrusive.h"
@@ -76,6 +77,17 @@ class ReplicaManager : public ReplicatedSegment::Deleter {
     // TODO(stutsman): Remove this once the alt constructor has been eliminated.
     /// Cluster coordinator. May be NULL for testing purposes.
     CoordinatorClient* const coordinator;
+
+    /**
+     * Protects all internal data structures during concurrent calls to the
+     * ReplicaManager and any of its ReplicatedSegments.
+     * This includes all data being tracked for each individual segment and
+     * its replicas as well as helper structures like the #taskManager and
+     * #replicatedSegmentList.  A lock for this mutex must be held to read
+     * or modify any state in the ReplicaManager.
+     */
+    boost::mutex dataMutex;
+    typedef boost::lock_guard<boost::mutex> Lock;
 
     /// Id of master that this will be managing replicas for.
     const Tub<ServerId>& masterId;

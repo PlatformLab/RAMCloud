@@ -16,6 +16,8 @@
 #ifndef RAMCLOUD_REPLICATEDSEGMENT_H
 #define RAMCLOUD_REPLICATEDSEGMENT_H
 
+#include <boost/thread.hpp>
+
 #include "Common.h"
 #include "BackupClient.h"
 #include "BackupSelector.h"
@@ -227,7 +229,6 @@ class ReplicatedSegment : public Task {
   PUBLIC:
     void free();
     void close(ReplicatedSegment* followingSegment);
-    void sync();
     void sync(uint32_t offset);
     void write(uint32_t offset);
 
@@ -244,6 +245,7 @@ class ReplicatedSegment : public Task {
                       BaseBackupSelector& backupSelector,
                       Deleter& deleter,
                       uint32_t& writeRpcsInFlight,
+                      boost::mutex& dataMutex,
                       ServerId masterId, uint64_t segmentId,
                       const void* data, uint32_t openLen,
                       uint32_t numReplicas,
@@ -298,6 +300,14 @@ class ReplicatedSegment : public Task {
      * ReplicatedSegments.  Used to throttle write rpcs.
      */
     uint32_t& writeRpcsInFlight;
+
+    /**
+     * Protects all state for this segment and others the ReplicaManager is
+     * tracking; see ReplicaManager.  A lock for this mutex must be held to
+     * read or modify any state associated with this segment or any other.
+     */
+    boost::mutex& dataMutex;
+    typedef boost::lock_guard<boost::mutex> Lock;
 
     /// The server id of the Master whose log this segment belongs to.
     const ServerId masterId;

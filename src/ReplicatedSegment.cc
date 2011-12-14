@@ -33,6 +33,9 @@ namespace RAMCloud {
  * \param writeRpcsInFlight
  *      Number of outstanding write rpcs to backups across all
  *      ReplicatedSegments.  Used to throttle write rpcs.
+ * \param dataMutex
+ *      Mutex which protects all ReplicaManager state; shared with the
+ *      ReplicaManager and all other ReplicatedSegments.
  * \param deleter
  *      Deletes this when this determines it is no longer needed.
  * \param masterId
@@ -53,6 +56,7 @@ ReplicatedSegment::ReplicatedSegment(TaskManager& taskManager,
                                      BaseBackupSelector& backupSelector,
                                      Deleter& deleter,
                                      uint32_t& writeRpcsInFlight,
+                                     boost::mutex& dataMutex,
                                      ServerId masterId,
                                      uint64_t segmentId,
                                      const void* data,
@@ -63,6 +67,7 @@ ReplicatedSegment::ReplicatedSegment(TaskManager& taskManager,
     , backupSelector(backupSelector)
     , deleter(deleter)
     , writeRpcsInFlight(writeRpcsInFlight)
+    , dataMutex(dataMutex)
     , masterId(masterId)
     , segmentId(segmentId)
     , data(data)
@@ -88,9 +93,12 @@ ReplicatedSegment::~ReplicatedSegment()
  * backups.  The caller's ReplicatedSegment pointer is invalidated upon the
  * return of this function.  After the return of this call all outstanding
  * write rpcs for this segment are guaranteed to have completed so the log
- * memory associated with this segment is free for reuse.
+ * memory associated with this segment is free for reuse.  This implies that
+ * this call can spin waiting for write rpcs, though, it tries to be
+ * friendly to concurrent operations by releasing and reacquiring the
+ * internal ReplicaManager lock each time it checks rpcs for completion.
  *
- * Currently, there is no public interface to ensure all enqueued free
+ * Currently, there is no public interface to ensure enqueued free
  * operations have completed.
  */
 void
@@ -98,19 +106,31 @@ ReplicatedSegment::free()
 {
     TEST_LOG("%lu, %lu", *masterId, segmentId);
 
+    // The order is important and rather subtle here:
+    // First, mark the segment as queued for freeing.
+    // Then make sure not to return to the caller before any outstanding
+    // write request has finished.
+    // If the segment isn't marked free first then new write requests for
+    // other replicas may get started as we wait to reap the outstanding
+    // writeRpc.  This can cause the length of time the lock is held to
+    // stretch out.
+
+    Tub<Lock> lock;
+    lock.construct(dataMutex);
+    freeQueued = true;
+
     checkAgain:
     foreach (auto& replica, replicas) {
-        if (replica && replica->writeRpc) {
-            // It's safe to wait just on this writeRpc because we know the
-            // rpc has already been issued (generally, called performTask
-            // in a loop is a good way to deadlock because this task may
-            // not be able to make progress if it is waiting on another).
-            performTask();
-            goto checkAgain;
-        }
+        if (!replica || !replica->writeRpc)
+            continue;
+        taskManager.proceed();
+        // Release and reacquire the lock; this gives other operations
+        // a chance to slip in while this thread waits for all write
+        // rpcs to finish up.
+        lock.construct(dataMutex);
+        goto checkAgain;
     }
 
-    freeQueued = true;
     schedule();
 }
 
@@ -202,6 +222,7 @@ ReplicatedSegment::free()
 void
 ReplicatedSegment::close(ReplicatedSegment* followingSegment)
 {
+    Lock _(dataMutex);
     TEST_LOG("%lu, %lu, %lu", *masterId, segmentId, followingSegment ?
                                             followingSegment->segmentId : 0);
 
@@ -225,17 +246,6 @@ ReplicatedSegment::close(ReplicatedSegment* followingSegment)
 }
 
 /**
- * Wait for the durable replication of all data queued for replication in this
- * segment; see sync(uint32_t offset).
- */
-void
-ReplicatedSegment::sync()
-{
-    sync(queued.bytes);
-}
-
-
-/**
  * Wait for the durable replication (meaning at least durably buffered on
  * backups) of data starting at the beginning of the segment up through \a
  * offset bytes (non-inclusive).  Also implies the data will be recovered in
@@ -254,9 +264,13 @@ ReplicatedSegment::sync()
 void
 ReplicatedSegment::sync(uint32_t offset)
 {
-    TEST_LOG("syncing");
     CycleCounter<RawMetric> _(&metrics->master.replicaManagerTicks);
-    while (getAcked().bytes < offset) {
+    TEST_LOG("syncing");
+
+    while (true) {
+        Lock lock(dataMutex);
+        if (getAcked().bytes >= offset)
+            break;
         taskManager.proceed();
     }
 }
@@ -275,6 +289,7 @@ ReplicatedSegment::sync(uint32_t offset)
 void
 ReplicatedSegment::write(uint32_t offset)
 {
+    Lock _(dataMutex);
     TEST_LOG("%lu, %lu, %u", *masterId, segmentId, offset);
 
     // immutable after close

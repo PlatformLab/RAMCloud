@@ -81,8 +81,9 @@ struct ReplicatedSegmentTest : public ::testing::Test {
     enum { DATA_LEN = 100 };
     enum { MAX_BYTES_PER_WRITE = 21 };
     TaskManager taskManager;
-    uint32_t writeRpcsInFlight;
     CountingDeleter deleter;
+    uint32_t writeRpcsInFlight;
+    boost::mutex dataMutex;
     const ServerId masterId;
     const uint64_t segmentId;
     char data[DATA_LEN];
@@ -95,8 +96,9 @@ struct ReplicatedSegmentTest : public ::testing::Test {
 
     ReplicatedSegmentTest()
         : taskManager()
-        , writeRpcsInFlight(0)
         , deleter()
+        , writeRpcsInFlight(0)
+        , dataMutex()
         , masterId(ServerId(999, 0))
         , segmentId(888)
         , data()
@@ -115,6 +117,7 @@ struct ReplicatedSegmentTest : public ::testing::Test {
         segment = std::unique_ptr<ReplicatedSegment>(
                 new(segMem) ReplicatedSegment(taskManager, backupSelector,
                                               deleter, writeRpcsInFlight,
+                                              dataMutex,
                                               masterId, segmentId,
                                               data, openLen, numReplicas,
                                               MAX_BYTES_PER_WRITE));
@@ -193,7 +196,7 @@ TEST_F(ReplicatedSegmentTest, close) {
 }
 
 TEST_F(ReplicatedSegmentTest, sync) {
-    segment->sync(); // first sync sends the opens
+    segment->sync(segment->queued.bytes); // first sync sends the opens
     EXPECT_EQ("clientSend: 0x20022 0 999 0 888 0 0 10 5 0 abcedfghij | "
               "clientSend: 0x20022 0 999 0 888 0 0 10 1 0 abcedfghij",
                transport.outputLog);
@@ -201,7 +204,7 @@ TEST_F(ReplicatedSegmentTest, sync) {
     EXPECT_TRUE(segment->getAcked().open);
     EXPECT_EQ(openLen, segment->getAcked().bytes);
 
-    segment->sync(); // second sync doesn't need to send anything
+    segment->sync(segment->queued.bytes); // second sync doesn't send anything
     EXPECT_EQ("", transport.outputLog);
     transport.outputLog = "";
     EXPECT_EQ(openLen, segment->getAcked().bytes);
@@ -223,6 +226,7 @@ TEST_F(ReplicatedSegmentTest, syncDoubleCheckCrossSegmentOrderingConstraints) {
     auto newHead = std::unique_ptr<ReplicatedSegment>(
             new(segMem) ReplicatedSegment(taskManager, backupSelector,
                                           deleter, writeRpcsInFlight,
+                                          dataMutex,
                                           masterId, segmentId + 1,
                                           data, openLen, numReplicas,
                                           MAX_BYTES_PER_WRITE));
@@ -250,7 +254,7 @@ TEST_F(ReplicatedSegmentTest, syncDoubleCheckCrossSegmentOrderingConstraints) {
     // write newHead
 
     EXPECT_EQ("", transport.outputLog);
-    newHead->sync();
+    newHead->sync(newHead->queued.bytes);
     EXPECT_EQ("clientSend: 0x20022 0 999 0 889 0 0 10 5 0 abcedfghij | "
               "clientSend: 0x20022 0 999 0 889 0 0 10 1 0 abcedfghij | "
               "clientSend: 0x20022 0 999 0 888 0 0 10 5 0 abcedfghij | "
@@ -604,6 +608,7 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureNewHeadOpenAckedBeforeClose) {
     auto newHead = std::unique_ptr<ReplicatedSegment>(
             new(segMem) ReplicatedSegment(taskManager, backupSelector,
                                           deleter, writeRpcsInFlight,
+                                          dataMutex,
                                           masterId, segmentId + 1,
                                           data, openLen, numReplicas,
                                           MAX_BYTES_PER_WRITE));
@@ -644,6 +649,7 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureCloseBeforeNewHeadWrittenTo) {
     auto newHead = std::unique_ptr<ReplicatedSegment>(
             new(segMem) ReplicatedSegment(taskManager, backupSelector,
                                           deleter, writeRpcsInFlight,
+                                          dataMutex,
                                           masterId, segmentId + 1,
                                           data, openLen, numReplicas,
                                           MAX_BYTES_PER_WRITE));

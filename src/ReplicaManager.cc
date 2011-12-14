@@ -39,6 +39,7 @@ ReplicaManager::ReplicaManager(CoordinatorClient* coordinator,
     : numReplicas(numReplicas)
     , backupSelector(coordinator)
     , coordinator(coordinator)
+    , dataMutex()
     , masterId(masterId)
     , replicatedSegmentPool(ReplicatedSegment::sizeOf(numReplicas))
     , replicatedSegmentList()
@@ -66,6 +67,7 @@ ReplicaManager::ReplicaManager(ReplicaManager* prototype)
     : numReplicas(prototype->numReplicas)
     , backupSelector(prototype->coordinator)
     , coordinator(prototype->coordinator)
+    , dataMutex()
     , masterId(prototype->masterId)
     , replicatedSegmentPool(ReplicatedSegment::sizeOf(numReplicas))
     , replicatedSegmentList()
@@ -81,11 +83,14 @@ ReplicaManager::ReplicaManager(ReplicaManager* prototype)
  */
 ReplicaManager::~ReplicaManager()
 {
+    Lock lock(dataMutex);
+
     foreach (auto& segment, replicatedSegmentList)
-        segment.sync();
+        while (!segment.isSynced())
+            taskManager.proceed();
     // sync() is insufficient, may have outstanding frees, etc. Done below.
     while (!taskManager.isIdle())
-        proceed();
+        taskManager.proceed();
     while (!replicatedSegmentList.empty())
         destroyAndFreeReplicatedSegment(&replicatedSegmentList.front());
 }
@@ -131,6 +136,8 @@ ReplicaManager::openSegment(uint64_t segmentId, const void* data,
                             uint32_t openLen)
 {
     CycleCounter<RawMetric> _(&metrics->master.replicaManagerTicks);
+    Lock __(dataMutex);
+
     LOG(DEBUG, "openSegment %lu, %lu, ..., %u",
         masterId->getId(), segmentId, openLen);
     auto* p = replicatedSegmentPool.malloc();
@@ -138,8 +145,10 @@ ReplicaManager::openSegment(uint64_t segmentId, const void* data,
         DIE("Out of memory");
     auto* replicatedSegment =
         new(p) ReplicatedSegment(taskManager, backupSelector, *this,
-                                 writeRpcsInFlight, *masterId,
-                                 segmentId, data, openLen, numReplicas);
+                                 writeRpcsInFlight,
+                                 dataMutex,
+                                 *masterId, segmentId,
+                                 data, openLen, numReplicas);
     replicatedSegmentList.push_back(*replicatedSegment);
     replicatedSegment->schedule();
     return replicatedSegment;
@@ -154,6 +163,7 @@ void
 ReplicaManager::proceed()
 {
     CycleCounter<RawMetric> _(&metrics->master.replicaManagerTicks);
+    Lock __(dataMutex);
     taskManager.proceed();
 }
 
@@ -168,6 +178,7 @@ ReplicaManager::proceed()
 void
 ReplicaManager::clusterConfigurationChanged()
 {
+    Lock _(dataMutex);
     foreach (auto& segment, replicatedSegmentList)
         segment.schedule();
 }
@@ -182,6 +193,8 @@ void
 ReplicaManager::destroyAndFreeReplicatedSegment(ReplicatedSegment*
                                                     replicatedSegment)
 {
+    // Only called from destructor and ReplicatedSegment::performTask
+    // so lock on dataMutex should always be held.
     assert(!replicatedSegment->isScheduled());
     erase(replicatedSegmentList, *replicatedSegment);
     replicatedSegment->~ReplicatedSegment();

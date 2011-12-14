@@ -137,7 +137,7 @@ TEST_F(ReplicaManagerTest, openSegment) {
     EXPECT_EQ(1u, mgr->replicatedSegmentList.size());
     EXPECT_EQ(segment, &mgr->replicatedSegmentList.front());
 
-    segment->sync();
+    segment->sync(segment->queued.bytes);
 
     // make sure we think data was written
     EXPECT_EQ(data, segment->data);
@@ -230,7 +230,7 @@ TEST_F(ReplicaManagerTest, clusterConfigurationChanged) {
 
 TEST_F(ReplicaManagerTest, destroyAndFreeReplicatedSegment) {
     auto* segment = mgr->openSegment(89, NULL, 0);
-    segment->sync();
+    segment->sync(0);
     while (!mgr->taskManager.isIdle())
         mgr->proceed(); // Make sure the close gets pushed out as well.
     EXPECT_FALSE(mgr->replicatedSegmentList.empty());
