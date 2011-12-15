@@ -308,7 +308,7 @@ BackupService::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
  * Find which of a set of partitions this object or tombstone is in.
  *
  * \param type
- *      Either LOG_ENTRY_TYPE_OBJ or LOG_ENTRY_TYPE_OBJTOMB.  The result
+ *      Either LOG_ENTRY_TYPE_OBJ or LOG_ENTRY_TYPE_OBJTOMB. The result
  *      of this function for a SegmentEntry of any other type is undefined.
  * \param data
  *      The start of an object or tombstone in memory.
@@ -324,19 +324,17 @@ whichPartition(const LogEntryType type,
                const void* data,
                const ProtoBuf::Tablets& partitions)
 {
-    const Object* object =
-        reinterpret_cast<const Object*>(data);
-    const ObjectTombstone* tombstone =
-        reinterpret_cast<const ObjectTombstone*>(data);
-
     uint64_t tableId;
-    uint64_t objectId;
+    HashType keyHash;
     if (type == LOG_ENTRY_TYPE_OBJ) {
-        tableId = object->id.tableId;
-        objectId = object->id.objectId;
+        const Object* object = reinterpret_cast<const Object*>(data);
+        tableId = object->tableId;
+        keyHash = object->keyHash();
     } else { // LOG_ENTRY_TYPE_OBJTOMB:
-        tableId = tombstone->id.tableId;
-        objectId = tombstone->id.objectId;
+        const ObjectTombstone* tombstone =
+            reinterpret_cast<const ObjectTombstone*>(data);
+        tableId = tombstone->tableId;
+        keyHash = tombstone->keyHash();
     }
 
     Tub<uint64_t> ret;
@@ -344,16 +342,16 @@ whichPartition(const LogEntryType type,
     for (int i = 0; i < partitions.tablet_size(); i++) {
         const ProtoBuf::Tablets::Tablet& tablet(partitions.tablet(i));
         if (tablet.table_id() == tableId &&
-            (tablet.start_object_id() <= objectId &&
-            tablet.end_object_id() >= objectId)) {
+            (tablet.start_key_hash() <= keyHash &&
+            tablet.end_key_hash() >= keyHash)) {
             ret.construct(tablet.user_data());
             return ret;
         }
     }
-
-    LOG(WARNING, "Couldn't place object <%lu,%lu> into any of the given "
+    LOG(WARNING, "Couldn't place object with <tableId, keyHash> of <%lu,%lu> "
+                 "into any of the given "
                  "tablets for recovery; hopefully it belonged to a deleted "
-                 "tablet or lives in another log now", tableId, objectId);
+                 "tablet or lives in another log now", tableId, keyHash);
     return ret;
 }
 
@@ -407,8 +405,8 @@ BackupService::SegmentInfo::buildRecoverySegments(
 
             // find out which partition this entry belongs in
             Tub<uint64_t> partitionId = whichPartition(it.getType(),
-                                                             it.getPointer(),
-                                                             partitions);
+                                                       it.getPointer(),
+                                                       partitions);
             if (!partitionId)
                 continue;
             const SegmentEntry* entry = reinterpret_cast<const SegmentEntry*>(

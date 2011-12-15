@@ -26,17 +26,27 @@
 #include "HashTable.h"
 #include "Memory.h"
 #include "OptionParser.h"
+#include "KeyUtil.h"
 
 namespace RAMCloud {
+namespace {
 
 class TestObject {
   public:
-    TestObject(uint64_t key1, uint64_t key2) : _key1(key1), _key2(key2) {}
-    uint64_t key1() const { return _key1; }
-    uint64_t key2() const { return _key2; }
-    uint64_t _key1, _key2;
-};
+    TestObject(uint64_t key1, uint64_t key2)
+        : _key1(key1), _key2(key2)
+    {
+    }
+    uint64_t key1() { return _key1; }
+    const char* key2() const { return _key2.get(); }
+    uint16_t key2Length() const { return _key2.length(); }
+    uint64_t _key1;
+    MakeKey _key2;
+} __attribute__((aligned(64)));
+
 typedef HashTable<TestObject*> TestObjectMap;
+
+} // anonymous namespace
 
 void
 hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
@@ -44,7 +54,7 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
     uint64_t i;
     TestObjectMap ht(nlines);
     TestObject **values = static_cast<TestObject**>(
-        Memory::xmalloc(HERE, nkeys * sizeof(values[0])));
+          Memory::xmalloc(HERE, nkeys * sizeof(values[0])));
 
     printf("hash table keys: %lu\n", nkeys);
     printf("hash table lines: %lu\n", nlines);
@@ -61,7 +71,8 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
         // Here just in case.
         //   NB: This alters our PerfDistribution bin counts,
         //       so be sure to reset them below!
-        assert(ht.lookup(0, i) == values[i]);
+        MakeKey key(i);
+        assert(ht.lookup(0, key.get(), key.length()) == values[i]);
     }
     printf("done!\n");
 
@@ -105,7 +116,8 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
     // don't use a CycleCounter, as we may want to run without PERF_COUNTERS
     uint64_t lookupCycles = Cycles::rdtsc();
     for (i = 0; i < nkeys; i++) {
-        TestObject *p = ht.lookup(0, i);
+        MakeKey key(i);
+        TestObject *p = ht.lookup(0, key.get(), key.length());
         assert(p != NULL);
     }
     i = Cycles::rdtsc() - lookupCycles;

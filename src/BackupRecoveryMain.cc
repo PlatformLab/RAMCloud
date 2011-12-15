@@ -70,7 +70,7 @@ try
     client.createTable("mainTable");
     uint32_t table = client.openTable("mainTable");
     Transport::SessionRef mainTableSession =
-        client.objectFinder.lookup(table, 0);
+        client.objectFinder.lookup(table, "0", 1);
 
     // Create a single value on all masters so that they each have a valid
     // log digest created.  When we choose to crash them we don't want the
@@ -85,13 +85,14 @@ try
         snprintf(name, sizeof(name), "backup%d", ++i);
         client.createTable(name);
         uint32_t table = client.openTable(name);
-        Transport::SessionRef session = client.objectFinder.lookup(table, 0);
+        Transport::SessionRef session =
+                client.objectFinder.lookup(table, "0", 1);
         // Round-robin table allocation: create tables until we find we've
         // created an extra table on the server with mainTable.
         if (session->getServiceLocator() ==
             mainTableSession->getServiceLocator())
             break;
-        client.write(table, 0, value, objectDataSize);
+        client.write(table, "0", 1, value, objectDataSize);
         // Keep track of the table id of one of the backups that doesn't have
         // mainTable on it.  We'll crash it below.
         lastBackupTable = table;
@@ -99,11 +100,14 @@ try
 
     // Write enough test data to ensure crash will affect the master
     // with mainTable.
-    for (int i = 0; i < count; ++i)
-        client.write(table, i, value, objectDataSize);
+    for (int i = 0; i < count; ++i) {
+        string key = format("%d", i);
+        client.write(table, key.c_str(), downCast<uint16_t>(key.length()),
+                value, objectDataSize);
+    }
 
     Transport::SessionRef session =
-        client.objectFinder.lookup(lastBackupTable, 0);
+        client.objectFinder.lookup(lastBackupTable, "0", 1);
     LOG(NOTICE, "Killing %s", session->getServiceLocator().c_str());
 
     CycleCounter<> backupRecoveryCycles;

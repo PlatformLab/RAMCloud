@@ -566,35 +566,43 @@ class _SegmentEntryHandle {
     }
 
     /**
-     * Used by HashTable to get the first uint64_t key for supported
-     * types.
+     * Used by HashTable to get the first uint64_t key.
      */
     uint64_t
     key1() const
     {
         if (type() == LOG_ENTRY_TYPE_OBJ) {
-            return reinterpret_cast<const Object*>(
-                userData())->id.tableId;
+            return userData<Object>()->tableId;
         } else if (type() == LOG_ENTRY_TYPE_OBJTOMB) {
-            return reinterpret_cast<const ObjectTombstone*>(
-                userData())->id.tableId;
+            return userData<ObjectTombstone>()->tableId;
         }
         throw Exception(HERE, "not of object or object tombstone types");
     }
 
     /**
-     * Used by HashTable to get the second uint64_t key for supported
-     * types.
-     */
-    uint64_t
+     * Used by HashTable to get the string key (2nd part of the total key).
+     */    
+    const char*
     key2() const
     {
         if (type() == LOG_ENTRY_TYPE_OBJ) {
-            return reinterpret_cast<const Object*>(
-                userData())->id.objectId;
+            return userData<Object>()->getKey();
         } else if (type() == LOG_ENTRY_TYPE_OBJTOMB) {
-            return reinterpret_cast<const ObjectTombstone*>(
-                userData())->id.objectId;
+            return userData<ObjectTombstone>()->getKey();
+        }
+        throw Exception(HERE, "not of object or object tombstone types");
+    }
+
+    /**
+     * Used by HashTable to get the length of key2.
+     */
+    uint16_t
+    key2Length() const
+    {
+        if (type() == LOG_ENTRY_TYPE_OBJ) {
+            return userData<Object>()->keyLength;
+        } else if (type() == LOG_ENTRY_TYPE_OBJTOMB) {
+            return userData<ObjectTombstone>()->keyLength;
         }
         throw Exception(HERE, "not of object or object tombstone types");
     }

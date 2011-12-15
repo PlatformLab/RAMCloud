@@ -67,7 +67,7 @@ TEST_F(RamCloudTest, getMetrics) {
 
 TEST_F(RamCloudTest, getMetrics_byTableId) {
     metrics->temp.count3 = 20202;
-    ServerMetrics metrics = ramcloud->getMetrics(tableId1, 0);
+    ServerMetrics metrics = ramcloud->getMetrics(tableId1, "0", 1);
     EXPECT_EQ(20202U, metrics["temp.count3"]);
 }
 
@@ -83,28 +83,28 @@ TEST_F(RamCloudTest, proxyPing) {
 TEST_F(RamCloudTest, multiRead) {
     // Write objects to be read later
     uint64_t version1;
-    ramcloud->write(tableId1, 0, "firstVal", 8, NULL, &version1, false);
+    ramcloud->write(tableId1, "0", 1, "firstVal", 8, NULL, &version1, false);
 
     uint64_t version2;
-    ramcloud->write(tableId2, 0, "secondVal", 9, NULL, &version2, false);
+    ramcloud->write(tableId2, "0", 1, "secondVal", 9, NULL, &version2, false);
     uint64_t version3;
-    ramcloud->write(tableId2, 1, "thirdVal", 8, NULL, &version3, false);
+    ramcloud->write(tableId2, "1", 1, "thirdVal", 8, NULL, &version3, false);
 
     // Construct requests and read
     MasterClient::ReadObject* requests[3];
 
     Tub<Buffer> readValue1;
-    MasterClient::ReadObject request1(tableId1, 0, &readValue1);
+    MasterClient::ReadObject request1(tableId1, "0", 1, &readValue1);
     request1.status = STATUS_RETRY;
     requests[0] = &request1;
 
     Tub<Buffer> readValue2;
-    MasterClient::ReadObject request2(tableId2, 0, &readValue2);
+    MasterClient::ReadObject request2(tableId2, "0", 1, &readValue2);
     request2.status = STATUS_RETRY;
     requests[1] = &request2;
 
     Tub<Buffer> readValue3;
-    MasterClient::ReadObject request3(tableId2, 1, &readValue3);
+    MasterClient::ReadObject request3(tableId2, "1", 1, &readValue3);
     request3.status = STATUS_RETRY;
     requests[2] = &request3;
 
@@ -123,9 +123,9 @@ TEST_F(RamCloudTest, multiRead) {
 
 TEST_F(RamCloudTest, writeString) {
     uint32_t tableId1 = ramcloud->openTable("table1");
-    ramcloud->write(tableId1, 99, "abcdef");
+    ramcloud->write(tableId1, "99", 2, "abcdef");
     Buffer value;
-    ramcloud->read(tableId1, 99, &value);
+    ramcloud->read(tableId1, "99", 2, &value);
     EXPECT_EQ(6U, value.getTotalLength());
     char buffer[200];
     value.copy(0, value.getTotalLength(), buffer);

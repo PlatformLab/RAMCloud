@@ -30,14 +30,6 @@
 using namespace RAMCloud;
 
 /*
- * If true, add the table and object ids to every object, calculate and
- * append a checksum, and verify the whole package when recovery is done.
- * The crc is the first 4 bytes of the object. The tableId and objectId
- * are the last 16 bytes.
- */
-bool verify = false;
-
-/*
  * Speed up recovery insertion with the single-shot FillWithTestData RPC.
  */
 bool fillWithTestData = false;
@@ -94,10 +86,7 @@ try
         ("size,s",
          ProgramOptions::value<uint32_t>(&objectDataSize)->
             default_value(1024),
-         "Number of bytes to insert per object during insert phase.")
-        ("verify,v",
-         ProgramOptions::bool_switch(&verify),
-         "Verify the contents of all objects after recovery completes.");
+         "Number of bytes to insert per object during insert phase.");
 
     OptionParser optionParser(clientOptions, argc, argv);
     Context::get().transportManager->setTimeout(
@@ -121,24 +110,24 @@ try
     LOG(NOTICE, "coordinator ping took %lu ticks", Cycles::rdtsc() - b);
 
     b = Cycles::rdtsc();
-    client.ping(table, 42, 12345, 100000000);
+    client.ping(table, "42", 2, 12345, 100000000);
     LOG(NOTICE, "master ping took %lu ticks", Cycles::rdtsc() - b);
 
     b = Cycles::rdtsc();
-    client.write(table, 42, "Hello, World!", 14);
+    client.write(table, "42", 2, "Hello, World!", 14);
     LOG(NOTICE, "write took %lu ticks", Cycles::rdtsc() - b);
 
     b = Cycles::rdtsc();
     const char *value = "0123456789012345678901234567890"
         "123456789012345678901234567890123456789";
-    client.write(table, 43, value, downCast<uint32_t>(strlen(value) + 1));
+    client.write(table, "43", 2, value, downCast<uint32_t>(strlen(value) + 1));
     LOG(NOTICE, "write took %lu ticks", Cycles::rdtsc() - b);
 
     Buffer buffer;
     b = Cycles::rdtsc();
     uint32_t length;
 
-    client.read(table, 43, &buffer);
+    client.read(table, "43", 2, &buffer);
     LOG(NOTICE, "read took %lu ticks", Cycles::rdtsc() - b);
 
     length = buffer.getTotalLength();
@@ -146,7 +135,7 @@ try
         static_cast<const char*>(buffer.getRange(0, length)),
         length);
 
-    client.read(table, 42, &buffer);
+    client.read(table, "42", 2, &buffer);
     LOG(NOTICE, "read took %lu ticks", Cycles::rdtsc() - b);
     length = buffer.getTotalLength();
     LOG(NOTICE, "Got back [%s] len %u",
@@ -158,21 +147,25 @@ try
 
     LOG(NOTICE, "Performing %u writes of %u byte objects",
         count, objectDataSize);
-    uint64_t* ids = static_cast<uint64_t*>(malloc(sizeof(ids[0]) * count));
+    string keys[count];
     for (int j = 0; j < count; j++)
-        ids[j] = j;
+        keys[j] = format("%d", j);
     b = Cycles::rdtsc();
     for (int j = 0; j < count; j++)
-        client.write(table, ids[j], val, downCast<uint32_t>(strlen(val) + 1));
+        client.write(table, keys[j].c_str(),
+                     downCast<uint16_t>(keys[j].length()),
+                     val, downCast<uint32_t>(strlen(val) + 1));
     LOG(NOTICE, "%d writes took %lu ticks", count, Cycles::rdtsc() - b);
     LOG(NOTICE, "avg write took %lu ticks", (Cycles::rdtsc() - b) / count);
 
     LOG(NOTICE, "Reading one of the objects just inserted");
-    client.read(table, ids[0], &buffer);
+    client.read(table, "0", 1, &buffer);
 
     LOG(NOTICE, "Performing %u removals of objects just inserted", removeCount);
-    for (int j = 0; j < count && j < removeCount; j++)
-            client.remove(table, ids[j]);
+    for (int j = 0; j < count && j < removeCount; j++) {
+        string key = format("%d", j);
+        client.remove(table, key.c_str(), downCast<uint16_t>(key.length()));
+    }
 
     client.dropTable("test");
 

@@ -125,6 +125,7 @@ test: $(OBJDIR)/test \
       $(OBJDIR)/ClusterPerf \
       $(OBJDIR)/Echo \
       $(OBJDIR)/HashTableBenchmark \
+      $(OBJDIR)/LogCleanerBenchmark \
       $(OBJDIR)/Perf \
       $(OBJDIR)/RecoverSegmentBenchmark \
       $(OBJDIR)/Telnet \

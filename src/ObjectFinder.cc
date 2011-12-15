@@ -15,6 +15,7 @@
 
 #include "ObjectFinder.h"
 #include "ShortMacros.h"
+#include "KeyHash.h"
 
 namespace RAMCloud {
 
@@ -51,30 +52,42 @@ ObjectFinder::ObjectFinder(CoordinatorClient& coordinator)
 }
 
 /**
- * Lookup the master for a particular object ID in a given table.
+ * Lookup the master for a particular key in a given table.
+ *
+ * \param table
+ *      The table containing the desired object (return value from a
+ *      previous call to openTable).
+ * \param key
+ *      Variable length key that uniquely identifies the object within tableId.
+ *      It does not necessarily have to be null terminated like a string.
+ * \param keyLength
+ *      Size in bytes of the key.
+ *
  * \throw TableDoesntExistException
  *      The coordinator has no record of the table.
  */
 Transport::SessionRef
-ObjectFinder::lookup(uint32_t table, uint64_t objectId) {
+ObjectFinder::lookup(uint32_t table, const char* key, uint16_t keyLength) {
+    HashType keyHash = getKeyHash(key, keyLength);
+
     /*
-     * The control flow in here is a bit tricky:
-     * Since tabletMap is a cache of the coordinator's tablet map, we can only
-     * throw TableDoesntExistException if the table doesn't exist after
-     * refreshing that cache.
-     * Moreover, if the tablet turns out to be in a state of recovery, we have
-     * to spin until it is recovered.
-     */
+    * The control flow in here is a bit tricky:
+    * Since tabletMap is a cache of the coordinator's tablet map, we can only
+    * throw TableDoesntExistException if the table doesn't exist after
+    * refreshing that cache.
+    * Moreover, if the tablet turns out to be in a state of recovery, we have
+    * to spin until it is recovered.
+    */
     bool haveRefreshed = false;
     while (true) {
         foreach (const ProtoBuf::Tablets::Tablet& tablet, tabletMap.tablet()) {
             if (tablet.table_id() == table &&
-                tablet.start_object_id() <= objectId &&
-                objectId <= tablet.end_object_id()) {
+                tablet.start_key_hash() <= keyHash &&
+                keyHash <= tablet.end_key_hash()) {
                 if (tablet.state() == ProtoBuf::Tablets_Tablet_State_NORMAL) {
                     // TODO(ongaro): add cache
                     return Context::get().transportManager->getSession(
-                                        tablet.service_locator().c_str());
+                            tablet.service_locator().c_str());
                 } else {
                     // tablet is recovering or something, try again
                     if (haveRefreshed)
@@ -87,15 +100,14 @@ ObjectFinder::lookup(uint32_t table, uint64_t objectId) {
         if (haveRefreshed) {
             throw TableDoesntExistException(HERE);
         }
-  refresh_and_retry:
-        tabletMapFetcher->getTabletMap(tabletMap);
-        haveRefreshed = true;
+        refresh_and_retry:
+            tabletMapFetcher->getTabletMap(tabletMap);
+            haveRefreshed = true;
     }
 }
 
-
 /**
- * Lookup the masters for a multiple object IDs in multiple tables.
+ * Lookup the masters for multiple keys across tables.
  * \param requests
  *      Array listing the objects to be read/written
  * \param numRequests
@@ -112,7 +124,8 @@ ObjectFinder::multiLookup(MasterClient::ReadObject* requests[],
     for (uint32_t i = 0; i < numRequests; i++){
         try {
             Transport::SessionRef currentSessionRef =
-                ObjectFinder::lookup(requests[i]->tableId, requests[i]->id);
+                ObjectFinder::lookup(requests[i]->tableId,
+                                     requests[i]->key, requests[i]->keyLength);
 
             // if this master already exists in the requestBins, add request
             // to the requestBin corresponding to that master

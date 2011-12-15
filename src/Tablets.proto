@@ -26,10 +26,10 @@ message Tablets {
     }
     /// The id of the containing table.
     required uint64 table_id = 1;
-    /// The smallest object id that is in this tablet.
-    required uint64 start_object_id = 2;
-    /// The largest object id that is in this tablet.
-    required uint64 end_object_id = 3;
+    /// The smallest hash value for a key that is in this tablet.
+    required uint64 start_key_hash = 2;
+    /// The largest hash value for a key that is in this tablet.
+    required uint64 end_key_hash = 3;
     /// The state of the tablet, see above.
     required State state = 4;
     /// The ID of the master owning this tablet.

@@ -166,9 +166,12 @@ struct MultiReadRpc {
         uint32_t count;
         struct Part {
             uint32_t tableId;
-            uint64_t id;
-            Part(uint32_t tableId, uint64_t id) : tableId(tableId), id(id) {}
-        };
+            uint16_t keyLength;
+            // In buffer: The actual key for this part
+            // follows immediately after this.
+            Part(uint32_t tableId, uint16_t keyLength)
+                : tableId(tableId), keyLength(keyLength) {}
+        } __attribute__((packed));
     } __attribute__((packed));
     struct Response {
         // RpcResponseCommon contains a status field. But it is not used in
@@ -188,7 +191,9 @@ struct ReadRpc {
     struct Request {
         RpcRequestCommon common;
         uint32_t tableId;
-        uint64_t id;
+        uint16_t keyLength;           // Length of the key in bytes.
+                                      // The actual key follows
+                                      // immediately after this header.
         RejectRules rejectRules;
     } __attribute__((packed));
     struct Response {
@@ -242,8 +247,10 @@ struct RemoveRpc {
     static const ServiceType service = MASTER_SERVICE;
     struct Request {
         RpcRequestCommon common;
-        uint64_t id;
         uint32_t tableId;
+        uint16_t keyLength;           // Length of the key in bytes.
+                                      // The actual key follows
+                                      // immediately after this header.
         RejectRules rejectRules;
     } __attribute__((packed));
     struct Response {
@@ -271,11 +278,13 @@ struct WriteRpc {
     static const ServiceType service = MASTER_SERVICE;
     struct Request {
         RpcRequestCommon common;
-        uint64_t id;
         uint32_t tableId;
+        uint16_t keyLength;           // Length of the key in bytes.
+                                      // The actual bytes of the key follow
+                                      // immediately after this header.
         uint32_t length;              // Length of the object's value in bytes.
                                       // The actual bytes of the object follow
-                                      // immediately after this header.
+                                      // immediately after the key.
         RejectRules rejectRules;
         uint8_t async;
     } __attribute__((packed));

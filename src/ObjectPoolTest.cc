@@ -23,6 +23,7 @@
 #include "ObjectPool.h"
 
 namespace RAMCloud {
+namespace {
 
 class TestObject {
   public:
@@ -49,6 +50,7 @@ class TestObject {
 
     DISALLOW_COPY_AND_ASSIGN(TestObject);
 };
+} //anonymous namespace
 
 TEST(ObjectPoolTest, constructor) {
     ObjectPool<TestObject> pool;

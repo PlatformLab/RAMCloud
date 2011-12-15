@@ -26,66 +26,6 @@ namespace RAMCloud {
 // Default RejectRules to use if none are provided by the caller.
 RejectRules defaultRejectRules;
 
-/// Start a write RPC. See MasterClient::write.
-MasterClient::Write::Write(MasterClient& client,
-                           uint32_t tableId, uint64_t id,
-                           Buffer& buffer,
-                           const RejectRules* rejectRules, uint64_t* version,
-                           bool async)
-    : client(client)
-    , version(version)
-    , requestBuffer()
-    , responseBuffer()
-    , state()
-{
-    WriteRpc::Request& reqHdr(client.allocHeader<WriteRpc>(requestBuffer));
-    reqHdr.id = id;
-    reqHdr.tableId = tableId;
-    reqHdr.length = buffer.getTotalLength();
-    reqHdr.rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
-    reqHdr.async = async;
-    for (Buffer::Iterator it(buffer); !it.isDone(); it.next())
-        Buffer::Chunk::appendToBuffer(&requestBuffer,
-                                      it.getData(), it.getLength());
-    state = client.send<WriteRpc>(client.session,
-                                  requestBuffer,
-                                  responseBuffer);
-}
-
-/// Start a write RPC. See MasterClient::write.
-MasterClient::Write::Write(MasterClient& client,
-                           uint32_t tableId, uint64_t id,
-                           const void* buf, uint32_t length,
-                           const RejectRules* rejectRules, uint64_t* version,
-                           bool async)
-    : client(client)
-    , version(version)
-    , requestBuffer()
-    , responseBuffer()
-    , state()
-{
-    WriteRpc::Request& reqHdr(client.allocHeader<WriteRpc>(requestBuffer));
-    reqHdr.id = id;
-    reqHdr.tableId = tableId;
-    reqHdr.length = length;
-    reqHdr.rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
-    reqHdr.async = async;
-    Buffer::Chunk::appendToBuffer(&requestBuffer, buf, length);
-    state = client.send<WriteRpc>(client.session,
-                                  requestBuffer,
-                                  responseBuffer);
-}
-
-/// Wait for the write RPC to complete.
-void
-MasterClient::Write::operator()()
-{
-    const WriteRpc::Response& respHdr(client.recv<WriteRpc>(state));
-    if (version != NULL)
-        *version = respHdr.version;
-    client.checkStatus(HERE);
-}
-
 /**
  * Fill a master server with the given number of objects, each of the
  * same given size. Objects are added to all tables in the master in
@@ -159,9 +99,12 @@ MasterClient::recover(ServerId masterId, uint64_t partitionId,
     Recover(*this, masterId, partitionId, tablets, replicas, numReplicas)();
 }
 
+/// Start a read RPC for an object. See MasterClient::read.
 MasterClient::Read::Read(MasterClient& client,
-                         uint32_t tableId, uint64_t id, Buffer* value,
-                         const RejectRules* rejectRules, uint64_t* version)
+                         uint32_t tableId, const char* key,
+                         uint16_t keyLength, Buffer* value,
+                         const RejectRules* rejectRules,
+                         uint64_t* version)
     : client(client)
     , version(version)
     , requestBuffer()
@@ -171,13 +114,16 @@ MasterClient::Read::Read(MasterClient& client,
     responseBuffer.reset();
     ReadRpc::Request& reqHdr(client.allocHeader<ReadRpc>(requestBuffer));
     reqHdr.tableId = tableId;
-    reqHdr.id = id;
+    reqHdr.keyLength = keyLength;
     reqHdr.rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
+    Buffer::Chunk::appendToBuffer(&requestBuffer, key, keyLength);
+
     state = client.send<ReadRpc>(client.session,
                                  requestBuffer,
                                  responseBuffer);
 }
 
+/// Wait for the read RPC to complete.
 void
 MasterClient::Read::operator()()
 {
@@ -192,15 +138,19 @@ MasterClient::Read::operator()()
     client.checkStatus(HERE);
 }
 
-
 /**
  * Read the current contents of an object.
  *
  * \param tableId
  *      The table containing the desired object (return value from
  *      a previous call to openTable).
- * \param id
- *      Identifier within tableId of the object to be read.
+ * \param key
+ *      Variable length key that uniquely identifies the object within tableId.
+ *      It does not necessarily have to be null terminated like a string.
+ *      The caller is responsible for ensuring that this key remains valid
+ *      until the call is reaped/canceled.
+ * \param keyLength
+ *      Size in bytes of the key.
  * \param[out] value
  *      After a successful return, this Buffer will hold the
  *      contents of the desired object.
@@ -215,75 +165,14 @@ MasterClient::Read::operator()()
  * \exception InternalError
  */
 void
-MasterClient::read(uint32_t tableId, uint64_t id, Buffer* value,
-        const RejectRules* rejectRules, uint64_t* version)
+MasterClient::read(uint32_t tableId, const char* key, uint16_t keyLength,
+                   Buffer* value, const RejectRules* rejectRules,
+                   uint64_t* version)
 {
-    Read(*this, tableId, id, value, rejectRules, version)();
+    Read(*this, tableId, key, keyLength, value, rejectRules, version)();
 }
 
-/**
- * Read the current contents of multiple objects.
- *
- * \param requests
- *      Vector (of ReadObject's) listing the objects to be read
- *      and where to place their values
- */
-void
-MasterClient::multiRead(std::vector<ReadObject*> requests)
-{
-    // Create Request
-    Buffer req;
-    MultiReadRpc::Request& reqHdr(allocHeader<MultiReadRpc>(req));
-    reqHdr.count = downCast<uint32_t>(requests.size());
-
-    foreach (ReadObject *request, requests) {
-        new(&req, APPEND) MultiReadRpc::Request::Part(request->tableId,
-                                                      request->id);
-    }
-
-    // Send and Receive Rpc
-    Buffer respBuffer;
-    const MultiReadRpc::Response& respHdr(sendRecv<MultiReadRpc>(
-                                          session, req, respBuffer));
-    checkStatus(HERE);
-
-    // Extract Response
-    uint32_t respOffset = downCast<uint32_t>(sizeof(respHdr));
-
-    // Each iteration extracts one object from the response
-    foreach (ReadObject *request, requests) {
-        const Status *status = respBuffer.getOffset<Status>(respOffset);
-        respOffset += downCast<uint32_t>(sizeof(Status));
-        request->status = *status;
-
-        if (*status == STATUS_OK) {
-            const SegmentEntry* entry = respBuffer.getOffset<SegmentEntry>(
-                                                                respOffset);
-            respOffset += downCast<uint32_t>(sizeof(SegmentEntry));
-
-            /*
-            * Need to check checksum
-            * If computed checksum does not match stored checksum for a segment:
-            * Retry getting the data from server.
-            * If it is still bad, ensure (in some way) that data on the server
-            * is corrupted. Then crash that server.
-            * Wait for recovery and then return the data
-            */
-
-            const Object* obj = respBuffer.getOffset<Object>(respOffset);
-            respOffset += downCast<uint32_t>(sizeof(Object));
-
-            request->version = obj->version;
-
-            uint32_t dataLength = obj->dataLength(entry->length);
-            request->value->construct();
-            respBuffer.copy(respOffset, dataLength, new(
-                            request->value->get(), APPEND) char[dataLength]);
-            respOffset += dataLength;
-        }
-    }
-}
-
+/// Start a multiRead RPC. See MasterClient::multiRead.
 MasterClient::MultiRead::MultiRead(MasterClient& client,
                                    std::vector<ReadObject*>& requests)
     : client(client)
@@ -292,19 +181,22 @@ MasterClient::MultiRead::MultiRead(MasterClient& client,
     , state()
     , requests(requests)
 {
-    MultiReadRpc::Request& reqHdr(client.allocHeader<MultiReadRpc>(
-                                                    requestBuffer));
+    MultiReadRpc::Request&
+        reqHdr(client.allocHeader<MultiReadRpc>(requestBuffer));
     reqHdr.count = downCast<uint32_t>(requests.size());
 
     foreach (ReadObject *request, requests) {
-        new(&requestBuffer, APPEND) MultiReadRpc::Request::Part(
-                                  request->tableId, request->id);
+        new(&requestBuffer, APPEND)
+            MultiReadRpc::Request::Part(request->tableId, request->keyLength);
+        Buffer::Chunk::appendToBuffer(&requestBuffer, request->key,
+                                      request->keyLength);
     }
 
     state = client.send<MultiReadRpc>(client.session, requestBuffer,
                                       responseBuffer);
 }
 
+/// Wait for multiRead RPC to complete.
 void
 MasterClient::MultiRead::complete()
 {
@@ -336,49 +228,73 @@ MasterClient::MultiRead::complete()
 
             const Object* obj = responseBuffer.getOffset<Object>(respOffset);
             respOffset += downCast<uint32_t>(sizeof(Object));
+            respOffset += obj->keyLength;
 
             request->version = obj->version;
 
             uint32_t dataLength = obj->dataLength(entry->length);
             request->value->construct();
-            responseBuffer.copy(respOffset, dataLength, new(
-                            request->value->get(), APPEND) char[dataLength]);
+            responseBuffer.copy(respOffset, dataLength,
+                                new(request->value->get(), APPEND)
+                                char[dataLength]);
             respOffset += dataLength;
         }
     }
 }
 
 /**
- * Delete an object from a table. If the object does not currently exist
- * and no rejectRules match, then the operation succeeds without doing
- * anything.
+ * Read the current contents of multiple objects.
+ *
+ * \param requests
+ *      Vector (of ReadObject's) listing the objects to be read
+ *      and where to place their values
+ *
+ * \exception RejectRulesException
+ * \exception InternalError
+ */
+void
+MasterClient::multiRead(std::vector<ReadObject*> requests)
+{
+    MultiRead(*this, requests).complete();
+}
+
+/**
+ * Delete an object from a table. If the object does not currently exist and
+ * no rejectRules match, then the operation succeeds without doing anything.
  *
  * \param tableId
  *      The table containing the object to be deleted (return value from
  *      a previous call to openTable).
- * \param id
- *      Identifier within tableId of the object to be deleted.
+ * \param key
+ *      Variable length key that uniquely identifies the object within tableId.
+ *      It does not necessarily have to be null terminated like a string.
+ *      The caller is responsible for ensuring that this key remains valid
+ *      until the call is reaped/canceled.
+ * \param keyLength
+ *      Size in bytes of the key.
  * \param rejectRules
  *      If non-NULL, specifies conditions under which the delete
- *      should be aborted with an error.  If NULL, the object is
+ *      should be aborted with an error. If NULL, the object is
  *      deleted unconditionally.
  * \param[out] version
  *      If non-NULL, the version number of the object (prior to
- *      deletion) is returned here.  If the object didn't exist
+ *      deletion) is returned here. If the object didn't exist
  *      then 0 will be returned.
  *
  * \exception RejectRulesException
  * \exception InternalError
  */
 void
-MasterClient::remove(uint32_t tableId, uint64_t id,
-        const RejectRules* rejectRules, uint64_t* version)
+MasterClient::remove(uint32_t tableId, const char* key, uint16_t keyLength,
+                     const RejectRules* rejectRules, uint64_t* version)
 {
     Buffer req, resp;
     RemoveRpc::Request& reqHdr(allocHeader<RemoveRpc>(req));
-    reqHdr.id = id;
     reqHdr.tableId = tableId;
+    reqHdr.keyLength = keyLength;
     reqHdr.rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
+    Buffer::Chunk::appendToBuffer(&req, key, keyLength);
+
     const RemoveRpc::Response& respHdr(sendRecv<RemoveRpc>(session, req, resp));
     if (version != NULL)
         *version = respHdr.version;
@@ -433,16 +349,84 @@ MasterClient::takeTabletOwnership(uint64_t tableId,
     checkStatus(HERE);
 }
 
+/// Start a write RPC for an object. See MasterClient::write.
+MasterClient::Write::Write(MasterClient& client,
+                           uint32_t tableId,
+                           const char* key, uint16_t keyLength,
+                           const void* buf, uint32_t length,
+                           const RejectRules* rejectRules,
+                           uint64_t* version, bool async)
+    : client(client)
+    , version(version)
+    , requestBuffer()
+    , responseBuffer()
+    , state()
+{
+    WriteRpc::Request& reqHdr(client.allocHeader<WriteRpc>(requestBuffer));
+    reqHdr.tableId = tableId;
+    reqHdr.keyLength = keyLength;
+    reqHdr.length = length;
+    reqHdr.rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
+    reqHdr.async = async;
+    Buffer::Chunk::appendToBuffer(&requestBuffer, key, keyLength);
+    Buffer::Chunk::appendToBuffer(&requestBuffer, buf, length);
+    state = client.send<WriteRpc>(client.session,
+                                  requestBuffer,
+                                  responseBuffer);
+}
+
+/// Start a write RPC. See MasterClient::write.
+MasterClient::Write::Write(MasterClient& client,
+                           uint32_t tableId,
+                           const char* key, uint16_t keyLength,
+                           Buffer& buffer,
+                           const RejectRules* rejectRules,
+                           uint64_t* version, bool async)
+    : client(client)
+    , version(version)
+    , requestBuffer()
+    , responseBuffer()
+    , state()
+{
+    WriteRpc::Request& reqHdr(client.allocHeader<WriteRpc>(requestBuffer));
+    reqHdr.tableId = tableId;
+    reqHdr.keyLength = keyLength;
+    reqHdr.length = buffer.getTotalLength();
+    reqHdr.rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
+    reqHdr.async = async;
+    Buffer::Chunk::appendToBuffer(&requestBuffer, key, keyLength);
+    for (Buffer::Iterator it(buffer); !it.isDone(); it.next())
+        Buffer::Chunk::appendToBuffer(&requestBuffer,
+                                      it.getData(), it.getLength());
+    state = client.send<WriteRpc>(client.session,
+                                  requestBuffer,
+                                  responseBuffer);
+}
+
+/// Wait for the write RPC to complete
+void
+MasterClient::Write::operator()()
+{
+    const WriteRpc::Response& respHdr(client.recv<WriteRpc>(state));
+    if (version != NULL)
+        *version = respHdr.version;
+    client.checkStatus(HERE);
+}
+
 /**
- * Write a specific object in a table; overwrite any existing
- * object, or create a new object if none existed.
+ * Write a specific object in a table; overwrite any existing object,
+ * or create a new object if none existed.
  *
  * \param tableId
  *      The table containing the desired object (return value from a
  *      previous call to openTable).
- * \param id
- *      Identifier within tableId of the object to be written; may or
- *      may not refer to an existing object.
+ * \param key
+ *      Variable length key that uniquely identifies the object within tableId.
+ *      It does not necessarily have to be null terminated like a string.
+ *      The caller is responsible for ensuring that this key remains valid
+ *      until the call is reaped/canceled.
+ * \param keyLength
+ *      Size in bytes of the key.
  * \param buf
  *      Address of the first byte of the new contents for the object;
  *      must contain at least length bytes.
@@ -468,12 +452,13 @@ MasterClient::takeTabletOwnership(uint64_t tableId,
  * \exception InternalError
  */
 void
-MasterClient::write(uint32_t tableId, uint64_t id,
+MasterClient::write(uint32_t tableId, const char* key, uint16_t keyLength,
                     const void* buf, uint32_t length,
                     const RejectRules* rejectRules, uint64_t* version,
                     bool async)
 {
-    Write(*this, tableId, id, buf, length, rejectRules, version, async)();
+    Write(*this, tableId, key, keyLength, buf, length, rejectRules,
+          version, async)();
 }
 
 }  // namespace RAMCloud

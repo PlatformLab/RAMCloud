@@ -40,13 +40,13 @@ randInt(uint64_t floor, uint64_t ceiling)
 }
 
 static uint64_t
-uniform(uint64_t maxObjId)
+uniform(uint64_t maxKeyVal)
 {
-    return randInt(0, maxObjId);
+    return randInt(0, maxKeyVal);
 }
 
 static uint64_t
-hotAndCold(uint64_t maxObjId)
+hotAndCold(uint64_t maxKeyVal)
 {
     // HOT% of objs written 100 - HOT% of the time.
     unsigned int HOT = 10;
@@ -54,10 +54,10 @@ hotAndCold(uint64_t maxObjId)
     double hotFraction = static_cast<double>(HOT) / 100.0;
     if (randInt(0, 100) < (100 - HOT)) {
         return randInt(0, static_cast<uint64_t>(hotFraction *
-            static_cast<double>(maxObjId)));
+            static_cast<double>(maxKeyVal)));
     } else {
         return randInt(static_cast<uint64_t>(hotFraction *
-            static_cast<double>(maxObjId)), maxObjId);
+            static_cast<double>(maxKeyVal)), maxKeyVal);
     }
 }
 
@@ -70,6 +70,10 @@ runIt(RamCloud* client,
 {
     char objBuf[objectSize];
 
+    string keys[maxId * 20];
+    for (uint64_t i = 0; i < maxId * 20; i++)
+        keys[i] = format("%lu", nextId(maxId));
+
     uint64_t bytesWritten = 0;
     uint64_t objectsWritten = 0;
     uint64_t startTime = Cycles::rdtsc();
@@ -78,9 +82,9 @@ runIt(RamCloud* client,
     uint64_t lastUpdateObjects = 0;
 
     for (uint64_t i = 0; i < maxId * 20; i++) {
-        uint64_t objId = nextId(maxId);
         // TODO(Rumble): u32 table ids!!
-        client->write((uint32_t)tableId, objId, objBuf, objectSize);
+        client->write((uint32_t)tableId, keys[i].c_str(),
+                downCast<uint16_t>(keys[i].length()), objBuf, objectSize);
 
         bytesWritten += objectSize;
         objectsWritten++;
@@ -170,13 +174,13 @@ try
             MAX_OBJECT_SIZE);
     }
 
-    uint64_t maxObjectId = ((uint64_t)logSize * 1024 * 1024) / objectSize;
-    maxObjectId = static_cast<uint64_t>(static_cast<double>(maxObjectId) *
+    uint64_t maxKeyVal = ((uint64_t)logSize * 1024 * 1024) / objectSize;
+    maxKeyVal = static_cast<uint64_t>(static_cast<double>(maxKeyVal) *
          static_cast<double>(utilisation) / 100.0);
 
     printf("========== Log Cleaner Benchmark ==========\n");
-    printf(" %dMB Log, %d-byte objects, %d%% utilisation, max objectId %lu\n",
-        logSize, objectSize, utilisation, maxObjectId);
+    printf(" %dMB Log, %d-byte objects, %d%% utilisation, max key value %lu\n",
+        logSize, objectSize, utilisation, maxKeyVal);
     printf(" running the %s distribution\n", distribution.c_str());
 
     string coordinatorLocator = optionParser.options.getCoordinatorLocator();
@@ -187,9 +191,9 @@ try
     uint64_t table = client->openTable(tableName.c_str());
 
     if (distribution == "uniform")
-        runIt(client, table, maxObjectId, objectSize, uniform);
+        runIt(client, table, maxKeyVal, objectSize, uniform);
     else
-        runIt(client, table, maxObjectId, objectSize, hotAndCold);
+        runIt(client, table, maxKeyVal, objectSize, hotAndCold);
 
     return 0;
 } catch (ClientException& e) {

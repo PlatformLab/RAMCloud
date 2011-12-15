@@ -19,6 +19,7 @@
 #include "ReplicaManager.h"
 #include "Segment.h"
 #include "ShortMacros.h"
+#include "KeyHash.h"
 
 namespace RAMCloud {
 
@@ -136,11 +137,13 @@ TEST_F(ReplicaManagerTest, writeSegment) {
     Segment seg(*serverId, 88, segMem, segmentSize, mgr.get());
     SegmentHeader header = { *serverId, 88, segmentSize };
     seg.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
-    Object object(sizeof(object));
-    object.id.objectId = 10;
-    object.id.tableId = 123;
-    object.version = 0;
-    seg.append(LOG_ENTRY_TYPE_OBJ, &object, sizeof(object));
+
+    DECLARE_OBJECT(object, 2, 0);
+    object->tableId = 123;
+    object->keyLength = 2;
+    object->version = 0;
+    memcpy(object->getKeyLocation(), "10", 2);
+    seg.append(LOG_ENTRY_TYPE_OBJ, object, object->objectLength(0));
     seg.close(NULL);
 
     EXPECT_EQ(1U, mgr->replicatedSegmentList.size());
@@ -148,8 +151,10 @@ TEST_F(ReplicaManagerTest, writeSegment) {
     ProtoBuf::Tablets will;
     ProtoBuf::Tablets::Tablet& tablet(*will.add_tablet());
     tablet.set_table_id(123);
-    tablet.set_start_object_id(0);
-    tablet.set_end_object_id(100);
+    HashType keyHash = getKeyHash("10", 2);
+    tablet.set_start_key_hash(keyHash);
+    tablet.set_end_key_hash(keyHash);
+
     tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
     tablet.set_user_data(0); // partition id
 
@@ -167,16 +172,16 @@ TEST_F(ReplicaManagerTest, writeSegment) {
                 }
                 break;
             }
+            ASSERT_NE(0U, resp.totalLength);
             auto* entry = resp.getStart<SegmentEntry>();
             EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, entry->type);
-            EXPECT_EQ(sizeof(Object), entry->length);
+            EXPECT_EQ(sizeof(Object) + 2, entry->length);
             resp.truncateFront(sizeof(*entry));
             auto* obj = resp.getStart<Object>();
-            EXPECT_EQ(10U, obj->id.objectId);
-            EXPECT_EQ(123U, obj->id.tableId);
+            EXPECT_EQ("10", TestUtil::toString(obj->getKey(), obj->keyLength));
+            EXPECT_EQ(123U, obj->tableId);
         }
     }
-
     free(segMem);
 }
 

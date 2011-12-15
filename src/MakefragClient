@@ -31,6 +31,7 @@ CLIENT_SRCFILES := \
 		   src/MasterClient.cc \
 		   src/MembershipClient.cc \
 		   src/Memory.cc \
+		   src/MurmurHash3.cc \
 		   src/ObjectFinder.cc \
 		   src/PcapFile.cc \
 		   src/PingClient.cc \

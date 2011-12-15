@@ -106,7 +106,8 @@ def load_so():
     address             = ctypes.c_char_p
     buf                 = ctypes.c_void_p
     client              = ctypes.c_void_p
-    id                  = ctypes.c_uint64
+    key                 = ctypes.c_char_p
+    keyLength           = ctypes.c_uint16
     len                 = ctypes.c_uint32
     name                = ctypes.c_char_p
     nanoseconds         = ctypes.c_uint64
@@ -139,15 +140,15 @@ def load_so():
                            POINTER(nonce)]
     so.rc_ping.restype  = status
 
-    so.rc_read.argtypes = [client, table, id, rejectRules, POINTER(version),
+    so.rc_read.argtypes = [client, table, key, keyLength, rejectRules, POINTER(version),
                            buf, len, POINTER(len)]
     so.rc_read.restype  = status
 
-    so.rc_remove.argtypes = [client, table, id, rejectRules,
+    so.rc_remove.argtypes = [client, table, key, keyLength, rejectRules,
                              POINTER(version)]
     so.rc_remove.restype  = status
 
-    so.rc_write.argtypes = [client, table, id, buf, len, rejectRules,
+    so.rc_write.argtypes = [client, table, key, keyLength, buf, len, rejectRules,
                             POINTER(version)]
     so.rc_write.restype  = status
 
@@ -156,6 +157,18 @@ def load_so():
 def _ctype_copy(addr, var, width):
     ctypes.memmove(addr, ctypes.addressof(var), width)
     return addr + width
+
+def get_key(id):
+    if type(id) is int:
+        return str(id)
+    else:
+        return id
+
+def get_keyLength(id):
+    if type(id) is int:
+        return len(str(id))
+    else:
+        return len(id)
 
 class RCException(Exception):
     def __init__(self, status):
@@ -218,7 +231,7 @@ class RAMCloud(object):
     def delete_rr(self, table_id, id, reject_rules):
         got_version = ctypes.c_uint64()
         self.hook()
-        s = so.rc_remove(self.client, table_id, id,
+        s = so.rc_remove(self.client, table_id, get_key(id), get_keyLength(id),
                          ctypes.byref(reject_rules), ctypes.byref(got_version))
         self.handle_error(s, got_version.value)
         return got_version.value
@@ -254,7 +267,8 @@ class RAMCloud(object):
         got_version = ctypes.c_uint64()
         reject_rules.object_doesnt_exist = True
         self.hook()
-        s = so.rc_read(self.client, table_id, id, ctypes.byref(reject_rules),
+        s = so.rc_read(self.client, table_id, get_key(id), get_keyLength(id),
+                       ctypes.byref(reject_rules),
                        ctypes.byref(got_version), ctypes.byref(buf), max_length,
                        ctypes.byref(actual_length))
         self.handle_error(s, got_version.value)
@@ -278,7 +292,8 @@ class RAMCloud(object):
     def write_rr(self, table_id, id, data, reject_rules):
         got_version = ctypes.c_uint64()
         self.hook()
-        s = so.rc_write(self.client, table_id, id, data, len(data),
+        s = so.rc_write(self.client, table_id, get_key(id), get_keyLength(id),
+                        data, len(data),
                         ctypes.byref(reject_rules), ctypes.byref(got_version))
         self.handle_error(s, got_version.value)
         return got_version.value

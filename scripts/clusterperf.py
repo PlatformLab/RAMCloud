@@ -153,7 +153,7 @@ def default(
     it simply invokes ClusterPerf via cluster.run and prints the result.
     """
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path, flatten_args(client_args), name), **cluster_args)
+            (obj_path, flatten_args(client_args), name), master_args='-d', **cluster_args)
     print(get_client_log(), end='')
 
 def broadcast(name, options, cluster_args, client_args):
@@ -225,6 +225,8 @@ simple_tests = [
     Test("netBandwidth", netBandwidth),
     Test("readAllToAll", readAllToAll),
     Test("readNotFound", default),
+    Test("readVaryingKeyLength", default),
+    Test("writeVaryingKeyLength", default),
     Test("writeAsyncSync", default),
 ]
 

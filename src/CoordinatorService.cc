@@ -145,8 +145,8 @@ CoordinatorService::createTable(const CreateTableRpc::Request& reqHdr,
     // Create tablet map entry.
     ProtoBuf::Tablets_Tablet& tablet(*tabletMap.add_tablet());
     tablet.set_table_id(tableId);
-    tablet.set_start_object_id(0);
-    tablet.set_end_object_id(~0UL);
+    tablet.set_start_key_hash(0);
+    tablet.set_end_key_hash(~0UL);
     tablet.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
     tablet.set_server_id(master->serverId.getId());
     tablet.set_service_locator(master->serviceLocator);
@@ -156,8 +156,8 @@ CoordinatorService::createTable(const CreateTableRpc::Request& reqHdr,
     ProtoBuf::Tablets& will = *master->will;
     ProtoBuf::Tablets_Tablet& willEntry(*will.add_tablet());
     willEntry.set_table_id(tableId);
-    willEntry.set_start_object_id(0);
-    willEntry.set_end_object_id(~0UL);
+    willEntry.set_start_key_hash(0);
+    willEntry.set_end_key_hash(~0UL);
     willEntry.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
     uint64_t maxPartitionId;
     if (will.tablet_size() > 1)
@@ -176,8 +176,8 @@ CoordinatorService::createTable(const CreateTableRpc::Request& reqHdr,
             *masterTabletMap.add_tablet() = tablet;
     }
     masterClient.takeTabletOwnership(tableId,
-                                     tablet.start_object_id(),
-                                     tablet.end_object_id());
+                                     tablet.start_key_hash(),
+                                     tablet.end_key_hash());
 
     LOG(NOTICE, "Created table '%s' with id %u on master %lu",
                 name, tableId, master->serverId.getId());
@@ -206,8 +206,8 @@ CoordinatorService::dropTable(const DropTableRpc::Request& reqHdr,
             ServerId masterId(tabletMap.tablet(i).server_id());
             MasterClient master(serverList.getSession(masterId));
             master.dropTabletOwnership(tableId,
-                                       tabletMap.tablet(i).start_object_id(),
-                                       tabletMap.tablet(i).end_object_id());
+                                       tabletMap.tablet(i).start_key_hash(),
+                                       tabletMap.tablet(i).end_key_hash());
 
             tabletMap.mutable_tablet()->SwapElements(
                     tabletMap.tablet_size() - 1, i);
@@ -450,12 +450,12 @@ CoordinatorService::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
                  *tabletMap.mutable_tablet())
         {
             if (recoveredTablet.table_id() == tablet.table_id() &&
-                recoveredTablet.start_object_id() == tablet.start_object_id() &&
-                recoveredTablet.end_object_id() == tablet.end_object_id())
+                recoveredTablet.start_key_hash() == tablet.start_key_hash() &&
+                recoveredTablet.end_key_hash() == tablet.end_key_hash())
             {
                 LOG(NOTICE, "Recovery complete on tablet %lu,%lu,%lu",
-                    tablet.table_id(), tablet.start_object_id(),
-                    tablet.end_object_id());
+                    tablet.table_id(), tablet.start_key_hash(),
+                    tablet.end_key_hash());
                 BaseRecovery* recovery =
                     reinterpret_cast<Recovery*>(tablet.user_data());
                 tablet.set_state(ProtoBuf::Tablets_Tablet::NORMAL);
@@ -479,8 +479,8 @@ CoordinatorService::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
                     foreach (const ProtoBuf::Tablets::Tablet& tablet,
                              tabletMap.tablet()) {
                         LOG(DEBUG, "table: %lu [%lu:%lu] state: %u owner: %lu",
-                            tablet.table_id(), tablet.start_object_id(),
-                            tablet.end_object_id(), tablet.state(),
+                            tablet.table_id(), tablet.start_key_hash(),
+                            tablet.end_key_hash(), tablet.state(),
                             tablet.server_id());
                     }
 

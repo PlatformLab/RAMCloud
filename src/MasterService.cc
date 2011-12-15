@@ -93,7 +93,9 @@ MasterService::MasterService(const ServerConfig& config,
     , log(serverId,
           config.master.logBytes,
           config.segmentSize,
-          downCast<uint32_t>(sizeof(Object)) + config.maxObjectSize,
+          downCast<uint32_t>(sizeof(Object)) +
+                config.maxObjectKeySize +
+                config.maxObjectDataSize,
           &replicaManager,
           config.master.disableLogCleaner ? Log::CLEANER_DISABLED :
                                             Log::CONCURRENT_CLEANER)
@@ -213,22 +215,29 @@ MasterService::fillWithTestData(const FillWithTestDataRpc::Request& reqHdr,
     foreach (const ProtoBuf::Tablets::Tablet& tablet, tablets.tablet())
         tables[i++] = reinterpret_cast<Table*>(tablet.user_data());
 
-    // safe? doubtful. simple? you bet.
-    char data[reqHdr.objectSize];
-    memset(data, 0xcc, reqHdr.objectSize);
-    Buffer buffer;
-    Buffer::Chunk::appendToBuffer(&buffer, data, reqHdr.objectSize);
-
     RejectRules rejectRules;
     memset(&rejectRules, 0, sizeof(RejectRules));
     rejectRules.exists = 1;
 
     for (uint32_t objects = 0; objects < reqHdr.numObjects; objects++) {
+        Buffer buffer;
+
         int t = objects % tablets.tablet_size();
+
+        string keyString = format("%d", objects / tablets.tablet_size());
+        uint16_t keyLength = static_cast<uint16_t>(keyString.length());
+
+        char* keyLocation = new(&buffer, APPEND) char[keyLength];
+        memcpy(keyLocation, keyString.c_str(), keyLength);
+
+        // safe? doubtful. simple? you bet.
+        char data[reqHdr.objectSize];
+        memset(data, 0xcc, reqHdr.objectSize);
+        Buffer::Chunk::appendToBuffer(&buffer, data, reqHdr.objectSize);
+
         uint64_t newVersion;
-        Status status = storeData(tables[t]->getId(),
-                                  tables[t]->AllocateKey(&objectMap),
-                                  &rejectRules, &buffer, 0, reqHdr.objectSize,
+        Status status = storeData(tables[t]->getId(), &rejectRules, &buffer,
+                                  0, keyLength, reqHdr.objectSize,
                                   &newVersion, true);
         if (status != STATUS_OK) {
             respHdr.common.status = status;
@@ -247,7 +256,21 @@ MasterService::fillWithTestData(const FillWithTestDataRpc::Request& reqHdr,
 /**
  * Top-level server method to handle the MULTIREAD request.
  *
- * \copydetails Service::ping
+ * \param reqHdr
+ *      Header from the incoming RPC request; contains the parameters
+ *      for this operation except the tableId, key, keyLength for each
+ *      of the objects to be read.
+ * \param[out] respHdr
+ *      Header for the response that will be returned to the client.
+ *      The caller has pre-allocated the right amount of space in the
+ *      response buffer for this type of request, and has zeroed out
+ *      its contents (so, for example, status is already zero).
+ * \param[out] rpc
+ *      Complete information about the remote procedure call.
+ *      It contains the tableId, key and keyLength for each of the
+ *      objects to be read. It can also be used to read additional
+ *      information beyond the request header and/or append additional
+ *      information to the response buffer.
  */
 void
 MasterService::multiRead(const MultiReadRpc::Request& reqHdr,
@@ -263,53 +286,74 @@ MasterService::multiRead(const MultiReadRpc::Request& reqHdr,
     // corresponding object, and appends the response to the response rpc.
     for (uint32_t i = 0; i < numRequests; i++) {
         const MultiReadRpc::Request::Part *currentReq =
-              rpc.requestPayload.getOffset<MultiReadRpc::Request::Part>(
-              reqOffset);
+            rpc.requestPayload.getOffset<MultiReadRpc::Request::Part>(
+            reqOffset);
         reqOffset += downCast<uint32_t>(sizeof(MultiReadRpc::Request::Part));
+        const char* key =
+            static_cast<const char*>(rpc.requestPayload.getRange(
+            reqOffset, currentReq->keyLength));
+        reqOffset += downCast<uint32_t>(currentReq->keyLength);
 
         Status* status = new(&rpc.replyPayload, APPEND) Status(STATUS_OK);
         // We must note the status if the table does not exist. Also, we might
         // have an entry in the hash table that's invalid because its tablet no
         // longer lives here.
-        if (getTable(currentReq->tableId, currentReq->id) == NULL) {
+        if (getTable(currentReq->tableId, key, currentReq->keyLength) == NULL) {
             *status = STATUS_TABLE_DOESNT_EXIST;
             continue;
         }
         LogEntryHandle handle = objectMap.lookup(currentReq->tableId,
-                                                 currentReq->id);
+                                                 key, currentReq->keyLength);
         if (handle == NULL || handle->type() != LOG_ENTRY_TYPE_OBJ) {
              *status = STATUS_OBJECT_DOESNT_EXIST;
              continue;
         }
 
-        const SegmentEntry* entry = reinterpret_cast<
-                                    const SegmentEntry*>(handle);
+        const SegmentEntry* entry =
+            reinterpret_cast<const SegmentEntry*>(handle);
         Buffer::Chunk::appendToBuffer(&rpc.replyPayload, entry,
-                                      downCast<uint32_t>(sizeof(SegmentEntry))
-                                      + handle->length());
+            downCast<uint32_t>(sizeof(SegmentEntry)) + handle->length());
     }
 }
 
 /**
  * Top-level server method to handle the READ request.
- * See the documentation for the corresponding method in RamCloudClient for
- * complete information about what this request does.
- * \copydetails Service::ping
+ *
+ * \param reqHdr
+ *      Header from the incoming RPC request; contains all the
+ *      parameters for this operation except the key of the object.
+ * \param[out] respHdr
+ *      Header for the response that will be returned to the client.
+ *      The caller has pre-allocated the right amount of space in the
+ *      response buffer for this type of request, and has zeroed out
+ *      its contents (so, for example, status is already zero).
+ * \param[out] rpc
+ *      Complete information about the remote procedure call.
+ *      It contains the key for the object. It can also be used to
+ *      read additional information beyond the request header and/or
+ *      append additional information to the response buffer.
  */
 void
 MasterService::read(const ReadRpc::Request& reqHdr,
-                   ReadRpc::Response& respHdr,
-                   Rpc& rpc)
+                    ReadRpc::Response& respHdr,
+                    Rpc& rpc)
 {
+    uint32_t reqOffset = downCast<uint32_t>(sizeof(reqHdr));
+    const char* key = static_cast<const char*>(rpc.requestPayload.getRange(
+                                               reqOffset, reqHdr.keyLength));
+
     // We must return table doesn't exist if the table does not exist. Also, we
     // might have an entry in the hash table that's invalid because its tablet
     // no longer lives here.
-    if (getTable(reqHdr.tableId, reqHdr.id) == NULL) {
+
+    if (getTable(reqHdr.tableId, key, reqHdr.keyLength) == NULL) {
         respHdr.common.status = STATUS_TABLE_DOESNT_EXIST;
         return;
     }
 
-    LogEntryHandle handle = objectMap.lookup(reqHdr.tableId, reqHdr.id);
+    LogEntryHandle handle = objectMap.lookup(reqHdr.tableId,
+                                             key, reqHdr.keyLength);
+
     if (handle == NULL || handle->type() != LOG_ENTRY_TYPE_OBJ) {
         respHdr.common.status = STATUS_OBJECT_DOESNT_EXIST;
         return;
@@ -323,7 +367,7 @@ MasterService::read(const ReadRpc::Request& reqHdr,
         return;
     }
     Buffer::Chunk::appendToBuffer(&rpc.replyPayload,
-        obj->data, obj->dataLength(handle->length()));
+        obj->getData(), obj->dataLength(handle->length()));
     // TODO(ongaro): We'll need a new type of Chunk to block the cleaner
     // from scribbling over obj->data.
     respHdr.length = obj->dataLength(handle->length());
@@ -348,8 +392,8 @@ MasterService::dropTabletOwnership(
     int index = 0;
     foreach (ProtoBuf::Tablets::Tablet& i, *tablets.mutable_tablet()) {
         if (reqHdr.tableId == i.table_id() &&
-          reqHdr.firstKey == i.start_object_id() &&
-          reqHdr.lastKey == i.end_object_id()) {
+          reqHdr.firstKey == i.start_key_hash() &&
+          reqHdr.lastKey == i.end_key_hash()) {
             LOG(NOTICE, "Dropping ownership of tablet (%lu, range [%lu,%lu])",
                 reqHdr.tableId, reqHdr.firstKey, reqHdr.lastKey);
             Table* table = reinterpret_cast<Table*>(i.user_data());
@@ -388,8 +432,8 @@ MasterService::takeTabletOwnership(
     ProtoBuf::Tablets::Tablet* tablet = NULL;
     foreach (ProtoBuf::Tablets::Tablet& i, *tablets.mutable_tablet()) {
         if (reqHdr.tableId == i.table_id() &&
-          reqHdr.firstKey == i.start_object_id() &&
-          reqHdr.lastKey == i.end_object_id()) {
+          reqHdr.firstKey == i.start_key_hash() &&
+          reqHdr.lastKey == i.end_key_hash()) {
             tablet = &i;
             break;
         }
@@ -397,8 +441,10 @@ MasterService::takeTabletOwnership(
 
     if (tablet == NULL) {
         // Sanity check that this tablet doesn't overlap with an existing one.
-        if (getTable(reqHdr.tableId, reqHdr.firstKey) != NULL ||
-          getTable(reqHdr.tableId, reqHdr.lastKey) != NULL) {
+        if (getTableForHash(downCast<uint32_t>(reqHdr.tableId),
+                            reqHdr.firstKey) != NULL ||
+            getTableForHash(downCast<uint32_t>(reqHdr.tableId),
+                            reqHdr.lastKey) != NULL) {
             LOG(WARNING, "Tablet being assigned (%lu, range [%lu,%lu]) "
                 "partially overlaps an existing tablet!", reqHdr.tableId,
                 reqHdr.firstKey, reqHdr.lastKey);
@@ -412,8 +458,8 @@ MasterService::takeTabletOwnership(
 
         ProtoBuf::Tablets_Tablet& newTablet(*tablets.add_tablet());
         newTablet.set_table_id(reqHdr.tableId);
-        newTablet.set_start_object_id(reqHdr.firstKey);
-        newTablet.set_end_object_id(reqHdr.lastKey);
+        newTablet.set_start_key_hash(reqHdr.firstKey);
+        newTablet.set_end_key_hash(reqHdr.lastKey);
         newTablet.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
 
         Table* table = new Table(reqHdr.tableId);
@@ -444,9 +490,12 @@ void
 recoveryCleanup(LogEntryHandle maybeTomb, void *cookie)
 {
     if (maybeTomb->type() == LOG_ENTRY_TYPE_OBJTOMB) {
-        const ObjectTombstone *tomb = maybeTomb->userData<ObjectTombstone>();
+        const ObjectTombstone *tomb =
+                            maybeTomb->userData<ObjectTombstone>();
         MasterService *server = reinterpret_cast<MasterService*>(cookie);
-        bool r = server->objectMap.remove(tomb->id.tableId, tomb->id.objectId);
+        bool r = server->objectMap.remove(tomb->tableId,
+                                          tomb->getKey(),
+                                          tomb->keyLength);
         assert(r);
         // Tombstones are not explicitly freed in the log. The cleaner will
         // figure out that they're dead.
@@ -988,8 +1037,8 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
     foreach (ProtoBuf::Tablets::Tablet& tablet,
              *recoveryTablets.mutable_tablet()) {
         LOG(NOTICE, "set tablet %lu %lu %lu to locator %s, id %lu",
-                 tablet.table_id(), tablet.start_object_id(),
-                 tablet.end_object_id(), config.localLocator.c_str(),
+                 tablet.table_id(), tablet.start_key_hash(),
+                 tablet.end_key_hash(), config.localLocator.c_str(),
                  serverId.getId());
         tablet.set_service_locator(config.localLocator);
         tablet.set_server_id(serverId.getId());
@@ -1025,23 +1074,26 @@ MasterService::recoverSegmentPrefetcher(RecoverySegmentIterator& i)
         return;
 
     LogEntryType type = i.getType();
-    uint64_t objId = ~0UL, tblId = ~0UL;
+
+    uint64_t tblId = ~0UL;
+    const char* key = "";
+    uint16_t keyLength = 0;
 
     if (type == LOG_ENTRY_TYPE_OBJ) {
-        const Object *recoverObj = reinterpret_cast<const Object *>(
-                     i.getPointer());
-        objId = recoverObj->id.objectId;
-        tblId = recoverObj->id.tableId;
+        const Object *recoverObj =
+            reinterpret_cast<const Object *>(i.getPointer());
+        tblId = recoverObj->tableId;
+        key = recoverObj->getKey();
+        keyLength = recoverObj->keyLength;
     } else if (type == LOG_ENTRY_TYPE_OBJTOMB) {
         const ObjectTombstone *recoverTomb =
             reinterpret_cast<const ObjectTombstone *>(i.getPointer());
-        objId = recoverTomb->id.objectId;
-        tblId = recoverTomb->id.tableId;
-    } else {
-        return;
+        tblId = recoverTomb->tableId;
+        key = recoverTomb->getKey();
+        keyLength = recoverTomb->keyLength;
     }
 
-    objectMap.prefetchBucket(tblId, objId);
+    objectMap.prefetchBucket(tblId, key, keyLength);
 }
 
 /**
@@ -1083,14 +1135,15 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
         metrics->master.recoverySegmentEntryBytes += i.getLength();
 
         if (type == LOG_ENTRY_TYPE_OBJ) {
-            const Object *recoverObj = reinterpret_cast<const Object *>(
-                i.getPointer());
-            uint64_t objId = recoverObj->id.objectId;
-            uint64_t tblId = recoverObj->id.tableId;
+            const Object *recoverObj =
+                  reinterpret_cast<const Object *>(i.getPointer());
+            uint64_t tblId = recoverObj->tableId;
+            const char* key = recoverObj->getKey();
+            uint16_t keyLength = recoverObj->keyLength;
 
             const Object *localObj = NULL;
             const ObjectTombstone *tomb = NULL;
-            LogEntryHandle handle = objectMap.lookup(tblId, objId);
+            LogEntryHandle handle = objectMap.lookup(tblId, key, keyLength);
             if (handle != NULL) {
                 if (handle->type() == LOG_ENTRY_TYPE_OBJTOMB)
                     tomb = handle->userData<ObjectTombstone>();
@@ -1133,22 +1186,24 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
             }
         } else if (type == LOG_ENTRY_TYPE_OBJTOMB) {
             const ObjectTombstone *recoverTomb =
-                reinterpret_cast<const ObjectTombstone *>(i.getPointer());
-            uint64_t objId = recoverTomb->id.objectId;
-            uint64_t tblId = recoverTomb->id.tableId;
+                  reinterpret_cast<const ObjectTombstone *>(i.getPointer());
+            uint64_t tblId = recoverTomb->tableId;
+            const char* key = recoverTomb->getKey();
+            uint16_t keyLength = recoverTomb->keyLength;
 
             bool checksumIsValid = ({
                 CycleCounter<RawMetric> c(&metrics->master.verifyChecksumTicks);
                 i.isChecksumValid();
             });
             if (!checksumIsValid) {
-                LOG(WARNING, "invalid tombstone checksum! tbl: %lu, obj: %lu, "
-                    "ver: %lu", tblId, objId, recoverTomb->objectVersion);
+                LOG(WARNING, "invalid tombstone checksum! tbl: %lu, obj: %.*s, "
+                    "ver: %lu", tblId, keyLength, key,
+                    recoverTomb->objectVersion);
             }
 
             const Object *localObj = NULL;
             const ObjectTombstone *tomb = NULL;
-            LogEntryHandle handle = objectMap.lookup(tblId, objId);
+            LogEntryHandle handle = objectMap.lookup(tblId, key, keyLength);
             if (handle != NULL) {
                 if (handle->type() == LOG_ENTRY_TYPE_OBJTOMB)
                     tomb = handle->userData<ObjectTombstone>();
@@ -1167,8 +1222,9 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
 
             if (recoverTomb->objectVersion >= minSuccessor) {
                 ++metrics->master.tombstoneAppendCount;
-                LogEntryHandle newTomb = log.append(LOG_ENTRY_TYPE_OBJTOMB,
-                    recoverTomb, sizeof(*recoverTomb), false, i.checksum());
+                LogEntryHandle newTomb =
+                    log.append(LOG_ENTRY_TYPE_OBJTOMB, recoverTomb,
+                               recoverTomb->tombLength(), false, i.checksum());
                 objectMap.replace(newTomb);
 
                 // The cleaner will figure out that the tombstone is dead.
@@ -1194,21 +1250,25 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
 
 /**
  * Top-level server method to handle the REMOVE request.
- * See the documentation for the corresponding method in RamCloudClient for
- * complete information about what this request does.
- * \copydetails Service::ping
+ *
+ * \copydetails MasterService::read
  */
 void
 MasterService::remove(const RemoveRpc::Request& reqHdr,
                       RemoveRpc::Response& respHdr,
                       Rpc& rpc)
 {
-    Table* table = getTable(reqHdr.tableId, reqHdr.id);
+    const char* key = static_cast<const char*>(rpc.requestPayload.getRange(
+                      downCast<uint32_t>(sizeof(reqHdr)), reqHdr.keyLength));
+
+    Table* table = getTable(reqHdr.tableId, key, reqHdr.keyLength);
     if (table == NULL) {
         respHdr.common.status = STATUS_TABLE_DOESNT_EXIST;
         return;
     }
-    LogEntryHandle handle = objectMap.lookup(reqHdr.tableId, reqHdr.id);
+
+    LogEntryHandle handle = objectMap.lookup(reqHdr.tableId,
+                                             key, reqHdr.keyLength);
     if (handle == NULL || handle->type() != LOG_ENTRY_TYPE_OBJ) {
         Status status = rejectOperation(reqHdr.rejectRules,
                                         VERSION_NONEXISTENT);
@@ -1227,12 +1287,13 @@ MasterService::remove(const RemoveRpc::Request& reqHdr,
         return;
     }
 
-    ObjectTombstone tomb(log.getSegmentId(obj), obj);
+    DECLARE_OBJECTTOMBSTONE(tomb, obj->keyLength,
+                                  log.getSegmentId(obj), obj);
 
     // Write the tombstone into the Log, increment the tablet version
     // number, and remove from the hash table.
     try {
-        log.append(LOG_ENTRY_TYPE_OBJTOMB, &tomb, sizeof(tomb));
+        log.append(LOG_ENTRY_TYPE_OBJTOMB, &tomb, tomb->tombLength());
     } catch (LogException& e) {
         // The log is out of space. Tell the client to retry and hope
         // that either the cleaner makes space soon or we shift load
@@ -1243,24 +1304,26 @@ MasterService::remove(const RemoveRpc::Request& reqHdr,
 
     table->RaiseVersion(obj->version + 1);
     log.free(handle);
-    objectMap.remove(reqHdr.tableId, reqHdr.id);
+    objectMap.remove(reqHdr.tableId, key, reqHdr.keyLength);
 }
 
 /**
  * Top-level server method to handle the WRITE request.
- * See the documentation for the corresponding method in RamCloudClient for
- * complete information about what this request does.
- * \copydetails Service::ping
+ *
+ * \copydetails MasterService::read
  */
 void
 MasterService::write(const WriteRpc::Request& reqHdr,
-                    WriteRpc::Response& respHdr,
-                    Rpc& rpc)
+                     WriteRpc::Response& respHdr,
+                     Rpc& rpc)
 {
-    Status status = storeData(reqHdr.tableId, reqHdr.id, &reqHdr.rejectRules,
-                              &rpc.requestPayload, sizeof(reqHdr),
+    Status status = storeData(reqHdr.tableId, &reqHdr.rejectRules,
+                              &rpc.requestPayload,
+                              static_cast<uint32_t>(sizeof(reqHdr)),
+                              reqHdr.keyLength,
                               static_cast<uint32_t>(reqHdr.length),
                               &respHdr.version, reqHdr.async);
+
     if (status != STATUS_OK) {
         respHdr.common.status = status;
         return;
@@ -1269,24 +1332,46 @@ MasterService::write(const WriteRpc::Request& reqHdr,
 
 /**
  * Ensures that this master owns the tablet for the given object
- * and returns the corresponding Table.
+ * based on its tableId and key and returns the corresponding Table.
  *
  * \param tableId
  *      Identifier for a desired table.
- * \param objectId
- *      Identifier for a desired object.
+ * \param key
+ *      Variable length key that uniquely identifies the object within tableId.
+ * \param keyLength
+ *      Size in bytes of the key.
  *
  * \return
  *      The Table of which the tablet containing this object is a part,
  *      or NULL if this master does not own the tablet.
  */
 Table*
-MasterService::getTable(uint64_t tableId, uint64_t objectId) {
+MasterService::getTable(uint32_t tableId, const char* key, uint16_t keyLength)
+{
+    return getTableForHash(tableId, getKeyHash(key, keyLength));
+}
 
+/**
+ * Ensures that this master owns the tablet for any object corresponding
+ * to the given hash value of its string key and returns the
+ * corresponding Table.
+ *
+ * \param tableId
+ *      Identifier for a desired table.
+ * \param keyHash
+ *      Hash value of the variable length key of the object.
+ *
+ * \return
+ *      The Table of which the tablet containing this object is a part,
+ *      or NULL if this master does not own the tablet.
+ */
+Table*
+MasterService::getTableForHash(uint32_t tableId, HashType keyHash)
+{
     foreach (const ProtoBuf::Tablets::Tablet& tablet, tablets.tablet()) {
         if (tablet.table_id() == tableId &&
-            tablet.start_object_id() <= objectId &&
-            objectId <= tablet.end_object_id()) {
+            tablet.start_key_hash() <= keyHash &&
+            keyHash <= tablet.end_key_hash()) {
             return reinterpret_cast<Table*>(tablet.user_data());
         }
     }
@@ -1325,12 +1410,6 @@ MasterService::rejectOperation(const RejectRules& rejectRules, uint64_t version)
     return STATUS_OK;
 }
 
-//-----------------------------------------------------------------------
-// Everything below here is "old" code, meaning it probably needs to
-// get refactored at some point, it doesn't follow the coding conventions,
-// and there are no unit tests for it.
-//-----------------------------------------------------------------------
-
 /**
  * Determine whether or not an object is still alive (i.e. is referenced
  * by the hash table). If so, the cleaner must perpetuate it. If not, it
@@ -1356,13 +1435,14 @@ objectLivenessCallback(LogEntryHandle handle, void* cookie)
 
     std::lock_guard<SpinLock> lock(svr->objectUpdateLock);
 
-    Table* t = svr->getTable(downCast<uint32_t>(evictObj->id.tableId),
-                             evictObj->id.objectId);
+    Table* t = svr->getTable(downCast<uint32_t>(evictObj->tableId),
+                             evictObj->getKey(), evictObj->keyLength);
     if (t == NULL)
         return false;
 
     LogEntryHandle hashTblHandle =
-        svr->objectMap.lookup(evictObj->id.tableId, evictObj->id.objectId);
+        svr->objectMap.lookup(evictObj->tableId,
+                              evictObj->getKey(), evictObj->keyLength);
     if (hashTblHandle == NULL)
         return false;
 
@@ -1375,7 +1455,7 @@ objectLivenessCallback(LogEntryHandle handle, void* cookie)
 
 /**
  * Callback used by the LogCleaner when it's cleaning a Segment and moves
- * an Object to a new Segment (i.e. an entry of type LOG_ENTRY_TYPE_OBJ).
+ * an Object to a new Segment.
  *
  * The cleaner will have already invoked the liveness callback to see whether
  * or not the Object was recently live. Since it could no longer be live (it
@@ -1412,17 +1492,19 @@ objectRelocationCallback(LogEntryHandle oldHandle,
 
     std::lock_guard<SpinLock> lock(svr->objectUpdateLock);
 
-    Table* table = svr->getTable(downCast<uint32_t>(evictObj->id.tableId),
-                                 evictObj->id.objectId);
+    Table* table = svr->getTable(downCast<uint32_t>(evictObj->tableId),
+                                 evictObj->getKey(), evictObj->keyLength);
     if (table == NULL) {
         // That tablet doesn't exist on this server anymore.
         // Just remove the hash table entry, if it exists.
-        svr->objectMap.remove(evictObj->id.tableId, evictObj->id.objectId);
+        svr->objectMap.remove(evictObj->tableId,
+                              evictObj->getKey(), evictObj->keyLength);
         return false;
     }
 
     LogEntryHandle hashTblHandle =
-        svr->objectMap.lookup(evictObj->id.tableId, evictObj->id.objectId);
+        svr->objectMap.lookup(evictObj->tableId,
+                              evictObj->getKey(), evictObj->keyLength);
 
     bool keepNewObject = false;
     if (hashTblHandle != NULL) {
@@ -1491,7 +1573,7 @@ tombstoneLivenessCallback(LogEntryHandle handle, void* cookie)
 
 /**
  * Callback used by the LogCleaner when it's cleaning a Segment and moves
- * a Tombstone to a new Segment (i.e. an entry of type LOG_ENTRY_TYPE_OBJTOMB).
+ * a Tombstone to a new Segment.
  *
  * The cleaner will have already invoked the liveness callback to see whether
  * or not the Tombstone was recently live. Since it could no longer be live (it
@@ -1529,8 +1611,8 @@ tombstoneRelocationCallback(LogEntryHandle oldHandle,
     // see if the referent is still there
     bool keepNewTomb = svr->log.isSegmentLive(tomb->segmentId);
 
-    Table* table = svr->getTable(downCast<uint32_t>(tomb->id.tableId),
-                                 tomb->id.objectId);
+    Table* table = svr->getTable(downCast<uint32_t>(tomb->tableId),
+                                 tomb->getKey(), tomb->keyLength);
     if (table != NULL && !keepNewTomb) {
         table->tombstoneCount--;
         table->tombstoneBytes -= oldHandle->length();
@@ -1559,19 +1641,20 @@ tombstoneTimestampCallback(LogEntryHandle handle)
 /**
  * \param tableId
  *      The table in which to store the object.
- * \param id
- *      Identifier within the table of the object to be written; may or
- *      may not refer to an existing object.
  * \param rejectRules
  *      Specifies conditions under which the write should be aborted with an
  *      error. May not be NULL.
- * \param data
- *      Contains the binary blob to store at (tableId, id).
+ * \param keyAndData
+ *      Contains the binary blob that includes the key and the
+ *      data to store at (tableId, key).
  *      May not be NULL.
- * \param dataOffset
- *      The offset into \a data where the blob begins.
+ * \param keyOffset
+ *      The offset into \a keyAndData where the key begins.
+ * \param keyLength
+ *      The size in bytes of the key in the blob.
  * \param dataLength
- *      The size in bytes of the blob.
+ *      The size in bytes of the data in the blob. The data follows the key in
+ *      the keyAndData blob.
  * \param newVersion
  *      The version number of the object is returned here. May not be NULL. If
  *      the operation was successful this will be the new version for the
@@ -1589,15 +1672,28 @@ tombstoneTimestampCallback(LogEntryHandle handle)
  */
 Status
 MasterService::storeData(uint64_t tableId,
-                         uint64_t id,
                          const RejectRules* rejectRules,
-                         Buffer* data,
-                         uint32_t dataOffset,
+                         Buffer* keyAndData,
+                         uint32_t keyOffset,
+                         uint16_t keyLength,
                          uint32_t dataLength,
                          uint64_t* newVersion,
                          bool async)
 {
-    Table* table = getTable(downCast<uint32_t>(tableId), id);
+    DECLARE_OBJECT(newObject, keyLength, dataLength);
+
+    newObject->keyLength = keyLength;
+    newObject->tableId = tableId;
+
+    // Copy both the key and the data from keyAndData blob into keyAndData
+    // field in newObject.
+    // In this field, the data should immediately follow the key, like in
+    // the keyAndData blob. Hence, we can copy both of them together.
+    keyAndData->copy(keyOffset, keyLength + dataLength,
+                     newObject->getKeyLocation());
+
+    Table* table = getTable(downCast<uint32_t>(tableId),
+                            newObject->getKey(), keyLength);
     if (table == NULL)
         return STATUS_TABLE_DOESNT_EXIST;
 
@@ -1621,7 +1717,9 @@ MasterService::storeData(uint64_t tableId,
     }
 
     const Object *obj = NULL;
-    LogEntryHandle handle = objectMap.lookup(tableId, id);
+    LogEntryHandle handle = objectMap.lookup(tableId,
+                                             newObject->getKey(),
+                                             keyLength);
     if (handle != NULL) {
         if (handle->type() == LOG_ENTRY_TYPE_OBJTOMB) {
             recoveryCleanup(handle,
@@ -1641,30 +1739,23 @@ MasterService::storeData(uint64_t tableId,
         return status;
     }
 
-    DECLARE_OBJECT(newObject, dataLength);
-
-    newObject->id.objectId = id;
-    newObject->id.tableId = tableId;
     if (obj != NULL)
         newObject->version = obj->version + 1;
     else
         newObject->version = table->AllocateVersion();
+
     assert(obj == NULL || newObject->version > obj->version);
-    data->copy(dataOffset, dataLength, newObject->data);
 
     // Perform a multi-append to atomically add the tombstone and
     // new object (if we need a tombstone for the prior one).
     LogMultiAppendVector appends;
 
-    // Need this space to stay in scope on the stack.
-    Tub<ObjectTombstone> tomb;
-
     if (obj != NULL) {
-        uint64_t segmentId = log.getSegmentId(obj);
-        tomb.construct(segmentId, obj);
+        DECLARE_OBJECTTOMBSTONE(tomb, keyLength,
+                                log.getSegmentId(obj), obj);
         appends.push_back({ LOG_ENTRY_TYPE_OBJTOMB,
-                            tomb.get(),
-                            sizeof(*tomb.get()) });
+                            tomb,
+                            tomb->tombLength() });
     }
 
     try {
@@ -1679,7 +1770,7 @@ MasterService::storeData(uint64_t tableId,
             log.free(handle);
         }
         *newVersion = newObject->version;
-        bytesWritten += dataLength;
+        bytesWritten += keyLength + dataLength;
         return STATUS_OK;
     } catch (LogOutOfMemoryException& e) {
         // The log is out of space. Tell the client to retry and hope

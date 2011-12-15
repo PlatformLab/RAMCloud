@@ -50,6 +50,7 @@
 #include "SpinLock.h"
 #include "ClientException.h"
 #include "PerfHelper.h"
+#include "KeyUtil.h"
 
 using namespace RAMCloud;
 
@@ -230,6 +231,7 @@ double getThreadId()
     return Cycles::toSeconds(stop - start)/count;
 }
 
+namespace {
 // Object for the next test.
 class TestObject {
   public:
@@ -238,10 +240,13 @@ class TestObject {
     {
     }
     uint64_t key1() { return _key1; }
-    uint64_t key2() { return _key2; }
+    const char* key2() const { return _key2.get(); }
+    uint16_t key2Length() const { return _key2.length(); }
     uint64_t _key1;
-    uint64_t _key2;
+    MakeKey _key2;
 } __attribute__((aligned(64)));
+
+} // anonymous namespace
 
 // Measure hash table lookup performance. Prefetching can
 // be enabled to measure its effect. This test is a lot
@@ -256,8 +261,9 @@ double hashTableLookup()
     HashTable<TestObject*> hashTable(numBuckets);
 
     // fill with some objects to look up (enough to blow caches)
-    for (int i = 0; i < numLookups; i++)
+    for (int i = 0; i < numLookups; i++) {
         hashTable.replace(new TestObject(0, i));
+    }
 
     PerfHelper::flushCache();
 
@@ -265,21 +271,28 @@ double hashTableLookup()
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < numLookups; i++) {
         if (prefetchBucketAhead) {
-            if (i + prefetchBucketAhead < numLookups)
-                hashTable.prefetchBucket(0, i + prefetchBucketAhead);
+            if (i + prefetchBucketAhead < numLookups) {
+                MakeKey key(i + prefetchBucketAhead);
+                hashTable.prefetchBucket(0, key.get(), key.length());
+            }
         }
         if (prefetchReferentAhead) {
-            if (i + prefetchReferentAhead < numLookups)
-                hashTable.prefetchReferent(0, i + prefetchReferentAhead);
+            if (i + prefetchReferentAhead < numLookups) {
+                MakeKey key(i + prefetchReferentAhead);
+                hashTable.prefetchReferent(0, key.get(), key.length());
+            }
         }
 
-        hashTable.lookup(0, i);
+        MakeKey key(i);
+        hashTable.lookup(0, key.get(), key.length());
     }
     uint64_t stop = Cycles::rdtsc();
 
     // clean up
-    for (int i = 0; i < numLookups; i++)
-        delete hashTable.lookup(0, i);
+    for (int i = 0; i < numLookups; i++) {
+        MakeKey key(i);
+        delete hashTable.lookup(0, key.get(), key.length());
+    }
 
     return Cycles::toSeconds((stop - start) / numLookups);
 }
@@ -506,7 +519,7 @@ double segmentEntrySort()
     Segment s(0, 0, block, Segment::SEGMENT_SIZE, NULL);
     const int avgObjectSize = 100;
 
-    DECLARE_OBJECT(obj, 2 * avgObjectSize);
+    DECLARE_OBJECT(obj, 0, 2 * avgObjectSize);
     vector<std::pair<SegmentEntryHandle, uint32_t>> entries;
 
     int count;
@@ -545,7 +558,7 @@ template<uint32_t minObjectBytes, uint32_t maxObjectBytes>
 double segmentIterator()
 {
     uint64_t numObjects = 0;
-    uint64_t nextObjId = 0;
+    uint64_t nextKeyVal = 0;
     Segment *segment;
 
     // build a segment
@@ -558,10 +571,13 @@ double segmentIterator()
             uint64_t rnd = generateRandom();
             size += downCast<uint32_t>(rnd % (maxObjectBytes - minObjectBytes));
         }
-        DECLARE_OBJECT(o, size);
-        o->id.objectId = nextObjId++;
-        o->id.tableId = 0;
+        string key = format("%lu", nextKeyVal++);
+        DECLARE_OBJECT(o, downCast<uint16_t>(key.length()), size);
+        o->tableId = 0;
         o->version = 0;
+        o->keyLength = downCast<uint16_t>(key.length());
+        memcpy(o->getKeyLocation(), key.c_str(),
+                downCast<uint16_t>(key.length()));
         const void *so = segment->append(LOG_ENTRY_TYPE_OBJ,
                                          o,
                                          o->objectLength(size));

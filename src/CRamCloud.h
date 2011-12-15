@@ -45,19 +45,21 @@ RAMCloud::Status    rc_ping(struct rc_client* client,
                             const char* serviceLocator,
                             uint64_t nonce, uint64_t timeoutNanoseconds,
                             uint64_t* result);
+
 RAMCloud::Status    rc_read(struct rc_client* client, uint32_t tableId,
-                            uint64_t id,
+                            const char* key, uint16_t keyLength,
                             const struct RAMCloud::RejectRules* rejectRules,
                             uint64_t* version, void* buf, uint32_t maxLength,
                             uint32_t* actualLength);
 RAMCloud::Status    rc_remove(struct rc_client* client, uint32_t tableId,
-                            uint64_t id,
-                            const struct RAMCloud::RejectRules* rejectRules,
-                            uint64_t* version);
+                              const char* key, uint16_t keyLength,
+                              const struct RAMCloud::RejectRules* rejectRules,
+                              uint64_t* version);
 RAMCloud::Status    rc_write(struct rc_client* client, uint32_t tableId,
-                            uint64_t id, const void* buf, uint32_t length,
-                            const struct RAMCloud::RejectRules* rejectRules,
-                            uint64_t* version);
+                             const char* key, uint16_t keyLength,
+                             const void* buf, uint32_t length,
+                             const struct RAMCloud::RejectRules* rejectRules,
+                             uint64_t* version);
 
 
 #ifdef __cplusplus

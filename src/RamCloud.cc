@@ -1,4 +1,3 @@
-
 /* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -98,15 +97,17 @@ RamCloud::getMetrics(const char* serviceLocator)
  *
  * \param table
  *      Identifier for a table.
- * \param objectId
- *      Identifier for an object within \c table; the server that manages
- *      this object is the one whose metrics will be retrieved.
+ * \param key
+ *      Variable length key that uniquely identifies the object within tableId.
+ *      It does not necessarily have to be null terminated like a string.
+ * \param keyLength
+ *      Size in bytes of the key.
  */
 ServerMetrics
-RamCloud::getMetrics(uint32_t table, uint64_t objectId)
+RamCloud::getMetrics(uint32_t table, const char* key, uint16_t keyLength)
 {
     PingClient client;
-    const char *serviceLocator = objectFinder.lookup(table, objectId)->
+    const char *serviceLocator = objectFinder.lookup(table, key, keyLength)->
             getServiceLocator().c_str();
     return client.getMetrics(serviceLocator);
 }
@@ -156,9 +157,11 @@ RamCloud::ping(const char* serviceLocator, uint64_t nonce,
  *
  * \param table
  *      Identifier for a table.
- * \param objectId
- *      Identifier for an object within \c table; the server that manages
- *      this object is the one that will be pinged.
+ * \param key
+ *      Variable length key that uniquely identifies the object within tableId.
+ *      It does not necessarily have to be null terminated like a string.
+ * \param keyLength
+ *      Size in bytes of the key.
  * \param nonce
  *      Arbitrary 64-bit value to pass to the server; the server will return
  *      this value in its response.
@@ -172,12 +175,12 @@ RamCloud::ping(const char* serviceLocator, uint64_t nonce,
  *      The server did not respond within \c timeoutNanoseconds.
  */
 uint64_t
-RamCloud::ping(uint32_t table, uint64_t objectId, uint64_t nonce,
-               uint64_t timeoutNanoseconds)
+RamCloud::ping(uint32_t table, const char* key, uint16_t keyLength,
+               uint64_t nonce, uint64_t timeoutNanoseconds)
 {
     Context::Guard _(clientContext);
     PingClient client;
-    const char *serviceLocator = objectFinder.lookup(table, objectId)->
+    const char *serviceLocator = objectFinder.lookup(table, key, keyLength)->
             getServiceLocator().c_str();
     return client.ping(serviceLocator, nonce, timeoutNanoseconds);
 }
@@ -197,11 +200,13 @@ RamCloud::proxyPing(const char* serviceLocator1,
 
 /// \copydoc MasterClient::read
 void
-RamCloud::read(uint32_t tableId, uint64_t id, Buffer* value,
-               const RejectRules* rejectRules, uint64_t* version)
+RamCloud::read(uint32_t tableId, const char* key, uint16_t keyLength,
+               Buffer* value, const RejectRules* rejectRules,
+               uint64_t* version)
 {
     Context::Guard _(clientContext);
-    return Read(*this, tableId, id, value, rejectRules, version)();
+    return Read(*this, tableId, key, keyLength, value, rejectRules,
+                version)();
 }
 
 /**
@@ -220,40 +225,33 @@ RamCloud::multiRead(MasterClient::ReadObject* requests[], uint32_t numRequests)
     std::vector<ObjectFinder::MasterRequests> requestBins =
                             objectFinder.multiLookup(requests, numRequests);
 
-    // By default multiRead is to be done in parallel. Can be changed here
-    // if we need to do it sequentially for benchmarking.
-    bool parallel = true;
+    uint32_t numBins = downCast<uint32_t>(requestBins.size());
+    Tub<MasterClient::MultiRead> multiReadInstances[numBins];
 
-    if (parallel == true) {
-        uint32_t numBins = downCast<uint32_t>(requestBins.size());
-        Tub<MasterClient::MultiRead> multiReadInstances[numBins];
-        for (uint32_t i = 0; i < numBins; i++) {
-            MasterClient master(requestBins[i].sessionRef);
-            multiReadInstances[i].construct(master, requestBins[i].requests);
-        }
-        for (uint32_t i = 0; i < numBins; i++) {
-            multiReadInstances[i]->complete();
-        }
-    } else {
-        foreach (ObjectFinder::MasterRequests requestBin, requestBins) {
-            MasterClient master(requestBin.sessionRef);
-            master.multiRead(requestBin.requests);
-        }
+    // Send requests to all servers in serial without waiting for
+    // responses for parallelism.
+    for (uint32_t i = 0; i < numBins; i++) {
+        MasterClient master(requestBins[i].sessionRef);
+        multiReadInstances[i].construct(master, requestBins[i].requests);
+    }
+    // Receive responses from the servers in serial.
+    for (uint32_t i = 0; i < numBins; i++) {
+        multiReadInstances[i]->complete();
     }
 }
 
 /// \copydoc MasterClient::remove
 void
-RamCloud::remove(uint32_t tableId, uint64_t id,
+RamCloud::remove(uint32_t tableId, const char* key, uint16_t keyLength,
                  const RejectRules* rejectRules, uint64_t* version)
 {
     Context::Guard _(clientContext);
-    MasterClient master(objectFinder.lookup(tableId, id));
+    MasterClient master(objectFinder.lookup(tableId, key, keyLength));
     while (1) {
         // Keep trying the operation if the server responded with a retry
         // status.
         try {
-            master.remove(tableId, id, rejectRules, version);
+            master.remove(tableId, key, keyLength, rejectRules, version);
             break;
         } catch (RetryException& e) {
         } catch (...) {
@@ -264,7 +262,7 @@ RamCloud::remove(uint32_t tableId, uint64_t id,
 
 /// \copydoc MasterClient::write
 void
-RamCloud::write(uint32_t tableId, uint64_t id,
+RamCloud::write(uint32_t tableId, const char* key, uint16_t keyLength,
                 const void* buf, uint32_t length,
                 const RejectRules* rejectRules, uint64_t* version,
                 bool async)
@@ -274,7 +272,7 @@ RamCloud::write(uint32_t tableId, uint64_t id,
         // Keep trying the operation if the server responded with a retry
         // status.
         try {
-            Write(*this, tableId, id, buf, length,
+            Write(*this, tableId, key, keyLength, buf, length,
                   rejectRules, version, async)();
             break;
         } catch (RetryException& e) {
@@ -291,23 +289,26 @@ RamCloud::write(uint32_t tableId, uint64_t id,
  * \param tableId
  *      The table containing the desired object (return value from a
  *      previous call to openTable).
- * \param id
- *      Identifier within tableId of the object to be written; may or
- *      may not refer to an existing object.
+ * \param key
+ *      Variable length key that uniquely identifies the object within tableId.
+ *      It does not necessarily have to be null terminated like a string.
+ * \param keyLength
+ *      Size in bytes of the key.
  * \param s
  *      NULL-terminated string; its contents (not including the
  *      terminating NULL character) are stored in the object.
  */
 void
-RamCloud::write(uint32_t tableId, uint64_t id, const char* s)
+RamCloud::write(uint32_t tableId, const char* key, uint16_t keyLength,
+                const char* s)
 {
     Context::Guard _(clientContext);
     while (1) {
         // Keep trying the operation if the server responded with a retry
         // status.
         try {
-            Write(*this, tableId, id, s, downCast<int>(strlen(s)), NULL,
-                  NULL, false)();
+            Write(*this, tableId, key, keyLength, s,
+                  downCast<int>(strlen(s)), NULL, NULL, false)();
             break;
         } catch (RetryException& e) {
         } catch (...) {

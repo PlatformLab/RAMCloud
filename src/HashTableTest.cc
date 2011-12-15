@@ -21,12 +21,18 @@ namespace RAMCloud {
 
 class TestObject {
   public:
-    TestObject() : _key1(0), _key2(0) {}
-    TestObject(uint64_t key1, uint64_t key2) : _key1(key1), _key2(key2) {}
-    uint64_t key1() const { return _key1; }
-    uint64_t key2() const { return _key2; }
-    uint64_t _key1, _key2;
-};
+    TestObject() : _key1(0), _key2(""), _key2Length(0) {}
+    TestObject(uint64_t key1, string strKey)
+        : _key1(key1),
+          _key2(strKey),
+          _key2Length(static_cast<uint16_t>(strKey.length())) { }
+    uint64_t key1() { return _key1; }
+    const char* key2() const { return _key2.c_str(); }
+    uint16_t key2Length() const { return _key2Length; }
+    uint64_t _key1;
+    string _key2;
+    uint16_t _key2Length;
+} __attribute__((aligned(64)));
 
 typedef HashTable<TestObject*> TestObjectMap;
 
@@ -244,10 +250,41 @@ TEST_F(HashTableEntryTest, hashMatches) {
  */
 class HashTableTest : public ::testing::Test {
   public:
-    HashTableTest() { }
+
+    uint64_t tableId;
+    uint64_t numEnt;
+    TestObjectMap ht;
+    TestObject* values;
+
+    HashTableTest()
+        : tableId(), numEnt(), ht(1), values() {}
+
+    /**
+     * Common setup code for the lookupEntry and insert tests.
+     * \param[in] tableId
+     *      The table id to use for all objects placed in the hashtable.
+     * \param[in] numEnt
+     *      The number of entries to place in the hashtable.
+     */
+    void setup(uint64_t tableId, uint64_t numEnt)
+    {
+        this->tableId = tableId;
+        this->numEnt = numEnt;
+        values = new TestObject[numEnt];
+        uint64_t numCacheLines =
+                ((numEnt + TestObjectMap::ENTRIES_PER_CACHE_LINE - 2) /
+                (TestObjectMap::ENTRIES_PER_CACHE_LINE - 1));
+        if (numCacheLines == 0)
+            numCacheLines = 1;
+        LargeBlockOfMemory<TestObjectMap::CacheLine> cacheLines(
+                numCacheLines * sizeof(TestObjectMap::CacheLine));
+        insertArray(&ht, values, tableId, numEnt, &cacheLines,
+                numCacheLines);
+    }
 
     // convenient abbreviation
 #define seven (TestObjectMap::ENTRIES_PER_CACHE_LINE - 1)
+#define NULL_OBJECT (static_cast<TestObject*>(NULL))
 
     /**
      * Insert an array of values into a single-bucket hash table.
@@ -265,8 +302,8 @@ class HashTableTest : public ::testing::Test {
      * \param[in] numCacheLines
      *      The number of cache lines in \a cacheLines.
      */
-    void insertArray(TestObjectMap *ht, TestObject *values, uint64_t tableId,
-                     uint64_t numEnt,
+    void insertArray(TestObjectMap *ht, TestObject *values,
+                     uint64_t tableId, uint64_t numEnt,
                      LargeBlockOfMemory<TestObjectMap::CacheLine> *cacheLines,
                      uint64_t numCacheLines)
     {
@@ -281,11 +318,13 @@ class HashTableTest : public ::testing::Test {
 
         // fill in the "log" entries
         for (uint64_t i = 0; i < numEnt; i++) {
-            values[i]._key1 = tableId;
-            values[i]._key2 = i;
+            string key = format("%lu", i);
+            values[i] = TestObject(tableId, key);
+            HashType key2Hash = getKeyHash(key.c_str(),
+                    downCast<uint16_t>(key.length()));
 
             uint64_t littleHash;
-            (void) ht->findBucket(0, i, &littleHash);
+            (void) ht->findBucket(0, key2Hash, &littleHash);
 
             TestObjectMap::Entry *entry;
             if (0 < i && i == numEnt - 1 && i % seven == 0)
@@ -299,35 +338,6 @@ class HashTableTest : public ::testing::Test {
     }
 
     /**
-     * Common setup code for the lookupEntry and insert tests.
-     * This mostly declares variables on the stack, so it's a macro.
-     * \li \a numEnt is set to \a _numEnt
-     * \li \a numCacheLines is the number of cache lines used to hold the
-     * entries.
-     * \li \a ht is a hash table of one bucket.
-     * \li \a values is an array of \a numEnt objects.
-     * \param _tableId
-     *      The table id to use for all objects placed in the hashtable.
-     * \param _numEnt
-     *      The number of entries to place in the hashtable.
-     */
-#define SETUP(_tableId, _numEnt)  \
-    uint64_t tableId = _tableId; \
-    uint64_t numEnt = _numEnt; \
-    uint64_t numCacheLines; \
-    numCacheLines = ((numEnt + TestObjectMap::ENTRIES_PER_CACHE_LINE - 2) /\
-                              (TestObjectMap::ENTRIES_PER_CACHE_LINE - 1));\
-    if (numCacheLines == 0) \
-        numCacheLines = 1; \
-    TestObjectMap ht(1); \
-    TestObject values[numEnt]; \
-    LargeBlockOfMemory<TestObjectMap::CacheLine> _cacheLines( \
-                        numCacheLines * sizeof(TestObjectMap::CacheLine)); \
-    insertArray(&ht, values, tableId, numEnt, &_cacheLines, numCacheLines); \
-
-#define NULL_OBJECT (static_cast<TestObject*>(NULL))
-
-    /**
      * Find an entry in a single-bucket hash table by position.
      * \param[in] ht
      *      A hash table with a single bucket.
@@ -339,7 +349,7 @@ class HashTableTest : public ::testing::Test {
      *      The entry at \a x and \a y in the only bucket of \a ht.
      */
     TestObjectMap::Entry& entryAt(TestObjectMap *ht, uint64_t x,
-        uint64_t y)
+                                    uint64_t y)
     {
         TestObjectMap::CacheLine *cl = &ht->buckets.get()[0];
         while (x > 0) {
@@ -361,23 +371,27 @@ class HashTableTest : public ::testing::Test {
      *      The pointer that we expect to find at the given position.
      */
     void assertEntryIs(TestObjectMap *ht, uint64_t x, uint64_t y,
-        TestObject *ptr)
+                       TestObject *ptr)
     {
         uint64_t littleHash;
-        (void) ht->findBucket(0, ptr->key2(), &littleHash);
+        HashType key2Hash = getKeyHash(ptr->key2(), ptr->key2Length());
+        (void) ht->findBucket(0, key2Hash, &littleHash);
+
         TestObjectMap::Entry& entry = entryAt(ht, x, y);
         EXPECT_TRUE(entry.hashMatches(littleHash));
         EXPECT_EQ(ptr, entry.getReferent());
     }
 
     TestObjectMap::Entry *findBucketAndLookupEntry(TestObjectMap *ht,
-                                               uint64_t tableId,
-                                               uint64_t objectId)
+                                                     uint64_t tableId,
+                                                     const char* key,
+                                                     uint16_t key2Length)
     {
         uint64_t secondaryHash;
         TestObjectMap::CacheLine *bucket;
-        bucket = ht->findBucket(0, objectId, &secondaryHash);
-        return ht->lookupEntry(bucket, secondaryHash, tableId, objectId);
+        HashType key2Hash = getKeyHash(key, key2Length);
+        bucket = ht->findBucket(0, key2Hash, &secondaryHash);
+        return ht->lookupEntry(bucket, secondaryHash, tableId, key, key2Length);
     }
 
     DISALLOW_COPY_AND_ASSIGN(HashTableTest);
@@ -409,42 +423,42 @@ TEST_F(HashTableTest, destructor) {
 TEST_F(HashTableTest, simple) {
     TestObjectMap ht(1024);
 
-    TestObject a(0, 0);
-    TestObject b(0, 10);
+    TestObject a(0, "0");
+    TestObject b(0, "10");
 
-    EXPECT_EQ(NULL_OBJECT, ht.lookup(0, 0));
+    EXPECT_EQ(NULL_OBJECT, ht.lookup(0, "0", 1));
     ht.replace(&a);
     EXPECT_EQ(const_cast<TestObject*>(&a),
-        ht.lookup(0, 0));
-    EXPECT_EQ(NULL_OBJECT, ht.lookup(0, 10));
+              ht.lookup(0, "0", 1));
+    EXPECT_EQ(NULL_OBJECT, ht.lookup(0, "10", 2));
     ht.replace(&b);
     EXPECT_EQ(const_cast<TestObject*>(&b),
-        ht.lookup(0, 10));
+              ht.lookup(0, "10", 2));
     EXPECT_EQ(const_cast<TestObject*>(&a),
-        ht.lookup(0, 0));
+              ht.lookup(0, "0", 1));
 }
 
 TEST_F(HashTableTest, multiTable) {
     TestObjectMap ht(1024);
 
-    TestObject a(0, 0);
-    TestObject b(1, 0);
-    TestObject c(0, 1);
+    TestObject a(0, "0");
+    TestObject b(1, "0");
+    TestObject c(0, "1");
 
-    EXPECT_EQ(NULL_OBJECT, ht.lookup(0, 0));
-    EXPECT_EQ(NULL_OBJECT, ht.lookup(1, 0));
-    EXPECT_EQ(NULL_OBJECT, ht.lookup(0, 1));
+    EXPECT_EQ(NULL_OBJECT, ht.lookup(0, "0", 1));
+    EXPECT_EQ(NULL_OBJECT, ht.lookup(1, "0", 1));
+    EXPECT_EQ(NULL_OBJECT, ht.lookup(0, "1", 1));
 
     ht.replace(&a);
     ht.replace(&b);
     ht.replace(&c);
 
     EXPECT_EQ(const_cast<TestObject*>(&a),
-        ht.lookup(0, 0));
+              ht.lookup(0, "0", 1));
     EXPECT_EQ(const_cast<TestObject*>(&b),
-        ht.lookup(1, 0));
+              ht.lookup(1, "0", 1));
     EXPECT_EQ(const_cast<TestObject*>(&c),
-        ht.lookup(0, 1));
+              ht.lookup(0, "1", 1));
 }
 
 /**
@@ -470,57 +484,64 @@ TEST_F(HashTableTest, findBucket) {
     bucket = ht.findBucket(0, 4327, &secondaryHash);
     hashValue = TestObjectMap::hash(0, 4327);
     EXPECT_EQ(static_cast<uint64_t>(bucket - ht.buckets.get()),
-                            (hashValue & 0x0000ffffffffffffffffUL) % 1024);
+              (hashValue & 0x0000ffffffffffffffffUL) % 1024);
     EXPECT_EQ(secondaryHash, hashValue >> 48);
 }
 
 /**
- * Test #RAMCloud::HashTable::lookupEntry() when the object ID is not
+ * Test #RAMCloud::HashTable::lookupEntry() when the key is not
  * found.
  */
 TEST_F(HashTableTest, lookupEntry_notFound) {
     {
-        SETUP(0, 0);
+        setup(0, 0);
         EXPECT_EQ(static_cast<TestObjectMap::Entry*>(NULL),
-                                findBucketAndLookupEntry(&ht, 0, 1));
+                  findBucketAndLookupEntry(&ht, 0, "0", 1));
         EXPECT_EQ(1UL, ht.getPerfCounters().lookupEntryCalls);
         EXPECT_LT(0U, ht.getPerfCounters().lookupEntryCycles);
         EXPECT_LT(0U, ht.getPerfCounters().lookupEntryDist.max);
     }
     {
-        SETUP(0, TestObjectMap::ENTRIES_PER_CACHE_LINE * 5);
+        setup(0, TestObjectMap::ENTRIES_PER_CACHE_LINE * 5);
+
+        string key = format("%lu", numEnt + 1);
+
         EXPECT_EQ(static_cast<TestObjectMap::Entry*>(NULL),
-                  findBucketAndLookupEntry(&ht, 0, numEnt + 1));
+                  findBucketAndLookupEntry(&ht, 0, key.c_str(),
+                        downCast<uint16_t>(key.length())));
         EXPECT_EQ(5UL, ht.getPerfCounters().lookupEntryChainsFollowed);
     }
 }
 
 /**
- * Test #RAMCloud::HashTable::lookupEntry() when the object ID is found in
+ * Test #RAMCloud::HashTable::lookupEntry() when the key is found in
  * the first entry of the first cache line.
  */
 TEST_F(HashTableTest, lookupEntry_cacheLine0Entry0) {
-    SETUP(0, 1);
+    setup(0, 1);
     EXPECT_EQ(&entryAt(&ht, 0, 0),
-              findBucketAndLookupEntry(&ht, 0, 0));
+              findBucketAndLookupEntry(&ht, 0, "0", 1));
 }
 
 /**
- * Test #RAMCloud::HashTable::lookupEntry() when the object ID is found in
+ * Test #RAMCloud::HashTable::lookupEntry() when the key is found in
  * the last entry of the first cache line.
  */
 TEST_F(HashTableTest, lookupEntry_cacheLine0Entry7) {
-    SETUP(0, TestObjectMap::ENTRIES_PER_CACHE_LINE);
+    setup(0, TestObjectMap::ENTRIES_PER_CACHE_LINE);
+    string key = format("%u", TestObjectMap::ENTRIES_PER_CACHE_LINE - 1);
+
     EXPECT_EQ(&entryAt(&ht, 0, seven),
-              findBucketAndLookupEntry(&ht, 0, seven));
+              findBucketAndLookupEntry(&ht, 0, key.c_str(),
+                    downCast<uint16_t>(key.length())));
 }
 
 /**
- * Test #RAMCloud::HashTable::lookupEntry() when the object ID is found in
+ * Test #RAMCloud::HashTable::lookupEntry() when the key is found in
  * the first entry of the third cache line.
  */
 TEST_F(HashTableTest, lookupEntry_cacheLine2Entry0) {
-    SETUP(0, TestObjectMap::ENTRIES_PER_CACHE_LINE * 5);
+    setup(0, TestObjectMap::ENTRIES_PER_CACHE_LINE * 5);
 
     // with 8 entries per cache line:
     // cl0: [ k00, k01, k02, k03, k04, k05, k06, cl1 ]
@@ -528,8 +549,11 @@ TEST_F(HashTableTest, lookupEntry_cacheLine2Entry0) {
     // cl2: [ k14, k15, k16, k17, k18, k19, k20, cl3 ]
     // ...
 
+    string key =
+            format("%u", (TestObjectMap::ENTRIES_PER_CACHE_LINE - 1) * 2);
     EXPECT_EQ(&entryAt(&ht, 2, 0),
-              findBucketAndLookupEntry(&ht, 0, seven * 2));
+              findBucketAndLookupEntry(&ht, 0, key.c_str(),
+                    downCast<uint16_t>(key.length())));
 }
 
 /**
@@ -537,23 +561,22 @@ TEST_F(HashTableTest, lookupEntry_cacheLine2Entry0) {
  * with another Entry.
  */
 TEST_F(HashTableTest, lookupEntry_hashCollision) {
-    SETUP(0, 1);
+    setup(0, 1);
     EXPECT_EQ(&entryAt(&ht, 0, 0),
-                            findBucketAndLookupEntry(&ht, 0, 0));
+              findBucketAndLookupEntry(&ht, 0, "0", 1));
     EXPECT_LT(0U, ht.getPerfCounters().lookupEntryDist.max);
-    values[0]._key2 = 0x43324890UL;
+    values[0]._key2.assign("randomKeyValue");
     EXPECT_EQ(static_cast<TestObjectMap::Entry*>(NULL),
-              findBucketAndLookupEntry(&ht, 0, 0));
+              findBucketAndLookupEntry(&ht, 0, "0", 1));
     EXPECT_EQ(1UL, ht.getPerfCounters().lookupEntryHashCollisions);
 }
 
 TEST_F(HashTableTest, lookup) {
     TestObjectMap ht(1);
-    TestObject *v = new TestObject(0, 83UL);
-    EXPECT_EQ(NULL_OBJECT, ht.lookup(0, 83UL));
+    TestObject *v = new TestObject(0, "0");
+    EXPECT_EQ(NULL_OBJECT, ht.lookup(0, "0", 1));
     ht.replace(v);
-    EXPECT_EQ(const_cast<TestObject*>(v),
-        ht.lookup(0, 83UL));
+    EXPECT_EQ(const_cast<TestObject*>(v), ht.lookup(0, "0", 1));
 
     delete v;
 }
@@ -561,95 +584,102 @@ TEST_F(HashTableTest, lookup) {
 TEST_F(HashTableTest, remove) {
     TestObject * ptr;
     TestObjectMap ht(1);
-    EXPECT_TRUE(!ht.remove(0, 83UL));
-    TestObject *v = new TestObject(0, 83UL);
+    EXPECT_TRUE(!ht.remove(0, "0", 1));
+    TestObject *v = new TestObject(0, "0");
     ht.replace(v);
-    EXPECT_TRUE(ht.remove(0, 83UL, &ptr));
+    EXPECT_TRUE(ht.remove(0, "0", 1, &ptr));
     EXPECT_EQ(v, ptr);
-    EXPECT_EQ(NULL_OBJECT, ht.lookup(0, 83UL));
-    EXPECT_TRUE(!ht.remove(0, 83UL));
+    EXPECT_EQ(NULL_OBJECT, ht.lookup(0, "0", 1));
+    EXPECT_TRUE(!ht.remove(0, "0", 1));
     delete v;
 }
 
 TEST_F(HashTableTest, replace_normal) {
     TestObject* replaced;
     TestObjectMap ht(1);
-    TestObject *v = new TestObject(0, 83UL);
-    TestObject *w = new TestObject(0, 83UL);
+    TestObject *v = new TestObject(0, "0");
+    TestObject *w = new TestObject(0, "0");
     EXPECT_TRUE(!ht.replace(v));
     EXPECT_EQ(1UL, ht.getPerfCounters().replaceCalls);
     EXPECT_LT(0U, ht.getPerfCounters().replaceCycles);
-    EXPECT_EQ(const_cast<TestObject*>(v),
-        ht.lookup(0, 83UL));
+    EXPECT_EQ(const_cast<TestObject*>(v), ht.lookup(0, "0", 1));
     EXPECT_TRUE(ht.replace(v));
-    EXPECT_EQ(const_cast<TestObject*>(v),
-        ht.lookup(0, 83UL));
+    EXPECT_EQ(const_cast<TestObject*>(v), ht.lookup(0, "0", 1));
     EXPECT_TRUE(ht.replace(w, &replaced));
     EXPECT_EQ(v, replaced);
-    EXPECT_EQ(const_cast<TestObject*>(w),
-        ht.lookup(0, 83UL));
+    EXPECT_EQ(const_cast<TestObject*>(w), ht.lookup(0, "0", 1));
     delete v;
     delete w;
 }
 
 /**
- * Test #RAMCloud::HashTable::replace() when the object ID is new and the
+ * Test #RAMCloud::HashTable::replace() when the key is new and the
  * first entry of the first cache line is available.
  */
 TEST_F(HashTableTest, replace_cacheLine0Entry0) {
-    SETUP(0, 0);
-    TestObject v(0, 83UL);
+    setup(0, 0);
+    TestObject v(0, "newKey");
     ht.replace(&v);
     assertEntryIs(&ht, 0, 0, &v);
 }
 
 /**
- * Test #RAMCloud::HashTable::replace() when the object ID is new and the
+ * Test #RAMCloud::HashTable::replace() when the key is new and the
  * last entry of the first cache line is available.
  */
 TEST_F(HashTableTest, replace_cacheLine0Entry7) {
-    SETUP(0, TestObjectMap::ENTRIES_PER_CACHE_LINE - 1);
-    TestObject v(0, 83UL);
+    setup(0, TestObjectMap::ENTRIES_PER_CACHE_LINE - 1);
+    TestObject v(0, "newKey");
     ht.replace(&v);
     assertEntryIs(&ht, 0, seven, &v);
 }
 
 /**
- * Test #RAMCloud::HashTable::replace() when the object ID is new and the
+ * Test #RAMCloud::HashTable::replace() when the key is new and the
  * first entry of the third cache line is available. The third cache line
  * is already chained onto the second.
  */
 TEST_F(HashTableTest, replace_cacheLine2Entry0) {
-    SETUP(0, TestObjectMap::ENTRIES_PER_CACHE_LINE * 2);
+    setup(0, TestObjectMap::ENTRIES_PER_CACHE_LINE * 2);
     ht.buckets.get()[2].entries[0].clear();
     ht.buckets.get()[2].entries[1].clear();
-    TestObject v(0, 83UL);
+    TestObject v(0, "newKey");
     ht.replace(&v);
     assertEntryIs(&ht, 2, 0, &v);
     EXPECT_EQ(2UL, ht.getPerfCounters().insertChainsFollowed);
 }
 
 /**
- * Test #RAMCloud::HashTable::replace() when the object ID is new and the
+ * Test #RAMCloud::HashTable::replace() when the key is new and the
  * first and only cache line is full. The second cache line needs to be
  * allocated.
  */
 TEST_F(HashTableTest, replace_cacheLineFull) {
-    SETUP(0, TestObjectMap::ENTRIES_PER_CACHE_LINE);
-    TestObject v(0, 83UL);
+    setup(0, TestObjectMap::ENTRIES_PER_CACHE_LINE);
+    TestObject v(0,  "newKey");
     ht.replace(&v);
     EXPECT_TRUE(entryAt(&ht, 0, seven).getChainPointer() != NULL);
     EXPECT_TRUE(entryAt(&ht, 0, seven).getChainPointer() !=
-              &ht.buckets.get()[1]);
+                &ht.buckets.get()[1]);
     assertEntryIs(&ht, 1, 0, &values[seven]);
     assertEntryIs(&ht, 1, 1, &v);
 }
 
-struct ForEachTestStruct {
-    ForEachTestStruct() : _key1(0), _key2(0), count(0) {}
-    uint64_t key1() const { return _key1; }
-    uint64_t key2() const { return _key2; }
-    uint64_t _key1, _key2, count;
+class ForEachTestStruct {
+  public:
+    ForEachTestStruct() : _key1(0), _key2(""), _key2Length(0), count(0U) {}
+    ForEachTestStruct(uint64_t key1, string strKey)
+        : _key1(key1),
+          _key2(strKey),
+          _key2Length(static_cast<uint16_t>(strKey.length())),
+          count(0U) { }
+    uint64_t key1() { return _key1; }
+    const char* key2() const { return _key2.c_str(); }
+    uint16_t key2Length() const { return _key2Length; }
+    uint64_t _key1;
+    string _key2;
+    uint16_t _key2Length;
+    uint64_t count;
 };
 
 /**
@@ -668,20 +698,21 @@ test_forEach_callback(ForEachTestStruct *p, void *cookie)
  */
 TEST_F(HashTableTest, forEach) {
     HashTable<ForEachTestStruct*> ht(2);
-    ForEachTestStruct checkoff[256];
+    uint32_t arrayLen = 256;
+    ForEachTestStruct* checkoff = new ForEachTestStruct[arrayLen];
     memset(checkoff, 0, sizeof(checkoff));
 
-    for (uint32_t i = 0; i < arrayLength(checkoff); i++) {
-        checkoff[i]._key1 = 0;
-        checkoff[i]._key2 = i;
+    for (uint32_t i = 0; i < arrayLen; i++) {
+        string key = format("%u", i);
+        checkoff[i] = ForEachTestStruct(0, key);
         ht.replace(&checkoff[i]);
     }
 
     uint64_t t = ht.forEach(test_forEach_callback,
         reinterpret_cast<void *>(57));
-    EXPECT_EQ(arrayLength(checkoff), t);
+    EXPECT_EQ(arrayLen, t);
 
-    for (uint32_t i = 0; i < arrayLength(checkoff); i++)
+    for (uint32_t i = 0; i < arrayLen; i++)
         EXPECT_EQ(1U, checkoff[i].count);
 }
 

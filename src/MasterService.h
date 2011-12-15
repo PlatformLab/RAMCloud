@@ -46,8 +46,6 @@ class RecoveryTask;
  */
 class MasterService : public Service {
   public:
-    static const uint64_t TOTAL_READ_REQUESTS_OBJID = 100000UL;
-
     MasterService(const ServerConfig& config,
                   CoordinatorClient* coordinator,
                   ServerList& serverList);
@@ -160,7 +158,7 @@ class MasterService : public Service {
     Tub<BackupFailureMonitor> failureMonitor;
 
     /**
-     * The (table ID, object ID) to #RAMCloud::Object pointer map for all
+     * The (table ID, key, keyLength) to #RAMCloud::Object pointer map for all
      * objects stored on this server. Before accessing objects via the hash
      * table, you usually need to check that the tablet still lives on this
      * server; objects from deleted tablets are not immediately purged from the
@@ -216,13 +214,16 @@ class MasterService : public Service {
                                             void* cookie);
     friend void tombstoneScanCallback(LogEntryHandle handle, void* cookie);
     friend void segmentReplayCallback(Segment* seg, void* cookie);
-    Table* getTable(uint64_t tableId, uint64_t objectId)
+    Table* getTable(uint32_t tableId, const char* key, uint16_t keyLength)
+        __attribute__((warn_unused_result));
+    Table* getTableForHash(uint32_t tableId, HashType keyHash)
         __attribute__((warn_unused_result));
     Status rejectOperation(const RejectRules& rejectRules, uint64_t version)
         __attribute__((warn_unused_result));
-    Status storeData(uint64_t table, uint64_t id,
+    Status storeData(uint64_t table,
                      const RejectRules* rejectRules, Buffer* data,
-                     uint32_t dataOffset, uint32_t dataLength,
+                     uint32_t keyOffset, uint16_t keyLength,
+                     uint32_t dataLength,
                      uint64_t* newVersion, bool async)
         __attribute__((warn_unused_result));
     friend class RecoverSegmentBenchmark;

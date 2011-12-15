@@ -171,8 +171,11 @@ rc_ping(struct rc_client* client, const char* serviceLocator,
  * \param tableId
  *      The table containing the desired object (return value from
  *      a previous call to openTable).
- * \param id
- *      Identifier within tableId of the object to be read.
+ * \param key
+ *      Variable length key that uniquely identifies the object within tableId.
+ *      It does not necessarily have to be null terminated like a string.
+ * \param keyLength
+ *      Size in bytes of the key.
  * \param rejectRules
  *      If non-NULL, specifies conditions under which the read
  *      should be aborted with an error.
@@ -193,13 +196,15 @@ rc_ping(struct rc_client* client, const char* serviceLocator,
  *      0 means success, anything else indicates an error.
  */
 Status
-rc_read(struct rc_client* client, uint32_t tableId, uint64_t id,
+rc_read(struct rc_client* client, uint32_t tableId,
+        const char* key, uint16_t keyLength,
         const struct RejectRules* rejectRules, uint64_t* version,
         void* buf, uint32_t maxLength, uint32_t* actualLength)
 {
     Buffer result;
     try {
-        client->client->read(tableId, id, &result, rejectRules, version);
+        client->client->read(tableId, key, keyLength, &result, rejectRules,
+                version);
         *actualLength = result.getTotalLength();
         uint32_t bytesToCopy = *actualLength;
         if (bytesToCopy > maxLength) {
@@ -214,11 +219,12 @@ rc_read(struct rc_client* client, uint32_t tableId, uint64_t id,
 }
 
 Status
-rc_remove(struct rc_client* client, uint32_t tableId, uint64_t id,
-        const struct RejectRules* rejectRules, uint64_t* version)
+rc_remove(struct rc_client* client, uint32_t tableId,
+          const char* key, uint16_t keyLength,
+          const struct RejectRules* rejectRules, uint64_t* version)
 {
     try {
-        client->client->remove(tableId, id, rejectRules, version);
+        client->client->remove(tableId, key, keyLength, rejectRules, version);
     } catch (ClientException& e) {
         return e.status;
     }
@@ -226,13 +232,14 @@ rc_remove(struct rc_client* client, uint32_t tableId, uint64_t id,
 }
 
 Status
-rc_write(struct rc_client* client, uint32_t tableId, uint64_t id,
-        const void* buf, uint32_t length,
-        const struct RejectRules* rejectRules,
-        uint64_t* version)
+rc_write(struct rc_client* client, uint32_t tableId,
+         const char* key, uint16_t keyLength,
+         const void* buf, uint32_t length,
+         const struct RejectRules* rejectRules,
+         uint64_t* version)
 {
     try {
-        client->client->write(tableId, id, buf, length, rejectRules,
+        client->client->write(tableId, key, keyLength, buf, length, rejectRules,
                 version);
     } catch (ClientException& e) {
         return e.status;

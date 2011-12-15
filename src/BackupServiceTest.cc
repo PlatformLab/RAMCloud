@@ -23,9 +23,9 @@
 #include "Rpc.h"
 #include "Server.h"
 #include "ShortMacros.h"
+#include "KeyHash.h"
 
 namespace RAMCloud {
-
 /**
  * Unit tests for BackupService.
  */
@@ -78,26 +78,35 @@ class BackupServiceTest : public ::testing::Test {
     uint32_t
     writeObject(ServerId masterId, uint64_t segmentId,
                 uint32_t offset, const char *data, uint32_t bytes,
-                uint64_t tableId, uint64_t objectId)
+                uint64_t tableId, const char* key, uint16_t keyLength)
     {
-        char objectMem[sizeof(Object) + bytes];
+        char objectMem[sizeof(Object) + keyLength + bytes];
         Object* obj = reinterpret_cast<Object*>(objectMem);
         memset(obj, 'A', sizeof(*obj));
-        obj->id.objectId = objectId;
-        obj->id.tableId = tableId;
+        obj->keyLength = keyLength;
+        obj->tableId = tableId;
         obj->version = 0;
-        memcpy(objectMem + sizeof(*obj), data, bytes);
-        return writeEntry(masterId, segmentId, LOG_ENTRY_TYPE_OBJ, offset,
-                          objectMem, obj->objectLength(bytes));
+        memcpy(objectMem + sizeof(*obj), key, keyLength);
+        memcpy(objectMem + sizeof(*obj) + keyLength, data, bytes);
+        return writeEntry(masterId, segmentId, LOG_ENTRY_TYPE_OBJ,
+                          offset, objectMem, obj->objectLength(bytes));
     }
 
     uint32_t
     writeTombstone(ServerId masterId, uint64_t segmentId,
-                   uint32_t offset, uint64_t tableId, uint64_t objectId)
+                   uint32_t offset, uint64_t tableId,
+                   const char* key, uint16_t keyLength)
     {
-        ObjectTombstone tombstone(segmentId, tableId, objectId, 0);
-        return writeEntry(masterId, segmentId, LOG_ENTRY_TYPE_OBJTOMB, offset,
-                          &tombstone, sizeof(tombstone));
+        char tombMem[sizeof(ObjectTombstone) + keyLength];
+        ObjectTombstone* tomb =
+            reinterpret_cast<ObjectTombstone*>(tombMem);
+        memset(tomb, 'A', sizeof(*tomb));
+        tomb->keyLength = keyLength;
+        tomb->tableId = tableId;
+        tomb->objectVersion = 0;
+        memcpy(tombMem + sizeof(*tomb), key, keyLength);
+        return writeEntry(masterId, segmentId, LOG_ENTRY_TYPE_OBJTOMB,
+                          offset, tombMem, tomb->tombLength());
     }
 
     uint32_t
@@ -117,8 +126,8 @@ class BackupServiceTest : public ::testing::Test {
         SegmentFooter footer;
         footer.checksum =
             static_cast<Segment::Checksum::ResultType>(0xff00ff00ff00);
-        return writeEntry(masterId, segmentId, LOG_ENTRY_TYPE_SEGFOOTER, offset,
-                          &footer, sizeof(footer));
+        return writeEntry(masterId, segmentId, LOG_ENTRY_TYPE_SEGFOOTER,
+                          offset, &footer, sizeof(footer));
     }
 
     void
@@ -132,14 +141,14 @@ class BackupServiceTest : public ::testing::Test {
 
     void
     appendTablet(ProtoBuf::Tablets& tablets,
-                    uint64_t partitionId,
-                    uint32_t tableId,
-                    uint64_t start, uint64_t end)
+                 uint64_t partitionId,
+                 uint32_t tableId,
+                 uint64_t start, uint64_t end)
     {
         ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
         tablet.set_table_id(tableId);
-        tablet.set_start_object_id(start);
-        tablet.set_end_object_id(end);
+        tablet.set_start_key_hash(start);
+        tablet.set_end_key_hash(end);
         tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
         tablet.set_user_data(partitionId);
     }
@@ -148,13 +157,14 @@ class BackupServiceTest : public ::testing::Test {
     createTabletList(ProtoBuf::Tablets& tablets)
     {
         // partition 0
-        appendTablet(tablets, 0, 123, 0, 9);
-        appendTablet(tablets, 0, 123, 10, 19);
-        appendTablet(tablets, 0, 123, 20, 29);
-        appendTablet(tablets, 0, 124, 20, 100);
+        appendTablet(tablets, 0, 123, getKeyHash("9", 1), getKeyHash("9", 1));
+        appendTablet(tablets, 0, 123, getKeyHash("10", 2), getKeyHash("10", 2));
+        appendTablet(tablets, 0, 123, getKeyHash("29", 2), getKeyHash("29", 2));
+
+        appendTablet(tablets, 0, 124, getKeyHash("20", 2), getKeyHash("20", 2));
 
         // partition 1
-        appendTablet(tablets, 1, 123, 30, 39);
+        appendTablet(tablets, 1, 123, getKeyHash("30", 2), getKeyHash("30", 2));
         appendTablet(tablets, 1, 125, 0, std::numeric_limits<uint64_t>::max());
     }
 
@@ -255,22 +265,26 @@ TEST_F(BackupServiceTest, getRecoveryData) {
     offset = writeHeader(ServerId(99, 0), 88);
     // Objects
     // Barely in tablet
-    offset += writeObject(ServerId(99, 0), 88, offset, "test1", 6, 123, 29);
+    offset +=
+        writeObject(ServerId(99, 0), 88, offset, "test1", 6, 123, "29", 2);
     // Barely out of tablets
-    offset += writeObject(ServerId(99, 0), 88, offset, "test2", 6, 123, 30);
+    offset +=
+        writeObject(ServerId(99, 0), 88, offset, "test2", 6, 123, "30", 2);
     // In on other table
-    offset += writeObject(ServerId(99, 0), 88, offset, "test3", 6, 124, 20);
+    offset +=
+        writeObject(ServerId(99, 0), 88, offset, "test3", 6, 124, "20", 2);
     // Not in any table
-    offset += writeObject(ServerId(99, 0), 88, offset, "test4", 6, 125, 20);
+    offset +=
+        writeObject(ServerId(99, 0), 88, offset, "test4", 6, 125, "20", 2);
     // Tombstones
     // Barely in tablet
-    offset += writeTombstone(ServerId(99, 0), 88, offset, 123, 29);
+    offset += writeTombstone(ServerId(99, 0), 88, offset, 123, "29", 2);
     // Barely out of tablets
-    offset += writeTombstone(ServerId(99, 0), 88, offset, 123, 30);
+    offset += writeTombstone(ServerId(99, 0), 88, offset, 123, "30", 2);
     // In on other table
-    offset += writeTombstone(ServerId(99, 0), 88, offset, 124, 20);
+    offset += writeTombstone(ServerId(99, 0), 88, offset, 124, "20", 2);
     // Not in any table
-    offset += writeTombstone(ServerId(99, 0), 88, offset, 125, 20);
+    offset += writeTombstone(ServerId(99, 0), 88, offset, 125, "20", 2);
     offset += writeFooter(ServerId(99, 0), 88, offset);
     client->closeSegment(ServerId(99, 0), 88);
     client->startReadingData(ServerId(99, 0), tablets);
@@ -293,26 +307,32 @@ TEST_F(BackupServiceTest, getRecoveryData) {
 
     EXPECT_FALSE(it.isDone());
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, it.getType());
-    EXPECT_EQ(123U, it.get<Object>()->id.tableId);
-    EXPECT_EQ(29U, it.get<Object>()->id.objectId);
+    EXPECT_EQ(123U, it.get<Object>()->tableId);
+    EXPECT_EQ("29", TestUtil::toString(it.get<Object>()->getKey(),
+                                       it.get<Object>()->keyLength));
     it.next();
 
     EXPECT_FALSE(it.isDone());
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, it.getType());
-    EXPECT_EQ(124U, it.get<Object>()->id.tableId);
-    EXPECT_EQ(20U, it.get<Object>()->id.objectId);
+    EXPECT_EQ(124U, it.get<Object>()->tableId);
+    EXPECT_EQ("20", TestUtil::toString(it.get<Object>()->getKey(),
+                                       it.get<Object>()->keyLength));
     it.next();
 
     EXPECT_FALSE(it.isDone());
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJTOMB, it.getType());
-    EXPECT_EQ(123U, it.get<ObjectTombstone>()->id.tableId);
-    EXPECT_EQ(29U, it.get<ObjectTombstone>()->id.objectId);
+    EXPECT_EQ(123U, it.get<ObjectTombstone>()->tableId);
+    EXPECT_EQ("29",
+              TestUtil::toString(it.get<ObjectTombstone>()->getKey(),
+                                 it.get<ObjectTombstone>()->keyLength));
     it.next();
 
     EXPECT_FALSE(it.isDone());
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJTOMB, it.getType());
-    EXPECT_EQ(124U, it.get<ObjectTombstone>()->id.tableId);
-    EXPECT_EQ(20U, it.get<ObjectTombstone>()->id.objectId);
+    EXPECT_EQ(124U, it.get<ObjectTombstone>()->tableId);
+    EXPECT_EQ("20",
+              TestUtil::toString(it.get<ObjectTombstone>()->getKey(),
+                                 it.get<ObjectTombstone>()->keyLength));
     it.next();
 
     EXPECT_TRUE(it.isDone());
@@ -322,13 +342,15 @@ TEST_F(BackupServiceTest, getRecoveryData_moreThanOneSegmentStored) {
     uint32_t offset = 0;
     client->openSegment(ServerId(99, 0), 87);
     offset = writeHeader(ServerId(99, 0), 87);
-    offset += writeObject(ServerId(99, 0), 87, offset, "test1", 6, 123, 9);
+    offset +=
+        writeObject(ServerId(99, 0), 87, offset, "test1", 6, 123, "9", 1);
     offset += writeFooter(ServerId(99, 0), 87, offset);
     client->closeSegment(ServerId(99, 0), 87);
 
     client->openSegment(ServerId(99, 0), 88);
     offset = writeHeader(ServerId(99, 0), 88);
-    offset += writeObject(ServerId(99, 0), 88, offset, "test2", 6, 123, 10);
+    offset +=
+        writeObject(ServerId(99, 0), 88, offset, "test2", 6, 123, "10", 2);
     offset += writeFooter(ServerId(99, 0), 88, offset);
     client->closeSegment(ServerId(99, 0), 88);
 
@@ -355,8 +377,8 @@ TEST_F(BackupServiceTest, getRecoveryData_moreThanOneSegmentStored) {
             response.getTotalLength());
         EXPECT_FALSE(it.isDone());
         EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, it.getType());
-        EXPECT_STREQ("test2", static_cast<const Object*>(it.getPointer())->
-                           data);
+        EXPECT_STREQ("test2", static_cast<const Object*>(
+                              it.getPointer())->getData());
         it.next();
         EXPECT_TRUE(it.isDone());
     }
@@ -378,8 +400,8 @@ TEST_F(BackupServiceTest, getRecoveryData_moreThanOneSegmentStored) {
             response.getTotalLength());
         EXPECT_FALSE(it.isDone());
         EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, it.getType());
-        EXPECT_STREQ("test1", static_cast<const Object*>(it.getPointer())->
-                           data);
+        EXPECT_STREQ("test1", static_cast<const Object*>(
+                              it.getPointer())->getData());
         it.next();
         EXPECT_TRUE(it.isDone());
     }
@@ -415,7 +437,8 @@ TEST_F(BackupServiceTest, getRecoveryData_notRecovered) {
     uint32_t offset = 0;
     client->openSegment(ServerId(99, 0), 88);
     offset += writeHeader(ServerId(99, 0), 88);
-    offset += writeObject(ServerId(99, 0), 88, offset, "test2", 6, 123, 10);
+    offset +=
+        writeObject(ServerId(99, 0), 88, offset, "test2", 6, 123, "10", 2);
     offset += writeFooter(ServerId(99, 0), 88, offset);
     Buffer response;
 
@@ -460,13 +483,15 @@ TEST_F(BackupServiceTest, recoverySegmentBuilder) {
     uint32_t offset = 0;
     client->openSegment(ServerId(99, 0), 87);
     offset = writeHeader(ServerId(99, 0), 87);
-    offset += writeObject(ServerId(99, 0), 87, offset, "test1", 6, 123, 9);
+    offset +=
+        writeObject(ServerId(99, 0), 87, offset, "test1", 6, 123, "9", 1);
     offset += writeFooter(ServerId(99, 0), 87, offset);
     client->closeSegment(ServerId(99, 0), 87);
 
     client->openSegment(ServerId(99, 0), 88);
     offset = writeHeader(ServerId(99, 0), 88);
-    offset += writeObject(ServerId(99, 0), 88, offset, "test2", 6, 123, 30);
+    offset +=
+        writeObject(ServerId(99, 0), 88, offset, "test2", 6, 123, "30", 2);
     offset += writeFooter(ServerId(99, 0), 88, offset);
     client->closeSegment(ServerId(99, 0), 88);
 
@@ -500,7 +525,7 @@ TEST_F(BackupServiceTest, recoverySegmentBuilder) {
                                 buf->getTotalLength());
     EXPECT_FALSE(it.isDone());
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, it.getType());
-    EXPECT_STREQ("test1", it.get<Object>()->data);
+    EXPECT_STREQ("test1", it.get<Object>()->getData());
     it.next();
     EXPECT_TRUE(it.isDone());
 
@@ -512,7 +537,7 @@ TEST_F(BackupServiceTest, recoverySegmentBuilder) {
                                 buf->getTotalLength());
     EXPECT_FALSE(it2.isDone());
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, it2.getType());
-    EXPECT_STREQ("test2", it2.get<Object>()->data);
+    EXPECT_STREQ("test2", it2.get<Object>()->getData());
     it2.next();
     EXPECT_TRUE(it2.isDone());
 }
@@ -866,19 +891,22 @@ TEST_F(BackupServiceTest, writeSegment_badOffset) {
 
 TEST_F(BackupServiceTest, writeSegment_badLength) {
     client->openSegment(ServerId(99, 0), 88);
-    char junk[70000];
+    uint32_t length = config.segmentSize + 1;
+    char junk[length];
     EXPECT_THROW(
-        client->writeSegment(ServerId(99, 0), 88, 0, junk,
-                                downCast<uint32_t>(sizeof(junk))),
+        client->writeSegment(ServerId(99, 0), 88, 0, static_cast<char*>(junk),
+                             length),
         BackupSegmentOverflowException);
     EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
 }
 
 TEST_F(BackupServiceTest, writeSegment_badOffsetPlusLength) {
     client->openSegment(ServerId(99, 0), 88);
-    char junk[50000];
+    uint32_t length = config.segmentSize;
+    char junk[length];
     EXPECT_THROW(
-        client->writeSegment(ServerId(99, 0), 88, 50000, junk, 50000),
+        client->writeSegment(ServerId(99, 0), 88, 1, static_cast<char*>(junk),
+                             length),
         BackupSegmentOverflowException);
     EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
 }
@@ -1039,8 +1067,8 @@ appendTablet(ProtoBuf::Tablets& tablets,
 {
     ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
     tablet.set_table_id(tableId);
-    tablet.set_start_object_id(start);
-    tablet.set_end_object_id(end);
+    tablet.set_start_key_hash(start);
+    tablet.set_end_key_hash(end);
     tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
     tablet.set_user_data(partitionId);
 }
@@ -1048,12 +1076,8 @@ appendTablet(ProtoBuf::Tablets& tablets,
 void
 createTabletList(ProtoBuf::Tablets& tablets)
 {
-    appendTablet(tablets, 0, 123, 0, 9);
-    appendTablet(tablets, 0, 123, 10, 19);
-    appendTablet(tablets, 0, 123, 20, 29);
-    appendTablet(tablets, 0, 124, 20, 100);
-    appendTablet(tablets, 1, 123, 30, 39);
-    appendTablet(tablets, 1, 125, 0, std::numeric_limits<uint64_t>::max());
+    appendTablet(tablets, 0, 123, getKeyHash("10", 2), getKeyHash("10", 2));
+    appendTablet(tablets, 1, 123, getKeyHash("30", 2), getKeyHash("30", 2));
 }
 
 TEST_F(SegmentInfoTest, appendRecoverySegment) {
@@ -1063,11 +1087,12 @@ TEST_F(SegmentInfoTest, appendRecoverySegment) {
     SegmentHeader header = { 99, 88, segmentSize };
     segment.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
 
-    Object object(sizeof(object));
-    object.id.objectId = 10;
-    object.id.tableId = 123;
-    object.version = 0;
-    segment.append(LOG_ENTRY_TYPE_OBJ, &object, sizeof(object));
+    DECLARE_OBJECT(object, 2, 0);
+    object->tableId = 123;
+    object->keyLength = 2;
+    object->version = 0;
+    memcpy(object->getKeyLocation(), "10", 2);
+    segment.append(LOG_ENTRY_TYPE_OBJ, object, object->objectLength(0));
 
     segment.close(NULL);
     info.close();
@@ -1082,10 +1107,10 @@ TEST_F(SegmentInfoTest, appendRecoverySegment) {
     Status status = info.appendRecoverySegment(0, buffer);
     ASSERT_EQ(STATUS_OK, status);
     RecoverySegmentIterator it(buffer.getRange(0, buffer.getTotalLength()),
-                                 buffer.getTotalLength());
+                               buffer.getTotalLength());
     EXPECT_FALSE(it.isDone());
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, it.getType());
-    EXPECT_EQ(sizeof(Object), it.getLength());
+    EXPECT_EQ(object->objectLength(0), it.getLength());
 
     it.next();
     EXPECT_TRUE(it.isDone());
@@ -1100,11 +1125,12 @@ TEST_F(SegmentInfoTest, appendRecoverySegmentSecondarySegment) {
     SegmentHeader header = { 99, 88, segmentSize };
     segment.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
 
-    Object object(sizeof(object));
-    object.id.objectId = 10;
-    object.id.tableId = 123;
-    object.version = 0;
-    segment.append(LOG_ENTRY_TYPE_OBJ, &object, sizeof(object));
+    DECLARE_OBJECT(object, 2, 0);
+    object->tableId = 123;
+    object->keyLength = 2;
+    object->version = 0;
+    memcpy(object->getKeyLocation(), "10", 2);
+    segment.append(LOG_ENTRY_TYPE_OBJ, object, object->objectLength(0));
 
     segment.close(NULL);
     info.close();
@@ -1134,10 +1160,10 @@ TEST_F(SegmentInfoTest, appendRecoverySegmentSecondarySegment) {
         break;
     }
     RecoverySegmentIterator it(buffer.getRange(0, buffer.getTotalLength()),
-                                 buffer.getTotalLength());
+                               buffer.getTotalLength());
     EXPECT_FALSE(it.isDone());
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, it.getType());
-    EXPECT_EQ(sizeof(Object), it.getLength());
+    EXPECT_EQ(object->objectLength(0), it.getLength());
 
     it.next();
     EXPECT_TRUE(it.isDone());
@@ -1197,27 +1223,31 @@ TEST_F(SegmentInfoTest, whichPartition) {
     ProtoBuf::Tablets partitions;
     createTabletList(partitions);
 
-    Object object(sizeof(object));
-    object.id.objectId = 10;
-    object.id.tableId = 123;
-    object.version = 0;
+    DECLARE_OBJECT(object, 2, 0);
+    object->tableId = 123;
+    object->keyLength = 2;
+    object->version = 0;
 
-    auto r = whichPartition(LOG_ENTRY_TYPE_OBJ, &object, partitions);
+    memcpy(object->getKeyLocation(), "10", 2);
+    auto r = whichPartition(LOG_ENTRY_TYPE_OBJ, object, partitions);
     EXPECT_TRUE(r);
     EXPECT_EQ(0u, *r);
 
-    object.id.objectId = 30;
-    r = whichPartition(LOG_ENTRY_TYPE_OBJ, &object, partitions);
+    memcpy(object->getKeyLocation(), "30", 2);
+    r = whichPartition(LOG_ENTRY_TYPE_OBJ, object, partitions);
     EXPECT_TRUE(r);
     EXPECT_EQ(1u, *r);
 
     TestLog::Enable _;
-    object.id.objectId = 40;
-    r = whichPartition(LOG_ENTRY_TYPE_OBJ, &object, partitions);
+    memcpy(object->getKeyLocation(), "40", 2);
+    r = whichPartition(LOG_ENTRY_TYPE_OBJ, object, partitions);
     EXPECT_FALSE(r);
-    EXPECT_EQ("whichPartition: Couldn't place object <123,40> into any of the "
-              "given tablets for recovery; hopefully it belonged to a deleted "
-              "tablet or lives in another log now", TestLog::get());
+    HashType keyHash = getKeyHash("40", 2);
+    EXPECT_EQ(format("whichPartition: Couldn't place object with "
+              "<tableId, keyHash> of <123,%lu> into any "
+              "of the given tablets for recovery; hopefully it belonged to "
+              "a deleted tablet or lives in another log now", keyHash),
+              TestLog::get());
 }
 
 TEST_F(SegmentInfoTest, buildRecoverySegment) {
@@ -1227,11 +1257,13 @@ TEST_F(SegmentInfoTest, buildRecoverySegment) {
     SegmentHeader header = { 99, 88, segmentSize };
     segment.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
 
-    Object object(sizeof(object));
-    object.id.objectId = 10;
-    object.id.tableId = 123;
-    object.version = 0;
-    segment.append(LOG_ENTRY_TYPE_OBJ, &object, sizeof(object));
+    DECLARE_OBJECT(object, 2, 0);
+    object->tableId = 123;
+    object->keyLength = 2;
+    object->version = 0;
+    memcpy(object->getKeyLocation(), "10", 2);
+    segment.append(LOG_ENTRY_TYPE_OBJ, object,
+                   object->objectLength(0));
 
     segment.close(NULL);
     info.close();
@@ -1246,10 +1278,9 @@ TEST_F(SegmentInfoTest, buildRecoverySegment) {
     EXPECT_FALSE(info.recoveryException);
     EXPECT_EQ(2u, info.recoverySegmentsLength);
     ASSERT_TRUE(info.recoverySegments);
-    EXPECT_EQ(sizeof(object) + sizeof(SegmentEntry),
+    EXPECT_EQ(object->objectLength(0) + sizeof(SegmentEntry),
               info.recoverySegments[0].getTotalLength());
-    EXPECT_EQ(0u,
-              info.recoverySegments[1].getTotalLength());
+    EXPECT_EQ(0u, info.recoverySegments[1].getTotalLength());
 }
 
 TEST_F(SegmentInfoTest, buildRecoverySegmentMalformedSegment) {
@@ -1358,5 +1389,4 @@ TEST_F(SegmentInfoTest, startLoading) {
     info.startLoading();
     EXPECT_EQ(SegmentInfo::CLOSED, info.state);
 }
-
 } // namespace RAMCloud

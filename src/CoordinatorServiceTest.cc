@@ -68,30 +68,30 @@ TEST_F(CoordinatorServiceTest, createTable) {
     client->createTable("baz"); // and back to master1
     EXPECT_EQ(0U, get(service->tables, "foo"));
     EXPECT_EQ(1U, get(service->tables, "bar"));
-    EXPECT_EQ("tablet { table_id: 0 start_object_id: 0 "
-              "end_object_id: 18446744073709551615 "
+    EXPECT_EQ("tablet { table_id: 0 start_key_hash: 0 "
+              "end_key_hash: 18446744073709551615 "
               "state: NORMAL server_id: 1 "
               "service_locator: \"mock:host=master\" } "
-              "tablet { table_id: 1 start_object_id: 0 "
-              "end_object_id: 18446744073709551615 "
+              "tablet { table_id: 1 start_key_hash: 0 "
+              "end_key_hash: 18446744073709551615 "
               "state: NORMAL server_id: 2 "
               "service_locator: \"mock:host=master2\" } "
-              "tablet { table_id: 2 start_object_id: 0 "
-              "end_object_id: 18446744073709551615 "
+              "tablet { table_id: 2 start_key_hash: 0 "
+              "end_key_hash: 18446744073709551615 "
               "state: NORMAL server_id: 1 "
               "service_locator: \"mock:host=master\" }",
               service->tabletMap.ShortDebugString());
     ProtoBuf::Tablets& will1 = *service->serverList[1]->will;
-    EXPECT_EQ("tablet { table_id: 0 start_object_id: 0 "
-              "end_object_id: 18446744073709551615 "
+    EXPECT_EQ("tablet { table_id: 0 start_key_hash: 0 "
+              "end_key_hash: 18446744073709551615 "
               "state: NORMAL user_data: 0 } "
-              "tablet { table_id: 2 start_object_id: 0 "
-              "end_object_id: 18446744073709551615 "
+              "tablet { table_id: 2 start_key_hash: 0 "
+              "end_key_hash: 18446744073709551615 "
               "state: NORMAL user_data: 1 }",
               will1.ShortDebugString());
     ProtoBuf::Tablets& will2 = *service->serverList[2]->will;
-    EXPECT_EQ("tablet { table_id: 1 start_object_id: 0 "
-              "end_object_id: 18446744073709551615 "
+    EXPECT_EQ("tablet { table_id: 1 start_key_hash: 0 "
+              "end_key_hash: 18446744073709551615 "
               "state: NORMAL user_data: 0 }",
               will2.ShortDebugString());
     EXPECT_EQ(2, master->tablets.tablet_size());
@@ -226,8 +226,8 @@ TEST_F(CoordinatorServiceTest, getTabletMap) {
     client->createTable("foo");
     ProtoBuf::Tablets tabletMap;
     client->getTabletMap(tabletMap);
-    EXPECT_EQ("tablet { table_id: 0 start_object_id: 0 "
-              "end_object_id: 18446744073709551615 "
+    EXPECT_EQ("tablet { table_id: 0 start_key_hash: 0 "
+              "end_key_hash: 18446744073709551615 "
               "state: NORMAL server_id: 1 "
               "service_locator: \"mock:host=master\" }",
               tabletMap.ShortDebugString());
@@ -248,14 +248,14 @@ TEST_F(CoordinatorServiceTest, hintServerDown_master) {
             serverList.serialize(masterHosts, {MASTER_SERVICE});
             serverList.serialize(backupHosts, {BACKUP_SERVICE});
 
-            EXPECT_EQ("tablet { table_id: 0 start_object_id: 0 "
-                    "end_object_id: 18446744073709551615 "
+            EXPECT_EQ("tablet { table_id: 0 start_key_hash: 0 "
+                    "end_key_hash: 18446744073709551615 "
                     "state: RECOVERING server_id: 1 "
                     "service_locator: \"mock:host=master\" }",
                     test.service->tabletMap.ShortDebugString());
             EXPECT_EQ(1LU, masterId.getId());
-            EXPECT_EQ("tablet { table_id: 0 start_object_id: 0 "
-                      "end_object_id: 18446744073709551615 "
+            EXPECT_EQ("tablet { table_id: 0 start_key_hash: 0 "
+                      "end_key_hash: 18446744073709551615 "
                       "state: NORMAL user_data: 0 }",
                       will.ShortDebugString());
             EXPECT_TRUE(TestUtil::matchesPosixRegex(
@@ -326,8 +326,8 @@ TEST_F(CoordinatorServiceTest, tabletsRecovered_basics) {
     Tablets tablets;
     Tablet& tablet(*tablets.add_tablet());
     tablet.set_table_id(0);
-    tablet.set_start_object_id(0);
-    tablet.set_end_object_id(~(0ul));
+    tablet.set_start_key_hash(0);
+    tablet.set_end_key_hash(~(0ul));
     tablet.set_state(ProtoBuf::Tablets::Tablet::NORMAL);
     tablet.set_service_locator("mock:host=master2");
     tablet.set_server_id(*master2Id);
@@ -335,8 +335,8 @@ TEST_F(CoordinatorServiceTest, tabletsRecovered_basics) {
 
     Tablet& stablet(*service->tabletMap.add_tablet());
     stablet.set_table_id(0);
-    stablet.set_start_object_id(0);
-    stablet.set_end_object_id(~(0ul));
+    stablet.set_start_key_hash(0);
+    stablet.set_end_key_hash(~(0ul));
     stablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
     stablet.set_user_data(
         reinterpret_cast<uint64_t>(new BaseRecovery(master2Id)));
@@ -378,8 +378,8 @@ TEST_F(CoordinatorServiceTest, setWill) {
     ProtoBuf::Tablets will;
     ProtoBuf::Tablets::Tablet& t(*will.add_tablet());
     t.set_table_id(0);
-    t.set_start_object_id(235);
-    t.set_end_object_id(47234);
+    t.set_start_key_hash(235);
+    t.set_end_key_hash(47234);
     t.set_state(ProtoBuf::Tablets::Tablet::NORMAL);
     t.set_user_data(19);
 

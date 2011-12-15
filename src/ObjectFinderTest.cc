@@ -23,22 +23,22 @@ struct Refresher : public ObjectFinder::TabletMapFetcher {
     void getTabletMap(ProtoBuf::Tablets& tabletMap) {
         ProtoBuf::Tablets_Tablet tablet1;
         tablet1.set_table_id(0);
-        tablet1.set_start_object_id(0);
-        tablet1.set_end_object_id(~0UL);
+        tablet1.set_start_key_hash(0);
+        tablet1.set_end_key_hash(~0UL);
         tablet1.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
         tablet1.set_service_locator("mock:host=fail");
 
         ProtoBuf::Tablets_Tablet tablet2;
         tablet2.set_table_id(1);
-        tablet2.set_start_object_id(0);
-        tablet2.set_end_object_id(~0UL);
+        tablet2.set_start_key_hash(0);
+        tablet2.set_end_key_hash(~0UL);
         tablet2.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
         tablet2.set_service_locator("mock:host=server0");
 
         ProtoBuf::Tablets_Tablet tablet3;
         tablet3.set_table_id(2);
-        tablet3.set_start_object_id(0);
-        tablet3.set_end_object_id(~0UL);
+        tablet3.set_start_key_hash(0);
+        tablet3.set_end_key_hash(~0UL);
         tablet3.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
         tablet3.set_service_locator("mock:host=server1");
 
@@ -87,7 +87,7 @@ class ObjectFinderTest : public ::testing::Test {
 };
 
 TEST_F(ObjectFinderTest, lookup) {
-    Transport::SessionRef session(objectFinder->lookup(1, 2));
+    Transport::SessionRef session(objectFinder->lookup(1, "testKey", 7));
     // first tablet map is empty, throws TableDoesntExistException
     // get a new tablet map
     // find tablet in recovery
@@ -104,17 +104,17 @@ TEST_F(ObjectFinderTest, multiLookup_basics) {
     MasterClient::ReadObject* requests[3];
 
     Tub<Buffer> readValue1;
-    MasterClient::ReadObject request1(1, 0, &readValue1);
+    MasterClient::ReadObject request1(1, "0", 1, &readValue1);
     request1.status = STATUS_RETRY;
     requests[0] = &request1;
 
     Tub<Buffer> readValue2;
-    MasterClient::ReadObject request2(1, 1, &readValue2);
+    MasterClient::ReadObject request2(1, "1", 1, &readValue2);
     request2.status = STATUS_RETRY;
     requests[1] = &request2;
 
     Tub<Buffer> readValue3;
-    MasterClient::ReadObject request3(2, 0, &readValue3);
+    MasterClient::ReadObject request3(2, "0", 1, &readValue3);
     request3.status = STATUS_RETRY;
     requests[2] = &request3;
 
@@ -125,44 +125,32 @@ TEST_F(ObjectFinderTest, multiLookup_basics) {
         static_cast<BindTransport::BindSession*>(
         requestBins[0].sessionRef.get())->locator);
     EXPECT_EQ(1U, requestBins[0].requests[0]->tableId);
-    EXPECT_EQ(0U, requestBins[0].requests[0]->id);
+    EXPECT_EQ("0", requestBins[0].requests[0]->key);
     EXPECT_STREQ("STATUS_RETRY", statusToSymbol(request1.status));
     EXPECT_EQ(1U, requestBins[0].requests[1]->tableId);
-    EXPECT_EQ(1U, requestBins[0].requests[1]->id);
+    EXPECT_EQ("1", requestBins[0].requests[1]->key);
     EXPECT_STREQ("STATUS_RETRY", statusToSymbol(request2.status));
 
     EXPECT_EQ("mock:host=server1",
         static_cast<BindTransport::BindSession*>(
         requestBins[1].sessionRef.get())->locator);
     EXPECT_EQ(2U, requestBins[1].requests[0]->tableId);
-    EXPECT_EQ(0U, requestBins[1].requests[0]->id);
+    EXPECT_EQ("0", requestBins[1].requests[0]->key);
     EXPECT_STREQ("STATUS_RETRY", statusToSymbol(request3.status));
 }
 
 TEST_F(ObjectFinderTest, multiLookup_badTable) {
     TestLog::Enable _;
 
-    MasterClient::ReadObject* requests[2];
-
-    Tub<Buffer> readValue1;
-    MasterClient::ReadObject request1(1, 0, &readValue1);
-    request1.status = STATUS_RETRY;
-    requests[0] = &request1;
+    MasterClient::ReadObject* requests[1];
 
     Tub<Buffer> readValueError;
-    MasterClient::ReadObject requestError(3, 0, &readValueError);
+    MasterClient::ReadObject requestError(3, "0", 1, &readValueError);
     requestError.status = STATUS_RETRY;
-    requests[1] = &requestError;
+    requests[0] = &requestError;
 
     std::vector<ObjectFinder::MasterRequests> requestBins =
-                                    objectFinder->multiLookup(requests, 2);
-
-    EXPECT_EQ("mock:host=server0",
-        static_cast<BindTransport::BindSession*>(
-        requestBins[0].sessionRef.get())->locator);
-    EXPECT_EQ(1U, requestBins[0].requests[0]->tableId);
-    EXPECT_EQ(0U, requestBins[0].requests[0]->id);
-    EXPECT_STREQ("STATUS_RETRY", statusToSymbol(request1.status));
+                                    objectFinder->multiLookup(requests, 1);
 
     EXPECT_STREQ("STATUS_TABLE_DOESNT_EXIST",
                             statusToSymbol(requestError.status));

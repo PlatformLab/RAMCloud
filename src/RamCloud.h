@@ -38,13 +38,15 @@ class RamCloud {
       public:
         /// Start a read RPC. See RamCloud::read.
         Read(RamCloud& ramCloud,
-             uint32_t tableId, uint64_t id, Buffer* value,
-             const RejectRules* rejectRules = NULL,
+             uint32_t tableId, const char* key, uint16_t keyLength,
+             Buffer* value, const RejectRules* rejectRules = NULL,
              uint64_t* version = NULL)
-            : constructorContext(ramCloud.clientContext)
-            , ramCloud(ramCloud)
-            , master(ramCloud.objectFinder.lookup(tableId, id))
-            , masterRead(master, tableId, id, value, rejectRules, version)
+             : constructorContext(ramCloud.clientContext)
+             , ramCloud(ramCloud)
+             , master(ramCloud.objectFinder.lookup(tableId,
+                                                   key, keyLength))
+             , masterRead(master, tableId, key, keyLength, value,
+                          rejectRules, version)
         {
             // This should be the last line on all return paths of this
             // constructor.
@@ -77,14 +79,16 @@ class RamCloud {
       public:
         /// Start a write RPC. See RamCloud::write.
         Write(RamCloud& ramCloud,
-              uint32_t tableId, uint64_t id, Buffer& buffer,
+              uint32_t tableId, const char* key, uint16_t keyLength,
+              Buffer& buffer,
               const RejectRules* rejectRules = NULL,
               uint64_t* version = NULL, bool async = false)
-            : constructorContext(ramCloud.clientContext)
-            , ramCloud(ramCloud)
-            , master(ramCloud.objectFinder.lookup(tableId, id))
-            , masterWrite(master, tableId, id, buffer,
-                          rejectRules, version, async)
+              : constructorContext(ramCloud.clientContext)
+              , ramCloud(ramCloud)
+              , master(ramCloud.objectFinder.lookup(tableId,
+                       key, keyLength))
+              , masterWrite(master, tableId, key, keyLength, buffer,
+                            rejectRules, version, async)
         {
             // This should be the last line on all return paths of this
             // constructor.
@@ -92,14 +96,16 @@ class RamCloud {
         }
         /// Start a write RPC. See RamCloud::write.
         Write(RamCloud& ramCloud,
-              uint32_t tableId, uint64_t id, const void* buf,
-              uint32_t length, const RejectRules* rejectRules = NULL,
+              uint32_t tableId, const char* key, uint16_t keyLength,
+              const void* buf, uint32_t length,
+              const RejectRules* rejectRules = NULL,
               uint64_t* version = NULL, bool async = false)
-            : constructorContext(ramCloud.clientContext)
-            , ramCloud(ramCloud)
-            , master(ramCloud.objectFinder.lookup(tableId, id))
-            , masterWrite(master, tableId, id, buf, length,
-                          rejectRules, version, async)
+              : constructorContext(ramCloud.clientContext)
+              , ramCloud(ramCloud)
+              , master(ramCloud.objectFinder.lookup(tableId,
+                       key, keyLength))
+              , masterWrite(master, tableId, key, keyLength, buf, length,
+                            rejectRules, version, async)
         {
             // This should be the last line on all return paths of this
             // constructor.
@@ -130,26 +136,29 @@ class RamCloud {
     uint32_t openTable(const char* name);
     string* getServiceLocator();
     ServerMetrics getMetrics(const char* serviceLocator);
-    ServerMetrics getMetrics(uint32_t table, uint64_t objectId);
+    ServerMetrics getMetrics(uint32_t table, const char* key,
+                             uint16_t keyLength);
     uint64_t ping(const char* serviceLocator, uint64_t nonce,
                   uint64_t timeoutNanoseconds);
-    uint64_t ping(uint32_t table, uint64_t objectId, uint64_t nonce,
-                  uint64_t timeoutNanoseconds);
+    uint64_t ping(uint32_t table, const char* key, uint16_t keyLength,
+                  uint64_t nonce, uint64_t timeoutNanoseconds);
     uint64_t proxyPing(const char* serviceLocator1,
                        const char* serviceLocator2,
                        uint64_t timeoutNanoseconds1,
                        uint64_t timeoutNanoseconds2);
-    void read(uint32_t tableId, uint64_t id, Buffer* value,
-              const RejectRules* rejectRules = NULL,
+    void read(uint32_t tableId, const char* key, uint16_t keyLength,
+              Buffer* value, const RejectRules* rejectRules = NULL,
               uint64_t* version = NULL);
     void multiRead(MasterClient::ReadObject* requests[], uint32_t numRequests);
-    void remove(uint32_t tableId, uint64_t id,
+    void remove(uint32_t tableId, const char* key, uint16_t keyLength,
                 const RejectRules* rejectRules = NULL,
                 uint64_t* version = NULL);
-    void write(uint32_t tableId, uint64_t id, const void* buf,
-               uint32_t length, const RejectRules* rejectRules = NULL,
+    void write(uint32_t tableId, const char* key, uint16_t keyLength,
+               const void* buf, uint32_t length,
+               const RejectRules* rejectRules = NULL,
                uint64_t* version = NULL, bool async = false);
-    void write(uint32_t tableId, uint64_t id, const char* s);
+    void write(uint32_t tableId, const char* key, uint16_t keyLength,
+               const char* s);
 
   PRIVATE:
     /**

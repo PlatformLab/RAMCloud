@@ -49,26 +49,34 @@ class RecoverSegmentBenchmark {
     }
 
     void
-    run(int numSegments, int objectBytes)
+    run(int numSegments, int dataBytes)
     {
         /*
-         * Allocate numSegments Segments and fill them up objects of
-         * objectBytes bytes. These will be the Segment we recover.
+         * Allocate numSegments Segments and fill them up with objects of
+         * size dataBytes. These will be the Segments that we recover.
          */
         uint64_t numObjects = 0;
-        uint64_t nextObjId = 0;
+        uint64_t nextKeyVal = 0;
         Segment *segments[numSegments];
         for (int i = 0; i < numSegments; i++) {
             void *p = Memory::xmalloc(HERE, Segment::SEGMENT_SIZE);
             segments[i] = new Segment((uint64_t)0, i, p,
                 Segment::SEGMENT_SIZE, NULL);
             while (1) {
-                DECLARE_OBJECT(o, objectBytes);
-                o->id.objectId = nextObjId++;
-                o->id.tableId = 0;
+                string key = format("%lu", nextKeyVal);
+                uint16_t keyLength = downCast<uint16_t>(key.length());
+
+                DECLARE_OBJECT(o, keyLength, dataBytes);
+                o->tableId = 0;
                 o->version = 0;
-                SegmentEntryHandle seh = segments[i]->append(LOG_ENTRY_TYPE_OBJ,
-                    o, o->objectLength(objectBytes));
+                o->keyLength = keyLength;
+                memcpy(o->getKeyLocation(), key.c_str(), keyLength);
+
+                SegmentEntryHandle seh =
+                    segments[i]->append(LOG_ENTRY_TYPE_OBJ,
+                                        o, o->objectLength(dataBytes));
+
+                nextKeyVal++;
                 if (seh == NULL)
                     break;
                 numObjects++;
@@ -79,8 +87,8 @@ class RecoverSegmentBenchmark {
         /* Update the list of Tablets */
         ProtoBuf::Tablets_Tablet tablet;
         tablet.set_table_id(0);
-        tablet.set_start_object_id(0);
-        tablet.set_end_object_id(nextObjId - 1);
+        tablet.set_start_key_hash(0);
+        tablet.set_end_key_hash(~0UL);
         tablet.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
         tablet.set_server_id(service->serverId.getId());
         *service->tablets.add_tablet() = tablet;
@@ -96,11 +104,11 @@ class RecoverSegmentBenchmark {
         }
         uint64_t ticks = Cycles::rdtsc() - before;
 
-        uint64_t totalObjectBytes = numObjects * objectBytes;
+        uint64_t totalObjectBytes = numObjects * dataBytes;
         uint64_t totalSegmentBytes = numSegments * Segment::SEGMENT_SIZE;
         printf("Recovery of %d %dKB Segments with %d byte Objects took %lu "
             "milliseconds\n", numSegments, Segment::SEGMENT_SIZE / 1024,
-            objectBytes, RAMCloud::Cycles::toNanoseconds(ticks) / 1000 / 1000);
+            dataBytes, RAMCloud::Cycles::toNanoseconds(ticks) / 1000 / 1000);
         printf("Actual total object count: %lu (%lu bytes in Objects, %.2f%% "
             "overhead)\n", numObjects, totalObjectBytes,
             100.0 *
@@ -124,12 +132,12 @@ int
 main()
 {
     int numSegments = 80;
-    int objectBytes[] = { 64, 128, 256, 512, 1024, 2048, 8192, 0 };
+    int dataBytes[] = { 64, 128, 256, 512, 1024, 2048, 8192, 0 };
 
-    for (int i = 0; objectBytes[i] != 0; i++) {
+    for (int i = 0; dataBytes[i] != 0; i++) {
         printf("==========================\n");
         RAMCloud::RecoverSegmentBenchmark rsb("2048", "10%", numSegments);
-        rsb.run(numSegments, objectBytes[i]);
+        rsb.run(numSegments, dataBytes[i]);
     }
 
     return 0;

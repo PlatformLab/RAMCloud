@@ -39,23 +39,8 @@ class Table {
           tombstoneCount(0),
           tombstoneBytes(0),
           tableId(tableId),
-          nextKey(0),
           nextVersion(1)
     {
-    }
-
-    /**
-     * Increment and return the next table-assigned object ID.
-     * \return
-     *      The next available object ID in the table.
-     * \warning
-     *      A client could have already placed an object here by fabricating the
-     *      object ID.
-     */
-    uint64_t AllocateKey(HashTable<LogEntryHandle>* hashTable) {
-        while (hashTable->lookup(tableId, nextKey) != NULL)
-            ++nextKey;
-        return nextKey++;
     }
 
     /**
@@ -100,19 +85,13 @@ class Table {
     uint64_t tableId;
 
     /**
-     * The next available object ID in the table.
-     * \see #AllocateKey().
-     */
-    uint64_t nextKey;
-
-    /**
      * The master vector clock for the table.
      *
-     * \li We guarantee that every distinct blob ever at a particular object ID
+     * \li We guarantee that every distinct blob ever at a particular key
      * will have a distinct version number, even across generations, so that
      * they can be uniquely identified across all time with a version number.
      *
-     * \li We guarantee that version numbers for a particular object ID
+     * \li We guarantee that version numbers for a particular key
      * monotonically increase over time, so that comparing two version numbers
      * tells which one is more recent.
      *

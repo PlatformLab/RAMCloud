@@ -19,25 +19,27 @@
 #include "Common.h"
 #include "HashTable.h"
 #include "WallTime.h"
+#include "KeyHash.h"
 
 namespace RAMCloud {
 
-#define DECLARE_OBJECT(name, el) \
-    char name##_buf[sizeof(Object) + (el)] __attribute__((aligned (8))); \
+/**
+ * Declare an Object, allocate the required space for it, and initialize.
+ * All the memebers still have to be assigned the right values later,
+ * and the key and data have to be appended.
+ *
+ * \param name
+ *      Name for the object declared.
+ * \param keyLength
+ *      Space required in bytes, apart from the Object struct to store the key.
+ * \param dataLength
+ *      Space required in bytes, apart from the Object struct to store the data.
+ */
+#define DECLARE_OBJECT(name, keyLength, dataLength) \
+    char name##_buf[sizeof(Object) + (keyLength + dataLength)] \
+        __attribute__((aligned (8))); \
     Object *name = new(name##_buf) Object(sizeof(name##_buf)); \
     assert((reinterpret_cast<uint64_t>(name) & 0x7) == 0);
-
-struct ObjectIdentifier {
-    ObjectIdentifier(uint64_t tableId, uint64_t objectId)
-        : tableId(tableId),
-          objectId(objectId)
-    {
-        static_assert(sizeof(*this) == 16, "bad ObjectIdentifier size!");
-    }
-
-    uint64_t tableId;
-    uint64_t objectId;
-} __attribute__((__packed__));
 
 class Object {
   public:
@@ -48,24 +50,24 @@ class Object {
      * a buffer instead.
      */
     explicit Object(size_t buf_size)
-        : id(-1, -1),
+        : tableId(-1),
+          keyLength(0),
           version(-1),
           timestamp(secondsTimestamp())
     {
-        static_assert(sizeof(*this) == 28, "bad Object size!");
         assert(buf_size >= sizeof(*this));
     }
 
     /**
-     * Return the total byte size of an Object that contains the specified
-     * number of bytes in ``data''.  This exists because Objects do not
-     * contain a length field, since they typically exist in the Log, which
-     * must record that information anyhow.
+     * Return the total byte size of the Object that contains the specified
+     * number of bytes in ``data''.
+     * This exists because Objects do not contain a length field, since they
+     * typically exist in the Log, which must record that information anyhow.
      */
     uint32_t
     objectLength(uint32_t dataBytes) const
     {
-        return downCast<uint32_t>(sizeof(*this)) + dataBytes;
+        return downCast<uint32_t>(sizeof(*this)) + keyLength + dataBytes;
     }
 
     /**
@@ -75,17 +77,65 @@ class Object {
     uint32_t
     dataLength(uint32_t totalObjectBytes) const
     {
-        assert(totalObjectBytes >= sizeof(*this));
-        return totalObjectBytes - downCast<uint32_t>(sizeof(*this));
+        assert(totalObjectBytes >= sizeof(*this) + keyLength);
+        return totalObjectBytes -
+               downCast<uint32_t>(sizeof(*this)) -
+               keyLength;
     }
 
-    struct ObjectIdentifier id;
+    /**
+     * Return the key of the object.
+     */
+    const char*
+    getKey() const
+    {
+        return keyAndData;
+    }
+
+    /**
+     * Return a pointer to the location where the key of the object is stored.
+     */
+    void*
+    getKeyLocation()
+    {
+        return keyAndData;
+    }
+
+    /**
+     * Return the data stored in the object.
+     */
+    const char*
+    getData() const
+    {
+        return keyAndData + keyLength;
+    }
+
+    /**
+     * Return a pointer to the location where the data contained in the object
+     * is stored.
+     */
+    void*
+    getDataLocation()
+    {
+        return keyAndData + keyLength;
+    }
+
+    HashType
+    keyHash() const
+    {
+        return getKeyHash(keyAndData, keyLength);
+    }
+
+    uint64_t tableId;
+    uint16_t keyLength;
     uint64_t version;
     uint32_t timestamp;         // see WallTime.cc
-    char data[0];
+    char keyAndData[0];         // This will first have the key (of size
+                                // keyLength) and then the data.
 
   PRIVATE:
-    Object() : id(-1, -1), version(-1), timestamp(secondsTimestamp()) { }
+    Object() : tableId(-1), keyLength(0), version(-1),
+               timestamp(secondsTimestamp()) { }
 
     // to use default constructor in arrays
     friend void hashTableBenchmark(uint64_t, uint64_t);
@@ -93,26 +143,95 @@ class Object {
     DISALLOW_COPY_AND_ASSIGN(Object); // NOLINT
 } __attribute__((__packed__));
 
+/**
+ * Declare a Tombstone, allocate the required space for it, and initialize.
+ *
+ * \param name
+ *      Name for the tombstone declared.
+ * \param keyLength
+ *      Space required in bytes, apart from the ObjectTombstone struct to
+ *      store the key.
+ * \param segId
+ *      Segment Id of the object which this tombstone deletes.
+ * \param obj
+ *      A pointer to the object which this deletes. This is used to initialize
+ *      values in the tombstone.
+ */
+#define DECLARE_OBJECTTOMBSTONE(name, keyLength, segId, obj) \
+    char name##_buf[sizeof(ObjectTombstone) + (keyLength)] \
+        __attribute__((aligned (8))); \
+    ObjectTombstone *name = \
+        new(name##_buf) ObjectTombstone(sizeof(name##_buf), segId, obj); \
+    assert((reinterpret_cast<uint64_t>(name) & 0x7) == 0);
+
 class ObjectTombstone {
   public:
-    ObjectTombstone(uint64_t segmentId, const Object *object)
-        : id(object->id),
-          segmentId(segmentId),
+    /*
+     * This buf_size parameter is here to annoy you a little bit if you try
+     * stack-allocating one of these. You'll think twice about it, maybe
+     * realize sizeof(data) is bogus, and proceed to dynamically allocating
+     * a buffer instead.
+     */
+    explicit ObjectTombstone(size_t buf_size, uint64_t segId,
+                             const Object *object)
+        : tableId(object->tableId),
+          keyLength(object->keyLength),
+          segmentId(segId),
           objectVersion(object->version),
           timestamp(secondsTimestamp())
     {
-        static_assert(sizeof(*this) == 36, "bad Object size!");
+        assert(buf_size == sizeof(*this) + object->keyLength);
+        memcpy(key, object->getKey(), object->keyLength);
     }
 
-    struct ObjectIdentifier id;
+    /**
+     * Return the total byte size of the Tombstone.
+     * This exists because Tombstones do not contain a length field, since they
+     * typically exist in the Log, which must record that information anyhow.
+     */
+    uint32_t
+    tombLength() const
+    {
+        return downCast<uint32_t>(sizeof(*this)) + keyLength;
+    }
+
+    /**
+     * Return the key of the tombstone.
+     */
+    const char*
+    getKey() const
+    {
+        return key;
+    }
+
+    /**
+     * Return a pointer to the location where the key of the tombstone
+     * is stored.
+     */
+    void*
+    getKeyLocation()
+    {
+        return key;
+    }
+
+    HashType
+    keyHash() const
+    {
+        return getKeyHash(key, keyLength);
+    }
+
+    uint64_t tableId;
+    uint16_t keyLength;
     uint64_t segmentId;
     uint64_t objectVersion;
     uint32_t timestamp;
+    char key[0];
 
   PRIVATE:
     ObjectTombstone(uint64_t segmentId, uint64_t tableId,
-                    uint64_t objectId, uint64_t objectVersion)
-        : id(tableId, objectId),
+                    uint16_t keyLength, uint64_t objectVersion)
+        : tableId(tableId),
+          keyLength(keyLength),
           segmentId(segmentId),
           objectVersion(objectVersion),
           timestamp(secondsTimestamp())

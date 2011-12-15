@@ -174,7 +174,7 @@ TEST_F(SegmentTest, append) {
 
     // ensure the checksum argument works
     EXPECT_THROW(s.append(LOG_ENTRY_TYPE_OBJ, &c, 1, true, 5),
-        SegmentException);
+                 SegmentException);
 
     uint32_t bytes = downCast<uint32_t>(
         s.appendableBytes() - sizeof(SegmentEntry));
@@ -182,7 +182,13 @@ TEST_F(SegmentTest, append) {
     for (uint32_t i = 0; i < bytes; i++)
         buf[i] = static_cast<char>(i);
 
-    seh = s.append(LOG_ENTRY_TYPE_OBJ, buf, bytes, true, 0x9471d91a);
+    SegmentEntry entry(LOG_ENTRY_TYPE_OBJ, bytes);
+    SegmentChecksum expectedChecksum;
+    expectedChecksum.update(&entry, sizeof(entry));
+    expectedChecksum.update(buf, bytes);
+
+    seh = s.append(LOG_ENTRY_TYPE_OBJ, buf, bytes, true,
+                   expectedChecksum.getResult());
     EXPECT_TRUE(seh != NULL);
 
     SegmentEntry *se = reinterpret_cast<SegmentEntry *>(
@@ -539,5 +545,4 @@ TEST_F(SegmentTest, maximumSegmentsNeededForEntries) {
                                                    1 * 1024 * 1024,
                                                    8 * 1024 * 1024));
 }
-
 } // namespace RAMCloud

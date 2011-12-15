@@ -290,22 +290,22 @@ TEST_F(RecoveryTest, start) {
     ProtoBuf::Tablets tablets; {
         ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
         tablet.set_table_id(123);
-        tablet.set_start_object_id(0);
-        tablet.set_end_object_id(9);
+        tablet.set_start_key_hash(0);
+        tablet.set_end_key_hash(9);
         tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
         tablet.set_user_data(0); // partition 0
     }{
         ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
         tablet.set_table_id(123);
-        tablet.set_start_object_id(20);
-        tablet.set_end_object_id(29);
+        tablet.set_start_key_hash(20);
+        tablet.set_end_key_hash(29);
         tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
         tablet.set_user_data(0); // partition 0
     }{
         ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
         tablet.set_table_id(123);
-        tablet.set_start_object_id(10);
-        tablet.set_end_object_id(19);
+        tablet.set_start_key_hash(10);
+        tablet.set_end_key_hash(19);
         tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
         tablet.set_user_data(1); // partition 1
     }
@@ -389,22 +389,22 @@ TEST_F(RecoveryTest, start_notEnoughMasters) {
     ProtoBuf::Tablets tablets; {
         ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
         tablet.set_table_id(123);
-        tablet.set_start_object_id(0);
-        tablet.set_end_object_id(9);
+        tablet.set_start_key_hash(0);
+        tablet.set_end_key_hash(9);
         tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
         tablet.set_user_data(0); // partition 0
     }{
         ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
         tablet.set_table_id(123);
-        tablet.set_start_object_id(10);
-        tablet.set_end_object_id(19);
+        tablet.set_start_key_hash(10);
+        tablet.set_end_key_hash(19);
         tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
         tablet.set_user_data(1); // partition 1
     }{
         ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
         tablet.set_table_id(123);
-        tablet.set_start_object_id(20);
-        tablet.set_end_object_id(29);
+        tablet.set_start_key_hash(20);
+        tablet.set_end_key_hash(29);
         tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
         tablet.set_user_data(2); // partition 2
     }

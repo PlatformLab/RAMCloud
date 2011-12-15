@@ -22,6 +22,7 @@
 #include "LargeBlockOfMemory.h"
 #include "Memory.h"
 #include "MurmurHash3.h"
+#include "KeyHash.h"
 
 namespace RAMCloud {
 
@@ -32,7 +33,7 @@ namespace RAMCloud {
  *
  * This is used, for instance, in resolving most object-level %RAMCloud
  * requests. I.e., to read and write a %RAMCloud object, this lets you find the
- * location of the the object: (key2, tableID) -> Object*.
+ * location of the the object: (key2, key1) -> Object*.
  *
  * This code is not thread-safe.
  *
@@ -276,21 +277,34 @@ class HashTable {
     }
 
     /**
-     * Find the address of a referent given the key.
+     * Find the address of a referent given a string key.
      * \param[in] key1
      *      The first 64 bits of the key.
-     * \param[in] key2
-     *      The second 64 bits of the key.
+     * \param key2
+     *      Variable length key that uniquely identifies the object
+     *      within key1.
+     * \param key2Length
+     *      Size in bytes of key2.
      * \return
      *      The address of the referent, or \a NULL if one doesn't exist.
      */
     T
-    lookup(uint64_t key1, uint64_t key2)
+    lookup(uint64_t key1, const char* key2, uint16_t key2Length)
     {
+        HashType key2Hash = getKeyHash(key2, key2Length);
+
+        // Find the bucket using 64 bit hash of the key. Any collisions
+        // arising out of this hashing will be detected / resolved during
+        // lookupEntry(), just as hash table bucket collisions would
+        // be detected / resolved.
         uint64_t secondaryHash;
         Entry *entry;
-        CacheLine *bucket = findBucket(key1, key2, &secondaryHash);
-        entry = lookupEntry(bucket, secondaryHash, key1, key2);
+        CacheLine *bucket = findBucket(key1, key2Hash, &secondaryHash);
+
+        // While finding the entry, we will compare the actual string
+        // key instead of the key2Hash to ensure that the right
+        // entry is retrieved.
+        entry = lookupEntry(bucket, secondaryHash, key1, key2, key2Length);
         if (entry == NULL)
             return NULL;
         return entry->getReferent();
@@ -300,8 +314,11 @@ class HashTable {
      * Remove a referent from the hash table.
      * \param[in] key1
      *      The first 64 bits of the key.
-     * \param[in] key2
-     *      The second 64 bits of the key.
+     * \param key2
+     *      Variable length key that uniquely identifies the object
+     *      within key1.
+     * \param key2Length
+     *      Size in bytes of key2.
      * \param[out] retPtr
      *      If not NULL, return the address of the referent
      *      removed here.
@@ -309,12 +326,16 @@ class HashTable {
      *      Whether the hash table contained the key specified.
      */
     bool
-    remove(uint64_t key1, uint64_t key2, T* retPtr = NULL)
+    remove(uint64_t key1, const char* key2, uint16_t key2Length,
+           T* retPtr = NULL)
     {
         uint64_t secondaryHash;
         Entry *entry;
-        CacheLine *bucket = findBucket(key1, key2, &secondaryHash);
-        entry = lookupEntry(bucket, secondaryHash, key1, key2);
+
+        HashType key2Hash = getKeyHash(key2, key2Length);
+
+        CacheLine *bucket = findBucket(key1, key2Hash, &secondaryHash);
+        entry = lookupEntry(bucket, secondaryHash, key1, key2, key2Length);
         if (entry == NULL)
             return false;
         T p = entry->getReferent();
@@ -344,18 +365,21 @@ class HashTable {
     replace(T ptr, T* retPtr = NULL)
     {
         CycleCounter<> cycles(&perfCounters.replaceCycles);
-        uint64_t secondaryHash;
-        CacheLine *bucket;
-        Entry *entry;
         unsigned int i;
 
         ++perfCounters.replaceCalls;
 
         uint64_t key1 = ptr->key1();
-        uint64_t key2 = ptr->key2();
+        const char* key2 = ptr->key2();
+        uint16_t key2Length = ptr->key2Length();
 
-        bucket = findBucket(key1, key2, &secondaryHash);
-        entry = lookupEntry(bucket, secondaryHash, key1, key2);
+        HashType key2Hash = getKeyHash(key2, key2Length);
+
+        uint64_t secondaryHash;
+        CacheLine *bucket = findBucket(key1, key2Hash, &secondaryHash);
+        Entry *entry =
+            lookupEntry(bucket, secondaryHash, key1, key2, key2Length);
+
         if (entry != NULL) {
             T p = entry->getReferent();
             if (retPtr != NULL)
@@ -456,20 +480,23 @@ class HashTable {
      * Prefetch the cacheline associated with the given key.
      */
     void
-    prefetchBucket(uint64_t key1, uint64_t key2)
+    prefetchBucket(uint64_t key1, const char* key2, uint16_t key2Length)
     {
         uint64_t dummy;
-        prefetch(findBucket(key1, key2, &dummy));
+        HashType key2Hash = getKeyHash(key2, key2Length);
+        prefetch(findBucket(key1, key2Hash, &dummy));
     }
 
     /**
      * Prefetch the referent associated with the given key.
      */
     void
-    prefetchReferent(uint64_t key1, uint64_t key2)
+    prefetchReferent(uint64_t key1, const char* key2, uint16_t key2Length)
     {
+        HashType key2Hash = getKeyHash(key2, key2Length);
+
         uint64_t secondaryHash;
-        CacheLine *cl = findBucket(key1, key2, &secondaryHash);
+        CacheLine *cl = findBucket(key1, key2Hash, &secondaryHash);
 
         // Scan this cache line. If the secondaryHash matches, prefetch.
         // If not, don't bother following any chain pointer.
@@ -546,8 +573,7 @@ class HashTable {
     {
         uint64_t in[2] = { key1, key2 };
         uint64_t out[2];
-        uint32_t seed = 0;
-        MurmurHash3_x64_128(in, sizeof(in), seed, &out);
+        MurmurHash3_x64_128(in, sizeof(in), 0, &out);
         return out[0];
     }
 
@@ -583,21 +609,24 @@ class HashTable {
      * This is used in #lookup(), #remove(), and #replace() to find the hash
      * table entry to operate on.
      * \param[in] bucket
-     *      The bucket corresponding to (key1, key2).
+     *      The bucket corresponding to (key1, key).
      * \param[in] secondaryHash
-     *      Secondary hash bits for (key1, key2) as returned from #findBucket()
+     *      Secondary hash bits for (key1, key) returned from #findBucket()
      *      (16 bits).
      * \param[in] key1
      *      The first 64 bits of the key.
-     * \param[in] key2
-     *      The second 64 bits of the key.
+     * \param key2
+     *      Variable length key that uniquely identifies the object
+     *      within key1.
+     * \param key2Length
+     *      Size in bytes of the key.
      * \return
      *      The pointer to the hash table entry, or \a NULL if there is no such
      *      hash table entry.
      */
     Entry *
     lookupEntry(CacheLine *bucket, uint64_t secondaryHash,
-                uint64_t key1, uint64_t key2)
+                uint64_t key1, const char* key2, uint16_t key2Length)
     {
         CycleCounter<> cycles(&perfCounters.lookupEntryCycles);
         unsigned int i;
@@ -617,7 +646,9 @@ class HashTable {
                     // high probability this is the pointer we're looking for.
                     // To check, we must go to the object.
                     T c = candidate->getReferent();
-                    if (c->key1() == key1 && c->key2() == key2) {
+                    if (c->key1() == key1 &&
+                        c->key2Length() == key2Length &&
+                        memcmp(c->key2(), key2, key2Length) == 0) {
                         perfCounters.lookupEntryDist.storeSample(cycles.stop());
                         return candidate;
                     } else {

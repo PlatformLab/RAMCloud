@@ -175,6 +175,7 @@ Log::allocateHeadIfStillOn(uint64_t segmentId)
 bool
 Log::isSegmentLive(uint64_t segmentId)
 {
+    TEST_LOG("%lu", segmentId);
     std::lock_guard<SpinLock> lock(listLock);
     return (activeIdMap.find(segmentId) != activeIdMap.end());
 }

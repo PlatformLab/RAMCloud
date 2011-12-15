@@ -39,9 +39,14 @@ class MasterClient : public Client {
          */
         uint32_t tableId;
         /**
-         * Identifier within tableId of the object to be read.
+         * Variable length key that uniquely identifies the object within table.
+         * It does not necessarily have to be null terminated like a string.
          */
-        uint64_t id;
+        const char* key;
+        /**
+         * Length of key
+         */
+        uint16_t keyLength;
         /**
          * If the read for this object was successful, the Tub<Buffer>
          * will hold the contents of the desired object. If not, it will
@@ -58,9 +63,11 @@ class MasterClient : public Client {
          */
         Status status;
 
-        ReadObject(uint32_t tableId, uint64_t id, Tub<Buffer>* value)
+        ReadObject(uint32_t tableId, const char* key, uint16_t keyLength,
+                   Tub<Buffer>* value)
             : tableId(tableId)
-            , id(id)
+            , key(key)
+            , keyLength(keyLength)
             , value(value)
             , version()
             , status()
@@ -69,7 +76,8 @@ class MasterClient : public Client {
 
         ReadObject()
             : tableId()
-            , id()
+            , key()
+            , keyLength()
             , value()
             , version()
             , status()
@@ -77,12 +85,29 @@ class MasterClient : public Client {
         }
     };
 
+    /// An asynchronous version of #multiread().
+    class MultiRead {
+      public:
+        MultiRead(MasterClient& client,
+                  std::vector<ReadObject*>& requests);
+        bool isReady() { return state.isReady(); }
+        void complete();
+      private:
+        MasterClient& client;
+        Buffer requestBuffer;
+        Buffer responseBuffer;
+        AsyncState state;
+        std::vector<ReadObject*>& requests;
+        DISALLOW_COPY_AND_ASSIGN(MultiRead);
+    };
+
     /// An asynchronous version of #read().
     class Read {
       public:
         Read(MasterClient& client,
-             uint32_t tableId, uint64_t id, Buffer* value,
-             const RejectRules* rejectRules, uint64_t* version);
+             uint32_t tableId, const char* key, uint16_t keyLength,
+             Buffer* value, const RejectRules* rejectRules,
+             uint64_t* version);
         void cancel() { state.cancel(); }
         bool isReady() { return state.isReady(); }
         void operator()();
@@ -112,33 +137,18 @@ class MasterClient : public Client {
         DISALLOW_COPY_AND_ASSIGN(Recover);
     };
 
-    /// An asynchronous version of #multiread().
-    class MultiRead {
-      public:
-        MultiRead(MasterClient& client,
-                  std::vector<ReadObject*>& requests);
-        bool isReady() { return state.isReady(); }
-        void complete();
-      private:
-        MasterClient& client;
-        Buffer requestBuffer;
-        Buffer responseBuffer;
-        AsyncState state;
-        std::vector<ReadObject*>& requests;
-        DISALLOW_COPY_AND_ASSIGN(MultiRead);
-    };
-
     /// An asynchronous version of #write().
     class Write {
       public:
         Write(MasterClient& client,
-              uint32_t tableId, uint64_t id,
+              uint32_t tableId, const char* key, uint16_t keyLength,
               Buffer& buffer,
-              const RejectRules* rejectRules, uint64_t* version,
-              bool async);
+              const RejectRules* rejectRules = NULL,
+              uint64_t* version = NULL, bool async = false);
         Write(MasterClient& client,
-              uint32_t tableId, uint64_t id, const void* buf,
-              uint32_t length, const RejectRules* rejectRules = NULL,
+              uint32_t tableId, const char* key, uint16_t keyLength,
+              const void* buf, uint32_t length,
+              const RejectRules* rejectRules = NULL,
               uint64_t* version = NULL, bool async = false);
         bool isReady() { return state.isReady(); }
         void operator()();
@@ -154,13 +164,13 @@ class MasterClient : public Client {
     explicit MasterClient(Transport::SessionRef session) : session(session) {}
     void fillWithTestData(uint32_t numObjects, uint32_t objectSize);
     void multiRead(std::vector<ReadObject*> requests);
-    void read(uint32_t tableId, uint64_t id, Buffer* value,
-              const RejectRules* rejectRules = NULL,
+    void read(uint32_t tableId, const char* key, uint16_t keyLength,
+              Buffer* value, const RejectRules* rejectRules = NULL,
               uint64_t* version = NULL);
     void recover(ServerId masterId, uint64_t partitionId,
                  const ProtoBuf::Tablets& tablets,
                  const RecoverRpc::Replica* replicas, uint32_t numReplicas);
-    void remove(uint32_t tableId, uint64_t id,
+    void remove(uint32_t tableId, const char* key, uint16_t keyLength,
                 const RejectRules* rejectRules = NULL,
                 uint64_t* version = NULL);
     void dropTabletOwnership(uint64_t tabletId,
@@ -169,9 +179,10 @@ class MasterClient : public Client {
     void takeTabletOwnership(uint64_t tableId,
                              uint64_t firstKey,
                              uint64_t lastKey);
-    void write(uint32_t tableId, uint64_t id, const void* buf,
-               uint32_t length, const RejectRules* rejectRules = NULL,
-               uint64_t* version = NULL, bool async = false);
+    void write(uint32_t tableId, const char* key, uint16_t keyLength,
+               const void* buf, uint32_t length,
+               const RejectRules* rejectRules = NULL, uint64_t* version = NULL,
+               bool async = false);
 
   protected:
     Transport::SessionRef session;

@@ -31,10 +31,10 @@
 using namespace RAMCloud;
 
 /*
- * If true, add the table and object ids to every object, calculate and
+ * If true, add the table, keyLength and key to every object, calculate and
  * append a checksum, and verify the whole package when recovery is done.
- * The crc is the first 4 bytes of the object. The tableId and objectId
- * are the last 16 bytes.
+ * The crc is the first 4 bytes of the object. The tableId, keyLength and
+ * key immediately follow the crc. There may be data bytes following this.
  */
 bool verify = false;
 
@@ -42,6 +42,111 @@ bool verify = false;
  * Speed up recovery insertion with the single-shot FillWithTestData RPC.
  */
 bool fillWithTestData = false;
+
+/**
+ * Fill a buffer with an ASCII value that can be checked later to ensure
+ * that no data has been lost or corrupted.  A particular tableId, key and
+ * keyLength are incorporated into the value (under the assumption that
+ * the value will be stored in that object), so that values stored in
+ * different objects will be detectably different.
+ *
+ * \param buffer
+ *      Buffer to fill; any existing contents will be discarded.
+ * \param size
+ *      Number of bytes of data to place in the buffer.
+ * \param tableId
+ *      This table identifier will be reflected in the value placed in the
+ *      buffer.
+ * \param key
+ *      This key will be reflected in the value placed in the buffer.
+ * \param keyLength
+ *      This key Length will be reflected in the value placed in the buffer.
+ */
+void
+fillBuffer(Buffer& buffer, uint32_t size, uint32_t tableId,
+           const char* key, uint16_t keyLength)
+{
+    char chunk[51];
+    buffer.reset();
+    uint32_t bytesLeft = size;
+    int position = 0;
+    while (bytesLeft > 0) {
+        // Write enough data to completely fill the chunk buffer, then
+        // ignore the terminating NULL character that snprintf puts at
+        // the end.
+        snprintf(chunk, sizeof(chunk),
+            "| %d: tableId 0x%x, key %.*s, keyLength 0x%x %s",
+            position, tableId, keyLength, key, keyLength,
+            "0123456789");
+        uint32_t chunkLength = sizeof(chunk) - 1;
+        if (chunkLength > bytesLeft) {
+            chunkLength = bytesLeft;
+        }
+        memcpy(new(&buffer, APPEND) char[chunkLength], chunk, chunkLength);
+        bytesLeft -= chunkLength;
+        position += chunkLength;
+    }
+}
+
+/**
+ * Check the contents of a buffer to ensure that it contains the same data
+ * generated previously by fillBuffer.  Generate a log message if a
+ * problem is found.
+ *
+ * \param buffer
+ *      Buffer whose contents are to be checked.
+ * \param expectedLength
+ *      The buffer should contain this many bytes.
+ * \param tableId
+ *      This table identifier should be reflected in the buffer's data.
+ * \param key
+ *      This key should be reflected in the buffer's data.
+ * \param keyLength
+ *      This key length should be reflected in the buffer's data.
+ *
+ * \return
+ *      True means the buffer has the "expected" contents; false means
+ *      there was an error.
+ */
+bool
+checkBuffer(Buffer& buffer, uint32_t expectedLength, uint32_t tableId,
+            const char* key, uint16_t keyLength)
+{
+    uint32_t length = buffer.getTotalLength();
+    if (length != expectedLength) {
+        RAMCLOUD_LOG(ERROR, "corrupted data: expected %u bytes, "
+                "found %u bytes", expectedLength, length);
+        return false;
+    }
+    Buffer comparison;
+    fillBuffer(comparison, expectedLength, tableId, key, keyLength);
+    for (uint32_t i = 0; i < expectedLength; i++) {
+        char c1 = *buffer.getOffset<char>(i);
+        char c2 = *comparison.getOffset<char>(i);
+        if (c1 != c2) {
+            int start = i - 10;
+            const char* prefix = "...";
+            const char* suffix = "...";
+            if (start <= 0) {
+                start = 0;
+                prefix = "";
+            }
+            uint32_t length = 20;
+            if (start+length >= expectedLength) {
+                length = expectedLength - start;
+                suffix = "";
+            }
+            RAMCLOUD_LOG(ERROR, "corrupted data: expected '%c', got '%c' "
+                    "(\"%s%.*s%s\" vs \"%s%.*s%s\")", c2, c1, prefix, length,
+                    static_cast<const char*>(comparison.getRange(start,
+                    length)), suffix, prefix, length,
+                    static_cast<const char*>(buffer.getRange(start,
+                    length)), suffix);
+            return false;
+        }
+    }
+    return true;
+}
 
 int
 main(int argc, char *argv[])
@@ -133,7 +238,7 @@ try
             // connection setup doesn't happen during recovery and slow it down.
             if (t == 0) {
                 int table = client.openTable(tableName);
-                client.write(table, 1, "abcd", 4);
+                client.write(table, "1", 1, "abcd", 4);
             }
         }
     }
@@ -144,44 +249,44 @@ try
     if (fillWithTestData) {
         LOG(NOTICE, "Using the fillWithTestData rpc on a single master");
         uint64_t b = Cycles::rdtsc();
-        MasterClient master(client.objectFinder.lookup(0, 0));
+        MasterClient master(client.objectFinder.lookup(0, "0", 1));
         master.fillWithTestData(count * tableCount, objectDataSize);
         LOG(NOTICE, "%d inserts took %lu ticks",
             count * tableCount, Cycles::rdtsc() - b);
         LOG(NOTICE, "avg insert took %lu ticks",
                     (Cycles::rdtsc() - b) / count / tableCount);
     } else {
-        char val[objectDataSize];
-        memset(val, 0xcc, objectDataSize);
-        Crc32C checksumBasis;
-        checksumBasis.update(&val[4], objectDataSize - 20);
+        Buffer writeVal;
+
         Tub<RamCloud::Write> writeRpcs[8];
         uint64_t b = Cycles::rdtsc();
         int j;
         for (j = 0; j < count - 1; j++) {
+            string key = format("%d", j);
+            uint16_t keyLength = downCast<uint16_t>(key.length());
             for (uint32_t t = 0; t < tableCount; t++) {
                 auto& writeRpc = writeRpcs[(j * tableCount + t) %
-                                             arrayLength(writeRpcs)];
-                if (writeRpc)
+                                           arrayLength(writeRpcs)];
+                if (writeRpc) {
                     (*writeRpc)();
-
-                if (verify) {
-                    uint32_t *crcPtr = reinterpret_cast<uint32_t*>(&val[0]);
-                    uint64_t *tableIdPtr =
-                        reinterpret_cast<uint64_t*>(&val[objectDataSize-16]);
-                    uint64_t *objectIdPtr =
-                        reinterpret_cast<uint64_t*>(&val[objectDataSize-8]);
-                    *tableIdPtr = tables[t];
-                    *objectIdPtr = j;
-                    Crc32C checksum = checksumBasis;
-                    checksum.update(&val[objectDataSize-16], 16);
-                    *crcPtr = checksum.getResult();
                 }
 
+                if (verify) {
+                    fillBuffer(writeVal, objectDataSize, tables[t],
+                               key.c_str(), keyLength);
+                } else {
+                    char chunk[objectDataSize];
+                    memset(&chunk, 0xcc, objectDataSize);
+                    writeVal.reset();
+                    memcpy(new(&writeVal, APPEND) char[objectDataSize],
+                            chunk, objectDataSize);
+                }
                 writeRpc.construct(client,
                                    static_cast<uint32_t>(tables[t]),
-                                   static_cast<uint64_t>(j),
-                                   static_cast<void*>(val), objectDataSize,
+                                   key.c_str(),
+                                   keyLength,
+                                   writeVal.getRange(0, objectDataSize),
+                                   objectDataSize,
                                    static_cast<RejectRules*>(NULL),
                                    static_cast<uint64_t*>(NULL),
                                    /* async = */ true);
@@ -191,8 +296,15 @@ try
             if (writeRpc)
                 (*writeRpc)();
         }
-        client.write(tables[0], static_cast<uint64_t>(j),
-                     static_cast<void*>(val), objectDataSize,
+
+        string key = format("%d", j);
+        char chunk[objectDataSize];
+        memset(&chunk, 0xcc, objectDataSize);
+        writeVal.reset();
+        memcpy(new(&writeVal, APPEND) char[objectDataSize],
+                chunk, objectDataSize);
+        client.write(tables[0], key.c_str(), downCast<uint16_t>(key.length()),
+                     writeVal.getRange(0, objectDataSize), objectDataSize,
                      static_cast<RejectRules*>(NULL),
                      static_cast<uint64_t*>(NULL),
                      /* async = */ false);
@@ -205,15 +317,17 @@ try
     // remove objects if we've been instructed. just start from table 0, obj 0.
     LOG(NOTICE, "Performing %u removals of objects just created", removeCount);
     for (uint32_t t = 0; t < tableCount; t++) {
-        for (int j = 0; removeCount > 0; j++, removeCount--)
-            client.remove(tables[t], j);
-
+        for (int j = 0; removeCount > 0; j++, removeCount--) {
+            string key = format("%d", j);
+            client.remove(tables[t], key.c_str(),
+                    downCast<uint16_t>(key.length()));
+        }
     }
 
     // dump the tablet map
     for (uint32_t t = 0; t < tableCount; t++) {
         Transport::SessionRef session =
-            client.objectFinder.lookup(tables[t], 0);
+            client.objectFinder.lookup(tables[t], "0", 1);
         LOG(NOTICE, "%s has table %u",
             session->getServiceLocator().c_str(), tables[t]);
     }
@@ -226,7 +340,8 @@ try
     LOG(NOTICE, "- quiescing writes");
     client.coordinator.quiesce();
 
-    Transport::SessionRef session = client.objectFinder.lookup(tables[0], 0);
+    Transport::SessionRef session =
+        client.objectFinder.lookup(tables[0], "0", 1);
     LOG(NOTICE, "--- Terminating master %s ---",
         session->getServiceLocator().c_str());
 
@@ -256,12 +371,12 @@ try
     for (uint32_t t = 0; t < tableCount; t++) {
         int table = tables[t];
         try {
-            client.read(table, 0, &nb);
+            client.read(table, "0", 1, &nb);
             if (t == 0)
                 stopTime = Cycles::rdtsc();
         } catch (...) {
         }
-        session = client.objectFinder.lookup(tables[t], 0);
+        session = client.objectFinder.lookup(tables[t], "0", 1);
         LOG(NOTICE, "recovered value read from %s has length %u",
             session->getServiceLocator().c_str(), nb.getTotalLength());
     }
@@ -275,32 +390,29 @@ try
     uint64_t verificationStart = Cycles::rdtsc();
     if (verify) {
         LOG(NOTICE, "Verifying all data.");
-
         int total = count * tableCount;
         int tenPercent = total / 10;
         int logCount = 0;
         for (int j = 0; j < count - 1; j++) {
+            string key = format("%d", j);
+            uint16_t keyLength = downCast<uint16_t>(key.length());
             for (uint32_t t = 0; t < tableCount; t++) {
+                nb.reset();
                 try {
-                    client.read(tables[t], j, &nb);
+                    client.read(tables[t], key.c_str(), keyLength, &nb);
                 } catch (...) {
-                    LOG(ERROR, "Failed to access object (tbl %d, obj %d)!",
-                        tables[t], j);
+                    LOG(ERROR, "Failed to access object (tbl %d, obj %.*s)!",
+                        tables[t], keyLength, key.c_str());
                     continue;
                 }
-                const char* objData = nb.getStart<char>();
                 uint32_t objBytes = nb.getTotalLength();
 
                 if (objBytes != objectDataSize) {
-                    LOG(ERROR, "Bad object size (tbl %d, obj %d)",
-                        tables[t], j);
+                    LOG(ERROR, "Bad object size (tbl %d, obj %.*s)",
+                        tables[t], keyLength, key.c_str());
                 } else {
-                    Crc32C checksum;
-                    checksum.update(&objData[4], objBytes - 4);
-                    if (checksum.getResult() != *nb.getStart<uint32_t>()) {
-                        LOG(ERROR, "Bad object checksum (tbl %d, obj %d)",
-                            tables[t], j);
-                    }
+                    checkBuffer(nb, objectDataSize, tables[t],
+                                key.c_str(), keyLength);
                 }
             }
 

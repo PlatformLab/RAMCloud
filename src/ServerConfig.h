@@ -49,8 +49,9 @@ struct ServerConfig {
                    MEMBERSHIP_SERVICE}
         , detectFailures(false)
         , pinMemory(false)
-        , segmentSize(64 * 1024)
-        , maxObjectSize(segmentSize / 4)
+        , segmentSize(128 * 1024)
+        , maxObjectDataSize(segmentSize / 4)
+        , maxObjectKeySize((64 * 1024) - 1)
         , master(testing)
         , backup(testing)
     {}
@@ -69,7 +70,8 @@ struct ServerConfig {
         , detectFailures(true)
         , pinMemory(true)
         , segmentSize(Segment::SEGMENT_SIZE)
-        , maxObjectSize(segmentSize / 8)
+        , maxObjectDataSize(segmentSize / 8)
+        , maxObjectKeySize((64 * 1024) - 1)
         , master()
         , backup()
     {}
@@ -131,7 +133,12 @@ struct ServerConfig {
      * we will always need a size limit, or what the limit should be. For now
      * this guarantees that an object will fit inside a single rpc and segment.
      */
-    uint32_t maxObjectSize;
+    uint32_t maxObjectDataSize;
+
+    /**
+     * Largest allowable key for a RAMCloud object, in bytes.
+     */
+    uint16_t maxObjectKeySize;
 
     /**
      * Configuration details specific to the MasterService on a server,
