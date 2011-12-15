@@ -57,7 +57,6 @@ class ReplicaManager : public ReplicatedSegment::Deleter {
    PUBLIC:
     ReplicaManager(CoordinatorClient* coordinator,
                    const Tub<ServerId>& masterId, uint32_t numReplicas);
-    explicit ReplicaManager(ReplicaManager* prototype);
     ~ReplicaManager();
 
     ReplicatedSegment* openSegment(uint64_t segmentId,
@@ -73,10 +72,6 @@ class ReplicaManager : public ReplicatedSegment::Deleter {
 
     /// Selects backups to store replicas while obeying placement constraints.
     BackupSelector backupSelector;
-
-    // TODO(stutsman): Remove this once the alt constructor has been eliminated.
-    /// Cluster coordinator. May be NULL for testing purposes.
-    CoordinatorClient* const coordinator;
 
     /**
      * Protects all internal data structures during concurrent calls to the

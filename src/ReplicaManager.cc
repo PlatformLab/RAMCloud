@@ -38,37 +38,8 @@ ReplicaManager::ReplicaManager(CoordinatorClient* coordinator,
                                uint32_t numReplicas)
     : numReplicas(numReplicas)
     , backupSelector(coordinator)
-    , coordinator(coordinator)
     , dataMutex()
     , masterId(masterId)
-    , replicatedSegmentPool(ReplicatedSegment::sizeOf(numReplicas))
-    , replicatedSegmentList()
-    , taskManager()
-    , writeRpcsInFlight(0)
-{
-}
-
-/**
- * Create a ReplicaManager; extremely broken, do not use this.
- * This manager is constructed the same way as a previous manager.
- * This is used, for instance, by the LogCleaner to obtain a private
- * ReplicaManager that is configured equivalently to the Log's own
- * manager (without having to share the two).
- *
- * TODO(stutsman): This is completely broken and needs to be done away with.
- * TODO(stutsman): Eliminate #coordinator when this is fixed.
- *
- * \param prototype
- *      The ReplicaManager that serves as a prototype for this newly
- *      created one. The same masterId, number of replicas, and
- *      coordinator are used.
- */
-ReplicaManager::ReplicaManager(ReplicaManager* prototype)
-    : numReplicas(prototype->numReplicas)
-    , backupSelector(prototype->coordinator)
-    , coordinator(prototype->coordinator)
-    , dataMutex()
-    , masterId(prototype->masterId)
     , replicatedSegmentPool(ReplicatedSegment::sizeOf(numReplicas))
     , replicatedSegmentList()
     , taskManager()

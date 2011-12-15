@@ -78,9 +78,7 @@ Log::Log(const Tub<ServerId>& logId,
       listLock(),
       replicaManager(replicaManager),
       cleanerOption(cleanerOption),
-      cleaner(this,
-              (replicaManager == NULL) ?
-                    NULL : new ReplicaManager(replicaManager),
+      cleaner(this, replicaManager,
               cleanerOption == CONCURRENT_CLEANER)
 {
     if (logCapacity == 0) {
