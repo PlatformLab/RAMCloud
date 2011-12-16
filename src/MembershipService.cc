@@ -1,0 +1,167 @@
+/* Copyright (c) 2011 Stanford University
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR(S) DISCLAIM ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL AUTHORS BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+
+/**
+ * \file
+ * This file implements the MembershipService class. It is responsible for
+ * maintaining the global ServerList object describing other servers in the
+ * system.
+ */
+
+#include <boost/unordered_set.hpp>
+
+#include "Common.h"
+#include "CoordinatorClient.h"
+#include "MembershipService.h"
+#include "ProtoBuf.h"
+#include "ServerId.h"
+#include "ServerList.pb.h"
+#include "ServiceLocator.h"
+#include "ShortMacros.h"
+
+// Feel free to change this to DEBUG if the individual addition and removal
+// messages get to be too annoying (will certainly be the case in large
+// clusters).
+#define __DEBUG NOTICE
+
+namespace RAMCloud {
+
+/**
+ * Construct a new MembershipService object. There should really only be one
+ * per server.
+ */
+MembershipService::MembershipService()
+{
+    // The coordinator will push the server list to us once we've
+    // enlisted.
+}
+
+/**
+ * Dispatch an RPC to the right handler based on its opcode.
+ */
+void
+MembershipService::dispatch(RpcOpcode opcode, Rpc& rpc)
+{
+    switch (opcode) {
+    case SetServerListRpc::opcode:
+        callHandler<SetServerListRpc, MembershipService,
+            &MembershipService::setServerList>(rpc);
+        break;
+    case UpdateServerListRpc::opcode:
+        callHandler<UpdateServerListRpc, MembershipService,
+            &MembershipService::updateServerList>(rpc);
+        break;
+    default:
+        throw UnimplementedRequestError(HERE);
+    }
+}
+
+/**
+ * Top-level service method to handle the REPLACE_SERVER_LIST request.
+ *
+ * \copydetails Service::ping
+ */
+void
+MembershipService::setServerList(const SetServerListRpc::Request& reqHdr,
+                                 SetServerListRpc::Response& respHdr,
+                                 Rpc& rpc)
+{
+    ServerList& serverList = *Context::get().serverList;
+    ProtoBuf::ServerList list;
+    ProtoBuf::parseFromRequest(rpc.requestPayload, sizeof(reqHdr),
+                               reqHdr.serverListLength, list);
+
+    LOG(NOTICE, "Got complete list of servers containing %d entries (version "
+        "number %lu)", list.server_size(), list.version_number());
+
+    // Build a temporary map of currently live servers so that we can
+    // efficiently evict dead servers from the list.
+    boost::unordered_set<uint64_t> liveServers;
+    for (int i = 0; i < list.server_size(); i++)
+        liveServers.insert(list.server(i).server_id());
+
+    // Remove dead ServerIds.
+    for (uint32_t i = 0; i < serverList.size(); i++) {
+        ServerId id = serverList[i];
+        if (id.isValid() && !contains(liveServers, *id)) {
+            LOG(__DEBUG, "  Removing server id %lu (locator \"%s\")",
+                *id, serverList.getLocator(id).c_str());
+            serverList.remove(id);
+        }
+    }
+
+    // Add new ones.
+    for (int i = 0; i < list.server_size(); i++) {
+        ServerId id(list.server(i).server_id());
+        if (!serverList.contains(id)) {
+            string locator = list.server(i).service_locator();
+            LOG(__DEBUG, "  Adding server id %lu (locator \"%s\")",
+                *id, locator.c_str());
+            serverList.add(id, ServiceLocator(locator));
+        }
+    }
+
+    serverList.setVersion(list.version_number());
+}
+
+/**
+ * Top-level service method to handle the UPDATE_SERVER_LIST request.
+ *
+ * \copydetails Service::ping
+ */
+void
+MembershipService::updateServerList(const UpdateServerListRpc::Request& reqHdr,
+                                    UpdateServerListRpc::Response& respHdr,
+                                    Rpc& rpc)
+{
+    ServerList& serverList = *Context::get().serverList;
+    ProtoBuf::ServerList update;
+    ProtoBuf::parseFromRequest(rpc.requestPayload, sizeof(reqHdr),
+                               reqHdr.serverListLength, update);
+
+    respHdr.lostUpdates = false;
+
+    // If this isn't the next expected update, request that the entire list
+    // be pushed again.
+    if (update.version_number() != (serverList.getVersion() + 1)) {
+        LOG(NOTICE, "Update generation number is %lu, but last seen was %lu. "
+            "Something was lost! Grabbing complete list again!",
+            update.version_number(), serverList.getVersion());
+        respHdr.lostUpdates = true;
+        return;
+    }
+
+    LOG(__DEBUG, "Got server list update (version number %lu)",
+        update.version_number());
+
+    // Process the update.
+    for (int i = 0; i < update.server_size(); i++) {
+        ServerId id(update.server(i).server_id());
+        if (update.server(i).is_in_cluster()) {
+            string locator = update.server(i).service_locator();
+            LOG(__DEBUG, "  Adding server id %lu (locator \"%s\")",
+                *id, locator.c_str());
+            serverList.add(id, ServiceLocator(locator));
+        } else {
+            LOG(__DEBUG, "  Removing server id %lu (locator \"%s\")",
+                *id, serverList.getLocator(id).c_str());
+            serverList.remove(id);
+        }
+    }
+
+    serverList.setVersion(update.version_number());
+}
+
+} // namespace RAMCloud

@@ -23,34 +23,37 @@
 #include "FailureDetector.h"
 #include "IpAddress.h"
 #include "ShortMacros.h"
-#include "ProtoBuf.h"
 #include "Rpc.h"
 
 namespace RAMCloud {
 
 /**
- * Create a new FailureDetector object.
+ * Create a new FailureDetector object. Note that this class depends on the
+ * MembershipService running and keeping the global Context::serverList up
+ * to date. Without it, we'd not know of new servers to ping.
  *
  * \param[in] coordinatorLocatorString
  *      The ServiceLocator string of the coordinator. 
- * \param[in] listeningLocatorsString
- *      String of ServiceLocators we're listening on. Can be obtained
- *      from TransportMananger via getListeningLocatorsString().
+ * \param[in] ourServerId
+ *      The ServerId of this server, as returned by enlistment with the
+ *      coordinator. Used only to avoid pinging ourself.
  */
 FailureDetector::FailureDetector(const string &coordinatorLocatorString,
-     const string &listeningLocatorsString)
-    : localLocator(listeningLocatorsString),
-      serverList(),
+                                 const ServerId ourServerId)
+    : ourServerId(ourServerId),
+      serverTracker(),
       thread(),
       pingClient(),
       coordinatorClient(coordinatorLocatorString.c_str()),
       haveLoggedNoServers(false)
 {
+    Context::get().serverList->registerTracker(serverTracker);
 }
 
 FailureDetector::~FailureDetector()
 {
     halt();
+    Context::get().serverList->unregisterTracker(serverTracker);
 }
 
 /**
@@ -95,32 +98,25 @@ void
 FailureDetector::detectorThreadEntry(FailureDetector* detector,
                                      Context* context)
 {
-    int count = 0;
     Context::Guard _(*context);
 
     LOG(NOTICE, "Failure detector thread started");
-    detector->requestServerList();
 
     while (1) {
         // Check if we have been requested to exit.
         boost::this_thread::interruption_point();
+
+        // Drain the list of changes to update our tracker.
+        ServerId dummy1;
+        ServerChangeEvent dummy2;
+        while (detector->serverTracker.getChange(dummy1, dummy2)) {
+        }
 
         // Ping a random server
         detector->pingRandomServer();
 
         // Sleep for the specified interval
         usleep(PROBE_INTERVAL_USECS);
-
-        /*
-         * TODO(mashti) this is temporary code to update the server list approximately
-         * every one second. Once the creation of the ServerManager that
-         * maintains a list of each server in the cluster is complete this will
-         * be unneccesary.
-         */
-        if (count++ > QUERY_SERVER_LIST_INTERVAL) {
-            detector->requestServerList();
-            count = 0;
-        }
     }
 }
 
@@ -132,13 +128,13 @@ FailureDetector::detectorThreadEntry(FailureDetector* detector,
 void
 FailureDetector::pingRandomServer()
 {
-    if (serverList.server_size() == 0 || (serverList.server_size() == 1 &&
-      serverList.server(0).service_locator() == localLocator)) {
-        // if we have no servers to ping, or we're the only one on the list,
+    if (serverTracker.size() == 0 || (serverTracker.size() == 1 &&
+      serverTracker.getRandomServerId() == ourServerId)) {
+        // If we have no servers to ping, or we're the only one on the list,
         // then just log that fact the first time and do nothing.
         if (!haveLoggedNoServers) {
             LOG(NOTICE, "No servers besides myself to probe! "
-                "List has %d entries.", serverList.server_size());
+                "List has %u entries.", serverTracker.size());
             haveLoggedNoServers = true;
         }
         return;
@@ -147,22 +143,27 @@ FailureDetector::pingRandomServer()
     // Reset the haveLoggedNoServers variable
     haveLoggedNoServers = false;
 
-    const string* locator = &localLocator;
-    while (*locator == localLocator) {
-        uint32_t index = downCast<uint32_t>(generateRandom() %
-                                            serverList.server_size());
-        locator = &serverList.server(index).service_locator();
-    }
+    ServerId pingee = ourServerId;
+    while (pingee == ourServerId)
+        pingee = serverTracker.getRandomServerId();
 
     uint64_t nonce = generateRandom();
 
+    string locator;
     try {
-        pingClient.ping(locator->c_str(), nonce, TIMEOUT_USECS * 1000);
-        TEST_LOG("Ping succeeded to server %s", locator->c_str());
+        locator = Context::get().serverList->getLocator(pingee);
+        pingClient.ping(locator.c_str(), nonce, TIMEOUT_USECS * 1000);
+        TEST_LOG("Ping succeeded to server %s", locator.c_str());
+    } catch (ServerListException &sle) {
+        // This isn't an error. It's just a race between this thread and
+        // the membership service. It should be quite uncommon, so just
+        // bail on this round and ping again next time.
+        LOG(NOTICE, "Tried to ping locator \"%s\", but id %lu was stale",
+            locator.c_str(), *pingee);
     } catch (TimeoutException &te) {
-        alertCoordinator(*locator);
+        alertCoordinator(locator);
     } catch (TransportException &te) {
-        alertCoordinator(*locator);
+        alertCoordinator(locator);
     }
 }
 
@@ -181,24 +182,6 @@ FailureDetector::alertCoordinator(string locator)
     } catch (TransportException &te) {
         LOG(WARNING, "Hint server down failed. "
                      "Maybe the network is disconnected: %s", te.what());
-    }
-}
-
-/**
- * Request the list of servers from the Coordinator.
- *
- * TODO(mashti): Will change this code to use the ClusterManager
- */
-void
-FailureDetector::requestServerList()
-{
-    LOG(DEBUG, "requesting server list");
-
-    try {
-        coordinatorClient.getServerList(serverList);
-    } catch (TransportException &te) {
-        LOG(WARNING, "Failed to update the server list from the coordinator: "
-                     "%s", te.what());
     }
 }
 

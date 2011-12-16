@@ -60,7 +60,8 @@ class CoordinatorServerList {
               ServiceTypeMask serviceMask);
         Entry(const Entry& other);
         Entry& operator=(const Entry& other);
-        void serialise(ProtoBuf::ServerList_Entry& dest) const;
+        void serialise(ProtoBuf::ServerList_Entry& dest,
+                       bool isInCluster) const;
 
         /// ServerId of the server (uniquely identifies it, never reused).
         ServerId serverId;
@@ -68,11 +69,14 @@ class CoordinatorServerList {
         /// The ServiceLocator of the server (used to address it).
         string serviceLocator;
 
-        /// If true, this server is a master.
+        /// If true, this server is running a MasterService instance.
         bool isMaster;
 
-        /// If true, this server is a backup.
+        /// If true, this server is running a BackupService instance.
         bool isBackup;
+
+        /// If true, this server is running a MembershipService instance.
+        bool hasMembershipService;
 
         /// The master's will (only to be set if isMaster is true).
         ProtoBuf::Tablets* will;
@@ -84,8 +88,11 @@ class CoordinatorServerList {
 
     CoordinatorServerList();
     ~CoordinatorServerList();
-    ServerId add(string serviceLocator, ServiceTypeMask serviceMask);
-    void remove(ServerId serverId);
+    ServerId add(string serviceLocator,
+                 ServiceTypeMask serviceMask,
+                 ProtoBuf::ServerList& protoBuf);
+    void remove(ServerId serverId,
+                ProtoBuf::ServerList& protoBuf);
     const Entry& operator[](const ServerId& serverId) const;
     Entry& operator[](const ServerId& serverId);
     const Entry* operator[](size_t index) const;
@@ -96,6 +103,7 @@ class CoordinatorServerList {
     uint32_t backupCount() const;
     uint32_t nextMasterIndex(uint32_t startIndex) const;
     uint32_t nextBackupIndex(uint32_t startIndex) const;
+    void serialise(ProtoBuf::ServerList& protoBuf) const;
     void serialise(ProtoBuf::ServerList& protobuf,
                    bool includeMasters,
                    bool includeBackups) const;
@@ -136,7 +144,13 @@ class CoordinatorServerList {
 
     /// Number of backups in the server list.
     uint32_t numberOfBackups;
+
   PRIVATE:
+    /// Incremented each time the server list is modified (i.e. when add or
+    /// remove is called). Since we usually send delta updates to clients,
+    /// they can use this to determine if any previous RPC was missed and
+    /// then re-fetch the latest list in its entirety to get back on track.
+    uint64_t versionNumber;
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorServerList);
 };

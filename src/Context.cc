@@ -66,6 +66,7 @@ Context::Context(bool hasDedicatedDispatchThread)
     , transportManager(NULL)
     , serviceManager(NULL)
     , sessionAlarmTimer(NULL)
+    , serverList(NULL)
 {
     // The constructors of inner members may try to access the outer members.
     // Set the current context while running the constructors to allow this.

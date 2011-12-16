@@ -34,7 +34,8 @@ namespace RAMCloud {
 CoordinatorServerList::CoordinatorServerList()
     : serverList(),
       numberOfMasters(0),
-      numberOfBackups(0)
+      numberOfBackups(0),
+      versionNumber(0)
 {
 }
 
@@ -56,11 +57,18 @@ CoordinatorServerList::~CoordinatorServerList()
  *      Bit mask of services this server supports. This means some combination
  *      of MASTER_SERVICE, BACKUP_SERVICE, etc.
  *
+ * \param protoBuf
+ *      Protocol Buffer to serialise the added entry in to. This message can
+ *      then be sent along to other servers in the cluster, alerting them of
+ *      this server's addition.
+ *
  * \return
  *      The unique ServerId assigned to this server.
  */
 ServerId
-CoordinatorServerList::add(string serviceLocator, ServiceTypeMask serviceMask)
+CoordinatorServerList::add(string serviceLocator,
+                           ServiceTypeMask serviceMask,
+                           ProtoBuf::ServerList& protoBuf)
 {
     uint32_t index = firstFreeIndex();
 
@@ -73,6 +81,11 @@ CoordinatorServerList::add(string serviceLocator, ServiceTypeMask serviceMask)
     if (serviceMask & BACKUP_SERVICE)
         numberOfBackups++;
 
+    versionNumber++;
+    ProtoBuf::ServerList_Entry& protoBufEntry(*protoBuf.add_server());
+    serverList[index].entry->serialise(protoBufEntry, true);
+    protoBuf.set_version_number(versionNumber);
+
     return id;
 }
 
@@ -83,9 +96,15 @@ CoordinatorServerList::add(string serviceLocator, ServiceTypeMask serviceMask)
  *
  * \param serverId
  *      The ServerId of the server to remove from the CoordinatorServerList.
+ *
+ * \param protoBuf
+ *      Protocol Buffer to serialise the removed entry in to. This message
+ *      can then be sent along to other servers in the cluster, alerting them
+ *      of this server's removal.
  */
 void
-CoordinatorServerList::remove(ServerId serverId)
+CoordinatorServerList::remove(ServerId serverId,
+                              ProtoBuf::ServerList& protoBuf)
 {
     uint32_t index = serverId.indexNumber();
     if (index < serverList.size() && serverList[index].entry &&
@@ -94,6 +113,12 @@ CoordinatorServerList::remove(ServerId serverId)
             numberOfMasters--;
         if (serverList[index].entry->isBackup)
             numberOfBackups--;
+
+        versionNumber++;
+        ProtoBuf::ServerList_Entry& protoBufEntry(*protoBuf.add_server());
+        serverList[index].entry->serialise(protoBufEntry, false);
+        protoBuf.set_version_number(versionNumber);
+
         serverList[index].entry.destroy();
         return;
     }
@@ -217,6 +242,18 @@ CoordinatorServerList::nextBackupIndex(uint32_t startIndex) const
 }
 
 /**
+ * Serialise the entire list to a Protocol Buffer form.
+ *
+ * \param[out] protoBuf
+ *      Reference to the ProtoBuf to fill.
+ */
+void
+CoordinatorServerList::serialise(ProtoBuf::ServerList& protoBuf) const
+{
+    serialise(protoBuf, true, true);
+}
+
+/**
  * Serialise this list (or part of it, depending on which services the
  * caller wants) to a protocol buffer. Not all state is included, but
  * enough to be useful for disseminating cluster membership information
@@ -247,9 +284,11 @@ CoordinatorServerList::serialise(ProtoBuf::ServerList& protoBuf,
         if ((entry.isMaster && includeMasters) ||
           (entry.isBackup && includeBackups)) {
             ProtoBuf::ServerList_Entry& protoBufEntry(*protoBuf.add_server());
-            entry.serialise(protoBufEntry);
+            entry.serialise(protoBufEntry, true);
         }
     }
+
+    protoBuf.set_version_number(versionNumber);
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -350,6 +389,7 @@ CoordinatorServerList::Entry::Entry(ServerId serverId,
       serviceLocator(serviceLocatorString),
       isMaster(serviceMask & MASTER_SERVICE),
       isBackup(serviceMask & BACKUP_SERVICE),
+      hasMembershipService(serviceMask & MEMBERSHIP_SERVICE),
       will(NULL),
       backupReadMegsPerSecond(0)
 {
@@ -364,6 +404,7 @@ CoordinatorServerList::Entry::Entry(const Entry& other)
       serviceLocator(other.serviceLocator),
       isMaster(other.isMaster),
       isBackup(other.isBackup),
+      hasMembershipService(other.hasMembershipService),
       will(other.will),
       backupReadMegsPerSecond(other.backupReadMegsPerSecond)
 {
@@ -389,12 +430,14 @@ CoordinatorServerList::Entry::operator=(const Entry& other)
  * Serialise this entry into the given ProtoBuf.
  */
 void
-CoordinatorServerList::Entry::serialise(ProtoBuf::ServerList_Entry& dest) const
+CoordinatorServerList::Entry::serialise(ProtoBuf::ServerList_Entry& dest,
+                                        bool isInCluster) const
 {
     dest.set_is_master(isMaster);
     dest.set_is_backup(isBackup);
     dest.set_server_id(serverId.getId());
     dest.set_service_locator(serviceLocator);
+    dest.set_is_in_cluster(isInCluster);
     if (isBackup)
         dest.set_user_data(backupReadMegsPerSecond);
     else

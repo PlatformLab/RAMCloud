@@ -29,6 +29,7 @@ CLIENT_SRCFILES := \
 		   src/Logger.cc \
 		   src/MacAddress.cc \
 		   src/MasterClient.cc \
+		   src/MembershipClient.cc \
 		   src/Memory.cc \
 		   src/ObjectFinder.cc \
 		   src/PcapFile.cc \

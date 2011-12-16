@@ -86,8 +86,11 @@ class CoordinatorService : public Service {
 
     bool setWill(ServerId masterId, Buffer& buffer,
                  uint32_t offset, uint32_t length);
-    uint32_t serializeMasterList(Buffer& replyPayload);
-    uint32_t serializeBackupList(Buffer& replyPayload);
+
+    void sendServerList(ServerId destination);
+
+    void sendMembershipUpdate(ProtoBuf::ServerList& update,
+                              ServerId excludeServerId);
 
     /**
      * List of all servers in the system. This structure is used to allocate

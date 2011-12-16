@@ -41,7 +41,8 @@ enum { MASTER_SERVICE       = 0x01 };
 enum { BACKUP_SERVICE       = 0x02 };
 enum { COORDINATOR_SERVICE  = 0x04 };
 enum { PING_SERVICE         = 0x08 };
-enum { MAX_SERVICE          = 0x08 };            // Highest legitimate bit.
+enum { MEMBERSHIP_SERVICE   = 0x10 };
+enum { MAX_SERVICE          = 0x10 };            // Highest legitimate bit.
 
 /**
  * This enum defines the choices for the "opcode" field in RPC
@@ -83,7 +84,9 @@ enum RpcOpcode {
     BACKUP_WRITE            = 34,
     BACKUP_RECOVERYCOMPLETE = 35,
     BACKUP_QUIESCE          = 36,
-    ILLEGAL_RPC_TYPE        = 37,  // 1 + the highest legitimate RpcOpcode
+    SET_SERVER_LIST         = 37,
+    UPDATE_SERVER_LIST      = 38,
+    ILLEGAL_RPC_TYPE        = 39,  // 1 + the highest legitimate RpcOpcode
 };
 
 /**
@@ -604,6 +607,42 @@ struct KillRpc {
     };
     struct Response {
         RpcResponseCommon common;
+    };
+};
+
+// MembershipService RPCs
+
+struct SetServerListRpc {
+    static const RpcOpcode opcode = SET_SERVER_LIST;
+    static const ServiceTypeMask service = MEMBERSHIP_SERVICE;
+    struct Request {
+        RpcRequestCommon common;
+        uint32_t serverListLength; // Number of bytes in the server list.
+                                   // The bytes of the server list follow
+                                   // immediately after this header. See
+                                   // ProtoBuf::ServerList.
+    };
+    struct Response {
+        RpcResponseCommon common;
+    };
+};
+
+struct UpdateServerListRpc {
+    static const RpcOpcode opcode = UPDATE_SERVER_LIST;
+    static const ServiceTypeMask service = MEMBERSHIP_SERVICE;
+    struct Request {
+        RpcRequestCommon common;
+        uint32_t serverListLength; // Number of bytes in the server list.
+                                   // The bytes of the server list follow
+                                   // immediately after this header. See
+                                   // ProtoBuf::ServerList.
+    };
+    struct Response {
+        RpcResponseCommon common;
+        uint8_t lostUpdates;       // If non-zero, the server was missing
+                                   // one or more previous updates and
+                                   // would like the entire list to be
+                                   // sent again.
     };
 };
 

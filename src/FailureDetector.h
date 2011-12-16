@@ -19,9 +19,12 @@
 #include <list>
 
 #include "Common.h"
+#include "PingClient.h"
 #include "Rpc.h"
 #include "ServiceLocator.h"
-#include "ServerList.pb.h"
+#include "ServerId.h"
+#include "ServerList.h"
+#include "ServerTracker.h"
 #include "Tub.h"
 
 namespace RAMCloud {
@@ -34,7 +37,7 @@ namespace RAMCloud {
 class FailureDetector {
   public:
     FailureDetector(const string &coordinatorLocatorString,
-                    const string &listeningLocatorsString);
+                    ServerId ourServerId);
     ~FailureDetector();
     void start();
     void halt();
@@ -56,19 +59,20 @@ class FailureDetector {
     static_assert(TIMEOUT_USECS <= PROBE_INTERVAL_USECS,
                   "Timeout us should be less than probe interval.");
 
-    /// Number of iterations before querying the server list
-    static const int QUERY_SERVER_LIST_INTERVAL = 10;
+    /// Our ServerId (used to avoid pinging oneself).
+    const ServerId       ourServerId;
 
-    /// Our local ServiceLocator string.
-    const string         localLocator;
-    /// List of servers to probe.
-    ProtoBuf::ServerList serverList;
+    /// ServerTracker used for obtaining random servers to ping. Nothing is
+    /// currently stored with servers in the tracker.
+    ServerTracker<bool>  serverTracker;
+
     /// Failure detector thread
     Tub<boost::thread>   thread;
 
     // Service Clients
     /// PingClient instance
     PingClient           pingClient;
+
     /// CoordinatorClient instance
     CoordinatorClient    coordinatorClient;
 
@@ -83,7 +87,6 @@ class FailureDetector {
     static void detectorThreadEntry(FailureDetector* detector, Context* ctx);
     void pingRandomServer();
     void alertCoordinator(string locator);
-    void requestServerList();
 
     DISALLOW_COPY_AND_ASSIGN(FailureDetector);
 };

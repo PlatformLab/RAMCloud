@@ -26,13 +26,15 @@
 #include "BackupService.h"
 #include "Context.h"
 #include "CoordinatorClient.h"
+#include "FailureDetector.h"
 #include "InfRcTransport.h"
 #include "MasterService.h"
+#include "MembershipService.h"
 #include "OptionParser.h"
 #include "PingClient.h"
-#include "FailureDetector.h"
 #include "PingService.h"
 #include "Segment.h"
+#include "ServerList.h"
 #include "ServiceManager.h"
 #include "ShortMacros.h"
 #include "TransportManager.h"
@@ -128,17 +130,17 @@ main(int argc, char *argv[])
             DIE("Can't specify both -B and -M options");
         }
 
-        ServiceTypeMask services = 0;
+        ServiceTypeMask services = MEMBERSHIP_SERVICE;
         const char* servicesInfo;
         if (masterOnly) {
             servicesInfo = "master";
-            services = MASTER_SERVICE;
+            services |= MASTER_SERVICE;
         } else if (backupOnly) {
             servicesInfo = "backup";
-            services = BACKUP_SERVICE;
+            services |= BACKUP_SERVICE;
         } else {
             servicesInfo = "master and backup";
-            services = MASTER_SERVICE | BACKUP_SERVICE;
+            services |= MASTER_SERVICE | BACKUP_SERVICE;
         }
 
         if (cpu != -1) {
@@ -197,8 +199,14 @@ main(int argc, char *argv[])
             Context::get().serviceManager
                 ->addService(*backupService, BACKUP_SERVICE);
         }
+
         PingService pingService;
         Context::get().serviceManager->addService(pingService, PING_SERVICE);
+
+        Context::get().serverList = new ServerList();
+        MembershipService membershipService;
+        Context::get().serviceManager->addService(membershipService,
+            MEMBERSHIP_SERVICE);
 
         // Only pin down memory _after_ users of LargeBlockOfMemory have
         // obtained their allocations (since LBOM probes are much slower if
@@ -225,10 +233,8 @@ main(int argc, char *argv[])
         if (backupService)
             backupService->init(serverId);
         if (!disableFailureDetector) {
-            // Initialize failure detector
             failureDetector.construct(
-                optionParser.options.getCoordinatorLocator(),
-                Context::get().transportManager->getListeningLocatorsString());
+                optionParser.options.getCoordinatorLocator(), serverId);
             failureDetector->start();
         }
 

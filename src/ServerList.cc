@@ -31,6 +31,7 @@ namespace RAMCloud {
  */
 ServerList::ServerList()
     : serverList(1),        // Avoid having to return -1 in getHighestIndex().
+      version(0),
       trackers(),
       mutex()
 {
@@ -163,6 +164,43 @@ ServerList::remove(ServerId id)
 }
 
 /**
+ * Obtain the locator associated with the given ServerId.
+ *
+ * \param id
+ *      The ServerId to look up the locator for.
+ *
+ * \return
+ *      The ServiceLocator string assocated with the given ServerId.
+ *
+ * \throw ServerListException
+ *      An exception is thrown if this ServerId is not in the list.
+ *      This could happen due to a stale id that refers to a server
+ *      that has since left the system. It may be possible in the
+ *      future for other RPCs to refer to ServerIds that this machine
+ *      does not yet know of.
+ *
+ * XXX- Perhaps references to the locator should be passed down into
+ *      ServerTracker instead and looked up there by clients? But
+ *      then again, we probably don't usually want locators returned.
+ *      Instead, we want sessions that will ensure we're talking to
+ *      the right server.
+ */
+string
+ServerList::getLocator(ServerId id)
+{
+    boost::lock_guard<SpinLock> lock(mutex);
+
+    uint32_t index = id.indexNumber();
+    if (index >= serverList.size() || !serverList[index] ||
+      serverList[index]->serverId != id) {
+        throw ServerListException(HERE, format(
+            "ServerId %lu is not in the ServerList", *id));
+    }
+
+    return serverList[index]->serviceLocator.getOriginalString();
+}
+
+/**
  * Return the highest index that has ever been used in this ServerList.
  *
  * XXX- Would we prefer the highest currently active index? The two
@@ -170,12 +208,11 @@ ServerList::remove(ServerId id)
  *      for the alternative.
  */
 uint32_t
-ServerList::getHighestIndex()
+ServerList::size()
 {
     boost::lock_guard<SpinLock> lock(mutex);
 
-    assert(serverList.size() > 0);
-    return downCast<uint32_t>(serverList.size() - 1);
+    return downCast<uint32_t>(serverList.size());
 }
 
 /**
@@ -184,7 +221,7 @@ ServerList::getHighestIndex()
  * false.
  */
 ServerId
-ServerList::getServerId(uint32_t index)
+ServerList::operator[](uint32_t index)
 {
     boost::lock_guard<SpinLock> lock(mutex);
 
@@ -194,12 +231,50 @@ ServerList::getServerId(uint32_t index)
 }
 
 /**
+ * Return true if the given ServerId is in the list, otherwise return false.
+ */
+bool
+ServerList::contains(ServerId serverId)
+{
+    boost::lock_guard<SpinLock> lock(mutex);
+
+    uint32_t index = serverId.indexNumber();
+    if (index >= serverList.size() || !serverList[index])
+        return false;
+    return serverList[index]->serverId == serverId;
+}
+
+/**
+ * Get the version of this list, as set by #setVersion. Used to tell whether or
+ * not the list of out of date with the coordinator (and other hosts).
+ */
+uint64_t
+ServerList::getVersion()
+{
+    boost::lock_guard<SpinLock> lock(mutex);
+
+    return version;
+}
+
+/**
+ * Set the version of this list. See #getVersion and notes on the #version member
+ * for more details.
+ */
+void
+ServerList::setVersion(uint64_t newVersion)
+{
+    boost::lock_guard<SpinLock> lock(mutex);
+
+    version = newVersion;
+}
+
+/**
  * Register a ServerTracker with this ServerList. Any updates to this
  * list (additions or removals) will be propagated to the tracker. The
  * current list of hosts will be pushed to the tracker immediately so
  * that its state is synchronised with this ServerList.
  *
- * \throw Exception
+ * \throw ServerListException
  *      An exception is thrown if the same tracker is registered more
  *      than once.
  */
@@ -208,8 +283,12 @@ ServerList::registerTracker(ServerTrackerInterface& tracker)
 {
     boost::lock_guard<SpinLock> lock(mutex);
 
-    if (std::find(trackers.begin(), trackers.end(), &tracker) != trackers.end())
-        throw Exception(HERE, "Cannot register the same tracker twice!");
+    bool alreadyRegistered =
+        std::find(trackers.begin(), trackers.end(), &tracker) != trackers.end();
+    if (alreadyRegistered) {
+        throw ServerListException(HERE,
+            "Cannot register the same tracker twice!");
+    }
 
     trackers.push_back(&tracker);
 

@@ -20,6 +20,7 @@
 #include "CoordinatorService.h"
 #include "ShortMacros.h"
 #include "MasterClient.h"
+#include "MembershipClient.h"
 #include "ProtoBuf.h"
 #include "Recovery.h"
 
@@ -247,14 +248,20 @@ CoordinatorService::enlistServer(const EnlistServerRpc::Request& reqHdr,
     const char *serviceLocator = getString(rpc.requestPayload, sizeof(reqHdr),
                                            reqHdr.serviceLocatorLength);
 
-    ServerId newServerId = serverList.add(serviceLocator, serviceMask);
+    ProtoBuf::ServerList additionUpdate;
+    ServerId newServerId = serverList.add(serviceLocator,
+                                          serviceMask,
+                                          additionUpdate);
     CoordinatorServerList::Entry& entry = serverList[newServerId];
 
+    // XXX- Should be a ServiceTypeMask -> string method. Extract it from
+    //      Rpc.h and make a little class instead?
     LOG(NOTICE, "Enlisting new server at %s (server id %lu) supporting "
-        "services: %s%s",
+        "services: %s%s%s",
         serviceLocator, newServerId.getId(),
         entry.isMaster ? "master " : "",
-        entry.isBackup ? "backup " : "");
+        entry.isBackup ? "backup " : "",
+        entry.hasMembershipService ? "membership " : "");
 
     if (entry.isMaster) {
         // create empty will
@@ -268,6 +275,10 @@ CoordinatorService::enlistServer(const EnlistServerRpc::Request& reqHdr,
     }
 
     respHdr.serverId = newServerId.getId();
+    rpc.sendReply();
+
+    sendServerList(newServerId);
+    sendMembershipUpdate(additionUpdate, newServerId);
 }
 
 /**
@@ -373,7 +384,8 @@ CoordinatorService::hintServerDown(const HintServerDownRpc::Request& reqHdr,
      */
 
     CoordinatorServerList::Entry serverEntry = serverList[serverId];
-    serverList.remove(serverId);
+    ProtoBuf::ServerList removalUpdate;
+    serverList.remove(serverId, removalUpdate);
 
     if (serverEntry.isBackup) {
         // TODO(ongaro): inform masters they need to replicate more
@@ -402,7 +414,7 @@ CoordinatorService::hintServerDown(const HintServerDownRpc::Request& reqHdr,
             recovery = new Recovery(serverId, *will, serverList);
         }
 
-        // Keep track of recovery for each of the tablets its working on
+        // Keep track of recovery for each of the tablets it's working on.
         foreach (ProtoBuf::Tablets::Tablet& tablet,
                  *tabletMap.mutable_tablet()) {
             if (tablet.server_id() == serverId.getId())
@@ -411,6 +423,8 @@ CoordinatorService::hintServerDown(const HintServerDownRpc::Request& reqHdr,
 
         recovery->start();
     }
+
+    sendMembershipUpdate(removalUpdate, ServerId(/* invalid id */));
 }
 
 /**
@@ -527,6 +541,21 @@ CoordinatorService::setWill(const SetWillRpc::Request& reqHdr,
     }
 }
 
+/**
+ * Update the will associated with a specific master ServerId.
+ *
+ * \param masterId
+ *      ServerId of the master whose will is to be set.
+ *
+ * \param buffer
+ *      Buffer containing the will.
+ *
+ * \param offset
+ *      Byte offset of the will in the buffer.
+ *
+ * \param length
+ *      Length of the will in bytes.
+ */
 bool
 CoordinatorService::setWill(ServerId masterId, Buffer& buffer,
                             uint32_t offset, uint32_t length)
@@ -552,6 +581,62 @@ CoordinatorService::setWill(ServerId masterId, Buffer& buffer,
 
     LOG(WARNING, "Master %lu could not be found!!", masterId.getId());
     return false;
+}
+
+/**
+ * Push the entire server list to the specified server. This is used to both
+ * push the initial list when a server enlists, as well as to push the list
+ * again if a server misses any updates and has gone out of sync.
+ *
+ * \param destination
+ *      ServerId of the server to send the list to.
+ */
+void
+CoordinatorService::sendServerList(ServerId destination)
+{
+    ProtoBuf::ServerList serialisedServerList;
+    serverList.serialise(serialisedServerList);
+
+    MembershipClient client;
+    client.setServerList(serverList[destination].serviceLocator.c_str(),
+                         serialisedServerList);
+}
+
+/**
+ * Issue a cluster membership update to all enlisted servers in the system
+ * that are running the MembershipService.
+ *
+ * \param update
+ *      Protocol Buffer containing the update to be sent.
+ *
+ * \param excludeServerId
+ *      ServerId of a server that is not to receive this update. This is
+ *      used to avoid sending an update message to a server immediately
+ *      following its enlistment (since we'll be sending the entire list
+ *      instead).
+ */
+void
+CoordinatorService::sendMembershipUpdate(ProtoBuf::ServerList& update,
+                                         ServerId excludeServerId)
+{
+    MembershipClient client;
+    for (size_t i = 0; i < serverList.size(); i++) {
+        if (serverList[i] == NULL || !serverList[i]->hasMembershipService)
+            continue;
+        if (serverList[i]->serverId == excludeServerId)
+            continue;
+
+        bool succeeded = client.updateServerList(
+            serverList[i]->serviceLocator.c_str(), update);
+
+        // If this server had missed a previous update it will return
+        // failure and expect us to push the whole list again.
+        if (!succeeded) {
+            LOG(NOTICE, "Server %lu had lost an update. Sending whole list.",
+                *serverList[i]->serverId);
+            sendServerList(serverList[i]->serverId);
+        }
+    }
 }
 
 } // namespace RAMCloud

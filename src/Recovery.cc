@@ -398,7 +398,7 @@ Recovery::buildSegmentIdToBackups()
             if (segmentId < headId ||
                 (segmentId == headId && segmentLen == headLen)) {
                 ProtoBuf::ServerList::Entry newEntry;
-                backup->serialise(newEntry);
+                backup->serialise(newEntry, true);
                 newEntry.set_user_data(expectedLoadTimeMs);
                 newEntry.set_segment_id(segmentId);
                 backupsToSort.push_back(newEntry);

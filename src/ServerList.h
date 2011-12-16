@@ -30,6 +30,14 @@
 namespace RAMCloud {
 
 /**
+ * Exception type thrown by the ServerList class.
+ */
+struct ServerListException : public Exception {
+    ServerListException(const CodeLocation& where, std::string msg)
+        : Exception(where, msg) {}
+};
+
+/**
  * A ServerList maintains a mapping of coordinator-allocated ServerIds to
  * the ServiceLocators that address particular servers. Here a "server"
  * is not a physical machine, but rather a specific instance of a RAMCloud
@@ -52,8 +60,12 @@ class ServerList {
     ~ServerList();
     void add(ServerId id, ServiceLocator locator);
     void remove(ServerId id);
-    uint32_t getHighestIndex();
-    ServerId getServerId(uint32_t indexNumber);
+    string getLocator(ServerId);
+    uint32_t size();
+    ServerId operator[](uint32_t indexNumber);
+    bool contains(ServerId serverId);
+    uint64_t getVersion();
+    void setVersion(uint64_t newVersion);
     void registerTracker(ServerTrackerInterface& tracker);
     void unregisterTracker(ServerTrackerInterface& tracker);
 
@@ -79,6 +91,11 @@ class ServerList {
 
     /// Slots in the server list.
     std::vector<Tub<ServerIdServiceLocatorPair>> serverList;
+
+    /// Version number of this list, as dictated by the coordinator. Used to
+    /// tell if the list is out of date, and if so, by how many additions or
+    /// removals.
+    uint64_t version;
 
     /// ServerTrackers that have registered with us and will receive updates
     /// regarding additions or removals from this list.

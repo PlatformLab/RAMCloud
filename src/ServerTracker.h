@@ -104,6 +104,7 @@ class ServerTracker : public ServerTrackerInterface {
           changes(),
           lastRemovedIndex(-1),
           eventCallback(),
+          numberOfServers(0),
           testing_avoidGetChangeAssertion(false)
     {
     }
@@ -125,6 +126,7 @@ class ServerTracker : public ServerTrackerInterface {
           changes(),
           lastRemovedIndex(-1),
           eventCallback(eventCallback),
+          numberOfServers(0),
           testing_avoidGetChangeAssertion(false)
     {
     }
@@ -250,8 +252,11 @@ class ServerTracker : public ServerTrackerInterface {
         if (change.event == SERVER_ADDED) {
             serverList[index].serverId = change.serverId;
             assert(serverList[index].pointer == NULL);
+            numberOfServers++;
         } else if (change.event == SERVER_REMOVED) {
             lastRemovedIndex = index;
+            assert(numberOfServers > 0);
+            numberOfServers--;
         } else {
             assert(0);
         }
@@ -309,6 +314,17 @@ class ServerTracker : public ServerTrackerInterface {
         }
 
         return serverList[index].pointer;
+    }
+
+    /**
+     * Return the number of servers currently in this tracker. Note that this
+     * does not include any that will be added due to enqueue change events,
+     * only the number presently being tracked.
+     */
+    uint32_t
+    size()
+    {
+        return numberOfServers;
     }
 
   PRIVATE:
@@ -424,6 +440,9 @@ class ServerTracker : public ServerTrackerInterface {
     /// Optional callback to fire each time an entry (i.e. a server add or
     /// remove notice) is added to queue
     Tub<EventCallback> eventCallback;
+
+    /// Number of servers in the tracker.
+    uint32_t numberOfServers;
 
     /// Normally false. Only set for testing purposes.
     bool testing_avoidGetChangeAssertion;

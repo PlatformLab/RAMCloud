@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010,2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -15,7 +15,12 @@
 
 package RAMCloud.ProtoBuf;
 
-/// A list of services.
+/// A list of servers, which describes the services they provide and a
+/// means of contacting them using RAMCloud transports.
+///
+/// This message is used both when pulling complete lists from the
+/// coordinator (GetServerListRpc) and when pushing delta updates
+/// to other servers by the coordinator (UpdateServerListRpc).
 message ServerList {
   message Entry {
     /// Is this server a master?
@@ -33,10 +38,19 @@ message ServerList {
     /// A field used in mysterious ways during recovery.
     optional fixed64 segment_id = 5;
 
-   /// An opaque field which happens to be large enough for a pointer.
+    /// An opaque field which happens to be large enough for a pointer.
     optional fixed64 user_data = 6;
+
+    /// If true, this server is in the cluster. If false, this server
+    /// is no longer in the cluster.
+    required bool is_in_cluster = 7;
   }
 
   /// List of servers.
   repeated Entry server = 1;
+
+  /// Generation number of the Coordinator's list at the time this message
+  /// is sent. Used to determine if the current list is out of date. See
+  /// CoordinatorServerList::version and ServerList::version for more details.
+  optional fixed64 version_number = 2;
 }
