@@ -17,26 +17,26 @@
 
 #include "RamCloud.h"
 #include "OptionParser.h"
-
+#include "ServerId.h"
 
 int
 main(int argc, char* argv[])
 {
     using namespace RAMCloud;
 
-    vector<string> locators;
+    vector<uint64_t> serverIds;
     OptionsDescription options("HintServerDown");
     options.add_options()
         ("down,d",
-         ProgramOptions::value<vector<string>>(&locators),
-         "Report the specified service locator as down, "
+         ProgramOptions::value<vector<uint64_t>>(&serverIds),
+         "Report the specified ServerId(s) as down, "
          "can be passed multiple times for multiple reports");
 
     OptionParser optionParser(options, argc, argv);
     RamCloud client(optionParser.options.getCoordinatorLocator().c_str());
-    foreach (const auto& locator, locators) {
-        std::cout << "Hinting server down: " << locator << std::endl;
-        client.coordinator.hintServerDown(locator.c_str());
+    foreach (const auto& serverId, serverIds) {
+        std::cout << "Hinting server down: " << *serverId << std::endl;
+        client.coordinator.hintServerDown(ServerId(serverId));
     }
     return 0;
 }

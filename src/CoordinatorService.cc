@@ -33,6 +33,7 @@ CoordinatorService::CoordinatorService()
     , nextTableId(0)
     , nextTableMasterIdx(0)
     , mockRecovery(NULL)
+    , test_forceServerReallyDown(false)
 {
 }
 
@@ -277,7 +278,8 @@ CoordinatorService::enlistServer(const EnlistServerRpc::Request& reqHdr,
     respHdr.serverId = newServerId.getId();
     rpc.sendReply();
 
-    sendServerList(newServerId);
+    if (entry.hasMembershipService)
+        sendServerList(newServerId);
     sendMembershipUpdate(additionUpdate, newServerId);
 }
 
@@ -326,19 +328,19 @@ CoordinatorService::hintServerDown(const HintServerDownRpc::Request& reqHdr,
 {
     bool isServerReallyDown = false;
     PingClient pingClient;
-    string serviceLocator(getString(rpc.requestPayload, sizeof(reqHdr),
-                                    reqHdr.serviceLocatorLength));
+    ServerId serverId(reqHdr.serverId);
     rpc.sendReply();
 
     // reqHdr, respHdr, and rpc are off-limits now
 
-    // Is the server really down or could it be a false-positive?
-#if TESTING
-    if (serviceLocator == "mock:host=backup" ||
-        serviceLocator == "mock:host=master") {
+    if (test_forceServerReallyDown)
         isServerReallyDown = true;
+
+    if (!serverList.contains(serverId)) {
+        LOG(NOTICE, "Spurious report on unknown server id %lu", *serverId);
+        return;
     }
-#endif /* TESTING */
+    string& serviceLocator = serverList[serverId].serviceLocator;
 
     // Skip the real ping if this is from a unit test
     if (!isServerReallyDown) {
@@ -353,29 +355,13 @@ CoordinatorService::hintServerDown(const HintServerDownRpc::Request& reqHdr,
     }
 
     if (!isServerReallyDown) {
-        LOG(NOTICE, "Hint server down false-positive: %s",
-                    serviceLocator.c_str());
+        LOG(NOTICE, "False positive for server id %lu (\"%s\")",
+                    *serverId, serviceLocator.c_str());
         return;
     }
 
-    LOG(NOTICE, "Hint server down: %s", serviceLocator.c_str());
-
-    // Find the ServerId for this ServiceLocator string first. This will go away
-    // once we pass the ServerId in the HSD RPC, rather than the locator.
-    ServerId serverId;
-    for (size_t i = 0; i < serverList.size(); i++) {
-        if (serverList[i] == NULL)
-            continue;
-        if (serverList[i]->serviceLocator == serviceLocator) {
-            serverId = serverList[i]->serverId;
-            break;
-        }
-    }
-    if (!serverId.isValid()) {
-        LOG(WARNING, "Hint server down on unknown server: %s!",
-            serviceLocator.c_str());
-        return;
-    }
+    LOG(NOTICE, "Server failure detected: id %lu (\"%s\")",
+        *serverId, serviceLocator.c_str());
 
     /*
      * If this machine has a backup and master on the same host we need to
@@ -400,7 +386,7 @@ CoordinatorService::hintServerDown(const HintServerDownRpc::Request& reqHdr,
                 tablet.set_state(ProtoBuf::Tablets_Tablet::RECOVERING);
         }
 
-        LOG(NOTICE, "Recovering master %lu (%s) on %u recovery masters "
+        LOG(NOTICE, "Recovering master %lu (\"%s\") on %u recovery masters "
             "using %u backups", serverId.getId(),
             serverEntry.serviceLocator.c_str(),
             serverList.masterCount(),
@@ -424,6 +410,9 @@ CoordinatorService::hintServerDown(const HintServerDownRpc::Request& reqHdr,
         recovery->start();
     }
 
+    // Update cluster membership information last. This delay will cause some
+    // spurious hintServerDown requests to the coordinator, but it's better
+    // that we finish recovery faster.
     sendMembershipUpdate(removalUpdate, ServerId(/* invalid id */));
 }
 

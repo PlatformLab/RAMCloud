@@ -47,6 +47,7 @@ FailureDetector::FailureDetector(const string &coordinatorLocatorString,
       coordinatorClient(coordinatorLocatorString.c_str()),
       haveLoggedNoServers(false)
 {
+    assert(Context::get().serverList != NULL);
     Context::get().serverList->registerTracker(serverTracker);
 }
 
@@ -161,24 +162,29 @@ FailureDetector::pingRandomServer()
         LOG(NOTICE, "Tried to ping locator \"%s\", but id %lu was stale",
             locator.c_str(), *pingee);
     } catch (TimeoutException &te) {
-        alertCoordinator(locator);
+        alertCoordinator(pingee, locator);
     } catch (TransportException &te) {
-        alertCoordinator(locator);
+        alertCoordinator(pingee, locator);
     }
 }
 
 /**
  * Tell the coordinator that we failed to get a timely ping response.
  *
+ * \param serverId
+ *      ServerId of the server that is believed to have failed.
+ *
  * \param locator
- *          Locator string of the server that is believed to have failed.
+ *      Locator string of the server that is believed to have failed.
+ *      Used only for logging purposes.
  */
 void
-FailureDetector::alertCoordinator(string locator)
+FailureDetector::alertCoordinator(ServerId serverId, string locator)
 {
-    LOG(WARNING, "Ping timeout to server %s", locator.c_str());
+    LOG(WARNING, "Ping timeout to server id %lu (locator \"%s\")",
+        *serverId, locator.c_str());
     try {
-        coordinatorClient.hintServerDown(locator);
+        coordinatorClient.hintServerDown(serverId);
     } catch (TransportException &te) {
         LOG(WARNING, "Hint server down failed. "
                      "Maybe the network is disconnected: %s", te.what());

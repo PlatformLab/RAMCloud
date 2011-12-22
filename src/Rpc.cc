@@ -63,6 +63,8 @@ Rpc::opcodeSymbol(uint32_t opcode)
         case BACKUP_WRITE:               return "BACKUP_WRITE";
         case BACKUP_RECOVERYCOMPLETE:    return "BACKUP_RECOVERYCOMPLETE";
         case BACKUP_QUIESCE:             return "BACKUP_QUIESCE";
+        case SET_SERVER_LIST:            return "SET_SERVER_LIST";
+        case UPDATE_SERVER_LIST:         return "UDPATE_SERVER_LIST";
         case ILLEGAL_RPC_TYPE:           return "ILLEGAL_RPC_TYPE";
     }
 

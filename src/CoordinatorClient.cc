@@ -241,17 +241,12 @@ CoordinatorClient::getTabletMap(ProtoBuf::Tablets& tabletMap)
  * Report a slow or dead server.
  */
 void
-CoordinatorClient::hintServerDown(string serviceLocator)
+CoordinatorClient::hintServerDown(ServerId serverId)
 {
     Buffer req;
     Buffer resp;
-    HintServerDownRpc::Request& reqHdr(
-        allocHeader<HintServerDownRpc>(req));
-    reqHdr.serviceLocatorLength =
-        downCast<uint32_t>(serviceLocator.length() + 1);
-    strncpy(new(&req, APPEND) char[reqHdr.serviceLocatorLength],
-            serviceLocator.c_str(),
-            reqHdr.serviceLocatorLength);
+    HintServerDownRpc::Request& reqHdr(allocHeader<HintServerDownRpc>(req));
+    reqHdr.serverId = *serverId;
     sendRecv<HintServerDownRpc>(session, req, resp);
     checkStatus(HERE);
 }

@@ -155,6 +155,15 @@ MembershipService::updateServerList(const UpdateServerListRpc::Request& reqHdr,
                 *id, locator.c_str());
             serverList.add(id, ServiceLocator(locator));
         } else {
+            if (!serverList.contains(id)) {
+                LOG(ERROR, "  Cannot remove server id %lu: The server is "
+                    "not in our list, despite list version numbers matching "
+                    "(%lu). Something is screwed up! Requesting the entire "
+                    "list again.", *id, update.version_number());
+                respHdr.lostUpdates = true;
+                return;
+            }
+
             LOG(__DEBUG, "  Removing server id %lu (locator \"%s\")",
                 *id, serverList.getLocator(id).c_str());
             serverList.remove(id);

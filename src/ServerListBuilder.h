@@ -40,8 +40,8 @@ struct ServerListBuilder {
      *
      * Example:
      * ServerListBuilder{serverList}
-     *      (true, false, 123, 87, "mock:one")          // master
-     *      (false, true, 123, 87, "mock:two");         // backup
+     *      (true, false, 123, 87, "mock:host=one")          // master
+     *      (false, true, 123, 87, "mock:host=two");         // backup
      */
     ServerListBuilder&
     operator()(bool isMaster,
@@ -49,7 +49,8 @@ struct ServerListBuilder {
                uint64_t id,
                uint64_t segmentId,
                const char* locator,
-               uint64_t userData = 0)
+               uint64_t userData = 0,
+               bool isInCluster = true)
     {
         ProtoBuf::ServerList_Entry& server(*servers.add_server());
         server.set_is_master(isMaster);
@@ -58,6 +59,7 @@ struct ServerListBuilder {
         server.set_segment_id(segmentId);
         server.set_service_locator(locator);
         server.set_user_data(userData);
+        server.set_is_in_cluster(isInCluster);
         return *this;
     }
 

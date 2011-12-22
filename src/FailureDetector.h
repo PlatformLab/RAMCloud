@@ -86,7 +86,7 @@ class FailureDetector {
 
     static void detectorThreadEntry(FailureDetector* detector, Context* ctx);
     void pingRandomServer();
-    void alertCoordinator(string locator);
+    void alertCoordinator(ServerId serverId, string locator);
 
     DISALLOW_COPY_AND_ASSIGN(FailureDetector);
 };

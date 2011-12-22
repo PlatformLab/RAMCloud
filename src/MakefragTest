@@ -39,6 +39,7 @@ TESTS_SRCFILES := \
 		  src/LogTest.cc \
 		  src/MacAddressTest.cc \
 		  src/MasterServiceTest.cc \
+		  src/MembershipServiceTest.cc \
 		  src/MockDriver.cc \
 		  src/MockTransport.cc \
 		  src/ObjectFinderTest.cc \

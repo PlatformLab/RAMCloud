@@ -30,7 +30,7 @@ namespace RAMCloud {
  * Constructor for ServerList.
  */
 ServerList::ServerList()
-    : serverList(1),        // Avoid having to return -1 in getHighestIndex().
+    : serverList(),
       version(0),
       trackers(),
       mutex()
@@ -201,11 +201,7 @@ ServerList::getLocator(ServerId id)
 }
 
 /**
- * Return the highest index that has ever been used in this ServerList.
- *
- * XXX- Would we prefer the highest currently active index? The two
- *      should be the same or close, but perhaps there's a good argument
- *      for the alternative.
+ * Return the current size of this list.
  */
 uint32_t
 ServerList::size()

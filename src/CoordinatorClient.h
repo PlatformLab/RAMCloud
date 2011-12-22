@@ -51,7 +51,7 @@ class CoordinatorClient : public Client {
     void getMasterList(ProtoBuf::ServerList& serverList);
     void getBackupList(ProtoBuf::ServerList& serverList);
     void getTabletMap(ProtoBuf::Tablets& tabletMap);
-    void hintServerDown(string serviceLocator);
+    void hintServerDown(ServerId serverId);
     void quiesce();
     void tabletsRecovered(uint64_t masterId,
                           const ProtoBuf::Tablets& tablets,

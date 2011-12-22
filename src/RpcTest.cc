@@ -34,12 +34,12 @@ TEST_F(RpcTest, opcodeSymbol_integer) {
     EXPECT_STREQ("ILLEGAL_RPC_TYPE", Rpc::opcodeSymbol(ILLEGAL_RPC_TYPE));
 
     // Test out-of-range values.
-    EXPECT_STREQ("unknown(38)", Rpc::opcodeSymbol(ILLEGAL_RPC_TYPE+1));
+    EXPECT_STREQ("unknown(40)", Rpc::opcodeSymbol(ILLEGAL_RPC_TYPE+1));
 
     // Make sure the next-to-last value is defined (this will fail if
     // someone adds a new opcode and doesn't update opcodeSymbol).
-    EXPECT_TRUE(NULL == strstr(Rpc::opcodeSymbol(ILLEGAL_RPC_TYPE-1),
-            "unknown"));
+    EXPECT_EQ(string(Rpc::opcodeSymbol(ILLEGAL_RPC_TYPE-1)).find("unknown"),
+        string::npos);
 }
 
 TEST_F(RpcTest, opcodeSymbol_buffer) {

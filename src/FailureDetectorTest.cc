@@ -23,7 +23,6 @@
 #include "PingClient.h"
 #include "FailureDetector.h"
 #include "ServerList.pb.h"
-#include "ServerListBuilder.h"
 
 namespace RAMCloud {
 
@@ -41,20 +40,32 @@ class FailureDetectorTest : public ::testing::Test {
           mockTransport(),
           fd(NULL)
     {
+        Context::get().serverList = new ServerList();
         Context::get().transportManager->registerMock(&mockTransport, "mock");
-        fd = new FailureDetector("mock:", "mock:local");
+        fd = new FailureDetector("mock:", ServerId(57, 27342));
     }
 
     ~FailureDetectorTest()
     {
         delete fd;
         Context::get().transportManager->unregisterMock();
+        delete Context::get().serverList;
+        Context::get().serverList = NULL;
     }
 
     static bool
     failureDetectorFilter(string s)
     {
         return s == "FailureDetector";
+    }
+
+    void
+    addServer(ServerId id, string locator)
+    {
+        ServerId dummy1;
+        ServerChangeEvent dummy2;
+        Context::get().serverList->add(id, ServiceLocator(locator));
+        fd->serverTracker.getChange(dummy1, dummy2);
     }
 
     DISALLOW_COPY_AND_ASSIGN(FailureDetectorTest);
@@ -67,16 +78,14 @@ TEST_F(FailureDetectorTest, pingRandomServer_noServers) {
 }
 
 TEST_F(FailureDetectorTest, pingRandomServer_onlySelfServers) {
-    ServerListBuilder{fd->serverList}
-        (true, false, 123, 87, "mock:local");
+    addServer(ServerId(57, 27342), "mock:");
     fd->pingRandomServer();
     EXPECT_EQ("pingRandomServer: No servers besides myself to probe! "
               "List has 1 entries.", TestLog::get());
 }
 
 TEST_F(FailureDetectorTest, pingRandomServer_pingSuccess) {
-    ServerListBuilder{fd->serverList}
-        (true, false, 123, 87, "mock:");
+    addServer(ServerId(1, 0), "mock:");
     mockTransport.setInput("0 0 55 0");
     fd->pingRandomServer();
     EXPECT_EQ("checkStatus: status: 0 | pingRandomServer: "
@@ -84,26 +93,23 @@ TEST_F(FailureDetectorTest, pingRandomServer_pingSuccess) {
 }
 
 TEST_F(FailureDetectorTest, pingRandomServer_pingFailure) {
-    ServerListBuilder{fd->serverList}
-        (true, false, 123, 87, "mock:");
+    addServer(ServerId(1, 0), "mock:");
     mockTransport.setInput(NULL); // ping timeout
     mockTransport.setInput("0");
     fd->pingRandomServer();
-    EXPECT_EQ("alertCoordinator: Ping timeout to server mock: | "
-              "checkStatus: status: 0", TestLog::get());
+    EXPECT_EQ("alertCoordinator: Ping timeout to server id 1 "
+        "(locator \"mock:\") | checkStatus: status: 0", TestLog::get());
 }
 
 TEST_F(FailureDetectorTest, pingRandomServer_pingFailureAndCoordFailure) {
-    ServerListBuilder{fd->serverList}
-        (true, false, 123, 87, "mock:");
+    addServer(ServerId(1, 0), "mock:");
     mockTransport.setInput(NULL); // ping timeout
     mockTransport.setInput(NULL); // coordinator timeout
     fd->pingRandomServer();
-    EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "alertCoordinator: Ping timeout to server mock: | "
-        "alertCoordinator: Hint server down failed. Maybe the "
-        "network is disconnected: "
-        "RAMCloud::TransportException: testing thrown", TestLog::get()));
+    EXPECT_EQ(0U, TestLog::get().find("alertCoordinator: Ping timeout to "
+        "server id 1 (locator \"mock:\") | alertCoordinator: Hint server "
+        "down failed. Maybe the network is disconnected: "
+        "RAMCloud::TransportException: testing thrown"));
 }
 
 } // namespace RAMCloud

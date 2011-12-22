@@ -347,7 +347,8 @@ struct EnlistServerRpc {
     };
     struct Response {
         RpcResponseCommon common;
-        uint64_t serverId;
+        uint64_t serverId;             // Unique ServerId assigned to this
+                                       // enlisting server process.
     };
 };
 
@@ -388,10 +389,8 @@ struct HintServerDownRpc {
     static const ServiceTypeMask service = COORDINATOR_SERVICE;
     struct Request {
         RpcRequestCommon common;
-        uint32_t serviceLocatorLength; // Number of bytes in the serviceLocator,
-                                       // including terminating NULL character.
-                                       // The bytes of the service locator
-                                       // follow immediately after this header.
+        uint64_t serverId;         // ServerId of the server suspected of being
+                                   // dead. Poke it with a stick.
     };
     struct Response {
         RpcResponseCommon common;

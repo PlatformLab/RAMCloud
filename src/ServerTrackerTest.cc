@@ -183,6 +183,22 @@ TEST_F(ServerTrackerTest, indexOperator) {
     EXPECT_EQ(static_cast<int*>(NULL), tr.serverList[0].pointer);
 }
 
+TEST_F(ServerTrackerTest, size) {
+    ServerId id;
+    ServerChangeEvent event;
+
+    EXPECT_EQ(0U, tr.size());
+    tr.enqueueChange(ServerId(0, 0), ServerChangeEvent::SERVER_ADDED);
+    EXPECT_EQ(0U, tr.size());
+    tr.getChange(id, event);
+    EXPECT_EQ(1U, tr.size());
+
+    tr.enqueueChange(ServerId(0, 0), ServerChangeEvent::SERVER_REMOVED);
+    EXPECT_EQ(1U, tr.size());
+    tr.getChange(id, event);
+    EXPECT_EQ(0U, tr.size());
+}
+
 TEST_F(ServerTrackerTest, ChangeQueue_addChange) {
     EXPECT_EQ(0U, tr.changes.changes.size());
     tr.changes.addChange(ServerId(5, 4), ServerChangeEvent::SERVER_ADDED);

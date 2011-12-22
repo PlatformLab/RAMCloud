@@ -134,6 +134,12 @@ class CoordinatorService : public Service {
     /// Used in unit testing.
     BaseRecovery* mockRecovery;
 
+    /**
+     * Used for testing only. If true, the HINT_SERVER_DOWN handler will
+     * assume that the server has failed (rather than checking for itself).
+     */
+    bool test_forceServerReallyDown;
+
     DISALLOW_COPY_AND_ASSIGN(CoordinatorService);
 };
 

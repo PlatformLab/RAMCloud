@@ -59,8 +59,7 @@ TEST_F(ServerListTest, add) {
     EXPECT_EQ("add: Ignoring addition of invalid ServerId.", TestLog::get());
     TestLog::reset();
 
-    EXPECT_EQ(1U, sl.serverList.size());
-    EXPECT_FALSE(sl.serverList[0]);
+    EXPECT_EQ(0U, sl.serverList.size());
     sl.add(ServerId(57, 1), ServiceLocator("mock:"));
     EXPECT_EQ(58U, sl.serverList.size());
     EXPECT_EQ(ServerId(57, 1), sl.serverList[57]->serverId);
@@ -110,7 +109,7 @@ TEST_F(ServerListTest, remove) {
     EXPECT_EQ("remove: Ignoring removal of invalid ServerId.", TestLog::get());
     TestLog::reset();
 
-    EXPECT_EQ(1U, sl.serverList.size());
+    EXPECT_EQ(0U, sl.serverList.size());
     sl.remove(ServerId(0, 0));
     sl.add(ServerId(1, 1), ServiceLocator("mock:"));
     changes.pop();
@@ -146,19 +145,35 @@ TEST_F(ServerListTest, remove) {
     changes.pop();
 }
 
-TEST_F(ServerListTest, getHighestIndex) {
-    EXPECT_EQ(sl.serverList.size() - 1, sl.getHighestIndex());
-    sl.add(ServerId(572, 0), ServiceLocator("mock:"));
-    EXPECT_EQ(572U, sl.getHighestIndex());
+TEST_F(ServerListTest, getLocator) {
+    EXPECT_THROW(sl.getLocator(ServerId(1, 0)), ServerListException);
+    sl.add(ServerId(1, 0), ServiceLocator("mock:"));
+    EXPECT_THROW(sl.getLocator(ServerId(2, 0)), ServerListException);
+    EXPECT_EQ("mock:", sl.getLocator(ServerId(1, 0)));
 }
 
-TEST_F(ServerListTest, getServerId) {
-    EXPECT_FALSE(sl.getServerId(0).isValid());
-    EXPECT_FALSE(sl.getServerId(183742).isValid());
+TEST_F(ServerListTest, size) {
+    EXPECT_EQ(sl.serverList.size(), sl.size());
+    sl.add(ServerId(572, 0), ServiceLocator("mock:"));
+    EXPECT_EQ(573U, sl.size());
+}
+
+TEST_F(ServerListTest, indexOperator) {
+    EXPECT_FALSE(sl[0].isValid());
+    EXPECT_FALSE(sl[183742].isValid());
     sl.add(ServerId(7572, 2734), ServiceLocator("mock:"));
-    EXPECT_EQ(ServerId(7572, 2734), sl.getServerId(7572));
+    EXPECT_EQ(ServerId(7572, 2734), sl[7572]);
     sl.remove(ServerId(7572, 2734));
-    EXPECT_FALSE(sl.getServerId(7572).isValid());
+    EXPECT_FALSE(sl[7572].isValid());
+}
+
+TEST_F(ServerListTest, contains) {
+    EXPECT_FALSE(sl.contains(ServerId(0, 0)));
+    EXPECT_FALSE(sl.contains(ServerId(1, 0)));
+    sl.add(ServerId(1, 0), ServiceLocator("mock:"));
+    EXPECT_TRUE(sl.contains(ServerId(1, 0)));
+    sl.remove(ServerId(1, 0));
+    EXPECT_FALSE(sl.contains(ServerId(1, 0)));
 }
 
 TEST_F(ServerListTest, registerTracker) {
