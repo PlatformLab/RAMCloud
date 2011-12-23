@@ -19,8 +19,32 @@
 #include "ShortMacros.h"
 #include "PingClient.h"
 #include "PingService.h"
+#include "ServerList.h"
 
 namespace RAMCloud {
+
+/**
+ * Construct a PingService. This one will not be associated with a ServerList
+ * and will therefore not return a valid ServerList version in response to
+ * pings.
+ */
+PingService::PingService()
+    : serverList(NULL)
+{
+}
+
+/**
+ * Construct a PingService and associate it with the given serverList. Each
+ * ping response will include the list's current version. This is used by
+ * the FailureDetector to discover if a server's list is stale.
+ *
+ * \param serverList
+ *      The ServerList whose version will be reflected in ping responses.
+ */
+PingService::PingService(ServerList* serverList)
+    : serverList(serverList)
+{
+}
 
 /**
  * Top-level service method to handle the GET_METRICS request.
@@ -51,6 +75,9 @@ PingService::ping(const PingRpc::Request& reqHdr,
 {
     LOG(DEBUG, "received ping request with nonce %ld", reqHdr.nonce);
     respHdr.nonce = reqHdr.nonce;
+    respHdr.serverListVersion = 0;
+    if (serverList != NULL)
+        respHdr.serverListVersion = serverList->getVersion();
 }
 
 /**

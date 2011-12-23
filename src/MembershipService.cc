@@ -42,7 +42,8 @@ namespace RAMCloud {
  * Construct a new MembershipService object. There should really only be one
  * per server.
  */
-MembershipService::MembershipService()
+MembershipService::MembershipService(ServerList& serverList)
+    : serverList(serverList)
 {
     // The coordinator will push the server list to us once we've
     // enlisted.
@@ -78,7 +79,6 @@ MembershipService::setServerList(const SetServerListRpc::Request& reqHdr,
                                  SetServerListRpc::Response& respHdr,
                                  Rpc& rpc)
 {
-    ServerList& serverList = *Context::get().serverList;
     ProtoBuf::ServerList list;
     ProtoBuf::parseFromRequest(rpc.requestPayload, sizeof(reqHdr),
                                reqHdr.serverListLength, list);
@@ -126,7 +126,6 @@ MembershipService::updateServerList(const UpdateServerListRpc::Request& reqHdr,
                                     UpdateServerListRpc::Response& respHdr,
                                     Rpc& rpc)
 {
-    ServerList& serverList = *Context::get().serverList;
     ProtoBuf::ServerList update;
     ProtoBuf::parseFromRequest(rpc.requestPayload, sizeof(reqHdr),
                                reqHdr.serverListLength, update);

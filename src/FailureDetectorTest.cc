@@ -23,6 +23,7 @@
 #include "PingClient.h"
 #include "FailureDetector.h"
 #include "ServerList.pb.h"
+#include "ServerList.h"
 
 namespace RAMCloud {
 
@@ -33,24 +34,25 @@ class FailureDetectorTest : public ::testing::Test {
   public:
     TestLog::Enable logEnabler;
     MockTransport mockTransport;
+    ServerList* serverList;
     FailureDetector *fd;
 
     FailureDetectorTest()
         : logEnabler(),
           mockTransport(),
+          serverList(NULL),
           fd(NULL)
     {
-        Context::get().serverList = new ServerList();
+        serverList = new ServerList();
         Context::get().transportManager->registerMock(&mockTransport, "mock");
-        fd = new FailureDetector("mock:", ServerId(57, 27342));
+        fd = new FailureDetector("mock:", ServerId(57, 27342), *serverList);
     }
 
     ~FailureDetectorTest()
     {
         delete fd;
         Context::get().transportManager->unregisterMock();
-        delete Context::get().serverList;
-        Context::get().serverList = NULL;
+        delete serverList;
     }
 
     static bool
@@ -64,7 +66,7 @@ class FailureDetectorTest : public ::testing::Test {
     {
         ServerId dummy1;
         ServerChangeEvent dummy2;
-        Context::get().serverList->add(id, ServiceLocator(locator));
+        serverList->add(id, ServiceLocator(locator));
         fd->serverTracker.getChange(dummy1, dummy2);
     }
 
@@ -86,7 +88,7 @@ TEST_F(FailureDetectorTest, pingRandomServer_onlySelfServers) {
 
 TEST_F(FailureDetectorTest, pingRandomServer_pingSuccess) {
     addServer(ServerId(1, 0), "mock:");
-    mockTransport.setInput("0 0 55 0");
+    mockTransport.setInput("0 0 55 0 1 0");
     fd->pingRandomServer();
     EXPECT_EQ("checkStatus: status: 0 | pingRandomServer: "
               "Ping succeeded to server mock:", TestLog::get());
@@ -110,6 +112,64 @@ TEST_F(FailureDetectorTest, pingRandomServer_pingFailureAndCoordFailure) {
         "server id 1 (locator \"mock:\") | alertCoordinator: Hint server "
         "down failed. Maybe the network is disconnected: "
         "RAMCloud::TransportException: testing thrown"));
+}
+
+TEST_F(FailureDetectorTest, checkServerListVersion) {
+    serverList->setVersion(0);
+    fd->checkServerListVersion(0);
+    EXPECT_FALSE(fd->staleServerListSuspected);
+
+    fd->checkServerListVersion(1);
+    EXPECT_TRUE(fd->staleServerListSuspected);
+    EXPECT_LT(Cycles::toNanoseconds(
+        Cycles::rdtsc() - fd->staleServerListTimestamp), 50e6);  // lots of room
+    EXPECT_EQ(0U, fd->staleServerListVersion);
+
+    uint64_t lastTimestamp = fd->staleServerListTimestamp;
+    fd->checkServerListVersion(2);
+    EXPECT_TRUE(fd->staleServerListSuspected);
+    EXPECT_EQ(lastTimestamp, fd->staleServerListTimestamp);
+    EXPECT_EQ(0U, fd->staleServerListVersion);
+}
+
+TEST_F(FailureDetectorTest, checkForStaleServerList) {
+    TestLog::Enable _;
+
+    fd->checkForStaleServerList();
+    EXPECT_EQ("checkForStaleServerList: Nothing to do.", TestLog::get());
+
+    // ServerList has since been updated, reset.
+    TestLog::reset();
+    fd->staleServerListSuspected = true;
+    fd->staleServerListVersion = 0;
+    serverList->setVersion(1);
+    fd->checkForStaleServerList();
+    EXPECT_FALSE(fd->staleServerListSuspected);
+    EXPECT_EQ("checkForStaleServerList: Version advanced. "
+        "Suspicion suspended.", TestLog::get());
+
+    // Timed out, successfully contacted coordinator
+    TestLog::reset();
+    fd->staleServerListSuspected = true;
+    fd->staleServerListTimestamp = 0;       // way stale
+    fd->staleServerListVersion = 2;
+    mockTransport.setInput("0 0 0");
+    fd->checkForStaleServerList();
+    EXPECT_EQ(0U, TestLog::get().find("checkForStaleServerList: Stale server "
+        "list detected (have 1, saw 2). Requesting new list push! "
+        "Timeout after"));
+    EXPECT_FALSE(fd->staleServerListSuspected);
+
+    // Timed out, failed to contact coordinator
+    TestLog::reset();
+    fd->staleServerListSuspected = true;
+    fd->staleServerListTimestamp = 0;       // way stale
+    fd->staleServerListVersion = 2;
+    mockTransport.setInput(NULL);
+    fd->checkForStaleServerList();
+    EXPECT_NE(string::npos, TestLog::get().find(
+        "checkForStaleServerList: Request to coordinator failed:"));
+    EXPECT_TRUE(fd->staleServerListSuspected);
 }
 
 } // namespace RAMCloud

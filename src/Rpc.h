@@ -52,6 +52,7 @@ enum { MAX_SERVICE          = 0x10 };            // Highest legitimate bit.
  * locations:
  * - The definition of rpc in scripts/rawmetrics.py.
  * - The method opcodeSymbol in Rpc.cc.
+ * - RpcTest.cc's out-of-range test, if ILLEGAL_RPC_TYPE was changed.
  */
 enum RpcOpcode {
     PING                    = 7,
@@ -86,7 +87,8 @@ enum RpcOpcode {
     BACKUP_QUIESCE          = 36,
     SET_SERVER_LIST         = 37,
     UPDATE_SERVER_LIST      = 38,
-    ILLEGAL_RPC_TYPE        = 39,  // 1 + the highest legitimate RpcOpcode
+    REQUEST_SERVER_LIST     = 39,
+    ILLEGAL_RPC_TYPE        = 40,  // 1 + the highest legitimate RpcOpcode
 };
 
 /**
@@ -434,6 +436,19 @@ struct SetWillRpc {
     };
 };
 
+struct RequestServerListRpc {
+    static const RpcOpcode opcode = REQUEST_SERVER_LIST;
+    static const ServiceTypeMask service = COORDINATOR_SERVICE;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t serverId;         // ServerId the coordinator should send
+                                   // the list to.
+    };
+    struct Response {
+        RpcResponseCommon common;
+    };
+};
+
 // Backup RPCs follow, see BackupService.cc
 
 struct BackupFreeRpc {
@@ -574,6 +589,9 @@ struct PingRpc {
         RpcResponseCommon common;
         uint64_t nonce;             // This should be identical to what was
                                     // sent in the request being answered.
+        uint64_t serverListVersion; // Version of the server list this server
+                                    // has. Used to determine if the issuer of
+                                    // the ping request is out of date.
     };
 };
 

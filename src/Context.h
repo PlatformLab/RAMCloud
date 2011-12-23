@@ -98,7 +98,6 @@ class Context {
     TransportManager* transportManager;
     ServiceManager* serviceManager;
     SessionAlarmTimer* sessionAlarmTimer;
-    ServerList* serverList;
 
   PRIVATE:
     static Context& friendlyGet();

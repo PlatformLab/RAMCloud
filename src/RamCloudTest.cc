@@ -23,6 +23,7 @@
 #include "TransportManager.h"
 #include "BindTransport.h"
 #include "RamCloud.h"
+#include "ServerList.h"
 
 namespace RAMCloud {
 
@@ -36,6 +37,7 @@ class RamCloudTest : public ::testing::Test {
     ServerConfig masterConfig2;
     MasterService* master1;
     MasterService* master2;
+    ServerList* serverList;
     PingService ping1;
     PingService ping2;
     RamCloud* ramcloud;
@@ -52,8 +54,9 @@ class RamCloudTest : public ::testing::Test {
         , masterConfig2()
         , master1(NULL)
         , master2(NULL)
-        , ping1()
-        , ping2()
+        , serverList(new ServerList())
+        , ping1(serverList)
+        , ping2(serverList)
         , ramcloud(NULL)
         , tableId1(-1)
         , tableId2(-2)
@@ -103,6 +106,7 @@ class RamCloudTest : public ::testing::Test {
         delete coordinatorClient1;
         delete coordinatorClient2;
         Context::get().transportManager->unregisterMock();
+        delete serverList;
     }
 
     DISALLOW_COPY_AND_ASSIGN(RamCloudTest);

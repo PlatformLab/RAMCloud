@@ -87,6 +87,10 @@ class CoordinatorService : public Service {
     bool setWill(ServerId masterId, Buffer& buffer,
                  uint32_t offset, uint32_t length);
 
+    void requestServerList(const RequestServerListRpc::Request& reqHdr,
+                           RequestServerListRpc::Response& respHdr,
+                           Rpc& rpc);
+
     void sendServerList(ServerId destination);
 
     void sendMembershipUpdate(ProtoBuf::ServerList& update,

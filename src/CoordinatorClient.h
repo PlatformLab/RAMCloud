@@ -57,6 +57,7 @@ class CoordinatorClient : public Client {
                           const ProtoBuf::Tablets& tablets,
                           const ProtoBuf::Tablets& will);
     void setWill(uint64_t masterId, const ProtoBuf::Tablets& will);
+    void requestServerList(ServerId destination);
 
   private:
     void getServerList(ServiceTypeMask types, ProtoBuf::ServerList& serverList);

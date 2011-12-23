@@ -298,6 +298,7 @@ rpc.metric('backupRecoveryCompleteCount', 'number of invocations of BACKUP_RECOV
 rpc.metric('backupQuiesceCount', 'number of invocations of BACKUP_QUIESCE RPC')
 rpc.metric('setServerListCount', 'number of invocations of SET_SERVER_LIST RPC')
 rpc.metric('updateServerListCount', 'number of invocations of UPDATE_SERVER_LIST RPC')
+rpc.metric('requestServerListCount', 'number of invocations of REQUEST_SERVER_LIST RPC')
 rpc.metric('illegalRpcCount', 'number of invocations of RPCs with illegal opcodes')
 rpc.metric('rpc38Count', 'number of invocations of RPC 38 (undefined)')
 rpc.metric('rpc39Count', 'number of invocations of RPC 39 (undefined)')

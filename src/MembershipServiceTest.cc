@@ -27,20 +27,23 @@ namespace RAMCloud {
 
 class MembershipServiceTest : public ::testing::Test {
   public:
+    ServerList* serverList;
     MembershipService* service;
     BindTransport* transport;
     MembershipClient* client;
 
     MembershipServiceTest()
-        : service(NULL)
+        : serverList(NULL)
+        , service(NULL)
         , transport(NULL)
         , client(NULL)
     {
+        serverList = new ServerList();
+
         transport = new BindTransport();
         Context::get().transportManager->registerMock(transport);
 
-        Context::get().serverList = new ServerList();
-        service = new MembershipService();
+        service = new MembershipService(*serverList);
         transport->addService(*service, "mock:host=member", MEMBERSHIP_SERVICE);
         client = new MembershipClient();
     }
@@ -50,8 +53,7 @@ class MembershipServiceTest : public ::testing::Test {
         Context::get().transportManager->unregisterMock();
         delete transport;
         delete service;
-        delete Context::get().serverList;
-        Context::get().serverList = NULL;
+        delete serverList;
     }
 
     DISALLOW_COPY_AND_ASSIGN(MembershipServiceTest);
@@ -66,8 +68,8 @@ setServerListFilter(string s)
 TEST_F(MembershipServiceTest, setServerList_fromEmpty) {
     TestLog::Enable _(setServerListFilter);
 
-    EXPECT_EQ(0U, Context::get().serverList->size());
-    EXPECT_EQ(0U, Context::get().serverList->getVersion());
+    EXPECT_EQ(0U, serverList->size());
+    EXPECT_EQ(0U, serverList->getVersion());
 
     ProtoBuf::ServerList wholeList;
     ServerListBuilder{wholeList}
@@ -76,13 +78,11 @@ TEST_F(MembershipServiceTest, setServerList_fromEmpty) {
     wholeList.set_version_number(0);
     client->setServerList("mock:host=member", wholeList);
 
-    EXPECT_EQ(3U, Context::get().serverList->size());       // [0] is reserved
-    EXPECT_EQ(ServerId(1, 0), (*Context::get().serverList)[1]);
-    EXPECT_EQ(ServerId(2, 0), (*Context::get().serverList)[2]);
-    EXPECT_EQ("mock:host=one",
-        Context::get().serverList->getLocator(ServerId(1, 0)));
-    EXPECT_EQ("mock:host=two",
-        Context::get().serverList->getLocator(ServerId(2, 0)));
+    EXPECT_EQ(3U, serverList->size());       // [0] is reserved
+    EXPECT_EQ(ServerId(1, 0), (*serverList)[1]);
+    EXPECT_EQ(ServerId(2, 0), (*serverList)[2]);
+    EXPECT_EQ("mock:host=one", serverList->getLocator(ServerId(1, 0)));
+    EXPECT_EQ("mock:host=two", serverList->getLocator(ServerId(2, 0)));
     EXPECT_EQ("setServerList: Got complete list of servers containing 2 "
         "entries (version number 0) | setServerList:   Adding server "
         "id 1 (locator \"mock:host=one\") | setServerList:   Adding "
@@ -90,8 +90,8 @@ TEST_F(MembershipServiceTest, setServerList_fromEmpty) {
 }
 
 TEST_F(MembershipServiceTest, setServerList_overlap) {
-    EXPECT_EQ(0U, Context::get().serverList->size());
-    EXPECT_EQ(0U, Context::get().serverList->getVersion());
+    EXPECT_EQ(0U, serverList->size());
+    EXPECT_EQ(0U, serverList->getVersion());
 
     // Set the initial list.
     ProtoBuf::ServerList initialList;
@@ -114,16 +114,13 @@ TEST_F(MembershipServiceTest, setServerList_overlap) {
 
     // We should now have (1, 5), (2, 0), and (3, 0) in our list.
     // (1, 0) was removed.
-    EXPECT_EQ(4U, Context::get().serverList->size());       // [0] is reserved
-    EXPECT_EQ(ServerId(1, 5), (*Context::get().serverList)[1]);
-    EXPECT_EQ(ServerId(2, 0), (*Context::get().serverList)[2]);
-    EXPECT_EQ(ServerId(3, 0), (*Context::get().serverList)[3]);
-    EXPECT_EQ("mock:host=oneBeta",
-        Context::get().serverList->getLocator(ServerId(1, 5)));
-    EXPECT_EQ("mock:host=two",
-        Context::get().serverList->getLocator(ServerId(2, 0)));
-    EXPECT_EQ("mock:host=three",
-        Context::get().serverList->getLocator(ServerId(3, 0)));
+    EXPECT_EQ(4U, serverList->size());       // [0] is reserved
+    EXPECT_EQ(ServerId(1, 5), (*serverList)[1]);
+    EXPECT_EQ(ServerId(2, 0), (*serverList)[2]);
+    EXPECT_EQ(ServerId(3, 0), (*serverList)[3]);
+    EXPECT_EQ("mock:host=oneBeta", serverList->getLocator(ServerId(1, 5)));
+    EXPECT_EQ("mock:host=two", serverList->getLocator(ServerId(2, 0)));
+    EXPECT_EQ("mock:host=three", serverList->getLocator(ServerId(3, 0)));
     EXPECT_EQ("setServerList: Got complete list of servers containing 3 "
         "entries (version number 1) | setServerList:   Removing server "
         "id 1 (locator \"mock:host=one\") | setServerList:   Adding "
@@ -139,8 +136,8 @@ updateServerListFilter(string s)
 }
 
 TEST_F(MembershipServiceTest, updateServerList_normal) {
-    EXPECT_EQ(0U, Context::get().serverList->size());
-    EXPECT_EQ(0U, Context::get().serverList->getVersion());
+    EXPECT_EQ(0U, serverList->size());
+    EXPECT_EQ(0U, serverList->getVersion());
 
     // Set the initial list.
     ProtoBuf::ServerList initialList;
@@ -160,9 +157,8 @@ TEST_F(MembershipServiceTest, updateServerList_normal) {
     bool ret = client->updateServerList("mock:host=member", updateList);
     EXPECT_TRUE(ret);
 
-    EXPECT_FALSE(Context::get().serverList->contains(ServerId(1, 0)));
-    EXPECT_EQ("mock:host=two",
-        Context::get().serverList->getLocator(ServerId(2, 0)));
+    EXPECT_FALSE(serverList->contains(ServerId(1, 0)));
+    EXPECT_EQ("mock:host=two", serverList->getLocator(ServerId(2, 0)));
     EXPECT_EQ("updateServerList: Got server list update (version number 1) "
         "| updateServerList:   Removing server id 1 (locator "
         "\"mock:host=one\") | updateServerList:   Adding server id 2 "

@@ -90,7 +90,11 @@ PingClient::getMetrics(const char* serviceLocator)
  *      this value in its response.
  * \param timeoutNanoseconds
  *      The maximum amount of time to wait for a response (in nanoseconds).
- * \result
+ * \param[out] serverListVersion
+ *      If a ServerList was associated with the pinged server's PingService,
+ *      then its version will be returned here. Otherwise, the remote
+ *      PingService will return 0.
+ * \return
  *      The value returned by the server, which should be the same as \a nonce
  *      (this method does not verify that the value does in fact match).
  *
@@ -98,8 +102,10 @@ PingClient::getMetrics(const char* serviceLocator)
  *      The server did not respond within \a timeoutNanoseconds.
  */
 uint64_t
-PingClient::ping(const char* serviceLocator, uint64_t nonce,
-                 uint64_t timeoutNanoseconds)
+PingClient::ping(const char* serviceLocator,
+                 uint64_t nonce,
+                 uint64_t timeoutNanoseconds,
+                 uint64_t* serverListVersion)
 {
     // Fill in the request.
     Buffer req, resp;
@@ -126,6 +132,9 @@ PingClient::ping(const char* serviceLocator, uint64_t nonce,
 
     // Process the response.
     checkStatus(HERE);
+
+    if (serverListVersion != NULL)
+        *serverListVersion = respHdr.serverListVersion;
     return respHdr.nonce;
 }
 

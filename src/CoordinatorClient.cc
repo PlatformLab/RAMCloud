@@ -315,4 +315,23 @@ CoordinatorClient::setWill(uint64_t masterId, const ProtoBuf::Tablets& will)
     checkStatus(HERE);
 }
 
+/**
+ * Request that the coordinator send a complete server list to the
+ * given server.
+ *
+ * \param destination
+ *      ServerId of the server the coordinator should send the list
+ *      to.
+ */
+void
+CoordinatorClient::requestServerList(ServerId destination)
+{
+    Buffer req, resp;
+    RequestServerListRpc::Request& reqHdr(
+        allocHeader<RequestServerListRpc>(req));
+    reqHdr.serverId = *destination;
+    sendRecv<RequestServerListRpc>(session, req, resp);
+    checkStatus(HERE);
+}
+
 } // namespace RAMCloud

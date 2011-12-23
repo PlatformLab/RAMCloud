@@ -129,7 +129,27 @@ RamCloud::getServiceLocator()
     return &coordinatorLocator;
 }
 
-/// \copydoc PingClient::ping
+/**
+ * Ping a server at the given ServiceLocator string.
+ *
+ * \param serviceLocator
+ *      ServiceLocator string of the server to ping.
+ *
+ * \param nonce
+ *      64-bit nonce to include in the ping. Can be used to match
+ *      replies to requests.
+ *
+ * \param timeoutNanoseconds
+ *      Time to wait for a reply in nanoseconds. If the timeout
+ *      expires, a TimeoutException is thrown.
+ *
+ * \return
+ *      The nonce returned by the pinged server is returned.
+ *
+ * \throw TimeoutException
+ *      A TimeoutException is thrown if no reply is received
+ *      in #timeoutNanoseconds. 
+ */
 uint64_t
 RamCloud::ping(const char* serviceLocator, uint64_t nonce,
                uint64_t timeoutNanoseconds)

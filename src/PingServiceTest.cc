@@ -21,6 +21,7 @@
 #include "RawMetrics.h"
 #include "ServerMetrics.h"
 #include "TransportManager.h"
+#include "ServerList.h"
 
 // Note: this file tests both PingService.cc and PingClient.cc.
 
@@ -29,10 +30,15 @@ namespace RAMCloud {
 class PingServiceTest : public ::testing::Test {
   public:
     BindTransport transport;
+    ServerList serverList;
     PingService pingService;
     PingClient client;
 
-    PingServiceTest() : transport(), pingService(), client()
+    PingServiceTest()
+        : transport(),
+          serverList(),
+          pingService(&serverList),
+          client()
     {
         Context::get().transportManager->registerMock(&transport);
         transport.addService(pingService, "mock:host=ping", PING_SERVICE);
@@ -86,7 +92,7 @@ TEST_F(PingServiceTest, proxyPing_timeout2) {
 }
 TEST_F(PingServiceTest, proxyPing_pingReturnsBadValue) {
     MockTransport mockTransport;
-    mockTransport.setInput("0 0 55 0");
+    mockTransport.setInput("0 0 55 0 1 0");
     Context::get().transportManager->registerMock(&mockTransport, "mock2");
     transport.addService(pingService, "mock2:host=ping2", PING_SERVICE);
     EXPECT_EQ(0xffffffffffffffffU,

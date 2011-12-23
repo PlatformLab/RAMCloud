@@ -21,6 +21,7 @@
 #include "CoordinatorService.h"
 #include "PingService.h"
 #include "RamCloud.h"
+#include "ServerList.h"
 
 namespace RAMCloud {
 
@@ -38,16 +39,17 @@ TEST_F(ClusterMetricsTest, load) {
     CoordinatorService coordinatorService;
     transport.addService(coordinatorService,
             "mock:host=coordinator", COORDINATOR_SERVICE);
-    PingService pingforCoordinator;
+    ServerList serverList;
+    PingService pingforCoordinator(&serverList);
     transport.addService(pingforCoordinator, "mock:host=coordinator",
             PING_SERVICE);
     RamCloud ramcloud(Context::get(), "mock:host=coordinator");
 
     // Create two servers (faked with ping).
-    PingService ping1;
+    PingService ping1(&serverList);
     transport.addService(ping1, "mock:host=ping1", PING_SERVICE);
     ramcloud.coordinator.enlistServer(MASTER_SERVICE, "mock:host=ping1", 0, 0);
-    PingService ping2;
+    PingService ping2(&serverList);
     transport.addService(ping2, "mock:host=ping2", PING_SERVICE);
     ramcloud.coordinator.enlistServer(MASTER_SERVICE, "mock:host=ping2", 0, 0);
 

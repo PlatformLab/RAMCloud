@@ -95,6 +95,10 @@ CoordinatorService::dispatch(RpcOpcode opcode,
             callHandler<SetWillRpc, CoordinatorService,
                         &CoordinatorService::setWill>(rpc);
             break;
+        case RequestServerListRpc::opcode:
+            callHandler<RequestServerListRpc, CoordinatorService,
+                        &CoordinatorService::requestServerList>(rpc);
+            break;
         default:
             throw UnimplementedRequestError(HERE);
     }
@@ -570,6 +574,39 @@ CoordinatorService::setWill(ServerId masterId, Buffer& buffer,
 
     LOG(WARNING, "Master %lu could not be found!!", masterId.getId());
     return false;
+}
+
+/**
+ * Handle the REQUEST_SERVER_LIST RPC.
+ *
+ * The Coordinator always pushes server lists and their updates. If a server's
+ * FailureDetector determines that the list is out of date, it issues an RPC
+ * here to request that we re-send the list.
+ *
+ * \copydetails Service::ping
+ */
+void
+CoordinatorService::requestServerList(
+    const RequestServerListRpc::Request& reqHdr,
+    RequestServerListRpc::Response& respHdr,
+    Rpc& rpc)
+{
+    ServerId id(reqHdr.serverId);
+    rpc.sendReply();
+
+    if (!serverList.contains(id)) {
+        LOG(WARNING, "Could not send list to unknown server %lu", *id);
+        return;
+    }
+
+    if (!serverList[id].hasMembershipService) {
+        LOG(WARNING, "Could not send list to server without membership "
+            "service: %lu", *id);
+        return;
+    }
+
+    LOG(DEBUG, "Sending server list to server id %lu as requested", *id);
+    sendServerList(id);
 }
 
 /**

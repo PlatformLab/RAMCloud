@@ -200,13 +200,13 @@ main(int argc, char *argv[])
                 ->addService(*backupService, BACKUP_SERVICE);
         }
 
-        PingService pingService;
-        Context::get().serviceManager->addService(pingService, PING_SERVICE);
-
-        Context::get().serverList = new ServerList();
-        MembershipService membershipService;
+        ServerList serverList;
+        MembershipService membershipService(serverList);
         Context::get().serviceManager->addService(membershipService,
             MEMBERSHIP_SERVICE);
+
+        PingService pingService(&serverList);
+        Context::get().serviceManager->addService(pingService, PING_SERVICE);
 
         // Only pin down memory _after_ users of LargeBlockOfMemory have
         // obtained their allocations (since LBOM probes are much slower if
@@ -234,7 +234,9 @@ main(int argc, char *argv[])
             backupService->init(serverId);
         if (!disableFailureDetector) {
             failureDetector.construct(
-                optionParser.options.getCoordinatorLocator(), serverId);
+                optionParser.options.getCoordinatorLocator(),
+                serverId,
+                serverList);
             failureDetector->start();
         }
 

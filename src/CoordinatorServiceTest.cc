@@ -18,10 +18,12 @@
 #include "CoordinatorClient.h"
 #include "CoordinatorService.h"
 #include "MasterService.h"
+#include "MembershipService.h"
 #include "MockTransport.h"
 #include "TransportManager.h"
 #include "BindTransport.h"
 #include "Recovery.h"
+#include "ServerList.h"
 
 namespace RAMCloud {
 
@@ -348,6 +350,58 @@ TEST_F(CoordinatorServiceTest, setWill) {
 
     // bad master id should fail
     EXPECT_THROW(client->setWill(23481234, will), InternalError);
+}
+
+TEST_F(CoordinatorServiceTest, requestServerList) {
+    TestLog::Enable _;
+
+    client->requestServerList(ServerId(52, 0));
+    EXPECT_EQ(0U, TestLog::get().find(
+        "requestServerList: Could not send list to unknown server 52"));
+
+    TestLog::reset();
+    client->requestServerList(masterServerId);
+    EXPECT_EQ(0U, TestLog::get().find(
+        "requestServerList: Could not send list to server without "
+        "membership service: 1"));
+
+    ServerList serverList;
+    MembershipService member(serverList);
+    transport->addService(member, "mock:host=member", MEMBERSHIP_SERVICE);
+    ServerId id = client->enlistServer(
+        MEMBERSHIP_SERVICE, "mock:host=member", 0, 0);
+    TestLog::reset();
+    client->requestServerList(id);
+    EXPECT_EQ(0U, TestLog::get().find(
+        "requestServerList: Sending server list to server id"));
+    EXPECT_NE(string::npos, TestLog::get().find(
+        "setServerList: Got complete list of servers"));
+}
+
+TEST_F(CoordinatorServiceTest, sendServerList) {
+    ServerList serverList;
+    MembershipService member(serverList);
+    transport->addService(member, "mock:host=member", MEMBERSHIP_SERVICE);
+    ServerId id = client->enlistServer(
+        MEMBERSHIP_SERVICE, "mock:host=member", 0, 0);
+    TestLog::Enable _();
+    service->sendServerList(id);
+    EXPECT_NE(string::npos, TestLog::get().find(
+        "setServerList: Got complete list of servers containing 1 "
+        "entries (version number 2)"));
+}
+
+TEST_F(CoordinatorServiceTest, sendMembershipUpdate) {
+    ServerList serverList;
+    MembershipService member(serverList);
+    transport->addService(member, "mock:host=member", MEMBERSHIP_SERVICE);
+    ServerId id = client->enlistServer(
+        MEMBERSHIP_SERVICE, "mock:host=member", 0, 0);
+    ProtoBuf::ServerList update;
+    update.set_version_number(3);
+    service->sendMembershipUpdate(update, ServerId(/* invalid id */));
+    EXPECT_NE(string::npos, TestLog::get().find(
+        "updateServerList: Got server list update (version number 3)"));
 }
 
 }  // namespace RAMCloud

@@ -37,7 +37,8 @@ namespace RAMCloud {
 class FailureDetector {
   public:
     FailureDetector(const string &coordinatorLocatorString,
-                    ServerId ourServerId);
+                    ServerId ourServerId,
+                    ServerList& serverList);
     ~FailureDetector();
     void start();
     void halt();
@@ -55,6 +56,16 @@ class FailureDetector {
      * an asynchronous model.
      */
     static const int TIMEOUT_USECS = 50 * 1000;
+
+    /**
+     * Number of microseconds to wait before our ServerList is considered stale.
+     * If we see a newer ServerList version (returned in a ping response), then
+     * we will request that the coordinator re-send the list if ours does not
+     * update within this timeout period. This ensures that our list does not
+     * stay out of date if we happen to miss an update (and no further updates
+     * are issued for a while).
+     */    
+    static const int STALE_SERVER_LIST_USECS = 500 * 1000;
 
     static_assert(TIMEOUT_USECS <= PROBE_INTERVAL_USECS,
                   "Timeout us should be less than probe interval.");
@@ -84,9 +95,27 @@ class FailureDetector {
      */
     bool                 haveLoggedNoServers;
 
+    /// ServerList whose consistency we will check against random nodes that
+    /// we ping.
+    ServerList&          serverList;
+
+    /// If true, we suspect that our ServerList is out of date and are waiting
+    /// for STALE_SERVER_LIST_USECS to expire to request a new list.
+    bool                 staleServerListSuspected;
+
+    /// If staleServerListSuspected is true, this is the version of the list
+    /// at the time we began suspecting that it was stale.
+    uint64_t             staleServerListVersion;
+
+    /// If staleServerListSuspected is true, this is the CPU timestamp counter
+    /// at the point when we began suspecting the list was stale.
+    uint64_t             staleServerListTimestamp;
+
     static void detectorThreadEntry(FailureDetector* detector, Context* ctx);
     void pingRandomServer();
     void alertCoordinator(ServerId serverId, string locator);
+    void checkServerListVersion(uint64_t observedVersion);
+    void checkForStaleServerList();
 
     DISALLOW_COPY_AND_ASSIGN(FailureDetector);
 };

@@ -17,6 +17,7 @@
 #define RAMCLOUD_PINGSERVICE_H
 
 #include "Service.h"
+#include "ServerList.h"
 
 namespace RAMCloud {
 
@@ -27,7 +28,8 @@ namespace RAMCloud {
  */
 class PingService : public Service {
   public:
-    PingService() {}
+    PingService();
+    explicit PingService(ServerList* serverList);
     void dispatch(RpcOpcode opcode, Rpc& rpc);
     virtual int maxThreads() {
         return 5;
@@ -46,6 +48,12 @@ class PingService : public Service {
     void kill(const KillRpc::Request& reqHdr,
                KillRpc::Response& respHdr,
                Rpc& rpc);
+
+    /// ServerList whose version will be returned on ping requests. This
+    /// should refer to the server's global ServerList, which is being
+    /// kept up-to-date by the MembershipService.
+    ServerList* serverList;
+
     DISALLOW_COPY_AND_ASSIGN(PingService);
 };
 
