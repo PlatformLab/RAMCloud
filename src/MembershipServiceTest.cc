@@ -17,6 +17,7 @@
 #include "BindTransport.h"
 #include "MembershipClient.h"
 #include "MembershipService.h"
+#include "ServerId.h"
 #include "ServerList.h"
 #include "ServerList.pb.h"
 #include "ServerListBuilder.h"
@@ -27,13 +28,15 @@ namespace RAMCloud {
 
 class MembershipServiceTest : public ::testing::Test {
   public:
+    ServerId serverId;
     ServerList* serverList;
     MembershipService* service;
     BindTransport* transport;
     MembershipClient* client;
 
     MembershipServiceTest()
-        : serverList(NULL)
+        : serverId()
+        , serverList(NULL)
         , service(NULL)
         , transport(NULL)
         , client(NULL)
@@ -43,7 +46,7 @@ class MembershipServiceTest : public ::testing::Test {
         transport = new BindTransport();
         Context::get().transportManager->registerMock(transport);
 
-        service = new MembershipService(*serverList);
+        service = new MembershipService(serverId, *serverList);
         transport->addService(*service, "mock:host=member", MEMBERSHIP_SERVICE);
         client = new MembershipClient();
     }
@@ -58,6 +61,12 @@ class MembershipServiceTest : public ::testing::Test {
 
     DISALLOW_COPY_AND_ASSIGN(MembershipServiceTest);
 };
+
+TEST_F(MembershipServiceTest, getServerId) {
+    serverId = ServerId(523, 234);
+    EXPECT_EQ(ServerId(523, 234), client->getServerId(
+        Context::get().transportManager->getSession("mock:host=member")));
+}
 
 static bool
 setServerListFilter(string s)

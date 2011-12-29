@@ -23,6 +23,8 @@
 #include "Common.h"
 #include "MockTransport.h"
 #include "MockTransportFactory.h"
+#include "ServerId.h"
+#include "ServerList.h"
 #include "SpinLock.h"
 #include "Transport.h"
 
@@ -49,6 +51,8 @@ class TransportManager {
     ~TransportManager();
     void initialize(const char* serviceLocator);
     Transport::SessionRef getSession(const char* serviceLocator);
+    Transport::SessionRef getSession(const char* serviceLocator,
+                                     ServerId serverId);
     string getListeningLocatorsString();
     void registerMemory(void* base, size_t bytes);
     void dumpStats();

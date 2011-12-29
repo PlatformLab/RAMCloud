@@ -15,9 +15,12 @@
  */
 
 #include "TestUtil.h"
-#include "TransportManager.h"
+#include "BindTransport.h"
+#include "MembershipService.h"
 #include "MockTransportFactory.h"
 #include "MockTransport.h"
+#include "ServerList.h"
+#include "TransportManager.h"
 
 namespace RAMCloud {
 
@@ -176,6 +179,27 @@ TEST_F(TransportManagerTest, getSession_transportgetSessionFailure) {
             "Failed to open session thrown at .*)",
             e.message));
     }
+}
+
+TEST_F(TransportManagerTest, getSession_matchServerId) {
+    TestLog::Enable _;
+
+    ServerId id(1, 53);
+    ServerList list;
+    BindTransport transport;
+    Context::get().transportManager->registerMock(&transport);
+    MembershipService membership(id, list);
+    transport.addService(membership, "mock:host=member", MEMBERSHIP_SERVICE);
+
+    EXPECT_NO_THROW(Context::get().transportManager->getSession(
+        "mock:host=member", id));
+    EXPECT_THROW(Context::get().transportManager->getSession("mock:host=member",
+        ServerId(1, 52)), TransportException);
+    EXPECT_NE(string::npos, TestLog::get().find("getSession: Expected ServerId "
+        "223338299393 at \"mock:host=member\", but actual server id was "
+        "227633266689!"));
+
+    Context::get().transportManager->unregisterMock();
 }
 
 // No tests for getListeningLocatorsString: it's trivial.

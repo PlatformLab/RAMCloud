@@ -15,6 +15,7 @@
 
 #include "TestUtil.h"
 #include "TestLog.h"
+#include "ServerList.h"
 #include "ServerTracker.h"
 
 namespace RAMCloud {
@@ -30,11 +31,13 @@ callback()
 class ServerTrackerTest : public ::testing::Test {
   public:
     ServerTrackerTest()
-        : tr(),
-          trcb(callback)
+        : sl(),
+          tr(sl),
+          trcb(sl, callback)
     {
     }
 
+    ServerList sl;
     ServerTracker<int> tr;
     ServerTracker<int> trcb;
 

@@ -49,7 +49,7 @@ FailureDetector::FailureDetector(const string &coordinatorLocatorString,
                                  const ServerId ourServerId,
                                  ServerList& serverList)
     : ourServerId(ourServerId),
-      serverTracker(),
+      serverTracker(serverList),
       thread(),
       pingClient(),
       coordinatorClient(coordinatorLocatorString.c_str()),
@@ -59,13 +59,11 @@ FailureDetector::FailureDetector(const string &coordinatorLocatorString,
       staleServerListVersion(0),
       staleServerListTimestamp(0)
 {
-    serverList.registerTracker(serverTracker);
 }
 
 FailureDetector::~FailureDetector()
 {
     halt();
-    serverList.unregisterTracker(serverTracker);
 }
 
 /**

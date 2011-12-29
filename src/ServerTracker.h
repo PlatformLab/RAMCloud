@@ -26,11 +26,14 @@
 
 #include "Common.h"
 #include "ServerId.h"
+#include "ServerList.h"
 #include "ShortMacros.h"
 #include "SpinLock.h"
 #include "Tub.h"
 
 namespace RAMCloud {
+
+class ServerList;
 
 /*
  * Possible issues:
@@ -97,9 +100,14 @@ class ServerTracker : public ServerTrackerInterface {
   PUBLIC:
     /**
      * Constructor for ServerTracker.
+     * 
+     * \param parent
+     *      The ServerList to obtain updates from. This is typically a
+     *      single, process-global list used by all trackers.
      */
-    explicit ServerTracker()
+    explicit ServerTracker(ServerList& parent)
         : ServerTrackerInterface(),
+          parent(parent),
           serverList(),
           changes(),
           lastRemovedIndex(-1),
@@ -107,10 +115,15 @@ class ServerTracker : public ServerTrackerInterface {
           numberOfServers(0),
           testing_avoidGetChangeAssertion(false)
     {
+        parent.registerTracker(*this);
     }
 
     /**
      * Constructor for ServerTracker.
+     *
+     * \param parent
+     *      The ServerList to obtain updates from. This is typically a
+     *      single, process-global list used by all trackers.
      *
      * \param eventCallback
      *      A callback functor to be invoked whenever there is an
@@ -120,8 +133,9 @@ class ServerTracker : public ServerTrackerInterface {
      *      hold up delivery of the same or future events to other
      *      ServerTrackers.
      */ 
-    explicit ServerTracker(EventCallback eventCallback)
+    explicit ServerTracker(ServerList& parent, EventCallback eventCallback)
         : ServerTrackerInterface(),
+          parent(parent),
           serverList(),
           changes(),
           lastRemovedIndex(-1),
@@ -129,6 +143,7 @@ class ServerTracker : public ServerTrackerInterface {
           numberOfServers(0),
           testing_avoidGetChangeAssertion(false)
     {
+        parent.registerTracker(*this);
     }
 
     /**
@@ -136,6 +151,7 @@ class ServerTracker : public ServerTrackerInterface {
      */ 
     ~ServerTracker()
     {
+        parent.unregisterTracker(*this);
     }
 
     /**
@@ -423,6 +439,9 @@ class ServerTracker : public ServerTrackerInterface {
         /// Pointer type T associated with this ServerId in the serverList.
         T* pointer;
     };
+
+    /// The parent ServerList from which this tracker gets all updates.
+    ServerList& parent;
 
     /// Slots in the server list.
     std::vector<ServerIdTypePtrPair> serverList;

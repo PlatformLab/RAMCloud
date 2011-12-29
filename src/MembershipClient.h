@@ -22,6 +22,7 @@
 #define RAMCLOUD_MEMBERSHIPCLIENT_H
 
 #include "Client.h"
+#include "ServerId.h"
 #include "ServerList.pb.h"
 #include "Transport.h"
 
@@ -33,6 +34,7 @@ namespace RAMCloud {
 class MembershipClient : public Client {
   public:
     MembershipClient() {}
+    ServerId getServerId(Transport::SessionRef session);
     void setServerList(const char* serviceLocator,
                        ProtoBuf::ServerList& list);
     bool updateServerList(const char* serviceLocator,

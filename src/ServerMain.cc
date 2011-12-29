@@ -200,8 +200,9 @@ main(int argc, char *argv[])
                 ->addService(*backupService, BACKUP_SERVICE);
         }
 
+        ServerId serverId;
         ServerList serverList;
-        MembershipService membershipService(serverList);
+        MembershipService membershipService(serverId, serverList);
         Context::get().serviceManager->addService(membershipService,
             MEMBERSHIP_SERVICE);
 
@@ -224,7 +225,7 @@ main(int argc, char *argv[])
         // to RPC dispatch. This reduces the window of being unavailable to
         // service RPCs after enlisting with the coordinator (which can
         // lead to session open timeouts).
-        ServerId serverId = coordinator.enlistServer(services,
+        serverId = coordinator.enlistServer(services,
             Context::get().transportManager->getListeningLocatorsString(),
             backupReadSpeed, backupWriteSpeed);
 

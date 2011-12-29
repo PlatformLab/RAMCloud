@@ -42,8 +42,10 @@ namespace RAMCloud {
  * Construct a new MembershipService object. There should really only be one
  * per server.
  */
-MembershipService::MembershipService(ServerList& serverList)
-    : serverList(serverList)
+MembershipService::MembershipService(ServerId& ourServerId,
+                                     ServerList& serverList)
+    : serverId(ourServerId),
+      serverList(serverList)
 {
     // The coordinator will push the server list to us once we've
     // enlisted.
@@ -56,6 +58,10 @@ void
 MembershipService::dispatch(RpcOpcode opcode, Rpc& rpc)
 {
     switch (opcode) {
+    case GetServerIdRpc::opcode:
+        callHandler<GetServerIdRpc, MembershipService,
+            &MembershipService::getServerId>(rpc);
+        break;
     case SetServerListRpc::opcode:
         callHandler<SetServerListRpc, MembershipService,
             &MembershipService::setServerList>(rpc);
@@ -67,6 +73,23 @@ MembershipService::dispatch(RpcOpcode opcode, Rpc& rpc)
     default:
         throw UnimplementedRequestError(HERE);
     }
+}
+
+/**
+ * Top-level service method to handle the REPLACE_SERVER_LIST request.
+ *
+ * \copydetails Service::ping
+ */
+void
+MembershipService::getServerId(const GetServerIdRpc::Request& reqHdr,
+                              GetServerIdRpc::Response& respHdr,
+                              Rpc& rpc)
+{
+    // The serverId should be set by enlisting before any RPCs are dispatched
+    // to this handler.
+    assert(serverId.isValid());
+
+    respHdr.serverId = *serverId;
 }
 
 /**

@@ -44,19 +44,25 @@ namespace RAMCloud {
  */
 class MembershipService : public Service {
   public:
-    explicit MembershipService(ServerList& serverList);
+    explicit MembershipService(ServerId& ourServerId, ServerList& serverList);
     void dispatch(RpcOpcode opcode, Rpc& rpc);
     virtual int maxThreads() {
         return 1;
     }
 
   PRIVATE:
+    void getServerId(const GetServerIdRpc::Request& reqHdr,
+                     GetServerIdRpc::Response& respHdr,
+                     Rpc& rpc);
     void setServerList(const SetServerListRpc::Request& reqHdr,
                        SetServerListRpc::Response& respHdr,
                        Rpc& rpc);
     void updateServerList(const UpdateServerListRpc::Request& reqHdr,
                           UpdateServerListRpc::Response& respHdr,
                           Rpc& rpc);
+
+    /// ServerId of this server.
+    ServerId& serverId;
 
     /// ServerList to update in response to Coordinator's RPCs.
     ServerList& serverList;

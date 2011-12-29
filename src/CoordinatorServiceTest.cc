@@ -365,8 +365,9 @@ TEST_F(CoordinatorServiceTest, requestServerList) {
         "requestServerList: Could not send list to server without "
         "membership service: 1"));
 
+    ServerId serverId;
     ServerList serverList;
-    MembershipService member(serverList);
+    MembershipService member(serverId, serverList);
     transport->addService(member, "mock:host=member", MEMBERSHIP_SERVICE);
     ServerId id = client->enlistServer(
         MEMBERSHIP_SERVICE, "mock:host=member", 0, 0);
@@ -379,8 +380,9 @@ TEST_F(CoordinatorServiceTest, requestServerList) {
 }
 
 TEST_F(CoordinatorServiceTest, sendServerList) {
+    ServerId serverId;
     ServerList serverList;
-    MembershipService member(serverList);
+    MembershipService member(serverId, serverList);
     transport->addService(member, "mock:host=member", MEMBERSHIP_SERVICE);
     ServerId id = client->enlistServer(
         MEMBERSHIP_SERVICE, "mock:host=member", 0, 0);
@@ -392,8 +394,9 @@ TEST_F(CoordinatorServiceTest, sendServerList) {
 }
 
 TEST_F(CoordinatorServiceTest, sendMembershipUpdate) {
+    ServerId serverId;
     ServerList serverList;
-    MembershipService member(serverList);
+    MembershipService member(serverId, serverList);
     transport->addService(member, "mock:host=member", MEMBERSHIP_SERVICE);
     ServerId id = client->enlistServer(
         MEMBERSHIP_SERVICE, "mock:host=member", 0, 0);

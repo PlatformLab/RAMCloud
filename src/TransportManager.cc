@@ -15,6 +15,7 @@
  */
 
 #include "CycleCounter.h"
+#include "MembershipClient.h"
 #include "ShortMacros.h"
 #include "RawMetrics.h"
 #include "TransportManager.h"
@@ -314,6 +315,58 @@ TransportManager::getSession(const char* serviceLocator)
     }
 
     throw TransportException(HERE, errorMsg);
+}
+
+/**
+ * Open a session based on a ServiceLocator string, but ensure that the
+ * remote end is the expected ServerId. This will guarantee that the
+ * session returned is to the precise server requested. Using locator
+ * strings does not guarantee this, as they may be reused across different
+ * process instantiations.
+ *
+ * \param serviceLocator
+ *      Desired service.
+ *
+ * \param needServerId
+ *      The ServerId expected for the server being connected to. If the
+ *      given id does not match the other end an exception is thrown.
+ *
+ * \throw NoSuchKeyException
+ *      A transport supporting one of the protocols claims a service locator
+ *      option is missing.
+ *
+ * \throw BadValueException
+ *      A transport supporting one of the protocols claims a service locator
+ *      option is malformed.
+ *
+ * \throw TransportException
+ *      No transport was found for this service locator, or the remote server's
+ *      ServerId either could not be obtained or did not match the one provided.
+ */
+Transport::SessionRef
+TransportManager::getSession(const char* serviceLocator, ServerId needServerId)
+{
+    Transport::SessionRef session = getSession(serviceLocator);
+    ServerId actualId;
+
+    try {
+        actualId = MembershipClient().getServerId(session);
+    } catch (...) {
+        throw TransportException(HERE,
+            format("Failed to obtain ServerId from \"%s\"", serviceLocator));
+    }
+
+    if (actualId != needServerId) {
+        // Looks like a locator was reused before this ServerId was
+        // removed. This is possible, but should be very rare.
+        string errorStr = format("Expected ServerId %lu at \"%s\", but actual "
+            "server id was %lu!",
+            *needServerId, serviceLocator, *actualId);
+        LOG(WARNING, "%s", errorStr.c_str());
+        throw TransportException(HERE, errorStr);
+    }
+
+    return session;
 }
 
 /**

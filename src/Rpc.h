@@ -88,7 +88,8 @@ enum RpcOpcode {
     SET_SERVER_LIST         = 37,
     UPDATE_SERVER_LIST      = 38,
     REQUEST_SERVER_LIST     = 39,
-    ILLEGAL_RPC_TYPE        = 40,  // 1 + the highest legitimate RpcOpcode
+    GET_SERVER_ID           = 40,
+    ILLEGAL_RPC_TYPE        = 41,  // 1 + the highest legitimate RpcOpcode
 };
 
 /**
@@ -660,6 +661,18 @@ struct UpdateServerListRpc {
                                    // one or more previous updates and
                                    // would like the entire list to be
                                    // sent again.
+    };
+};
+
+struct GetServerIdRpc {
+    static const RpcOpcode opcode = GET_SERVER_ID;
+    static const ServiceTypeMask service = MEMBERSHIP_SERVICE;
+    struct Request {
+        RpcRequestCommon common;
+    };
+    struct Response {
+        RpcResponseCommon common;
+        uint64_t serverId;            // ServerId of the server.
     };
 };
 

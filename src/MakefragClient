@@ -37,6 +37,7 @@ CLIENT_SRCFILES := \
 		   src/RamCloud.cc \
 		   src/RawMetrics.cc \
 		   src/Rpc.cc \
+		   src/ServerList.cc \
 		   src/ServerMetrics.cc \
 		   src/ServerRpcPool.cc \
 		   src/Service.cc \

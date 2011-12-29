@@ -22,12 +22,15 @@
 #define RAMCLOUD_SERVERLIST_H
 
 #include "ServerId.h"
-#include "ServerTracker.h"
 #include "ServiceLocator.h"
 #include "SpinLock.h"
+#include "Transport.h"
 #include "Tub.h"
 
 namespace RAMCloud {
+
+/// Forward decl.
+class ServerTrackerInterface;
 
 /**
  * Exception type thrown by the ServerList class.
@@ -60,7 +63,8 @@ class ServerList {
     ~ServerList();
     void add(ServerId id, ServiceLocator locator);
     void remove(ServerId id);
-    string getLocator(ServerId);
+    string getLocator(ServerId id);
+    Transport::SessionRef getSession(ServerId id);
     uint32_t size();
     ServerId operator[](uint32_t indexNumber);
     bool contains(ServerId serverId);

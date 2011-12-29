@@ -27,6 +27,22 @@
 namespace RAMCloud {
 
 /**
+ * Obtain the ServerId associated with the server connected to by the given
+ * Session.
+ */ 
+ServerId
+MembershipClient::getServerId(Transport::SessionRef session)
+{
+    // Fill in the request.
+    Buffer req, resp;
+    allocHeader<GetServerIdRpc>(req);
+    const GetServerIdRpc::Response& respHdr(
+        sendRecv<GetServerIdRpc>(session, req, resp));
+    checkStatus(HERE);
+    return ServerId(respHdr.serverId);
+}
+
+/**
  * Instruct the cluster membership service for the specified server to replace
  * its idea of cluster membership with the complete list given.
  *

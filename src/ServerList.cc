@@ -22,7 +22,9 @@
 
 #include "Common.h"
 #include "ServerList.h"
+#include "ServerTracker.h"
 #include "ShortMacros.h"
+#include "TransportManager.h"
 
 namespace RAMCloud {
 
@@ -198,6 +200,22 @@ ServerList::getLocator(ServerId id)
     }
 
     return serverList[index]->serviceLocator.getOriginalString();
+}
+
+/**
+ * Open a session to the given ServerId. This method simply calls through to
+ * TransportManager::getSession. See the documentation there for exceptions
+ * that may be thrown.
+ *
+ * \throw ServerListException
+ *      A ServerListException is thrown if the given ServerId is not in this
+ *      list.
+ */
+Transport::SessionRef
+ServerList::getSession(ServerId id)
+{
+    return Context::get().transportManager->getSession(
+        getLocator(id).c_str(), id);
 }
 
 /**

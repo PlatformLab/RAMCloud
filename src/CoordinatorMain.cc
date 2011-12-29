@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010,2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -18,6 +18,7 @@
 #include "ShortMacros.h"
 #include "OptionParser.h"
 #include "PingService.h"
+#include "ServerId.h"
 #include "ServiceManager.h"
 #include "TransportManager.h"
 
