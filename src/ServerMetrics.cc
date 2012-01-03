@@ -39,10 +39,25 @@ ServerMetrics::ServerMetrics() : metrics()
 void
 ServerMetrics::load(Buffer& buffer)
 {
-    ProtoBuf::MetricList list;
     uint32_t bufferLength = buffer.getTotalLength();
     string s(static_cast<const char*>(buffer.getRange(0, bufferLength)),
                 bufferLength);
+    load(s);
+}
+
+/**
+ * Incorporate a server's metrics data into this object.  Existing
+ * entries are not deleted, but may be overridden by new data.
+ *
+ * \param s
+ *      Contains metrics data formatted as a binary string using Protocol
+ *      Buffers in the form of a MetricList, such as the result of a
+ *      GET_METRICS RPC.
+ */
+void
+ServerMetrics::load(const string& s)
+{
+    ProtoBuf::MetricList list;
     if (!list.ParseFromString(s)) {
         throw FormatError(HERE);
     }

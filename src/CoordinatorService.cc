@@ -364,7 +364,7 @@ CoordinatorService::hintServerDown(const HintServerDownRpc::Request& reqHdr,
         return;
     }
 
-    LOG(NOTICE, "Server failure detected: id %lu (\"%s\")",
+    LOG(NOTICE, "Verified host failure, removing from cluster: id %lu (\"%s\")",
         *serverId, serviceLocator.c_str());
 
     /*

@@ -36,6 +36,7 @@ class ServerMetrics {
     ServerMetrics();
     ~ServerMetrics();
     void load(Buffer& buffer);
+    void load(const string& s);
     ServerMetrics difference(ServerMetrics& other);
 
     // The following methods all delegate directly to the corresponding

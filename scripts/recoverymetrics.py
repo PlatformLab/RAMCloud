@@ -375,9 +375,13 @@ def parseRecovery(recovery_dir):
         
     data.client = AttrDict()
     for line in open(glob('%s/client*.*.log' % recovery_dir)[0]):
-        m = re.search(r'\bRecovery completed in (\d+) ns\b', line)
+        m = re.search(
+            r'\bRecovery completed in (\d+) ns, failure detected in (\d+) ns\b',
+            line)
         if m:
-            data.client.recoveryNs = int(m.group(1))
+            failureDetectionNs = int(m.group(2))
+            data.client.recoveryNs = int(m.group(1)) - failureDetectionNs
+            data.client.failureDetectionNs = failureDetectionNs
     return data
 
 def rawSample(data):
@@ -408,6 +412,7 @@ def makeReport(data):
     servers = data.servers
 
     recoveryTime = data.client.recoveryNs / 1e9
+    failureDetectionTime = data.client.failureDetectionNs / 1e9
     report = Report()
 
     # TODO(ongaro): Size distributions of filtered segments
@@ -436,6 +441,9 @@ def makeReport(data):
 
     summary = report.add(Section('Summary'))
     summary.line('Recovery time', recoveryTime, 's')
+    summary.line('Failure detection time', failureDetectionTime, 's')
+    summary.line('Recovery + detection time',
+                 recoveryTime + failureDetectionTime, 's')
     summary.line('Masters', len(masters))
     summary.line('Backups', len(backups))
     summary.line('Total nodes', data.totalNodes)
