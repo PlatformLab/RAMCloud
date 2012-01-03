@@ -30,9 +30,15 @@
 namespace RAMCloud {
 
 /**
- * This class instantiates and manages the failure detector. Once you contruct a
- * FailureDetector you may use start() and halt() to start and stop the
- * FailureDetector thread.
+ * This class instantiates and manages the failure detector. Each RAMCloud
+ * server should have an instantiation of this class that randomly pings
+ * other servers in the cluster. If any pings time out, the coordinator
+ * is warned of a possible failure via the HintServerDown RPC. It is then
+ * up to the coordinator to make a diagnosis. This class simply reports
+ * possible symptoms that it sees.
+ *
+ * Once you contruct a FailureDetector you may use start() and halt() to
+ * start and stop the FailureDetector thread.
  */
 class FailureDetector {
   public:
@@ -63,7 +69,7 @@ class FailureDetector {
      * we will request that the coordinator re-send the list if ours does not
      * update within this timeout period. This ensures that our list does not
      * stay out of date if we happen to miss an update (and no further updates
-     * are issued for a while).
+     * are issued in the meantime that would have otherwise alerted us).
      */    
     static const int STALE_SERVER_LIST_USECS = 500 * 1000;
 
