@@ -15,6 +15,7 @@
 
 #include <stdarg.h>
 #include <time.h>
+#include <execinfo.h>
 
 #include <boost/lexical_cast.hpp>
 
@@ -269,6 +270,39 @@ Logger::changeLogLevels(int delta)
         LogModule module = static_cast<LogModule>(i);
         changeLogLevel(module, delta);
     }
+}
+
+/**
+ * Log a backtrace for the system administrator.
+ * This version doesn't provide C++ name demangling so it can be helpful
+ * to run the output of the backtrace through c++filt.
+ * \param[in] module
+ *      The module to which the message pertains.
+ * \param[in] level
+ *      See #LOG.
+ * \param[in] where
+ *      The result of #HERE.
+ */
+void
+Logger::logBacktrace(LogModule module, LogLevel level,
+                     const CodeLocation& where)
+{
+    const int maxFrames = 128;
+    void* retAddrs[maxFrames];
+    int frames = backtrace(retAddrs, maxFrames);
+    char** symbols = backtrace_symbols(retAddrs, frames);
+    if (symbols == NULL) {
+        // If the malloc failed we might be able to get the backtrace out
+        // to stderr still.
+        backtrace_symbols_fd(retAddrs, frames, 2);
+        return;
+    }
+
+    logMessage(module, level, where, "Backtrace:\n");
+    for (int i = 0; i < frames; ++i)
+        logMessage(module, level, where, "%s\n", symbols[i]);
+
+    free(symbols);
 }
 
 /**

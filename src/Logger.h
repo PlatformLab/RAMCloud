@@ -89,6 +89,8 @@ class Logger {
         std::copy(newLogLevels, newLogLevels + NUM_LOG_MODULES, logLevels);
     }
 
+    void logBacktrace(LogModule module, LogLevel level,
+                      const CodeLocation& where);
     void logMessage(LogModule module, LogLevel level,
                     const CodeLocation& where,
                     const char* format, ...)
@@ -130,6 +132,22 @@ extern Logger fallbackLogger;
 #define RAMCLOUD_CURRENT_LOG_MODULE RAMCloud::DEFAULT_LOG_MODULE
 
 /**
+ * Log a backtrace for the system administrator.
+ * The #RAMCLOUD_CURRENT_LOG_MODULE macro should be set to the LogModule to
+ * which the message pertains.
+ * \param[in] level
+ *      The level of importance of the message (LogLevel).
+ */
+#define RAMCLOUD_BACKTRACE(level) do { \
+    RAMCloud::Logger& _logger = RAMCloud::Context::isSet() \
+            ? *RAMCloud::Context::get().logger \
+            : RAMCloud::fallbackLogger; \
+    if (_logger.isLogging(RAMCLOUD_CURRENT_LOG_MODULE, level)) { \
+        _logger.logBacktrace(RAMCLOUD_CURRENT_LOG_MODULE, level, HERE); \
+    } \
+} while (0)
+
+/**
  * Log a message for the system administrator.
  * The #RAMCLOUD_CURRENT_LOG_MODULE macro should be set to the LogModule to
  * which the message pertains.
@@ -153,7 +171,7 @@ extern Logger fallbackLogger;
 } while (0)
 
 /**
- * Log an ERROR message and throw a #RAMCloud::FatalError.
+ * Log an ERROR message, dump a backtrace, and throw a #RAMCloud::FatalError.
  * The #RAMCLOUD_CURRENT_LOG_MODULE macro should be set to the LogModule to
  * which the message pertains.
  * \param[in] format_
@@ -165,6 +183,7 @@ extern Logger fallbackLogger;
  */
 #define RAMCLOUD_DIE(format_, ...) do { \
     RAMCLOUD_LOG(RAMCloud::ERROR, format_, ##__VA_ARGS__); \
+    RAMCLOUD_BACKTRACE(RAMCloud::ERROR); \
     throw RAMCloud::FatalError(HERE, \
                                RAMCloud::format(format_, ##__VA_ARGS__)); \
 } while (0)
