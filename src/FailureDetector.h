@@ -93,14 +93,6 @@ class FailureDetector {
     /// CoordinatorClient instance
     CoordinatorClient    coordinatorClient;
 
-    /**
-     * This variable is used to prevent excessive logging when we detect that
-     * there are no other servers on the list. We only allow ourselves to log
-     * once when we detect this condition, and we reset the variable once we see
-     * other servers on the list.
-     */
-    bool                 haveLoggedNoServers;
-
     /// ServerList whose consistency we will check against random nodes that
     /// we ping.
     ServerList&          serverList;

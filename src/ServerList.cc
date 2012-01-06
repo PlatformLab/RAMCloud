@@ -47,17 +47,18 @@ ServerList::~ServerList()
 }
 
 /**
- * Add a new server to the ServerList and associate its ServerId with the
- * ServiceLocator used to address it.
+ * Add a new server to the ServerList with its ServerId, service locator,
+ * and a mask of which service types it provides.
  *
  * \param id
  *      The ServerId of the server to add.
- *
  * \param locator
- *      The ServiceLocator of the server to add.
+ *      The service locator of the server to add.
+ * \param services
+ *      Which services this server provides.
  */
 void
-ServerList::add(ServerId id, ServiceLocator locator)
+ServerList::add(ServerId id, string locator, ServiceTypeMask services)
 {
     boost::lock_guard<SpinLock> lock(mutex);
 
@@ -101,15 +102,18 @@ ServerList::add(ServerId id, ServiceLocator locator)
         LOG(WARNING, "Addition of %lu seen before removal of %lu! Issuing "
             "removal before addition.", id.getId(), oldId.getId());
         foreach (ServerTrackerInterface* tracker, trackers)
-            tracker->enqueueChange(oldId, ServerChangeEvent::SERVER_REMOVED);
+            tracker->enqueueChange(ServerDetails(oldId),
+                                   ServerChangeEvent::SERVER_REMOVED);
 
         serverList[index].destroy();
     }
 
-    serverList[index].construct(id, locator);
+
+    auto& server = serverList[index];
+    server.construct(id, locator, services);
 
     foreach (ServerTrackerInterface* tracker, trackers)
-        tracker->enqueueChange(id, ServerChangeEvent::SERVER_ADDED);
+        tracker->enqueueChange(*server, ServerChangeEvent::SERVER_ADDED);
 }
 
 /**
@@ -158,7 +162,7 @@ ServerList::remove(ServerId id)
     // Be sure to use the stored id, not the advertised one, just in case we're
     // removing an older entry (see previous comment above).
     foreach (ServerTrackerInterface* tracker, trackers) {
-        tracker->enqueueChange(serverList[index]->serverId,
+        tracker->enqueueChange(ServerDetails(serverList[index]->serverId),
             ServerChangeEvent::SERVER_REMOVED);
     }
 
@@ -180,12 +184,6 @@ ServerList::remove(ServerId id)
  *      that has since left the system. It may be possible in the
  *      future for other RPCs to refer to ServerIds that this machine
  *      does not yet know of.
- *
- * XXX- Perhaps references to the locator should be passed down into
- *      ServerTracker instead and looked up there by clients? But
- *      then again, we probably don't usually want locators returned.
- *      Instead, we want sessions that will ensure we're talking to
- *      the right server.
  */
 string
 ServerList::getLocator(ServerId id)
@@ -199,7 +197,7 @@ ServerList::getLocator(ServerId id)
             "ServerId %lu is not in the ServerList", *id));
     }
 
-    return serverList[index]->serviceLocator.getOriginalString();
+    return serverList[index]->serviceLocator;
 }
 
 /**
@@ -309,8 +307,8 @@ ServerList::registerTracker(ServerTrackerInterface& tracker)
     // Push ADDs for all known servers to this tracker.
     for (size_t i = 0; i < serverList.size(); i++) {
         if (serverList[i]) {
-            tracker.enqueueChange(serverList[i]->serverId,
-                                 ServerChangeEvent::SERVER_ADDED);
+            tracker.enqueueChange(*serverList[i],
+                                  ServerChangeEvent::SERVER_ADDED);
         }
     }
 }

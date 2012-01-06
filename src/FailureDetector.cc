@@ -53,7 +53,6 @@ FailureDetector::FailureDetector(const string &coordinatorLocatorString,
       thread(),
       pingClient(),
       coordinatorClient(coordinatorLocatorString.c_str()),
-      haveLoggedNoServers(false),
       serverList(serverList),
       staleServerListSuspected(false),
       staleServerListVersion(0),
@@ -117,7 +116,7 @@ FailureDetector::detectorThreadEntry(FailureDetector* detector,
         boost::this_thread::interruption_point();
 
         // Drain the list of changes to update our tracker.
-        ServerId dummy1;
+        ServerChangeDetails dummy1;
         ServerChangeEvent dummy2;
         while (detector->serverTracker.getChange(dummy1, dummy2)) {
         }
@@ -142,24 +141,13 @@ FailureDetector::detectorThreadEntry(FailureDetector* detector,
 void
 FailureDetector::pingRandomServer()
 {
-    if (serverTracker.size() == 0 || (serverTracker.size() == 1 &&
-      serverTracker.getRandomServerId() == ourServerId)) {
-        // If we have no servers to ping, or we're the only one on the list,
-        // then just log that fact the first time and do nothing.
-        if (!haveLoggedNoServers) {
-            LOG(NOTICE, "No servers besides myself to probe! "
-                "List has %u entries.", serverTracker.size());
-            haveLoggedNoServers = true;
-        }
+    ServerId pingee = serverTracker.getRandomServerIdWithService(PING_SERVICE);
+    if (!pingee.isValid() || pingee == ourServerId) {
+        // If there isn't anyone to talk to, or the host selected
+        // is ourself, then just skip this round and try again
+        // on the next ping interval.
         return;
     }
-
-    // Reset the haveLoggedNoServers variable
-    haveLoggedNoServers = false;
-
-    ServerId pingee = ourServerId;
-    while (pingee == ourServerId)
-        pingee = serverTracker.getRandomServerId();
 
     uint64_t nonce = generateRandom();
 

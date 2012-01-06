@@ -21,8 +21,8 @@
 #ifndef RAMCLOUD_SERVERLIST_H
 #define RAMCLOUD_SERVERLIST_H
 
+#include "Rpc.h"
 #include "ServerId.h"
-#include "ServiceLocator.h"
 #include "SpinLock.h"
 #include "Transport.h"
 #include "Tub.h"
@@ -42,7 +42,7 @@ struct ServerListException : public Exception {
 
 /**
  * A ServerList maintains a mapping of coordinator-allocated ServerIds to
- * the ServiceLocators that address particular servers. Here a "server"
+ * the service locators that address particular servers. Here a "server"
  * is not a physical machine, but rather a specific instance of a RAMCloud
  * server process.
  *
@@ -59,9 +59,58 @@ struct ServerListException : public Exception {
  */
 class ServerList {
   PUBLIC:
+    /**
+     * Information about a particular server in the serverList vector.
+     * This information is disseminated as part of ServerChanges to listening
+     * trackers and replicated there for fast, lock-free access.
+     */
+    class ServerDetails {
+      PUBLIC:
+        /**
+         * Create an instance where all fields are invalid. Used to 'zero-out'
+         * serverList entries which aren't currently associated with a server.
+         */
+        ServerDetails()
+            : serverId()
+            , serviceLocator()
+            , services()
+        {}
+
+        /**
+         * Create an instance where only #serverId is valid. Used to represent
+         * the details of a SERVER_REMOVED event.
+         */
+        explicit ServerDetails(ServerId id)
+            : serverId(id)
+            , serviceLocator()
+            , services()
+        {}
+
+        /**
+         * Create an instance which represents an active server in the cluster.
+         * All fields are valid.
+         */
+        ServerDetails(ServerId id,
+                      const string& locator,
+                      ServiceTypeMask services)
+            : serverId(id)
+            , serviceLocator(locator)
+            , services(services)
+        {}
+
+        /// ServerId associated with this index in the serverList.
+        ServerId serverId;
+
+        /// Service locator associated with this serverId in the serverList.
+        string serviceLocator;
+
+        /// Which services are supported by the process at #serverId.
+        ServiceTypeMask services;
+    };
+
     ServerList();
     ~ServerList();
-    void add(ServerId id, ServiceLocator locator);
+    void add(ServerId id, string locator, ServiceTypeMask services);
     void remove(ServerId id);
     string getLocator(ServerId id);
     Transport::SessionRef getSession(ServerId id);
@@ -74,27 +123,8 @@ class ServerList {
     void unregisterTracker(ServerTrackerInterface& tracker);
 
   PRIVATE:
-    /**
-     * This class is only used to group ServerIds and ServiceLocators in the
-     * serverList vector.
-     */
-    class ServerIdServiceLocatorPair {
-      PUBLIC:
-        ServerIdServiceLocatorPair(ServerId id, ServiceLocator& sl)
-            : serverId(id),
-              serviceLocator(sl)
-        {
-        }
-
-        /// ServerId associated with this index in the serverList.
-        ServerId serverId;
-
-        /// ServiceLocator associated with this serverId in the serverList.
-        ServiceLocator serviceLocator;
-    };
-
     /// Slots in the server list.
-    std::vector<Tub<ServerIdServiceLocatorPair>> serverList;
+    std::vector<Tub<ServerDetails>> serverList;
 
     /// Version number of this list, as dictated by the coordinator. Used to
     /// tell if the list is out of date, and if so, by how many additions or

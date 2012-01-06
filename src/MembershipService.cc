@@ -26,6 +26,7 @@
 #include "CoordinatorClient.h"
 #include "MembershipService.h"
 #include "ProtoBuf.h"
+#include "Rpc.h"
 #include "ServerId.h"
 #include "ServerList.pb.h"
 #include "ServiceLocator.h"
@@ -127,12 +128,20 @@ MembershipService::setServerList(const SetServerListRpc::Request& reqHdr,
 
     // Add new ones.
     for (int i = 0; i < list.server_size(); i++) {
-        ServerId id(list.server(i).server_id());
+        const auto& server = list.server(i);
+        ServerId id(server.server_id());
         if (!serverList.contains(id)) {
-            string locator = list.server(i).service_locator();
+            // This isn't actually in the protobuf, but we can fake it.
+            // TODO(stutsman): We probably want to move masks into the protobuf.
+            const ServiceTypeMask services =
+                (server.is_master() ? MASTER_SERVICE : 0) |
+                (server.is_backup() ? BACKUP_SERVICE : 0) |
+                PING_SERVICE |
+                MEMBERSHIP_SERVICE;
+            const string& locator = server.service_locator();
             LOG(__DEBUG, "  Adding server id %lu (locator \"%s\")",
                 *id, locator.c_str());
-            serverList.add(id, ServiceLocator(locator));
+            serverList.add(id, locator, services);
         }
     }
 
@@ -170,12 +179,20 @@ MembershipService::updateServerList(const UpdateServerListRpc::Request& reqHdr,
 
     // Process the update.
     for (int i = 0; i < update.server_size(); i++) {
-        ServerId id(update.server(i).server_id());
-        if (update.server(i).is_in_cluster()) {
-            string locator = update.server(i).service_locator();
+        const auto& server = update.server(i);
+        ServerId id(server.server_id());
+        if (server.is_in_cluster()) {
+            // This isn't actually in the protobuf, but we can fake it.
+            // TODO(stutsman): We probably want to move masks into the protobuf.
+            const ServiceTypeMask services =
+                (server.is_master() ? MASTER_SERVICE : 0) |
+                (server.is_backup() ? BACKUP_SERVICE : 0) |
+                PING_SERVICE |
+                MEMBERSHIP_SERVICE;
+            const string& locator = server.service_locator();
             LOG(__DEBUG, "  Adding server id %lu (locator \"%s\")",
                 *id, locator.c_str());
-            serverList.add(id, ServiceLocator(locator));
+            serverList.add(id, locator, services);
         } else {
             if (!serverList.contains(id)) {
                 LOG(ERROR, "  Cannot remove server id %lu: The server is "

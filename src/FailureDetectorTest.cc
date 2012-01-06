@@ -22,6 +22,7 @@
 #include "CoordinatorClient.h"
 #include "PingClient.h"
 #include "FailureDetector.h"
+#include "Rpc.h"
 #include "ServerList.pb.h"
 #include "ServerList.h"
 
@@ -64,9 +65,9 @@ class FailureDetectorTest : public ::testing::Test {
     void
     addServer(ServerId id, string locator)
     {
-        ServerId dummy1;
+        ServerChangeDetails dummy1;
         ServerChangeEvent dummy2;
-        serverList->add(id, ServiceLocator(locator));
+        serverList->add(id, locator, PING_SERVICE);
         fd->serverTracker.getChange(dummy1, dummy2);
     }
 
@@ -74,16 +75,14 @@ class FailureDetectorTest : public ::testing::Test {
 };
 
 TEST_F(FailureDetectorTest, pingRandomServer_noServers) {
+    // Ensure it doesn't spin.
     fd->pingRandomServer();
-    EXPECT_EQ("pingRandomServer: No servers besides myself to probe! "
-              "List has 0 entries.", TestLog::get());
 }
 
 TEST_F(FailureDetectorTest, pingRandomServer_onlySelfServers) {
     addServer(ServerId(57, 27342), "mock:");
+    // Ensure it doesn't spin.
     fd->pingRandomServer();
-    EXPECT_EQ("pingRandomServer: No servers besides myself to probe! "
-              "List has 1 entries.", TestLog::get());
 }
 
 TEST_F(FailureDetectorTest, pingRandomServer_pingSuccess) {

@@ -30,6 +30,7 @@
 #include "ShortMacros.h"
 #include "SpinLock.h"
 #include "Tub.h"
+#include "TransportManager.h"
 
 namespace RAMCloud {
 
@@ -52,6 +53,14 @@ enum ServerChangeEvent {
 };
 
 /**
+ * Each change provided to a ServerTracker by its ServerList includes a
+ * ServerChangeDetails which describes details about the server which was
+ * added or removed from the cluster.  On SERVER_ADDED event all fields
+ * are valid; on SERVER_REMOVED on the #serverId field is valid.
+ */
+typedef ServerList::ServerDetails ServerChangeDetails;
+
+/**
  * Interface used to ensure that every template typed ServerTracker object
  * has an enqueueChange() method that can be called by the ServerList to
  * update interested trackers. Also serves as the supertype used to store
@@ -60,7 +69,8 @@ enum ServerChangeEvent {
 class ServerTrackerInterface {
   PUBLIC:
     virtual ~ServerTrackerInterface() { }
-    virtual void enqueueChange(ServerId serverId, ServerChangeEvent event) = 0;
+    virtual void enqueueChange(const ServerChangeDetails& server,
+                               ServerChangeEvent event) = 0;
 };
 
 /**
@@ -169,14 +179,15 @@ class ServerTracker : public ServerTrackerInterface {
      * newer ServerIds before the REMOVAL of the currently stored one).
      */
     void
-    enqueueChange(ServerId serverId, ServerChangeEvent event)
+    enqueueChange(const ServerChangeDetails& server,
+                  ServerChangeEvent event)
     {
-        uint32_t index = serverId.indexNumber();
+        uint32_t index = server.serverId.indexNumber();
 
         if (index >= serverList.size())
             serverList.resize(index + 1);
 
-        changes.addChange(serverId, event);
+        changes.addChange(server, event);
 
         // Fire the callback to notify that the queue has a new entry.
         if (eventCallback)
@@ -197,35 +208,39 @@ class ServerTracker : public ServerTrackerInterface {
      * Returns the next enqueued change to the ServerList, if there
      * is one. If the event indicates removal, then the caller must
      * NULL out any pointer they were storing with the associated
-     * ServerId before the next invocation of #getChange(). This
+     * ServerId before the next invocation of getChange(). This
      * helps to ensure that the caller is properly handling objects
      * that were referenced by this tracker. After the subsequent
-     * call to #getChange, the old ServerId cannot be used to index
+     * call to getChange(), the old ServerId cannot be used to index
      * into the tracker anymore.
      *
      * To be clear, this means that something like the following idiom
      * must always be used:
-     *   if (!getChange(&serverId, &event)) return;
+     *   ServerChangeDetails server;
+     *   ServerChangeEvent event;
+     *   if (!getChange(server, event)) return;
      *   if (event == SERVER_ADDED) {
      *      ...
-     *      tracker[serverId] = new T(...);
+     *      tracker[server.serverId] = new T(...);
      *      ...
      *   } else if (event == SERVER_REMOVED) {
      *      ...
-     *      T* p = tracker[serverId];
+     *      T* p = tracker[server.serverId];
      *      // 'delete p;' or stash the pointer elsewhere, perhaps
      *      ...
      *
-     *      // THE FOLLOWING MUST BE DONE BEFORE #getChange IS CALLED
-     *      // AGAIN (tracker[serverId] will return a valid ref until
-     *      // then):
-     *      tracker[serverId] = NULL;
+     *      // THE FOLLOWING MUST BE DONE BEFORE getChange() IS CALLED
+     *      // AGAIN (tracker[server.serverId] will return a valid ref
+     *      // until then):
+     *      tracker[server.serverId] = NULL;
      *      ...
      *   }
      *
-     * \param[out] serverId
-     *      ServerId of the server that was added to or removed from
-     *      the system.
+     * \param[out] server
+     *      Details about the server that was added to or removed from
+     *      the system.  All fields of \a server are valid if after
+     *      return event == SERVER_ADDED; otherwise, if
+     *      event == SERVER_REMOVED only the serverId field is valid.
      *
      * \param[out] event
      *      Type of event (SERVER_ADDED or SERVER_REMOVED).
@@ -234,7 +249,7 @@ class ServerTracker : public ServerTrackerInterface {
      *      True if there was a change returned, else false.
      */
     bool
-    getChange(ServerId& serverId, ServerChangeEvent& event)
+    getChange(ServerChangeDetails& server, ServerChangeEvent& event)
     {
         if (lastRemovedIndex != static_cast<uint32_t>(-1)) {
             if (serverList[lastRemovedIndex].pointer != NULL) {
@@ -244,11 +259,12 @@ class ServerTracker : public ServerTrackerInterface {
                 LOG(WARNING, "User of this ServerTracker did not NULL out "
                     "previous pointer for index %u (ServerId %lu)!",
                     lastRemovedIndex,
-                    serverList[lastRemovedIndex].serverId.getId());
+                    serverList[lastRemovedIndex].server.serverId.getId());
                 assert(testing_avoidGetChangeAssertion);
             }
 
-            serverList[lastRemovedIndex].serverId = ServerId(/* invalid id */);
+            // Blank out details about the server and it extra state.
+            serverList[lastRemovedIndex].server = ServerChangeDetails();
             serverList[lastRemovedIndex].pointer = NULL;
             lastRemovedIndex = -1;
         }
@@ -257,16 +273,16 @@ class ServerTracker : public ServerTrackerInterface {
             return false;
 
         ServerChange change = changes.getChange();
-        uint32_t index = change.serverId.indexNumber();
+        uint32_t index = change.server.serverId.indexNumber();
 
         // Ensure that the ServerList guarantees hold.
         assert((change.event == SERVER_ADDED &&
-                !serverList[index].serverId.isValid()) ||
+                !serverList[index].server.serverId.isValid()) ||
                (change.event == SERVER_REMOVED &&
-                serverList[index].serverId == change.serverId));
+                serverList[index].server.serverId == change.server.serverId));
 
         if (change.event == SERVER_ADDED) {
-            serverList[index].serverId = change.serverId;
+            serverList[index].server = change.server;
             assert(serverList[index].pointer == NULL);
             numberOfServers++;
         } else if (change.event == SERVER_REMOVED) {
@@ -277,19 +293,27 @@ class ServerTracker : public ServerTrackerInterface {
             assert(0);
         }
 
-        serverId = change.serverId;
+        server = change.server;
         event = change.event;
 
         return true;
     }
 
     /**
-     * Obtain a random ServerId stored in this tracker. If these are none,
-     * return an invalid ServerId instead. The caller should use the
-     * ServerId::isValid() method to check validity.
+     * Obtain a random ServerId stored in this tracker which is running a
+     * particular service.
+     * The caller should check ServerId::isValid() since this method can
+     * return an invalid ServerId if no host matches the criteria.
+     *
+     * \param service
+     *      Limits returned ServerId to a server that was known by this tracker
+     *      to be running an instance of a specific service type.
+     * \return
+     *      The ServerId of a server that was known by this tracker to be
+     *      running an instance of the requested service type.
      */
     ServerId
-    getRandomServerId()
+    getRandomServerIdWithService(ServiceTypeMask service)
     {
         // This could get a little slow if the list isn't dense, but the
         // coordinator should aggressively reuse slots to maintain density
@@ -300,13 +324,59 @@ class ServerTracker : public ServerTrackerInterface {
             size_t start = generateRandom() % serverList.size();
             size_t i = start;
             do {
-                if (i != lastRemovedIndex && serverList[i].serverId.isValid())
-                    return serverList[i].serverId;
+                if (i != lastRemovedIndex &&
+                    serverList[i].server.serverId.isValid() &&
+                    (serverList[i].server.services & service) != 0)
+                    return serverList[i].server.serverId;
                 i = (i + 1) % serverList.size();
             } while (i != start);
         }
 
         return ServerId(/* invalid id */);
+    }
+
+    /**
+     * Obtain the locator associated with the given ServerId.
+     *
+     * \param id
+     *      The ServerId to look up the locator for.
+     * \return
+     *      The ServiceLocator string assocated with the given ServerId.
+     * \throw ServerListException
+     *      An exception is thrown if this ServerId is not in the tracker.
+     *      This can happen if servers fail, if knowledge of a server is
+     *      communicated out-of-band from the ServerList and the ServerList
+     *      hasn't received the addition yet, or simply because this tracker
+     *      hasn't applied some outstanding changes from its ServerList.
+     */
+    string
+    getLocator(ServerId id)
+    {
+        uint32_t index = id.indexNumber();
+        if (index >= serverList.size() ||
+            serverList[index].server.serverId != id) {
+            throw Exception(HERE, "ServerId given is not in this tracker.");
+        }
+
+        return serverList[index].server.serviceLocator;
+    }
+
+    /**
+     * Open a session to the given ServerId. This method simply calls through to
+     * TransportManager::getSession. See the documentation there for exceptions
+     * that may be thrown.
+     *
+     * \param id
+     *      The ServerId to get a Session to.
+     * \throw ServerListException
+     *      A ServerListException is thrown if the given ServerId is not in this
+     *      list.
+     */
+    Transport::SessionRef
+    getSession(ServerId id)
+    {
+        return Context::get().transportManager->getSession(
+            getLocator(id).c_str(), id);
     }
 
     /**
@@ -325,7 +395,7 @@ class ServerTracker : public ServerTrackerInterface {
     {
         uint32_t index = serverId.indexNumber();
         if (index >= serverList.size() ||
-          serverList[index].serverId != serverId) {
+          serverList[index].server.serverId != serverId) {
             throw Exception(HERE, "ServerId given is not in this tracker.");
         }
 
@@ -351,15 +421,15 @@ class ServerTracker : public ServerTrackerInterface {
      */
     class ServerChange {
       PUBLIC:
-        ServerChange(ServerId serverId, ServerChangeEvent event)
-            : serverId(serverId),
+        ServerChange(const ServerChangeDetails& server,
+                     ServerChangeEvent event)
+            : server(server),
               event(event)
         {
         }
 
-        /// ServerId of the server that has been added to or removed from the
-        /// system.
-        ServerId serverId;
+        /// Details of the server which was added to or removed from the system.
+        ServerChangeDetails server;
 
         /// Event type: either addition or removal.
         ServerChangeEvent event;
@@ -375,13 +445,14 @@ class ServerTracker : public ServerTrackerInterface {
         ChangeQueue() : changes(), vectorLock() {}
 
         /**
-         * Add the given change event for the given ServerId to the queue.
+         * Add the given change event for the given server to the queue.
          */
         void
-        addChange(ServerId serverId, ServerChangeEvent event)
+        addChange(const ServerChangeDetails& server,
+                  ServerChangeEvent event)
         {
             boost::lock_guard<SpinLock> lock(vectorLock);
-            changes.push(ServerChange(serverId, event));
+            changes.push(ServerChange(server, event));
         }
 
         /**
@@ -422,19 +493,23 @@ class ServerTracker : public ServerTrackerInterface {
     };
 
     /**
-     * This class is only used to group ServerIds and T*s in the serverList
+     * This class is only used to group server details and T*s in the serverList
      * vector.
      */
-    class ServerIdTypePtrPair {
+    class ServerDetailsWithTPtr {
       PUBLIC:
-        ServerIdTypePtrPair()
-            : serverId(ServerId(/* invalid id */)),
-              pointer(NULL)
+        ServerDetailsWithTPtr()
+            : server()
+            , pointer(NULL)
         {
         }
 
-        /// ServerId associated with this index in the serverList.
-        ServerId serverId;
+        ServerDetailsWithTPtr(const ServerDetailsWithTPtr&) = default;
+        ServerDetailsWithTPtr&
+        operator=(const ServerDetailsWithTPtr&) = default;
+
+        /// Details of the server associated with this index in the serverList.
+        ServerChangeDetails server;
 
         /// Pointer type T associated with this ServerId in the serverList.
         T* pointer;
@@ -444,7 +519,7 @@ class ServerTracker : public ServerTrackerInterface {
     ServerList& parent;
 
     /// Slots in the server list.
-    std::vector<ServerIdTypePtrPair> serverList;
+    std::vector<ServerDetailsWithTPtr> serverList;
 
     /// Queue of list membership changes.
     ChangeQueue changes;
