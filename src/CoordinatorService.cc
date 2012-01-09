@@ -257,6 +257,7 @@ CoordinatorService::enlistServer(const EnlistServerRpc::Request& reqHdr,
     ProtoBuf::ServerList additionUpdate;
     ServerId newServerId = serverList.add(serviceLocator,
                                           serviceMask,
+                                          readSpeed,
                                           additionUpdate);
     CoordinatorServerList::Entry& entry = serverList[newServerId];
 
@@ -273,7 +274,6 @@ CoordinatorService::enlistServer(const EnlistServerRpc::Request& reqHdr,
     if (entry.isBackup()) {
         LOG(DEBUG, "Backup at id %lu has %u MB/s read %u MB/s write ",
             newServerId.getId(), readSpeed, writeSpeed);
-        entry.backupReadMegsPerSecond = readSpeed;
     }
 
     respHdr.serverId = newServerId.getId();

@@ -80,8 +80,7 @@ TEST_F(ServerTest, createAndRegisterServices) {
 TEST_F(ServerTest, enlist) {
     server->createAndRegisterServices(&cluster.transport);
     server->enlist();
-    ASSERT_TRUE(server->master->serverId);
-    EXPECT_TRUE(server->master->serverId->isValid());
+    ASSERT_TRUE(server->master->serverId.isValid());
     EXPECT_TRUE(server->backup->serverId.isValid());
 
     ProtoBuf::ServerList serverList;

@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -242,6 +242,7 @@ class ReplicatedSegment : public Task {
     enum { MAX_WRITE_RPCS_IN_FLIGHT = 4 };
 
     ReplicatedSegment(TaskManager& taskManager,
+                      BackupTracker& tracker,
                       BaseBackupSelector& backupSelector,
                       Deleter& deleter,
                       uint32_t& writeRpcsInFlight,
@@ -289,6 +290,14 @@ class ReplicatedSegment : public Task {
     }
 
 // - member variables -
+    /**
+     * A ServerTracker used to find backups and track replica distribution
+     * stats.  Each entry in the tracker contains a pointer to a BackupStats
+     * struct which stores the number of primary replicas stored on that
+     * server.
+     */
+    BackupTracker& tracker;
+
     /// Used to choose where to store replicas. Shared among ReplicatedSegments.
     BaseBackupSelector& backupSelector;
 

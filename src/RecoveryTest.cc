@@ -34,8 +34,8 @@ class RecoveryTest : public ::testing::Test {
      * which implicitly calls freeSegment.
      */
     struct WriteValidSegment {
-        ProtoBuf::ServerList backupList;
-        Tub<ServerId> masterIdTub;
+        ServerList serverList;
+        ServerId masterId;
         ReplicaManager* mgr;
         void *segMem;
         Segment* seg;
@@ -46,8 +46,8 @@ class RecoveryTest : public ::testing::Test {
                           const uint32_t segmentSize,
                           const vector<const char*> locators,
                           bool close)
-            : backupList()
-            , masterIdTub(serverId)
+            : serverList()
+            , masterId(serverId)
             , mgr()
             , segMem()
             , seg()
@@ -55,24 +55,18 @@ class RecoveryTest : public ::testing::Test {
             // TODO(ongaro): Jesus, this is the moral equivalent of linking
             // with libhphp.a.
 
-            mgr = new ReplicaManager(NULL, masterIdTub,
+            mgr = new ReplicaManager(serverList, masterId,
                                      downCast<uint32_t>(locators.size()));
-            uint64_t backupId = 1;
             foreach (const auto& locator, locators) {
-                ProtoBuf::ServerList::Entry& e(*backupList.add_server());
-                e.set_service_locator(locator);
-                e.set_server_id(backupId++);
-                e.set_service_mask(
-                    ServiceMask{BACKUP_SERVICE}.serialize());
+                size_t len = strlen(locator);
+                uint32_t backupId =
+                    boost::lexical_cast<uint32_t>(locator[len - 1]);
+                serverList.add(ServerId(backupId, 0), locator,
+                               {BACKUP_SERVICE}, 100);
             }
 
-            // TODO(ongaro): Rework this to not muck with mgr's internal state
-            mgr->backupSelector.hosts = backupList;
-            for (uint32_t i = 0; i < uint32_t(backupList.server_size()); ++i)
-                mgr->backupSelector.hostsOrder.push_back(i);
-
             segMem = Memory::xmemalign(HERE, segmentSize, segmentSize);
-            seg = new Segment(masterIdTub->getId(), segmentId,
+            seg = new Segment(masterId.getId(), segmentId,
                               segMem, segmentSize, mgr);
 
             char temp[LogDigest::getBytesFromCount(
@@ -166,9 +160,9 @@ TEST_F(RecoveryTest, buildSegmentIdToBackups) {
     ProtoBuf::Tablets tablets;
     Recovery recovery(ServerId(99), tablets, *serverList);
     EXPECT_EQ((vector<RecoverRpc::Replica> {
-                    { 1, 89 },
-                    { 2, 88 },
                     { 1, 88 },
+                    { 2, 88 },
+                    { 1, 89 },
                }),
               recovery.replicaLocations);
 }
@@ -351,16 +345,16 @@ TEST_F(RecoveryTest, start) {
     EXPECT_EQ(3U, recovery.tabletsUnderRecovery);
     EXPECT_EQ(
         "start: Starting recovery for 2 partitions | "
-        "getRecoveryData: getRecoveryData masterId 99, segmentId 89, "
-        "partitionId 0 | "
-        "getRecoveryData: getRecoveryData complete | "
         "getRecoveryData: getRecoveryData masterId 99, segmentId 88, "
         "partitionId 0 | "
         "getRecoveryData: getRecoveryData complete | "
         "getRecoveryData: getRecoveryData masterId 99, segmentId 89, "
+        "partitionId 0 | "
+        "getRecoveryData: getRecoveryData complete | "
+        "getRecoveryData: getRecoveryData masterId 99, segmentId 88, "
         "partitionId 1 | "
         "getRecoveryData: getRecoveryData complete | "
-        "getRecoveryData: getRecoveryData masterId 99, segmentId 88, "
+        "getRecoveryData: getRecoveryData masterId 99, segmentId 89, "
         "partitionId 1 | "
         "getRecoveryData: getRecoveryData complete",
         TestLog::get());

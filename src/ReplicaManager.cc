@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2011 Stanford University
+/* Copyright (c) 2009-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -15,29 +15,33 @@
 
 #include "BackupClient.h"
 #include "CycleCounter.h"
+#include "Logger.h"
 #include "ShortMacros.h"
 #include "RawMetrics.h"
 #include "ReplicaManager.h"
 
 namespace RAMCloud {
 
+// --- ReplicaManager ---
+
 /**
  * Create a ReplicaManager.  Creating more than one ReplicaManager for a
  * single log results in undefined behavior.
- * \param coordinator
- *      Cluster coordinator; used to get a list of backup servers.
- *      May be NULL for testing purposes.
+ * \param serverList
+ *      Used to construct a tracker to find backups and track replica
+ *      distribution stats.
  * \param masterId
  *      Server id of master that this will be managing replicas for (also
  *      serves as the log id).
  * \param numReplicas
  *      Number replicas to keep of each segment.
  */
-ReplicaManager::ReplicaManager(CoordinatorClient* coordinator,
-                               const Tub<ServerId>& masterId,
+ReplicaManager::ReplicaManager(ServerList& serverList,
+                               const ServerId& masterId,
                                uint32_t numReplicas)
     : numReplicas(numReplicas)
-    , backupSelector(coordinator)
+    , tracker(serverList)
+    , backupSelector(tracker)
     , dataMutex()
     , masterId(masterId)
     , replicatedSegmentPool(ReplicatedSegment::sizeOf(numReplicas))
@@ -110,15 +114,15 @@ ReplicaManager::openSegment(uint64_t segmentId, const void* data,
     Lock __(dataMutex);
 
     LOG(DEBUG, "openSegment %lu, %lu, ..., %u",
-        masterId->getId(), segmentId, openLen);
+        masterId.getId(), segmentId, openLen);
     auto* p = replicatedSegmentPool.malloc();
     if (p == NULL)
         DIE("Out of memory");
     auto* replicatedSegment =
-        new(p) ReplicatedSegment(taskManager, backupSelector, *this,
+        new(p) ReplicatedSegment(taskManager, tracker, backupSelector, *this,
                                  writeRpcsInFlight,
                                  dataMutex,
-                                 *masterId, segmentId,
+                                 masterId, segmentId,
                                  data, openLen, numReplicas);
     replicatedSegmentList.push_back(*replicatedSegment);
     replicatedSegment->schedule();

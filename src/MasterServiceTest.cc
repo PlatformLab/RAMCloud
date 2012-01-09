@@ -40,7 +40,7 @@ class MasterServiceTest : public ::testing::Test {
     // segmentSize. Since we can't provide arguments to it in gtest, nor can we
     // apparently template easily on that, we need to subclass this if we want
     // to provide a fixture with a different value.
-    explicit MasterServiceTest(uint32_t segmentSize = 1 << 16)
+    explicit MasterServiceTest(uint32_t segmentSize = 64 * 1024)
         : cluster()
         , backup1Config(ServerConfig::forTesting())
         , backup1Id()
@@ -317,8 +317,12 @@ TEST_F(MasterServiceTest, recover_basics) {
     const uint32_t segmentSize = backup1Config.backup.segmentSize;
     char* segMem =
         static_cast<char*>(Memory::xmemalign(HERE, segmentSize, segmentSize));
-    Tub<ServerId> serverId(ServerId(123, 0));
-    ReplicaManager mgr(coordinator, serverId, 1);
+    ServerId serverId(123, 0);
+    ServerList serverList;
+    foreach (auto* server, cluster.servers)
+        serverList.add(server->serverId, server->config.localLocator,
+                       server->config.services, 100);
+    ReplicaManager mgr(serverList, serverId, 1);
     Segment segment(123, 87, segMem, segmentSize, &mgr);
     segment.sync();
 
@@ -403,8 +407,12 @@ TEST_F(MasterServiceTest, recover) {
     const uint32_t segmentSize = backup1Config.backup.segmentSize;
     char* segMem =
         static_cast<char*>(Memory::xmemalign(HERE, segmentSize, segmentSize));
-    Tub<ServerId> serverId(ServerId(123, 0));
-    ReplicaManager mgr(coordinator, serverId, 1);
+    ServerId serverId(123, 0);
+    ServerList serverList;
+    foreach (auto* server, cluster.servers)
+        serverList.add(server->serverId, server->config.localLocator,
+                       server->config.services, 100);
+    ReplicaManager mgr(serverList, serverId, 1);
     Segment __(123, 88, segMem, segmentSize, &mgr);
     __.sync();
 
@@ -1002,8 +1010,11 @@ TEST_F(MasterRecoverTest, recover) {
     // destructor until after the test.
     char* segMem1 = static_cast<char*>(Memory::xmemalign(HERE, segmentSize,
                                                          segmentSize));
-    Tub<ServerId> serverId(ServerId(99, 0));
-    ReplicaManager mgr(coordinator, serverId, 2);
+    ServerId serverId(99, 0);
+    ServerList serverList;
+    serverList.add(backup1Id, "mock:host=backup1", {BACKUP_SERVICE,
+                                                    MEMBERSHIP_SERVICE}, 100);
+    ReplicaManager mgr(serverList, serverId, 1);
     Segment s1(99, 87, segMem1, segmentSize, &mgr);
     s1.close(NULL);
     char* segMem2 = static_cast<char*>(Memory::xmemalign(HERE, segmentSize,

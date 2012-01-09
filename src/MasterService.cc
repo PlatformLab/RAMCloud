@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2011 Stanford University
+/* Copyright (c) 2009-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -92,7 +92,7 @@ MasterService::MasterService(const ServerConfig& config,
     , coordinator(coordinator)
     , serverId()
     , serverList(serverList)
-    , replicaManager(coordinator, serverId, config.master.numReplicas)
+    , replicaManager(serverList, serverId, config.master.numReplicas)
     , bytesWritten(0)
     , log(serverId,
           config.master.logBytes,
@@ -196,9 +196,9 @@ MasterService::init(ServerId id)
 {
     assert(!initCalled);
 
-    serverId.construct(id);
-    LOG(NOTICE, "My server ID is %lu", serverId->getId());
-    metrics->serverId = serverId->getId();
+    serverId = id;
+    LOG(NOTICE, "My server ID is %lu", serverId.getId());
+    metrics->serverId = serverId.getId();
 
     initCalled = true;
 }
@@ -884,7 +884,7 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
         replicas.push_back(replica);
     }
     LOG(DEBUG, "Starting recovery of %u tablets on masterId %lu",
-        recoveryTablets.tablet_size(), serverId->getId());
+        recoveryTablets.tablet_size(), serverId.getId());
     rpc.sendReply();
 
     // reqHdr, respHdr, and rpc are off-limits now
@@ -912,9 +912,9 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
         LOG(NOTICE, "set tablet %lu %lu %lu to locator %s, id %lu",
                  tablet.table_id(), tablet.start_object_id(),
                  tablet.end_object_id(), config.localLocator.c_str(),
-                 serverId->getId());
+                 serverId.getId());
         tablet.set_service_locator(config.localLocator);
-        tablet.set_server_id(serverId->getId());
+        tablet.set_server_id(serverId.getId());
     }
 
     // TODO(ongaro): don't need to calculate a new will here
@@ -926,7 +926,7 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
     }
 
     {
-        coordinator->tabletsRecovered(serverId->getId(),
+        coordinator->tabletsRecovered(serverId.getId(),
                                       recoveryTablets,
                                       recoveryWill);
     }

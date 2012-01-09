@@ -35,11 +35,11 @@ namespace RAMCloud {
 class LogCleanerTest : public ::testing::Test {
   public:
     LogCleanerTest()
-        : serverId(ServerId(5, 23))
+        : serverId(5, 23)
     {
     }
 
-    Tub<ServerId> serverId;
+    ServerId serverId;
 
   private:
     DISALLOW_COPY_AND_ASSIGN(LogCleanerTest);

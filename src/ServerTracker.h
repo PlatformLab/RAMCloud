@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -54,11 +54,11 @@ enum ServerChangeEvent {
 
 /**
  * Each change provided to a ServerTracker by its ServerList includes a
- * ServerChangeDetails which describes details about the server which was
+ * ServerDetails which describes details about the server which was
  * added or removed from the cluster.  On SERVER_ADDED event all fields
  * are valid; on SERVER_REMOVED on the #serverId field is valid.
  */
-typedef ServerList::ServerDetails ServerChangeDetails;
+typedef ServerList::ServerDetails ServerDetails;
 
 /**
  * Interface used to ensure that every template typed ServerTracker object
@@ -69,7 +69,7 @@ typedef ServerList::ServerDetails ServerChangeDetails;
 class ServerTrackerInterface {
   PUBLIC:
     virtual ~ServerTrackerInterface() { }
-    virtual void enqueueChange(const ServerChangeDetails& server,
+    virtual void enqueueChange(const ServerDetails& server,
                                ServerChangeEvent event) = 0;
 };
 
@@ -105,9 +105,22 @@ class ServerTrackerInterface {
  * concurrency issues while providing a convenient way to associate information
  * with a ServerId that is (or was recently) active.
  */
-template<typename T, class EventCallback = void (*)()>
+template<typename T>
 class ServerTracker : public ServerTrackerInterface {
   PUBLIC:
+    /**
+     * Interface of callbacks which can be invoked whenever there is an upcoming
+     * change to the list. trackerChangedEnqueued() will execute in the context of
+     * the ServerList that has fed us the event and should be extremely efficient
+     * so as to not hold up  delivery of the same or future events to other
+     * ServerTrackers.
+     */
+    class Callback {
+      public:
+        virtual void trackerChangesEnqueued() = 0;
+        virtual ~Callback() {};
+    };
+
     /**
      * Constructor for ServerTracker.
      * 
@@ -143,7 +156,8 @@ class ServerTracker : public ServerTrackerInterface {
      *      hold up delivery of the same or future events to other
      *      ServerTrackers.
      */ 
-    explicit ServerTracker(ServerList& parent, EventCallback eventCallback)
+    explicit ServerTracker(ServerList& parent,
+                           Callback* eventCallback)
         : ServerTrackerInterface(),
           parent(parent),
           serverList(),
@@ -179,7 +193,7 @@ class ServerTracker : public ServerTrackerInterface {
      * newer ServerIds before the REMOVAL of the currently stored one).
      */
     void
-    enqueueChange(const ServerChangeDetails& server,
+    enqueueChange(const ServerDetails& server,
                   ServerChangeEvent event)
     {
         uint32_t index = server.serverId.indexNumber();
@@ -191,7 +205,7 @@ class ServerTracker : public ServerTrackerInterface {
 
         // Fire the callback to notify that the queue has a new entry.
         if (eventCallback)
-            (*eventCallback)();
+            eventCallback->trackerChangesEnqueued();
     }
 
     /**
@@ -216,7 +230,7 @@ class ServerTracker : public ServerTrackerInterface {
      *
      * To be clear, this means that something like the following idiom
      * must always be used:
-     *   ServerChangeDetails server;
+     *   ServerDetails server;
      *   ServerChangeEvent event;
      *   if (!getChange(server, event)) return;
      *   if (event == SERVER_ADDED) {
@@ -249,7 +263,7 @@ class ServerTracker : public ServerTrackerInterface {
      *      True if there was a change returned, else false.
      */
     bool
-    getChange(ServerChangeDetails& server, ServerChangeEvent& event)
+    getChange(ServerDetails& server, ServerChangeEvent& event)
     {
         if (lastRemovedIndex != static_cast<uint32_t>(-1)) {
             if (serverList[lastRemovedIndex].pointer != NULL) {
@@ -264,7 +278,7 @@ class ServerTracker : public ServerTrackerInterface {
             }
 
             // Blank out details about the server and it extra state.
-            serverList[lastRemovedIndex].server = ServerChangeDetails();
+            serverList[lastRemovedIndex].server = ServerDetails();
             serverList[lastRemovedIndex].pointer = NULL;
             lastRemovedIndex = -1;
         }
@@ -303,7 +317,15 @@ class ServerTracker : public ServerTrackerInterface {
      * Obtain a random ServerId stored in this tracker which is running a
      * particular service.
      * The caller should check ServerId::isValid() since this method can
-     * return an invalid ServerId if no host matches the criteria.
+     * return an invalid ServerId if no host matches the criteria or if the
+     * caller is unlucky.
+     *
+     * Internally, this method chooses an entry at random and checks to see
+     * if it matches the criteria, if not it tries again.  Eventually it
+     * gives up if it cannot find a matching server.  When the list is
+     * empty or possiblity just sparse this method will return an invalid id.
+     * We should switch to something more efficient if this probabilistic
+     * approach doesn't work well.
      *
      * \param service
      *      Limits returned ServerId to a server that was known by this tracker
@@ -321,15 +343,19 @@ class ServerTracker : public ServerTrackerInterface {
         // then shrink down drastically in such a way that there are large
         // contiguous regions of unused indexes in the serverList.
         if (serverList.size() > 0) {
-            size_t start = generateRandom() % serverList.size();
-            size_t i = start;
-            do {
+            for (size_t j = 0; j < serverList.size() * 10; ++j) {
+                size_t i = generateRandom() % serverList.size();
                 if (i != lastRemovedIndex &&
                     serverList[i].server.serverId.isValid() &&
                     serverList[i].server.services.has(service))
                     return serverList[i].server.serverId;
-                i = (i + 1) % serverList.size();
-            } while (i != start);
+            }
+            LOG(WARNING, "Couldn't randomly find a suitable server with "
+                         "requested services; perhaps the will ServerList "
+                         "get updated with new server entries, "
+                         "or perhaps you might have just been unlucky, "
+                         "and you should try again.");
+            return ServerId(/* invalid id */);
         }
 
         return ServerId(/* invalid id */);
@@ -352,13 +378,41 @@ class ServerTracker : public ServerTrackerInterface {
     string
     getLocator(ServerId id)
     {
+        return getServerDetails(id)->serviceLocator;
+    }
+
+    /**
+     * Access the fields the tracker has associated with the given ServerId
+     * that are part of all ServiceList entries (includes ServerId, locator
+     * ServiceMask, and backup storage performance).  Be careful with this
+     * call: every call to getChange() invalidates all pointers previously
+     * returned from this method.
+     *
+     * \param id
+     *      The ServerId to look up the locator for.
+     * \return
+     *      Pointer to the ServerDetails assocated with the given ServerId.
+     *      Warning, the pointer is only guaranteed to be valid until the
+     *      next call to getChange().
+     * \throw ServerListException
+     *      An exception is thrown if this ServerId is not in the tracker.
+     *      This can happen if servers fail, if knowledge of a server is
+     *      communicated out-of-band from the ServerList and the ServerList
+     *      hasn't received the addition yet, or simply because this tracker
+     *      hasn't applied some outstanding changes from its ServerList.
+     */
+    ServerDetails*
+    getServerDetails(ServerId id)
+    {
         uint32_t index = id.indexNumber();
         if (index >= serverList.size() ||
             serverList[index].server.serverId != id) {
-            throw Exception(HERE, "ServerId given is not in this tracker.");
+            throw Exception(HERE,
+                            format("ServerId %lu is not in this tracker.",
+                                   id.getId()));
         }
 
-        return serverList[index].server.serviceLocator;
+        return &serverList[index].server;
     }
 
     /**
@@ -421,7 +475,7 @@ class ServerTracker : public ServerTrackerInterface {
      */
     class ServerChange {
       PUBLIC:
-        ServerChange(const ServerChangeDetails& server,
+        ServerChange(const ServerDetails& server,
                      ServerChangeEvent event)
             : server(server),
               event(event)
@@ -429,7 +483,7 @@ class ServerTracker : public ServerTrackerInterface {
         }
 
         /// Details of the server which was added to or removed from the system.
-        ServerChangeDetails server;
+        ServerDetails server;
 
         /// Event type: either addition or removal.
         ServerChangeEvent event;
@@ -448,7 +502,7 @@ class ServerTracker : public ServerTrackerInterface {
          * Add the given change event for the given server to the queue.
          */
         void
-        addChange(const ServerChangeDetails& server,
+        addChange(const ServerDetails& server,
                   ServerChangeEvent event)
         {
             std::lock_guard<SpinLock> lock(vectorLock);
@@ -509,7 +563,7 @@ class ServerTracker : public ServerTrackerInterface {
         operator=(const ServerDetailsWithTPtr&) = default;
 
         /// Details of the server associated with this index in the serverList.
-        ServerChangeDetails server;
+        ServerDetails server;
 
         /// Pointer type T associated with this ServerId in the serverList.
         T* pointer;
@@ -533,7 +587,7 @@ class ServerTracker : public ServerTrackerInterface {
 
     /// Optional callback to fire each time an entry (i.e. a server add or
     /// remove notice) is added to queue
-    Tub<EventCallback> eventCallback;
+    Callback* eventCallback;
 
     /// Number of servers in the tracker.
     uint32_t numberOfServers;

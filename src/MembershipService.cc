@@ -134,10 +134,12 @@ MembershipService::setServerList(const SetServerListRpc::Request& reqHdr,
             const string& locator = server.service_locator();
             ServiceMask services =
                 ServiceMask::deserialize(server.service_mask());
+            uint32_t readMBytesPerSec = downCast<uint32_t>(server.user_data());
             LOG(__DEBUG, "  Adding server id %lu (locator \"%s\") "
-                         "with services %s",
-                *id, locator.c_str(), services.toString().c_str());
-            serverList.add(id, locator, services);
+                         "with services %s and %u MB/s storage",
+                *id, locator.c_str(), services.toString().c_str(),
+                readMBytesPerSec);
+            serverList.add(id, locator, services, readMBytesPerSec);
         }
     }
 
@@ -181,10 +183,12 @@ MembershipService::updateServerList(const UpdateServerListRpc::Request& reqHdr,
             const string& locator = server.service_locator();
             ServiceMask services =
                 ServiceMask::deserialize(server.service_mask());
+            uint32_t readMBytesPerSec = downCast<uint32_t>(server.user_data());
             LOG(__DEBUG, "  Adding server id %lu (locator \"%s\") "
-                         "with services %s",
-                *id, locator.c_str(), services.toString().c_str());
-            serverList.add(id, locator, services);
+                         "with services %s and %u MB/s storage",
+                *id, locator.c_str(), services.toString().c_str(),
+                readMBytesPerSec);
+            serverList.add(id, locator, services, readMBytesPerSec);
         } else {
             if (!serverList.contains(id)) {
                 LOG(ERROR, "  Cannot remove server id %lu: The server is "

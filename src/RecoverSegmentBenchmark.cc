@@ -40,7 +40,7 @@ class RecoverSegmentBenchmark {
         config.services = {MASTER_SERVICE};
         config.master.numReplicas = 0;
         service = new MasterService(config, NULL, serverList);
-        service->serverId.construct(1);
+        service->serverId = ServerId(1, 0);
     }
 
     ~RecoverSegmentBenchmark()
@@ -82,7 +82,7 @@ class RecoverSegmentBenchmark {
         tablet.set_start_object_id(0);
         tablet.set_end_object_id(nextObjId - 1);
         tablet.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
-        tablet.set_server_id(service->serverId);
+        tablet.set_server_id(service->serverId.getId());
         ProtoBuf::Tablets tablets;
         *tablets.add_tablet() = tablet;
         service->setTablets(tablets);

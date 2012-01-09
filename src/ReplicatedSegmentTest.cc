@@ -16,6 +16,7 @@
 #include <queue>
 
 #include "TestUtil.h"
+#include "BackupSelector.h"
 #include "Memory.h"
 #include "ReplicatedSegment.h"
 #include "ShortMacros.h"
@@ -36,33 +37,25 @@ struct MockBackupSelector : public BaseBackupSelector {
         makeSimpleHostList(count);
     }
 
-    Backup* selectPrimary(uint32_t numBackups, const ServerId backupIds[]) {
+    ServerId selectPrimary(uint32_t numBackups, const ServerId backupIds[]) {
         return selectSecondary(numBackups, backupIds);
     }
 
-    Backup* selectSecondary(uint32_t numBackups, const ServerId backupIds[]) {
+    ServerId selectSecondary(uint32_t numBackups, const ServerId backupIds[]) {
         assert(backups.size());
         for (uint32_t i = 0; i < numBackups; ++i)
             TEST_LOG("conflicting backupId: %lu", *backupIds[i]);
-        Backup* backup = &backups[nextIndex++];
+        ServerId backup = backups[nextIndex++];
         nextIndex %= backups.size();
         return backup;
     }
 
     void makeSimpleHostList(size_t count) {
-        for (size_t i = 0; i < count; ++i) {
-            backups.push_back(Backup());
-            Backup& backup = backups.back();
-            backup.set_service_mask(
-                ServiceMask{BACKUP_SERVICE}.serialize());
-            backup.set_server_id(downCast<uint32_t>(i));
-            string locator = format("mock:host=backup%lu", backup.server_id());
-            backup.set_service_locator(locator);
-            backup.set_user_data(0u);
-        }
+        for (uint32_t i = 0; i < count; ++i)
+            backups.push_back(ServerId(i, 0));
     }
 
-    std::vector<Backup> backups;
+    std::vector<ServerId> backups;
     size_t nextIndex;
 };
 
@@ -82,6 +75,8 @@ struct ReplicatedSegmentTest : public ::testing::Test {
     enum { DATA_LEN = 100 };
     enum { MAX_BYTES_PER_WRITE = 21 };
     TaskManager taskManager;
+    ServerList serverList;
+    BackupTracker tracker;
     CountingDeleter deleter;
     uint32_t writeRpcsInFlight;
     std::mutex dataMutex;
@@ -97,10 +92,12 @@ struct ReplicatedSegmentTest : public ::testing::Test {
 
     ReplicatedSegmentTest()
         : taskManager()
+        , serverList()
+        , tracker(serverList, NULL)
         , deleter()
         , writeRpcsInFlight(0)
         , dataMutex()
-        , masterId(ServerId(999, 0))
+        , masterId(999, 0)
         , segmentId(888)
         , data()
         , openLen(10)
@@ -110,18 +107,23 @@ struct ReplicatedSegmentTest : public ::testing::Test {
         , _(transport)
         , segment(NULL)
     {
-        // Queue STATUS_OK responses. Works to ack both frees and writes.
-        for (int i = 0; i < 100; ++i)
-            transport.setInput("0");
-
         void* segMem = operator new(ReplicatedSegment::sizeOf(numReplicas));
         segment = std::unique_ptr<ReplicatedSegment>(
-                new(segMem) ReplicatedSegment(taskManager, backupSelector,
+                new(segMem) ReplicatedSegment(taskManager, tracker,
+                                              backupSelector,
                                               deleter, writeRpcsInFlight,
                                               dataMutex,
                                               masterId, segmentId,
                                               data, openLen, numReplicas,
                                               MAX_BYTES_PER_WRITE));
+        serverList.add(ServerId(0, 0), "mock:host=backup1",
+                       {BACKUP_SERVICE}, 100);
+        serverList.add(ServerId(1, 0), "mock:host=backup2",
+                       {BACKUP_SERVICE}, 100);
+        ServerDetails server;
+        ServerChangeEvent event;
+        tracker.getChange(server, event);
+        tracker.getChange(server, event);
 
         const char* msg = "abcedfghijklmnopqrstuvwxyz";
         size_t msgLen = strlen(msg);
@@ -164,6 +166,11 @@ TEST_F(ReplicatedSegmentTest, free) {
 }
 
 TEST_F(ReplicatedSegmentTest, freeWriteRpcInProgress) {
+    transport.setInput("0 0 0"); // id check
+    transport.setInput("0"); // write
+    transport.setInput("0 1 0"); // id check
+    transport.setInput("0"); // write
+
     segment->write(openLen);
     segment->close(NULL);
     taskManager.proceed(); // writeRpc created
@@ -197,8 +204,17 @@ TEST_F(ReplicatedSegmentTest, close) {
 }
 
 TEST_F(ReplicatedSegmentTest, sync) {
+    transport.setInput("0 0 0"); // server id check
+    transport.setInput("0"); // write
+    transport.setInput("0 1 0"); // server id check
+    transport.setInput("0"); // write
+    transport.setInput("0"); // write
+    transport.setInput("0"); // write
+
     segment->sync(segment->queued.bytes); // first sync sends the opens
-    EXPECT_EQ("clientSend: 0x10022 0 999 0 888 0 0 10 5 0 abcedfghij | "
+    EXPECT_EQ("clientSend: 0x40028 | "
+              "clientSend: 0x10022 0 999 0 888 0 0 10 5 0 abcedfghij | "
+              "clientSend: 0x40028 | "
               "clientSend: 0x10022 0 999 0 888 0 0 10 1 0 abcedfghij",
                transport.outputLog);
     transport.outputLog = "";
@@ -223,9 +239,23 @@ TEST_F(ReplicatedSegmentTest, sync) {
 }
 
 TEST_F(ReplicatedSegmentTest, syncDoubleCheckCrossSegmentOrderingConstraints) {
+    transport.setInput("0 0 0"); // server id check
+    transport.setInput("0"); // write - newHead open
+    transport.setInput("0 1 0"); // server id check
+    transport.setInput("0"); // write - newHead open
+    transport.setInput("0 0 0"); // server id check
+    transport.setInput("0"); // write - segment open
+    transport.setInput("0 1 0"); // server id check
+    transport.setInput("0"); // write - segment open
+    transport.setInput("0"); // write
+    transport.setInput("0"); // write
+    transport.setInput("0"); // write
+    transport.setInput("0"); // write
+
     void* segMem = operator new(ReplicatedSegment::sizeOf(numReplicas));
     auto newHead = std::unique_ptr<ReplicatedSegment>(
-            new(segMem) ReplicatedSegment(taskManager, backupSelector,
+            new(segMem) ReplicatedSegment(taskManager, tracker,
+                                          backupSelector,
                                           deleter, writeRpcsInFlight,
                                           dataMutex,
                                           masterId, segmentId + 1,
@@ -256,9 +286,13 @@ TEST_F(ReplicatedSegmentTest, syncDoubleCheckCrossSegmentOrderingConstraints) {
 
     EXPECT_EQ("", transport.outputLog);
     newHead->sync(newHead->queued.bytes);
-    EXPECT_EQ("clientSend: 0x10022 0 999 0 889 0 0 10 5 0 abcedfghij | "
+    EXPECT_EQ("clientSend: 0x40028 | "
+              "clientSend: 0x10022 0 999 0 889 0 0 10 5 0 abcedfghij | "
+              "clientSend: 0x40028 | "
               "clientSend: 0x10022 0 999 0 889 0 0 10 1 0 abcedfghij | "
+              "clientSend: 0x40028 | "
               "clientSend: 0x10022 0 999 0 888 0 0 10 5 0 abcedfghij | "
+              "clientSend: 0x40028 | "
               "clientSend: 0x10022 0 999 0 888 0 0 10 1 0 abcedfghij | "
               "clientSend: 0x10022 0 999 0 888 0 10 0 2 0 | "
               "clientSend: 0x10022 0 999 0 888 0 10 0 2 0 | "
@@ -290,6 +324,11 @@ TEST_F(ReplicatedSegmentTest, performTaskFreeOneReplicaToFree) {
 }
 
 TEST_F(ReplicatedSegmentTest, performTaskWrite) {
+    transport.setInput("0 0 0"); // server id check
+    transport.setInput("0"); // write
+    transport.setInput("0 1 0"); // server id check
+    transport.setInput("0"); // write
+
     taskManager.proceed();
     ASSERT_TRUE(segment->replicas[0]);
     EXPECT_TRUE(segment->isScheduled());
@@ -307,6 +346,9 @@ TEST_F(ReplicatedSegmentTest, performFreeNothingToDo) {
 
 TEST_F(ReplicatedSegmentTest, performFreeRpcIsReady) {
     reset();
+
+    transport.setInput("0 0 0"); // server id check
+
     Transport::SessionRef session = transport.getSession();
 
     segment->freeQueued = true;
@@ -354,6 +396,13 @@ TEST_F(ReplicatedSegmentTest, performFreeWriteRpcInProgress) {
     // free, but its worth keeping the code since it is more robust if
     // the code knows how to deal with queued frees while there are
     // outstanding writes in progress.
+    transport.setInput("0 0 0"); // server id check
+    transport.setInput("0"); // write
+    transport.setInput("0 1 0"); // server id check
+    transport.setInput("0"); // write
+    transport.setInput("0"); // free
+    transport.setInput("0"); // free
+
     segment->write(openLen);
     segment->close(NULL);
     taskManager.proceed(); // writeRpc created
@@ -387,17 +436,26 @@ TEST_F(ReplicatedSegmentTest, performFreeWriteRpcInProgress) {
 }
 
 TEST_F(ReplicatedSegmentTest, performWriteOpen) {
+    transport.setInput("0 0 0"); // server id check
+    transport.setInput("0"); // write
+    transport.setInput("0 1 0"); // server id check
+    transport.setInput("0"); // write
+
     segment->write(openLen);
     segment->close(NULL);
     {
         TestLog::Enable _;
         taskManager.proceed();
-        EXPECT_STREQ("selectSecondary: conflicting backupId: 0",
+        EXPECT_STREQ("checkStatus: status: 0 | "
+                     "selectSecondary: conflicting backupId: 0 | "
+                     "checkStatus: status: 0",
                      TestLog::get().c_str());
     }
 
     // "10 5" is length 10 (OPEN | PRIMARY), "10 1" is length 10 OPEN
-    EXPECT_STREQ("clientSend: 0x10022 0 999 0 888 0 0 10 5 0 abcedfghij | "
+    EXPECT_STREQ("clientSend: 0x40028 | "
+                 "clientSend: 0x10022 0 999 0 888 0 0 10 5 0 abcedfghij | "
+                 "clientSend: 0x40028 | "
                  "clientSend: 0x10022 0 999 0 888 0 0 10 1 0 abcedfghij",
                  transport.outputLog.c_str());
 
@@ -411,6 +469,13 @@ TEST_F(ReplicatedSegmentTest, performWriteOpen) {
 }
 
 TEST_F(ReplicatedSegmentTest, performWriteOpenTooManyInFlight) {
+    transport.setInput("0 0 0"); // server id check
+    transport.setInput("0"); // write
+    transport.setInput("0 1 0"); // server id check
+    transport.setInput("0"); // write
+    transport.setInput("0 1 0"); // server id check
+    transport.setInput("0"); // write
+
     writeRpcsInFlight = ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT;
     segment->write(openLen);
     taskManager.proceed(); // try to send writes
@@ -420,7 +485,8 @@ TEST_F(ReplicatedSegmentTest, performWriteOpenTooManyInFlight) {
 
     writeRpcsInFlight = ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT - 1;
     taskManager.proceed(); // retry writes since a slot freed up
-    EXPECT_STREQ("clientSend: 0x10022 0 999 0 888 0 0 10 5 0 abcedfghij",
+    EXPECT_STREQ("clientSend: 0x40028 | "
+                 "clientSend: 0x10022 0 999 0 888 0 0 10 5 0 abcedfghij",
                  transport.outputLog.c_str());
     EXPECT_EQ(ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT, writeRpcsInFlight);
     ASSERT_TRUE(segment->replicas[0]);
@@ -431,7 +497,9 @@ TEST_F(ReplicatedSegmentTest, performWriteOpenTooManyInFlight) {
     EXPECT_TRUE(segment->isScheduled());
 
     taskManager.proceed(); // reap write and send the second replica's rpc
-    EXPECT_STREQ("clientSend: 0x10022 0 999 0 888 0 0 10 5 0 abcedfghij | "
+    EXPECT_STREQ("clientSend: 0x40028 | "
+                 "clientSend: 0x10022 0 999 0 888 0 0 10 5 0 abcedfghij | "
+                 "clientSend: 0x40028 | "
                  "clientSend: 0x10022 0 999 0 888 0 0 10 1 0 abcedfghij",
                  transport.outputLog.c_str());
     EXPECT_EQ(ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT, writeRpcsInFlight);
@@ -451,6 +519,11 @@ TEST_F(ReplicatedSegmentTest, performWriteOpenTooManyInFlight) {
 }
 
 TEST_F(ReplicatedSegmentTest, performWriteRpcIsReady) {
+    transport.setInput("0 0 0"); // server id check
+    transport.setInput("0"); // write
+    transport.setInput("0 1 0"); // server id check
+    transport.setInput("0"); // write
+
     segment->write(openLen);
     segment->close(NULL);
 
@@ -470,8 +543,11 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcIsReady) {
 
 TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
     transport.clearInput();
+    transport.setInput("0 0 0"); // server id check
     transport.setInput("0"); // ok first replica open
+    transport.setInput("0 1 0"); // server id check
     transport.setInput(NULL); // error second replica open
+    transport.setInput("0 0 0"); // server id check
     transport.setInput("0"); // ok second replica reopen
     transport.setInput(NULL); // error first replica close
     transport.setInput("0"); // ok second replica close
@@ -486,7 +562,9 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
     ASSERT_TRUE(segment->replicas[1]);
     EXPECT_EQ(openLen, segment->replicas[1]->sent.bytes);
 
-    EXPECT_STREQ("clientSend: 0x10022 0 999 0 888 0 0 10 5 0 abcedfghij | "
+    EXPECT_STREQ("clientSend: 0x40028 | "
+                 "clientSend: 0x10022 0 999 0 888 0 0 10 5 0 abcedfghij | "
+                 "clientSend: 0x40028 | "
                  "clientSend: 0x10022 0 999 0 888 0 0 10 1 0 abcedfghij",
                  transport.outputLog.c_str());
     transport.outputLog = "";
@@ -504,7 +582,8 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
     ASSERT_FALSE(segment->replicas[1]);
 
     taskManager.proceed();  // resend second open request
-    EXPECT_STREQ("clientSend: 0x10022 0 999 0 888 0 0 10 1 0 abcedfghij",
+    EXPECT_STREQ("clientSend: 0x40028 | "
+                 "clientSend: 0x10022 0 999 0 888 0 0 10 1 0 abcedfghij",
                  transport.outputLog.c_str());
     transport.outputLog = "";
     taskManager.proceed();  // reap second open request
@@ -547,6 +626,13 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
 }
 
 TEST_F(ReplicatedSegmentTest, performWriteMoreToSend) {
+    transport.setInput("0 0 0"); // server id check
+    transport.setInput("0"); // write
+    transport.setInput("0 1 0"); // server id check
+    transport.setInput("0"); // write
+    transport.setInput("0"); // write
+    transport.setInput("0"); // write
+
     segment->write(openLen + 20);
     segment->close(NULL);
     taskManager.proceed(); // send open
@@ -569,6 +655,15 @@ TEST_F(ReplicatedSegmentTest, performWriteMoreToSend) {
 }
 
 TEST_F(ReplicatedSegmentTest, performWriteClosedButLongerThanMaxTxLimit) {
+    transport.setInput("0 0 0"); // server id check
+    transport.setInput("0"); // write
+    transport.setInput("0 1 0"); // server id check
+    transport.setInput("0"); // write
+    transport.setInput("0"); // write
+    transport.setInput("0"); // write
+    transport.setInput("0"); // close
+    transport.setInput("0"); // close
+
     segment->write(segment->maxBytesPerWriteRpc + segment->openLen + 1);
     segment->close(NULL);
     taskManager.proceed(); // send open
@@ -602,12 +697,24 @@ TEST_F(ReplicatedSegmentTest, performWriteClosedButLongerThanMaxTxLimit) {
 }
 
 TEST_F(ReplicatedSegmentTest, performWriteEnsureNewHeadOpenAckedBeforeClose) {
+    transport.setInput("0 0 0"); // id check
+    transport.setInput("0"); // write - segment open
+    transport.setInput("0 1 0"); // id check
+    transport.setInput("0"); // write - segment open
+    transport.setInput("0 0 0"); // id check
+    transport.setInput("0"); // write - newHead open
+    transport.setInput("0 1 0"); // id check
+    transport.setInput("0"); // write - newHead open
+    transport.setInput("0"); // write - segment close
+    transport.setInput("0"); // write - segment close
+
     taskManager.proceed(); // send segment open
     taskManager.proceed(); // reap segment open
 
     void* segMem = operator new(ReplicatedSegment::sizeOf(numReplicas));
     auto newHead = std::unique_ptr<ReplicatedSegment>(
-            new(segMem) ReplicatedSegment(taskManager, backupSelector,
+            new(segMem) ReplicatedSegment(taskManager, tracker,
+                                          backupSelector,
                                           deleter, writeRpcsInFlight,
                                           dataMutex,
                                           masterId, segmentId + 1,
@@ -646,9 +753,23 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureNewHeadOpenAckedBeforeClose) {
 }
 
 TEST_F(ReplicatedSegmentTest, performWriteEnsureCloseBeforeNewHeadWrittenTo) {
+    transport.setInput("0 0 0"); // id check
+    transport.setInput("0"); // write - segment open
+    transport.setInput("0 1 0"); // id check
+    transport.setInput("0"); // write - segment open
+    transport.setInput("0 0 0"); // id check
+    transport.setInput("0"); // write - newHead open
+    transport.setInput("0 1 0"); // id check
+    transport.setInput("0"); // write - newHead open
+    transport.setInput("0"); // write - segment close
+    transport.setInput("0"); // write - segment close
+    transport.setInput("0"); // write - newHead
+    transport.setInput("0"); // write - newHead
+
     void* segMem = operator new(ReplicatedSegment::sizeOf(numReplicas));
     auto newHead = std::unique_ptr<ReplicatedSegment>(
-            new(segMem) ReplicatedSegment(taskManager, backupSelector,
+            new(segMem) ReplicatedSegment(taskManager, tracker,
+                                          backupSelector,
                                           deleter, writeRpcsInFlight,
                                           dataMutex,
                                           masterId, segmentId + 1,

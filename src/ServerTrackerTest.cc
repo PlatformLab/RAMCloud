@@ -20,23 +20,23 @@
 
 namespace RAMCloud {
 
-static int callbacksFired = 0;
-
-static void
-callback()
-{
-    callbacksFired++;
-}
+struct CountCallback : public ServerTracker<int>::Callback {
+    CountCallback() : callbacksFired() {}
+    void trackerChangesEnqueued() { ++callbacksFired; }
+    int callbacksFired;
+};
 
 class ServerTrackerTest : public ::testing::Test {
   public:
     ServerTrackerTest()
-        : sl(),
-          tr(sl),
-          trcb(sl, callback)
+        : callback()
+        , sl()
+        , tr(sl)
+        , trcb(sl, &callback)
     {
     }
 
+    CountCallback callback;
     ServerList sl;
     ServerTracker<int> tr;
     ServerTracker<int> trcb;
@@ -53,24 +53,24 @@ TEST_F(ServerTrackerTest, constructors) {
     EXPECT_EQ(0U, trcb.serverList.size());
     EXPECT_FALSE(trcb.changes.areChanges());
     EXPECT_TRUE(trcb.eventCallback);
-    EXPECT_TRUE(callback == *(trcb.eventCallback));
+    EXPECT_TRUE(&callback == trcb.eventCallback);
     EXPECT_EQ(static_cast<uint32_t>(-1), trcb.lastRemovedIndex);
 }
 
 TEST_F(ServerTrackerTest, enqueueChange) {
     EXPECT_EQ(0U, tr.serverList.size());
     EXPECT_EQ(0U, tr.changes.changes.size());
-    tr.enqueueChange(ServerChangeDetails(ServerId(2, 0)),
+    tr.enqueueChange(ServerDetails(ServerId(2, 0)),
                      ServerChangeEvent::SERVER_ADDED);
     EXPECT_EQ(3U, tr.serverList.size());
     EXPECT_EQ(1U, tr.changes.changes.size());
 
-    trcb.enqueueChange(ServerChangeDetails(ServerId(0, 0)),
+    trcb.enqueueChange(ServerDetails(ServerId(0, 0)),
                        ServerChangeEvent::SERVER_ADDED);
-    EXPECT_EQ(1, callbacksFired);
-    trcb.enqueueChange(ServerChangeDetails(ServerId(0, 0)),
+    EXPECT_EQ(1, callback.callbacksFired);
+    trcb.enqueueChange(ServerDetails(ServerId(0, 0)),
                        ServerChangeEvent::SERVER_REMOVED);
-    EXPECT_EQ(2, callbacksFired);
+    EXPECT_EQ(2, callback.callbacksFired);
 
     // Ensure nothing was actually added to the lists.
     for (size_t i = 0; i < tr.serverList.size(); i++) {
@@ -85,7 +85,7 @@ TEST_F(ServerTrackerTest, enqueueChange) {
 
 TEST_F(ServerTrackerTest, areChanges) {
     EXPECT_FALSE(tr.areChanges());
-    tr.enqueueChange(ServerChangeDetails(ServerId(2, 0)),
+    tr.enqueueChange(ServerDetails(ServerId(2, 0)),
                      ServerChangeEvent::SERVER_ADDED);
     EXPECT_TRUE(tr.areChanges());
 }
@@ -98,13 +98,13 @@ getChangeFilter(string s)
 
 TEST_F(ServerTrackerTest, getChange) {
     TestLog::Enable _(&getChangeFilter);
-    ServerChangeDetails server;
+    ServerDetails server;
     ServerChangeEvent event;
 
     // Add
     EXPECT_FALSE(tr.getChange(server, event));
     EXPECT_EQ(0U, tr.serverList.size());
-    tr.enqueueChange(ServerChangeDetails(ServerId(2, 0), "Prophylaxis",
+    tr.enqueueChange(ServerDetails(ServerId(2, 0), "Prophylaxis",
                      {BACKUP_SERVICE}), ServerChangeEvent::SERVER_ADDED);
     EXPECT_EQ(3U, tr.serverList.size());
     EXPECT_FALSE(tr.serverList[2].server.serverId.isValid());
@@ -121,7 +121,7 @@ TEST_F(ServerTrackerTest, getChange) {
 
     // Remove
     tr[ServerId(2, 0)] = reinterpret_cast<int*>(57);
-    tr.enqueueChange(ServerChangeDetails(ServerId(2, 0)),
+    tr.enqueueChange(ServerDetails(ServerId(2, 0)),
                      ServerChangeEvent::SERVER_REMOVED);
     EXPECT_EQ(reinterpret_cast<void*>(57), tr[ServerId(2, 0)]);
     EXPECT_TRUE(tr.getChange(server, event));
@@ -140,11 +140,13 @@ TEST_F(ServerTrackerTest, getChange) {
 }
 
 TEST_F(ServerTrackerTest, getRandomServerIdWithService) {
-    ServerChangeDetails server;
+    Context::get().logger->setLogLevels(SILENT_LOG_LEVEL);
+
+    ServerDetails server;
     ServerChangeEvent event;
 
     EXPECT_FALSE(tr.getRandomServerIdWithService(MASTER_SERVICE).isValid());
-    tr.enqueueChange(ServerChangeDetails(ServerId(0, 1), "", {MASTER_SERVICE}),
+    tr.enqueueChange(ServerDetails(ServerId(0, 1), "", {MASTER_SERVICE}),
                      ServerChangeEvent::SERVER_ADDED);
     EXPECT_FALSE(tr.getRandomServerIdWithService(MASTER_SERVICE).isValid());
 
@@ -159,7 +161,7 @@ TEST_F(ServerTrackerTest, getRandomServerIdWithService) {
                   tr.getRandomServerIdWithService(BACKUP_SERVICE));
     }
 
-    tr.enqueueChange(ServerChangeDetails(ServerId(1, 1), "", {MASTER_SERVICE}),
+    tr.enqueueChange(ServerDetails(ServerId(1, 1), "", {MASTER_SERVICE}),
                      ServerChangeEvent::SERVER_ADDED);
 
     EXPECT_TRUE(tr.getChange(server, event));
@@ -176,35 +178,79 @@ TEST_F(ServerTrackerTest, getRandomServerIdWithService) {
     EXPECT_TRUE(secondSeen);
 
     // Ensure looping over empty list terminates.
-    tr.enqueueChange(ServerChangeDetails(ServerId(0, 1)),
+    tr.enqueueChange(ServerDetails(ServerId(0, 1)),
                      ServerChangeEvent::SERVER_REMOVED);
-    tr.enqueueChange(ServerChangeDetails(ServerId(1, 1)),
+    tr.enqueueChange(ServerDetails(ServerId(1, 1)),
                      ServerChangeEvent::SERVER_REMOVED);
     EXPECT_TRUE(tr.getChange(server, event));
     EXPECT_TRUE(tr.getChange(server, event));
     EXPECT_FALSE(tr.getRandomServerIdWithService({MASTER_SERVICE}).isValid());
 }
 
+TEST_F(ServerTrackerTest, getRandomServerIdWithService_evenDistribution) {
+    Context::get().logger->setLogLevels(SILENT_LOG_LEVEL);
+
+    ServerDetails server;
+    ServerChangeEvent event;
+    tr.enqueueChange(ServerDetails(ServerId(1, 0), "", {BACKUP_SERVICE}),
+                     ServerChangeEvent::SERVER_ADDED);
+    tr.enqueueChange(ServerDetails(ServerId(2, 0), "", {BACKUP_SERVICE}),
+                     ServerChangeEvent::SERVER_ADDED);
+    tr.enqueueChange(ServerDetails(ServerId(3, 0), "", {BACKUP_SERVICE}),
+                     ServerChangeEvent::SERVER_ADDED);
+    EXPECT_TRUE(tr.getChange(server, event));
+    EXPECT_TRUE(tr.getChange(server, event));
+    EXPECT_TRUE(tr.getChange(server, event));
+    EXPECT_FALSE(tr.getChange(server, event));
+    ASSERT_EQ(3u, tr.size());
+
+    std::vector<uint32_t> counts(tr.size(), 0);
+    for (int i = 0; i < 10000; ++i) {
+        ServerId id =
+            tr.getRandomServerIdWithService(BACKUP_SERVICE);
+        counts[id.indexNumber() - 1]++;
+    }
+
+    // Check to make sure the most-significant digit is what we expect:
+    // Each backup should be returned about 1/3 of the time (3333 times).
+    foreach (uint32_t count, counts) {
+        LOG(ERROR, "%u", count);
+        EXPECT_EQ(3u, count / 1000);
+    }
+}
+
 TEST_F(ServerTrackerTest, getLocator) {
     EXPECT_THROW(tr.getLocator(ServerId(1, 0)), Exception);
-    tr.enqueueChange(ServerChangeDetails(ServerId(1, 1), "mock:",
+    tr.enqueueChange(ServerDetails(ServerId(1, 1), "mock:",
                                          {MASTER_SERVICE}),
                      ServerChangeEvent::SERVER_ADDED);
-    ServerChangeDetails server;
+    ServerDetails server;
     ServerChangeEvent event;
     EXPECT_TRUE(tr.getChange(server, event));
     EXPECT_THROW(tr.getLocator(ServerId(2, 0)), Exception);
     EXPECT_EQ("mock:", tr.getLocator(ServerId(1, 1)));
 }
 
+TEST_F(ServerTrackerTest, getServerDetails) {
+    EXPECT_THROW(tr.getLocator(ServerId(1, 0)), Exception);
+    ServerDetails details(ServerId(1, 1), "mock:", {MASTER_SERVICE});
+    tr.enqueueChange(details, ServerChangeEvent::SERVER_ADDED);
+    ServerDetails server;
+    ServerChangeEvent event;
+    EXPECT_TRUE(tr.getChange(server, event));
+    EXPECT_THROW(tr.getLocator(ServerId(2, 0)), Exception);
+    EXPECT_EQ(details.services.serialize(),
+              tr.getServerDetails(ServerId(1, 1))->services.serialize());
+}
+
 TEST_F(ServerTrackerTest, indexOperator) {
     TestLog::Enable _; // suck up getChange WARNING
-    ServerChangeDetails server;
+    ServerDetails server;
     ServerChangeEvent event;
 
     EXPECT_THROW(tr[ServerId(0, 0)], Exception);
 
-    tr.enqueueChange(ServerChangeDetails(ServerId(0, 0)),
+    tr.enqueueChange(ServerDetails(ServerId(0, 0)),
                      ServerChangeEvent::SERVER_ADDED);
     EXPECT_TRUE(tr.getChange(server, event));
     tr[ServerId(0, 0)] = reinterpret_cast<int*>(45);
@@ -212,7 +258,7 @@ TEST_F(ServerTrackerTest, indexOperator) {
     EXPECT_EQ(reinterpret_cast<int*>(45), tr[ServerId(0, 0)]);
     EXPECT_THROW(tr[ServerId(0, 1)], Exception);
 
-    tr.enqueueChange(ServerChangeDetails(ServerId(0, 0)),
+    tr.enqueueChange(ServerDetails(ServerId(0, 0)),
                      ServerChangeEvent::SERVER_REMOVED);
     EXPECT_TRUE(tr.getChange(server, event));
     EXPECT_NO_THROW(tr[ServerId(0, 0)]);
@@ -224,17 +270,17 @@ TEST_F(ServerTrackerTest, indexOperator) {
 }
 
 TEST_F(ServerTrackerTest, size) {
-    ServerChangeDetails server;
+    ServerDetails server;
     ServerChangeEvent event;
 
     EXPECT_EQ(0U, tr.size());
-    tr.enqueueChange(ServerChangeDetails(ServerId(0, 0)),
+    tr.enqueueChange(ServerDetails(ServerId(0, 0)),
                      ServerChangeEvent::SERVER_ADDED);
     EXPECT_EQ(0U, tr.size());
     tr.getChange(server, event);
     EXPECT_EQ(1U, tr.size());
 
-    tr.enqueueChange(ServerChangeDetails(ServerId(0, 0)),
+    tr.enqueueChange(ServerDetails(ServerId(0, 0)),
                      ServerChangeEvent::SERVER_REMOVED);
     EXPECT_EQ(1U, tr.size());
     tr.getChange(server, event);
@@ -243,7 +289,7 @@ TEST_F(ServerTrackerTest, size) {
 
 TEST_F(ServerTrackerTest, ChangeQueue_addChange) {
     EXPECT_EQ(0U, tr.changes.changes.size());
-    tr.changes.addChange(ServerChangeDetails(ServerId(5, 4)),
+    tr.changes.addChange(ServerDetails(ServerId(5, 4)),
                          ServerChangeEvent::SERVER_ADDED);
     EXPECT_EQ(1U, tr.changes.changes.size());
     EXPECT_EQ(ServerId(5, 4), tr.changes.changes.front().server.serverId);
@@ -254,7 +300,7 @@ TEST_F(ServerTrackerTest, ChangeQueue_addChange) {
 TEST_F(ServerTrackerTest, ChangeQueue_getChange) {
     EXPECT_THROW(tr.changes.getChange(), Exception);
 
-    tr.changes.addChange(ServerChangeDetails(ServerId(5, 4)),
+    tr.changes.addChange(ServerDetails(ServerId(5, 4)),
                          ServerChangeEvent::SERVER_ADDED);
     ServerTracker<int>::ServerChange change = tr.changes.getChange();
     EXPECT_EQ(0U, tr.changes.changes.size());

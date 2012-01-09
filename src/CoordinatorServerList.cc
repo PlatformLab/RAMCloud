@@ -56,6 +56,10 @@ CoordinatorServerList::~CoordinatorServerList()
  * \param serviceMask
  *      Which services this server supports.
  *
+ *  \param readSpeed
+ *      Speed of the storage on the enlisting server if it includes a backup
+ *      service.  Argument is ignored otherwise.
+ *
  * \param protoBuf
  *      Protocol Buffer to serialise the added entry in to. This message can
  *      then be sent along to other servers in the cluster, alerting them of
@@ -67,6 +71,7 @@ CoordinatorServerList::~CoordinatorServerList()
 ServerId
 CoordinatorServerList::add(string serviceLocator,
                            ServiceMask serviceMask,
+                           uint32_t readSpeed,
                            ProtoBuf::ServerList& protoBuf)
 {
     uint32_t index = firstFreeIndex();
@@ -77,8 +82,10 @@ CoordinatorServerList::add(string serviceLocator,
 
     if (serviceMask.has(MASTER_SERVICE))
         numberOfMasters++;
-    if (serviceMask.has(BACKUP_SERVICE))
+    if (serviceMask.has(BACKUP_SERVICE)) {
         numberOfBackups++;
+        serverList[index].entry->backupReadMegsPerSecond = readSpeed;
+    }
 
     versionNumber++;
     ProtoBuf::ServerList_Entry& protoBufEntry(*protoBuf.add_server());

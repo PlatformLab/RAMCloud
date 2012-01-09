@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2011 Stanford University
+/* Copyright (c) 2009-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -24,6 +24,7 @@
 #include "BoostIntrusive.h"
 #include "BackupSelector.h"
 #include "ReplicatedSegment.h"
+#include "ServerTracker.h"
 #include "TaskManager.h"
 #include "Tub.h"
 
@@ -53,10 +54,12 @@ namespace RAMCloud {
  * There must be exactly one ReplicaManager per log otherwise behavior is
  * undefined.
  */
-class ReplicaManager : public ReplicatedSegment::Deleter {
+class ReplicaManager
+    : public ReplicatedSegment::Deleter
+{
    PUBLIC:
-    ReplicaManager(CoordinatorClient* coordinator,
-                   const Tub<ServerId>& masterId, uint32_t numReplicas);
+    ReplicaManager(ServerList& serverList,
+                   const ServerId& masterId, uint32_t numReplicas);
     ~ReplicaManager();
 
     ReplicatedSegment* openSegment(uint64_t segmentId,
@@ -69,6 +72,15 @@ class ReplicaManager : public ReplicatedSegment::Deleter {
 
   PRIVATE:
     void clusterConfigurationChanged();
+
+    /**
+     * A ServerTracker used to find backups and track replica distribution
+     * stats.  Each entry in the tracker contains a pointer to a BackupStats
+     * struct which stores the number of primary replicas stored on that
+     * server.  Used by ReplicatedSegments and #backupSelector; updated by
+     * #backupSelector.
+     */
+    BackupTracker tracker;
 
     /// Selects backups to store replicas while obeying placement constraints.
     BackupSelector backupSelector;
@@ -85,7 +97,7 @@ class ReplicaManager : public ReplicatedSegment::Deleter {
     typedef std::lock_guard<std::mutex> Lock;
 
     /// Id of master that this will be managing replicas for.
-    const Tub<ServerId>& masterId;
+    const ServerId& masterId;
 
     /// Allows fast reuse of ReplicatedSegment allocations.
     boost::pool<> replicatedSegmentPool;

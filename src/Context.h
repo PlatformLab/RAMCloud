@@ -27,7 +27,6 @@ class MockContextMember;
 class TransportManager;
 class ServiceManager;
 class SessionAlarmTimer;
-class ServerList;
 
 /**
  * Context is a container for global variables.

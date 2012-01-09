@@ -122,7 +122,7 @@ FailureDetector::detectorThreadEntry(FailureDetector* detector,
             break;
 
         // Drain the list of changes to update our tracker.
-        ServerChangeDetails dummy1;
+        ServerDetails dummy1;
         ServerChangeEvent dummy2;
         while (detector->serverTracker.getChange(dummy1, dummy2)) {
         }

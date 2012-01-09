@@ -103,7 +103,7 @@ TEST_F(CoordinatorServiceTest, createTable) {
 // TODO(ongaro): test drop, open table
 
 TEST_F(CoordinatorServiceTest, enlistServer) {
-    EXPECT_EQ(1U, master->serverId->getId());
+    EXPECT_EQ(1U, master->serverId.getId());
     EXPECT_EQ(ServerId(2, 0),
         client->enlistServer({BACKUP_SERVICE}, "mock:host=backup"));
 
@@ -227,7 +227,7 @@ TEST_F(CoordinatorServiceTest, hintServerDown_master) {
     foreach (const ProtoBuf::Tablets::Tablet& tablet,
                 service->tabletMap.tablet())
     {
-        if (tablet.server_id() == master->serverId->getId()) {
+        if (tablet.server_id() == master->serverId.getId()) {
             EXPECT_TRUE(&mockRecovery ==
                 reinterpret_cast<MyMockRecovery*>(tablet.user_data()));
         }
@@ -330,7 +330,6 @@ TEST_F(CoordinatorServiceTest, setWill) {
     EXPECT_THROW(client->setWill(23481234, will), InternalError);
 }
 
-#if 0
 TEST_F(CoordinatorServiceTest, requestServerList) {
     TestLog::Enable _;
 
@@ -344,12 +343,10 @@ TEST_F(CoordinatorServiceTest, requestServerList) {
         "requestServerList: Could not send list to server without "
         "membership service: 1"));
 
-    ServerId serverId;
-    ServerList serverList;
-    MembershipService member(serverId, serverList);
-    transport->addService(member, "mock:host=member", MEMBERSHIP_SERVICE);
-    ServerId id = client->enlistServer(
-        {MEMBERSHIP_SERVICE}, "mock:host=member", 0, 0);
+    ServerConfig config = ServerConfig::forTesting();
+    config.services = {MEMBERSHIP_SERVICE};
+    ServerId id = cluster.addServer(config)->serverId;
+
     TestLog::reset();
     client->requestServerList(id);
     EXPECT_EQ(0U, TestLog::get().find(
@@ -359,13 +356,11 @@ TEST_F(CoordinatorServiceTest, requestServerList) {
 }
 
 TEST_F(CoordinatorServiceTest, sendServerList) {
-    ServerId serverId;
-    ServerList serverList;
-    MembershipService member(serverId, serverList);
-    transport->addService(member, "mock:host=member", MEMBERSHIP_SERVICE);
-    ServerId id = client->enlistServer(
-        {MEMBERSHIP_SERVICE}, "mock:host=member", 0, 0);
-    TestLog::Enable _();
+    ServerConfig config = ServerConfig::forTesting();
+    config.services = {MEMBERSHIP_SERVICE};
+    ServerId id = cluster.addServer(config)->serverId;
+
+    TestLog::Enable _;
     service->sendServerList(id);
     EXPECT_NE(string::npos, TestLog::get().find(
         "setServerList: Got complete list of servers containing 1 "
@@ -373,18 +368,16 @@ TEST_F(CoordinatorServiceTest, sendServerList) {
 }
 
 TEST_F(CoordinatorServiceTest, sendMembershipUpdate) {
-    ServerId serverId;
-    ServerList serverList;
-    MembershipService member(serverId, serverList);
-    transport->addService(member, "mock:host=member", MEMBERSHIP_SERVICE);
-    ServerId id = client->enlistServer(
-        {MEMBERSHIP_SERVICE}, "mock:host=member", 0, 0);
+    ServerConfig config = ServerConfig::forTesting();
+    config.services = {MEMBERSHIP_SERVICE};
+    ServerId id = cluster.addServer(config)->serverId;
+
     ProtoBuf::ServerList update;
     update.set_version_number(3);
+    TestLog::Enable _;
     service->sendMembershipUpdate(update, ServerId(/* invalid id */));
     EXPECT_NE(string::npos, TestLog::get().find(
         "updateServerList: Got server list update (version number 3)"));
 }
-#endif
 
 }  // namespace RAMCloud

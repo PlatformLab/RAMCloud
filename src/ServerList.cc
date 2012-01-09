@@ -56,9 +56,14 @@ ServerList::~ServerList()
  *      The service locator of the server to add.
  * \param services
  *      Which services this server provides.
+ * \param expectedReadMBytesPerSec
+ *      If services.has(BACKUP_SERVICE) then this should describe the storage
+ *      performance the server reported when enlisting with the coordiantor,
+ *      otherwise the value is ignored.  In MB/s.
  */
 void
-ServerList::add(ServerId id, string locator, ServiceMask services)
+ServerList::add(ServerId id, const string& locator,
+                ServiceMask services, uint32_t expectedReadMBytesPerSec)
 {
     std::lock_guard<SpinLock> lock(mutex);
 
@@ -110,7 +115,7 @@ ServerList::add(ServerId id, string locator, ServiceMask services)
 
 
     auto& server = serverList[index];
-    server.construct(id, locator, services);
+    server.construct(id, locator, services, expectedReadMBytesPerSec);
 
     foreach (ServerTrackerInterface* tracker, trackers)
         tracker->enqueueChange(*server, ServerChangeEvent::SERVER_ADDED);

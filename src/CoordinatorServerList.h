@@ -89,6 +89,7 @@ class CoordinatorServerList {
     ~CoordinatorServerList();
     ServerId add(string serviceLocator,
                  ServiceMask serviceMask,
+                 uint32_t readSpeed,
                  ProtoBuf::ServerList& protoBuf);
     void remove(ServerId serverId,
                 ProtoBuf::ServerList& protoBuf);

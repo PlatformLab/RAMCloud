@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,72 +14,40 @@
  */
 
 #include "BackupSelector.h"
-#include "Segment.h"
+#include "Rpc.h"
 #include "ShortMacros.h"
+#include "Segment.h"
 
 namespace RAMCloud {
 
-namespace {
+// --- BackupStats ---
+
 /**
- * Packs and unpacks the user_data field of BackupSelector.hosts.
- * Used in BackupSelector.
+ * Return the expected number of milliseconds the backup would take to read
+ * from its disk all of the primary segments this master has stored on it
+ * plus an additional segment.
  */
-struct AbuserData{
-  private:
-    union X {
-        struct {
-            /**
-             * Disk bandwidth of the host in MB/s
-             */
-            uint32_t bandwidth;
-            /**
-             * Number of primary segments this master has stored on the backup.
-             */
-            uint32_t numSegments;
-        };
-        /**
-         * Raw user_data field.
-         */
-        uint64_t user_data;
-    } x;
-  public:
-    explicit AbuserData(const ProtoBuf::ServerList::Entry* host)
-        : x()
-    {
-        x.user_data = host->user_data();
-    }
-    X* operator*() { return &x; }
-    X* operator->() { return &x; }
-    /**
-     * Return the expected number of milliseconds the backup would take to read
-     * from its disk all of the primary segments this master has stored on it
-     * plus an additional segment.
-     */
-    uint32_t getMs() {
-        // unit tests, etc default to 100 MB/s
-        uint32_t bandwidth = x.bandwidth ?: 100;
-        if (bandwidth == 1u)
-            return 1u;
-        return downCast<uint32_t>((x.numSegments + 1) * 1000UL *
-                                  Segment::SEGMENT_SIZE /
-                                  1024 / 1024 / bandwidth);
-    }
-};
-} // anonymous namespace
+uint32_t
+BackupStats::getExpectedReadMs() {
+    // Careful here - this math will overflow 32-bit arithmetic.
+    // TODO(stutsman): Shouldn't use SEGMENT_SIZE constant here, but
+    //                 it doesn't affect correctness.
+    return downCast<uint32_t>(
+           uint64_t(primaryReplicaCount + 1) * 1000 *
+           Segment::SEGMENT_SIZE /
+           1024 / 1024 / expectedReadMBytesPerSec);
+}
 
 // --- BackupSelector ---
 
 /**
  * Constructor.
- * \param coordinator
- *      The coordinator from which the server list is fetched to find backups.
+ * \param tracker
+ *      The tracker used to find backups and track replica distribution
+ *      stats.
  */
-BackupSelector::BackupSelector(CoordinatorClient* coordinator)
-    : coordinator(coordinator)
-    , hosts()
-    , hostsOrder()
-    , numUsedHosts(0)
-    , updateHostListThrower()
+BackupSelector::BackupSelector(BackupTracker& tracker)
+    : tracker(tracker)
 {
 }
 
@@ -93,22 +61,24 @@ BackupSelector::BackupSelector(CoordinatorClient* coordinator)
  *      An array of numBackups backup ids, none of which may conflict with the
  *      returned backup.
  */
-BackupSelector::Backup*
+ServerId
 BackupSelector::selectPrimary(uint32_t numBackups,
                               const ServerId backupIds[])
 {
-    auto* primary = selectSecondary(numBackups, backupIds);
+    ServerId primary = selectSecondary(numBackups, backupIds);
     for (uint32_t i = 0; i < 5 - 1; ++i) {
-        auto* candidate = selectSecondary(numBackups, backupIds);
-        if (AbuserData(primary).getMs() > AbuserData(candidate).getMs())
+        ServerId candidate = selectSecondary(numBackups, backupIds);
+        if (tracker[primary]->getExpectedReadMs() >
+            tracker[candidate]->getExpectedReadMs()) {
             primary = candidate;
+        }
     }
-    AbuserData h(primary);
-    LOG(DEBUG, "Chose backup with %u segments and %u MB/s disk bandwidth "
-        "(expected time to read on recovery is %u ms)",
-        h->numSegments, h->bandwidth, h.getMs());
-    ++h->numSegments;
-    primary->set_user_data(h->user_data);
+    BackupStats* stats = tracker[primary];
+    LOG(DEBUG, "Chose server %lu with %u primary replicas and %u MB/s disk "
+               "bandwidth (expected time to read on recovery is %u ms)",
+               primary.getId(), stats->primaryReplicaCount,
+               stats->expectedReadMBytesPerSec, stats->getExpectedReadMs());
+    ++stats->primaryReplicaCount;
 
     return primary;
 }
@@ -122,19 +92,44 @@ BackupSelector::selectPrimary(uint32_t numBackups,
  *      An array of numBackups backup ids, none of which may conflict with the
  *      returned backup.
  */
-BackupSelector::Backup*
+ServerId
 BackupSelector::selectSecondary(uint32_t numBackups,
                                 const ServerId backupIds[])
 {
     while (true) {
-        for (uint32_t i = 0; i < uint32_t(hosts.server_size()) * 2; ++i) {
-            auto host = getRandomHost();
-            if (!conflictWithAny(host, numBackups, backupIds))
-                return host;
+        applyTrackerChanges();
+        ServerId id = tracker.getRandomServerIdWithService(BACKUP_SERVICE);
+        if (id.isValid() &&
+            !conflictWithAny(id, numBackups, backupIds)) {
+            return id;
         }
-        // The constraints must be unsatisfiable with the current backup list.
-        LOG(NOTICE, "Current list of backups is insufficient, refreshing");
-        updateHostListFromCoordinator();
+    }
+}
+
+// - private -
+
+/**
+ * Apply all updates to #tracker from the Server's ServerList since the last
+ * call to applyTrackerChanges().  selectSecondary() uses this to ensure that
+ * it is working with a fresh list of backups.
+ * This call allocates and deallocates tracker entries including their
+ * associated BackupStats structs.
+ */
+void
+BackupSelector::applyTrackerChanges()
+{
+    ServerDetails server;
+    ServerChangeEvent event;
+    while (tracker.getChange(server, event)) {
+        if (event == SERVER_ADDED) {
+           tracker[server.serverId] = new BackupStats;
+           tracker[server.serverId]->expectedReadMBytesPerSec =
+               server.expectedReadMBytesPerSec;
+        } else if (event == SERVER_REMOVED) {
+           BackupStats* stats = tracker[server.serverId];
+           delete stats;
+           tracker[server.serverId] = NULL;
+        }
     }
 }
 
@@ -145,16 +140,17 @@ BackupSelector::selectSecondary(uint32_t numBackups,
  * on backups that share a common power source.
  */
 bool
-BackupSelector::conflict(const Backup* backup,
+BackupSelector::conflict(const ServerId backupId,
                          const ServerId otherBackupId) const
 {
-    if (backup->server_id() == *otherBackupId)
+    if (backupId == otherBackupId)
         return true;
     // TODO(ongaro): Add other notions of conflicts, such as same rack.
     // TODO(stutsman): This doesn't even capture the notion of a master
     // conflicting with its local backup.  It only prevents us from
     // choosing the same backup more than once in odd edge cases of the
-    // algorithm.
+    // algorithm. In order to capture that we'll need to pass down the
+    // id of the server this is running on.
     return false;
 }
 
@@ -163,71 +159,15 @@ BackupSelector::conflict(const Backup* backup,
  * that replica exists on 'backups'. See conflict().
  */
 bool
-BackupSelector::conflictWithAny(const Backup* backup,
+BackupSelector::conflictWithAny(const ServerId backupId,
                                 uint32_t numBackups,
                                 const ServerId backupIds[]) const
 {
     for (uint32_t i = 0; i < numBackups; ++i) {
-        if (conflict(backup, backupIds[i]))
+        if (conflict(backupId, backupIds[i]))
             return true;
     }
     return false;
-}
-
-/**
- * Return a random backup.
- * Guaranteed to return all backups at least once after
- * any hosts.server_size() * 2 consecutive calls.
- * \pre
- *      The backup list is not empty.
- * \return
- *      A random backup.
- *
- * Conceptually, the algorithm operates as follows:
- * A set of candidate backups is initialized with the entire list of backups,
- * and a set of used backups starts off empty. With each call to getRandomHost,
- * one backup is chosen from the set of candidates and is moved into the set of
- * used backups. This is the backup that is returned. Once the set of
- * candidates is exhausted, start over.
- *
- * In practice, the algorithm is implemented efficiently:
- * Every index into the list of hosts is stored in the #hostsOrder array. The
- * backups referred to by hostsOrder[0] through hostsOrder[numUsedHosts - 1]
- * make up the set of used hosts, while the backups referred to by the
- * remainder of the array make up the candidate backups.
- */
-BackupSelector::Backup*
-BackupSelector::getRandomHost()
-{
-    assert(hosts.server_size() > 0);
-    if (numUsedHosts >= hostsOrder.size())
-        numUsedHosts = 0;
-    uint32_t i = numUsedHosts;
-    ++numUsedHosts;
-    uint32_t j = i + downCast<uint32_t>(generateRandom() %
-                                        (hostsOrder.size() - i));
-    std::swap(hostsOrder[i], hostsOrder[j]);
-    return hosts.mutable_server(hostsOrder[i]);
-}
-
-/**
- * Populate the host list by fetching a list of hosts from the coordinator.
- */
-void
-BackupSelector::updateHostListFromCoordinator()
-{
-    updateHostListThrower();
-    if (!coordinator)
-        DIE("No coordinator given, replication requirements can't be met.");
-    // TODO(ongaro): This forgets about the number of primaries
-    //               stored on each backup.
-    coordinator->getBackupList(hosts);
-
-    hostsOrder.clear();
-    hostsOrder.reserve(hosts.server_size());
-    for (uint32_t i = 0; i < uint32_t(hosts.server_size()); ++i)
-        hostsOrder.push_back(i);
-    numUsedHosts = 0;
 }
 
 } // namespace RAMCloud

@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -28,6 +28,9 @@ namespace RAMCloud {
  * \param taskManager
  *      The ReplicaManager's work queue, this is added to it when schedule()
  *      is called.
+ * \param tracker
+ *      The tracker used to find backups and track replica distribution
+ *      stats.
  * \param backupSelector
  *      Used to choose where to store replicas. Shared among ReplicatedSegments.
  * \param writeRpcsInFlight
@@ -53,6 +56,7 @@ namespace RAMCloud {
  *      GetRecoveryDataRequests by unclogging backups a bit.
  */
 ReplicatedSegment::ReplicatedSegment(TaskManager& taskManager,
+                                     BackupTracker& tracker,
                                      BaseBackupSelector& backupSelector,
                                      Deleter& deleter,
                                      uint32_t& writeRpcsInFlight,
@@ -64,6 +68,7 @@ ReplicatedSegment::ReplicatedSegment(TaskManager& taskManager,
                                      uint32_t numReplicas,
                                      uint32_t maxBytesPerWriteRpc)
     : Task(taskManager)
+    , tracker(tracker)
     , backupSelector(backupSelector)
     , deleter(deleter)
     , writeRpcsInFlight(writeRpcsInFlight)
@@ -428,18 +433,16 @@ ReplicatedSegment::performWrite(Tub<Replica>& replica)
                 conflicts[numConflicts++] = conflictingReplica->backupId;
             assert(numConflicts < replicas.numElements);
         }
-        BackupSelector::Backup* backup;
+        ServerId backupId;
         BackupWriteRpc::Flags flags = BackupWriteRpc::OPEN;
         if (replicaIsPrimary(replica)) {
-            backup = backupSelector.selectPrimary(numConflicts, conflicts);
+            backupId = backupSelector.selectPrimary(numConflicts, conflicts);
             flags = BackupWriteRpc::OPENPRIMARY;
         } else {
-            backup = backupSelector.selectSecondary(numConflicts, conflicts);
+            backupId = backupSelector.selectSecondary(numConflicts, conflicts);
         }
-        const string& serviceLocator = backup->service_locator();
-        Transport::SessionRef session =
-            Context::get().transportManager->getSession(serviceLocator.c_str());
-        replica.construct(ServerId(backup->server_id()), session);
+        Transport::SessionRef session = tracker.getSession(backupId);
+        replica.construct(backupId, session);
         replica->writeRpc.construct(replica->client, masterId, segmentId,
                                     0, data, openLen, flags);
         ++writeRpcsInFlight;

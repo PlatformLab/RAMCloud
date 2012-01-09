@@ -46,6 +46,8 @@ protoBufMatchesEntry(const ProtoBuf::ServerList_Entry& protoBufEntry,
         return false;
     if (serverListEntry.serviceLocator != protoBufEntry.service_locator())
         return false;
+    if (serverListEntry.backupReadMegsPerSecond != protoBufEntry.user_data())
+        return false;
     if (isInCluster != protoBufEntry.is_in_cluster())
         return false;
 
@@ -66,7 +68,7 @@ TEST_F(CoordinatorServerListTest, add) {
     {
         ProtoBuf::ServerList update1;
         EXPECT_EQ(ServerId(1, 0), sl.add("hi", {MASTER_SERVICE},
-                                         update1));
+                                         100, update1));
         EXPECT_TRUE(sl.serverList[1].entry);
         EXPECT_FALSE(sl.serverList[0].entry);
         EXPECT_EQ(1U, sl.numberOfMasters);
@@ -75,6 +77,7 @@ TEST_F(CoordinatorServerListTest, add) {
         EXPECT_EQ("hi", sl.serverList[1].entry->serviceLocator);
         EXPECT_TRUE(sl.serverList[1].entry->isMaster());
         EXPECT_FALSE(sl.serverList[1].entry->isBackup());
+        EXPECT_EQ(0u, sl.serverList[1].entry->backupReadMegsPerSecond);
         EXPECT_EQ(1U, sl.serverList[1].nextGenerationNumber);
         EXPECT_EQ(1U, sl.versionNumber);
         EXPECT_EQ(1U, update1.version_number());
@@ -86,12 +89,13 @@ TEST_F(CoordinatorServerListTest, add) {
     {
         ProtoBuf::ServerList update2;
         EXPECT_EQ(ServerId(2, 0), sl.add("hi again",
-                                         {BACKUP_SERVICE}, update2));
+                                         {BACKUP_SERVICE}, 100, update2));
         EXPECT_TRUE(sl.serverList[2].entry);
         EXPECT_EQ(ServerId(2, 0), sl.serverList[2].entry->serverId);
         EXPECT_EQ("hi again", sl.serverList[2].entry->serviceLocator);
         EXPECT_FALSE(sl.serverList[2].entry->isMaster());
         EXPECT_TRUE(sl.serverList[2].entry->isBackup());
+        EXPECT_EQ(100u, sl.serverList[2].entry->backupReadMegsPerSecond);
         EXPECT_EQ(1U, sl.serverList[2].nextGenerationNumber);
         EXPECT_EQ(1U, sl.numberOfMasters);
         EXPECT_EQ(1U, sl.numberOfBackups);
@@ -108,7 +112,7 @@ TEST_F(CoordinatorServerListTest, remove) {
     EXPECT_THROW(sl.remove(ServerId(0, 0), removeUpdate), Exception);
     EXPECT_EQ(0, removeUpdate.server_size());
 
-    sl.add("hi!", {MASTER_SERVICE}, addUpdate);
+    sl.add("hi!", {MASTER_SERVICE}, 100, addUpdate);
     CoordinatorServerList::Entry entryCopy = sl[ServerId(1, 0)];
     EXPECT_NO_THROW(sl.remove(ServerId(1, 0), removeUpdate));
     EXPECT_FALSE(sl.serverList[1].entry);
@@ -120,7 +124,7 @@ TEST_F(CoordinatorServerListTest, remove) {
     EXPECT_EQ(0U, sl.numberOfMasters);
     EXPECT_EQ(0U, sl.numberOfBackups);
 
-    sl.add("hi, again", {BACKUP_SERVICE}, addUpdate);
+    sl.add("hi, again", {BACKUP_SERVICE}, 100, addUpdate);
     EXPECT_TRUE(sl.serverList[1].entry);
     EXPECT_THROW(sl.remove(ServerId(1, 2), removeUpdate), Exception);
     EXPECT_NO_THROW(sl.remove(ServerId(1, 1), removeUpdate));
@@ -132,7 +136,7 @@ TEST_F(CoordinatorServerListTest, remove) {
 TEST_F(CoordinatorServerListTest, indexOperator) {
     ProtoBuf::ServerList update;
     EXPECT_THROW(sl[ServerId(0, 0)], Exception);
-    sl.add("yo!", {MASTER_SERVICE}, update);
+    sl.add("yo!", {MASTER_SERVICE}, 100, update);
     EXPECT_EQ(ServerId(1, 0), sl[ServerId(1, 0)].serverId);
     EXPECT_EQ("yo!", sl[ServerId(1, 0)].serviceLocator);
     sl.remove(ServerId(1, 0), update);
@@ -146,11 +150,11 @@ TEST_F(CoordinatorServerListTest, contains) {
     EXPECT_FALSE(sl.contains(ServerId(1, 0)));
 
     sl.add("I love it when a plan comes together",
-           {BACKUP_SERVICE}, update);
+           {BACKUP_SERVICE}, 100, update);
     EXPECT_TRUE(sl.contains(ServerId(1, 0)));
 
     sl.add("Come with me if you want to live",
-           {MASTER_SERVICE}, update);
+           {MASTER_SERVICE}, 100, update);
     EXPECT_TRUE(sl.contains(ServerId(2, 0)));
 
     sl.remove(ServerId(1, 0), update);
@@ -160,7 +164,7 @@ TEST_F(CoordinatorServerListTest, contains) {
     EXPECT_FALSE(sl.contains(ServerId(2, 0)));
 
     sl.add("I'm running out 80s shows and action movie quotes",
-           {BACKUP_SERVICE}, update);
+           {BACKUP_SERVICE}, 100, update);
     EXPECT_TRUE(sl.contains(ServerId(1, 1)));
 }
 
@@ -168,12 +172,12 @@ TEST_F(CoordinatorServerListTest, nextMasterIndex) {
     ProtoBuf::ServerList update;
 
     EXPECT_EQ(-1U, sl.nextMasterIndex(0));
-    sl.add("", {BACKUP_SERVICE}, update);
-    sl.add("", {MASTER_SERVICE}, update);
-    sl.add("", {BACKUP_SERVICE}, update);
-    sl.add("", {BACKUP_SERVICE}, update);
-    sl.add("", {MASTER_SERVICE}, update);
-    sl.add("", {BACKUP_SERVICE}, update);
+    sl.add("", {BACKUP_SERVICE}, 100, update);
+    sl.add("", {MASTER_SERVICE}, 100, update);
+    sl.add("", {BACKUP_SERVICE}, 100, update);
+    sl.add("", {BACKUP_SERVICE}, 100, update);
+    sl.add("", {MASTER_SERVICE}, 100, update);
+    sl.add("", {BACKUP_SERVICE}, 100, update);
 
     EXPECT_EQ(2U, sl.nextMasterIndex(0));
     EXPECT_EQ(2U, sl.nextMasterIndex(2));
@@ -185,9 +189,9 @@ TEST_F(CoordinatorServerListTest, nextBackupIndex) {
     ProtoBuf::ServerList update;
 
     EXPECT_EQ(-1U, sl.nextMasterIndex(0));
-    sl.add("", {MASTER_SERVICE}, update);
-    sl.add("", {BACKUP_SERVICE}, update);
-    sl.add("", {MASTER_SERVICE}, update);
+    sl.add("", {MASTER_SERVICE}, 100, update);
+    sl.add("", {BACKUP_SERVICE}, 100, update);
+    sl.add("", {MASTER_SERVICE}, 100, update);
 
     EXPECT_EQ(2U, sl.nextBackupIndex(0));
     EXPECT_EQ(2U, sl.nextBackupIndex(2));
@@ -205,10 +209,10 @@ TEST_F(CoordinatorServerListTest, serialise) {
         EXPECT_EQ(0, serverList.server_size());
     }
 
-    ServerId first = sl.add("", {MASTER_SERVICE}, update);
-    sl.add("", {MASTER_SERVICE}, update);
-    sl.add("", {MASTER_SERVICE}, update);
-    sl.add("", {BACKUP_SERVICE}, update);
+    ServerId first = sl.add("", {MASTER_SERVICE}, 100, update);
+    sl.add("", {MASTER_SERVICE}, 100, update);
+    sl.add("", {MASTER_SERVICE}, 100, update);
+    sl.add("", {BACKUP_SERVICE}, 100, update);
     sl.remove(first, update);       // ensure removed entries are skipped
 
     auto masterMask = ServiceMask{MASTER_SERVICE}.serialize();
@@ -246,9 +250,9 @@ TEST_F(CoordinatorServerListTest, firstFreeIndex) {
     EXPECT_EQ(0U, sl.serverList.size());
     EXPECT_EQ(1U, sl.firstFreeIndex());
     EXPECT_EQ(2U, sl.serverList.size());
-    sl.add("hi", {MASTER_SERVICE}, update);
+    sl.add("hi", {MASTER_SERVICE}, 100, update);
     EXPECT_EQ(2U, sl.firstFreeIndex());
-    sl.add("hi again", {MASTER_SERVICE}, update);
+    sl.add("hi again", {MASTER_SERVICE}, 100, update);
     EXPECT_EQ(3U, sl.firstFreeIndex());
     sl.remove(ServerId(2, 0), update);
     EXPECT_EQ(2U, sl.firstFreeIndex());
@@ -262,7 +266,7 @@ TEST_F(CoordinatorServerListTest, getReferenceFromServerId) {
     EXPECT_THROW(sl.getReferenceFromServerId(ServerId(0, 0)), Exception);
     EXPECT_THROW(sl.getReferenceFromServerId(ServerId(1, 0)), Exception);
 
-    sl.add("", {MASTER_SERVICE}, update);
+    sl.add("", {MASTER_SERVICE}, 100, update);
     EXPECT_THROW(sl.getReferenceFromServerId(ServerId(0, 0)), Exception);
     EXPECT_NO_THROW(sl.getReferenceFromServerId(ServerId(1, 0)));
     EXPECT_THROW(sl.getReferenceFromServerId(ServerId(2, 0)), Exception);
@@ -274,7 +278,7 @@ TEST_F(CoordinatorServerListTest, getPointerFromIndex) {
     EXPECT_THROW(sl.getPointerFromIndex(0), Exception);
     EXPECT_THROW(sl.getPointerFromIndex(1), Exception);
 
-    sl.add("", {MASTER_SERVICE}, update);
+    sl.add("", {MASTER_SERVICE}, 100, update);
     EXPECT_EQ(static_cast<const CoordinatorServerList::Entry*>(NULL),
         sl.getPointerFromIndex(0));
     EXPECT_EQ(static_cast<const CoordinatorServerList::Entry*>(

@@ -69,8 +69,8 @@ TEST_F(MembershipServiceTest, setServerList_fromEmpty) {
 
     ProtoBuf::ServerList wholeList;
     ServerListBuilder{wholeList}
-        ({MASTER_SERVICE}, *ServerId(1, 0), 0, "mock:host=one")
-        ({BACKUP_SERVICE}, *ServerId(2, 0), 0, "mock:host=two");
+        ({MASTER_SERVICE}, *ServerId(1, 0), 0, "mock:host=one", 101)
+        ({BACKUP_SERVICE}, *ServerId(2, 0), 0, "mock:host=two", 102);
     wholeList.set_version_number(0);
     client.setServerList("mock:host=member", wholeList);
 
@@ -81,9 +81,10 @@ TEST_F(MembershipServiceTest, setServerList_fromEmpty) {
     EXPECT_EQ("mock:host=two", serverList.getLocator(ServerId(2, 0)));
     EXPECT_EQ("setServerList: Got complete list of servers containing 2 "
         "entries (version number 0) | setServerList:   Adding server "
-        "id 1 (locator \"mock:host=one\") with services MASTER_SERVICE | "
+        "id 1 (locator \"mock:host=one\") with services MASTER_SERVICE and "
+        "101 MB/s storage | "
         "setServerList:   Adding server id 2 (locator \"mock:host=two\") "
-        "with services BACKUP_SERVICE", TestLog::get());
+        "with services BACKUP_SERVICE and 102 MB/s storage", TestLog::get());
 }
 
 TEST_F(MembershipServiceTest, setServerList_overlap) {
@@ -103,9 +104,9 @@ TEST_F(MembershipServiceTest, setServerList_overlap) {
     // Now issue a new list that partially overlaps.
     ProtoBuf::ServerList newerList;
     ServerListBuilder{newerList}
-        ({MASTER_SERVICE}, *ServerId(1, 5), 0, "mock:host=oneBeta")
-        ({BACKUP_SERVICE}, *ServerId(2, 0), 0, "mock:host=two")
-        ({BACKUP_SERVICE}, *ServerId(3, 0), 0, "mock:host=three");
+        ({MASTER_SERVICE}, *ServerId(1, 5), 0, "mock:host=oneBeta", 101)
+        ({BACKUP_SERVICE}, *ServerId(2, 0), 0, "mock:host=two", 102)
+        ({BACKUP_SERVICE}, *ServerId(3, 0), 0, "mock:host=three", 103);
     newerList.set_version_number(1);
     client.setServerList("mock:host=member", newerList);
 
@@ -122,8 +123,9 @@ TEST_F(MembershipServiceTest, setServerList_overlap) {
         "entries (version number 1) | setServerList:   Removing server "
         "id 1 (locator \"mock:host=one\") | setServerList:   Adding "
         "server id 21474836481 (locator \"mock:host=oneBeta\") with services "
-        "MASTER_SERVICE | setServerList:   Adding server id 3 (locator "
-        "\"mock:host=three\") with services BACKUP_SERVICE", TestLog::get());
+        "MASTER_SERVICE and 101 MB/s storage | setServerList:   Adding server "
+        "id 3 (locator \"mock:host=three\") with services BACKUP_SERVICE "
+        "and 103 MB/s storage", TestLog::get());
 }
 
 static bool
@@ -148,8 +150,8 @@ TEST_F(MembershipServiceTest, updateServerList_normal) {
     // Now issue an update.
     ProtoBuf::ServerList updateList;
     ServerListBuilder{updateList}
-        ({MASTER_SERVICE}, *ServerId(1, 0), 0, "mock:host=one", 0, false)
-        ({BACKUP_SERVICE}, *ServerId(2, 0), 0, "mock:host=two");
+        ({MASTER_SERVICE}, *ServerId(1, 0), 0, "mock:host=one", 101, false)
+        ({BACKUP_SERVICE}, *ServerId(2, 0), 0, "mock:host=two", 102);
     updateList.set_version_number(1);
     bool ret = client.updateServerList("mock:host=member", updateList);
     EXPECT_TRUE(ret);
@@ -159,7 +161,8 @@ TEST_F(MembershipServiceTest, updateServerList_normal) {
     EXPECT_EQ("updateServerList: Got server list update (version number 1) "
         "| updateServerList:   Removing server id 1 (locator "
         "\"mock:host=one\") | updateServerList:   Adding server id 2 "
-        "(locator \"mock:host=two\") with services BACKUP_SERVICE",
+        "(locator \"mock:host=two\") with services BACKUP_SERVICE and "
+        "102 MB/s storage",
         TestLog::get());
 }
 

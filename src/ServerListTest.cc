@@ -25,7 +25,7 @@ static std::queue<ServerTracker<int>::ServerChange> changes;
 
 class MockServerTracker : public ServerTrackerInterface {
     void
-    enqueueChange(const ServerChangeDetails& server, ServerChangeEvent event)
+    enqueueChange(const ServerDetails& server, ServerChangeEvent event)
     {
         changes.push({server, event});
     }
@@ -57,42 +57,44 @@ TEST_F(ServerListTest, add) {
     sl.registerTracker(tr);
     TestLog::Enable _(&addFilter);
 
-    sl.add(ServerId(/*invalid id*/), "mock:", {MASTER_SERVICE});
+    sl.add(ServerId(/*invalid id*/), "mock:", {MASTER_SERVICE}, 100);
     EXPECT_EQ("add: Ignoring addition of invalid ServerId.", TestLog::get());
     TestLog::reset();
 
     EXPECT_EQ(0U, sl.serverList.size());
-    sl.add(ServerId(57, 1), "mock:", {MASTER_SERVICE, BACKUP_SERVICE});
+    sl.add(ServerId(57, 1), "mock:", {MASTER_SERVICE, BACKUP_SERVICE}, 100);
     EXPECT_EQ(58U, sl.serverList.size());
     EXPECT_EQ(ServerId(57, 1), sl.serverList[57]->serverId);
     EXPECT_EQ("mock:", sl.serverList[57]->serviceLocator);
     EXPECT_TRUE(sl.serverList[57]->services.has(MASTER_SERVICE));
     EXPECT_TRUE(sl.serverList[57]->services.has(BACKUP_SERVICE));
     EXPECT_FALSE(sl.serverList[57]->services.has(PING_SERVICE));
+    EXPECT_EQ(100u, sl.serverList[57]->expectedReadMBytesPerSec);
     EXPECT_EQ(1U, changes.size());
     EXPECT_EQ(ServerId(57, 1), changes.front().server.serverId);
     EXPECT_EQ("mock:", changes.front().server.serviceLocator);
     EXPECT_TRUE(changes.front().server.services.has(MASTER_SERVICE));
     EXPECT_TRUE(changes.front().server.services.has(BACKUP_SERVICE));
     EXPECT_FALSE(changes.front().server.services.has(PING_SERVICE));
+    EXPECT_EQ(100u, changes.front().server.expectedReadMBytesPerSec);
     EXPECT_EQ(ServerChangeEvent::SERVER_ADDED, changes.front().event);
     changes.pop();
 
     // Duplicate ADD
-    sl.add(ServerId(57, 1), "mock:", {});
+    sl.add(ServerId(57, 1), "mock:", {}, 100);
     EXPECT_EQ("add: Duplicate add of ServerId 4294967353!", TestLog::get());
     TestLog::reset();
     EXPECT_EQ(0U, changes.size());
 
     // ADD of older ServerId
-    sl.add(ServerId(57, 0), "mock:", {});
+    sl.add(ServerId(57, 0), "mock:", {}, 100);
     EXPECT_EQ("add: Dropping addition of ServerId older than the current entry "
         "(57 < 4294967353)!", TestLog::get());
     TestLog::reset();
     EXPECT_EQ(0U, changes.size());
 
     // ADD before previous REMOVE
-    sl.add(ServerId(57, 2), "mock:", {});
+    sl.add(ServerId(57, 2), "mock:", {}, 100);
     EXPECT_EQ("add: Addition of 8589934649 seen before removal of 4294967353! "
         "Issuing removal before addition.", TestLog::get());
     TestLog::reset();
@@ -121,7 +123,7 @@ TEST_F(ServerListTest, remove) {
 
     EXPECT_EQ(0U, sl.serverList.size());
     sl.remove(ServerId(0, 0));
-    sl.add(ServerId(1, 1), "mock:", {});
+    sl.add(ServerId(1, 1), "mock:", {}, 100);
     changes.pop();
     EXPECT_EQ(2U, sl.serverList.size());
     sl.remove(ServerId(0, 0));
@@ -142,7 +144,7 @@ TEST_F(ServerListTest, remove) {
     changes.pop();
 
     // Newer one.
-    sl.add(ServerId(1, 1), "mock:", {});
+    sl.add(ServerId(1, 1), "mock:", {}, 100);
     changes.pop();
     sl.remove(ServerId(1, 2));
     EXPECT_EQ("remove: Removing ServerId 4294967297 because removal for a "
@@ -157,7 +159,7 @@ TEST_F(ServerListTest, remove) {
 
 TEST_F(ServerListTest, getLocator) {
     EXPECT_THROW(sl.getLocator(ServerId(1, 0)), ServerListException);
-    sl.add(ServerId(1, 0), "mock:", {});
+    sl.add(ServerId(1, 0), "mock:", {}, 100);
     EXPECT_THROW(sl.getLocator(ServerId(2, 0)), ServerListException);
     EXPECT_EQ("mock:", sl.getLocator(ServerId(1, 0)));
 }
@@ -165,21 +167,21 @@ TEST_F(ServerListTest, getLocator) {
 TEST_F(ServerListTest, toString) {
     EXPECT_EQ("server 1 at (locator unavailable)",
               sl.toString(ServerId(1)));
-    sl.add(ServerId(1), "mock:service=locator", {});
+    sl.add(ServerId(1), "mock:service=locator", {}, 100);
     EXPECT_EQ("server 1 at mock:service=locator",
               sl.toString(ServerId(1)));
 }
 
 TEST_F(ServerListTest, size) {
     EXPECT_EQ(sl.serverList.size(), sl.size());
-    sl.add(ServerId(572, 0), "mock:", {});
+    sl.add(ServerId(572, 0), "mock:", {}, 100);
     EXPECT_EQ(573U, sl.size());
 }
 
 TEST_F(ServerListTest, indexOperator) {
     EXPECT_FALSE(sl[0].isValid());
     EXPECT_FALSE(sl[183742].isValid());
-    sl.add(ServerId(7572, 2734), "mock:", {});
+    sl.add(ServerId(7572, 2734), "mock:", {}, 100);
     EXPECT_EQ(ServerId(7572, 2734), sl[7572]);
     sl.remove(ServerId(7572, 2734));
     EXPECT_FALSE(sl[7572].isValid());
@@ -188,7 +190,7 @@ TEST_F(ServerListTest, indexOperator) {
 TEST_F(ServerListTest, contains) {
     EXPECT_FALSE(sl.contains(ServerId(0, 0)));
     EXPECT_FALSE(sl.contains(ServerId(1, 0)));
-    sl.add(ServerId(1, 0), "mock:", {});
+    sl.add(ServerId(1, 0), "mock:", {}, 100);
     EXPECT_TRUE(sl.contains(ServerId(1, 0)));
     sl.remove(ServerId(1, 0));
     EXPECT_FALSE(sl.contains(ServerId(1, 0)));
@@ -202,10 +204,10 @@ TEST_F(ServerListTest, registerTracker) {
 }
 
 TEST_F(ServerListTest, registerTracker_pushAdds) {
-    sl.add(ServerId(1, 2), "mock:", {});
-    sl.add(ServerId(2, 3), "mock:", {});
-    sl.add(ServerId(0, 1), "mock:", {});
-    sl.add(ServerId(3, 4), "mock:", {});
+    sl.add(ServerId(1, 2), "mock:", {}, 100);
+    sl.add(ServerId(2, 3), "mock:", {}, 100);
+    sl.add(ServerId(0, 1), "mock:", {}, 100);
+    sl.add(ServerId(3, 4), "mock:", {}, 100);
     sl.remove(ServerId(2, 3));
     sl.registerTracker(tr);
 

@@ -50,7 +50,7 @@ namespace RAMCloud {
  *      An exception is thrown if #logCapacity is not sufficient for
  *      a single segment's worth of log.
  */
-Log::Log(const Tub<ServerId>& logId,
+Log::Log(const ServerId& logId,
          uint64_t logCapacity,
          uint32_t segmentCapacity,
          uint32_t maximumBytesPerAppend,
@@ -861,7 +861,7 @@ Log::getSegmentFromAddress(const void* address)
 uint64_t
 Log::getId() const
 {
-    return logId->getId();
+    return logId.getId();
 }
 
 /**

@@ -30,11 +30,11 @@ namespace RAMCloud {
 class LogTest : public ::testing::Test {
   public:
     LogTest()
-        : serverId(ServerId(57, 0))
+        : serverId(57, 0)
     {
     }
 
-    Tub<ServerId> serverId;
+    ServerId serverId;
 
   private:
     DISALLOW_COPY_AND_ASSIGN(LogTest);
@@ -46,7 +46,7 @@ TEST_F(LogTest, constructor) {
 
     Log l(serverId, 2 * 8192, 8192, 4298);
 
-    EXPECT_EQ(ServerId(57, 0), *l.logId);
+    EXPECT_EQ(ServerId(57, 0), l.logId);
     EXPECT_EQ(2 * 8192U, l.logCapacity);
     EXPECT_EQ(8192U, l.segmentCapacity);
     EXPECT_EQ(4298U, l.maximumBytesPerAppend);

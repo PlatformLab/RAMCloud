@@ -26,28 +26,37 @@ struct ReplicaManagerTest : public ::testing::Test {
     MockCluster cluster;
     const uint32_t segmentSize;
     Tub<ReplicaManager> mgr;
-    Tub<ServerId> serverId;
+    ServerId serverId;
+    ServerList serverList;
 
     ReplicaManagerTest()
         : cluster()
         , segmentSize(1 << 16)
         , mgr()
-        , serverId()
+        , serverId(99, 0)
+        , serverList()
     {
         Context::get().logger->setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
 
         ServerConfig config = ServerConfig::forTesting();
-        config.services = {BACKUP_SERVICE};
+        config.services = {BACKUP_SERVICE, MEMBERSHIP_SERVICE};
         config.backup.segmentSize = segmentSize;
         config.backup.numSegmentFrames = 4;
         config.localLocator = "mock:host=backup1";
-        cluster.addServer(config);
+        addToServerList(cluster.addServer(config));
 
         config.localLocator = "mock:host=backup2";
-        cluster.addServer(config);
+        addToServerList(cluster.addServer(config));
 
-        serverId.construct(99, 0);
-        mgr.construct(cluster.getCoordinatorClient(), serverId, 2);
+        mgr.construct(serverList, serverId, 2);
+    }
+
+    void addToServerList(Server* server)
+    {
+        serverList.add(server->serverId,
+                       server->config.localLocator,
+                       server->config.services,
+                       server->config.backup.mockSpeed);
     }
 
     void dumpReplicatedSegments()
@@ -108,7 +117,7 @@ TEST_F(ReplicaManagerTest, openSegment) {
         backupLocators.push_back(
             replica->client.getSession()->getServiceLocator());
     }
-    EXPECT_EQ((vector<string> {"mock:host=backup2", "mock:host=backup1"}),
+    EXPECT_EQ((vector<string> {"mock:host=backup1", "mock:host=backup2"}),
               backupLocators);
 }
 
@@ -116,8 +125,8 @@ TEST_F(ReplicaManagerTest, openSegment) {
 // overhead is too high.
 TEST_F(ReplicaManagerTest, writeSegment) {
     void* segMem = Memory::xmemalign(HERE, segmentSize, segmentSize);
-    Segment seg(**serverId, 88, segMem, segmentSize, mgr.get());
-    SegmentHeader header = { **serverId, 88, segmentSize };
+    Segment seg(*serverId, 88, segMem, segmentSize, mgr.get());
+    SegmentHeader header = { *serverId, 88, segmentSize };
     seg.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
     Object object(sizeof(object));
     object.id.objectId = 10;
@@ -141,10 +150,10 @@ TEST_F(ReplicaManagerTest, writeSegment) {
             ASSERT_TRUE(replica);
             BackupClient& host(replica->client);
             Buffer resp;
-            host.startReadingData(*serverId, will);
+            host.startReadingData(serverId, will);
             while (true) {
                 try {
-                    host.getRecoveryData(*serverId, 88, 0, resp);
+                    host.getRecoveryData(serverId, 88, 0, resp);
                 } catch (const RetryException& e) {
                     resp.reset();
                     continue;

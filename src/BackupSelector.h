@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,25 +13,46 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "Common.h"
-#include "CoordinatorClient.h"
-#include "ServerList.pb.h"
-
 #ifndef RAMCLOUD_BACKUPSELECTOR_H
 #define RAMCLOUD_BACKUPSELECTOR_H
 
+#include "Common.h"
+#include "ServerTracker.h"
+
 namespace RAMCloud {
+
+/**
+ * Tracks speed of backups and count of replicas stored on each which is
+ * used to balance placement of replicas across the cluster; stored for
+ * backup in a BackupTracker.
+ */
+struct BackupStats {
+    BackupStats()
+        : primaryReplicaCount(0)
+        , expectedReadMBytesPerSec(0)
+    {}
+
+    uint32_t getExpectedReadMs();
+
+    /// Number of primary replicas this master has stored on the backup.
+    uint32_t primaryReplicaCount;
+
+    /// Disk bandwidth of the host in MB/s
+    uint32_t expectedReadMBytesPerSec;
+};
+
+/// Tracks BackupStats; a ReplicaManager processes ServerListChanges.
+typedef ServerTracker<BackupStats> BackupTracker;
 
 /**
  * See BackupSelector; base class only used to virtualize some calls for testing.
  */
 class BaseBackupSelector {
   PUBLIC:
-    typedef ProtoBuf::ServerList::Entry Backup;
-    virtual Backup* selectPrimary(uint32_t numBackups,
-                                  const ServerId backupIds[]) = 0;
-    virtual Backup* selectSecondary(uint32_t numBackups,
-                                    const ServerId backupIds[]) = 0;
+    virtual ServerId selectPrimary(uint32_t numBackups,
+                                   const ServerId backupIds[]) = 0;
+    virtual ServerId selectSecondary(uint32_t numBackups,
+                                     const ServerId backupIds[]) = 0;
     virtual ~BaseBackupSelector() {}
 };
 
@@ -42,40 +63,27 @@ class BaseBackupSelector {
  */
 class BackupSelector : public BaseBackupSelector {
   PUBLIC:
-    explicit BackupSelector(CoordinatorClient* coordinator);
-    Backup* selectPrimary(uint32_t numBackups, const ServerId backupIds[]);
-    Backup* selectSecondary(uint32_t numBackups, const ServerId backupIds[]);
+
+    explicit BackupSelector(BackupTracker& tracker);
+    ServerId selectPrimary(uint32_t numBackups, const ServerId backupIds[]);
+    ServerId selectSecondary(uint32_t numBackups, const ServerId backupIds[]);
 
   PRIVATE:
-    bool conflict(const Backup* backup,
+    void applyTrackerChanges();
+    bool conflict(const ServerId backupId,
                   const ServerId otherBackupId) const;
-    bool conflictWithAny(const Backup* backup,
+    bool conflictWithAny(const ServerId backupId,
                          uint32_t numBackups,
                          const ServerId backupIds[]) const;
-    Backup* getRandomHost();
-    void updateHostListFromCoordinator();
 
-    /// Cluster coordinator. May be NULL for testing purposes.
-    CoordinatorClient* const coordinator;
-
-    /// The list of backups from which to select.
-    ProtoBuf::ServerList hosts;
 
     /**
-     * Used in #getRandomHost(). This is some permutation of the integers
-     * between 0 and hosts.size() - 1, inclusive.
+     * A ServerTracker used to find backups and track replica distribution
+     * stats.  Each entry in the tracker contains a pointer to a BackupStats
+     * struct which stores the number of primary replicas stored on that
+     * server.
      */
-    vector<uint32_t> hostsOrder;
-
-    /**
-     * Used in #getRandomHost(). This is the number of backups that have
-     * been returned by #getRandomHost() since its last pass over the
-     * #hosts list.
-     */
-    uint32_t numUsedHosts;
-
-    /// A hook for testing purposes.
-    DelayedThrower<> updateHostListThrower;
+    BackupTracker& tracker;
 
     DISALLOW_COPY_AND_ASSIGN(BackupSelector);
 };

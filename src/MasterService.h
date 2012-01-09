@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2011 Stanford University
+/* Copyright (c) 2009-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -25,6 +25,7 @@
 #include "RecoverySegmentIterator.h"
 #include "ReplicaManager.h"
 #include "SegmentIterator.h"
+#include "ServerList.h"
 #include "Service.h"
 #include "ServerConfig.h"
 #include "SpinLock.h"
@@ -127,7 +128,7 @@ class MasterService : public Service {
   public:
     CoordinatorClient* coordinator;
 
-    Tub<ServerId> serverId;
+    ServerId serverId;
 
   PRIVATE:
 

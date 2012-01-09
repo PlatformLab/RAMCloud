@@ -74,6 +74,7 @@ class ServerList {
             : serverId()
             , serviceLocator()
             , services()
+            , expectedReadMBytesPerSec()
         {}
 
         /**
@@ -84,6 +85,7 @@ class ServerList {
             : serverId(id)
             , serviceLocator()
             , services()
+            , expectedReadMBytesPerSec()
         {}
 
         /**
@@ -96,6 +98,17 @@ class ServerList {
             : serverId(id)
             , serviceLocator(locator)
             , services(services)
+            , expectedReadMBytesPerSec()
+        {}
+
+        ServerDetails(ServerId id,
+                      const string& locator,
+                      ServiceMask services,
+                      uint32_t expectedReadMBytesPerSec)
+            : serverId(id)
+            , serviceLocator(locator)
+            , services(services)
+            , expectedReadMBytesPerSec(expectedReadMBytesPerSec)
         {}
 
         /// ServerId associated with this index in the serverList.
@@ -106,11 +119,16 @@ class ServerList {
 
         /// Which services are supported by the process at #serverId.
         ServiceMask services;
+
+        /// Disk bandwidth of the backup server in MB/s, if
+        /// services.has(BACKUP_SERVICE), invalid otherwise.
+        uint32_t expectedReadMBytesPerSec;
     };
 
     ServerList();
     ~ServerList();
-    void add(ServerId id, string locator, ServiceMask services);
+    void add(ServerId id, const string& locator,
+             ServiceMask services, uint32_t expectedReadMBytesPerSec);
     void remove(ServerId id);
     string getLocator(ServerId id);
     string toString(ServerId serverId);
