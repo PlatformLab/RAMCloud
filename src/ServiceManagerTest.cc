@@ -36,7 +36,7 @@ class ServiceManagerTest : public ::testing::Test {
             logEnabler(), savedSyscall(NULL), sys()
     {
         manager.construct();
-        manager->addService(service, 2);
+        manager->addService(service, BACKUP_SERVICE);
         savedSyscall = ServiceManager::sys;
         ServiceManager::sys = &sys;
     }
@@ -75,7 +75,7 @@ class ServiceManagerTest : public ::testing::Test {
 
 TEST_F(ServiceManagerTest, sanityCheck) {
     MockTransport::MockServerRpc* rpc = new MockTransport::MockServerRpc(
-            &transport, "0x20000 3 4");
+            &transport, "0x10000 3 4");
     manager->handleRpc(rpc);
 
     // Wait for the request to be processed for (but don't wait forever).
@@ -85,18 +85,18 @@ TEST_F(ServiceManagerTest, sanityCheck) {
             break;
         usleep(1000);
     }
-    EXPECT_EQ("rpc: 0x20000 3 4", service.log);
-    EXPECT_EQ("serverReply: 0x20001 4 5", transport.outputLog);
+    EXPECT_EQ("rpc: 0x10000 3 4", service.log);
+    EXPECT_EQ("serverReply: 0x10001 4 5", transport.outputLog);
 }
 
 TEST_F(ServiceManagerTest, constructor) {
     MockService mock;
     ServiceManager manager1;
     ServiceManager manager2;
-    manager2.addService(mock, 2);
+    manager2.addService(mock, BACKUP_SERVICE);
     EXPECT_EQ(0, manager1.serviceCount);
     EXPECT_EQ(1, manager2.serviceCount);
-    EXPECT_TRUE(manager2.services[2]);
+    EXPECT_TRUE(manager2.services[1]);
 }
 
 TEST_F(ServiceManagerTest, destructor_cleanupThreads) {
@@ -105,10 +105,10 @@ TEST_F(ServiceManagerTest, destructor_cleanupThreads) {
     // Start 2 requests in parallel, but don't let them finish yet.
     service.gate = -1;
     MockTransport::MockServerRpc* rpc1 = new MockTransport::MockServerRpc(
-            &transport, "0x20000 3 4");
+            &transport, "0x10000 3 4");
     manager->handleRpc(rpc1);
     MockTransport::MockServerRpc* rpc2 = new MockTransport::MockServerRpc(
-            &transport, "0x20000 3 5");
+            &transport, "0x10000 3 5");
     manager->handleRpc(rpc2);
     usleep(1000);
     EXPECT_EQ(2U, manager->busyThreads.size());
@@ -126,11 +126,11 @@ TEST_F(ServiceManagerTest, addService) {
     MockService mock;
     ServiceManager manager1;
     EXPECT_EQ(0, manager1.serviceCount);
-    EXPECT_FALSE(manager1.services[2]);
+    EXPECT_FALSE(manager1.services[1]);
     EXPECT_EQ(0U, manager1.idleThreads.size());
-    manager1.addService(mock, 2);
+    manager1.addService(mock, BACKUP_SERVICE);
     EXPECT_EQ(1, manager1.serviceCount);
-    EXPECT_TRUE(manager1.services[2]);
+    EXPECT_TRUE(manager1.services[1]);
     EXPECT_EQ(3U, manager1.idleThreads.size());
 }
 
@@ -158,28 +158,28 @@ TEST_F(ServiceManagerTest, handleRpc_serviceUnavailable) {
 
 TEST_F(ServiceManagerTest, handleRpc_concurrencyLimitExceeded) {
     MockTransport::MockServerRpc* rpc1 = new MockTransport::MockServerRpc(
-            &transport, "0x20000 1");
+            &transport, "0x10000 1");
     MockTransport::MockServerRpc* rpc2 = new MockTransport::MockServerRpc(
-            &transport, "0x20000 2");
+            &transport, "0x10000 2");
     MockTransport::MockServerRpc* rpc3 = new MockTransport::MockServerRpc(
-            &transport, "0x20000 3");
+            &transport, "0x10000 3");
     MockTransport::MockServerRpc* rpc4 = new MockTransport::MockServerRpc(
-            &transport, "0x20000 4");
+            &transport, "0x10000 4");
     manager->handleRpc(rpc1);
     manager->handleRpc(rpc2);
     manager->handleRpc(rpc3);
     EXPECT_EQ(3U, manager->busyThreads.size());
-    EXPECT_EQ(0U, manager->services[2]->waitingRpcs.size());
+    EXPECT_EQ(0U, manager->services[1]->waitingRpcs.size());
     manager->handleRpc(rpc4);
     EXPECT_EQ(3U, manager->busyThreads.size());
-    EXPECT_EQ(1U, manager->services[2]->waitingRpcs.size());
+    EXPECT_EQ(1U, manager->services[1]->waitingRpcs.size());
 }
 
 TEST_F(ServiceManagerTest, handleRpc_handoffToWorker) {
     MockTransport::MockServerRpc* rpc1 = new MockTransport::MockServerRpc(
-            &transport, "0x20000 1");
+            &transport, "0x10000 1");
     MockTransport::MockServerRpc* rpc2 = new MockTransport::MockServerRpc(
-            &transport, "0x20000 2");
+            &transport, "0x10000 2");
     manager->handleRpc(rpc1);
     manager->handleRpc(rpc2);
     waitUntilDone(2);
@@ -191,7 +191,7 @@ TEST_F(ServiceManagerTest, idle) {
     EXPECT_TRUE(manager->idle());
     // Start one RPC.
     MockTransport::MockServerRpc* rpc = new MockTransport::MockServerRpc(
-            &transport, "0x20000 3 4");
+            &transport, "0x10000 3 4");
     manager->handleRpc(rpc);
     EXPECT_FALSE(manager->idle());
 
@@ -205,21 +205,21 @@ TEST_F(ServiceManagerTest, poll_basics) {
     // Start 3 RPCs concurrently, with 2 more waiting.
     service.gate = -1;
     MockTransport::MockServerRpc* rpc1 = new MockTransport::MockServerRpc(
-            &transport, "0x20000 1");
+            &transport, "0x10000 1");
     MockTransport::MockServerRpc* rpc2 = new MockTransport::MockServerRpc(
-            &transport, "0x20000 2");
+            &transport, "0x10000 2");
     MockTransport::MockServerRpc* rpc3 = new MockTransport::MockServerRpc(
-            &transport, "0x20000 3");
+            &transport, "0x10000 3");
     MockTransport::MockServerRpc* rpc4 = new MockTransport::MockServerRpc(
-            &transport, "0x20000 4");
+            &transport, "0x10000 4");
     MockTransport::MockServerRpc* rpc5 = new MockTransport::MockServerRpc(
-            &transport, "0x20000 5");
+            &transport, "0x10000 5");
     manager->handleRpc(rpc1);
     manager->handleRpc(rpc2);
     manager->handleRpc(rpc3);
     manager->handleRpc(rpc4);
     manager->handleRpc(rpc5);
-    EXPECT_EQ(2U, manager->services[2]->waitingRpcs.size());
+    EXPECT_EQ(2U, manager->services[1]->waitingRpcs.size());
 
     // Allow 2 of the requests to complete, and make sure that the remaining
     // 2 start service.
@@ -228,8 +228,8 @@ TEST_F(ServiceManagerTest, poll_basics) {
     service.gate = 2;
     waitUntilDone(2);
     manager->poll();
-    EXPECT_EQ(0U, manager->services[2]->waitingRpcs.size());
-    EXPECT_EQ("serverReply: 0x20001 3 | serverReply: 0x20001 2",
+    EXPECT_EQ(0U, manager->services[1]->waitingRpcs.size());
+    EXPECT_EQ("serverReply: 0x10001 3 | serverReply: 0x10001 2",
             transport.outputLog);
 
     // Allow the request in slot 0 of busyThreads to complete.
@@ -237,8 +237,8 @@ TEST_F(ServiceManagerTest, poll_basics) {
     service.gate = 5;
     waitUntilDone(1);
     manager->poll();
-    EXPECT_EQ("serverReply: 0x20001 6", transport.outputLog);
-    EXPECT_EQ("0x20000 3", TestUtil::toString(
+    EXPECT_EQ("serverReply: 0x10001 6", transport.outputLog);
+    EXPECT_EQ("0x10000 3", TestUtil::toString(
               &manager->busyThreads[0]->rpc->requestPayload));
 
     // Allow the remaining requests to complete.
@@ -246,22 +246,23 @@ TEST_F(ServiceManagerTest, poll_basics) {
     service.gate = 0;
     waitUntilDone(2);
     manager->poll();
-    EXPECT_EQ("serverReply: 0x20001 5 | serverReply: 0x20001 4",
+    EXPECT_EQ("serverReply: 0x10001 5 | serverReply: 0x10001 4",
             transport.outputLog);
 }
+
 TEST_F(ServiceManagerTest, poll_postprocessing) {
     // This test makes sure that the POSTPROCESSING state is handled
     // correctly (along with the subsequent POLLING state).
     service.gate = -1;
     service.sendReply = true;
     MockTransport::MockServerRpc* rpc = new MockTransport::MockServerRpc(
-            &transport, "0x20000 3 4");
+            &transport, "0x10000 3 4");
     manager->handleRpc(rpc);
     waitUntilDone(1);
 
     // At this point the state of the worker should be POSTPROCESSING.
     manager->poll();
-    EXPECT_EQ("serverReply: 0x20001 4 5", transport.outputLog);
+    EXPECT_EQ("serverReply: 0x10001 4 5", transport.outputLog);
     EXPECT_EQ(2U, manager->idleThreads.size());
 
     // Now allow the worker to finish.
@@ -272,7 +273,7 @@ TEST_F(ServiceManagerTest, poll_postprocessing) {
             break;
         usleep(1000);
     }
-    EXPECT_EQ("serverReply: 0x20001 4 5", transport.outputLog);
+    EXPECT_EQ("serverReply: 0x10001 4 5", transport.outputLog);
     EXPECT_EQ(2U, manager->idleThreads.size());
 }
 
@@ -301,10 +302,11 @@ TEST_F(ServiceManagerTest, workerMain_goToSleep) {
     // Make sure that the worker can be woken up.
     EXPECT_EQ(static_cast<Transport::ServerRpc*>(NULL), worker->rpc);
     manager->handleRpc(new MockTransport::MockServerRpc(
-            &transport, "0x20000 3 4"));
+            &transport, "0x10000 3 4"));
     manager.destroy();
-    EXPECT_EQ("serverReply: 0x20001 4 5", transport.outputLog);
+    EXPECT_EQ("serverReply: 0x10001 4 5", transport.outputLog);
 }
+
 TEST_F(ServiceManagerTest, workerMain_futexError) {
     // Get rid of the original manager (it has too many threads, which
     // would confuse this test).
@@ -314,7 +316,7 @@ TEST_F(ServiceManagerTest, workerMain_futexError) {
     // Create a new manager, whose service has only 1 thread.
     ServiceManager manager2;
     MockService service2(1);
-    manager2.addService(service2, 2);
+    manager2.addService(service2, BACKUP_SERVICE);
     Worker* worker = manager2.idleThreads[0];
 
     sys.futexWaitErrno = EPERM;
@@ -331,6 +333,7 @@ TEST_F(ServiceManagerTest, workerMain_futexError) {
     EXPECT_EQ("workerMain: futexWait failed in ServiceManager::workerMain: "
                 "Operation not permitted", TestLog::get());
 }
+
 TEST_F(ServiceManagerTest, workerMain_exit) {
     manager.destroy();
     EXPECT_EQ("workerMain: exiting | workerMain: exiting | "
@@ -340,11 +343,11 @@ TEST_F(ServiceManagerTest, workerMain_exit) {
 TEST_F(ServiceManagerTest, Worker_exit) {
     TestLog::Enable _;
     MockTransport::MockServerRpc* rpc = new MockTransport::MockServerRpc(
-            &transport, "0x20000 3 4");
+            &transport, "0x10000 3 4");
     manager->handleRpc(rpc);
     manager->busyThreads[0]->exit();
     EXPECT_EQ("workerMain: exiting", TestLog::get());
-    EXPECT_EQ("serverReply: 0x20001 4 5", transport.outputLog);
+    EXPECT_EQ("serverReply: 0x10001 4 5", transport.outputLog);
 
     // Try another exit just to make sure it's itempotent.
     manager->busyThreads[0]->exit();
@@ -356,10 +359,10 @@ TEST_F(ServiceManagerTest, Worker_handoff_dontCallFutex) {
     // get called in the normal case.
     sys.futexWakeErrno = EPERM;
     manager->handleRpc(
-            new MockTransport::MockServerRpc(&transport, "0x20000 99"));
+            new MockTransport::MockServerRpc(&transport, "0x10000 99"));
     EXPECT_EQ("", TestLog::get());
     waitUntilDone(1);
-    EXPECT_EQ("rpc: 0x20000 99", service.log);
+    EXPECT_EQ("rpc: 0x10000 99", service.log);
 
     // Reset error so that the ServiceManager destructor can work
     // correctly.
@@ -384,10 +387,10 @@ TEST_F(ServiceManagerTest, Worker_handoff_callFutex) {
     // Issue an RPC and make sure it completes.
     transport.outputLog.clear();
     manager->handleRpc(
-            new MockTransport::MockServerRpc(&transport, "0x20000 99"));
+            new MockTransport::MockServerRpc(&transport, "0x10000 99"));
     waitUntilDone(1);
     manager->poll();
-    EXPECT_EQ("serverReply: 0x20001 100", transport.outputLog);
+    EXPECT_EQ("serverReply: 0x10001 100", transport.outputLog);
 }
 
 } // namespace RAMCloud

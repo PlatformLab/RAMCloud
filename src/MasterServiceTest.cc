@@ -81,13 +81,13 @@ class MasterServiceTest : public ::testing::Test {
         backupService = new BackupService(backupConfig, *storage);
         transport->addService(*backupService, "mock:host=backup1",
                 BACKUP_SERVICE);
-        backupService->init(coordinator->enlistServer(BACKUP_SERVICE,
-            "mock:host=backup1", 0, 0));
+        backupService->init(coordinator->enlistServer(
+            {BACKUP_SERVICE}, "mock:host=backup1", 0, 0));
 
         service = new MasterService(config, coordinator, 1);
         transport->addService(*service, "mock:host=master", MASTER_SERVICE);
-        service->init(coordinator->enlistServer(MASTER_SERVICE,
-            "mock:host=master", 0, 0));
+        service->init(coordinator->enlistServer(
+            {MASTER_SERVICE}, "mock:host=master", 0, 0));
         client = new MasterClient(Context::get().transportManager->getSession(
                                         "mock:host=master"));
         ProtoBuf::Tablets_Tablet& tablet(*service->tablets.add_tablet());
@@ -329,11 +329,11 @@ TEST_F(MasterServiceTest, detectSegmentRecoveryFailure_success) {
     typedef MasterService MS;
     ProtoBuf::ServerList backups;
     ServerListBuilder{backups}
-        (false, true, 123, 87, "mock:host=backup1", MS::REC_REQ_FAILED)
-        (false, true, 123, 88, "mock:host=backup1", MS::REC_REQ_OK)
-        (false, true, 123, 89, "mock:host=backup1", MS::REC_REQ_OK)
-        (false, true, 123, 88, "mock:host=backup1", MS::REC_REQ_OK)
-        (false, true, 123, 87, "mock:host=backup1", MS::REC_REQ_OK)
+        ({BACKUP_SERVICE}, 123, 87, "mock:host=backup1", MS::REC_REQ_FAILED)
+        ({BACKUP_SERVICE}, 123, 88, "mock:host=backup1", MS::REC_REQ_OK)
+        ({BACKUP_SERVICE}, 123, 89, "mock:host=backup1", MS::REC_REQ_OK)
+        ({BACKUP_SERVICE}, 123, 88, "mock:host=backup1", MS::REC_REQ_OK)
+        ({BACKUP_SERVICE}, 123, 87, "mock:host=backup1", MS::REC_REQ_OK)
     ;
     detectSegmentRecoveryFailure(ServerId(99, 0), 3, backups);
 }
@@ -342,8 +342,8 @@ TEST_F(MasterServiceTest, detectSegmentRecoveryFailure_failure) {
     typedef MasterService MS;
     ProtoBuf::ServerList backups;
     ServerListBuilder{backups}
-        (false, true, 123, 87, "mock:host=backup1", MS::REC_REQ_FAILED)
-        (false, true, 123, 88, "mock:host=backup1", MS::REC_REQ_OK)
+        ({BACKUP_SERVICE}, 123, 87, "mock:host=backup1", MS::REC_REQ_FAILED)
+        ({BACKUP_SERVICE}, 123, 88, "mock:host=backup1", MS::REC_REQ_OK)
     ;
     EXPECT_THROW(detectSegmentRecoveryFailure(ServerId(99, 0), 3, backups),
                   SegmentRecoveryFailedException);
@@ -366,7 +366,7 @@ TEST_F(MasterServiceTest, recover_basics) {
 
     ProtoBuf::ServerList backups;
     ServerListBuilder{backups}
-        (false, true, 123, 87, "mock:host=backup1");
+        ({BACKUP_SERVICE}, 123, 87, "mock:host=backup1");
 
     TestLog::Enable __(&recoverSegmentFilter);
     client->recover(ServerId(123), 0, tablets, backups);
@@ -443,8 +443,8 @@ TEST_F(MasterServiceTest, recover) {
     BackupService backupService2{backupConfig2, *storage};
     transport->addService(backupService2, "mock:host=backup2",
             BACKUP_SERVICE);
-    backupService2.init(coordinator->enlistServer(BACKUP_SERVICE,
-        "mock:host=backup2", 0, 0));
+    backupService2.init(coordinator->enlistServer(
+        {BACKUP_SERVICE}, "mock:host=backup2", 0, 0));
 
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
@@ -456,24 +456,24 @@ TEST_F(MasterServiceTest, recover) {
     ProtoBuf::ServerList backups;
     ServerListBuilder{backups}
         // Started in initial round of RPCs - eventually fails
-        (false, true, 123, 87, "mock:host=backup1")
+        ({BACKUP_SERVICE}, 123, 87, "mock:host=backup1")
         // Skipped in initial round of RPCs (prior is in-flight)
         // starts later after failure from earlier entry
-        (false, true, 123, 87, "mock:host=backup2")
+        ({BACKUP_SERVICE}, 123, 87, "mock:host=backup2")
         // Started in initial round of RPCs - eventually succeeds
-        (false, true, 123, 88, "mock:host=backup1")
+        ({BACKUP_SERVICE}, 123, 88, "mock:host=backup1")
         // Skipped in all rounds of RPCs (prior succeeds)
-        (false, true, 123, 88, "mock:host=backup2")
+        ({BACKUP_SERVICE}, 123, 88, "mock:host=backup2")
         // Started in initial round of RPCs - eventually fails
-        (false, true, 123, 89, "mock:host=backup1")
+        ({BACKUP_SERVICE}, 123, 89, "mock:host=backup1")
         // Fails to start in initial round of RPCs - bad locator
-        (false, true, 123, 90, "mock:host=backup3")
+        ({BACKUP_SERVICE}, 123, 90, "mock:host=backup3")
         // Started in initial round of RPCs - eventually fails
-        (false, true, 123, 91, "mock:host=backup1")
+        ({BACKUP_SERVICE}, 123, 91, "mock:host=backup1")
         // Fails to start in later rounds of RPCs - bad locator
-        (false, true, 123, 92, "mock:host=backup4")
+        ({BACKUP_SERVICE}, 123, 92, "mock:host=backup4")
         // Started in later rounds of RPCs - eventually fails
-        (false, true, 123, 93, "mock:host=backup1")
+        ({BACKUP_SERVICE}, 123, 93, "mock:host=backup1")
     ;
 
     TestLog::Enable _;
@@ -1015,10 +1015,10 @@ class MasterRecoverTest : public ::testing::Test {
         transport->addService(*backupService2, "mock:host=backup2",
                 BACKUP_SERVICE);
 
-        backupService1->init(coordinator->enlistServer(BACKUP_SERVICE,
-            "mock:host=backup1", 0, 0));
-        backupService2->init(coordinator->enlistServer(BACKUP_SERVICE,
-            "mock:host=backup2", 0, 0));
+        backupService1->init(coordinator->enlistServer(
+            {BACKUP_SERVICE}, "mock:host=backup1", 0, 0));
+        backupService2->init(coordinator->enlistServer(
+            {BACKUP_SERVICE}, "mock:host=backup2", 0, 0));
     }
 
     ~MasterRecoverTest()
@@ -1049,8 +1049,8 @@ class MasterRecoverTest : public ::testing::Test {
         config.coordinatorLocator = "mock:host=coordinator";
         MasterService::sizeLogAndHashTable("32", "1", &config);
         MasterService* s = new MasterService(config, coordinator, 2);
-        s->init(coordinator->enlistServer(MASTER_SERVICE,
-            "mock:host=masterFoo", 0, 0));
+        s->init(coordinator->enlistServer(
+            {MASTER_SERVICE}, "mock:host=masterFoo", 0, 0));
         return s;
     }
 
@@ -1112,9 +1112,9 @@ TEST_F(MasterRecoverTest, recover) {
 
     ProtoBuf::ServerList backups;
     ServerListBuilder{backups}
-        (false, true, 99, 87, "mock:host=backup1")
-        (false, true, 99, 88, "mock:host=backup1")
-        (false, true, 99, 88, "mock:host=backup2")
+        ({BACKUP_SERVICE}, 99, 87, "mock:host=backup1")
+        ({BACKUP_SERVICE}, 99, 88, "mock:host=backup1")
+        ({BACKUP_SERVICE}, 99, 88, "mock:host=backup2")
     ;
 
     MockRandom __(1); // triggers deterministic rand().
@@ -1138,8 +1138,8 @@ TEST_F(MasterRecoverTest, failedToRecoverAll) {
     ProtoBuf::Tablets tablets;
     ProtoBuf::ServerList backups;
     ServerListBuilder{backups}
-        (false, true, 99, 87, "mock:host=backup1")
-        (false, true, 99, 88, "mock:host=backup1")
+        ({BACKUP_SERVICE}, 99, 87, "mock:host=backup1")
+        ({BACKUP_SERVICE}, 99, 88, "mock:host=backup1")
     ;
 
     MockRandom __(1); // triggers deterministic rand().

@@ -94,8 +94,7 @@ ServiceManager::~ServiceManager()
  */
 
 void
-ServiceManager::addService(Service& service, ServiceTypeMask type) {
-    assert(BitOps::countBitsSet(type) == 1);
+ServiceManager::addService(Service& service, ServiceType type) {
     assert(!services[type]);
     services[type].construct(service);
     serviceCount++;
@@ -131,7 +130,7 @@ ServiceManager::handleRpc(Transport::ServerRpc* rpc)
     // Find the service for this RPC.
     const RpcRequestCommon* header;
     header = rpc->requestPayload.getStart<RpcRequestCommon>();
-    if ((header == NULL) || (header->service > MAX_SERVICE) ||
+    if ((header == NULL) || (header->service >= INVALID_SERVICE) ||
             !services[header->service]) {
 #if TESTING
         if (serviceCount == 0) {

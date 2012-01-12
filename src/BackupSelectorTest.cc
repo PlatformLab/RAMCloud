@@ -19,6 +19,7 @@
 #include "CoordinatorService.h"
 #include "BackupClient.h"
 #include "BindTransport.h"
+#include "ServiceMask.h"
 #include "ShortMacros.h"
 
 namespace RAMCloud {
@@ -75,30 +76,30 @@ struct BackupSelectorTest : public ::testing::Test {
 
     void addEqualHosts(Tub<CoordinatorClient>& coordinator,
                        std::vector<ServerId>& ids) {
-        auto B = BACKUP_SERVICE;
-        ids.push_back(coordinator->enlistServer(B, "mock:host=backup1", 100));
-        ids.push_back(coordinator->enlistServer(B, "mock:host=backup2", 100));
-        ids.push_back(coordinator->enlistServer(B, "mock:host=backup3", 100));
-        ids.push_back(coordinator->enlistServer(B, "mock:host=backup4", 100));
-        ids.push_back(coordinator->enlistServer(B, "mock:host=backup5", 100));
-        ids.push_back(coordinator->enlistServer(B, "mock:host=backup6", 100));
-        ids.push_back(coordinator->enlistServer(B, "mock:host=backup7", 100));
-        ids.push_back(coordinator->enlistServer(B, "mock:host=backup8", 100));
-        ids.push_back(coordinator->enlistServer(B, "mock:host=backup9", 100));
+        ServiceMask b{BACKUP_SERVICE};
+        ids.push_back(coordinator->enlistServer(b, "mock:host=backup1", 100));
+        ids.push_back(coordinator->enlistServer(b, "mock:host=backup2", 100));
+        ids.push_back(coordinator->enlistServer(b, "mock:host=backup3", 100));
+        ids.push_back(coordinator->enlistServer(b, "mock:host=backup4", 100));
+        ids.push_back(coordinator->enlistServer(b, "mock:host=backup5", 100));
+        ids.push_back(coordinator->enlistServer(b, "mock:host=backup6", 100));
+        ids.push_back(coordinator->enlistServer(b, "mock:host=backup7", 100));
+        ids.push_back(coordinator->enlistServer(b, "mock:host=backup8", 100));
+        ids.push_back(coordinator->enlistServer(b, "mock:host=backup9", 100));
     }
 
     void addDifferentHosts(Tub<CoordinatorClient>& coordinator,
                            std::vector<ServerId>& ids) {
-        auto B = BACKUP_SERVICE;
-        ids.push_back(coordinator->enlistServer(B, "mock:host=backup1", 10));
-        ids.push_back(coordinator->enlistServer(B, "mock:host=backup2", 20));
-        ids.push_back(coordinator->enlistServer(B, "mock:host=backup3", 30));
-        ids.push_back(coordinator->enlistServer(B, "mock:host=backup4", 40));
-        ids.push_back(coordinator->enlistServer(B, "mock:host=backup5", 50));
-        ids.push_back(coordinator->enlistServer(B, "mock:host=backup6", 60));
-        ids.push_back(coordinator->enlistServer(B, "mock:host=backup7", 70));
-        ids.push_back(coordinator->enlistServer(B, "mock:host=backup8", 80));
-        ids.push_back(coordinator->enlistServer(B, "mock:host=backup9", 90));
+        ServiceMask b{BACKUP_SERVICE};
+        ids.push_back(coordinator->enlistServer(b, "mock:host=backup1", 10));
+        ids.push_back(coordinator->enlistServer(b, "mock:host=backup2", 20));
+        ids.push_back(coordinator->enlistServer(b, "mock:host=backup3", 30));
+        ids.push_back(coordinator->enlistServer(b, "mock:host=backup4", 40));
+        ids.push_back(coordinator->enlistServer(b, "mock:host=backup5", 50));
+        ids.push_back(coordinator->enlistServer(b, "mock:host=backup6", 60));
+        ids.push_back(coordinator->enlistServer(b, "mock:host=backup7", 70));
+        ids.push_back(coordinator->enlistServer(b, "mock:host=backup8", 80));
+        ids.push_back(coordinator->enlistServer(b, "mock:host=backup9", 90));
     }
 };
 
@@ -191,7 +192,7 @@ TEST_F(BackupSelectorTest, selectSecondary) {
     selector->updateHostListThrower.tillThrow = 10;
     EXPECT_THROW(selector->selectSecondary(0, NULL), TestingException);
 
-    coordinator->enlistServer(BACKUP_SERVICE, "mock:host=backup1");
+    coordinator->enlistServer({BACKUP_SERVICE}, "mock:host=backup1");
     selector->updateHostListFromCoordinator();
     EXPECT_EQ(selector->hosts.mutable_server(0),
               selector->selectSecondary(0, NULL));
@@ -204,9 +205,9 @@ TEST_F(BackupSelectorTest, selectSecondary) {
 }
 
 TEST_F(BackupSelectorTest, getRandomHost) {
-    coordinator->enlistServer(BACKUP_SERVICE, "mock:host=backup1");
-    coordinator->enlistServer(BACKUP_SERVICE, "mock:host=backup2");
-    coordinator->enlistServer(BACKUP_SERVICE, "mock:host=backup3");
+    coordinator->enlistServer({BACKUP_SERVICE}, "mock:host=backup1");
+    coordinator->enlistServer({BACKUP_SERVICE}, "mock:host=backup2");
+    coordinator->enlistServer({BACKUP_SERVICE}, "mock:host=backup3");
     selector->updateHostListFromCoordinator();
     MockRandom _(1);
     EXPECT_EQ("213", randomRound());
@@ -245,9 +246,9 @@ TEST_F(BackupSelectorTest, updateHostListFromCoordinator) {
     EXPECT_EQ(0U, selector->hostsOrder.size());
     EXPECT_EQ(0U, selector->numUsedHosts);
 
-    coordinator->enlistServer(BACKUP_SERVICE, "mock:host=backup1");
-    coordinator->enlistServer(BACKUP_SERVICE, "mock:host=backup2");
-    coordinator->enlistServer(BACKUP_SERVICE, "mock:host=backup3");
+    coordinator->enlistServer({BACKUP_SERVICE}, "mock:host=backup1");
+    coordinator->enlistServer({BACKUP_SERVICE}, "mock:host=backup2");
+    coordinator->enlistServer({BACKUP_SERVICE}, "mock:host=backup3");
     selector->updateHostListFromCoordinator();
     EXPECT_EQ(3, selector->hosts.server_size());
     EXPECT_EQ(3u, selector->hostsOrder.size());

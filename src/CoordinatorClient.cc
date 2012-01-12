@@ -105,7 +105,8 @@ CoordinatorClient::openTable(const char* name)
 /**
  * Servers call this when they come online to beg for work.
  * \param serviceMask
- *      MASTER_SERVICE, BACKUP_SERVICE, etc.
+ *      Which services are available on the enlisting server. MASTER_SERVICE,
+ *      BACKUP_SERVICE, etc.
  * \param localServiceLocator
  *      The service locator describing how other hosts can contact the server.
  * \param readSpeed
@@ -118,7 +119,7 @@ CoordinatorClient::openTable(const char* name)
  *      A ServerId guaranteed never to have been used before.
  */
 ServerId
-CoordinatorClient::enlistServer(ServiceTypeMask serviceMask,
+CoordinatorClient::enlistServer(ServiceMask serviceMask,
                                 string localServiceLocator,
                                 uint32_t readSpeed,
                                 uint32_t writeSpeed)
@@ -129,7 +130,7 @@ CoordinatorClient::enlistServer(ServiceTypeMask serviceMask,
             Buffer resp;
             EnlistServerRpc::Request& reqHdr(
                 allocHeader<EnlistServerRpc>(req));
-            reqHdr.serviceMask = downCast<uint8_t>(serviceMask);
+            reqHdr.serviceMask = serviceMask.serialize();
             reqHdr.readSpeed = readSpeed;
             reqHdr.writeSpeed = writeSpeed;
             reqHdr.serviceLocatorLength =
@@ -153,23 +154,24 @@ CoordinatorClient::enlistServer(ServiceTypeMask serviceMask,
 
 /**
  * List all live servers providing services of the given types.
- * \param[in] types
+ * \param[in] services
  *      Used to restrict the server list returned to containing only servers
- *      that support the specified services. Presently only some combination of
- *      MASTER_SERVICE and BACKUP_SERVICE is meaningful here.
+ *      that support the specified services.  A server is returned if it
+ *      matches *any* service described in \a services (as opposed to all the
+ *      services).
  * \param[out] serverList
  *      An empty ServerList that will be filled with current servers supporting
  *      the desired services.
  */
 void
-CoordinatorClient::getServerList(ServiceTypeMask types,
+CoordinatorClient::getServerList(ServiceMask services,
                                  ProtoBuf::ServerList& serverList)
 {
     Buffer req;
     Buffer resp;
     GetServerListRpc::Request& reqHdr(
         allocHeader<GetServerListRpc>(req));
-    reqHdr.serviceMask = downCast<uint8_t>(types);
+    reqHdr.serviceMask = services.serialize();
     const GetServerListRpc::Response& respHdr(
         sendRecv<GetServerListRpc>(session, req, resp));
     checkStatus(HERE);
@@ -186,7 +188,7 @@ CoordinatorClient::getServerList(ServiceTypeMask types,
 void
 CoordinatorClient::getServerList(ProtoBuf::ServerList& serverList)
 {
-    getServerList(MASTER_SERVICE | BACKUP_SERVICE, serverList);
+    getServerList({MASTER_SERVICE, BACKUP_SERVICE}, serverList);
 }
 
 /**
@@ -198,7 +200,7 @@ CoordinatorClient::getServerList(ProtoBuf::ServerList& serverList)
 void
 CoordinatorClient::getMasterList(ProtoBuf::ServerList& serverList)
 {
-    getServerList(MASTER_SERVICE, serverList);
+    getServerList({MASTER_SERVICE}, serverList);
 }
 
 /**
@@ -211,7 +213,7 @@ CoordinatorClient::getMasterList(ProtoBuf::ServerList& serverList)
 void
 CoordinatorClient::getBackupList(ProtoBuf::ServerList& serverList)
 {
-    getServerList(BACKUP_SERVICE, serverList);
+    getServerList({BACKUP_SERVICE}, serverList);
 }
 
 /**

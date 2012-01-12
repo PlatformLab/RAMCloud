@@ -58,7 +58,7 @@ ServerList::~ServerList()
  *      Which services this server provides.
  */
 void
-ServerList::add(ServerId id, string locator, ServiceTypeMask services)
+ServerList::add(ServerId id, string locator, ServiceMask services)
 {
     boost::lock_guard<SpinLock> lock(mutex);
 

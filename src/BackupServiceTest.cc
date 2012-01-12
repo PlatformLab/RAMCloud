@@ -66,9 +66,10 @@ class BackupServiceTest : public ::testing::Test {
                     COORDINATOR_SERVICE);
         backup = new BackupService(*config, *storage);
         transport->addService(*backup, "mock:host=backup", BACKUP_SERVICE);
-        backup->init(CoordinatorClient(
-            config->coordinatorLocator.c_str()).enlistServer(BACKUP_SERVICE,
-                "mock:host=backup", 0, 0));
+        ServerId backupId = CoordinatorClient(
+            config->coordinatorLocator.c_str()).enlistServer({BACKUP_SERVICE},
+                "mock:host=backup", 0, 0);
+        backup->init(backupId);
         client =
             new BackupClient(Context::get().transportManager->getSession(
                                  "mock:host=backup"));

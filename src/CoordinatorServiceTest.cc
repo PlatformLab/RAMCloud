@@ -60,7 +60,7 @@ class CoordinatorServiceTest : public ::testing::Test {
         transport->addService(*master, "mock:host=master", MASTER_SERVICE);
         master = new(master) MasterService(masterConfig, client, 0);
         masterServerId = client->enlistServer(
-            MASTER_SERVICE, "mock:host=master", 0, 0);
+            {MASTER_SERVICE}, "mock:host=master", 0, 0);
         master->init(masterServerId);
         TestLog::enable();
     }
@@ -82,7 +82,7 @@ TEST_F(CoordinatorServiceTest, createTable) {
     MasterService master2(masterConfig, NULL, 0);
     transport->addService(master2, "mock:host=master2", MASTER_SERVICE);
     master2.init(client->enlistServer(
-        MASTER_SERVICE, "mock:host=master2", 0, 0));
+        {MASTER_SERVICE}, "mock:host=master2", 0, 0));
     // master is already enlisted
     client->createTable("foo");
     client->createTable("foo"); // should be no-op
@@ -127,12 +127,12 @@ TEST_F(CoordinatorServiceTest, createTable) {
 TEST_F(CoordinatorServiceTest, enlistServer) {
     EXPECT_EQ(1U, master->serverId->getId());
     EXPECT_EQ(ServerId(2, 0),
-        client->enlistServer(BACKUP_SERVICE, "mock:host=backup"));
+        client->enlistServer({BACKUP_SERVICE}, "mock:host=backup"));
 
     ProtoBuf::ServerList masterList;
-    service->serverList.serialise(masterList, true, false);
+    service->serverList.serialise(masterList, {MASTER_SERVICE});
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-                "server { is_master: true is_backup: false server_id: 1 "
+                "server { service_mask: 1 server_id: 1 "
                 "service_locator: \"mock:host=master\" "
                 "user_data: [0-9]\\+ is_in_cluster: true } version_number: 2",
                 masterList.ShortDebugString()));
@@ -141,8 +141,8 @@ TEST_F(CoordinatorServiceTest, enlistServer) {
     EXPECT_EQ(0, will.tablet_size());
 
     ProtoBuf::ServerList backupList;
-    service->serverList.serialise(backupList, false, true);
-    EXPECT_EQ("server { is_master: false is_backup: true server_id: 2 "
+    service->serverList.serialise(backupList, {BACKUP_SERVICE});
+    EXPECT_EQ("server { service_mask: 2 server_id: 2 "
               "service_locator: \"mock:host=backup\" "
               "user_data: 0 is_in_cluster: true } version_number: 2",
               backupList.ShortDebugString());
@@ -154,21 +154,21 @@ TEST_F(CoordinatorServiceTest, getMasterList) {
     client->getMasterList(masterList);
     // need to avoid non-deterministic 'user_data' field.
     EXPECT_EQ(0U, masterList.ShortDebugString().find(
-              "server { is_master: true is_backup: false server_id: 1 "
+              "server { service_mask: 1 server_id: 1 "
               "service_locator: \"mock:host=master\" "
               "user_data: "));
 }
 
 TEST_F(CoordinatorServiceTest, getBackupList) {
     // master is already enlisted
-    client->enlistServer(BACKUP_SERVICE, "mock:host=backup1");
-    client->enlistServer(BACKUP_SERVICE, "mock:host=backup2");
+    client->enlistServer({BACKUP_SERVICE}, "mock:host=backup1");
+    client->enlistServer({BACKUP_SERVICE}, "mock:host=backup2");
     ProtoBuf::ServerList backupList;
     client->getBackupList(backupList);
-    EXPECT_EQ("server { is_master: false is_backup: true server_id: 2 "
+    EXPECT_EQ("server { service_mask: 2 server_id: 2 "
               "service_locator: \"mock:host=backup1\" user_data: 0 "
               "is_in_cluster: true } "
-              "server { is_master: false is_backup: true server_id: 3 "
+              "server { service_mask: 2 server_id: 3 "
               "service_locator: \"mock:host=backup2\" user_data: 0 "
               "is_in_cluster: true } version_number: 3",
                             backupList.ShortDebugString());
@@ -176,14 +176,14 @@ TEST_F(CoordinatorServiceTest, getBackupList) {
 
 TEST_F(CoordinatorServiceTest, getServerList) {
     // master is already enlisted
-    client->enlistServer(BACKUP_SERVICE, "mock:host=backup1");
+    client->enlistServer({BACKUP_SERVICE}, "mock:host=backup1");
     ProtoBuf::ServerList serverList;
     client->getServerList(serverList);
     EXPECT_EQ(2, serverList.server_size());
-    EXPECT_TRUE(serverList.server(0).is_master());
-    EXPECT_FALSE(serverList.server(0).is_backup());
-    EXPECT_FALSE(serverList.server(1).is_master());
-    EXPECT_TRUE(serverList.server(1).is_backup());
+    auto masterMask = ServiceMask{MASTER_SERVICE}.serialize();
+    EXPECT_EQ(masterMask, serverList.server(0).service_mask());
+    auto backupMask = ServiceMask{BACKUP_SERVICE}.serialize();
+    EXPECT_EQ(backupMask, serverList.server(1).service_mask());
 }
 
 TEST_F(CoordinatorServiceTest, getTabletMap) {
@@ -207,8 +207,8 @@ TEST_F(CoordinatorServiceTest, hintServerDown_master) {
                     const CoordinatorServerList& serverList) {
 
             ProtoBuf::ServerList masterHosts, backupHosts;
-            serverList.serialise(masterHosts, true, false);
-            serverList.serialise(backupHosts, false, true);
+            serverList.serialise(masterHosts, {MASTER_SERVICE});
+            serverList.serialise(backupHosts, {BACKUP_SERVICE});
 
             EXPECT_EQ("tablet { table_id: 0 start_object_id: 0 "
                     "end_object_id: 18446744073709551615 "
@@ -221,12 +221,12 @@ TEST_F(CoordinatorServiceTest, hintServerDown_master) {
                       "state: NORMAL user_data: 0 }",
                       will.ShortDebugString());
             EXPECT_TRUE(TestUtil::matchesPosixRegex(
-                        "server { is_master: true is_backup: false "
+                        "server { service_mask: 1 "
                         "server_id: 2 service_locator: "
                         "\"mock:host=master2\" user_data: [0-9]\\+ "
                         "is_in_cluster: true } version_number: 4",
                         masterHosts.ShortDebugString()));
-            EXPECT_EQ("server { is_master: false is_backup: true "
+            EXPECT_EQ("server { service_mask: 2 "
                       "server_id: 3 "
                       "service_locator: \"mock:host=backup\" "
                       "user_data: 0 is_in_cluster: true } version_number: 4",
@@ -239,8 +239,8 @@ TEST_F(CoordinatorServiceTest, hintServerDown_master) {
     } mockRecovery(*this);
     service->mockRecovery = &mockRecovery;
     // master is already enlisted
-    client->enlistServer(MASTER_SERVICE, "mock:host=master2");
-    client->enlistServer(BACKUP_SERVICE, "mock:host=backup");
+    client->enlistServer({MASTER_SERVICE}, "mock:host=master2");
+    client->enlistServer({BACKUP_SERVICE}, "mock:host=backup");
     client->createTable("foo");
     service->test_forceServerReallyDown = true;
     client->hintServerDown(masterServerId);
@@ -257,7 +257,7 @@ TEST_F(CoordinatorServiceTest, hintServerDown_master) {
 }
 
 TEST_F(CoordinatorServiceTest, hintServerDown_backup) {
-    ServerId id = client->enlistServer(BACKUP_SERVICE, "mock:host=backup");
+    ServerId id = client->enlistServer({BACKUP_SERVICE}, "mock:host=backup");
     EXPECT_EQ(1U, service->serverList.backupCount());
     service->test_forceServerReallyDown = true;
     client->hintServerDown(id);
@@ -273,9 +273,9 @@ TEST_F(CoordinatorServiceTest, tabletsRecovered_basics) {
     typedef ProtoBuf::Tablets::Tablet Tablet;
     typedef ProtoBuf::Tablets Tablets;
 
-    ServerId master2Id = client->enlistServer(MASTER_SERVICE,
+    ServerId master2Id = client->enlistServer({MASTER_SERVICE},
         "mock:host=master2");
-    client->enlistServer(BACKUP_SERVICE, "mock:host=backup");
+    client->enlistServer({BACKUP_SERVICE}, "mock:host=backup");
 
     Tablets tablets;
     Tablet& tablet(*tablets.add_tablet());
@@ -332,7 +332,7 @@ setWillFilter(string s) {
 }
 
 TEST_F(CoordinatorServiceTest, setWill) {
-    client->enlistServer(MASTER_SERVICE, "mock:host=master2");
+    client->enlistServer({MASTER_SERVICE}, "mock:host=master2");
 
     ProtoBuf::Tablets will;
     ProtoBuf::Tablets::Tablet& t(*will.add_tablet());
@@ -370,7 +370,7 @@ TEST_F(CoordinatorServiceTest, requestServerList) {
     MembershipService member(serverId, serverList);
     transport->addService(member, "mock:host=member", MEMBERSHIP_SERVICE);
     ServerId id = client->enlistServer(
-        MEMBERSHIP_SERVICE, "mock:host=member", 0, 0);
+        {MEMBERSHIP_SERVICE}, "mock:host=member", 0, 0);
     TestLog::reset();
     client->requestServerList(id);
     EXPECT_EQ(0U, TestLog::get().find(
@@ -385,7 +385,7 @@ TEST_F(CoordinatorServiceTest, sendServerList) {
     MembershipService member(serverId, serverList);
     transport->addService(member, "mock:host=member", MEMBERSHIP_SERVICE);
     ServerId id = client->enlistServer(
-        MEMBERSHIP_SERVICE, "mock:host=member", 0, 0);
+        {MEMBERSHIP_SERVICE}, "mock:host=member", 0, 0);
     TestLog::Enable _();
     service->sendServerList(id);
     EXPECT_NE(string::npos, TestLog::get().find(
@@ -399,7 +399,7 @@ TEST_F(CoordinatorServiceTest, sendMembershipUpdate) {
     MembershipService member(serverId, serverList);
     transport->addService(member, "mock:host=member", MEMBERSHIP_SERVICE);
     ServerId id = client->enlistServer(
-        MEMBERSHIP_SERVICE, "mock:host=member", 0, 0);
+        {MEMBERSHIP_SERVICE}, "mock:host=member", 0, 0);
     ProtoBuf::ServerList update;
     update.set_version_number(3);
     service->sendMembershipUpdate(update, ServerId(/* invalid id */));

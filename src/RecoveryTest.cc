@@ -67,7 +67,8 @@ class RecoveryTest : public ::testing::Test {
                 ProtoBuf::ServerList::Entry& e(*backupList.add_server());
                 e.set_service_locator(locator);
                 e.set_server_id(backupId++);
-                e.set_is_backup(true);
+                e.set_service_mask(
+                    ServiceMask{BACKUP_SERVICE}.serialize());
             }
 
             // TODO(ongaro): Rework this to not muck with mgr's internal state
@@ -186,11 +187,11 @@ class RecoveryTest : public ::testing::Test {
 
         /* Enlist the backups and init them */
         backupService1->init(
-            coordinator->enlistServer(BACKUP_SERVICE, "mock:host=backup1"));
+            coordinator->enlistServer({BACKUP_SERVICE}, "mock:host=backup1"));
         backupService2->init(
-            coordinator->enlistServer(BACKUP_SERVICE, "mock:host=backup2"));
+            coordinator->enlistServer({BACKUP_SERVICE}, "mock:host=backup2"));
         backupService3->init(
-            coordinator->enlistServer(BACKUP_SERVICE, "mock:host=backup3"));
+            coordinator->enlistServer({BACKUP_SERVICE}, "mock:host=backup3"));
 
         backup1 =
             new BackupClient(transportManager.getSession("mock:host=backup1"));
@@ -204,8 +205,8 @@ class RecoveryTest : public ::testing::Test {
         /*
          * Create some fake masters.
          */
-        coordinator->enlistServer(MASTER_SERVICE, "mock:host=master1");
-        coordinator->enlistServer(MASTER_SERVICE, "mock:host=master2");
+        coordinator->enlistServer({MASTER_SERVICE}, "mock:host=master1");
+        coordinator->enlistServer({MASTER_SERVICE}, "mock:host=master2");
     }
 
     ~RecoveryTest()
@@ -254,28 +255,26 @@ TEST_F(RecoveryTest, buildSegmentIdToBackups) {
     ProtoBuf::Tablets tablets;
     Recovery recovery(ServerId(99), tablets, *serverList);
 
+    auto expectedMask = ServiceMask{BACKUP_SERVICE}.serialize();
     EXPECT_EQ(3, recovery.backups.server_size());
     {
         const ProtoBuf::ServerList::Entry&
             backup(recovery.backups.server(0));
         EXPECT_EQ(89U, backup.segment_id());
         EXPECT_EQ("mock:host=backup1", backup.service_locator());
-        EXPECT_TRUE(backup.is_backup());
-        EXPECT_FALSE(backup.is_master());
+        EXPECT_EQ(expectedMask, backup.service_mask());
     }{
         const ProtoBuf::ServerList::Entry&
             backup(recovery.backups.server(1));
         EXPECT_EQ(88U, backup.segment_id());
         EXPECT_EQ("mock:host=backup2", backup.service_locator());
-        EXPECT_TRUE(backup.is_backup());
-        EXPECT_FALSE(backup.is_master());
+        EXPECT_EQ(expectedMask, backup.service_mask());
     }{
         const ProtoBuf::ServerList::Entry&
             backup(recovery.backups.server(2));
         EXPECT_EQ(88U, backup.segment_id());
         EXPECT_EQ("mock:host=backup1", backup.service_locator());
-        EXPECT_TRUE(backup.is_backup());
-        EXPECT_FALSE(backup.is_master());
+        EXPECT_EQ(expectedMask, backup.service_mask());
     }
 }
 

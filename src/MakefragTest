@@ -61,9 +61,10 @@ TESTS_SRCFILES := \
 		  src/ServerMetricsTest.cc \
 		  src/ServerRpcPoolTest.cc \
 		  src/ServerTrackerTest.cc \
-		  src/ServiceTest.cc \
-		  src/ServiceManagerTest.cc \
 		  src/ServiceLocatorTest.cc \
+		  src/ServiceManagerTest.cc \
+		  src/ServiceMaskTest.cc \
+		  src/ServiceTest.cc \
 		  src/SessionAlarmTest.cc \
 		  src/SpinLockTest.cc \
 		  src/StatusTest.cc \

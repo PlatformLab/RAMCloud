@@ -16,13 +16,14 @@
 #include <boost/scoped_ptr.hpp>
 
 #include "BackupClient.h"
-#include "PingClient.h"
 #include "CoordinatorService.h"
-#include "ShortMacros.h"
 #include "MasterClient.h"
 #include "MembershipClient.h"
+#include "PingClient.h"
 #include "ProtoBuf.h"
 #include "Recovery.h"
+#include "ShortMacros.h"
+#include "ServiceMask.h"
 
 namespace RAMCloud {
 
@@ -45,7 +46,7 @@ CoordinatorService::~CoordinatorService()
     // the list before using it (e.g. when we start recovery).
     for (size_t i = 0; i < serverList.size(); i++) {
         CoordinatorServerList::Entry* entry = serverList[i];
-        if (entry != NULL && entry->isMaster && entry->will != NULL)
+        if (entry != NULL && entry->isMaster() && entry->will != NULL)
             delete entry->will;
     }
 }
@@ -129,7 +130,8 @@ CoordinatorService::createTable(const CreateTableRpc::Request& reqHdr,
     CoordinatorServerList::Entry* master = NULL;
     while (true) {
         size_t masterIdx = nextTableMasterIdx++ % serverList.size();
-        if (serverList[masterIdx] != NULL && serverList[masterIdx]->isMaster) {
+        if (serverList[masterIdx] != NULL &&
+            serverList[masterIdx]->isMaster()) {
             master = serverList[masterIdx];
             break;
         }
@@ -206,7 +208,7 @@ CoordinatorService::dropTable(const DropTableRpc::Request& reqHdr,
     // tablets belonging to each master
 
     for (size_t i = 0; i < serverList.size(); i++) {
-        if (serverList[i] == NULL || !serverList[i]->isMaster)
+        if (serverList[i] == NULL || !serverList[i]->isMaster())
             continue;
         const char* locator = serverList[i]->serviceLocator.c_str();
         MasterClient master(
@@ -246,8 +248,7 @@ CoordinatorService::enlistServer(const EnlistServerRpc::Request& reqHdr,
                                  EnlistServerRpc::Response& respHdr,
                                  Rpc& rpc)
 {
-    ServiceTypeMask serviceMask =
-         static_cast<ServiceTypeMask>(reqHdr.serviceMask);
+    ServiceMask serviceMask = ServiceMask::deserialize(reqHdr.serviceMask);
     const uint32_t readSpeed = reqHdr.readSpeed;
     const uint32_t writeSpeed = reqHdr.writeSpeed;
     const char *serviceLocator = getString(rpc.requestPayload, sizeof(reqHdr),
@@ -259,21 +260,17 @@ CoordinatorService::enlistServer(const EnlistServerRpc::Request& reqHdr,
                                           additionUpdate);
     CoordinatorServerList::Entry& entry = serverList[newServerId];
 
-    // XXX- Should be a ServiceTypeMask -> string method. Extract it from
-    //      Rpc.h and make a little class instead?
     LOG(NOTICE, "Enlisting new server at %s (server id %lu) supporting "
-        "services: %s%s%s",
+        "services: %s",
         serviceLocator, newServerId.getId(),
-        entry.isMaster ? "master " : "",
-        entry.isBackup ? "backup " : "",
-        entry.hasMembershipService ? "membership " : "");
+        entry.serviceMask.toString().c_str());
 
-    if (entry.isMaster) {
+    if (entry.isMaster()) {
         // create empty will
         entry.will = new ProtoBuf::Tablets;
     }
 
-    if (entry.isBackup) {
+    if (entry.isBackup()) {
         LOG(DEBUG, "Backup at id %lu has %u MB/s read %u MB/s write ",
             newServerId.getId(), readSpeed, writeSpeed);
         entry.backupReadMegsPerSecond = readSpeed;
@@ -282,7 +279,7 @@ CoordinatorService::enlistServer(const EnlistServerRpc::Request& reqHdr,
     respHdr.serverId = newServerId.getId();
     rpc.sendReply();
 
-    if (entry.hasMembershipService)
+    if (entry.serviceMask.has(MEMBERSHIP_SERVICE))
         sendServerList(newServerId);
     sendMembershipUpdate(additionUpdate, newServerId);
 }
@@ -296,13 +293,10 @@ CoordinatorService::getServerList(const GetServerListRpc::Request& reqHdr,
                                   GetServerListRpc::Response& respHdr,
                                   Rpc& rpc)
 {
-    ServiceTypeMask serviceMask =
-         static_cast<ServiceTypeMask>(reqHdr.serviceMask);
+    ServiceMask serviceMask = ServiceMask::deserialize(reqHdr.serviceMask);
 
     ProtoBuf::ServerList serialServerList;
-    serverList.serialise(serialServerList,
-                         serviceMask & MASTER_SERVICE,
-                         serviceMask & BACKUP_SERVICE);
+    serverList.serialise(serialServerList, serviceMask);
 
     respHdr.serverListLength =
         serializeToResponse(rpc.replyPayload, serialServerList);
@@ -377,11 +371,11 @@ CoordinatorService::hintServerDown(const HintServerDownRpc::Request& reqHdr,
     ProtoBuf::ServerList removalUpdate;
     serverList.remove(serverId, removalUpdate);
 
-    if (serverEntry.isBackup) {
+    if (serverEntry.isBackup()) {
         // TODO(ongaro): inform masters they need to replicate more
     }
 
-    if (serverEntry.isMaster) {
+    if (serverEntry.isMaster()) {
         boost::scoped_ptr<ProtoBuf::Tablets> will(serverEntry.will);
 
         foreach (ProtoBuf::Tablets::Tablet& tablet,
@@ -508,7 +502,7 @@ CoordinatorService::quiesce(const BackupQuiesceRpc::Request& reqHdr,
                             Rpc& rpc)
 {
     for (size_t i = 0; i < serverList.size(); i++) {
-        if (serverList[i] != NULL && serverList[i]->isBackup) {
+        if (serverList[i] != NULL && serverList[i]->isBackup()) {
             BackupClient(Context::get().transportManager->getSession(
                 serverList[i]->serviceLocator.c_str())).quiesce();
         }
@@ -555,7 +549,7 @@ CoordinatorService::setWill(ServerId masterId, Buffer& buffer,
 {
     if (serverList.contains(masterId)) {
         CoordinatorServerList::Entry& master = serverList[masterId];
-        if (!master.isMaster) {
+        if (!master.isMaster()) {
             LOG(WARNING, "Server %lu is not a master!!", masterId.getId());
             return false;
         }
@@ -599,7 +593,7 @@ CoordinatorService::requestServerList(
         return;
     }
 
-    if (!serverList[id].hasMembershipService) {
+    if (!serverList[id].serviceMask.has(MEMBERSHIP_SERVICE)) {
         LOG(WARNING, "Could not send list to server without membership "
             "service: %lu", *id);
         return;
@@ -647,7 +641,8 @@ CoordinatorService::sendMembershipUpdate(ProtoBuf::ServerList& update,
 {
     MembershipClient client;
     for (size_t i = 0; i < serverList.size(); i++) {
-        if (serverList[i] == NULL || !serverList[i]->hasMembershipService)
+        if (serverList[i] == NULL ||
+            !serverList[i]->serviceMask.has(MEMBERSHIP_SERVICE))
             continue;
         if (serverList[i]->serverId == excludeServerId)
             continue;

@@ -313,7 +313,7 @@ class ServerTracker : public ServerTrackerInterface {
      *      running an instance of the requested service type.
      */
     ServerId
-    getRandomServerIdWithService(ServiceTypeMask service)
+    getRandomServerIdWithService(ServiceType service)
     {
         // This could get a little slow if the list isn't dense, but the
         // coordinator should aggressively reuse slots to maintain density
@@ -326,7 +326,7 @@ class ServerTracker : public ServerTrackerInterface {
             do {
                 if (i != lastRemovedIndex &&
                     serverList[i].server.serverId.isValid() &&
-                    (serverList[i].server.services & service) != 0)
+                    serverList[i].server.services.has(service))
                     return serverList[i].server.serverId;
                 i = (i + 1) % serverList.size();
             } while (i != start);

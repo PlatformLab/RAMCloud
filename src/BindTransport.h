@@ -33,7 +33,7 @@ struct BindTransport : public Transport {
     // services all associated with the same service locator (e.g.
     // the services that would be contained in a single server).
     struct ServiceArray {
-        Service* services[MAX_SERVICE+1];
+        Service* services[INVALID_SERVICE];
     };
 
     explicit BindTransport(Service* service = NULL)
@@ -49,8 +49,7 @@ struct BindTransport : public Transport {
     }
 
     void
-    addService(Service& service, const string locator, ServiceTypeMask type) {
-        assert(BitOps::countBitsSet(type) == 1);
+    addService(Service& service, const string locator, ServiceType type) {
         services[locator].services[type] = &service;
     }
 
@@ -103,7 +102,7 @@ struct BindTransport : public Transport {
             }
             const RpcRequestCommon* header;
             header = request->getStart<RpcRequestCommon>();
-            if ((header == NULL) || (header->service > MAX_SERVICE)) {
+            if ((header == NULL) || (header->service >= INVALID_SERVICE)) {
                 throw ServiceNotAvailableException(HERE);
             }
             Service* service = services->services[header->service];

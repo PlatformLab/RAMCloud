@@ -48,13 +48,16 @@ TEST_F(ClusterMetricsTest, load) {
     // Create two servers (faked with ping).
     PingService ping1(&serverList);
     transport.addService(ping1, "mock:host=ping1", PING_SERVICE);
-    ramcloud.coordinator.enlistServer(MASTER_SERVICE, "mock:host=ping1", 0, 0);
+    ramcloud.coordinator.enlistServer({MASTER_SERVICE},
+                                      "mock:host=ping1", 0, 0);
     PingService ping2(&serverList);
     transport.addService(ping2, "mock:host=ping2", PING_SERVICE);
-    ramcloud.coordinator.enlistServer(MASTER_SERVICE, "mock:host=ping2", 0, 0);
+    ramcloud.coordinator.enlistServer({MASTER_SERVICE},
+                                      "mock:host=ping2", 0, 0);
 
     // Create an extra server using a redundant service locator.
-    ramcloud.coordinator.enlistServer(BACKUP_SERVICE, "mock:host=ping1", 0, 0);
+    ramcloud.coordinator.enlistServer({BACKUP_SERVICE},
+                                      "mock:host=ping1", 0, 0);
 
     ClusterMetrics clusterMetrics;
     // Insert some initial data to make sure it gets cleared.

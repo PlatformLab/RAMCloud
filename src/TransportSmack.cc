@@ -84,7 +84,7 @@ namespace {
 /// RPC format used by #Echo.
 struct EchoRpc {
     static const RpcOpcode opcode = RpcOpcode(0x11);
-    static const ServiceTypeMask service = 0;
+    static const ServiceType service = MASTER_SERVICE; // anything works.
     struct Request {
         RpcRequestCommon common;
         uint64_t spinNs;
@@ -99,7 +99,7 @@ struct EchoRpc {
 /// RPC format used by #Remote.
 struct RemoteRpc {
     static const RpcOpcode opcode = RpcOpcode(0x12);
-    static const ServiceTypeMask service = 0;
+    static const ServiceType service = MASTER_SERVICE; // anything works.
     struct Request {
         RpcRequestCommon common;
         uint32_t commandLength;

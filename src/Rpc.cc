@@ -19,6 +19,22 @@
 namespace RAMCloud {
 
 /**
+ * Returns a string representation of a ServiceType.  Useful for error
+ * messages and logging.
+ */
+const char*
+Rpc::serviceTypeSymbol(ServiceType type) {
+    switch (type) {
+        case MASTER_SERVICE:        return "MASTER_SERVICE";
+        case BACKUP_SERVICE:        return "BACKUP_SERVICE";
+        case COORDINATOR_SERVICE:   return "COORDINATOR_SERVICE";
+        case PING_SERVICE:          return "PING_SERVICE";
+        case MEMBERSHIP_SERVICE:    return "MEMBERSHIP_SERVICE";
+        default:                    return "INVALID_SERVICE";
+    }
+}
+
+/**
  * Given an RpcOpcode, return a human-readable string containing
  * the symbolic name for the opcode, such as "PING"
  *

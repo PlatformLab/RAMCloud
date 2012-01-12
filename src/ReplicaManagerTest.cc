@@ -86,9 +86,9 @@ struct ReplicaManagerTest : public ::testing::Test {
         transport->addService(*backupService2, "mock:host=backup2",
                 BACKUP_SERVICE);
 
-        backupService1->init(coordinator->enlistServer(BACKUP_SERVICE,
+        backupService1->init(coordinator->enlistServer({BACKUP_SERVICE},
             backupServiceConfig1->localLocator.c_str(), 0, 0));
-        backupService2->init(coordinator->enlistServer(BACKUP_SERVICE,
+        backupService2->init(coordinator->enlistServer({BACKUP_SERVICE},
             backupServiceConfig2->localLocator.c_str(), 0, 0));
 
         backup1.construct(Context::get().transportManager->getSession(

@@ -104,15 +104,16 @@ TEST_F(ServerTrackerTest, getChange) {
     // Add
     EXPECT_FALSE(tr.getChange(server, event));
     EXPECT_EQ(0U, tr.serverList.size());
-    tr.enqueueChange(ServerChangeDetails(ServerId(2, 0), "Prophylaxis", 1234u),
-                     ServerChangeEvent::SERVER_ADDED);
+    tr.enqueueChange(ServerChangeDetails(ServerId(2, 0), "Prophylaxis",
+                     {BACKUP_SERVICE}), ServerChangeEvent::SERVER_ADDED);
     EXPECT_EQ(3U, tr.serverList.size());
     EXPECT_FALSE(tr.serverList[2].server.serverId.isValid());
     EXPECT_TRUE(tr.serverList[2].pointer == NULL);
     EXPECT_TRUE(tr.getChange(server, event));
     EXPECT_EQ(ServerId(2, 0), server.serverId);
     EXPECT_EQ("Prophylaxis", server.serviceLocator);
-    EXPECT_EQ(1234u, server.services);
+    EXPECT_TRUE(server.services.has(BACKUP_SERVICE));
+    EXPECT_FALSE(server.services.has(MASTER_SERVICE));
     EXPECT_EQ(ServerChangeEvent::SERVER_ADDED, event);
     EXPECT_FALSE(tr.getChange(server, event));
     EXPECT_EQ(ServerId(2, 0), tr.serverList[2].server.serverId);
@@ -133,7 +134,7 @@ TEST_F(ServerTrackerTest, getChange) {
         "pointer for index 2 (ServerId 2)!", TestLog::get());
     EXPECT_FALSE(tr.serverList[2].server.serverId.isValid());
     EXPECT_EQ("", tr.serverList[2].server.serviceLocator);
-    EXPECT_EQ(0u, tr.serverList[2].server.services);
+    EXPECT_EQ(0u, tr.serverList[2].server.services.serialize());
     EXPECT_TRUE(tr.serverList[2].pointer == NULL);
     EXPECT_EQ(static_cast<uint32_t>(-1), tr.lastRemovedIndex);
 }
@@ -142,32 +143,30 @@ TEST_F(ServerTrackerTest, getRandomServerIdWithService) {
     ServerChangeDetails server;
     ServerChangeEvent event;
 
-    EXPECT_FALSE(tr.getRandomServerIdWithService(~0u).isValid());
-    tr.enqueueChange(ServerChangeDetails(ServerId(0, 1), "", 1u),
+    EXPECT_FALSE(tr.getRandomServerIdWithService(MASTER_SERVICE).isValid());
+    tr.enqueueChange(ServerChangeDetails(ServerId(0, 1), "", {MASTER_SERVICE}),
                      ServerChangeEvent::SERVER_ADDED);
-    EXPECT_FALSE(tr.getRandomServerIdWithService(~0u).isValid());
+    EXPECT_FALSE(tr.getRandomServerIdWithService(MASTER_SERVICE).isValid());
 
     EXPECT_TRUE(tr.getChange(server, event));
     for (int i = 0; i < 10; i++) {
-        EXPECT_EQ(ServerId(0, 1),
-                  tr.getRandomServerIdWithService(~0u));
         // Ensure asking for a specific service filters properly.
         // Should find one with low order bit set.
         EXPECT_EQ(ServerId(0, 1),
-                  tr.getRandomServerIdWithService(1u));
+                  tr.getRandomServerIdWithService(MASTER_SERVICE));
         // No host available with this service bit set.
         EXPECT_EQ(ServerId(),
-                  tr.getRandomServerIdWithService(2u));
+                  tr.getRandomServerIdWithService(BACKUP_SERVICE));
     }
 
-    tr.enqueueChange(ServerChangeDetails(ServerId(1, 1), "", 1u),
+    tr.enqueueChange(ServerChangeDetails(ServerId(1, 1), "", {MASTER_SERVICE}),
                      ServerChangeEvent::SERVER_ADDED);
 
     EXPECT_TRUE(tr.getChange(server, event));
     bool firstSeen = false;
     bool secondSeen = false;
     for (int i = 0; i < 100; i++) {
-        ServerId id = tr.getRandomServerIdWithService(~0u);
+        ServerId id = tr.getRandomServerIdWithService(MASTER_SERVICE);
         EXPECT_TRUE(id == ServerId(0, 1) ||
                     id == ServerId(1, 1));
         if (id == ServerId(0, 1)) firstSeen = true;
@@ -177,18 +176,19 @@ TEST_F(ServerTrackerTest, getRandomServerIdWithService) {
     EXPECT_TRUE(secondSeen);
 
     // Ensure looping over empty list terminates.
-    tr.enqueueChange(ServerChangeDetails(ServerId(0, 1), "", 1u),
+    tr.enqueueChange(ServerChangeDetails(ServerId(0, 1)),
                      ServerChangeEvent::SERVER_REMOVED);
-    tr.enqueueChange(ServerChangeDetails(ServerId(1, 1), "", 1u),
+    tr.enqueueChange(ServerChangeDetails(ServerId(1, 1)),
                      ServerChangeEvent::SERVER_REMOVED);
     EXPECT_TRUE(tr.getChange(server, event));
     EXPECT_TRUE(tr.getChange(server, event));
-    EXPECT_FALSE(tr.getRandomServerIdWithService(~0u).isValid());
+    EXPECT_FALSE(tr.getRandomServerIdWithService({MASTER_SERVICE}).isValid());
 }
 
 TEST_F(ServerTrackerTest, getLocator) {
     EXPECT_THROW(tr.getLocator(ServerId(1, 0)), Exception);
-    tr.enqueueChange(ServerChangeDetails(ServerId(1, 1), "mock:", 1u),
+    tr.enqueueChange(ServerChangeDetails(ServerId(1, 1), "mock:",
+                                         {MASTER_SERVICE}),
                      ServerChangeEvent::SERVER_ADDED);
     ServerChangeDetails server;
     ServerChangeEvent event;

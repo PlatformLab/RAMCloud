@@ -491,7 +491,7 @@ Recovery::tabletsRecovered(const ProtoBuf::Tablets& tablets)
     uint32_t numBackups = serverList.backupCount();
     Tub<BackupEndTask> tasks[numBackups];
     for (size_t i = 0, taskNum = 0; i < serverList.size(); i++) {
-        if (serverList[i] == NULL || !serverList[i]->isBackup)
+        if (serverList[i] == NULL || !serverList[i]->isBackup())
             continue;
         auto& backup = *serverList[i];
         tasks[taskNum++].construct(backup.serviceLocator, masterId);

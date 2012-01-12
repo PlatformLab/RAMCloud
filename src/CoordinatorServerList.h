@@ -25,6 +25,7 @@
 #include "Tablets.pb.h"
 
 #include "Rpc.h"
+#include "ServiceMask.h"
 #include "ServerId.h"
 #include "Tub.h"
 
@@ -57,9 +58,9 @@ class CoordinatorServerList {
       public:
         Entry(ServerId serverId,
               string serviceLocatorString,
-              ServiceTypeMask serviceMask);
-        Entry(const Entry& other);
-        Entry& operator=(const Entry& other);
+              ServiceMask serviceMask);
+        Entry(const Entry& other) = default;
+        Entry& operator=(const Entry& other) = default;
         void serialise(ProtoBuf::ServerList_Entry& dest,
                        bool isInCluster) const;
 
@@ -69,27 +70,25 @@ class CoordinatorServerList {
         /// The ServiceLocator of the server (used to address it).
         string serviceLocator;
 
-        /// If true, this server is running a MasterService instance.
-        bool isMaster;
+        /// Which services this particular server is running.
+        ServiceMask serviceMask;
 
-        /// If true, this server is running a BackupService instance.
-        bool isBackup;
-
-        /// If true, this server is running a MembershipService instance.
-        bool hasMembershipService;
-
-        /// The master's will (only to be set if isMaster is true).
+        /// The master's will (only to be set if the serviceMask includes
+        /// MASTER_SERVICE).
         ProtoBuf::Tablets* will;
 
         /// The backup's read speed in megabytes per second (only to set
-        /// set if isBackup is true.
+        /// set if serviceMask includes BACKUP_SERVICE).
         uint64_t backupReadMegsPerSecond;
+
+        bool isMaster() const { return serviceMask.has(MASTER_SERVICE); }
+        bool isBackup() const { return serviceMask.has(BACKUP_SERVICE); }
     };
 
     CoordinatorServerList();
     ~CoordinatorServerList();
     ServerId add(string serviceLocator,
-                 ServiceTypeMask serviceMask,
+                 ServiceMask serviceMask,
                  ProtoBuf::ServerList& protoBuf);
     void remove(ServerId serverId,
                 ProtoBuf::ServerList& protoBuf);
@@ -105,8 +104,7 @@ class CoordinatorServerList {
     uint32_t nextBackupIndex(uint32_t startIndex) const;
     void serialise(ProtoBuf::ServerList& protoBuf) const;
     void serialise(ProtoBuf::ServerList& protobuf,
-                   bool includeMasters,
-                   bool includeBackups) const;
+                   ServiceMask services) const;
 
   PRIVATE:
     /**

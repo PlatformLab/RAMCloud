@@ -16,6 +16,8 @@
 #ifndef RAMCLOUD_SERVERLISTBUILDER_H
 #define RAMCLOUD_SERVERLISTBUILDER_H
 
+#include <initializer_list>
+
 namespace RAMCloud {
 
 /**
@@ -40,12 +42,11 @@ struct ServerListBuilder {
      *
      * Example:
      * ServerListBuilder{serverList}
-     *      (true, false, 123, 87, "mock:host=one")          // master
-     *      (false, true, 123, 87, "mock:host=two");         // backup
+     *      ({MASTER_SERVICE}, 123, 87, "mock:host=one")
+     *      ({BACKUP_SERVICE}, 123, 87, "mock:host=two");
      */
     ServerListBuilder&
-    operator()(bool isMaster,
-               bool isBackup,
+    operator()(std::initializer_list<ServiceType> services,
                uint64_t id,
                uint64_t segmentId,
                const char* locator,
@@ -53,8 +54,8 @@ struct ServerListBuilder {
                bool isInCluster = true)
     {
         ProtoBuf::ServerList_Entry& server(*servers.add_server());
-        server.set_is_master(isMaster);
-        server.set_is_backup(isBackup);
+        ServiceMask serviceMask(services);
+        server.set_service_mask(serviceMask.serialize());
         server.set_server_id(id);
         server.set_segment_id(segmentId);
         server.set_service_locator(locator);

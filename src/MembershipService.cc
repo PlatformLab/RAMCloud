@@ -131,16 +131,12 @@ MembershipService::setServerList(const SetServerListRpc::Request& reqHdr,
         const auto& server = list.server(i);
         ServerId id(server.server_id());
         if (!serverList.contains(id)) {
-            // This isn't actually in the protobuf, but we can fake it.
-            // TODO(stutsman): We probably want to move masks into the protobuf.
-            const ServiceTypeMask services =
-                (server.is_master() ? MASTER_SERVICE : 0) |
-                (server.is_backup() ? BACKUP_SERVICE : 0) |
-                PING_SERVICE |
-                MEMBERSHIP_SERVICE;
             const string& locator = server.service_locator();
-            LOG(__DEBUG, "  Adding server id %lu (locator \"%s\")",
-                *id, locator.c_str());
+            ServiceMask services =
+                ServiceMask::deserialize(server.service_mask());
+            LOG(__DEBUG, "  Adding server id %lu (locator \"%s\") "
+                         "with services %s",
+                *id, locator.c_str(), services.toString().c_str());
             serverList.add(id, locator, services);
         }
     }
@@ -182,16 +178,12 @@ MembershipService::updateServerList(const UpdateServerListRpc::Request& reqHdr,
         const auto& server = update.server(i);
         ServerId id(server.server_id());
         if (server.is_in_cluster()) {
-            // This isn't actually in the protobuf, but we can fake it.
-            // TODO(stutsman): We probably want to move masks into the protobuf.
-            const ServiceTypeMask services =
-                (server.is_master() ? MASTER_SERVICE : 0) |
-                (server.is_backup() ? BACKUP_SERVICE : 0) |
-                PING_SERVICE |
-                MEMBERSHIP_SERVICE;
             const string& locator = server.service_locator();
-            LOG(__DEBUG, "  Adding server id %lu (locator \"%s\")",
-                *id, locator.c_str());
+            ServiceMask services =
+                ServiceMask::deserialize(server.service_mask());
+            LOG(__DEBUG, "  Adding server id %lu (locator \"%s\") "
+                         "with services %s",
+                *id, locator.c_str(), services.toString().c_str());
             serverList.add(id, locator, services);
         } else {
             if (!serverList.contains(id)) {

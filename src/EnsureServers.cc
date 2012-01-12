@@ -22,6 +22,7 @@
 #include "ShortMacros.h"
 #include "OptionParser.h"
 #include "RamCloud.h"
+#include "ServiceMask.h"
 
 using namespace RAMCloud;
 
@@ -35,9 +36,11 @@ countServices(ProtoBuf::ServerList& serverList, int& masters, int &backups)
     masters = 0;
     backups = 0;
     for (int i = 0; i < serverList.server_size(); i++) {
-        if (serverList.server(i).is_master())
+        ServiceMask mask =
+            ServiceMask::deserialize(serverList.server(i).service_mask());
+        if (mask.has(MASTER_SERVICE))
             masters++;
-        if (serverList.server(i).is_backup())
+        if (mask.has(BACKUP_SERVICE))
             backups++;
     }
 }

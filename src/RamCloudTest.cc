@@ -76,14 +76,14 @@ class RamCloudTest : public ::testing::Test {
                              "mock:host=coordinator");
         master1 = new MasterService(masterConfig1, coordinatorClient1, 0);
         transport.addService(*master1, "mock:host=master1", MASTER_SERVICE);
-        master1->init(coordinatorClient1->enlistServer(MASTER_SERVICE,
+        master1->init(coordinatorClient1->enlistServer({MASTER_SERVICE},
             "mock:host=master1", 0, 0));
 
         coordinatorClient2 = new CoordinatorClient(
                              "mock:host=coordinator");
         master2 = new MasterService(masterConfig2, coordinatorClient2, 0);
         transport.addService(*master2, "mock:host=master2", MASTER_SERVICE);
-        master2->init(coordinatorClient2->enlistServer(MASTER_SERVICE,
+        master2->init(coordinatorClient2->enlistServer({MASTER_SERVICE},
             "mock:host=master2", 0, 0));
 
         transport.addService(ping1, "mock:host=ping1", PING_SERVICE);

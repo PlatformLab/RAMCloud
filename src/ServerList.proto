@@ -23,27 +23,24 @@ package RAMCloud.ProtoBuf;
 /// to other servers by the coordinator (UpdateServerListRpc).
 message ServerList {
   message Entry {
-    /// Is this server a master?
-    required bool is_master = 1;
-
-    /// Is this server a backup?
-    required bool is_backup = 2;
+    /// Which services this server is running.
+    required fixed32 service_mask = 1;
 
     /// A unique id for the service.
-    required fixed64 server_id = 3;
+    required fixed64 server_id = 2;
 
     /// A locator for the service.
-    required string service_locator = 4;
+    required string service_locator = 3;
 
     /// A field used in mysterious ways during recovery.
-    optional fixed64 segment_id = 5;
+    optional fixed64 segment_id = 4;
 
     /// An opaque field which happens to be large enough for a pointer.
-    optional fixed64 user_data = 6;
+    optional fixed64 user_data = 5;
 
     /// If true, this server is in the cluster. If false, this server
     /// is no longer in the cluster.
-    required bool is_in_cluster = 7;
+    required bool is_in_cluster = 6;
   }
 
   /// List of servers.

@@ -54,8 +54,7 @@ CoordinatorServerList::~CoordinatorServerList()
  *      The ServiceLocator string of the server to add.
  *
  * \param serviceMask
- *      Bit mask of services this server supports. This means some combination
- *      of MASTER_SERVICE, BACKUP_SERVICE, etc.
+ *      Which services this server supports.
  *
  * \param protoBuf
  *      Protocol Buffer to serialise the added entry in to. This message can
@@ -67,7 +66,7 @@ CoordinatorServerList::~CoordinatorServerList()
  */
 ServerId
 CoordinatorServerList::add(string serviceLocator,
-                           ServiceTypeMask serviceMask,
+                           ServiceMask serviceMask,
                            ProtoBuf::ServerList& protoBuf)
 {
     uint32_t index = firstFreeIndex();
@@ -76,9 +75,9 @@ CoordinatorServerList::add(string serviceLocator,
     serverList[index].nextGenerationNumber++;
     serverList[index].entry.construct(id, serviceLocator, serviceMask);
 
-    if (serviceMask & MASTER_SERVICE)
+    if (serviceMask.has(MASTER_SERVICE))
         numberOfMasters++;
-    if (serviceMask & BACKUP_SERVICE)
+    if (serviceMask.has(BACKUP_SERVICE))
         numberOfBackups++;
 
     versionNumber++;
@@ -109,9 +108,9 @@ CoordinatorServerList::remove(ServerId serverId,
     uint32_t index = serverId.indexNumber();
     if (index < serverList.size() && serverList[index].entry &&
       serverList[index].entry->serverId == serverId) {
-        if (serverList[index].entry->isMaster)
+        if (serverList[index].entry->isMaster())
             numberOfMasters--;
-        if (serverList[index].entry->isBackup)
+        if (serverList[index].entry->isBackup())
             numberOfBackups--;
 
         versionNumber++;
@@ -219,7 +218,7 @@ CoordinatorServerList::nextMasterIndex(uint32_t startIndex) const
 {
     for (; startIndex < serverList.size(); startIndex++) {
         uint32_t i = startIndex;
-        if (serverList[i].entry && serverList[i].entry->isMaster)
+        if (serverList[i].entry && serverList[i].entry->isMaster())
             break;
     }
     return (startIndex >= serverList.size()) ? -1 : startIndex;
@@ -235,7 +234,7 @@ CoordinatorServerList::nextBackupIndex(uint32_t startIndex) const
 {
     for (; startIndex < serverList.size(); startIndex++) {
         uint32_t i = startIndex;
-        if (serverList[i].entry && serverList[i].entry->isBackup)
+        if (serverList[i].entry && serverList[i].entry->isBackup())
             break;
     }
     return (startIndex >= serverList.size()) ? -1 : startIndex;
@@ -250,7 +249,7 @@ CoordinatorServerList::nextBackupIndex(uint32_t startIndex) const
 void
 CoordinatorServerList::serialise(ProtoBuf::ServerList& protoBuf) const
 {
-    serialise(protoBuf, true, true);
+    serialise(protoBuf, {MASTER_SERVICE, BACKUP_SERVICE});
 }
 
 /**
@@ -262,18 +261,13 @@ CoordinatorServerList::serialise(ProtoBuf::ServerList& protoBuf) const
  * \param[out] protoBuf
  *      Reference to the ProtoBuf to fill.
  *
- * \param includeMasters
- *      If true, include master servers in the serialisation. Otherwise
- *      they're skipped.
- *
- * \param includeBackups
- *      If true, include backup servers in the serialisation. Otherwise
- *      they're skipped.
+ * \param services
+ *      If a server has *any* service included in \a services it will be
+ *      included in the serialization; otherwise, it is skipped.
  */
 void
 CoordinatorServerList::serialise(ProtoBuf::ServerList& protoBuf,
-                                 bool includeMasters,
-                                 bool includeBackups) const
+                                 ServiceMask services) const
 {
     for (size_t i = 0; i < serverList.size(); i++) {
         if (!serverList[i].entry)
@@ -281,8 +275,8 @@ CoordinatorServerList::serialise(ProtoBuf::ServerList& protoBuf,
 
         const Entry& entry = *serverList[i].entry;
 
-        if ((entry.isMaster && includeMasters) ||
-          (entry.isBackup && includeBackups)) {
+        if ((entry.isMaster() && services.has(MASTER_SERVICE)) ||
+            (entry.isBackup() && services.has(BACKUP_SERVICE))) {
             ProtoBuf::ServerList_Entry& protoBufEntry(*protoBuf.add_server());
             entry.serialise(protoBufEntry, true);
         }
@@ -379,51 +373,17 @@ CoordinatorServerList::getPointerFromIndex(size_t index) const
  *      entry's server.
  *
  * \param serviceMask
- *      Bit mask of services this server supports. This means some combination
- *      of MASTER_SERVICE, BACKUP_SERVICE, etc.
+ *      Which services this server supports.
  */
 CoordinatorServerList::Entry::Entry(ServerId serverId,
                                     string serviceLocatorString,
-                                    ServiceTypeMask serviceMask)
+                                    ServiceMask serviceMask)
     : serverId(serverId),
       serviceLocator(serviceLocatorString),
-      isMaster(serviceMask & MASTER_SERVICE),
-      isBackup(serviceMask & BACKUP_SERVICE),
-      hasMembershipService(serviceMask & MEMBERSHIP_SERVICE),
+      serviceMask(serviceMask),
       will(NULL),
       backupReadMegsPerSecond(0)
 {
-}
-
-/**
- * Overloaded copy constructor. Be careful when copying (pointer members
- * such as the will are not allocated or freed by this class).
- */
-CoordinatorServerList::Entry::Entry(const Entry& other)
-    : serverId(other.serverId),
-      serviceLocator(other.serviceLocator),
-      isMaster(other.isMaster),
-      isBackup(other.isBackup),
-      hasMembershipService(other.hasMembershipService),
-      will(other.will),
-      backupReadMegsPerSecond(other.backupReadMegsPerSecond)
-{
-}
-
-/**
- * Overloaded operator=. Be careful when copying (pointer members
- * such as the will are not allocated or freed by this class).
- */
-CoordinatorServerList::Entry::Entry&
-CoordinatorServerList::Entry::operator=(const Entry& other)
-{
-    serverId = other.serverId;
-    serviceLocator = other.serviceLocator;
-    isMaster = other.isMaster;
-    isBackup = other.isBackup;
-    will = other.will;
-    backupReadMegsPerSecond = other.backupReadMegsPerSecond;
-    return *this;
 }
 
 /**
@@ -433,12 +393,11 @@ void
 CoordinatorServerList::Entry::serialise(ProtoBuf::ServerList_Entry& dest,
                                         bool isInCluster) const
 {
-    dest.set_is_master(isMaster);
-    dest.set_is_backup(isBackup);
+    dest.set_service_mask(serviceMask.serialize());
     dest.set_server_id(serverId.getId());
     dest.set_service_locator(serviceLocator);
     dest.set_is_in_cluster(isInCluster);
-    if (isBackup)
+    if (isBackup())
         dest.set_user_data(backupReadMegsPerSecond);
     else
         dest.set_user_data(0);          // Tests expect the field to be present.

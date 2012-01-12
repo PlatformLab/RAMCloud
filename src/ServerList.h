@@ -21,7 +21,7 @@
 #ifndef RAMCLOUD_SERVERLIST_H
 #define RAMCLOUD_SERVERLIST_H
 
-#include "Rpc.h"
+#include "ServiceMask.h"
 #include "ServerId.h"
 #include "SpinLock.h"
 #include "Transport.h"
@@ -92,7 +92,7 @@ class ServerList {
          */
         ServerDetails(ServerId id,
                       const string& locator,
-                      ServiceTypeMask services)
+                      ServiceMask services)
             : serverId(id)
             , serviceLocator(locator)
             , services(services)
@@ -105,12 +105,12 @@ class ServerList {
         string serviceLocator;
 
         /// Which services are supported by the process at #serverId.
-        ServiceTypeMask services;
+        ServiceMask services;
     };
 
     ServerList();
     ~ServerList();
-    void add(ServerId id, string locator, ServiceTypeMask services);
+    void add(ServerId id, string locator, ServiceMask services);
     void remove(ServerId id);
     string getLocator(ServerId id);
     Transport::SessionRef getSession(ServerId id);

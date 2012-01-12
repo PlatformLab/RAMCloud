@@ -27,6 +27,16 @@ class RpcTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(RpcTest);
 };
 
+TEST_F(RpcTest, serviceTypeSymbol) {
+    EXPECT_STREQ("MASTER_SERVICE", Rpc::serviceTypeSymbol(MASTER_SERVICE));
+    EXPECT_STREQ("BACKUP_SERVICE", Rpc::serviceTypeSymbol(BACKUP_SERVICE));
+    EXPECT_STREQ("INVALID_SERVICE", Rpc::serviceTypeSymbol(INVALID_SERVICE));
+
+    // Test out-of-range values.
+    EXPECT_STREQ("INVALID_SERVICE",
+        Rpc::serviceTypeSymbol(static_cast<ServiceType>(INVALID_SERVICE + 1)));
+}
+
 TEST_F(RpcTest, opcodeSymbol_integer) {
     // Sample a few opcode values.
     EXPECT_STREQ("PING", Rpc::opcodeSymbol(PING));

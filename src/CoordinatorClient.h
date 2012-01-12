@@ -22,7 +22,7 @@
 #include "Common.h"
 #include "Client.h"
 #include "ClientException.h"
-#include "Rpc.h"
+#include "ServiceMask.h"
 #include "ServerId.h"
 #include "TransportManager.h"
 
@@ -43,7 +43,7 @@ class CoordinatorClient : public Client {
     void dropTable(const char* name);
     uint32_t openTable(const char* name);
 
-    ServerId enlistServer(ServiceTypeMask serviceMask,
+    ServerId enlistServer(ServiceMask serviceMask,
                           string localServiceLocator,
                           uint32_t readSpeed = 0,
                           uint32_t writeSpeed = 0);
@@ -60,7 +60,7 @@ class CoordinatorClient : public Client {
     void requestServerList(ServerId destination);
 
   private:
-    void getServerList(ServiceTypeMask types, ProtoBuf::ServerList& serverList);
+    void getServerList(ServiceMask services, ProtoBuf::ServerList& serverList);
 
     Transport::SessionRef session;
     DISALLOW_COPY_AND_ASSIGN(CoordinatorClient);

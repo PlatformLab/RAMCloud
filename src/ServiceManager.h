@@ -44,7 +44,7 @@ class ServiceManager : Dispatch::Poller {
     explicit ServiceManager();
     ~ServiceManager();
 
-    void addService(Service& service, ServiceTypeMask type);
+    void addService(Service& service, ServiceType type);
     void exitWorker();
     void handleRpc(Transport::ServerRpc* rpc);
     bool idle();
@@ -89,7 +89,7 @@ class ServiceManager : Dispatch::Poller {
         friend class Worker;
         DISALLOW_COPY_AND_ASSIGN(ServiceInfo);
     };
-    Tub<ServiceInfo> services[MAX_SERVICE+1];
+    Tub<ServiceInfo> services[INVALID_SERVICE];
 
     // Worker threads that are currently executing RPCs (no particular order).
     std::vector<Worker*> busyThreads;

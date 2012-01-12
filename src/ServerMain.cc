@@ -130,17 +130,14 @@ main(int argc, char *argv[])
             DIE("Can't specify both -B and -M options");
         }
 
-        ServiceTypeMask services = MEMBERSHIP_SERVICE;
-        const char* servicesInfo;
+        ServiceMask services;
         if (masterOnly) {
-            servicesInfo = "master";
-            services |= MASTER_SERVICE;
+            services = {MASTER_SERVICE, MEMBERSHIP_SERVICE, PING_SERVICE};
         } else if (backupOnly) {
-            servicesInfo = "backup";
-            services |= BACKUP_SERVICE;
+            services = {BACKUP_SERVICE, MEMBERSHIP_SERVICE, PING_SERVICE};
         } else {
-            servicesInfo = "master and backup";
-            services |= MASTER_SERVICE | BACKUP_SERVICE;
+            services = {MASTER_SERVICE, BACKUP_SERVICE,
+                        MEMBERSHIP_SERVICE, PING_SERVICE};
         }
 
         if (cpu != -1) {
@@ -155,7 +152,8 @@ main(int argc, char *argv[])
                 optionParser.options.getTransportTimeout());
         Context::get().transportManager->initialize(
                 optionParser.options.getLocalLocator().c_str());
-        LOG(NOTICE, "%s: Listening on %s", servicesInfo, Context::get().
+        LOG(NOTICE, "%s: Listening on %s", services.toString().c_str(),
+            Context::get().
                 transportManager->getListeningLocatorsString().c_str());
         snprintf(locator, sizeof(locator), "%s", Context::get().
                 transportManager->getListeningLocatorsString().c_str());
