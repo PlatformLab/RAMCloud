@@ -80,7 +80,6 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <boost/scoped_ptr.hpp>
 
 #include "Common.h"
 #include "CycleCounter.h"

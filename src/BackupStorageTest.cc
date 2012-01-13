@@ -19,7 +19,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <string.h>
-#include <boost/scoped_ptr.hpp>
+#include <memory>
 
 #include "TestUtil.h"
 
@@ -71,7 +71,7 @@ TEST_F(SingleFileStorageTest, openFails) {
 }
 
 TEST_F(SingleFileStorageTest, allocate) {
-    boost::scoped_ptr<BackupStorage::Handle>
+    std::unique_ptr<BackupStorage::Handle>
         handle(storage->allocate(99, 0));
     EXPECT_EQ(0, storage->freeMap[0]);
     EXPECT_EQ(0U,
@@ -123,7 +123,7 @@ TEST_F(SingleFileStorageTest, allocate_noFreeFrames) {
     delete storage->allocate(99, 0);
     delete storage->allocate(99, 1);
     EXPECT_THROW(
-        boost::scoped_ptr<BackupStorage::Handle>(storage->allocate(99, 2)),
+        std::unique_ptr<BackupStorage::Handle>(storage->allocate(99, 2)),
         BackupStorageException);
 }
 
@@ -142,7 +142,7 @@ TEST_F(SingleFileStorageTest, free) {
 
 TEST_F(SingleFileStorageTest, getSegment) {
     delete storage->allocate(99, 0);  // skip the first segment frame
-    boost::scoped_ptr<BackupStorage::Handle>
+    std::unique_ptr<BackupStorage::Handle>
         handle(storage->allocate(99, 1));
 
     const char* src = "1234567";
@@ -156,7 +156,7 @@ TEST_F(SingleFileStorageTest, getSegment) {
 
 TEST_F(SingleFileStorageTest, putSegment) {
     delete storage->allocate(99, 0);  // skip the first segment frame
-    boost::scoped_ptr<BackupStorage::Handle>
+    std::unique_ptr<BackupStorage::Handle>
         handle(storage->allocate(99, 1));
 
     const char* src = "1234567";
@@ -171,7 +171,7 @@ TEST_F(SingleFileStorageTest, putSegment) {
 }
 
 TEST_F(SingleFileStorageTest, putSegment_seekFailed) {
-    boost::scoped_ptr<BackupStorage::Handle>
+    std::unique_ptr<BackupStorage::Handle>
         handle(storage->allocate(99, 1));
     close(storage->fd);
     char buf[segmentSize];
@@ -207,7 +207,7 @@ class InMemoryStorageTest : public ::testing::Test {
 };
 
 TEST_F(InMemoryStorageTest, allocate) {
-    boost::scoped_ptr<BackupStorage::Handle>
+    std::unique_ptr<BackupStorage::Handle>
         handle(storage->allocate(99, 0));
     EXPECT_TRUE(0 !=
         static_cast<InMemoryStorage::Handle*>(handle.get())->
@@ -218,7 +218,7 @@ TEST_F(InMemoryStorageTest, allocate_noFreeFrames) {
     delete storage->allocate(99, 0);
     delete storage->allocate(99, 1);
     EXPECT_THROW(
-        boost::scoped_ptr<BackupStorage::Handle>(storage->allocate(99, 2)),
+        std::unique_ptr<BackupStorage::Handle>(storage->allocate(99, 2)),
         BackupStorageException);
 }
 
@@ -229,7 +229,7 @@ TEST_F(InMemoryStorageTest, free) {
 
 TEST_F(InMemoryStorageTest, getSegment) {
     delete storage->allocate(99, 0);  // skip the first segment frame
-    boost::scoped_ptr<BackupStorage::Handle>
+    std::unique_ptr<BackupStorage::Handle>
         handle(storage->allocate(99, 1));
 
     const char* src = "1234567";
@@ -243,7 +243,7 @@ TEST_F(InMemoryStorageTest, getSegment) {
 
 TEST_F(InMemoryStorageTest, putSegment) {
     delete storage->allocate(99, 0);  // skip the first segment frame
-    boost::scoped_ptr<BackupStorage::Handle>
+    std::unique_ptr<BackupStorage::Handle>
         handle(storage->allocate(99, 1));
 
     const char* src = "1234567";

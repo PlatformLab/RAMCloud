@@ -13,7 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <boost/scoped_ptr.hpp>
+#include <memory>
 
 #include "BackupClient.h"
 #include "CoordinatorService.h"
@@ -376,7 +376,7 @@ CoordinatorService::hintServerDown(const HintServerDownRpc::Request& reqHdr,
     }
 
     if (serverEntry.isMaster()) {
-        boost::scoped_ptr<ProtoBuf::Tablets> will(serverEntry.will);
+        std::unique_ptr<ProtoBuf::Tablets> will(serverEntry.will);
 
         foreach (ProtoBuf::Tablets::Tablet& tablet,
                  *tabletMap.mutable_tablet()) {

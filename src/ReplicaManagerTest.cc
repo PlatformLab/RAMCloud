@@ -15,7 +15,6 @@
 
 #pragma GCC diagnostic ignored "-Weffc++"
 
-#include <boost/scoped_ptr.hpp>
 #include <set>
 
 #include "TestUtil.h"

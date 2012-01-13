@@ -122,7 +122,7 @@ BackupService::SegmentInfo::~SegmentInfo()
         pool.free(segment);
         segment = NULL;
     }
-    // recoveryException cleaned up by scoped_ptr
+    // recoveryException cleaned up by unique_ptr
 }
 
 /**

@@ -16,7 +16,7 @@
 #ifndef RAMCLOUD_DRIVER_H
 #define RAMCLOUD_DRIVER_H
 
-#include <boost/scoped_ptr.hpp>
+#include <memory>
 #include "Common.h"
 #include "Buffer.h"
 
@@ -58,7 +58,7 @@ class Driver {
         virtual string toString() const = 0;
     };
 
-    typedef boost::scoped_ptr<Address> AddressPtr;
+    typedef std::unique_ptr<Address> AddressPtr;
 
     /**
      * Represents an incoming packet.

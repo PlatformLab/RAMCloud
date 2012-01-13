@@ -29,7 +29,7 @@
 #include <cstdatomic>
 #endif
 #include <thread>
-#include <boost/scoped_ptr.hpp>
+#include <memory>
 #include <boost/pool/pool.hpp>
 #include <map>
 #include <queue>
@@ -333,7 +333,7 @@ class BackupService : public Service {
 
         /// An array of recovery segments when non-null.
         /// The exception if one occurred while recovering a segment.
-        boost::scoped_ptr<SegmentRecoveryFailedException> recoveryException;
+        std::unique_ptr<SegmentRecoveryFailedException> recoveryException;
 
         /**
          * Only used if this segment is recovering but the filtering is

@@ -13,7 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <boost/scoped_ptr.hpp>
+#include <memory>
 #include "TestUtil.h"
 #include "BackupService.h"
 #include "BackupStorage.h"
@@ -1080,7 +1080,7 @@ class MasterRecoverTest : public ::testing::Test {
 };
 
 TEST_F(MasterRecoverTest, recover) {
-    boost::scoped_ptr<MasterService> master(createMasterService());
+    std::unique_ptr<MasterService> master(createMasterService());
 
     // Give them a name so that freeSegment doesn't get called on
     // destructor until after the test.
@@ -1133,7 +1133,7 @@ TEST_F(MasterRecoverTest, recover) {
 }
 
 TEST_F(MasterRecoverTest, failedToRecoverAll) {
-    boost::scoped_ptr<MasterService> master(createMasterService());
+    std::unique_ptr<MasterService> master(createMasterService());
 
     ProtoBuf::Tablets tablets;
     ProtoBuf::ServerList backups;
