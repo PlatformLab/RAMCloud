@@ -63,9 +63,8 @@
  * \todo(ongaro): Embed an interpreter rather than having this awful language.
  */
 
+#include <memory>
 #include <unordered_map>
-#include <boost/iterator/transform_iterator.hpp>
-#include <boost/shared_ptr.hpp>
 
 #include "TestUtil.h"
 #include "Client.h"
@@ -148,7 +147,7 @@ class CTest : public Test, public Client {
     AsyncState asyncState;
 };
 
-typedef boost::shared_ptr<Test> TestRef;
+typedef std::shared_ptr<Test> TestRef;
 
 /// Factory for Test instances.
 template <typename T>

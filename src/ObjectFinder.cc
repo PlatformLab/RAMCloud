@@ -13,9 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <boost/bind.hpp>
-#include <boost/ref.hpp>
-
 #include "ObjectFinder.h"
 #include "ShortMacros.h"
 
