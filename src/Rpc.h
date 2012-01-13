@@ -105,7 +105,7 @@ enum RpcOpcode {
 struct RpcRequestCommon {
     uint16_t opcode;              /// RpcOpcode of operation to be performed.
     uint16_t service;             /// ServiceType to invoke for this rpc.
-};
+} __attribute__((packed));
 
 /**
  * Each RPC response starts with this structure.
@@ -113,7 +113,7 @@ struct RpcRequestCommon {
 struct RpcResponseCommon {
     Status status;                // Indicates whether the operation
                                   // succeeded; if not, it explains why.
-};
+} __attribute__((packed));
 
 
 // For each RPC there are two structures below, one describing
@@ -124,9 +124,8 @@ struct RpcResponseCommon {
 // to the corresponding fields of the RPC header, and the fields of
 // the RPC response are returned as the results of the method.
 //
-// Fields with names such as "pad1" are included to make padding
-// explicit (removing these fields has no effect on the layout of
-// the records).
+// All structs are packed so that they have a standard byte representation.
+// All fields are little endian.
 
 // Master RPCs follow, see MasterService.cc
 
@@ -140,12 +139,12 @@ struct CreateRpc {
                                       // actual bytes follow immediately after
                                       // this header.
         uint8_t async;
-    };
+    } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
         uint64_t id;
         uint64_t version;
-    };
+    } __attribute__((packed));
 };
 
 struct FillWithTestDataRpc {
@@ -156,10 +155,10 @@ struct FillWithTestDataRpc {
         uint32_t numObjects;        // Number of objects to add to tables
                                     // in round-robin fashion.
         uint32_t objectSize;        // Size of each object to add.
-    };
+    } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
-    };
+    } __attribute__((packed));
 };
 
 struct MultiReadRpc {
@@ -173,7 +172,7 @@ struct MultiReadRpc {
             uint64_t id;
             Part(uint32_t tableId, uint64_t id) : tableId(tableId), id(id) {}
         };
-    };
+    } __attribute__((packed));
     struct Response {
         // RpcResponseCommon contains a status field. But it is not used in
         // multiRead since there is a separate status for each object returned.
@@ -183,7 +182,7 @@ struct MultiReadRpc {
         // In buffer: Status, SegmentEntry and Object go here
         // Object has variable number of bytes (depending on data size.)
         // In case of an error, only Status goes here
-    };
+    } __attribute__((packed));
 };
 
 struct ReadRpc {
@@ -193,17 +192,15 @@ struct ReadRpc {
         RpcRequestCommon common;
         uint32_t tableId;
         uint64_t id;
-        uint32_t pad1;
         RejectRules rejectRules;
-    };
+    } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
         uint64_t version;
         uint32_t length;              // Length of the object's value in bytes.
                                       // The actual bytes of the object follow
                                       // immediately after this header.
-        uint32_t pad1;
-    };
+    } __attribute__((packed));
 };
 
 struct RecoverRpc {
@@ -221,10 +218,10 @@ struct RecoverRpc {
                                    // The bytes of the server list follow
                                    // after the bytes for the Tablets. See
                                    // ProtoBuf::ServerList.
-    };
+    } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
-    };
+    } __attribute__((packed));
 };
 
 struct RereplicateSegmentsRpc {
@@ -233,10 +230,10 @@ struct RereplicateSegmentsRpc {
     struct Request {
         RpcRequestCommon common;
         uint64_t backupId;        // The server id of a crashed backup.
-    };
+    } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
-    };
+    } __attribute__((packed));
 };
 
 struct RemoveRpc {
@@ -246,13 +243,12 @@ struct RemoveRpc {
         RpcRequestCommon common;
         uint64_t id;
         uint32_t tableId;
-        uint32_t pad1;
         RejectRules rejectRules;
-    };
+    } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
         uint64_t version;
-    };
+    } __attribute__((packed));
 };
 
 struct SetTabletsRpc {
@@ -264,11 +260,11 @@ struct SetTabletsRpc {
                                    // The bytes of the tablet map follow
                                    // immediately after this header. See
                                    // ProtoBuf::Tablets.
-    };
+    } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
 
-    };
+    } __attribute__((packed));
 };
 
 struct WriteRpc {
@@ -283,11 +279,11 @@ struct WriteRpc {
                                       // immediately after this header.
         RejectRules rejectRules;
         uint8_t async;
-    };
+    } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
         uint64_t version;
-    };
+    } __attribute__((packed));
 };
 
 // Coordinator RPCs follow, see CoordinatorService.cc
@@ -301,10 +297,10 @@ struct CreateTableRpc {
                                       // including terminating NULL
                                       // character. The bytes of the name
                                       // follow immediately after this header.
-    };
+    } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
-    };
+    } __attribute__((packed));
 };
 
 struct DropTableRpc {
@@ -316,10 +312,10 @@ struct DropTableRpc {
                                       // including terminating NULL
                                       // character. The bytes of the name
                                       // follow immediately after this header.
-    };
+    } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
-    };
+    } __attribute__((packed));
 };
 
 struct OpenTableRpc {
@@ -331,11 +327,11 @@ struct OpenTableRpc {
                                       // including terminating NULL
                                       // character. The bytes of the name
                                       // follow immediately after this header.
-    };
+    } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
         uint32_t tableId;
-    };
+    } __attribute__((packed));
 };
 
 struct EnlistServerRpc {
@@ -345,19 +341,18 @@ struct EnlistServerRpc {
         RpcRequestCommon common;
         SerializedServiceMask serviceMask; ///< Which services are available
                                            ///< on the enlisting server.
-        uint8_t pad[3];
         uint32_t readSpeed;            // MB/s read speed if a BACKUP
         uint32_t writeSpeed;           // MB/s write speed if a BACKUP
         uint32_t serviceLocatorLength; // Number of bytes in the serviceLocator,
                                        // including terminating NULL character.
                                        // The bytes of the service locator
                                        // follow immediately after this header.
-    };
+    } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
         uint64_t serverId;             // Unique ServerId assigned to this
                                        // enlisting server process.
-    };
+    } __attribute__((packed));
 };
 
 struct GetServerListRpc {
@@ -367,14 +362,14 @@ struct GetServerListRpc {
         RpcRequestCommon common;
         SerializedServiceMask serviceMask; ///< Only get servers with specified
                                            ///< services.
-    };
+    } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
         uint32_t serverListLength; // Number of bytes in the server list.
                                    // The bytes of the server list follow
                                    // immediately after this header. See
                                    // ProtoBuf::ServerList.
-    };
+    } __attribute__((packed));
 };
 
 struct GetTabletMapRpc {
@@ -382,14 +377,14 @@ struct GetTabletMapRpc {
     static const ServiceType service = COORDINATOR_SERVICE;
     struct Request {
         RpcRequestCommon common;
-    };
+    } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
         uint32_t tabletMapLength;  // Number of bytes in the tablet map.
                                    // The bytes of the tablet map follow
                                    // immediately after this header. See
                                    // ProtoBuf::Tablets.
-    };
+    } __attribute__((packed));
 };
 
 struct HintServerDownRpc {
@@ -399,10 +394,10 @@ struct HintServerDownRpc {
         RpcRequestCommon common;
         uint64_t serverId;         // ServerId of the server suspected of being
                                    // dead. Poke it with a stick.
-    };
+    } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
-    };
+    } __attribute__((packed));
 };
 
 struct TabletsRecoveredRpc {
@@ -420,10 +415,10 @@ struct TabletsRecoveredRpc {
         uint32_t willLength;       // Number of bytes in the new will.
                                    // The bytes follow immediately after
                                    // the tablet map.
-    };
+    } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
-    };
+    } __attribute__((packed));
 };
 
 struct SetWillRpc {
@@ -436,10 +431,10 @@ struct SetWillRpc {
                                    // The bytes of the will map follow
                                    // immediately after this header. See
                                    // ProtoBuf::Tablets.
-    };
+    } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
-    };
+    } __attribute__((packed));
 };
 
 struct RequestServerListRpc {
@@ -449,10 +444,10 @@ struct RequestServerListRpc {
         RpcRequestCommon common;
         uint64_t serverId;         // ServerId the coordinator should send
                                    // the list to.
-    };
+    } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
-    };
+    } __attribute__((packed));
 };
 
 // Backup RPCs follow, see BackupService.cc
@@ -464,10 +459,10 @@ struct BackupFreeRpc {
         RpcRequestCommon common;
         uint64_t masterId;      ///< Server Id from whom the request is coming.
         uint64_t segmentId;     ///< Target segment to discard from backup.
-    };
+    } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
-    };
+    } __attribute__((packed));
 };
 
 struct BackupGetRecoveryDataRpc {
@@ -478,10 +473,10 @@ struct BackupGetRecoveryDataRpc {
         uint64_t masterId;      ///< Server Id from whom the request is coming.
         uint64_t segmentId;     ///< Target segment to get data from.
         uint64_t partitionId;   ///< Partition id of :ecovery segment to fetch.
-    };
+    } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
-    };
+    } __attribute__((packed));
 };
 
 // Note: this RPC is supported by the coordinator service as well as backups.
@@ -490,10 +485,10 @@ struct BackupQuiesceRpc {
     static const ServiceType service = BACKUP_SERVICE;
     struct Request {
         RpcRequestCommon common;
-    };
+    } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
-    };
+    } __attribute__((packed));
 };
 
 struct BackupRecoveryCompleteRpc {
@@ -502,10 +497,10 @@ struct BackupRecoveryCompleteRpc {
     struct Request {
         RpcRequestCommon common;
         uint64_t masterId;      ///< Server Id which was recovered.
-    };
+    } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
-    };
+    } __attribute__((packed));
 };
 
 struct BackupStartReadingDataRpc {
@@ -519,7 +514,7 @@ struct BackupStartReadingDataRpc {
                                    ///< The bytes of the partition map follow
                                    ///< immediately after this header. See
                                    ///< ProtoBuf::Tablets.
-    };
+    } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
         uint32_t segmentIdCount;       ///< Number of segmentIds in reply
@@ -534,7 +529,7 @@ struct BackupStartReadingDataRpc {
         // A series of segmentIdCount uint64_t segmentIds follows.
         // If logDigestBytes != 0, then a serialised LogDigest follows
         // immediately after the last segmentId.
-    };
+    } __attribute__((packed));
 };
 
 struct BackupWriteRpc {
@@ -551,16 +546,18 @@ struct BackupWriteRpc {
     };
     struct Request {
         RpcRequestCommon common;
+        uint32_t pad1;
         uint64_t masterId;          ///< Server from whom the request is coming.
         uint64_t segmentId;         ///< Target segment to update.
         uint32_t offset;            ///< Offset into this segment to write at.
         uint32_t length;            ///< Number of bytes to write.
         uint8_t flags;              ///< If open or close request.
+        uint8_t pad2[7];
         // Opaque byte string follows with data to write.
-    };
+    } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
-    };
+    } __attribute__((packed));
 };
 
 // Ping RPCs follow, see PingService.cc
@@ -570,7 +567,7 @@ struct GetMetricsRpc {
     static const ServiceType service = PING_SERVICE;
     struct Request {
         RpcRequestCommon common;
-    };
+    } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
         uint32_t messageLength;    // Number of bytes in a
@@ -579,7 +576,7 @@ struct GetMetricsRpc {
                                    // header.
         // Variable-length byte string containing ProtoBuf::MetricList
         // follows.
-    };
+    } __attribute__((packed));
 };
 
 struct PingRpc {
@@ -590,7 +587,7 @@ struct PingRpc {
         uint64_t nonce;             // The nonce may be used to identify
                                     // replies to previously transmitted
                                     // pings.
-    };
+    } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
         uint64_t nonce;             // This should be identical to what was
@@ -598,7 +595,7 @@ struct PingRpc {
         uint64_t serverListVersion; // Version of the server list this server
                                     // has. Used to determine if the issuer of
                                     // the ping request is out of date.
-    };
+    } __attribute__((packed));
 };
 
 struct ProxyPingRpc {
@@ -613,13 +610,13 @@ struct ProxyPingRpc {
                                        // including terminating NULL character.
                                        // The bytes of the service locator
                                        // follow immediately after this header.
-    };
+    } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
         uint64_t replyNanoseconds;     // Number of nanoseconds it took to get
                                        // the reply. If a timeout occurred, the
                                        // value is -1.
-    };
+    } __attribute__((packed));
 };
 
 struct KillRpc {
@@ -627,10 +624,10 @@ struct KillRpc {
     static const ServiceType service = PING_SERVICE;
     struct Request {
         RpcRequestCommon common;
-    };
+    } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
-    };
+    } __attribute__((packed));
 };
 
 // MembershipService RPCs
@@ -644,10 +641,10 @@ struct SetServerListRpc {
                                    // The bytes of the server list follow
                                    // immediately after this header. See
                                    // ProtoBuf::ServerList.
-    };
+    } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
-    };
+    } __attribute__((packed));
 };
 
 struct UpdateServerListRpc {
@@ -659,14 +656,14 @@ struct UpdateServerListRpc {
                                    // The bytes of the server list follow
                                    // immediately after this header. See
                                    // ProtoBuf::ServerList.
-    };
+    } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
         uint8_t lostUpdates;       // If non-zero, the server was missing
                                    // one or more previous updates and
                                    // would like the entire list to be
                                    // sent again.
-    };
+    } __attribute__((packed));
 };
 
 struct GetServerIdRpc {
@@ -674,11 +671,11 @@ struct GetServerIdRpc {
     static const ServiceType service = MEMBERSHIP_SERVICE;
     struct Request {
         RpcRequestCommon common;
-    };
+    } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
         uint64_t serverId;            // ServerId of the server.
-    };
+    } __attribute__((packed));
 };
 
 namespace Rpc {

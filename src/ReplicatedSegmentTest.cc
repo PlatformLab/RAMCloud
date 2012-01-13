@@ -313,7 +313,7 @@ TEST_F(ReplicatedSegmentTest, performFreeRpcIsReady) {
     segment->replicas[0].construct(ServerId(666, 0), session);
     segment->replicas[0]->freeRpc.construct(segment->replicas[0]->client,
                                             masterId, segmentId);
-    EXPECT_STREQ("clientSend: 0x1001e 0 999 0 888 0",
+    EXPECT_STREQ("clientSend: 0x1001e 999 0 888 0",
                  transport.outputLog.c_str());
     segment->performFree(segment->replicas[0]);
     EXPECT_FALSE(segment->replicas[0]);
@@ -330,7 +330,7 @@ TEST_F(ReplicatedSegmentTest, performFreeRpcFailed) {
     segment->replicas[0].construct(ServerId(666, 0), session);
     segment->replicas[0]->freeRpc.construct(segment->replicas[0]->client,
                                             masterId, segmentId);
-    EXPECT_STREQ("clientSend: 0x1001e 0 999 0 888 0",
+    EXPECT_STREQ("clientSend: 0x1001e 999 0 888 0",
                  transport.outputLog.c_str());
     {
         TestLog::Enable _;
