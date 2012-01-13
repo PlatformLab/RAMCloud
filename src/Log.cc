@@ -146,7 +146,7 @@ Log::allocateHead()
     //     if you don't know why this is bad.
     LogDigest::SegmentId newHeadId = allocateSegmentId();
 
-    boost::lock_guard<SpinLock> lock(listLock);
+    std::lock_guard<SpinLock> lock(listLock);
 
     if (head != NULL)
         cleanableNewList.push_back(*head);
@@ -207,7 +207,7 @@ Log::allocateHead()
 bool
 Log::isSegmentLive(uint64_t segmentId)
 {
-    boost::lock_guard<SpinLock> lock(listLock);
+    std::lock_guard<SpinLock> lock(listLock);
     return (activeIdMap.find(segmentId) != activeIdMap.end());
 }
 
@@ -504,7 +504,7 @@ void *
 Log::getSegmentMemoryForCleaning(bool useEmergencyReserve)
 {
     if (useEmergencyReserve) {
-        boost::lock_guard<SpinLock> lock(listLock);
+        std::lock_guard<SpinLock> lock(listLock);
 
         if (emergencyCleanerList.empty())
             return NULL;
@@ -523,7 +523,7 @@ Log::getSegmentMemoryForCleaning(bool useEmergencyReserve)
 size_t
 Log::freeListCount()
 {
-    boost::lock_guard<SpinLock> lock(listLock);
+    std::lock_guard<SpinLock> lock(listLock);
 
     // We always save one for the next Log head, so adjust accordingly.
     return (freeList.size() > 0) ? freeList.size() - 1 : freeList.size();
@@ -540,7 +540,7 @@ Log::freeListCount()
 void
 Log::getNewCleanableSegments(SegmentVector& out)
 {
-    boost::lock_guard<SpinLock> lock(listLock);
+    std::lock_guard<SpinLock> lock(listLock);
 
     while (!cleanableNewList.empty()) {
         Segment& s = cleanableNewList.front();
@@ -564,7 +564,7 @@ Log::getNewCleanableSegments(SegmentVector& out)
 void
 Log::cleaningInto(Segment* segment)
 {
-    boost::lock_guard<SpinLock> lock(listLock);
+    std::lock_guard<SpinLock> lock(listLock);
 
     cleaningIntoList.push_back(*segment);
     activeIdMap[segment->getId()] = segment;
@@ -592,7 +592,7 @@ void
 Log::cleaningComplete(SegmentVector& clean,
                       std::vector<void*>& unusedSegmentMemory)
 {
-    boost::lock_guard<SpinLock> lock(listLock);
+    std::lock_guard<SpinLock> lock(listLock);
     bool change = false;
 
     // Return any unused segment memory the cleaner ended up
@@ -673,7 +673,7 @@ uint64_t
 Log::allocateSegmentId()
 {
     // XXX- could just be an atomic op
-    boost::lock_guard<SpinLock> lock(listLock);
+    std::lock_guard<SpinLock> lock(listLock);
     return nextSegmentId++;
 }
 
@@ -792,7 +792,7 @@ Log::locklessAddToFreeList(void *p)
 void *
 Log::getFromFreeList(bool mayUseLastSegment)
 {
-    boost::lock_guard<SpinLock> lock(listLock);
+    std::lock_guard<SpinLock> lock(listLock);
 
     if (freeList.empty())
         throw LogOutOfMemoryException(HERE, "Log is out of space");
@@ -837,7 +837,7 @@ Log::getSegmentFromAddress(const void* address)
 {
     const void *base = Segment::getSegmentBaseAddress(address, segmentCapacity);
 
-    boost::lock_guard<SpinLock> lock(listLock);
+    std::lock_guard<SpinLock> lock(listLock);
 
     if (head != NULL && base == head->getBaseAddress())
         return head;

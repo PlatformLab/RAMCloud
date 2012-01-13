@@ -23,7 +23,6 @@
 #else
 #include <cstdatomic>
 #endif
-#include <boost/thread.hpp>
 
 #if !DISABLE_METRICS
 namespace RAMCloud {

@@ -18,7 +18,7 @@
  * This file implements the ServerList class.
  */
 
-#include <boost/thread/locks.hpp>
+#include <mutex>
 
 #include "Common.h"
 #include "ServerList.h"
@@ -60,7 +60,7 @@ ServerList::~ServerList()
 void
 ServerList::add(ServerId id, string locator, ServiceMask services)
 {
-    boost::lock_guard<SpinLock> lock(mutex);
+    std::lock_guard<SpinLock> lock(mutex);
 
     if (!id.isValid()) {
         LOG(WARNING, "Ignoring addition of invalid ServerId.");
@@ -126,7 +126,7 @@ ServerList::add(ServerId id, string locator, ServiceMask services)
 void
 ServerList::remove(ServerId id)
 {
-    boost::lock_guard<SpinLock> lock(mutex);
+    std::lock_guard<SpinLock> lock(mutex);
 
     if (!id.isValid()) {
         LOG(WARNING, "Ignoring removal of invalid ServerId.");
@@ -188,7 +188,7 @@ ServerList::remove(ServerId id)
 string
 ServerList::getLocator(ServerId id)
 {
-    boost::lock_guard<SpinLock> lock(mutex);
+    std::lock_guard<SpinLock> lock(mutex);
 
     uint32_t index = id.indexNumber();
     if (index >= serverList.size() || !serverList[index] ||
@@ -222,7 +222,7 @@ ServerList::getSession(ServerId id)
 uint32_t
 ServerList::size()
 {
-    boost::lock_guard<SpinLock> lock(mutex);
+    std::lock_guard<SpinLock> lock(mutex);
 
     return downCast<uint32_t>(serverList.size());
 }
@@ -235,7 +235,7 @@ ServerList::size()
 ServerId
 ServerList::operator[](uint32_t index)
 {
-    boost::lock_guard<SpinLock> lock(mutex);
+    std::lock_guard<SpinLock> lock(mutex);
 
     if (index >= serverList.size() || !serverList[index])
         return ServerId(/* invalid id */);
@@ -248,7 +248,7 @@ ServerList::operator[](uint32_t index)
 bool
 ServerList::contains(ServerId serverId)
 {
-    boost::lock_guard<SpinLock> lock(mutex);
+    std::lock_guard<SpinLock> lock(mutex);
 
     uint32_t index = serverId.indexNumber();
     if (index >= serverList.size() || !serverList[index])
@@ -263,7 +263,7 @@ ServerList::contains(ServerId serverId)
 uint64_t
 ServerList::getVersion()
 {
-    boost::lock_guard<SpinLock> lock(mutex);
+    std::lock_guard<SpinLock> lock(mutex);
 
     return version;
 }
@@ -275,7 +275,7 @@ ServerList::getVersion()
 void
 ServerList::setVersion(uint64_t newVersion)
 {
-    boost::lock_guard<SpinLock> lock(mutex);
+    std::lock_guard<SpinLock> lock(mutex);
 
     version = newVersion;
 }
@@ -293,7 +293,7 @@ ServerList::setVersion(uint64_t newVersion)
 void
 ServerList::registerTracker(ServerTrackerInterface& tracker)
 {
-    boost::lock_guard<SpinLock> lock(mutex);
+    std::lock_guard<SpinLock> lock(mutex);
 
     bool alreadyRegistered =
         std::find(trackers.begin(), trackers.end(), &tracker) != trackers.end();
@@ -320,7 +320,7 @@ ServerList::registerTracker(ServerTrackerInterface& tracker)
 void
 ServerList::unregisterTracker(ServerTrackerInterface& tracker)
 {
-    boost::lock_guard<SpinLock> lock(mutex);
+    std::lock_guard<SpinLock> lock(mutex);
 
     for (size_t i = 0; i < trackers.size(); i++) {
         if (trackers[i] == &tracker) {

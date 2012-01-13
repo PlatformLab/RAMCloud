@@ -19,7 +19,6 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <fcntl.h>
-#include <boost/thread.hpp>
 
 #include "Common.h"
 #include "Syscall.h"

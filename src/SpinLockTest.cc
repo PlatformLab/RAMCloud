@@ -45,7 +45,7 @@ TEST(SpinLockTest, threadBlocks) {
 
     // Make sure that the child thread waits for the lock to become
     // available.
-    boost::thread thread(blockingChild, &lock, &done);
+    std::thread thread(blockingChild, &lock, &done);
     usleep(1000);
     EXPECT_FALSE(done);
 
@@ -56,6 +56,7 @@ TEST(SpinLockTest, threadBlocks) {
         usleep(100);
     }
     EXPECT_TRUE(done);
+    thread.join();
 }
 
 // Helper function that runs in a separate thread for the following test.
@@ -81,8 +82,8 @@ TEST(SpinLockTest, contention) {
     volatile int value = 0;
     volatile bool ready = false;
     // Start child threads.
-    boost::thread thread1(contentionChild, &lock, &ready, &value);
-    boost::thread thread2(contentionChild, &lock, &ready, &value);
+    std::thread thread1(contentionChild, &lock, &ready, &value);
+    std::thread thread2(contentionChild, &lock, &ready, &value);
     usleep(1000);
     ready = true;
     contentionChild(&lock, &ready, &value);

@@ -198,7 +198,7 @@ SegmentEntryHandle
 Segment::append(LogEntryType type, const void *buffer, uint32_t length,
     bool sync, Tub<SegmentChecksum::ResultType> expectedChecksum)
 {
-    boost::lock_guard<SpinLock> lock(mutex);
+    std::lock_guard<SpinLock> lock(mutex);
     return locklessAppend(type, buffer, length, sync, expectedChecksum);
 }
 
@@ -231,7 +231,7 @@ SegmentEntryHandleVector
 Segment::multiAppend(SegmentMultiAppendVector& appends, bool sync)
 {
     CycleCounter<RawMetric> _(&metrics->master.segmentAppendTicks);
-    boost::lock_guard<SpinLock> lock(mutex);
+    std::lock_guard<SpinLock> lock(mutex);
     SegmentEntryHandleVector handles;
 
     if (closed)
@@ -291,7 +291,7 @@ Segment::multiAppend(SegmentMultiAppendVector& appends, bool sync)
 void
 Segment::rollBack(SegmentEntryHandle handle)
 {
-    boost::lock_guard<SpinLock> lock(mutex);
+    std::lock_guard<SpinLock> lock(mutex);
 
     if (closed)
         throw SegmentException(HERE, "Cannot roll back on closed Segment");
@@ -323,7 +323,7 @@ Segment::rollBack(SegmentEntryHandle handle)
 void
 Segment::free(SegmentEntryHandle entry)
 {
-    boost::lock_guard<SpinLock> lock(mutex);
+    std::lock_guard<SpinLock> lock(mutex);
 
     assert((uintptr_t)entry >= ((uintptr_t)baseAddress + sizeof(SegmentEntry)));
     assert((uintptr_t)entry <  ((uintptr_t)baseAddress + capacity));
@@ -360,7 +360,7 @@ void
 Segment::setImplicitlyFreedCounts(uint32_t freeByteSum,
                                   uint64_t freeSpaceTimeSum)
 {
-    boost::lock_guard<SpinLock> lock(mutex);
+    std::lock_guard<SpinLock> lock(mutex);
 
     // Count should never decrease subsequently.
     assert(bytesImplicitlyFreed <= freeByteSum);
@@ -394,7 +394,7 @@ Segment::setImplicitlyFreedCounts(uint32_t freeByteSum,
 void
 Segment::close(Segment* nextHead, bool sync)
 {
-    boost::lock_guard<SpinLock> lock(mutex);
+    std::lock_guard<SpinLock> lock(mutex);
 
     if (closed)
         throw SegmentException(HERE, "Segment has already been closed");
@@ -423,7 +423,7 @@ Segment::close(Segment* nextHead, bool sync)
 void
 Segment::sync()
 {
-    boost::lock_guard<SpinLock> lock(mutex);
+    std::lock_guard<SpinLock> lock(mutex);
     if (replicatedSegment)
         replicatedSegment->sync(tail);
 }
@@ -480,7 +480,7 @@ Segment::getCapacity() const
 uint32_t
 Segment::appendableBytes()
 {
-    boost::lock_guard<SpinLock> lock(mutex);
+    std::lock_guard<SpinLock> lock(mutex);
     return locklessAppendableBytes();
 }
 
@@ -492,7 +492,7 @@ Segment::appendableBytes()
 int
 Segment::getUtilisation()
 {
-    boost::lock_guard<SpinLock> lock(mutex);
+    std::lock_guard<SpinLock> lock(mutex);
     return static_cast<int>((100UL * locklessGetLiveBytes()) / capacity);
 }
 
@@ -502,7 +502,7 @@ Segment::getUtilisation()
 uint32_t
 Segment::getLiveBytes()
 {
-    boost::lock_guard<SpinLock> lock(mutex);
+    std::lock_guard<SpinLock> lock(mutex);
     return locklessGetLiveBytes();
 }
 
@@ -532,7 +532,7 @@ Segment::getFreeBytes()
 uint64_t
 Segment::getAverageTimestamp()
 {
-    boost::lock_guard<SpinLock> lock(mutex);
+    std::lock_guard<SpinLock> lock(mutex);
 
     if (!log) {
         throw SegmentException(HERE, format("%s() is only valid "

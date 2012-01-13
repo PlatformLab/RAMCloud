@@ -16,6 +16,7 @@
 #ifndef RAMCLOUD_FAILUREDETECTOR_H
 #define RAMCLOUD_FAILUREDETECTOR_H
 
+#include <thread>
 #include <list>
 
 #include "Common.h"
@@ -84,7 +85,10 @@ class FailureDetector {
     ServerTracker<bool>  serverTracker;
 
     /// Failure detector thread
-    Tub<boost::thread>   thread;
+    Tub<std::thread>     thread;
+
+    /// Set by halt() to ask the failure detector thread to exit.
+    bool threadShouldExit;
 
     // Service Clients
     /// PingClient instance

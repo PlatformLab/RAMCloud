@@ -16,6 +16,7 @@
 #ifndef RAMCLOUD_MOCKSERVICE_H
 #define RAMCLOUD_MOCKSERVICE_H
 
+#include <mutex>
 #include "Service.h"
 
 namespace RAMCloud {
@@ -33,7 +34,7 @@ class MockService : public Service {
     virtual void dispatch(RpcOpcode opcode, Rpc& rpc)
     {
         {
-            boost::unique_lock<boost::mutex> lock(mutex);
+            std::unique_lock<std::mutex> lock(mutex);
             if (!log.empty()) {
                  log.append(", ");
             }
@@ -75,7 +76,7 @@ class MockService : public Service {
     }
 
     /// Used to serialize access to #log.
-    boost::mutex mutex;
+    std::mutex mutex;
 
     /// Records information about each request dispatched to this service.
     string log;

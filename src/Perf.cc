@@ -144,12 +144,12 @@ double atomicIntStore()
     return Cycles::toSeconds(stop - start)/count;
 }
 
-// Measure the cost of acquiring and releasing a boost mutex in the
+// Measure the cost of acquiring and releasing a std mutex in the
 // fast case where the mutex is free.
 double bMutexNoBlock()
 {
     int count = 1000000;
-    boost::mutex m;
+    std::mutex m;
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
         m.lock();
@@ -332,7 +332,7 @@ double lockNonDispThrd()
 
     // Start a new thread and wait for it to create a dispatcher.
     Dispatch* dispatch;
-    boost::thread thread(dispatchThread, &dispatch, &flag);
+    std::thread thread(dispatchThread, &dispatch, &flag);
     while (flag == 0) {
         usleep(100);
     }
@@ -753,7 +753,7 @@ TestInfo tests[] = {
     {"atomicIntXchg", atomicIntXchg,
      "AtomicInt::exchange"},
     {"bMutexNoBlock", bMutexNoBlock,
-     "Boost mutex lock/unlock (no blocking)"},
+     "std::mutex lock/unlock (no blocking)"},
     {"cppAtomicExchg", cppAtomicExchange,
      "Exchange method on a C++ atomic_int"},
     {"cppAtomicLoad", cppAtomicLoad,

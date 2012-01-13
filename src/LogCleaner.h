@@ -16,7 +16,7 @@
 #ifndef RAMCLOUD_LOGCLEANER_H
 #define RAMCLOUD_LOGCLEANER_H
 
-#include <boost/thread.hpp>
+#include <thread>
 #include <vector>
 
 #include "Common.h"
@@ -588,9 +588,12 @@ class LogCleaner {
     /// to manage the Segments we create while cleaning.
     ReplicaManager* replicaManager;
 
-    // Tub containing our cleaning thread, if we're told to instantiate one
-    // by whoever constructs this object.
-    Tub<boost::thread> thread;
+    /// Tub containing our cleaning thread, if we're told to instantiate one
+    /// by whoever constructs this object.
+    Tub<std::thread> thread;
+
+    /// Set by halt() to ask the cleaning thread to exit.
+    bool threadShouldExit;
 
     // Current performance counters.
     PerfCounters perfCounters;

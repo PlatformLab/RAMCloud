@@ -19,7 +19,7 @@
  */
 
 #include <math.h>
-#include <boost/thread.hpp>
+#include <thread>
 
 #include "Common.h"
 #include "BenchUtil.h"
@@ -67,7 +67,7 @@ parallelMemcpy(void* dst, const void* src, size_t bytes)
 {
     uint32_t numThreads = numJobs - 1;
     size_t bytesPerJob = bytes / numJobs;
-    Tub<boost::thread> threads[numThreads];
+    Tub<std::thread> threads[numThreads];
     uint32_t i;
     for (i = 0; i < numThreads; i++) {
         threads[i].construct(memcpyFn,

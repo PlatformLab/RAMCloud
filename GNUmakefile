@@ -60,7 +60,7 @@ endif
 # -Winline
 
 LIBS := $(EXTRALIBS) -lpcrecpp -lboost_program_options -lprotobuf -lrt \
-        -lpthread -lboost_thread -lssl -lcrypto
+        -lpthread -lssl -lcrypto
 ifeq ($(DEBUG),yes)
 # -rdynamic generates more useful backtraces when you have debugging symbols
 LIBS += -rdynamic

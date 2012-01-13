@@ -16,7 +16,7 @@
 #ifndef RAMCLOUD_REPLICATEDSEGMENT_H
 #define RAMCLOUD_REPLICATEDSEGMENT_H
 
-#include <boost/thread.hpp>
+#include <thread>
 
 #include "Common.h"
 #include "BackupClient.h"
@@ -245,7 +245,7 @@ class ReplicatedSegment : public Task {
                       BaseBackupSelector& backupSelector,
                       Deleter& deleter,
                       uint32_t& writeRpcsInFlight,
-                      boost::mutex& dataMutex,
+                      std::mutex& dataMutex,
                       ServerId masterId, uint64_t segmentId,
                       const void* data, uint32_t openLen,
                       uint32_t numReplicas,
@@ -306,8 +306,8 @@ class ReplicatedSegment : public Task {
      * tracking; see ReplicaManager.  A lock for this mutex must be held to
      * read or modify any state associated with this segment or any other.
      */
-    boost::mutex& dataMutex;
-    typedef boost::lock_guard<boost::mutex> Lock;
+    std::mutex& dataMutex;
+    typedef std::lock_guard<std::mutex> Lock;
 
     /// The server id of the Master whose log this segment belongs to.
     const ServerId masterId;

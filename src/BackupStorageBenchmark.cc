@@ -13,7 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <boost/thread/thread.hpp>
+#include <thread>
 
 #include "BackupStorage.h"
 #include "Cycles.h"
@@ -125,7 +125,7 @@ struct Bench {
         int i = 0;
         foreach (auto* handle, allocated) {
             if (!(i++ % 3))
-                boost::thread(Store(storage, scratch, *(writeHandle++)));
+                std::thread(Store(storage, scratch, *(writeHandle++)));
             uint64_t start = Cycles::rdtsc();
             storage.getSegment(handle, scratch);
             uint64_t getTime = Cycles::rdtsc() - start;

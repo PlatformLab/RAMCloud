@@ -28,7 +28,7 @@
 #else
 #include <cstdatomic>
 #endif
-#include <boost/thread.hpp>
+#include <thread>
 #include <boost/scoped_ptr.hpp>
 #include <boost/pool/pool.hpp>
 #include <map>
@@ -108,7 +108,7 @@ class BackupService : public Service {
         typedef boost::pool<SegmentAllocator> Pool;
 
         /// The type of lock used to make access to #pool thread safe.
-        typedef boost::unique_lock<boost::mutex> Lock;
+        typedef std::unique_lock<std::mutex> Lock;
 
         explicit ThreadSafePool(uint32_t chunkSize)
             : allocatedChunks()
@@ -162,7 +162,7 @@ class BackupService : public Service {
         uint32_t allocatedChunks;
 
         /// Used to serialize access to #pool and #allocatedChunks.
-        boost::mutex mutex;
+        std::mutex mutex;
 
         /// The backing pool that manages memory chunks.
         Pool pool;
@@ -179,7 +179,7 @@ class BackupService : public Service {
     class SegmentInfo {
       public:
         /// The type of locks used to lock #mutex.
-        typedef boost::unique_lock<boost::mutex> Lock;
+        typedef std::unique_lock<std::mutex> Lock;
 
         /**
          * Tracks current state of the segment which is sufficient to
@@ -319,14 +319,14 @@ class BackupService : public Service {
          * Provides mutal exclusion between all public method calls and
          * storage operations that can be performed on SegmentInfos.
          */
-        boost::mutex mutex;
+        std::mutex mutex;
 
         /**
          * Notified when a store or load for this segment completes, or
          * when this segment's recovery segments are constructed and valid.
          * Used in conjunction with #mutex.
          */
-        boost::condition_variable condition;
+        std::condition_variable condition;
 
         /// Gatekeeper through which async IOs are scheduled.
         IoScheduler& ioScheduler;
@@ -404,19 +404,19 @@ class BackupService : public Service {
         void load(SegmentInfo& info);
         void quiesce();
         void store(SegmentInfo& info);
-        void shutdown(boost::thread& ioThread);
+        void shutdown(std::thread& ioThread);
 
       private:
         void doLoad(SegmentInfo& info) const;
         void doStore(SegmentInfo& info) const;
 
-        typedef boost::unique_lock<boost::mutex> Lock;
+        typedef std::unique_lock<std::mutex> Lock;
 
         /// Protects #loadQueue, #storeQueue, and #running.
-        boost::mutex queueMutex;
+        std::mutex queueMutex;
 
         /// Notified when new requests are added to either queue.
-        boost::condition_variable queueCond;
+        std::condition_variable queueCond;
 
         /// Queue of SegmentInfos to be loaded from storage.
         std::queue<SegmentInfo*> loadQueue;
@@ -582,7 +582,7 @@ class BackupService : public Service {
     /// Gatekeeper through which async IOs are scheduled.
     IoScheduler ioScheduler;
     /// The thread driving #ioScheduler.
-    boost::thread ioThread;
+    std::thread ioThread;
 
     /// Used to ensure that init() is invoked before the dispatcher runs.
     bool initCalled;

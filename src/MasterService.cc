@@ -120,7 +120,7 @@ MasterService::dispatch(RpcOpcode opcode, Rpc& rpc)
 {
     assert(initCalled);
 
-    boost::lock_guard<SpinLock> lock(objectUpdateLock);
+    std::lock_guard<SpinLock> lock(objectUpdateLock);
 
     switch (opcode) {
         case CreateRpc::opcode:
@@ -1334,7 +1334,7 @@ objectLivenessCallback(LogEntryHandle handle, void* cookie)
     const Object* evictObj = handle->userData<Object>();
     assert(evictObj != NULL);
 
-    boost::lock_guard<SpinLock> lock(svr->objectUpdateLock);
+    std::lock_guard<SpinLock> lock(svr->objectUpdateLock);
 
     Table* t = svr->getTable(downCast<uint32_t>(evictObj->id.tableId),
                              evictObj->id.objectId);
@@ -1390,7 +1390,7 @@ objectRelocationCallback(LogEntryHandle oldHandle,
     const Object* evictObj = oldHandle->userData<Object>();
     assert(evictObj != NULL);
 
-    boost::lock_guard<SpinLock> lock(svr->objectUpdateLock);
+    std::lock_guard<SpinLock> lock(svr->objectUpdateLock);
 
     Table* table = svr->getTable(downCast<uint32_t>(evictObj->id.tableId),
                                  evictObj->id.objectId);
@@ -1466,7 +1466,7 @@ objectScanCallback(LogEntryHandle handle, void* cookie)
     const Object* obj = handle->userData<Object>();
     assert(obj != NULL);
 
-    boost::lock_guard<SpinLock> lock(svr->objectUpdateLock);
+    std::lock_guard<SpinLock> lock(svr->objectUpdateLock);
 
     Table* t = svr->getTable(downCast<uint32_t>(obj->id.tableId),
                              obj->id.objectId);
@@ -1550,7 +1550,7 @@ tombstoneRelocationCallback(LogEntryHandle oldHandle,
     // Remove the entry from the TabletProfiler whether it is to be
     // discarded or not. If we keep it we'll track it again in the
     // tombstoneScanCallback function.
-    boost::lock_guard<SpinLock> lock(svr->objectUpdateLock);
+    std::lock_guard<SpinLock> lock(svr->objectUpdateLock);
     Table* table = svr->getTable(downCast<uint32_t>(tomb->id.tableId),
                                  tomb->id.objectId);
     if (table != NULL) {
@@ -1601,7 +1601,7 @@ tombstoneScanCallback(LogEntryHandle handle, void* cookie)
     const ObjectTombstone* tomb = handle->userData<ObjectTombstone>();
     assert(tomb != NULL);
 
-    boost::lock_guard<SpinLock> lock(svr->objectUpdateLock);
+    std::lock_guard<SpinLock> lock(svr->objectUpdateLock);
 
     Table* t = svr->getTable(downCast<uint32_t>(tomb->id.tableId),
                              tomb->id.objectId);

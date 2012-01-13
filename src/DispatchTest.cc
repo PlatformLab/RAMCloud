@@ -315,7 +315,7 @@ TEST_F(DispatchTest, poll_locking) {
     // from there.
     CountPoller* counter = NULL;
     volatile int flag = 0;
-    boost::thread thread(lockTestThread, &Context::get(), &flag, &counter);
+    std::thread thread(lockTestThread, &Context::get(), &flag, &counter);
     Dispatch& dispatch = *Context::get().dispatch;
 
     // Wait for the child thread to start up and enter its polling loop.
@@ -480,7 +480,7 @@ TEST_F(DispatchTest, isDispatchThread) {
     td->hasDedicatedThread = true;
     EXPECT_TRUE(td->isDispatchThread());
     bool childResult = true;
-    boost::thread(checkDispatchThread, td, &childResult).join();
+    std::thread(checkDispatchThread, td, &childResult).join();
     EXPECT_FALSE(childResult);
 }
 
@@ -734,7 +734,7 @@ TEST_F(DispatchTest, epollThreadMain_signalEventsAndExit) {
 
     // Start up the polling thread; it will signal the first ready file.
     td->readyFd = -1;
-    boost::thread(epollThreadWrapper, &Context::get()).detach();
+    std::thread(epollThreadWrapper, &Context::get()).detach();
     waitForReadyFd(1.0);
     EXPECT_EQ(43, td->readyFd);
     EXPECT_EQ(Dispatch::FileEvent::WRITABLE, td->readyEvents);

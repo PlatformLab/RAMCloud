@@ -16,9 +16,9 @@
 #ifndef RAMCLOUD_REPLICAMANAGER_H
 #define RAMCLOUD_REPLICAMANAGER_H
 
+#include <thread>
 #include <unordered_map>
 #include <boost/pool/pool.hpp>
-#include <boost/thread.hpp>
 
 #include "Common.h"
 #include "BoostIntrusive.h"
@@ -81,8 +81,8 @@ class ReplicaManager : public ReplicatedSegment::Deleter {
      * #replicatedSegmentList.  A lock for this mutex must be held to read
      * or modify any state in the ReplicaManager.
      */
-    boost::mutex dataMutex;
-    typedef boost::lock_guard<boost::mutex> Lock;
+    std::mutex dataMutex;
+    typedef std::lock_guard<std::mutex> Lock;
 
     /// Id of master that this will be managing replicas for.
     const Tub<ServerId>& masterId;

@@ -72,7 +72,7 @@ TEST_F(TransportTest, wait_notDispatchThread) {
     Transport::ClientRpc rpc(&request, &response);
     TransportTestPoller poller(&count, &rpc, NULL);
     const char *state = "not finished";
-    boost::thread(waitOnRpc, &Context::get(), &rpc, &state).detach();
+    std::thread(waitOnRpc, &Context::get(), &rpc, &state).detach();
 
     // Wait a while and make sure that the RPC hasn't finished, and
     // that the dispatcher hasn't been invoked.

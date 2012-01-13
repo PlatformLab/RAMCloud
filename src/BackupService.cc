@@ -13,7 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <boost/thread.hpp>
+#include <thread>
 
 #include "BackupService.h"
 #include "BackupStorage.h"
@@ -150,7 +150,7 @@ Status
 BackupService::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
                                                   Buffer& buffer)
 {
-    Lock lock(mutex, boost::try_to_lock_t());
+    Lock lock(mutex, std::try_to_lock_t());
     if (!lock.owns_lock()) {
         LOG(DEBUG, "Deferring because couldn't acquire lock immediately");
         return STATUS_RETRY;
@@ -649,7 +649,7 @@ BackupService::IoScheduler::store(SegmentInfo& info)
  *      returns.
  */
 void
-BackupService::IoScheduler::shutdown(boost::thread& ioThread)
+BackupService::IoScheduler::shutdown(std::thread& ioThread)
 {
     {
         Lock lock(queueMutex);
@@ -875,7 +875,7 @@ BackupService::BackupService(const Config& config,
 #ifdef SINGLE_THREADED_BACKUP
     , ioThread()
 #else
-    , ioThread(boost::ref(ioScheduler))
+    , ioThread(std::ref(ioScheduler))
 #endif
     , initCalled(false)
 {
@@ -1299,7 +1299,8 @@ BackupService::startReadingData(
                                    partitions,
                                    recoveryThreadCount);
     ++recoveryThreadCount;
-    boost::thread builderThread(builder);
+    std::thread builderThread(builder);
+    builderThread.detach();
     LOG(DEBUG, "Kicked off building recovery segments; "
                "main thread going back to dispatching requests");
 #endif

@@ -21,8 +21,7 @@
 #else
 #include <cstdatomic>
 #endif
-#include <boost/thread.hpp>
-#include <boost/thread/locks.hpp>
+#include <thread>
 
 #include "Common.h"
 #include "AtomicInt.h"
@@ -229,7 +228,7 @@ class Dispatch {
         /// is constructed in a thread other than the dispatch thread
         /// (no mutual exclusion is needed if the Lock is created in
         /// the dispatch thread).
-        Tub<boost::lock_guard<SpinLock>> lock;
+        Tub<std::lock_guard<SpinLock>> lock;
         DISALLOW_COPY_AND_ASSIGN(Lock);
     };
 
@@ -253,7 +252,7 @@ class Dispatch {
     // We start a separate thread to invoke epoll kernel calls, so the
     // main polling loop is not delayed by kernel calls.  This thread
     // is only used when there are active Files.
-    Tub<boost::thread> epollThread;
+    Tub<std::thread> epollThread;
 
     // Read and write descriptors for a pipe.  The epoll thread always has
     // the read fd for this pipe in its active set; writing data to the pipe

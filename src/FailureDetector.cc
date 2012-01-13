@@ -18,6 +18,7 @@
 
 #include "Common.h"
 #include "Cycles.h"
+#include "Fence.h"
 #include "PingClient.h"
 #include "CoordinatorClient.h"
 #include "FailureDetector.h"
@@ -51,6 +52,7 @@ FailureDetector::FailureDetector(const string &coordinatorLocatorString,
     : ourServerId(ourServerId),
       serverTracker(serverList),
       thread(),
+      threadShouldExit(false),
       pingClient(),
       coordinatorClient(coordinatorLocatorString.c_str()),
       serverList(serverList),
@@ -88,8 +90,10 @@ void
 FailureDetector::halt()
 {
     if (thread) {
-        thread->interrupt();
+        threadShouldExit = true;
+        Fence::sfence();
         thread->join();
+        threadShouldExit = false;
         thread.destroy();
     }
 }
@@ -113,7 +117,9 @@ FailureDetector::detectorThreadEntry(FailureDetector* detector,
 
     while (1) {
         // Check if we have been requested to exit.
-        boost::this_thread::interruption_point();
+        Fence::lfence();
+        if (detector->threadShouldExit)
+            break;
 
         // Drain the list of changes to update our tracker.
         ServerChangeDetails dummy1;

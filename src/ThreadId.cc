@@ -27,7 +27,7 @@ __thread uint64_t ThreadId::id = 0;
 uint64_t ThreadId::highestId = 0;
 
 /// Used to serialize access to #highestId.
-boost::mutex ThreadId::mutex;
+std::mutex ThreadId::mutex;
 
 /**
  * Pick a unique value to use as the thread identifier for the current
@@ -39,7 +39,7 @@ boost::mutex ThreadId::mutex;
 uint64_t
 ThreadId::assign()
 {
-    boost::unique_lock<boost::mutex> lock(mutex);
+    std::unique_lock<std::mutex> lock(mutex);
     if (id == 0) {
         highestId++;
         id = highestId;

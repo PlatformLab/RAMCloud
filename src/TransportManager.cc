@@ -229,7 +229,7 @@ TransportManager::getSession(const char* serviceLocator)
 {
     // If we're running on a server (i.e., multithreaded) must exclude
     // other threads.
-    Tub<boost::lock_guard<SpinLock>> lock;
+    Tub<std::lock_guard<SpinLock>> lock;
     if (isServer) {
         lock.construct(mutex);
     }

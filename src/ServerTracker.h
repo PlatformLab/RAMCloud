@@ -21,8 +21,8 @@
 #ifndef RAMCLOUD_SERVERTRACKER_H
 #define RAMCLOUD_SERVERTRACKER_H
 
+#include <mutex>
 #include <queue>
-#include <boost/thread/locks.hpp>
 
 #include "Common.h"
 #include "ServerId.h"
@@ -451,7 +451,7 @@ class ServerTracker : public ServerTrackerInterface {
         addChange(const ServerChangeDetails& server,
                   ServerChangeEvent event)
         {
-            boost::lock_guard<SpinLock> lock(vectorLock);
+            std::lock_guard<SpinLock> lock(vectorLock);
             changes.push(ServerChange(server, event));
         }
 
@@ -465,7 +465,7 @@ class ServerTracker : public ServerTrackerInterface {
         ServerChange
         getChange()
         {
-            boost::lock_guard<SpinLock> lock(vectorLock);
+            std::lock_guard<SpinLock> lock(vectorLock);
             if (changes.empty())
                 throw Exception(HERE, "ChangeQueue is empty - cannot dequeue!");
             ServerChange ret = changes.front();
@@ -480,7 +480,7 @@ class ServerTracker : public ServerTrackerInterface {
         bool
         areChanges()
         {
-            boost::lock_guard<SpinLock> lock(vectorLock);
+            std::lock_guard<SpinLock> lock(vectorLock);
             return !changes.empty();
         }
 

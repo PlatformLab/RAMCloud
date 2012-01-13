@@ -39,10 +39,10 @@ TEST_F(ThreadIdTest, basics) {
     EXPECT_EQ(1U, ThreadId::get());
     EXPECT_EQ(1U, ThreadId::get());
     EXPECT_EQ(1U, ThreadId::assign());
-    boost::thread thread1(readThreadId, &value);
+    std::thread thread1(readThreadId, &value);
     thread1.join();
     EXPECT_EQ(2U, value);
-    boost::thread thread2(readThreadId, &value);
+    std::thread thread2(readThreadId, &value);
     thread2.join();
     EXPECT_EQ(3U, value);
 }

@@ -130,7 +130,7 @@ class Worker {
     ServiceManager::ServiceInfo *serviceInfo;
                                        /// Service for the last request
                                        /// executed by this worker.
-    Tub<boost::thread> thread;         /// Thread that executes this worker.
+    Tub<std::thread> thread;           /// Thread that executes this worker.
     Context& context;
     Transport::ServerRpc* rpc;         /// RPC being serviced by this worker.
                                        /// NULL means the last RPC given to

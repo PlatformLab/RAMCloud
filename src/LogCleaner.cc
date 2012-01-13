@@ -17,6 +17,7 @@
 #include <stdint.h>
 
 #include "Common.h"
+#include "Fence.h"
 #include "Log.h"
 #include "LogCleaner.h"
 #include "ShortMacros.h"
@@ -50,6 +51,7 @@ LogCleaner::LogCleaner(Log* log,
       log(log),
       replicaManager(replicaManager),
       thread(),
+      threadShouldExit(false),
       perfCounters()
 {
     if (startThread)
@@ -144,8 +146,11 @@ void
 LogCleaner::halt()
 {
     if (thread) {
-        thread->interrupt();
+        threadShouldExit = true;
+        Fence::sfence();
         thread->join();
+        threadShouldExit = false;
+        thread.destroy();
     }
 }
 
@@ -155,7 +160,7 @@ LogCleaner::halt()
 
 /**
  * Entry point for the cleaner thread. This is invoked via the
- * boost::thread() constructor. This thread performs continuous
+ * std::thread() constructor. This thread performs continuous
  * cleaning on an as-needed basis.
  */
 void
@@ -165,7 +170,9 @@ LogCleaner::cleanerThreadEntry(LogCleaner* logCleaner, Context* context)
     LOG(NOTICE, "LogCleaner thread spun up");
 
     while (1) {
-        boost::this_thread::interruption_point();
+        Fence::lfence();
+        if (logCleaner->threadShouldExit)
+            break;
         if (!logCleaner->clean())
             usleep(LogCleaner::POLL_USEC);
     }

@@ -271,7 +271,7 @@ TEST_F(TransportManagerTest, workerSessionSyncWithDispatchThread) {
     MockTransport transport;
     Transport::SessionRef wrappedSession = new TransportManager::WorkerSession(
             transport.getSession());
-    boost::thread child(worker, &Context::get(), wrappedSession);
+    std::thread child(worker, &Context::get(), wrappedSession);
 
     // Make sure the child hangs in clientSend until we invoke the dispatcher.
     usleep(1000);

@@ -16,8 +16,7 @@
 #ifndef RAMCLOUD_THREADID_H
 #define RAMCLOUD_THREADID_H
 
-#include <boost/thread.hpp>
-#include <boost/thread/locks.hpp>
+#include <mutex>
 
 #include "Common.h"
 
@@ -43,7 +42,7 @@ class ThreadId {
     static uint64_t assign();
     static __thread uint64_t id;
     static uint64_t highestId;
-    static boost::mutex mutex;
+    static std::mutex mutex;
 
     DISALLOW_COPY_AND_ASSIGN(ThreadId);
 };

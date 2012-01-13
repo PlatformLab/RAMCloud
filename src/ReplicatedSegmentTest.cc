@@ -84,7 +84,7 @@ struct ReplicatedSegmentTest : public ::testing::Test {
     TaskManager taskManager;
     CountingDeleter deleter;
     uint32_t writeRpcsInFlight;
-    boost::mutex dataMutex;
+    std::mutex dataMutex;
     const ServerId masterId;
     const uint64_t segmentId;
     char data[DATA_LEN];

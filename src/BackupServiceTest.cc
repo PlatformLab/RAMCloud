@@ -759,7 +759,7 @@ class SegmentInfoTest : public ::testing::Test {
         , pool{segmentSize}
         , storage{segmentSize, 2}
         , ioScheduler()
-        , ioThread(boost::ref(ioScheduler))
+        , ioThread(std::ref(ioScheduler))
         , info{storage, pool, ioScheduler,
             ServerId(99, 0), 88, segmentSize, true}
     {
@@ -774,7 +774,7 @@ class SegmentInfoTest : public ::testing::Test {
     BackupService::ThreadSafePool pool;
     InMemoryStorage storage;
     BackupService::IoScheduler ioScheduler;
-    boost::thread ioThread;
+    std::thread ioThread;
     SegmentInfo info;
 };
 
