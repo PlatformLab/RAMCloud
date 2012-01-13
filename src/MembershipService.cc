@@ -20,7 +20,7 @@
  * system.
  */
 
-#include <boost/unordered_set.hpp>
+#include <unordered_set>
 
 #include "Common.h"
 #include "CoordinatorClient.h"
@@ -112,7 +112,7 @@ MembershipService::setServerList(const SetServerListRpc::Request& reqHdr,
 
     // Build a temporary map of currently live servers so that we can
     // efficiently evict dead servers from the list.
-    boost::unordered_set<uint64_t> liveServers;
+    std::unordered_set<uint64_t> liveServers;
     for (int i = 0; i < list.server_size(); i++)
         liveServers.insert(list.server(i).server_id());
 

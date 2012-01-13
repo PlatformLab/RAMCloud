@@ -21,7 +21,7 @@
 
 #include <time.h>
 #include <string>
-#include <boost/unordered_map.hpp>
+#include <unordered_map>
 #include <vector>
 
 #include "BoostIntrusive.h"
@@ -274,7 +274,7 @@ class InfRcTransport : public Transport {
 
     // ibv_wc.qp_num to QueuePair* lookup used to look up the QueuePair given
     // a completion event on the shared receive queue
-    boost::unordered_map<uint32_t, QueuePair*> queuePairMap;
+    std::unordered_map<uint32_t, QueuePair*> queuePairMap;
 
     /**
      * RPCs which are waiting for a receive buffer to become available before

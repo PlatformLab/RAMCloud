@@ -13,7 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <boost/unordered_map.hpp>
+#include <unordered_map>
 
 #include "TestUtil.h"
 
@@ -248,7 +248,7 @@ class TabletOracle {
     uint64_t
     getBytesInRange(uint64_t firstKey, uint64_t lastKey)
     {
-        boost::unordered_map<uint64_t, uint64_t>::iterator it =
+        std::unordered_map<uint64_t, uint64_t>::iterator it =
             objectMap.begin();
         uint64_t bytes = 0;
         while (it != objectMap.end()) {
@@ -262,7 +262,7 @@ class TabletOracle {
     uint64_t
     getReferentsInRange(uint64_t firstKey, uint64_t lastKey)
     {
-        boost::unordered_map<uint64_t, uint64_t>::iterator it =
+        std::unordered_map<uint64_t, uint64_t>::iterator it =
             objectMap.begin();
         uint64_t objects = 0;
         while (it != objectMap.end()) {
@@ -274,7 +274,7 @@ class TabletOracle {
     }
 
     private:
-    boost::unordered_map<uint64_t, uint64_t> objectMap;
+    std::unordered_map<uint64_t, uint64_t> objectMap;
 };
 
 // A wrapper for TabletOracle that takes into account
@@ -308,7 +308,7 @@ class Oracle {
     }
 
     private:
-    boost::unordered_map<uint64_t, TabletOracle> tabletMap;
+    std::unordered_map<uint64_t, TabletOracle> tabletMap;
 };
 
 void

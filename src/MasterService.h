@@ -16,8 +16,6 @@
 #ifndef RAMCLOUD_MASTERSERVICE_H
 #define RAMCLOUD_MASTERSERVICE_H
 
-#include <boost/unordered_map.hpp>
-
 #include "Common.h"
 #include "CoordinatorClient.h"
 #include "Log.h"

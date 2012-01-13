@@ -13,6 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <unordered_map>
+
 #include "Common.h"
 #include "Dispatch.h"
 #include "BackupClient.h"
@@ -277,7 +279,7 @@ Recovery::buildSegmentIdToBackups()
 
     // Map of Segment Ids -> counts of backup copies that were found.
     // This is used to cross-check with the log digest.
-    boost::unordered_map<uint64_t, uint32_t> segmentMap;
+    std::unordered_map<uint64_t, uint32_t> segmentMap;
     for (size_t j = 0; j < serverList.backupCount(); ++j) {
         const auto& task = tasks[j];
         if (!task)

@@ -13,7 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <boost/unordered_set.hpp>
+#include <unordered_map>
+#include <unordered_set>
 
 #include "Buffer.h"
 #include "ClientException.h"
@@ -516,7 +517,7 @@ detectSegmentRecoveryFailure(const ServerId masterId,
                              const uint64_t partitionId,
                              const ProtoBuf::ServerList& backups)
 {
-    boost::unordered_set<uint64_t> failures;
+    std::unordered_set<uint64_t> failures;
     foreach (const auto& backup, backups.server()) {
         switch (backup.user_data()) {
         case MasterService::REC_REQ_OK:
@@ -623,7 +624,7 @@ MasterService::recover(ServerId masterId,
     LOG(NOTICE, "Recovering master %lu, partition %lu, %u replicas available",
         *masterId, partitionId, backups.server_size());
 
-    boost::unordered_set<uint64_t> runningSet;
+    std::unordered_set<uint64_t> runningSet;
     foreach (auto& backup, *backups.mutable_server())
         backup.set_user_data(REC_REQ_NOT_STARTED);
 
@@ -670,7 +671,7 @@ MasterService::recover(ServerId masterId,
 
     bool gotFirstGRD = false;
 
-    boost::unordered_multimap<uint64_t, ProtoBuf::ServerList::Entry*>
+    std::unordered_multimap<uint64_t, ProtoBuf::ServerList::Entry*>
         segmentIdToBackups;
     foreach (auto& backup, *backups.mutable_server())
         segmentIdToBackups.insert({backup.segment_id(), &backup});

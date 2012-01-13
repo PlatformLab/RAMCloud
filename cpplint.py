@@ -230,6 +230,7 @@ _STL_HEADERS = frozenset([
     'pthread_alloc', 'queue', 'set', 'set.h', 'sstream', 'stack',
     'stl_alloc.h', 'stl_relops.h', 'type_traits.h',
     'utility', 'vector', 'vector.h',
+    'unordered_map', 'unordered_set',
     ])
 
 

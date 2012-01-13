@@ -17,9 +17,6 @@
 #ifndef RAMCLOUD_RECOVERY_H
 #define RAMCLOUD_RECOVERY_H
 
-#include <map>
-#include <boost/unordered_map.hpp>
-
 #include "Common.h"
 #include "CoordinatorServerList.h"
 #include "CycleCounter.h"

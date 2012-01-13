@@ -16,6 +16,8 @@
 #ifndef RAMCLOUD_LOGTYPES_H
 #define RAMCLOUD_LOGTYPES_H
 
+#include <functional>
+
 #include "Common.h"
 
 namespace RAMCloud {
@@ -43,6 +45,21 @@ enum LogEntryType {
     LOG_ENTRY_TYPE_LOGDIGEST = 'D'
 };
 
-} // namespace
+} // namespace RAMCloud
+
+namespace std {
+
+/**
+ * Specialize std::hash<LogEntryType>, which allows LogEntryType to be used as
+ * keys of std::unordered_map, etc.
+ */
+template<>
+struct hash<RAMCloud::LogEntryType> {
+    size_t operator()(RAMCloud::LogEntryType type) const {
+        return std::hash<uint8_t>()(static_cast<uint8_t>(type));
+    }
+};
+
+} // namespace std
 
 #endif // !RAMCLOUD_LOGTYPES_H

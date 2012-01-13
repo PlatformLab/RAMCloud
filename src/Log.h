@@ -17,7 +17,7 @@
 #define RAMCLOUD_LOG_H
 
 #include <stdint.h>
-#include <boost/unordered_map.hpp>
+#include <unordered_map>
 #include <vector>
 
 #include "BoostIntrusive.h"
@@ -264,9 +264,9 @@ class Log {
     // typedefs for various lists and maps
     INTRUSIVE_LIST_TYPEDEF(Segment, listEntries) SegmentList;
     typedef std::vector<void*> FreeList;
-    typedef boost::unordered_map<LogEntryType, LogTypeInfo*> LogTypeMap;
-    typedef boost::unordered_map<uint64_t, Segment *> ActiveIdMap;
-    typedef boost::unordered_map<const void *, Segment *> BaseAddressMap;
+    typedef std::unordered_map<LogEntryType, LogTypeInfo*> LogTypeMap;
+    typedef std::unordered_map<uint64_t, Segment *> ActiveIdMap;
+    typedef std::unordered_map<const void *, Segment *> BaseAddressMap;
 
     void        dumpListStats();
     void        locklessAddToFreeList(void *p);
