@@ -58,8 +58,14 @@ endif
 # -Wunreachable-code
 # Failed deconstructor inlines are generating noise
 # -Winline
+
 LIBS := $(EXTRALIBS) -lpcrecpp -lboost_program_options -lprotobuf -lrt \
         -lpthread -lboost_thread -lssl -lcrypto
+ifeq ($(DEBUG),yes)
+# -rdynamic generates more useful backtraces when you have debugging symbols
+LIBS += -rdynamic
+endif
+
 INCLUDES := -I$(TOP)/src -I$(TOP)/$(OBJDIR) -I$(GTEST_DIR)/include
 
 CC ?= gcc
