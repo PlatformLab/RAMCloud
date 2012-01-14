@@ -517,18 +517,24 @@ struct BackupStartReadingDataRpc {
     } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
-        uint32_t segmentIdCount;       ///< Number of segmentIds in reply
-                                       ///< payload.
-        uint32_t primarySegmentCount;  ///< Count of segmentIds which prefix
-                                       ///< the reply payload are primary.
+        uint32_t segmentIdCount;       ///< Number of (segmentId, length) pairs
+                                       ///< in the replica list following this
+                                       ///< header.
+        uint32_t primarySegmentCount;  ///< Count of segment replicas that are
+                                       ///< primary. These appear at the start
+                                       ///< of the replica list.
         uint32_t digestBytes;          ///< Number of bytes for optional
                                        ///< LogDigest.
         uint64_t digestSegmentId;      ///< SegmentId the LogDigest came from.
         uint32_t digestSegmentLen;     ///< Byte length of the LogDigest
-                                       ///< Segment.
-        // A series of segmentIdCount uint64_t segmentIds follows.
+                                       ///< segment replica.
+        // TODO(ongaro): We shouldn't send std::pair in RPCs.
+        // An array of segmentIdCount replicas follows. Each entry is a
+        // std::pair<uint64_t segmentId, uint32_t segmentLength>,
+        // where the segmentLength is set to ~0U for closed segments.
+        //
         // If logDigestBytes != 0, then a serialised LogDigest follows
-        // immediately after the last segmentId.
+        // immediately after the replica list.
     } __attribute__((packed));
 };
 

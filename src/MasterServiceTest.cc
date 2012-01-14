@@ -324,10 +324,9 @@ TEST_F(MasterServiceTest, recover_basics) {
 
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
-    BackupClient::StartReadingData::Result result;
     BackupClient(Context::get().transportManager->getSession(
                                                 "mock:host=backup1"))
-        .startReadingData(ServerId(123), tablets, &result);
+        .startReadingData(ServerId(123), tablets);
 
     ProtoBuf::ServerList backups;
     ServerListBuilder{backups}
@@ -410,10 +409,9 @@ TEST_F(MasterServiceTest, recover) {
 
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
-    BackupClient::StartReadingData::Result result;
     BackupClient(Context::get().transportManager->getSession(
                                                     "mock:host=backup1"))
-        .startReadingData(ServerId(123), tablets, &result);
+        .startReadingData(ServerId(123), tablets);
 
     ProtoBuf::ServerList backups;
     ServerListBuilder{backups}
@@ -1007,16 +1005,14 @@ TEST_F(MasterRecoverTest, recover) {
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
     {
-        BackupClient::StartReadingData::Result result;
         BackupClient(Context::get().transportManager->getSession(
                                                     "mock:host=backup1"))
-            .startReadingData(ServerId(99), tablets, &result);
+            .startReadingData(ServerId(99), tablets);
     }
     {
-        BackupClient::StartReadingData::Result result;
         BackupClient(Context::get().transportManager->getSession(
                                                     "mock:host=backup2"))
-            .startReadingData(ServerId(99), tablets, &result);
+            .startReadingData(ServerId(99), tablets);
     }
 
     ProtoBuf::ServerList backups;

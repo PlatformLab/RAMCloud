@@ -141,8 +141,7 @@ TEST_F(ReplicaManagerTest, writeSegment) {
             ASSERT_TRUE(replica);
             BackupClient& host(replica->client);
             Buffer resp;
-            BackupClient::StartReadingData::Result result;
-            host.startReadingData(*serverId, will, &result);
+            host.startReadingData(*serverId, will);
             while (true) {
                 try {
                     host.getRecoveryData(*serverId, 88, 0, resp);

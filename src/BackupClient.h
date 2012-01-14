@@ -85,54 +85,47 @@ class BackupClient : public Client {
 
     class StartReadingData {
       public:
-        class Result {
-          public:
-            Result()
-                : segmentIdAndLength(),
-                  primarySegmentCount(),
-                  logDigestBuffer(NULL),
-                  logDigestBytes(0),
-                  logDigestSegmentId(-1),
-                  logDigestSegmentLen(-1)
-            {
-            }
-
-            ~Result()
-            {
-                if (logDigestBuffer != NULL)
-                    free(const_cast<void*>(logDigestBuffer));
-            }
-
-            void
-            set(const pair<uint64_t, uint32_t>* idLengthTuples,
-                uint64_t numTuples,
-                uint32_t primarySegmentCount,
-                const void* logDigestPtr,
-                uint32_t logDigestBytes, uint64_t logDigestSegmentId,
-                uint32_t logDigestSegmentLen)
-            {
-                for (uint64_t i = 0; i < numTuples; i++)
-                    segmentIdAndLength.push_back(idLengthTuples[i]);
-
-                this->primarySegmentCount = primarySegmentCount;
-
-                if (logDigestPtr != NULL) {
-                    logDigestBuffer = Memory::xmalloc(HERE, logDigestBytes);
-                    memcpy(const_cast<void*>(logDigestBuffer), logDigestPtr,
-                        logDigestBytes);
-                    this->logDigestBytes = logDigestBytes;
-                    this->logDigestSegmentId = logDigestSegmentId;
-                    this->logDigestSegmentLen = logDigestSegmentLen;
-                }
-            }
-
+        /**
+         * The result of a startReadingData RPC, as returned by the backup.
+         */
+        struct Result {
+            Result();
+            Result(Result&& other);
+            Result& operator=(Result&& other);
+            /**
+             * A list of the segment IDs for which this backup has a replica,
+             * and the length in bytes for those replicas.
+             * For closed segments, this length is currently returned as ~OU.
+             */
             vector<pair<uint64_t, uint32_t>> segmentIdAndLength;
-            uint32_t primarySegmentCount;
-            const void* logDigestBuffer;
-            uint32_t logDigestBytes;
-            uint64_t logDigestSegmentId;
-            uint32_t logDigestSegmentLen;
 
+            /**
+             * The number of primary replicas this backup has returned at the
+             * start of segmentIdAndLength.
+             */
+            uint32_t primarySegmentCount;
+
+            /**
+             * A buffer containing the LogDigest of the newest open segment
+             * replica found on this backup from this master, if one exists.
+             */
+            std::unique_ptr<char[]> logDigestBuffer;
+
+            /**
+             * The number of bytes that make up logDigestBuffer.
+             */
+            uint32_t logDigestBytes;
+
+            /**
+             * The segment ID the log digest came from.
+             */
+            uint64_t logDigestSegmentId;
+
+            /**
+             * The number of bytes making up the replica that contains the
+             * returned log digest.
+             */
+            uint32_t logDigestSegmentLen;
             DISALLOW_COPY_AND_ASSIGN(Result);
         };
 
@@ -140,7 +133,7 @@ class BackupClient : public Client {
                          ServerId masterId,
                          const ProtoBuf::Tablets& partitions);
         bool isReady() { return state.isReady(); }
-        void operator()(Result* result);
+        BackupClient::StartReadingData::Result operator()();
         BackupClient& client;
         Buffer requestBuffer;
         Buffer responseBuffer;
@@ -150,12 +143,11 @@ class BackupClient : public Client {
         DISALLOW_COPY_AND_ASSIGN(StartReadingData);
     };
 
-    // This method is currently only used for testing.
-    void
-    startReadingData(ServerId masterId, const ProtoBuf::Tablets& partitions,
-        StartReadingData::Result* result)
+    /// A synchronous version of StartReadingData.
+    StartReadingData::Result
+    startReadingData(ServerId masterId, const ProtoBuf::Tablets& partitions)
     {
-        StartReadingData(*this, masterId, partitions)(result);
+        return StartReadingData(*this, masterId, partitions)();
     }
 
     class WriteSegment {

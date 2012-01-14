@@ -164,22 +164,22 @@ TEST_F(RecoveryTest, buildSegmentIdToBackups) {
     Recovery recovery(ServerId(99), tablets, *serverList);
 
     auto expectedMask = ServiceMask{BACKUP_SERVICE}.serialize();
-    EXPECT_EQ(3, recovery.backups.server_size());
+    ASSERT_EQ(3, recovery.replicaLocations.server_size());
     {
         const ProtoBuf::ServerList::Entry&
-            backup(recovery.backups.server(0));
+            backup(recovery.replicaLocations.server(0));
         EXPECT_EQ(89U, backup.segment_id());
         EXPECT_EQ("mock:host=backup1", backup.service_locator());
         EXPECT_EQ(expectedMask, backup.service_mask());
     }{
         const ProtoBuf::ServerList::Entry&
-            backup(recovery.backups.server(1));
+            backup(recovery.replicaLocations.server(1));
         EXPECT_EQ(88U, backup.segment_id());
         EXPECT_EQ("mock:host=backup2", backup.service_locator());
         EXPECT_EQ(expectedMask, backup.service_mask());
     }{
         const ProtoBuf::ServerList::Entry&
-            backup(recovery.backups.server(2));
+            backup(recovery.replicaLocations.server(2));
         EXPECT_EQ(88U, backup.segment_id());
         EXPECT_EQ("mock:host=backup1", backup.service_locator());
         EXPECT_EQ(expectedMask, backup.service_mask());
@@ -215,9 +215,9 @@ TEST_F(RecoveryTest, buildSegmentIdToBackups_secondariesEarlyInSomeList) {
     ProtoBuf::Tablets tablets;
     Recovery recovery(ServerId(99), tablets, *serverList);
 
-    EXPECT_EQ(4, recovery.backups.server_size());
+    EXPECT_EQ(4, recovery.replicaLocations.server_size());
     bool sawSecondary = false;
-    foreach (const auto& backup, recovery.backups.server()) {
+    foreach (const auto& backup, recovery.replicaLocations.server()) {
         if (!backup.user_data())
             sawSecondary = true;
         else

@@ -95,7 +95,7 @@ class Recovery : public BaseRecovery {
         void
         operator()()
         {
-            (*rpc)(&result);
+            result = (*rpc)();
             rpc.destroy();
             client.destroy();
             response.destroy();
@@ -113,14 +113,17 @@ class Recovery : public BaseRecovery {
 
     class SegmentAndDigestTuple {
       public:
-        SegmentAndDigestTuple(uint64_t segmentId, uint32_t segmentLength,
+        SegmentAndDigestTuple(const char* backupServiceLocator,
+                              uint64_t segmentId, uint32_t segmentLength,
             const void* logDigestPtr, uint32_t logDigestBytes)
-            : segmentId(segmentId),
+            : backupServiceLocator(backupServiceLocator),
+              segmentId(segmentId),
               segmentLength(segmentLength),
               logDigest(logDigestPtr, logDigestBytes)
         {
         }
 
+        const char* backupServiceLocator;
         uint64_t  segmentId;
         uint32_t  segmentLength;
         LogDigest logDigest;
@@ -132,7 +135,7 @@ class Recovery : public BaseRecovery {
      * A mapping of segmentIds to backup host service locators.
      * Created from #hosts in createBackupList().
      */
-    ProtoBuf::ServerList backups;
+    ProtoBuf::ServerList replicaLocations;
 
     /// The list of all masters.
     const CoordinatorServerList& serverList;

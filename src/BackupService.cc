@@ -1266,16 +1266,18 @@ BackupService::startReadingData(
     foreach (auto info, primarySegments) {
         new(&rpc.replyPayload, APPEND) pair<uint64_t, uint32_t>
             (info->segmentId, info->getRightmostWrittenOffset());
-        LOG(DEBUG, "Crashed master %lu had segment %lu (primary)",
-            *info->masterId, info->segmentId);
+        LOG(DEBUG, "Crashed master %lu had segment %lu (primary) with len %u",
+            *info->masterId, info->segmentId,
+            info->getRightmostWrittenOffset());
         info->setRecovering();
     }
     foreach (auto info, secondarySegments) {
         new(&rpc.replyPayload, APPEND) pair<uint64_t, uint32_t>
             (info->segmentId, info->getRightmostWrittenOffset());
-        LOG(DEBUG, "Crashed master %lu had segment %lu (secondary), "
-            "stored partitions for deferred recovery segment construction",
-            *info->masterId, info->segmentId);
+        LOG(DEBUG, "Crashed master %lu had segment %lu (secondary) with len %u"
+            ", stored partitions for deferred recovery segment construction",
+            *info->masterId, info->segmentId,
+            info->getRightmostWrittenOffset());
         info->setRecovering(partitions);
     }
     respHdr.segmentIdCount = downCast<uint32_t>(primarySegments.size() +

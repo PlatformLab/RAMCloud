@@ -17,6 +17,7 @@
 #include "Buffer.h"
 #include "ClientException.h"
 #include "Rpc.h"
+#include "ShortMacros.h"
 #include "TransportManager.h"
 
 namespace RAMCloud {
@@ -182,6 +183,42 @@ BackupClient::RecoveryComplete::operator()()
     client.checkStatus(HERE);
 }
 
+// class BackupClient::StartReadingData::Result
+
+BackupClient::StartReadingData::Result::Result()
+    : segmentIdAndLength()
+    , primarySegmentCount()
+    , logDigestBuffer()
+    , logDigestBytes(0)
+    , logDigestSegmentId(-1)
+    , logDigestSegmentLen(-1)
+{
+}
+
+BackupClient::StartReadingData::Result::Result(Result&& other)
+    : segmentIdAndLength(std::move(other.segmentIdAndLength))
+    , primarySegmentCount(other.primarySegmentCount)
+    , logDigestBuffer(std::move(other.logDigestBuffer))
+    , logDigestBytes(other.logDigestBytes)
+    , logDigestSegmentId(other.logDigestSegmentId)
+    , logDigestSegmentLen(other.logDigestSegmentLen)
+{
+}
+
+BackupClient::StartReadingData::Result&
+BackupClient::StartReadingData::Result::operator=(Result&& other)
+{
+    segmentIdAndLength = std::move(other.segmentIdAndLength);
+    primarySegmentCount = other.primarySegmentCount;
+    logDigestBuffer = std::move(other.logDigestBuffer);
+    logDigestBytes = other.logDigestBytes;
+    logDigestSegmentId = other.logDigestSegmentId;
+    logDigestSegmentLen = other.logDigestSegmentLen;
+    return *this;
+}
+
+// class BackupClient::StartReadingData
+
 /**
  * Begin reading the objects stored for the given server from disk and
  * split them into recovery segments.
@@ -214,44 +251,49 @@ BackupClient::StartReadingData::StartReadingData(
                                                    responseBuffer);
 }
 
-/**
- * \param[out] result
- *      Return a set of segment IDs for masterId which will be read from disk
- *      along with their written lengths, as well as a buffer containing
- *      the LogDigest of the newest open Segment from this masterId, if one
- *      exists.
- */
-void
-BackupClient::StartReadingData::operator()(
-    BackupClient::StartReadingData::Result* result)
+BackupClient::StartReadingData::Result
+BackupClient::StartReadingData::operator()()
 {
     const BackupStartReadingDataRpc::Response& respHdr(
         client.recv<BackupStartReadingDataRpc>(state));
     client.checkStatus(HERE);
 
-    uint64_t segmentIdCount = respHdr.segmentIdCount;
-    uint64_t primarySegmentCount = respHdr.primarySegmentCount;
+    Result result;
+
+    uint32_t segmentIdCount = respHdr.segmentIdCount;
+    uint32_t primarySegmentCount = respHdr.primarySegmentCount;
     uint32_t digestBytes = respHdr.digestBytes;
     uint64_t digestSegmentId = respHdr.digestSegmentId;
-    uint64_t digestSegmentLen = respHdr.digestSegmentLen;
-
+    uint32_t digestSegmentLen = respHdr.digestSegmentLen;
     responseBuffer.truncateFront(sizeof(respHdr));
+
+    // segmentIdAndLength
+    // TODO(ongaro): No pairs over the network
     auto const* segmentIdsRaw =
         responseBuffer.getStart<pair<uint64_t, uint32_t>>();
-    // TODO(ongaro): It's not safe to get a pointer to something in a buffer
-    // and then modify that buffer.
-
-    const void* digestPtr = NULL;
-    if (digestBytes > 0) {
-        responseBuffer.truncateFront(downCast<uint32_t>(segmentIdCount *
-            sizeof(pair<uint64_t, uint32_t>)));
-        digestPtr = responseBuffer.getRange(0, digestBytes);
+    for (uint64_t i = 0; i < segmentIdCount; ++i) {
+        LOG(DEBUG, "%lu, %u",
+            segmentIdsRaw[i].first,
+            segmentIdsRaw[i].second);
+        result.segmentIdAndLength.push_back(segmentIdsRaw[i]);
     }
+    responseBuffer.truncateFront(
+        downCast<uint32_t>(segmentIdCount *
+                           sizeof(pair<uint64_t, uint32_t>)));
 
-    result->set(segmentIdsRaw, segmentIdCount,
-                downCast<uint32_t>(primarySegmentCount),
-                digestPtr, digestBytes, digestSegmentId,
-                downCast<uint32_t>(digestSegmentLen));
+    // primarySegmentCount
+    result.primarySegmentCount = primarySegmentCount;
+
+    // logDigest fields
+    if (digestBytes > 0) {
+        result.logDigestBuffer.reset(new char[digestBytes]);
+        responseBuffer.copy(0, digestBytes,
+                            result.logDigestBuffer.get());
+        result.logDigestBytes = digestBytes;
+        result.logDigestSegmentId = digestSegmentId;
+        result.logDigestSegmentLen = digestSegmentLen;
+    }
+    return result;
 }
 
 /**

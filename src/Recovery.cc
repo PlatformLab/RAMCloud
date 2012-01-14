@@ -185,7 +185,7 @@ Recovery::Recovery(ServerId masterId,
                    const CoordinatorServerList& serverList)
 
     : recoveryTicks(&metrics->coordinator.recoveryTicks)
-    , backups()
+    , replicaLocations()
     , serverList(serverList)
     , masterId(masterId)
     , tabletsUnderRecovery()
@@ -284,8 +284,8 @@ Recovery::buildSegmentIdToBackups()
         const auto& task = tasks[j];
         if (!task)
             continue;
-        for (size_t i = 0; i < task->result.segmentIdAndLength.size(); ++i) {
-            uint64_t segmentId = task->result.segmentIdAndLength[i].first;
+        foreach (auto replica, task->result.segmentIdAndLength) {
+            uint64_t segmentId = replica.first;
             ++segmentMap[segmentId];
         }
     }
@@ -298,10 +298,11 @@ Recovery::buildSegmentIdToBackups()
 
         // If this backup returned a potential head of the log and it
         // includes a LogDigest, set it aside for verifyCompleteLog().
-        if (task->result.logDigestBuffer != NULL) {
-            digestList.push_back({ task->result.logDigestSegmentId,
+        if (task->result.logDigestBuffer) {
+            digestList.push_back({ task->backupHost.serviceLocator.c_str(),
+                                   task->result.logDigestSegmentId,
                                    task->result.logDigestSegmentLen,
-                                   task->result.logDigestBuffer,
+                                   task->result.logDigestBuffer.get(),
                                    task->result.logDigestBytes });
 
             if (task->result.logDigestSegmentId == (uint32_t)-1) {
@@ -320,35 +321,35 @@ Recovery::buildSegmentIdToBackups()
      */
     uint64_t headId = ~0UL;
     uint32_t headLen = 0;
-    { // verifyCompleteLog
+    {
         // find the newest head
-        LogDigest* headDigest = NULL;
+        SegmentAndDigestTuple* headReplica = NULL;
 
-        foreach (auto digestTuple, digestList) {
+        foreach (auto& digestTuple, digestList) {
             uint64_t id = digestTuple.segmentId;
             uint32_t len = digestTuple.segmentLength;
-            LogDigest *ld = &digestTuple.logDigest;
 
             if (id < headId || (id == headId && len >= headLen)) {
-                headDigest = ld;
+                headReplica = &digestTuple;
                 headId = id;
                 headLen = len;
             }
         }
 
-        if (headDigest == NULL) {
+        if (headReplica == NULL) {
             // we're seriously boned.
             LOG(ERROR, "No log head & digest found!! Kiss your data good-bye!");
             throw Exception(HERE, "ouch! data lost!");
         }
 
-        LOG(NOTICE, "Segment %lu of length %u bytes is the head of the log",
-            headId, headLen);
+        LOG(NOTICE, "Segment %lu of length %u bytes from backup %s "
+            "is the head of the log",
+            headId, headLen, headReplica->backupServiceLocator);
 
         // scan the backup map to determine if all needed segments are available
         uint32_t missing = 0;
-        for (int i = 0; i < headDigest->getSegmentCount(); i++) {
-            uint64_t id = headDigest->getSegmentIds()[i];
+        for (int i = 0; i < headReplica->logDigest.getSegmentCount(); i++) {
+            uint64_t id = headReplica->logDigest.getSegmentIds()[i];
             if (!contains(segmentMap, id)) {
                 LOG(ERROR, "Segment %lu is missing!", id);
                 missing++;
@@ -359,6 +360,7 @@ Recovery::buildSegmentIdToBackups()
             LOG(ERROR,
                 "%u segments in the digest, but not obtained from backups!",
                 missing);
+            // TODO(ongaro): Should we abort here?
         }
     }
 
@@ -379,7 +381,9 @@ Recovery::buildSegmentIdToBackups()
         const auto* backup = serverList[nextBackupIndex];
         const uint64_t speed = backup->backupReadMegsPerSecond;
 
-        LOG(DEBUG, "Adding all segments from %s with bench speed of %lu",
+        LOG(DEBUG, "Adding %lu segment replicas from %s "
+                   "with bench speed of %lu",
+            task->result.segmentIdAndLength.size(),
             backup->serviceLocator.c_str(), speed);
 
         for (size_t i = 0; i < task->result.segmentIdAndLength.size(); ++i) {
@@ -396,7 +400,7 @@ Recovery::buildSegmentIdToBackups()
                 expectedLoadTimeMs += 1000000;
             }
             uint64_t segmentId = task->result.segmentIdAndLength[i].first;
-            uint64_t segmentLen = task->result.segmentIdAndLength[i].second;
+            uint32_t segmentLen = task->result.segmentIdAndLength[i].second;
             if (segmentId < headId ||
                 (segmentId == headId && segmentLen == headLen)) {
                 ProtoBuf::ServerList::Entry newEntry;
@@ -404,6 +408,21 @@ Recovery::buildSegmentIdToBackups()
                 newEntry.set_user_data(expectedLoadTimeMs);
                 newEntry.set_segment_id(segmentId);
                 backupsToSort.push_back(newEntry);
+            } else {
+                const char* why;
+                if (segmentId == headId && segmentLen < headLen) {
+                    why = "shorter than";
+                } else if (segmentId == headId && segmentLen > headLen) {
+                    why = "longer than";
+                } else {
+                    why = "past";
+                }
+                LOG(DEBUG, "Ignoring replica for "
+                    "segment ID %lu, len %u from backup %s "
+                    "because it's %s the head segment (%lu, %u)",
+                    segmentId, segmentLen,
+                    backup->serviceLocator.c_str(),
+                    why, headId, headLen);
             }
         }
     }
@@ -412,7 +431,7 @@ Recovery::buildSegmentIdToBackups()
         LOG(DEBUG, "Load segment %lu from %s with expected load time of %lu",
             backup.segment_id(), backup.service_locator().c_str(),
             backup.user_data());
-        auto& entry = *backups.add_server();
+        auto& entry = *replicaLocations.add_server();
         entry = backup;
         // Just for debugging for now so the debug print out can include
         // whether or not each entry is a primary
@@ -420,7 +439,7 @@ Recovery::buildSegmentIdToBackups()
     }
 
     LOG(DEBUG, "--- Replay script ---");
-    foreach (const auto& backup, backups.server()) {
+    foreach (const auto& backup, replicaLocations.server()) {
         LOG(DEBUG, "backup: %lu, locator: %s, segmentId %lu, primary %lu",
             backup.server_id(), backup.service_locator().c_str(),
             backup.segment_id(), backup.user_data());
@@ -443,7 +462,7 @@ Recovery::start()
     // Pre-serialize the backup schedule, since this takes a while and is the
     // same for each master.
     Buffer backupsBuffer;
-    uint32_t backupsLen = serializeToRequest(backupsBuffer, backups);
+    uint32_t backupsLen = serializeToRequest(backupsBuffer, replicaLocations);
     const char* backupsBuf =
         static_cast<const char*>(backupsBuffer.getRange(0, backupsLen));
 
