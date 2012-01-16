@@ -160,6 +160,39 @@ struct BackupEndTask {
 } // RecoveryInternal namespace
 using namespace RecoveryInternal; // NOLINT
 
+// class Recovery::BackupStartTask
+
+Recovery::BackupStartTask::BackupStartTask(
+            const CoordinatorServerList::Entry& backupHost,
+            ServerId crashedMasterId,
+            const ProtoBuf::Tablets& partitions)
+    : backupHost(backupHost)
+    , response()
+    , client()
+    , rpc()
+    , result()
+    , done()
+{
+    response.construct();
+    client.construct(
+        Context::get().transportManager->getSession(
+            backupHost.serviceLocator.c_str()));
+    rpc.construct(*client, crashedMasterId, partitions);
+    RAMCLOUD_LOG(DEBUG, "Starting startReadingData on %s",
+                 backupHost.serviceLocator.c_str());
+}
+
+void
+Recovery::BackupStartTask::operator()()
+{
+    result = (*rpc)();
+    rpc.destroy();
+    client.destroy();
+    response.destroy();
+    done = true;
+}
+
+// class Recovery
 
 /**
  * Create a Recovery to coordinate a recovery from the perspective
@@ -190,7 +223,7 @@ Recovery::Recovery(ServerId masterId,
     , masterId(masterId)
     , tabletsUnderRecovery()
     , will(will)
-    , tasks(new Tub<BackupStartTask>[serverList.backupCount()])
+    , backupStartTasks(new Tub<BackupStartTask>[serverList.backupCount()])
 {
     CycleCounter<RawMetric> _(&metrics->coordinator.recoveryConstructorTicks);
     metrics->coordinator.recoveryCount++;
@@ -199,7 +232,6 @@ Recovery::Recovery(ServerId masterId,
 
 Recovery::~Recovery()
 {
-    delete[] tasks;
     recoveryTicks.stop();
 }
 
@@ -232,7 +264,7 @@ Recovery::buildSegmentIdToBackups()
     while (numberIssued < numBackups &&
            activeBackupHosts < maxActiveBackupHosts) {
         nextIssueIndex = serverList.nextBackupIndex(nextIssueIndex);
-        tasks[numberIssued].construct(*serverList[nextIssueIndex],
+        backupStartTasks[numberIssued].construct(*serverList[nextIssueIndex],
                                       masterId, will);
         ++activeBackupHosts;
         ++numberIssued;
@@ -242,7 +274,7 @@ Recovery::buildSegmentIdToBackups()
     // As RPCs complete kick off new ones
     while (activeBackupHosts > 0) {
         for (uint32_t i = 0; i < numBackups; ++i) {
-            auto& task = tasks[i];
+            auto& task = backupStartTasks[i];
             if (!task || !task->isReady() || task->isDone())
                 continue;
 
@@ -267,8 +299,9 @@ Recovery::buildSegmentIdToBackups()
 
             if (numberIssued < numBackups) {
                 nextIssueIndex = serverList.nextBackupIndex(nextIssueIndex);
-                tasks[numberIssued].construct(*serverList[nextIssueIndex],
-                                              masterId, will);
+                backupStartTasks[numberIssued].construct(
+                            *serverList[nextIssueIndex],
+                            masterId, will);
                 ++numberIssued;
                 ++nextIssueIndex;
             } else {
@@ -281,7 +314,7 @@ Recovery::buildSegmentIdToBackups()
     // This is used to cross-check with the log digest.
     std::unordered_map<uint64_t, uint32_t> segmentMap;
     for (size_t j = 0; j < serverList.backupCount(); ++j) {
-        const auto& task = tasks[j];
+        const auto& task = backupStartTasks[j];
         if (!task)
             continue;
         foreach (auto replica, task->result.segmentIdAndLength) {
@@ -294,7 +327,7 @@ Recovery::buildSegmentIdToBackups()
     // the corresponding Segment IDs and lengths.
     vector<SegmentAndDigestTuple> digestList;
     for (size_t i = 0; i < serverList.backupCount(); i++) {
-        const auto& task = tasks[i];
+        const auto& task = backupStartTasks[i];
 
         // If this backup returned a potential head of the log and it
         // includes a LogDigest, set it aside for verifyCompleteLog().
@@ -374,10 +407,10 @@ Recovery::buildSegmentIdToBackups()
         nextBackupIndex = serverList.nextBackupIndex(nextBackupIndex);
         assert(nextBackupIndex != (uint32_t)-1);
 
-        if (!tasks[taskIndex])
+        if (!backupStartTasks[taskIndex])
             continue;
 
-        const auto& task = tasks[taskIndex];
+        const auto& task = backupStartTasks[taskIndex];
         const auto* backup = serverList[nextBackupIndex];
         const uint64_t speed = backup->backupReadMegsPerSecond;
 

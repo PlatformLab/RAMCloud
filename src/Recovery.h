@@ -69,44 +69,22 @@ class Recovery : public BaseRecovery {
 
   PRIVATE:
     // Only used in Recovery::buildSegmentIdToBackups().
-    struct BackupStartTask {
+    class BackupStartTask {
+      PUBLIC:
         BackupStartTask(const CoordinatorServerList::Entry& backupHost,
              ServerId crashedMasterId,
-             const ProtoBuf::Tablets& partitions)
-            : backupHost(backupHost)
-            , response()
-            , client()
-            , rpc()
-            , result()
-            , done()
-        {
-            response.construct();
-            client.construct(
-                Context::get().transportManager->getSession(
-                    backupHost.serviceLocator.c_str()));
-            rpc.construct(*client, crashedMasterId, partitions);
-            RAMCLOUD_LOG(DEBUG, "Starting startReadingData on %s",
-                         backupHost.serviceLocator.c_str());
-        }
-
+             const ProtoBuf::Tablets& partitions);
         bool isDone() const { return done; }
         bool isReady() { return rpc && rpc->isReady(); }
-
-        void
-        operator()()
-        {
-            result = (*rpc)();
-            rpc.destroy();
-            client.destroy();
-            response.destroy();
-            done = true;
-        }
-
+        void operator()();
         const CoordinatorServerList::Entry& backupHost;
+      PRIVATE:
         Tub<Buffer> response;
         Tub<BackupClient> client;
         Tub<BackupClient::StartReadingData> rpc;
+      PUBLIC:
         BackupClient::StartReadingData::Result result;
+      PRIVATE:
         bool done;
         DISALLOW_COPY_AND_ASSIGN(BackupStartTask);
     };
@@ -150,7 +128,7 @@ class Recovery : public BaseRecovery {
     const ProtoBuf::Tablets& will;
 
     /// List of asynchronous startReadingData tasks and their replies
-    Tub<BackupStartTask> *tasks;
+    std::unique_ptr<Tub<BackupStartTask>[]> backupStartTasks;
 
     friend class RecoveryInternal::MasterStartTask;
     DISALLOW_COPY_AND_ASSIGN(Recovery);
