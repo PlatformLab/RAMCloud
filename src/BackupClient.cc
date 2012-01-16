@@ -268,18 +268,15 @@ BackupClient::StartReadingData::operator()()
     responseBuffer.truncateFront(sizeof(respHdr));
 
     // segmentIdAndLength
-    // TODO(ongaro): No pairs over the network
-    auto const* segmentIdsRaw =
-        responseBuffer.getStart<pair<uint64_t, uint32_t>>();
+    typedef BackupStartReadingDataRpc::Replica Replica;
+    const Replica* replicaArray = responseBuffer.getStart<Replica>();
     for (uint64_t i = 0; i < segmentIdCount; ++i) {
-        LOG(DEBUG, "%lu, %u",
-            segmentIdsRaw[i].first,
-            segmentIdsRaw[i].second);
-        result.segmentIdAndLength.push_back(segmentIdsRaw[i]);
+        const Replica& replica = replicaArray[i];
+        result.segmentIdAndLength.push_back({replica.segmentId,
+                                             replica.segmentLength});
     }
     responseBuffer.truncateFront(
-        downCast<uint32_t>(segmentIdCount *
-                           sizeof(pair<uint64_t, uint32_t>)));
+        downCast<uint32_t>(segmentIdCount * sizeof(Replica)));
 
     // primarySegmentCount
     result.primarySegmentCount = primarySegmentCount;

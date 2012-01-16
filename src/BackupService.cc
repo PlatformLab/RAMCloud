@@ -1263,17 +1263,19 @@ BackupService::startReadingData(
                         primarySegments.end(),
                         randomNumberGenerator);
 
+    typedef BackupStartReadingDataRpc::Replica Replica;
+
     foreach (auto info, primarySegments) {
-        new(&rpc.replyPayload, APPEND) pair<uint64_t, uint32_t>
-            (info->segmentId, info->getRightmostWrittenOffset());
+        new(&rpc.replyPayload, APPEND) Replica
+            {info->segmentId, info->getRightmostWrittenOffset()};
         LOG(DEBUG, "Crashed master %lu had segment %lu (primary) with len %u",
             *info->masterId, info->segmentId,
             info->getRightmostWrittenOffset());
         info->setRecovering();
     }
     foreach (auto info, secondarySegments) {
-        new(&rpc.replyPayload, APPEND) pair<uint64_t, uint32_t>
-            (info->segmentId, info->getRightmostWrittenOffset());
+        new(&rpc.replyPayload, APPEND) Replica
+            {info->segmentId, info->getRightmostWrittenOffset()};
         LOG(DEBUG, "Crashed master %lu had segment %lu (secondary) with len %u"
             ", stored partitions for deferred recovery segment construction",
             *info->masterId, info->segmentId,

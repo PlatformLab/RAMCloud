@@ -528,13 +528,18 @@ struct BackupStartReadingDataRpc {
         uint64_t digestSegmentId;      ///< SegmentId the LogDigest came from.
         uint32_t digestSegmentLen;     ///< Byte length of the LogDigest
                                        ///< segment replica.
-        // TODO(ongaro): We shouldn't send std::pair in RPCs.
-        // An array of segmentIdCount replicas follows. Each entry is a
-        // std::pair<uint64_t segmentId, uint32_t segmentLength>,
-        // where the segmentLength is set to ~0U for closed segments.
+        // An array of segmentIdCount replicas follows.
+        // Each entry is a Replica (see below).
         //
         // If logDigestBytes != 0, then a serialised LogDigest follows
         // immediately after the replica list.
+    } __attribute__((packed));
+    /// Used in the Response to report which replicas the backup has.
+    struct Replica {
+        uint64_t segmentId;        ///< The segment ID.
+        uint32_t segmentLength;    ///< The number of bytes written to the
+                                   ///< segment if it is open, or ~0U for
+                                   ///< closed segments.
     } __attribute__((packed));
 };
 
