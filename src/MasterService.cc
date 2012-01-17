@@ -829,74 +829,71 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
                        RecoverRpc::Response& respHdr,
                        Rpc& rpc)
 {
+    CycleCounter<RawMetric> recoveryTicks(&metrics->master.recoveryTicks);
+    metrics->master.recoveryCount++;
+    metrics->master.replicas = replicaManager.numReplicas;
+
+    ServerId masterId(reqHdr.masterId);
+    uint64_t partitionId = reqHdr.partitionId;
+    ProtoBuf::Tablets recoveryTablets;
+    ProtoBuf::parseFromResponse(rpc.requestPayload, sizeof(reqHdr),
+                                reqHdr.tabletsLength, recoveryTablets);
+    ProtoBuf::ServerList backups;
+    ProtoBuf::parseFromResponse(rpc.requestPayload,
+                                downCast<uint32_t>(sizeof(reqHdr)) +
+                                reqHdr.tabletsLength,
+                                reqHdr.serverListLength,
+                                backups);
+    LOG(DEBUG, "Starting recovery of %u tablets on masterId %lu",
+        recoveryTablets.tablet_size(), serverId->getId());
+    rpc.sendReply();
+
+    // reqHdr, respHdr, and rpc are off-limits now
+
+    // Union the new tablets into an updated tablet map
+    ProtoBuf::Tablets newTablets(tablets);
+    newTablets.mutable_tablet()->MergeFrom(recoveryTablets.tablet());
+    // and set ourself as open for business.
+    setTablets(newTablets);
+
+    // Recover Segments, firing MasterService::recoverSegment for each one.
+    recover(masterId, partitionId, backups);
+
+    // Free recovery tombstones left in the hash table.
+    removeTombstones();
+
+    // Once the coordinator and the recovery master agree that the
+    // master has taken over for the tablets it can update its tables
+    // and begin serving requests.
+
+    // Update the recoveryTablets to reflect the fact that this master is
+    // going to try to become the owner.
+    foreach (ProtoBuf::Tablets::Tablet& tablet,
+             *recoveryTablets.mutable_tablet()) {
+        LOG(NOTICE, "set tablet %lu %lu %lu to locator %s, id %lu",
+                 tablet.table_id(), tablet.start_object_id(),
+                 tablet.end_object_id(), config.localLocator.c_str(),
+                 serverId->getId());
+        tablet.set_service_locator(config.localLocator);
+        tablet.set_server_id(serverId->getId());
+    }
+
+    // TODO(ongaro): don't need to calculate a new will here
+    ProtoBuf::Tablets recoveryWill;
+    {
+        CycleCounter<RawMetric> _(&metrics->master.recoveryWillTicks);
+        Will will(tablets, maxBytesPerPartition, maxReferentsPerPartition);
+        will.serialize(recoveryWill);
+    }
 
     {
-        CycleCounter<RawMetric> recoveryTicks(&metrics->master.recoveryTicks);
-        metrics->master.recoveryCount++;
-        metrics->master.replicas = replicaManager.numReplicas;
-
-        ServerId masterId(reqHdr.masterId);
-        uint64_t partitionId = reqHdr.partitionId;
-        ProtoBuf::Tablets recoveryTablets;
-        ProtoBuf::parseFromResponse(rpc.requestPayload, sizeof(reqHdr),
-                                    reqHdr.tabletsLength, recoveryTablets);
-        ProtoBuf::ServerList backups;
-        ProtoBuf::parseFromResponse(rpc.requestPayload,
-                                    downCast<uint32_t>(sizeof(reqHdr)) +
-                                    reqHdr.tabletsLength,
-                                    reqHdr.serverListLength,
-                                    backups);
-        LOG(DEBUG, "Starting recovery of %u tablets on masterId %lu",
-            recoveryTablets.tablet_size(), serverId->getId());
-        rpc.sendReply();
-
-        // reqHdr, respHdr, and rpc are off-limits now
-
-        // Union the new tablets into an updated tablet map
-        ProtoBuf::Tablets newTablets(tablets);
-        newTablets.mutable_tablet()->MergeFrom(recoveryTablets.tablet());
-        // and set ourself as open for business.
-        setTablets(newTablets);
-
-        // Recover Segments, firing MasterService::recoverSegment for each one.
-        recover(masterId, partitionId, backups);
-
-        // Free recovery tombstones left in the hash table.
-        removeTombstones();
-
-        // Once the coordinator and the recovery master agree that the
-        // master has taken over for the tablets it can update its tables
-        // and begin serving requests.
-
-        // Update the recoveryTablets to reflect the fact that this master is
-        // going to try to become the owner.
-        foreach (ProtoBuf::Tablets::Tablet& tablet,
-                 *recoveryTablets.mutable_tablet()) {
-            LOG(NOTICE, "set tablet %lu %lu %lu to locator %s, id %lu",
-                     tablet.table_id(), tablet.start_object_id(),
-                     tablet.end_object_id(), config.localLocator.c_str(),
-                     serverId->getId());
-            tablet.set_service_locator(config.localLocator);
-            tablet.set_server_id(serverId->getId());
-        }
-
-        // TODO(ongaro): don't need to calculate a new will here
-        ProtoBuf::Tablets recoveryWill;
-        {
-            CycleCounter<RawMetric> _(&metrics->master.recoveryWillTicks);
-            Will will(tablets, maxBytesPerPartition, maxReferentsPerPartition);
-            will.serialize(recoveryWill);
-        }
-
-        {
-            coordinator->tabletsRecovered(serverId->getId(),
-                                          recoveryTablets,
-                                          recoveryWill);
-        }
-        // Ok - we're free to start serving now.
-
-        // TODO(stutsman) update local copy of the will
+        coordinator->tabletsRecovered(serverId->getId(),
+                                      recoveryTablets,
+                                      recoveryWill);
     }
+    // Ok - we're free to start serving now.
+
+    // TODO(stutsman) update local copy of the will
 }
 
 /**
