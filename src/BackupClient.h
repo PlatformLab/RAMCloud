@@ -118,12 +118,14 @@ class BackupClient : public Client {
 
             /**
              * The segment ID the log digest came from.
+             * This will be -1 if there is no log digest.
              */
             uint64_t logDigestSegmentId;
 
             /**
              * The number of bytes making up the replica that contains the
              * returned log digest.
+             * This will be -1 if there is no log digest.
              */
             uint32_t logDigestSegmentLen;
             DISALLOW_COPY_AND_ASSIGN(Result);

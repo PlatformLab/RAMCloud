@@ -76,10 +76,12 @@ class Recovery : public BaseRecovery {
              const ProtoBuf::Tablets& partitions);
         bool isDone() const { return done; }
         bool isReady() { return rpc && rpc->isReady(); }
-        void operator()();
+        void send();
+        void wait();
         const CoordinatorServerList::Entry& backupHost;
       PRIVATE:
-        Tub<Buffer> response;
+        const ServerId crashedMasterId;
+        const ProtoBuf::Tablets& partitions;
         Tub<BackupClient> client;
         Tub<BackupClient::StartReadingData> rpc;
       PUBLIC:
@@ -126,9 +128,6 @@ class Recovery : public BaseRecovery {
 
     /// A partitioning of tablets for the crashed master.
     const ProtoBuf::Tablets& will;
-
-    /// List of asynchronous startReadingData tasks and their replies
-    std::unique_ptr<Tub<BackupStartTask>[]> backupStartTasks;
 
     friend class RecoveryInternal::MasterStartTask;
     DISALLOW_COPY_AND_ASSIGN(Recovery);

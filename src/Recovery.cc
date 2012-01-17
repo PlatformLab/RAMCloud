@@ -167,13 +167,18 @@ Recovery::BackupStartTask::BackupStartTask(
             ServerId crashedMasterId,
             const ProtoBuf::Tablets& partitions)
     : backupHost(backupHost)
-    , response()
+    , crashedMasterId(crashedMasterId)
+    , partitions(partitions)
     , client()
     , rpc()
     , result()
     , done()
 {
-    response.construct();
+}
+
+void
+Recovery::BackupStartTask::send()
+{
     client.construct(
         Context::get().transportManager->getSession(
             backupHost.serviceLocator.c_str()));
@@ -183,13 +188,25 @@ Recovery::BackupStartTask::BackupStartTask(
 }
 
 void
-Recovery::BackupStartTask::operator()()
+Recovery::BackupStartTask::wait()
 {
-    result = (*rpc)();
+    try {
+        result = (*rpc)();
+    } catch (const TransportException& e) {
+        LOG(WARNING, "Couldn't contact %s, failure was: %s",
+            backupHost.serviceLocator.c_str(), e.str().c_str());
+        // Leave empty result as if the backup has no replicas.
+    } catch (const ClientException& e) {
+        LOG(WARNING, "startReadingData failed on %s, failure was: %s",
+            backupHost.serviceLocator.c_str(), e.str().c_str());
+        // Leave empty result as if the backup has no replicas.
+    }
     rpc.destroy();
     client.destroy();
-    response.destroy();
     done = true;
+    LOG(DEBUG, "Backup %lu has %lu segment replicas",
+        backupHost.serverId.getId(),
+        result.segmentIdAndLength.size());
 }
 
 // class Recovery
@@ -223,7 +240,6 @@ Recovery::Recovery(ServerId masterId,
     , masterId(masterId)
     , tabletsUnderRecovery()
     , will(will)
-    , backupStartTasks(new Tub<BackupStartTask>[serverList.backupCount()])
 {
     CycleCounter<RawMetric> _(&metrics->coordinator.recoveryConstructorTicks);
     metrics->coordinator.recoveryCount++;
@@ -254,69 +270,27 @@ Recovery::buildSegmentIdToBackups()
     LOG(DEBUG, "Getting segment lists from backups and preparing "
                "them for recovery");
 
+
     const uint32_t numBackups = serverList.backupCount();
     const uint32_t maxActiveBackupHosts = 10;
-    uint32_t activeBackupHosts = 0;
-    uint32_t numberIssued = 0;
-    uint32_t nextIssueIndex = 0;
 
-    // Start off first round of RPCs
-    while (numberIssued < numBackups &&
-           activeBackupHosts < maxActiveBackupHosts) {
+    /// List of asynchronous startReadingData tasks and their replies
+    auto backupStartTasks = std::unique_ptr<Tub<BackupStartTask>[]>(
+            new Tub<BackupStartTask>[numBackups]);
+    uint32_t nextIssueIndex = 0;
+    for (uint32_t i = 0; i < numBackups; ++i) {
         nextIssueIndex = serverList.nextBackupIndex(nextIssueIndex);
-        backupStartTasks[numberIssued].construct(*serverList[nextIssueIndex],
+        backupStartTasks[i].construct(*serverList[nextIssueIndex],
                                       masterId, will);
-        ++activeBackupHosts;
-        ++numberIssued;
         ++nextIssueIndex;
     }
-
-    // As RPCs complete kick off new ones
-    while (activeBackupHosts > 0) {
-        for (uint32_t i = 0; i < numBackups; ++i) {
-            auto& task = backupStartTasks[i];
-            if (!task || !task->isReady() || task->isDone())
-                continue;
-
-            try {
-                (*task)();
-                LOG(DEBUG, "Backup %lu has %lu segments",
-                    task->backupHost.serverId.getId(),
-                    task->result.segmentIdAndLength.size());
-            } catch (const TransportException& e) {
-                LOG(WARNING, "Couldn't contact %s, "
-                    "failure was: %s",
-                    task->backupHost.serviceLocator.c_str(),
-                    e.str().c_str());
-                task.destroy();
-            } catch (const ClientException& e) {
-                LOG(WARNING, "startReadingData failed on %s, "
-                    "failure was: %s",
-                    task->backupHost.serviceLocator.c_str(),
-                    e.str().c_str());
-                task.destroy();
-            }
-
-            if (numberIssued < numBackups) {
-                nextIssueIndex = serverList.nextBackupIndex(nextIssueIndex);
-                backupStartTasks[numberIssued].construct(
-                            *serverList[nextIssueIndex],
-                            masterId, will);
-                ++numberIssued;
-                ++nextIssueIndex;
-            } else {
-                --activeBackupHosts;
-            }
-        }
-    }
+    parallelRun(backupStartTasks.get(), numBackups, maxActiveBackupHosts);
 
     // Map of Segment Ids -> counts of backup copies that were found.
     // This is used to cross-check with the log digest.
     std::unordered_map<uint64_t, uint32_t> segmentMap;
-    for (size_t j = 0; j < serverList.backupCount(); ++j) {
-        const auto& task = backupStartTasks[j];
-        if (!task)
-            continue;
+    for (uint32_t i = 0; i < numBackups; ++i) {
+        const auto& task = backupStartTasks[i];
         foreach (auto replica, task->result.segmentIdAndLength) {
             uint64_t segmentId = replica.first;
             ++segmentMap[segmentId];
@@ -326,7 +300,7 @@ Recovery::buildSegmentIdToBackups()
     // List of serialised LogDigests from possible log heads, including
     // the corresponding Segment IDs and lengths.
     vector<SegmentAndDigestTuple> digestList;
-    for (size_t i = 0; i < serverList.backupCount(); i++) {
+    for (uint32_t i = 0; i < numBackups; ++i) {
         const auto& task = backupStartTasks[i];
 
         // If this backup returned a potential head of the log and it
@@ -402,13 +376,11 @@ Recovery::buildSegmentIdToBackups()
     // Order primaries (and even secondaries among themselves anyway) based
     // on when they are expected to be loaded in from disk.
     vector<ProtoBuf::ServerList::Entry> backupsToSort;
-    for (uint32_t nextBackupIndex = 0, taskIndex = 0; taskIndex < numBackups;
-      nextBackupIndex++, taskIndex++) {
+    for (uint32_t nextBackupIndex = 0, taskIndex = 0;
+         taskIndex < numBackups;
+         nextBackupIndex++, taskIndex++) {
         nextBackupIndex = serverList.nextBackupIndex(nextBackupIndex);
         assert(nextBackupIndex != (uint32_t)-1);
-
-        if (!backupStartTasks[taskIndex])
-            continue;
 
         const auto& task = backupStartTasks[taskIndex];
         const auto* backup = serverList[nextBackupIndex];

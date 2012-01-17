@@ -187,7 +187,7 @@ BackupClient::RecoveryComplete::operator()()
 
 BackupClient::StartReadingData::Result::Result()
     : segmentIdAndLength()
-    , primarySegmentCount()
+    , primarySegmentCount(0)
     , logDigestBuffer()
     , logDigestBytes(0)
     , logDigestSegmentId(-1)
