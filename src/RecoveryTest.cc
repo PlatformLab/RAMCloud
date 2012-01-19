@@ -13,21 +13,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <cstring>
-
 #include "TestUtil.h"
-#include "BindTransport.h"
-#include "BackupService.h"
-#include "BackupStorage.h"
-#include "CoordinatorClient.h"
-#include "CoordinatorService.h"
-#include "MasterService.h"
 #include "Memory.h"
+#include "MockCluster.h"
 #include "Recovery.h"
 #include "ReplicaManager.h"
 #include "ShortMacros.h"
 #include "Tablets.pb.h"
-#include "TransportManager.h"
 
 namespace RAMCloud {
 
@@ -104,131 +96,47 @@ class RecoveryTest : public ::testing::Test {
         DISALLOW_COPY_AND_ASSIGN(WriteValidSegment);
     };
 
-    BackupClient* backup1;
-    BackupClient* backup2;
-    BackupClient* backup3;
-    BackupService* backupService1;
-    BackupService* backupService2;
-    BackupService* backupService3;
-    CoordinatorClient* coordinator;
-    CoordinatorService* coordinatorService;
-    BackupService::Config* config1;
-    BackupService::Config* config2;
-    BackupService::Config* config3;
+    Tub<MockCluster> cluster;
+    std::unique_ptr<BackupClient> backup1;
+    std::unique_ptr<BackupClient> backup2;
+    std::unique_ptr<BackupClient> backup3;
     CoordinatorServerList* serverList;
-    const uint32_t segmentFrames;
     const uint32_t segmentSize;
     vector<WriteValidSegment*> segmentsToFree;
-    BackupStorage* storage1;
-    BackupStorage* storage2;
-    BackupStorage* storage3;
-    BindTransport* transport;
 
   public:
     RecoveryTest()
-        : backup1()
+        : cluster()
+        , backup1()
         , backup2()
         , backup3()
-        , backupService1()
-        , backupService2()
-        , backupService3()
-        , coordinator()
-        , coordinatorService()
-        , config1()
-        , config2()
-        , config3()
         , serverList()
-        , segmentFrames(3)
         , segmentSize(1 << 16)
         , segmentsToFree()
-        , storage1()
-        , storage2()
-        , storage3()
-        , transport()
     {
-        TransportManager& transportManager = *Context::get().transportManager;
+        cluster.construct();
 
-        transport = new BindTransport;
-        transportManager.registerMock(transport);
+        ServerConfig config = ServerConfig::forTesting();
+        config.services = {BACKUP_SERVICE};
+        config.backup.numSegmentFrames = 3;
+        config.backup.segmentSize = segmentSize;
+        config.localLocator = "mock:host=backup1";
+        backup1 = cluster->get<BackupClient>(cluster->addServer(config));
 
-        config1 = new BackupService::Config;
-        config1->coordinatorLocator = "mock:host=coordinator";
-        config1->localLocator = "mock:host=backup1";
+        config.localLocator = "mock:host=backup2";
+        backup2 = cluster->get<BackupClient>(cluster->addServer(config));
 
-        config2 = new BackupService::Config;
-        config2->coordinatorLocator = "mock:host=coordinator";
-        config2->localLocator = "mock:host=backup2";
+        config.localLocator = "mock:host=backup3";
+        backup3 = cluster->get<BackupClient>(cluster->addServer(config));
 
-        config3 = new BackupService::Config;
-        config3->coordinatorLocator = "mock:host=coordinator";
-        config3->localLocator = "mock:host=backup3";
-
-        coordinatorService = new CoordinatorService;
-        transport->addService(*coordinatorService,
-                config1->coordinatorLocator, COORDINATOR_SERVICE);
-
-        coordinator =
-            new CoordinatorClient(config1->coordinatorLocator.c_str());
-
-        storage1 = new InMemoryStorage(segmentSize, segmentFrames);
-        storage2 = new InMemoryStorage(segmentSize, segmentFrames);
-        storage3 = new InMemoryStorage(segmentSize, segmentFrames);
-
-        backupService1 = new BackupService(*config1, *storage1);
-        backupService2 = new BackupService(*config2, *storage2);
-        backupService3 = new BackupService(*config3, *storage3);
-
-        transport->addService(*backupService1, "mock:host=backup1",
-                BACKUP_SERVICE);
-        transport->addService(*backupService2, "mock:host=backup2",
-                BACKUP_SERVICE);
-        transport->addService(*backupService3, "mock:host=backup3",
-                BACKUP_SERVICE);
-
-        /* Enlist the backups and init them */
-        backupService1->init(
-            coordinator->enlistServer({BACKUP_SERVICE}, "mock:host=backup1"));
-        backupService2->init(
-            coordinator->enlistServer({BACKUP_SERVICE}, "mock:host=backup2"));
-        backupService3->init(
-            coordinator->enlistServer({BACKUP_SERVICE}, "mock:host=backup3"));
-
-        backup1 =
-            new BackupClient(transportManager.getSession("mock:host=backup1"));
-        backup2 =
-            new BackupClient(transportManager.getSession("mock:host=backup2"));
-        backup3 =
-            new BackupClient(transportManager.getSession("mock:host=backup3"));
-
-        serverList = &coordinatorService->serverList;
-
-        /*
-         * Create some fake masters.
-         */
-        coordinator->enlistServer({MASTER_SERVICE}, "mock:host=master1");
-        coordinator->enlistServer({MASTER_SERVICE}, "mock:host=master2");
+        serverList = &cluster->coordinator->serverList;
     }
 
     ~RecoveryTest()
     {
         foreach (WriteValidSegment* s, segmentsToFree)
             delete s;
-        delete backup3;
-        delete backup2;
-        delete backup1;
-        delete backupService3;
-        delete backupService2;
-        delete backupService1;
-        delete storage3;
-        delete storage2;
-        delete storage1;
-        delete coordinator;
-        delete coordinatorService;
-        delete config1;
-        delete config2;
-        delete config3;
-        Context::get().transportManager->unregisterMock();
-        delete transport;
+        cluster.destroy();
         EXPECT_EQ(0,
             BackupStorage::Handle::resetAllocatedHandlesCount());
     }
@@ -371,34 +279,6 @@ TEST_F(RecoveryTest, verifyCompleteLog) {
 #endif
 }
 
-/// Create a master along with its config and clean them up on destruction.
-struct AutoMaster {
-    AutoMaster(BindTransport& transport,
-                CoordinatorClient &coordinator,
-                const string& locator)
-        : config()
-        , master()
-    {
-        static uint32_t nextServerIndex = 90;
-        config.coordinatorLocator = "mock:host=coordinator";
-        config.localLocator = locator;
-        MasterService::sizeLogAndHashTable("32", "1", &config);
-        master = new MasterService(config, &coordinator, 0);
-        transport.addService(*master, locator, MASTER_SERVICE);
-        master->init(ServerId(nextServerIndex++, 0));
-    }
-
-    ~AutoMaster()
-    {
-        delete master;
-    }
-
-    ServerConfig config;
-    MasterService* master;
-
-    DISALLOW_COPY_AND_ASSIGN(AutoMaster);
-};
-
 static bool
 getRecoveryDataFilter(string s)
 {
@@ -422,9 +302,12 @@ TEST_F(RecoveryTest, start) {
             {"mock:host=backup2"}, true));
     // Zero segs on backup3
 
-
-    AutoMaster am1(*transport, *coordinator, "mock:host=master1");
-    AutoMaster am2(*transport, *coordinator, "mock:host=master2");
+    ServerConfig config = ServerConfig::forTesting();
+    config.services = {MASTER_SERVICE};
+    config.localLocator = "mock:host=master1";
+    cluster->addServer(config);
+    config.localLocator = "mock:host=master2";
+    cluster->addServer(config);
 
     ProtoBuf::Tablets tablets; {
         ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
@@ -502,6 +385,13 @@ TEST_F(RecoveryTest, start) {
 }
 
 TEST_F(RecoveryTest, start_notEnoughMasters) {
+    ServerConfig config = ServerConfig::forTesting();
+    config.services = {MASTER_SERVICE};
+    config.localLocator = "mock:host=master1";
+    cluster->addServer(config);
+    config.localLocator = "mock:host=master2";
+    cluster->addServer(config);
+
     // Two segs on backup1, one that overlaps with backup2
     segmentsToFree.push_back(
         new WriteValidSegment(ServerId(99, 0), 88, { 88 }, segmentSize,
@@ -516,7 +406,7 @@ TEST_F(RecoveryTest, start_notEnoughMasters) {
     // Zero segs on backup3
 
     // Constructor should have created two masters.
-    EXPECT_EQ(2U, coordinatorService->serverList.masterCount());
+    EXPECT_EQ(2U, cluster->coordinator->serverList.masterCount());
 
     ProtoBuf::Tablets tablets; {
         ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());

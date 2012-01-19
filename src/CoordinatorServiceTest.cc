@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,14 +14,11 @@
  */
 
 #include "TestUtil.h"
-#include "ReplicaManager.h"
 #include "CoordinatorClient.h"
 #include "CoordinatorService.h"
 #include "MasterService.h"
 #include "MembershipService.h"
-#include "MockTransport.h"
-#include "TransportManager.h"
-#include "BindTransport.h"
+#include "MockCluster.h"
 #include "Recovery.h"
 #include "ServerList.h"
 
@@ -29,60 +26,41 @@ namespace RAMCloud {
 
 class CoordinatorServiceTest : public ::testing::Test {
   public:
-    BindTransport* transport;
+    ServerConfig masterConfig;
+    MockCluster cluster;
     CoordinatorClient* client;
     CoordinatorService* service;
-    ServerConfig masterConfig;
     MasterService* master;
     ServerId masterServerId;
 
     CoordinatorServiceTest()
-        : transport(NULL)
-        , client(NULL)
-        , service(NULL)
-        , masterConfig()
-        , master(NULL)
+        : masterConfig(ServerConfig::forTesting())
+        , cluster()
+        , client()
+        , service()
+        , master()
         , masterServerId()
     {
-        masterConfig.coordinatorLocator = "mock:host=coordinator";
-        masterConfig.localLocator = "mock:host=master";
-        MasterService::sizeLogAndHashTable("32", "1", &masterConfig);
-        transport = new BindTransport();
-        Context::get().transportManager->registerMock(transport);
-        service = new CoordinatorService();
-        transport->addService(*service, "mock:host=coordinator",
-                    COORDINATOR_SERVICE);
-        client = new CoordinatorClient("mock:host=coordinator");
-        // need to add the master as a transport destinaton before it is
-        // created because under BindTransport it must service an rpc
-        // just after its constructor is completes
-        master = static_cast<MasterService*>(malloc(sizeof(MasterService)));
-        transport->addService(*master, "mock:host=master", MASTER_SERVICE);
-        master = new(master) MasterService(masterConfig, client, 0);
-        masterServerId = client->enlistServer(
-            {MASTER_SERVICE}, "mock:host=master", 0, 0);
-        master->init(masterServerId);
-        TestLog::enable();
-    }
+        Context::get().logger->setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
 
-    ~CoordinatorServiceTest() {
-        TestLog::disable();
-        master->~MasterService();
-        free(master);
-        delete client;
-        delete service;
-        Context::get().transportManager->unregisterMock();
-        delete transport;
+        service = cluster.coordinator.get();
+
+        masterConfig.services = {MASTER_SERVICE};
+        masterConfig.localLocator = "mock:host=master";
+        Server* masterServer = cluster.addServer(masterConfig);
+        master = masterServer->master.get();
+        masterServerId = masterServer->serverId;
+
+        client = cluster.getCoordinatorClient();
     }
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorServiceTest);
 };
 
 TEST_F(CoordinatorServiceTest, createTable) {
-    MasterService master2(masterConfig, NULL, 0);
-    transport->addService(master2, "mock:host=master2", MASTER_SERVICE);
-    master2.init(client->enlistServer(
-        {MASTER_SERVICE}, "mock:host=master2", 0, 0));
+    ServerConfig master2Config = masterConfig;
+    master2Config.localLocator = "mock:host=master2";
+    MasterService& master2 = *cluster.addServer(master2Config)->master;
     // master is already enlisted
     client->createTable("foo");
     client->createTable("foo"); // should be no-op
@@ -352,6 +330,7 @@ TEST_F(CoordinatorServiceTest, setWill) {
     EXPECT_THROW(client->setWill(23481234, will), InternalError);
 }
 
+#if 0
 TEST_F(CoordinatorServiceTest, requestServerList) {
     TestLog::Enable _;
 
@@ -406,5 +385,6 @@ TEST_F(CoordinatorServiceTest, sendMembershipUpdate) {
     EXPECT_NE(string::npos, TestLog::get().find(
         "updateServerList: Got server list update (version number 3)"));
 }
+#endif
 
 }  // namespace RAMCloud

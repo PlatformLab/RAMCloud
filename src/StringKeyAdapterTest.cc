@@ -14,55 +14,29 @@
  */
 
 #include "TestUtil.h"
-#include "BackupService.h"
-#include "BackupStorage.h"
-#include "BindTransport.h"
-#include "CoordinatorClient.h"
-#include "CoordinatorService.h"
+#include "MockCluster.h"
 #include "ShortMacros.h"
-#include "MasterClient.h"
-#include "MasterService.h"
 #include "StringKeyAdapter.h"
-#include "TransportManager.h"
 
 namespace RAMCloud {
 
 class StringKeyAdapterTest : public ::testing::Test {
   public:
+    MockCluster cluster;
+    Tub<RamCloud> client;
+    Tub<StringKeyAdapter> sk;
+    uint32_t table;
+
     StringKeyAdapterTest()
-        : transport()
-        , mockRegistrar(transport)
-        , config()
-        , coordinatorService()
-        , coordinator()
-        , masterService()
-        , master()
+        : cluster()
         , client()
         , sk()
         , table()
     {
-        coordinatorService.construct();
-        transport.addService(*coordinatorService, "mock:host=coordinator",
-                COORDINATOR_SERVICE);
-        coordinator.construct("mock:host=coordinator");
 
-        MasterService::sizeLogAndHashTable("32", "1", &config);
+        ServerConfig config = ServerConfig::forTesting();
         config.localLocator = "mock:host=master";
-        config.coordinatorLocator = "mock:host=coordinator";
-        masterService.construct(config, coordinator.get(), 0);
-        transport.addService(*masterService, "mock:host=master",
-                MASTER_SERVICE);
-        masterService->init(CoordinatorClient(
-            config.coordinatorLocator.c_str()).enlistServer(
-            {MASTER_SERVICE}, "mock:host=master", 0, 0));
-        master.construct(Context::get().transportManager->getSession(
-                                                        "mock:host=master"));
-
-        ProtoBuf::Tablets_Tablet& tablet(*masterService->tablets.add_tablet());
-        tablet.set_table_id(0);
-        tablet.set_start_object_id(0);
-        tablet.set_end_object_id(~0UL);
-        tablet.set_user_data(reinterpret_cast<uint64_t>(new Table(0)));
+        cluster.addServer(config);
 
         client.construct(Context::get(), "mock:host=coordinator");
         sk.construct(*client);
@@ -70,17 +44,6 @@ class StringKeyAdapterTest : public ::testing::Test {
         client->createTable("StringKeyAdapterTest");
         table = client->openTable("StringKeyAdapterTest");
     }
-
-    BindTransport transport;
-    TransportManager::MockRegistrar mockRegistrar;
-    ServerConfig config;
-    Tub<CoordinatorService> coordinatorService;
-    Tub<CoordinatorClient> coordinator;
-    Tub<MasterService> masterService;
-    Tub<MasterClient> master;
-    Tub<RamCloud> client;
-    Tub<StringKeyAdapter> sk;
-    uint32_t table;
 
     DISALLOW_COPY_AND_ASSIGN(StringKeyAdapterTest);
 };

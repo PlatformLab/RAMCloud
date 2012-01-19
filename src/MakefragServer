@@ -1,6 +1,7 @@
 SERVER_SRCFILES := \
 		   src/BackupStorage.cc \
 		   src/BackupService.cc \
+		   src/Server.cc \
 		   $(NULL)
 
 SERVER_OBJFILES := $(SERVER_SRCFILES)

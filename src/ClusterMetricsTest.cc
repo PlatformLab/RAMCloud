@@ -16,9 +16,8 @@
  */
 
 #include "TestUtil.h"
-#include "BindTransport.h"
 #include "ClusterMetrics.h"
-#include "CoordinatorService.h"
+#include "MockCluster.h"
 #include "PingService.h"
 #include "RamCloud.h"
 #include "ServerList.h"
@@ -32,44 +31,35 @@ class ClusterMetricsTest : public ::testing::Test {
 };
 
 TEST_F(ClusterMetricsTest, load) {
-    BindTransport transport;
-    Context::get().transportManager->registerMock(&transport);
+    MockCluster cluster;
 
-    // Create a fake cluster.
-    CoordinatorService coordinatorService;
-    transport.addService(coordinatorService,
-            "mock:host=coordinator", COORDINATOR_SERVICE);
     ServerList serverList;
     PingService pingforCoordinator(&serverList);
-    transport.addService(pingforCoordinator, "mock:host=coordinator",
+    cluster.transport.addService(pingforCoordinator, "mock:host=coordinator",
             PING_SERVICE);
+
     RamCloud ramcloud(Context::get(), "mock:host=coordinator");
 
     // Create two servers (faked with ping).
-    PingService ping1(&serverList);
-    transport.addService(ping1, "mock:host=ping1", PING_SERVICE);
-    ramcloud.coordinator.enlistServer({MASTER_SERVICE},
-                                      "mock:host=ping1", 0, 0);
-    PingService ping2(&serverList);
-    transport.addService(ping2, "mock:host=ping2", PING_SERVICE);
-    ramcloud.coordinator.enlistServer({MASTER_SERVICE},
-                                      "mock:host=ping2", 0, 0);
+    ServerConfig ping1Config = ServerConfig::forTesting();
+    ping1Config.localLocator = "mock:host=ping1";
+    ping1Config.services = {BACKUP_SERVICE, PING_SERVICE};
+    cluster.addServer(ping1Config);
 
-    // Create an extra server using a redundant service locator.
-    ramcloud.coordinator.enlistServer({BACKUP_SERVICE},
-                                      "mock:host=ping1", 0, 0);
+    ServerConfig ping2Config = ping1Config;
+    ping2Config.localLocator = "mock:host=ping2";
+    ping2Config.services = {MASTER_SERVICE, PING_SERVICE};
+    cluster.addServer(ping2Config);
 
     ClusterMetrics clusterMetrics;
     // Insert some initial data to make sure it gets cleared.
     clusterMetrics["xyz"]["x"] = 192U;
     metrics->temp.count3 = 30303;
     clusterMetrics.load(&ramcloud);
-    EXPECT_EQ(3U, clusterMetrics.size());
+    EXPECT_EQ(3u, clusterMetrics.size());
     EXPECT_EQ(0U, clusterMetrics["mock:host=coordinator"]["bogusValue"]);
     EXPECT_EQ(30303U, clusterMetrics["mock:host=coordinator"]["temp.count3"]);
     EXPECT_EQ(30303U, clusterMetrics["mock:host=ping1"]["temp.count3"]);
-
-    Context::get().transportManager->unregisterMock();
 }
 
 TEST_F(ClusterMetricsTest, difference) {

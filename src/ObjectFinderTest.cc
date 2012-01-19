@@ -14,9 +14,7 @@
  */
 
 #include "TestUtil.h"
-#include "BindTransport.h"
-#include "CoordinatorClient.h"
-#include "CoordinatorService.h"
+#include "MockCluster.h"
 #include "ObjectFinder.h"
 
 namespace RAMCloud {
@@ -35,14 +33,14 @@ struct Refresher : public ObjectFinder::TabletMapFetcher {
         tablet2.set_start_object_id(0);
         tablet2.set_end_object_id(~0UL);
         tablet2.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
-        tablet2.set_service_locator("mock:host=host1");
+        tablet2.set_service_locator("mock:host=server0");
 
         ProtoBuf::Tablets_Tablet tablet3;
         tablet3.set_table_id(2);
         tablet3.set_start_object_id(0);
         tablet3.set_end_object_id(~0UL);
         tablet3.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
-        tablet3.set_service_locator("mock:host=host2");
+        tablet3.set_service_locator("mock:host=server1");
 
         tabletMap.clear_tablet();
 
@@ -61,49 +59,28 @@ struct Refresher : public ObjectFinder::TabletMapFetcher {
 
 class ObjectFinderTest : public ::testing::Test {
   public:
-    BindTransport* transport;
-    CoordinatorService* coordinatorService;
-    CoordinatorClient* coordinatorClient;
-    Service* host1Service;
-    Service* host2Service;
-    ObjectFinder* objectFinder;
+    MockCluster cluster;
+    Tub<ObjectFinder> objectFinder;
     Refresher* refresher;
 
     ObjectFinderTest()
-        : transport()
-        , coordinatorService()
-        , coordinatorClient()
-        , host1Service()
-        , host2Service()
+        : cluster()
         , objectFinder()
         , refresher()
     {
-        transport = new BindTransport();
-        Context::get().transportManager->registerMock(transport);
-        coordinatorService = new CoordinatorService();
-        transport->addService(*coordinatorService, "mock:host=coordinator",
-                COORDINATOR_SERVICE);
-        coordinatorClient = new CoordinatorClient("mock:host=coordinator");
-        host1Service = new Service();
-        transport->addService(*host1Service, "mock:host=host1",
-                MASTER_SERVICE);
-        host2Service = new Service();
-        transport->addService(*host2Service, "mock:host=host2",
-                MASTER_SERVICE);
-        objectFinder = new ObjectFinder(*coordinatorClient);
+        objectFinder.construct(*cluster.getCoordinatorClient());
+
+        ServerConfig config = ServerConfig::forTesting();
+        config.services = {MASTER_SERVICE};
+        cluster.addServer(config);
+        cluster.addServer(config);
+
         refresher = new Refresher();
         objectFinder->tabletMapFetcher.reset(refresher);
     }
 
     ~ObjectFinderTest() {
         // refresher is deleted by objectFinder
-        delete objectFinder;
-        delete host1Service;
-        delete host2Service;
-        delete coordinatorClient;
-        delete coordinatorService;
-        Context::get().transportManager->unregisterMock();
-        delete transport;
     }
 
     DISALLOW_COPY_AND_ASSIGN(ObjectFinderTest);
@@ -119,7 +96,7 @@ TEST_F(ObjectFinderTest, lookup) {
     // get a new tablet map
     // find tablet in operation
     EXPECT_EQ(3U, refresher->called);
-    EXPECT_EQ("mock:host=host1",
+    EXPECT_EQ("mock:host=server0",
         static_cast<BindTransport::BindSession*>(session.get())->locator);
 }
 
@@ -144,7 +121,7 @@ TEST_F(ObjectFinderTest, multiLookup_basics) {
     std::vector<ObjectFinder::MasterRequests> requestBins =
                                     objectFinder->multiLookup(requests, 3);
 
-    EXPECT_EQ("mock:host=host1",
+    EXPECT_EQ("mock:host=server0",
         static_cast<BindTransport::BindSession*>(
         requestBins[0].sessionRef.get())->locator);
     EXPECT_EQ(1U, requestBins[0].requests[0]->tableId);
@@ -154,7 +131,7 @@ TEST_F(ObjectFinderTest, multiLookup_basics) {
     EXPECT_EQ(1U, requestBins[0].requests[1]->id);
     EXPECT_STREQ("STATUS_RETRY", statusToSymbol(request2.status));
 
-    EXPECT_EQ("mock:host=host2",
+    EXPECT_EQ("mock:host=server1",
         static_cast<BindTransport::BindSession*>(
         requestBins[1].sessionRef.get())->locator);
     EXPECT_EQ(2U, requestBins[1].requests[0]->tableId);
@@ -180,7 +157,7 @@ TEST_F(ObjectFinderTest, multiLookup_badTable) {
     std::vector<ObjectFinder::MasterRequests> requestBins =
                                     objectFinder->multiLookup(requests, 2);
 
-    EXPECT_EQ("mock:host=host1",
+    EXPECT_EQ("mock:host=server0",
         static_cast<BindTransport::BindSession*>(
         requestBins[0].sessionRef.get())->locator);
     EXPECT_EQ(1U, requestBins[0].requests[0]->tableId);

@@ -40,6 +40,7 @@ TESTS_SRCFILES := \
 		  src/MacAddressTest.cc \
 		  src/MasterServiceTest.cc \
 		  src/MembershipServiceTest.cc \
+		  src/MockClusterTest.cc \
 		  src/MockDriver.cc \
 		  src/MockTransport.cc \
 		  src/ObjectFinderTest.cc \
@@ -56,6 +57,7 @@ TESTS_SRCFILES := \
 		  src/RpcTest.cc \
 		  src/SegmentTest.cc \
 		  src/SegmentIteratorTest.cc \
+		  src/ServerTest.cc \
 		  src/ServerIdTest.cc \
 		  src/ServerListTest.cc \
 		  src/ServerMetricsTest.cc \

@@ -30,23 +30,21 @@ namespace RAMCloud {
 class PingServiceTest : public ::testing::Test {
   public:
     BindTransport transport;
+    TransportManager::MockRegistrar mockRegistrar;
     ServerList serverList;
     PingService pingService;
     PingClient client;
 
     PingServiceTest()
         : transport(),
+          mockRegistrar(transport),
           serverList(),
           pingService(&serverList),
           client()
     {
-        Context::get().transportManager->registerMock(&transport);
         transport.addService(pingService, "mock:host=ping", PING_SERVICE);
     }
 
-    ~PingServiceTest() {
-        Context::get().transportManager->unregisterMock();
-    }
     DISALLOW_COPY_AND_ASSIGN(PingServiceTest);
 };
 

@@ -15,38 +15,24 @@
 
 #include "TestUtil.h"
 #include "Common.h"
-#include "CoordinatorClient.h"
-#include "CoordinatorService.h"
-#include "BackupClient.h"
-#include "BindTransport.h"
+#include "MockCluster.h"
 #include "ServiceMask.h"
 #include "ShortMacros.h"
 
 namespace RAMCloud {
 
 struct BackupSelectorTest : public ::testing::Test {
-    Tub<BindTransport> transport;
-    Tub<TransportManager::MockRegistrar> mockRegistrar;
-    Tub<CoordinatorService> coordinatorService;
-    Tub<CoordinatorClient> coordinator;
+    MockCluster cluster;
+    CoordinatorClient* coordinator;
     Tub<BackupSelector> selector;
 
     BackupSelectorTest()
-        : transport()
-        , mockRegistrar()
-        , coordinatorService()
+        : cluster()
         , coordinator()
         , selector()
     {
-        transport.construct();
-        mockRegistrar.construct(*transport);
-
-        coordinatorService.construct();
-        transport->addService(*coordinatorService,
-                              "mock:host=coordinator", COORDINATOR_SERVICE);
-
-        coordinator.construct("mock:host=coordinator");
-        selector.construct(coordinator.get());
+        coordinator = cluster.getCoordinatorClient();
+        selector.construct(coordinator);
     }
 
     char lastChar(const string& s) {
@@ -74,7 +60,7 @@ struct BackupSelectorTest : public ::testing::Test {
         return condenseBackups(3, randomBackups);
     }
 
-    void addEqualHosts(Tub<CoordinatorClient>& coordinator,
+    void addEqualHosts(CoordinatorClient* coordinator,
                        std::vector<ServerId>& ids) {
         ServiceMask b{BACKUP_SERVICE};
         ids.push_back(coordinator->enlistServer(b, "mock:host=backup1", 100));
@@ -88,7 +74,7 @@ struct BackupSelectorTest : public ::testing::Test {
         ids.push_back(coordinator->enlistServer(b, "mock:host=backup9", 100));
     }
 
-    void addDifferentHosts(Tub<CoordinatorClient>& coordinator,
+    void addDifferentHosts(CoordinatorClient* coordinator,
                            std::vector<ServerId>& ids) {
         ServiceMask b{BACKUP_SERVICE};
         ids.push_back(coordinator->enlistServer(b, "mock:host=backup1", 10));
@@ -101,6 +87,8 @@ struct BackupSelectorTest : public ::testing::Test {
         ids.push_back(coordinator->enlistServer(b, "mock:host=backup8", 80));
         ids.push_back(coordinator->enlistServer(b, "mock:host=backup9", 90));
     }
+
+    DISALLOW_COPY_AND_ASSIGN(BackupSelectorTest);
 };
 
 TEST_F(BackupSelectorTest, selectPrimaryNoHosts) {

@@ -45,6 +45,7 @@
 #include "RawMetrics.h"
 #include "Rpc.h"
 #include "Service.h"
+#include "ServerConfig.h"
 
 namespace RAMCloud {
 
@@ -473,20 +474,7 @@ class BackupService : public Service {
     };
 
   public:
-    struct Config {
-        BackupStrategy backupStrategy;
-        string coordinatorLocator;
-        string localLocator;
-        Config()
-            : backupStrategy()
-            , coordinatorLocator()
-            , localLocator()
-        {
-        }
-    };
-
-    explicit BackupService(const Config& config,
-                           BackupStorage& storage);
+    explicit BackupService(const ServerConfig& config);
     virtual ~BackupService();
     void benchmark(uint32_t& readSpeed, uint32_t& writeSpeed);
     void dispatch(RpcOpcode opcode, Rpc& rpc);
@@ -517,7 +505,7 @@ class BackupService : public Service {
                       Rpc& rpc);
 
     /// Settings passed to the constructor
-    const Config& config;
+    const ServerConfig& config;
 
     /// Handle to cluster coordinator
     CoordinatorClient coordinator;
@@ -571,7 +559,7 @@ class BackupService : public Service {
     const uint32_t segmentSize;
 
     /// The storage backend where closed segments are to be placed.
-    BackupStorage& storage;
+    std::unique_ptr<BackupStorage> storage;
 
     /// The results of storage.benchmark().
     pair<uint32_t, uint32_t> storageBenchmarkResults;

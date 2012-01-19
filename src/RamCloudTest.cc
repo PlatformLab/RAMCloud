@@ -14,99 +14,46 @@
  */
 
 #include "TestUtil.h"
-#include "CoordinatorClient.h"
-#include "CoordinatorService.h"
-#include "MasterService.h"
-#include "PingService.h"
+#include "MockCluster.h"
 #include "RawMetrics.h"
 #include "ServerMetrics.h"
-#include "TransportManager.h"
-#include "BindTransport.h"
 #include "RamCloud.h"
-#include "ServerList.h"
 
 namespace RAMCloud {
 
 class RamCloudTest : public ::testing::Test {
   public:
-    BindTransport transport;
-    CoordinatorService coordinatorService;
-    CoordinatorClient* coordinatorClient1;
-    CoordinatorClient* coordinatorClient2;
-    ServerConfig masterConfig1;
-    ServerConfig masterConfig2;
-    MasterService* master1;
-    MasterService* master2;
-    ServerList* serverList;
-    PingService ping1;
-    PingService ping2;
-    RamCloud* ramcloud;
+    MockCluster cluster;
+    Tub<RamCloud> ramcloud;
     uint32_t tableId1;
     uint32_t tableId2;
 
   public:
     RamCloudTest()
-        : transport()
-        , coordinatorService()
-        , coordinatorClient1(NULL)
-        , coordinatorClient2(NULL)
-        , masterConfig1()
-        , masterConfig2()
-        , master1(NULL)
-        , master2(NULL)
-        , serverList(new ServerList())
-        , ping1(serverList)
-        , ping2(serverList)
-        , ramcloud(NULL)
+        : cluster()
+        , ramcloud()
         , tableId1(-1)
         , tableId2(-2)
     {
-        masterConfig1.coordinatorLocator = "mock:host=coordinator";
-        masterConfig1.localLocator = "mock:host=master1";
-        MasterService::sizeLogAndHashTable("32", "1", &masterConfig1);
-        masterConfig2.coordinatorLocator = "mock:host=coordinator";
-        masterConfig2.localLocator = "mock:host=master2";
-        MasterService::sizeLogAndHashTable("32", "1", &masterConfig2);
+        Context::get().logger->setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
 
-        Context::get().transportManager->registerMock(&transport);
-        transport.addService(coordinatorService,
-                              "mock:host=coordinator", COORDINATOR_SERVICE);
 
-        coordinatorClient1 = new CoordinatorClient(
-                             "mock:host=coordinator");
-        master1 = new MasterService(masterConfig1, coordinatorClient1, 0);
-        transport.addService(*master1, "mock:host=master1", MASTER_SERVICE);
-        master1->init(coordinatorClient1->enlistServer({MASTER_SERVICE},
-            "mock:host=master1", 0, 0));
+        ServerConfig config = ServerConfig::forTesting();
+        config.services = {MASTER_SERVICE, PING_SERVICE};
+        config.localLocator = "mock:host=master1";
+        cluster.addServer(config);
+        config.services = {MASTER_SERVICE, PING_SERVICE};
+        config.localLocator = "mock:host=master2";
+        cluster.addServer(config);
+        config.services = {PING_SERVICE};
+        config.localLocator = "mock:host=ping1";
+        cluster.addServer(config);
 
-        coordinatorClient2 = new CoordinatorClient(
-                             "mock:host=coordinator");
-        master2 = new MasterService(masterConfig2, coordinatorClient2, 0);
-        transport.addService(*master2, "mock:host=master2", MASTER_SERVICE);
-        master2->init(coordinatorClient2->enlistServer({MASTER_SERVICE},
-            "mock:host=master2", 0, 0));
-
-        transport.addService(ping1, "mock:host=ping1", PING_SERVICE);
-        transport.addService(ping2, "mock:host=master1", PING_SERVICE);
-
-        ramcloud = new RamCloud(Context::get(), "mock:host=coordinator");
+        ramcloud.construct(Context::get(), "mock:host=coordinator");
         ramcloud->createTable("table1");
         tableId1 = ramcloud->openTable("table1");
         ramcloud->createTable("table2");
         tableId2 = ramcloud->openTable("table2");
-        TestLog::enable();
-    }
-
-    ~RamCloudTest()
-    {
-        TestLog::disable();
-        delete ramcloud;
-        delete master1;
-        delete master2;
-        delete coordinatorClient1;
-        delete coordinatorClient2;
-        Context::get().transportManager->unregisterMock();
-        delete serverList;
     }
 
     DISALLOW_COPY_AND_ASSIGN(RamCloudTest);
@@ -114,7 +61,7 @@ class RamCloudTest : public ::testing::Test {
 
 TEST_F(RamCloudTest, getMetrics) {
     metrics->temp.count3 = 10101;
-    ServerMetrics metrics =  ramcloud->getMetrics("mock:host=master1");
+    ServerMetrics metrics = ramcloud->getMetrics("mock:host=master1");
     EXPECT_EQ(10101U, metrics["temp.count3"]);
 }
 

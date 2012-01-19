@@ -29,34 +29,21 @@ namespace RAMCloud {
 class MembershipServiceTest : public ::testing::Test {
   public:
     ServerId serverId;
-    ServerList* serverList;
-    MembershipService* service;
-    BindTransport* transport;
-    MembershipClient* client;
+    ServerList serverList;
+    MembershipService service;
+    BindTransport transport;
+    TransportManager::MockRegistrar mockRegistrar;
+    MembershipClient client;
 
     MembershipServiceTest()
         : serverId()
-        , serverList(NULL)
-        , service(NULL)
-        , transport(NULL)
-        , client(NULL)
+        , serverList()
+        , service(serverId, serverList)
+        , transport()
+        , mockRegistrar(transport)
+        , client()
     {
-        serverList = new ServerList();
-
-        transport = new BindTransport();
-        Context::get().transportManager->registerMock(transport);
-
-        service = new MembershipService(serverId, *serverList);
-        transport->addService(*service, "mock:host=member", MEMBERSHIP_SERVICE);
-        client = new MembershipClient();
-    }
-
-    ~MembershipServiceTest() {
-        delete client;
-        Context::get().transportManager->unregisterMock();
-        delete transport;
-        delete service;
-        delete serverList;
+        transport.addService(service, "mock:host=member", MEMBERSHIP_SERVICE);
     }
 
     DISALLOW_COPY_AND_ASSIGN(MembershipServiceTest);
@@ -64,7 +51,7 @@ class MembershipServiceTest : public ::testing::Test {
 
 TEST_F(MembershipServiceTest, getServerId) {
     serverId = ServerId(523, 234);
-    EXPECT_EQ(ServerId(523, 234), client->getServerId(
+    EXPECT_EQ(ServerId(523, 234), client.getServerId(
         Context::get().transportManager->getSession("mock:host=member")));
 }
 
@@ -77,21 +64,21 @@ setServerListFilter(string s)
 TEST_F(MembershipServiceTest, setServerList_fromEmpty) {
     TestLog::Enable _(setServerListFilter);
 
-    EXPECT_EQ(0U, serverList->size());
-    EXPECT_EQ(0U, serverList->getVersion());
+    EXPECT_EQ(0U, serverList.size());
+    EXPECT_EQ(0U, serverList.getVersion());
 
     ProtoBuf::ServerList wholeList;
     ServerListBuilder{wholeList}
         ({MASTER_SERVICE}, *ServerId(1, 0), 0, "mock:host=one")
         ({BACKUP_SERVICE}, *ServerId(2, 0), 0, "mock:host=two");
     wholeList.set_version_number(0);
-    client->setServerList("mock:host=member", wholeList);
+    client.setServerList("mock:host=member", wholeList);
 
-    EXPECT_EQ(3U, serverList->size());       // [0] is reserved
-    EXPECT_EQ(ServerId(1, 0), (*serverList)[1]);
-    EXPECT_EQ(ServerId(2, 0), (*serverList)[2]);
-    EXPECT_EQ("mock:host=one", serverList->getLocator(ServerId(1, 0)));
-    EXPECT_EQ("mock:host=two", serverList->getLocator(ServerId(2, 0)));
+    EXPECT_EQ(3U, serverList.size());       // [0] is reserved
+    EXPECT_EQ(ServerId(1, 0), serverList[1]);
+    EXPECT_EQ(ServerId(2, 0), serverList[2]);
+    EXPECT_EQ("mock:host=one", serverList.getLocator(ServerId(1, 0)));
+    EXPECT_EQ("mock:host=two", serverList.getLocator(ServerId(2, 0)));
     EXPECT_EQ("setServerList: Got complete list of servers containing 2 "
         "entries (version number 0) | setServerList:   Adding server "
         "id 1 (locator \"mock:host=one\") with services MASTER_SERVICE | "
@@ -100,8 +87,8 @@ TEST_F(MembershipServiceTest, setServerList_fromEmpty) {
 }
 
 TEST_F(MembershipServiceTest, setServerList_overlap) {
-    EXPECT_EQ(0U, serverList->size());
-    EXPECT_EQ(0U, serverList->getVersion());
+    EXPECT_EQ(0U, serverList.size());
+    EXPECT_EQ(0U, serverList.getVersion());
 
     // Set the initial list.
     ProtoBuf::ServerList initialList;
@@ -109,7 +96,7 @@ TEST_F(MembershipServiceTest, setServerList_overlap) {
         ({MASTER_SERVICE}, *ServerId(1, 0), 0, "mock:host=one")
         ({BACKUP_SERVICE}, *ServerId(2, 0), 0, "mock:host=two");
     initialList.set_version_number(0);
-    client->setServerList("mock:host=member", initialList);
+    client.setServerList("mock:host=member", initialList);
 
     TestLog::Enable _(setServerListFilter);
 
@@ -120,17 +107,17 @@ TEST_F(MembershipServiceTest, setServerList_overlap) {
         ({BACKUP_SERVICE}, *ServerId(2, 0), 0, "mock:host=two")
         ({BACKUP_SERVICE}, *ServerId(3, 0), 0, "mock:host=three");
     newerList.set_version_number(1);
-    client->setServerList("mock:host=member", newerList);
+    client.setServerList("mock:host=member", newerList);
 
     // We should now have (1, 5), (2, 0), and (3, 0) in our list.
     // (1, 0) was removed.
-    EXPECT_EQ(4U, serverList->size());       // [0] is reserved
-    EXPECT_EQ(ServerId(1, 5), (*serverList)[1]);
-    EXPECT_EQ(ServerId(2, 0), (*serverList)[2]);
-    EXPECT_EQ(ServerId(3, 0), (*serverList)[3]);
-    EXPECT_EQ("mock:host=oneBeta", serverList->getLocator(ServerId(1, 5)));
-    EXPECT_EQ("mock:host=two", serverList->getLocator(ServerId(2, 0)));
-    EXPECT_EQ("mock:host=three", serverList->getLocator(ServerId(3, 0)));
+    EXPECT_EQ(4U, serverList.size());       // [0] is reserved
+    EXPECT_EQ(ServerId(1, 5), serverList[1]);
+    EXPECT_EQ(ServerId(2, 0), serverList[2]);
+    EXPECT_EQ(ServerId(3, 0), serverList[3]);
+    EXPECT_EQ("mock:host=oneBeta", serverList.getLocator(ServerId(1, 5)));
+    EXPECT_EQ("mock:host=two", serverList.getLocator(ServerId(2, 0)));
+    EXPECT_EQ("mock:host=three", serverList.getLocator(ServerId(3, 0)));
     EXPECT_EQ("setServerList: Got complete list of servers containing 3 "
         "entries (version number 1) | setServerList:   Removing server "
         "id 1 (locator \"mock:host=one\") | setServerList:   Adding "
@@ -146,15 +133,15 @@ updateServerListFilter(string s)
 }
 
 TEST_F(MembershipServiceTest, updateServerList_normal) {
-    EXPECT_EQ(0U, serverList->size());
-    EXPECT_EQ(0U, serverList->getVersion());
+    EXPECT_EQ(0U, serverList.size());
+    EXPECT_EQ(0U, serverList.getVersion());
 
     // Set the initial list.
     ProtoBuf::ServerList initialList;
     ServerListBuilder{initialList}
         ({MASTER_SERVICE}, *ServerId(1, 0), 0, "mock:host=one");
     initialList.set_version_number(0);
-    client->setServerList("mock:host=member", initialList);
+    client.setServerList("mock:host=member", initialList);
 
     TestLog::Enable _(updateServerListFilter);
 
@@ -164,11 +151,11 @@ TEST_F(MembershipServiceTest, updateServerList_normal) {
         ({MASTER_SERVICE}, *ServerId(1, 0), 0, "mock:host=one", 0, false)
         ({BACKUP_SERVICE}, *ServerId(2, 0), 0, "mock:host=two");
     updateList.set_version_number(1);
-    bool ret = client->updateServerList("mock:host=member", updateList);
+    bool ret = client.updateServerList("mock:host=member", updateList);
     EXPECT_TRUE(ret);
 
-    EXPECT_FALSE(serverList->contains(ServerId(1, 0)));
-    EXPECT_EQ("mock:host=two", serverList->getLocator(ServerId(2, 0)));
+    EXPECT_FALSE(serverList.contains(ServerId(1, 0)));
+    EXPECT_EQ("mock:host=two", serverList.getLocator(ServerId(2, 0)));
     EXPECT_EQ("updateServerList: Got server list update (version number 1) "
         "| updateServerList:   Removing server id 1 (locator "
         "\"mock:host=one\") | updateServerList:   Adding server id 2 "
@@ -183,7 +170,7 @@ TEST_F(MembershipServiceTest, updateServerList_missedUpdate) {
     ServerListBuilder{updateList}
         ({MASTER_SERVICE}, *ServerId(1, 0), 0, "mock:host=one");
     updateList.set_version_number(57234);
-    bool ret = client->updateServerList("mock:host=member", updateList);
+    bool ret = client.updateServerList("mock:host=member", updateList);
     EXPECT_FALSE(ret);
     EXPECT_EQ("updateServerList: Update generation number is 57234, but last "
         "seen was 0. Something was lost! Grabbing complete list again!",
@@ -200,7 +187,7 @@ TEST_F(MembershipServiceTest, updateServerList_versionOkButSomethingAmiss) {
     ServerListBuilder{updateList}
         ({MASTER_SERVICE}, *ServerId(1, 0), 0, "mock:host=one", 0, false);
     updateList.set_version_number(1);
-    bool ret = client->updateServerList("mock:host=member", updateList);
+    bool ret = client.updateServerList("mock:host=member", updateList);
     EXPECT_FALSE(ret);
     EXPECT_EQ("updateServerList: Got server list update (version number 1) | "
         "updateServerList:   Cannot remove server id 1: The server is not in "

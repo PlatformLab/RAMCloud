@@ -62,25 +62,22 @@ void tombstoneScanCallback(LogEntryHandle handle,
  *      this server.
  * \param coordinator
  *      A client to the coordinator for the RAMCloud this Master is in.
- * \param replicas
- *      The number of backups required before writes are considered safe.
  */
-MasterService::MasterService(const ServerConfig config,
-                             CoordinatorClient* coordinator,
-                             uint32_t replicas)
+MasterService::MasterService(const ServerConfig& config,
+                             CoordinatorClient* coordinator)
     : config(config)
     , coordinator(coordinator)
     , serverId()
-    , replicaManager(coordinator, serverId, replicas)
+    , replicaManager(coordinator, serverId, config.master.numReplicas)
     , bytesWritten(0)
     , log(serverId,
-          config.logBytes,
+          config.master.logBytes,
           Segment::SEGMENT_SIZE,
           sizeof(Object) + MAX_OBJECT_SIZE,
           &replicaManager,
-          config.disableLogCleaner ? Log::CLEANER_DISABLED :
-                                     Log::CONCURRENT_CLEANER)
-    , objectMap(config.hashTableBytes /
+          config.master.disableLogCleaner ? Log::CLEANER_DISABLED :
+                                            Log::CONCURRENT_CLEANER)
+    , objectMap(config.master.hashTableBytes /
         HashTable<LogEntryHandle>::bytesPerCacheLine())
     , tablets()
     , initCalled(false)

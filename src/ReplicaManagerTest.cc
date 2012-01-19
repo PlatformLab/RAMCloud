@@ -13,19 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#pragma GCC diagnostic ignored "-Weffc++"
-
-#include <set>
-
 #include "TestUtil.h"
-#include "Common.h"
-#include "CoordinatorClient.h"
-#include "CoordinatorService.h"
-#include "BackupClient.h"
-#include "BackupService.h"
-#include "BackupStorage.h"
-#include "BindTransport.h"
-#include "MasterService.h"
+#include "MockCluster.h"
 #include "Memory.h"
 #include "ReplicaManager.h"
 #include "Segment.h"
@@ -34,69 +23,31 @@
 namespace RAMCloud {
 
 struct ReplicaManagerTest : public ::testing::Test {
+    MockCluster cluster;
     const uint32_t segmentSize;
-    const uint32_t segmentFrames;
-    const char* coordinatorLocator;
-    Tub<BindTransport> transport;
-    Tub<TransportManager::MockRegistrar> mockRegistrar;
-    Tub<CoordinatorService> coordinatorService;
-    Tub<CoordinatorClient> coordinator;
-    Tub<InMemoryStorage> storage1;
-    Tub<InMemoryStorage> storage2;
-    Tub<BackupService::Config> backupServiceConfig1;
-    Tub<BackupService::Config> backupServiceConfig2;
-    Tub<BackupService> backupService1;
-    Tub<BackupService> backupService2;
-    Tub<BackupClient> backup1;
-    Tub<BackupClient> backup2;
-    Tub<ServerId> serverId;
     Tub<ReplicaManager> mgr;
+    Tub<ServerId> serverId;
 
     ReplicaManagerTest()
-        : segmentSize(1 << 16)
-        , segmentFrames(4)
-        , coordinatorLocator("mock:host=coordinator")
+        : cluster()
+        , segmentSize(1 << 16)
+        , mgr()
+        , serverId()
     {
-        transport.construct();
-        mockRegistrar.construct(*transport);
+        Context::get().logger->setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
 
-        coordinatorService.construct();
-        transport->addService(*coordinatorService, coordinatorLocator,
-                COORDINATOR_SERVICE);
+        ServerConfig config = ServerConfig::forTesting();
+        config.services = {BACKUP_SERVICE};
+        config.backup.segmentSize = segmentSize;
+        config.backup.numSegmentFrames = 4;
+        config.localLocator = "mock:host=backup1";
+        cluster.addServer(config);
 
-        coordinator.construct(coordinatorLocator);
+        config.localLocator = "mock:host=backup2";
+        cluster.addServer(config);
 
-        storage1.construct(segmentSize, segmentFrames);
-        storage2.construct(segmentSize, segmentFrames);
-
-        backupServiceConfig1.construct();
-        backupServiceConfig1->coordinatorLocator = coordinatorLocator;
-        backupServiceConfig1->localLocator = "mock:host=backup1";
-
-        backupServiceConfig2.construct();
-        backupServiceConfig2->coordinatorLocator = coordinatorLocator;
-        backupServiceConfig2->localLocator = "mock:host=backup2";
-
-        backupService1.construct(*backupServiceConfig1, *storage1);
-        backupService2.construct(*backupServiceConfig2, *storage2);
-
-        transport->addService(*backupService1, "mock:host=backup1",
-                BACKUP_SERVICE);
-        transport->addService(*backupService2, "mock:host=backup2",
-                BACKUP_SERVICE);
-
-        backupService1->init(coordinator->enlistServer({BACKUP_SERVICE},
-            backupServiceConfig1->localLocator.c_str(), 0, 0));
-        backupService2->init(coordinator->enlistServer({BACKUP_SERVICE},
-            backupServiceConfig2->localLocator.c_str(), 0, 0));
-
-        backup1.construct(Context::get().transportManager->getSession(
-                            "mock:host=backup1"));
-        backup2.construct(Context::get().transportManager->getSession(
-                            "mock:host=backup2"));
-
-        serverId.construct(ServerId(99, 0));
-        mgr.construct(coordinator.get(), serverId, 2);
+        serverId.construct(99, 0);
+        mgr.construct(cluster.getCoordinatorClient(), serverId, 2);
     }
 
     void dumpReplicatedSegments()
@@ -148,8 +99,8 @@ TEST_F(ReplicaManagerTest, openSegment) {
         EXPECT_FALSE(replica->writeRpc);
         EXPECT_FALSE(replica->freeRpc);
     }
-    EXPECT_EQ(arrayLength(data), backupService1->bytesWritten);
-    EXPECT_EQ(arrayLength(data), backupService2->bytesWritten);
+    EXPECT_EQ(arrayLength(data), cluster.servers[0]->backup->bytesWritten);
+    EXPECT_EQ(arrayLength(data), cluster.servers[1]->backup->bytesWritten);
 
     // make sure ReplicatedSegment::replicas point to ok service locators
     vector<string> backupLocators;
@@ -165,8 +116,8 @@ TEST_F(ReplicaManagerTest, openSegment) {
 // overhead is too high.
 TEST_F(ReplicaManagerTest, writeSegment) {
     void* segMem = Memory::xmemalign(HERE, segmentSize, segmentSize);
-    Segment seg(99, 88, segMem, segmentSize, mgr.get());
-    SegmentHeader header = { 99, 88, segmentSize };
+    Segment seg(**serverId, 88, segMem, segmentSize, mgr.get());
+    SegmentHeader header = { **serverId, 88, segmentSize };
     seg.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
     Object object(sizeof(object));
     object.id.objectId = 10;
@@ -191,10 +142,10 @@ TEST_F(ReplicaManagerTest, writeSegment) {
             BackupClient& host(replica->client);
             Buffer resp;
             BackupClient::StartReadingData::Result result;
-            host.startReadingData(ServerId(99), will, &result);
+            host.startReadingData(*serverId, will, &result);
             while (true) {
                 try {
-                    host.getRecoveryData(ServerId(99, 0), 88, 0, resp);
+                    host.getRecoveryData(*serverId, 88, 0, resp);
                 } catch (const RetryException& e) {
                     resp.reset();
                     continue;

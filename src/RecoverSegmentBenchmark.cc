@@ -29,13 +29,15 @@ class RecoverSegmentBenchmark {
 
     RecoverSegmentBenchmark(string logSize, string hashTableSize,
         int numSegments)
-        : config()
+        : config(ServerConfig::forTesting())
         , service(NULL)
     {
         config.localLocator = "bogus";
         config.coordinatorLocator = "bogus";
-        MasterService::sizeLogAndHashTable(logSize, hashTableSize, &config);
-        service = new MasterService(config, NULL, 0);
+        config.setLogAndHashTableSize(logSize, hashTableSize);
+        config.services = {MASTER_SERVICE};
+        config.master.numReplicas = 0;
+        service = new MasterService(config, NULL);
         service->serverId.construct(1);
     }
 

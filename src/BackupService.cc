@@ -26,6 +26,7 @@
 #include "RecoverySegmentIterator.h"
 #include "Rpc.h"
 #include "Segment.h"
+#include "ServerConfig.h"
 #include "SegmentIterator.h"
 #include "Status.h"
 #include "TransportManager.h"
@@ -855,20 +856,17 @@ BackupService::RecoverySegmentBuilder::operator()()
  * \param config
  *      Settings for this instance. The caller guarantees that config will
  *      exist for the duration of this BackupService's lifetime.
- * \param storage
- *      The storage backend used to persist segments.
  */
-BackupService::BackupService(const Config& config,
-                             BackupStorage& storage)
+BackupService::BackupService(const ServerConfig& config)
     : config(config)
     , coordinator(config.coordinatorLocator.c_str())
     , serverId(0)
     , recoveryTicks()
-    , pool(storage.getSegmentSize())
+    , pool(config.backup.segmentSize)
     , recoveryThreadCount{0}
     , segments()
-    , segmentSize(storage.getSegmentSize())
-    , storage(storage)
+    , segmentSize(config.backup.segmentSize)
+    , storage()
     , storageBenchmarkResults()
     , bytesWritten(0)
     , ioScheduler()
@@ -879,6 +877,15 @@ BackupService::BackupService(const Config& config,
 #endif
     , initCalled(false)
 {
+    if (config.backup.inMemory)
+        storage.reset(new InMemoryStorage(config.backup.segmentSize,
+                                          config.backup.numSegmentFrames));
+    else
+        storage.reset(new SingleFileStorage(config.backup.segmentSize,
+                                            config.backup.numSegmentFrames,
+                                            config.backup.file.c_str(),
+                                            O_DIRECT | O_SYNC));
+
     try {
         recoveryTicks.construct(); // make unit tests happy
 
@@ -944,7 +951,8 @@ BackupService::getServerId() const
  */
 void
 BackupService::benchmark(uint32_t& readSpeed, uint32_t& writeSpeed) {
-    storageBenchmarkResults = storage.benchmark(config.backupStrategy);
+    auto strategy = static_cast<BackupStrategy>(config.backup.strategy);
+    storageBenchmarkResults = storage->benchmark(strategy);
     readSpeed = storageBenchmarkResults.first;
     writeSpeed = storageBenchmarkResults.second;
 }
@@ -1098,12 +1106,6 @@ BackupService::getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
 void
 BackupService::init(ServerId id)
 {
-#if 0
-    coordinator.enlistServer(BACKUP, config.localLocator,
-                                        storageBenchmarkResults.first,
-                                        storageBenchmarkResults.second);
-#endif
-
     assert(!initCalled);
 
     serverId = id;
@@ -1210,7 +1212,7 @@ BackupService::startReadingData(
     recoveryTicks.construct(&metrics->backup.recoveryTicks);
     recoveryStart = Cycles::rdtsc();
     metrics->backup.recoveryCount++;
-    metrics->backup.storageType = static_cast<uint64_t>(storage.storageType);
+    metrics->backup.storageType = static_cast<uint64_t>(storage->storageType);
 
     ProtoBuf::Tablets partitions;
     ProtoBuf::parseFromResponse(rpc.requestPayload, sizeof(reqHdr),
@@ -1358,7 +1360,7 @@ BackupService::writeSegment(const BackupWriteRpc::Request& reqHdr,
 #else
             bool primary = reqHdr.flags & BackupWriteRpc::PRIMARY;
 #endif
-            info = new SegmentInfo(storage, pool, ioScheduler,
+            info = new SegmentInfo(*storage, pool, ioScheduler,
                                    masterId, segmentId, segmentSize, primary);
             segments[MasterSegmentIdPair(masterId, segmentId)] = info;
             info->open();

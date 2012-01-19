@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2011 Stanford University
+/* Copyright (c) 2009-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -17,17 +17,12 @@
 
 #include "TestUtil.h"
 #include "BackupService.h"
-#include "BindTransport.h"
-#include "CoordinatorService.h"
 #include "Log.h"
-#include "MasterService.h"
-#include "Memory.h"
-#include "MockTransport.h"
+#include "MockCluster.h"
 #include "RecoverySegmentIterator.h"
 #include "Rpc.h"
-#include "SegmentIterator.h"
+#include "Server.h"
 #include "ShortMacros.h"
-#include "TransportManager.h"
 
 namespace RAMCloud {
 
@@ -36,54 +31,29 @@ namespace RAMCloud {
  */
 class BackupServiceTest : public ::testing::Test {
   public:
+    ServerConfig config;
+    Tub<MockCluster> cluster;
+    std::unique_ptr<BackupClient> client;
     BackupService* backup;
-    BackupClient* client;
-    CoordinatorService* coordinatorService;
-    const uint32_t segmentSize;
-    const uint32_t segmentFrames;
-    BackupStorage* storage;
-    BackupService::Config* config;
-    BindTransport* transport;
 
     BackupServiceTest()
-        : backup(NULL)
-        , client(NULL)
-        , coordinatorService(NULL)
-        , segmentSize(1 << 10)
-        , segmentFrames(4)
-        , storage(NULL)
-        , config(NULL)
-        , transport(NULL)
+        : config(ServerConfig::forTesting())
+        , cluster()
+        , client()
+        , backup()
     {
-        config = new BackupService::Config();
-        config->coordinatorLocator = "mock:host=coordinator";
-        storage = new InMemoryStorage(segmentSize, segmentFrames);
+        Context::get().logger->setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
 
-        transport = new BindTransport();
-        Context::get().transportManager->registerMock(transport);
-        coordinatorService = new CoordinatorService();
-        transport->addService(*coordinatorService, "mock:host=coordinator",
-                    COORDINATOR_SERVICE);
-        backup = new BackupService(*config, *storage);
-        transport->addService(*backup, "mock:host=backup", BACKUP_SERVICE);
-        ServerId backupId = CoordinatorClient(
-            config->coordinatorLocator.c_str()).enlistServer({BACKUP_SERVICE},
-                "mock:host=backup", 0, 0);
-        backup->init(backupId);
-        client =
-            new BackupClient(Context::get().transportManager->getSession(
-                                 "mock:host=backup"));
+        cluster.construct();
+        config.services = {BACKUP_SERVICE};
+        Server* server = cluster->addServer(config);
+        backup = server->backup.get();
+        client = cluster->get<BackupClient>(server);
     }
 
     ~BackupServiceTest()
     {
-        delete client;
-        delete backup;
-        delete coordinatorService;
-        Context::get().transportManager->unregisterMock();
-        delete transport;
-        delete storage;
-        delete config;
+        cluster.destroy();
         EXPECT_EQ(0,
             BackupStorage::Handle::resetAllocatedHandlesCount());
     }
@@ -133,7 +103,7 @@ class BackupServiceTest : public ::testing::Test {
         SegmentHeader header;
         header.logId = *masterId;
         header.segmentId = segmentId;
-        header.segmentCapacity = segmentSize;
+        header.segmentCapacity = config.backup.segmentSize;
         return writeEntry(masterId, segmentId, LOG_ENTRY_TYPE_SEGHEADER, 0,
                           &header, sizeof(header));
     }
