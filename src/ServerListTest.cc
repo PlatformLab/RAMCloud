@@ -162,6 +162,14 @@ TEST_F(ServerListTest, getLocator) {
     EXPECT_EQ("mock:", sl.getLocator(ServerId(1, 0)));
 }
 
+TEST_F(ServerListTest, toString) {
+    EXPECT_EQ("server 1 at (locator unavailable)",
+              sl.toString(ServerId(1)));
+    sl.add(ServerId(1), "mock:service=locator", {});
+    EXPECT_EQ("server 1 at mock:service=locator",
+              sl.toString(ServerId(1)));
+}
+
 TEST_F(ServerListTest, size) {
     EXPECT_EQ(sl.serverList.size(), sl.size());
     sl.add(ServerId(572, 0), "mock:", {});

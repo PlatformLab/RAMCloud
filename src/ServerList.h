@@ -113,6 +113,7 @@ class ServerList {
     void add(ServerId id, string locator, ServiceMask services);
     void remove(ServerId id);
     string getLocator(ServerId id);
+    string toString(ServerId serverId);
     Transport::SessionRef getSession(ServerId id);
     uint32_t size();
     ServerId operator[](uint32_t indexNumber);

@@ -201,6 +201,30 @@ ServerList::getLocator(ServerId id)
 }
 
 /**
+ * Return a human-readable string representation for a server.
+ *
+ * \param id
+ *      The ServerId for the server.
+ *
+ * \return
+ *      The most informative human-readable string associated with the given
+ *      ServerId.
+ */
+string
+ServerList::toString(ServerId id)
+{
+    string locator;
+    try {
+        locator = getLocator(id);
+    } catch (const ServerListException& e) {
+        locator = "(locator unavailable)";
+    }
+    return format("server %lu at %s",
+                  id.getId(),
+                  locator.c_str());
+}
+
+/**
  * Open a session to the given ServerId. This method simply calls through to
  * TransportManager::getSession. See the documentation there for exceptions
  * that may be thrown.
