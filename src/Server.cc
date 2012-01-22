@@ -87,7 +87,7 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
 
     if (config.services.has(MASTER_SERVICE)) {
         LOG(NOTICE, "Master is using %u backups", config.master.numReplicas);
-        master.construct(config, coordinator.get());
+        master.construct(config, coordinator.get(), serverList);
         if (bindTransport) {
             bindTransport->addService(*master,
                                       config.localLocator,

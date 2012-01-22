@@ -49,7 +49,8 @@ class MasterService : public Service {
     static const uint64_t TOTAL_READ_REQUESTS_OBJID = 100000UL;
 
     MasterService(const ServerConfig& config,
-                  CoordinatorClient* coordinator);
+                  CoordinatorClient* coordinator,
+                  ServerList& serverList);
     virtual ~MasterService();
     void init(ServerId id);
     void dispatch(RpcOpcode opcode,
@@ -108,6 +109,10 @@ class MasterService : public Service {
     Tub<ServerId> serverId;
 
   PRIVATE:
+
+    /// A reference to the global ServerList.
+    ServerList& serverList;
+
     /// Maximum number of bytes per partition. For Will calculation.
     static const uint64_t maxBytesPerPartition = 640UL * 1024 * 1024;
 

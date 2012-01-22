@@ -62,12 +62,16 @@ void tombstoneScanCallback(LogEntryHandle handle,
  *      this server.
  * \param coordinator
  *      A client to the coordinator for the RAMCloud this Master is in.
+ * \param serverList
+ *      A reference to the global ServerList.
  */
 MasterService::MasterService(const ServerConfig& config,
-                             CoordinatorClient* coordinator)
+                             CoordinatorClient* coordinator,
+                             ServerList& serverList)
     : config(config)
     , coordinator(coordinator)
     , serverId()
+    , serverList(serverList)
     , replicaManager(coordinator, serverId, config.master.numReplicas)
     , bytesWritten(0)
     , log(serverId,
