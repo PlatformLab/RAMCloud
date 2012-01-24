@@ -157,7 +157,7 @@ class SegmentMultiAppendEntry {
     Tub<SegmentChecksum::ResultType> expectedChecksum;
 };
 
-/// XXX
+/// TODO(Rumble)
 /// These are actually used in the write fast path. We should probably
 /// use a different allocator (or stack allocated memory) to avoid having
 /// the vectors call new and delete each time we append.
@@ -384,7 +384,8 @@ class Segment {
     // When true, no appends are permitted (the Segment is immutable).
     bool              closed;
 
-    /// Lock to protect against concurrent access. XXX- This should go away.
+    /// Lock to protect against concurrent access.
+    // TODO(Rumble): This should go away.
     SpinLock          mutex;
 
     /// The number of each type of entry present in the Segment. Note that this

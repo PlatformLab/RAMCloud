@@ -338,7 +338,7 @@ TEST_F(TabletProfilerTest, Subrange_constructor) {
     EXPECT_TRUE(s2.buckets != NULL);
 
     // case3: last level has < BITS_PER_LEVEL
-    // XXX- need to make BITS_PER_LEVEL a parameter
+    // TODO(Rumble): need to make BITS_PER_LEVEL a parameter
 }
 
 TEST_F(TabletProfilerTest, Subrange_findBucket) {

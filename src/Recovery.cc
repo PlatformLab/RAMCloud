@@ -94,7 +94,7 @@ struct MasterStartTask {
     /// The master server to kick off this partition's recovery on.
     const CoordinatorServerList::Entry& masterEntry;
 
-    /// XXX- Document me for the love of God.
+    /// TODO(Rumble): Document me for the love of God.
     const vector<RecoverRpc::Replica>& replicaLocations;
     const uint32_t partitionId;
     ProtoBuf::Tablets tablets;

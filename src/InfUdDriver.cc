@@ -167,7 +167,7 @@ InfUdDriver<Infiniband>::~InfUdDriver()
             packetBufsUtilized);
     }
 
-    // XXX- cleanup
+    // TODO(Rumble): cleanup
 
     delete qp;
 }

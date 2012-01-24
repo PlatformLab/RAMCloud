@@ -118,7 +118,7 @@ PingService::proxyPing(const ProxyPingRpc::Request& reqHdr,
  * There will be no response to the RPC for this message, and the process
  * will exit with status code 0.
  *
- * XXX: Should be only for debugging and performance testing.
+ * TODO(Rumble): Should be only for debugging and performance testing.
  */
 void
 PingService::kill(const KillRpc::Request& reqHdr,

@@ -14,7 +14,7 @@
  */
 
 /*
- * XXX- This file is used by both Transports and Drivers, but throws
+ * TODO(Rumble): This file is used by both Transports and Drivers, but throws
  *      TransportExceptions. What should we do? Nix the static methods and
  *      Template it on the exception type?
  */
@@ -799,7 +799,7 @@ Infiniband::QueuePair::getRemoteQpNumber() const
 
     int r = ibv_query_qp(qp, &qpa, IBV_QP_DEST_QPN, &qpia);
     if (r) {
-        // XXX log?!?
+        // TODO(Rumble): log?!?
         throw TransportException(HERE, r);
     }
 
@@ -823,7 +823,7 @@ Infiniband::QueuePair::getRemoteLid() const
 
     int r = ibv_query_qp(qp, &qpa, IBV_QP_AV, &qpia);
     if (r) {
-        // XXX log?!?
+        // TODO(Rumble): log?!?
         throw TransportException(HERE, r);
     }
 
@@ -845,7 +845,7 @@ Infiniband::QueuePair::getState() const
 
     int r = ibv_query_qp(qp, &qpa, IBV_QP_STATE, &qpia);
     if (r) {
-        // XXX log?!?
+        // TODO(Rumble): log?!?
         throw TransportException(HERE, r);
     }
     return qpa.qp_state;
@@ -866,7 +866,7 @@ Infiniband::QueuePair::isError() const
 
     int r = ibv_query_qp(qp, &qpa, -1, &qpia);
     if (r) {
-        // XXX log?!?
+        // TODO(Rumble): log?!?
         throw TransportException(HERE, r);
     }
     return qpa.cur_qp_state == IBV_QPS_ERR;

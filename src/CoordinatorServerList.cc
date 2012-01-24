@@ -336,7 +336,7 @@ CoordinatorServerList::getReferenceFromServerId(const ServerId& serverId) const
  * be used to iterate over the entire list (in conjunction with the #size
  * method), or by . If there is no entry at the given index, NULL is returned.
  *
- * XXX- Should this method always return NULL (i.e. not throw if the index
+ * TODO(Rumble): Should this method always return NULL (i.e. not throw if the index
  *      is out of bounds)?.
  *
  * \param index

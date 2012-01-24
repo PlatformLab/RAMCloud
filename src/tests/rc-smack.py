@@ -91,7 +91,7 @@ def version_smack(c, loops):
             caught = True
         p.after()
         assert caught
-        #XXX- exception should contain newest version... assert vers == last_version
+        #TODO(Rumble): exception should contain newest version... assert vers == last_version
 
         caught = False
         p.before()
@@ -104,7 +104,7 @@ def version_smack(c, loops):
             caught = True
         p.after()
         assert caught
-        #XXX- exception should contain newest version... assert vers == last_version
+        #TODO(Rumble): exception should contain newest version... assert vers == last_version
 
         p.before()
         c.delete(0, 0, last_version)

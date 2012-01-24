@@ -79,7 +79,7 @@ runIt(RamCloud* client,
 
     for (uint64_t i = 0; i < maxId * 20; i++) {
         uint64_t objId = nextId(maxId);
-        // XXX- u32 table ids!!
+        // TODO(Rumble): u32 table ids!!
         client->write((uint32_t)tableId, objId, objBuf, objectSize);
 
         bytesWritten += objectSize;

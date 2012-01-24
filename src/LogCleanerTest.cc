@@ -610,13 +610,13 @@ TEST_F(LogCleanerTest, moveToFillSegment) {
 // Ensure we fill objects into older destination Segments in order
 // to get better utilisation.
 TEST_F(LogCleanerTest, moveLiveData_packOldFirst) {
-    // XXX
+    // TODO(Rumble)
 }
 
 // Ensure that if we're left with significant space in the last Segment
 // we try to fill it with the live data from some other Segment.
 TEST_F(LogCleanerTest, moveLiveData_packLastSegment) {
-    // XXX
+    // TODO(Rumble)
 }
 
 } // namespace RAMCloud

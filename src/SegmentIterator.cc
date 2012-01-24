@@ -348,7 +348,7 @@ SegmentIterator::isChecksumValid() const
  * is associated with is correct. If a checksum does not exist, an
  * exception is thrown.
  *
- * XXX- This probably belongs in Segment.cc, not here.
+ * TODO(Rumble): This probably belongs in Segment.cc, not here.
  *
  * \return
  *      true if the check is valid, else false.

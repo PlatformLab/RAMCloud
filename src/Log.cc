@@ -678,7 +678,7 @@ Log::cleaningComplete(SegmentVector& clean,
 uint64_t
 Log::allocateSegmentId()
 {
-    // XXX- could just be an atomic op
+    // TODO(Rumble): could just be an atomic op
     std::lock_guard<SpinLock> lock(listLock);
     return nextSegmentId++;
 }

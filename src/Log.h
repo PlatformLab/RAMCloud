@@ -369,12 +369,12 @@ class Log {
     /// during object deletion to obtain a reference to the associated Segment
     /// so that utilisation statistics can be updated.
 
-    // XXX- We can do away with this at least two different ways. The first is
-    //      to not update stats as we go, but have the LogCleaner do so by
-    //      checking if each object is live. Alternatively, we can just ensure
-    //      that Segment objects are allocated contiguously and compute the
-    //      offset. If we do that, we can then just add space to the backing
-    //      memory for a Segment and do placement new on that.
+    // TODO(Rumble): We can do away with this at least two different ways. The
+    // first is to not update stats as we go, but have the LogCleaner do so by
+    // checking if each object is live. Alternatively, we can just ensure that
+    // Segment objects are allocated contiguously and compute the offset. If we
+    // do that, we can then just add space to the backing memory for a Segment
+    // and do placement new on that.
     BaseAddressMap activeBaseAddressMap;
 
     /// Per-LogEntryType callbacks (e.g. for relocation).

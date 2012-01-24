@@ -603,9 +603,9 @@ InfRcTransport<Infiniband>::ServerConnectHandler::handleFileEvent(int events)
     // and feed back our lid, qpn, and psn information so they can complete
     // the out-of-band handshake.
 
-    // XXX- we should look up the QueuePair first using incomingQpt, just to
-    //      be sure, esp. if we use an unreliable means of handshaking, in
-    //      which case the response to the client request could have been lost.
+    // TODO(Rumble): we should look up the QueuePair first using incomingQpt,
+    // just to be sure, esp. if we use an unreliable means of handshaking, in
+    // which case the response to the client request could have been lost.
 
     QueuePair *qp = transport->infiniband->createQueuePair(
             IBV_QPT_RC,

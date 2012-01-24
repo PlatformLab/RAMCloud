@@ -194,7 +194,8 @@ class RealInfiniband {
         const char* getPeerName() const;
         void        activate(const Tub<MacAddress>& localMac);
 
-      //private: XXXXX- move send/recv functionality into the queue pair shit
+      //private:
+      // TODO(Rumble): move send/recv functionality into the queue pair shit
         Infiniband&  infiniband;     // Infiniband to which this QP belongs
         int          type;           // QP type (IBV_QPT_RC, etc.)
         ibv_context* ctxt;           // device context of the HCA to use
@@ -495,7 +496,7 @@ class RealInfiniband {
                         int numEntries,
                         ibv_wc *retWcArray);
 
-// XXX- keep public for 0-copy hack. nothing to see here, move along.
+// TODO(Rumble): keep public for 0-copy hack. nothing to see here, move along.
 //  PRIVATE:
     Device device;
     ProtectionDomain pd;

@@ -70,7 +70,7 @@ ServerList::add(ServerId id, string locator, ServiceMask services)
     uint32_t index = id.indexNumber();
 
     if (index >= serverList.size()) {
-        // XXX- Sanity check this first?
+        // TODO(Rumble): Sanity check this first?
         serverList.resize(index + 1);
     }
 

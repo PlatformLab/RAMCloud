@@ -135,7 +135,7 @@ class CoordinatorServerList {
     /// Slots in the server list.
     std::vector<GenerationNumberEntryPair> serverList;
 
-    // XXX- This is only a temporary hack until we clean up enlistment.
+    // TODO(Rumble): This is only a temporary hack until we clean up enlistment.
   PUBLIC:
     /// Number of masters in the server list.
     uint32_t numberOfMasters;

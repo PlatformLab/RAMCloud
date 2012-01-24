@@ -226,7 +226,7 @@ class LogCleaner {
      * Various counters to measure performance of the cleaner. This mostly
      * consists of ticks spent in various bits of code.
      *
-     * XXX- This should be part of RawMetrics someday, but the difference
+     * TODO(Rumble): This should be part of RawMetrics someday, but the difference
      * (operator-) functionality is very useful and we don't yet snapshot
      * RawMetrics.
      */

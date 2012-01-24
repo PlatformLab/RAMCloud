@@ -991,7 +991,7 @@ LogCleaner::setUpNormalCleaningPass(LiveSegmentEntryHandleVector& liveEntries,
         return false;
     }
 
-    // XXX- liveEntryBytes does _not_ include SegmentEntry counts.
+    // TODO(Rumble): liveEntryBytes does _not_ include SegmentEntry counts.
     perfCounters.writeCostSum += writeCost(segmentsToClean.size() *
         log->getSegmentCapacity(), liveEntryBytes);
 
@@ -1099,7 +1099,7 @@ LogCleaner::setUpEmergencyCleaningPass(
             cleanableSegments.pop_back();
 
         // Also, calculate and update our write cost stats while here.
-        // XXX- totalLiveBytes does _not_ include SegmentEntry counts.
+        // TODO(Rumble): totalLiveBytes does _not_ include SegmentEntry counts.
         double cost = writeCost(totalCapacity, totalLiveBytes);
         perfCounters.writeCostSum += cost;
 

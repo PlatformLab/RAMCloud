@@ -69,7 +69,7 @@ MembershipClient::setServerList(const char* serviceLocator,
 /**
  * Issue a cluster membership update to the specified server.
  *
- * XXX- This should be asynchronous. There's no reason for the Coordinator
+ * TODO(Rumble): This should be asynchronous. There's no reason for the Coordinator
  *      to wait.
  *
  * \param serviceLocator

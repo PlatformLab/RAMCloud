@@ -686,9 +686,10 @@ Segment::adjustSpaceTimeSum(SegmentEntryHandle handle, bool subtract)
     if (log) {
         const LogTypeInfo *cb = log->getTypeInfo(handle->type());
         if (cb != NULL && cb->timestampCB != NULL) {
-            // XXX should the timestamp callback be mandatory for externally-
-            //     defined types? If someone defines a commonly-used type with
-            //     no timestamp callback, age calculations will not be accurate.
+            // TODO(Rumble): should the timestamp callback be mandatory for
+            // externally- defined types? If someone defines a commonly-used
+            // type with no timestamp callback, age calculations will not be
+            // accurate.
             uint32_t timestamp = cb->timestampCB(handle);
             uint64_t product = (uint64_t)timestamp * handle->totalLength();
             if (subtract) {

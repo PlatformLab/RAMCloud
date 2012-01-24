@@ -105,7 +105,7 @@ class CoordinatorService : public Service {
      * as follows:
      *      In the will, the user_data field is the partition
      *      ID that is to recover that tablet, starting from 0.
-     * XXX: Whatever that means. This magic use of user_data should going away
+     * TODO(Rumble): Whatever that means. This magic use of user_data should going away
      * soon.
      */
     CoordinatorServerList serverList;
