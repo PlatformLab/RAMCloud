@@ -34,11 +34,10 @@ struct MasterStartTask {
     MasterStartTask(Recovery& recovery,
                     const CoordinatorServerList::Entry& masterEntry,
                     uint32_t partitionId,
-                    const char* backups, uint32_t backupsLen)
+                    const vector<RecoverRpc::Replica>& replicaLocations)
         : recovery(recovery)
         , masterEntry(masterEntry)
-        , backups(backups)
-        , backupsLen(backupsLen)
+        , replicaLocations(replicaLocations)
         , partitionId(partitionId)
         , tablets()
         , masterClient()
@@ -57,7 +56,8 @@ struct MasterStartTask {
             rpc.construct(*masterClient,
                           recovery.masterId, partitionId,
                           tablets,
-                          backups, backupsLen);
+                          replicaLocations.data(),
+                          downCast<uint32_t>(replicaLocations.size()));
         } catch (const TransportException& e) {
             LOG(WARNING, "Couldn't contact %s, trying next master; "
                 "failure was: %s", locator, e.message.c_str());
@@ -95,8 +95,7 @@ struct MasterStartTask {
     const CoordinatorServerList::Entry& masterEntry;
 
     /// XXX- Document me for the love of God.
-    const char* backups;
-    const uint32_t backupsLen;
+    const vector<RecoverRpc::Replica>& replicaLocations;
     const uint32_t partitionId;
     ProtoBuf::Tablets tablets;
     Tub<MasterClient> masterClient;
@@ -375,6 +374,7 @@ Recovery::buildSegmentIdToBackups()
     // First add all primaries to the list, then all secondaries.
     // Order primaries (and even secondaries among themselves anyway) based
     // on when they are expected to be loaded in from disk.
+    // TODO(ongaro): Stop using a protobuf here.
     vector<ProtoBuf::ServerList::Entry> backupsToSort;
     for (uint32_t nextBackupIndex = 0, taskIndex = 0;
          taskIndex < numBackups;
@@ -436,18 +436,10 @@ Recovery::buildSegmentIdToBackups()
         LOG(DEBUG, "Load segment %lu from %s with expected load time of %lu",
             backup.segment_id(), backup.service_locator().c_str(),
             backup.user_data());
-        auto& entry = *replicaLocations.add_server();
-        entry = backup;
-        // Just for debugging for now so the debug print out can include
-        // whether or not each entry is a primary
-        entry.set_user_data(entry.user_data() < 1000000);
-    }
-
-    LOG(DEBUG, "--- Replay script ---");
-    foreach (const auto& backup, replicaLocations.server()) {
-        LOG(DEBUG, "backup: %lu, locator: %s, segmentId %lu, primary %lu",
-            backup.server_id(), backup.service_locator().c_str(),
-            backup.segment_id(), backup.user_data());
+        RecoverRpc::Replica replica;
+        replica.backupId = backup.server_id();
+        replica.segmentId = backup.segment_id();
+        replicaLocations.push_back(replica);
     }
 }
 
@@ -463,13 +455,6 @@ void
 Recovery::start()
 {
     CycleCounter<RawMetric> _(&metrics->coordinator.recoveryStartTicks);
-
-    // Pre-serialize the backup schedule, since this takes a while and is the
-    // same for each master.
-    Buffer backupsBuffer;
-    uint32_t backupsLen = serializeToRequest(backupsBuffer, replicaLocations);
-    const char* backupsBuf =
-        static_cast<const char*>(backupsBuffer.getRange(0, backupsLen));
 
     // Figure out the number of partitions specified in the will.
     uint32_t numPartitions = 0;
@@ -491,7 +476,7 @@ Recovery::start()
         auto& task = recoverTasks[i];
         nextMasterIndex = serverList.nextMasterIndex(nextMasterIndex);
         task.construct(*this, *serverList[nextMasterIndex],
-            i, backupsBuf, backupsLen);
+                       i, replicaLocations);
         nextMasterIndex++;
 
     }

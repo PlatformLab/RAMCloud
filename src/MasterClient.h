@@ -120,7 +120,8 @@ class MasterClient : public Client {
         Recover(MasterClient& client,
                 ServerId masterId, uint64_t partitionId,
                 const ProtoBuf::Tablets& tablets,
-                const char* backups, uint32_t backupsLen);
+                const RecoverRpc::Replica* replicas,
+                uint32_t numReplicas);
         bool isReady() { return state.isReady(); }
         void operator()();
       private:
@@ -201,10 +202,7 @@ class MasterClient : public Client {
               uint64_t* version = NULL);
     void recover(ServerId masterId, uint64_t partitionId,
                  const ProtoBuf::Tablets& tablets,
-                 const ProtoBuf::ServerList& backups);
-    void recover(ServerId masterId, uint64_t partitionId,
-                 const ProtoBuf::Tablets& tablets,
-                 const char* backups, uint32_t backupsLen);
+                 const RecoverRpc::Replica* replicas, uint32_t numReplicas);
     void remove(uint32_t tableId, uint64_t id,
                 const RejectRules* rejectRules = NULL,
                 uint64_t* version = NULL);

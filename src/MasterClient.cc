@@ -204,6 +204,8 @@ MasterClient::create(uint32_t tableId, const void* buf, uint32_t length,
 /**
  * Recover a set of tablets on behalf of a crashed master.
  *
+ * \param client
+ *      The MasterClient instance over which the RPC should be issued.
  * \param masterId
  *      The ServerId of the crashed master whose data is to be recovered.
  * \param partitionId
@@ -211,32 +213,16 @@ MasterClient::create(uint32_t tableId, const void* buf, uint32_t length,
  * \param tablets
  *      A set of tables with key ranges describing which poritions of which
  *      tables the recovery Master should take over for.
- * \param backups
- *      A list of backup locators along with a segmentId specifying for each
- *      segmentId a backup who can provide a filtered recovery data segment.
- *      A particular segment may be listed more than once if it has multiple
- *      viable backups, hence a particular backup locator can also be listed
- *      many times.
+ * \param replicas
+ *      An array describing where to find replicas of each segment.
+ * \param numReplicas
+ *      The number of replicas in the 'replicas' list.
  */
-void
-MasterClient::recover(ServerId masterId, uint64_t partitionId,
-                      const ProtoBuf::Tablets& tablets,
-                      const ProtoBuf::ServerList& backups)
-{
-    Buffer req, resp;
-    RecoverRpc::Request& reqHdr(allocHeader<RecoverRpc>(req));
-    reqHdr.masterId = masterId.getId();
-    reqHdr.partitionId = partitionId;
-    reqHdr.tabletsLength = serializeToResponse(req, tablets);
-    reqHdr.serverListLength = serializeToResponse(req, backups);
-    sendRecv<RecoverRpc>(session, req, resp);
-    checkStatus(HERE);
-}
-
 MasterClient::Recover::Recover(MasterClient& client,
                                ServerId masterId, uint64_t partitionId,
                                const ProtoBuf::Tablets& tablets,
-                               const char* backups, uint32_t backupsLen)
+                               const RecoverRpc::Replica* replicas,
+                               uint32_t numReplicas)
     : client(client)
     , requestBuffer()
     , responseBuffer()
@@ -246,8 +232,9 @@ MasterClient::Recover::Recover(MasterClient& client,
     reqHdr.masterId = masterId.getId();
     reqHdr.partitionId = partitionId;
     reqHdr.tabletsLength = serializeToResponse(requestBuffer, tablets);
-    reqHdr.serverListLength = backupsLen;
-    Buffer::Chunk::appendToBuffer(&requestBuffer, backups, backupsLen);
+    reqHdr.numReplicas = numReplicas;
+    Buffer::Chunk::appendToBuffer(&requestBuffer, replicas,
+                  downCast<uint32_t>(sizeof(replicas[0])) * numReplicas);
     state = client.send<RecoverRpc>(client.session,
                                     requestBuffer,
                                     responseBuffer);
@@ -263,9 +250,10 @@ MasterClient::Recover::operator()()
 void
 MasterClient::recover(ServerId masterId, uint64_t partitionId,
                       const ProtoBuf::Tablets& tablets,
-                      const char* backups, uint32_t backupsLen)
+                      const RecoverRpc::Replica* replicas,
+                      uint32_t numReplicas)
 {
-    Recover(*this, masterId, partitionId, tablets, backups, backupsLen)();
+    Recover(*this, masterId, partitionId, tablets, replicas, numReplicas)();
 }
 
 MasterClient::Read::Read(MasterClient& client,

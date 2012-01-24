@@ -214,13 +214,29 @@ struct RecoverRpc {
                                    // The bytes of the tablet map follow
                                    // immediately after this header. See
                                    // ProtoBuf::Tablets.
-        uint32_t serverListLength; // Number of bytes in the server list.
-                                   // The bytes of the server list follow
-                                   // after the bytes for the Tablets. See
-                                   // ProtoBuf::ServerList.
+        uint32_t numReplicas;      // Number of Replica entries in the replica
+                                   // list. The bytes of the replica list
+                                   // follow after the bytes for the Tablets.
+                                   // See Replica below.
     } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
+    } __attribute__((packed));
+    /**
+     * Where to find a replica for a particular segment.
+     */
+    struct Replica {
+        /**
+         * The backup storing the replica.
+         */
+        uint64_t backupId;
+        /**
+         * The ID of the segment.
+         */
+        uint64_t segmentId;
+        friend bool operator==(const Replica&, const Replica&);
+        friend bool operator!=(const Replica&, const Replica&);
+        friend std::ostream& operator<<(std::ostream& stream, const Replica&);
     } __attribute__((packed));
 };
 

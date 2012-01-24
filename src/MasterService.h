@@ -32,12 +32,10 @@
 
 namespace RAMCloud {
 
-#if TESTING
-void
-detectSegmentRecoveryFailure(const ServerId masterId,
-                             const uint64_t partitionId,
-                             const ProtoBuf::ServerList& backups);
-#endif
+// forward declaration
+namespace MasterServiceInternal {
+class RecoveryTask;
+}
 
 /**
  * An object of this class represents a RAMCloud server, which can
@@ -56,13 +54,36 @@ class MasterService : public Service {
     void dispatch(RpcOpcode opcode,
                   Rpc& rpc);
 
-    /**
-     * Used in detectSegmentRecoveryFailure() and MasterService::recover() to
-     * mark and check getRecoveryData() requests statuses.
-     */
-    enum { REC_REQ_NOT_STARTED, REC_REQ_WAITING, REC_REQ_FAILED, REC_REQ_OK };
-
   PRIVATE:
+
+    /**
+     * Represents a known segment replica during recovery and the state
+     * of fetching it from backups.
+     */
+    struct Replica {
+        enum class State {
+            NOT_STARTED = 0,
+            WAITING,
+            FAILED,
+            OK,
+        };
+        Replica(uint64_t backupId, uint64_t segmentId,
+                State state = State::NOT_STARTED);
+        /**
+         * The backup containing the replica.
+         */
+        ServerId backupId;
+        /**
+         * The segment ID for this replica.
+         */
+        uint64_t segmentId;
+        /**
+         * Used in recovery routines to keep track of the status of requesting
+         * the data from this replica.
+         */
+        State state;
+    };
+
     void create(const CreateRpc::Request& reqHdr,
                 CreateRpc::Response& respHdr,
                 Rpc& rpc);
@@ -85,7 +106,7 @@ class MasterService : public Service {
 
     void recover(ServerId masterId,
                  uint64_t partitionId,
-                 ProtoBuf::ServerList& backups);
+                 vector<Replica>& replicas);
 
     void remove(const RemoveRpc::Request& reqHdr,
                 RemoveRpc::Response& respHdr,
@@ -170,6 +191,12 @@ class MasterService : public Service {
     /* Tombstone cleanup method used after recovery. */
     void removeTombstones();
 
+    static void
+    detectSegmentRecoveryFailure(
+                        const ServerId masterId,
+                        const uint64_t partitionId,
+                        const vector<MasterService::Replica>& replicas);
+
     friend void recoveryCleanup(LogEntryHandle maybeTomb, void *cookie);
     friend bool objectLivenessCallback(LogEntryHandle handle, void* cookie);
     friend bool objectRelocationCallback(LogEntryHandle oldHandle,
@@ -192,6 +219,7 @@ class MasterService : public Service {
                      uint64_t* newVersion, bool async)
         __attribute__((warn_unused_result));
     friend class RecoverSegmentBenchmark;
+    friend class MasterServiceInternal::RecoveryTask;
     DISALLOW_COPY_AND_ASSIGN(MasterService);
 };
 

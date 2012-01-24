@@ -115,7 +115,7 @@ class Recovery : public BaseRecovery {
      * A mapping of segmentIds to backup host service locators.
      * Created from #hosts in createBackupList().
      */
-    ProtoBuf::ServerList replicaLocations;
+    vector<RecoverRpc::Replica> replicaLocations;
 
     /// The list of all masters.
     const CoordinatorServerList& serverList;

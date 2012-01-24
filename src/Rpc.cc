@@ -116,4 +116,34 @@ Rpc::opcodeSymbol(Buffer& buffer)
     return opcodeSymbol(header->opcode);
 }
 
+/**
+ * Equality for RecoverRpc::Replica, useful for unit tests.
+ */
+bool
+operator==(const RecoverRpc::Replica& a, const RecoverRpc::Replica& b)
+{
+    return (a.backupId == b.backupId &&
+            a.segmentId == b.segmentId);
+}
+
+/**
+ * Inequality for RecoverRpc::Replica, useful for unit tests.
+ */
+bool
+operator!=(const RecoverRpc::Replica& a, const RecoverRpc::Replica& b)
+{
+    return !(a == b);
+}
+
+/**
+ * String representation of RecoverRpc::Replica, useful for unit tests.
+ */
+std::ostream&
+operator<<(std::ostream& stream, const RecoverRpc::Replica& replica) {
+    stream << "Replica(backupId=" << replica.backupId
+           << ", segmentId=" << replica.segmentId
+           << ")";
+    return stream;
+}
+
 }  // namespace RAMCloud

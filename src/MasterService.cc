@@ -34,6 +34,26 @@
 
 namespace RAMCloud {
 
+// struct MasterService::Replica
+
+/**
+ * Constructor.
+ * \param backupId
+ *      See #backupId member.
+ * \param segmentId
+ *      See #segmentId member.
+ * \param state
+ *      See #state member. The default (NOT_STARTED) is usually what you want
+ *      here, but other values are allowed for testing.
+ */
+MasterService::Replica::Replica(uint64_t backupId, uint64_t segmentId,
+                                State state)
+    : backupId(backupId)
+    , segmentId(segmentId)
+    , state(state)
+{
+}
+
 // --- MasterService ---
 
 bool objectLivenessCallback(LogEntryHandle handle,
@@ -443,58 +463,59 @@ MasterService::removeTombstones()
 #endif
 }
 
-namespace {
+namespace MasterServiceInternal {
 /**
  * Each object of this class is responsible for fetching recovery data
- * for a single segment from a single backup.  This class is defined
- * in the anonymous namespace so it doesn't need to appear in the header
- * file.
+ * for a single segment from a single backup.
  */
-struct RecoveryTask {
-    RecoveryTask(ServerId masterId,
-         uint64_t partitionId,
-         ProtoBuf::ServerList::Entry& backupHost)
-        : masterId(masterId)
+class RecoveryTask {
+  PUBLIC:
+    RecoveryTask(ServerList& serverList,
+                 ServerId masterId,
+                 uint64_t partitionId,
+                 MasterService::Replica& replica)
+        : serverList(serverList)
+        , masterId(masterId)
         , partitionId(partitionId)
-        , backupHost(backupHost)
+        , replica(replica)
         , response()
-        , client(Context::get().transportManager->getSession(
-                    backupHost.service_locator().c_str()))
+        , client(serverList.getSession(replica.backupId))
         , startTime(Cycles::rdtsc())
         , rpc()
         , resendTime(0)
     {
-        rpc.construct(client, masterId, backupHost.segment_id(),
+        rpc.construct(client, masterId, replica.segmentId,
                       partitionId, response);
     }
     ~RecoveryTask()
     {
         if (rpc && !rpc->isReady()) {
             LOG(WARNING, "Task destroyed while RPC active: segment %lu, "
-                    "server %s", backupHost.segment_id(),
-                    backupHost.service_locator().c_str());
+                    "server %s", replica.segmentId,
+                    serverList.toString(replica.backupId).c_str());
         }
     }
     void resend() {
-        LOG(DEBUG, "Resend %lu", backupHost.segment_id());
+        LOG(DEBUG, "Resend %lu", replica.segmentId);
         response.reset();
-        rpc.construct(client, masterId, backupHost.segment_id(),
+        rpc.construct(client, masterId, replica.segmentId,
                       partitionId, response);
     }
+    ServerList& serverList;
     ServerId masterId;
     uint64_t partitionId;
-    ProtoBuf::ServerList::Entry& backupHost;
+    MasterService::Replica& replica;
     Buffer response;
     BackupClient client;
     const uint64_t startTime;
     Tub<BackupClient::GetRecoveryData> rpc;
-
     /// If we have to retry a request, this variable indicates the rdtsc time at
     /// which we should retry.  0 means we're not waiting for a retry.
     uint64_t resendTime;
     DISALLOW_COPY_AND_ASSIGN(RecoveryTask);
 };
-}
+} // namespace MasterServiceInternal
+using namespace MasterServiceInternal; // NOLINT
 
 /**
  * Look through \a backups and ensure that for each segment id that appears
@@ -506,29 +527,30 @@ struct RecoveryTask {
  * \param partitionId
  *      The id of the partition of the crashed master this recovery master is
  *      recovering. Only used for logging detailed log information on failure.
- * \param backups
- *      The list of backups which have statuses set in their user_data field
- *      to be checked to ensure recovery of this partition was successful.
+ * \param replicas
+ *      The list of replicas and their statuses to be checked to ensure
+ *      recovery of this partition was successful.
  * \throw SegmentRecoveryFailedException
  *      If some segment was not recovered and the recovery master is not
  *      a valid replacement for the crashed master.
  */
 void
-detectSegmentRecoveryFailure(const ServerId masterId,
-                             const uint64_t partitionId,
-                             const ProtoBuf::ServerList& backups)
+MasterService::detectSegmentRecoveryFailure(
+            const ServerId masterId,
+            const uint64_t partitionId,
+            const vector<MasterService::Replica>& replicas)
 {
     std::unordered_set<uint64_t> failures;
-    foreach (const auto& backup, backups.server()) {
-        switch (backup.user_data()) {
-        case MasterService::REC_REQ_OK:
-            failures.erase(backup.segment_id());
+    foreach (const auto& replica, replicas) {
+        switch (replica.state) {
+        case MasterService::Replica::State::OK:
+            failures.erase(replica.segmentId);
             break;
-        case MasterService::REC_REQ_FAILED:
-            failures.insert(backup.segment_id());
+        case MasterService::Replica::State::FAILED:
+            failures.insert(replica.segmentId);
             break;
-        case MasterService::REC_REQ_WAITING:
-        case MasterService::REC_REQ_NOT_STARTED:
+        case MasterService::Replica::State::WAITING:
+        case MasterService::Replica::State::NOT_STARTED:
         default:
             assert(false);
             break;
@@ -555,12 +577,10 @@ detectSegmentRecoveryFailure(const ServerId masterId,
  * \param partitionId
  *      The partition id of tablets inside the crashed master's will that
  *      this master is recovering.
- * \param backups
- *      A list of backup locators along with a segmentId specifying for each
- *      segmentId a backup who can provide a filtered recovery data segment.
- *      A particular segment may be listed more than once if it has multiple
- *      viable backups, hence a particular backup locator can also be listed
- *      many times.
+ * \param replicas
+ *      A list specifying for each segmentId a backup who can provide a
+ *      filtered recovery data segment. A particular segment may be listed more
+ *      than once if it has multiple viable backups.
  * \throw SegmentRecoveryFailedException
  *      If some segment was not recovered and the recovery master is not
  *      a valid replacement for the crashed master.
@@ -568,38 +588,37 @@ detectSegmentRecoveryFailure(const ServerId masterId,
 void
 MasterService::recover(ServerId masterId,
                        uint64_t partitionId,
-                       ProtoBuf::ServerList& backups)
+                       vector<Replica>& replicas)
 {
     /* Overview of the internals of this method and its structures.
      *
-     * The main data structure is "backups".  It works like a
+     * The main data structure is "replicas".  It works like a
      * scoreboard, tracking which segments have requests to backup
      * servers in-flight for data, which have been replayed, and
      * which have failed and must be replayed by another entry in
      * the table.
      *
-     * backupsEnd is an iterator to the end of the segment list
+     * replicasEnd is an iterator to the end of the segment replica list
      * which aids in tracking when the function is out of work.
      *
      * notStarted tracks the furtherest entry into the list which
-     * has not been requested from a backup yet (REC_REQ_NOT_STARTED).
+     * has not been requested from a backup yet (State::NOT_STARTED).
      *
-     * These statuses are all tracked in the "user_data" field of
-     * "backups".  Here is a sample of what the structure might
-     * look like during execution:
+     * Here is a sample of what the structure might look like
+     * during execution:
      *
-     * service_locator     segment_id  user_data
-     * ---------------     ----------  ---------
-     * 10.0.0.8,123        99          OK
-     * 10.0.0.3,123        88          FAILED
-     * 10.0.0.1,123        77          OK
-     * 10.0.0.2,123        77          OK
-     * 10.0.0.6,123        88          WAITING
-     * 10.0.0.2,123        66          NOT_STARTED  <- notStarted
-     * 10.0.0.3,123        55          WAITING
-     * 10.0.0.1,123        66          NOT_STARTED
-     * 10.0.0.7,123        66          NOT_STARTED
-     * 10.0.0.3,123        99          OK
+     * backupId     segmentId  state
+     * --------     ---------  -----
+     *   8            99       OK
+     *   3            88       FAILED
+     *   1            77       OK
+     *   2            77       OK
+     *   6            88       WAITING
+     *   2            66       NOT_STARTED  <- notStarted
+     *   3            55       WAITING
+     *   1            66       NOT_STARTED
+     *   7            66       NOT_STARTED
+     *   3            99       OK
      *
      * The basic idea is, the code kicks off up to some fixed
      * number worth of RPCs marking them WAITING starting from the
@@ -622,47 +641,50 @@ MasterService::recover(ServerId masterId,
      */
     uint64_t usefulTime = 0;
     uint64_t start = Cycles::rdtsc();
-    LOG(NOTICE, "Recovering master %lu, partition %lu, %u replicas available",
-        *masterId, partitionId, backups.server_size());
+    LOG(NOTICE, "Recovering master %lu, partition %lu, %lu replicas available",
+        *masterId, partitionId, replicas.size());
 
     std::unordered_set<uint64_t> runningSet;
-    foreach (auto& backup, *backups.mutable_server())
-        backup.set_user_data(REC_REQ_NOT_STARTED);
-
     Tub<RecoveryTask> tasks[4];
     uint32_t activeRequests = 0;
 
-    auto notStarted = backups.mutable_server()->begin();
-    auto backupsEnd = backups.mutable_server()->end();
+    auto notStarted = replicas.begin();
+    auto replicasEnd = replicas.end();
 
     // Start RPCs
-    auto backup = notStarted;
+    auto replicaIt = notStarted;
     foreach (auto& task, tasks) {
         while (!task) {
-            if (backup == backupsEnd)
+            if (replicaIt == replicasEnd)
                 goto doneStartingInitialTasks;
+            auto& replica = *replicaIt;
             LOG(DEBUG, "Starting getRecoveryData from %s for segment %lu "
                 "on channel %ld (initial round of RPCs)",
-                backup->service_locator().c_str(),
-                backup->segment_id(),
+                serverList.toString(replica.backupId).c_str(),
+                replica.segmentId,
                 &task - &tasks[0]);
             try {
-                task.construct(masterId, partitionId, *backup);
-                backup->set_user_data(REC_REQ_WAITING);
-                runningSet.insert(backup->segment_id());
+                task.construct(serverList, masterId, partitionId, replica);
+                replica.state = Replica::State::WAITING;
+                runningSet.insert(replica.segmentId);
                 ++metrics->master.segmentReadCount;
                 ++activeRequests;
             } catch (const TransportException& e) {
                 LOG(WARNING, "Couldn't contact %s, trying next backup; "
                     "failure was: %s",
-                    backup->service_locator().c_str(),
+                    serverList.toString(replica.backupId).c_str(),
                     e.str().c_str());
-                backup->set_user_data(REC_REQ_FAILED);
+                replica.state = Replica::State::FAILED;
+            } catch (const ServerListException& e) {
+                LOG(WARNING, "No record of backup ID %lu, trying next backup",
+                    replica.backupId.getId());
+                replica.state = Replica::State::FAILED;
             }
-            ++backup;
-            while (backup != backupsEnd &&
-                   contains(runningSet, backup->segment_id()))
-                ++backup;
+            ++replicaIt;
+            while (replicaIt != replicasEnd &&
+                   contains(runningSet, replicaIt->segmentId)) {
+                ++replicaIt;
+            }
         }
     }
   doneStartingInitialTasks:
@@ -672,10 +694,9 @@ MasterService::recover(ServerId masterId,
 
     bool gotFirstGRD = false;
 
-    std::unordered_multimap<uint64_t, ProtoBuf::ServerList::Entry*>
-        segmentIdToBackups;
-    foreach (auto& backup, *backups.mutable_server())
-        segmentIdToBackups.insert({backup.segment_id(), &backup});
+    std::unordered_multimap<uint64_t, Replica*> segmentIdToBackups;
+    foreach (Replica& replica, replicas)
+        segmentIdToBackups.insert({replica.segmentId, &replica});
 
     while (activeRequests) {
         if (!readStallTicks)
@@ -696,8 +717,8 @@ MasterService::recover(ServerId masterId,
                 continue;
             readStallTicks.destroy();
             LOG(DEBUG, "Waiting on recovery data for segment %lu from %s",
-                task->backupHost.segment_id(),
-                task->backupHost.service_locator().c_str());
+                task->replica.segmentId,
+                serverList.toString(task->replica.backupId).c_str());
             try {
                 (*task->rpc)();
                 uint64_t grdTime = Cycles::rdtsc() - task->startTime;
@@ -710,33 +731,33 @@ MasterService::recover(ServerId masterId,
                 }
                 LOG(DEBUG, "Got getRecoveryData response from %s, took %.1f us "
                     "on channel %ld",
-                    task->backupHost.service_locator().c_str(),
+                    serverList.toString(task->replica.backupId).c_str(),
                     Cycles::toSeconds(grdTime)*1e06,
                     &task - &tasks[0]);
 
                 uint32_t responseLen = task->response.getTotalLength();
                 metrics->master.segmentReadByteCount += responseLen;
                 LOG(DEBUG, "Recovering segment %lu with size %u",
-                    task->backupHost.segment_id(), responseLen);
+                    task->replica.segmentId, responseLen);
                 uint64_t startUseful = Cycles::rdtsc();
-                recoverSegment(task->backupHost.segment_id(),
+                recoverSegment(task->replica.segmentId,
                                task->response.getRange(0, responseLen),
                                responseLen);
                 usefulTime += Cycles::rdtsc() - startUseful;
 
-                runningSet.erase(task->backupHost.segment_id());
+                runningSet.erase(task->replica.segmentId);
                 // Mark this and any other entries for this segment as OK.
                 LOG(DEBUG, "Checking %s off the list for %lu",
-                    task->backupHost.service_locator().c_str(),
-                    task->backupHost.segment_id());
-                task->backupHost.set_user_data(REC_REQ_OK);
-                auto its = segmentIdToBackups.equal_range(
-                    task->backupHost.segment_id());
-                for (auto it = its.first; it != its.second; ++it) {
+                    serverList.toString(task->replica.backupId).c_str(),
+                    task->replica.segmentId);
+                task->replica.state = Replica::State::OK;
+                foreach (auto it, segmentIdToBackups.equal_range(
+                                        task->replica.segmentId)) {
+                    Replica& otherReplica = *it.second;
                     LOG(DEBUG, "Checking %s off the list for %lu",
-                        it->second->service_locator().c_str(),
-                        it->second->segment_id());
-                    it->second->set_user_data(REC_REQ_OK);
+                        serverList.toString(otherReplica.backupId).c_str(),
+                        otherReplica.segmentId);
+                    otherReplica.state = Replica::State::OK;
                 }
             } catch (const RetryException& e) {
                 // The backup isn't ready yet, try back in 1 ms.
@@ -746,53 +767,60 @@ MasterService::recover(ServerId masterId,
             } catch (const TransportException& e) {
                 LOG(WARNING, "Couldn't contact %s for segment %lu, "
                     "trying next backup; failure was: %s",
-                    task->backupHost.service_locator().c_str(),
-                    task->backupHost.segment_id(),
+                    serverList.toString(task->replica.backupId).c_str(),
+                    task->replica.segmentId,
                     e.str().c_str());
-                task->backupHost.set_user_data(REC_REQ_FAILED);
-                runningSet.erase(task->backupHost.segment_id());
+                task->replica.state = Replica::State::FAILED;
+                runningSet.erase(task->replica.segmentId);
             } catch (const ClientException& e) {
                 LOG(WARNING, "getRecoveryData failed on %s, "
                     "trying next backup; failure was: %s",
-                    task->backupHost.service_locator().c_str(),
+                    serverList.toString(task->replica.backupId).c_str(),
                     e.str().c_str());
-                task->backupHost.set_user_data(REC_REQ_FAILED);
-                runningSet.erase(task->backupHost.segment_id());
+                task->replica.state = Replica::State::FAILED;
+                runningSet.erase(task->replica.segmentId);
             }
 
             task.destroy();
 
             // move notStarted up as far as possible
-            while (notStarted != backupsEnd &&
-                   (notStarted->user_data() != REC_REQ_NOT_STARTED))
+            while (notStarted != replicasEnd &&
+                   notStarted->state != Replica::State::NOT_STARTED) {
                 ++notStarted;
+            }
 
             // Find the next NOT_STARTED entry that isn't in-flight
             // from another entry.
-            auto backup = notStarted;
-            while (!task && backup != backupsEnd) {
-                while (backup->user_data() != REC_REQ_NOT_STARTED ||
-                       contains(runningSet, backup->segment_id())) {
-                    ++backup;
-                    if (backup == backupsEnd)
+            auto replicaIt = notStarted;
+            while (!task && replicaIt != replicasEnd) {
+                while (replicaIt->state != Replica::State::NOT_STARTED ||
+                       contains(runningSet, replicaIt->segmentId)) {
+                    ++replicaIt;
+                    if (replicaIt == replicasEnd)
                         goto outOfHosts;
                 }
+                Replica& replica = *replicaIt;
                 LOG(DEBUG, "Starting getRecoveryData from %s for segment %lu "
                     "on channel %ld (after RPC completion)",
-                    backup->service_locator().c_str(),
-                    backup->segment_id(),
+                    serverList.toString(replica.backupId).c_str(),
+                    replica.segmentId,
                     &task - &tasks[0]);
                 try {
-                    task.construct(masterId, partitionId, *backup);
-                    backup->set_user_data(REC_REQ_WAITING);
-                    runningSet.insert(backup->segment_id());
+                    task.construct(serverList, masterId, partitionId, replica);
+                    replica.state = Replica::State::WAITING;
+                    runningSet.insert(replica.segmentId);
                     ++metrics->master.segmentReadCount;
                 } catch (const TransportException& e) {
                     LOG(WARNING, "Couldn't contact %s, trying next backup; "
                         "failure was: %s",
-                        backup->service_locator().c_str(),
+                        serverList.toString(replica.backupId).c_str(),
                         e.str().c_str());
-                    backup->set_user_data(REC_REQ_FAILED);
+                    replica.state = Replica::State::FAILED;
+                } catch (const ServerListException& e) {
+                    LOG(WARNING, "No record of backup ID %lu, "
+                        "trying next backup",
+                        replica.backupId.getId());
+                    replica.state = Replica::State::FAILED;
                 }
             }
           outOfHosts:
@@ -802,7 +830,7 @@ MasterService::recover(ServerId masterId,
     }
     readStallTicks.destroy();
 
-    detectSegmentRecoveryFailure(masterId, partitionId, backups);
+    detectSegmentRecoveryFailure(masterId, partitionId, replicas);
 
     {
         CycleCounter<RawMetric> logSyncTicks(&metrics->master.logSyncTicks);
@@ -842,12 +870,19 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
     ProtoBuf::Tablets recoveryTablets;
     ProtoBuf::parseFromResponse(rpc.requestPayload, sizeof(reqHdr),
                                 reqHdr.tabletsLength, recoveryTablets);
-    ProtoBuf::ServerList backups;
-    ProtoBuf::parseFromResponse(rpc.requestPayload,
-                                downCast<uint32_t>(sizeof(reqHdr)) +
-                                reqHdr.tabletsLength,
-                                reqHdr.serverListLength,
-                                backups);
+
+    uint32_t offset = (downCast<uint32_t>(sizeof(reqHdr)) +
+                       reqHdr.tabletsLength);
+    vector<Replica> replicas;
+    replicas.reserve(reqHdr.numReplicas);
+    for (uint32_t i = 0; i < reqHdr.numReplicas; ++i) {
+        const RecoverRpc::Replica* replicaLocation =
+            rpc.requestPayload.getOffset<RecoverRpc::Replica>(offset);
+        offset += downCast<uint32_t>(sizeof(RecoverRpc::Replica));
+        Replica replica(replicaLocation->backupId,
+                        replicaLocation->segmentId);
+        replicas.push_back(replica);
+    }
     LOG(DEBUG, "Starting recovery of %u tablets on masterId %lu",
         recoveryTablets.tablet_size(), serverId->getId());
     rpc.sendReply();
@@ -861,7 +896,7 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
     setTablets(newTablets);
 
     // Recover Segments, firing MasterService::recoverSegment for each one.
-    recover(masterId, partitionId, backups);
+    recover(masterId, partitionId, replicas);
 
     // Free recovery tombstones left in the hash table.
     removeTombstones();

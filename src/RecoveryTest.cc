@@ -52,6 +52,9 @@ class RecoveryTest : public ::testing::Test {
             , segMem()
             , seg()
         {
+            // TODO(ongaro): Jesus, this is the moral equivalent of linking
+            // with libhphp.a.
+
             mgr = new ReplicaManager(NULL, masterIdTub,
                                      downCast<uint32_t>(locators.size()));
             uint64_t backupId = 1;
@@ -117,7 +120,7 @@ class RecoveryTest : public ::testing::Test {
         cluster.construct();
 
         ServerConfig config = ServerConfig::forTesting();
-        config.services = {BACKUP_SERVICE};
+        config.services = {BACKUP_SERVICE, MEMBERSHIP_SERVICE};
         config.backup.numSegmentFrames = 3;
         config.backup.segmentSize = segmentSize;
         config.localLocator = "mock:host=backup1";
@@ -162,28 +165,12 @@ TEST_F(RecoveryTest, buildSegmentIdToBackups) {
 
     ProtoBuf::Tablets tablets;
     Recovery recovery(ServerId(99), tablets, *serverList);
-
-    auto expectedMask = ServiceMask{BACKUP_SERVICE}.serialize();
-    ASSERT_EQ(3, recovery.replicaLocations.server_size());
-    {
-        const ProtoBuf::ServerList::Entry&
-            backup(recovery.replicaLocations.server(0));
-        EXPECT_EQ(89U, backup.segment_id());
-        EXPECT_EQ("mock:host=backup1", backup.service_locator());
-        EXPECT_EQ(expectedMask, backup.service_mask());
-    }{
-        const ProtoBuf::ServerList::Entry&
-            backup(recovery.replicaLocations.server(1));
-        EXPECT_EQ(88U, backup.segment_id());
-        EXPECT_EQ("mock:host=backup2", backup.service_locator());
-        EXPECT_EQ(expectedMask, backup.service_mask());
-    }{
-        const ProtoBuf::ServerList::Entry&
-            backup(recovery.replicaLocations.server(2));
-        EXPECT_EQ(88U, backup.segment_id());
-        EXPECT_EQ("mock:host=backup1", backup.service_locator());
-        EXPECT_EQ(expectedMask, backup.service_mask());
-    }
+    EXPECT_EQ((vector<RecoverRpc::Replica> {
+                    { 1, 89 },
+                    { 2, 88 },
+                    { 1, 88 },
+               }),
+              recovery.replicaLocations);
 }
 
 TEST_F(RecoveryTest, buildSegmentIdToBackups_secondariesEarlyInSomeList) {
@@ -207,22 +194,17 @@ TEST_F(RecoveryTest, buildSegmentIdToBackups_secondariesEarlyInSomeList) {
     // from showing up before any primary in the list.
     segmentsToFree.push_back(
         new WriteValidSegment(ServerId(99, 0), 90, { 88, 89, 90 }, segmentSize,
-            {"mock:host=backup1"}, false));
+            {"mock:host=backup1"}, true));
     segmentsToFree.push_back(
         new WriteValidSegment(ServerId(99, 0), 91, { 88, 89, 90, 91 },
-            segmentSize, {"mock:host=backup2", "mock:host=backup3"}, true));
+            segmentSize, {"mock:host=backup2", "mock:host=backup3"}, false));
 
     ProtoBuf::Tablets tablets;
     Recovery recovery(ServerId(99), tablets, *serverList);
 
-    EXPECT_EQ(4, recovery.replicaLocations.server_size());
-    bool sawSecondary = false;
-    foreach (const auto& backup, recovery.replicaLocations.server()) {
-        if (!backup.user_data())
-            sawSecondary = true;
-        else
-            EXPECT_FALSE(sawSecondary);
-    }
+    EXPECT_EQ(6U, recovery.replicaLocations.size());
+    // The secondary of segment 91 must be last in the list.
+    EXPECT_EQ(91U, recovery.replicaLocations.at(5).segmentId);
 }
 
 static bool
@@ -303,7 +285,7 @@ TEST_F(RecoveryTest, start) {
     // Zero segs on backup3
 
     ServerConfig config = ServerConfig::forTesting();
-    config.services = {MASTER_SERVICE};
+    config.services = {MASTER_SERVICE, MEMBERSHIP_SERVICE};
     config.localLocator = "mock:host=master1";
     cluster->addServer(config);
     config.localLocator = "mock:host=master2";
