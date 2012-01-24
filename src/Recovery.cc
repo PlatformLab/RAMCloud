@@ -156,6 +156,25 @@ struct BackupEndTask {
     DISALLOW_COPY_AND_ASSIGN(BackupEndTask);
 };
 
+/**
+ * Used in buildSegmentIdToBackups() to sort replicas by the expected time when
+ * they will be ready.
+ */
+struct ReplicaAndLoadTime {
+    RecoverRpc::Replica replica;
+    uint64_t expectedLoadTimeMs;
+};
+
+/**
+ * Used in buildSegmentIdToBackups() to sort replicas by the expected time when
+ * they will be ready.
+ */
+bool
+expectedLoadCmp(const ReplicaAndLoadTime& l, const ReplicaAndLoadTime& r)
+{
+    return l.expectedLoadTimeMs < r.expectedLoadTimeMs;
+}
+
 } // RecoveryInternal namespace
 using namespace RecoveryInternal; // NOLINT
 
@@ -248,13 +267,6 @@ Recovery::Recovery(ServerId masterId,
 Recovery::~Recovery()
 {
     recoveryTicks.stop();
-}
-
-bool
-expectedLoadCmp(const ProtoBuf::ServerList::Entry& l,
-                const ProtoBuf::ServerList::Entry& r)
-{
-    return l.user_data() < r.user_data();
 }
 
 /**
@@ -370,12 +382,11 @@ Recovery::buildSegmentIdToBackups()
         }
     }
 
-    // Create the ServerList 'script' that recovery masters will replay.
+    // Create the script that recovery masters will replay.
     // First add all primaries to the list, then all secondaries.
     // Order primaries (and even secondaries among themselves anyway) based
     // on when they are expected to be loaded in from disk.
-    // TODO(ongaro): Stop using a protobuf here.
-    vector<ProtoBuf::ServerList::Entry> backupsToSort;
+    vector<ReplicaAndLoadTime> replicasToSort;
     for (uint32_t nextBackupIndex = 0, taskIndex = 0;
          taskIndex < numBackups;
          nextBackupIndex++, taskIndex++) {
@@ -383,7 +394,8 @@ Recovery::buildSegmentIdToBackups()
         assert(nextBackupIndex != (uint32_t)-1);
 
         const auto& task = backupStartTasks[taskIndex];
-        const auto* backup = serverList[nextBackupIndex];
+        const CoordinatorServerList::Entry* backup =
+            serverList[nextBackupIndex];
         const uint64_t speed = backup->backupReadMegsPerSecond;
 
         LOG(DEBUG, "Adding %lu segment replicas from %s "
@@ -408,11 +420,9 @@ Recovery::buildSegmentIdToBackups()
             uint32_t segmentLen = task->result.segmentIdAndLength[i].second;
             if (segmentId < headId ||
                 (segmentId == headId && segmentLen == headLen)) {
-                ProtoBuf::ServerList::Entry newEntry;
-                backup->serialise(newEntry, true);
-                newEntry.set_user_data(expectedLoadTimeMs);
-                newEntry.set_segment_id(segmentId);
-                backupsToSort.push_back(newEntry);
+                ReplicaAndLoadTime r {{ backup->serverId.getId(), segmentId },
+                                      expectedLoadTimeMs};
+                replicasToSort.push_back(r);
             } else {
                 const char* why;
                 if (segmentId == headId && segmentLen < headLen) {
@@ -431,15 +441,14 @@ Recovery::buildSegmentIdToBackups()
             }
         }
     }
-    std::sort(backupsToSort.begin(), backupsToSort.end(), expectedLoadCmp);
-    foreach(const auto& backup, backupsToSort) {
-        LOG(DEBUG, "Load segment %lu from %s with expected load time of %lu",
-            backup.segment_id(), backup.service_locator().c_str(),
-            backup.user_data());
-        RecoverRpc::Replica replica;
-        replica.backupId = backup.server_id();
-        replica.segmentId = backup.segment_id();
-        replicaLocations.push_back(replica);
+    std::sort(replicasToSort.begin(), replicasToSort.end(), expectedLoadCmp);
+    foreach(const auto& sortedReplica, replicasToSort) {
+        LOG(DEBUG, "Load segment %lu replica from backup %lu "
+            "with expected load time of %lu ms",
+            sortedReplica.replica.segmentId,
+            sortedReplica.replica.backupId,
+            sortedReplica.expectedLoadTimeMs);
+        replicaLocations.push_back(sortedReplica.replica);
     }
 }
 
