@@ -298,8 +298,14 @@ Log::multiAppend(LogMultiAppendVector& appends, bool sync)
             // If we couldn't fit in the old head and allocated a new one and
             // still cannot fit, then the request is simply too big.
             if (allocatedHead) {
-                throw LogException(HERE, "WARNING: multiAppend simply won't "
-                    "fit: object(s) too large");
+                uint32_t appendSize = 0;
+                for (size_t i = 0; i < appends.size(); i++)
+                    appendSize += appends[i].length;
+                throw LogException(HERE,
+                   format("WARNING: multiAppend of length %u simply won't "
+                          "fit in segment of size %u: object(s) too large",
+                          appendSize,
+                          maximumBytesPerAppend));
             }
 
             // allocateHead could throw if we're low on segments (we need to
