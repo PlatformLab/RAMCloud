@@ -16,11 +16,11 @@
 #ifndef RAMCLOUD_REPLICAMANAGER_H
 #define RAMCLOUD_REPLICAMANAGER_H
 
-#include <thread>
 #include <unordered_map>
 #include <boost/pool/pool.hpp>
 
 #include "Common.h"
+#include "BackupFailureMonitor.h"
 #include "BoostIntrusive.h"
 #include "BackupSelector.h"
 #include "ReplicatedSegment.h"
@@ -57,7 +57,7 @@ namespace RAMCloud {
 class ReplicaManager
     : public ReplicatedSegment::Deleter
 {
-   PUBLIC:
+  PUBLIC:
     ReplicaManager(ServerList& serverList,
                    const ServerId& masterId, uint32_t numReplicas);
     ~ReplicaManager();
@@ -70,8 +70,18 @@ class ReplicaManager
     /// Number replicas to keep of each segment.
     const uint32_t numReplicas;
 
+    void handleBackupFailure(ServerId serverId);
+
   PRIVATE:
-    void clusterConfigurationChanged();
+
+    /**
+     * Waits for backup failure notifications from the Server's main ServerList
+     * and informs this ReplicaManager which takes corrective actions.  Runs in
+     * a separate thread in order to provide immediate response to failures and
+     * to provide a context for potentially long-running corrective actions even
+     * while the master is otherwise idle.
+     */
+    BackupFailureMonitor failureMonitor;
 
     /**
      * A ServerTracker used to find backups and track replica distribution

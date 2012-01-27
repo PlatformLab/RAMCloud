@@ -40,6 +40,7 @@ ReplicaManager::ReplicaManager(ServerList& serverList,
                                const ServerId& masterId,
                                uint32_t numReplicas)
     : numReplicas(numReplicas)
+    , failureMonitor(serverList, this)
     , tracker(serverList)
     , backupSelector(tracker)
     , dataMutex()
@@ -49,6 +50,7 @@ ReplicaManager::ReplicaManager(ServerList& serverList,
     , taskManager()
     , writeRpcsInFlight(0)
 {
+    failureMonitor.start();
 }
 
 /**
@@ -58,6 +60,8 @@ ReplicaManager::ReplicaManager(ServerList& serverList,
  */
 ReplicaManager::~ReplicaManager()
 {
+    failureMonitor.halt();
+
     Lock lock(dataMutex);
 
     foreach (auto& segment, replicatedSegmentList)
@@ -154,14 +158,17 @@ ReplicaManager::proceed()
  * needed to restore durablity guarantees.  One call is sufficient since tasks
  * reschedule themselves until all guarantees are restored.  This method will
  * be superceded by its pending integration with the ServerTracker.
+ *
+ * \param id
+ *      ServerId of the backup which has failed.
  */
 void
-ReplicaManager::clusterConfigurationChanged()
+ReplicaManager::handleBackupFailure(ServerId id)
 {
     Lock _(dataMutex);
-    foreach (auto& segment, replicatedSegmentList)
-        segment.schedule();
+    LOG(ERROR, "Deal with backup failures: serverId %lu", id.getId());
 }
+
 
 /**
  * Only used by ReplicatedSegment and ~ReplicaManager.

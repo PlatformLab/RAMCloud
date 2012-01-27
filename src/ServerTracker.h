@@ -27,7 +27,6 @@
 #include "Common.h"
 #include "ServerId.h"
 #include "ServerList.h"
-#include "ShortMacros.h"
 #include "SpinLock.h"
 #include "Tub.h"
 #include "TransportManager.h"
@@ -270,7 +269,8 @@ class ServerTracker : public ServerTrackerInterface {
                 // If this trips, then you're not clearing the pointer you
                 // stored with the last ServerId that was removed. This
                 // exists solely to ensure that you aren't leaking anything.
-                LOG(WARNING, "User of this ServerTracker did not NULL out "
+                RAMCLOUD_LOG(WARNING,
+                    "User of this ServerTracker did not NULL out "
                     "previous pointer for index %u (ServerId %lu)!",
                     lastRemovedIndex,
                     serverList[lastRemovedIndex].server.serverId.getId());
@@ -350,7 +350,8 @@ class ServerTracker : public ServerTrackerInterface {
                     serverList[i].server.services.has(service))
                     return serverList[i].server.serverId;
             }
-            LOG(WARNING, "Couldn't randomly find a suitable server with "
+            RAMCLOUD_LOG(WARNING,
+                         "Couldn't randomly find a suitable server with "
                          "requested services; perhaps the will ServerList "
                          "get updated with new server entries, "
                          "or perhaps you might have just been unlucky, "

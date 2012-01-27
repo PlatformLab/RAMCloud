@@ -31,6 +31,7 @@ SHARED_SRCFILES := \
 		   src/CoordinatorServerList.cc \
 		   src/Crc32C.cc \
 		   src/BackupClient.cc \
+		   src/BackupFailureMonitor.cc \
 		   src/BackupSelector.cc \
 		   src/Buffer.cc \
 		   src/ClientException.cc \

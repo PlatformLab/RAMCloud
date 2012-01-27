@@ -13,6 +13,7 @@ endif
 
 TESTS_SRCFILES := \
 		  src/AtomicIntTest.cc \
+		  src/BackupFailureMonitorTest.cc \
 		  src/BackupSelectorTest.cc \
 		  src/BackupServiceTest.cc \
 		  src/BackupStorageTest.cc \

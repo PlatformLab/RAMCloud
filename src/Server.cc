@@ -16,6 +16,7 @@
 #include "BindTransport.h"
 #include "Server.h"
 #include "ServiceManager.h"
+#include "ShortMacros.h"
 
 namespace RAMCloud {
 

@@ -17,6 +17,7 @@
 #include "TestLog.h"
 #include "ServerList.h"
 #include "ServerTracker.h"
+#include "ShortMacros.h"
 
 namespace RAMCloud {
 
