@@ -103,7 +103,7 @@ class BackupServiceTest : public ::testing::Test {
         SegmentHeader header;
         header.logId = *masterId;
         header.segmentId = segmentId;
-        header.segmentCapacity = config.backup.segmentSize;
+        header.segmentCapacity = config.segmentSize;
         return writeEntry(masterId, segmentId, LOG_ENTRY_TYPE_SEGHEADER, 0,
                           &header, sizeof(header));
     }
@@ -429,7 +429,8 @@ TEST_F(BackupServiceTest, recoverySegmentBuilder) {
     BackupService::RecoverySegmentBuilder builder(Context::get(),
                                                   toBuild,
                                                   partitions,
-                                                  recoveryThreadCount);
+                                                  recoveryThreadCount,
+                                                  config.segmentSize);
     builder();
 
     EXPECT_EQ(BackupService::SegmentInfo::RECOVERING,

@@ -16,7 +16,7 @@
 #ifndef RAMCLOUD_BACKUPSTORAGE_H
 #define RAMCLOUD_BACKUPSTORAGE_H
 
-#include <aio.h>
+#include <unistd.h>
 
 #include <boost/pool/pool.hpp>
 #include <boost/dynamic_bitset.hpp>

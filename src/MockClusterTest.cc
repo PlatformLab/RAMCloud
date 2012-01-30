@@ -99,7 +99,7 @@ TEST_F(MockClusterTest, benchMasterCreate) {
 }
 
 TEST_F(MockClusterTest, benchTinyMasterCreate) {
-    config.master.logBytes = config.backup.segmentSize;
+    config.master.logBytes = config.segmentSize;
     config.master.hashTableBytes = 1 * 1024;
     config.services = {MASTER_SERVICE};
     for (int i = 0; i < its; ++i)

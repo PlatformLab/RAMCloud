@@ -49,6 +49,8 @@ struct ServerConfig {
                    MEMBERSHIP_SERVICE}
         , detectFailures(false)
         , pinMemory(false)
+        , segmentSize(64 * 1024)
+        , maxObjectSize(segmentSize / 4)
         , master(testing)
         , backup(testing)
     {}
@@ -66,6 +68,8 @@ struct ServerConfig {
                    PING_SERVICE, MEMBERSHIP_SERVICE}
         , detectFailures(true)
         , pinMemory(true)
+        , segmentSize(Segment::SEGMENT_SIZE)
+        , maxObjectSize(segmentSize / 8)
         , master()
         , backup()
     {}
@@ -114,6 +118,20 @@ struct ServerConfig {
      * to skip it for unit tests.
      */
     bool pinMemory;
+
+    /**
+     * Size of segment in the master log and of  replicas which will be stored
+     * on the backup.  Using small segmentSize (~64 KB) improves unit testing
+     * time substantially.
+     */
+    uint32_t segmentSize;
+
+    /**
+     * Largest allowable RAMCloud object, in bytes.  It's not clear whether
+     * we will always need a size limit, or what the limit should be. For now
+     * this guarantees that an object will fit inside a single rpc and segment.
+     */
+    uint32_t maxObjectSize;
 
     /**
      * Configuration details specific to the MasterService on a server,
@@ -168,7 +186,6 @@ struct ServerConfig {
         Backup(Testing) // NOLINT
             : inMemory(true)
             , numSegmentFrames(4)
-            , segmentSize(64 * 1024)
             , file()
             , strategy(1)
             , mockSpeed(100)
@@ -182,7 +199,6 @@ struct ServerConfig {
         Backup()
             : inMemory(false)
             , numSegmentFrames(512)
-            , segmentSize(Segment::SEGMENT_SIZE)
             , file("/var/tmp/backup.log")
             , strategy(1)
             , mockSpeed(0)
@@ -196,17 +212,6 @@ struct ServerConfig {
          * backing store.
          */
         uint32_t numSegmentFrames;
-
-        /**
-         * Size of segment replicas which will be stored on the backup.
-         * TODO(stutsman): This is actually a bug.  Right now the master and
-         * backup services don't share the segment size because the master
-         * service has some constants baked in.  We need to clean that up
-         * and move segmentSize up one level in the config struct so
-         * that masters and backups are in agreement.  This could also
-         * help us speed up master creation in unit tests.
-         */
-        uint32_t segmentSize;
 
         /// Path to a file to use for the backing store if inMemory is false.
         string file;

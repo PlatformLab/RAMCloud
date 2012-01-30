@@ -32,6 +32,7 @@ class MasterServiceTest : public ::testing::Test {
     ServerConfig backup1Config;
     ServerId backup1Id;
 
+    ServerConfig masterConfig;
     MasterService* service;
     std::unique_ptr<MasterClient> client;
     CoordinatorClient* coordinator;
@@ -44,6 +45,7 @@ class MasterServiceTest : public ::testing::Test {
         : cluster()
         , backup1Config(ServerConfig::forTesting())
         , backup1Id()
+        , masterConfig(ServerConfig::forTesting())
         , service()
         , client()
         , coordinator()
@@ -54,7 +56,7 @@ class MasterServiceTest : public ::testing::Test {
 
         backup1Config.localLocator = "mock:host=backup1";
         backup1Config.services = {BACKUP_SERVICE, MEMBERSHIP_SERVICE};
-        backup1Config.backup.segmentSize = segmentSize;
+        backup1Config.segmentSize = segmentSize;
         backup1Config.backup.numSegmentFrames = 2;
         backup1Id = cluster.addServer(backup1Config)->serverId;
 
@@ -314,7 +316,7 @@ TEST_F(MasterServiceTest, detectSegmentRecoveryFailure_failure) {
 }
 
 TEST_F(MasterServiceTest, recover_basics) {
-    const uint32_t segmentSize = backup1Config.backup.segmentSize;
+    const uint32_t segmentSize = backup1Config.segmentSize;
     char* segMem =
         static_cast<char*>(Memory::xmemalign(HERE, segmentSize, segmentSize));
     ServerId serverId(123, 0);
@@ -404,7 +406,7 @@ TEST_F(MasterServiceTest, recover_basics) {
   *    during initial RPC starts and following ones.
   */
 TEST_F(MasterServiceTest, recover) {
-    const uint32_t segmentSize = backup1Config.backup.segmentSize;
+    const uint32_t segmentSize = backup1Config.segmentSize;
     char* segMem =
         static_cast<char*>(Memory::xmemalign(HERE, segmentSize, segmentSize));
     ServerId serverId(123, 0);
@@ -904,18 +906,18 @@ class MasterServiceFullSegmentSizeTest : public MasterServiceTest {
 };
 
 TEST_F(MasterServiceFullSegmentSizeTest, write_maximumObjectSize) {
-    char* buf = new char[MAX_OBJECT_SIZE+1];
+    char* buf = new char[masterConfig.maxObjectSize + 1];
 
     // should fail
-    EXPECT_THROW(client->create(0, buf, MAX_OBJECT_SIZE+1),
+    EXPECT_THROW(client->create(0, buf, masterConfig.maxObjectSize + 1),
         LogException);
 
     // creation should succeed
     uint64_t objId;
-    EXPECT_NO_THROW(objId = client->create(0, buf, MAX_OBJECT_SIZE));
+    EXPECT_NO_THROW(objId = client->create(0, buf, masterConfig.maxObjectSize));
 
     // overwrite should also succeed
-    EXPECT_NO_THROW(client->write(0, objId, buf, MAX_OBJECT_SIZE));
+    EXPECT_NO_THROW(client->write(0, objId, buf, masterConfig.maxObjectSize));
 
     delete[] buf;
 }
@@ -947,7 +949,7 @@ class MasterRecoverTest : public ::testing::Test {
         ServerConfig config = ServerConfig::forTesting();
         config.localLocator = "mock:host=backup1";
         config.services = {BACKUP_SERVICE, MEMBERSHIP_SERVICE};
-        config.backup.segmentSize = segmentSize;
+        config.segmentSize = segmentSize;
         config.backup.numSegmentFrames = segmentFrames;
         backup1Id = cluster->addServer(config)->serverId;
 

@@ -450,7 +450,8 @@ class BackupService : public Service {
         RecoverySegmentBuilder(Context& context,
                                const vector<SegmentInfo*>& infos,
                                const ProtoBuf::Tablets& partitions,
-                               AtomicInt& recoveryThreadCount);
+                               AtomicInt& recoveryThreadCount,
+                               uint32_t segmentSize);
         void operator()();
 
       private:
@@ -471,6 +472,9 @@ class BackupService : public Service {
         const ProtoBuf::Tablets partitions;
 
         AtomicInt& recoveryThreadCount;
+
+        /// The uniform size of each segment this backup deals with.
+        const uint32_t segmentSize;
     };
 
   public:

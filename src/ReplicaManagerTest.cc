@@ -40,7 +40,7 @@ struct ReplicaManagerTest : public ::testing::Test {
 
         ServerConfig config = ServerConfig::forTesting();
         config.services = {BACKUP_SERVICE, MEMBERSHIP_SERVICE};
-        config.backup.segmentSize = segmentSize;
+        config.segmentSize = segmentSize;
         config.backup.numSegmentFrames = 4;
         config.localLocator = "mock:host=backup1";
         addToServerList(cluster.addServer(config));

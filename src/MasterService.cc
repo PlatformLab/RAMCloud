@@ -96,8 +96,8 @@ MasterService::MasterService(const ServerConfig& config,
     , bytesWritten(0)
     , log(serverId,
           config.master.logBytes,
-          Segment::SEGMENT_SIZE,
-          sizeof(Object) + MAX_OBJECT_SIZE,
+          config.segmentSize,
+          downCast<uint32_t>(sizeof(Object)) + config.maxObjectSize,
           &replicaManager,
           config.master.disableLogCleaner ? Log::CLEANER_DISABLED :
                                             Log::CONCURRENT_CLEANER)

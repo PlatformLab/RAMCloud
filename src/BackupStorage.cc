@@ -43,8 +43,8 @@ BackupStorage::benchmark(BackupStrategy backupStrategy)
     BackupStorage::Handle* handles[count];
 
     void* p = Memory::xmemalign(HERE,
-                                Segment::SEGMENT_SIZE,
-                                Segment::SEGMENT_SIZE);
+                                segmentSize,
+                                segmentSize);
     char* segment = static_cast<char*>(p);
 
     try {
@@ -63,7 +63,7 @@ BackupStorage::benchmark(BackupStrategy backupStrategy)
             getSegment(handles[i], segment);
             uint64_t ns = Cycles::toNanoseconds(counter.stop());
             readSpeeds[i] = downCast<uint32_t>(
-                                Segment::SEGMENT_SIZE * 1000UL * 1000 * 1000 /
+                                segmentSize * 1000UL * 1000 * 1000 /
                                 (1 << 20) / ns);
         }
     } catch (...) {

@@ -25,7 +25,6 @@
 #include "LogTypes.h"
 #include "RecoverySegmentIterator.h"
 #include "Rpc.h"
-#include "Segment.h"
 #include "ServerConfig.h"
 #include "SegmentIterator.h"
 #include "Status.h"
@@ -783,16 +782,20 @@ BackupService::IoScheduler::doStore(SegmentInfo& info) const
  *      The partitions among which the segment should be split for recovery.
  * \param recoveryThreadCount
  *      Reference to an atomic count for tracking number of running recoveries.
+ * \param segmentSize
+ *      The size of segments stored on masters and in the backup's storage.
  */
 BackupService::RecoverySegmentBuilder::RecoverySegmentBuilder(
         Context& context,
         const vector<SegmentInfo*>& infos,
         const ProtoBuf::Tablets& partitions,
-        AtomicInt& recoveryThreadCount)
+        AtomicInt& recoveryThreadCount,
+        uint32_t segmentSize)
     : context(context)
     , infos(infos)
     , partitions(partitions)
     , recoveryThreadCount(recoveryThreadCount)
+    , segmentSize(segmentSize)
 {
 }
 
@@ -843,7 +846,7 @@ BackupService::RecoverySegmentBuilder::operator()()
                "(%f MB/s)",
         totalTime / 1000 / 1000,
         infos.size(),
-        static_cast<double>(Segment::SEGMENT_SIZE * infos.size() / (1 << 20)) /
+        static_cast<double>(segmentSize * infos.size() / (1 << 20)) /
         static_cast<double>(totalTime) / 1e9);
 }
 
@@ -862,10 +865,10 @@ BackupService::BackupService(const ServerConfig& config)
     , coordinator(config.coordinatorLocator.c_str())
     , serverId(0)
     , recoveryTicks()
-    , pool(config.backup.segmentSize)
+    , pool(config.segmentSize)
     , recoveryThreadCount{0}
     , segments()
-    , segmentSize(config.backup.segmentSize)
+    , segmentSize(config.segmentSize)
     , storage()
     , storageBenchmarkResults()
     , bytesWritten(0)
@@ -878,10 +881,10 @@ BackupService::BackupService(const ServerConfig& config)
     , initCalled(false)
 {
     if (config.backup.inMemory)
-        storage.reset(new InMemoryStorage(config.backup.segmentSize,
+        storage.reset(new InMemoryStorage(config.segmentSize,
                                           config.backup.numSegmentFrames));
     else
-        storage.reset(new SingleFileStorage(config.backup.segmentSize,
+        storage.reset(new SingleFileStorage(config.segmentSize,
                                             config.backup.numSegmentFrames,
                                             config.backup.file.c_str(),
                                             O_DIRECT | O_SYNC));
@@ -1303,7 +1306,8 @@ BackupService::startReadingData(
     RecoverySegmentBuilder builder(Context::get(),
                                    primarySegments,
                                    partitions,
-                                   recoveryThreadCount);
+                                   recoveryThreadCount,
+                                   segmentSize);
     ++recoveryThreadCount;
     std::thread builderThread(builder);
     builderThread.detach();

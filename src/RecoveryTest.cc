@@ -116,7 +116,7 @@ class RecoveryTest : public ::testing::Test {
         ServerConfig config = ServerConfig::forTesting();
         config.services = {BACKUP_SERVICE, MEMBERSHIP_SERVICE};
         config.backup.numSegmentFrames = 3;
-        config.backup.segmentSize = segmentSize;
+        config.segmentSize = segmentSize;
         config.localLocator = "mock:host=backup1";
         backup1 = cluster->get<BackupClient>(cluster->addServer(config));
 
