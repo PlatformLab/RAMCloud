@@ -84,7 +84,7 @@ CoordinatorServerList::add(string serviceLocator,
         numberOfMasters++;
     if (serviceMask.has(BACKUP_SERVICE)) {
         numberOfBackups++;
-        serverList[index].entry->backupReadMegsPerSecond = readSpeed;
+        serverList[index].entry->backupReadMBytesPerSec = readSpeed;
     }
 
     versionNumber++;
@@ -389,7 +389,7 @@ CoordinatorServerList::Entry::Entry(ServerId serverId,
       serviceLocator(serviceLocatorString),
       serviceMask(serviceMask),
       will(NULL),
-      backupReadMegsPerSecond(0)
+      backupReadMBytesPerSec(0)
 {
 }
 
@@ -405,9 +405,9 @@ CoordinatorServerList::Entry::serialise(ProtoBuf::ServerList_Entry& dest,
     dest.set_service_locator(serviceLocator);
     dest.set_is_in_cluster(isInCluster);
     if (isBackup())
-        dest.set_user_data(backupReadMegsPerSecond);
+        dest.set_backup_read_mbytes_per_sec(backupReadMBytesPerSec);
     else
-        dest.set_user_data(0);          // Tests expect the field to be present.
+        dest.set_backup_read_mbytes_per_sec(0); // Tests expect the field.
 }
 
 } // namespace RAMCloud

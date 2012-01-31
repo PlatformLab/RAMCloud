@@ -79,7 +79,7 @@ class CoordinatorServerList {
 
         /// The backup's read speed in megabytes per second (only to set
         /// set if serviceMask includes BACKUP_SERVICE).
-        uint64_t backupReadMegsPerSecond;
+        uint32_t backupReadMBytesPerSec;
 
         bool isMaster() const { return serviceMask.has(MASTER_SERVICE); }
         bool isBackup() const { return serviceMask.has(BACKUP_SERVICE); }

@@ -32,8 +32,9 @@ message ServerList {
     /// A locator for the service.
     required string service_locator = 3;
 
-    /// An opaque field which happens to be large enough for a pointer.
-    optional fixed64 user_data = 5;
+    /// Disk bandwidth of the backup server in MB/s, if this entry represents
+    /// a server which is running a backup service.
+    required fixed32 backup_read_mbytes_per_sec = 5;
 
     /// If true, this server is in the cluster. If false, this server
     /// is no longer in the cluster.

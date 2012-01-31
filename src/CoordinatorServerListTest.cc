@@ -46,7 +46,8 @@ protoBufMatchesEntry(const ProtoBuf::ServerList_Entry& protoBufEntry,
         return false;
     if (serverListEntry.serviceLocator != protoBufEntry.service_locator())
         return false;
-    if (serverListEntry.backupReadMegsPerSecond != protoBufEntry.user_data())
+    if (serverListEntry.backupReadMBytesPerSec !=
+        protoBufEntry.backup_read_mbytes_per_sec())
         return false;
     if (isInCluster != protoBufEntry.is_in_cluster())
         return false;
@@ -77,7 +78,7 @@ TEST_F(CoordinatorServerListTest, add) {
         EXPECT_EQ("hi", sl.serverList[1].entry->serviceLocator);
         EXPECT_TRUE(sl.serverList[1].entry->isMaster());
         EXPECT_FALSE(sl.serverList[1].entry->isBackup());
-        EXPECT_EQ(0u, sl.serverList[1].entry->backupReadMegsPerSecond);
+        EXPECT_EQ(0u, sl.serverList[1].entry->backupReadMBytesPerSec);
         EXPECT_EQ(1U, sl.serverList[1].nextGenerationNumber);
         EXPECT_EQ(1U, sl.versionNumber);
         EXPECT_EQ(1U, update1.version_number());
@@ -95,7 +96,7 @@ TEST_F(CoordinatorServerListTest, add) {
         EXPECT_EQ("hi again", sl.serverList[2].entry->serviceLocator);
         EXPECT_FALSE(sl.serverList[2].entry->isMaster());
         EXPECT_TRUE(sl.serverList[2].entry->isBackup());
-        EXPECT_EQ(100u, sl.serverList[2].entry->backupReadMegsPerSecond);
+        EXPECT_EQ(100u, sl.serverList[2].entry->backupReadMBytesPerSec);
         EXPECT_EQ(1U, sl.serverList[2].nextGenerationNumber);
         EXPECT_EQ(1U, sl.numberOfMasters);
         EXPECT_EQ(1U, sl.numberOfBackups);
@@ -298,7 +299,7 @@ TEST_F(CoordinatorServerListTest, Entry_constructor) {
     EXPECT_TRUE(a.isMaster());
     EXPECT_FALSE(a.isBackup());
     EXPECT_EQ(static_cast<ProtoBuf::Tablets*>(NULL), a.will);
-    EXPECT_EQ(0U, a.backupReadMegsPerSecond);
+    EXPECT_EQ(0U, a.backupReadMBytesPerSec);
 
     CoordinatorServerList::Entry b(ServerId(27, 72),
         "I ain't got time to bleed", {BACKUP_SERVICE});
@@ -307,7 +308,7 @@ TEST_F(CoordinatorServerListTest, Entry_constructor) {
     EXPECT_FALSE(b.isMaster());
     EXPECT_TRUE(b.isBackup());
     EXPECT_EQ(static_cast<ProtoBuf::Tablets*>(NULL), b.will);
-    EXPECT_EQ(0U, b.backupReadMegsPerSecond);
+    EXPECT_EQ(0U, b.backupReadMBytesPerSec);
 }
 
 static bool
@@ -327,7 +328,7 @@ compareEntries(CoordinatorServerList::Entry& a,
         return false;
     if (a.will != b.will)
         return false;
-    if (a.backupReadMegsPerSecond != b.backupReadMegsPerSecond)
+    if (a.backupReadMBytesPerSec != b.backupReadMBytesPerSec)
         return false;
 
     return true;
@@ -336,7 +337,7 @@ compareEntries(CoordinatorServerList::Entry& a,
 TEST_F(CoordinatorServerListTest, Entry_copyConstructor) {
     CoordinatorServerList::Entry source(
         ServerId(234, 273), "hi!", {BACKUP_SERVICE});
-    source.backupReadMegsPerSecond = 57;
+    source.backupReadMBytesPerSec = 57;
     source.will = reinterpret_cast<ProtoBuf::Tablets*>(0x11deadbeef22UL);
     CoordinatorServerList::Entry dest(source);
     EXPECT_TRUE(compareEntries(source, dest));
@@ -345,7 +346,7 @@ TEST_F(CoordinatorServerListTest, Entry_copyConstructor) {
 TEST_F(CoordinatorServerListTest, Entry_assignmentOperator) {
     CoordinatorServerList::Entry source(ServerId(73, 72), "hi",
                                         {BACKUP_SERVICE});
-    source.backupReadMegsPerSecond = 785;
+    source.backupReadMBytesPerSec = 785;
     source.will = reinterpret_cast<ProtoBuf::Tablets*>(0x11beefcafe22UL);
     CoordinatorServerList::Entry dest(ServerId(0, 0), "bye",
                                       {MASTER_SERVICE});
@@ -358,7 +359,7 @@ TEST_F(CoordinatorServerListTest, Entry_serialise) {
                                        {BACKUP_SERVICE});
     entry.serverId = ServerId(5234, 23482);
     entry.serviceLocator = "giggity";
-    entry.backupReadMegsPerSecond = 723;
+    entry.backupReadMBytesPerSec = 723;
 
     ProtoBuf::ServerList_Entry serialEntry;
     entry.serialise(serialEntry, true);
@@ -366,7 +367,7 @@ TEST_F(CoordinatorServerListTest, Entry_serialise) {
     EXPECT_EQ(backupMask, serialEntry.service_mask());
     EXPECT_EQ(ServerId(5234, 23482).getId(), serialEntry.server_id());
     EXPECT_EQ("giggity", serialEntry.service_locator());
-    EXPECT_EQ(723U, serialEntry.user_data());
+    EXPECT_EQ(723U, serialEntry.backup_read_mbytes_per_sec());
     EXPECT_TRUE(serialEntry.is_in_cluster());
 
     entry.serviceMask = ServiceMask{MASTER_SERVICE};
@@ -374,7 +375,7 @@ TEST_F(CoordinatorServerListTest, Entry_serialise) {
     entry.serialise(serialEntry2, false);
     auto masterMask = ServiceMask{MASTER_SERVICE}.serialize();
     EXPECT_EQ(masterMask, serialEntry2.service_mask());
-    EXPECT_EQ(0U, serialEntry2.user_data());
+    EXPECT_EQ(0U, serialEntry2.backup_read_mbytes_per_sec());
     EXPECT_FALSE(serialEntry2.is_in_cluster());
 }
 

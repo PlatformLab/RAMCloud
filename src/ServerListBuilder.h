@@ -49,7 +49,7 @@ struct ServerListBuilder {
     operator()(std::initializer_list<ServiceType> services,
                uint64_t id,
                const char* locator,
-               uint64_t userData = 0,
+               uint32_t backupReadMBytesPerSec = 0,
                bool isInCluster = true)
     {
         ProtoBuf::ServerList_Entry& server(*servers.add_server());
@@ -57,7 +57,7 @@ struct ServerListBuilder {
         server.set_service_mask(serviceMask.serialize());
         server.set_server_id(id);
         server.set_service_locator(locator);
-        server.set_user_data(userData);
+        server.set_backup_read_mbytes_per_sec(backupReadMBytesPerSec);
         server.set_is_in_cluster(isInCluster);
         return *this;
     }

@@ -100,13 +100,6 @@ class CoordinatorService : public Service {
      * List of all servers in the system. This structure is used to allocate
      * ServerIds as well as to keep track of any information we need to keep
      * for individual servers (e.g. ServiceLocator strings, Wills, etc).
-     *
-     * If the server is a master, then the user_data field of its will is set
-     * as follows:
-     *      In the will, the user_data field is the partition
-     *      ID that is to recover that tablet, starting from 0.
-     * TODO(Rumble): Whatever that means. This magic use of user_data should going away
-     * soon.
      */
     CoordinatorServerList serverList;
 

@@ -112,7 +112,8 @@ TEST_F(CoordinatorServiceTest, enlistServer) {
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
                 "server { service_mask: 1 server_id: 1 "
                 "service_locator: \"mock:host=master\" "
-                "user_data: [0-9]\\+ is_in_cluster: true } version_number: 2",
+                "backup_read_mbytes_per_sec: [0-9]\\+ is_in_cluster: true } "
+                "version_number: 2",
                 masterList.ShortDebugString()));
 
     ProtoBuf::Tablets& will = *service->serverList[1]->will;
@@ -122,7 +123,8 @@ TEST_F(CoordinatorServiceTest, enlistServer) {
     service->serverList.serialise(backupList, {BACKUP_SERVICE});
     EXPECT_EQ("server { service_mask: 2 server_id: 2 "
               "service_locator: \"mock:host=backup\" "
-              "user_data: 0 is_in_cluster: true } version_number: 2",
+              "backup_read_mbytes_per_sec: 0 is_in_cluster: true } "
+              "version_number: 2",
               backupList.ShortDebugString());
 }
 
@@ -130,11 +132,11 @@ TEST_F(CoordinatorServiceTest, getMasterList) {
     // master is already enlisted
     ProtoBuf::ServerList masterList;
     client->getMasterList(masterList);
-    // need to avoid non-deterministic 'user_data' field.
+    // need to avoid non-deterministic mbytes_per_sec field.
     EXPECT_EQ(0U, masterList.ShortDebugString().find(
               "server { service_mask: 1 server_id: 1 "
               "service_locator: \"mock:host=master\" "
-              "user_data: "));
+              "backup_read_mbytes_per_sec: "));
 }
 
 TEST_F(CoordinatorServiceTest, getBackupList) {
@@ -144,10 +146,12 @@ TEST_F(CoordinatorServiceTest, getBackupList) {
     ProtoBuf::ServerList backupList;
     client->getBackupList(backupList);
     EXPECT_EQ("server { service_mask: 2 server_id: 2 "
-              "service_locator: \"mock:host=backup1\" user_data: 0 "
+              "service_locator: \"mock:host=backup1\" "
+              "backup_read_mbytes_per_sec: 0 "
               "is_in_cluster: true } "
               "server { service_mask: 2 server_id: 3 "
-              "service_locator: \"mock:host=backup2\" user_data: 0 "
+              "service_locator: \"mock:host=backup2\" "
+              "backup_read_mbytes_per_sec: 0 "
               "is_in_cluster: true } version_number: 3",
                             backupList.ShortDebugString());
 }
@@ -201,13 +205,15 @@ TEST_F(CoordinatorServiceTest, hintServerDown_master) {
             EXPECT_TRUE(TestUtil::matchesPosixRegex(
                         "server { service_mask: 1 "
                         "server_id: 2 service_locator: "
-                        "\"mock:host=master2\" user_data: [0-9]\\+ "
+                        "\"mock:host=master2\" backup_read_mbytes_per_sec: "
+                        "[0-9]\\+ "
                         "is_in_cluster: true } version_number: 4",
                         masterHosts.ShortDebugString()));
             EXPECT_EQ("server { service_mask: 2 "
                       "server_id: 3 "
                       "service_locator: \"mock:host=backup\" "
-                      "user_data: 0 is_in_cluster: true } version_number: 4",
+                      "backup_read_mbytes_per_sec: 0 is_in_cluster: true } "
+                      "version_number: 4",
                       backupHosts.ShortDebugString());
             called = true;
         }

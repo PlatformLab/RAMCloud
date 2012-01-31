@@ -396,7 +396,7 @@ Recovery::buildSegmentIdToBackups()
         const auto& task = backupStartTasks[taskIndex];
         const CoordinatorServerList::Entry* backup =
             serverList[nextBackupIndex];
-        const uint64_t speed = backup->backupReadMegsPerSecond;
+        const uint64_t speed = backup->backupReadMBytesPerSec;
 
         LOG(DEBUG, "Adding %lu segment replicas from %s "
                    "with bench speed of %lu",
