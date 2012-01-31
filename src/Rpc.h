@@ -96,7 +96,8 @@ enum RpcOpcode {
     UPDATE_SERVER_LIST      = 38,
     REQUEST_SERVER_LIST     = 39,
     GET_SERVER_ID           = 40,
-    ILLEGAL_RPC_TYPE        = 41,  // 1 + the highest legitimate RpcOpcode
+    SET_MIN_OPEN_SEGMENT_ID = 41,
+    ILLEGAL_RPC_TYPE        = 42,  // 1 + the highest legitimate RpcOpcode
 };
 
 /**
@@ -460,6 +461,21 @@ struct RequestServerListRpc {
         RpcRequestCommon common;
         uint64_t serverId;         // ServerId the coordinator should send
                                    // the list to.
+    } __attribute__((packed));
+    struct Response {
+        RpcResponseCommon common;
+    } __attribute__((packed));
+};
+
+struct SetMinOpenSegmentIdRpc {
+    static const RpcOpcode opcode = SET_MIN_OPEN_SEGMENT_ID;
+    static const ServiceType service = COORDINATOR_SERVICE;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t serverId;         // ServerId the coordinator update the
+                                   // minimum segment id for.
+        uint64_t segmentId;        // Minimum segment id for replicas of open
+                                   // segments during subsequent recoveries.
     } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;

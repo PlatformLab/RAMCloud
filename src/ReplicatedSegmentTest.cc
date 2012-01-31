@@ -82,6 +82,7 @@ struct ReplicatedSegmentTest : public ::testing::Test {
     std::mutex dataMutex;
     const ServerId masterId;
     const uint64_t segmentId;
+    MinOpenSegmentId minOpenSegmentId;
     char data[DATA_LEN];
     const uint32_t openLen;
     const uint32_t numReplicas;
@@ -99,6 +100,7 @@ struct ReplicatedSegmentTest : public ::testing::Test {
         , dataMutex()
         , masterId(999, 0)
         , segmentId(888)
+        , minOpenSegmentId(&taskManager, NULL, &masterId)
         , data()
         , openLen(10)
         , numReplicas(2)
@@ -112,7 +114,8 @@ struct ReplicatedSegmentTest : public ::testing::Test {
                 new(segMem) ReplicatedSegment(taskManager, tracker,
                                               backupSelector,
                                               deleter, writeRpcsInFlight,
-                                              dataMutex,
+                                              minOpenSegmentId, 
+                                              dataMutex, true,
                                               masterId, segmentId,
                                               data, openLen, numReplicas,
                                               MAX_BYTES_PER_WRITE));
@@ -142,7 +145,7 @@ struct ReplicatedSegmentTest : public ::testing::Test {
 TEST_F(ReplicatedSegmentTest, varLenArrayAtEnd) {
     // replicas[0] must be the last member of ReplicatedSegment
     EXPECT_EQ(static_cast<void*>(segment.get() + 1),
-              static_cast<void*>(&segment.get()->replicas[0]));
+              static_cast<void*>(&segment.get()->replicas[0].isActive));
     reset();
 }
 
@@ -179,15 +182,15 @@ TEST_F(ReplicatedSegmentTest, freeWriteRpcInProgress) {
     // make sure the backup "free" opcode was not sent
     EXPECT_TRUE(TestUtil::doesNotMatchPosixRegex("0x1001e",
                                                  transport.outputLog));
-    ASSERT_TRUE(segment->replicas[0]);
-    EXPECT_FALSE(segment->replicas[0]->writeRpc); // ensure the write completed
-    EXPECT_FALSE(segment->replicas[0]->freeRpc);
+    ASSERT_TRUE(segment->replicas[0].isActive);
+    EXPECT_FALSE(segment->replicas[0].writeRpc); // ensure the write completed
+    EXPECT_FALSE(segment->replicas[0].freeRpc);
     EXPECT_TRUE(segment->isScheduled());
 
     taskManager.proceed();
-    ASSERT_TRUE(segment->replicas[0]);
-    EXPECT_FALSE(segment->replicas[0]->writeRpc);
-    EXPECT_TRUE(segment->replicas[0]->freeRpc); // ensure free gets sent
+    ASSERT_TRUE(segment->replicas[0].isActive);
+    EXPECT_FALSE(segment->replicas[0].writeRpc);
+    EXPECT_TRUE(segment->replicas[0].freeRpc); // ensure free gets sent
     EXPECT_TRUE(segment->isScheduled());
 
     reset();
@@ -257,7 +260,8 @@ TEST_F(ReplicatedSegmentTest, syncDoubleCheckCrossSegmentOrderingConstraints) {
             new(segMem) ReplicatedSegment(taskManager, tracker,
                                           backupSelector,
                                           deleter, writeRpcsInFlight,
-                                          dataMutex,
+                                          minOpenSegmentId,
+                                          dataMutex, true,
                                           masterId, segmentId + 1,
                                           data, openLen, numReplicas,
                                           MAX_BYTES_PER_WRITE));
@@ -316,7 +320,7 @@ TEST_F(ReplicatedSegmentTest, performTaskFreeOneReplicaToFree) {
     segment->free();
 
     Transport::SessionRef session = transport.getSession();
-    segment->replicas[0].construct(ServerId(666, 0), session);
+    segment->replicas[0].start(ServerId(666, 0), session);
     taskManager.proceed();
     EXPECT_TRUE(segment->isScheduled());
     EXPECT_EQ(0u, deleter.count);
@@ -330,7 +334,7 @@ TEST_F(ReplicatedSegmentTest, performTaskWrite) {
     transport.setInput("0"); // write
 
     taskManager.proceed();
-    ASSERT_TRUE(segment->replicas[0]);
+    ASSERT_TRUE(segment->replicas[0].isActive);
     EXPECT_TRUE(segment->isScheduled());
     EXPECT_EQ(0u, deleter.count);
     reset();
@@ -339,7 +343,7 @@ TEST_F(ReplicatedSegmentTest, performTaskWrite) {
 TEST_F(ReplicatedSegmentTest, performFreeNothingToDo) {
     segment->freeQueued = true;
     segment->performFree(segment->replicas[0]);
-    EXPECT_FALSE(segment->replicas[0]);
+    EXPECT_FALSE(segment->replicas[0].isActive);
     EXPECT_TRUE(segment->isScheduled());
     reset();
 }
@@ -352,13 +356,13 @@ TEST_F(ReplicatedSegmentTest, performFreeRpcIsReady) {
     Transport::SessionRef session = transport.getSession();
 
     segment->freeQueued = true;
-    segment->replicas[0].construct(ServerId(666, 0), session);
-    segment->replicas[0]->freeRpc.construct(segment->replicas[0]->client,
+    segment->replicas[0].start(ServerId(666, 0), session);
+    segment->replicas[0].freeRpc.construct(*segment->replicas[0].client,
                                             masterId, segmentId);
     EXPECT_STREQ("clientSend: 0x1001e 999 0 888 0",
                  transport.outputLog.c_str());
     segment->performFree(segment->replicas[0]);
-    EXPECT_FALSE(segment->replicas[0]);
+    EXPECT_FALSE(segment->replicas[0].isActive);
 }
 
 TEST_F(ReplicatedSegmentTest, performFreeRpcFailed) {
@@ -369,8 +373,8 @@ TEST_F(ReplicatedSegmentTest, performFreeRpcFailed) {
     Transport::SessionRef session = transport.getSession();
 
     segment->freeQueued = true;
-    segment->replicas[0].construct(ServerId(666, 0), session);
-    segment->replicas[0]->freeRpc.construct(segment->replicas[0]->client,
+    segment->replicas[0].start(ServerId(666, 0), session);
+    segment->replicas[0].freeRpc.construct(*segment->replicas[0].client,
                                             masterId, segmentId);
     EXPECT_STREQ("clientSend: 0x1001e 999 0 888 0",
                  transport.outputLog.c_str());
@@ -383,8 +387,8 @@ TEST_F(ReplicatedSegmentTest, performFreeRpcFailed) {
     }
     EXPECT_TRUE(segment->freeQueued);
     EXPECT_TRUE(segment->isScheduled());
-    ASSERT_TRUE(segment->replicas[0]);
-    EXPECT_FALSE(segment->replicas[0]->freeRpc);
+    ASSERT_TRUE(segment->replicas[0].isActive);
+    EXPECT_FALSE(segment->replicas[0].freeRpc);
 
     EXPECT_EQ(0u, deleter.count);
     reset();
@@ -412,25 +416,25 @@ TEST_F(ReplicatedSegmentTest, performFreeWriteRpcInProgress) {
     // make sure the backup "free" opcode was not sent
     EXPECT_TRUE(TestUtil::doesNotMatchPosixRegex("0x1001e",
                                                  transport.outputLog));
-    ASSERT_TRUE(segment->replicas[0]);
-    EXPECT_TRUE(segment->replicas[0]->writeRpc);
-    EXPECT_FALSE(segment->replicas[0]->freeRpc);
+    ASSERT_TRUE(segment->replicas[0].isActive);
+    EXPECT_TRUE(segment->replicas[0].writeRpc);
+    EXPECT_FALSE(segment->replicas[0].freeRpc);
     EXPECT_TRUE(segment->isScheduled());
 
     taskManager.proceed(); // performFree reaps the write, remains scheduled
-    ASSERT_TRUE(segment->replicas[0]);
-    EXPECT_FALSE(segment->replicas[0]->writeRpc);
-    EXPECT_FALSE(segment->replicas[0]->freeRpc);
+    ASSERT_TRUE(segment->replicas[0].isActive);
+    EXPECT_FALSE(segment->replicas[0].writeRpc);
+    EXPECT_FALSE(segment->replicas[0].freeRpc);
     EXPECT_TRUE(segment->isScheduled());
 
     taskManager.proceed(); // now it schedules the free
-    ASSERT_TRUE(segment->replicas[0]);
-    EXPECT_FALSE(segment->replicas[0]->writeRpc);
-    EXPECT_TRUE(segment->replicas[0]->freeRpc);
+    ASSERT_TRUE(segment->replicas[0].isActive);
+    EXPECT_FALSE(segment->replicas[0].writeRpc);
+    EXPECT_TRUE(segment->replicas[0].freeRpc);
     EXPECT_TRUE(segment->isScheduled());
 
     taskManager.proceed(); // free is reaped and the replica is destroyed
-    EXPECT_FALSE(segment->replicas[0]);
+    EXPECT_FALSE(segment->replicas[0].isActive);
     EXPECT_FALSE(segment->isScheduled());
     EXPECT_EQ(1u, deleter.count);
 }
@@ -459,10 +463,10 @@ TEST_F(ReplicatedSegmentTest, performWriteOpen) {
                  "clientSend: 0x10022 999 0 888 0 0 10 1 abcedfghij",
                  transport.outputLog.c_str());
 
-    EXPECT_TRUE(segment->replicas[0]);
-    EXPECT_TRUE(segment->replicas[0]->writeRpc);
-    EXPECT_TRUE(segment->replicas[0]->sent.open);
-    EXPECT_EQ(openLen, segment->replicas[0]->sent.bytes);
+    EXPECT_TRUE(segment->replicas[0].isActive);
+    EXPECT_TRUE(segment->replicas[0].writeRpc);
+    EXPECT_TRUE(segment->replicas[0].sent.open);
+    EXPECT_EQ(openLen, segment->replicas[0].sent.bytes);
     EXPECT_TRUE(segment->isScheduled());
     EXPECT_EQ(0u, deleter.count);
     reset();
@@ -480,7 +484,7 @@ TEST_F(ReplicatedSegmentTest, performWriteOpenTooManyInFlight) {
     segment->write(openLen);
     taskManager.proceed(); // try to send writes
 
-    EXPECT_FALSE(segment->replicas[0]);
+    EXPECT_FALSE(segment->replicas[0].isActive);
     EXPECT_EQ(ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT, writeRpcsInFlight);
 
     writeRpcsInFlight = ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT - 1;
@@ -489,11 +493,11 @@ TEST_F(ReplicatedSegmentTest, performWriteOpenTooManyInFlight) {
                  "clientSend: 0x10022 999 0 888 0 0 10 5 abcedfghij",
                  transport.outputLog.c_str());
     EXPECT_EQ(ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT, writeRpcsInFlight);
-    ASSERT_TRUE(segment->replicas[0]);
-    EXPECT_TRUE(segment->replicas[0]->writeRpc);
-    EXPECT_TRUE(segment->replicas[0]->sent.open);
-    EXPECT_EQ(openLen, segment->replicas[0]->sent.bytes);
-    EXPECT_FALSE(segment->replicas[1]); // make sure only one was started
+    ASSERT_TRUE(segment->replicas[0].isActive);
+    EXPECT_TRUE(segment->replicas[0].writeRpc);
+    EXPECT_TRUE(segment->replicas[0].sent.open);
+    EXPECT_EQ(openLen, segment->replicas[0].sent.bytes);
+    EXPECT_FALSE(segment->replicas[1].isActive); // make sure only one was started
     EXPECT_TRUE(segment->isScheduled());
 
     taskManager.proceed(); // reap write and send the second replica's rpc
@@ -503,15 +507,15 @@ TEST_F(ReplicatedSegmentTest, performWriteOpenTooManyInFlight) {
                  "clientSend: 0x10022 999 0 888 0 0 10 1 abcedfghij",
                  transport.outputLog.c_str());
     EXPECT_EQ(ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT, writeRpcsInFlight);
-    ASSERT_TRUE(segment->replicas[1]);
-    EXPECT_TRUE(segment->replicas[1]->writeRpc);
-    EXPECT_TRUE(segment->replicas[1]->sent.open);
-    EXPECT_EQ(openLen, segment->replicas[1]->sent.bytes);
-    EXPECT_FALSE(segment->replicas[0]->writeRpc); // make sure one was started
+    ASSERT_TRUE(segment->replicas[1].isActive);
+    EXPECT_TRUE(segment->replicas[1].writeRpc);
+    EXPECT_TRUE(segment->replicas[1].sent.open);
+    EXPECT_EQ(openLen, segment->replicas[1].sent.bytes);
+    EXPECT_FALSE(segment->replicas[0].writeRpc); // make sure one was started
     EXPECT_TRUE(segment->isScheduled());
 
     taskManager.proceed(); // reap write
-    EXPECT_FALSE(segment->replicas[1]->writeRpc);
+    EXPECT_FALSE(segment->replicas[1].writeRpc);
     EXPECT_EQ(uint32_t(ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT - 1),
               writeRpcsInFlight);
     EXPECT_FALSE(segment->isScheduled());
@@ -528,15 +532,15 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcIsReady) {
     segment->close(NULL);
 
     taskManager.proceed();
-    ASSERT_TRUE(segment->replicas[0]);
-    EXPECT_EQ(openLen, segment->replicas[0]->sent.bytes);
-    EXPECT_EQ(0u, segment->replicas[0]->acked.bytes);
+    ASSERT_TRUE(segment->replicas[0].isActive);
+    EXPECT_EQ(openLen, segment->replicas[0].sent.bytes);
+    EXPECT_EQ(0u, segment->replicas[0].acked.bytes);
 
     taskManager.proceed();
-    ASSERT_TRUE(segment->replicas[0]);
-    EXPECT_EQ(openLen, segment->replicas[0]->acked.bytes);
+    ASSERT_TRUE(segment->replicas[0].isActive);
+    EXPECT_EQ(openLen, segment->replicas[0].acked.bytes);
     EXPECT_TRUE(segment->isScheduled());
-    EXPECT_FALSE(segment->replicas[0]->writeRpc);
+    EXPECT_FALSE(segment->replicas[0].writeRpc);
     EXPECT_EQ(0u, deleter.count);
     reset();
 }
@@ -556,11 +560,11 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
     segment->write(openLen);
 
     taskManager.proceed();  // send open requests
-    ASSERT_TRUE(segment->replicas[0]);
-    EXPECT_EQ(openLen, segment->replicas[0]->sent.bytes);
-    EXPECT_EQ(0u, segment->replicas[0]->acked.bytes);
-    ASSERT_TRUE(segment->replicas[1]);
-    EXPECT_EQ(openLen, segment->replicas[1]->sent.bytes);
+    ASSERT_TRUE(segment->replicas[0].isActive);
+    EXPECT_EQ(openLen, segment->replicas[0].sent.bytes);
+    EXPECT_EQ(0u, segment->replicas[0].acked.bytes);
+    ASSERT_TRUE(segment->replicas[1].isActive);
+    EXPECT_EQ(openLen, segment->replicas[1].sent.bytes);
 
     EXPECT_STREQ("clientSend: 0x40028 | "
                  "clientSend: 0x10022 999 0 888 0 0 10 5 abcedfghij | "
@@ -576,10 +580,10 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
             "RAMCloud::TransportException: testing thrown", TestLog::get()));
     }
     EXPECT_TRUE(segment->isScheduled());
-    ASSERT_TRUE(segment->replicas[0]);
-    EXPECT_EQ(openLen, segment->replicas[0]->acked.bytes);
-    EXPECT_FALSE(segment->replicas[0]->writeRpc);
-    ASSERT_FALSE(segment->replicas[1]);
+    ASSERT_TRUE(segment->replicas[0].isActive);
+    EXPECT_EQ(openLen, segment->replicas[0].acked.bytes);
+    EXPECT_FALSE(segment->replicas[0].writeRpc);
+    ASSERT_FALSE(segment->replicas[1].isActive);
 
     taskManager.proceed();  // resend second open request
     EXPECT_STREQ("clientSend: 0x40028 | "
@@ -603,23 +607,23 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
             "RAMCloud::TransportException: testing thrown", TestLog::get()));
     }
     EXPECT_TRUE(segment->isScheduled());
-    ASSERT_TRUE(segment->replicas[0]);
-    EXPECT_EQ(openLen, segment->replicas[0]->acked.bytes);
-    EXPECT_EQ(openLen, segment->replicas[0]->sent.bytes);
-    EXPECT_FALSE(segment->replicas[0]->writeRpc);
-    ASSERT_TRUE(segment->replicas[1]);
-    EXPECT_EQ(openLen + 10, segment->replicas[1]->acked.bytes);
-    EXPECT_EQ(openLen + 10, segment->replicas[1]->sent.bytes);
-    EXPECT_FALSE(segment->replicas[1]->writeRpc);
+    ASSERT_TRUE(segment->replicas[0].isActive);
+    EXPECT_EQ(openLen, segment->replicas[0].acked.bytes);
+    EXPECT_EQ(openLen, segment->replicas[0].sent.bytes);
+    EXPECT_FALSE(segment->replicas[0].writeRpc);
+    ASSERT_TRUE(segment->replicas[1].isActive);
+    EXPECT_EQ(openLen + 10, segment->replicas[1].acked.bytes);
+    EXPECT_EQ(openLen + 10, segment->replicas[1].sent.bytes);
+    EXPECT_FALSE(segment->replicas[1].writeRpc);
 
     taskManager.proceed();  // resend first close request
     EXPECT_STREQ("clientSend: 0x10022 999 0 888 0 10 10 2 klmnopqrst",
                  transport.outputLog.c_str());
     transport.outputLog = "";
     EXPECT_TRUE(segment->isScheduled());
-    ASSERT_TRUE(segment->replicas[0]);
-    EXPECT_EQ(openLen + 10, segment->replicas[0]->sent.bytes);
-    EXPECT_TRUE(segment->replicas[0]->writeRpc);
+    ASSERT_TRUE(segment->replicas[0].isActive);
+    EXPECT_EQ(openLen + 10, segment->replicas[0].sent.bytes);
+    EXPECT_TRUE(segment->replicas[0].writeRpc);
 
     EXPECT_EQ(0u, deleter.count);
     reset();
@@ -648,7 +652,7 @@ TEST_F(ReplicatedSegmentTest, performWriteMoreToSend) {
         "clientSend: 0x10022 999 0 888 0 10 20 2 klmnopqrstuvwxyzabce",
         transport.outputLog.c_str());
     EXPECT_TRUE(segment->isScheduled());
-    EXPECT_TRUE(segment->replicas[0]->writeRpc);
+    EXPECT_TRUE(segment->replicas[0].writeRpc);
 
     EXPECT_EQ(0u, deleter.count);
     reset();
@@ -679,7 +683,7 @@ TEST_F(ReplicatedSegmentTest, performWriteClosedButLongerThanMaxTxLimit) {
         "clientSend: 0x10022 999 0 888 0 10 21 0 klmnopqrstuvwxyzabced",
         transport.outputLog.c_str());
     EXPECT_TRUE(segment->isScheduled());
-    EXPECT_TRUE(segment->replicas[0]->writeRpc);
+    EXPECT_TRUE(segment->replicas[0].writeRpc);
     transport.outputLog = "";
 
     taskManager.proceed(); // reap second round
@@ -690,7 +694,7 @@ TEST_F(ReplicatedSegmentTest, performWriteClosedButLongerThanMaxTxLimit) {
                  "clientSend: 0x10022 999 0 888 0 31 1 2 f",
                  transport.outputLog.c_str());
     EXPECT_TRUE(segment->isScheduled());
-    EXPECT_TRUE(segment->replicas[0]->writeRpc);
+    EXPECT_TRUE(segment->replicas[0].writeRpc);
 
     EXPECT_EQ(0u, deleter.count);
     reset();
@@ -716,7 +720,8 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureNewHeadOpenAckedBeforeClose) {
             new(segMem) ReplicatedSegment(taskManager, tracker,
                                           backupSelector,
                                           deleter, writeRpcsInFlight,
-                                          dataMutex,
+                                          minOpenSegmentId,
+                                          dataMutex, true,
                                           masterId, segmentId + 1,
                                           data, openLen, numReplicas,
                                           MAX_BYTES_PER_WRITE));
@@ -726,27 +731,27 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureNewHeadOpenAckedBeforeClose) {
     taskManager.proceed(); // send newHead open, try segment close but can't
 
     EXPECT_TRUE(newHead->isScheduled());
-    ASSERT_TRUE(newHead->replicas[0]);
-    EXPECT_TRUE(newHead->replicas[0]->writeRpc);
-    EXPECT_TRUE(newHead->replicas[0]->sent.open);
-    EXPECT_FALSE(newHead->replicas[0]->acked.open);
+    ASSERT_TRUE(newHead->replicas[0].isActive);
+    EXPECT_TRUE(newHead->replicas[0].writeRpc);
+    EXPECT_TRUE(newHead->replicas[0].sent.open);
+    EXPECT_FALSE(newHead->replicas[0].acked.open);
 
     EXPECT_TRUE(segment->isScheduled());
-    ASSERT_TRUE(segment->replicas[0]);
-    EXPECT_FALSE(segment->replicas[0]->writeRpc);
-    EXPECT_FALSE(segment->replicas[0]->sent.close);
+    ASSERT_TRUE(segment->replicas[0].isActive);
+    EXPECT_FALSE(segment->replicas[0].writeRpc);
+    EXPECT_FALSE(segment->replicas[0].sent.close);
 
     taskManager.proceed(); // reap newHead open, try segment close should work
 
     EXPECT_FALSE(newHead->isScheduled());
-    ASSERT_TRUE(newHead->replicas[0]);
-    EXPECT_FALSE(newHead->replicas[0]->writeRpc);
-    EXPECT_TRUE(newHead->replicas[0]->acked.open);
+    ASSERT_TRUE(newHead->replicas[0].isActive);
+    EXPECT_FALSE(newHead->replicas[0].writeRpc);
+    EXPECT_TRUE(newHead->replicas[0].acked.open);
 
     EXPECT_TRUE(segment->isScheduled());
-    ASSERT_TRUE(segment->replicas[0]);
-    EXPECT_TRUE(segment->replicas[0]->writeRpc);
-    EXPECT_TRUE(segment->replicas[0]->sent.close);
+    ASSERT_TRUE(segment->replicas[0].isActive);
+    EXPECT_TRUE(segment->replicas[0].writeRpc);
+    EXPECT_TRUE(segment->replicas[0].sent.close);
 
     EXPECT_EQ(0u, deleter.count);
     reset();
@@ -771,7 +776,8 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureCloseBeforeNewHeadWrittenTo) {
             new(segMem) ReplicatedSegment(taskManager, tracker,
                                           backupSelector,
                                           deleter, writeRpcsInFlight,
-                                          dataMutex,
+                                          minOpenSegmentId,
+                                          dataMutex, true,
                                           masterId, segmentId + 1,
                                           data, openLen, numReplicas,
                                           MAX_BYTES_PER_WRITE));
@@ -785,29 +791,29 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureCloseBeforeNewHeadWrittenTo) {
 
     EXPECT_TRUE(newHead->isScheduled());
     EXPECT_FALSE(newHead->precedingSegmentCloseAcked);
-    ASSERT_TRUE(newHead->replicas[0]);
-    EXPECT_FALSE(newHead->replicas[0]->writeRpc);
-    EXPECT_TRUE(newHead->replicas[0]->acked.open);
-    EXPECT_EQ(openLen, newHead->replicas[0]->sent.bytes);
+    ASSERT_TRUE(newHead->replicas[0].isActive);
+    EXPECT_FALSE(newHead->replicas[0].writeRpc);
+    EXPECT_TRUE(newHead->replicas[0].acked.open);
+    EXPECT_EQ(openLen, newHead->replicas[0].sent.bytes);
 
     EXPECT_TRUE(segment->isScheduled());
-    ASSERT_TRUE(segment->replicas[0]);
-    EXPECT_TRUE(segment->replicas[0]->writeRpc);
-    EXPECT_TRUE(segment->replicas[0]->sent.close);
-    EXPECT_FALSE(segment->replicas[0]->acked.close);
+    ASSERT_TRUE(segment->replicas[0].isActive);
+    EXPECT_TRUE(segment->replicas[0].writeRpc);
+    EXPECT_TRUE(segment->replicas[0].sent.close);
+    EXPECT_FALSE(segment->replicas[0].acked.close);
 
     taskManager.proceed(); // reap close rpc, send newHead write
 
     EXPECT_TRUE(newHead->isScheduled());
     EXPECT_TRUE(newHead->precedingSegmentCloseAcked);
-    ASSERT_TRUE(newHead->replicas[0]);
-    EXPECT_TRUE(newHead->replicas[0]->writeRpc);
-    EXPECT_EQ(openLen + 10, newHead->replicas[0]->sent.bytes);
+    ASSERT_TRUE(newHead->replicas[0].isActive);
+    EXPECT_TRUE(newHead->replicas[0].writeRpc);
+    EXPECT_EQ(openLen + 10, newHead->replicas[0].sent.bytes);
 
     EXPECT_FALSE(segment->isScheduled());
-    ASSERT_TRUE(segment->replicas[0]);
-    EXPECT_FALSE(segment->replicas[0]->writeRpc);
-    EXPECT_TRUE(segment->replicas[0]->acked.close);
+    ASSERT_TRUE(segment->replicas[0].isActive);
+    EXPECT_FALSE(segment->replicas[0].writeRpc);
+    EXPECT_TRUE(segment->replicas[0].acked.close);
 
     EXPECT_EQ(0u, deleter.count);
     newHead->scheduled = false;

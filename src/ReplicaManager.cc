@@ -38,19 +38,26 @@ namespace RAMCloud {
  */
 ReplicaManager::ReplicaManager(ServerList& serverList,
                                const ServerId& masterId,
-                               uint32_t numReplicas)
+                               uint32_t numReplicas,
+                               const string* coordinatorLocator)
     : numReplicas(numReplicas)
-    , failureMonitor(serverList, this)
     , tracker(serverList)
     , backupSelector(tracker)
+    , coordinator()
     , dataMutex()
     , masterId(masterId)
     , replicatedSegmentPool(ReplicatedSegment::sizeOf(numReplicas))
     , replicatedSegmentList()
     , taskManager()
     , writeRpcsInFlight(0)
+    , minOpenSegmentId()
 {
-    failureMonitor.start();
+    if (coordinatorLocator)
+        coordinator.construct(coordinatorLocator->c_str());
+    minOpenSegmentId.construct(&taskManager,
+                               coordinator ? coordinator.get() : NULL,
+                               &masterId);
+        
 }
 
 /**
@@ -60,18 +67,22 @@ ReplicaManager::ReplicaManager(ServerList& serverList,
  */
 ReplicaManager::~ReplicaManager()
 {
-    failureMonitor.halt();
-
     Lock lock(dataMutex);
 
-    foreach (auto& segment, replicatedSegmentList)
-        while (!segment.isSynced())
-            taskManager.proceed();
-    // sync() is insufficient, may have outstanding frees, etc. Done below.
+    // Make sure all segments are synced and any outstanding operations
+    // (like frees) have completed.
     while (!taskManager.isIdle())
         taskManager.proceed();
     while (!replicatedSegmentList.empty())
         destroyAndFreeReplicatedSegment(&replicatedSegmentList.front());
+}
+
+// Means all queued data is properly acknowledged everywhere in the log.
+bool
+ReplicaManager::isIdle()
+{
+    Lock lock(dataMutex);
+    return taskManager.isIdle();
 }
 
 /**
@@ -129,9 +140,9 @@ ReplicaManager::openSegment(bool isLogHead, uint64_t segmentId,
         DIE("Out of memory");
     auto* replicatedSegment =
         new(p) ReplicatedSegment(taskManager, tracker, backupSelector, *this,
-                                 writeRpcsInFlight,
+                                 writeRpcsInFlight, *minOpenSegmentId,
                                  dataMutex,
-                                 masterId, segmentId,
+                                 isLogHead, masterId, segmentId,
                                  data, openLen, numReplicas);
     replicatedSegmentList.push_back(*replicatedSegment);
     replicatedSegment->schedule();
@@ -162,13 +173,22 @@ ReplicaManager::proceed()
  * \param id
  *      ServerId of the backup which has failed.
  */
-void
-ReplicaManager::handleBackupFailure(ServerId id)
+Tub<uint64_t>
+ReplicaManager::handleBackupFailure(ServerId failedId)
 {
     Lock _(dataMutex);
-    LOG(ERROR, "Deal with backup failures: serverId %lu", id.getId());
-}
+    LOG(ERROR, "Deal with backup failures: serverId %lu", failedId.getId());
 
+    Tub<uint64_t> failedOpenSegmentId;
+    foreach (auto& segment, replicatedSegmentList) {
+        if (segment.handleBackupFailure(failedId)) {
+            if (!failedOpenSegmentId || *failedOpenSegmentId < segment.segmentId)
+                failedOpenSegmentId.construct(segment.segmentId);
+        }
+    }
+
+    return failedOpenSegmentId;
+}
 
 /**
  * Only used by ReplicatedSegment and ~ReplicaManager.

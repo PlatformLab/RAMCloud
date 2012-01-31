@@ -150,6 +150,10 @@ class MockCluster {
         return server.release();
     }
 
+    void removeServer(Server* server) {
+        transport.removeServicesForLocator(server->config.localLocator);
+    }
+
     /**
      * Return a client to a particular server in the cluster.
      *

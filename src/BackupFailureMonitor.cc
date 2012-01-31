@@ -14,6 +14,7 @@
  */
 
 #include "BackupFailureMonitor.h"
+#include "Log.h"
 #include "ReplicaManager.h"
 #include "ShortMacros.h"
 
@@ -21,7 +22,7 @@ namespace RAMCloud {
 
 /**
  * Create an instance that will listen for changes to #serverList and
- * inform #replicaManager of backup failures.  After construction failures
+ * inform #log of backup failures.  After construction failures
  * won't be dispatched until after start() is called, which starts a
  * thread to monitor for failures.  The thread is cleaned up on destruction.
  *
@@ -29,19 +30,29 @@ namespace RAMCloud {
  *      A ServerList maintained by the MembershipService which will be
  *      monitored for changes.
  * \param replicaManager
- *      Which ReplicaManager should be informed of backup failures (via
+ *      Which Log should be informed of backup failures (via
  *      ReplicaManager::handleBackupFailures()). Can be NULL for testing,
  *      in which case no action will be taken on backup failures.
+ * \param log
+ *      Which Log is associated with \a replicaManager.  Used to roll over
+ *      the log head in the case that a replica of the head is lost.  Can
+ *      be NULL for testing, but take care because operations on
+ *      \a replicaManager may fail to sync (instead spinning forever) since
+ *      rolling over to a new log head is required for queued writes to
+ *      make progress.
  */
 BackupFailureMonitor::BackupFailureMonitor(ServerList& serverList,
-                                           ReplicaManager* replicaManager)
+                                           ReplicaManager* replicaManager,
+                                           Log* log)
     : replicaManager(replicaManager)
+    , log(log)
     , running(false)
     , changesOrExit()
     , mutex()
     , thread()
     , tracker()
 {
+    assert((!replicaManager && !log) || (replicaManager && log));
     // Important that this get constructed AFTER "this" is constructed
     // because the construction of tracker will cause an invocation of
     // trackerChangesEnqueued() and its important that the instance
@@ -81,18 +92,31 @@ BackupFailureMonitor::main(Context& context)
         // the tracker entry.
         ServerDetails server;
         ServerChangeEvent event;
-        while (tracker->getChange(server, event)) {
-            ServerId id = server.serverId;
-            ServerDetails* details = tracker->getServerDetails(id);
-            if (event == SERVER_REMOVED &&
-                details->services.has(BACKUP_SERVICE)) {
-                LOG(DEBUG,
-                    "Notifying replica manager of failure of serverId %lu",
-                    id.getId());
-                if (replicaManager)
-                    replicaManager->handleBackupFailure(id);
+        do {
+            while (tracker->getChange(server, event)) {
+                ServerId id = server.serverId;
+                ServerDetails* details = tracker->getServerDetails(id);
+                if (event == SERVER_REMOVED &&
+                    details->services.has(BACKUP_SERVICE)) {
+                    LOG(DEBUG,
+                        "Notifying log of failure of serverId %lu",
+                        id.getId());
+                    if (replicaManager) {
+                        // going to block out all other rm requests here.
+                        // but log could proceed with async writes.
+                        // What if the head of the log changes in the meantime?
+                        // Can't quite - wouldn't be able to call open, but
+                        // we can be in the middle of it, holding a lock.
+                        Tub<uint64_t> failedOpenSegmentId =
+                            replicaManager->handleBackupFailure(id);
+                        if (log && failedOpenSegmentId)
+                            log->allocateHeadIfStillOn(*failedOpenSegmentId);
+                    }
+                }
             }
-        }
+            if (replicaManager)
+                replicaManager->proceed();
+        } while (replicaManager && !replicaManager->isIdle());
         changesOrExit.wait(lock);
     }
 }

@@ -27,6 +27,8 @@ struct ReplicaManagerTest : public ::testing::Test {
     const uint32_t segmentSize;
     Tub<ReplicaManager> mgr;
     ServerId serverId;
+    ServerId backup1Id;
+    ServerId backup2Id;
     ServerList serverList;
 
     ReplicaManagerTest()
@@ -34,6 +36,8 @@ struct ReplicaManagerTest : public ::testing::Test {
         , segmentSize(1 << 16)
         , mgr()
         , serverId(99, 0)
+        , backup1Id()
+        , backup2Id()
         , serverList()
     {
         Context::get().logger->setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
@@ -43,20 +47,22 @@ struct ReplicaManagerTest : public ::testing::Test {
         config.segmentSize = segmentSize;
         config.backup.numSegmentFrames = 4;
         config.localLocator = "mock:host=backup1";
-        addToServerList(cluster.addServer(config));
+        backup1Id = addToServerList(cluster.addServer(config));
 
         config.localLocator = "mock:host=backup2";
-        addToServerList(cluster.addServer(config));
+        backup2Id = addToServerList(cluster.addServer(config));
 
-        mgr.construct(serverList, serverId, 2);
+        mgr.construct(serverList, serverId, 2,
+                      static_cast<const string*>(NULL));
     }
 
-    void addToServerList(Server* server)
+    ServerId addToServerList(Server* server)
     {
         serverList.add(server->serverId,
                        server->config.localLocator,
                        server->config.services,
                        server->config.backup.mockSpeed);
+        return server->serverId;
     }
 
     void dumpReplicatedSegments()
@@ -69,15 +75,16 @@ struct ReplicaManagerTest : public ::testing::Test {
             LOG(ERROR, "  queued.bytes: %u", segment.queued.bytes);
             LOG(ERROR, "  queued.close: %u", segment.queued.close);
             foreach (auto& replica, segment.replicas) {
-                LOG(ERROR, "  Replica:%s", replica ? "" : " non-existent");
-                if (!replica)
+                LOG(ERROR, "  Replica:%s",
+                    replica.isActive ? "" : " non-existent");
+                if (!replica.isActive)
                     continue;
-                LOG(ERROR, "    acked.open: %u", replica->acked.open);
-                LOG(ERROR, "    sent.bytes: %u", replica->sent.bytes);
-                LOG(ERROR, "    sent.close: %u", replica->sent.close);
-                LOG(ERROR, "    Write RPC: %s", replica->writeRpc ?
+                LOG(ERROR, "    acked.open: %u", replica.acked.open);
+                LOG(ERROR, "    sent.bytes: %u", replica.sent.bytes);
+                LOG(ERROR, "    sent.close: %u", replica.sent.close);
+                LOG(ERROR, "    Write RPC: %s", replica.writeRpc ?
                                                     "active" : "inactive");
-                LOG(ERROR, "    Free RPC: %s", replica->freeRpc ?
+                LOG(ERROR, "    Free RPC: %s", replica.freeRpc ?
                                                     "active" : "inactive");
             }
             LOG(ERROR, " ");
@@ -103,10 +110,10 @@ TEST_F(ReplicaManagerTest, openSegment) {
     EXPECT_EQ(arrayLength(data), segment->queued.bytes);
     EXPECT_FALSE(segment->queued.close);
     foreach (auto& replica, segment->replicas) {
-        EXPECT_EQ(arrayLength(data), replica->sent.bytes);
-        EXPECT_FALSE(replica->sent.close);
-        EXPECT_FALSE(replica->writeRpc);
-        EXPECT_FALSE(replica->freeRpc);
+        EXPECT_EQ(arrayLength(data), replica.sent.bytes);
+        EXPECT_FALSE(replica.sent.close);
+        EXPECT_FALSE(replica.writeRpc);
+        EXPECT_FALSE(replica.freeRpc);
     }
     EXPECT_EQ(arrayLength(data), cluster.servers[0]->backup->bytesWritten);
     EXPECT_EQ(arrayLength(data), cluster.servers[1]->backup->bytesWritten);
@@ -115,7 +122,7 @@ TEST_F(ReplicaManagerTest, openSegment) {
     vector<string> backupLocators;
     foreach (auto& replica, segment->replicas) {
         backupLocators.push_back(
-            replica->client.getSession()->getServiceLocator());
+            replica.client->getSession()->getServiceLocator());
     }
     EXPECT_EQ((vector<string> {"mock:host=backup1", "mock:host=backup2"}),
               backupLocators);
@@ -147,13 +154,12 @@ TEST_F(ReplicaManagerTest, writeSegment) {
 
     foreach (auto& segment, mgr->replicatedSegmentList) {
         foreach (auto& replica, segment.replicas) {
-            ASSERT_TRUE(replica);
-            BackupClient& host(replica->client);
+            ASSERT_TRUE(replica.isActive);
             Buffer resp;
-            host.startReadingData(serverId, will);
+            replica.client->startReadingData(serverId, will);
             while (true) {
                 try {
-                    host.getRecoveryData(serverId, 88, 0, resp);
+                    replica.client->getRecoveryData(serverId, 88, 0, resp);
                 } catch (const RetryException& e) {
                     resp.reset();
                     continue;
@@ -176,14 +182,18 @@ TEST_F(ReplicaManagerTest, writeSegment) {
 TEST_F(ReplicaManagerTest, proceed) {
     mgr->openSegment(true, 89, NULL, 0)->close(NULL);
     auto& segment = mgr->replicatedSegmentList.front();
-    EXPECT_FALSE(segment.replicas[0]);
+    EXPECT_FALSE(segment.replicas[0].isActive);
     mgr->proceed();
-    ASSERT_TRUE(segment.replicas[0]);
-    EXPECT_TRUE(segment.replicas[0]->writeRpc);
+    ASSERT_TRUE(segment.replicas[0].isActive);
+    EXPECT_TRUE(segment.replicas[0].writeRpc);
 }
 
-TEST_F(ReplicaManagerTest, clusterConfigurationChanged) {
-    // TODO(stutsman): Write once this method does something interesting.
+TEST_F(ReplicaManagerTest, handleBackupFailure_ensureCalledInResponseToFailure) {
+    // TODO
+}
+
+TEST_F(ReplicaManagerTest, handleBackupFailure) {
+    // TODO
 }
 
 TEST_F(ReplicaManagerTest, destroyAndFreeReplicatedSegment) {

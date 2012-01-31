@@ -53,6 +53,11 @@ struct BindTransport : public Transport {
         services[locator].services[type] = &service;
     }
 
+    void
+    removeServicesForLocator(const string& locator) {
+        services.erase(locator);
+    }
+
     Transport::SessionRef
     getSession(const ServiceLocator& serviceLocator, uint32_t timeoutMs) {
         const string& locator = serviceLocator.getOriginalString();

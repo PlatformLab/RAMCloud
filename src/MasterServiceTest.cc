@@ -324,7 +324,7 @@ TEST_F(MasterServiceTest, recover_basics) {
     foreach (auto* server, cluster.servers)
         serverList.add(server->serverId, server->config.localLocator,
                        server->config.services, 100);
-    ReplicaManager mgr(serverList, serverId, 1);
+    ReplicaManager mgr(serverList, serverId, 1, NULL);
     Segment segment(123, 87, segMem, segmentSize, &mgr);
     segment.sync();
 
@@ -414,7 +414,7 @@ TEST_F(MasterServiceTest, recover) {
     foreach (auto* server, cluster.servers)
         serverList.add(server->serverId, server->config.localLocator,
                        server->config.services, 100);
-    ReplicaManager mgr(serverList, serverId, 1);
+    ReplicaManager mgr(serverList, serverId, 1, NULL);
     Segment __(123, 88, segMem, segmentSize, &mgr);
     __.sync();
 
@@ -1016,7 +1016,7 @@ TEST_F(MasterRecoverTest, recover) {
     ServerList serverList;
     serverList.add(backup1Id, "mock:host=backup1", {BACKUP_SERVICE,
                                                     MEMBERSHIP_SERVICE}, 100);
-    ReplicaManager mgr(serverList, serverId, 1);
+    ReplicaManager mgr(serverList, serverId, 1, NULL);
     Segment s1(99, 87, segMem1, segmentSize, &mgr);
     s1.close(NULL);
     char* segMem2 = static_cast<char*>(Memory::xmemalign(HERE, segmentSize,

@@ -24,22 +24,24 @@
 namespace RAMCloud {
 
 class ReplicaManager;
+class Log;
 
 /**
  * Waits for backup failure notifications from the Server's main ServerList
- * and informs the ReplicaManager which takes corrective actions.  Runs in
+ * and informs the Log which takes corrective actions.  Runs in
  * a separate thread in order to provide immediate response to failures and
  * to provide a context for potentially long-running corrective actions even
  * while the master is otherwise idle.
  *
- * Logically part of the ReplicaManager.
+ * Logically part of the Log.
  */
 class BackupFailureMonitor
     : public ServerTracker<void>::Callback
 {
   PUBLIC:
     BackupFailureMonitor(ServerList& serverList,
-                         ReplicaManager* replicaManager);
+                         ReplicaManager* replicaManager,
+                         Log* log);
     ~BackupFailureMonitor();
 
     void start();
@@ -55,6 +57,13 @@ class BackupFailureMonitor
      * is discovered.
      */
     ReplicaManager* const replicaManager;
+
+    /**
+     * The Log to take corrective actions on when a backup failure
+     * on a replica of the head segment is discovered (it must roll over
+     * to a new log head in that case).
+     */
+    Log* const log;
 
     /**
      * Used by start()/halt() to inform the main() loop of when it should
@@ -84,7 +93,7 @@ class BackupFailureMonitor
 
     /**
      * Waits for notifications of changes to #tracker which indicates backup
-     * failure and dispatches those changes to #replicaManager for it to take
+     * failure and dispatches those changes to #log for it to take
      * corrective actions.  #thread will ensure the corrective actions take
      * place in a timely manner (by driving the re-replication process, if
      * needed, and ensuring it completes).

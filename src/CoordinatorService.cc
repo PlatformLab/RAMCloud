@@ -100,6 +100,10 @@ CoordinatorService::dispatch(RpcOpcode opcode,
             callHandler<RequestServerListRpc, CoordinatorService,
                         &CoordinatorService::requestServerList>(rpc);
             break;
+        case SetMinOpenSegmentIdRpc::opcode:
+            callHandler<SetMinOpenSegmentIdRpc, CoordinatorService,
+                        &CoordinatorService::setMinOpenSegmentId>(rpc);
+            break;
         default:
             throw UnimplementedRequestError(HERE);
     }
@@ -658,6 +662,28 @@ CoordinatorService::sendMembershipUpdate(ProtoBuf::ServerList& update,
             sendServerList(serverList[i]->serverId);
         }
     }
+}
+
+/**
+ * Handle the SET_MIN_OPEN_SEGMENT_ID.
+ *
+ * The Coordinator always pushes server lists and their updates. If a server's
+ * FailureDetector determines that the list is out of date, it issues an RPC
+ * here to request that we re-send the list.
+ *
+ * \copydetails Service::ping
+ */
+void
+CoordinatorService::setMinOpenSegmentId(
+    const SetMinOpenSegmentIdRpc::Request& reqHdr,
+    SetMinOpenSegmentIdRpc::Response& respHdr,
+    Rpc& rpc)
+{
+    ServerId serverId(reqHdr.serverId);
+    uint64_t segmentId(reqHdr.serverId);
+
+    LOG(DEBUG, "Set min open segment id for server %lu to %lu",
+        serverId.getId(), segmentId);
 }
 
 } // namespace RAMCloud

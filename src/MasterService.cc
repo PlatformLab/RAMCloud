@@ -92,7 +92,8 @@ MasterService::MasterService(const ServerConfig& config,
     , coordinator(coordinator)
     , serverId()
     , serverList(serverList)
-    , replicaManager(serverList, serverId, config.master.numReplicas)
+    , replicaManager(serverList, serverId,
+                     config.master.numReplicas, &config.coordinatorLocator)
     , bytesWritten(0)
     , log(serverId,
           config.master.logBytes,
@@ -100,7 +101,8 @@ MasterService::MasterService(const ServerConfig& config,
           downCast<uint32_t>(sizeof(Object)) + config.maxObjectSize,
           &replicaManager,
           config.master.disableLogCleaner ? Log::CLEANER_DISABLED :
-                                            Log::CONCURRENT_CLEANER)
+                                            Log::CONCURRENT_CLEANER,
+          &serverList)
     , objectMap(config.master.hashTableBytes /
         HashTable<LogEntryHandle>::bytesPerCacheLine())
     , tablets()

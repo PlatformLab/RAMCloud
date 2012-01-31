@@ -20,9 +20,10 @@
 #include <boost/pool/pool.hpp>
 
 #include "Common.h"
-#include "BackupFailureMonitor.h"
+#include "CoordinatorClient.h"
 #include "BoostIntrusive.h"
 #include "BackupSelector.h"
+#include "MinOpenSegmentId.h"
 #include "ReplicatedSegment.h"
 #include "ServerTracker.h"
 #include "TaskManager.h"
@@ -59,30 +60,22 @@ class ReplicaManager
 {
   PUBLIC:
     ReplicaManager(ServerList& serverList,
-                   const ServerId& masterId, uint32_t numReplicas);
+                   const ServerId& masterId,
+                   uint32_t numReplicas,
+                   const string* coordinatorLocator);
     ~ReplicaManager();
 
+    bool isIdle();
     ReplicatedSegment* openSegment(bool isLogHead, uint64_t segmentId,
                                    const void* data, uint32_t openLen);
         __attribute__((warn_unused_result));
     void proceed();
+    void setMinOpenSegmentId(uint64_t segmentId);
 
     /// Number replicas to keep of each segment.
     const uint32_t numReplicas;
 
-    void handleBackupFailure(ServerId serverId);
-
   PRIVATE:
-
-    /**
-     * Waits for backup failure notifications from the Server's main ServerList
-     * and informs this ReplicaManager which takes corrective actions.  Runs in
-     * a separate thread in order to provide immediate response to failures and
-     * to provide a context for potentially long-running corrective actions even
-     * while the master is otherwise idle.
-     */
-    BackupFailureMonitor failureMonitor;
-
     /**
      * A ServerTracker used to find backups and track replica distribution
      * stats.  Each entry in the tracker contains a pointer to a BackupStats
@@ -94,6 +87,8 @@ class ReplicaManager
 
     /// Selects backups to store replicas while obeying placement constraints.
     BackupSelector backupSelector;
+
+    Tub<CoordinatorClient> coordinator;
 
     /**
      * Protects all internal data structures during concurrent calls to the
@@ -133,7 +128,12 @@ class ReplicaManager
      */
     uint32_t writeRpcsInFlight;
 
+    Tub<MinOpenSegmentId> minOpenSegmentId;
+
   PUBLIC:
+    // Only used by Log.
+    Tub<uint64_t> handleBackupFailure(ServerId failedId);
+
     // Only used by ReplicatedSegment.
     void destroyAndFreeReplicatedSegment(ReplicatedSegment* replicatedSegment);
 

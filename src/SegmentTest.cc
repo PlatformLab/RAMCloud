@@ -88,7 +88,7 @@ TEST_F(SegmentTest, constructor) {
     char alignedBuf[8192] __attribute__((aligned(8192)));
 
     ServerId serverId(1020304050, 0);
-    ReplicaManager replicaManager(serverList, serverId, 0);
+    ReplicaManager replicaManager(serverList, serverId, 0, NULL);
     TestLog::Enable _(&openSegmentFilter);
     Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf),
               &replicaManager);
@@ -144,7 +144,7 @@ TEST_F(SegmentTest, append) {
     SegmentEntryHandle seh;
 
     ServerId serverId(1, 0);
-    ReplicaManager replicaManager(serverList, serverId, 0);
+    ReplicaManager replicaManager(serverList, serverId, 0, NULL);
     TestLog::Enable _;
     Segment s(1, 2, alignedBuf, sizeof(alignedBuf), &replicaManager);
     seh = s.append(LOG_ENTRY_TYPE_SEGFOOTER, NULL, 0);
@@ -318,7 +318,7 @@ TEST_F(SegmentTest, close) {
     char alignedBuf[8192] __attribute__((aligned(8192)));
 
     ServerId serverId(1, 0);
-    ReplicaManager replicaManager(serverList, serverId, 0);
+    ReplicaManager replicaManager(serverList, serverId, 0, NULL);
     Segment s(1, 2, alignedBuf, sizeof(alignedBuf), &replicaManager);
     TestLog::Enable _;
     s.close(NULL, false);
@@ -470,7 +470,7 @@ TEST_F(SegmentTest, forceAppendWithEntry) {
 
 TEST_F(SegmentTest, syncToBackup) {
     char alignedBuf[8192] __attribute__((aligned(8192)));
-    ReplicaManager replicaManager(serverList, serverId, 0);
+    ReplicaManager replicaManager(serverList, serverId, 0, NULL);
     Segment s(1, 2, alignedBuf, sizeof(alignedBuf), &replicaManager);
     static SegmentHeader header;
     TestLog::Enable _;
@@ -484,7 +484,7 @@ TEST_F(SegmentTest, syncToBackup) {
 TEST_F(SegmentTest, freeReplicas) {
     TestLog::Enable _(&freeFilter);
     char alignedBuf[8192] __attribute__((aligned(8192)));
-    ReplicaManager replicaManager(serverList, serverId, 0);
+    ReplicaManager replicaManager(serverList, serverId, 0, NULL);
     Segment s(1, 2, alignedBuf, sizeof(alignedBuf), &replicaManager);
     s.close(NULL);
     s.freeReplicas();

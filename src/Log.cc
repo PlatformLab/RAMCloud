@@ -1,4 +1,4 @@
-/* Copyright (c) 2009, 2010 Stanford University
+/* Copyright (c) 2009-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -55,7 +55,8 @@ Log::Log(const ServerId& logId,
          uint32_t segmentCapacity,
          uint32_t maximumBytesPerAppend,
          ReplicaManager *replicaManager,
-         CleanerOption cleanerOption)
+         CleanerOption cleanerOption,
+         ServerList* serverList)
     : stats(),
       logCapacity((logCapacity / segmentCapacity) * segmentCapacity),
       segmentCapacity(segmentCapacity),
@@ -79,7 +80,8 @@ Log::Log(const ServerId& logId,
       replicaManager(replicaManager),
       cleanerOption(cleanerOption),
       cleaner(this, replicaManager,
-              cleanerOption == CONCURRENT_CLEANER)
+              cleanerOption == CONCURRENT_CLEANER),
+      failureMonitor()
 {
     if (logCapacity == 0) {
         throw LogException(HERE,
@@ -100,6 +102,11 @@ Log::Log(const ServerId& logId,
 
     Context::get().transportManager->registerMemory(segmentMemory.get(),
                                                     segmentMemory.length);
+
+    if (serverList) {
+        failureMonitor.construct(*serverList, replicaManager, this);
+        failureMonitor->start();
+    }
 }
 
 /**
@@ -126,8 +133,12 @@ Log::~Log()
 
 /**
  * Allocate a new head Segment and write the LogDigest before returning.
- * The current head is closed and replaced with the new one, though closure
- * does not occur until after the new head has been opened on backups.
+ * The current head is closed and replaced with the new one.  All the
+ * usual log durability constraints are enforced by the underlying
+ * ReplicaManager for safety during the transition to the new head.
+ *
+ * As we think about allowing concurrent workers code should
+ * move to using an interface more like allocateHeadIfStillOn().
  *
  * \throw LogOutOfMemoryException
  *      If no Segments are free.
@@ -135,64 +146,36 @@ Log::~Log()
 void
 Log::allocateHead()
 {
-    // these currently also take listLock, so rather than have
-    // unlocked versions of those methods or duplicating code,
-    // just do them before taking the big lock for this method.
-    void* baseAddress = getFromFreeList(true);
+    Lock lock(listLock);
+    allocateHeadInternal(lock, {});
+}
 
-    // NB: Allocate an ID _after_ having acquired memory. If we don't,
-    //     the allocation could fail and we've just leaked a segment
-    //     identifier (feel free to read the comments in allocateSegmentId
-    //     if you don't know why this is bad.
-    LogDigest::SegmentId newHeadId = allocateSegmentId();
-
-    std::lock_guard<SpinLock> lock(listLock);
-
-    if (head != NULL)
-        cleanableNewList.push_back(*head);
-
-    // new Log head + active Segments + cleaner pending Segments
-    size_t segmentCount = 1;
-    segmentCount += cleanableList.size() + cleanableNewList.size();
-    segmentCount += cleanablePendingDigestList.size();
-
-    size_t digestBytes = LogDigest::getBytesFromCount(segmentCount);
-    char temp[digestBytes];
-    LogDigest digest(segmentCount, temp, digestBytes);
-
-    while (!cleanablePendingDigestList.empty()) {
-        Segment& s = cleanablePendingDigestList.front();
-        cleanablePendingDigestList.pop_front();
-        cleanableNewList.push_back(s);
-    }
-
-    foreach (Segment& s, cleanableList)
-        digest.addSegment(downCast<LogDigest::SegmentId>(s.getId()));
-
-    foreach (Segment& s, cleanableNewList)
-        digest.addSegment(downCast<LogDigest::SegmentId>(s.getId()));
-
-    digest.addSegment(newHeadId);
-
-    while (!freePendingDigestAndReferenceList.empty()) {
-        Segment& s = freePendingDigestAndReferenceList.front();
-        freePendingDigestAndReferenceList.pop_front();
-        freePendingReferenceList.push_back(s);
-    }
-
-    Segment* nextHead = new Segment(this, true, newHeadId, baseAddress,
-        segmentCapacity, replicaManager, LOG_ENTRY_TYPE_LOGDIGEST, temp,
-        downCast<uint32_t>(digestBytes));
-
-    activeIdMap[nextHead->getId()] = nextHead;
-    activeBaseAddressMap[nextHead->getBaseAddress()] = nextHead;
-
-    // only close the old head _after_ we've opened up the new head!
-    if (head) {
-        head->close(nextHead, false); // an exception here would be problematic.
-    }
-
-    head = nextHead;
+/**
+ * Allocate a new head Segment and write the LogDigest before returning if
+ * the provided \a segmentId is still the current log head.
+ * The current head is closed and replaced with the new one.  All the
+ * usual log durability constraints are enforced by the underlying
+ * ReplicaManager for safety during the transition to the new head.
+ *
+ * \param lock
+ *      Not used; just here to prove that the caller at least acquired some
+ *      lock, if not the correct one.  \a lock should own the lock on
+ *      #listLock.  This provides consistency of the lists but also
+ *      ensures two threads aren't trying to allocate a new head at the same
+ *      time.
+ * \param segmentId
+ *      Only allocate a new log head if the current log head is the one
+ *      specified.  This is used to prevent useless allocations in the
+ *      case that multiple callers try to allocate new log heads at the
+ *      same time.
+ * \throw LogOutOfMemoryException
+ *      If no Segments are free.
+ */
+void
+Log::allocateHeadIfStillOn(uint64_t segmentId)
+{
+    Lock lock(listLock);
+    allocateHeadInternal(lock, { segmentId });
 }
 
 /**
@@ -520,7 +503,8 @@ Log::getSegmentMemoryForCleaning(bool useEmergencyReserve)
         return ret;
     }
 
-    return getFromFreeList(false);
+    Lock lock(listLock);
+    return getFromFreeList(lock, false);
 }
 
 /**
@@ -688,6 +672,92 @@ Log::allocateSegmentId()
 ////////////////////////////////////
 
 /**
+ * Allocate a new head Segment and write the LogDigest before returning if
+ * the optionally provided \a segmentId is still the current log head.
+ * The current head is closed and replaced with the new one.  All the
+ * usual log durability constraints are enforced by the underlying
+ * ReplicaManager for safety during the transition to the new head.
+ *
+ * \param lock
+ *      Not used; just here to prove that the caller at least acquired some
+ *      lock, if not the correct one.  \a lock should own the lock on
+ *      #listLock.  This provides consistency of the lists but also
+ *      ensures two threads aren't trying to allocate a new head at the same
+ *      time.
+ * \param segmentId
+ *      Only allocate a new log head if the current log head is the one
+ *      specified.  If \a segmentId is empty a new head is allocated
+ *      regardless of which segment is currently the log head.  This is
+ *      used to prevent useless allocations in the case that multiple
+ *      callers try to allocate new log heads at the same time.
+ * \throw LogOutOfMemoryException
+ *      If no Segments are free.
+ */
+void
+Log::allocateHeadInternal(Lock& lock, Tub<uint64_t> segmentId)
+{
+    if (head && segmentId && head->getId() == *segmentId)
+        return;
+
+    // these currently also take listLock, so rather than have
+    // unlocked versions of those methods or duplicating code,
+    // just do them before taking the big lock for this method.
+    void* baseAddress = getFromFreeList(lock, true);
+
+    // NB: Allocate an ID _after_ having acquired memory. If we don't,
+    //     the allocation could fail and we've just leaked a segment
+    //     identifier (feel free to read the comments in allocateSegmentId
+    //     if you don't know why this is bad.
+    LogDigest::SegmentId newHeadId = nextSegmentId++;
+
+    if (head != NULL)
+        cleanableNewList.push_back(*head);
+
+    // new Log head + active Segments + cleaner pending Segments
+    size_t segmentCount = 1;
+    segmentCount += cleanableList.size() + cleanableNewList.size();
+    segmentCount += cleanablePendingDigestList.size();
+
+    size_t digestBytes = LogDigest::getBytesFromCount(segmentCount);
+    char temp[digestBytes];
+    LogDigest digest(segmentCount, temp, digestBytes);
+
+    while (!cleanablePendingDigestList.empty()) {
+        Segment& s = cleanablePendingDigestList.front();
+        cleanablePendingDigestList.pop_front();
+        cleanableNewList.push_back(s);
+    }
+
+    foreach (Segment& s, cleanableList)
+        digest.addSegment(downCast<LogDigest::SegmentId>(s.getId()));
+
+    foreach (Segment& s, cleanableNewList)
+        digest.addSegment(downCast<LogDigest::SegmentId>(s.getId()));
+
+    digest.addSegment(newHeadId);
+
+    while (!freePendingDigestAndReferenceList.empty()) {
+        Segment& s = freePendingDigestAndReferenceList.front();
+        freePendingDigestAndReferenceList.pop_front();
+        freePendingReferenceList.push_back(s);
+    }
+
+    Segment* nextHead = new Segment(this, true, newHeadId, baseAddress,
+        segmentCapacity, replicaManager, LOG_ENTRY_TYPE_LOGDIGEST, temp,
+        downCast<uint32_t>(digestBytes));
+
+    activeIdMap[nextHead->getId()] = nextHead;
+    activeBaseAddressMap[nextHead->getBaseAddress()] = nextHead;
+
+    // only close the old head _after_ we've opened up the new head!
+    if (head) {
+        head->close(nextHead, false); // an exception here would be problematic.
+    }
+
+    head = nextHead;
+}
+
+/**
  * Print various Segment list counts to the debug log.
  */
 void
@@ -798,8 +868,13 @@ Log::locklessAddToFreeList(void *p)
 void *
 Log::getFromFreeList(bool mayUseLastSegment)
 {
-    std::lock_guard<SpinLock> lock(listLock);
+    Lock lock(listLock);
+    return getFromFreeList(lock, mayUseLastSegment);
+}
 
+void *
+Log::getFromFreeList(Lock& lock, bool mayUseLastSegment)
+{
     if (freeList.empty())
         throw LogOutOfMemoryException(HERE, "Log is out of space");
 

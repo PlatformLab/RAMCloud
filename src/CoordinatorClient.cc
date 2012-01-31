@@ -336,4 +336,29 @@ CoordinatorClient::requestServerList(ServerId destination)
     checkStatus(HERE);
 }
 
+CoordinatorClient::SetMinOpenSegmentId::SetMinOpenSegmentId(
+        CoordinatorClient& client,
+        ServerId serverId,
+        uint64_t segmentId)
+    : client(client)
+    , requestBuffer()
+    , responseBuffer()
+    , state()
+{
+    auto& reqHdr =
+        client.allocHeader<SetMinOpenSegmentIdRpc>(requestBuffer);
+    reqHdr.serverId = serverId.getId();
+    reqHdr.segmentId = segmentId;
+    state = client.send<SetMinOpenSegmentIdRpc>(client.session,
+                                                requestBuffer,
+                                                responseBuffer);
+}
+
+void
+CoordinatorClient::SetMinOpenSegmentId::operator()()
+{
+    client.recv<SetMinOpenSegmentIdRpc>(state);
+    client.checkStatus(HERE);
+}
+
 } // namespace RAMCloud

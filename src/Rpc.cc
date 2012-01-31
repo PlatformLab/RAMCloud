@@ -83,6 +83,7 @@ Rpc::opcodeSymbol(uint32_t opcode)
         case UPDATE_SERVER_LIST:         return "UDPATE_SERVER_LIST";
         case REQUEST_SERVER_LIST:        return "REQUEST_SERVER_LIST";
         case GET_SERVER_ID:              return "GET_SERVER_ID";
+        case SET_MIN_OPEN_SEGMENT_ID:    return "SET_MIN_OPEN_SEGMENT_ID";
         case ILLEGAL_RPC_TYPE:           return "ILLEGAL_RPC_TYPE";
     }
 

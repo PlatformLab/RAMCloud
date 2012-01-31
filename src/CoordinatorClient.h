@@ -59,6 +59,21 @@ class CoordinatorClient : public Client {
     void setWill(uint64_t masterId, const ProtoBuf::Tablets& will);
     void requestServerList(ServerId destination);
 
+    class SetMinOpenSegmentId {
+      public:
+        SetMinOpenSegmentId(CoordinatorClient& client,
+                            ServerId serverId, uint64_t segmentId);
+        bool isReady() { return state.isReady(); }
+        void operator()();
+      private:
+        CoordinatorClient& client;
+        Buffer requestBuffer;
+        Buffer responseBuffer;
+        AsyncState state;
+        DISALLOW_COPY_AND_ASSIGN(SetMinOpenSegmentId);
+    };
+    DEF_SYNC_RPC_METHOD(setMinOpenSegmentId, SetMinOpenSegmentId);
+
   private:
     void getServerList(ServiceMask services, ProtoBuf::ServerList& serverList);
 

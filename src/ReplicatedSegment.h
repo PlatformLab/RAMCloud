@@ -22,6 +22,7 @@
 #include "BackupClient.h"
 #include "BackupSelector.h"
 #include "BoostIntrusive.h"
+#include "MinOpenSegmentId.h"
 #include "RawMetrics.h"
 #include "Transport.h"
 #include "TaskManager.h"
@@ -187,21 +188,50 @@ class ReplicatedSegment : public Task {
      * For internal use; stores all state for a single (potentially incomplete)
      * replica of a ReplicatedSegment.
      */
-    struct Replica {
-        explicit Replica(ServerId backupId, Transport::SessionRef session)
-            : backupId(backupId)
-            , client(session)
+    class Replica {
+      PUBLIC:
+        Replica()
+            : isActive(false)
+            , backupId()
+            , client()
             , acked()
             , sent()
             , freeRpc()
             , writeRpc()
+            , replicateAtomically(false)
         {}
 
+        ~Replica() {
+            if (writeRpc)
+                writeRpc->cancel();
+            if (freeRpc)
+                freeRpc->cancel();
+        }
+
+        void start(ServerId backupId, Transport::SessionRef session) {
+            isActive = true;
+            this->backupId = backupId;
+            client.construct(session);
+        }
+
+        void failed() {
+            this->~Replica();
+            new(this) Replica;
+            replicateAtomically = true;
+        }
+
+        void freed() {
+            this->~Replica();
+            new(this) Replica;
+        }
+
+        bool isActive;
+
         /// Id of remote backup server where this replica is (to be) stored.
-        const ServerId backupId;
+        ServerId backupId;
 
         /// Client to remote backup server where this replica is (to be) stored.
-        BackupClient client;
+        Tub<BackupClient> client;
 
         /**
          * Tracks how much of a segment has been acknowledged as buffered
@@ -222,13 +252,23 @@ class ReplicatedSegment : public Task {
         /// The outstanding write operation to this backup, if any.
         Tub<BackupClient::WriteSegment> writeRpc;
 
+        // Fields below survive across open()s.
+
+        /**
+         * This is set whenever replication is happening in response to a
+         * failure.  It ensure that any subsequent
+         */
+        bool replicateAtomically;
+
         DISALLOW_COPY_AND_ASSIGN(Replica);
     };
 
 // --- ReplicatedSegment ---
   PUBLIC:
     void free();
+    bool isSynced() const;
     void close(ReplicatedSegment* followingSegment);
+    bool handleBackupFailure(ServerId failedId);
     void sync(uint32_t offset);
     void write(uint32_t offset);
 
@@ -246,7 +286,9 @@ class ReplicatedSegment : public Task {
                       BaseBackupSelector& backupSelector,
                       Deleter& deleter,
                       uint32_t& writeRpcsInFlight,
+                      MinOpenSegmentId& minOpenSegmentId,
                       std::mutex& dataMutex,
+                      bool normalLogSegment,
                       ServerId masterId, uint64_t segmentId,
                       const void* data, uint32_t openLen,
                       uint32_t numReplicas,
@@ -254,8 +296,8 @@ class ReplicatedSegment : public Task {
     ~ReplicatedSegment();
 
     void performTask();
-    void performFree(Tub<Replica>& replica);
-    void performWrite(Tub<Replica>& replica);
+    void performFree(Replica& replica);
+    void performWrite(Replica& replica);
 
     /**
      * Return the minimum Progress made in syncing this replica to Backups
@@ -264,23 +306,16 @@ class ReplicatedSegment : public Task {
     Progress getAcked() const {
         Progress p = queued;
         foreach (auto& replica, replicas) {
-            if (replica)
-                p.min(replica->acked);
+            if (replica.isActive)
+                p.min(replica.acked);
             else
                 return Progress();
         }
         return p;
     }
 
-    /**
-     * Returns true when all data queued for writing by the log module for this
-     * segment is durably synced to #numReplicas including any outstanding
-     * flags.
-     */
-    bool isSynced() const { return getAcked() == queued; }
-
     /// Return true if this replica should be considered the primary replica.
-    bool replicaIsPrimary(Tub<Replica>& replica) const {
+    bool replicaIsPrimary(Replica& replica) const {
         return &replica == &replicas[0];
     }
 
@@ -310,6 +345,8 @@ class ReplicatedSegment : public Task {
      */
     uint32_t& writeRpcsInFlight;
 
+    MinOpenSegmentId& minOpenSegmentId;
+
     /**
      * Protects all state for this segment and others the ReplicaManager is
      * tracking; see ReplicaManager.  A lock for this mutex must be held to
@@ -317,6 +354,12 @@ class ReplicatedSegment : public Task {
      */
     std::mutex& dataMutex;
     typedef std::lock_guard<std::mutex> Lock;
+
+    /**
+     * True is this segment was opened as a head of the log, false if the
+     * segment is a cleaner-generated segment.
+     */
+    const bool normalLogSegment;
 
     /// The server id of the Master whose log this segment belongs to.
     const ServerId masterId;
@@ -374,6 +417,12 @@ class ReplicatedSegment : public Task {
      */
     bool precedingSegmentCloseAcked;
 
+    /**
+     * Set to true if this segment lost a replica while it was open and hasn't
+     * finished recovering from it yet.
+     */
+    bool recoveringFromLostOpenReplicas;
+
     /// Intrusive list entries for #ReplicaManager::replicatedSegmentList.
     IntrusiveListHook listEntries;
 
@@ -381,7 +430,7 @@ class ReplicatedSegment : public Task {
      * An array of #ReplicaManager::replica backups on which the segment is
      * (being) replicated.
      */
-    VarLenArray<Tub<Replica>> replicas; // must be last member of class
+    VarLenArray<Replica> replicas; // must be last member of class
 
     DISALLOW_COPY_AND_ASSIGN(ReplicatedSegment);
 };

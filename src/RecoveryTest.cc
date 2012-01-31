@@ -56,7 +56,7 @@ class RecoveryTest : public ::testing::Test {
             // with libhphp.a.
 
             mgr = new ReplicaManager(serverList, masterId,
-                                     downCast<uint32_t>(locators.size()));
+                                     downCast<uint32_t>(locators.size()), NULL);
             foreach (const auto& locator, locators) {
                 size_t len = strlen(locator);
                 uint32_t backupId =

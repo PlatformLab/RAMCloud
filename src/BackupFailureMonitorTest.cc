@@ -22,11 +22,11 @@ namespace RAMCloud {
 
 struct BackupFailureMonitorTest : public ::testing::Test {
     ServerList serverList;
-    BackupFailureMonitor handler;
+    BackupFailureMonitor monitor;
 
     BackupFailureMonitorTest()
         : serverList()
-        , handler(serverList, NULL)
+        , monitor(serverList, NULL, NULL)
     {
         Context::get().logger->setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
     }
@@ -36,35 +36,35 @@ static bool mainFilter(string s) { return s == "main"; }
 
 TEST_F(BackupFailureMonitorTest, main) {
     TestLog::Enable _(&mainFilter);
-    handler.start();
+    monitor.start();
     serverList.add(ServerId(2, 0), "mock:host=backup1",
                    {BACKUP_SERVICE}, 100);
     serverList.remove(ServerId(2, 0));
     serverList.add(ServerId(3, 0), "mock:host=master",
                    {MASTER_SERVICE}, 100);
     serverList.remove(ServerId(3, 0));
-    while (handler.tracker->areChanges()); // getChanges has drained the queue.
-    BackupFailureMonitor::Lock lock(handler.mutex); // processing is done.
-    EXPECT_EQ("main: Notifying replica manager of failure of serverId 2",
+    while (monitor.tracker->areChanges()); // getChanges has drained the queue.
+    BackupFailureMonitor::Lock lock(monitor.mutex); // processing is done.
+    EXPECT_EQ("main: Notifying log of failure of serverId 2",
               TestLog::get());
 }
 
 TEST_F(BackupFailureMonitorTest, startAndHalt) {
-    handler.start(); // check start
-    EXPECT_TRUE(handler.running);
-    EXPECT_TRUE(handler.thread);
-    handler.start(); // check dup start call
-    EXPECT_TRUE(handler.running);
-    EXPECT_TRUE(handler.thread);
-    handler.halt(); // check halt
-    EXPECT_FALSE(handler.running);
-    EXPECT_FALSE(handler.thread);
-    handler.halt(); // check dup halt call
-    EXPECT_FALSE(handler.running);
-    EXPECT_FALSE(handler.thread);
-    handler.start(); // check restart after halt
-    EXPECT_TRUE(handler.running);
-    EXPECT_TRUE(handler.thread);
+    monitor.start(); // check start
+    EXPECT_TRUE(monitor.running);
+    EXPECT_TRUE(monitor.thread);
+    monitor.start(); // check dup start call
+    EXPECT_TRUE(monitor.running);
+    EXPECT_TRUE(monitor.thread);
+    monitor.halt(); // check halt
+    EXPECT_FALSE(monitor.running);
+    EXPECT_FALSE(monitor.thread);
+    monitor.halt(); // check dup halt call
+    EXPECT_FALSE(monitor.running);
+    EXPECT_FALSE(monitor.thread);
+    monitor.start(); // check restart after halt
+    EXPECT_TRUE(monitor.running);
+    EXPECT_TRUE(monitor.thread);
 }
 
 TEST_F(BackupFailureMonitorTest, trackerChangesEnqueued) {
@@ -73,32 +73,34 @@ TEST_F(BackupFailureMonitorTest, trackerChangesEnqueued) {
     // callback from the serverList.  There is no good way to
     // tell which caused the processing, so run through these
     // entries and set up the real test once this race is over.
-    handler.start();
+    monitor.start();
     serverList.add(ServerId(2, 0), "mock:host=backup1",
                    {BACKUP_SERVICE}, 100);
     serverList.remove(ServerId(2, 0));
-    while (handler.tracker->areChanges()); // getChanges has drained the queue.
-    BackupFailureMonitor::Lock lock(handler.mutex); // processing is done.
+    while (monitor.tracker->areChanges()); // getChanges has drained the queue.
+    BackupFailureMonitor::Lock lock(monitor.mutex); // processing is done.
     lock.unlock();
 
     // Ok - now set up the real test: make sure changes are processed in
     // response to trackerChangesEnqueued().
 
     // Prevents tracker from calling trackerChangesEnqueued on add/remove.
-    handler.tracker->eventCallback = NULL;
+    monitor.tracker->eventCallback = NULL;
 
     serverList.add(ServerId(3, 0), "mock:host=backup2",
                    {BACKUP_SERVICE}, 100);
     serverList.remove(ServerId(3, 0));
 
     TestLog::Enable _(&mainFilter);
-    handler.trackerChangesEnqueued();     // Notify the handler thread.
-    while (handler.tracker->areChanges()); // getChanges has drained the queue.
+    monitor.trackerChangesEnqueued();     // Notify the monitor thread.
+    while (monitor.tracker->areChanges()); // getChanges has drained the queue.
     lock.lock(); // processing changes is done.
     lock.unlock();
     // Make sure it processed the new event.
-    EXPECT_EQ("main: Notifying replica manager of failure of serverId 3",
+    EXPECT_EQ("main: Notifying log of failure of serverId 3",
               TestLog::get());
 }
+
+// TODO: Will need a few more here probably?
 
 } // namespace RAMCloud

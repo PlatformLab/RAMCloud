@@ -96,6 +96,10 @@ class CoordinatorService : public Service {
     void sendMembershipUpdate(ProtoBuf::ServerList& update,
                               ServerId excludeServerId);
 
+    void setMinOpenSegmentId(const SetMinOpenSegmentIdRpc::Request& reqHdr,
+                             SetMinOpenSegmentIdRpc::Response& respHdr,
+                             Rpc& rpc);
+
     /**
      * List of all servers in the system. This structure is used to allocate
      * ServerIds as well as to keep track of any information we need to keep

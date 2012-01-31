@@ -13,10 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "ReplicaManager.h"
 #include "ReplicatedSegment.h"
 #include "ShortMacros.h"
-#include "TaskManager.h"
 
 namespace RAMCloud {
 
@@ -41,6 +39,9 @@ namespace RAMCloud {
  *      ReplicaManager and all other ReplicatedSegments.
  * \param deleter
  *      Deletes this when this determines it is no longer needed.
+ * \param normalLogSegment
+ *      True is this segment was opened as a head of the log, false if the
+ *      segment is a cleaner-generated segment.
  * \param masterId
  *      The server id of the master whose log this segment belongs to.
  * \param segmentId
@@ -60,7 +61,9 @@ ReplicatedSegment::ReplicatedSegment(TaskManager& taskManager,
                                      BaseBackupSelector& backupSelector,
                                      Deleter& deleter,
                                      uint32_t& writeRpcsInFlight,
+                                     MinOpenSegmentId& minOpenSegmentId,
                                      std::mutex& dataMutex,
+                                     bool normalLogSegment,
                                      ServerId masterId,
                                      uint64_t segmentId,
                                      const void* data,
@@ -72,7 +75,9 @@ ReplicatedSegment::ReplicatedSegment(TaskManager& taskManager,
     , backupSelector(backupSelector)
     , deleter(deleter)
     , writeRpcsInFlight(writeRpcsInFlight)
+    , minOpenSegmentId(minOpenSegmentId)
     , dataMutex(dataMutex)
+    , normalLogSegment(normalLogSegment)
     , masterId(masterId)
     , segmentId(segmentId)
     , data(data)
@@ -82,6 +87,7 @@ ReplicatedSegment::ReplicatedSegment(TaskManager& taskManager,
     , freeQueued(false)
     , followingSegment(NULL)
     , precedingSegmentCloseAcked(true)
+    , recoveringFromLostOpenReplicas(false)
     , listEntries()
     , replicas(numReplicas)
 {
@@ -126,7 +132,7 @@ ReplicatedSegment::free()
 
     checkAgain:
     foreach (auto& replica, replicas) {
-        if (!replica || !replica->writeRpc)
+        if (!replica.isActive || !replica.writeRpc)
             continue;
         taskManager.proceed();
         // Release and reacquire the lock; this gives other operations
@@ -137,6 +143,17 @@ ReplicatedSegment::free()
     }
 
     schedule();
+}
+
+/**
+ * Returns true when all data queued for writing by the log module for this
+ * segment is durably synced to #numReplicas including any outstanding
+ * flags.
+ */
+bool
+ReplicatedSegment::isSynced() const
+{
+    return !recoveringFromLostOpenReplicas && (getAcked() == queued);
 }
 
 /**
@@ -251,6 +268,35 @@ ReplicatedSegment::close(ReplicatedSegment* followingSegment)
 }
 
 /**
+ * Respond to a change in cluster configuration by scheduling any work that is
+ * needed to restore durablity guarantees.  One call is sufficient since tasks
+ * reschedule themselves until all guarantees are restored.
+ *
+ * \param failedId
+ *      ServerId of the backup which has failed.
+ */
+bool
+ReplicatedSegment::handleBackupFailure(ServerId failedId)
+{
+    if (normalLogSegment && !getAcked().close)
+        recoveringFromLostOpenReplicas = true;
+    // TODO: Will probably also need a recoveringFromFailure in order
+    // to change the rewrite RPCs to use a special form of open so
+    // that the backups don't report the replicas as open and only
+    // report complete closed copies.
+
+    foreach (auto& replica, replicas) {
+        if (!replica.isActive || replica.backupId != failedId)
+            continue;
+
+        replica.failed();
+        schedule();
+    }
+
+    return recoveringFromLostOpenReplicas;
+}
+
+/**
  * Wait for the durable replication (meaning at least durably buffered on
  * backups) of data starting at the beginning of the segment up through \a
  * offset bytes (non-inclusive).  Also implies the data will be recovered in
@@ -274,8 +320,17 @@ ReplicatedSegment::sync(uint32_t offset)
 
     while (true) {
         Lock lock(dataMutex);
-        if (getAcked().bytes >= offset)
-            break;
+        // The definition of synced changes if this segment had a log digest
+        // and is recovering from a lost replica.  In that case the data
+        // the data isn't durable until it has been replicated *along with*
+        // a durable close on the replicas as well *and* any lost, open
+        // replicas have been shot down by setting the minOpenSegmentId.
+        // Once this flag is cleared those conditions have been met and
+        // it is safe to use the usual definition.
+        if (!recoveringFromLostOpenReplicas) {
+            if (getAcked().bytes >= offset)
+                break;
+        }
         taskManager.proceed();
     }
 }
@@ -337,6 +392,18 @@ ReplicatedSegment::performTask()
     } else {
         foreach (auto& replica, replicas)
             performWrite(replica);
+        if (recoveringFromLostOpenReplicas && getAcked().close) {
+            if (minOpenSegmentId.isGreaterThan(segmentId)) {
+                // Ok, this segment is now recovered.
+                recoveringFromLostOpenReplicas = false;
+            } else  {
+                // Now that the old head segment has been re-replicated
+                // and durably closed its time to make sure it can never
+                // appear as an open segment in the log again (even if
+                // some lost replica come back from the grave).
+                minOpenSegmentId.updateToAtLeast(segmentId + 1);
+            }
+        }
         assert(isSynced() || isScheduled());
     }
 }
@@ -349,7 +416,7 @@ ReplicatedSegment::performTask()
  * \pre freeQueued must be true, otherwise behavior is undefined.
  */
 void
-ReplicatedSegment::performFree(Tub<Replica>& replica)
+ReplicatedSegment::performFree(Replica& replica)
 {
     /*
      * Internally this method is written as a set of nested
@@ -360,27 +427,27 @@ ReplicatedSegment::performFree(Tub<Replica>& replica)
      * case a particular state will fall into.  performWrite() is written
      * is a similar style for the same reason.
      */
-    if (!replica) {
-        // Do nothing is there was no replica, no need to reschedule.
+    if (!replica.isActive) {
+        // Do nothing if there was no replica, no need to reschedule.
         return;
     }
 
-    if (replica->freeRpc) {
+    if (replica.freeRpc) {
         // A free rpc is outstanding to the backup storing this replica.
-        if (replica->freeRpc->isReady()) {
+        if (replica.freeRpc->isReady()) {
             // Request is finished, clean up the state.
             try {
-                (*replica->freeRpc)();
+                (*replica.freeRpc)();
             } catch (TransportException& e) {
                 // Retry, if it down the server list will let us know.
                 LOG(WARNING,
                     "Failure freeing replica on backup, retrying: %s",
                     e.what());
-                replica->freeRpc.destroy();
+                replica.freeRpc.destroy();
                 schedule();
                 return;
             }
-            replica.destroy();
+            replica.freed();
             // Free completed, no need to reschedule.
             return;
         } else {
@@ -390,7 +457,7 @@ ReplicatedSegment::performFree(Tub<Replica>& replica)
         }
     } else {
         // No free rpc is outstanding.
-        if (replica->writeRpc) {
+        if (replica.writeRpc) {
             // Cannot issue free, a write is outstanding. Make progress on it.
             performWrite(replica);
             // Stay scheduled even if synced since we have to do free still.
@@ -398,7 +465,7 @@ ReplicatedSegment::performFree(Tub<Replica>& replica)
             return;
         } else {
             // Issue a free rpc for this replica, reschedule to wait on it.
-            replica->freeRpc.construct(replica->client, masterId, segmentId);
+            replica.freeRpc.construct(*replica.client, masterId, segmentId);
             schedule();
             return;
         }
@@ -412,14 +479,14 @@ ReplicatedSegment::performFree(Tub<Replica>& replica)
  * this segment for future attention from the ReplicaManager.
  */
 void
-ReplicatedSegment::performWrite(Tub<Replica>& replica)
+ReplicatedSegment::performWrite(Replica& replica)
 {
-    if (replica && replica->acked == queued) {
+    if (replica.isActive && replica.acked == queued) {
         // If this replica is synced no further work is needed for now.
         return;
     }
 
-    if (!replica) {
+    if (!replica.isActive) {
         // This replica does not exist yet. Choose a backup and send the open.
         // Happens for a new segment or if a replica was known to be lost.
         if (writeRpcsInFlight == MAX_WRITE_RPCS_IN_FLIGHT) {
@@ -429,8 +496,8 @@ ReplicatedSegment::performWrite(Tub<Replica>& replica)
         ServerId conflicts[replicas.numElements - 1];
         uint32_t numConflicts = 0;
         foreach (auto& conflictingReplica, replicas) {
-            if (conflictingReplica)
-                conflicts[numConflicts++] = conflictingReplica->backupId;
+            if (conflictingReplica.isActive)
+                conflicts[numConflicts++] = conflictingReplica.backupId;
             assert(numConflicts < replicas.numElements);
         }
         ServerId backupId;
@@ -442,44 +509,54 @@ ReplicatedSegment::performWrite(Tub<Replica>& replica)
             backupId = backupSelector.selectSecondary(numConflicts, conflicts);
         }
         Transport::SessionRef session = tracker.getSession(backupId);
-        replica.construct(backupId, session);
-        replica->writeRpc.construct(replica->client, masterId, segmentId,
+        replica.start(backupId, session);
+        replica.writeRpc.construct(*replica.client, masterId, segmentId,
                                     0, data, openLen, flags);
         ++writeRpcsInFlight;
-        replica->sent.open = true;
-        replica->sent.bytes = openLen;
+        replica.sent.open = true;
+        replica.sent.bytes = openLen;
         schedule();
         return;
     }
 
-    if (replica->writeRpc) {
+    if (replica.writeRpc) {
         // This backup has a write request outstanding to a backup.
-        if (replica->writeRpc->isReady()) {
+        if (replica.writeRpc->isReady()) {
             // Wait for it to complete if it is ready.
             try {
-                (*replica->writeRpc)();
-                replica->acked = replica->sent;
-                if (replica->sent.close && followingSegment) {
+                (*replica.writeRpc)();
+                replica.acked = replica.sent;
+                if (replica.acked.close && followingSegment) {
                     followingSegment->precedingSegmentCloseAcked = true;
                     // Don't poke at potentially non-existent segments later.
                     followingSegment = NULL;
                 }
             } catch (TransportException& e) {
                 // Retry, if it is down the server list will let us know.
-                replica->sent = replica->acked;
+                replica.sent = replica.acked;
                 LOG(WARNING,
                     "Failure writing replica on backup, retrying: %s",
                     e.what());
             }
-            replica->writeRpc.destroy();
+            replica.writeRpc.destroy();
             --writeRpcsInFlight;
-            if (replica->acked != queued)
+            if (replica.acked != queued)
                 schedule();
-            if (!replica->acked.open) {
+            if (!replica.acked.open) {
+                // TODO: Check this - this could leave stray open
+                // replicas around - better handle failures the usual way.
+                // TODO: Yeah, this is just wrong, wait for the failure
+                // notification rather than trying to do this poorly.
+                // TODO: Need to make it so the open flag is due to 
+                // !replica.acked.open not the opening of the tub.
+                // TODO: Probably the right thing is to select where to
+                // send the backup in one proceed pass and then actually
+                // send the write in the next proceed pass to collapse
+                // the open and write case together.
                 // If there was a TransportException then it may be
                 // that the open hasn't been acknowledged yet. In that
                 // case we reset to a state where the open will be retried.
-                replica.destroy();
+                replica.failed();
             }
             return;
         } else {
@@ -489,10 +566,10 @@ ReplicatedSegment::performWrite(Tub<Replica>& replica)
         }
     } else {
         // No outstanding write but not yet synced.
-        if (replica->sent < queued) {
+        if (replica.sent < queued) {
             // Some part of the data hasn't been sent yet.  Send it.
-            assert(!replica->freeRpc);
-            assert(!replica->sent.close);
+            assert(!replica.freeRpc);
+            assert(!replica.sent.close);
 
             if (!precedingSegmentCloseAcked) {
                 // This segment must wait to send write rpcs until the
@@ -505,8 +582,8 @@ ReplicatedSegment::performWrite(Tub<Replica>& replica)
                 return;
             }
 
-            uint32_t offset = replica->sent.bytes;
-            uint32_t length = queued.bytes - replica->sent.bytes;
+            uint32_t offset = replica.sent.bytes;
+            uint32_t length = queued.bytes - replica.sent.bytes;
             BackupWriteRpc::Flags flags = queued.close ?
                                             BackupWriteRpc::CLOSE :
                                             BackupWriteRpc::NONE;
@@ -534,10 +611,10 @@ ReplicatedSegment::performWrite(Tub<Replica>& replica)
             }
 
             const char* src = static_cast<const char*>(data) + offset;
-            replica->writeRpc.construct(replica->client, masterId, segmentId,
+            replica.writeRpc.construct(*replica.client, masterId, segmentId,
                                         offset, src, length, flags);
-            replica->sent.bytes += length;
-            replica->sent.close = (flags == BackupWriteRpc::CLOSE);
+            replica.sent.bytes += length;
+            replica.sent.close = (flags == BackupWriteRpc::CLOSE);
             schedule();
             return;
         } else {
