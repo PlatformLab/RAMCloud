@@ -42,13 +42,12 @@ struct ServerListBuilder {
      *
      * Example:
      * ServerListBuilder{serverList}
-     *      ({MASTER_SERVICE}, 123, 87, "mock:host=one")
-     *      ({BACKUP_SERVICE}, 123, 87, "mock:host=two");
+     *      ({MASTER_SERVICE}, 123, "mock:host=one")
+     *      ({BACKUP_SERVICE}, 123, "mock:host=two");
      */
     ServerListBuilder&
     operator()(std::initializer_list<ServiceType> services,
                uint64_t id,
-               uint64_t segmentId,
                const char* locator,
                uint64_t userData = 0,
                bool isInCluster = true)
@@ -57,7 +56,6 @@ struct ServerListBuilder {
         ServiceMask serviceMask(services);
         server.set_service_mask(serviceMask.serialize());
         server.set_server_id(id);
-        server.set_segment_id(segmentId);
         server.set_service_locator(locator);
         server.set_user_data(userData);
         server.set_is_in_cluster(isInCluster);
