@@ -399,11 +399,29 @@ Segment::close(Segment* nextHead, bool sync)
     if (closed)
         throw SegmentException(HERE, "Segment has already been closed");
 
-    SegmentFooter footer = { checksum.getResult() };
+    // Insert padding entry to align the footer to the end of the segment.
+    // Don't include the padding or its entry in the checksum.  It doesn't
+    // matter if it has integrity.  If we can't find the footer as a result
+    // then its okay to consider the segment corrupted, but if we manage
+    // to checksum all the non-padding entries and still find the checksum
+    // in the footer and it matches it is no problem.
+    uint32_t remainingSpace = locklessAppendableBytes();
+    // remainingSpace doesn't include the extra space set aside for the
+    // padding log entry header and the footer log entry + header.
+    SegmentEntryHandle seh =
+        forceAppendWithEntry(LOG_ENTRY_TYPE_INVALID, NULL,
+                             remainingSpace, false, false);
+    // Tweak to make sure this padding entry is still claimed as free space
+    // from the perspective of the log cleaner.
+    bytesExplicitlyFreed += seh->totalLength();
+    assert(seh != NULL);
 
-    const void *p = forceAppendWithEntry(LOG_ENTRY_TYPE_SEGFOOTER, &footer,
-        sizeof(SegmentFooter), false, false);
-    assert(p != NULL);
+    // With above padding insert the footer which should be aligned at the
+    // end of the segment.
+    SegmentFooter footer = { checksum.getResult() };
+    seh = forceAppendWithEntry(LOG_ENTRY_TYPE_SEGFOOTER, &footer,
+                             sizeof(SegmentFooter), false, false);
+    assert(seh != NULL);
 
     // ensure that any future append() will fail
     closed = true;
@@ -612,7 +630,11 @@ Segment::locklessAppendableBytes() const
     if (closed)
         return 0;
 
-    uint32_t headRoom = downCast<uint32_t>(sizeof(SegmentEntry) +
+    // Reserve space in the segment for a segment footer and an entry to
+    // insert for padding up to that footer.  This allows us to put the
+    // segment footer in the same place (at the end) in each segment which
+    // allows backups to find it without IO.
+    uint32_t headRoom = downCast<uint32_t>(2 * sizeof(SegmentEntry) +
                                            sizeof(SegmentFooter));
     uint32_t freeBytes = capacity - tail;
 
@@ -646,11 +668,7 @@ Segment::locklessCanAppendEntries(size_t numberOfEntries,
                            downCast<uint32_t>(sizeof(SegmentEntry)) +
                            downCast<uint32_t>(numberOfBytesInEntries);
 
-    uint32_t headRoom = downCast<uint32_t>(sizeof(SegmentEntry) +
-                                           sizeof(SegmentFooter));
-    uint32_t freeBytes = capacity - tail - headRoom;
-
-    return (freeBytes >= bytesNeeded);
+    return (locklessAppendableBytes() >= bytesNeeded);
 }
 
 /**
@@ -720,13 +738,40 @@ Segment::forceAppendBlob(const void *buffer, uint32_t length)
     assert((tail + length) <= capacity);
     assert(!closed);
 
-    const uint8_t *src = reinterpret_cast<const uint8_t *>(buffer);
-    uint8_t       *dst = reinterpret_cast<uint8_t *>(baseAddress) + tail;
+    const uint8_t *src = static_cast<const uint8_t *>(buffer);
+    uint8_t       *dst = static_cast<uint8_t *>(baseAddress) + tail;
 
     memcpy(dst, src, length);
 
     tail += length;
-    return reinterpret_cast<void *>(dst);
+    return static_cast<void *>(dst);
+}
+
+/**
+ * Append specified byte to the memory backing this Segment \a length times.
+ * Note that no SegmentEntry is written and the only sanity check is to ensure
+ * that the backing memory is not overrun.
+ *
+ * \param[in] byte
+ *      Byte to be repeatedly appended to the Segment's backing memory.
+ * \param[in] length
+ *      Number of times \a byte is to be appended to the backing memory.
+ * \return
+ *      A pointer into the Segment corresponding to the first byte that
+ *      contains the newly appended repeated bytes.
+ */
+const void*
+Segment::forceAppendRepeatedByte(uint8_t byte, uint32_t length)
+{
+    assert((tail + length) <= capacity);
+    assert(!closed);
+
+    uint8_t* dst = static_cast<uint8_t *>(baseAddress) + tail;
+
+    memset(dst, byte, length);
+
+    tail += length;
+    return static_cast<void *>(dst);
 }
 
 /**
@@ -735,7 +780,12 @@ Segment::forceAppendBlob(const void *buffer, uint32_t length)
  * \param[in] type
  *      The type of entry to append.
  * \param[in] buffer
- *      Data to be appended to this Segment.
+ *      Data to be appended to this Segment.  If buffer is NULL then an entry
+ *      \a length bytes is inserted but is left uninitialized.  This should
+ *      probably only be used with LogEntryType UNINIT or INVALID.  Passing
+ *      \a updateChecksum as true with a NULL \a buffer will segfault; this
+ *      can only be done for entries which do not require integrity for
+ *      correct operation.
  * \param[in] length
  *      Length of the data to be appended in bytes.
  * \param[in] sync
@@ -810,7 +860,11 @@ Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
     {
         CycleCounter<RawMetric> _(&metrics->master.segmentAppendCopyTicks);
         entryPointer = forceAppendBlob(&entry, sizeof(entry));
-        forceAppendBlob(buffer, length);
+        if (buffer) {
+            forceAppendBlob(buffer, length);
+        } else {
+            forceAppendRepeatedByte(0x0, length);
+        }
     }
 
     if (sync && replicatedSegment) {

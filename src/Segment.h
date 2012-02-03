@@ -305,6 +305,7 @@ class Segment {
                                           bool subtract);
     const void        *forceAppendBlob(const void *buffer,
                                        uint32_t length);
+    const void        *forceAppendRepeatedByte(uint8_t byte, uint32_t length);
     SegmentEntryHandle forceAppendWithEntry(LogEntryType type,
                              const void *buffer,
                              uint32_t length,

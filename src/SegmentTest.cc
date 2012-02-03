@@ -181,7 +181,7 @@ TEST_F(SegmentTest, append) {
     for (uint32_t i = 0; i < bytes; i++)
         buf[i] = static_cast<char>(i);
 
-    seh = s.append(LOG_ENTRY_TYPE_OBJ, buf, bytes, true, 0x0597577e);
+    seh = s.append(LOG_ENTRY_TYPE_OBJ, buf, bytes, true, 0x9471d91a);
     EXPECT_TRUE(seh != NULL);
 
     SegmentEntry *se = reinterpret_cast<SegmentEntry *>(
@@ -322,13 +322,25 @@ TEST_F(SegmentTest, close) {
     Segment s(1, 2, alignedBuf, sizeof(alignedBuf), &replicaManager);
     TestLog::Enable _;
     s.close(NULL, false);
-    EXPECT_EQ("write: 1, 2, 44 | close: 1, 2, 0 | "
-              "close: Segment 2 closed (length 44)",
+    EXPECT_EQ("write: 1, 2, 8192 | close: 1, 2, 0 | "
+              "close: Segment 2 closed (length 8192)",
               TestLog::get());
 
+    // Check the padding.
     SegmentEntry *se = reinterpret_cast<SegmentEntry *>(
                         reinterpret_cast<char *>(s.baseAddress) +
                         sizeof(SegmentEntry) + sizeof(SegmentHeader));
+    EXPECT_EQ(LOG_ENTRY_TYPE_INVALID, se->type);
+    EXPECT_EQ(sizeof(alignedBuf) -
+              3 * sizeof(SegmentEntry) -
+              sizeof(SegmentHeader) -
+              sizeof(SegmentFooter), se->length);
+
+    // Check the footer.
+    se = reinterpret_cast<SegmentEntry *>(
+                        reinterpret_cast<char *>(s.baseAddress) +
+                        sizeof(alignedBuf) -
+                        sizeof(SegmentEntry) - sizeof(SegmentFooter));
     EXPECT_EQ(LOG_ENTRY_TYPE_SEGFOOTER, se->type);
     EXPECT_EQ(sizeof(SegmentFooter), se->length);
 
@@ -347,7 +359,7 @@ TEST_F(SegmentTest, appendableBytes) {
     char alignedBuf[8192] __attribute__((aligned(8192)));
 
     Segment s(1, 2, alignedBuf, sizeof(alignedBuf));
-    EXPECT_EQ(sizeof(alignedBuf) - 2 * sizeof(SegmentEntry) -
+    EXPECT_EQ(sizeof(alignedBuf) - 3 * sizeof(SegmentEntry) -
         sizeof(SegmentHeader) - sizeof(SegmentFooter), s.appendableBytes());
 
     static char buf[83];
@@ -355,7 +367,7 @@ TEST_F(SegmentTest, appendableBytes) {
     while (s.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf)))
         i++;
     EXPECT_EQ(87, i);
-    EXPECT_EQ(57U, s.appendableBytes());
+    EXPECT_EQ(47U, s.appendableBytes());
 
     s.close(NULL);
     EXPECT_EQ(0U, s.appendableBytes());
@@ -382,6 +394,28 @@ TEST_F(SegmentTest, forceAppendBlob) {
         s.getLiveBytes());
 }
 
+TEST_F(SegmentTest, forceAppendRepeatedByte) {
+    char alignedBuf[8192] __attribute__((aligned(8192)));
+
+    Log l(serverId, 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
+    Segment s(&l, 445566, alignedBuf, sizeof(alignedBuf), NULL,
+                LOG_ENTRY_TYPE_INVALID, NULL, 0);
+    uint64_t bytesBeforeAppend = s.getLiveBytes();
+
+
+    char expectedByte = 't';
+    char expectedBytes[100];
+    memset(expectedBytes, expectedByte, sizeof(expectedBytes));
+    s.forceAppendRepeatedByte(expectedByte, sizeof(expectedBytes));
+    EXPECT_EQ(0, memcmp(expectedBytes, reinterpret_cast<char *>(
+        s.baseAddress) + sizeof(SegmentEntry) + sizeof(SegmentHeader),
+        sizeof(expectedBytes)));
+    EXPECT_EQ(sizeof(expectedBytes) + sizeof(SegmentEntry) +
+        sizeof(SegmentHeader), s.tail);
+    EXPECT_EQ(bytesBeforeAppend + sizeof(expectedBytes),
+        s.getLiveBytes());
+}
+
 TEST_F(SegmentTest, forceAppendWithEntry) {
     // create a fake log; see comment in test_free
     Log l(serverId, 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
@@ -403,9 +437,19 @@ TEST_F(SegmentTest, forceAppendWithEntry) {
 
     Segment s(112233, 445566, alignedBuf, sizeof(alignedBuf));
     *const_cast<Log**>(&s.log) = &l;
+
+    uint32_t oldTail = s.tail;
+    seh = s.forceAppendWithEntry(LOG_ENTRY_TYPE_INVALID,
+                                 NULL, 10, false, false);
+    char expected[10] = {};
+    EXPECT_TRUE(NULL != seh);
+    EXPECT_EQ(0, memcmp(expected, seh->userData(), seh->length()));
+    EXPECT_EQ(s.spaceTimeSum, 0ul);
+    EXPECT_EQ(1u, s.entryCountsByType[LOG_ENTRY_TYPE_INVALID]);
+    s.tail = oldTail;
+
     seh = s.forceAppendWithEntry(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
     EXPECT_TRUE(seh != NULL);
-
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, seh->type());
     EXPECT_EQ(sizeof(buf), seh->length());
     EXPECT_EQ(0, memcmp(buf, seh->userData(), sizeof(buf)));

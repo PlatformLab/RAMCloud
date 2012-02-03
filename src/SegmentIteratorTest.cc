@@ -153,7 +153,8 @@ TEST_F(SegmentIteratorTest, next) {
         SegmentIterator si(&s);
 
         s.close(NULL);
-        si.next();
+        si.next(); // Skip the padding entry.
+        si.next(); // Now pointing at the footer entry.
         EXPECT_EQ(LOG_ENTRY_TYPE_SEGFOOTER, si.type);
         EXPECT_EQ(sizeof(SegmentFooter), si.length);
     }

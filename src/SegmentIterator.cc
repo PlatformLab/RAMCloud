@@ -362,6 +362,10 @@ SegmentIterator::isSegmentChecksumValid() const
     SegmentIterator i(baseAddress, segmentCapacity);
     SegmentChecksum checksum;
     while (!i.isDone()) {
+        if (i.getType() == LOG_ENTRY_TYPE_INVALID) {
+            i.next();
+            continue;
+        }
         if (i.getType() == LOG_ENTRY_TYPE_SEGFOOTER)
             break;
         SegmentChecksum::ResultType entryChecksum = i.generateChecksum();
