@@ -27,30 +27,43 @@
 
 namespace RAMCloud {
 
-namespace {
-const char* path = "/tmp/ramcloud-backup-storage-test-delete-this";
-};
-
 class SingleFileStorageTest : public ::testing::Test {
   public:
-    const uint32_t segmentFrames;
-    const uint32_t segmentSize;
-    SingleFileStorage* storage;
+    const char* path;
+    uint32_t segmentFrames;
+    uint32_t segmentSize;
+    Tub<SingleFileStorage> storage;
 
     SingleFileStorageTest()
-        : segmentFrames(2)
+        : path("/tmp/ramcloud-backup-storage-test-delete-this")
+        , segmentFrames(2)
         , segmentSize(8)
-        , storage(NULL)
+        , storage()
     {
-        storage = new SingleFileStorage(segmentSize, segmentFrames, path, 0);
+        storage.construct(segmentSize, segmentFrames, path, 0);
     }
 
     ~SingleFileStorageTest()
     {
-        delete storage;
         unlink(path);
         EXPECT_EQ(0,
             BackupStorage::Handle::resetAllocatedHandlesCount());
+    }
+
+    /**
+     * Places data in an aligned buffer before saving it in order to make it
+     * work with test cases that use O_DIRECT.
+     */
+    void writeSegment(uint64_t masterId, uint64_t segmentId, const char* data)
+    {
+        std::unique_ptr<char, void (*)(void*)> block(
+            static_cast<char*>(Memory::xmemalign(HERE,
+                               segmentSize,
+                               segmentSize)), std::free);
+        memcpy(block.get(), data, segmentSize);
+        std::unique_ptr<BackupStorage::Handle>
+            handle(storage->allocate(99, 0));
+        storage->putSegment(handle.get(), block.get());
     }
 
     DISALLOW_COPY_AND_ASSIGN(SingleFileStorageTest);
@@ -180,6 +193,55 @@ TEST_F(SingleFileStorageTest, putSegment_seekFailed) {
         storage->putSegment(handle.get(), buf),
         BackupStorageException);
     storage->fd = open(path, O_CREAT | O_RDWR, 0666); // supresses LOG ERROR
+}
+
+TEST_F(SingleFileStorageTest, getAllHeadersAndFooters) {
+    /*
+     * Setups with O_DIRECT must be at least block sized (512 on most
+     * filesystems).  Any test involving O_DIRECT is going to be slow.
+     * (100 ms or more just for single block-sized segments)
+     */
+    struct {
+        uint32_t segmentSize;
+        int openFlags;
+    } setups[] {
+        { 8, 0 },
+        { 512, O_DIRECT | O_SYNC },
+        // { 1 << 23, O_DIRECT | O_SYNC }, // Standard seg size, takes 500 ms.
+        { ~0u, 0 }
+    };
+
+    segmentFrames = 4;
+    for (auto* setup = &setups[0]; setup->segmentSize != ~0u; ++setup) {
+        segmentSize = setup->segmentSize;
+        storage.construct(segmentSize, segmentFrames, path, setup->openFlags);
+
+        char buf[setup->segmentSize];
+        memset(buf, 'q', sizeof(buf));
+        buf[0] = '0';
+        buf[setup->segmentSize - 1] = 'a';
+        writeSegment(99, 0, buf);
+        buf[0] = '1';
+        buf[setup->segmentSize - 1] = 'b';
+        writeSegment(99, 1, buf);
+        buf[0] = '2';
+        buf[setup->segmentSize - 1] = 'c';
+        writeSegment(99, 2, buf);
+        buf[0] = '3';
+        buf[setup->segmentSize - 1] = 'd';
+        writeSegment(99, 3, buf);
+
+        storage.construct(segmentSize, segmentFrames, path, setup->openFlags);
+
+        const size_t headerSize = 2;
+        const size_t footerSize = 3;
+        std::unique_ptr<char[]> entries(
+            storage->getAllHeadersAndFooters(headerSize, footerSize));
+        char* p = entries.get();
+
+        const size_t totalSize = (headerSize + footerSize) * segmentFrames;
+        EXPECT_EQ(0, memcmp(p, "0qqqa1qqqb2qqqc3qqqd", totalSize));
+    }
 }
 
 class InMemoryStorageTest : public ::testing::Test {

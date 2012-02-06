@@ -141,6 +141,7 @@ SingleFileStorage::SingleFileStorage(uint32_t segmentSize,
                                      int openFlags)
     : BackupStorage(segmentSize, Type::DISK)
     , freeMap(segmentFrames)
+    , openFlags(openFlags)
     , fd(-1)
     , killMessage()
     , killMessageLen()
@@ -305,6 +306,91 @@ SingleFileStorage::reserveSpace()
                 "Couldn't reserve storage space for backup", errno);
 }
 
+/**
+ * Fetch the starting and ending bytes from each segment frame.
+ * Since segments align their header and footer entries to the
+ * beginning and end this method can be used to fetch all the
+ * locations where the entries would reside (note returned locations
+ * don't necessarily contain valid segment data).
+ *
+ * \param headerSize
+ *      Bytes from the beginning of each segment frame to return; the
+ *      starting \a headerSize bytes from each segment frame start at
+ *      f * (headerSize + footerSize) for f = 0 to #segmentFrames - 1
+ *      in the returned result.
+ * \param footerSize
+ *      Bytes from the end of each segment frame to return; the
+ *      ending \a footerSize bytes from each segment frame start at
+ *      f * (headerSize + footerSize) + headerSize for f = 0 to
+ *      #segmentFrames - 1 in the returned result.
+ * \return
+ *      An array of bytes of back-to-back entries of alternating
+ *      size (first \a headerSize, then \a footerSize, repeated
+ *      #segmentFrames times).  NOTE: the caller is responsible
+ *      for deleting the value with delete[].
+ */
+char*
+SingleFileStorage::getAllHeadersAndFooters(size_t headerSize,
+                                           size_t footerSize)
+{
+    typedef char* bytePtr;
+
+    size_t headerBlockSize;
+    size_t footerBlockSize;
+    if (openFlags & O_DIRECT) {
+        headerBlockSize = ((headerSize + 511) / 512) * 512;
+        footerBlockSize = ((footerSize + 511) / 512) * 512;
+    } else {
+        headerBlockSize = headerSize;
+        footerBlockSize = footerSize;
+    }
+    const size_t totalBytes = (footerSize + headerSize) * segmentFrames;
+    std::unique_ptr<void, void (*)(void*)> blocks(
+        Memory::xmemalign(HERE, getpagesize(),
+                          headerBlockSize + footerBlockSize),
+        &std::free);
+
+    std::unique_ptr<char[]> results(new char[totalBytes]);
+    char* nextResult = results.get();
+
+    off_t offset;
+    ssize_t r;
+
+    // Read the first header.
+    offset = offsetOfSegmentFrame(0);
+    r = pread(fd, blocks.get(), headerBlockSize, offset);
+    if (r != ssize_t(headerBlockSize))
+        throw BackupStorageException(HERE, errno);
+    memcpy(nextResult, blocks.get(), headerSize);
+    nextResult += headerSize;
+
+    // Read the footer and the following header in 1 combined IO.
+    const void* startOfHeader = bytePtr(blocks.get()) + footerBlockSize;
+    for (uint32_t frame = 1; frame < segmentFrames; ++frame) {
+        off_t offset = offsetOfSegmentFrame(frame) - footerBlockSize;
+        ssize_t r = pread(fd, blocks.get(),
+                          footerBlockSize + headerBlockSize, offset);
+        if (r != ssize_t(footerBlockSize + headerBlockSize))
+            throw BackupStorageException(HERE, errno);
+        memcpy(nextResult,
+               bytePtr(startOfHeader) - footerSize,
+               footerSize + headerSize);
+        nextResult += footerSize + headerSize;
+    }
+
+    // Read the last footer.
+    offset = offsetOfSegmentFrame(segmentFrames) - footerBlockSize;
+    r = pread(fd, blocks.get(), footerBlockSize, offset);
+    if (r != ssize_t(footerBlockSize))
+        throw BackupStorageException(HERE, errno);
+    memcpy(nextResult,
+           bytePtr(blocks.get()) + footerBlockSize - footerSize,
+           footerSize);
+    nextResult += footerSize;
+
+    return results.release();
+}
+
 // --- InMemoryStorage ---
 
 // - public -
@@ -352,6 +438,23 @@ InMemoryStorage::free(BackupStorage::Handle* handle)
     memcpy(address, "FREE", 4);
     pool.free(address);
     delete handle;
+}
+
+/**
+ * This operation is not supported by InMemoryStorage; just returns NULL.
+ *
+ * \param headerSize
+ *      Ignored.
+ * \param footerSize
+ *      Ignored.
+ * \return
+ *      NULL.
+ */
+char*
+InMemoryStorage::getAllHeadersAndFooters(size_t headerSize,
+                                         size_t footerSize)
+{
+    return NULL;
 }
 
 // See BackupStorage::getSegment().

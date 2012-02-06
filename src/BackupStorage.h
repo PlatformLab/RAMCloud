@@ -147,6 +147,36 @@ class BackupStorage {
     virtual void free(Handle* handle) = 0;
 
     /**
+     * Fetch the starting and ending bytes from each segment frame.
+     * Since segments align their header and footer entries to the
+     * beginning and end this method can be used to fetch all the
+     * locations where the entries would reside (note returned locations
+     * don't necessarily contain valid segment data).
+     *
+     * Some storage implemenations may not support this operation in which
+     * case they simply return NULL indicating they cannot or cannot reliably
+     * retrieve the headers and footers.
+     *
+     * \param headerSize
+     *      Bytes from the beginning of each segment frame to return; the
+     *      starting \a headerSize bytes from each segment frame start at
+     *      f * (headerSize + footerSize) for f = 0 to #segmentFrames - 1
+     *      in the returned result.
+     * \param footerSize
+     *      Bytes from the end of each segment frame to return; the
+     *      ending \a footerSize bytes from each segment frame start at
+     *      f * (headerSize + footerSize) + headerSize for f = 0 to
+     *      #segmentFrames - 1 in the returned result.
+     * \return
+     *      An array of bytes of back-to-back entries of alternating
+     *      size (first \a headerSize, then \a footerSize, repeated
+     *      #segmentFrames times).  NOTE: the caller is responsible
+     *      for deleting the value with delete[].
+     */
+    virtual char*
+    getAllHeadersAndFooters(size_t headerSize, size_t footerSize) = 0;
+
+    /**
      * Fetch a segment from its reserved storage (see allocate() and
      * putSegment()). Implementations of this method should be thread
      * safe since multiple simultaneous getSegment() calls are allowed.
@@ -247,6 +277,7 @@ class SingleFileStorage : public BackupStorage {
                                             uint64_t segmentId);
     virtual pair<uint32_t, uint32_t> benchmark(BackupStrategy backupStrategy);
     virtual void free(BackupStorage::Handle* handle);
+    virtual char* getAllHeadersAndFooters(size_t headerSize, size_t footerSize);
     virtual void
     getSegment(const BackupStorage::Handle* handle,
                char* segment) const;
@@ -261,6 +292,9 @@ class SingleFileStorage : public BackupStorage {
     typedef boost::dynamic_bitset<> FreeMap;
     /// Keeps a bit set for each segmentFrame indicating if it is free.
     FreeMap freeMap;
+
+    /// Extra flags for use while opening filePath (e.g. O_DIRECT | O_SYNC).
+    int openFlags;
 
     /// The file descriptor of the storage file.
     int fd;
@@ -335,6 +369,8 @@ class InMemoryStorage : public BackupStorage {
     virtual BackupStorage::Handle* allocate(uint64_t masterId,
                                             uint64_t segmentId);
     virtual void free(BackupStorage::Handle* handle);
+    virtual char*
+    getAllHeadersAndFooters(size_t headerSize, size_t footerSize);
     virtual void
     getSegment(const BackupStorage::Handle* handle,
                char* segment) const;
