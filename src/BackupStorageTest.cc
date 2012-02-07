@@ -56,13 +56,13 @@ class SingleFileStorageTest : public ::testing::Test {
      */
     void writeSegment(uint64_t masterId, uint64_t segmentId, const char* data)
     {
-        std::unique_ptr<char, void (*)(void*)> block(
+        std::unique_ptr<char, void (*)(void*)> block( // NOLINT
             static_cast<char*>(Memory::xmemalign(HERE,
                                segmentSize,
                                segmentSize)), std::free);
         memcpy(block.get(), data, segmentSize);
         std::unique_ptr<BackupStorage::Handle>
-            handle(storage->allocate(99, 0));
+            handle(storage->allocate());
         storage->putSegment(handle.get(), block.get());
     }
 
@@ -76,16 +76,18 @@ TEST_F(SingleFileStorageTest, constructor) {
 }
 
 TEST_F(SingleFileStorageTest, openFails) {
+    TestLog::Enable _;
     EXPECT_THROW(SingleFileStorage(segmentSize,
                                             segmentFrames,
                                             "/dev/null/cantcreate", 0),
                             BackupStorageException);
-    EXPECT_STREQ("Not a directory", strerror(errno));
+    EXPECT_EQ("SingleFileStorage: Failed to open backup storage file "
+              "/dev/null/cantcreate: Not a directory", TestLog::get());
 }
 
 TEST_F(SingleFileStorageTest, allocate) {
     std::unique_ptr<BackupStorage::Handle>
-        handle(storage->allocate(99, 0));
+        handle(storage->allocate());
     EXPECT_EQ(0, storage->freeMap[0]);
     EXPECT_EQ(0U,
         static_cast<SingleFileStorage::Handle*>(handle.get())->
@@ -93,7 +95,7 @@ TEST_F(SingleFileStorageTest, allocate) {
 }
 
 TEST_F(SingleFileStorageTest, allocate_ensureFifoUse) {
-    BackupStorage::Handle* handle = storage->allocate(99, 0);
+    BackupStorage::Handle* handle = storage->allocate();
     try {
         EXPECT_EQ(0, storage->freeMap[0]);
         EXPECT_EQ(0U,
@@ -105,7 +107,7 @@ TEST_F(SingleFileStorageTest, allocate_ensureFifoUse) {
         throw;
     }
 
-    handle = storage->allocate(99, 1);
+    handle = storage->allocate();
     try {
         EXPECT_EQ(1, storage->freeMap[0]);
         EXPECT_EQ(0, storage->freeMap[1]);
@@ -118,7 +120,7 @@ TEST_F(SingleFileStorageTest, allocate_ensureFifoUse) {
         throw;
     }
 
-    handle = storage->allocate(99, 2);
+    handle = storage->allocate();
     try {
         EXPECT_EQ(0, storage->freeMap[0]);
         EXPECT_EQ(1, storage->freeMap[1]);
@@ -133,15 +135,15 @@ TEST_F(SingleFileStorageTest, allocate_ensureFifoUse) {
 }
 
 TEST_F(SingleFileStorageTest, allocate_noFreeFrames) {
-    delete storage->allocate(99, 0);
-    delete storage->allocate(99, 1);
+    delete storage->allocate();
+    delete storage->allocate();
     EXPECT_THROW(
-        std::unique_ptr<BackupStorage::Handle>(storage->allocate(99, 2)),
+        std::unique_ptr<BackupStorage::Handle>(storage->allocate()),
         BackupStorageException);
 }
 
 TEST_F(SingleFileStorageTest, free) {
-    BackupStorage::Handle* handle = storage->allocate(99, 0);
+    BackupStorage::Handle* handle = storage->allocate();
     storage->free(handle);
 
     EXPECT_EQ(1, storage->freeMap[0]);
@@ -149,14 +151,14 @@ TEST_F(SingleFileStorageTest, free) {
     char buf[4];
     lseek(storage->fd, storage->offsetOfSegmentFrame(0), SEEK_SET);
     read(storage->fd, &buf[0], 4);
-    EXPECT_EQ('F', buf[0]);
+    EXPECT_EQ('\0', buf[0]);
     EXPECT_EQ('E', buf[3]);
 }
 
 TEST_F(SingleFileStorageTest, getSegment) {
-    delete storage->allocate(99, 0);  // skip the first segment frame
+    delete storage->allocate();  // skip the first segment frame
     std::unique_ptr<BackupStorage::Handle>
-        handle(storage->allocate(99, 1));
+        handle(storage->allocate());
 
     const char* src = "1234567";
     char dst[segmentSize];
@@ -168,9 +170,9 @@ TEST_F(SingleFileStorageTest, getSegment) {
 }
 
 TEST_F(SingleFileStorageTest, putSegment) {
-    delete storage->allocate(99, 0);  // skip the first segment frame
+    delete storage->allocate();  // skip the first segment frame
     std::unique_ptr<BackupStorage::Handle>
-        handle(storage->allocate(99, 1));
+        handle(storage->allocate());
 
     const char* src = "1234567";
     EXPECT_EQ(8U, segmentSize);
@@ -185,7 +187,7 @@ TEST_F(SingleFileStorageTest, putSegment) {
 
 TEST_F(SingleFileStorageTest, putSegment_seekFailed) {
     std::unique_ptr<BackupStorage::Handle>
-        handle(storage->allocate(99, 1));
+        handle(storage->allocate());
     close(storage->fd);
     char buf[segmentSize];
     memset(buf, 0, sizeof(buf));
@@ -193,6 +195,13 @@ TEST_F(SingleFileStorageTest, putSegment_seekFailed) {
         storage->putSegment(handle.get(), buf),
         BackupStorageException);
     storage->fd = open(path, O_CREAT | O_RDWR, 0666); // supresses LOG ERROR
+}
+
+TEST_F(SingleFileStorageTest, offsetOfSegmentFrame) {
+    storage->segmentSize = 1 << 23;
+    uint64_t offset = storage->offsetOfSegmentFrame(512);
+    EXPECT_NE(0lu, offset);
+    EXPECT_EQ(1lu << 32, offset);
 }
 
 TEST_F(SingleFileStorageTest, getAllHeadersAndFooters) {
@@ -270,29 +279,29 @@ class InMemoryStorageTest : public ::testing::Test {
 
 TEST_F(InMemoryStorageTest, allocate) {
     std::unique_ptr<BackupStorage::Handle>
-        handle(storage->allocate(99, 0));
+        handle(storage->allocate());
     EXPECT_TRUE(0 !=
         static_cast<InMemoryStorage::Handle*>(handle.get())->
             getAddress());
 }
 
 TEST_F(InMemoryStorageTest, allocate_noFreeFrames) {
-    delete storage->allocate(99, 0);
-    delete storage->allocate(99, 1);
+    delete storage->allocate();
+    delete storage->allocate();
     EXPECT_THROW(
-        std::unique_ptr<BackupStorage::Handle>(storage->allocate(99, 2)),
+        std::unique_ptr<BackupStorage::Handle>(storage->allocate()),
         BackupStorageException);
 }
 
 TEST_F(InMemoryStorageTest, free) {
-    BackupStorage::Handle* handle = storage->allocate(99, 0);
+    BackupStorage::Handle* handle = storage->allocate();
     storage->free(handle);
 }
 
 TEST_F(InMemoryStorageTest, getSegment) {
-    delete storage->allocate(99, 0);  // skip the first segment frame
+    delete storage->allocate();  // skip the first segment frame
     std::unique_ptr<BackupStorage::Handle>
-        handle(storage->allocate(99, 1));
+        handle(storage->allocate());
 
     const char* src = "1234567";
     char dst[segmentSize];
@@ -304,9 +313,9 @@ TEST_F(InMemoryStorageTest, getSegment) {
 }
 
 TEST_F(InMemoryStorageTest, putSegment) {
-    delete storage->allocate(99, 0);  // skip the first segment frame
+    delete storage->allocate();  // skip the first segment frame
     std::unique_ptr<BackupStorage::Handle>
-        handle(storage->allocate(99, 1));
+        handle(storage->allocate());
 
     const char* src = "1234567";
     storage->putSegment(handle.get(), src);

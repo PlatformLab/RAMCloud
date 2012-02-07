@@ -189,6 +189,7 @@ struct ServerConfig {
             , file()
             , strategy(1)
             , mockSpeed(100)
+            , useStoredReplicas(false)
         {}
 
         /**
@@ -202,6 +203,7 @@ struct ServerConfig {
             , file("/var/tmp/backup.log")
             , strategy(1)
             , mockSpeed(0)
+            , useStoredReplicas(false)
         {}
 
         /// Whether the BackupService should store replicas in RAM or on disk.
@@ -229,6 +231,13 @@ struct ServerConfig {
          * just report the performance as mockSpeed; in MB/s.
          */
         uint32_t mockSpeed;
+
+        /**
+         * If true then scan the backup storage at start up to see if any
+         * replicas remain from a former backup, and if so, consider them
+         * part of the new backup.
+         */
+        bool useStoredReplicas;
     } backup;
 
   public:

@@ -25,6 +25,15 @@ void* xmalloc(const CodeLocation& where, size_t len);
 void* xmemalign(const CodeLocation& where, size_t alignment, size_t len);
 char* xstrdup(const CodeLocation& where, const char* str);
 
+/**
+ * Simpler type for use in creating unique_ptrs which call specific function for
+ * deallocation instead of delete (usually std::free()).
+ * Example:
+ * unique_ptr_free page(Memory::xmemalign(HERE, getpagesize(), getpagesize()),
+ *                      std::free);
+ */
+typedef std::unique_ptr<void, void (*)(void*)> unique_ptr_free; // NOLINT
+
 } // end Memory
 } // end RAMCloud
 

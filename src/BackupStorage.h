@@ -74,7 +74,7 @@ struct SegmentAllocator
  * InMemoryStorage for storing and recovering from RAM.
  */
 class BackupStorage {
-  public:
+  PUBLIC:
     virtual ~BackupStorage()
     {
     }
@@ -88,7 +88,7 @@ class BackupStorage {
      */
     class Handle
     {
-      public:
+      PUBLIC:
         virtual ~Handle()
         {
             allocatedHandlesCount--;
@@ -109,7 +109,7 @@ class BackupStorage {
             return old;
         }
 
-      protected:
+      PROTECTED:
         Handle()
         {
             allocatedHandlesCount++;
@@ -127,13 +127,9 @@ class BackupStorage {
     /**
      * Set aside storage for a specific segment and give a handle back
      * for working with that storage.
-     *
-     * \param masterId
-     *      The id of the master the segment to be stored belongs to.
-     * \param segmentId
-     *      The id of the segment to be stored.
      */
-    virtual Handle* allocate(uint64_t masterId, uint64_t segmentId) = 0;
+    virtual Handle* allocate() = 0;
+    virtual Handle* associate(uint32_t frame) = 0;
 
     /**
      * Release the storage for a segment.  The freed segment's data will
@@ -173,7 +169,7 @@ class BackupStorage {
      *      #segmentFrames times).  NOTE: the caller is responsible
      *      for deleting the value with delete[].
      */
-    virtual char*
+    virtual std::unique_ptr<char[]>
     getAllHeadersAndFooters(size_t headerSize, size_t footerSize) = 0;
 
     /**
@@ -207,7 +203,7 @@ class BackupStorage {
     virtual void
     putSegment(const Handle* handle, const char* segment) const = 0;
 
-  protected:
+  PROTECTED:
     /**
      * Specify the segment size this BackupStorage will operate on.  Used
      * only by the implementers of the BackupStorage interface.
@@ -225,9 +221,9 @@ class BackupStorage {
     }
 
     /// The segment size this BackupStorage operates on.
-    uint32_t const segmentSize;
+    uint32_t segmentSize;
 
-  public:
+  PUBLIC:
     /// Used in RawMetrics to print out the backup storage type.
     const Type storageType;
 
@@ -273,11 +269,12 @@ class SingleFileStorage : public BackupStorage {
                       const char* filePath,
                       int openFlags = 0);
     virtual ~SingleFileStorage();
-    virtual BackupStorage::Handle* allocate(uint64_t masterId,
-                                            uint64_t segmentId);
+    virtual BackupStorage::Handle* allocate();
+    virtual BackupStorage::Handle* associate(uint32_t frame);
     virtual pair<uint32_t, uint32_t> benchmark(BackupStrategy backupStrategy);
     virtual void free(BackupStorage::Handle* handle);
-    virtual char* getAllHeadersAndFooters(size_t headerSize, size_t footerSize);
+    virtual std::unique_ptr<char[]>
+    getAllHeadersAndFooters(size_t headerSize, size_t footerSize);
     virtual void
     getSegment(const BackupStorage::Handle* handle,
                char* segment) const;
@@ -366,10 +363,10 @@ class InMemoryStorage : public BackupStorage {
     InMemoryStorage(uint32_t segmentSize,
                     uint32_t segmentFrames);
     virtual ~InMemoryStorage();
-    virtual BackupStorage::Handle* allocate(uint64_t masterId,
-                                            uint64_t segmentId);
+    virtual BackupStorage::Handle* allocate();
+    virtual BackupStorage::Handle* associate(uint32_t frame);
     virtual void free(BackupStorage::Handle* handle);
-    virtual char*
+    virtual std::unique_ptr<char[]>
     getAllHeadersAndFooters(size_t headerSize, size_t footerSize);
     virtual void
     getSegment(const BackupStorage::Handle* handle,

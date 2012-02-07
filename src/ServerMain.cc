@@ -83,7 +83,13 @@ main(int argc, char *argv[])
             ("detectFailures",
              ProgramOptions::value<bool>(&config.detectFailures)->
                 default_value(true),
-             "Whether to use the randomized failure detector");
+             "Whether to use the randomized failure detector")
+            ("useStoredReplicas",
+             ProgramOptions::bool_switch(&config.backup.useStoredReplicas),
+             "If set then scan the backup storage at startup and consider any "
+             "replicas found to be part of this backup, if this is not set "
+             "all segment frames in storage are scribbled on before startup "
+             "to ensure the replicas are never reused in future runs.");
 
         OptionParser optionParser(serverOptions, argc, argv);
 

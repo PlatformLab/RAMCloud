@@ -92,6 +92,91 @@ BackupService::SegmentInfo::SegmentInfo(BackupStorage& storage,
 }
 
 /**
+ * Construct a SegmentInfo to manage a replica which already has an
+ * existing representation on storage.
+ *
+ * \param storage
+ *      The storage which this segment will be backed by when closed.
+ * \param pool
+ *      The pool from which this segment should draw and return memory
+ *      when it is moved in and out of memory.
+ * \param ioScheduler
+ *      The IoScheduler through which IO requests are made.
+ * \param masterId
+ *      The master id of the segment being managed.
+ * \param segmentId
+ *      The segment id of the segment being managed.
+ * \param segmentSize
+ *      The number of bytes contained in this segment.
+ * \param segmentFrame
+ *      The segment frame number this replica's representation is in.  This
+ *      reassociates it with that representation so operations to this
+ *      instance affect that segment frame.
+ * \param isClosed
+ *      Whether the on-storage replica indicates a closed or open status.
+ *      This instance will reflect that status.  If this is true the
+ *      segment is retreived from storage to simplify some legacy code
+ *      that assumes open replicas reside in memory.
+ */
+BackupService::SegmentInfo::SegmentInfo(BackupStorage& storage,
+                                        ThreadSafePool& pool,
+                                        IoScheduler& ioScheduler,
+                                        ServerId masterId,
+                                        uint64_t segmentId,
+                                        uint32_t segmentSize,
+                                        uint32_t segmentFrame,
+                                        bool isClosed)
+    : masterId(masterId)
+    , primary(false)
+    , segmentId(segmentId)
+    , mutex()
+    , condition()
+    , ioScheduler(ioScheduler)
+    , recoveryException()
+    , recoveryPartitions()
+    , recoverySegments(NULL)
+    , recoverySegmentsLength()
+    , rightmostWrittenOffset(0)
+    , segment()
+    , segmentSize(segmentSize)
+    , state(isClosed ? CLOSED : OPEN)
+    , storageHandle()
+    , pool(pool)
+    , storage(storage)
+    , storageOpCount(0)
+{
+    storageHandle = storage.associate(segmentFrame);
+    if (state == OPEN) {
+        // There is some disagreement between the masters and backups about
+        // the meaning of "open".  In a few places the backup code assumes
+        // open replicas must be in memory.  For now its easiest just to
+        // make sure that is the case, so on cold start we have to reload
+        // open replicas into ram.
+        try {
+            // Get memory for staging the segment writes
+            segment = static_cast<char*>(pool.malloc());
+            {
+                CycleCounter<RawMetric> q(&metrics->backup.writeClearTicks);
+                memset(segment, 0, segmentSize < sizeof(SegmentEntry) ?
+                                    segmentSize : sizeof(SegmentEntry));
+            }
+            storage.getSegment(storageHandle, segment);
+        } catch (...) {
+            pool.free(segment);
+            delete storageHandle;
+            throw;
+        }
+    }
+
+    // TODO(stutsman): Claim this replica is the longest if it was closed
+    // and the shortest if it was open.  This field should go away soon, but
+    // this should make it so that replicas from backups that haven't crashed
+    // are preferred over this one.
+    if (state == CLOSED)
+        rightmostWrittenOffset = BYTES_WRITTEN_CLOSED;
+}
+
+/**
  * Store any open segments to storage and then release all resources
  * associate with them except permanent storage.
  */
@@ -437,7 +522,7 @@ BackupService::SegmentInfo::open()
     BackupStorage::Handle* handle;
     try {
         // Reserve the space for this on disk
-        handle = storage.allocate(*masterId, segmentId);
+        handle = storage.allocate();
     } catch (...) {
         // Release the staging memory if storage.allocate throws
         pool.free(segment);
@@ -903,6 +988,11 @@ BackupService::BackupService(const ServerConfig& config)
         ioScheduler.shutdown(ioThread);
         throw;
     }
+
+    if (config.backup.useStoredReplicas)
+        restartFromStorage();
+    else
+        killAllStorage();
 }
 
 /**
@@ -1121,6 +1211,31 @@ BackupService::init(ServerId id)
 }
 
 /**
+ * Scribble a bit over all the headers of all the segment frames to prevent
+ * what is already on disk from being reused in future runs.
+ * This is called whenever the user requests to not use the stored segment
+ * frames.  Not doing this could yield interesting surprises to the user.
+ * For example, one might find replicas for the same segment id with
+ * different contents during future runs.
+ */
+void
+BackupService::killAllStorage()
+{
+    CycleCounter<> killTime;
+    LOG(NOTICE, "Scribbling storage to destroy replicas from former backups");
+
+    for (uint32_t frame = 0; frame < config.backup.numSegmentFrames; ++frame) {
+        std::unique_ptr<BackupStorage::Handle>
+            handle(storage->associate(frame));
+        if (handle)
+            storage->free(handle.release());
+    }
+
+    LOG(NOTICE, "On-storage replica destroyed: %f ms",
+        1000. * Cycles::toSeconds(killTime.stop()));
+}
+
+/**
  * Flush all data to storage.
  * Returns once all dirty buffers have been written to storage.
  * \param reqHdr
@@ -1172,6 +1287,100 @@ BackupService::segmentInfoLessThan(SegmentInfo* left,
                                    SegmentInfo* right)
 {
     return *left < *right;
+}
+
+/**
+ * Scans storage to find replicas left behind by former backups and
+ * incorporates them into this backup.  This should only be called before
+ * the backup has serviced any requests.
+ *
+ * Only replica headers and footers are scanned.  Any replica with a valid
+ * header but no discernable footer is included and considered open.  If a
+ * header is found and a reasonable footer then the segment is considered
+ * closed.  At some point backups will want to write a checksum even for open
+ * segments so we'll need some changes to the logic of this method to deal
+ * with that.  Also, at that point we should augment the checksum to cover
+ * the log entry type of the footer as well.
+ */
+void
+BackupService::restartFromStorage()
+{
+    CycleCounter<> restartTime;
+    LOG(NOTICE, "Scanning storage to find replicas from former backups");
+
+    struct HeaderAndFooter {
+        SegmentEntry headerEntry;
+        SegmentHeader header;
+        SegmentEntry footerEntry;
+        SegmentFooter footer;
+    } __attribute__ ((packed));
+    assert(sizeof(HeaderAndFooter) ==
+           2 * sizeof(SegmentEntry) +
+           sizeof(SegmentHeader) +
+           sizeof(SegmentFooter));
+
+    std::unique_ptr<char[]> allHeadersAndFooters =
+        storage->getAllHeadersAndFooters(
+            sizeof(SegmentEntry) + sizeof(SegmentHeader),
+            sizeof(SegmentEntry) + sizeof(SegmentFooter));
+
+    if (!allHeadersAndFooters) {
+        LOG(NOTICE, "Selected backup storage does not support restart of "
+            "backups, continuing as an empty backup");
+        return;
+    }
+
+    const HeaderAndFooter* entries =
+        reinterpret_cast<const HeaderAndFooter*>(allHeadersAndFooters.get());
+
+    for (uint32_t frame = 0; frame < config.backup.numSegmentFrames; ++frame) {
+        auto& entry = entries[frame];
+        // Check header.
+        if (entry.headerEntry.type != LOG_ENTRY_TYPE_SEGHEADER) {
+            TEST_LOG("Log entry type for header does not match in frame %u",
+                     frame);
+            continue;
+        }
+        if (entry.headerEntry.length !=
+            downCast<uint32_t>(sizeof(SegmentHeader))) {
+            LOG(WARNING, "Unexpected log entry length while reading segment "
+                "replica header from backup storage, discarding replica, "
+                "(expected length %lu, stored length %u)",
+                sizeof(SegmentHeader), entry.headerEntry.length);
+            continue;
+        }
+        if (entry.header.segmentCapacity != segmentSize) {
+            LOG(ERROR, "An on-storage segment header indicates a different "
+                "segment size than the backup service was told to use; "
+                "ignoring the problem; note ANY call to open a segment "
+                "on this backup could cause the overwrite of your strangely "
+                "sized replicas.");
+        }
+
+        const uint64_t logId = entry.header.logId;
+        const uint64_t segmentId = entry.header.segmentId;
+        // Check footer.
+        bool wasClosedOnStorage = false;
+        if (entry.footerEntry.type == LOG_ENTRY_TYPE_SEGFOOTER &&
+            entry.footerEntry.length == sizeof(SegmentFooter)) {
+            wasClosedOnStorage = true;
+        }
+        // TODO(stutsman): Eventually will need open segment checksums.
+        LOG(DEBUG, "Found stored replica <%lu,%lu> on backup storage in "
+                   "frame %u which was %s",
+            entry.header.logId, entry.header.segmentId, frame,
+            wasClosedOnStorage ? "closed" : "open");
+
+        // Add this replica to metadata.
+        const ServerId masterId(logId);
+        auto* info = new SegmentInfo(*storage, pool, ioScheduler,
+                               masterId, segmentId, segmentSize,
+                               frame, wasClosedOnStorage);
+        segments[MasterSegmentIdPair(masterId, segmentId)] = info;
+    }
+
+    LOG(NOTICE, "Replica information retreived from storage: %f ms",
+        1000. * Cycles::toSeconds(restartTime.stop()));
 }
 
 namespace {

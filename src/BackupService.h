@@ -202,6 +202,10 @@ class BackupService : public Service {
                     IoScheduler& ioScheduler,
                     ServerId masterId, uint64_t segmentId,
                     uint32_t segmentSize, bool primary);
+        SegmentInfo(BackupStorage& storage, ThreadSafePool& pool,
+                    IoScheduler& ioScheduler,
+                    ServerId masterId, uint64_t segmentId,
+                    uint32_t segmentSize, uint32_t segmentFrame, bool isClosed);
         ~SegmentInfo();
         Status appendRecoverySegment(uint64_t partitionId, Buffer& buffer)
             __attribute__((warn_unused_result));
@@ -493,12 +497,14 @@ class BackupService : public Service {
     void getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
                          BackupGetRecoveryDataRpc::Response& respHdr,
                          Rpc& rpc);
+    void killAllStorage();
     void quiesce(const BackupQuiesceRpc::Request& reqHdr,
                  BackupQuiesceRpc::Response& respHdr,
                  Rpc& rpc);
     void recoveryComplete(const BackupRecoveryCompleteRpc::Request& reqHdr,
                          BackupRecoveryCompleteRpc::Response& respHdr,
                          Rpc& rpc);
+    void restartFromStorage();
     static bool segmentInfoLessThan(SegmentInfo* left,
                                     SegmentInfo* right);
     void startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,

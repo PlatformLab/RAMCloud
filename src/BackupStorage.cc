@@ -52,7 +52,7 @@ BackupStorage::benchmark(BackupStrategy backupStrategy)
             handles[i] = NULL;
 
         for (uint32_t i = 0; i < count; ++i)
-            handles[i] = allocate(0, i + 1);
+            handles[i] = allocate();
 
         // Measuring write speeds takes too long with fans on with
         // commodity disks and we don't use the result.  Just fake it.
@@ -148,23 +148,27 @@ SingleFileStorage::SingleFileStorage(uint32_t segmentSize,
     , lastAllocatedFrame(FreeMap::npos)
     , segmentFrames(segmentFrames)
 {
-    const char* killMessageStr = "FREE";
+    const char* killMessageStr = "\0DIE";
     // Must write block size of larger when O_DIRECT.
     killMessageLen = 512;
     int r = posix_memalign(&killMessage, killMessageLen, killMessageLen);
     if (r != 0)
         throw std::bad_alloc();
     memset(killMessage, 0, killMessageLen);
-    memcpy(killMessage, killMessageStr, strlen(killMessageStr));
+    memcpy(killMessage, killMessageStr, 4);
 
     freeMap.set();
 
     fd = open(filePath,
               O_CREAT | O_RDWR | openFlags,
               0666);
-    if (fd == -1)
+    if (fd == -1) {
+        auto e = errno;
+        LOG(ERROR, "Failed to open backup storage file %s: %s",
+            filePath, strerror(e));
         throw BackupStorageException(HERE,
-              format("Failed to open backup storage file %s", filePath), errno);
+              format("Failed to open backup storage file %s", filePath), e);
+    }
 
     // If its a regular file reserve space, otherwise
     // assume its a device and we don't need to bother.
@@ -187,8 +191,7 @@ SingleFileStorage::~SingleFileStorage()
 
 // See BackupStorage::allocate().
 BackupStorage::Handle*
-SingleFileStorage::allocate(uint64_t masterId,
-                            uint64_t segmentId)
+SingleFileStorage::allocate()
 {
     FreeMap::size_type next = freeMap.find_next(lastAllocatedFrame);
     if (next == FreeMap::npos) {
@@ -198,10 +201,15 @@ SingleFileStorage::allocate(uint64_t masterId,
     }
     lastAllocatedFrame = next;
     uint32_t targetSegmentFrame = static_cast<uint32_t>(next);
-    LOG(DEBUG, "Writing <%lu,%lu> to frame %u", masterId, segmentId,
-                                                targetSegmentFrame);
-    freeMap[targetSegmentFrame] = 0;
-    return new Handle(targetSegmentFrame);
+    return associate(targetSegmentFrame);
+}
+
+BackupStorage::Handle*
+SingleFileStorage::associate(uint32_t segmentFrame)
+{
+    assert(freeMap[segmentFrame] == 1);
+    freeMap[segmentFrame] = 0;
+    return new Handle(segmentFrame);
 }
 
 /**
@@ -283,7 +291,8 @@ SingleFileStorage::putSegment(const BackupStorage::Handle* handle,
 uint64_t
 SingleFileStorage::offsetOfSegmentFrame(uint32_t segmentFrame) const
 {
-    return segmentFrame * segmentSize;
+    // Watch out for overflow; multiplying to 32-bit values.
+    return uint64_t(segmentFrame) * segmentSize;
 }
 
 /**
@@ -326,10 +335,9 @@ SingleFileStorage::reserveSpace()
  * \return
  *      An array of bytes of back-to-back entries of alternating
  *      size (first \a headerSize, then \a footerSize, repeated
- *      #segmentFrames times).  NOTE: the caller is responsible
- *      for deleting the value with delete[].
+ *      #segmentFrames times).
  */
-char*
+std::unique_ptr<char[]>
 SingleFileStorage::getAllHeadersAndFooters(size_t headerSize,
                                            size_t footerSize)
 {
@@ -345,10 +353,10 @@ SingleFileStorage::getAllHeadersAndFooters(size_t headerSize,
         footerBlockSize = footerSize;
     }
     const size_t totalBytes = (footerSize + headerSize) * segmentFrames;
-    std::unique_ptr<void, void (*)(void*)> blocks(
+    Memory::unique_ptr_free blocks(
         Memory::xmemalign(HERE, getpagesize(),
                           headerBlockSize + footerBlockSize),
-        &std::free);
+        std::free);
 
     std::unique_ptr<char[]> results(new char[totalBytes]);
     char* nextResult = results.get();
@@ -359,8 +367,10 @@ SingleFileStorage::getAllHeadersAndFooters(size_t headerSize,
     // Read the first header.
     offset = offsetOfSegmentFrame(0);
     r = pread(fd, blocks.get(), headerBlockSize, offset);
-    if (r != ssize_t(headerBlockSize))
+    if (r != ssize_t(headerBlockSize)) {
+        LOG(ERROR, "Couldn't read the first header of storage.");
         throw BackupStorageException(HERE, errno);
+    }
     memcpy(nextResult, blocks.get(), headerSize);
     nextResult += headerSize;
 
@@ -370,8 +380,11 @@ SingleFileStorage::getAllHeadersAndFooters(size_t headerSize,
         off_t offset = offsetOfSegmentFrame(frame) - footerBlockSize;
         ssize_t r = pread(fd, blocks.get(),
                           footerBlockSize + headerBlockSize, offset);
-        if (r != ssize_t(footerBlockSize + headerBlockSize))
+        if (r != ssize_t(footerBlockSize + headerBlockSize)) {
+            LOG(ERROR, "Couldn't read header from frame %u and the footer from "
+                "frame %u of storage.", frame, frame + 1);
             throw BackupStorageException(HERE, errno);
+        }
         memcpy(nextResult,
                bytePtr(startOfHeader) - footerSize,
                footerSize + headerSize);
@@ -381,14 +394,16 @@ SingleFileStorage::getAllHeadersAndFooters(size_t headerSize,
     // Read the last footer.
     offset = offsetOfSegmentFrame(segmentFrames) - footerBlockSize;
     r = pread(fd, blocks.get(), footerBlockSize, offset);
-    if (r != ssize_t(footerBlockSize))
+    if (r != ssize_t(footerBlockSize)) {
+        LOG(ERROR, "Couldn't read the last footer of storage.");
         throw BackupStorageException(HERE, errno);
+    }
     memcpy(nextResult,
            bytePtr(blocks.get()) + footerBlockSize - footerSize,
            footerSize);
     nextResult += footerSize;
 
-    return results.release();
+    return results;
 }
 
 // --- InMemoryStorage ---
@@ -418,14 +433,19 @@ InMemoryStorage::~InMemoryStorage()
 
 // See BackupStorage::allocate().
 BackupStorage::Handle*
-InMemoryStorage::allocate(uint64_t masterId,
-                          uint64_t segmentId)
+InMemoryStorage::allocate()
 {
     if (!segmentFrames)
         throw BackupStorageException(HERE, "Out of free segment frames.");
     segmentFrames--;
     char* address = static_cast<char *>(pool.malloc());
     return new Handle(address);
+}
+
+BackupStorage::Handle*
+InMemoryStorage::associate(uint32_t segmentFrame)
+{
+    return NULL;
 }
 
 // See BackupStorage::free().
@@ -435,7 +455,7 @@ InMemoryStorage::free(BackupStorage::Handle* handle)
     TEST_LOG("called");
     char* address =
         static_cast<const Handle*>(handle)->getAddress();
-    memcpy(address, "FREE", 4);
+    memcpy(address, "\0DIE", 4);
     pool.free(address);
     delete handle;
 }
@@ -450,11 +470,11 @@ InMemoryStorage::free(BackupStorage::Handle* handle)
  * \return
  *      NULL.
  */
-char*
+std::unique_ptr<char[]>
 InMemoryStorage::getAllHeadersAndFooters(size_t headerSize,
                                          size_t footerSize)
 {
-    return NULL;
+    return {};
 }
 
 // See BackupStorage::getSegment().

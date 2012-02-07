@@ -119,6 +119,15 @@ class BackupServiceTest : public ::testing::Test {
     }
 
     void
+    writeFooterAtEnd(ServerId masterId, uint64_t segmentId)
+    {
+        const uint32_t offset = config.segmentSize -
+                                downCast<uint32_t>(sizeof(SegmentEntry)) -
+                                downCast<uint32_t>(sizeof(SegmentFooter));
+        assert(writeFooter(masterId, segmentId, offset) == config.segmentSize);
+    }
+
+    void
     appendTablet(ProtoBuf::Tablets& tablets,
                     uint64_t partitionId,
                     uint32_t tableId,
@@ -397,6 +406,35 @@ TEST_F(BackupServiceTest, getRecoveryData_notRecovered) {
     EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
 }
 
+TEST_F(BackupServiceTest, killAllStorage)
+{
+    const char* path = "/tmp/ramcloud-backup-storage-test-delete-this";
+    ServerConfig config = ServerConfig::forTesting();
+    config.backup.inMemory = false;
+    config.backup.useStoredReplicas = false;
+    config.segmentSize = 4096;
+    config.backup.numSegmentFrames = 6;
+    config.backup.file = path;
+    config.services = {BACKUP_SERVICE};
+
+    try {
+        BackupService* backup = cluster->addServer(config)->backup.get();
+        return;
+        std::unique_ptr<BackupStorage::Handle>
+            handle(backup->storage->associate(0));
+        Memory::unique_ptr_free segment(
+            Memory::xmemalign(HERE, getpagesize(),
+                              config.segmentSize),
+            std::free);
+        char *p = static_cast<char*>(segment.get());
+        backup->storage->getSegment(handle.get(), p);
+        EXPECT_EQ(0, memcmp("\0DIE", p, 4));
+    } catch (...) {
+        unlink(path);
+        throw;
+    }
+}
+
 TEST_F(BackupServiceTest, recoverySegmentBuilder) {
     uint32_t offset = 0;
     client->openSegment(ServerId(99, 0), 87);
@@ -456,6 +494,140 @@ TEST_F(BackupServiceTest, recoverySegmentBuilder) {
     EXPECT_STREQ("test2", it2.get<Object>()->data);
     it2.next();
     EXPECT_TRUE(it2.isDone());
+}
+
+static bool restartFilter(string s) {
+    return s == "restartFromStorage";
+}
+
+TEST_F(BackupServiceTest, restartFromStorage)
+{
+    const char* path = "/tmp/ramcloud-backup-storage-test-delete-this";
+    int fd = -1;
+    void* file = NULL;
+    ServerConfig config = ServerConfig::forTesting();
+    config.backup.inMemory = false;
+    config.backup.useStoredReplicas = true;
+    config.segmentSize = 4096;
+    config.backup.numSegmentFrames = 6;
+    config.backup.file = path;
+    config.services = {BACKUP_SERVICE};
+    const size_t fileSize = config.segmentSize * config.backup.numSegmentFrames;
+
+    try {
+    fd = open(path, O_CREAT | O_RDWR, 0666);
+    ASSERT_NE(-1, fd);
+    ASSERT_NE(-1, ftruncate(fd, fileSize));
+    file = mmap(NULL, fileSize, PROT_READ | PROT_WRITE, MAP_SHARED,
+                fd, 0);
+    ASSERT_NE(MAP_FAILED, file);
+    ASSERT_NE(-1, close(fd));
+
+    typedef char* b;
+
+    off_t offset = 0;
+    for (uint32_t frame = 0; frame < config.backup.numSegmentFrames; ++frame) {
+        SegmentHeader header{99, 88, config.segmentSize};
+        SegmentEntry headerEntry(LOG_ENTRY_TYPE_SEGHEADER, sizeof(header));
+        SegmentFooter footer{0xcafebabe};
+        SegmentEntry footerEntry(LOG_ENTRY_TYPE_SEGFOOTER, sizeof(footer));
+        bool close = true;
+
+        // Set up various weird scenarios for each segment frame.
+        switch (frame) {
+        case 0:
+            // Normal header and footer for a closed segment.
+            break;
+        case 1:
+            // Normal header, no footer (open).
+            header.segmentId = 89;
+            close = false;
+            break;
+        case 2:
+            // Bad entry type for header.
+            headerEntry.type = 'q';
+            header.segmentId = 90;
+            close = true;
+            break;
+        case 3:
+            // Bad entry length for header.
+            headerEntry.length = 999;
+            header.segmentId = 91;
+            close = true;
+            break;
+        case 4:
+            // Bad entry type for footer.
+            footerEntry.type = 'q';
+            header.segmentId = 92;
+            close = true;
+            break;
+        case 5:
+            // Bad entry length for footer.
+            footerEntry.length = 999;
+            header.segmentId = 93;
+            close = true;
+            break;
+        default:
+            FAIL();
+        };
+
+        offset = frame * config.segmentSize;
+        memcpy(b(file) + offset, &headerEntry, sizeof(headerEntry));
+        offset += sizeof(headerEntry);
+        memcpy(b(file) + offset, &header, sizeof(header));
+        offset += sizeof(header);
+
+        if (close) {
+            offset = (frame + 1) * config.segmentSize -
+                sizeof(footerEntry) - sizeof(footer);
+            memcpy(b(file) + offset, &footerEntry, sizeof(footerEntry));
+            offset += sizeof(footerEntry);
+            memcpy(b(file) + offset, &footer, sizeof(footer));
+            offset += sizeof(footer);
+        }
+    }
+
+    ASSERT_NE(-1, munmap(file, fileSize));
+
+    TestLog::Enable _(restartFilter);
+    BackupService* backup = cluster->addServer(config)->backup.get();
+    EXPECT_NE(string::npos, TestLog::get().find(
+        "restartFromStorage: Found stored replica <99,88> on backup storage "
+            "in frame 0 which was closed | "
+        "restartFromStorage: Found stored replica <99,89> on backup storage "
+            "in frame 1 which was open | "
+        "restartFromStorage: Log entry type for header does not match in "
+            "frame 2 | "
+        "restartFromStorage: Unexpected log entry length while reading "
+            "segment replica header from backup storage, discarding replica, "
+            "(expected length 20, stored length 999) | "
+        "restartFromStorage: Found stored replica <99,92> on backup storage "
+            "in frame 4 which was open | "
+        "restartFromStorage: Found stored replica <99,93> on backup storage "
+            "in frame 5 which was open"));
+
+    EXPECT_TRUE(backup->findSegmentInfo({99, 0}, 88));
+    EXPECT_TRUE(backup->findSegmentInfo({99, 0}, 89));
+    EXPECT_FALSE(backup->findSegmentInfo({99, 0}, 90));
+    EXPECT_FALSE(backup->findSegmentInfo({99, 0}, 91));
+    EXPECT_TRUE(backup->findSegmentInfo({99, 0}, 92));
+    EXPECT_TRUE(backup->findSegmentInfo({99, 0}, 93));
+
+    SingleFileStorage* storage =
+        static_cast<SingleFileStorage*>(backup->storage.get());
+    EXPECT_FALSE(storage->freeMap.test(0));
+    EXPECT_FALSE(storage->freeMap.test(1));
+    EXPECT_TRUE(storage->freeMap.test(2));
+    EXPECT_TRUE(storage->freeMap.test(3));
+    EXPECT_FALSE(storage->freeMap.test(4));
+    EXPECT_FALSE(storage->freeMap.test(5));
+
+    } catch (...) {
+        close(fd);
+        munmap(file, fileSize);
+        unlink(path);
+        throw;
+    }
 }
 
 TEST_F(BackupServiceTest, startReadingData) {
