@@ -35,12 +35,14 @@ class BackupServiceTest : public ::testing::Test {
     Tub<MockCluster> cluster;
     std::unique_ptr<BackupClient> client;
     BackupService* backup;
+    mode_t oldUmask;
 
     BackupServiceTest()
         : config(ServerConfig::forTesting())
         , cluster()
         , client()
         , backup()
+        , oldUmask(umask(0))
     {
         Context::get().logger->setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
 
@@ -54,6 +56,7 @@ class BackupServiceTest : public ::testing::Test {
     ~BackupServiceTest()
     {
         cluster.destroy();
+        umask(oldUmask);
         EXPECT_EQ(0,
             BackupStorage::Handle::resetAllocatedHandlesCount());
     }
@@ -433,6 +436,7 @@ TEST_F(BackupServiceTest, killAllStorage)
         unlink(path);
         throw;
     }
+    unlink(path);
 }
 
 TEST_F(BackupServiceTest, recoverySegmentBuilder) {
@@ -625,9 +629,12 @@ TEST_F(BackupServiceTest, restartFromStorage)
     } catch (...) {
         close(fd);
         munmap(file, fileSize);
+        cluster.destroy();
         unlink(path);
         throw;
     }
+    cluster.destroy();
+    unlink(path);
 }
 
 TEST_F(BackupServiceTest, startReadingData) {

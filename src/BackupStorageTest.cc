@@ -33,12 +33,14 @@ class SingleFileStorageTest : public ::testing::Test {
     uint32_t segmentFrames;
     uint32_t segmentSize;
     Tub<SingleFileStorage> storage;
+    mode_t oldUmask;
 
     SingleFileStorageTest()
         : path("/tmp/ramcloud-backup-storage-test-delete-this")
         , segmentFrames(2)
         , segmentSize(8)
         , storage()
+        , oldUmask(umask(0))
     {
         storage.construct(segmentSize, segmentFrames, path, 0);
     }
@@ -46,6 +48,7 @@ class SingleFileStorageTest : public ::testing::Test {
     ~SingleFileStorageTest()
     {
         unlink(path);
+        umask(oldUmask);
         EXPECT_EQ(0,
             BackupStorage::Handle::resetAllocatedHandlesCount());
     }
