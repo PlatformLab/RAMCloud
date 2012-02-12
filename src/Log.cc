@@ -180,7 +180,7 @@ Log::allocateHead()
         freePendingReferenceList.push_back(s);
     }
 
-    Segment* nextHead = new Segment(this, newHeadId, baseAddress,
+    Segment* nextHead = new Segment(this, true, newHeadId, baseAddress,
         segmentCapacity, replicaManager, LOG_ENTRY_TYPE_LOGDIGEST, temp,
         downCast<uint32_t>(digestBytes));
 

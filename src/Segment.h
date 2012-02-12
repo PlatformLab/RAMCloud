@@ -177,7 +177,7 @@ class Segment {
     /// The class used to calculate segment checksums.
     typedef SegmentChecksum Checksum;
 
-    Segment(Log *log, uint64_t segmentId, void *baseAddress,
+    Segment(Log *log, bool isLogHead, uint64_t segmentId, void *baseAddress,
             uint32_t capacity, ReplicaManager* replicaManager,
             LogEntryType type, const void *buffer, uint32_t length);
     Segment(uint64_t logId, uint64_t segmentId, void *baseAddress,
@@ -290,7 +290,7 @@ class Segment {
     static const uint64_t  INVALID_SEGMENT_ID = ~(0ull);
 
   PRIVATE:
-    void               commonConstructor(LogEntryType type,
+    void               commonConstructor(bool isLogHead, LogEntryType type,
                                          const void *buffer, uint32_t length);
     SegmentEntryHandle locklessAppend(LogEntryType type,
                             const void *buffer, uint32_t length, bool sync,

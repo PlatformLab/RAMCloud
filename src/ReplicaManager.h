@@ -62,7 +62,7 @@ class ReplicaManager
                    const ServerId& masterId, uint32_t numReplicas);
     ~ReplicaManager();
 
-    ReplicatedSegment* openSegment(uint64_t segmentId,
+    ReplicatedSegment* openSegment(bool isLogHead, uint64_t segmentId,
                                    const void* data, uint32_t openLen);
         __attribute__((warn_unused_result));
     void proceed();

@@ -121,21 +121,21 @@ TEST_F(SegmentTest, constructor) {
     // be sure we count the header written in the LogStats
     ServerId serverId2(42, 0);
     Log l(serverId2, 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
-    Segment s2(&l, 0, alignedBuf, sizeof(alignedBuf), NULL,
+    Segment s2(&l, true, 0, alignedBuf, sizeof(alignedBuf), NULL,
                 LOG_ENTRY_TYPE_INVALID, NULL, 0);
     EXPECT_EQ(s2.getLiveBytes(), s2.tail);
 
     // Segments must be power-of-two sized <= 2GB and be
     // aligned to their capacity.
 
-    EXPECT_THROW(Segment(&l, 0, alignedBuf, sizeof(alignedBuf) + 1,
+    EXPECT_THROW(Segment(&l, true, 0, alignedBuf, sizeof(alignedBuf) + 1,
         NULL, LOG_ENTRY_TYPE_INVALID, NULL, 0), SegmentException);
-    EXPECT_THROW(Segment(&l, 0, alignedBuf, 0x80000001,
+    EXPECT_THROW(Segment(&l, true, 0, alignedBuf, 0x80000001,
         NULL, LOG_ENTRY_TYPE_INVALID, NULL, 0), SegmentException);
 
-    EXPECT_THROW(Segment(&l, 0, &alignedBuf[1], sizeof(alignedBuf),
+    EXPECT_THROW(Segment(&l, true, 0, &alignedBuf[1], sizeof(alignedBuf),
         NULL, LOG_ENTRY_TYPE_INVALID, NULL, 0), SegmentException);
-    EXPECT_THROW(Segment(&l, 0, &alignedBuf[8], sizeof(alignedBuf),
+    EXPECT_THROW(Segment(&l, true, 0, &alignedBuf[8], sizeof(alignedBuf),
         NULL, LOG_ENTRY_TYPE_INVALID, NULL, 0), SegmentException);
 }
 
@@ -381,7 +381,7 @@ TEST_F(SegmentTest, forceAppendBlob) {
         buf[i] = static_cast<char>(i);
 
     Log l(serverId, 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
-    Segment s(&l, 445566, alignedBuf, sizeof(alignedBuf), NULL,
+    Segment s(&l, true, 445566, alignedBuf, sizeof(alignedBuf), NULL,
                 LOG_ENTRY_TYPE_INVALID, NULL, 0);
     uint64_t bytesBeforeAppend = s.getLiveBytes();
     s.forceAppendBlob(buf, sizeof(buf));
@@ -398,7 +398,7 @@ TEST_F(SegmentTest, forceAppendRepeatedByte) {
     char alignedBuf[8192] __attribute__((aligned(8192)));
 
     Log l(serverId, 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
-    Segment s(&l, 445566, alignedBuf, sizeof(alignedBuf), NULL,
+    Segment s(&l, true, 445566, alignedBuf, sizeof(alignedBuf), NULL,
                 LOG_ENTRY_TYPE_INVALID, NULL, 0);
     uint64_t bytesBeforeAppend = s.getLiveBytes();
 

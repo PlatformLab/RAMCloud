@@ -120,22 +120,22 @@ TEST_F(LogTest, allocateHead_basics) {
 TEST_F(LogTest, allocateHead_lists) {
     Log l(serverId, 6 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
 
-    Segment* cleaned = new Segment(&l, l.allocateSegmentId(),
+    Segment* cleaned = new Segment(&l, false, l.allocateSegmentId(),
         l.getFromFreeList(false), 8192, NULL, LOG_ENTRY_TYPE_UNINIT,
         NULL, 0);
     l.cleanablePendingDigestList.push_back(*cleaned);
 
-    Segment* cleanableNew = new Segment(&l, l.allocateSegmentId(),
+    Segment* cleanableNew = new Segment(&l, false, l.allocateSegmentId(),
         l.getFromFreeList(false), 8192, NULL, LOG_ENTRY_TYPE_UNINIT,
         NULL, 0);
     l.cleanableNewList.push_back(*cleanableNew);
 
-    Segment* cleanable = new Segment(&l, l.allocateSegmentId(),
+    Segment* cleanable = new Segment(&l, false, l.allocateSegmentId(),
         l.getFromFreeList(false), 8192, NULL, LOG_ENTRY_TYPE_UNINIT,
         NULL, 0);
     l.cleanableList.push_back(*cleanable);
 
-    Segment* freePending = new Segment(&l, l.allocateSegmentId(),
+    Segment* freePending = new Segment(&l, false, l.allocateSegmentId(),
         l.getFromFreeList(false), 8192, NULL, LOG_ENTRY_TYPE_UNINIT,
         NULL, 0);
     l.freePendingDigestAndReferenceList.push_back(*freePending);
@@ -416,7 +416,7 @@ TEST_F(LogTest, getNewCleanableSegments) {
     l.getNewCleanableSegments(out);
     EXPECT_EQ(0U, out.size());
 
-    Segment* cleanableNew = new Segment(&l, l.allocateSegmentId(),
+    Segment* cleanableNew = new Segment(&l, false, l.allocateSegmentId(),
         l.getFromFreeList(false), 8192, NULL, LOG_ENTRY_TYPE_UNINIT,
         NULL, 0);
 
@@ -446,12 +446,12 @@ TEST_F(LogTest, cleaningComplete) {
 
     ServerRpcPoolInternal::currentEpoch = 5;
 
-    Segment* cleanSeg = new Segment(&l, l.allocateSegmentId(),
+    Segment* cleanSeg = new Segment(&l, false, l.allocateSegmentId(),
         l.getFromFreeList(false), 8192, NULL, LOG_ENTRY_TYPE_UNINIT,
         NULL, 0);
     cleanSeg->close(NULL);
 
-    Segment* liveSeg = new Segment(&l, l.allocateSegmentId(),
+    Segment* liveSeg = new Segment(&l, false, l.allocateSegmentId(),
         l.getFromFreeList(false), 8192, NULL, LOG_ENTRY_TYPE_UNINIT,
         NULL, 0);
 

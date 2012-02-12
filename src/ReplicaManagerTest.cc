@@ -89,7 +89,7 @@ TEST_F(ReplicaManagerTest, openSegment) {
     MockRandom _(1);
     const char data[] = "Hello world!";
 
-    auto segment = mgr->openSegment(88, data, arrayLength(data));
+    auto segment = mgr->openSegment(true, 88, data, arrayLength(data));
 
     ASSERT_FALSE(mgr->taskManager.isIdle());
     EXPECT_EQ(segment, mgr->taskManager.tasks.front());
@@ -174,7 +174,7 @@ TEST_F(ReplicaManagerTest, writeSegment) {
 }
 
 TEST_F(ReplicaManagerTest, proceed) {
-    mgr->openSegment(89, NULL, 0)->close(NULL);
+    mgr->openSegment(true, 89, NULL, 0)->close(NULL);
     auto& segment = mgr->replicatedSegmentList.front();
     EXPECT_FALSE(segment.replicas[0]);
     mgr->proceed();
@@ -187,7 +187,7 @@ TEST_F(ReplicaManagerTest, clusterConfigurationChanged) {
 }
 
 TEST_F(ReplicaManagerTest, destroyAndFreeReplicatedSegment) {
-    auto* segment = mgr->openSegment(89, NULL, 0);
+    auto* segment = mgr->openSegment(true, 89, NULL, 0);
     segment->sync(0);
     while (!mgr->taskManager.isIdle())
         mgr->proceed(); // Make sure the close gets pushed out as well.

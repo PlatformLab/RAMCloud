@@ -887,6 +887,7 @@ LogCleaner::moveLiveData(LiveSegmentEntryHandleVector& liveData,
                 cleanSegmentMemory.pop_back();
 
                 Segment* newSeg = new Segment(log,
+                                              false, // !isLogHead
                                               log->allocateSegmentId(),
                                               segmentMemory,
                                               log->getSegmentCapacity(),
