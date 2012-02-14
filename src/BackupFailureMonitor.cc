@@ -102,11 +102,6 @@ BackupFailureMonitor::main(Context& context)
                         "Notifying log of failure of serverId %lu",
                         id.getId());
                     if (replicaManager) {
-                        // going to block out all other rm requests here.
-                        // but log could proceed with async writes.
-                        // What if the head of the log changes in the meantime?
-                        // Can't quite - wouldn't be able to call open, but
-                        // we can be in the middle of it, holding a lock.
                         Tub<uint64_t> failedOpenSegmentId =
                             replicaManager->handleBackupFailure(id);
                         if (log && failedOpenSegmentId)

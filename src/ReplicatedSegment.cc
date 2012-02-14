@@ -269,25 +269,40 @@ ReplicatedSegment::close(ReplicatedSegment* followingSegment)
 
 /**
  * Respond to a change in cluster configuration by scheduling any work that is
- * needed to restore durablity guarantees.  One call is sufficient since tasks
- * reschedule themselves until all guarantees are restored.
+ * needed to restore durability guarantees; please read the documentation
+ * for the return value carefully as it requires action on the part of the
+ * caller to ensure correctness of the log.
  *
  * \param failedId
  *      ServerId of the backup which has failed.
+ * \return
+ *      True indicates that this segment was not a cleaner generated segment
+ *      and that it lost replicas and will take corrective actions on future
+ *      iterations of the ReplicaManager loop.  These corrective actions rely
+ *      on closing the segment if it was still open.  Therefore, the caller
+ *      must take appropriate action to ensure that if the only current and
+ *      recoverable copy of the digest was stored in this segment that it
+ *      creates a new, current, and recoverable digest.  Checking to see if
+ *      this segment is the current head from the Log's perspective, and if so,
+ *      rolling over to a new log head solves both constraints; it closes this
+ *      segment and ensures a current log digest exists in another segment.
  */
 bool
 ReplicatedSegment::handleBackupFailure(ServerId failedId)
 {
-    if (normalLogSegment && !getAcked().close)
-        recoveringFromLostOpenReplicas = true;
-    // TODO: Will probably also need a recoveringFromFailure in order
-    // to change the rewrite RPCs to use a special form of open so
-    // that the backups don't report the replicas as open and only
-    // report complete closed copies.
-
     foreach (auto& replica, replicas) {
         if (!replica.isActive || replica.backupId != failedId)
             continue;
+
+        // If the segment contains a digest, isn't durably acked, and
+        // could appear open during recovery (that is, it isn't being
+        // replicated with the atomic replication protocol) then we have
+        // a problem we have to patch up.
+        if (normalLogSegment &&
+            !getAcked().close &&
+            !replica.replicateAtomically) {
+            recoveringFromLostOpenReplicas = true;
+        }
 
         replica.failed();
         schedule();
@@ -392,16 +407,22 @@ ReplicatedSegment::performTask()
     } else {
         foreach (auto& replica, replicas)
             performWrite(replica);
-        if (recoveringFromLostOpenReplicas && getAcked().close) {
-            if (minOpenSegmentId.isGreaterThan(segmentId)) {
-                // Ok, this segment is now recovered.
-                recoveringFromLostOpenReplicas = false;
-            } else  {
-                // Now that the old head segment has been re-replicated
-                // and durably closed its time to make sure it can never
-                // appear as an open segment in the log again (even if
-                // some lost replica come back from the grave).
-                minOpenSegmentId.updateToAtLeast(segmentId + 1);
+        if (recoveringFromLostOpenReplicas) {
+            if (getAcked().close) {
+                if (minOpenSegmentId.isGreaterThan(segmentId)) {
+                    // Ok, this segment is now recovered.
+                    recoveringFromLostOpenReplicas = false;
+                    // All done, don't reschedule.
+                } else  {
+                    // Now that the old head segment has been re-replicated
+                    // and durably closed its time to make sure it can never
+                    // appear as an open segment in the log again (even if
+                    // some lost replica comes back from the grave).
+                    minOpenSegmentId.updateToAtLeast(segmentId + 1);
+                    schedule();
+                }
+            } else {
+                schedule();
             }
         }
         assert(isSynced() || isScheduled());

@@ -109,16 +109,7 @@ struct ReplicatedSegmentTest : public ::testing::Test {
         , _(transport)
         , segment(NULL)
     {
-        void* segMem = operator new(ReplicatedSegment::sizeOf(numReplicas));
-        segment = std::unique_ptr<ReplicatedSegment>(
-                new(segMem) ReplicatedSegment(taskManager, tracker,
-                                              backupSelector,
-                                              deleter, writeRpcsInFlight,
-                                              minOpenSegmentId, 
-                                              dataMutex, true,
-                                              masterId, segmentId,
-                                              data, openLen, numReplicas,
-                                              MAX_BYTES_PER_WRITE));
+        segment = newSegment(segmentId);
         serverList.add(ServerId(0, 0), "mock:host=backup1",
                        {BACKUP_SERVICE}, 100);
         serverList.add(ServerId(1, 0), "mock:host=backup2",
@@ -132,6 +123,22 @@ struct ReplicatedSegmentTest : public ::testing::Test {
         size_t msgLen = strlen(msg);
         for (int i = 0; i < DATA_LEN; ++i)
             data[i] = msg[i % msgLen];
+    }
+
+
+    std::unique_ptr<ReplicatedSegment>
+    newSegment(uint64_t segmentId) {
+        void* segMem = operator new(ReplicatedSegment::sizeOf(numReplicas));
+        auto newHead = std::unique_ptr<ReplicatedSegment>(
+                new(segMem) ReplicatedSegment(taskManager, tracker,
+                                              backupSelector,
+                                              deleter, writeRpcsInFlight,
+                                              minOpenSegmentId,
+                                              dataMutex, true,
+                                              masterId, segmentId,
+                                              data, openLen, numReplicas,
+                                              MAX_BYTES_PER_WRITE));
+        return newHead;
     }
 
     void reset() {
@@ -206,6 +213,71 @@ TEST_F(ReplicatedSegmentTest, close) {
     reset();
 }
 
+TEST_F(ReplicatedSegmentTest, handleBackupFailureWhileOpen) {
+    EXPECT_FALSE(segment->handleBackupFailure({0, 0}));
+    foreach (auto& replica, segment->replicas)
+        EXPECT_FALSE(replica.replicateAtomically);
+
+    transport.setInput("0 0 0"); // server id check
+    transport.setInput("0"); // write
+    transport.setInput("0 1 0"); // server id check
+    transport.setInput("0"); // write
+    segment->write(openLen);
+    // Not active still, next proceed chooses backups and sends opens.
+    EXPECT_FALSE(segment->handleBackupFailure({0, 0}));
+    foreach (auto& replica, segment->replicas)
+        EXPECT_FALSE(replica.replicateAtomically);
+
+    taskManager.proceed();
+    // Replicas are now active with an outstanding open rpc.
+    EXPECT_FALSE(segment->handleBackupFailure({88888, 0}));
+    foreach (auto& replica, segment->replicas)
+        EXPECT_FALSE(replica.replicateAtomically);
+
+    EXPECT_TRUE(segment->handleBackupFailure({0, 0}));
+    // The failed replica must restart replication in atomic mode.
+    EXPECT_TRUE(segment->replicas[0].replicateAtomically);
+    // The other open replica is in normal (non-atomic) mode still.
+    EXPECT_FALSE(segment->replicas[1].replicateAtomically);
+
+    // Failure of the second replica.
+    EXPECT_TRUE(segment->handleBackupFailure({1, 0}));
+    EXPECT_TRUE(segment->replicas[0].replicateAtomically);
+    EXPECT_TRUE(segment->replicas[1].replicateAtomically);
+
+    reset();
+}
+
+TEST_F(ReplicatedSegmentTest, handleBackupFailureWhileHandlingFailure) {
+    transport.setInput("0 0 0"); // server id check
+    transport.setInput("0"); // open
+    transport.setInput("0 1 0"); // server id check
+    transport.setInput("0"); // open
+    segment->write(openLen);
+    taskManager.proceed(); // send opens
+    taskManager.proceed(); // reap opens
+
+    transport.setInput("0"); // close
+    transport.setInput("0"); // close
+    segment->close(NULL);
+    taskManager.proceed(); // send closes
+    taskManager.proceed(); // reap closes
+
+    // Handle failure while closed.  This should technically
+    // "reopen" the segment, though only in atomic replication mode.
+    EXPECT_FALSE(segment->handleBackupFailure({0, 0}));
+    EXPECT_TRUE(segment->replicas[0].replicateAtomically);
+    EXPECT_FALSE(segment->replicas[1].replicateAtomically);
+
+    // Check to make sure that atomic replications aren't counted as
+    // failures while open.  They can't threaten the integrity of the log.
+    EXPECT_FALSE(segment->handleBackupFailure({0, 0}));
+    EXPECT_TRUE(segment->replicas[0].replicateAtomically);
+    EXPECT_FALSE(segment->replicas[1].replicateAtomically);
+
+    reset();
+}
+
 TEST_F(ReplicatedSegmentTest, sync) {
     transport.setInput("0 0 0"); // server id check
     transport.setInput("0"); // write
@@ -255,16 +327,7 @@ TEST_F(ReplicatedSegmentTest, syncDoubleCheckCrossSegmentOrderingConstraints) {
     transport.setInput("0"); // write
     transport.setInput("0"); // write
 
-    void* segMem = operator new(ReplicatedSegment::sizeOf(numReplicas));
-    auto newHead = std::unique_ptr<ReplicatedSegment>(
-            new(segMem) ReplicatedSegment(taskManager, tracker,
-                                          backupSelector,
-                                          deleter, writeRpcsInFlight,
-                                          minOpenSegmentId,
-                                          dataMutex, true,
-                                          masterId, segmentId + 1,
-                                          data, openLen, numReplicas,
-                                          MAX_BYTES_PER_WRITE));
+    auto newHead = newSegment(segmentId + 1);
     segment->close(newHead.get()); // close queued
     newHead->write(openLen + 10); // write queued
 
@@ -719,17 +782,7 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureNewHeadOpenAckedBeforeClose) {
     taskManager.proceed(); // send segment open
     taskManager.proceed(); // reap segment open
 
-    void* segMem = operator new(ReplicatedSegment::sizeOf(numReplicas));
-    auto newHead = std::unique_ptr<ReplicatedSegment>(
-            new(segMem) ReplicatedSegment(taskManager, tracker,
-                                          backupSelector,
-                                          deleter, writeRpcsInFlight,
-                                          minOpenSegmentId,
-                                          dataMutex, true,
-                                          masterId, segmentId + 1,
-                                          data, openLen, numReplicas,
-                                          MAX_BYTES_PER_WRITE));
-
+    auto newHead = newSegment(segmentId + 1);
     segment->close(newHead.get());
 
     taskManager.proceed(); // send newHead open, try segment close but can't
@@ -775,16 +828,7 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureCloseBeforeNewHeadWrittenTo) {
     transport.setInput("0"); // write - newHead
     transport.setInput("0"); // write - newHead
 
-    void* segMem = operator new(ReplicatedSegment::sizeOf(numReplicas));
-    auto newHead = std::unique_ptr<ReplicatedSegment>(
-            new(segMem) ReplicatedSegment(taskManager, tracker,
-                                          backupSelector,
-                                          deleter, writeRpcsInFlight,
-                                          minOpenSegmentId,
-                                          dataMutex, true,
-                                          masterId, segmentId + 1,
-                                          data, openLen, numReplicas,
-                                          MAX_BYTES_PER_WRITE));
+    auto newHead = newSegment(segmentId + 1);
     taskManager.proceed(); // send segment open for both
     taskManager.proceed(); // reap segment open for both
 

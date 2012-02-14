@@ -306,7 +306,8 @@ class ReplicatedSegment : public Task {
     void free();
     bool isSynced() const;
     void close(ReplicatedSegment* followingSegment);
-    bool handleBackupFailure(ServerId failedId);
+    bool handleBackupFailure(ServerId failedId)
+        __attribute__((warn_unused_result));
     void sync(uint32_t offset);
     void write(uint32_t offset);
 

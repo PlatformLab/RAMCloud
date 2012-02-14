@@ -188,12 +188,20 @@ TEST_F(ReplicaManagerTest, proceed) {
     EXPECT_TRUE(segment.replicas[0].writeRpc);
 }
 
-TEST_F(ReplicaManagerTest, handleBackupFailure_ensureCalledInResponseToFailure) {
-    // TODO
-}
-
 TEST_F(ReplicaManagerTest, handleBackupFailure) {
-    // TODO
+    auto s1 = mgr->openSegment(true, 89, NULL, 0);
+    auto s2 = mgr->openSegment(true, 90, NULL, 0);
+    auto s3 = mgr->openSegment(true, 91, NULL, 0);
+    mgr->proceed();
+    Tub<uint64_t> segmentId = mgr->handleBackupFailure(backup1Id);
+    ASSERT_TRUE(segmentId);
+    EXPECT_EQ(91u, *segmentId);
+    auto s4 = mgr->openSegment(true, 92, NULL, 0);
+    // If we don't meet the dependencies the backup will refuse
+    // to tear-down as it tries to make sure there is no data loss.
+    s1->close(s2);
+    s2->close(s3);
+    s3->close(s4);
 }
 
 TEST_F(ReplicaManagerTest, destroyAndFreeReplicatedSegment) {
