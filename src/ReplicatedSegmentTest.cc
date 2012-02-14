@@ -474,6 +474,7 @@ TEST_F(ReplicatedSegmentTest, performWriteOpen) {
 
 TEST_F(ReplicatedSegmentTest, performWriteOpenTooManyInFlight) {
     transport.setInput("0 0 0"); // server id check
+    transport.setInput("0 1 0"); // server id check
     transport.setInput("0"); // write
     transport.setInput("0 1 0"); // server id check
     transport.setInput("0"); // write
@@ -482,14 +483,15 @@ TEST_F(ReplicatedSegmentTest, performWriteOpenTooManyInFlight) {
 
     writeRpcsInFlight = ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT;
     segment->write(openLen);
-    taskManager.proceed(); // try to send writes
+    taskManager.proceed(); // try to send writes, shouldn't be able to.
 
-    EXPECT_FALSE(segment->replicas[0].isActive);
+    EXPECT_TRUE(segment->replicas[0].isActive);
+    EXPECT_FALSE(segment->replicas[0].sent.open);
     EXPECT_EQ(ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT, writeRpcsInFlight);
 
     writeRpcsInFlight = ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT - 1;
     taskManager.proceed(); // retry writes since a slot freed up
-    EXPECT_STREQ("clientSend: 0x40028 | "
+    EXPECT_STREQ("clientSend: 0x40028 | clientSend: 0x40028 | "
                  "clientSend: 0x10022 999 0 888 0 0 10 5 abcedfghij",
                  transport.outputLog.c_str());
     EXPECT_EQ(ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT, writeRpcsInFlight);
@@ -497,13 +499,13 @@ TEST_F(ReplicatedSegmentTest, performWriteOpenTooManyInFlight) {
     EXPECT_TRUE(segment->replicas[0].writeRpc);
     EXPECT_TRUE(segment->replicas[0].sent.open);
     EXPECT_EQ(openLen, segment->replicas[0].sent.bytes);
-    EXPECT_FALSE(segment->replicas[1].isActive); // make sure only one was started
+    EXPECT_TRUE(segment->replicas[1].isActive);
+    EXPECT_FALSE(segment->replicas[1].sent.open); // ensure only one was started
     EXPECT_TRUE(segment->isScheduled());
 
     taskManager.proceed(); // reap write and send the second replica's rpc
-    EXPECT_STREQ("clientSend: 0x40028 | "
+    EXPECT_STREQ("clientSend: 0x40028 | clientSend: 0x40028 | "
                  "clientSend: 0x10022 999 0 888 0 0 10 5 abcedfghij | "
-                 "clientSend: 0x40028 | "
                  "clientSend: 0x10022 999 0 888 0 0 10 1 abcedfghij",
                  transport.outputLog.c_str());
     EXPECT_EQ(ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT, writeRpcsInFlight);
@@ -551,7 +553,6 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
     transport.setInput("0"); // ok first replica open
     transport.setInput("0 1 0"); // server id check
     transport.setInput(NULL); // error second replica open
-    transport.setInput("0 0 0"); // server id check
     transport.setInput("0"); // ok second replica reopen
     transport.setInput(NULL); // error first replica close
     transport.setInput("0"); // ok second replica close
@@ -565,6 +566,7 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
     EXPECT_EQ(0u, segment->replicas[0].acked.bytes);
     ASSERT_TRUE(segment->replicas[1].isActive);
     EXPECT_EQ(openLen, segment->replicas[1].sent.bytes);
+    ServerId backupIdForFirstOpenAttempt = segment->replicas[1].backupId;
 
     EXPECT_STREQ("clientSend: 0x40028 | "
                  "clientSend: 0x10022 999 0 888 0 0 10 5 abcedfghij | "
@@ -583,11 +585,13 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
     ASSERT_TRUE(segment->replicas[0].isActive);
     EXPECT_EQ(openLen, segment->replicas[0].acked.bytes);
     EXPECT_FALSE(segment->replicas[0].writeRpc);
-    ASSERT_FALSE(segment->replicas[1].isActive);
+    ASSERT_TRUE(segment->replicas[1].isActive);
+    EXPECT_EQ(0u, segment->replicas[1].acked.bytes);
+    // Ensure retried open rpc goes to the same backup as the first attempt.
+    EXPECT_EQ(backupIdForFirstOpenAttempt, segment->replicas[1].backupId);
 
     taskManager.proceed();  // resend second open request
-    EXPECT_STREQ("clientSend: 0x40028 | "
-                 "clientSend: 0x10022 999 0 888 0 0 10 1 abcedfghij",
+    EXPECT_STREQ("clientSend: 0x10022 999 0 888 0 0 10 1 abcedfghij",
                  transport.outputLog.c_str());
     transport.outputLog = "";
     taskManager.proceed();  // reap second open request

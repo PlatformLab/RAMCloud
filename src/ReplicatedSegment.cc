@@ -487,12 +487,12 @@ ReplicatedSegment::performWrite(Replica& replica)
     }
 
     if (!replica.isActive) {
-        // This replica does not exist yet. Choose a backup and send the open.
-        // Happens for a new segment or if a replica was known to be lost.
-        if (writeRpcsInFlight == MAX_WRITE_RPCS_IN_FLIGHT) {
-            schedule();
-            return;
-        }
+        // This replica does not exist yet. Choose a backup. The actual
+        // send of the open rpc happens on a separate pass because different
+        // failures need to be handled differently: if the open rpc fails
+        // then the rpc must be retried, but if the coordinator notifies the
+        // master that the backup it has chosen has failed then the
+        // rather complicated open segment failure handling must be done.
         ServerId conflicts[replicas.numElements - 1];
         uint32_t numConflicts = 0;
         foreach (auto& conflictingReplica, replicas) {
@@ -501,22 +501,17 @@ ReplicatedSegment::performWrite(Replica& replica)
             assert(numConflicts < replicas.numElements);
         }
         ServerId backupId;
-        BackupWriteRpc::Flags flags = BackupWriteRpc::OPEN;
         if (replicaIsPrimary(replica)) {
             backupId = backupSelector.selectPrimary(numConflicts, conflicts);
-            flags = BackupWriteRpc::OPENPRIMARY;
         } else {
             backupId = backupSelector.selectSecondary(numConflicts, conflicts);
         }
         Transport::SessionRef session = tracker.getSession(backupId);
         replica.start(backupId, session);
-        replica.writeRpc.construct(*replica.client, masterId, segmentId,
-                                    0, data, openLen, flags);
-        ++writeRpcsInFlight;
-        replica.sent.open = true;
-        replica.sent.bytes = openLen;
-        schedule();
-        return;
+        // Fall-through: this should drop down into the case that no
+        // writeRpc is outstanding and the open hasn't been acknowledged
+        // yet to send out the open rpc.  That block is also responsible
+        // for scheduling the task.
     }
 
     if (replica.writeRpc) {
@@ -537,27 +532,16 @@ ReplicatedSegment::performWrite(Replica& replica)
                 LOG(WARNING,
                     "Failure writing replica on backup, retrying: %s",
                     e.what());
+                // Note: it is important that we stick to retrying here.
+                // Trying to reopen a new replica causes log integrity
+                // issues due to potentially lost open replicas.  Instead,
+                // hang tight and keep retrying.  Let the failure handler
+                // clean up and interrupt retries on future iterations.
             }
             replica.writeRpc.destroy();
             --writeRpcsInFlight;
             if (replica.acked != queued)
                 schedule();
-            if (!replica.acked.open) {
-                // TODO: Check this - this could leave stray open
-                // replicas around - better handle failures the usual way.
-                // TODO: Yeah, this is just wrong, wait for the failure
-                // notification rather than trying to do this poorly.
-                // TODO: Need to make it so the open flag is due to 
-                // !replica.acked.open not the opening of the tub.
-                // TODO: Probably the right thing is to select where to
-                // send the backup in one proceed pass and then actually
-                // send the write in the next proceed pass to collapse
-                // the open and write case together.
-                // If there was a TransportException then it may be
-                // that the open hasn't been acknowledged yet. In that
-                // case we reset to a state where the open will be retried.
-                replica.failed();
-            }
             return;
         } else {
             // Request is not yet finished, stay scheduled to wait on it.
@@ -565,6 +549,27 @@ ReplicatedSegment::performWrite(Replica& replica)
             return;
         }
     } else {
+        if (!replica.acked.open) {
+            // No outstanding write, but not yet durably open.
+            if (writeRpcsInFlight == MAX_WRITE_RPCS_IN_FLIGHT) {
+                schedule();
+                return;
+            }
+
+            BackupWriteRpc::Flags flags = BackupWriteRpc::OPEN;
+            if (replicaIsPrimary(replica))
+                flags = BackupWriteRpc::OPENPRIMARY;
+
+            replica.writeRpc.construct(*replica.client, masterId, segmentId,
+                                        0, data, openLen, flags,
+                                        replica.replicateAtomically);
+            ++writeRpcsInFlight;
+            replica.sent.open = true;
+            replica.sent.bytes = openLen;
+            schedule();
+            return;
+        }
+
         // No outstanding write but not yet synced.
         if (replica.sent < queued) {
             // Some part of the data hasn't been sent yet.  Send it.
@@ -610,9 +615,16 @@ ReplicatedSegment::performWrite(Replica& replica)
                 }
             }
 
+            if (writeRpcsInFlight == MAX_WRITE_RPCS_IN_FLIGHT) {
+                schedule();
+                return;
+            }
+
             const char* src = static_cast<const char*>(data) + offset;
             replica.writeRpc.construct(*replica.client, masterId, segmentId,
-                                        offset, src, length, flags);
+                                        offset, src, length, flags,
+                                        replica.replicateAtomically);
+            ++writeRpcsInFlight;
             replica.sent.bytes += length;
             replica.sent.close = (flags == BackupWriteRpc::CLOSE);
             schedule();

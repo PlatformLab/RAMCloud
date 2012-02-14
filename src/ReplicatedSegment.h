@@ -208,23 +208,54 @@ class ReplicatedSegment : public Task {
                 freeRpc->cancel();
         }
 
+        /**
+         * Record which backup this replica in being replicated to and set up
+         * the state so that the ReplicaManager loop will begin replication.
+         *
+         * \param backupId
+         *      The ServerId of the process which is the target of this
+         *      replica.
+         * \param session
+         *      A session to the same process as \a backupId.
+         */
         void start(ServerId backupId, Transport::SessionRef session) {
             isActive = true;
             this->backupId = backupId;
             client.construct(session);
         }
 
+        /**
+         * Mark this replica as having failed.  This has two effects. First,
+         * the replica state will be reset so that future iterations of
+         * the ReplicaManager will start rereplication. Second, it sets a
+         * flag indicating that all future replication of this segment
+         * should be done atomically.  That is, the segment is either
+         * replicated completed to close or the backup disavows all  knowledge
+         * of it.
+         */
         void failed() {
             this->~Replica();
             new(this) Replica;
             replicateAtomically = true;
         }
 
+        /**
+         * Reset all state associated with this replica.  Note that it is the
+         * boolean freeQueued in ReplicatedSegment that prevents this replica
+         * from being replicated again by the main ReplicaManager loop.
+         */
         void freed() {
             this->~Replica();
             new(this) Replica;
         }
 
+        /**
+         * If true the rest of the fields in this structure are valid and
+         * represent the known state of some replica.  Otherwise, this
+         * instance is not associated with a replica (which indicates to
+         * the ReplicaManager loop that a new replica should be created to
+         * fill this missing replica).
+         */
         bool isActive;
 
         /// Id of remote backup server where this replica is (to be) stored.
@@ -256,7 +287,14 @@ class ReplicatedSegment : public Task {
 
         /**
          * This is set whenever replication is happening in response to a
-         * failure.  It ensure that any subsequent
+         * failure.  It indicates that future replication should be done
+         * atomically.  That is the if the backup receives the entire replica
+         * including its close then it can be used during recovery, otherwise
+         * if the close has not been received by the backup it will disavow
+         * all knowledge of the replica.  This is used to prevent replicas
+         * which are being recreated for closed segments in response to
+         * failures from appearing open during a recovery and silently
+         * truncating the log.
          */
         bool replicateAtomically;
 
