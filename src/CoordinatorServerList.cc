@@ -389,7 +389,8 @@ CoordinatorServerList::Entry::Entry(ServerId serverId,
       serviceLocator(serviceLocatorString),
       serviceMask(serviceMask),
       will(NULL),
-      backupReadMBytesPerSec(0)
+      backupReadMBytesPerSec(0),
+      minOpenSegmentId(0)
 {
 }
 

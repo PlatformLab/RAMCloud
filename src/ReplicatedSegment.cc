@@ -498,6 +498,7 @@ ReplicatedSegment::performFree(Replica& replica)
  * Make progress, if possible, in durably writing segment data to a particular
  * replica.  If future work is required this method automatically re-schedules
  * this segment for future attention from the ReplicaManager.
+ * \pre freeQueued must be false, otherwise behavior is undefined.
  */
 void
 ReplicatedSegment::performWrite(Replica& replica)

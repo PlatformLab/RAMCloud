@@ -386,4 +386,16 @@ TEST_F(CoordinatorServiceTest, sendMembershipUpdate) {
         "updateServerList: Got server list update (version number 3)"));
 }
 
+TEST_F(CoordinatorServiceTest, setMinOpenSegmentId) {
+    EXPECT_THROW(client->setMinOpenSegmentId(ServerId(2, 2), 100),
+                 ClientException);
+
+    client->setMinOpenSegmentId(masterServerId, 10);
+    EXPECT_EQ(10u, service->serverList[masterServerId].minOpenSegmentId);
+    client->setMinOpenSegmentId(masterServerId, 9);
+    EXPECT_EQ(10u, service->serverList[masterServerId].minOpenSegmentId);
+    client->setMinOpenSegmentId(masterServerId, 11);
+    EXPECT_EQ(11u, service->serverList[masterServerId].minOpenSegmentId);
+}
+
 }  // namespace RAMCloud

@@ -667,9 +667,14 @@ CoordinatorService::sendMembershipUpdate(ProtoBuf::ServerList& update,
 /**
  * Handle the SET_MIN_OPEN_SEGMENT_ID.
  *
- * The Coordinator always pushes server lists and their updates. If a server's
- * FailureDetector determines that the list is out of date, it issues an RPC
- * here to request that we re-send the list.
+ * Updates the minimum open segment id for a particular server.  If the
+ * requested update is less than the current value maintained by the
+ * coordinator then the old value is retained (that is, the coordinator
+ * ignores updates that decrease the value).
+ * Any open replicas found during recovery are considered invalid
+ * if they have a segmentId less than the minimum open segment id maintained
+ * by the coordinator.  This is used by masters to invalidate replicas they
+ * have lost contact with while actively writing to them.
  *
  * \copydetails Service::ping
  */
@@ -680,10 +685,19 @@ CoordinatorService::setMinOpenSegmentId(
     Rpc& rpc)
 {
     ServerId serverId(reqHdr.serverId);
-    uint64_t segmentId(reqHdr.serverId);
+    uint64_t segmentId = reqHdr.segmentId;
 
     LOG(DEBUG, "Set min open segment id for server %lu to %lu",
         serverId.getId(), segmentId);
+
+    if (!serverList.contains(serverId)) {
+        respHdr.common.status = STATUS_SERVER_DOESNT_EXIST;
+        return;
+    }
+
+    CoordinatorServerList::Entry& entry = serverList[serverId];
+    if (entry.minOpenSegmentId < segmentId)
+        entry.minOpenSegmentId = segmentId;
 }
 
 } // namespace RAMCloud

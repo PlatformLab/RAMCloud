@@ -64,6 +64,9 @@ class CoordinatorServerList {
         void serialise(ProtoBuf::ServerList_Entry& dest,
                        bool isInCluster) const;
 
+        bool isMaster() const { return serviceMask.has(MASTER_SERVICE); }
+        bool isBackup() const { return serviceMask.has(BACKUP_SERVICE); }
+
         /// ServerId of the server (uniquely identifies it, never reused).
         ServerId serverId;
 
@@ -81,8 +84,16 @@ class CoordinatorServerList {
         /// set if serviceMask includes BACKUP_SERVICE).
         uint32_t backupReadMBytesPerSec;
 
-        bool isMaster() const { return serviceMask.has(MASTER_SERVICE); }
-        bool isBackup() const { return serviceMask.has(BACKUP_SERVICE); }
+        // Fields below this point are maintained on the coordinator only
+        // and are not transmitted to members' ServerLists.
+
+        /**
+         * Any open replicas found during recovery are considered invalid
+         * if they have a segmentId less than this.  This is used by masters
+         * to invalidate replicas they have lost contact with while actively
+         * writing to them.
+         */
+        uint64_t minOpenSegmentId;
     };
 
     CoordinatorServerList();

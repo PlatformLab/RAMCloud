@@ -51,8 +51,9 @@ enum Status {
     STATUS_RETRY                        = 16,
     STATUS_SERVICE_NOT_AVAILABLE        = 17,
     STATUS_TIMEOUT                      = 18,
-    STATUS_INTERNAL_ERROR               = 19,
-    STATUS_MAX_VALUE                    = 19
+    STATUS_SERVER_DOESNT_EXIST          = 19,
+    STATUS_INTERNAL_ERROR               = 20,
+    STATUS_MAX_VALUE                    = 20
     // Note: if you add a new status value you must make the following
     // additional updates:
     // * Modify STATUS_MAX_VALUE to have a value equal to the largest

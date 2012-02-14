@@ -149,6 +149,9 @@ DEFINE_EXCEPTION(ServiceNotAvailableException,
 DEFINE_EXCEPTION(TimeoutException,
                  STATUS_TIMEOUT,
                  ClientException)
+DEFINE_EXCEPTION(ServerDoesntExistException,
+                 STATUS_SERVER_DOESNT_EXIST,
+                 ClientException)
 
 } // namespace RAMCloud
 
