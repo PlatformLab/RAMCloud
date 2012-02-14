@@ -217,13 +217,29 @@ class BackupService : public Service {
         uint32_t
         getRightmostWrittenOffset()
         {
+            Lock lock(mutex);
             return rightmostWrittenOffset;
+        }
+
+        /**
+         * Return true if this replica can be used for recovery.  Some
+         * replicas are open for atomic replication.  Those segments
+         * may be open and have data written to them, but they cannot
+         * be used for recovery because they aren't considered to be
+         * valid replicas until the closing write is processed.
+         */
+        bool
+        satisfiesAtomicReplicationGuarantees()
+        {
+            Lock lock(mutex);
+            return !replicateAtomically || state == CLOSED;
         }
 
         /// Return true if this segment is OPEN.
         bool
         isOpen()
         {
+            Lock lock(mutex);
             return state == OPEN;
         }
 
@@ -236,6 +252,7 @@ class BackupService : public Service {
         void
         setRecovering()
         {
+            Lock lock(mutex);
             assert(primary);
             state = RECOVERING;
         }
@@ -249,6 +266,7 @@ class BackupService : public Service {
         void
         setRecovering(const ProtoBuf::Tablets& partitions)
         {
+            Lock lock(mutex);
             assert(!primary);
             state = RECOVERING;
             // Make a copy of the partition list for deferred filtering.
@@ -257,7 +275,7 @@ class BackupService : public Service {
 
         void startLoading();
         void write(Buffer& src, uint32_t srcOffset,
-                   uint32_t length, uint32_t destOffset);
+                   uint32_t length, uint32_t destOffset, bool atomic);
         const void* getLogDigest(uint32_t* byteLength = NULL);
 
         /**
@@ -377,6 +395,13 @@ class BackupService : public Service {
 
         /// The state of this segment.  See State.
         State state;
+
+        /**
+         * If this is true the data buffered for this segment is invalid until
+         * a closing write has been processed.  It will not be written to disk
+         * in any way and it will not be used or reported during recovery.
+         */
+        bool replicateAtomically;
 
         /**
          * Handle to provide to the storage layer to access this segment.

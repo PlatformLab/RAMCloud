@@ -168,7 +168,7 @@ class BackupServiceTest : public ::testing::Test {
     // with a LogDigest containing the given IDs.
     void
     writeDigestedSegment(ServerId masterId, uint64_t segmentId,
-        vector<uint64_t> digestIds)
+        vector<uint64_t> digestIds, bool atomic = false)
     {
         void* segBuf = Memory::xmemalign(HERE, 1024 * 1024, 1024 * 1024);
         Segment s((uint64_t)0, segmentId, segBuf, 1024 * 1024);
@@ -185,7 +185,7 @@ class BackupServiceTest : public ::testing::Test {
             digestBuf, downCast<uint32_t>(sizeof(digestBuf)));
         uint32_t segmentLength = seh->logTime().second + seh->totalLength();
         client->writeSegment(masterId, segmentId, 0, s.getBaseAddress(),
-            segmentLength);
+            segmentLength, BackupWriteRpc::NONE, atomic);
 
         free(segBuf);
     }
@@ -771,6 +771,38 @@ TEST_F(BackupServiceTest, startReadingData_logDigest_none) {
     }
 }
 
+TEST_F(BackupServiceTest, startReadingData_atomic) {
+    // Open segments being replicated atomically shouldn't be
+    // part of recoveries.
+    client->openSegment(ServerId(99, 0), 88);
+    writeDigestedSegment(ServerId(99, 0), 88, { 0xe966e17be4aUL }, true);
+
+    {
+        BackupClient::StartReadingData::Result result =
+            client->startReadingData(ServerId(99, 0), ProtoBuf::Tablets());
+        BackupService::SegmentInfo &info =
+            *backup->findSegmentInfo(ServerId(99, 0), 88);
+        EXPECT_FALSE(info.satisfiesAtomicReplicationGuarantees());
+        EXPECT_EQ(0U, result.segmentIdAndLength.size());
+        EXPECT_EQ(0U, result.logDigestBytes);
+        EXPECT_TRUE(NULL == result.logDigestBuffer);
+    }
+
+    // Once atomic replicas close they should instantly be part of
+    // recoveries.
+    client->closeSegment(ServerId(99, 0), 88);
+    {
+        BackupClient::StartReadingData::Result result =
+            client->startReadingData(ServerId(99, 0), ProtoBuf::Tablets());
+        BackupService::SegmentInfo &info =
+            *backup->findSegmentInfo(ServerId(99, 0), 88);
+        EXPECT_TRUE(info.satisfiesAtomicReplicationGuarantees());
+        EXPECT_EQ(1U, result.segmentIdAndLength.size());
+        EXPECT_EQ(0U, result.logDigestBytes);
+        EXPECT_TRUE(NULL == result.logDigestBuffer);
+    }
+}
+
 TEST_F(BackupServiceTest, writeSegment) {
     client->openSegment(ServerId(99, 0), 88);
     // test for idempotence
@@ -897,6 +929,23 @@ TEST_F(BackupServiceTest, writeSegment_openSegmentOutOfStorage) {
     EXPECT_EQ(4, BackupStorage::Handle::getAllocatedHandlesCount());
 }
 
+TEST_F(BackupServiceTest, writeSegment_atomic) {
+    client->openSegment(ServerId(99, 0), 88, true, false);
+    BackupService::SegmentInfo &info =
+        *backup->findSegmentInfo(ServerId(99, 0), 88);
+    EXPECT_FALSE(info.replicateAtomically);
+    EXPECT_TRUE(info.satisfiesAtomicReplicationGuarantees());
+    client->writeSegment(ServerId(99, 0), 88, 10, "test", 5,
+                         BackupWriteRpc::NONE, true);
+    EXPECT_TRUE(info.replicateAtomically);
+    EXPECT_FALSE(info.satisfiesAtomicReplicationGuarantees());
+    client->writeSegment(ServerId(99, 0), 88, 15, "test", 5,
+                         BackupWriteRpc::CLOSE, true);
+    EXPECT_TRUE(info.replicateAtomically);
+    EXPECT_TRUE(info.satisfiesAtomicReplicationGuarantees());
+    EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
+}
+
 class SegmentInfoTest : public ::testing::Test {
   public:
     typedef BackupService::SegmentInfo SegmentInfo;
@@ -928,6 +977,7 @@ class SegmentInfoTest : public ::testing::Test {
 TEST_F(SegmentInfoTest, destructor) {
     TestLog::Enable _;
     {
+        // Normal replica.
         SegmentInfo info{storage, pool, ioScheduler,
             ServerId(99, 0), 88, segmentSize, true};
         info.open();
@@ -935,8 +985,21 @@ TEST_F(SegmentInfoTest, destructor) {
     }
     EXPECT_EQ("~SegmentInfo: Backup shutting down with open segment <99,88>, "
               "closing out to storage", TestLog::get());
+    TestLog::reset();
+    {
+        // Still open atomic replica.  Shouldn't get persisted.
+        SegmentInfo info2{storage, pool, ioScheduler,
+            ServerId(99, 0), 89, segmentSize, true};
+        info2.open();
+        Buffer src;
+        info2.write(src, 0, 0, 0, true);
+        EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
+    }
+    EXPECT_EQ("~SegmentInfo: Backup shutting down with open segment <99,89>, "
+              "which was open for atomic replication; discarding since the "
+              "replica was incomplete",
+              TestLog::get());
     EXPECT_EQ(0, BackupStorage::Handle::getAllocatedHandlesCount());
-    ASSERT_EQ(static_cast<char*>(NULL), info.segment);
 }
 
 TEST_F(SegmentInfoTest, destructorLoading) {

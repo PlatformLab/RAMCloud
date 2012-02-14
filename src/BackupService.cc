@@ -84,6 +84,7 @@ BackupService::SegmentInfo::SegmentInfo(BackupStorage& storage,
     , segment()
     , segmentSize(segmentSize)
     , state(UNINIT)
+    , replicateAtomically(false)
     , storageHandle()
     , pool(pool)
     , storage(storage)
@@ -140,6 +141,7 @@ BackupService::SegmentInfo::SegmentInfo(BackupStorage& storage,
     , segment()
     , segmentSize(segmentSize)
     , state(isClosed ? CLOSED : OPEN)
+    , replicateAtomically(false)
     , storageHandle()
     , pool(pool)
     , storage(storage)
@@ -186,13 +188,19 @@ BackupService::SegmentInfo::~SegmentInfo()
     waitForOngoingOps(lock);
 
     if (state == OPEN) {
-        LOG(NOTICE, "Backup shutting down with open segment <%lu,%lu>, "
-            "closing out to storage", *masterId, segmentId);
-        state = CLOSED;
-        CycleCounter<RawMetric> _(&metrics->backup.storageWriteTicks);
-        ++metrics->backup.storageWriteCount;
-        metrics->backup.storageWriteBytes += segmentSize;
-        storage.putSegment(storageHandle, segment);
+        if (replicateAtomically && state != CLOSED) {
+            LOG(NOTICE, "Backup shutting down with open segment <%lu,%lu>, "
+                "which was open for atomic replication; discarding since the "
+                "replica was incomplete", *masterId, segmentId);
+        } else {
+            LOG(NOTICE, "Backup shutting down with open segment <%lu,%lu>, "
+                "closing out to storage", *masterId, segmentId);
+            state = CLOSED;
+            CycleCounter<RawMetric> _(&metrics->backup.storageWriteTicks);
+            ++metrics->backup.storageWriteCount;
+            metrics->backup.storageWriteBytes += segmentSize;
+            storage.putSegment(storageHandle, segment);
+        }
     }
     if (isRecovered()) {
         delete[] recoverySegments;
@@ -565,16 +573,31 @@ BackupService::SegmentInfo::startLoading()
  * \param destOffset
  *      Offset into the backup segment in bytes of where the data is to
  *      be copied.
+ * \param atomic
+ *      If true then this replica is considered invalid until a closing
+ *      write (or subsequent call to write with \a atomic set to false).
+ *      This means that the data will never be written to disk and will
+ *      not be reported to or used in recoveries unless the replica is
+ *      closed.  This allows masters to create replicas of segments
+ *      without the threat that they'll be detected as the head of the
+ *      log.  Each value of \a atomic for each write call overrides the
+ *      last, so in order to atomically write an entire segment all
+ *      writes must have \a atomic set to true (though, it is
+ *      irrelvant for the last, closing write).  A call with atomic
+ *      set to false will make that replica available for normal
+ *      treatment as an open segment.
  */
 void
 BackupService::SegmentInfo::write(Buffer& src,
                                   uint32_t srcOffset,
                                   uint32_t length,
-                                  uint32_t destOffset)
+                                  uint32_t destOffset,
+                                  bool atomic)
 {
     Lock lock(mutex);
     assert(state == OPEN && inMemory());
     src.copy(srcOffset, length, &segment[destOffset]);
+    replicateAtomically = atomic;
     rightmostWrittenOffset = std::max(rightmostWrittenOffset,
                                       destOffset + length);
 }
@@ -593,6 +616,7 @@ BackupService::SegmentInfo::write(Buffer& src,
 const void*
 BackupService::SegmentInfo::getLogDigest(uint32_t* byteLength)
 {
+    Lock lock(mutex);
     // If the Segment is malformed somehow, just ignore it. The
     // coordinator will have to deal.
     try {
@@ -1443,7 +1467,15 @@ BackupService::startReadingData(
     {
         ServerId masterId = it->first.masterId;
         SegmentInfo* info = it->second;
+
+
         if (*masterId == reqHdr.masterId) {
+            if (!info->satisfiesAtomicReplicationGuarantees()) {
+                LOG(WARNING, "Asked for replica <%lu,%lu> which was being "
+                    "replicated atomically but which has yet to be closed; "
+                    "ignoring the replica", masterId.getId(), info->segmentId);
+                continue;
+            }
             (info->primary ?
                 primarySegments :
                 secondarySegments).push_back(info);
@@ -1602,7 +1634,7 @@ BackupService::writeSegment(const BackupWriteRpc::Request& reqHdr,
         {
             CycleCounter<RawMetric> __(&metrics->backup.writeCopyTicks);
             info->write(rpc.requestPayload, sizeof(reqHdr),
-                        reqHdr.length, reqHdr.offset);
+                        reqHdr.length, reqHdr.offset, reqHdr.atomic);
         }
         metrics->backup.writeCopyBytes += reqHdr.length;
         bytesWritten += reqHdr.length;

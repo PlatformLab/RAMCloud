@@ -160,7 +160,8 @@ class BackupClient : public Client {
                      uint32_t offset,
                      const void *buf,
                      uint32_t length,
-                     BackupWriteRpc::Flags flags = BackupWriteRpc::NONE);
+                     BackupWriteRpc::Flags flags = BackupWriteRpc::NONE,
+                     bool atomic = false);
         void cancel() { state.cancel(); }
         bool isReady() { return state.isReady(); }
         void operator()();
@@ -179,19 +180,19 @@ class BackupClient : public Client {
     void closeSegment(ServerId masterId, uint64_t segmentId) {
         writeSegment(masterId, segmentId,
                      0, static_cast<const void*>(NULL), 0,
-                     BackupWriteRpc::CLOSE);
+                     BackupWriteRpc::CLOSE, false);
     }
 
     Transport::SessionRef getSession();
 
     void openSegment(ServerId masterId,
                      uint64_t segmentId,
-                     bool primary = true)
+                     bool primary = true, bool atomic = false)
     {
         writeSegment(masterId, segmentId,
                      0, static_cast<const void*>(NULL), 0,
                      primary ? BackupWriteRpc::OPENPRIMARY
-                             : BackupWriteRpc::OPEN);
+                             : BackupWriteRpc::OPEN, atomic);
     }
 
     void quiesce();

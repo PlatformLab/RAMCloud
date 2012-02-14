@@ -316,6 +316,19 @@ BackupClient::StartReadingData::operator()()
  * \param flags
  *      Whether the write should open or close the segment or both or
  *      neither.  Defaults to neither.
+ * \param atomic
+ *      If true then this replica is considered invalid until a closing
+ *      write (or subsequent call to write with \a atomic set to false).
+ *      This means that the data will never be written to disk and will
+ *      not be reported to or used in recoveries unless the replica is
+ *      closed.  This allows masters to create replicas of segments
+ *      without the threat that they'll be detected as the head of the
+ *      log.  Each value of \a atomic for each write call overrides the
+ *      last, so in order to atomically write an entire segment all
+ *      writes must have \a atomic set to true (though, it is
+ *      irrelvant for the last, closing write).  A call with atomic
+ *      set to false will make that replica available for normal
+ *      treatment as an open segment.
  */
 BackupClient::WriteSegment::WriteSegment(BackupClient& client,
                                          ServerId masterId,
@@ -323,7 +336,8 @@ BackupClient::WriteSegment::WriteSegment(BackupClient& client,
                                          uint32_t offset,
                                          const void *buf,
                                          uint32_t length,
-                                         BackupWriteRpc::Flags flags)
+                                         BackupWriteRpc::Flags flags,
+                                         bool atomic)
     : client(client)
     , requestBuffer()
     , responseBuffer()
@@ -336,6 +350,7 @@ BackupClient::WriteSegment::WriteSegment(BackupClient& client,
     reqHdr.offset = offset;
     reqHdr.length = length;
     reqHdr.flags = flags;
+    reqHdr.atomic = atomic;
     Buffer::Chunk::appendToBuffer(&requestBuffer, buf, length);
     state = client.send<BackupWriteRpc>(client.session,
                                         requestBuffer,

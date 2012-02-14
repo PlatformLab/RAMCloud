@@ -573,13 +573,13 @@ struct BackupWriteRpc {
     };
     struct Request {
         RpcRequestCommon common;
-        uint32_t pad1;
-        uint64_t masterId;          ///< Server from whom the request is coming.
-        uint64_t segmentId;         ///< Target segment to update.
-        uint32_t offset;            ///< Offset into this segment to write at.
-        uint32_t length;            ///< Number of bytes to write.
-        uint8_t flags;              ///< If open or close request.
-        uint8_t pad2[7];
+        uint64_t masterId;        ///< Server from whom the request is coming.
+        uint64_t segmentId;       ///< Target segment to update.
+        uint32_t offset;          ///< Offset into this segment to write at.
+        uint32_t length;          ///< Number of bytes to write.
+        uint8_t flags;            ///< If open or close request.
+        bool atomic;              ///< If true replica isn't valid until close.
+        uint16_t pad;
         // Opaque byte string follows with data to write.
     } __attribute__((packed));
     struct Response {
