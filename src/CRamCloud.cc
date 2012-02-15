@@ -103,17 +103,6 @@ void rc_disconnect(struct rc_client* client) {
 //   pointer argument here.
 // See the documentation in RamCloudClient.cc for details.
 
-Status rc_create(struct rc_client* client, uint32_t tableId,
-        const void* buf, uint32_t length, uint64_t* id, uint64_t* version)
-{
-    try {
-        *id = client->client->create(tableId, buf, length, version);
-    } catch (ClientException& e) {
-        return e.status;
-    }
-    return STATUS_OK;
-}
-
 Status
 rc_createTable(struct rc_client* client, const char* name)
 {

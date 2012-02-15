@@ -144,7 +144,7 @@ def rewrite_smack(c, loops):
         i += 1
 
 
-# insert a value into the table, confirm re-read, and
+# write a value into the table, confirm re-read, and
 # immediately delete it over and over. should exercise
 # the tombstone code well
 def delete_smack(c, loops):
@@ -157,16 +157,16 @@ def delete_smack(c, loops):
         buf = buf[0:1000]
 
         p.before()
-        key = c.insert(0, buf)
+        c.write(0, 0, buf)
         p.after()
 
         p.before()
-        rbuf, vers = c.read(0, key)
+        rbuf, vers = c.read(0, 0)
         p.after()
         assert rbuf == buf
 
         p.before()
-        c.delete(0, key)
+        c.delete(0, 0)
         p.after()
         i += 1
 

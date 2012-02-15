@@ -139,32 +139,19 @@ try
         static_cast<const char*>(buffer.getRange(0, length)),
         length);
 
-    b = Cycles::rdtsc();
-    uint64_t id = 0xfffffff;
-    id = client.create(table, "Hello, World?", 14);
-    LOG(NOTICE, "insert took %lu ticks", Cycles::rdtsc() - b);
-    LOG(NOTICE, "Got back [%lu] id", id);
-
-    b = Cycles::rdtsc();
-    client.read(table, id, &buffer);
-    LOG(NOTICE, "read took %lu ticks", Cycles::rdtsc() - b);
-    length = buffer.getTotalLength();
-    LOG(NOTICE, "Got back [%s] len %u",
-        static_cast<const char*>(buffer.getRange(0, length)),
-        length);
-
     char val[objectDataSize];
     memset(val, 0xcc, objectDataSize);
-    id = 0xfffffff;
 
-    LOG(NOTICE, "Performing %u inserts of %u byte objects",
+    LOG(NOTICE, "Performing %u writes of %u byte objects",
         count, objectDataSize);
     uint64_t* ids = static_cast<uint64_t*>(malloc(sizeof(ids[0]) * count));
+    for (int j = 0; j < count; j++)
+        ids[j] = j;
     b = Cycles::rdtsc();
     for (int j = 0; j < count; j++)
-        ids[j] = client.create(table, val, downCast<uint32_t>(strlen(val) + 1));
-    LOG(NOTICE, "%d inserts took %lu ticks", count, Cycles::rdtsc() - b);
-    LOG(NOTICE, "avg insert took %lu ticks", (Cycles::rdtsc() - b) / count);
+        client.write(table, ids[j], val, downCast<uint32_t>(strlen(val) + 1));
+    LOG(NOTICE, "%d writes took %lu ticks", count, Cycles::rdtsc() - b);
+    LOG(NOTICE, "avg write took %lu ticks", (Cycles::rdtsc() - b) / count);
 
     LOG(NOTICE, "Reading one of the objects just inserted");
     client.read(table, ids[0], &buffer);

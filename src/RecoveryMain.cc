@@ -155,14 +155,15 @@ try
         memset(val, 0xcc, objectDataSize);
         Crc32C checksumBasis;
         checksumBasis.update(&val[4], objectDataSize - 20);
-        Tub<RamCloud::Create> createRpcs[8];
+        Tub<RamCloud::Write> writeRpcs[8];
         uint64_t b = Cycles::rdtsc();
-        for (int j = 0; j < count - 1; j++) {
+        int j;
+        for (j = 0; j < count - 1; j++) {
             for (uint32_t t = 0; t < tableCount; t++) {
-                auto& createRpc = createRpcs[(j * tableCount + t) %
-                                             arrayLength(createRpcs)];
-                if (createRpc)
-                    (*createRpc)();
+                auto& writeRpc = writeRpcs[(j * tableCount + t) %
+                                             arrayLength(writeRpcs)];
+                if (writeRpc)
+                    (*writeRpc)();
 
                 if (verify) {
                     uint32_t *crcPtr = reinterpret_cast<uint32_t*>(&val[0]);
@@ -177,20 +178,24 @@ try
                     *crcPtr = checksum.getResult();
                 }
 
-                createRpc.construct(client,
-                                    tables[t],
-                                    static_cast<void*>(val), objectDataSize,
-                                    /* version = */static_cast<uint64_t*>(NULL),
-                                    /* async = */ true);
+                writeRpc.construct(client,
+                                   static_cast<uint32_t>(tables[t]),
+                                   static_cast<uint64_t>(j),
+                                   static_cast<void*>(val), objectDataSize,
+                                   static_cast<RejectRules*>(NULL),
+                                   static_cast<uint64_t*>(NULL),
+                                   /* async = */ true);
             }
         }
-        foreach (auto& createRpc, createRpcs) {
-            if (createRpc)
-                (*createRpc)();
+        foreach (auto& writeRpc, writeRpcs) {
+            if (writeRpc)
+                (*writeRpc)();
         }
-        client.create(tables[0], val, objectDataSize,
-                      /* version = */ NULL,
-                      /* async = */ false);
+        client.write(tables[0], static_cast<uint64_t>(j),
+                     static_cast<void*>(val), objectDataSize,
+                     static_cast<RejectRules*>(NULL),
+                     static_cast<uint64_t*>(NULL),
+                     /* async = */ false);
         LOG(NOTICE, "%d inserts took %lu ticks",
             count * tableCount, Cycles::rdtsc() - b);
         LOG(NOTICE, "avg insert took %lu ticks",

@@ -55,7 +55,6 @@ Rpc::opcodeSymbol(uint32_t opcode)
         case CREATE_TABLE:               return "CREATE_TABLE";
         case OPEN_TABLE:                 return "OPEN_TABLE";
         case DROP_TABLE:                 return "DROP_TABLE";
-        case CREATE:                     return "CREATE";
         case READ:                       return "READ";
         case WRITE:                      return "WRITE";
         case REMOVE:                     return "REMOVE";

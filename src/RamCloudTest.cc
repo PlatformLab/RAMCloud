@@ -81,16 +81,16 @@ TEST_F(RamCloudTest, proxyPing) {
 }
 
 TEST_F(RamCloudTest, multiRead) {
-    // Create objects to be read later
+    // Write objects to be read later
     uint64_t version1;
-    ramcloud->create(tableId1, "firstVal", 8, &version1, false);
+    ramcloud->write(tableId1, 0, "firstVal", 8, NULL, &version1, false);
 
     uint64_t version2;
-    ramcloud->create(tableId2, "secondVal", 9, &version2, false);
+    ramcloud->write(tableId2, 0, "secondVal", 9, NULL, &version2, false);
     uint64_t version3;
-    ramcloud->create(tableId2, "thirdVal", 8, &version3, false);
+    ramcloud->write(tableId2, 1, "thirdVal", 8, NULL, &version3, false);
 
-    // Create requests and read
+    // Construct requests and read
     MasterClient::ReadObject* requests[3];
 
     Tub<Buffer> readValue1;

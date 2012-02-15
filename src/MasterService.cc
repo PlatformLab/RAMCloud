@@ -150,10 +150,6 @@ MasterService::dispatch(RpcOpcode opcode, Rpc& rpc)
     std::lock_guard<SpinLock> lock(objectUpdateLock);
 
     switch (opcode) {
-        case CreateRpc::opcode:
-            callHandler<CreateRpc, MasterService,
-                        &MasterService::create>(rpc);
-            break;
         case FillWithTestDataRpc::opcode:
             callHandler<FillWithTestDataRpc, MasterService,
                         &MasterService::fillWithTestData>(rpc);
@@ -202,39 +198,6 @@ MasterService::init(ServerId id)
     metrics->serverId = serverId.getId();
 
     initCalled = true;
-}
-
-/**
- * Top-level server method to handle the CREATE request.
- * See the documentation for the corresponding method in RamCloudClient for
- * complete information about what this request does.
- * \copydetails Service::ping
- */
-void
-MasterService::create(const CreateRpc::Request& reqHdr,
-                      CreateRpc::Response& respHdr,
-                      Rpc& rpc)
-{
-    Table* table = getTable(reqHdr.tableId, ~0UL);
-    if (table == NULL) {
-        respHdr.common.status = STATUS_TABLE_DOESNT_EXIST;
-        return;
-    }
-    uint64_t id = table->AllocateKey(&objectMap);
-
-    RejectRules rejectRules;
-    memset(&rejectRules, 0, sizeof(RejectRules));
-    rejectRules.exists = 1;
-
-    Status status = storeData(reqHdr.tableId, id, &rejectRules,
-                              &rpc.requestPayload, sizeof(reqHdr),
-                              reqHdr.length, &respHdr.version,
-                              reqHdr.async);
-    if (status != STATUS_OK) {
-        respHdr.common.status = status;
-        return;
-    }
-    respHdr.id = id;
 }
 
 /**
@@ -334,7 +297,9 @@ MasterService::multiRead(const MultiReadRpc::Request& reqHdr,
 
 /**
  * Top-level server method to handle the READ request.
- * \copydetails create
+ * See the documentation for the corresponding method in RamCloudClient for
+ * complete information about what this request does.
+ * \copydetails Service::ping
  */
 void
 MasterService::read(const ReadRpc::Request& reqHdr,
@@ -1124,7 +1089,9 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
 
 /**
  * Top-level server method to handle the REMOVE request.
- * \copydetails create
+ * See the documentation for the corresponding method in RamCloudClient for
+ * complete information about what this request does.
+ * \copydetails Service::ping
  */
 void
 MasterService::remove(const RemoveRpc::Request& reqHdr,
@@ -1231,7 +1198,9 @@ MasterService::setTablets(const ProtoBuf::Tablets& newTablets)
 
 /**
  * Top-level server method to handle the SET_TABLETS request.
- * \copydetails create
+ * See the documentation for the corresponding method in RamCloudClient for
+ * complete information about what this request does.
+ * \copydetails Service::ping
  */
 void
 MasterService::setTablets(const SetTabletsRpc::Request& reqHdr,
@@ -1246,7 +1215,9 @@ MasterService::setTablets(const SetTabletsRpc::Request& reqHdr,
 
 /**
  * Top-level server method to handle the WRITE request.
- * \copydetails create
+ * See the documentation for the corresponding method in RamCloudClient for
+ * complete information about what this request does.
+ * \copydetails Service::ping
  */
 void
 MasterService::write(const WriteRpc::Request& reqHdr,

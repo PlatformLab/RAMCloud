@@ -68,35 +68,34 @@ enum RpcOpcode {
     CREATE_TABLE            = 10,
     OPEN_TABLE              = 11,
     DROP_TABLE              = 12,
-    CREATE                  = 13,
-    READ                    = 14,
-    WRITE                   = 15,
-    REMOVE                  = 16,
-    ENLIST_SERVER           = 17,
-    GET_SERVER_LIST         = 18,
-    GET_TABLET_MAP          = 19,
-    SET_TABLETS             = 20,
-    RECOVER                 = 21,
-    HINT_SERVER_DOWN        = 22,
-    TABLETS_RECOVERED       = 23,
-    SET_WILL                = 24,
-    SET_MIN_OPEN_SEGMENT_ID = 25,
-    FILL_WITH_TEST_DATA     = 26,
-    MULTI_READ              = 27,
-    GET_METRICS             = 28,
-    BACKUP_CLOSE            = 29,
-    BACKUP_FREE             = 30,
-    BACKUP_GETRECOVERYDATA  = 31,
-    BACKUP_OPEN             = 32,
-    BACKUP_STARTREADINGDATA = 33,
-    BACKUP_WRITE            = 34,
-    BACKUP_RECOVERYCOMPLETE = 35,
-    BACKUP_QUIESCE          = 36,
-    SET_SERVER_LIST         = 37,
-    UPDATE_SERVER_LIST      = 38,
-    REQUEST_SERVER_LIST     = 39,
-    GET_SERVER_ID           = 40,
-    ILLEGAL_RPC_TYPE        = 41,  // 1 + the highest legitimate RpcOpcode
+    READ                    = 13,
+    WRITE                   = 14,
+    REMOVE                  = 15,
+    ENLIST_SERVER           = 16,
+    GET_SERVER_LIST         = 17,
+    GET_TABLET_MAP          = 18,
+    SET_TABLETS             = 19,
+    RECOVER                 = 20,
+    HINT_SERVER_DOWN        = 21,
+    TABLETS_RECOVERED       = 22,
+    SET_WILL                = 23,
+    SET_MIN_OPEN_SEGMENT_ID = 24,
+    FILL_WITH_TEST_DATA     = 25,
+    MULTI_READ              = 26,
+    GET_METRICS             = 27,
+    BACKUP_CLOSE            = 28,
+    BACKUP_FREE             = 29,
+    BACKUP_GETRECOVERYDATA  = 30,
+    BACKUP_OPEN             = 31,
+    BACKUP_STARTREADINGDATA = 32,
+    BACKUP_WRITE            = 33,
+    BACKUP_RECOVERYCOMPLETE = 34,
+    BACKUP_QUIESCE          = 35,
+    SET_SERVER_LIST         = 36,
+    UPDATE_SERVER_LIST      = 37,
+    REQUEST_SERVER_LIST     = 38,
+    GET_SERVER_ID           = 39,
+    ILLEGAL_RPC_TYPE        = 40,  // 1 + the highest legitimate RpcOpcode
 };
 
 /**
@@ -128,24 +127,6 @@ struct RpcResponseCommon {
 // All fields are little endian.
 
 // Master RPCs follow, see MasterService.cc
-
-struct CreateRpc {
-    static const RpcOpcode opcode = CREATE;
-    static const ServiceType service = MASTER_SERVICE;
-    struct Request {
-        RpcRequestCommon common;
-        uint32_t tableId;
-        uint32_t length;              // Length of the value in bytes. The
-                                      // actual bytes follow immediately after
-                                      // this header.
-        uint8_t async;
-    } __attribute__((packed));
-    struct Response {
-        RpcResponseCommon common;
-        uint64_t id;
-        uint64_t version;
-    } __attribute__((packed));
-};
 
 struct FillWithTestDataRpc {
     static const RpcOpcode opcode = FILL_WITH_TEST_DATA;

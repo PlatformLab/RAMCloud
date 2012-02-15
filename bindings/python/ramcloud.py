@@ -123,10 +123,6 @@ def load_so():
     so.rc_disconnect.argtypes = [client]
     so.rc_disconnect.restype  = None
 
-    so.rc_create.argtypes = [client, table, buf, len, POINTER(id),
-                             POINTER(version)]
-    so.rc_create.restype  = status
-
     so.rc_createTable.argtypes = [client, name]
     so.rc_createTable.restype  = status
 
@@ -230,14 +226,6 @@ class RAMCloud(object):
     def drop_table(self, name):
         s = so.rc_dropTable(self.client, name)
         self.handle_error(s)
-
-    def insert(self, table_id, data):
-        id = ctypes.c_uint64()
-        version = ctypes.c_uint64()
-        self.hook()
-        so.rc_create(self.client, table_id, data, len(data), ctypes.byref(id),
-                     ctypes.byref(version))
-        return id.value
 
     def open_table(self, name):
         handle = ctypes.c_uint32()

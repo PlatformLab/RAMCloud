@@ -48,15 +48,6 @@ class ObjectFinder {
     std::vector<MasterRequests> multiLookup(MasterClient::ReadObject* input[],
                                             uint32_t numRequests);
 
-
-    /**
-     * Lookup the master that is in charge of assigning object IDs for create
-     * requests for the given table.
-     */
-    Transport::SessionRef lookupHead(uint32_t table) {
-        return lookup(table, ~0UL);
-    }
-
     /**
      * Jettison all tablet map entries forcing a fetch of fresh mappings
      * on subsequent lookups.

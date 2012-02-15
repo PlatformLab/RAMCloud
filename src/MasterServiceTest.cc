@@ -153,30 +153,8 @@ class MasterServiceTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(MasterServiceTest);
 };
 
-TEST_F(MasterServiceTest, create_basics) {
-    uint64_t version;
-    EXPECT_EQ(0U, client->create(0, "item0", 5, &version));
-    EXPECT_EQ(1U, version);
-    EXPECT_EQ(1U, client->create(0, "item1", 5, &version));
-    EXPECT_EQ(2U, version);
-    EXPECT_EQ(2U, client->create(0, "item2", 5));
-
-    Buffer value;
-    client->read(0, 0, &value);
-    EXPECT_EQ("item0", TestUtil::toString(&value));
-    client->read(0, 1, &value);
-    EXPECT_EQ("item1", TestUtil::toString(&value));
-    client->read(0, 2, &value);
-    EXPECT_EQ("item2", TestUtil::toString(&value));
-}
-
-TEST_F(MasterServiceTest, create_badTable) {
-    EXPECT_THROW(client->create(4, "", 1),
-                 TableDoesntExistException);
-}
-
 TEST_F(MasterServiceTest, read_basics) {
-    client->create(0, "abcdef", 6);
+    client->write(0, 0, "abcdef", 6);
     Buffer value;
     uint64_t version;
     client->read(0, 0, &value, NULL, &version);
@@ -197,7 +175,7 @@ TEST_F(MasterServiceTest, read_noSuchObject) {
 }
 
 TEST_F(MasterServiceTest, read_rejectRules) {
-    client->create(0, "abcdef", 6);
+    client->write(0, 0, "abcdef", 6);
 
     Buffer value;
     RejectRules rules;
@@ -211,8 +189,8 @@ TEST_F(MasterServiceTest, read_rejectRules) {
 }
 
 TEST_F(MasterServiceTest, multiRead_basics) {
-    client->create(0, "firstVal", 8);
-    client->create(0, "secondVal", 9);
+    client->write(0, 0, "firstVal", 8);
+    client->write(0, 1, "secondVal", 9);
 
     std::vector<MasterClient::ReadObject*> requests;
 
@@ -236,7 +214,7 @@ TEST_F(MasterServiceTest, multiRead_basics) {
 }
 
 TEST_F(MasterServiceTest, multiRead_badTable) {
-    client->create(0, "value1", 6);
+    client->write(0, 0, "value1", 6);
 
     std::vector<MasterClient::ReadObject*> requests;
     Tub<Buffer> val1;
@@ -258,8 +236,8 @@ TEST_F(MasterServiceTest, multiRead_badTable) {
 }
 
 TEST_F(MasterServiceTest, multiRead_noSuchObject) {
-    client->create(0, "firstVal", 8);
-    client->create(0, "secondVal", 9);
+    client->write(0, 0, "firstVal", 8);
+    client->write(0, 1, "secondVal", 9);
 
     std::vector<MasterClient::ReadObject*> requests;
 
@@ -687,7 +665,7 @@ TEST_F(MasterServiceTest, recoverSegment) {
 }
 
 TEST_F(MasterServiceTest, remove_basics) {
-    client->create(0, "item0", 5);
+    client->write(0, 0, "item0", 5);
 
     uint64_t version;
     client->remove(0, 0, NULL, &version);
@@ -702,7 +680,7 @@ TEST_F(MasterServiceTest, remove_badTable) {
 }
 
 TEST_F(MasterServiceTest, remove_rejectRules) {
-    client->create(0, "item0", 5);
+    client->write(0, 0, "item0", 5);
 
     RejectRules rules;
     memset(&rules, 0, sizeof(rules));
@@ -728,7 +706,7 @@ TEST_F(MasterServiceTest, remove_objectAlreadyDeleted) {
     uint64_t version;
     client->remove(0, 1, NULL, &version);
     EXPECT_EQ(VERSION_NONEXISTENT, version);
-    client->create(0, "abcdef", 6);
+    client->write(0, 0, "abcdef", 6);
     client->remove(0, 0);
     client->remove(0, 0, NULL, &version);
     EXPECT_EQ(VERSION_NONEXISTENT, version);
@@ -909,15 +887,14 @@ TEST_F(MasterServiceFullSegmentSizeTest, write_maximumObjectSize) {
     char* buf = new char[masterConfig.maxObjectSize + 1];
 
     // should fail
-    EXPECT_THROW(client->create(0, buf, masterConfig.maxObjectSize + 1),
+    EXPECT_THROW(client->write(0, 0, buf, masterConfig.maxObjectSize + 1),
         LogException);
 
-    // creation should succeed
-    uint64_t objId;
-    EXPECT_NO_THROW(objId = client->create(0, buf, masterConfig.maxObjectSize));
+    // should succeed
+    EXPECT_NO_THROW(client->write(0, 0, buf, masterConfig.maxObjectSize));
 
     // overwrite should also succeed
-    EXPECT_NO_THROW(client->write(0, objId, buf, masterConfig.maxObjectSize));
+    EXPECT_NO_THROW(client->write(0, 0, buf, masterConfig.maxObjectSize));
 
     delete[] buf;
 }

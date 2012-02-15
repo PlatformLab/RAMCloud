@@ -85,15 +85,6 @@ RamCloud::openTable(const char* name)
     return coordinator.openTable(name);
 }
 
-/// \copydoc MasterClient::create
-uint64_t
-RamCloud::create(uint32_t tableId, const void* buf, uint32_t length,
-                 uint64_t* version, bool async)
-{
-    Context::Guard _(clientContext);
-    return Create(*this, tableId, buf, length, version, async)();
-}
-
 /// \copydoc PingClient::getMetrics
 ServerMetrics
 RamCloud::getMetrics(const char* serviceLocator)

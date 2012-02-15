@@ -33,40 +33,6 @@ namespace RAMCloud {
  */
 class RamCloud {
   public:
-    /// An asynchronous version of #create().
-    class Create {
-      public:
-        /// Start a create RPC. See RamCloud::create.
-        Create(RamCloud& ramCloud,
-               uint32_t tableId, const void* buf, uint32_t length,
-               uint64_t* version = NULL, bool async = false)
-            : constructorContext(ramCloud.clientContext)
-            , ramCloud(ramCloud)
-            , master(ramCloud.objectFinder.lookupHead(tableId))
-            , masterCreate(master, tableId, buf, length, version, async)
-        {
-            // This should be the last line on all return paths of this
-            // constructor.
-            constructorContext.leave();
-        }
-        bool isReady() {
-            Context::Guard _(ramCloud.clientContext);
-            return masterCreate.isReady();
-        }
-        /// Wait for the create RPC to complete.
-        uint64_t operator()() {
-            Context::Guard _(ramCloud.clientContext);
-            return masterCreate();
-        }
-      private:
-        /// Analogous to RamCloud::constructorContext.
-        Context::Guard constructorContext;
-        RamCloud& ramCloud;
-        MasterClient master;
-        MasterClient::Create masterCreate;
-        DISALLOW_COPY_AND_ASSIGN(Create);
-    };
-
     /// An asynchronous version of #read().
     class Read {
       public:
@@ -162,8 +128,6 @@ class RamCloud {
     void createTable(const char* name);
     void dropTable(const char* name);
     uint32_t openTable(const char* name);
-    uint64_t create(uint32_t tableId, const void* buf, uint32_t length,
-                    uint64_t* version = NULL, bool async = false);
     string* getServiceLocator();
     ServerMetrics getMetrics(const char* serviceLocator);
     ServerMetrics getMetrics(uint32_t table, uint64_t objectId);

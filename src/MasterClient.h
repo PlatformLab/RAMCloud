@@ -77,23 +77,6 @@ class MasterClient : public Client {
         }
     };
 
-    /// An asynchronous version of #create().
-    class Create {
-      public:
-        Create(MasterClient& client,
-               uint32_t tableId, const void* buf, uint32_t length,
-               uint64_t* version = NULL, bool async = false);
-        bool isReady() { return state.isReady(); }
-        uint64_t operator()();
-      private:
-        MasterClient& client;
-        uint64_t* version;
-        Buffer requestBuffer;
-        Buffer responseBuffer;
-        AsyncState state;
-        DISALLOW_COPY_AND_ASSIGN(Create);
-    };
-
     /// An asynchronous version of #read().
     class Read {
       public:
@@ -169,8 +152,6 @@ class MasterClient : public Client {
     };
 
     explicit MasterClient(Transport::SessionRef session) : session(session) {}
-    uint64_t create(uint32_t tableId, const void* buf, uint32_t length,
-                    uint64_t* version = NULL, bool async = false);
     void fillWithTestData(uint32_t numObjects, uint32_t objectSize);
     void multiRead(std::vector<ReadObject*> requests);
     void read(uint32_t tableId, uint64_t id, Buffer* value,
