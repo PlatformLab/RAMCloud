@@ -37,7 +37,7 @@ struct BindTransport : public Transport {
     };
 
     explicit BindTransport(Service* service = NULL)
-        : services(), abortCounter(0)
+        : services(), abortCounter(0), errorMessage()
     {
         if (service)
             addService(*service, "mock:", MASTER_SERVICE);
@@ -51,11 +51,6 @@ struct BindTransport : public Transport {
     void
     addService(Service& service, const string locator, ServiceType type) {
         services[locator].services[type] = &service;
-    }
-
-    void
-    removeServicesForLocator(const string& locator) {
-        services.erase(locator);
     }
 
     Transport::SessionRef
@@ -105,6 +100,11 @@ struct BindTransport : public Transport {
                     return result;
                 }
             }
+            if (transport.errorMessage != "") {
+                result->markFinished(transport.errorMessage);
+                transport.errorMessage = "";
+                return result;
+            }
             const RpcRequestCommon* header;
             header = request->getStart<RpcRequestCommon>();
             if ((header == NULL) || (header->service >= INVALID_SERVICE)) {
@@ -134,6 +134,14 @@ struct BindTransport : public Transport {
 
     // The following value is used to simulate server timeouts.
     int abortCounter;
+
+    /**
+     * If this is set to a non-empty value then a TransportException with
+     * message #errorMessage will be thrown on wait() of the next rpc sent
+     * via clientSend().
+     */
+    string errorMessage;
+
     DISALLOW_COPY_AND_ASSIGN(BindTransport);
 };
 
