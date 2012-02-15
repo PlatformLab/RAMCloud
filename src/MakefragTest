@@ -72,7 +72,6 @@ TESTS_SRCFILES := \
 		  src/SessionAlarmTest.cc \
 		  src/SpinLockTest.cc \
 		  src/StatusTest.cc \
-		  src/StringKeyAdapterTest.cc \
 		  src/StringUtilTest.cc \
 		  src/TabletProfilerTest.cc \
 		  src/TaskManagerTest.cc \
