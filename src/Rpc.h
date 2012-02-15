@@ -595,7 +595,9 @@ struct BackupWriteRpc {
         uint32_t length;          ///< Number of bytes to write.
         uint8_t flags;            ///< If open or close request.
         bool atomic;              ///< If true replica isn't valid until close.
-        uint16_t pad;
+        uint16_t pad;             ///< Makes request "square up" so that John's
+                                  ///< weird string format distinguishes
+                                  ///< beweeen the header and payload in tests.
         // Opaque byte string follows with data to write.
     } __attribute__((packed));
     struct Response {

@@ -35,6 +35,11 @@ namespace RAMCloud {
  *      serves as the log id).
  * \param numReplicas
  *      Number replicas to keep of each segment.
+ * \param coordinatorLocator
+ *      Locator of the coordinator where the minOpenSegmentId will be
+ *      updated for this server in the case of some failures.  May be
+ *      NULL for testing in which case updates will not be sent to the
+ *      coordinator.
  */
 ReplicaManager::ReplicaManager(ServerList& serverList,
                                const ServerId& masterId,
@@ -57,7 +62,6 @@ ReplicaManager::ReplicaManager(ServerList& serverList,
     minOpenSegmentId.construct(&taskManager,
                                coordinator ? coordinator.get() : NULL,
                                &masterId);
-        
 }
 
 /**
@@ -209,8 +213,10 @@ ReplicaManager::handleBackupFailure(ServerId failedId)
             // that any non-(durably-closed) segments will do once
             // rereplication has finished there is a durably open log
             // segment ahead of them in the log.
-            if (!failedOpenSegmentId || *failedOpenSegmentId < segment.segmentId)
+            if (!failedOpenSegmentId ||
+                *failedOpenSegmentId < segment.segmentId) {
                 failedOpenSegmentId.construct(segment.segmentId);
+            }
         }
     }
 

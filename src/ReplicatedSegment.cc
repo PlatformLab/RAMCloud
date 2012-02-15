@@ -34,14 +34,20 @@ namespace RAMCloud {
  * \param writeRpcsInFlight
  *      Number of outstanding write rpcs to backups across all
  *      ReplicatedSegments.  Used to throttle write rpcs.
+ * \param minOpenSegmentId
+ *      The ReplicaManager's MinOpenSegmentId Task which is shared among
+ *      ReplicatedSegments to track and update the minOpenSegmentId value
+ *      stored on the coordinator.
  * \param dataMutex
  *      Mutex which protects all ReplicaManager state; shared with the
  *      ReplicaManager and all other ReplicatedSegments.
  * \param deleter
  *      Deletes this when this determines it is no longer needed.
  * \param normalLogSegment
- *      True is this segment was opened as a head of the log, false if the
- *      segment is a cleaner-generated segment.
+ *      False if this segment is being created by the log cleaner,
+ *      true if this segment was opened as a head of the log (that is,
+ *      it has a log digest and is to be actively written to by worker
+ *      as a log head).
  * \param masterId
  *      The server id of the master whose log this segment belongs to.
  * \param segmentId
@@ -276,16 +282,23 @@ ReplicatedSegment::close(ReplicatedSegment* followingSegment)
  * \param failedId
  *      ServerId of the backup which has failed.
  * \return
- *      True indicates that this segment was not a cleaner generated segment
- *      and that it lost replicas and will take corrective actions on future
+ *      True indicates that this segment was not a cleaner generated segment,
+ *      that it lost replicas, and that will take corrective actions on future
  *      iterations of the ReplicaManager loop.  These corrective actions rely
  *      on closing the segment if it was still open.  Therefore, the caller
  *      must take appropriate action to ensure that if the only current and
  *      recoverable copy of the digest was stored in this segment that it
  *      creates a new, current, and recoverable digest.  Checking to see if
- *      this segment is the current head from the Log's perspective, and if so,
- *      rolling over to a new log head solves both constraints; it closes this
- *      segment and ensures a current log digest exists in another segment.
+ *      this segment is the current head from the Log's perspective, and,
+ *      if so, rolling over to a new log head solves both constraints;
+ *      it closes this segment and ensures a current log digest exists in
+ *      another segment.
+ *      Not rolling over to a new log head may result in an infinte loop
+ *      not just during normal operation, but even during the destruction
+ *      of the MasterService.  This is because the server makes every
+ *      effort to ensure that all writes are durable/recoverable
+ *      but it cannot make that guarantee for pending writes unless
+ *      failures are handled.
  */
 bool
 ReplicatedSegment::handleBackupFailure(ServerId failedId)
@@ -335,17 +348,15 @@ ReplicatedSegment::sync(uint32_t offset)
 
     while (true) {
         Lock lock(dataMutex);
-        // The definition of synced changes if this segment had a log digest
+        // Definition of synced changes if this segment isn't durably closed
         // and is recovering from a lost replica.  In that case the data
         // the data isn't durable until it has been replicated *along with*
         // a durable close on the replicas as well *and* any lost, open
         // replicas have been shot down by setting the minOpenSegmentId.
         // Once this flag is cleared those conditions have been met and
         // it is safe to use the usual definition.
-        if (!recoveringFromLostOpenReplicas) {
-            if (getAcked().bytes >= offset)
+        if (!recoveringFromLostOpenReplicas && getAcked().bytes >= offset)
                 break;
-        }
         taskManager.proceed();
     }
 }
@@ -509,12 +520,12 @@ ReplicatedSegment::performWrite(Replica& replica)
     }
 
     if (!replica.isActive) {
-        // This replica does not exist yet. Choose a backup. The actual
-        // send of the open rpc happens on a separate pass because different
-        // failures need to be handled differently: if the open rpc fails
-        // then the rpc must be retried, but if the coordinator notifies the
-        // master that the backup it has chosen has failed then the
-        // rather complicated open segment failure handling must be done.
+        // This replica does not exist yet. Choose a backup.
+        // Selection of a backup is separated from the send of the open rpc
+        // because failures of the open rpc require retrying on the same
+        // backup unless it is discovered that that backup failed.
+        // Not doing so risks the existence a lost open replica which
+        // isn't recovered from properly.
         ServerId conflicts[replicas.numElements - 1];
         uint32_t numConflicts = 0;
         foreach (auto& conflictingReplica, replicas) {
@@ -537,7 +548,7 @@ ReplicatedSegment::performWrite(Replica& replica)
     }
 
     if (replica.writeRpc) {
-        // This backup has a write request outstanding to a backup.
+        // This replica has a write request outstanding to a backup.
         if (replica.writeRpc->isReady()) {
             // Wait for it to complete if it is ready.
             try {
@@ -622,19 +633,17 @@ ReplicatedSegment::performWrite(Replica& replica)
                 flags = BackupWriteRpc::NONE;
             }
 
-            if (flags == BackupWriteRpc::CLOSE) {
+            if (flags == BackupWriteRpc::CLOSE &&
+                followingSegment &&
+                !followingSegment->getAcked().open) {
                 // Do not send a closing write rpc for this replica until
                 // some other segment later in the log has been durably
                 // opened.  This ensures that the coordinator will find
                 // an open segment during recovery which lets it know
                 // the entire log has been found (that is, log isn't missing
                 // some head segments).
-                if (followingSegment) {
-                    if (!followingSegment->getAcked().open) {
-                        schedule();
-                        return;
-                    }
-                }
+                schedule();
+                return;
             }
 
             if (writeRpcsInFlight == MAX_WRITE_RPCS_IN_FLIGHT) {

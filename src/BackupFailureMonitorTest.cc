@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2011 Stanford University
+/* Copyright (c) 2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -100,7 +100,5 @@ TEST_F(BackupFailureMonitorTest, trackerChangesEnqueued) {
     EXPECT_EQ("main: Notifying log of failure of serverId 3",
               TestLog::get());
 }
-
-// TODO: Will need a few more here probably?
 
 } // namespace RAMCloud

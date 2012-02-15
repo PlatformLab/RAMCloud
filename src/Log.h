@@ -20,7 +20,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include "BackupFailureMonitor.h"
 #include "BoostIntrusive.h"
 #include "LargeBlockOfMemory.h"
 #include "LogCleaner.h"
@@ -176,8 +175,7 @@ class Log {
         uint32_t segmentCapacity,
         uint32_t maximumBytesPerAppend,
         ReplicaManager *replicaManager = NULL,
-        CleanerOption cleanerOption = CONCURRENT_CLEANER,
-        ServerList* serverList = NULL);
+        CleanerOption cleanerOption = CONCURRENT_CLEANER);
     ~Log();
     void           allocateHead();
     void           allocateHeadIfStillOn(uint64_t segmentId);
@@ -402,15 +400,6 @@ class Log {
     /// Cleaner. Must come after backup so that it can create its own
     /// ReplicaManager from the Log's.
     LogCleaner     cleaner;
-
-    /**
-     * Waits for backup failure notifications from the Server's main ServerList
-     * and informs this Log which takes corrective actions.  Runs in
-     * a separate thread in order to provide immediate response to failures and
-     * to provide a context for potentially long-running corrective actions even
-     * while the master is otherwise idle.
-     */
-    Tub<BackupFailureMonitor> failureMonitor;
 
     DISALLOW_COPY_AND_ASSIGN(Log);
 };

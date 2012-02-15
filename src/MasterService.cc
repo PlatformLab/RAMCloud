@@ -101,8 +101,8 @@ MasterService::MasterService(const ServerConfig& config,
           downCast<uint32_t>(sizeof(Object)) + config.maxObjectSize,
           &replicaManager,
           config.master.disableLogCleaner ? Log::CLEANER_DISABLED :
-                                            Log::CONCURRENT_CLEANER,
-          &serverList)
+                                            Log::CONCURRENT_CLEANER)
+    , failureMonitor()
     , objectMap(config.master.hashTableBytes /
         HashTable<LogEntryHandle>::bytesPerCacheLine())
     , tablets()
@@ -128,6 +128,9 @@ MasterService::MasterService(const ServerConfig& config,
                      tombstoneTimestampCallback,
                      tombstoneScanCallback,
                      this);
+
+    failureMonitor.construct(serverList, &replicaManager, &log);
+    failureMonitor->start();
 }
 
 MasterService::~MasterService()

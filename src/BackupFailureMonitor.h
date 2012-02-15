@@ -28,12 +28,12 @@ class Log;
 
 /**
  * Waits for backup failure notifications from the Server's main ServerList
- * and informs the Log which takes corrective actions.  Runs in
+ * and informs the ReplicaManager which takes corrective actions.  Runs in
  * a separate thread in order to provide immediate response to failures and
  * to provide a context for potentially long-running corrective actions even
  * while the master is otherwise idle.
  *
- * Logically part of the Log.
+ * Logically part of the ReplicaManager.
  */
 class BackupFailureMonitor
     : public ServerTracker<void>::Callback

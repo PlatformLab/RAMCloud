@@ -55,8 +55,7 @@ Log::Log(const ServerId& logId,
          uint32_t segmentCapacity,
          uint32_t maximumBytesPerAppend,
          ReplicaManager *replicaManager,
-         CleanerOption cleanerOption,
-         ServerList* serverList)
+         CleanerOption cleanerOption)
     : stats(),
       logCapacity((logCapacity / segmentCapacity) * segmentCapacity),
       segmentCapacity(segmentCapacity),
@@ -80,8 +79,7 @@ Log::Log(const ServerId& logId,
       replicaManager(replicaManager),
       cleanerOption(cleanerOption),
       cleaner(this, replicaManager,
-              cleanerOption == CONCURRENT_CLEANER),
-      failureMonitor()
+              cleanerOption == CONCURRENT_CLEANER)
 {
     if (logCapacity == 0) {
         throw LogException(HERE,
@@ -102,11 +100,6 @@ Log::Log(const ServerId& logId,
 
     Context::get().transportManager->registerMemory(segmentMemory.get(),
                                                     segmentMemory.length);
-
-    if (serverList) {
-        failureMonitor.construct(*serverList, replicaManager, this);
-        failureMonitor->start();
-    }
 }
 
 /**
@@ -157,12 +150,6 @@ Log::allocateHead()
  * usual log durability constraints are enforced by the underlying
  * ReplicaManager for safety during the transition to the new head.
  *
- * \param lock
- *      Not used; just here to prove that the caller at least acquired some
- *      lock, if not the correct one.  \a lock should own the lock on
- *      #listLock.  This provides consistency of the lists but also
- *      ensures two threads aren't trying to allocate a new head at the same
- *      time.
  * \param segmentId
  *      Only allocate a new log head if the current log head is the one
  *      specified.  This is used to prevent useless allocations in the

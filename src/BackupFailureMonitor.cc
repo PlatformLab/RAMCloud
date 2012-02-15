@@ -30,7 +30,7 @@ namespace RAMCloud {
  *      A ServerList maintained by the MembershipService which will be
  *      monitored for changes.
  * \param replicaManager
- *      Which Log should be informed of backup failures (via
+ *      Which ReplicaManager should be informed of backup failures (via
  *      ReplicaManager::handleBackupFailures()). Can be NULL for testing,
  *      in which case no action will be taken on backup failures.
  * \param log

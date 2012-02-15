@@ -230,7 +230,7 @@ class ReplicatedSegment : public Task {
          * the ReplicaManager will start rereplication. Second, it sets a
          * flag indicating that all future replication of this segment
          * should be done atomically.  That is, the segment is either
-         * replicated completed to close or the backup disavows all  knowledge
+         * replicated completely to close or the backup disavows all knowledge
          * of it.
          */
         void failed() {
@@ -283,7 +283,7 @@ class ReplicatedSegment : public Task {
         /// The outstanding write operation to this backup, if any.
         Tub<BackupClient::WriteSegment> writeRpc;
 
-        // Fields below survive across open()s.
+        // Fields below survive across failed()/start() calls.
 
         /**
          * This is set whenever replication is happening in response to a
@@ -384,6 +384,12 @@ class ReplicatedSegment : public Task {
      */
     uint32_t& writeRpcsInFlight;
 
+    /**
+     * Provides access to the latest minOpenSegmentId acknowledged by the
+     * coordinator for this server and allows easy, asynchronous updates
+     * to the value stored on the coordinator.
+     * Used when a replica is lost while this segment was not durably closed.
+     */
     MinOpenSegmentId& minOpenSegmentId;
 
     /**
@@ -395,8 +401,10 @@ class ReplicatedSegment : public Task {
     typedef std::lock_guard<std::mutex> Lock;
 
     /**
-     * True is this segment was opened as a head of the log, false if the
-     * segment is a cleaner-generated segment.
+     * False if this segment was/is being created by the log cleaner,
+     * true if this segment was opened as a head of the log (that is,
+     * it has a log digest and was/is actively written to by worker
+     * as a log head).
      */
     const bool normalLogSegment;
 
@@ -458,7 +466,10 @@ class ReplicatedSegment : public Task {
 
     /**
      * Set to true if this segment lost a replica while it was open and hasn't
-     * finished recovering from it yet.
+     * finished recovering from it yet, once recovery has completed
+     * (that is, this segment has been durably closed, a successor with the
+     * digest is durably open and, this segment's lost open replicas are
+     * invalidated using #minOpenSegmentId) the flag is cleared.
      */
     bool recoveringFromLostOpenReplicas;
 

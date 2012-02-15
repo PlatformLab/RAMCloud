@@ -17,6 +17,7 @@
 #define RAMCLOUD_MASTERSERVICE_H
 
 #include "Common.h"
+#include "BackupFailureMonitor.h"
 #include "CoordinatorClient.h"
 #include "Log.h"
 #include "LogCleaner.h"
@@ -152,6 +153,15 @@ class MasterService : public Service {
      * on this server.
      */
     Log log;
+
+    /**
+     * Waits for backup failure notifications from the Server's main ServerList
+     * and informs this Log which takes corrective actions.  Runs in
+     * a separate thread in order to provide immediate response to failures and
+     * to provide a context for potentially long-running corrective actions even
+     * while the master is otherwise idle.
+     */
+    Tub<BackupFailureMonitor> failureMonitor;
 
     /**
      * The (table ID, object ID) to #RAMCloud::Object pointer map for all

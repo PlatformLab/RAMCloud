@@ -70,7 +70,6 @@ class ReplicaManager
                                    const void* data, uint32_t openLen)
         __attribute__((warn_unused_result));
     void proceed();
-    void setMinOpenSegmentId(uint64_t segmentId);
 
     /// Number replicas to keep of each segment.
     const uint32_t numReplicas;
@@ -88,6 +87,7 @@ class ReplicaManager
     /// Selects backups to store replicas while obeying placement constraints.
     BackupSelector backupSelector;
 
+    /// Used by minOpenSegmentId to update the value on the coordinator.
     Tub<CoordinatorClient> coordinator;
 
     /**
@@ -128,6 +128,11 @@ class ReplicaManager
      */
     uint32_t writeRpcsInFlight;
 
+    /**
+     * Provides access to the latest minOpenSegmentId acknowledged by the
+     * coordinator for this server and allows easy, asynchronous updates
+     * to the value stored on the coordinator.
+     */
     Tub<MinOpenSegmentId> minOpenSegmentId;
 
   PUBLIC:
