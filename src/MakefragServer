@@ -1,7 +1,6 @@
 SERVER_SRCFILES := \
 		   src/BackupService.cc \
 		   src/BackupStorage.cc \
-		   src/BackupService.cc \
 		   src/Server.cc \
 		   $(NULL)
 

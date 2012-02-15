@@ -84,8 +84,9 @@ BackupFailureMonitor::main(Context& context)
     Lock lock(mutex);
     while (running) {
         // Careful: on remove events, for some less than clear reason only the
-        // serverId field is valid.  The other fields remain in the tracker
-        // until the next call to getChange, so they can be accessed that way.
+        // serverId field is valid.  The on SERVER_REMOVED other fields remain
+        // in the tracker until the next call to getChange, so they can be
+        // accessed that way.
         // TODO(stutsman): Why does getChange() sometimes copy out the fields
         // and other time not?  It should be consistent.  Probably should just
         // return the id and event type and let the user get the details from
@@ -95,17 +96,20 @@ BackupFailureMonitor::main(Context& context)
         do {
             while (tracker->getChange(server, event)) {
                 ServerId id = server.serverId;
-                ServerDetails* details = tracker->getServerDetails(id);
-                if (event == SERVER_REMOVED &&
-                    details->services.has(BACKUP_SERVICE)) {
-                    LOG(DEBUG,
-                        "Notifying log of failure of serverId %lu",
-                        id.getId());
-                    if (replicaManager) {
-                        Tub<uint64_t> failedOpenSegmentId =
-                            replicaManager->handleBackupFailure(id);
-                        if (log && failedOpenSegmentId)
-                            log->allocateHeadIfStillOn(*failedOpenSegmentId);
+                if (event == SERVER_REMOVED) {
+                    // Only able to access details still if the event was a
+                    // remove and getChange() hasn't been called again yet.
+                    ServerDetails* details = tracker->getServerDetails(id);
+                    if (details->services.has(BACKUP_SERVICE)) {
+                        LOG(DEBUG,
+                            "Notifying log of failure of serverId %lu",
+                            id.getId());
+                        if (replicaManager) {
+                            Tub<uint64_t> failedOpenSegment =
+                                replicaManager->handleBackupFailure(id);
+                            if (log && failedOpenSegment)
+                                log->allocateHeadIfStillOn(*failedOpenSegment);
+                        }
                     }
                 }
             }

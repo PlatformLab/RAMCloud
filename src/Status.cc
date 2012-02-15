@@ -41,6 +41,7 @@ static const char* messages[] = {
     "retry",                                     // RETRY
     "service not available",                     // SERVICE_NOT_AVAILABLE
     "operation took too long",                   // STATUS_TIMEOUT
+    "server doesn't exist",                      // SERVER_DOESNT_EXIST
     "internal RAMCloud error",                   // STATUS_INTERNAL_ERROR
 };
 
@@ -66,6 +67,7 @@ static const char* symbols[] = {
     "STATUS_RETRY",
     "STATUS_SERVICE_NOT_AVAILABLE",
     "STATUS_TIMEOUT",
+    "STATUS_SERVER_DOESNT_EXIST",
     "STATUS_INTERNAL_ERROR",
 };
 
