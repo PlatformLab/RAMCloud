@@ -102,7 +102,6 @@ ReplicatedSegment::ReplicatedSegment(TaskManager& taskManager,
 
 ReplicatedSegment::~ReplicatedSegment()
 {
-    assert(!isScheduled());
 }
 
 /**
@@ -306,6 +305,7 @@ ReplicatedSegment::handleBackupFailure(ServerId failedId)
     foreach (auto& replica, replicas) {
         if (!replica.isActive || replica.backupId != failedId)
             continue;
+        LOG(DEBUG, "Segment %lu recovering from lost replica", segmentId);
 
         // If the segment contains a digest, isn't durably acked, and
         // could appear open during recovery (that is, it isn't being
@@ -313,8 +313,10 @@ ReplicatedSegment::handleBackupFailure(ServerId failedId)
         // a problem we have to patch up.
         if (normalLogSegment &&
             !getAcked().close &&
-            !replica.replicateAtomically) {
+            !replica.replicateAtomically &&
+            !recoveringFromLostOpenReplicas) {
             recoveringFromLostOpenReplicas = true;
+            LOG(DEBUG, "Lost replica(s) for segment %lu while open", segmentId);
         }
 
         replica.failed();
@@ -356,7 +358,7 @@ ReplicatedSegment::sync(uint32_t offset)
         // Once this flag is cleared those conditions have been met and
         // it is safe to use the usual definition.
         if (!recoveringFromLostOpenReplicas && getAcked().bytes >= offset)
-                break;
+            break;
         taskManager.proceed();
     }
 }
@@ -410,7 +412,7 @@ ReplicatedSegment::write(uint32_t offset)
 void
 ReplicatedSegment::performTask()
 {
-    if (freeQueued) {
+    if (freeQueued && !recoveringFromLostOpenReplicas) {
         foreach (auto& replica, replicas)
             performFree(replica);
         if (!isScheduled()) // Everything is freed, destroy ourself.
@@ -418,10 +420,17 @@ ReplicatedSegment::performTask()
     } else {
         foreach (auto& replica, replicas)
             performWrite(replica);
+        // Have to be a bit careful: these steps must be completed even if a
+        // free has been enqueued, otherwise lost open replicas could still
+        // be detected as the head of the log during a recovery.  Hence the
+        // extra condition above.
         if (recoveringFromLostOpenReplicas) {
             if (getAcked().close) {
                 if (minOpenSegmentId.isGreaterThan(segmentId)) {
                     // Ok, this segment is now recovered.
+                    LOG(DEBUG,
+                        "minOpenSegmentId ok, lost open replica recovery "
+                        "complete on segment %lu", segmentId);
                     recoveringFromLostOpenReplicas = false;
                     // All done, don't reschedule.
                 } else  {
@@ -429,10 +438,19 @@ ReplicatedSegment::performTask()
                     // and durably closed its time to make sure it can never
                     // appear as an open segment in the log again (even if
                     // some lost replica comes back from the grave).
+                    LOG(DEBUG, "Updating minOpenSegmentId on coordinator to "
+                        "ensure lost replicas of segment %lu will not be "
+                        "reused", segmentId);
                     minOpenSegmentId.updateToAtLeast(segmentId + 1);
                     schedule();
                 }
             } else {
+                // This shouldn't be needed, but if the code handling the roll
+                // over to the new log head doesn't close this segment before
+                // the next call to proceed it's possible no work will be
+                // possible or performWrite() won't schedule it, but it also
+                // isn't isSycned() since it is recovering which will trip the
+                // useful assertion below.
                 schedule();
             }
         }
@@ -514,6 +532,8 @@ ReplicatedSegment::performFree(Replica& replica)
 void
 ReplicatedSegment::performWrite(Replica& replica)
 {
+    assert(!replica.freeRpc);
+
     if (replica.isActive && replica.acked == queued) {
         // If this replica is synced no further work is needed for now.
         return;
@@ -539,6 +559,7 @@ ReplicatedSegment::performWrite(Replica& replica)
         } else {
             backupId = backupSelector.selectSecondary(numConflicts, conflicts);
         }
+        LOG(DEBUG, "Starting replication on backup %lu", backupId.getId());
         Transport::SessionRef session = tracker.getSession(backupId);
         replica.start(backupId, session);
         // Fall-through: this should drop down into the case that no
@@ -593,6 +614,7 @@ ReplicatedSegment::performWrite(Replica& replica)
             if (replicaIsPrimary(replica))
                 flags = BackupWriteRpc::OPENPRIMARY;
 
+            TEST_LOG("Sending open to backup %lu", replica.backupId.getId());
             replica.writeRpc.construct(*replica.client, masterId, segmentId,
                                         0, data, openLen, flags,
                                         replica.replicateAtomically);
@@ -606,10 +628,9 @@ ReplicatedSegment::performWrite(Replica& replica)
         // No outstanding write but not yet synced.
         if (replica.sent < queued) {
             // Some part of the data hasn't been sent yet.  Send it.
-            assert(!replica.freeRpc);
-            assert(!replica.sent.close);
-
             if (!precedingSegmentCloseAcked) {
+                TEST_LOG("Cannot write segment %lu until preceding segment "
+                         "is durably closed", segmentId);
                 // This segment must wait to send write rpcs until the
                 // preceding segment in the log sets precedingSegmentCloseAcked
                 // to true.  The goal is to prevent data written in this
@@ -636,6 +657,8 @@ ReplicatedSegment::performWrite(Replica& replica)
             if (flags == BackupWriteRpc::CLOSE &&
                 followingSegment &&
                 !followingSegment->getAcked().open) {
+                TEST_LOG("Cannot close segment %lu until following segment "
+                         "is durably open", segmentId);
                 // Do not send a closing write rpc for this replica until
                 // some other segment later in the log has been durably
                 // opened.  This ensures that the coordinator will find
@@ -647,10 +670,13 @@ ReplicatedSegment::performWrite(Replica& replica)
             }
 
             if (writeRpcsInFlight == MAX_WRITE_RPCS_IN_FLIGHT) {
+                TEST_LOG("Cannot write segment %lu, too many writes "
+                         "in flight", segmentId);
                 schedule();
                 return;
             }
 
+            TEST_LOG("Sending write to backup %lu", replica.backupId.getId());
             const char* src = static_cast<const char*>(data) + offset;
             replica.writeRpc.construct(*replica.client, masterId, segmentId,
                                         offset, src, length, flags,

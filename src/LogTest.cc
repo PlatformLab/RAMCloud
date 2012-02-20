@@ -32,6 +32,7 @@ class LogTest : public ::testing::Test {
     LogTest()
         : serverId(57, 0)
     {
+        Context::get().logger->setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
     }
 
     ServerId serverId;
@@ -41,9 +42,6 @@ class LogTest : public ::testing::Test {
 };
 
 TEST_F(LogTest, constructor) {
-    // silence LogCleaner
-    TestLog::Enable _;
-
     Log l(serverId, 2 * 8192, 8192, 4298);
 
     EXPECT_EQ(ServerId(57, 0), l.logId);
@@ -68,9 +66,6 @@ TEST_F(LogTest, constructor) {
 }
 
 TEST_F(LogTest, allocateHead_basics) {
-    // silence LogCleaner
-    TestLog::Enable _;
-
     Log l(serverId, 4 * 8192, 8192, 4298);
 
     {
@@ -157,6 +152,20 @@ TEST_F(LogTest, allocateHead_lists) {
     // Segments allocated above are deallocated in the Log destructor.
 }
 
+TEST_F(LogTest, allocateHeadIfStillOn) {
+    Log l(serverId, 4 * 8192, 8192, 4298);
+
+    l.allocateHead();
+    Segment* oldHead = l.head;
+    l.allocateHeadIfStillOn(0lu);
+    EXPECT_NE(oldHead, l.head);
+
+    oldHead = l.head;
+    l.allocateHeadIfStillOn(0lu);
+    EXPECT_EQ(oldHead, l.head);
+}
+
+
 TEST_F(LogTest, locklessAddToFreeList) {
     Log l(serverId, 2 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
 
@@ -190,9 +199,6 @@ TEST_F(LogTest, locklessAddToFreeList) {
 }
 
 TEST_F(LogTest, getFromFreeList) {
-    // silence LogCleaner
-    TestLog::Enable _;
-
     Log l(serverId, 3 * 8192, 8192, 4298, NULL, Log::INLINED_CLEANER);
 
     // Ensure constant is right for testing.

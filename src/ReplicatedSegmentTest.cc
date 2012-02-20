@@ -368,6 +368,95 @@ TEST_F(ReplicatedSegmentTest, syncDoubleCheckCrossSegmentOrderingConstraints) {
               transport.outputLog);
 }
 
+namespace {
+bool filter(string s) {
+    return s != "checkStatus";
+}
+}
+
+TEST_F(ReplicatedSegmentTest, syncRecoveringFromLostOpenReplicas) {
+    // Generates a segment, syncs some data to it, and then simulates
+    // a crash while that segment is still open.  Checks to make sure
+    // that the originally synced data appears unsynced while the
+    // recovery is going on and that after recovery has happened the
+    // data appears synced again.
+    transport.setInput("0 0 0"); // server id check
+    transport.setInput("0"); // write
+    transport.setInput("0 1 0"); // server id check
+    transport.setInput("0"); // write
+    transport.setInput("0 0 0"); // server id check
+    transport.setInput("0"); // open
+    transport.setInput("0"); // write/close
+    transport.setInput("0"); // setOpenMinSegmentId
+
+    segment->sync(segment->queued.bytes); // first sync sends the opens
+    transport.outputLog = "";
+    segment->sync(segment->queued.bytes); // second sync sends nothing
+    EXPECT_EQ("", transport.outputLog);
+    transport.outputLog = "";
+    EXPECT_EQ(openLen, segment->getAcked().bytes);
+    EXPECT_EQ(ServerId(0, 0), segment->replicas[0].backupId);
+    EXPECT_EQ(ServerId(1, 0), segment->replicas[1].backupId);
+    EXPECT_FALSE(segment->getAcked().close);
+
+    // Now the open segment encounters a failure.
+    IGNORE_RESULT(segment->handleBackupFailure({0, 0}));
+    EXPECT_TRUE(segment->recoveringFromLostOpenReplicas);
+    EXPECT_FALSE(segment->replicas[0].isActive);
+    EXPECT_TRUE(segment->replicas[0].replicateAtomically);
+    EXPECT_TRUE(segment->replicas[1].isActive);
+    EXPECT_FALSE(segment->replicas[1].replicateAtomically);
+    EXPECT_EQ(ServerId(1, 0), segment->replicas[1].backupId);
+    // Failure handling code needs to roll over to a new log head.
+    // Usually the close would need to wait on the open of the next
+    // log segment, but skip that here, pretend it already happened.
+    segment->close(NULL);
+
+    EXPECT_EQ(0lu, minOpenSegmentId.current);
+    // Will drive recovery (open a replica elsewhere, set minOpenSegmentId).
+    //TestLog::Enable _;
+    EXPECT_FALSE(segment->getAcked().close);
+    // Notice: weird and special case that only happens during testing:
+    // The replica gets recreated right back on the backup with id 0
+    // because it isn't removed from the ServerList that the
+    // BackupSelector is working of off.
+    TestLog::Enable _(filter);
+    segment->sync(segment->queued.bytes);
+    EXPECT_TRUE(segment->getAcked().close);
+    // Fragile test log check, but left here because the output is pretty
+    // reassuring to a human reader that the test does what one expects.
+    EXPECT_EQ("sync: syncing | "
+              "selectSecondary: conflicting backupId: 1 | "
+              "performWrite: Starting replication on backup 0 | "
+              "performWrite: Sending open to backup 0 | "
+              "performWrite: Sending write to backup 1 | "
+              "performWrite: Sending write to backup 0 | "
+              "performTask: Updating minOpenSegmentId on coordinator to "
+                  "ensure lost replicas of segment 888 will not be reused | "
+              "updateToAtLeast: request update to minOpenSegmentId for "
+                  "999 to 889 | "
+              "performTask: minOpenSegmentId ok, lost open replica recovery "
+              "complete on segment 888",
+              TestLog::get());
+    // Three rpcs are sent out to rereplicate the lost replica.
+    // Notice weird "atomic" write flags two of them (high-order bits
+    // glommed together with the flags field).
+    EXPECT_EQ("clientSend: 0x40028 | "
+              // Opening primary write, marked atomic.
+              "clientSend: 0x10022 999 0 888 0 0 10 261 abcedfghij | "
+              // Closing write to non-crashed replica, no atomic marker.
+              "clientSend: 0x10022 999 0 888 0 10 0 2 | "
+              // Closing write, marked atomic.
+              "clientSend: 0x10022 999 0 888 0 10 0 258",
+              transport.outputLog);
+    EXPECT_TRUE(segment->getAcked().close);
+    EXPECT_EQ(889lu, minOpenSegmentId.current);
+    transport.outputLog = "";
+
+    segment->sync(segment->queued.bytes); // doesn't send anything
+    EXPECT_EQ("", transport.outputLog);
+}
+
 TEST_F(ReplicatedSegmentTest, performTaskFreeNothingToDo) {
     segment->write(openLen + 10);
     segment->close(NULL);
@@ -401,6 +490,53 @@ TEST_F(ReplicatedSegmentTest, performTaskWrite) {
     EXPECT_TRUE(segment->isScheduled());
     EXPECT_EQ(0u, deleter.count);
     reset();
+}
+
+TEST_F(ReplicatedSegmentTest, performTaskRecoveringFromLostOpenReplicas) {
+    transport.setInput("0 0 0"); // server id check
+    transport.setInput("0"); // open/write
+    transport.setInput("0 1 0"); // server id check
+    transport.setInput("0"); // open/write
+    transport.setInput("0 0 0"); // server id check
+    transport.setInput("0"); // open/write for replication
+    transport.setInput("0"); // close/write
+    transport.setInput("0"); // close/write
+    transport.setInput("0"); // setMinOpenSegmentId
+    taskManager.proceed(); // send open/writes
+    EXPECT_TRUE(segment->handleBackupFailure({0, 0}));
+    EXPECT_TRUE(segment->recoveringFromLostOpenReplicas);
+    transport.outputLog = "";
+
+    // Reap the remaining outstanding write, send the new atomic open on the
+    // originally failed replica (original outstanding rpc should be canceled).
+    taskManager.proceed();
+    EXPECT_EQ("clientSend: 0x40028 | "
+              "clientSend: 0x10022 999 0 888 0 0 10 261 abcedfghij",
+              transport.outputLog);
+    transport.outputLog = "";
+
+    taskManager.proceed(); // should be a no-op, stuck waiting for close
+    EXPECT_EQ("", transport.outputLog);
+
+    segment->close(NULL);
+
+    taskManager.proceed(); // send closes
+    EXPECT_EQ("clientSend: 0x10022 999 0 888 0 10 0 258 | " // send atomic close
+              "clientSend: 0x10022 999 0 888 0 10 0 2", // send normal close
+              transport.outputLog);
+    transport.outputLog = "";
+
+    TestLog::Enable _(filter);
+    taskManager.proceed(); // reap closes, update min open segment id
+    EXPECT_EQ("performTask: Updating minOpenSegmentId on coordinator to ensure "
+                  "lost replicas of segment 888 will not be reused | "
+              "updateToAtLeast: request update to minOpenSegmentId for 999 to "
+              "889",
+              TestLog::get());
+    EXPECT_EQ("", transport.outputLog);
+}
+
+TEST_F(ReplicatedSegmentTest, performTaskFreeWhileRecoveringOpen) {
 }
 
 TEST_F(ReplicatedSegmentTest, performFreeNothingToDo) {
@@ -502,6 +638,59 @@ TEST_F(ReplicatedSegmentTest, performFreeWriteRpcInProgress) {
     EXPECT_EQ(1u, deleter.count);
 }
 
+TEST_F(ReplicatedSegmentTest, performWriteTooManyInFlight) {
+    transport.setInput("0 0 0"); // server id check
+    transport.setInput("0"); // open/write
+    transport.setInput("0 1 0"); // server id check
+    transport.setInput("0"); // open/write
+    transport.setInput("0"); // write
+    transport.setInput("0"); // write
+
+    segment->write(openLen);
+    taskManager.proceed(); // send writes
+    taskManager.proceed(); // reap writes
+    transport.outputLog = "";
+
+    writeRpcsInFlight = ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT;
+    segment->write(openLen + 10);
+    taskManager.proceed(); // try to send writes, shouldn't be able to.
+    EXPECT_EQ("", transport.outputLog);
+
+    EXPECT_TRUE(segment->replicas[0].isActive);
+    EXPECT_EQ(openLen, segment->replicas[0].sent.bytes);
+    EXPECT_EQ(ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT, writeRpcsInFlight);
+
+    writeRpcsInFlight = ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT - 1;
+    taskManager.proceed(); // retry writes since a slot freed up
+    EXPECT_STREQ("clientSend: 0x10022 999 0 888 0 10 10 0 klmnopqrst",
+                 transport.outputLog.c_str());
+    transport.outputLog = "";
+    EXPECT_EQ(ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT, writeRpcsInFlight);
+    ASSERT_TRUE(segment->replicas[0].isActive);
+    EXPECT_TRUE(segment->replicas[0].writeRpc);
+    EXPECT_EQ(openLen + 10, segment->replicas[0].sent.bytes);
+    EXPECT_TRUE(segment->replicas[1].isActive);
+    EXPECT_EQ(openLen, segment->replicas[1].sent.bytes);
+    EXPECT_TRUE(segment->isScheduled());
+
+    taskManager.proceed(); // reap write and send the second replica's rpc
+    EXPECT_EQ("clientSend: 0x10022 999 0 888 0 10 10 0 klmnopqrst",
+              transport.outputLog);
+    EXPECT_EQ(ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT, writeRpcsInFlight);
+    ASSERT_TRUE(segment->replicas[1].isActive);
+    EXPECT_TRUE(segment->replicas[1].writeRpc);
+    EXPECT_EQ(openLen + 10, segment->replicas[1].sent.bytes);
+    EXPECT_FALSE(segment->replicas[0].writeRpc); // make sure one was started
+    EXPECT_TRUE(segment->isScheduled());
+
+    taskManager.proceed(); // reap write
+    EXPECT_FALSE(segment->replicas[1].writeRpc);
+    EXPECT_EQ(uint32_t(ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT - 1),
+              writeRpcsInFlight);
+    EXPECT_FALSE(segment->isScheduled());
+    EXPECT_EQ(0u, deleter.count);
+}
+
 TEST_F(ReplicatedSegmentTest, performWriteOpen) {
     transport.setInput("0 0 0"); // server id check
     transport.setInput("0"); // write
@@ -511,20 +700,22 @@ TEST_F(ReplicatedSegmentTest, performWriteOpen) {
     segment->write(openLen);
     segment->close(NULL);
     {
-        TestLog::Enable _;
+        TestLog::Enable _(filter);
         taskManager.proceed();
-        EXPECT_STREQ("checkStatus: status: 0 | "
-                     "selectSecondary: conflicting backupId: 0 | "
-                     "checkStatus: status: 0",
-                     TestLog::get().c_str());
+        EXPECT_EQ("performWrite: Starting replication on backup 0 | "
+                  "performWrite: Sending open to backup 0 | "
+                  "selectSecondary: conflicting backupId: 0 | "
+                  "performWrite: Starting replication on backup 1 | "
+                  "performWrite: Sending open to backup 1",
+                  TestLog::get());
     }
 
     // "10 5" is length 10 (OPEN | PRIMARY), "10 1" is length 10 OPEN
-    EXPECT_STREQ("clientSend: 0x40028 | "
-                 "clientSend: 0x10022 999 0 888 0 0 10 5 abcedfghij | "
-                 "clientSend: 0x40028 | "
-                 "clientSend: 0x10022 999 0 888 0 0 10 1 abcedfghij",
-                 transport.outputLog.c_str());
+    EXPECT_EQ("clientSend: 0x40028 | "
+              "clientSend: 0x10022 999 0 888 0 0 10 5 abcedfghij | "
+              "clientSend: 0x40028 | "
+              "clientSend: 0x10022 999 0 888 0 0 10 1 abcedfghij",
+              transport.outputLog);
 
     EXPECT_TRUE(segment->replicas[0].isActive);
     EXPECT_TRUE(segment->replicas[0].writeRpc);

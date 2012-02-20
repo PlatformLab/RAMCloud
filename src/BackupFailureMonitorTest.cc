@@ -20,6 +20,10 @@
 
 namespace RAMCloud {
 
+/**
+ * Note that some additional tests which test backup recovery in a
+ * more end-to-end way can be found in ReplicaManagerTest.cc.
+ */
 struct BackupFailureMonitorTest : public ::testing::Test {
     ServerList serverList;
     BackupFailureMonitor monitor;
@@ -43,7 +47,12 @@ TEST_F(BackupFailureMonitorTest, main) {
     serverList.add(ServerId(3, 0), "mock:host=master",
                    {MASTER_SERVICE}, 100);
     serverList.remove(ServerId(3, 0));
-    while (monitor.tracker->areChanges()); // getChanges has drained the queue.
+    while (true) {
+        // Until getChanges has drained the queue.
+        BackupFailureMonitor::Lock lock(monitor.mutex);
+        if (!monitor.tracker->hasChanges())
+            break;
+    }
     BackupFailureMonitor::Lock lock(monitor.mutex); // processing is done.
     EXPECT_EQ("main: Notifying log of failure of serverId 2",
               TestLog::get());
@@ -51,20 +60,35 @@ TEST_F(BackupFailureMonitorTest, main) {
 
 TEST_F(BackupFailureMonitorTest, startAndHalt) {
     monitor.start(); // check start
-    EXPECT_TRUE(monitor.running);
-    EXPECT_TRUE(monitor.thread);
+    {
+        BackupFailureMonitor::Lock lock(monitor.mutex);
+        EXPECT_TRUE(monitor.running);
+        EXPECT_TRUE(monitor.thread);
+    }
     monitor.start(); // check dup start call
-    EXPECT_TRUE(monitor.running);
-    EXPECT_TRUE(monitor.thread);
+    {
+        BackupFailureMonitor::Lock lock(monitor.mutex);
+        EXPECT_TRUE(monitor.running);
+        EXPECT_TRUE(monitor.thread);
+    }
     monitor.halt(); // check halt
-    EXPECT_FALSE(monitor.running);
-    EXPECT_FALSE(monitor.thread);
+    {
+        BackupFailureMonitor::Lock lock(monitor.mutex);
+        EXPECT_FALSE(monitor.running);
+        EXPECT_FALSE(monitor.thread);
+    }
     monitor.halt(); // check dup halt call
-    EXPECT_FALSE(monitor.running);
-    EXPECT_FALSE(monitor.thread);
+    {
+        BackupFailureMonitor::Lock lock(monitor.mutex);
+        EXPECT_FALSE(monitor.running);
+        EXPECT_FALSE(monitor.thread);
+    }
     monitor.start(); // check restart after halt
-    EXPECT_TRUE(monitor.running);
-    EXPECT_TRUE(monitor.thread);
+    {
+        BackupFailureMonitor::Lock lock(monitor.mutex);
+        EXPECT_TRUE(monitor.running);
+        EXPECT_TRUE(monitor.thread);
+    }
 }
 
 TEST_F(BackupFailureMonitorTest, trackerChangesEnqueued) {
@@ -77,15 +101,19 @@ TEST_F(BackupFailureMonitorTest, trackerChangesEnqueued) {
     serverList.add(ServerId(2, 0), "mock:host=backup1",
                    {BACKUP_SERVICE}, 100);
     serverList.remove(ServerId(2, 0));
-    while (monitor.tracker->areChanges()); // getChanges has drained the queue.
+    while (true) { // getChanges drained
+        BackupFailureMonitor::Lock _(monitor.mutex);
+        if (!monitor.tracker->hasChanges())
+            break;
+    }
     BackupFailureMonitor::Lock lock(monitor.mutex); // processing is done.
-    lock.unlock();
 
     // Ok - now set up the real test: make sure changes are processed in
     // response to trackerChangesEnqueued().
 
     // Prevents tracker from calling trackerChangesEnqueued on add/remove.
     monitor.tracker->eventCallback = NULL;
+    lock.unlock();
 
     serverList.add(ServerId(3, 0), "mock:host=backup2",
                    {BACKUP_SERVICE}, 100);
@@ -93,7 +121,11 @@ TEST_F(BackupFailureMonitorTest, trackerChangesEnqueued) {
 
     TestLog::Enable _(&mainFilter);
     monitor.trackerChangesEnqueued();     // Notify the monitor thread.
-    while (monitor.tracker->areChanges()); // getChanges has drained the queue.
+    while (true) { // getChanges drained
+        BackupFailureMonitor::Lock _(monitor.mutex);
+        if (!monitor.tracker->hasChanges())
+            break;
+    }
     lock.lock(); // processing changes is done.
     lock.unlock();
     // Make sure it processed the new event.

@@ -16,7 +16,9 @@
 #ifndef RAMCLOUD_BACKUPFAILUREMONITOR_H
 #define RAMCLOUD_BACKUPFAILUREMONITOR_H
 
+#define _GLIBCXX_USE_SCHED_YIELD
 #include <thread>
+#undef _GLIBCXX_USE_SCHED_YIELD
 
 #include "ServerTracker.h"
 #include "Tub.h"

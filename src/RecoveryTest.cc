@@ -111,6 +111,8 @@ class RecoveryTest : public ::testing::Test {
         , segmentSize(1 << 16)
         , segmentsToFree()
     {
+        Context::get().logger->setLogLevels(SILENT_LOG_LEVEL);
+
         cluster.construct();
 
         ServerConfig config = ServerConfig::forTesting();

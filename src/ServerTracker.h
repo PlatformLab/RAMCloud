@@ -222,9 +222,9 @@ class ServerTracker : public ServerTrackerInterface {
      * of this tracker may want to be aware of. Otherwise returns false.
      */
     bool
-    areChanges()
+    hasChanges()
     {
-        return changes.areChanges();
+        return changes.hasChanges();
     }
 
     /**
@@ -293,7 +293,7 @@ class ServerTracker : public ServerTrackerInterface {
             lastRemovedIndex = -1;
         }
 
-        if (!changes.areChanges())
+        if (!changes.hasChanges())
             return false;
 
         ServerChange change = changes.getChange();
@@ -543,7 +543,7 @@ class ServerTracker : public ServerTrackerInterface {
          * otherwise returns false is there are none.
          */
         bool
-        areChanges()
+        hasChanges()
         {
             std::lock_guard<SpinLock> lock(vectorLock);
             return !changes.empty();

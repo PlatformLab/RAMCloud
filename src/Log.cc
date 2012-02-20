@@ -118,10 +118,8 @@ Log::~Log()
     freePendingDigestAndReferenceList.clear_and_dispose(SegmentDisposer());
     freePendingReferenceList.clear_and_dispose(SegmentDisposer());
 
-    if (head) {
-        head->sync();
+    if (head)
         delete head;
-    }
 }
 
 /**
@@ -683,7 +681,7 @@ Log::allocateSegmentId()
 void
 Log::allocateHeadInternal(Lock& lock, Tub<uint64_t> segmentId)
 {
-    if (head && segmentId && head->getId() == *segmentId)
+    if (head && segmentId && head->getId() != *segmentId)
         return;
 
     // these currently also take listLock, so rather than have

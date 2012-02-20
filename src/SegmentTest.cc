@@ -34,6 +34,7 @@ class SegmentTest : public ::testing::Test {
         : serverId(1, 0)
         , serverList()
     {
+        Context::get().logger->setLogLevels(SILENT_LOG_LEVEL);
     }
 
     static bool

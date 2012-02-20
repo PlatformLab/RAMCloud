@@ -93,6 +93,8 @@ class MinOpenSegmentId : public Task {
      *      method then try to update the value stored on
      */
     void updateToAtLeast(uint64_t segmentId) {
+        RAMCLOUD_LOG(DEBUG, "request update to minOpenSegmentId for %lu to %lu",
+                     serverId->getId(), segmentId);
         if (requested > segmentId)
             return;
         requested = segmentId;
@@ -123,6 +125,8 @@ class MinOpenSegmentId : public Task {
                 try {
                     (*rpc)();
                     current = sent;
+                    RAMCLOUD_LOG(DEBUG, "coordinator minOpenSegmentId for %lu "
+                                 "updated to %lu", serverId->getId(), current);
                 } catch (TransportException& e) {
                     RAMCLOUD_LOG(WARNING, "Problem communicating with the "
                                  "coordinator during setMinOpenSegmentId call, "

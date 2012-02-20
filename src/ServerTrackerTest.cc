@@ -47,12 +47,12 @@ class ServerTrackerTest : public ::testing::Test {
 
 TEST_F(ServerTrackerTest, constructors) {
     EXPECT_EQ(0U, tr.serverList.size());
-    EXPECT_FALSE(tr.changes.areChanges());
+    EXPECT_FALSE(tr.changes.hasChanges());
     EXPECT_FALSE(tr.eventCallback);
     EXPECT_EQ(static_cast<uint32_t>(-1), tr.lastRemovedIndex);
 
     EXPECT_EQ(0U, trcb.serverList.size());
-    EXPECT_FALSE(trcb.changes.areChanges());
+    EXPECT_FALSE(trcb.changes.hasChanges());
     EXPECT_TRUE(trcb.eventCallback);
     EXPECT_TRUE(&callback == trcb.eventCallback);
     EXPECT_EQ(static_cast<uint32_t>(-1), trcb.lastRemovedIndex);
@@ -135,11 +135,11 @@ TEST_F(ServerTrackerTest, fireCallback) {
     EXPECT_TRUE(orderCheckCb.ok);
 }
 
-TEST_F(ServerTrackerTest, areChanges) {
-    EXPECT_FALSE(tr.areChanges());
+TEST_F(ServerTrackerTest, hasChanges) {
+    EXPECT_FALSE(tr.hasChanges());
     tr.enqueueChange(ServerDetails(ServerId(2, 0)),
                      ServerChangeEvent::SERVER_ADDED);
-    EXPECT_TRUE(tr.areChanges());
+    EXPECT_TRUE(tr.hasChanges());
 }
 
 static bool
@@ -361,7 +361,7 @@ TEST_F(ServerTrackerTest, ChangeQueue_getChange) {
     EXPECT_THROW(tr.changes.getChange(), Exception);
 }
 
-TEST_F(ServerTrackerTest, ChangeQueue_areChanges) {
+TEST_F(ServerTrackerTest, ChangeQueue_hasChanges) {
 
 }
 

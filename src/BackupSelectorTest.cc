@@ -234,6 +234,19 @@ TEST_F(BackupSelectorTest, selectSecondary) {
     EXPECT_EQ(ServerId(4, 0), id);
 }
 
+#if 0
+// This test should run forever, hence why it is commented out.
+// Occasionally, when self-doubt mounts, it is worth running, though.
+TEST_F(BackupSelectorTest, selectSecondaryConflictsWithAll) {
+    MockRandom _(1);
+    std::vector<ServerId> ids;
+    addDifferentHosts(coordinator, ids);
+
+    ServerId id = selector->selectSecondary(uint32_t(ids.size()), &ids[0]);
+    EXPECT_EQ(ServerId(0, 0), id);
+}
+#endif
+
 TEST_F(BackupSelectorTest, conflict) {
     ServerId backup(1, 0);
     const ServerId conflictingId(backup);

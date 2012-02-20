@@ -687,10 +687,12 @@ CoordinatorService::setMinOpenSegmentId(
     ServerId serverId(reqHdr.serverId);
     uint64_t segmentId = reqHdr.segmentId;
 
-    LOG(DEBUG, "Set min open segment id for server %lu to %lu",
+    LOG(DEBUG, "setMinOpenSegmentId for server %lu to %lu",
         serverId.getId(), segmentId);
 
     if (!serverList.contains(serverId)) {
+        LOG(WARNING, "setMinOpenSegmentId server doesn't exist: %lu",
+            serverId.getId());
         respHdr.common.status = STATUS_SERVER_DOESNT_EXIST;
         return;
     }

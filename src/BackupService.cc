@@ -1468,7 +1468,6 @@ BackupService::startReadingData(
         ServerId masterId = it->first.masterId;
         SegmentInfo* info = it->second;
 
-
         if (*masterId == reqHdr.masterId) {
             if (!info->satisfiesAtomicReplicationGuarantees()) {
                 LOG(WARNING, "Asked for replica <%lu,%lu> which was being "

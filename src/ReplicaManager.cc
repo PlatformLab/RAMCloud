@@ -73,10 +73,9 @@ ReplicaManager::~ReplicaManager()
 {
     Lock lock(dataMutex);
 
-    // Make sure all segments are synced and any outstanding operations
-    // (like frees) have completed.
-    while (!taskManager.isIdle())
-        taskManager.proceed();
+    if (!taskManager.isIdle())
+        LOG(WARNING, "Master exiting while outstanding replication "
+            "operations were still pending");
     while (!replicatedSegmentList.empty())
         destroyAndFreeReplicatedSegment(&replicatedSegmentList.front());
 }
@@ -219,6 +218,8 @@ ReplicaManager::handleBackupFailure(ServerId failedId)
             }
         }
     }
+    if (failedOpenSegmentId)
+        LOG(DEBUG, "Highest affected segmentId %lu", *failedOpenSegmentId);
 
     return failedOpenSegmentId;
 }
@@ -235,7 +236,9 @@ ReplicaManager::destroyAndFreeReplicatedSegment(ReplicatedSegment*
 {
     // Only called from destructor and ReplicatedSegment::performTask
     // so lock on dataMutex should always be held.
-    assert(!replicatedSegment->isScheduled());
+    if (replicatedSegment->isScheduled())
+        LOG(WARNING, "Master exiting while segment %lu had operations "
+            "still pending", replicatedSegment->segmentId);
     erase(replicatedSegmentList, *replicatedSegment);
     replicatedSegment->~ReplicatedSegment();
     replicatedSegmentPool.free(replicatedSegment);
