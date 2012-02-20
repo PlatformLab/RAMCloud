@@ -66,13 +66,6 @@ TEST_F(ServerTrackerTest, enqueueChange) {
     EXPECT_EQ(3U, tr.serverList.size());
     EXPECT_EQ(1U, tr.changes.changes.size());
 
-    trcb.enqueueChange(ServerDetails(ServerId(0, 0)),
-                       ServerChangeEvent::SERVER_ADDED);
-    EXPECT_EQ(1, callback.callbacksFired);
-    trcb.enqueueChange(ServerDetails(ServerId(0, 0)),
-                       ServerChangeEvent::SERVER_REMOVED);
-    EXPECT_EQ(2, callback.callbacksFired);
-
     // Ensure nothing was actually added to the lists.
     for (size_t i = 0; i < tr.serverList.size(); i++) {
         EXPECT_FALSE(tr.serverList[i].server.serverId.isValid());
@@ -82,6 +75,64 @@ TEST_F(ServerTrackerTest, enqueueChange) {
         EXPECT_FALSE(trcb.serverList[i].server.serverId.isValid());
         EXPECT_TRUE(trcb.serverList[i].pointer == NULL);
     }
+}
+
+struct EnsureBothHaveChangesCallback : public ServerTracker<int>::Callback {
+    typedef ServerTracker<int> Tr;
+    EnsureBothHaveChangesCallback()
+        : tr1() , tr2() , ok() {}
+
+    void trackerChangesEnqueued() {
+        if (!tr1 || !tr2)
+            return;
+        ServerChangeEvent event;
+        ServerDetails details;
+        // Make sure the tr2 callback hasn't been fired yet.
+        EXPECT_EQ(0,
+            static_cast<CountCallback*>(tr2->eventCallback)->callbacksFired);
+        // Ensure that both trackers have the change enqueued.
+        ok = tr1->getChange(details, event) && tr2->getChange(details, event);
+        // Also asserted in the unit test to ensure the code gets run.
+        EXPECT_TRUE(ok);
+    }
+
+    Tr* tr1;
+    Tr* tr2;
+    bool ok;
+
+    DISALLOW_COPY_AND_ASSIGN(EnsureBothHaveChangesCallback);
+};
+
+TEST_F(ServerTrackerTest, fireCallback) {
+    callback.callbacksFired = 0;
+    sl.add({0, 0}, "", {}, 0);
+    EXPECT_EQ(1, callback.callbacksFired);
+    sl.add({1, 0}, "", {}, 0);
+    EXPECT_EQ(2, callback.callbacksFired);
+    sl.remove({1, 0});
+    EXPECT_EQ(3, callback.callbacksFired);
+
+    ServerChangeEvent event;
+    ServerDetails details;
+
+    // Ensure that all trackers have changes enqueued
+    // before any of the trackers receives notification.
+    EnsureBothHaveChangesCallback orderCheckCb;
+    ServerTracker<int> tr1(sl, &orderCheckCb);
+    CountCallback countCb;
+    ServerTracker<int> tr2(sl, &countCb);
+    orderCheckCb.tr1 = &tr1;
+    orderCheckCb.tr2 = &tr2;
+    while (tr1.getChange(details, event)); // clear out both queues
+    while (tr2.getChange(details, event));
+    countCb.callbacksFired = 0;
+    sl.add({2, 0}, "", {}, 0);
+    // Make sure the normal cb got called.
+    EXPECT_EQ(1, countCb.callbacksFired);
+    // Make sure the second cb got called.
+    // If it returns true then that means tr1 and tr2 both had the add
+    // enqueued even though only tr1 had its callback fired yet.
+    EXPECT_TRUE(orderCheckCb.ok);
 }
 
 TEST_F(ServerTrackerTest, areChanges) {

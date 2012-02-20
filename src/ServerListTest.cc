@@ -29,6 +29,7 @@ class MockServerTracker : public ServerTrackerInterface {
     {
         changes.push({server, event});
     }
+    void fireCallback() {}
 };
 
 class ServerListTest : public ::testing::Test {

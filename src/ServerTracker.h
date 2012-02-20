@@ -70,6 +70,7 @@ class ServerTrackerInterface {
     virtual ~ServerTrackerInterface() { }
     virtual void enqueueChange(const ServerDetails& server,
                                ServerChangeEvent event) = 0;
+    virtual void fireCallback() = 0;
 };
 
 /**
@@ -181,9 +182,7 @@ class ServerTracker : public ServerTrackerInterface {
      * Method used by the parent ServerList to inject ordered server
      * updates. This enqueues the updates and does not process them
      * until the client invokes ServerTracker::getChange() to get the
-     * oldest change in the list state. If the constructor was provided
-     * a callback, then this method will fire the callback to alert the
-     * client that a new change is waiting to be handled.
+     * oldest change in the list state.
      *
      * Note that the ServerList takes care to ensure that many "weird"
      * events don't happen here. For example, an ADD event for a ServerId
@@ -201,7 +200,18 @@ class ServerTracker : public ServerTrackerInterface {
             serverList.resize(index + 1);
 
         changes.addChange(server, event);
+    }
 
+    /**
+     * If the constructor was provided a callback, then this method will fire
+     * the callback to alert the client that a new change is waiting to be
+     * handled.
+     * ServerList enqueues changes to all registered trackers before invoking
+     * callbacks on any of them.
+     */
+    void
+    fireCallback()
+    {
         // Fire the callback to notify that the queue has a new entry.
         if (eventCallback)
             eventCallback->trackerChangesEnqueued();

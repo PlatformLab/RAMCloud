@@ -49,6 +49,12 @@ ServerList::~ServerList()
 /**
  * Add a new server to the ServerList with its ServerId, service locator,
  * and a mask of which service types it provides.
+ * All registered ServerTrackers will have the changes enqueued to them,
+ * then all of the registered ServerTrackers with a callback will be
+ * notified.  This order ensures that if one tracker responds to a
+ * callback and observes another tracker the observed tracker will at
+ * least have the changes enqueued to it that would allow it to be
+ * consistent with the notified tracker.
  *
  * \param id
  *      The ServerId of the server to add.
@@ -119,11 +125,17 @@ ServerList::add(ServerId id, const string& locator,
 
     foreach (ServerTrackerInterface* tracker, trackers)
         tracker->enqueueChange(*server, ServerChangeEvent::SERVER_ADDED);
+
+    foreach (ServerTrackerInterface* tracker, trackers)
+        tracker->fireCallback();
 }
 
 /**
  * Remove a server from the list, typically when it is no longer part of
  * the system (e.g. it has crashed).
+ * All registered ServerTrackers will have the changes enqueued to them,
+ * then all of the registered ServerTrackers with a callback will be
+ * notified.  See add() for a more details about this ordering.
  *
  * \param id
  *      The ServerId of the server to remove from the ServerList.
@@ -170,6 +182,9 @@ ServerList::remove(ServerId id)
         tracker->enqueueChange(ServerDetails(serverList[index]->serverId),
             ServerChangeEvent::SERVER_REMOVED);
     }
+
+    foreach (ServerTrackerInterface* tracker, trackers)
+        tracker->fireCallback();
 
     serverList[index].destroy();
 }
@@ -340,6 +355,7 @@ ServerList::registerTracker(ServerTrackerInterface& tracker)
                                   ServerChangeEvent::SERVER_ADDED);
         }
     }
+    tracker.fireCallback();
 }
 
 /**
