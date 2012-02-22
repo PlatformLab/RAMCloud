@@ -174,10 +174,6 @@ MasterService::dispatch(RpcOpcode opcode, Rpc& rpc)
             callHandler<RemoveRpc, MasterService,
                         &MasterService::remove>(rpc);
             break;
-        case RereplicateSegmentsRpc::opcode:
-            callHandler<RereplicateSegmentsRpc, MasterService,
-                        &MasterService::rereplicateSegments>(rpc);
-            break;
         case SetTabletsRpc::opcode:
             callHandler<SetTabletsRpc, MasterService,
                         &MasterService::setTablets>(rpc);
@@ -1178,25 +1174,6 @@ MasterService::remove(const RemoveRpc::Request& reqHdr,
     objectMap.remove(reqHdr.tableId, reqHdr.id);
 }
 
-
-/**
- * Top-level server method to handle the REREPLICATE_SEGMENTS request.
- * Using the server id of a crashed backup from #reqHdr this MasterService
- * rereplicates any live segments it had stored on that backup to new backups
- * in order to maintain any replication requirements after a backup failure.
- *
- * \copydetails Service::ping
- */
-void
-MasterService::rereplicateSegments(
-    const RereplicateSegmentsRpc::Request& reqHdr,
-    RereplicateSegmentsRpc::Response& respHdr,
-    Rpc& rpc)
-{
-    const uint64_t failedBackupId = reqHdr.backupId;
-    LOG(NOTICE, "Backup %lu failed, rereplicating segments elsewhere",
-        failedBackupId);
-}
 
 /**
  * Set the list of tablets that this master serves.

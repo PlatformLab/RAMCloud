@@ -67,7 +67,6 @@ Rpc::opcodeSymbol(uint32_t opcode)
         case HINT_SERVER_DOWN:           return "HINT_SERVER_DOWN";
         case TABLETS_RECOVERED:          return "TABLETS_RECOVERED";
         case SET_WILL:                   return "SET_WILL";
-        case REREPLICATE_SEGMENTS:       return "REREPLICATE_SEGMENTS";
         case FILL_WITH_TEST_DATA:        return "FILL_WITH_TEST_DATA";
         case MULTI_READ:                 return "MULTI_READ";
         case GET_METRICS:                return "GET_METRICS";
@@ -80,7 +79,7 @@ Rpc::opcodeSymbol(uint32_t opcode)
         case BACKUP_RECOVERYCOMPLETE:    return "BACKUP_RECOVERYCOMPLETE";
         case BACKUP_QUIESCE:             return "BACKUP_QUIESCE";
         case SET_SERVER_LIST:            return "SET_SERVER_LIST";
-        case UPDATE_SERVER_LIST:         return "UDPATE_SERVER_LIST";
+        case UPDATE_SERVER_LIST:         return "UPDATE_SERVER_LIST";
         case REQUEST_SERVER_LIST:        return "REQUEST_SERVER_LIST";
         case GET_SERVER_ID:              return "GET_SERVER_ID";
         case SET_MIN_OPEN_SEGMENT_ID:    return "SET_MIN_OPEN_SEGMENT_ID";

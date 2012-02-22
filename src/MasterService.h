@@ -113,9 +113,6 @@ class MasterService : public Service {
     void remove(const RemoveRpc::Request& reqHdr,
                 RemoveRpc::Response& respHdr,
                 Rpc& rpc);
-    void rereplicateSegments(const RereplicateSegmentsRpc::Request& reqHdr,
-                             RereplicateSegmentsRpc::Response& respHdr,
-                             Rpc& rpc);
     void setTablets(const ProtoBuf::Tablets& newTablets);
     void setTablets(const SetTabletsRpc::Request& reqHdr,
                     SetTabletsRpc::Response& respHdr,

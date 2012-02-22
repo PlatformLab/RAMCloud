@@ -26,9 +26,6 @@
 
 namespace RAMCloud {
 
-/**
- * TODO
- */
 class MasterClient : public Client {
   public:
 
@@ -169,27 +166,6 @@ class MasterClient : public Client {
         Buffer responseBuffer;
         AsyncState state;
         DISALLOW_COPY_AND_ASSIGN(Write);
-    };
-
-    /**
-     * Report to a master that a particular backup has failed so that it
-     * can rereplicate any segments that might have been stored there.
-     *
-     * See MasterService::rereplicateSegments().
-     */
-    class RereplicateSegments {
-      public:
-        RereplicateSegments(MasterClient& client,
-                            uint64_t backupId);
-        bool isReady() { return state.isReady(); }
-        void operator()();
-      private:
-        MasterClient& client;
-        uint64_t backupId;
-        Buffer requestBuffer;
-        Buffer responseBuffer;
-        AsyncState state;
-        DISALLOW_COPY_AND_ASSIGN(RereplicateSegments);
     };
 
     explicit MasterClient(Transport::SessionRef session) : session(session) {}

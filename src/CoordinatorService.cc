@@ -375,10 +375,6 @@ CoordinatorService::hintServerDown(const HintServerDownRpc::Request& reqHdr,
     ProtoBuf::ServerList removalUpdate;
     serverList.remove(serverId, removalUpdate);
 
-    if (serverEntry.isBackup()) {
-        // TODO(ongaro): inform masters they need to replicate more
-    }
-
     if (serverEntry.isMaster()) {
         std::unique_ptr<ProtoBuf::Tablets> will(serverEntry.will);
 
@@ -415,6 +411,7 @@ CoordinatorService::hintServerDown(const HintServerDownRpc::Request& reqHdr,
     // Update cluster membership information last. This delay will cause some
     // spurious hintServerDown requests to the coordinator, but it's better
     // that we finish recovery faster.
+    // Backup recovery is kicked off via this update.
     sendMembershipUpdate(removalUpdate, ServerId(/* invalid id */));
 }
 

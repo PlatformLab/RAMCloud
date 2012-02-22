@@ -80,7 +80,7 @@ enum RpcOpcode {
     HINT_SERVER_DOWN        = 22,
     TABLETS_RECOVERED       = 23,
     SET_WILL                = 24,
-    REREPLICATE_SEGMENTS    = 25,
+    SET_MIN_OPEN_SEGMENT_ID = 25,
     FILL_WITH_TEST_DATA     = 26,
     MULTI_READ              = 27,
     GET_METRICS             = 28,
@@ -96,8 +96,7 @@ enum RpcOpcode {
     UPDATE_SERVER_LIST      = 38,
     REQUEST_SERVER_LIST     = 39,
     GET_SERVER_ID           = 40,
-    SET_MIN_OPEN_SEGMENT_ID = 41,
-    ILLEGAL_RPC_TYPE        = 42,  // 1 + the highest legitimate RpcOpcode
+    ILLEGAL_RPC_TYPE        = 41,  // 1 + the highest legitimate RpcOpcode
 };
 
 /**
@@ -238,18 +237,6 @@ struct RecoverRpc {
         friend bool operator==(const Replica&, const Replica&);
         friend bool operator!=(const Replica&, const Replica&);
         friend std::ostream& operator<<(std::ostream& stream, const Replica&);
-    } __attribute__((packed));
-};
-
-struct RereplicateSegmentsRpc {
-    static const RpcOpcode opcode = REREPLICATE_SEGMENTS;
-    static const ServiceType service = MASTER_SERVICE;
-    struct Request {
-        RpcRequestCommon common;
-        uint64_t backupId;        // The server id of a crashed backup.
-    } __attribute__((packed));
-    struct Response {
-        RpcResponseCommon common;
     } __attribute__((packed));
 };
 
