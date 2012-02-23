@@ -163,6 +163,7 @@ ReplicaManager::proceed()
     CycleCounter<RawMetric> _(&metrics->master.replicaManagerTicks);
     Lock __(dataMutex);
     taskManager.proceed();
+    metrics->master.replicationTasks = taskManager.outstandingTasks();
 }
 
 // - private -

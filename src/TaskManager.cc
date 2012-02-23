@@ -96,6 +96,13 @@ TaskManager::isIdle()
     return tasks.size() == 0;
 }
 
+/// Returns number of tasks waiting to run on the next call to proceed().
+size_t
+TaskManager::outstandingTasks()
+{
+    return tasks.size();
+}
+
 /**
  * Execute all tasks scheduled since the last call to proceed() (by
  * calling their performTask() virtual method).

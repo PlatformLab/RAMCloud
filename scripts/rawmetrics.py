@@ -230,6 +230,12 @@ master.metric('logSyncCloseTicks',
     'time close segments during log sync')
 master.metric('logSyncCloseCount',
     'number of segments closed during log sync')
+master.metric('replicaRecoveries',
+    'number of replicas which have started replica recreation')
+master.metric('openReplicaRecoveries',
+    'of replicaRecoveries how many were for replicas which were open')
+master.metric('replicationTasks',
+    'number of outstanding tasks in ReplicaManager')
 
 backup = Group('Backup', 'metrics for backups')
 backup.metric('recoveryCount',

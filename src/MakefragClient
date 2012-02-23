@@ -91,6 +91,10 @@ $(OBJDIR)/recovery: $(OBJDIR)/RecoveryMain.o $(OBJDIR)/OptionParser.o $(OBJDIR)/
 	@mkdir -p $(@D)
 	$(CXX) $(LIBS) -o $@ $^ -L$(OBJDIR)
 
+$(OBJDIR)/backuprecovery: $(OBJDIR)/BackupRecoveryMain.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramcloud.a
+	@mkdir -p $(@D)
+	$(CXX) $(LIBS) -o $@ $^ -L$(OBJDIR)
+
 $(OBJDIR)/client: $(OBJDIR)/ClientMain.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
 	$(CXX) $(LIBS) -o $@ $^ -L$(OBJDIR)
@@ -106,6 +110,6 @@ client-lib-shared: $(OBJDIR)/libramcloud.so
 client-lib: client-lib-static client-lib-shared
 
 client: $(OBJDIR)/client $(OBJDIR)/ensureServers $(OBJDIR)/libramcloud.a $(OBJDIR)/libramcloud.so
-recovery: $(OBJDIR)/recovery $(OBJDIR)/ensureServers $(OBJDIR)/libramcloud.a $(OBJDIR)/libramcloud.so
+recovery: $(OBJDIR)/recovery $(OBJDIR)/backuprecovery client
 
 all: client recovery

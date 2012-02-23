@@ -133,6 +133,8 @@ ReplicatedSegment::free()
 
     Tub<Lock> lock;
     lock.construct(dataMutex);
+    assert(queued.close);
+
     freeQueued = true;
 
     checkAgain:
@@ -151,9 +153,9 @@ ReplicatedSegment::free()
 }
 
 /**
- * Returns true when all data queued for writing by the log module for this
- * segment is durably synced to #numReplicas including any outstanding
- * flags.
+ * Return true if no further actions are needed to durably replicate this
+ * segment.  This can change as this master learns about failures in the
+ * cluster.
  */
 bool
 ReplicatedSegment::isSynced() const
@@ -306,6 +308,7 @@ ReplicatedSegment::handleBackupFailure(ServerId failedId)
         if (!replica.isActive || replica.backupId != failedId)
             continue;
         LOG(DEBUG, "Segment %lu recovering from lost replica", segmentId);
+        ++metrics->master.replicaRecoveries;
 
         // If the segment contains a digest, isn't durably acked, and
         // could appear open during recovery (that is, it isn't being
@@ -317,6 +320,7 @@ ReplicatedSegment::handleBackupFailure(ServerId failedId)
             !recoveringFromLostOpenReplicas) {
             recoveringFromLostOpenReplicas = true;
             LOG(DEBUG, "Lost replica(s) for segment %lu while open", segmentId);
+            ++metrics->master.openReplicaRecoveries;
         }
 
         replica.failed();

@@ -375,6 +375,15 @@ CoordinatorService::hintServerDown(const HintServerDownRpc::Request& reqHdr,
     ProtoBuf::ServerList removalUpdate;
     serverList.remove(serverId, removalUpdate);
 
+    // Update cluster membership information.
+    // Backup recovery is kicked off via this update.
+    // Deciding whether to place this before or after the start of master
+    // recovery is difficult.  With small cluster sizes kicking off backup
+    // recoveries this early didn't interfere with master recovery
+    // performance, but we'll want to keep an eye on this.
+    sendMembershipUpdate(removalUpdate, ServerId(/* invalid id */));
+
+    // Start master recovery.
     if (serverEntry.isMaster()) {
         std::unique_ptr<ProtoBuf::Tablets> will(serverEntry.will);
 
@@ -407,12 +416,6 @@ CoordinatorService::hintServerDown(const HintServerDownRpc::Request& reqHdr,
 
         recovery->start();
     }
-
-    // Update cluster membership information last. This delay will cause some
-    // spurious hintServerDown requests to the coordinator, but it's better
-    // that we finish recovery faster.
-    // Backup recovery is kicked off via this update.
-    sendMembershipUpdate(removalUpdate, ServerId(/* invalid id */));
 }
 
 /**

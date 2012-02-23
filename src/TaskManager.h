@@ -76,6 +76,7 @@ class TaskManager {
     TaskManager();
     ~TaskManager();
     bool isIdle();
+    size_t outstandingTasks();
     void proceed();
 
   PRIVATE:
