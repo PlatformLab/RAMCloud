@@ -104,6 +104,11 @@ CoordinatorClient::openTable(const char* name)
 
 /**
  * Servers call this when they come online to beg for work.
+ * \param replacesId
+ *      Server id the calling server used to operate at; the coordinator must
+ *      make sure this server is removed from the cluster before enlisting
+ *      the calling server.  If !isValid() then this step is skipped; the
+ *      enlisting server is simply added.
  * \param serviceMask
  *      Which services are available on the enlisting server. MASTER_SERVICE,
  *      BACKUP_SERVICE, etc.
@@ -119,7 +124,8 @@ CoordinatorClient::openTable(const char* name)
  *      A ServerId guaranteed never to have been used before.
  */
 ServerId
-CoordinatorClient::enlistServer(ServiceMask serviceMask,
+CoordinatorClient::enlistServer(ServerId replacesId,
+                                ServiceMask serviceMask,
                                 string localServiceLocator,
                                 uint32_t readSpeed,
                                 uint32_t writeSpeed)
@@ -130,6 +136,7 @@ CoordinatorClient::enlistServer(ServiceMask serviceMask,
             Buffer resp;
             EnlistServerRpc::Request& reqHdr(
                 allocHeader<EnlistServerRpc>(req));
+            reqHdr.replacesId = replacesId.getId();
             reqHdr.serviceMask = serviceMask.serialize();
             reqHdr.readSpeed = readSpeed;
             reqHdr.writeSpeed = writeSpeed;

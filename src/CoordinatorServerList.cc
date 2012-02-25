@@ -50,21 +50,25 @@ CoordinatorServerList::~CoordinatorServerList()
  * Add a new server to the CoordinatorServerList and generate a new, unique
  * ServerId for it.
  *
+ * After an add() but before sending \a update to the cluster
+ * incrementVersion() must be called.  Also, \a update can contain both
+ * remove and add notifications, but removals must precede additions in the
+ * update to ensure ordering guarantees about notifications related to
+ * servers which re-enlist.  For now, this means calls to remove() must
+ * proceed call to add() if they have a common \a update.
+ *
+ * \param serverId
+ *      The ServerId of the server to add to the CoordinatorServerList.
  * \param serviceLocator
  *      The ServiceLocator string of the server to add.
- *
  * \param serviceMask
  *      Which services this server supports.
- *
  *  \param readSpeed
  *      Speed of the storage on the enlisting server if it includes a backup
  *      service.  Argument is ignored otherwise.
- *
- * \param protoBuf
- *      Protocol Buffer to serialise the added entry in to. This message can
- *      then be sent along to other servers in the cluster, alerting them of
- *      this server's addition.
- *
+ * \param update
+ *      Cluster membership update message to append a serialized add
+ *      notification to.
  * \return
  *      The unique ServerId assigned to this server.
  */
@@ -72,7 +76,7 @@ ServerId
 CoordinatorServerList::add(string serviceLocator,
                            ServiceMask serviceMask,
                            uint32_t readSpeed,
-                           ProtoBuf::ServerList& protoBuf)
+                           ProtoBuf::ServerList& update)
 {
     uint32_t index = firstFreeIndex();
 
@@ -87,49 +91,62 @@ CoordinatorServerList::add(string serviceLocator,
         serverList[index].entry->backupReadMBytesPerSec = readSpeed;
     }
 
-    versionNumber++;
-    ProtoBuf::ServerList_Entry& protoBufEntry(*protoBuf.add_server());
+    ProtoBuf::ServerList_Entry& protoBufEntry(*update.add_server());
     serverList[index].entry->serialise(protoBufEntry, true);
-    protoBuf.set_version_number(versionNumber);
 
     return id;
 }
 
 /**
  * Remove a server from the list, typically when it is no longer part of
- * the system and we don't care about it anymore (e.g. it crashed and has
+ * the system and we don't care about it anymore (it crashed and has
  * been properly recovered).
+ *
+ * After a remove() but before sending \a update to the cluster
+ * incrementVersion() must be called.  Also, \a update can contain both
+ * remove and add notifications, but removals must precede additions in the
+ * update to ensure ordering guarantees about notifications related to
+ * servers which re-enlist.  For now, this means calls to remove() must
+ * proceed call to add() if they have a common \a update.
  *
  * \param serverId
  *      The ServerId of the server to remove from the CoordinatorServerList.
- *
- * \param protoBuf
- *      Protocol Buffer to serialise the removed entry in to. This message
- *      can then be sent along to other servers in the cluster, alerting them
- *      of this server's removal.
+ * \param update
+ *      Cluster membership update message to append a serialzed removal
+ *      notification to.
  */
 void
 CoordinatorServerList::remove(ServerId serverId,
-                              ProtoBuf::ServerList& protoBuf)
+                              ProtoBuf::ServerList& update)
 {
     uint32_t index = serverId.indexNumber();
-    if (index < serverList.size() && serverList[index].entry &&
-      serverList[index].entry->serverId == serverId) {
-        if (serverList[index].entry->isMaster())
-            numberOfMasters--;
-        if (serverList[index].entry->isBackup())
-            numberOfBackups--;
-
-        versionNumber++;
-        ProtoBuf::ServerList_Entry& protoBufEntry(*protoBuf.add_server());
-        serverList[index].entry->serialise(protoBufEntry, false);
-        protoBuf.set_version_number(versionNumber);
-
-        serverList[index].entry.destroy();
-        return;
+    if (index >= serverList.size() || !serverList[index].entry ||
+        serverList[index].entry->serverId != serverId) {
+        throw Exception(HERE,
+                        format("Invalid ServerId (%lu)", serverId.getId()));
     }
 
-    throw Exception(HERE, format("Invalid ServerId (%lu)", serverId.getId()));
+    if (serverList[index].entry->isMaster())
+        numberOfMasters--;
+    if (serverList[index].entry->isBackup())
+        numberOfBackups--;
+
+    ProtoBuf::ServerList_Entry& protoBufEntry(*update.add_server());
+    serverList[index].entry->serialise(protoBufEntry, false);
+    serverList[index].entry.destroy();
+}
+
+/**
+ * Increments the list's version number and sets the version number on
+ * \a update to match, this must be called after remove()/add() calls have
+ * changed the list but before the update message has been sent to the
+ * cluster members.
+ */
+void
+CoordinatorServerList::incrementVersion(ProtoBuf::ServerList& update)
+{
+    versionNumber++;
+    update.set_version_number(versionNumber);
 }
 
 /**
@@ -176,6 +193,9 @@ CoordinatorServerList::operator[](size_t index)
 bool
 CoordinatorServerList::contains(ServerId serverId) const
 {
+    if (!serverId.isValid())
+        return false;
+
     uint32_t index = serverId.indexNumber();
 
     if (index >= serverList.size())

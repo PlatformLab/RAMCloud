@@ -101,9 +101,10 @@ class CoordinatorServerList {
     ServerId add(string serviceLocator,
                  ServiceMask serviceMask,
                  uint32_t readSpeed,
-                 ProtoBuf::ServerList& protoBuf);
+                 ProtoBuf::ServerList& update);
     void remove(ServerId serverId,
-                ProtoBuf::ServerList& protoBuf);
+                ProtoBuf::ServerList& update);
+    void incrementVersion(ProtoBuf::ServerList& update);
     const Entry& operator[](const ServerId& serverId) const;
     Entry& operator[](const ServerId& serverId);
     const Entry* operator[](size_t index) const;

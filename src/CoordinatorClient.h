@@ -43,7 +43,8 @@ class CoordinatorClient : public Client {
     void dropTable(const char* name);
     uint32_t openTable(const char* name);
 
-    ServerId enlistServer(ServiceMask serviceMask,
+    ServerId enlistServer(ServerId replacesId,
+                          ServiceMask serviceMask,
                           string localServiceLocator,
                           uint32_t readSpeed = 0,
                           uint32_t writeSpeed = 0);

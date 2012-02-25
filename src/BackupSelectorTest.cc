@@ -52,29 +52,31 @@ struct BackupSelectorTest : public ::testing::Test {
     void addEqualHosts(CoordinatorClient* coordinator,
                        std::vector<ServerId>& ids) {
         ServiceMask b{BACKUP_SERVICE};
-        ids.push_back(coordinator->enlistServer(b, "mock:host=backup1", 100));
-        ids.push_back(coordinator->enlistServer(b, "mock:host=backup2", 100));
-        ids.push_back(coordinator->enlistServer(b, "mock:host=backup3", 100));
-        ids.push_back(coordinator->enlistServer(b, "mock:host=backup4", 100));
-        ids.push_back(coordinator->enlistServer(b, "mock:host=backup5", 100));
-        ids.push_back(coordinator->enlistServer(b, "mock:host=backup6", 100));
-        ids.push_back(coordinator->enlistServer(b, "mock:host=backup7", 100));
-        ids.push_back(coordinator->enlistServer(b, "mock:host=backup8", 100));
-        ids.push_back(coordinator->enlistServer(b, "mock:host=backup9", 100));
+        auto& c = coordinator;
+        ids.push_back(c->enlistServer({}, b, "mock:host=backup1", 100));
+        ids.push_back(c->enlistServer({}, b, "mock:host=backup2", 100));
+        ids.push_back(c->enlistServer({}, b, "mock:host=backup3", 100));
+        ids.push_back(c->enlistServer({}, b, "mock:host=backup4", 100));
+        ids.push_back(c->enlistServer({}, b, "mock:host=backup5", 100));
+        ids.push_back(c->enlistServer({}, b, "mock:host=backup6", 100));
+        ids.push_back(c->enlistServer({}, b, "mock:host=backup7", 100));
+        ids.push_back(c->enlistServer({}, b, "mock:host=backup8", 100));
+        ids.push_back(c->enlistServer({}, b, "mock:host=backup9", 100));
     }
 
     void addDifferentHosts(CoordinatorClient* coordinator,
                            std::vector<ServerId>& ids) {
         ServiceMask b{BACKUP_SERVICE};
-        ids.push_back(coordinator->enlistServer(b, "mock:host=backup1", 10));
-        ids.push_back(coordinator->enlistServer(b, "mock:host=backup2", 20));
-        ids.push_back(coordinator->enlistServer(b, "mock:host=backup3", 30));
-        ids.push_back(coordinator->enlistServer(b, "mock:host=backup4", 40));
-        ids.push_back(coordinator->enlistServer(b, "mock:host=backup5", 50));
-        ids.push_back(coordinator->enlistServer(b, "mock:host=backup6", 60));
-        ids.push_back(coordinator->enlistServer(b, "mock:host=backup7", 70));
-        ids.push_back(coordinator->enlistServer(b, "mock:host=backup8", 80));
-        ids.push_back(coordinator->enlistServer(b, "mock:host=backup9", 90));
+        auto& c = coordinator;
+        ids.push_back(c->enlistServer({}, b, "mock:host=backup1", 10));
+        ids.push_back(c->enlistServer({}, b, "mock:host=backup2", 20));
+        ids.push_back(c->enlistServer({}, b, "mock:host=backup3", 30));
+        ids.push_back(c->enlistServer({}, b, "mock:host=backup4", 40));
+        ids.push_back(c->enlistServer({}, b, "mock:host=backup5", 50));
+        ids.push_back(c->enlistServer({}, b, "mock:host=backup6", 60));
+        ids.push_back(c->enlistServer({}, b, "mock:host=backup7", 70));
+        ids.push_back(c->enlistServer({}, b, "mock:host=backup8", 80));
+        ids.push_back(c->enlistServer({}, b, "mock:host=backup9", 90));
     }
 
     DISALLOW_COPY_AND_ASSIGN(BackupSelectorTest);
@@ -102,7 +104,8 @@ struct BackgroundEnlistBackup {
         std::this_thread::yield();
         usleep(1 * 1000);
         // See if enlisting a server unblocks the call.
-        coordinator->enlistServer({BACKUP_SERVICE}, "mock:host=backup10", 10);
+        coordinator->enlistServer({}, {BACKUP_SERVICE},
+                                  "mock:host=backup10", 10);
     }
 
     Context* context;

@@ -98,7 +98,6 @@ class ServerId {
     uint64_t
     getId() const
     {
-        assert(isValid());
         return serverId;
     }
 

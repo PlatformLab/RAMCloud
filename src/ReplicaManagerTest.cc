@@ -54,7 +54,7 @@ struct ReplicaManagerTest : public ::testing::Test {
 
         mgr.construct(serverList, serverId, 2, &cluster.coordinatorLocator);
         serverId = cluster.getCoordinatorClient()->
-                            enlistServer({MASTER_SERVICE}, "", 0 , 0);
+                            enlistServer({}, {MASTER_SERVICE}, "", 0 , 0);
     }
 
     ServerId addToServerList(Server* server)

@@ -34,7 +34,7 @@ CoordinatorService::CoordinatorService()
     , nextTableId(0)
     , nextTableMasterIdx(0)
     , mockRecovery(NULL)
-    , test_forceServerReallyDown(false)
+    , forceServerDownForTesting(false)
 {
 }
 
@@ -252,17 +252,37 @@ CoordinatorService::enlistServer(const EnlistServerRpc::Request& reqHdr,
                                  EnlistServerRpc::Response& respHdr,
                                  Rpc& rpc)
 {
+    ServerId replacesId = ServerId(reqHdr.replacesId);
     ServiceMask serviceMask = ServiceMask::deserialize(reqHdr.serviceMask);
     const uint32_t readSpeed = reqHdr.readSpeed;
     const uint32_t writeSpeed = reqHdr.writeSpeed;
-    const char *serviceLocator = getString(rpc.requestPayload, sizeof(reqHdr),
+    const char* serviceLocator = getString(rpc.requestPayload, sizeof(reqHdr),
                                            reqHdr.serviceLocatorLength);
 
-    ProtoBuf::ServerList additionUpdate;
+    // Keep track of the details of the server id that is being forced out
+    // of the cluster by the enlister so we can start recovery.
+    Tub<CoordinatorServerList::Entry> replacedEntry;
+
+    // The order of the updates in serverListUpdate is important: the remove
+    // must be ordered before the add to ensure that as members apply the
+    // update they will see the removal of the old server id before the
+    // addition of the new, replacing server id.
+    ProtoBuf::ServerList serverListUpdate;
+    if (serverList.contains(replacesId)) {
+        LOG(NOTICE, "%s is enlisting claiming to replace server id "
+            "%lu, which is still in the server list, taking its word "
+            "for it and assuming the old server has failed",
+            serviceLocator, replacesId.getId());
+        replacedEntry.construct(serverList[replacesId]);
+        // Don't increment server list yet; done after the add below.
+        serverList.remove(replacesId, serverListUpdate);
+    }
+
     ServerId newServerId = serverList.add(serviceLocator,
                                           serviceMask,
                                           readSpeed,
-                                          additionUpdate);
+                                          serverListUpdate);
+    serverList.incrementVersion(serverListUpdate);
     CoordinatorServerList::Entry& entry = serverList[newServerId];
 
     LOG(NOTICE, "Enlisting new server at %s (server id %lu) supporting "
@@ -285,7 +305,12 @@ CoordinatorService::enlistServer(const EnlistServerRpc::Request& reqHdr,
 
     if (entry.serviceMask.has(MEMBERSHIP_SERVICE))
         sendServerList(newServerId);
-    sendMembershipUpdate(additionUpdate, newServerId);
+    sendMembershipUpdate(serverListUpdate, newServerId);
+
+    // Recovery on the replaced host is deferred until the replacing host
+    // has been enlisted.
+    if (replacedEntry)
+        startMasterRecovery(*replacedEntry);
 }
 
 /**
@@ -328,52 +353,27 @@ CoordinatorService::hintServerDown(const HintServerDownRpc::Request& reqHdr,
                                    HintServerDownRpc::Response& respHdr,
                                    Rpc& rpc)
 {
-    bool isServerReallyDown = false;
-    PingClient pingClient;
     ServerId serverId(reqHdr.serverId);
     rpc.sendReply();
 
     // reqHdr, respHdr, and rpc are off-limits now
 
-    if (test_forceServerReallyDown)
-        isServerReallyDown = true;
-
     if (!serverList.contains(serverId)) {
         LOG(NOTICE, "Spurious report on unknown server id %lu", *serverId);
         return;
     }
-    string& serviceLocator = serverList[serverId].serviceLocator;
 
-    // Skip the real ping if this is from a unit test
-    if (!isServerReallyDown) {
-        try {
-            uint64_t nonce = generateRandom();
-            pingClient.ping(serviceLocator.c_str(),
-                            nonce, TIMEOUT_USECS * 1000);
-        } catch (TimeoutException &te) {
-            // Fall through
-            isServerReallyDown = true;
-        }
-    }
-
-    if (!isServerReallyDown) {
-        LOG(NOTICE, "False positive for server id %lu (\"%s\")",
-                    *serverId, serviceLocator.c_str());
+    if (!verifyServerFailure(serverId))
         return;
-    }
 
-    LOG(NOTICE, "Verified host failure, removing from cluster: id %lu (\"%s\")",
-        *serverId, serviceLocator.c_str());
-
-    /*
-     * If this machine has a backup and master on the same host we need to
-     * remove the dead backup before initiating recovery. Otherwise, other hosts
-     * may try to backup onto a dead machine and we will be in more trouble.
-     */
-
+     // If this machine has a backup and master on the same server we need to
+     // remove the dead backup before initiating recovery. Otherwise, other
+     // servers may try to backup onto a dead machine and we will be in more
+     // trouble.
     CoordinatorServerList::Entry serverEntry = serverList[serverId];
     ProtoBuf::ServerList removalUpdate;
     serverList.remove(serverId, removalUpdate);
+    serverList.incrementVersion(removalUpdate);
 
     // Update cluster membership information.
     // Backup recovery is kicked off via this update.
@@ -383,39 +383,7 @@ CoordinatorService::hintServerDown(const HintServerDownRpc::Request& reqHdr,
     // performance, but we'll want to keep an eye on this.
     sendMembershipUpdate(removalUpdate, ServerId(/* invalid id */));
 
-    // Start master recovery.
-    if (serverEntry.isMaster()) {
-        std::unique_ptr<ProtoBuf::Tablets> will(serverEntry.will);
-
-        foreach (ProtoBuf::Tablets::Tablet& tablet,
-                 *tabletMap.mutable_tablet()) {
-            if (tablet.server_id() == serverId.getId())
-                tablet.set_state(ProtoBuf::Tablets_Tablet::RECOVERING);
-        }
-
-        LOG(NOTICE, "Recovering master %lu (\"%s\") on %u recovery masters "
-            "using %u backups", serverId.getId(),
-            serverEntry.serviceLocator.c_str(),
-            serverList.masterCount(),
-            serverList.backupCount());
-
-        BaseRecovery* recovery = NULL;
-        if (mockRecovery != NULL) {
-            (*mockRecovery)(serverId, *will, serverList);
-            recovery = mockRecovery;
-        } else {
-            recovery = new Recovery(serverId, *will, serverList);
-        }
-
-        // Keep track of recovery for each of the tablets it's working on.
-        foreach (ProtoBuf::Tablets::Tablet& tablet,
-                 *tabletMap.mutable_tablet()) {
-            if (tablet.server_id() == serverId.getId())
-                tablet.set_user_data(reinterpret_cast<uint64_t>(recovery));
-        }
-
-        recovery->start();
-    }
+    startMasterRecovery(serverEntry);
 }
 
 /**
@@ -533,6 +501,134 @@ CoordinatorService::setWill(const SetWillRpc::Request& reqHdr,
 }
 
 /**
+ * Handle the REQUEST_SERVER_LIST RPC.
+ *
+ * The Coordinator always pushes server lists and their updates. If a server's
+ * FailureDetector determines that the list is out of date, it issues an RPC
+ * here to request that we re-send the list.
+ *
+ * \copydetails Service::ping
+ */
+void
+CoordinatorService::requestServerList(
+    const RequestServerListRpc::Request& reqHdr,
+    RequestServerListRpc::Response& respHdr,
+    Rpc& rpc)
+{
+    ServerId id(reqHdr.serverId);
+    rpc.sendReply();
+
+    if (!serverList.contains(id)) {
+        LOG(WARNING, "Could not send list to unknown server %lu", *id);
+        return;
+    }
+
+    if (!serverList[id].serviceMask.has(MEMBERSHIP_SERVICE)) {
+        LOG(WARNING, "Could not send list to server without membership "
+            "service: %lu", *id);
+        return;
+    }
+
+    LOG(DEBUG, "Sending server list to server id %lu as requested", *id);
+    sendServerList(id);
+}
+
+/**
+ * Issue a cluster membership update to all enlisted servers in the system
+ * that are running the MembershipService.
+ *
+ * \param update
+ *      Protocol Buffer containing the update to be sent.
+ *
+ * \param excludeServerId
+ *      ServerId of a server that is not to receive this update. This is
+ *      used to avoid sending an update message to a server immediately
+ *      following its enlistment (since we'll be sending the entire list
+ *      instead).
+ */
+void
+CoordinatorService::sendMembershipUpdate(ProtoBuf::ServerList& update,
+                                         ServerId excludeServerId)
+{
+    MembershipClient client;
+    for (size_t i = 0; i < serverList.size(); i++) {
+        if (serverList[i] == NULL ||
+            !serverList[i]->serviceMask.has(MEMBERSHIP_SERVICE))
+            continue;
+        if (serverList[i]->serverId == excludeServerId)
+            continue;
+
+        bool succeeded = client.updateServerList(
+            serverList[i]->serviceLocator.c_str(), update);
+
+        // If this server had missed a previous update it will return
+        // failure and expect us to push the whole list again.
+        if (!succeeded) {
+            LOG(NOTICE, "Server %lu had lost an update. Sending whole list.",
+                *serverList[i]->serverId);
+            sendServerList(serverList[i]->serverId);
+        }
+    }
+}
+
+/**
+ * Push the entire server list to the specified server. This is used to both
+ * push the initial list when a server enlists, as well as to push the list
+ * again if a server misses any updates and has gone out of sync.
+ *
+ * \param destination
+ *      ServerId of the server to send the list to.
+ */
+void
+CoordinatorService::sendServerList(ServerId destination)
+{
+    ProtoBuf::ServerList serialisedServerList;
+    serverList.serialise(serialisedServerList);
+
+    MembershipClient client;
+    client.setServerList(serverList[destination].serviceLocator.c_str(),
+                         serialisedServerList);
+}
+
+/**
+ * Handle the SET_MIN_OPEN_SEGMENT_ID.
+ *
+ * Updates the minimum open segment id for a particular server.  If the
+ * requested update is less than the current value maintained by the
+ * coordinator then the old value is retained (that is, the coordinator
+ * ignores updates that decrease the value).
+ * Any open replicas found during recovery are considered invalid
+ * if they have a segmentId less than the minimum open segment id maintained
+ * by the coordinator.  This is used by masters to invalidate replicas they
+ * have lost contact with while actively writing to them.
+ *
+ * \copydetails Service::ping
+ */
+void
+CoordinatorService::setMinOpenSegmentId(
+    const SetMinOpenSegmentIdRpc::Request& reqHdr,
+    SetMinOpenSegmentIdRpc::Response& respHdr,
+    Rpc& rpc)
+{
+    ServerId serverId(reqHdr.serverId);
+    uint64_t segmentId = reqHdr.segmentId;
+
+    LOG(DEBUG, "setMinOpenSegmentId for server %lu to %lu",
+        serverId.getId(), segmentId);
+
+    if (!serverList.contains(serverId)) {
+        LOG(WARNING, "setMinOpenSegmentId server doesn't exist: %lu",
+            serverId.getId());
+        respHdr.common.status = STATUS_SERVER_DOESNT_EXIST;
+        return;
+    }
+
+    CoordinatorServerList::Entry& entry = serverList[serverId];
+    if (entry.minOpenSegmentId < segmentId)
+        entry.minOpenSegmentId = segmentId;
+}
+
+/**
  * Update the will associated with a specific master ServerId.
  *
  * \param masterId
@@ -575,131 +671,86 @@ CoordinatorService::setWill(ServerId masterId, Buffer& buffer,
 }
 
 /**
- * Handle the REQUEST_SERVER_LIST RPC.
+ * Initiate a recovery of a crashed master.
  *
- * The Coordinator always pushes server lists and their updates. If a server's
- * FailureDetector determines that the list is out of date, it issues an RPC
- * here to request that we re-send the list.
- *
- * \copydetails Service::ping
+ * \param serverId
+ *      The crashed server which is to be recovered.  If the server was
+ *      not running a master service then nothing is done.
+ * \throw Exception
+ *      If \a serverId is not in #serverList.
  */
 void
-CoordinatorService::requestServerList(
-    const RequestServerListRpc::Request& reqHdr,
-    RequestServerListRpc::Response& respHdr,
-    Rpc& rpc)
+CoordinatorService::startMasterRecovery(
+                                const CoordinatorServerList::Entry& serverEntry)
 {
-    ServerId id(reqHdr.serverId);
-    rpc.sendReply();
-
-    if (!serverList.contains(id)) {
-        LOG(WARNING, "Could not send list to unknown server %lu", *id);
+    if (!serverEntry.isMaster())
         return;
+
+    ServerId serverId = serverEntry.serverId;
+    std::unique_ptr<ProtoBuf::Tablets> will(serverEntry.will);
+
+    foreach (ProtoBuf::Tablets::Tablet& tablet,
+             *tabletMap.mutable_tablet()) {
+        if (tablet.server_id() == serverId.getId())
+            tablet.set_state(ProtoBuf::Tablets_Tablet::RECOVERING);
     }
 
-    if (!serverList[id].serviceMask.has(MEMBERSHIP_SERVICE)) {
-        LOG(WARNING, "Could not send list to server without membership "
-            "service: %lu", *id);
-        return;
+    LOG(NOTICE, "Recovering master %lu (\"%s\") on %u recovery masters "
+        "using %u backups", serverId.getId(),
+        serverEntry.serviceLocator.c_str(),
+        serverList.masterCount(),
+        serverList.backupCount());
+
+    BaseRecovery* recovery = NULL;
+    if (mockRecovery != NULL) {
+        (*mockRecovery)(serverId, *will, serverList);
+        recovery = mockRecovery;
+    } else {
+        recovery = new Recovery(serverId, *will, serverList);
     }
 
-    LOG(DEBUG, "Sending server list to server id %lu as requested", *id);
-    sendServerList(id);
+    // Keep track of recovery for each of the tablets it's working on.
+    foreach (ProtoBuf::Tablets::Tablet& tablet,
+             *tabletMap.mutable_tablet()) {
+        if (tablet.server_id() == serverId.getId())
+            tablet.set_user_data(reinterpret_cast<uint64_t>(recovery));
+    }
+
+    recovery->start();
 }
 
 /**
- * Push the entire server list to the specified server. This is used to both
- * push the initial list when a server enlists, as well as to push the list
- * again if a server misses any updates and has gone out of sync.
+ * Investigate \a serverId and make a verdict about its whether it is alive.
  *
- * \param destination
- *      ServerId of the server to send the list to.
+ * \param serverId
+ *      Server to investigate.
+ * \return
+ *      True if the server is dead, false if it is alive.
+ * \throw Exception
+ *      If \a serverId is not in #serverList.
  */
-void
-CoordinatorService::sendServerList(ServerId destination)
-{
-    ProtoBuf::ServerList serialisedServerList;
-    serverList.serialise(serialisedServerList);
+bool
+CoordinatorService::verifyServerFailure(ServerId serverId) {
+    // Skip the real ping if this is from a unit test
+    if (forceServerDownForTesting)
+        return true;
 
-    MembershipClient client;
-    client.setServerList(serverList[destination].serviceLocator.c_str(),
-                         serialisedServerList);
-}
-
-/**
- * Issue a cluster membership update to all enlisted servers in the system
- * that are running the MembershipService.
- *
- * \param update
- *      Protocol Buffer containing the update to be sent.
- *
- * \param excludeServerId
- *      ServerId of a server that is not to receive this update. This is
- *      used to avoid sending an update message to a server immediately
- *      following its enlistment (since we'll be sending the entire list
- *      instead).
- */
-void
-CoordinatorService::sendMembershipUpdate(ProtoBuf::ServerList& update,
-                                         ServerId excludeServerId)
-{
-    MembershipClient client;
-    for (size_t i = 0; i < serverList.size(); i++) {
-        if (serverList[i] == NULL ||
-            !serverList[i]->serviceMask.has(MEMBERSHIP_SERVICE))
-            continue;
-        if (serverList[i]->serverId == excludeServerId)
-            continue;
-
-        bool succeeded = client.updateServerList(
-            serverList[i]->serviceLocator.c_str(), update);
-
-        // If this server had missed a previous update it will return
-        // failure and expect us to push the whole list again.
-        if (!succeeded) {
-            LOG(NOTICE, "Server %lu had lost an update. Sending whole list.",
-                *serverList[i]->serverId);
-            sendServerList(serverList[i]->serverId);
-        }
+    const string& serviceLocator = serverList[serverId].serviceLocator;
+    try {
+        uint64_t nonce = generateRandom();
+        PingClient pingClient;
+        pingClient.ping(serviceLocator.c_str(),
+                        nonce, TIMEOUT_USECS * 1000);
+        LOG(NOTICE, "False positive for server id %lu (\"%s\")",
+                    *serverId, serviceLocator.c_str());
+        return false;
+    } catch (TransportException& e) {
+    } catch (TimeoutException& e) {
     }
-}
+    LOG(NOTICE, "Verified host failure: id %lu (\"%s\")",
+        *serverId, serviceLocator.c_str());
 
-/**
- * Handle the SET_MIN_OPEN_SEGMENT_ID.
- *
- * Updates the minimum open segment id for a particular server.  If the
- * requested update is less than the current value maintained by the
- * coordinator then the old value is retained (that is, the coordinator
- * ignores updates that decrease the value).
- * Any open replicas found during recovery are considered invalid
- * if they have a segmentId less than the minimum open segment id maintained
- * by the coordinator.  This is used by masters to invalidate replicas they
- * have lost contact with while actively writing to them.
- *
- * \copydetails Service::ping
- */
-void
-CoordinatorService::setMinOpenSegmentId(
-    const SetMinOpenSegmentIdRpc::Request& reqHdr,
-    SetMinOpenSegmentIdRpc::Response& respHdr,
-    Rpc& rpc)
-{
-    ServerId serverId(reqHdr.serverId);
-    uint64_t segmentId = reqHdr.segmentId;
-
-    LOG(DEBUG, "setMinOpenSegmentId for server %lu to %lu",
-        serverId.getId(), segmentId);
-
-    if (!serverList.contains(serverId)) {
-        LOG(WARNING, "setMinOpenSegmentId server doesn't exist: %lu",
-            serverId.getId());
-        respHdr.common.status = STATUS_SERVER_DOESNT_EXIST;
-        return;
-    }
-
-    CoordinatorServerList::Entry& entry = serverList[serverId];
-    if (entry.minOpenSegmentId < segmentId)
-        entry.minOpenSegmentId = segmentId;
+    return true;
 }
 
 } // namespace RAMCloud

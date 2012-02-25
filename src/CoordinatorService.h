@@ -47,6 +47,8 @@ class CoordinatorService : public Service {
      * have been seeing this timeout should be at least 250ms.
      */
     static const int TIMEOUT_USECS = 250 * 1000;
+
+    // - rpc handlers -
     void createTable(const CreateTableRpc::Request& reqHdr,
                      CreateTableRpc::Response& respHdr,
                      Rpc& rpc);
@@ -59,46 +61,38 @@ class CoordinatorService : public Service {
     void enlistServer(const EnlistServerRpc::Request& reqHdr,
                       EnlistServerRpc::Response& respHdr,
                       Rpc& rpc);
-
     void getServerList(const GetServerListRpc::Request& reqHdr,
                        GetServerListRpc::Response& respHdr,
                        Rpc& rpc);
-
     void getTabletMap(const GetTabletMapRpc::Request& reqHdr,
                       GetTabletMapRpc::Response& respHdr,
                       Rpc& rpc);
-
     void hintServerDown(const HintServerDownRpc::Request& reqHdr,
                         HintServerDownRpc::Response& respHdr,
                         Rpc& rpc);
-
     void tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
                           TabletsRecoveredRpc::Response& respHdr,
                           Rpc& rpc);
-
     void quiesce(const BackupQuiesceRpc::Request& reqHdr,
                  BackupQuiesceRpc::Response& respHdr,
                  Rpc& rpc);
-
     void setWill(const SetWillRpc::Request& reqHdr,
                  SetWillRpc::Response& respHdr,
                  Rpc& rpc);
-
-    bool setWill(ServerId masterId, Buffer& buffer,
-                 uint32_t offset, uint32_t length);
-
     void requestServerList(const RequestServerListRpc::Request& reqHdr,
                            RequestServerListRpc::Response& respHdr,
                            Rpc& rpc);
-
-    void sendServerList(ServerId destination);
-
+    // - helper methods -
     void sendMembershipUpdate(ProtoBuf::ServerList& update,
                               ServerId excludeServerId);
-
+    void sendServerList(ServerId destination);
     void setMinOpenSegmentId(const SetMinOpenSegmentIdRpc::Request& reqHdr,
                              SetMinOpenSegmentIdRpc::Response& respHdr,
                              Rpc& rpc);
+    bool setWill(ServerId masterId, Buffer& buffer,
+                 uint32_t offset, uint32_t length);
+    void startMasterRecovery(const CoordinatorServerList::Entry& serverEntry);
+    bool verifyServerFailure(ServerId serverId);
 
     /**
      * List of all servers in the system. This structure is used to allocate
@@ -139,7 +133,7 @@ class CoordinatorService : public Service {
      * Used for testing only. If true, the HINT_SERVER_DOWN handler will
      * assume that the server has failed (rather than checking for itself).
      */
-    bool test_forceServerReallyDown;
+    bool forceServerDownForTesting;
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorService);
 };

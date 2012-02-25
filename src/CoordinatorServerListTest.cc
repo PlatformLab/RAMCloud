@@ -80,6 +80,8 @@ TEST_F(CoordinatorServerListTest, add) {
         EXPECT_FALSE(sl.serverList[1].entry->isBackup());
         EXPECT_EQ(0u, sl.serverList[1].entry->backupReadMBytesPerSec);
         EXPECT_EQ(1U, sl.serverList[1].nextGenerationNumber);
+        EXPECT_EQ(0U, sl.versionNumber);
+        sl.incrementVersion(update1);
         EXPECT_EQ(1U, sl.versionNumber);
         EXPECT_EQ(1U, update1.version_number());
         EXPECT_EQ(1, update1.server_size());
@@ -100,6 +102,8 @@ TEST_F(CoordinatorServerListTest, add) {
         EXPECT_EQ(1U, sl.serverList[2].nextGenerationNumber);
         EXPECT_EQ(1U, sl.numberOfMasters);
         EXPECT_EQ(1U, sl.numberOfBackups);
+        EXPECT_EQ(1U, sl.versionNumber);
+        sl.incrementVersion(update2);
         EXPECT_EQ(2U, sl.versionNumber);
         EXPECT_EQ(2U, update2.version_number());
         EXPECT_TRUE(protoBufMatchesEntry(update2.server(0),
@@ -119,7 +123,6 @@ TEST_F(CoordinatorServerListTest, remove) {
     EXPECT_FALSE(sl.serverList[1].entry);
     EXPECT_TRUE(protoBufMatchesEntry(removeUpdate.server(0),
             entryCopy, false));
-    EXPECT_EQ(2U, sl.versionNumber);
 
     EXPECT_THROW(sl.remove(ServerId(1, 0), removeUpdate), Exception);
     EXPECT_EQ(0U, sl.numberOfMasters);
@@ -131,7 +134,13 @@ TEST_F(CoordinatorServerListTest, remove) {
     EXPECT_NO_THROW(sl.remove(ServerId(1, 1), removeUpdate));
     EXPECT_EQ(0U, sl.numberOfMasters);
     EXPECT_EQ(0U, sl.numberOfBackups);
-    EXPECT_EQ(4U, sl.versionNumber);
+}
+
+TEST_F(CoordinatorServerListTest, incrementVersion) {
+    ProtoBuf::ServerList update;
+    sl.incrementVersion(update);
+    EXPECT_EQ(1u, sl.versionNumber);
+    EXPECT_EQ(1u, update.version_number());
 }
 
 TEST_F(CoordinatorServerListTest, indexOperator) {

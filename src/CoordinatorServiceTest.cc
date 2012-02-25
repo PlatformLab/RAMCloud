@@ -45,7 +45,7 @@ class CoordinatorServiceTest : public ::testing::Test {
 
         service = cluster.coordinator.get();
 
-        masterConfig.services = {MASTER_SERVICE};
+        masterConfig.services = {MASTER_SERVICE, PING_SERVICE};
         masterConfig.localLocator = "mock:host=master";
         Server* masterServer = cluster.addServer(masterConfig);
         master = masterServer->master.get();
@@ -105,12 +105,12 @@ TEST_F(CoordinatorServiceTest, createTable) {
 TEST_F(CoordinatorServiceTest, enlistServer) {
     EXPECT_EQ(1U, master->serverId.getId());
     EXPECT_EQ(ServerId(2, 0),
-        client->enlistServer({BACKUP_SERVICE}, "mock:host=backup"));
+        client->enlistServer({}, {BACKUP_SERVICE}, "mock:host=backup"));
 
     ProtoBuf::ServerList masterList;
     service->serverList.serialise(masterList, {MASTER_SERVICE});
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-                "server { service_mask: 1 server_id: 1 "
+                "server { service_mask: 9 server_id: 1 "
                 "service_locator: \"mock:host=master\" "
                 "backup_read_mbytes_per_sec: [0-9]\\+ is_in_cluster: true } "
                 "version_number: 2",
@@ -128,21 +128,47 @@ TEST_F(CoordinatorServiceTest, enlistServer) {
               backupList.ShortDebugString());
 }
 
+TEST_F(CoordinatorServiceTest, enlistServerReplaceAMaster) {
+    struct MockRecovery : public BaseRecovery {
+        explicit MockRecovery() : called(false), masterId() {}
+        void operator()(ServerId masterId,
+                        const ProtoBuf::Tablets& will,
+                        const CoordinatorServerList& serverList)
+        {
+            called = true;
+            this->masterId = masterId;
+        }
+        void start() {}
+        bool called;
+        ServerId masterId;
+    } mockRecovery;
+    Context::get().logger->setLogLevels(DEBUG);
+    service->mockRecovery = &mockRecovery;
+
+    TestLog::Enable _;
+    EXPECT_EQ(ServerId(1, 1),
+        client->enlistServer(masterServerId,
+                             {BACKUP_SERVICE}, "mock:host=backup"));
+
+    EXPECT_TRUE(mockRecovery.called);
+    EXPECT_EQ(ServerId(1, 0), mockRecovery.masterId);
+}
+
 TEST_F(CoordinatorServiceTest, getMasterList) {
     // master is already enlisted
     ProtoBuf::ServerList masterList;
     client->getMasterList(masterList);
     // need to avoid non-deterministic mbytes_per_sec field.
     EXPECT_EQ(0U, masterList.ShortDebugString().find(
-              "server { service_mask: 1 server_id: 1 "
+              "server { service_mask: 9 server_id: 1 "
               "service_locator: \"mock:host=master\" "
               "backup_read_mbytes_per_sec: "));
 }
 
 TEST_F(CoordinatorServiceTest, getBackupList) {
     // master is already enlisted
-    client->enlistServer({BACKUP_SERVICE}, "mock:host=backup1");
-    client->enlistServer({BACKUP_SERVICE}, "mock:host=backup2");
+    client->enlistServer({}, {BACKUP_SERVICE}, "mock:host=backup1");
+    client->enlistServer({}, {BACKUP_SERVICE}, "mock:host=backup2");
     ProtoBuf::ServerList backupList;
     client->getBackupList(backupList);
     EXPECT_EQ("server { service_mask: 2 server_id: 2 "
@@ -158,11 +184,11 @@ TEST_F(CoordinatorServiceTest, getBackupList) {
 
 TEST_F(CoordinatorServiceTest, getServerList) {
     // master is already enlisted
-    client->enlistServer({BACKUP_SERVICE}, "mock:host=backup1");
+    client->enlistServer({}, {BACKUP_SERVICE}, "mock:host=backup1");
     ProtoBuf::ServerList serverList;
     client->getServerList(serverList);
     EXPECT_EQ(2, serverList.server_size());
-    auto masterMask = ServiceMask{MASTER_SERVICE}.serialize();
+    auto masterMask = ServiceMask{MASTER_SERVICE, PING_SERVICE}.serialize();
     EXPECT_EQ(masterMask, serverList.server(0).service_mask());
     auto backupMask = ServiceMask{BACKUP_SERVICE}.serialize();
     EXPECT_EQ(backupMask, serverList.server(1).service_mask());
@@ -180,13 +206,14 @@ TEST_F(CoordinatorServiceTest, getTabletMap) {
 }
 
 TEST_F(CoordinatorServiceTest, hintServerDown_master) {
-    struct MyMockRecovery : public BaseRecovery {
-        explicit MyMockRecovery(CoordinatorServiceTest& test)
+    struct MockRecovery : public BaseRecovery {
+        explicit MockRecovery(CoordinatorServiceTest& test)
             : test(test), called(false) {}
         void
         operator()(ServerId masterId,
-                    const ProtoBuf::Tablets& will,
-                    const CoordinatorServerList& serverList) {
+                   const ProtoBuf::Tablets& will,
+                   const CoordinatorServerList& serverList)
+        {
 
             ProtoBuf::ServerList masterHosts, backupHosts;
             serverList.serialise(masterHosts, {MASTER_SERVICE});
@@ -203,7 +230,7 @@ TEST_F(CoordinatorServiceTest, hintServerDown_master) {
                       "state: NORMAL user_data: 0 }",
                       will.ShortDebugString());
             EXPECT_TRUE(TestUtil::matchesPosixRegex(
-                        "server { service_mask: 1 "
+                        "server { service_mask: 9 "
                         "server_id: 2 service_locator: "
                         "\"mock:host=master2\" backup_read_mbytes_per_sec: "
                         "[0-9]\\+ "
@@ -223,10 +250,11 @@ TEST_F(CoordinatorServiceTest, hintServerDown_master) {
     } mockRecovery(*this);
     service->mockRecovery = &mockRecovery;
     // master is already enlisted
-    client->enlistServer({MASTER_SERVICE}, "mock:host=master2");
-    client->enlistServer({BACKUP_SERVICE}, "mock:host=backup");
+    client->enlistServer({}, {MASTER_SERVICE, PING_SERVICE},
+                         "mock:host=master2");
+    client->enlistServer({}, {BACKUP_SERVICE}, "mock:host=backup");
     client->createTable("foo");
-    service->test_forceServerReallyDown = true;
+    service->forceServerDownForTesting = true;
     client->hintServerDown(masterServerId);
     EXPECT_TRUE(mockRecovery.called);
 
@@ -235,15 +263,16 @@ TEST_F(CoordinatorServiceTest, hintServerDown_master) {
     {
         if (tablet.server_id() == master->serverId.getId()) {
             EXPECT_TRUE(&mockRecovery ==
-                reinterpret_cast<MyMockRecovery*>(tablet.user_data()));
+                reinterpret_cast<MockRecovery*>(tablet.user_data()));
         }
     }
 }
 
 TEST_F(CoordinatorServiceTest, hintServerDown_backup) {
-    ServerId id = client->enlistServer({BACKUP_SERVICE}, "mock:host=backup");
+    ServerId id =
+        client->enlistServer({}, {BACKUP_SERVICE}, "mock:host=backup");
     EXPECT_EQ(1U, service->serverList.backupCount());
-    service->test_forceServerReallyDown = true;
+    service->forceServerDownForTesting = true;
     client->hintServerDown(id);
     EXPECT_EQ(0U, service->serverList.backupCount());
 }
@@ -257,9 +286,9 @@ TEST_F(CoordinatorServiceTest, tabletsRecovered_basics) {
     typedef ProtoBuf::Tablets::Tablet Tablet;
     typedef ProtoBuf::Tablets Tablets;
 
-    ServerId master2Id = client->enlistServer({MASTER_SERVICE},
+    ServerId master2Id = client->enlistServer({}, {MASTER_SERVICE},
         "mock:host=master2");
-    client->enlistServer({BACKUP_SERVICE}, "mock:host=backup");
+    client->enlistServer({}, {BACKUP_SERVICE}, "mock:host=backup");
 
     Tablets tablets;
     Tablet& tablet(*tablets.add_tablet());
@@ -316,7 +345,7 @@ setWillFilter(string s) {
 }
 
 TEST_F(CoordinatorServiceTest, setWill) {
-    client->enlistServer({MASTER_SERVICE}, "mock:host=master2");
+    client->enlistServer({}, {MASTER_SERVICE}, "mock:host=master2");
 
     ProtoBuf::Tablets will;
     ProtoBuf::Tablets::Tablet& t(*will.add_tablet());
@@ -396,6 +425,14 @@ TEST_F(CoordinatorServiceTest, setMinOpenSegmentId) {
     EXPECT_EQ(10u, service->serverList[masterServerId].minOpenSegmentId);
     client->setMinOpenSegmentId(masterServerId, 11);
     EXPECT_EQ(11u, service->serverList[masterServerId].minOpenSegmentId);
+}
+
+// startMasterRecovery is covered by hintServerDown tests.
+
+TEST_F(CoordinatorServiceTest, verifyServerFailure) {
+    EXPECT_FALSE(service->verifyServerFailure(masterServerId));
+    cluster.transport.errorMessage = "Server gone!";
+    EXPECT_TRUE(service->verifyServerFailure(masterServerId));
 }
 
 }  // namespace RAMCloud

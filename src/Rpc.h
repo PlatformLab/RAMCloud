@@ -343,6 +343,14 @@ struct EnlistServerRpc {
     static const ServiceType service = COORDINATOR_SERVICE;
     struct Request {
         RpcRequestCommon common;
+        uint64_t replacesId; ///< Server id this server used to operate
+                             ///< at; the coordinator must make
+                             ///< sure this server is removed
+                             ///< from the cluster before
+                             ///< enlisting the calling server.
+                             ///< If !isValid() then this step is
+                             ///< skipped; the enlisting server
+                             ///< is simply added.
         SerializedServiceMask serviceMask; ///< Which services are available
                                            ///< on the enlisting server.
         uint32_t readSpeed;            // MB/s read speed if a BACKUP
