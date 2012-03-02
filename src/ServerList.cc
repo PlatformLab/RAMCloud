@@ -187,17 +187,24 @@ ServerList::registerTracker(ServerTrackerInterface& tracker)
 
     trackers.push_back(&tracker);
 
-    // Push ADDs for all known servers to this tracker.
-    for (size_t i = 0; i < serverList.size(); i++) {
-        if (serverList[i]) {
-            ServerDetails details = *serverList[i];
-            details.status = ServerStatus::UP;
-            tracker.enqueueChange(details, ServerChangeEvent::SERVER_ADDED);
-            if (serverList[i]->status == ServerStatus::CRASHED) {
-                tracker.enqueueChange(*serverList[i],
-                                      ServerChangeEvent::SERVER_CRASHED);
-            }
-        }
+    // Push all known servers which are crashed first.
+    // Order is important to guarantee that if one server replaced another
+    // during enlistment that the registering tracker queue will have the
+    // crash event for the replaced server before the add event of the
+    // server which replaced it.
+    foreach (const Tub<ServerDetails>& server, serverList) {
+        if (!server || server->status != ServerStatus::CRASHED)
+            continue;
+        ServerDetails details = *server;
+        details.status = ServerStatus::UP;
+        tracker.enqueueChange(details, ServerChangeEvent::SERVER_ADDED);
+        tracker.enqueueChange(*server, ServerChangeEvent::SERVER_CRASHED);
+    }
+    // Push all known server which are up.
+    foreach (const Tub<ServerDetails>& server, serverList) {
+        if (!server || server->status != ServerStatus::UP)
+            continue;
+        tracker.enqueueChange(*server, ServerChangeEvent::SERVER_ADDED);
     }
     tracker.fireCallback();
 }

@@ -102,18 +102,22 @@ TEST_F(ServerListTest, registerTracker_pushAdds) {
     sl.add(ServerId(2, 3), "mock:", {}, 100);
     sl.add(ServerId(0, 1), "mock:", {}, 100);
     sl.add(ServerId(3, 4), "mock:", {}, 100);
+    sl.crashed(ServerId(3, 4), "mock:", {}, 100);
     sl.remove(ServerId(2, 3));
     sl.registerTracker(tr);
 
     // Should be in order, but missing (2, 3)
-    EXPECT_EQ(3U, changes.size());
+    EXPECT_EQ(4U, changes.size());
+    EXPECT_EQ(ServerId(3, 4), changes.front().server.serverId);
+    EXPECT_EQ(ServerChangeEvent::SERVER_ADDED, changes.front().event);
+    changes.pop();
+    EXPECT_EQ(ServerId(3, 4), changes.front().server.serverId);
+    EXPECT_EQ(ServerChangeEvent::SERVER_CRASHED, changes.front().event);
+    changes.pop();
     EXPECT_EQ(ServerId(0, 1), changes.front().server.serverId);
     EXPECT_EQ(ServerChangeEvent::SERVER_ADDED, changes.front().event);
     changes.pop();
     EXPECT_EQ(ServerId(1, 2), changes.front().server.serverId);
-    EXPECT_EQ(ServerChangeEvent::SERVER_ADDED, changes.front().event);
-    changes.pop();
-    EXPECT_EQ(ServerId(3, 4), changes.front().server.serverId);
     EXPECT_EQ(ServerChangeEvent::SERVER_ADDED, changes.front().event);
     changes.pop();
 }
