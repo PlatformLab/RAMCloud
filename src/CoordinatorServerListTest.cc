@@ -32,12 +32,12 @@ class CoordinatorServerListTest : public ::testing::Test {
 
 /*
  * Return true if a CoordinatorServerList::Entry is indentical to the
- * given serialised protobuf entry.
+ * given serialized protobuf entry.
  */
 static bool
 protoBufMatchesEntry(const ProtoBuf::ServerList_Entry& protoBufEntry,
                      const CoordinatorServerList::Entry& serverListEntry,
-                     bool isInCluster)
+                     ServerStatus status)
 {
     if (serverListEntry.serviceMask.serialize() !=
         protoBufEntry.service_mask())
@@ -49,7 +49,7 @@ protoBufMatchesEntry(const ProtoBuf::ServerList_Entry& protoBufEntry,
     if (serverListEntry.backupReadMBytesPerSec !=
         protoBufEntry.backup_read_mbytes_per_sec())
         return false;
-    if (isInCluster != protoBufEntry.is_in_cluster())
+    if (status != ServerStatus(protoBufEntry.status()))
         return false;
 
     return true;
@@ -86,7 +86,7 @@ TEST_F(CoordinatorServerListTest, add) {
         EXPECT_EQ(1U, update1.version_number());
         EXPECT_EQ(1, update1.server_size());
         EXPECT_TRUE(protoBufMatchesEntry(update1.server(0),
-            *sl.serverList[1].entry, true));
+            *sl.serverList[1].entry, ServerStatus::UP));
     }
 
     {
@@ -107,8 +107,31 @@ TEST_F(CoordinatorServerListTest, add) {
         EXPECT_EQ(2U, sl.versionNumber);
         EXPECT_EQ(2U, update2.version_number());
         EXPECT_TRUE(protoBufMatchesEntry(update2.server(0),
-            *sl.serverList[2].entry, true));
+            *sl.serverList[2].entry, ServerStatus::UP));
     }
+}
+
+TEST_F(CoordinatorServerListTest, crashed) {
+    ProtoBuf::ServerList update;
+
+    EXPECT_THROW(sl.crashed(ServerId(0, 0), update), Exception);
+    EXPECT_EQ(0, update.server_size());
+
+    sl.add("hi!", {MASTER_SERVICE}, 100, update);
+    CoordinatorServerList::Entry entryCopy = sl[ServerId(1, 0)];
+    update.Clear();
+    EXPECT_NO_THROW(sl.crashed(ServerId(1, 0), update));
+    ASSERT_TRUE(sl.serverList[1].entry);
+    EXPECT_EQ(ServerStatus::CRASHED, sl.serverList[1].entry->status);
+    EXPECT_TRUE(protoBufMatchesEntry(update.server(0),
+                                     entryCopy, ServerStatus::CRASHED));
+
+    update.Clear();
+    // Already crashed; a no-op.
+    sl.crashed(ServerId(1, 0), update);
+    EXPECT_EQ(0, update.server_size());
+    EXPECT_EQ(0U, sl.numberOfMasters);
+    EXPECT_EQ(0U, sl.numberOfBackups);
 }
 
 TEST_F(CoordinatorServerListTest, remove) {
@@ -122,16 +145,21 @@ TEST_F(CoordinatorServerListTest, remove) {
     EXPECT_NO_THROW(sl.remove(ServerId(1, 0), removeUpdate));
     EXPECT_FALSE(sl.serverList[1].entry);
     EXPECT_TRUE(protoBufMatchesEntry(removeUpdate.server(0),
-            entryCopy, false));
+            entryCopy, ServerStatus::CRASHED));
+    EXPECT_TRUE(protoBufMatchesEntry(removeUpdate.server(1),
+            entryCopy, ServerStatus::DOWN));
 
     EXPECT_THROW(sl.remove(ServerId(1, 0), removeUpdate), Exception);
     EXPECT_EQ(0U, sl.numberOfMasters);
     EXPECT_EQ(0U, sl.numberOfBackups);
 
+    removeUpdate.Clear();
     sl.add("hi, again", {BACKUP_SERVICE}, 100, addUpdate);
+    sl.crashed(ServerId(1, 1), addUpdate);
     EXPECT_TRUE(sl.serverList[1].entry);
     EXPECT_THROW(sl.remove(ServerId(1, 2), removeUpdate), Exception);
     EXPECT_NO_THROW(sl.remove(ServerId(1, 1), removeUpdate));
+    EXPECT_EQ(uint32_t(ServerStatus::DOWN), removeUpdate.server(0).status());
     EXPECT_EQ(0U, sl.numberOfMasters);
     EXPECT_EQ(0U, sl.numberOfBackups);
 }
@@ -149,6 +177,7 @@ TEST_F(CoordinatorServerListTest, indexOperator) {
     sl.add("yo!", {MASTER_SERVICE}, 100, update);
     EXPECT_EQ(ServerId(1, 0), sl[ServerId(1, 0)].serverId);
     EXPECT_EQ("yo!", sl[ServerId(1, 0)].serviceLocator);
+    sl.crashed(ServerId(1, 0), update);
     sl.remove(ServerId(1, 0), update);
     EXPECT_THROW(sl[ServerId(1, 0)], Exception);
 }
@@ -167,9 +196,12 @@ TEST_F(CoordinatorServerListTest, contains) {
            {MASTER_SERVICE}, 100, update);
     EXPECT_TRUE(sl.contains(ServerId(2, 0)));
 
+    sl.crashed(ServerId(1, 0), update);
+    EXPECT_TRUE(sl.contains(ServerId(1, 0)));
     sl.remove(ServerId(1, 0), update);
     EXPECT_FALSE(sl.contains(ServerId(1, 0)));
 
+    sl.crashed(ServerId(2, 0), update);
     sl.remove(ServerId(2, 0), update);
     EXPECT_FALSE(sl.contains(ServerId(2, 0)));
 
@@ -208,14 +240,14 @@ TEST_F(CoordinatorServerListTest, nextBackupIndex) {
     EXPECT_EQ(-1U, sl.nextBackupIndex(3));
 }
 
-TEST_F(CoordinatorServerListTest, serialise) {
+TEST_F(CoordinatorServerListTest, serialize) {
     ProtoBuf::ServerList update;
 
     {
         ProtoBuf::ServerList serverList;
-        sl.serialise(serverList, {});
+        sl.serialize(serverList, {});
         EXPECT_EQ(0, serverList.server_size());
-        sl.serialise(serverList, {MASTER_SERVICE, BACKUP_SERVICE});
+        sl.serialize(serverList, {MASTER_SERVICE, BACKUP_SERVICE});
         EXPECT_EQ(0, serverList.server_size());
     }
 
@@ -229,9 +261,9 @@ TEST_F(CoordinatorServerListTest, serialise) {
     auto backupMask = ServiceMask{BACKUP_SERVICE}.serialize();
     {
         ProtoBuf::ServerList serverList;
-        sl.serialise(serverList, {});
+        sl.serialize(serverList, {});
         EXPECT_EQ(0, serverList.server_size());
-        sl.serialise(serverList, {MASTER_SERVICE});
+        sl.serialize(serverList, {MASTER_SERVICE});
         EXPECT_EQ(2, serverList.server_size());
         EXPECT_EQ(masterMask, serverList.server(0).service_mask());
         EXPECT_EQ(masterMask, serverList.server(1).service_mask());
@@ -239,14 +271,14 @@ TEST_F(CoordinatorServerListTest, serialise) {
 
     {
         ProtoBuf::ServerList serverList;
-        sl.serialise(serverList, {BACKUP_SERVICE});
+        sl.serialize(serverList, {BACKUP_SERVICE});
         EXPECT_EQ(1, serverList.server_size());
         EXPECT_EQ(backupMask, serverList.server(0).service_mask());
     }
 
     {
         ProtoBuf::ServerList serverList;
-        sl.serialise(serverList, {MASTER_SERVICE, BACKUP_SERVICE});
+        sl.serialize(serverList, {MASTER_SERVICE, BACKUP_SERVICE});
         EXPECT_EQ(3, serverList.server_size());
         EXPECT_EQ(masterMask, serverList.server(0).service_mask());
         EXPECT_EQ(masterMask, serverList.server(1).service_mask());
@@ -365,7 +397,7 @@ TEST_F(CoordinatorServerListTest, Entry_assignmentOperator) {
     EXPECT_TRUE(compareEntries(source, dest));
 }
 
-TEST_F(CoordinatorServerListTest, Entry_serialise) {
+TEST_F(CoordinatorServerListTest, Entry_serialize) {
     CoordinatorServerList::Entry entry(ServerId(0, 0), "",
                                        {BACKUP_SERVICE});
     entry.serverId = ServerId(5234, 23482);
@@ -373,21 +405,21 @@ TEST_F(CoordinatorServerListTest, Entry_serialise) {
     entry.backupReadMBytesPerSec = 723;
 
     ProtoBuf::ServerList_Entry serialEntry;
-    entry.serialise(serialEntry, true);
+    entry.serialize(serialEntry);
     auto backupMask = ServiceMask{BACKUP_SERVICE}.serialize();
     EXPECT_EQ(backupMask, serialEntry.service_mask());
     EXPECT_EQ(ServerId(5234, 23482).getId(), serialEntry.server_id());
     EXPECT_EQ("giggity", serialEntry.service_locator());
     EXPECT_EQ(723U, serialEntry.backup_read_mbytes_per_sec());
-    EXPECT_TRUE(serialEntry.is_in_cluster());
+    EXPECT_EQ(ServerStatus::UP, ServerStatus(serialEntry.status()));
 
     entry.serviceMask = ServiceMask{MASTER_SERVICE};
     ProtoBuf::ServerList_Entry serialEntry2;
-    entry.serialise(serialEntry2, false);
+    entry.serialize(serialEntry2);
     auto masterMask = ServiceMask{MASTER_SERVICE}.serialize();
     EXPECT_EQ(masterMask, serialEntry2.service_mask());
     EXPECT_EQ(0U, serialEntry2.backup_read_mbytes_per_sec());
-    EXPECT_FALSE(serialEntry2.is_in_cluster());
+    EXPECT_EQ(ServerStatus::UP, ServerStatus(serialEntry2.status()));
 }
 
 }  // namespace RAMCloud

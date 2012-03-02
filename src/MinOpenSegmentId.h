@@ -93,8 +93,8 @@ class MinOpenSegmentId : public Task {
      *      method then try to update the value stored on
      */
     void updateToAtLeast(uint64_t segmentId) {
-        RAMCLOUD_LOG(DEBUG, "request update to minOpenSegmentId for %lu to %lu",
-                     serverId->getId(), segmentId);
+        RAMCLOUD_TEST_LOG("request update to minOpenSegmentId for %lu to %lu",
+                          serverId->getId(), segmentId);
         if (requested > segmentId)
             return;
         requested = segmentId;

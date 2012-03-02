@@ -638,6 +638,17 @@ TEST_F(ReplicatedSegmentTest, performFreeWriteRpcInProgress) {
     EXPECT_EQ(1u, deleter.count);
 }
 
+TEST_F(ReplicatedSegmentTest, performWriteCannotGetSession) {
+    transport.setInput("0 0 0"); // fail server id check
+    transport.setInput("0 10 0"); // fail server id check
+
+    segment->write(openLen);
+    taskManager.proceed(); // fail to send writes
+
+    EXPECT_TRUE(segment->replicas[0].isActive);
+    EXPECT_FALSE(segment->replicas[1].isActive);
+}
+
 TEST_F(ReplicatedSegmentTest, performWriteTooManyInFlight) {
     transport.setInput("0 0 0"); // server id check
     transport.setInput("0"); // open/write

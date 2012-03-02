@@ -35,7 +35,8 @@ struct MasterStartTask;
 /// Used to allow custom mocks of recovery in unit testing.
 class BaseRecovery {
   public:
-    BaseRecovery() {}
+    BaseRecovery() : masterId() {}
+    explicit BaseRecovery(ServerId masterId) : masterId(masterId) {}
     virtual ~BaseRecovery() {}
     virtual void start()
     {}
@@ -50,6 +51,10 @@ class BaseRecovery {
     {}
     virtual bool tabletsRecovered(const ProtoBuf::Tablets& tablets)
     { return true; }
+
+    /// The id of the crashed master whose is being recovered.
+    ServerId masterId;
+
     DISALLOW_COPY_AND_ASSIGN(BaseRecovery);
 };
 
@@ -119,9 +124,6 @@ class Recovery : public BaseRecovery {
 
     /// The list of all masters.
     const CoordinatorServerList& serverList;
-
-    /// The id of the crashed master whose is being recovered.
-    ServerId masterId;
 
     /// Number of tablets left to recover before done.
     uint32_t tabletsUnderRecovery;

@@ -27,6 +27,7 @@
 #include "Rpc.h"
 #include "ServiceMask.h"
 #include "ServerId.h"
+#include "ServerList.h"
 #include "Tub.h"
 
 namespace RAMCloud {
@@ -61,11 +62,16 @@ class CoordinatorServerList {
               ServiceMask serviceMask);
         Entry(const Entry& other) = default;
         Entry& operator=(const Entry& other) = default;
-        void serialise(ProtoBuf::ServerList_Entry& dest,
-                       bool isInCluster) const;
+        void serialize(ProtoBuf::ServerList_Entry& dest) const;
 
-        bool isMaster() const { return serviceMask.has(MASTER_SERVICE); }
-        bool isBackup() const { return serviceMask.has(BACKUP_SERVICE); }
+        bool isMaster() const {
+            return (status == ServerStatus::UP) &&
+                   serviceMask.has(MASTER_SERVICE);
+        }
+        bool isBackup() const {
+            return (status == ServerStatus::UP) &&
+                   serviceMask.has(BACKUP_SERVICE);
+        }
 
         /// ServerId of the server (uniquely identifies it, never reused).
         ServerId serverId;
@@ -83,6 +89,16 @@ class CoordinatorServerList {
         /// The backup's read speed in megabytes per second (only to set
         /// set if serviceMask includes BACKUP_SERVICE).
         uint32_t backupReadMBytesPerSec;
+
+        /**
+         * Keeps track of whether this server is a normal cluster member
+         * or whether it is in a crashed state.  The crashed state initiates
+         * some operations throughout the cluster (backup recovery) and also
+         * indicates that resources needed to recover this server (replicas)
+         * need to be retained until this server is completely removed from
+         * the cluster.
+         */
+        ServerStatus status;
 
         // Fields below this point are maintained on the coordinator only
         // and are not transmitted to members' ServerLists.
@@ -102,6 +118,8 @@ class CoordinatorServerList {
                  ServiceMask serviceMask,
                  uint32_t readSpeed,
                  ProtoBuf::ServerList& update);
+    void crashed(ServerId serverId,
+                 ProtoBuf::ServerList& update);
     void remove(ServerId serverId,
                 ProtoBuf::ServerList& update);
     void incrementVersion(ProtoBuf::ServerList& update);
@@ -115,8 +133,8 @@ class CoordinatorServerList {
     uint32_t backupCount() const;
     uint32_t nextMasterIndex(uint32_t startIndex) const;
     uint32_t nextBackupIndex(uint32_t startIndex) const;
-    void serialise(ProtoBuf::ServerList& protoBuf) const;
-    void serialise(ProtoBuf::ServerList& protobuf,
+    void serialize(ProtoBuf::ServerList& protoBuf) const;
+    void serialize(ProtoBuf::ServerList& protobuf,
                    ServiceMask services) const;
 
   PRIVATE:

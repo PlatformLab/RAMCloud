@@ -252,10 +252,10 @@ Recovery::Recovery(ServerId masterId,
                    const ProtoBuf::Tablets& will,
                    const CoordinatorServerList& serverList)
 
-    : recoveryTicks(&metrics->coordinator.recoveryTicks)
+    : BaseRecovery(masterId)
+    , recoveryTicks(&metrics->coordinator.recoveryTicks)
     , replicaLocations()
     , serverList(serverList)
-    , masterId(masterId)
     , tabletsUnderRecovery()
     , will(will)
 {

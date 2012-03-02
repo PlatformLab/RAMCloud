@@ -18,6 +18,8 @@
 
 #include <initializer_list>
 
+#include "ServerList.h"
+
 namespace RAMCloud {
 
 /**
@@ -50,7 +52,7 @@ struct ServerListBuilder {
                uint64_t id,
                const char* locator,
                uint32_t backupReadMBytesPerSec = 0,
-               bool isInCluster = true)
+               ServerStatus status = ServerStatus::UP)
     {
         ProtoBuf::ServerList_Entry& server(*servers.add_server());
         ServiceMask serviceMask(services);
@@ -58,7 +60,7 @@ struct ServerListBuilder {
         server.set_server_id(id);
         server.set_service_locator(locator);
         server.set_backup_read_mbytes_per_sec(backupReadMBytesPerSec);
-        server.set_is_in_cluster(isInCluster);
+        server.set_status(uint32_t(status));
         return *this;
     }
 

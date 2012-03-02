@@ -51,14 +51,12 @@ CoordinatorServerList::~CoordinatorServerList()
  * ServerId for it.
  *
  * After an add() but before sending \a update to the cluster
- * incrementVersion() must be called.  Also, \a update can contain both
- * remove and add notifications, but removals must precede additions in the
- * update to ensure ordering guarantees about notifications related to
- * servers which re-enlist.  For now, this means calls to remove() must
- * proceed call to add() if they have a common \a update.
+ * incrementVersion() must be called.  Also, \a update can contain remove,
+ * crash, and add notifications, but removals/crashes must precede additions
+ * in the update to ensure ordering guarantees about notifications related to
+ * servers which re-enlist.  For now, this means calls to remove()/crashed()
+ * must proceed call to add() if they have a common \a update.
  *
- * \param serverId
- *      The ServerId of the server to add to the CoordinatorServerList.
  * \param serviceLocator
  *      The ServiceLocator string of the server to add.
  * \param serviceMask
@@ -92,9 +90,57 @@ CoordinatorServerList::add(string serviceLocator,
     }
 
     ProtoBuf::ServerList_Entry& protoBufEntry(*update.add_server());
-    serverList[index].entry->serialise(protoBufEntry, true);
+    serverList[index].entry->serialize(protoBufEntry);
 
     return id;
+}
+
+/**
+ * Mark a server as crashed in the list (when it has crashed and is
+ * being recovered and resources [replicas] for its recovery must be
+ * retained).
+ *
+ * This is a no-op of the server is already marked as crashed;
+ * the effect is undefined if the server's status is DOWN.
+ *
+ * After a crashed() but before sending \a update to the cluster
+ * incrementVersion() must be called.  Also, \a update can contain remove,
+ * crash, and add notifications, but removals/crashes must precede additions
+ * in the update to ensure ordering guarantees about notifications related to
+ * servers which re-enlist.  For now, this means calls to remove()/crashed()
+ * must proceed call to add() if they have a common \a update.
+ *
+ * \param serverId
+ *      The ServerId of the server to remove from the CoordinatorServerList.
+ *      It must not have been removed already (see remove()).
+ * \param update
+ *      Cluster membership update message to append a serialized crash
+ *      notification to.
+ */
+void
+CoordinatorServerList::crashed(ServerId serverId,
+                               ProtoBuf::ServerList& update)
+{
+    uint32_t index = serverId.indexNumber();
+    if (index >= serverList.size() || !serverList[index].entry ||
+        serverList[index].entry->serverId != serverId) {
+        throw Exception(HERE,
+                        format("Invalid ServerId (%lu)", serverId.getId()));
+    }
+
+    if (serverList[index].entry->status == ServerStatus::CRASHED)
+        return;
+    assert(serverList[index].entry->status != ServerStatus::DOWN);
+
+    if (serverList[index].entry->isMaster())
+        numberOfMasters--;
+    if (serverList[index].entry->isBackup())
+        numberOfBackups--;
+
+    serverList[index].entry->status = ServerStatus::CRASHED;
+
+    ProtoBuf::ServerList_Entry& protoBufEntry(*update.add_server());
+    serverList[index].entry->serialize(protoBufEntry);
 }
 
 /**
@@ -102,18 +148,22 @@ CoordinatorServerList::add(string serviceLocator,
  * the system and we don't care about it anymore (it crashed and has
  * been properly recovered).
  *
+ * This method may actually append two entries to \a update (see below).
+ *
  * After a remove() but before sending \a update to the cluster
- * incrementVersion() must be called.  Also, \a update can contain both
- * remove and add notifications, but removals must precede additions in the
- * update to ensure ordering guarantees about notifications related to
- * servers which re-enlist.  For now, this means calls to remove() must
- * proceed call to add() if they have a common \a update.
+ * incrementVersion() must be called.  Also, \a update can contain remove,
+ * crash, and add notifications, but removals/crashes must precede additions
+ * in the update to ensure ordering guarantees about notifications related to
+ * servers which re-enlist.  For now, this means calls to remove()/crashed()
+ * must proceed call to add() if they have a common \a update.
  *
  * \param serverId
  *      The ServerId of the server to remove from the CoordinatorServerList.
+ *      It must be in the list (either UP or CRASHED).
  * \param update
- *      Cluster membership update message to append a serialzed removal
- *      notification to.
+ *      Cluster membership update message to append a serialized removal
+ *      notification to.  A crash notification will be appended before the
+ *      removal notification if this server was removed while in UP status.
  */
 void
 CoordinatorServerList::remove(ServerId serverId,
@@ -126,13 +176,14 @@ CoordinatorServerList::remove(ServerId serverId,
                         format("Invalid ServerId (%lu)", serverId.getId()));
     }
 
-    if (serverList[index].entry->isMaster())
-        numberOfMasters--;
-    if (serverList[index].entry->isBackup())
-        numberOfBackups--;
+    crashed(serverId, update);
+
+    // Even though we destroy this entry almost immediately setting the state
+    // gets the serialized update message's state field correct.
+    serverList[index].entry->status = ServerStatus::DOWN;
 
     ProtoBuf::ServerList_Entry& protoBufEntry(*update.add_server());
-    serverList[index].entry->serialise(protoBufEntry, false);
+    serverList[index].entry->serialize(protoBufEntry);
     serverList[index].entry.destroy();
 }
 
@@ -186,9 +237,9 @@ CoordinatorServerList::operator[](size_t index)
 }
 
 /**
- * Return true if the given serverId is in this list. This can be used
- * to check membership, rather than having to try and catch around the
- * index operator.
+ * Return true if the given serverId is in this list regardless of
+ * whether it is crashed or not.  This can be used to check membership,
+ * rather than having to try and catch around the index operator.
  */
 bool
 CoordinatorServerList::contains(ServerId serverId) const
@@ -218,7 +269,8 @@ CoordinatorServerList::size() const
 }
 
 /**
- * Get the number of masters in the list.
+ * Get the number of masters in the list; does not include servers in
+ * crashed status.
  */
 uint32_t
 CoordinatorServerList::masterCount() const
@@ -227,7 +279,8 @@ CoordinatorServerList::masterCount() const
 }
 
 /**
- * Get the number of backups in the list.
+ * Get the number of backups in the list; does not include servers in
+ * crashed status.
  */
 uint32_t
 CoordinatorServerList::backupCount() const
@@ -237,8 +290,9 @@ CoordinatorServerList::backupCount() const
 
 /**
  * Returns the next index greater than or equal to the given index
- * that describes a master server in the list. If there is no next
- * master or startIndex exceeds the list size, -1 is returned.
+ * that describes a master server in the list; masters in crashed
+ * status are not returned. If there is no next master or startIndex
+ * exceeds the list size, -1 is returned.
  */
 uint32_t
 CoordinatorServerList::nextMasterIndex(uint32_t startIndex) const
@@ -253,8 +307,9 @@ CoordinatorServerList::nextMasterIndex(uint32_t startIndex) const
 
 /**
  * Returns the next index greater than or equal to the given index
- * that describes a backup server in the list. If there is no next
- * backup or startIndex exceeds the list size, -1 is returned.
+ * that describes a backup server in the list; backups in crashed
+ * status are not returned.  If there is no next backup or startIndex
+ * exceeds the list size, -1 is returned.
  */
 uint32_t
 CoordinatorServerList::nextBackupIndex(uint32_t startIndex) const
@@ -274,9 +329,9 @@ CoordinatorServerList::nextBackupIndex(uint32_t startIndex) const
  *      Reference to the ProtoBuf to fill.
  */
 void
-CoordinatorServerList::serialise(ProtoBuf::ServerList& protoBuf) const
+CoordinatorServerList::serialize(ProtoBuf::ServerList& protoBuf) const
 {
-    serialise(protoBuf, {MASTER_SERVICE, BACKUP_SERVICE});
+    serialize(protoBuf, {MASTER_SERVICE, BACKUP_SERVICE});
 }
 
 /**
@@ -293,7 +348,7 @@ CoordinatorServerList::serialise(ProtoBuf::ServerList& protoBuf) const
  *      included in the serialization; otherwise, it is skipped.
  */
 void
-CoordinatorServerList::serialise(ProtoBuf::ServerList& protoBuf,
+CoordinatorServerList::serialize(ProtoBuf::ServerList& protoBuf,
                                  ServiceMask services) const
 {
     for (size_t i = 0; i < serverList.size(); i++) {
@@ -305,7 +360,7 @@ CoordinatorServerList::serialise(ProtoBuf::ServerList& protoBuf,
         if ((entry.isMaster() && services.has(MASTER_SERVICE)) ||
             (entry.isBackup() && services.has(BACKUP_SERVICE))) {
             ProtoBuf::ServerList_Entry& protoBufEntry(*protoBuf.add_server());
-            entry.serialise(protoBufEntry, true);
+            entry.serialize(protoBufEntry);
         }
     }
 
@@ -410,6 +465,7 @@ CoordinatorServerList::Entry::Entry(ServerId serverId,
       serviceMask(serviceMask),
       will(NULL),
       backupReadMBytesPerSec(0),
+      status(ServerStatus::UP),
       minOpenSegmentId(0)
 {
 }
@@ -418,13 +474,12 @@ CoordinatorServerList::Entry::Entry(ServerId serverId,
  * Serialise this entry into the given ProtoBuf.
  */
 void
-CoordinatorServerList::Entry::serialise(ProtoBuf::ServerList_Entry& dest,
-                                        bool isInCluster) const
+CoordinatorServerList::Entry::serialize(ProtoBuf::ServerList_Entry& dest) const
 {
     dest.set_service_mask(serviceMask.serialize());
     dest.set_server_id(serverId.getId());
     dest.set_service_locator(serviceLocator);
-    dest.set_is_in_cluster(isInCluster);
+    dest.set_status(uint32_t(status));
     if (isBackup())
         dest.set_backup_read_mbytes_per_sec(backupReadMBytesPerSec);
     else

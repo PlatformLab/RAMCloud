@@ -114,7 +114,7 @@ TEST_F(FailureDetectorTest, pingRandomServer_pingFailureAndCoordFailure) {
 }
 
 TEST_F(FailureDetectorTest, checkServerListVersion) {
-    serverList->setVersion(0);
+    serverList->version = 0;
     fd->checkServerListVersion(0);
     EXPECT_FALSE(fd->staleServerListSuspected);
 
@@ -141,7 +141,7 @@ TEST_F(FailureDetectorTest, checkForStaleServerList) {
     TestLog::reset();
     fd->staleServerListSuspected = true;
     fd->staleServerListVersion = 0;
-    serverList->setVersion(1);
+    serverList->version = 1;
     fd->checkForStaleServerList();
     EXPECT_FALSE(fd->staleServerListSuspected);
     EXPECT_EQ("checkForStaleServerList: Version advanced. "

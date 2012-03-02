@@ -36,9 +36,9 @@ message ServerList {
     /// a server which is running a backup service.
     required fixed32 backup_read_mbytes_per_sec = 5;
 
-    /// If true, this server is in the cluster. If false, this server
-    /// is no longer in the cluster.
-    required bool is_in_cluster = 6;
+    /// The current status of this server in terms of cluster membership.
+    /// See above for ServerStatus details.
+    required fixed32 status = 6;
   }
 
   /// List of servers.

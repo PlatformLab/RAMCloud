@@ -21,15 +21,36 @@
 #ifndef RAMCLOUD_SERVERLIST_H
 #define RAMCLOUD_SERVERLIST_H
 
+#include <mutex>
+
 #include "ServiceMask.h"
 #include "ServerId.h"
+#include "ServerList.pb.h"
 #include "SpinLock.h"
 #include "Transport.h"
 #include "Tub.h"
 
 namespace RAMCloud {
 
-/// Forward decl.
+/**
+ * Describes for a server whether that server is up, crashed, or down.
+ * See each value for details about the individuals states.
+ * Values are 32-bit because of a protocol buffer limitation; these values
+ * are sent over the wire as is.
+ */
+enum class ServerStatus : uint32_t {
+    /// The server believed to be available.
+    UP = 0,
+    /// The server has failed, but the cluster has not fully recovered
+    /// from its loss, so any resources (replicas) related to it must
+    /// be held.
+    CRASHED = 1,
+    /// The server is no longer part of the cluster and will never be
+    /// referred to again.
+    DOWN = 2,
+};
+
+/// Forward declartion.
 class ServerTrackerInterface;
 
 /**
@@ -75,40 +96,34 @@ class ServerList {
             , serviceLocator()
             , services()
             , expectedReadMBytesPerSec()
+            , status(ServerStatus::DOWN)
         {}
 
         /**
          * Create an instance where only #serverId is valid. Used to represent
-         * the details of a SERVER_REMOVED event.
+         * the details of a SERVER_CRASHED or SERVER_REMOVED event.
          */
-        explicit ServerDetails(ServerId id)
+        ServerDetails(ServerId id, ServerStatus status)
             : serverId(id)
             , serviceLocator()
             , services()
             , expectedReadMBytesPerSec()
+            , status(status)
         {}
 
         /**
-         * Create an instance which represents an active server in the cluster.
-         * All fields are valid.
+         * Create an instance where all fields are valid.
          */
         ServerDetails(ServerId id,
                       const string& locator,
-                      ServiceMask services)
-            : serverId(id)
-            , serviceLocator(locator)
-            , services(services)
-            , expectedReadMBytesPerSec()
-        {}
-
-        ServerDetails(ServerId id,
-                      const string& locator,
                       ServiceMask services,
-                      uint32_t expectedReadMBytesPerSec)
+                      uint32_t expectedReadMBytesPerSec,
+                      ServerStatus status)
             : serverId(id)
             , serviceLocator(locator)
             , services(services)
             , expectedReadMBytesPerSec(expectedReadMBytesPerSec)
+            , status(status)
         {}
 
         /// ServerId associated with this index in the serverList.
@@ -123,13 +138,14 @@ class ServerList {
         /// Disk bandwidth of the backup server in MB/s, if
         /// services.has(BACKUP_SERVICE), invalid otherwise.
         uint32_t expectedReadMBytesPerSec;
+
+        /// Whether this server is believed to be up, crashed, or down.
+        ServerStatus status;
     };
 
     ServerList();
     ~ServerList();
-    void add(ServerId id, const string& locator,
-             ServiceMask services, uint32_t expectedReadMBytesPerSec);
-    void remove(ServerId id);
+
     string getLocator(ServerId id);
     string toString(ServerId serverId);
     Transport::SessionRef getSession(ServerId id);
@@ -137,11 +153,22 @@ class ServerList {
     ServerId operator[](uint32_t indexNumber);
     bool contains(ServerId serverId);
     uint64_t getVersion();
-    void setVersion(uint64_t newVersion);
     void registerTracker(ServerTrackerInterface& tracker);
     void unregisterTracker(ServerTrackerInterface& tracker);
 
+    bool applyUpdate(const ProtoBuf::ServerList& update);
+    void applyFullList(const ProtoBuf::ServerList& list);
+
   PRIVATE:
+    typedef std::lock_guard<SpinLock> Lock;
+
+    bool contains(const Lock& lock, ServerId serverId);
+    bool add(ServerId id, const string& locator,
+             ServiceMask services, uint32_t expectedReadMBytesPerSec);
+    bool crashed(ServerId id, const string& locator,
+                 ServiceMask services, uint32_t expectedReadMBytesPerSec);
+    bool remove(ServerId id);
+
     /// Slots in the server list.
     std::vector<Tub<ServerDetails>> serverList;
 

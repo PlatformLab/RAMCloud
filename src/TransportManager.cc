@@ -352,8 +352,10 @@ TransportManager::getSession(const char* serviceLocator, ServerId needServerId)
     try {
         actualId = MembershipClient().getServerId(session);
     } catch (TransportException& e) {
-        LOG(ERROR, "Failed to obtain ServerId from \"%s\": %s",
+        LOG(DEBUG, "Failed to obtain ServerId from \"%s\": %s",
             serviceLocator, e.what());
+        // Fall through to error handling below (since actualId remains
+        // invalid).
     }
 
     if (actualId != needServerId) {
@@ -362,7 +364,7 @@ TransportManager::getSession(const char* serviceLocator, ServerId needServerId)
         string errorStr = format("Expected ServerId %lu at \"%s\", but actual "
             "server id was %lu!",
             *needServerId, serviceLocator, *actualId);
-        LOG(WARNING, "%s", errorStr.c_str());
+        LOG(DEBUG, "%s", errorStr.c_str());
         throw TransportException(HERE, errorStr);
     }
 

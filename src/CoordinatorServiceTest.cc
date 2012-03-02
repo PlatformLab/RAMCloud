@@ -108,11 +108,11 @@ TEST_F(CoordinatorServiceTest, enlistServer) {
         client->enlistServer({}, {BACKUP_SERVICE}, "mock:host=backup"));
 
     ProtoBuf::ServerList masterList;
-    service->serverList.serialise(masterList, {MASTER_SERVICE});
+    service->serverList.serialize(masterList, {MASTER_SERVICE});
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
                 "server { service_mask: 9 server_id: 1 "
                 "service_locator: \"mock:host=master\" "
-                "backup_read_mbytes_per_sec: [0-9]\\+ is_in_cluster: true } "
+                "backup_read_mbytes_per_sec: [0-9]\\+ status: 0 } "
                 "version_number: 2",
                 masterList.ShortDebugString()));
 
@@ -120,17 +120,17 @@ TEST_F(CoordinatorServiceTest, enlistServer) {
     EXPECT_EQ(0, will.tablet_size());
 
     ProtoBuf::ServerList backupList;
-    service->serverList.serialise(backupList, {BACKUP_SERVICE});
+    service->serverList.serialize(backupList, {BACKUP_SERVICE});
     EXPECT_EQ("server { service_mask: 2 server_id: 2 "
               "service_locator: \"mock:host=backup\" "
-              "backup_read_mbytes_per_sec: 0 is_in_cluster: true } "
+              "backup_read_mbytes_per_sec: 0 status: 0 } "
               "version_number: 2",
               backupList.ShortDebugString());
 }
 
 TEST_F(CoordinatorServiceTest, enlistServerReplaceAMaster) {
     struct MockRecovery : public BaseRecovery {
-        explicit MockRecovery() : called(false), masterId() {}
+        explicit MockRecovery() : called(false) {}
         void operator()(ServerId masterId,
                         const ProtoBuf::Tablets& will,
                         const CoordinatorServerList& serverList)
@@ -140,18 +140,46 @@ TEST_F(CoordinatorServiceTest, enlistServerReplaceAMaster) {
         }
         void start() {}
         bool called;
-        ServerId masterId;
     } mockRecovery;
-    Context::get().logger->setLogLevels(DEBUG);
     service->mockRecovery = &mockRecovery;
 
-    TestLog::Enable _;
-    EXPECT_EQ(ServerId(1, 1),
+    EXPECT_EQ(ServerId(2, 0),
         client->enlistServer(masterServerId,
                              {BACKUP_SERVICE}, "mock:host=backup"));
 
     EXPECT_TRUE(mockRecovery.called);
     EXPECT_EQ(ServerId(1, 0), mockRecovery.masterId);
+    EXPECT_TRUE(service->serverList.contains(masterServerId));
+    EXPECT_EQ(ServerStatus::CRASHED,
+              service->serverList[masterServerId].status);
+}
+
+TEST_F(CoordinatorServiceTest, enlistServerReplaceANonMaster) {
+    struct MockRecovery : public BaseRecovery {
+        explicit MockRecovery() : called(false) {}
+        void operator()(ServerId masterId,
+                        const ProtoBuf::Tablets& will,
+                        const CoordinatorServerList& serverList)
+        {
+            called = true;
+            this->masterId = masterId;
+        }
+        void start() {}
+        bool called;
+    } mockRecovery;
+    service->mockRecovery = &mockRecovery;
+
+    ServerConfig config = ServerConfig::forTesting();
+    config.localLocator = "mock:host=backup1";
+    config.services = {BACKUP_SERVICE};
+    ServerId replacesId = cluster.addServer(config)->serverId;
+
+    EXPECT_EQ(ServerId(2, 1),
+        client->enlistServer(replacesId,
+                             {BACKUP_SERVICE}, "mock:host=backup2"));
+
+    EXPECT_FALSE(mockRecovery.called);
+    EXPECT_FALSE(service->serverList.contains(replacesId));
 }
 
 TEST_F(CoordinatorServiceTest, getMasterList) {
@@ -174,11 +202,11 @@ TEST_F(CoordinatorServiceTest, getBackupList) {
     EXPECT_EQ("server { service_mask: 2 server_id: 2 "
               "service_locator: \"mock:host=backup1\" "
               "backup_read_mbytes_per_sec: 0 "
-              "is_in_cluster: true } "
+              "status: 0 } "
               "server { service_mask: 2 server_id: 3 "
               "service_locator: \"mock:host=backup2\" "
               "backup_read_mbytes_per_sec: 0 "
-              "is_in_cluster: true } version_number: 3",
+              "status: 0 } version_number: 3",
                             backupList.ShortDebugString());
 }
 
@@ -214,10 +242,11 @@ TEST_F(CoordinatorServiceTest, hintServerDown_master) {
                    const ProtoBuf::Tablets& will,
                    const CoordinatorServerList& serverList)
         {
+            this->masterId = masterId;
 
             ProtoBuf::ServerList masterHosts, backupHosts;
-            serverList.serialise(masterHosts, {MASTER_SERVICE});
-            serverList.serialise(backupHosts, {BACKUP_SERVICE});
+            serverList.serialize(masterHosts, {MASTER_SERVICE});
+            serverList.serialize(backupHosts, {BACKUP_SERVICE});
 
             EXPECT_EQ("tablet { table_id: 0 start_object_id: 0 "
                     "end_object_id: 18446744073709551615 "
@@ -234,12 +263,12 @@ TEST_F(CoordinatorServiceTest, hintServerDown_master) {
                         "server_id: 2 service_locator: "
                         "\"mock:host=master2\" backup_read_mbytes_per_sec: "
                         "[0-9]\\+ "
-                        "is_in_cluster: true } version_number: 4",
+                        "status: 0 } version_number: 4",
                         masterHosts.ShortDebugString()));
             EXPECT_EQ("server { service_mask: 2 "
                       "server_id: 3 "
                       "service_locator: \"mock:host=backup\" "
-                      "backup_read_mbytes_per_sec: 0 is_in_cluster: true } "
+                      "backup_read_mbytes_per_sec: 0 status: 0 } "
                       "version_number: 4",
                       backupHosts.ShortDebugString());
             called = true;
@@ -266,6 +295,9 @@ TEST_F(CoordinatorServiceTest, hintServerDown_master) {
                 reinterpret_cast<MockRecovery*>(tablet.user_data()));
         }
     }
+
+    EXPECT_EQ(ServerStatus::CRASHED,
+              service->serverList[master->serverId].status);
 }
 
 TEST_F(CoordinatorServiceTest, hintServerDown_backup) {
@@ -275,6 +307,7 @@ TEST_F(CoordinatorServiceTest, hintServerDown_backup) {
     service->forceServerDownForTesting = true;
     client->hintServerDown(id);
     EXPECT_EQ(0U, service->serverList.backupCount());
+    EXPECT_FALSE(service->serverList.contains(id));
 }
 
 static bool
@@ -306,7 +339,7 @@ TEST_F(CoordinatorServiceTest, tabletsRecovered_basics) {
     stablet.set_end_object_id(~(0ul));
     stablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
     stablet.set_user_data(
-        reinterpret_cast<uint64_t>(new BaseRecovery()));
+        reinterpret_cast<uint64_t>(new BaseRecovery(master2Id)));
 
     Tablets will;
     Tablet& willEntry(*will.add_tablet());
@@ -316,6 +349,7 @@ TEST_F(CoordinatorServiceTest, tabletsRecovered_basics) {
     willEntry.set_state(ProtoBuf::Tablets::Tablet::NORMAL);
     willEntry.set_user_data(0);
 
+    EXPECT_EQ(3u, service->serverList.versionNumber);
     {
         TestLog::Enable _(&tabletsRecoveredFilter);
         client->tabletsRecovered(1, tablets, will);
@@ -324,7 +358,7 @@ TEST_F(CoordinatorServiceTest, tabletsRecovered_basics) {
             "1 will entries | "
             "tabletsRecovered: Recovery complete on tablet "
             "0,0,18446744073709551615 | "
-            "tabletsRecovered: Recovery completed | "
+            "tabletsRecovered: Recovery completed for master 2 | "
             "tabletsRecovered: Coordinator tabletMap: | "
             "tabletsRecovered: table: 0 [0:18446744073709551615] "
             "state: 0 owner: 2",
@@ -337,6 +371,8 @@ TEST_F(CoordinatorServiceTest, tabletsRecovered_basics) {
     EXPECT_EQ("mock:host=master2",
               service->tabletMap.tablet(0).service_locator());
     EXPECT_EQ(*master2Id, service->tabletMap.tablet(0).server_id());
+    EXPECT_FALSE(service->serverList.contains(master2Id));
+    EXPECT_EQ(4u, service->serverList.versionNumber);
 }
 
 static bool
@@ -365,8 +401,14 @@ TEST_F(CoordinatorServiceTest, setWill) {
     EXPECT_THROW(client->setWill(23481234, will), InternalError);
 }
 
+namespace {
+bool statusFilter(string s) {
+    return s != "checkStatus";
+}
+}
+
 TEST_F(CoordinatorServiceTest, requestServerList) {
-    TestLog::Enable _;
+    TestLog::Enable _(statusFilter);
 
     client->requestServerList(ServerId(52, 0));
     EXPECT_EQ(0U, TestLog::get().find(
@@ -387,7 +429,14 @@ TEST_F(CoordinatorServiceTest, requestServerList) {
     EXPECT_EQ(0U, TestLog::get().find(
         "requestServerList: Sending server list to server id"));
     EXPECT_NE(string::npos, TestLog::get().find(
-        "setServerList: Got complete list of servers"));
+        "applyFullList: Got complete list of servers"));
+
+    ProtoBuf::ServerList update;
+    service->serverList.crashed(id, update);
+    TestLog::reset();
+    client->requestServerList(id);
+    EXPECT_EQ("requestServerList: Could not send list to crashed server 2",
+              TestLog::get());
 }
 
 TEST_F(CoordinatorServiceTest, sendServerList) {
@@ -398,7 +447,7 @@ TEST_F(CoordinatorServiceTest, sendServerList) {
     TestLog::Enable _;
     service->sendServerList(id);
     EXPECT_NE(string::npos, TestLog::get().find(
-        "setServerList: Got complete list of servers containing 1 "
+        "applyFullList: Got complete list of servers containing 1 "
         "entries (version number 2)"));
 }
 
@@ -406,13 +455,19 @@ TEST_F(CoordinatorServiceTest, sendMembershipUpdate) {
     ServerConfig config = ServerConfig::forTesting();
     config.services = {MEMBERSHIP_SERVICE};
     ServerId id = cluster.addServer(config)->serverId;
-
     ProtoBuf::ServerList update;
-    update.set_version_number(3);
-    TestLog::Enable _;
+    service->serverList.crashed(cluster.addServer(config)->serverId, update);
+
+    update.Clear();
+    update.set_version_number(4);
+    TestLog::Enable _(statusFilter);
     service->sendMembershipUpdate(update, ServerId(/* invalid id */));
     EXPECT_NE(string::npos, TestLog::get().find(
-        "updateServerList: Got server list update (version number 3)"));
+        "updateServerList: Got server list update (version number 4)"));
+    // Make sure updateServerList only got called once (the crashed server
+    // was skipped).
+    EXPECT_EQ(0u, TestLog::get().find("updateServerList"));
+    EXPECT_EQ(0u, TestLog::get().rfind("updateServerList"));
 }
 
 TEST_F(CoordinatorServiceTest, setMinOpenSegmentId) {

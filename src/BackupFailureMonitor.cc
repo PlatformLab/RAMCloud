@@ -92,14 +92,14 @@ BackupFailureMonitor::main(Context& context)
             changesOrExit.wait(lock);
         }
         // Careful: on remove events, for some less than clear reason only
-        // the serverId field is valid.  The on SERVER_REMOVED other fields
+        // the serverId field is valid.  The on SERVER_CRASHED other fields
         // remain in the tracker until the next call to getChange, so they
         // can be accessed that way.
         ServerDetails server;
         ServerChangeEvent event;
         while (tracker->getChange(server, event)) {
             ServerId id = server.serverId;
-            if (event != SERVER_REMOVED)
+            if (event != SERVER_CRASHED)
                 continue;
             // Only able to access details still if the event was a
             // remove and getChange() hasn't been called again yet.

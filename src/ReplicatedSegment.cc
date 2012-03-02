@@ -442,9 +442,9 @@ ReplicatedSegment::performTask()
                     // and durably closed its time to make sure it can never
                     // appear as an open segment in the log again (even if
                     // some lost replica comes back from the grave).
-                    LOG(DEBUG, "Updating minOpenSegmentId on coordinator to "
-                        "ensure lost replicas of segment %lu will not be "
-                        "reused", segmentId);
+                    TEST_LOG("Updating minOpenSegmentId on coordinator to "
+                             "ensure lost replicas of segment %lu will not be "
+                             "reused", segmentId);
                     minOpenSegmentId.updateToAtLeast(segmentId + 1);
                     schedule();
                 }
@@ -501,7 +501,7 @@ ReplicatedSegment::performFree(Replica& replica)
                 schedule();
                 return;
             }
-            replica.freed();
+            replica.reset();
             // Free completed, no need to reschedule.
             return;
         } else {
@@ -564,8 +564,17 @@ ReplicatedSegment::performWrite(Replica& replica)
             backupId = backupSelector.selectSecondary(numConflicts, conflicts);
         }
         LOG(DEBUG, "Starting replication on backup %lu", backupId.getId());
-        Transport::SessionRef session = tracker.getSession(backupId);
-        replica.start(backupId, session);
+        try {
+            Transport::SessionRef session = tracker.getSession(backupId);
+            replica.start(backupId, session);
+        } catch (TransportException& e) {
+            LOG(NOTICE, "Cannot create a session to backup %lu, perhaps the "
+                "backup has crashed; will choose another backup",
+                backupId.getId());
+            replica.reset();
+            schedule();
+            return;
+        }
         // Fall-through: this should drop down into the case that no
         // writeRpc is outstanding and the open hasn't been acknowledged
         // yet to send out the open rpc.  That block is also responsible

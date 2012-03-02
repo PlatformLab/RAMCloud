@@ -47,6 +47,7 @@ TEST_F(BackupFailureMonitorTest, main) {
     serverList.add(ServerId(3, 0), "mock:host=master",
                    {MASTER_SERVICE}, 100);
     serverList.remove(ServerId(3, 0));
+    monitor.trackerChangesEnqueued();
     while (true) {
         // Until getChanges has drained the queue.
         BackupFailureMonitor::Lock lock(monitor.mutex);
@@ -101,6 +102,7 @@ TEST_F(BackupFailureMonitorTest, trackerChangesEnqueued) {
     serverList.add(ServerId(2, 0), "mock:host=backup1",
                    {BACKUP_SERVICE}, 100);
     serverList.remove(ServerId(2, 0));
+    monitor.trackerChangesEnqueued();
     while (true) { // getChanges drained
         BackupFailureMonitor::Lock _(monitor.mutex);
         if (!monitor.tracker->hasChanges())
@@ -111,10 +113,7 @@ TEST_F(BackupFailureMonitorTest, trackerChangesEnqueued) {
     // Ok - now set up the real test: make sure changes are processed in
     // response to trackerChangesEnqueued().
 
-    // Prevents tracker from calling trackerChangesEnqueued on add/remove.
-    monitor.tracker->eventCallback = NULL;
     lock.unlock();
-
     serverList.add(ServerId(3, 0), "mock:host=backup2",
                    {BACKUP_SERVICE}, 100);
     serverList.remove(ServerId(3, 0));

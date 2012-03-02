@@ -48,7 +48,8 @@ class ServerList;
  */
 enum ServerChangeEvent {
     SERVER_ADDED,
-    SERVER_REMOVED
+    SERVER_CRASHED,
+    SERVER_REMOVED,
 };
 
 /**
@@ -194,6 +195,15 @@ class ServerTracker : public ServerTrackerInterface {
     enqueueChange(const ServerDetails& server,
                   ServerChangeEvent event)
     {
+        // Make sure the server status is consistent with the event being
+        // enqueued.
+        assert((event == SERVER_ADDED &&
+                server.status == ServerStatus::UP) ||
+               (event == SERVER_CRASHED &&
+                server.status == ServerStatus::CRASHED) ||
+               (event == SERVER_REMOVED &&
+                server.status == ServerStatus::DOWN));
+
         uint32_t index = server.serverId.indexNumber();
 
         if (index >= serverList.size())
@@ -302,13 +312,15 @@ class ServerTracker : public ServerTrackerInterface {
         // Ensure that the ServerList guarantees hold.
         assert((change.event == SERVER_ADDED &&
                 !serverList[index].server.serverId.isValid()) ||
-               (change.event == SERVER_REMOVED &&
+               ((change.event == SERVER_CRASHED ||
+                 change.event == SERVER_REMOVED) &&
                 serverList[index].server.serverId == change.server.serverId));
 
         if (change.event == SERVER_ADDED) {
             serverList[index].server = change.server;
             assert(serverList[index].pointer == NULL);
             numberOfServers++;
+        } else if (change.event == SERVER_CRASHED) {
         } else if (change.event == SERVER_REMOVED) {
             lastRemovedIndex = index;
             assert(numberOfServers > 0);
@@ -357,6 +369,7 @@ class ServerTracker : public ServerTrackerInterface {
                 size_t i = generateRandom() % serverList.size();
                 if (i != lastRemovedIndex &&
                     serverList[i].server.serverId.isValid() &&
+                    serverList[i].server.status == ServerStatus::UP &&
                     serverList[i].server.services.has(service))
                     return serverList[i].server.serverId;
             }
@@ -440,8 +453,20 @@ class ServerTracker : public ServerTrackerInterface {
     Transport::SessionRef
     getSession(ServerId id)
     {
+        uint32_t index = id.indexNumber();
+        if (index >= serverList.size() ||
+            serverList[index].server.serverId != id) {
+            throw TransportException(HERE,
+                            format("ServerId %lu is not in this tracker.",
+                                   id.getId()));
+        }
+        if (serverList[index].server.status != ServerStatus::UP) {
+            throw TransportException(HERE,
+                            format("ServerId %lu is not up.",
+                                   id.getId()));
+        }
         return Context::get().transportManager->getSession(
-            getLocator(id).c_str(), id);
+                getLocator(id).c_str(), id);
     }
 
     /**

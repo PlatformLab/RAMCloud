@@ -242,9 +242,10 @@ class ReplicatedSegment : public Task {
         /**
          * Reset all state associated with this replica.  Note that it is the
          * boolean freeQueued in ReplicatedSegment that prevents this replica
-         * from being replicated again by the main ReplicaManager loop.
+         * from being replicated again by the main ReplicaManager loop if the
+         * replica has been freed.
          */
-        void freed() {
+        void reset() {
             this->~Replica();
             new(this) Replica;
         }

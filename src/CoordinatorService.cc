@@ -275,7 +275,15 @@ CoordinatorService::enlistServer(const EnlistServerRpc::Request& reqHdr,
             serviceLocator, replacesId.getId());
         replacedEntry.construct(serverList[replacesId]);
         // Don't increment server list yet; done after the add below.
-        serverList.remove(replacesId, serverListUpdate);
+        // Note, if the server being replaced is already crashed this may
+        // not append an update at all.
+        serverList.crashed(replacesId, serverListUpdate);
+        // If the server being replaced did not have a master then there
+        // will be no recovery.  That means it needs to transition to
+        // removed status now (usually recoveries remove servers from the
+        // list when they complete).
+        if (!replacedEntry->isMaster())
+            serverList.remove(replacesId, serverListUpdate);
     }
 
     ServerId newServerId = serverList.add(serviceLocator,
@@ -325,7 +333,7 @@ CoordinatorService::getServerList(const GetServerListRpc::Request& reqHdr,
     ServiceMask serviceMask = ServiceMask::deserialize(reqHdr.serviceMask);
 
     ProtoBuf::ServerList serialServerList;
-    serverList.serialise(serialServerList, serviceMask);
+    serverList.serialize(serialServerList, serviceMask);
 
     respHdr.serverListLength =
         serializeToResponse(rpc.replyPayload, serialServerList);
@@ -358,22 +366,32 @@ CoordinatorService::hintServerDown(const HintServerDownRpc::Request& reqHdr,
 
     // reqHdr, respHdr, and rpc are off-limits now
 
-    if (!serverList.contains(serverId)) {
-        LOG(NOTICE, "Spurious report on unknown server id %lu", *serverId);
+    if (!serverList.contains(serverId) ||
+        serverList[serverId.indexNumber()]->status != ServerStatus::UP) {
+        LOG(NOTICE, "Spurious crash report on unknown server id %lu",
+            serverId.getId());
         return;
     }
 
     if (!verifyServerFailure(serverId))
         return;
 
-     // If this machine has a backup and master on the same server we need to
-     // remove the dead backup before initiating recovery. Otherwise, other
-     // servers may try to backup onto a dead machine and we will be in more
-     // trouble.
-    CoordinatorServerList::Entry serverEntry = serverList[serverId];
-    ProtoBuf::ServerList removalUpdate;
-    serverList.remove(serverId, removalUpdate);
-    serverList.incrementVersion(removalUpdate);
+    LOG(NOTICE, "Server id %lu has crashed, notifying the cluster and "
+        "starting recovery", serverId.getId());
+
+    // If this machine has a backup and master on the same server it is best
+    // to remove the dead backup before initiating recovery. Otherwise, other
+    // servers may try to backup onto a dead machine which will cause delays.
+    CoordinatorServerList::Entry entry = serverList[serverId];
+    ProtoBuf::ServerList update;
+    serverList.crashed(serverId, update);
+    // If the server being replaced did not have a master then there
+    // will be no recovery.  That means it needs to transition to
+    // removed status now (usually recoveries remove servers from the
+    // list when they complete).
+    if (!entry.isMaster())
+        serverList.remove(serverId, update);
+    serverList.incrementVersion(update);
 
     // Update cluster membership information.
     // Backup recovery is kicked off via this update.
@@ -381,9 +399,9 @@ CoordinatorService::hintServerDown(const HintServerDownRpc::Request& reqHdr,
     // recovery is difficult.  With small cluster sizes kicking off backup
     // recoveries this early didn't interfere with master recovery
     // performance, but we'll want to keep an eye on this.
-    sendMembershipUpdate(removalUpdate, ServerId(/* invalid id */));
+    sendMembershipUpdate(update, ServerId(/* invalid id */));
 
-    startMasterRecovery(serverEntry);
+    startMasterRecovery(entry);
 }
 
 /**
@@ -446,7 +464,8 @@ CoordinatorService::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
                 bool recoveryComplete =
                     recovery->tabletsRecovered(recoveredTablets);
                 if (recoveryComplete) {
-                    LOG(NOTICE, "Recovery completed");
+                    LOG(NOTICE, "Recovery completed for master %lu",
+                        recovery->masterId.getId());
                     delete recovery;
                     // dump the tabletMap out for easy debugging
                     LOG(DEBUG, "Coordinator tabletMap:");
@@ -457,6 +476,10 @@ CoordinatorService::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
                             tablet.end_object_id(), tablet.state(),
                             tablet.server_id());
                     }
+                    ProtoBuf::ServerList update;
+                    serverList.remove(recovery->masterId, update);
+                    serverList.incrementVersion(update);
+                    sendMembershipUpdate(update, ServerId(/* invalid id */));
                     return;
                 }
             }
@@ -523,6 +546,11 @@ CoordinatorService::requestServerList(
         return;
     }
 
+    if (serverList[id.indexNumber()]->status != ServerStatus::UP) {
+        LOG(WARNING, "Could not send list to crashed server %lu", *id);
+        return;
+    }
+
     if (!serverList[id].serviceMask.has(MEMBERSHIP_SERVICE)) {
         LOG(WARNING, "Could not send list to server without membership "
             "service: %lu", *id);
@@ -553,20 +581,34 @@ CoordinatorService::sendMembershipUpdate(ProtoBuf::ServerList& update,
     MembershipClient client;
     for (size_t i = 0; i < serverList.size(); i++) {
         if (serverList[i] == NULL ||
+            serverList[i]->status != ServerStatus::UP ||
             !serverList[i]->serviceMask.has(MEMBERSHIP_SERVICE))
             continue;
         if (serverList[i]->serverId == excludeServerId)
             continue;
 
-        bool succeeded = client.updateServerList(
-            serverList[i]->serviceLocator.c_str(), update);
+        bool succeeded = false;
+        try {
+            succeeded = client.updateServerList(
+                serverList[i]->serviceLocator.c_str(), update);
+        } catch (TransportException& e) {
+            // It's suspicious that pushing the update failed, but
+            // perhaps it's best to wait to try the full list push
+            // before jumping to conclusions.
+        }
 
         // If this server had missed a previous update it will return
         // failure and expect us to push the whole list again.
         if (!succeeded) {
             LOG(NOTICE, "Server %lu had lost an update. Sending whole list.",
                 *serverList[i]->serverId);
-            sendServerList(serverList[i]->serverId);
+            try {
+                sendServerList(serverList[i]->serverId);
+            } catch (TransportException& e) {
+                // TODO(stutsman): Things aren't looking good for this
+                // server.  The coordinator will probably want to investigate
+                // the server and evict it.
+            }
         }
     }
 }
@@ -582,12 +624,12 @@ CoordinatorService::sendMembershipUpdate(ProtoBuf::ServerList& update,
 void
 CoordinatorService::sendServerList(ServerId destination)
 {
-    ProtoBuf::ServerList serialisedServerList;
-    serverList.serialise(serialisedServerList);
+    ProtoBuf::ServerList serializedServerList;
+    serverList.serialize(serializedServerList);
 
     MembershipClient client;
     client.setServerList(serverList[destination].serviceLocator.c_str(),
-                         serialisedServerList);
+                         serializedServerList);
 }
 
 /**
@@ -673,7 +715,7 @@ CoordinatorService::setWill(ServerId masterId, Buffer& buffer,
 /**
  * Initiate a recovery of a crashed master.
  *
- * \param serverId
+ * \param serverEntry
  *      The crashed server which is to be recovered.  If the server was
  *      not running a master service then nothing is done.
  * \throw Exception
