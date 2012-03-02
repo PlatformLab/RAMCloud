@@ -101,11 +101,6 @@ BackupFailureMonitor::main(Context& context)
             ServerId id = server.serverId;
             if (event != SERVER_CRASHED)
                 continue;
-            // Only able to access details still if the event was a
-            // remove and getChange() hasn't been called again yet.
-            ServerDetails* details = tracker->getServerDetails(id);
-            if (!details->services.has(BACKUP_SERVICE))
-                continue;
             LOG(DEBUG,
                 "Notifying log of failure of serverId %lu",
                 id.getId());

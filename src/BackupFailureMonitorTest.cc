@@ -55,7 +55,8 @@ TEST_F(BackupFailureMonitorTest, main) {
             break;
     }
     BackupFailureMonitor::Lock lock(monitor.mutex); // processing is done.
-    EXPECT_EQ("main: Notifying log of failure of serverId 2",
+    EXPECT_EQ("main: Notifying log of failure of serverId 2 | "
+              "main: Notifying log of failure of serverId 3",
               TestLog::get());
 }
 
