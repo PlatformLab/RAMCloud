@@ -30,7 +30,6 @@
 #include "ServiceManager.h"
 #include "Transport.h"
 #include "WallTime.h"
-#include "Will.h"
 
 namespace RAMCloud {
 
@@ -62,8 +61,6 @@ bool objectRelocationCallback(LogEntryHandle oldHandle,
                               LogEntryHandle newHandle,
                               void* cookie);
 uint32_t objectTimestampCallback(LogEntryHandle handle);
-void objectScanCallback(LogEntryHandle handle,
-                        void* cookie);
 
 bool tombstoneLivenessCallback(LogEntryHandle handle,
                                void* cookie);
@@ -71,8 +68,6 @@ bool tombstoneRelocationCallback(LogEntryHandle oldHandle,
                                  LogEntryHandle newHandle,
                                  void* cookie);
 uint32_t tombstoneTimestampCallback(LogEntryHandle handle);
-void tombstoneScanCallback(LogEntryHandle handle,
-                           void* cookie);
 
 /**
  * Construct a MasterService.
@@ -116,18 +111,14 @@ MasterService::MasterService(const ServerConfig& config,
                      this,
                      objectRelocationCallback,
                      this,
-                     objectTimestampCallback,
-                     objectScanCallback,
-                     this);
+                     objectTimestampCallback);
     log.registerType(LOG_ENTRY_TYPE_OBJTOMB,
                      false,
                      tombstoneLivenessCallback,
                      this,
                      tombstoneRelocationCallback,
                      this,
-                     tombstoneTimestampCallback,
-                     tombstoneScanCallback,
-                     this);
+                     tombstoneTimestampCallback);
 
     failureMonitor.construct(serverList, &replicaManager, &log);
     failureMonitor->start();
@@ -883,18 +874,9 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
         tablet.set_server_id(serverId.getId());
     }
 
-    // TODO(ongaro): don't need to calculate a new will here
-    ProtoBuf::Tablets recoveryWill;
     {
-        CycleCounter<RawMetric> _(&metrics->master.recoveryWillTicks);
-        Will will(tablets, maxBytesPerPartition, maxReferentsPerPartition);
-        will.serialize(recoveryWill);
-    }
-
-    {
-        coordinator->tabletsRecovered(serverId.getId(),
-                                      recoveryTablets,
-                                      recoveryWill);
+        coordinator->tabletsRecovered(serverId,
+                                      recoveryTablets);
     }
     // Ok - we're free to start serving now.
 
@@ -1403,12 +1385,11 @@ objectRelocationCallback(LogEntryHandle oldHandle,
         }
     }
 
-    // Remove the evicted entry whether it is discarded or not. If
-    // we keep it we'll track it again in the objectScanCallback
-    // function.
-    table->profiler.untrack(evictObj->id.objectId,
-                            oldHandle->totalLength(),
-                            oldHandle->logTime());
+    // Update table statistics.
+    if (!keepNewObject) {
+        table->objectCount--;
+        table->objectBytes -= oldHandle->length();
+    }
 
     return keepNewObject;
 }
@@ -1429,43 +1410,6 @@ objectTimestampCallback(LogEntryHandle handle)
 {
     assert(handle->type() == LOG_ENTRY_TYPE_OBJ);
     return handle->userData<Object>()->timestamp;
-}
-
-/**
- * Asynchronous callback on all objects appended to the log or
- * relocated by the cleaner. This occurs once per append and
- * relocation event. We use this to update the appropriate
- * TabletProfiler.
- *
- * \param[in] handle
- *      LogEntryHandle of the object entry.
- * \param[in] cookie
- *      The opaque state pointer registered with the callback.
- */
-void
-objectScanCallback(LogEntryHandle handle, void* cookie)
-{
-    assert(handle->type() == LOG_ENTRY_TYPE_OBJ);
-
-    MasterService* svr = static_cast<MasterService *>(cookie);
-    assert(svr != NULL);
-
-    const Object* obj = handle->userData<Object>();
-    assert(obj != NULL);
-
-    std::lock_guard<SpinLock> lock(svr->objectUpdateLock);
-
-    Table* t = svr->getTable(downCast<uint32_t>(obj->id.tableId),
-                             obj->id.objectId);
-    if (t == NULL) {
-        LOG(DEBUG, "callback on object whose table is gone: "
-            "tblId %lu, objId %lu", obj->id.tableId, obj->id.objectId);
-        return;
-    }
-
-    t->profiler.track(obj->id.objectId,
-                      handle->totalLength(),
-                      handle->logTime());
 }
 
 /**
@@ -1534,16 +1478,11 @@ tombstoneRelocationCallback(LogEntryHandle oldHandle,
     // see if the referent is still there
     bool keepNewTomb = svr->log.isSegmentLive(tomb->segmentId);
 
-    // Remove the entry from the TabletProfiler whether it is to be
-    // discarded or not. If we keep it we'll track it again in the
-    // tombstoneScanCallback function.
-    std::lock_guard<SpinLock> lock(svr->objectUpdateLock);
     Table* table = svr->getTable(downCast<uint32_t>(tomb->id.tableId),
                                  tomb->id.objectId);
-    if (table != NULL) {
-        table->profiler.untrack(tomb->id.objectId,
-                                oldHandle->totalLength(),
-                                oldHandle->logTime());
+    if (table != NULL && !keepNewTomb) {
+        table->tombstoneCount--;
+        table->tombstoneBytes -= oldHandle->length();
     }
 
     return keepNewTomb;
@@ -1564,43 +1503,6 @@ tombstoneTimestampCallback(LogEntryHandle handle)
 {
     assert(handle->type() == LOG_ENTRY_TYPE_OBJTOMB);
     return handle->userData<ObjectTombstone>()->timestamp;
-}
-
-/**
- * Asynchronous callback on all tombstones appended to the log or
- * relocated by the cleaner. This occurs once per append and
- * relocation event. We use this to update the appropriate
- * TabletProfiler.
- *
- * \param[in] handle
- *      LogEntryHandle of the tombstone entry.
- * \param[in] cookie
- *      The opaque state pointer registered with the callback.
- */
-void
-tombstoneScanCallback(LogEntryHandle handle, void* cookie)
-{
-    assert(handle->type() == LOG_ENTRY_TYPE_OBJTOMB);
-
-    MasterService* svr = static_cast<MasterService *>(cookie);
-    assert(svr != NULL);
-
-    const ObjectTombstone* tomb = handle->userData<ObjectTombstone>();
-    assert(tomb != NULL);
-
-    std::lock_guard<SpinLock> lock(svr->objectUpdateLock);
-
-    Table* t = svr->getTable(downCast<uint32_t>(tomb->id.tableId),
-                             tomb->id.objectId);
-    if (t == NULL) {
-        LOG(DEBUG, "callback on tombstone whose table is gone: "
-            "tblId %lu, objId %lu", tomb->id.tableId, tomb->id.objectId);
-        return;
-    }
-
-    t->profiler.track(tomb->id.objectId,
-                      handle->totalLength(),
-                      handle->logTime());
 }
 
 /**

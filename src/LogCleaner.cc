@@ -46,7 +46,6 @@ LogCleaner::LogCleaner(Log* log,
                        bool startThread)
     : bytesFreedBeforeLastCleaning(0),
       scanList(),
-      nextScannedSegmentId(0),
       cleanableSegments(),
       log(log),
       replicaManager(replicaManager),
@@ -78,9 +77,8 @@ LogCleaner::clean()
     CycleCounter<uint64_t> totalPassTicks;
     PerfCounters before = perfCounters;
 
-    // We must scan new segments the Log considers cleanable before they
-    // are cleaned. Doing so in log order gives us a chance to fire callbacks
-    // that maintain the TabletProfilers.
+    // Get new cleanable segments from the log and scan them to keep
+    // track of space used by tombstones.
     scanNewCleanableSegments();
 
     // Scan some cleanable Segments to update free space accounting.
@@ -427,12 +425,7 @@ LogCleaner::scanNewCleanableSegments()
 
     log->getNewCleanableSegments(scanList);
 
-    std::sort(scanList.begin(),
-              scanList.end(),
-              SegmentIdLessThan());
-
-    while (scanList.size() > 0 &&
-           scanList.back()->getId() == nextScannedSegmentId) {
+    while (scanList.size() > 0) {
 
         Segment* s = scanList.back();
         scanList.pop_back();
@@ -441,27 +434,14 @@ LogCleaner::scanNewCleanableSegments()
         scanSegment(s, &implicitlyFreeableEntries, &implicitlyFreeableBytes);
         cleanableSegments.push_back({ s, implicitlyFreeableEntries,
                                          implicitlyFreeableBytes });
-        nextScannedSegmentId++;
-    }
-
-    if (scanList.size() > 0) {
-        LOG(DEBUG, "%zd cleanable segments awaiting scan (next id: %zd, "
-            "next available: %zd)", scanList.size(), nextScannedSegmentId,
-            scanList.back()->getId());
     }
 }
 
 /**
- * For a given Segment, scan all entries and call the scan callback function
- * registered with the type, if there is one. In addition, count the number
- * of entries that are not explicitly freed along with the total number of
- * bytes they're consuming. This can be used to help decide which segments
- * should be regularly scanned to compute an up-to-date account of the free
- * space.
- *
- * Note that this method ensures that a callback is fired on every entry added
- * to the Log before it is cleaned. In addition, the callback is fired each time
- * the entry is relocated due to cleaning.
+ * For a given Segment, scan all entries to count the number of entries that
+ * are not explicitly freed along with the total number of bytes they're
+ * consuming. This can be used to help decide which semgments should be
+ * regularly scanned to compute an up-to-date account of the free space.
  *
  * \param[in] segment
  *      The Segment upon whose entries the callbacks are to be fired.
@@ -484,11 +464,8 @@ LogCleaner::scanSegment(Segment*  segment,
     uint32_t _implicitlyFreeableBytes = 0;
 
     for (SegmentIterator si(segment); !si.isDone(); si.next()) {
-        const LogTypeInfo *cb = log->getTypeInfo(si.getType());
-        if (cb != NULL && cb->scanCB != NULL)
-            cb->scanCB(si.getHandle(), cb->scanArg);
-
-        if (cb != NULL && !cb->explicitlyFreed) {
+        const LogTypeInfo *ti = log->getTypeInfo(si.getType());
+        if (ti != NULL && !ti->explicitlyFreed) {
             _implicitlyFreeableEntries++;
             _implicitlyFreeableBytes = si.getHandle()->totalLength();
         }
@@ -546,14 +523,14 @@ LogCleaner::scanSegmentForFreeSpace(CleanableSegment& cleanableSegment)
 
     Segment* segment = cleanableSegment.segment;
     for (SegmentIterator si(segment); !si.isDone(); si.next()) {
-        const LogTypeInfo *cb = log->getTypeInfo(si.getType());
-        if (cb != NULL && !cb->explicitlyFreed) {
+        const LogTypeInfo *ti = log->getTypeInfo(si.getType());
+        if (ti != NULL && !ti->explicitlyFreed) {
             LogEntryHandle h = si.getHandle();
-            if (!cb->livenessCB(h, cb->livenessArg)) {
+            if (!ti->livenessCB(h, ti->livenessArg)) {
                 freedEntries++;
                 freeByteSum += h->totalLength();
-                if (cb->timestampCB != NULL)
-                    freeSpaceTimeSum += h->totalLength() * cb->timestampCB(h);
+                if (ti->timestampCB != NULL)
+                    freeSpaceTimeSum += h->totalLength() * ti->timestampCB(h);
             }
         }
     }
@@ -671,18 +648,18 @@ LogCleaner::getLiveEntries(Segment* segment,
         perfCounters.entryTypeCounts[handle->type()]++;
         perfCounters.entriesInCleanedSegments++;
 
-        const LogTypeInfo *cb = log->getTypeInfo(handle->type());
-        if (cb != NULL) {
+        const LogTypeInfo *ti = log->getTypeInfo(handle->type());
+        if (ti != NULL) {
             perfCounters.entriesLivenessChecked++;
 
             CycleCounter<uint64_t> livenessTicks(
                 &perfCounters.livenessCallbackTicks);
-            bool isLive = cb->livenessCB(handle, cb->livenessArg);
+            bool isLive = ti->livenessCB(handle, ti->livenessArg);
             livenessTicks.stop();
 
             if (isLive) {
-                assert(cb->timestampCB != NULL);
-                liveEntries.push_back({ handle, cb->timestampCB(handle) });
+                assert(ti->timestampCB != NULL);
+                liveEntries.push_back({ handle, ti->timestampCB(handle) });
                 liveEntryBytes += handle->length();
                 perfCounters.liveEntryBytes += handle->totalLength();
             }
@@ -779,15 +756,15 @@ LogCleaner::moveToFillSegment(Segment* lastNewSegment,
                 perfCounters.entryTypeCounts[handle->type()]++;
                 perfCounters.entriesInCleanedSegments++;
 
-                const LogTypeInfo *cb = log->getTypeInfo(handle->type());
-                if (cb == NULL || !cb->livenessCB(handle, cb->livenessArg))
+                const LogTypeInfo *ti = log->getTypeInfo(handle->type());
+                if (ti == NULL || !ti->livenessCB(handle, ti->livenessArg))
                     continue;
 
                 SegmentEntryHandle newHandle =
                     lastNewSegment->append(handle, false);
                 assert(newHandle != NULL);
 
-                if (cb->relocationCB(handle, newHandle, cb->relocationArg)) {
+                if (ti->relocationCB(handle, newHandle, ti->relocationArg)) {
                     perfCounters.liveEntriesRelocated++;
                     perfCounters.relocEntryTypeCounts[handle->type()]++;
                 } else {
@@ -904,10 +881,10 @@ LogCleaner::moveLiveData(LiveSegmentEntryHandleVector& liveData,
             newHandle = segmentUsed->append(handle, false);
         }
 
-        const LogTypeInfo* cb = log->getTypeInfo(handle->type());
+        const LogTypeInfo* ti = log->getTypeInfo(handle->type());
 
         CycleCounter<uint64_t> relTicks(&perfCounters.relocationCallbackTicks);
-        bool relocated = cb->relocationCB(handle, newHandle, cb->relocationArg);
+        bool relocated = ti->relocationCB(handle, newHandle, ti->relocationArg);
         relTicks.stop();
 
         if (relocated) {

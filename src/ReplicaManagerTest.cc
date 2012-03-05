@@ -251,7 +251,7 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
     Log log(serverId, logSegs * 8192, 8192, 4298,
             mgr.get(), Log::CLEANER_DISABLED);
     log.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
-                    NULL, NULL, NULL, NULL, NULL);
+                    NULL, NULL, NULL);
     // Set up the scenario:
     // Two log segments in the log, one durably closed and the other open
     // with a single pending write.

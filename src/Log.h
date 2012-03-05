@@ -62,7 +62,6 @@ typedef SegmentEntryHandleVector LogEntryHandleVector;
 typedef bool (*log_liveness_cb_t)(LogEntryHandle, void *);
 typedef bool (*log_relocation_cb_t)(LogEntryHandle, LogEntryHandle, void *);
 typedef uint32_t (*log_timestamp_cb_t)(LogEntryHandle);
-typedef void (*log_scan_cb_t)(LogEntryHandle, void *);
 
 /**
  * Each append operation on a Log writes a typed blob. Types must
@@ -77,18 +76,14 @@ class LogTypeInfo {
                 void *livenessArg,
                 log_relocation_cb_t relocationCB,
                 void *relocationArg,
-                log_timestamp_cb_t timestampCB,
-                log_scan_cb_t scanCB,
-                void *scanArg)
+                log_timestamp_cb_t timestampCB)
         : type(type),
           explicitlyFreed(explicitlyFreed),
           livenessCB(livenessCB),
           livenessArg(livenessArg),
           relocationCB(relocationCB),
           relocationArg(relocationArg),
-          timestampCB(timestampCB),
-          scanCB(scanCB),
-          scanArg(scanArg)
+          timestampCB(timestampCB)
     {
     }
 
@@ -122,16 +117,6 @@ class LogTypeInfo {
     /// Callback used to obtain the timestamp of the entry. Not all entries
     /// have timestamps so they're not kept internally in the log.
     const log_timestamp_cb_t  timestampCB;
-
-    /// Callback used to iterate over entries in log order. Every time an
-    /// entry is written to the log, this callback is eventually fired on
-    /// it. If an entry is moved by the cleaner to a new segment, this callback
-    /// will fire again. This is currently used to maintain the TabletProfilers
-    /// asynchronously.
-    const log_scan_cb_t       scanCB;
-
-    /// Opaque cookie passed to the scan callback.
-    void                     *scanArg;
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(LogTypeInfo);
@@ -195,9 +180,7 @@ class Log {
                                 void *livenessArg,
                                 log_relocation_cb_t relocationCB,
                                 void *relocationArg,
-                                log_timestamp_cb_t timestampCB,
-                                log_scan_cb_t scanCB,
-                                void* scanArg);
+                                log_timestamp_cb_t timestampCB);
     const LogTypeInfo* getTypeInfo(LogEntryType type);
     void           sync();
     uint64_t       getSegmentId(const void *p);

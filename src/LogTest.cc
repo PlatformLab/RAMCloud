@@ -231,7 +231,7 @@ TEST_F(LogTest, getFromFreeList) {
 TEST_F(LogTest, isSegmentLive) {
     Log l(serverId, 2 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
     l.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
-        NULL, NULL, NULL, NULL, NULL);
+        NULL, NULL, NULL);
     static char buf[64];
 
     uint64_t segmentId = l.nextSegmentId;
@@ -243,7 +243,7 @@ TEST_F(LogTest, isSegmentLive) {
 TEST_F(LogTest, getSegmentId) {
     Log l(serverId, 2 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
     l.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
-        NULL, NULL, NULL, NULL, NULL);
+        NULL, NULL, NULL);
     static char buf[64];
 
     const void *p = l.append(LOG_ENTRY_TYPE_OBJ,
@@ -256,7 +256,7 @@ TEST_F(LogTest, getSegmentId) {
 TEST_F(LogTest, append) {
     Log l(serverId, 3 * 8192, 8192, 8138, NULL, Log::CLEANER_DISABLED);
     l.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
-        NULL, NULL, NULL, NULL, NULL);
+        NULL, NULL, NULL);
     static char buf[13];
     char fillbuf[l.getSegmentCapacity()];
     memset(fillbuf, 'A', sizeof(fillbuf));
@@ -319,7 +319,7 @@ TEST_F(LogTest, append) {
 TEST_F(LogTest, free) {
     Log l(serverId, 2 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
     l.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
-        NULL, NULL, NULL, NULL, NULL);
+        NULL, NULL, NULL);
     static char buf[64];
 
     LogEntryHandle h = l.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
@@ -350,12 +350,6 @@ timestampCallback(LogEntryHandle handle)
     return 57;
 }
 
-static void
-scanCallback(LogEntryHandle handle,
-                void* cookie)
-{
-}
-
 TEST_F(LogTest, registerType) {
     Log l(serverId, 1 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
 
@@ -363,23 +357,20 @@ TEST_F(LogTest, registerType) {
                    true,
                    livenessCallback, NULL,
                    relocationCallback, NULL,
-                   timestampCallback,
-                   scanCallback, NULL);
+                   timestampCallback);
     EXPECT_THROW(
         l.registerType(LOG_ENTRY_TYPE_OBJ,
                        true,
                        livenessCallback, NULL,
                        relocationCallback, NULL,
-                       timestampCallback,
-                       scanCallback, NULL),
+                       timestampCallback),
         LogException);
     EXPECT_THROW(
         l.registerType(LOG_ENTRY_TYPE_OBJTOMB,
                        false,
                        NULL, NULL,
                        relocationCallback, NULL,
-                       timestampCallback,
-                       scanCallback, NULL),
+                       timestampCallback),
         LogException);
 
     LogTypeInfo *cb = l.logTypeMap[LOG_ENTRY_TYPE_OBJ];
@@ -402,8 +393,7 @@ TEST_F(LogTest, getTypeInfo) {
                    true,
                    livenessCallback, NULL,
                    relocationCallback, NULL,
-                   timestampCallback,
-                   scanCallback, NULL);
+                   timestampCallback);
 
     const LogTypeInfo* cb = l.getTypeInfo(LOG_ENTRY_TYPE_OBJ);
     EXPECT_TRUE(cb != NULL);

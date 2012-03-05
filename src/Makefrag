@@ -79,7 +79,6 @@ SHARED_SRCFILES := \
 		   src/SpinLock.cc \
 		   src/Status.cc \
 		   src/StringUtil.cc \
-		   src/TabletProfiler.cc \
 		   src/TaskManager.cc \
 		   src/TcpTransport.cc \
 		   src/TestLog.cc \
@@ -90,7 +89,6 @@ SHARED_SRCFILES := \
 		   src/UdpDriver.cc \
 		   src/UnreliableTransport.cc \
 		   src/WallTime.cc \
-		   src/Will.cc \
 		   $(INFINIBAND_SRCFILES) \
 		   $(OBJDIR)/MetricList.pb.cc \
 		   $(OBJDIR)/ServerList.pb.cc \

@@ -73,7 +73,6 @@ TESTS_SRCFILES := \
 		  src/SpinLockTest.cc \
 		  src/StatusTest.cc \
 		  src/StringUtilTest.cc \
-		  src/TabletProfilerTest.cc \
 		  src/TaskManagerTest.cc \
 		  src/TcpTransportTest.cc \
 		  src/TestRunner.cc \
@@ -85,7 +84,6 @@ TESTS_SRCFILES := \
 		  src/TubTest.cc \
 		  src/UdpDriverTest.cc \
 		  src/VarLenArrayTest.cc \
-		  src/WillTest.cc \
 		  src/WindowTest.cc \
 		  src/RamCloudTest.cc \
 		  $(INFINIBAND_SRCFILES) \
@@ -131,7 +129,6 @@ test: $(OBJDIR)/test \
       $(OBJDIR)/RecoverSegmentBenchmark \
       $(OBJDIR)/Telnet \
       $(OBJDIR)/TransportSmack \
-      $(OBJDIR)/WillBenchmark
 	$(OBJDIR)/test
 
 all: $(OBJDIR)/Perf $(OBJDIR)/ClusterPerf
@@ -170,10 +167,6 @@ $(OBJDIR)/TransportBench: $(OBJDIR)/TransportBench.o $(OBJDIR)/RawMetrics.o $(OB
 $(OBJDIR)/TransportSmack: $(OBJDIR)/TransportSmack.o $(OBJDIR)/Service.o $(OBJDIR)/RawMetrics.o $(OBJDIR)/OptionParser.o $(OBJDIR)/TestUtil.o $(OBJDIR)/gtest.a $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
 	$(CXX) $(TESTS_LIB) -o $@ $^
-
-$(OBJDIR)/WillBenchmark: $(OBJDIR)/WillBenchmark.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
-	@mkdir -p $(@D)
-	$(CXX) $(LIBS) -o $@ $^
 
 $(OBJDIR)/LogCleanerBenchmark: $(OBJDIR)/LogCleanerBenchmark.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)

@@ -288,19 +288,15 @@ CoordinatorClient::quiesce()
  * \param[in] tablets
  *      The tablets which form a partition of a will which are
  *      now done recovering.
- * \param[in] will
- *      The serialized ProtoBuf representation of the post-recovery
- *      Will to send to the Coordinator.
  */
 void
-CoordinatorClient::tabletsRecovered(uint64_t masterId,
-    const ProtoBuf::Tablets& tablets, const ProtoBuf::Tablets& will)
+CoordinatorClient::tabletsRecovered(ServerId masterId,
+                                    const ProtoBuf::Tablets& tablets)
 {
     Buffer req, resp;
     TabletsRecoveredRpc::Request& reqHdr(allocHeader<TabletsRecoveredRpc>(req));
-    reqHdr.masterId = masterId;
+    reqHdr.masterId = *masterId;
     reqHdr.tabletsLength = serializeToRequest(req, tablets);
-    reqHdr.willLength = serializeToRequest(req, will);
     sendRecv<TabletsRecoveredRpc>(session, req, resp);
     checkStatus(HERE);
 }

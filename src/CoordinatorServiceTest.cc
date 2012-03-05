@@ -341,21 +341,13 @@ TEST_F(CoordinatorServiceTest, tabletsRecovered_basics) {
     stablet.set_user_data(
         reinterpret_cast<uint64_t>(new BaseRecovery(master2Id)));
 
-    Tablets will;
-    Tablet& willEntry(*will.add_tablet());
-    willEntry.set_table_id(0);
-    willEntry.set_start_object_id(0);
-    willEntry.set_end_object_id(~(0ul));
-    willEntry.set_state(ProtoBuf::Tablets::Tablet::NORMAL);
-    willEntry.set_user_data(0);
-
     EXPECT_EQ(3u, service->serverList.versionNumber);
+
     {
         TestLog::Enable _(&tabletsRecoveredFilter);
-        client->tabletsRecovered(1, tablets, will);
+        client->tabletsRecovered(ServerId(1, 0), tablets);
         EXPECT_EQ(
-            "tabletsRecovered: called by masterId 1 with 1 tablets, "
-            "1 will entries | "
+            "tabletsRecovered: called by masterId 1 with 1 tablets | "
             "tabletsRecovered: Recovery complete on tablet "
             "0,0,18446744073709551615 | "
             "tabletsRecovered: Recovery completed for master 2 | "

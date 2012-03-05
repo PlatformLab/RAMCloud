@@ -265,8 +265,7 @@ TEST_F(SegmentTest, free) {
                    true,
                    livenessCallback, NULL,
                    relocationCallback, NULL,
-                   timestampCallback,
-                   scanCallback, NULL);
+                   timestampCallback);
 
     char alignedBuf[8192] __attribute__((aligned(8192)));
     char buf[64];
@@ -287,8 +286,7 @@ TEST_F(SegmentTest, setImplicitlyFreedCounts) {
                    true,
                    livenessCallback, NULL,
                    relocationCallback, NULL,
-                   timestampCallback,
-                   scanCallback, NULL);
+                   timestampCallback);
 
     char alignedBuf[8192] __attribute__((aligned(8192)));
     char buf[64];
@@ -424,8 +422,7 @@ TEST_F(SegmentTest, forceAppendWithEntry) {
                    true,
                    livenessCallback, NULL,
                    relocationCallback, NULL,
-                   timestampCallback,
-                   scanCallback, NULL);
+                   timestampCallback);
 
     char alignedBuf[8192] __attribute__((aligned(8192)));
     SegmentEntryHandle seh;

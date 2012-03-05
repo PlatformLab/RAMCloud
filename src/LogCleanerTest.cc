@@ -100,50 +100,7 @@ TEST_F(LogCleanerTest, scanNewCleanableSegments) {
     cleaner->scanList.push_back(&s3);
 
     cleaner->scanNewCleanableSegments();
-    EXPECT_EQ(1U, cleaner->scanList.size());
-    EXPECT_EQ(2U, cleaner->cleanableSegments.size());
-    EXPECT_EQ(0U, cleaner->cleanableSegments[0].segment->getId());
-    EXPECT_EQ(1U, cleaner->cleanableSegments[1].segment->getId());
-    EXPECT_EQ(3U, cleaner->scanList[0]->getId());
-}
-
-static int scanCbCalled = 0;
-static void
-scanCB(LogEntryHandle h, void* cookie)
-{
-    EXPECT_EQ(reinterpret_cast<void*>(1234), cookie);
-    EXPECT_EQ(513U, h->length());
-    scanCbCalled++;
-}
-
-TEST_F(LogCleanerTest, scanSegment) {
-    Log log(serverId, 3 * 1024, 1024, 768, NULL, Log::CLEANER_DISABLED);
-    LogCleaner* cleaner = &log.cleaner;
-
-    log.registerType(LOG_ENTRY_TYPE_OBJ,
-                     true,
-                     NULL, NULL,
-                     NULL, NULL,
-                     NULL,
-                     scanCB,
-                     reinterpret_cast<void*>(1234));
-
-    while (log.cleanableNewList.size() < 1) {
-        char buf[513];
-        log.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
-    }
-
-    // indirectly invokes scanSegment
-    cleaner->scanNewCleanableSegments();
-
-    EXPECT_EQ(1, scanCbCalled);
-}
-
-static int scanCb2Called = 0;
-static void
-scanCB2(LogEntryHandle h, void* cookie)
-{
-    scanCb2Called++;
+    EXPECT_EQ(0U, cleaner->scanList.size());
 }
 
 static int liveCBCalled = 0;
@@ -162,17 +119,13 @@ TEST_F(LogCleanerTest, scanSegment_implicitlyFreed) {
                      true,
                      liveCB, NULL,
                      NULL, NULL,
-                     NULL,
-                     scanCB2,
-                     reinterpret_cast<void*>(1234));
+                     NULL);
 
     log.registerType(LOG_ENTRY_TYPE_OBJTOMB,
                      false,
                      liveCB, NULL,
                      NULL, NULL,
-                     NULL,
-                     scanCB2,
-                     reinterpret_cast<void*>(1234));
+                     NULL);
 
     char buf[513];
     log.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
@@ -182,7 +135,6 @@ TEST_F(LogCleanerTest, scanSegment_implicitlyFreed) {
     uint32_t impBytes = 0;
     cleaner->scanSegment(log.head, &impEntries, &impBytes);
 
-    EXPECT_EQ(2, scanCb2Called);
     EXPECT_EQ(1U, impEntries);
     EXPECT_EQ(h->totalLength(), impBytes);
 }
@@ -201,15 +153,11 @@ TEST_F(LogCleanerTest, scanForFreeSpace) {
                      true,
                      negativeLiveCB, NULL,
                      NULL, NULL,
-                     NULL,
-                     NULL,
                      NULL);
     log.registerType(LOG_ENTRY_TYPE_OBJTOMB,
                      false,
                      negativeLiveCB, NULL,
                      NULL, NULL,
-                     NULL,
-                     NULL,
                      NULL);
     LogCleaner* cleaner = &log.cleaner;
 
@@ -262,16 +210,12 @@ TEST_F(LogCleanerTest, scanSegmentForFreeSpace) {
                      true,
                      liveCB, NULL,
                      NULL, NULL,
-                     fiveTimestampCB,
-                     NULL,
-                     NULL);
+                     fiveTimestampCB);
     log.registerType(LOG_ENTRY_TYPE_OBJTOMB,
                      false,
                      negativeLiveCB, NULL,
                      NULL, NULL,
-                     fiveTimestampCB,
-                     NULL,
-                     NULL);
+                     fiveTimestampCB);
     LogCleaner* cleaner = &log.cleaner;
 
     char segBuf[8192] __attribute__((aligned(8192)));
@@ -291,7 +235,7 @@ TEST_F(LogCleanerTest, scanSegmentForFreeSpace) {
 TEST_F(LogCleanerTest, getSegmentsToClean) {
     Log log(serverId, 8192 * 1000, 8192, 4298, NULL, Log::CLEANER_DISABLED);
     log.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
-        NULL, NULL, NULL, NULL, NULL);
+        NULL, NULL, NULL);
     LogCleaner* cleaner = &log.cleaner;
     char buf[64];
 
@@ -357,7 +301,7 @@ TEST_F(LogCleanerTest, getSegmentsToClean_writeCost) {
 
         Log log(serverId, 8192 * 1000, 8192, 4298, NULL, Log::CLEANER_DISABLED);
         log.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
-            NULL, NULL, NULL, NULL, NULL);
+            NULL, NULL, NULL);
         LogCleaner* cleaner = &log.cleaner;
         int freeEveryNth = testSetup[i].freeEveryNth;
 
@@ -389,7 +333,7 @@ TEST_F(LogCleanerTest, getSegmentsToClean_writeCost) {
 TEST_F(LogCleanerTest, getSegmentsToClean_costBenefitOrder) {
     Log log(serverId, 8192 * 1000, 8192, 4298, NULL, Log::CLEANER_DISABLED);
     log.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
-        NULL, NULL, NULL, NULL, NULL);
+        NULL, NULL, NULL);
     LogCleaner* cleaner = &log.cleaner;
     char buf[64];
 
@@ -447,11 +391,6 @@ timestampCB(LogEntryHandle h)
     return 1;
 }
 
-static void
-scanCB3(LogEntryHandle h, void* cookie)
-{
-}
-
 TEST_F(LogCleanerTest, getLiveEntries) {
     Log log(serverId, 8192 * 20, 8192, 8000, NULL, Log::CLEANER_DISABLED);
     LogCleaner* cleaner = &log.cleaner;
@@ -460,15 +399,13 @@ TEST_F(LogCleanerTest, getLiveEntries) {
                      true,
                      livenessCB, NULL,
                      relocationCB, NULL,
-                     timestampCB,
-                     scanCB3, NULL);
+                     timestampCB);
 
     log.registerType(LOG_ENTRY_TYPE_OBJTOMB,
                      true,
                      negativeLiveCB, NULL,
                      relocationCB, NULL,
-                     timestampCB,
-                     scanCB3, NULL);
+                     timestampCB);
 
     LogCleaner::LiveSegmentEntryHandleVector entries;
     char buf[8192] __attribute__((aligned(8192)));
@@ -494,8 +431,7 @@ TEST_F(LogCleanerTest, getSortedLiveEntries) {
                      true,
                      livenessCB, NULL,
                      relocationCB, NULL,
-                     timestampCB,
-                     scanCB3, NULL);
+                     timestampCB);
 
     SegmentVector segments;
     LogCleaner::LiveSegmentEntryHandleVector liveEntries;
@@ -536,24 +472,21 @@ TEST_F(LogCleanerTest, moveToFillSegment) {
                      true,
                      livenessCB, NULL,
                      relocationCBTrue, NULL,
-                     timestampCB,
-                     scanCB3, NULL);
+                     timestampCB);
 
     // dead
     log.registerType(LOG_ENTRY_TYPE_OBJTOMB,
                      true,
                      negativeLiveCB, NULL,
                      relocationCBFalse, NULL,
-                     timestampCB,
-                     scanCB3, NULL);
+                     timestampCB);
 
     // livenessCB says live, but dies before relocationCB
     log.registerType(LOG_ENTRY_TYPE_LOGDIGEST,
                      true,
                      livenessCB, NULL,
                      relocationCBFalse, NULL,
-                     timestampCB,
-                     scanCB3, NULL);
+                     timestampCB);
 
     char sourceBuf[8192];
     char buf1[8192] __attribute__((aligned(8192)));

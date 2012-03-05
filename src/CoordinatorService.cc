@@ -201,7 +201,7 @@ CoordinatorService::dropTable(const DropTableRpc::Request& reqHdr,
     while (i < tabletMap.tablet_size()) {
         if (tabletMap.tablet(i).table_id() == tableId) {
             tabletMap.mutable_tablet()->SwapElements(
-                                            tabletMap.tablet_size() - 1, i);
+                    tabletMap.tablet_size() - 1, i);
             tabletMap.mutable_tablet()->RemoveLast();
         } else {
             ++i;
@@ -423,20 +423,9 @@ CoordinatorService::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
     ProtoBuf::parseFromResponse(rpc.requestPayload,
                                 downCast<uint32_t>(sizeof(reqHdr)),
                                 reqHdr.tabletsLength, recoveredTablets);
-    ProtoBuf::Tablets* newWill = new ProtoBuf::Tablets;
-    ProtoBuf::parseFromResponse(rpc.requestPayload,
-                                downCast<uint32_t>(sizeof(reqHdr)) +
-                                reqHdr.tabletsLength,
-                                reqHdr.willLength, *newWill);
 
-    LOG(NOTICE, "called by masterId %lu with %u tablets, %u will entries",
-        reqHdr.masterId, recoveredTablets.tablet_size(),
-        newWill->tablet_size());
-
-    // update the will
-    setWill(ServerId(reqHdr.masterId), rpc.requestPayload,
-        downCast<uint32_t>(sizeof(reqHdr)) + reqHdr.tabletsLength,
-        reqHdr.willLength);
+    LOG(NOTICE, "called by masterId %lu with %u tablets",
+        reqHdr.masterId, recoveredTablets.tablet_size());
 
     // update tablet map to point to new owner and mark as available
     foreach (const ProtoBuf::Tablets::Tablet& recoveredTablet,
