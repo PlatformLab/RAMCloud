@@ -362,8 +362,7 @@ TEST_F(MasterServiceTest, recover_basics) {
         "recover: set tablet 123 20 29 to locator mock:host=master, id 2 | "
         "recover: set tablet 124 20 100 to locator mock:host=master, "
         "id 2 | "
-        "tabletsRecovered: called by masterId 2 with 4 tablets, "
-        "5 will entries",
+        "tabletsRecovered: called by masterId 2 with 4 tablets",
         TestLog::get()));
     free(segMem);
 }
