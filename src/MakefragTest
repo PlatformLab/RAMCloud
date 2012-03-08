@@ -128,7 +128,7 @@ test: $(OBJDIR)/test \
       $(OBJDIR)/Perf \
       $(OBJDIR)/RecoverSegmentBenchmark \
       $(OBJDIR)/Telnet \
-      $(OBJDIR)/TransportSmack \
+      $(OBJDIR)/TransportSmack
 	$(OBJDIR)/test
 
 all: $(OBJDIR)/Perf $(OBJDIR)/ClusterPerf
