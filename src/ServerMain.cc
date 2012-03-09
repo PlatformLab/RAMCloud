@@ -19,7 +19,9 @@
  */
 
 #include "Context.h"
+#if INFINIBAND
 #include "InfRcTransport.h"
+#endif
 #include "OptionParser.h"
 #include "Server.h"
 #include "ShortMacros.h"
@@ -118,7 +120,9 @@ main(int argc, char *argv[])
 
         const string localLocator = optionParser.options.getLocalLocator();
 
+#if INFINIBAND
         InfRcTransport<>::setName(localLocator.c_str());
+#endif
         Context::get().transportManager->setTimeout(
                 optionParser.options.getTransportTimeout());
         Context::get().transportManager->initialize(localLocator.c_str());
