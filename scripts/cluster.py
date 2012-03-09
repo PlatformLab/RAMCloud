@@ -139,7 +139,7 @@ def run(
                                    # log files.  A separate subdirectory
                                    # will be created in this directory
                                    # for the log files from this run.
-        client='echo',             # Command-line to invoke for each client
+        client=None,               # Command-line to invoke for each client
                                    # additional arguments will be prepended
                                    # with configuration information such as
                                    # -C.
@@ -170,6 +170,10 @@ def run(
     Then start one or more client processes and wait for them to complete.
     @return: string indicating the path to the log files for this run.
     """
+
+    if not client:
+        raise Exception("You must specify a client binary to run "
+                        "(try obj.master/client)")
 
     if num_servers > len(hosts):
         raise Exception("num_servers (%d) exceeds the available hosts (%d)"
@@ -322,7 +326,7 @@ if __name__ == '__main__':
             metavar='N', dest='backups_per_server',
             help='Number of backups to run on each server host '
                  '(0, 1, or 2)')
-    parser.add_option('--client', metavar='ARGS', default='echo',
+    parser.add_option('--client', metavar='ARGS',
             help='Command line to invoke the client application '
                  '(additional arguments will be inserted at the beginning '
                  'of the argument list)')
