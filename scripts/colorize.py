@@ -21,12 +21,8 @@
 # Then just create a script to pipe your junk through colorize.
 # make $* 2>&1 | python colorize.py
 # exit ${PIPESTATUS[0]}
-#
-# This is perhaps not the most idiomatic Python; it was once written
-# in Haskell.
 
-from termcolor import cprint
-from functools import partial
+import termcolor
 import re
 import fileinput
 import os
@@ -35,62 +31,60 @@ import sys
 # Most of the 'configuration'.
 # Default substitutions, colors, etc.
 
-markup = [ ('g++',              lambda s: cprint(s, 'yellow'))
-         , ('ar',               lambda s: cprint(s, 'yellow'))
-         , ('perl',             lambda s: cprint(s, 'yellow'))
-         , ('mock.py',          lambda s: cprint(s, 'yellow'))
-         , ('cpplint',          lambda s: cprint(s, 'yellow'))
-         , ('make:',            lambda s: cprint(s, 'green'))
-         , ('error:',           lambda s: cprint(s, 'red', attrs=['bold']))
-         , ('Error',            lambda s: cprint(s, 'red', attrs=['bold']))
-         , ('!!!FAILURES!!!',   lambda s: cprint(s, 'cyan', attrs=['bold']))
-         , ('undefined',        lambda s: cprint(s, 'cyan', attrs=['bold']))
-         , ('assertion',        lambda s: cprint(s, 'cyan', attrs=['bold']))
-         , ('within',           lambda s: cprint(s, 'cyan'))
-         , ('note:',            lambda s: cprint(s, 'white'))
-         , ('warning:',         lambda s: cprint(s, 'yellow'))
-         , ('instantiated',     lambda s: cprint(s, 'green'))
-         , ('from',             lambda s: cprint(s, 'green'))
-         , ('In',               lambda s: cprint(s, 'green'))
+def color(*args, **kwargs):
+    """Return a function that takes a string and colors it."""
+    return lambda s: termcolor.colored(s, *args, **kwargs)
+
+markup = [ ('g++',              color('yellow'))
+         , ('ar',               color('yellow'))
+         , ('perl',             color('yellow'))
+         , ('mock.py',          color('yellow'))
+         , ('cpplint',          color('yellow'))
+         , ('make:',            color('green'))
+         , ('error:',           color('red', attrs=['bold']))
+         , ('Error',            color('red', attrs=['bold']))
+         , ('!!!FAILURES!!!',   color('cyan', attrs=['bold']))
+         , ('undefined',        color('cyan', attrs=['bold']))
+         , ('assertion',        color('cyan', attrs=['bold']))
+         , ('within',           color('cyan'))
+         , ('note:',            color('white'))
+         , ('warning:',         color('yellow'))
+         , ('instantiated',     color('green'))
+         , ('from',             color('green'))
+         , ('In',               color('green'))
+         , ('',                 color())
          ]
 
 ss = 'std::basic_string<char, std::char_traits<char>, std::allocator<char> >'
 substs = [ (ss, 'string')
-         , ('python cpplint.py', 'cpplint')
          , ('boost::intrusive_ptr<RAMCloud::Transport::Session>',
             'Transport::SessionRef')
+         , (r'^perl .*$', 'perl ...')
+         , (r'^python cpplint\.py.*$', 'cpplint')
          ]
 
-prefixsToStrip = [ os.getcwd() + '/src/'
-                 , os.getcwd() + '/'
-                 ]
+prefixesToStrip = [ os.getcwd() + '/src/'
+                  , os.getcwd() + '/'
+                  ]
+prefixesToStrip.sort(key=len, reverse=True) # sort prefixes by length desc
 
 def cleanup(line):
-    markLine(
-        applySubsts(
-            stripPaths(
-                partial(killFollowing, 'python cpplint.py')(
-                    partial(killFollowing, 'perl')(
-                        partial(elideCompiles, ['g++', 'ar'])(line.strip())
-                    )
-                )
-            )
-        )
-    )
+    line = line.strip()
+    line = elideCompiles(['g++', 'ar'], line)
+    line = stripPaths(line)
+    line = applySubsts(line)
+    markLine(line)
 
 # Many utility functions for slicing and dicing lines.
 
 def stripPaths(line):
     """Kill all prefixesToStrip from a line"""
-    words = line.split()
-    for i, word in enumerate(words):
-        longest = 0
-        for prefix in prefixsToStrip:
+    def stripWord(word):
+        for prefix in prefixesToStrip:
             if word.startswith(prefix):
-                if len(prefix) > longest:
-                    longest = len(prefix)
-            words[i] = word[longest:]
-    return ' '.join(words)
+                return word[len(prefix):]
+        return word
+    return ' '.join([stripWord(word) for word in line.split()])
 
 def elideCompiles(words, line):
     """If the first word of line is in words then delete all but the first
@@ -98,14 +92,7 @@ def elideCompiles(words, line):
     for word in words:
         if line.startswith(word):
             lwords = line.split()
-            return ' '.join([lwords[0], lwords[-1]])
-    return line
-
-def killFollowing(word, line):
-    """Replace all words in the line beyond the first with "..." if the
-       first word matches the given word."""
-    if line.startswith(word):
-        return '%s ...' % word
+            return '%s %s' % (lwords[0], lwords[-1])
     return line
 
 def applySubsts(line):
@@ -118,14 +105,14 @@ def applySubsts(line):
 
 def markLine(line):
     """Apply pairs from markup on the line.  For a string from the pair
-       that matches the corresponding action from the pair is performed
+       that matches the corresponding markup from the pair is performed
        on the line.  Pairs are applied in order; the lastmost match is
        the action that gets performed."""
     for word, action in markup:
         if word in line:
-            action(line)
+            print(action(line))
+            sys.stdout.flush()
             return
-    sys.stdout.flush()
 
 def main():
     for line in fileinput.input():
