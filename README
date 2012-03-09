@@ -22,7 +22,7 @@ python
 
 perl
 
-sudo apt-get install build-essential git-core libcppunit-dev libcppunit-doc doxygen libboost1.42-all-dev libprcre3-dev protobuf-compiler libprotobuf-dev libcrypto++-dev libevent-dev
+sudo apt-get install build-essential git-core libcppunit-dev libcppunit-doc doxygen libboost1.42-all-dev libprcre3-dev protobuf-compiler libprotobuf-dev libcrypto++-dev
 
 1.2 Builds
 

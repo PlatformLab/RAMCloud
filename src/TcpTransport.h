@@ -16,7 +16,6 @@
 #ifndef RAMCLOUD_TCPTRANSPORT_H
 #define RAMCLOUD_TCPTRANSPORT_H
 
-#include <event.h>
 #include <queue>
 
 #include "BoostIntrusive.h"
