@@ -51,6 +51,8 @@ try
     uint32_t tableCount;
     uint32_t skipCount;
     uint64_t b;
+    int clientIndex;
+    int numClients;
 
     // need external context to set log levels with OptionParser
     Context context(true);
@@ -58,6 +60,18 @@ try
 
     OptionsDescription clientOptions("Client");
     clientOptions.add_options()
+
+        // These first two options are currently ignored. They're here so that
+        // this script can be run with cluster.py.
+        ("clientIndex",
+         ProgramOptions::value<int>(&clientIndex)->
+            default_value(0),
+         "Index of this client (first client is 0; currently ignored)")
+        ("numClients",
+         ProgramOptions::value<int>(&numClients)->
+            default_value(1),
+         "Total number of clients running (currently ignored)")
+
         ("fast,f",
          ProgramOptions::bool_switch(&fillWithTestData),
          "Use a single fillWithTestData rpc to insert recovery objects.")
