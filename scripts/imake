@@ -38,7 +38,7 @@ done
 shift $(($OPTIND - 1))
 
 if [[ $color -eq 1 ]]; then
-    colorizer="runhaskell scripts/Colorize.hs"
+    colorizer="python scripts/colorize.py"
 else
     colorizer="cat"
 fi
