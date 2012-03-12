@@ -214,7 +214,7 @@ TEST_F(ClientTest, throwShortResponseError) {
     } catch (ClientException& e) {
         status = e.status;
     }
-    EXPECT_EQ(9, status);
+    EXPECT_EQ(10, status);
 
     // Valid RpcResponseCommon with error status.
     b.reset();
@@ -236,7 +236,7 @@ TEST_F(ClientTest, throwShortResponseError) {
     } catch (ClientException& e) {
         status = e.status;
     }
-    EXPECT_EQ(9, status);
+    EXPECT_EQ(10, status);
 }
 
 }  // namespace RAMCloud

@@ -83,9 +83,7 @@ class RecoverSegmentBenchmark {
         tablet.set_end_object_id(nextObjId - 1);
         tablet.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
         tablet.set_server_id(service->serverId.getId());
-        ProtoBuf::Tablets tablets;
-        *tablets.add_tablet() = tablet;
-        service->setTablets(tablets);
+        *service->tablets.add_tablet() = tablet;
 
         /*
          * Now run a fake recovery.

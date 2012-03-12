@@ -23,6 +23,7 @@ namespace RAMCloud {
 // message describing the problem.
 static const char* messages[] = {
     "operation succeeded",                       // OK
+    "unknown table (may exist elsewhere)",       // UNKNOWN_TABLE
     "table doesn't exist",                       // TABLE_DOESNT_EXIST
     "object doesn't exist",                      // OBJECT_DOESNT_EXIST
     "object already exists",                     // OBJECT_EXISTS
@@ -49,6 +50,7 @@ static const char* messages[] = {
 // for the Status.
 static const char* symbols[] = {
     "STATUS_OK",
+    "STATUS_UNKNOWN_TABLE",
     "STATUS_TABLE_DOESNT_EXIST",
     "STATUS_OBJECT_DOESNT_EXIST",
     "STATUS_OBJECT_EXISTS",

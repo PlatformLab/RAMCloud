@@ -163,7 +163,12 @@ class MasterClient : public Client {
     void remove(uint32_t tableId, uint64_t id,
                 const RejectRules* rejectRules = NULL,
                 uint64_t* version = NULL);
-    void setTablets(const ProtoBuf::Tablets& tablets);
+    void dropTabletOwnership(uint64_t tabletId,
+                             uint64_t firstKey,
+                             uint64_t lastKey);
+    void takeTabletOwnership(uint64_t tableId,
+                             uint64_t firstKey,
+                             uint64_t lastKey);
     void write(uint32_t tableId, uint64_t id, const void* buf,
                uint32_t length, const RejectRules* rejectRules = NULL,
                uint64_t* version = NULL, bool async = false);

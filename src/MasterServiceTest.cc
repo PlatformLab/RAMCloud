@@ -124,7 +124,7 @@ class MasterServiceTest : public ::testing::Test {
     recoverSegmentFilter(string s)
     {
         return (s == "recoverSegment" || s == "recover" ||
-                s == "tabletsRecovered" || s == "setTablets");
+                s == "tabletsRecovered");
     }
 
     void
@@ -323,22 +323,6 @@ TEST_F(MasterServiceTest, recover_basics) {
 
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
         "recover: Starting recovery of 4 tablets on masterId 2 | "
-        "setTablets: Now serving tablets: | "
-        "setTablets: table:                    0, "
-                    "start:                    0, "
-                    "end  : 18446744073709551615 | "
-        "setTablets: table:                  123, "
-                    "start:                    0, "
-                    "end  :                    9 | "
-        "setTablets: table:                  123, "
-                    "start:                   10, "
-                    "end  :                   19 | "
-        "setTablets: table:                  123, "
-                    "start:                   20, "
-                    "end  :                   29 | "
-        "setTablets: table:                  124, "
-                    "start:                   20, "
-                    "end  :                  100 | "
         "recover: Recovering master 123, partition 0, 1 replicas available | "
         "recover: Starting getRecoveryData from server 1 at "
         "mock:host=backup1 for "
@@ -711,18 +695,44 @@ TEST_F(MasterServiceTest, remove_objectAlreadyDeleted) {
     EXPECT_EQ(VERSION_NONEXISTENT, version);
 }
 
-TEST_F(MasterServiceTest, setTablets) {
+static bool
+dropTabletOwnership_filter(string s)
+{
+    return s == "dropTabletOwnership";
+}
+
+TEST_F(MasterServiceTest, dropTabletOwnership) {
+    TestLog::Enable _(dropTabletOwnership_filter);
+
+    EXPECT_THROW(client->dropTabletOwnership(1, 1, 1), ClientException);
+    EXPECT_EQ("dropTabletOwnership: Could not drop ownership on unknown "
+        "tablet (1, range [1,1])!", TestLog::get());
+
+    TestLog::reset();
+
+    client->takeTabletOwnership(1, 1, 1);
+    client->dropTabletOwnership(1, 1, 1);
+    EXPECT_EQ("dropTabletOwnership: Dropping ownership of tablet "
+        "(1, range [1,1])", TestLog::get());
+}
+
+static bool
+takeTabletOwnership_filter(string s)
+{
+    return s == "takeTabletOwnership";
+}
+
+TEST_F(MasterServiceTest, takeTabletOwnership_newTablet) {
+    TestLog::Enable _(takeTabletOwnership_filter);
 
     std::unique_ptr<Table> table1(new Table(1));
     uint64_t addrTable1 = reinterpret_cast<uint64_t>(table1.get());
     std::unique_ptr<Table> table2(new Table(2));
     uint64_t addrTable2 = reinterpret_cast<uint64_t>(table2.get());
 
-    { // clear out the tablets through client
-        ProtoBuf::Tablets newTablets;
-        client->setTablets(newTablets);
-        EXPECT_EQ("", service->tablets.ShortDebugString());
-    }
+    // Start empty.
+    service->tablets.mutable_tablet()->RemoveLast();
+    EXPECT_EQ("", service->tablets.ShortDebugString());
 
     { // set t1 and t2 directly
         ProtoBuf::Tablets_Tablet& t1(*service->tablets.add_tablet());
@@ -749,39 +759,72 @@ TEST_F(MasterServiceTest, setTablets) {
     }
 
     { // set t2, t2b, and t3 through client
-        ProtoBuf::Tablets newTablets;
-
-        ProtoBuf::Tablets_Tablet& t2(*newTablets.add_tablet());
-        t2.set_table_id(2);
-        t2.set_start_object_id(0);
-        t2.set_end_object_id(1);
-        t2.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
-
-        ProtoBuf::Tablets_Tablet& t2b(*newTablets.add_tablet());
-        t2b.set_table_id(2);
-        t2b.set_start_object_id(2);
-        t2b.set_end_object_id(3);
-        t2b.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
-
-        ProtoBuf::Tablets_Tablet& t3(*newTablets.add_tablet());
-        t3.set_table_id(3);
-        t3.set_start_object_id(0);
-        t3.set_end_object_id(1);
-        t3.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
-
-        client->setTablets(newTablets);
+        client->takeTabletOwnership(2, 2, 3);
+        client->takeTabletOwnership(2, 4, 5);
+        client->takeTabletOwnership(3, 0, 1);
 
         EXPECT_EQ(format(
+            "tablet { table_id: 1 start_object_id: 0 end_object_id: 1 "
+                "state: NORMAL user_data: %lu } "
             "tablet { table_id: 2 start_object_id: 0 end_object_id: 1 "
                 "state: NORMAL user_data: %lu } "
             "tablet { table_id: 2 start_object_id: 2 end_object_id: 3 "
                 "state: NORMAL user_data: %lu } "
+            "tablet { table_id: 2 start_object_id: 4 end_object_id: 5 "
+                "state: NORMAL user_data: %lu } "
             "tablet { table_id: 3 start_object_id: 0 end_object_id: 1 "
                 "state: NORMAL user_data: %lu }",
-            addrTable2, addrTable2,
-            service->tablets.tablet(2).user_data()),
+            addrTable1, addrTable2,
+            service->tablets.tablet(2).user_data(),
+            service->tablets.tablet(3).user_data(),
+            service->tablets.tablet(4).user_data()),
                                 service->tablets.ShortDebugString());
+
+        EXPECT_EQ("takeTabletOwnership: Taking ownership of new tablet "
+            "(2, range [2,3]) | "
+            "takeTabletOwnership: Taking ownership of new tablet "
+            "(2, range [4,5]) | "
+            "takeTabletOwnership: Taking ownership of new tablet "
+            "(3, range [0,1])", TestLog::get());
     }
+
+    TestLog::reset();
+
+    // Test assigning ownership of an already-owned tablet.
+    {
+        client->takeTabletOwnership(2, 2, 3);
+        EXPECT_EQ("takeTabletOwnership: Taking ownership of existing tablet "
+            "(2, range [2,3]) in state 0 | takeTabletOwnership: Taking "
+            "ownership when existing tablet is in unexpected state (0)!",
+            TestLog::get());
+    }
+
+    TestLog::reset();
+
+    // Test partially overlapping sanity check. The coordinator should
+    // know better, but I'd rather be safe sorry...
+    {
+        EXPECT_THROW(client->takeTabletOwnership(2, 2, 2), ClientException);
+        EXPECT_EQ("takeTabletOwnership: Tablet being assigned (2, range [2,2]) "
+            "partially overlaps an existing tablet!", TestLog::get());
+    }
+}
+
+TEST_F(MasterServiceTest, takeTabletOwnership_migratingTablet) {
+    TestLog::Enable _(takeTabletOwnership_filter);
+
+    // Fake up a tablet in migration.
+    ProtoBuf::Tablets_Tablet& tab(*service->tablets.add_tablet());
+    tab.set_table_id(1);
+    tab.set_start_object_id(0);
+    tab.set_end_object_id(5);
+    tab.set_state(ProtoBuf::Tablets_Tablet_State_RECOVERING);
+    tab.set_user_data(reinterpret_cast<uint64_t>(new Table(1)));
+
+    client->takeTabletOwnership(1, 0, 5);
+
+    EXPECT_EQ("takeTabletOwnership: Taking ownership of existing tablet "
+        "(1, range [0,5]) in state 1", TestLog::get());
 }
 
 TEST_F(MasterServiceTest, write) {

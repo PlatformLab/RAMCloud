@@ -95,6 +95,12 @@ class MasterService : public Service {
     void read(const ReadRpc::Request& reqHdr,
               ReadRpc::Response& respHdr,
               Rpc& rpc);
+    void dropTabletOwnership(const DropTabletOwnershipRpc::Request& reqHdr,
+                             DropTabletOwnershipRpc::Response& respHdr,
+                             Rpc& rpc);
+    void takeTabletOwnership(const TakeTabletOwnershipRpc::Request& reqHdr,
+                             TakeTabletOwnershipRpc::Response& respHdr,
+                             Rpc& rpc);
     void recover(const RecoverRpc::Request& reqHdr,
                  RecoverRpc::Response& respHdr,
                  Rpc& rpc);
@@ -110,10 +116,6 @@ class MasterService : public Service {
     void remove(const RemoveRpc::Request& reqHdr,
                 RemoveRpc::Response& respHdr,
                 Rpc& rpc);
-    void setTablets(const ProtoBuf::Tablets& newTablets);
-    void setTablets(const SetTabletsRpc::Request& reqHdr,
-                    SetTabletsRpc::Response& respHdr,
-                    Rpc& rpc);
     void write(const WriteRpc::Request& reqHdr,
                WriteRpc::Response& respHdr,
                Rpc& rpc);
@@ -214,7 +216,7 @@ class MasterService : public Service {
                                             void* cookie);
     friend void tombstoneScanCallback(LogEntryHandle handle, void* cookie);
     friend void segmentReplayCallback(Segment* seg, void* cookie);
-    Table* getTable(uint32_t tableId, uint64_t objectId)
+    Table* getTable(uint64_t tableId, uint64_t objectId)
         __attribute__((warn_unused_result));
     Status rejectOperation(const RejectRules& rejectRules, uint64_t version)
         __attribute__((warn_unused_result));

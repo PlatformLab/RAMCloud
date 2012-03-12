@@ -59,7 +59,7 @@ TEST_F(ServiceTest, getString_lengthZero) {
     } catch (RequestFormatError& e) {
         status = e.status;
     }
-    EXPECT_EQ(8, status);
+    EXPECT_EQ(9, status);
 }
 TEST_F(ServiceTest, getString_bufferTooShort) {
     Buffer buffer;
@@ -70,7 +70,7 @@ TEST_F(ServiceTest, getString_bufferTooShort) {
     } catch (MessageTooShortError& e) {
         status = e.status;
     }
-    EXPECT_EQ(6, status);
+    EXPECT_EQ(7, status);
 }
 TEST_F(ServiceTest, getString_stringNotTerminated) {
     Buffer buffer;
@@ -81,7 +81,7 @@ TEST_F(ServiceTest, getString_stringNotTerminated) {
     } catch (RequestFormatError& e) {
         status = e.status;
     }
-    EXPECT_EQ(8, status);
+    EXPECT_EQ(9, status);
 }
 
 TEST_F(ServiceTest, dispatch_ping) {

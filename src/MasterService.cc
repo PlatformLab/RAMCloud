@@ -141,6 +141,10 @@ MasterService::dispatch(RpcOpcode opcode, Rpc& rpc)
     std::lock_guard<SpinLock> lock(objectUpdateLock);
 
     switch (opcode) {
+        case DropTabletOwnershipRpc::opcode:
+            callHandler<DropTabletOwnershipRpc, MasterService,
+                        &MasterService::dropTabletOwnership>(rpc);
+            break;
         case FillWithTestDataRpc::opcode:
             callHandler<FillWithTestDataRpc, MasterService,
                         &MasterService::fillWithTestData>(rpc);
@@ -161,9 +165,9 @@ MasterService::dispatch(RpcOpcode opcode, Rpc& rpc)
             callHandler<RemoveRpc, MasterService,
                         &MasterService::remove>(rpc);
             break;
-        case SetTabletsRpc::opcode:
-            callHandler<SetTabletsRpc, MasterService,
-                        &MasterService::setTablets>(rpc);
+        case TakeTabletOwnershipRpc::opcode:
+            callHandler<TakeTabletOwnershipRpc, MasterService,
+                        &MasterService::takeTabletOwnership>(rpc);
             break;
         case WriteRpc::opcode:
             callHandler<WriteRpc, MasterService,
@@ -323,6 +327,113 @@ MasterService::read(const ReadRpc::Request& reqHdr,
     // TODO(ongaro): We'll need a new type of Chunk to block the cleaner
     // from scribbling over obj->data.
     respHdr.length = obj->dataLength(handle->length());
+}
+
+/**
+ * Top-level server method to handle the DROP_TABLET_OWNERSHIP request.
+ *
+ * This RPC is issued by the coordinator when a table is dropped and all
+ * tablets are being destroyed. This is not currently used in migration,
+ * since the source master knows that it no longer owns the tablet when
+ * the coordinator has responded to its REASSIGN_TABLET_OWNERSHIP rpc.
+ *
+ * \copydetails Service::ping
+ */
+void
+MasterService::dropTabletOwnership(
+    const DropTabletOwnershipRpc::Request& reqHdr,
+    DropTabletOwnershipRpc::Response& respHdr,
+    Rpc& rpc)
+{
+    int index = 0;
+    foreach (ProtoBuf::Tablets::Tablet& i, *tablets.mutable_tablet()) {
+        if (reqHdr.tableId == i.table_id() &&
+          reqHdr.firstKey == i.start_object_id() &&
+          reqHdr.lastKey == i.end_object_id()) {
+            LOG(NOTICE, "Dropping ownership of tablet (%lu, range [%lu,%lu])",
+                reqHdr.tableId, reqHdr.firstKey, reqHdr.lastKey);
+            Table* table = reinterpret_cast<Table*>(i.user_data());
+            delete table;
+            tablets.mutable_tablet()->SwapElements(
+                tablets.tablet_size() - 1, index);
+            tablets.mutable_tablet()->RemoveLast();
+            return;
+        }
+
+        index++;
+    }
+
+    LOG(WARNING, "Could not drop ownership on unknown tablet (%lu, range "
+        "[%lu,%lu])!", reqHdr.tableId, reqHdr.firstKey, reqHdr.lastKey);
+    respHdr.common.status = STATUS_UNKNOWN_TABLE;
+}
+
+/**
+ * Top-level server method to handle the TAKE_TABLET_OWNERSHIP request.
+ *
+ * This RPC is issued by the coordinator when assigning ownership of a
+ * tablet. This can occur due to both tablet creation and to complete
+ * migration. As far as the coordinator is concerned, the master
+ * receiving this rpc owns the tablet specified and all requests for it
+ * will be directed here from now on.
+ *
+ * \copydetails Service::ping 
+ */
+void
+MasterService::takeTabletOwnership(
+    const TakeTabletOwnershipRpc::Request& reqHdr,
+    TakeTabletOwnershipRpc::Response& respHdr,
+    Rpc& rpc)
+{
+    ProtoBuf::Tablets::Tablet* tablet = NULL;
+    foreach (ProtoBuf::Tablets::Tablet& i, *tablets.mutable_tablet()) {
+        if (reqHdr.tableId == i.table_id() &&
+          reqHdr.firstKey == i.start_object_id() &&
+          reqHdr.lastKey == i.end_object_id()) {
+            tablet = &i;
+            break;
+        }
+    }
+
+    if (tablet == NULL) {
+        // Sanity check that this tablet doesn't overlap with an existing one.
+        if (getTable(reqHdr.tableId, reqHdr.firstKey) != NULL ||
+          getTable(reqHdr.tableId, reqHdr.lastKey) != NULL) {
+            LOG(WARNING, "Tablet being assigned (%lu, range [%lu,%lu]) "
+                "partially overlaps an existing tablet!", reqHdr.tableId,
+                reqHdr.firstKey, reqHdr.lastKey);
+            // TODO(anybody): Do we want a more meaningful error code?
+            respHdr.common.status = STATUS_INTERNAL_ERROR;
+            return;
+        }
+
+        LOG(NOTICE, "Taking ownership of new tablet (%lu, range "
+            "[%lu,%lu])", reqHdr.tableId, reqHdr.firstKey, reqHdr.lastKey);
+
+        ProtoBuf::Tablets_Tablet& newTablet(*tablets.add_tablet());
+        newTablet.set_table_id(reqHdr.tableId);
+        newTablet.set_start_object_id(reqHdr.firstKey);
+        newTablet.set_end_object_id(reqHdr.lastKey);
+        newTablet.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
+
+        Table* table = new Table(reqHdr.tableId);
+        newTablet.set_user_data(reinterpret_cast<uint64_t>(table));
+    } else {
+        LOG(NOTICE, "Taking ownership of existing tablet (%lu, range "
+            "[%lu,%lu]) in state %d", reqHdr.tableId, reqHdr.firstKey,
+            reqHdr.lastKey, tablet->state());
+
+        if (tablet->state() != ProtoBuf::Tablets_Tablet_State_RECOVERING) {
+            LOG(WARNING, "Taking ownership when existing tablet is in "
+                "unexpected state (%d)!", tablet->state());
+        }
+
+        tablet->set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
+
+        // If we took ownership after migration, then recoverSegment() may have
+        // added tombstones to the hash table. Clean them up.
+        removeTombstones();
+    }
 }
 
 /**
@@ -846,11 +957,18 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
 
     // reqHdr, respHdr, and rpc are off-limits now
 
-    // Union the new tablets into an updated tablet map
-    ProtoBuf::Tablets newTablets(tablets);
-    newTablets.mutable_tablet()->MergeFrom(recoveryTablets.tablet());
-    // and set ourself as open for business.
-    setTablets(newTablets);
+    // Install tablets we are recovering and mark them as such (we don't
+    // own them yet).
+    vector<ProtoBuf::Tablets_Tablet*> newTablets;
+    foreach (const ProtoBuf::Tablets::Tablet& tablet,
+             recoveryTablets.tablet()) {
+        ProtoBuf::Tablets_Tablet& newTablet(*tablets.add_tablet());
+        newTablet = tablet;
+        Table* table = new Table(newTablet.table_id());
+        newTablet.set_user_data(reinterpret_cast<uint64_t>(table));
+        newTablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
+        newTablets.push_back(&newTablet);
+    }
 
     // Recover Segments, firing MasterService::recoverSegment for each one.
     recover(masterId, partitionId, replicas);
@@ -863,7 +981,10 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
     // and begin serving requests.
 
     // Update the recoveryTablets to reflect the fact that this master is
-    // going to try to become the owner.
+    // going to try to become the owner. The coordinator will assign final
+    // ownership in response to the TABLETS_RECOVERED rpc (i.e. we'll only
+    // be owners if the call succeeds. It could fail if the coordinator
+    // decided to recover these tablets elsewhere instead).
     foreach (ProtoBuf::Tablets::Tablet& tablet,
              *recoveryTablets.mutable_tablet()) {
         LOG(NOTICE, "set tablet %lu %lu %lu to locator %s, id %lu",
@@ -873,14 +994,16 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
         tablet.set_service_locator(config.localLocator);
         tablet.set_server_id(serverId.getId());
     }
+    coordinator->tabletsRecovered(serverId, recoveryTablets);
 
-    {
-        coordinator->tabletsRecovered(serverId,
-                                      recoveryTablets);
-    }
-    // Ok - we're free to start serving now.
+    // TODO(anyone) Should delete tablets if tabletsRecovered returns
+    //              failure. Also, should handle tabletsRecovered
+    //              timing out.
 
-    // TODO(stutsman) update local copy of the will
+    // Ok - we're expected to be serving now. Mark recovered tablets
+    // as normal so we can handle clients.
+    foreach (ProtoBuf::Tablets_Tablet* newTablet, newTablets)
+        newTablet->set_state(ProtoBuf::Tablets::Tablet::NORMAL);
 }
 
 /**
@@ -1123,78 +1246,6 @@ MasterService::remove(const RemoveRpc::Request& reqHdr,
     objectMap.remove(reqHdr.tableId, reqHdr.id);
 }
 
-
-/**
- * Set the list of tablets that this master serves.
- *
- * Notice that this method does nothing about the objects and data
- * for a particular tablet.  That is, the log and hashtable must already
- * contain a consistent view of the tablet before being set as an active
- * tablet with this method.
- *
- * \param newTablets
- *      The new set of tablets this master is serving.
- */
-void
-MasterService::setTablets(const ProtoBuf::Tablets& newTablets)
-{
-    typedef std::map<uint32_t, Table*> Tables;
-    Tables tables;
-
-    // create map from table ID to Table of pre-existing tables
-    foreach (const ProtoBuf::Tablets::Tablet& oldTablet, tablets.tablet()) {
-        tables[downCast<uint32_t>(oldTablet.table_id())] =
-            reinterpret_cast<Table*>(oldTablet.user_data());
-    }
-
-    // overwrite tablets with new tablets
-    tablets = newTablets;
-
-    // delete pre-existing tables that no longer live here
-    foreach (Tables::value_type oldTable, tables) {
-        foreach (const ProtoBuf::Tablets::Tablet& newTablet,
-                 tablets.tablet()) {
-            if (oldTable.first == newTablet.table_id())
-                goto next;
-        }
-        delete oldTable.second;
-        oldTable.second = NULL;
-      next:
-        { /* pass */ }
-    }
-
-    // create new Tables and assign all new tablets tables
-    LOG(NOTICE, "Now serving tablets:");
-    foreach (ProtoBuf::Tablets::Tablet& newTablet, *tablets.mutable_tablet()) {
-        LOG(NOTICE, "table: %20lu, start: %20lu, end  : %20lu",
-            newTablet.table_id(), newTablet.start_object_id(),
-            newTablet.end_object_id());
-        Table* table = tables[downCast<uint32_t>(newTablet.table_id())];
-        if (table == NULL) {
-            table = new Table(newTablet.table_id());
-            tables[downCast<uint32_t>(newTablet.table_id())] = table;
-        }
-        newTablet.set_user_data(reinterpret_cast<uint64_t>(table));
-    }
-}
-
-/**
- * Top-level server method to handle the SET_TABLETS request.
- * See the documentation for the corresponding method in RamCloudClient for
- * complete information about what this request does.
- * \copydetails Service::ping
- */
-void
-MasterService::setTablets(const SetTabletsRpc::Request& reqHdr,
-                          SetTabletsRpc::Response& respHdr,
-                          Rpc& rpc)
-{
-    ProtoBuf::Tablets newTablets;
-    ProtoBuf::parseFromRequest(rpc.requestPayload, sizeof(reqHdr),
-                               reqHdr.tabletsLength, newTablets);
-    setTablets(newTablets);
-}
-
 /**
  * Top-level server method to handle the WRITE request.
  * See the documentation for the corresponding method in RamCloudClient for
@@ -1230,7 +1281,7 @@ MasterService::write(const WriteRpc::Request& reqHdr,
  *      or NULL if this master does not own the tablet.
  */
 Table*
-MasterService::getTable(uint32_t tableId, uint64_t objectId) {
+MasterService::getTable(uint64_t tableId, uint64_t objectId) {
 
     foreach (const ProtoBuf::Tablets::Tablet& tablet, tablets.tablet()) {
         if (tablet.table_id() == tableId &&

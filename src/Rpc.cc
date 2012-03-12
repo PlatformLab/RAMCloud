@@ -61,7 +61,6 @@ Rpc::opcodeSymbol(uint32_t opcode)
         case ENLIST_SERVER:              return "ENLIST_SERVER";
         case GET_SERVER_LIST:            return "GET_SERVER_LIST";
         case GET_TABLET_MAP:             return "GET_TABLET_MAP";
-        case SET_TABLETS:                return "SET_TABLETS";
         case RECOVER:                    return "RECOVER";
         case HINT_SERVER_DOWN:           return "HINT_SERVER_DOWN";
         case TABLETS_RECOVERED:          return "TABLETS_RECOVERED";
@@ -82,6 +81,8 @@ Rpc::opcodeSymbol(uint32_t opcode)
         case REQUEST_SERVER_LIST:        return "REQUEST_SERVER_LIST";
         case GET_SERVER_ID:              return "GET_SERVER_ID";
         case SET_MIN_OPEN_SEGMENT_ID:    return "SET_MIN_OPEN_SEGMENT_ID";
+        case DROP_TABLET_OWNERSHIP:      return "DROP_TABLET_OWNERSHIP";
+        case TAKE_TABLET_OWNERSHIP:      return "TAKE_TABLET_OWNERSHIP";
         case ILLEGAL_RPC_TYPE:           return "ILLEGAL_RPC_TYPE";
     }
 

@@ -32,28 +32,48 @@ namespace RAMCloud {
  * Not all status values can be returned by all operations.
  */
 enum Status {
+    /// Default return value when an operation was successful.
     STATUS_OK                           = 0,
-    STATUS_TABLE_DOESNT_EXIST           = 1,
-    STATUS_OBJECT_DOESNT_EXIST          = 2,
-    STATUS_OBJECT_EXISTS                = 3,
-    STATUS_WRONG_VERSION                = 4,
-    STATUS_NO_TABLE_SPACE               = 5,
-    STATUS_MESSAGE_TOO_SHORT            = 6,
-    STATUS_UNIMPLEMENTED_REQUEST        = 7,
-    STATUS_REQUEST_FORMAT_ERROR         = 8,
-    STATUS_RESPONSE_FORMAT_ERROR        = 9,
-    STATUS_COULDNT_CONNECT              = 10,
-    STATUS_BACKUP_BAD_SEGMENT_ID        = 11,
-    STATUS_BACKUP_SEGMENT_ALREADY_OPEN  = 12,
-    STATUS_BACKUP_SEGMENT_OVERFLOW      = 13,
-    STATUS_BACKUP_MALFORMED_SEGMENT     = 14,
-    STATUS_SEGMENT_RECOVERY_FAILED      = 15,
-    STATUS_RETRY                        = 16,
-    STATUS_SERVICE_NOT_AVAILABLE        = 17,
-    STATUS_TIMEOUT                      = 18,
-    STATUS_SERVER_DOESNT_EXIST          = 19,
-    STATUS_INTERNAL_ERROR               = 20,
-    STATUS_MAX_VALUE                    = 20
+
+    /// Indicates that the server does not know about (and is not responsible
+    /// for) a given table, but that it may exist elsewhere in the system.
+    /// When it's possible that the table exists on another server, this status
+    /// should be returned (in preference to the definitive TABLE_DOESNT_EXIST).
+    STATUS_UNKNOWN_TABLE                = 1,
+
+    /// Indicates that a table does not exist anywhere in the system. At present
+    /// only the coordinator can say with certainly that a table does not exist.
+    STATUS_TABLE_DOESNT_EXIST           = 2,
+
+
+    /// Indicates that an object does not exist anywhere in the system. Note
+    /// that unlike with tables there is no UNKNOWN_OBJECT status. This is just
+    /// because servers will reject operations on objects in unknown tables with
+    /// a table-related status. If they own a particular tablet, then they can
+    /// say with certainty if an object exists there or not.
+    STATUS_OBJECT_DOESNT_EXIST          = 3,
+
+    // TODO(anyone) More documentation below, please.
+
+    STATUS_OBJECT_EXISTS                = 4,
+    STATUS_WRONG_VERSION                = 5,
+    STATUS_NO_TABLE_SPACE               = 6,
+    STATUS_MESSAGE_TOO_SHORT            = 7,
+    STATUS_UNIMPLEMENTED_REQUEST        = 8,
+    STATUS_REQUEST_FORMAT_ERROR         = 9,
+    STATUS_RESPONSE_FORMAT_ERROR        = 10,
+    STATUS_COULDNT_CONNECT              = 11,
+    STATUS_BACKUP_BAD_SEGMENT_ID        = 12,
+    STATUS_BACKUP_SEGMENT_ALREADY_OPEN  = 13,
+    STATUS_BACKUP_SEGMENT_OVERFLOW      = 14,
+    STATUS_BACKUP_MALFORMED_SEGMENT     = 15,
+    STATUS_SEGMENT_RECOVERY_FAILED      = 16,
+    STATUS_RETRY                        = 17,
+    STATUS_SERVICE_NOT_AVAILABLE        = 18,
+    STATUS_TIMEOUT                      = 19,
+    STATUS_SERVER_DOESNT_EXIST          = 20,
+    STATUS_INTERNAL_ERROR               = 21,
+    STATUS_MAX_VALUE                    = 21
     // Note: if you add a new status value you must make the following
     // additional updates:
     // * Modify STATUS_MAX_VALUE to have a value equal to the largest

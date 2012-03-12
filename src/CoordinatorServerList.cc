@@ -21,6 +21,7 @@
 #include "Common.h"
 #include "CoordinatorServerList.h"
 #include "ShortMacros.h"
+#include "TransportManager.h"
 
 namespace RAMCloud {
 
@@ -198,6 +199,22 @@ CoordinatorServerList::incrementVersion(ProtoBuf::ServerList& update)
 {
     versionNumber++;
     update.set_version_number(versionNumber);
+}
+
+/**
+ * Open a session to the given ServerId. This method simply calls through to
+ * TransportManager::getSession. See the documentation there for exceptions
+ * that may be thrown.
+ *
+ * \throw CoordinatorServerListException
+ *      A CoordinatorServerListException is thrown if the given ServerId is not
+ *      in this list.
+ */
+Transport::SessionRef
+CoordinatorServerList::getSession(ServerId id) const
+{
+    return Context::get().transportManager->getSession(
+        getReferenceFromServerId(id).serviceLocator.c_str(), id);
 }
 
 /**

@@ -74,28 +74,29 @@ enum RpcOpcode {
     ENLIST_SERVER           = 16,
     GET_SERVER_LIST         = 17,
     GET_TABLET_MAP          = 18,
-    SET_TABLETS             = 19,
-    RECOVER                 = 20,
-    HINT_SERVER_DOWN        = 21,
-    TABLETS_RECOVERED       = 22,
-    SET_WILL                = 23,
-    SET_MIN_OPEN_SEGMENT_ID = 24,
-    FILL_WITH_TEST_DATA     = 25,
-    MULTI_READ              = 26,
-    GET_METRICS             = 27,
-    BACKUP_CLOSE            = 28,
-    BACKUP_FREE             = 29,
-    BACKUP_GETRECOVERYDATA  = 30,
-    BACKUP_OPEN             = 31,
-    BACKUP_STARTREADINGDATA = 32,
-    BACKUP_WRITE            = 33,
-    BACKUP_RECOVERYCOMPLETE = 34,
-    BACKUP_QUIESCE          = 35,
-    SET_SERVER_LIST         = 36,
-    UPDATE_SERVER_LIST      = 37,
-    REQUEST_SERVER_LIST     = 38,
-    GET_SERVER_ID           = 39,
-    ILLEGAL_RPC_TYPE        = 40,  // 1 + the highest legitimate RpcOpcode
+    RECOVER                 = 19,
+    HINT_SERVER_DOWN        = 20,
+    TABLETS_RECOVERED       = 21,
+    SET_WILL                = 22,
+    SET_MIN_OPEN_SEGMENT_ID = 23,
+    FILL_WITH_TEST_DATA     = 24,
+    MULTI_READ              = 25,
+    GET_METRICS             = 26,
+    BACKUP_CLOSE            = 27,
+    BACKUP_FREE             = 28,
+    BACKUP_GETRECOVERYDATA  = 29,
+    BACKUP_OPEN             = 30,
+    BACKUP_STARTREADINGDATA = 31,
+    BACKUP_WRITE            = 32,
+    BACKUP_RECOVERYCOMPLETE = 33,
+    BACKUP_QUIESCE          = 34,
+    SET_SERVER_LIST         = 35,
+    UPDATE_SERVER_LIST      = 36,
+    REQUEST_SERVER_LIST     = 37,
+    GET_SERVER_ID           = 38,
+    DROP_TABLET_OWNERSHIP   = 39,
+    TAKE_TABLET_OWNERSHIP   = 40,
+    ILLEGAL_RPC_TYPE        = 41,  // 1 + the highest legitimate RpcOpcode
 };
 
 /**
@@ -127,6 +128,20 @@ struct RpcResponseCommon {
 // All fields are little endian.
 
 // Master RPCs follow, see MasterService.cc
+
+struct DropTabletOwnershipRpc {
+    static const RpcOpcode opcode = DROP_TABLET_OWNERSHIP;
+    static const ServiceType service = MASTER_SERVICE;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t tableId;
+        uint64_t firstKey;
+        uint64_t lastKey;
+    } __attribute__((packed));
+    struct Response {
+        RpcResponseCommon common;
+    } __attribute__((packed));
+};
 
 struct FillWithTestDataRpc {
     static const RpcOpcode opcode = FILL_WITH_TEST_DATA;
@@ -236,19 +251,17 @@ struct RemoveRpc {
     } __attribute__((packed));
 };
 
-struct SetTabletsRpc {
-    static const RpcOpcode opcode = SET_TABLETS;
+struct TakeTabletOwnershipRpc {
+    static const RpcOpcode opcode = TAKE_TABLET_OWNERSHIP;
     static const ServiceType service = MASTER_SERVICE;
     struct Request {
         RpcRequestCommon common;
-        uint32_t tabletsLength;    // Number of bytes in the tablet map.
-                                   // The bytes of the tablet map follow
-                                   // immediately after this header. See
-                                   // ProtoBuf::Tablets.
+        uint64_t tableId;
+        uint64_t firstKey;
+        uint64_t lastKey;
     } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
-
     } __attribute__((packed));
 };
 

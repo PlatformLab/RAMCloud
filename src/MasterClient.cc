@@ -386,20 +386,50 @@ MasterClient::remove(uint32_t tableId, uint64_t id,
 }
 
 /**
- * Set the set of tablets the master owns.
- * Any new tablets appearing in this set will have no objects. Any tablets that
- * no longer appear in this set will be deleted from the master.
+ * Instruct the master that it must no longer serve requests for the tablet
+ * specified. The server may reclaim all memory previously allocated to that
+ * tablet.
  * \warning
  *      Adding a tablet, removing it, and then adding it back is not currently
  *      supported.
  */
 void
-MasterClient::setTablets(const ProtoBuf::Tablets& tablets)
+MasterClient::dropTabletOwnership(uint64_t tableId,
+                                  uint64_t firstKey,
+                                  uint64_t lastKey)
 {
     Buffer req, resp;
-    SetTabletsRpc::Request& reqHdr(allocHeader<SetTabletsRpc>(req));
-    reqHdr.tabletsLength = ProtoBuf::serializeToResponse(req, tablets);
-    sendRecv<SetTabletsRpc>(session, req, resp);
+    DropTabletOwnershipRpc::Request& reqHdr(
+        allocHeader<DropTabletOwnershipRpc>(req));
+    reqHdr.tableId = tableId;
+    reqHdr.firstKey = firstKey;
+    reqHdr.lastKey = lastKey;
+    sendRecv<DropTabletOwnershipRpc>(session, req, resp);
+    checkStatus(HERE);
+}
+
+/**
+ * Instruct a master that has been receiving migrated tablet data that it
+ * should take ownership of the tablet. The coordinator will issue this to
+ * complete the migration. Before this RPC is received, the coordinator will
+ * have already considered this host the owner of the data. This call simply
+ * tells the host to begin servicing requests for the tablet.
+ * \warning
+ *      Adding a tablet, removing it, and then adding it back is not currently
+ *      supported.
+ */
+void
+MasterClient::takeTabletOwnership(uint64_t tableId,
+                                  uint64_t firstKey,
+                                  uint64_t lastKey)
+{
+    Buffer req, resp;
+    TakeTabletOwnershipRpc::Request& reqHdr(
+        allocHeader<TakeTabletOwnershipRpc>(req));
+    reqHdr.tableId = tableId;
+    reqHdr.firstKey = firstKey;
+    reqHdr.lastKey = lastKey;
+    sendRecv<TakeTabletOwnershipRpc>(session, req, resp);
     checkStatus(HERE);
 }
 

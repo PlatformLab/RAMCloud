@@ -123,6 +123,7 @@ class CoordinatorServerList {
     void remove(ServerId serverId,
                 ProtoBuf::ServerList& update);
     void incrementVersion(ProtoBuf::ServerList& update);
+    Transport::SessionRef getSession(ServerId id) const;
     const Entry& operator[](const ServerId& serverId) const;
     Entry& operator[](const ServerId& serverId);
     const Entry* operator[](size_t index) const;

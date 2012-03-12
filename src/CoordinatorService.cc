@@ -174,7 +174,9 @@ CoordinatorService::createTable(const CreateTableRpc::Request& reqHdr,
         if (tablet.server_id() == master->serverId.getId())
             *masterTabletMap.add_tablet() = tablet;
     }
-    masterClient.setTablets(masterTabletMap);
+    masterClient.takeTabletOwnership(tableId,
+                                     tablet.start_object_id(),
+                                     tablet.end_object_id());
 
     LOG(NOTICE, "Created table '%s' with id %u on master %lu",
                 name, tableId, master->serverId.getId());
@@ -200,24 +202,18 @@ CoordinatorService::dropTable(const DropTableRpc::Request& reqHdr,
     int32_t i = 0;
     while (i < tabletMap.tablet_size()) {
         if (tabletMap.tablet(i).table_id() == tableId) {
+            ServerId masterId(tabletMap.tablet(i).server_id());
+            MasterClient master(serverList.getSession(masterId));
+            master.dropTabletOwnership(tableId,
+                                       tabletMap.tablet(i).start_object_id(),
+                                       tabletMap.tablet(i).end_object_id());
+
             tabletMap.mutable_tablet()->SwapElements(
                     tabletMap.tablet_size() - 1, i);
             tabletMap.mutable_tablet()->RemoveLast();
         } else {
             ++i;
         }
-    }
-
-    // TODO(ongaro): update only affected masters, filter tabletMap for those
-    // tablets belonging to each master
-
-    for (size_t i = 0; i < serverList.size(); i++) {
-        if (serverList[i] == NULL || !serverList[i]->isMaster())
-            continue;
-        const char* locator = serverList[i]->serviceLocator.c_str();
-        MasterClient master(
-            Context::get().transportManager->getSession(locator));
-        master.setTablets(tabletMap);
     }
 
     LOG(NOTICE, "Dropped table '%s' with id %u", name, tableId);
@@ -445,17 +441,20 @@ CoordinatorService::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
                     reinterpret_cast<Recovery*>(tablet.user_data());
                 tablet.set_state(ProtoBuf::Tablets_Tablet::NORMAL);
                 tablet.set_user_data(0);
+
                 // The caller has filled in recoveredTablets with new service
-                // locator and server id of the recovery master,
-                // so just copy it over.
+                // locator and server id of the recovery master, so just copy
+                // it over.
                 tablet.set_service_locator(recoveredTablet.service_locator());
                 tablet.set_server_id(recoveredTablet.server_id());
+
                 bool recoveryComplete =
                     recovery->tabletsRecovered(recoveredTablets);
                 if (recoveryComplete) {
                     LOG(NOTICE, "Recovery completed for master %lu",
                         recovery->masterId.getId());
                     delete recovery;
+
                     // dump the tabletMap out for easy debugging
                     LOG(DEBUG, "Coordinator tabletMap:");
                     foreach (const ProtoBuf::Tablets::Tablet& tablet,
@@ -465,6 +464,7 @@ CoordinatorService::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
                             tablet.end_object_id(), tablet.state(),
                             tablet.server_id());
                     }
+
                     ProtoBuf::ServerList update;
                     serverList.remove(recovery->masterId, update);
                     serverList.incrementVersion(update);
