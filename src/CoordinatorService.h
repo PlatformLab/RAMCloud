@@ -83,6 +83,12 @@ class CoordinatorService : public Service {
                            RequestServerListRpc::Response& respHdr,
                            Rpc& rpc);
     // - helper methods -
+    bool assignReplicationGroup(uint64_t replicationId,
+                                uint32_t replicationGroupSize,
+                                uint64_t* replicationGroupIds);
+    void createReplicationGroup();
+    bool hintServerDown(ServerId serverId);
+    void removeReplicationGroup(uint64_t replicationId);
     void sendMembershipUpdate(ProtoBuf::ServerList& update,
                               ServerId excludeServerId);
     void sendServerList(ServerId destination);
@@ -125,6 +131,13 @@ class CoordinatorService : public Service {
      * next table.
      */
     uint32_t nextTableMasterIdx;
+
+    /**
+     * The id of the next replication group to be created.
+     * These start at 1 and are never reused.
+     * Id 0 is reserved for nodes that do not belong to a replication group.
+     */
+    uint64_t nextReplicationId;
 
     /// Used in unit testing.
     BaseRecovery* mockRecovery;

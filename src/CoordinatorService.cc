@@ -33,6 +33,7 @@ CoordinatorService::CoordinatorService()
     , tables()
     , nextTableId(0)
     , nextTableMasterIdx(0)
+    , nextReplicationId(1)
     , mockRecovery(NULL)
     , forceServerDownForTesting(false)
 {
@@ -302,6 +303,7 @@ CoordinatorService::enlistServer(const EnlistServerRpc::Request& reqHdr,
     if (entry.isBackup()) {
         LOG(DEBUG, "Backup at id %lu has %u MB/s read %u MB/s write ",
             newServerId.getId(), readSpeed, writeSpeed);
+        createReplicationGroup();
     }
 
     respHdr.serverId = newServerId.getId();
@@ -361,16 +363,29 @@ CoordinatorService::hintServerDown(const HintServerDownRpc::Request& reqHdr,
     rpc.sendReply();
 
     // reqHdr, respHdr, and rpc are off-limits now
+    hintServerDown(serverId);
+}
 
+/**
+ * Returns true if server is down, false otherwise.
+ *
+ * \param serverId
+ *     ServerId of the server that is suspected to be down. 
+ */
+bool
+CoordinatorService::hintServerDown(ServerId serverId)
+{
     if (!serverList.contains(serverId) ||
         serverList[serverId.indexNumber()]->status != ServerStatus::UP) {
         LOG(NOTICE, "Spurious crash report on unknown server id %lu",
             serverId.getId());
-        return;
+        return true;
     }
 
     if (!verifyServerFailure(serverId))
-        return;
+        return false;
+    removeReplicationGroup(serverList[serverId].replicationId);
+    createReplicationGroup();
 
     LOG(NOTICE, "Server id %lu has crashed, notifying the cluster and "
         "starting recovery", serverId.getId());
@@ -398,6 +413,8 @@ CoordinatorService::hintServerDown(const HintServerDownRpc::Request& reqHdr,
     sendMembershipUpdate(update, ServerId(/* invalid id */));
 
     startMasterRecovery(entry);
+
+    return true;
 }
 
 /**
@@ -548,6 +565,142 @@ CoordinatorService::requestServerList(
 
     LOG(DEBUG, "Sending server list to server id %lu as requested", *id);
     sendServerList(id);
+}
+
+/**
+ * Assign a new replicationId to a backup, and inform the backup which nodes
+ * are in its replication group. 
+ *
+ * \param replicationId
+ *      New replication group Id that is assigned to backup.
+ *
+ * \param numReplicas
+ *      Number of replicas in the replication group.
+ *
+ * \param replicationGroupIds
+ *      Includes the ServerId's of all the members of the replication group.
+ *
+ * \return
+ *      False if one of the servers is dead, true if all of them are alive.
+ */
+bool
+CoordinatorService::assignReplicationGroup(uint64_t replicationId,
+                                           uint32_t numReplicas,
+                                           uint64_t* replicationGroupIds)
+{
+    for (uint32_t i = 0; i < numReplicas; i++) {
+        uint64_t backupId = replicationGroupIds[i];
+        if (serverList[backupId] == NULL) {
+            return false;
+        }
+        const char* locator = serverList[backupId]->serviceLocator.c_str();
+        BackupClient backupClient(Context::get().transportManager->getSession(
+            locator));
+        // Try to send an assignReplicationId Rpc to a backup. If the Rpc
+        // fails, hintServerDown. If hintServerDown is true, the function
+        // aborts. If it fails, keep trying to send the Rpc to the backup.
+        // Note that this is an optimization. Even if we didn't abort in case
+        // of a failed Rpc, masters would still not use the failed replication
+        // group, since it would not accept their Rpcs.
+        while (true) {
+            try {
+                serverList[ServerId(backupId)].replicationId = replicationId;
+                backupClient.assignGroup(ServerId(backupId),
+                                         replicationId,
+                                         numReplicas,
+                                         replicationGroupIds);
+            } catch (TransportException& e) {
+                if (hintServerDown(ServerId(backupId))) {
+                    return false;
+                } else {
+                    continue;
+                }
+            } catch (TimeoutException& e) {
+                if (hintServerDown(ServerId(backupId))) {
+                    return false;
+                } else {
+                    continue;
+                }
+            }
+            break;
+        }
+    }
+    return true;
+}
+
+/**
+ * Try to create a new replication group. Look for groups of backups that
+ * are not assigned a replication group and are up.
+ */
+void
+CoordinatorService::createReplicationGroup()
+{
+    // Create a list of all servers who do not belong to a replication group
+    // and are up. Note that this is a performance optimization and is not
+    // required for correctness.
+    vector<ServerId> freeBackups;
+    for (size_t i = 0; i < serverList.size(); i++) {
+        if (serverList[i] != NULL &&
+            serverList[i]->isBackup() &&
+            serverList[i]->replicationId == 0) {
+            freeBackups.push_back(serverList[i]->serverId);
+        }
+    }
+
+    // TODO(cidon): The coordinator currently has no knowledge of the
+    // replication factor, so we manually set the replication group size to 3.
+    // We should make this parameter configurable.
+    const uint32_t numReplicas = 3;
+    uint64_t group[numReplicas];
+    while (freeBackups.size() >= numReplicas) {
+        // Update the replicationId on serverList.
+        for (uint32_t i = 0; i < numReplicas; i++) {
+            group[i] = freeBackups.begin()->getId();
+            serverList[*freeBackups.begin()].replicationId = nextReplicationId;
+            freeBackups.erase(freeBackups.begin());
+        }
+        // Try to assign a new replication group. If it fails, reset the group.
+        if (!assignReplicationGroup(nextReplicationId,
+                                    numReplicas,
+                                    group)) {
+            removeReplicationGroup(nextReplicationId);
+        }
+        nextReplicationId++;
+    }
+}
+
+/**
+ * Reset the replicationId for all backups with groupId. 
+ *
+ * \param groupId
+ *      Replication group that needs to be reset.
+ */
+void
+CoordinatorService::removeReplicationGroup(uint64_t groupId)
+{
+    // Cannot remove groupId 0, since it is the default groupId.
+    if (groupId == 0) {
+        return;
+    }
+    uint32_t numReplicas = 0;
+    vector<ServerId> group;
+    for (size_t i = 0; i < serverList.size(); i++) {
+        if (serverList[i] != NULL &&
+            serverList[i]->replicationId == groupId) {
+            group.push_back(serverList[i]->serverId);
+            numReplicas++;
+            serverList[i]->replicationId = 0;
+       }
+    }
+    if (numReplicas == 0) {
+        return;
+    }
+    uint64_t finalGroup[numReplicas];
+    for (uint32_t i = 0; i < numReplicas; i++) {
+        finalGroup[i] = group.at(i).getId();
+    }
+    // Reset the replicationId of the corresponding servers.
+    assignReplicationGroup(0, numReplicas, finalGroup);
 }
 
 /**

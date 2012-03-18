@@ -357,7 +357,7 @@ compareEntries(CoordinatorServerList::Entry& a,
                CoordinatorServerList::Entry& b)
 {
     // If this trips, you need to update some checks below.
-    EXPECT_EQ(48U, sizeof(a));
+    EXPECT_EQ(56U, sizeof(a));
 
     if (a.serverId != b.serverId)
         return false;
@@ -372,6 +372,8 @@ compareEntries(CoordinatorServerList::Entry& a,
     if (a.backupReadMBytesPerSec != b.backupReadMBytesPerSec)
         return false;
     if (a.minOpenSegmentId != b.minOpenSegmentId)
+        return false;
+    if (a.replicationId != b.replicationId)
         return false;
 
     return true;

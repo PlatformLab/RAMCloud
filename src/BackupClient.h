@@ -211,6 +211,30 @@ class BackupClient : public Client {
     };
     DEF_SYNC_RPC_METHOD(recoveryComplete, RecoveryComplete);
 
+    /**
+     * Assign a replicationId to a backup, and notify the backup of its other
+     * group members.
+     */
+    class AssignGroup {
+      public:
+        AssignGroup(BackupClient& client,
+                    ServerId masterId,
+                    uint64_t replicationId,
+                    uint32_t numReplicas,
+                    uint64_t* replicationGroupIds);
+        void cancel() { state.cancel(); }
+        bool isReady() { return state.isReady(); }
+        void operator()();
+      private:
+        BackupClient& client;
+        Buffer requestBuffer;
+        Buffer responseBuffer;
+        AsyncState state;
+        DISALLOW_COPY_AND_ASSIGN(AssignGroup);
+    };
+    DEF_SYNC_RPC_METHOD(assignGroup, AssignGroup);
+
+
   private:
     /**
      * A session with a backup server.

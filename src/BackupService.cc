@@ -988,6 +988,8 @@ BackupService::BackupService(const ServerConfig& config)
     , ioThread(std::ref(ioScheduler))
 #endif
     , initCalled(false)
+    , replicationId(0)
+    , replicationGroup()
 {
     if (config.backup.inMemory)
         storage.reset(new InMemoryStorage(config.segmentSize,
@@ -1078,10 +1080,16 @@ BackupService::benchmark(uint32_t& readSpeed, uint32_t& writeSpeed) {
 void
 BackupService::dispatch(RpcOpcode opcode, Rpc& rpc)
 {
-    assert(initCalled);
+    // This is a hack. We allow the AssignGroup Rpc to be processed before
+    // initCalled is set to true, since it is sent during initialization.
+    assert(initCalled || opcode == BackupAssignGroupRpc::opcode);
     CycleCounter<RawMetric> serviceTicks(&metrics->backup.serviceTicks);
 
     switch (opcode) {
+        case BackupAssignGroupRpc::opcode:
+            callHandler<BackupAssignGroupRpc, BackupService,
+                        &BackupService::assignGroup>(rpc);
+            break;
         case BackupFreeRpc::opcode:
             callHandler<BackupFreeRpc, BackupService,
                         &BackupService::freeSegment>(rpc);
@@ -1108,6 +1116,37 @@ BackupService::dispatch(RpcOpcode opcode, Rpc& rpc)
             break;
         default:
             throw UnimplementedRequestError(HERE);
+    }
+}
+
+/**
+ * Update replicationId and replicationGroupIds. The former contains the Id of
+ * the backup's replication group, while the latter contains the ServerIds of
+ * all the members of the backup's replication group (including its own).
+ *
+ * \param reqHdr
+ *      Header of the Rpc request containing the replication group Ids.
+ *
+ * \param respHdr
+ *      Header for the Rpc response.
+ *
+ * \param rpc
+ *      The Rpc being serviced.
+ */
+void
+BackupService::assignGroup(
+        const BackupAssignGroupRpc::Request& reqHdr,
+        BackupAssignGroupRpc::Response& respHdr,
+        Rpc& rpc)
+{
+
+    replicationId = reqHdr.replicationId;
+    uint32_t reqOffset = downCast<uint32_t>(sizeof(reqHdr));
+    for (uint32_t i = 0; i < reqHdr.numReplicas; i++) {
+        const uint64_t *backupId =
+            rpc.requestPayload.getOffset<uint64_t>(reqOffset);
+        replicationGroup.push_back(ServerId(*backupId));
+        reqOffset += downCast<uint32_t>(sizeof(uint64_t));
     }
 }
 

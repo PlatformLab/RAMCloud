@@ -515,6 +515,9 @@ class BackupService : public Service {
     void init(ServerId id);
 
   PRIVATE:
+    void assignGroup(const BackupAssignGroupRpc::Request& reqHdr,
+                     BackupAssignGroupRpc::Response& respHdr,
+                     Rpc& rpc);
     void freeSegment(const BackupFreeRpc::Request& reqHdr,
                      BackupFreeRpc::Response& respHdr,
                      Rpc& rpc);
@@ -609,6 +612,12 @@ class BackupService : public Service {
 
     /// Used to ensure that init() is invoked before the dispatcher runs.
     bool initCalled;
+
+    /// Replication group Id.
+    uint64_t replicationId;
+
+    /// The ServerId's all the members of the replication group.
+    vector<ServerId> replicationGroup;
 
     DISALLOW_COPY_AND_ASSIGN(BackupService);
 };

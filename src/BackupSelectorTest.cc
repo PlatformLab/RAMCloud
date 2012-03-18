@@ -51,34 +51,25 @@ struct BackupSelectorTest : public ::testing::Test {
 
     void addEqualHosts(CoordinatorClient* coordinator,
                        std::vector<ServerId>& ids) {
-        ServiceMask b{BACKUP_SERVICE};
-        auto& c = coordinator;
-        ids.push_back(c->enlistServer({}, b, "mock:host=backup1", 100));
-        ids.push_back(c->enlistServer({}, b, "mock:host=backup2", 100));
-        ids.push_back(c->enlistServer({}, b, "mock:host=backup3", 100));
-        ids.push_back(c->enlistServer({}, b, "mock:host=backup4", 100));
-        ids.push_back(c->enlistServer({}, b, "mock:host=backup5", 100));
-        ids.push_back(c->enlistServer({}, b, "mock:host=backup6", 100));
-        ids.push_back(c->enlistServer({}, b, "mock:host=backup7", 100));
-        ids.push_back(c->enlistServer({}, b, "mock:host=backup8", 100));
-        ids.push_back(c->enlistServer({}, b, "mock:host=backup9", 100));
+        ServerConfig config = ServerConfig::forTesting();
+        config.services = {BACKUP_SERVICE, MEMBERSHIP_SERVICE};
+        config.backup.mockSpeed = 100;
+        for (uint32_t i = 1; i < 10; i++) {
+            config.localLocator = format("mock:host=backup%u", i);
+            ids.push_back(cluster.addServer(config)->serverId);
+        }
     }
 
     void addDifferentHosts(CoordinatorClient* coordinator,
                            std::vector<ServerId>& ids) {
-        ServiceMask b{BACKUP_SERVICE};
-        auto& c = coordinator;
-        ids.push_back(c->enlistServer({}, b, "mock:host=backup1", 10));
-        ids.push_back(c->enlistServer({}, b, "mock:host=backup2", 20));
-        ids.push_back(c->enlistServer({}, b, "mock:host=backup3", 30));
-        ids.push_back(c->enlistServer({}, b, "mock:host=backup4", 40));
-        ids.push_back(c->enlistServer({}, b, "mock:host=backup5", 50));
-        ids.push_back(c->enlistServer({}, b, "mock:host=backup6", 60));
-        ids.push_back(c->enlistServer({}, b, "mock:host=backup7", 70));
-        ids.push_back(c->enlistServer({}, b, "mock:host=backup8", 80));
-        ids.push_back(c->enlistServer({}, b, "mock:host=backup9", 90));
+        ServerConfig config = ServerConfig::forTesting();
+        config.services = {BACKUP_SERVICE, MEMBERSHIP_SERVICE};
+        for (uint32_t i = 1; i < 10; i++) {
+            config.backup.mockSpeed = i * 10;
+            config.localLocator = format("mock:host=backup%u", i);
+            ids.push_back(cluster.addServer(config)->serverId);
+        }
     }
-
     DISALLOW_COPY_AND_ASSIGN(BackupSelectorTest);
 };
 

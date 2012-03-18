@@ -431,6 +431,74 @@ TEST_F(CoordinatorServiceTest, requestServerList) {
               TestLog::get());
 }
 
+TEST_F(CoordinatorServiceTest, assignReplicationGroup) {
+    ServerId serverIds[3];
+    uint64_t ids[3];
+    ServerConfig config = ServerConfig::forTesting();
+    config.services = {BACKUP_SERVICE, MEMBERSHIP_SERVICE, PING_SERVICE};
+    for (uint32_t i = 0; i < 3; i++) {
+        config.localLocator = format("mock:host=backup%u", i);
+        serverIds[i] = cluster.addServer(config)->serverId;
+        ids[i] = serverIds[i].getId();
+    }
+    // Check normal functionality.
+    EXPECT_TRUE(service->assignReplicationGroup(10U, 3, ids));
+    EXPECT_EQ(10U, service->serverList[serverIds[0]].replicationId);
+    EXPECT_EQ(10U, service->serverList[serverIds[1]].replicationId);
+    EXPECT_EQ(10U, service->serverList[serverIds[2]].replicationId);
+    // Generate a single TransportException. assignReplicationGroup should
+    // retry and succeed.
+    cluster.transport.errorMessage = "I am Bon Jovi's pool cleaner!";
+    EXPECT_TRUE(service->assignReplicationGroup(100U, 3, ids));
+    EXPECT_EQ(100U, service->serverList[serverIds[0]].replicationId);
+    service->forceServerDownForTesting = true;
+    // Crash one of the backups. assignReplicationGroup should fail.
+    service->hintServerDown(serverIds[2]);
+    EXPECT_FALSE(service->assignReplicationGroup(1000U, 3, ids));
+    service->forceServerDownForTesting = false;
+}
+
+TEST_F(CoordinatorServiceTest, createReplicationGroup) {
+    ServerId serverIds[9];
+    ServerConfig config = ServerConfig::forTesting();
+    config.services = {BACKUP_SERVICE, MEMBERSHIP_SERVICE, PING_SERVICE};
+    for (uint32_t i = 0; i < 8; i++) {
+        config.localLocator = format("mock:host=backup%u", i);
+        serverIds[i] = cluster.addServer(config)->serverId;
+    }
+    EXPECT_EQ(1U, service->serverList[serverIds[0]].replicationId);
+    EXPECT_EQ(1U, service->serverList[serverIds[1]].replicationId);
+    EXPECT_EQ(1U, service->serverList[serverIds[2]].replicationId);
+    EXPECT_EQ(2U, service->serverList[serverIds[3]].replicationId);
+    EXPECT_EQ(2U, service->serverList[serverIds[4]].replicationId);
+    EXPECT_EQ(2U, service->serverList[serverIds[5]].replicationId);
+    EXPECT_EQ(0U, service->serverList[serverIds[6]].replicationId);
+    EXPECT_EQ(0U, service->serverList[serverIds[7]].replicationId);
+    // Kill server 7.
+    service->forceServerDownForTesting = true;
+    service->hintServerDown(serverIds[7]);
+    service->forceServerDownForTesting = false;
+    // Create a new server.
+    config.localLocator = format("mock:host=backup%u", 9);
+    serverIds[8] = cluster.addServer(config)->serverId;
+    EXPECT_EQ(0U, service->serverList[serverIds[6]].replicationId);
+    EXPECT_EQ(0U, service->serverList[serverIds[8]].replicationId);
+}
+
+TEST_F(CoordinatorServiceTest, removeReplicationGroup) {
+    ServerId serverIds[3];
+    ServerConfig config = ServerConfig::forTesting();
+    config.services = {BACKUP_SERVICE, MEMBERSHIP_SERVICE, PING_SERVICE};
+    for (uint32_t i = 0; i < 3; i++) {
+        config.localLocator = format("mock:host=backup%u", i);
+        serverIds[i] = cluster.addServer(config)->serverId;
+    }
+    service->removeReplicationGroup(1);
+    EXPECT_EQ(0U, service->serverList[serverIds[0]].replicationId);
+    EXPECT_EQ(0U, service->serverList[serverIds[1]].replicationId);
+    EXPECT_EQ(0U, service->serverList[serverIds[2]].replicationId);
+}
+
 TEST_F(CoordinatorServiceTest, sendServerList) {
     ServerConfig config = ServerConfig::forTesting();
     config.services = {MEMBERSHIP_SERVICE};

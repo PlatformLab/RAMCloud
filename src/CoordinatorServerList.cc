@@ -483,7 +483,8 @@ CoordinatorServerList::Entry::Entry(ServerId serverId,
       will(NULL),
       backupReadMBytesPerSec(0),
       status(ServerStatus::UP),
-      minOpenSegmentId(0)
+      minOpenSegmentId(0),
+      replicationId(0)
 {
 }
 

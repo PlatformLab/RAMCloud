@@ -96,7 +96,8 @@ enum RpcOpcode {
     GET_SERVER_ID           = 38,
     DROP_TABLET_OWNERSHIP   = 39,
     TAKE_TABLET_OWNERSHIP   = 40,
-    ILLEGAL_RPC_TYPE        = 41,  // 1 + the highest legitimate RpcOpcode
+    BACKUP_ASSIGN_GROUP     = 41,
+    ILLEGAL_RPC_TYPE        = 42,  // 1 + the highest legitimate RpcOpcode
 };
 
 /**
@@ -472,6 +473,23 @@ struct SetMinOpenSegmentIdRpc {
 };
 
 // Backup RPCs follow, see BackupService.cc
+
+struct BackupAssignGroupRpc {
+    static const RpcOpcode opcode = BACKUP_ASSIGN_GROUP;
+    static const ServiceType service = BACKUP_SERVICE;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t masterId;      ///< Server Id from whom the request is coming.
+        uint64_t replicationId; ///< The new replication group Id assigned to
+                                ///< the backup.
+        uint32_t numReplicas;   ///< Following this field, we append a list of
+                                ///< uint64_t ServerId's, which represent the
+                                ///< servers in the replication group.
+    } __attribute__((packed));
+    struct Response {
+        RpcResponseCommon common;
+    } __attribute__((packed));
+};
 
 struct BackupFreeRpc {
     static const RpcOpcode opcode = BACKUP_FREE;

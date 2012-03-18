@@ -110,6 +110,12 @@ class CoordinatorServerList {
          * writing to them.
          */
         uint64_t minOpenSegmentId;
+
+        /**
+         * ReplicationId of the backup. If it is set to 0, the backup is
+         * currently not assigned to a replication group.
+         */
+        uint64_t replicationId;
     };
 
     CoordinatorServerList();

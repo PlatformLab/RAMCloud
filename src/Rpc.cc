@@ -83,6 +83,7 @@ Rpc::opcodeSymbol(uint32_t opcode)
         case SET_MIN_OPEN_SEGMENT_ID:    return "SET_MIN_OPEN_SEGMENT_ID";
         case DROP_TABLET_OWNERSHIP:      return "DROP_TABLET_OWNERSHIP";
         case TAKE_TABLET_OWNERSHIP:      return "TAKE_TABLET_OWNERSHIP";
+        case BACKUP_ASSIGN_GROUP:        return "BACKUP_ASSIGN_GROUP";
         case ILLEGAL_RPC_TYPE:           return "ILLEGAL_RPC_TYPE";
     }
 

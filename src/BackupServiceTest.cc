@@ -209,6 +209,17 @@ TEST_F(BackupServiceTest, findSegmentInfo_notIn) {
     EXPECT_TRUE(NULL == backup->findSegmentInfo(ServerId(99, 0), 88));
 }
 
+TEST_F(BackupServiceTest, assignGroup) {
+    uint64_t groupId = 100;
+    const uint32_t numReplicas = 3;
+    uint64_t ids[numReplicas] = {15, 16, 99};
+    client->assignGroup(ServerId(99, 0), groupId, numReplicas, ids);
+    EXPECT_EQ(groupId, backup->replicationId);
+    EXPECT_EQ(15U, backup->replicationGroup.at(0).getId());
+    EXPECT_EQ(16U, backup->replicationGroup.at(1).getId());
+    EXPECT_EQ(99U, backup->replicationGroup.at(2).getId());
+}
+
 TEST_F(BackupServiceTest, freeSegment) {
     client->openSegment(ServerId(99, 0), 88);
     client->writeSegment(ServerId(99, 0), 88, 10, "test", 4);

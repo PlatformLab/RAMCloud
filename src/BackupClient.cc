@@ -183,6 +183,40 @@ BackupClient::RecoveryComplete::operator()()
     client.checkStatus(HERE);
 }
 
+/**
+ * Assign the backup a replicationId and notify it of its replication group
+ * members.
+ */
+BackupClient::AssignGroup::AssignGroup(BackupClient& client,
+                                       ServerId masterId,
+                                       uint64_t replicationId,
+                                       uint32_t numReplicas,
+                                       uint64_t* replicationGroupIds)
+                                       : client(client)
+                                       , requestBuffer()
+                                       , responseBuffer()
+                                       , state()
+{
+    auto& reqHdr = client.allocHeader<BackupAssignGroupRpc>(requestBuffer);
+    reqHdr.masterId = masterId.getId();
+    reqHdr.replicationId = replicationId;
+    reqHdr.numReplicas = numReplicas;
+    uint64_t* dest = new(&requestBuffer, APPEND) uint64_t[numReplicas];
+    for (uint32_t i = 0; i < numReplicas; i++) {
+        dest[i] = replicationGroupIds[i];
+    }
+    state = client.send<BackupAssignGroupRpc>(client.session,
+                                              requestBuffer,
+                                              responseBuffer);
+}
+
+void
+BackupClient::AssignGroup::operator()()
+{
+    client.recv<BackupAssignGroupRpc>(state);
+    client.checkStatus(HERE);
+}
+
 // class BackupClient::StartReadingData::Result
 
 BackupClient::StartReadingData::Result::Result()
