@@ -218,10 +218,9 @@ class BackupClient : public Client {
     class AssignGroup {
       public:
         AssignGroup(BackupClient& client,
-                    ServerId masterId,
                     uint64_t replicationId,
                     uint32_t numReplicas,
-                    uint64_t* replicationGroupIds);
+                    const ServerId* replicationGroupIds);
         void cancel() { state.cancel(); }
         bool isReady() { return state.isReady(); }
         void operator()();

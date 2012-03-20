@@ -112,8 +112,8 @@ class CoordinatorServerList {
         uint64_t minOpenSegmentId;
 
         /**
-         * ReplicationId of the backup. If it is set to 0, the backup is
-         * currently not assigned to a replication group.
+         * Each segment's replicas are replicated on a set of backups, called
+         * a replication group. Each group has a unique Id.
          */
         uint64_t replicationId;
     };

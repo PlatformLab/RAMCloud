@@ -432,29 +432,27 @@ TEST_F(CoordinatorServiceTest, requestServerList) {
 }
 
 TEST_F(CoordinatorServiceTest, assignReplicationGroup) {
-    ServerId serverIds[3];
-    uint64_t ids[3];
+    vector<ServerId> serverIds;
     ServerConfig config = ServerConfig::forTesting();
     config.services = {BACKUP_SERVICE, MEMBERSHIP_SERVICE, PING_SERVICE};
     for (uint32_t i = 0; i < 3; i++) {
         config.localLocator = format("mock:host=backup%u", i);
-        serverIds[i] = cluster.addServer(config)->serverId;
-        ids[i] = serverIds[i].getId();
+        serverIds.push_back(cluster.addServer(config)->serverId);
     }
     // Check normal functionality.
-    EXPECT_TRUE(service->assignReplicationGroup(10U, 3, ids));
+    EXPECT_TRUE(service->assignReplicationGroup(10U, serverIds));
     EXPECT_EQ(10U, service->serverList[serverIds[0]].replicationId);
     EXPECT_EQ(10U, service->serverList[serverIds[1]].replicationId);
     EXPECT_EQ(10U, service->serverList[serverIds[2]].replicationId);
     // Generate a single TransportException. assignReplicationGroup should
     // retry and succeed.
     cluster.transport.errorMessage = "I am Bon Jovi's pool cleaner!";
-    EXPECT_TRUE(service->assignReplicationGroup(100U, 3, ids));
+    EXPECT_TRUE(service->assignReplicationGroup(100U, serverIds));
     EXPECT_EQ(100U, service->serverList[serverIds[0]].replicationId);
     service->forceServerDownForTesting = true;
     // Crash one of the backups. assignReplicationGroup should fail.
     service->hintServerDown(serverIds[2]);
-    EXPECT_FALSE(service->assignReplicationGroup(1000U, 3, ids));
+    EXPECT_FALSE(service->assignReplicationGroup(1000U, serverIds));
     service->forceServerDownForTesting = false;
 }
 

@@ -479,7 +479,6 @@ struct BackupAssignGroupRpc {
     static const ServiceType service = BACKUP_SERVICE;
     struct Request {
         RpcRequestCommon common;
-        uint64_t masterId;      ///< Server Id from whom the request is coming.
         uint64_t replicationId; ///< The new replication group Id assigned to
                                 ///< the backup.
         uint32_t numReplicas;   ///< Following this field, we append a list of

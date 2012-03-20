@@ -186,24 +186,33 @@ BackupClient::RecoveryComplete::operator()()
 /**
  * Assign the backup a replicationId and notify it of its replication group
  * members.
+ * \param client
+ *      The BackupClient whose Session should be used for the call.
+ * \param replicationId
+ *      A unique Id that specifies the replication group that the backup
+ *      belongs to. All of the replicas of a given segment are replicated to
+ *      the same replication group.
+ * \param numReplicas
+ *      The number of replicas for each segment. This is also the number of
+ *      replicas in a given replication group.
+ * \param replicationGroupIds
+ *      The ServerId's of all the backups in the replication group.
  */
 BackupClient::AssignGroup::AssignGroup(BackupClient& client,
-                                       ServerId masterId,
                                        uint64_t replicationId,
                                        uint32_t numReplicas,
-                                       uint64_t* replicationGroupIds)
+                                       const ServerId* replicationGroupIds)
                                        : client(client)
                                        , requestBuffer()
                                        , responseBuffer()
                                        , state()
 {
     auto& reqHdr = client.allocHeader<BackupAssignGroupRpc>(requestBuffer);
-    reqHdr.masterId = masterId.getId();
     reqHdr.replicationId = replicationId;
     reqHdr.numReplicas = numReplicas;
     uint64_t* dest = new(&requestBuffer, APPEND) uint64_t[numReplicas];
     for (uint32_t i = 0; i < numReplicas; i++) {
-        dest[i] = replicationGroupIds[i];
+        dest[i] = replicationGroupIds[i].getId();
     }
     state = client.send<BackupAssignGroupRpc>(client.session,
                                               requestBuffer,

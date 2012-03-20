@@ -1120,9 +1120,9 @@ BackupService::dispatch(RpcOpcode opcode, Rpc& rpc)
 }
 
 /**
- * Update replicationId and replicationGroupIds. The former contains the Id of
- * the backup's replication group, while the latter contains the ServerIds of
- * all the members of the backup's replication group (including its own).
+ * Assign a replication group to a backup, and notifies it of its peer group
+ * members. The replication group serves as a set of backups that store all
+ * the replicas of a segment.
  *
  * \param reqHdr
  *      Header of the Rpc request containing the replication group Ids.
@@ -1139,14 +1139,14 @@ BackupService::assignGroup(
         BackupAssignGroupRpc::Response& respHdr,
         Rpc& rpc)
 {
-
     replicationId = reqHdr.replicationId;
     uint32_t reqOffset = downCast<uint32_t>(sizeof(reqHdr));
+    replicationGroup.clear();
     for (uint32_t i = 0; i < reqHdr.numReplicas; i++) {
         const uint64_t *backupId =
             rpc.requestPayload.getOffset<uint64_t>(reqOffset);
         replicationGroup.push_back(ServerId(*backupId));
-        reqOffset += downCast<uint32_t>(sizeof(uint64_t));
+        reqOffset += downCast<uint32_t>(sizeof(*backupId));
     }
 }
 

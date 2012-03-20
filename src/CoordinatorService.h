@@ -84,8 +84,7 @@ class CoordinatorService : public Service {
                            Rpc& rpc);
     // - helper methods -
     bool assignReplicationGroup(uint64_t replicationId,
-                                uint32_t replicationGroupSize,
-                                uint64_t* replicationGroupIds);
+                                const vector<ServerId>& replicationGroupIds);
     void createReplicationGroup();
     bool hintServerDown(ServerId serverId);
     void removeReplicationGroup(uint64_t replicationId);
@@ -133,8 +132,9 @@ class CoordinatorService : public Service {
     uint32_t nextTableMasterIdx;
 
     /**
-     * The id of the next replication group to be created.
-     * These start at 1 and are never reused.
+     * The id of the next replication group to be created. The replication
+     * group is a set of backups that store all of the replicas of a segment.
+     * NextReplicationId starts at 1 and is never reused.
      * Id 0 is reserved for nodes that do not belong to a replication group.
      */
     uint64_t nextReplicationId;
