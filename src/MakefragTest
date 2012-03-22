@@ -139,51 +139,51 @@ ftest: $(OBJDIR)/test
 
 $(OBJDIR)/HashTableBenchmark: $(OBJDIR)/HashTableBenchmark.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
 	@mkdir -p $(@D)
-	$(CXX) $(LIBS) -o $@ $^
+	$(CXX) -o $@ $^ $(LIBS)
 
 $(OBJDIR)/Echo: $(OBJDIR)/Echo.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
 	@mkdir -p $(@D)
-	$(CXX) $(LIBS) -o $@ $^
+	$(CXX) -o $@ $^ $(LIBS)
 
 $(OBJDIR)/Telnet: $(OBJDIR)/Telnet.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
 	@mkdir -p $(@D)
-	$(CXX) $(LIBS) -o $@ $^
+	$(CXX) -o $@ $^ $(LIBS)
 
 $(OBJDIR)/RecoverSegmentBenchmark: $(OBJDIR)/RecoverSegmentBenchmark.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
 	@mkdir -p $(@D)
-	$(CXX) $(LIBS) -o $@ $^
+	$(CXX) -o $@ $^ $(LIBS)
 
 $(OBJDIR)/Perf: $(OBJDIR)/Perf.o $(OBJDIR)/PerfHelper.o $(SERVER_OBJFILES)
 	@mkdir -p $(@D)
-	$(CXX) $(LIBS) -o $@ $^
+	$(CXX) -o $@ $^ $(LIBS)
 
 $(OBJDIR)/ClusterPerf: $(OBJDIR)/ClusterPerf.o $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
-	$(CXX) $(LIBS) -o $@ $^
+	$(CXX) -o $@ $^ $(LIBS)
 
 $(OBJDIR)/TransportBench: $(OBJDIR)/TransportBench.o $(OBJDIR)/RawMetrics.o $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
-	$(CXX) $(TESTS_LIB) -o $@ $^
+	$(CXX) -o $@ $^ $(TESTS_LIB)
 
 $(OBJDIR)/TransportSmack: $(OBJDIR)/TransportSmack.o $(OBJDIR)/Service.o $(OBJDIR)/RawMetrics.o $(OBJDIR)/OptionParser.o $(OBJDIR)/TestUtil.o $(OBJDIR)/gtest.a $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
-	$(CXX) $(TESTS_LIB) -o $@ $^
+	$(CXX) -o $@ $^ $(TESTS_LIB)
 
 $(OBJDIR)/LogCleanerBenchmark: $(OBJDIR)/LogCleanerBenchmark.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
-	$(CXX) $(TESTS_LIB) -o $@ $^
+	$(CXX) -o $@ $^ $(TESTS_LIB)
 
 $(OBJDIR)/BackupStorageBenchmark: $(OBJDIR)/BackupStorageBenchmark.o $(SHARED_OBJFILES) $(BACKUP_OBJFILES)
 	@mkdir -p $(@D)
-	$(CXX) $(LIBS) -o $@ $^
+	$(CXX) -o $@ $^ $(LIBS)
 
 $(OBJDIR)/HintServerDown: $(OBJDIR)/HintServerDown.o $(SHARED_OBJFILES) $(CLIENT_OBJFILES)
 	@mkdir -p $(@D)
-	$(CXX) $(LIBS) -o $@ $^
+	$(CXX) -o $@ $^ $(LIBS)
 
 $(OBJDIR)/StringKeys: $(OBJDIR)/StringKeys.o $(SHARED_OBJFILES) $(CLIENT_OBJFILES)
 	@mkdir -p $(@D)
-	$(CXX) $(LIBS) -o $@ $^
+	$(CXX) -o $@ $^ $(LIBS)
 
 # Do not remove.
 tests-clean:

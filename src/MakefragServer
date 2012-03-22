@@ -10,6 +10,6 @@ SERVER_OBJFILES := $(SERVER_OBJFILES) $(SHARED_OBJFILES)
 
 $(OBJDIR)/server: $(SERVER_OBJFILES) $(OBJDIR)/ServerMain.o $(OBJDIR)/OptionParser.o
 	@mkdir -p $(@D)
-	$(CXX) $(LIBS) -o $@ $^
+	$(CXX) -o $@ $^ $(LIBS)
 
 all: $(OBJDIR)/server
