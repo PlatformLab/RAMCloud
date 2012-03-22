@@ -23,6 +23,8 @@
 #ifndef RAMCLOUD_ATOMICPATCH_H
 #define RAMCLOUD_ATOMICPATCH_H
 
+#if __GNUC_MINOR__ < 6
+
 namespace std {
     template<typename _Tp>
     void
@@ -39,6 +41,8 @@ namespace std {
     exchange(_Tp* __v, memory_order __m)
     { return static_cast<_Tp*>(atomic_address::exchange(__v, __m)); }
 }
+
+#endif //version check
 
 #endif // RAMCLOUD_ATOMICPATCH_H
 

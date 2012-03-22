@@ -60,7 +60,7 @@ InfUdDriver<Infiniband>::InfUdDriver(const ServiceLocator *sl,
     , QKEY(ethernet ? 0 : 0xdeadbeef)
     , rxcq(0)
     , txcq(0)
-    , qp(NULL)
+    , qp()
     , packetBufPool()
     , packetBufsUtilized(0)
     , rxBuffers()
@@ -71,7 +71,7 @@ InfUdDriver<Infiniband>::InfUdDriver(const ServiceLocator *sl,
     , qpn(0)
     , localMac()
     , locatorString()
-    , incomingPacketHandler(NULL)
+    , incomingPacketHandler()
     , poller()
 {
     const char *ibDeviceName = NULL;

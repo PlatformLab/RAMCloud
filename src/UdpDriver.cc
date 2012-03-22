@@ -50,7 +50,7 @@ Syscall* UdpDriver::sys = &defaultSyscall;
  *      drivers.
  */
 UdpDriver::UdpDriver(const ServiceLocator* localServiceLocator)
-    : socketFd(-1), incomingPacketHandler(NULL), readHandler(),
+    : socketFd(-1), incomingPacketHandler(), readHandler(),
       packetBufPool(), packetBufsUtilized(0), locatorString()
 {
     if (localServiceLocator != NULL)
