@@ -858,6 +858,25 @@ TEST_F(BackupServiceTest, writeSegment) {
     }
 }
 
+TEST_F(BackupServiceTest, writeSegment_response) {
+    uint64_t groupId = 100;
+    const uint32_t numReplicas = 3;
+    ServerId ids[numReplicas] = {ServerId(15), ServerId(16), ServerId(33)};
+    client->assignGroup(groupId, numReplicas, ids);
+    const vector<ServerId>& group =
+        client->openSegment(ServerId(99, 0), 88);
+    EXPECT_EQ(3U, group.size());
+    EXPECT_EQ(15U, group.at(0).getId());
+    EXPECT_EQ(16U, group.at(1).getId());
+    EXPECT_EQ(33U, group.at(2).getId());
+    ServerId newIds[1] = {ServerId(99)};
+    client->assignGroup(0, 1, newIds);
+    const vector<ServerId>& newGroup =
+        client->openSegment(ServerId(99, 0), 88);
+    EXPECT_EQ(1U, newGroup.size());
+    EXPECT_EQ(99U, newGroup.at(0).getId());
+}
+
 TEST_F(BackupServiceTest, writeSegment_segmentNotOpen) {
     EXPECT_THROW(
         client->writeSegment(ServerId(99, 0), 88, 0, "test", 4),

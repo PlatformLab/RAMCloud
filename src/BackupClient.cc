@@ -402,12 +402,24 @@ BackupClient::WriteSegment::WriteSegment(BackupClient& client,
 
 /**
  * Block until the writeSegment call has completed.
+ * Return the replication group ServerId's.
  */
-void
+vector<ServerId>
 BackupClient::WriteSegment::operator()()
 {
-    client.recv<BackupWriteRpc>(state);
+    const BackupWriteRpc::Response& respHdr(
+        client.recv<BackupWriteRpc>(state));
     client.checkStatus(HERE);
+
+    vector<ServerId> group;
+    uint32_t respOffset = downCast<uint32_t>(sizeof(respHdr));
+    for (uint32_t i = 0; i < respHdr.numReplicas; i++) {
+        const uint64_t *backupId =
+            responseBuffer.getOffset<uint64_t>(respOffset);
+        group.push_back(ServerId(*backupId));
+        respOffset += downCast<uint32_t>(sizeof(*backupId));
+    }
+    return group;
 }
 
 } // namespace RAMCloud

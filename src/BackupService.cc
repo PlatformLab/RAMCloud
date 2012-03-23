@@ -1634,25 +1634,49 @@ BackupService::writeSegment(const BackupWriteRpc::Request& reqHdr,
     ServerId masterId(reqHdr.masterId);
     uint64_t segmentId = reqHdr.segmentId;
 
-    SegmentInfo* info = findSegmentInfo(masterId, segmentId);
+    // The default value for numReplicas is 0.
+    respHdr.numReplicas = 0;
 
+    SegmentInfo* info = findSegmentInfo(masterId, segmentId);
     // peform open, if any
-    if ((reqHdr.flags & BackupWriteRpc::OPEN) && !info) {
-        LOG(DEBUG, "Opening <%lu,%lu>", *masterId, segmentId);
-        try {
+    if ((reqHdr.flags & BackupWriteRpc::OPEN)) {
 #ifdef SINGLE_THREADED_BACKUP
-            bool primary = false;
+        bool primary = false;
 #else
-            bool primary = reqHdr.flags & BackupWriteRpc::PRIMARY;
+        bool primary = reqHdr.flags & BackupWriteRpc::PRIMARY;
 #endif
-            info = new SegmentInfo(*storage, pool, ioScheduler,
-                                   masterId, segmentId, segmentSize, primary);
-            segments[MasterSegmentIdPair(masterId, segmentId)] = info;
-            info->open();
-        } catch (...) {
-            segments.erase(MasterSegmentIdPair(masterId, segmentId));
-            delete info;
-            throw;
+        if (primary) {
+            uint32_t numReplicas = downCast<uint32_t>(
+                replicationGroup.size());
+            // Respond with the replication group members.
+            respHdr.numReplicas = numReplicas;
+            if (numReplicas > 0) {
+                uint64_t* dest =
+                    new(&rpc.replyPayload, APPEND) uint64_t[numReplicas];
+                int i = 0;
+                foreach(ServerId id, replicationGroup) {
+                    dest[i] = id.getId();
+                    i++;
+                }
+            }
+        }
+        if (!info) {
+            LOG(DEBUG, "Opening <%lu,%lu>", *masterId, segmentId);
+            try {
+                info = new SegmentInfo(*storage,
+                                       pool,
+                                       ioScheduler,
+                                       masterId,
+                                       segmentId,
+                                       segmentSize,
+                                       primary);
+                segments[MasterSegmentIdPair(masterId, segmentId)] = info;
+                info->open();
+            } catch (...) {
+                segments.erase(MasterSegmentIdPair(masterId, segmentId));
+                delete info;
+                throw;
+            }
         }
     }
 

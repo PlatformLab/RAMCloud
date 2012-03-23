@@ -164,7 +164,7 @@ class BackupClient : public Client {
                      bool atomic = false);
         void cancel() { state.cancel(); }
         bool isReady() { return state.isReady(); }
-        void operator()();
+        vector<ServerId> operator()();
       private:
         BackupClient& client;
         Buffer requestBuffer;
@@ -172,7 +172,27 @@ class BackupClient : public Client {
         AsyncState state;
         DISALLOW_COPY_AND_ASSIGN(WriteSegment);
     };
-    DEF_SYNC_RPC_METHOD(writeSegment, WriteSegment);
+
+    // Returns a vector that contains the replication group of the primary
+    // backup. The secondary replicas can then be replicated to this
+    // group of backups.
+    vector<ServerId>
+    writeSegment(ServerId masterId,
+                 uint64_t segmentId,
+                 uint32_t offset,
+                 const void *buf,
+                 uint32_t length,
+                 BackupWriteRpc::Flags flags = BackupWriteRpc::NONE,
+                 bool atomic = false) {
+        return WriteSegment(*this,
+                            masterId,
+                            segmentId,
+                            offset,
+                            buf,
+                            length,
+                            flags,
+                            atomic)();
+    }
 
     explicit BackupClient(Transport::SessionRef session);
     ~BackupClient();
@@ -185,14 +205,14 @@ class BackupClient : public Client {
 
     Transport::SessionRef getSession();
 
-    void openSegment(ServerId masterId,
-                     uint64_t segmentId,
-                     bool primary = true, bool atomic = false)
+    vector<ServerId> openSegment(ServerId masterId,
+                                 uint64_t segmentId,
+                                 bool primary = true, bool atomic = false)
     {
-        writeSegment(masterId, segmentId,
-                     0, static_cast<const void*>(NULL), 0,
-                     primary ? BackupWriteRpc::OPENPRIMARY
-                             : BackupWriteRpc::OPEN, atomic);
+        return writeSegment(masterId, segmentId,
+                            0, static_cast<const void*>(NULL), 0,
+                            primary ? BackupWriteRpc::OPENPRIMARY
+                                : BackupWriteRpc::OPEN, atomic);
     }
 
     void quiesce();
