@@ -98,6 +98,57 @@ TEST_F(CoordinatorServiceTest, createTable) {
     EXPECT_EQ(1, master2.tablets.tablet_size());
 }
 
+
+TEST_F(CoordinatorServiceTest,
+  createTableSpannedAcrossTwoMastersWithThreeServers) {
+    ServerConfig master2Config = masterConfig;
+    master2Config.localLocator = "mock:host=master2";
+    MasterService& master2 = *cluster.addServer(master2Config)->master;
+    ServerConfig master3Config = masterConfig;
+    master3Config.localLocator = "mock:host=master3";
+    MasterService& master3 = *cluster.addServer(master3Config)->master;
+    // master is already enlisted
+    client->createTable("foo", 2);
+    EXPECT_EQ("tablet { table_id: 0 start_key_hash: 0 "
+              "end_key_hash: 9223372036854775807 "
+              "state: NORMAL server_id: 1 "
+              "service_locator: \"mock:host=master\" } "
+              "tablet { table_id: 0 start_key_hash: 9223372036854775808 "
+              "end_key_hash: 18446744073709551615 "
+              "state: NORMAL server_id: 2 "
+              "service_locator: \"mock:host=master2\" }",
+              service->tabletMap.ShortDebugString());
+    EXPECT_EQ(1, master->tablets.tablet_size());
+    EXPECT_EQ(1, master2.tablets.tablet_size());
+    EXPECT_EQ(0, master3.tablets.tablet_size());
+}
+
+
+
+TEST_F(CoordinatorServiceTest,
+  createTableSpannedAcrossThreeMastersWithTwoServers) {
+    ServerConfig master2Config = masterConfig;
+    master2Config.localLocator = "mock:host=master2";
+    MasterService& master2 = *cluster.addServer(master2Config)->master;
+    // master is already enlisted
+    client->createTable("foo", 3);
+    EXPECT_EQ("tablet { table_id: 0 start_key_hash: 0 "
+              "end_key_hash: 6148914691236517205 "
+              "state: NORMAL server_id: 1 "
+              "service_locator: \"mock:host=master\" } "
+              "tablet { table_id: 0 start_key_hash: 6148914691236517206 "
+              "end_key_hash: 12297829382473034410 "
+              "state: NORMAL server_id: 2 "
+              "service_locator: \"mock:host=master2\" } "
+              "tablet { table_id: 0 start_key_hash: 12297829382473034411 "
+              "end_key_hash: 18446744073709551615 "
+              "state: NORMAL server_id: 1 "
+              "service_locator: \"mock:host=master\" }",
+              service->tabletMap.ShortDebugString());
+    EXPECT_EQ(2, master->tablets.tablet_size());
+    EXPECT_EQ(1, master2.tablets.tablet_size());
+}
+
 // TODO(ongaro): Find a way to test createTable with no masters online.
 
 // TODO(ongaro): test drop, open table

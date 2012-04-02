@@ -305,6 +305,8 @@ struct CreateTableRpc {
                                       // including terminating NULL
                                       // character. The bytes of the name
                                       // follow immediately after this header.
+        uint32_t serverSpan;          // The number of servers across which
+                                      // this table will be divided.
     } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
