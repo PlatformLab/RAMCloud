@@ -131,65 +131,77 @@ CoordinatorService::createTable(const CreateTableRpc::Request& reqHdr,
     uint32_t tableId = nextTableId++;
     tables[name] = tableId;
 
-    // Find the next master in the list.
-    CoordinatorServerList::Entry* master = NULL;
-    while (true) {
-        size_t masterIdx = nextTableMasterIdx++ % serverList.size();
-        if (serverList[masterIdx] != NULL &&
-            serverList[masterIdx]->isMaster()) {
-            master = serverList[masterIdx];
-            break;
+    uint32_t serverSpan = reqHdr.serverSpan;
+    if (serverSpan == 0)
+        serverSpan = 1;
+
+    for (uint32_t i = 0; i < serverSpan; i++) {
+
+        uint64_t startKeyHash = i * (~0UL / serverSpan);
+        if (i != 0)
+            startKeyHash++;
+        uint64_t endKeyHash = (i + 1) * (~0UL / serverSpan);
+        if (i == serverSpan - 1)
+            endKeyHash = ~0UL;
+
+        // Find the next master in the list.
+        CoordinatorServerList::Entry* master = NULL;
+        while (true) {
+            size_t masterIdx = nextTableMasterIdx++ % serverList.size();
+            if (serverList[masterIdx] != NULL &&
+                serverList[masterIdx]->isMaster()) {
+                master = serverList[masterIdx];
+                break;
+            }
         }
+
+        const char* locator = master->serviceLocator.c_str();
+        MasterClient masterClient(
+            Context::get().transportManager->getSession(locator));
+
+        // Get current log head. Only entries >= this can be part of the tablet.
+        LogPosition headOfLog = masterClient.getHeadOfLog();
+
+        // Create tablet map entry.
+        ProtoBuf::Tablets_Tablet& tablet(*tabletMap.add_tablet());
+        tablet.set_table_id(tableId);
+        tablet.set_start_key_hash(startKeyHash);
+        tablet.set_end_key_hash(endKeyHash);
+        tablet.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
+        tablet.set_server_id(master->serverId.getId());
+        tablet.set_service_locator(master->serviceLocator);
+        tablet.set_ctime_log_head_id(headOfLog.segmentId());
+        tablet.set_ctime_log_head_offset(headOfLog.segmentOffset());
+
+        // Create will entry. The tablet is empty, so it doesn't matter where it
+        // goes or in how many partitions, initially.
+        // It just has to go somewhere.
+        ProtoBuf::Tablets& will = *master->will;
+        ProtoBuf::Tablets_Tablet& willEntry(*will.add_tablet());
+        willEntry.set_table_id(tableId);
+        willEntry.set_start_key_hash(startKeyHash);
+        willEntry.set_end_key_hash(endKeyHash);
+        willEntry.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
+        uint64_t maxPartitionId;
+        if (will.tablet_size() > 1)
+            maxPartitionId = will.tablet(will.tablet_size() - 2).user_data();
+        else
+            maxPartitionId = -1;
+        willEntry.set_user_data(maxPartitionId + 1);
+        willEntry.set_ctime_log_head_id(headOfLog.segmentId());
+        willEntry.set_ctime_log_head_offset(headOfLog.segmentOffset());
+
+        // Inform the master.
+        masterClient.takeTabletOwnership(tableId,
+                                         tablet.start_key_hash(),
+                                         tablet.end_key_hash());
+
+        LOG(DEBUG, "Created table '%s' with id %u and a span %u on master %lu",
+                    name, tableId, serverSpan, master->serverId.getId());
     }
 
-    const char* locator = master->serviceLocator.c_str();
-    MasterClient masterClient(
-        Context::get().transportManager->getSession(locator));
-
-    // Get current log head. Only entries >= this can be part of the tablet.
-    LogPosition headOfLog = masterClient.getHeadOfLog();
-
-    // Create tablet map entry.
-    ProtoBuf::Tablets_Tablet& tablet(*tabletMap.add_tablet());
-    tablet.set_table_id(tableId);
-    tablet.set_start_key_hash(0);
-    tablet.set_end_key_hash(~0UL);
-    tablet.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
-    tablet.set_server_id(master->serverId.getId());
-    tablet.set_service_locator(master->serviceLocator);
-    tablet.set_ctime_log_head_id(headOfLog.segmentId());
-    tablet.set_ctime_log_head_offset(headOfLog.segmentOffset());
-
-    // Create will entry. The tablet is empty, so it doesn't matter where it
-    // goes or in how many partitions, initially. It just has to go somewhere.
-    ProtoBuf::Tablets& will = *master->will;
-    ProtoBuf::Tablets_Tablet& willEntry(*will.add_tablet());
-    willEntry.set_table_id(tableId);
-    willEntry.set_start_key_hash(0);
-    willEntry.set_end_key_hash(~0UL);
-    willEntry.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
-    uint64_t maxPartitionId;
-    if (will.tablet_size() > 1)
-        maxPartitionId = will.tablet(will.tablet_size() - 2).user_data();
-    else
-        maxPartitionId = -1;
-    willEntry.set_user_data(maxPartitionId + 1);
-    willEntry.set_ctime_log_head_id(headOfLog.segmentId());
-    willEntry.set_ctime_log_head_offset(headOfLog.segmentOffset());
-
-    // Inform the master.
-    ProtoBuf::Tablets masterTabletMap;
-    foreach (const ProtoBuf::Tablets::Tablet& tablet, tabletMap.tablet()) {
-        if (tablet.server_id() == master->serverId.getId())
-            *masterTabletMap.add_tablet() = tablet;
-    }
-    masterClient.takeTabletOwnership(tableId,
-                                     tablet.start_key_hash(),
-                                     tablet.end_key_hash());
-
-    LOG(NOTICE, "Created table '%s' with id %u on master %lu",
-                name, tableId, master->serverId.getId());
-    LOG(DEBUG, "There are now %d tablets in the map", tabletMap.tablet_size());
+    LOG(NOTICE, "Created table '%s' with id %u",
+                    name, tableId);
 }
 
 /**

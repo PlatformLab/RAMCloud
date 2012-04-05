@@ -25,15 +25,23 @@ namespace RAMCloud {
  * \param name
  *      Name for the new table (NULL-terminated string).
  *
+ * \param serverSpan
+ *      The number of servers across which this table will be divided 
+ *      (defaults to 1). Keys within the table will be evenly distributed
+ *      to this number of servers according to their hash. This is a temporary
+ *      work-around until tablet migration is complete; until then, we must
+ *      place tablets on servers statically.
+ *
  * \exception InternalError
  */
 void
-CoordinatorClient::createTable(const char* name)
+CoordinatorClient::createTable(const char* name, uint32_t serverSpan)
 {
     Buffer req;
     uint32_t length = downCast<uint32_t>(strlen(name) + 1);
     CreateTableRpc::Request& reqHdr(allocHeader<CreateTableRpc>(req));
     reqHdr.nameLength = length;
+    reqHdr.serverSpan = serverSpan;
     memcpy(new(&req, APPEND) char[length], name, length);
     while (true) {
         Buffer resp;

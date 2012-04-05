@@ -39,7 +39,7 @@ class CoordinatorClient : public Client {
     {
     }
 
-    void createTable(const char* name);
+    void createTable(const char* name, uint32_t serverSpan = 1);
     void dropTable(const char* name);
     uint32_t openTable(const char* name);
 

@@ -131,7 +131,7 @@ class RamCloud {
 
     explicit RamCloud(const char* serviceLocator);
     RamCloud(Context& context, const char* serviceLocator);
-    void createTable(const char* name);
+    void createTable(const char* name, uint32_t serverSpan = 1);
     void dropTable(const char* name);
     uint32_t openTable(const char* name);
     string* getServiceLocator();
