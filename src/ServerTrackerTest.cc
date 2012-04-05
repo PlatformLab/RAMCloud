@@ -385,6 +385,21 @@ TEST_F(ServerTrackerTest, size) {
     EXPECT_EQ(0U, tr.size());
 }
 
+TEST_F(ServerTrackerTest, toString) {
+    EXPECT_EQ("", tr.toString());
+    tr.enqueueChange(ServerDetails(ServerId(1, 0), "mock:",
+                                   {MASTER_SERVICE}, 100,
+                                   ServerStatus::UP),
+                     ServerChangeEvent::SERVER_ADDED);
+    ServerDetails server;
+    ServerChangeEvent event;
+    EXPECT_EQ("", tr.toString());
+    EXPECT_TRUE(tr.getChange(server, event));
+    EXPECT_EQ(
+        "server 1 at mock: with MASTER_SERVICE is UP\n",
+        tr.toString());
+}
+
 TEST_F(ServerTrackerTest, ChangeQueue_addChange) {
     EXPECT_EQ(0U, tr.changes.changes.size());
     auto details = ServerDetails(ServerId(5, 4), ServerStatus::UP);
