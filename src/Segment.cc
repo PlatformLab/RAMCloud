@@ -59,6 +59,10 @@ namespace RAMCloud {
  * \param length
  *      See #append. Used for transmitting a LogDigest atomically with the RPC
  *      that opens the segment.
+ * \param headSegmentIdDuringCleaning
+ *      Set to the current head's segment ID if this Segment was created by the
+ *      cleaner. Used during recovery to avoid recovering old data from previous
+ *      instantiations of tablets (e.g. when migrating away and back again).
  * \return
  *      The newly constructed Segment object.
  */
@@ -70,7 +74,8 @@ Segment::Segment(Log *log,
                  ReplicaManager *replicaManager,
                  LogEntryType type,
                  const void *buffer,
-                 uint32_t length)
+                 uint32_t length,
+                 uint64_t headSegmentIdDuringCleaning)
     : replicaManager(replicaManager),
       baseAddress(baseAddress),
       log(log),
@@ -92,7 +97,8 @@ Segment::Segment(Log *log,
       cleanedEpoch(-1),
       replicatedSegment(NULL)
 {
-    commonConstructor(isLogHead, type, buffer, length);
+    commonConstructor(isLogHead, type, buffer, length,
+        headSegmentIdDuringCleaning);
 }
 
 /**
@@ -109,6 +115,10 @@ Segment::Segment(Log *log,
  *      be a power of two.
  * \param replicaManager
  *      The ReplicaManager responsible for this Segment's durability.
+ * \param headSegmentIdDuringCleaning
+ *      Set to the current head's segment ID if this Segment was created by the
+ *      cleaner. Used during recovery to avoid recovering old data from previous
+ *      instantiations of tablets (e.g. when migrating away and back again).
  * \return
  *      The newly constructed Segment object.
  */
@@ -116,7 +126,8 @@ Segment::Segment(uint64_t logId,
                  uint64_t segmentId,
                  void *baseAddress,
                  uint32_t capacity,
-                 ReplicaManager *replicaManager)
+                 ReplicaManager *replicaManager,
+                 uint64_t headSegmentIdDuringCleaning)
     : replicaManager(replicaManager),
       baseAddress(baseAddress),
       log(NULL),
@@ -138,7 +149,8 @@ Segment::Segment(uint64_t logId,
       cleanedEpoch(-1),
       replicatedSegment(NULL)
 {
-    commonConstructor(true, LOG_ENTRY_TYPE_INVALID, NULL, 0);
+    commonConstructor(true, LOG_ENTRY_TYPE_INVALID, NULL, 0,
+        headSegmentIdDuringCleaning);
 }
 
 /**
@@ -158,10 +170,15 @@ Segment::Segment(uint64_t logId,
  * \param length
  *      See #append. Used for transmitting a LogDigest atomically with the RPC
  *      that opens the segment.
+ * \param headSegmentIdDuringCleaning
+ *      See #append.
  */
 void
-Segment::commonConstructor(bool isLogHead, LogEntryType type,
-                           const void *buffer, uint32_t length)
+Segment::commonConstructor(bool isLogHead,
+                           LogEntryType type,
+                           const void *buffer,
+                           uint32_t length,
+                           uint64_t headSegmentIdDuringCleaning)
 {
     if (!BitOps::isPowerOfTwo(capacity))
         throw SegmentException(HERE, "segment capacity must be a power of two");
@@ -179,7 +196,7 @@ Segment::commonConstructor(bool isLogHead, LogEntryType type,
     if ((reinterpret_cast<uintptr_t>(baseAddress) % capacity) != 0)
         throw SegmentException(HERE, "segment memory not aligned to capacity");
 
-    SegmentHeader segHdr = { logId, id, capacity };
+    SegmentHeader segHdr = { logId, id, capacity, headSegmentIdDuringCleaning };
     SegmentEntryHandle h = forceAppendWithEntry(LOG_ENTRY_TYPE_SEGHEADER,
                                                 &segHdr, sizeof(segHdr), false);
     assert(h != NULL);
@@ -524,6 +541,18 @@ Segment::getUtilisation()
 {
     std::lock_guard<SpinLock> lock(mutex);
     return static_cast<int>((100UL * locklessGetLiveBytes()) / capacity);
+}
+
+/**
+ * Return the total number of bytes written into this Segment, including
+ * all metadata. I.e., the memory region starting from getBaseAddress()
+ * and containing getTotalBytesAppended() bytes is the entire Segment.
+ */
+uint32_t
+Segment::getTotalBytesAppended()
+{
+    std::lock_guard<SpinLock> lock(mutex);
+    return tail;
 }
 
 /**

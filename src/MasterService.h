@@ -87,6 +87,9 @@ class MasterService : public Service {
     void fillWithTestData(const FillWithTestDataRpc::Request& reqHdr,
                           FillWithTestDataRpc::Response& respHdr,
                           Rpc& rpc);
+    void getHeadOfLog(const GetHeadOfLogRpc::Request& reqHdr,
+                      GetHeadOfLogRpc::Response& respHdr,
+                      Rpc& rpc);
     void multiRead(const MultiReadRpc::Request& reqHdr,
                    MultiReadRpc::Response& respHdr,
                    Rpc& rpc);

@@ -826,8 +826,19 @@ LogCleaner::moveLiveData(LiveSegmentEntryHandleVector& liveData,
 {
     CycleCounter<uint64_t> _(&perfCounters.moveLiveDataTicks);
 
+    LogPosition headPosition = log->headOfLog();
     SegmentVector segmentsAdded;
     PowerOfTwoSegmentBins segmentBins(perfCounters);
+
+    // Ensure we'll avoid the zombie apocalypse by maintaining the invariant
+    // that only objects from segments of IDs lower than the current log
+    // head will be included in the survivor segments the cleaner creates.
+    {
+        uint64_t maxSegmentId = 0;
+        foreach (Segment* segment, segmentsToClean)
+            maxSegmentId = std::max(maxSegmentId, segment->getId());
+        assert(maxSegmentId < headPosition.segmentId());
+    }
 
     for (size_t i = 0; i < liveData.size(); i++) {
         LiveSegmentEntry& liveEntry = liveData[i];
@@ -869,7 +880,8 @@ LogCleaner::moveLiveData(LiveSegmentEntryHandleVector& liveData,
                                               segmentMemory,
                                               log->getSegmentCapacity(),
                                               replicaManager,
-                                              LOG_ENTRY_TYPE_UNINIT, NULL, 0);
+                                              LOG_ENTRY_TYPE_UNINIT, NULL, 0,
+                                              headPosition.segmentId());
 
                 segmentsAdded.push_back(newSeg);
                 segmentBins.addSegment(newSeg);

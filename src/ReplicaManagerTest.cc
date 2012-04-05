@@ -135,7 +135,8 @@ TEST_F(ReplicaManagerTest, openSegment) {
 TEST_F(ReplicaManagerTest, writeSegment) {
     void* segMem = Memory::xmemalign(HERE, segmentSize, segmentSize);
     Segment seg(*serverId, 88, segMem, segmentSize, mgr.get());
-    SegmentHeader header = { *serverId, 88, segmentSize };
+    SegmentHeader header = { *serverId, 88, segmentSize,
+        Segment::INVALID_SEGMENT_ID };
     seg.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
 
     DECLARE_OBJECT(object, 2, 0);
@@ -157,6 +158,8 @@ TEST_F(ReplicaManagerTest, writeSegment) {
 
     tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
     tablet.set_user_data(0); // partition id
+    tablet.set_ctime_log_head_id(0);
+    tablet.set_ctime_log_head_offset(0);
 
     foreach (auto& segment, mgr->replicatedSegmentList) {
         foreach (auto& replica, segment.replicas) {
@@ -315,7 +318,7 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
         // Ensure a new log head is allocated.
         "main: Allocating a new log head | "
         // Which provides the required new log digest via open.
-        "openSegment: openSegment 3, 2, ..., 68 | "
+        "openSegment: openSegment 3, 2, ..., 76 | "
         "write: 3, 1, 8192 | "
         "close: 3, 1, 2 | "
         // And which also provides the needed close on the log segment

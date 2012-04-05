@@ -135,9 +135,10 @@ class MasterServiceTest : public ::testing::Test {
 
     void
     appendTablet(ProtoBuf::Tablets& tablets,
-                    uint64_t partitionId,
-                    uint32_t tableId,
-                    uint64_t start, uint64_t end)
+                 uint64_t partitionId,
+                 uint32_t tableId,
+                 uint64_t start, uint64_t end,
+                 uint64_t ctimeHeadSegmentId, uint32_t ctimeHeadSegmentOffset)
     {
         ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
         tablet.set_table_id(tableId);
@@ -145,15 +146,17 @@ class MasterServiceTest : public ::testing::Test {
         tablet.set_end_key_hash(end);
         tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
         tablet.set_user_data(partitionId);
+        tablet.set_ctime_log_head_id(ctimeHeadSegmentId);
+        tablet.set_ctime_log_head_offset(ctimeHeadSegmentOffset);
     }
 
     void
     createTabletList(ProtoBuf::Tablets& tablets)
     {
-        appendTablet(tablets, 0, 123, 0, 9);
-        appendTablet(tablets, 0, 123, 10, 19);
-        appendTablet(tablets, 0, 123, 20, 29);
-        appendTablet(tablets, 0, 124, 20, 100);
+        appendTablet(tablets, 0, 123, 0, 9, 0, 0);
+        appendTablet(tablets, 0, 123, 10, 19, 0, 0);
+        appendTablet(tablets, 0, 123, 20, 29, 0, 0);
+        appendTablet(tablets, 0, 124, 20, 100, 0, 0);
     }
 
     DISALLOW_COPY_AND_ASSIGN(MasterServiceTest);
@@ -266,6 +269,12 @@ TEST_F(MasterServiceTest, detectSegmentRecoveryFailure_failure) {
     EXPECT_THROW(MasterService::detectSegmentRecoveryFailure(ServerId(99, 0),
                                                              3, replicas),
                   SegmentRecoveryFailedException);
+}
+
+TEST_F(MasterServiceTest, getHeadOfLog) {
+    EXPECT_EQ(LogPosition(0, 0), client->getHeadOfLog());
+    client->write(0, "0", 1, "abcdef", 6);
+    EXPECT_EQ(LogPosition(0, 99), client->getHeadOfLog());
 }
 
 TEST_F(MasterServiceTest, recover_basics) {
@@ -461,6 +470,33 @@ TEST_F(MasterServiceTest, recover) {
     EXPECT_EQ(State::FAILED, replicas.at(8).state);
 
     free(segMem);
+}
+
+static bool
+tabletsRecoveredFilter(string s)
+{
+    return (s == "tabletsRecovered");
+}
+
+TEST_F(MasterServiceTest, recover_ctimeUpdateIssued) {
+    TestLog::Enable _(tabletsRecoveredFilter);
+    client->write(0, "0", 1, "abcdef", 6);
+    ProtoBuf::Tablets tablets;
+    createTabletList(tablets);
+    RecoverRpc::Replica replicas[] = {};
+    client->recover(ServerId(123), 0, tablets, replicas, 0);
+
+    EXPECT_EQ("tabletsRecovered: called by masterId 2 with 4 tablets | "
+        "tabletsRecovered: Recovered tablets | tabletsRecovered: tablet { "
+        "table_id: 123 start_key_hash: 0 end_key_hash: 9 state: RECOVERING "
+        "server_id: 2 service_locator: \"mock:host=master\" user_data: 0 "
+        "ctime_log_head_id: 0 ctime_log_head_offset: 99 } tablet { table_id: "
+        "123 start_key_hash: 10 end_key_hash: 19 state: RECOVERING server_id: "
+        "2 service_locator: \"mock:host=master\" user_data: 0 "
+        "ctime_log_head_id: 0 ctime_log_head_offset: 99 } tablet { table_id: "
+        "123 start_key_hash: 20 end_key_hash: 29 state: RECOVERING server_id: "
+        "2 service_locator: \"mock:host=master\" user_data: ",
+        TestLog::get());
 }
 
 TEST_F(MasterServiceTest, recoverSegment) {
@@ -1281,9 +1317,10 @@ class MasterRecoverTest : public ::testing::Test {
 
     void
     appendTablet(ProtoBuf::Tablets& tablets,
-                    uint64_t partitionId,
-                    uint32_t tableId,
-                    uint64_t start, uint64_t end)
+                 uint64_t partitionId,
+                 uint32_t tableId,
+                 uint64_t start, uint64_t end,
+                 uint64_t ctimeHeadSegmentId, uint32_t ctimeHeadSegmentOffset)
     {
         ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
         tablet.set_table_id(tableId);
@@ -1291,15 +1328,17 @@ class MasterRecoverTest : public ::testing::Test {
         tablet.set_end_key_hash(end);
         tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
         tablet.set_user_data(partitionId);
+        tablet.set_ctime_log_head_id(ctimeHeadSegmentId);
+        tablet.set_ctime_log_head_offset(ctimeHeadSegmentOffset);
     }
 
     void
     createTabletList(ProtoBuf::Tablets& tablets)
     {
-        appendTablet(tablets, 0, 123, 0, 9);
-        appendTablet(tablets, 0, 123, 10, 19);
-        appendTablet(tablets, 0, 123, 20, 29);
-        appendTablet(tablets, 0, 124, 20, 100);
+        appendTablet(tablets, 0, 123, 0, 9, 0, 0);
+        appendTablet(tablets, 0, 123, 10, 19, 0, 0);
+        appendTablet(tablets, 0, 123, 20, 29, 0, 0);
+        appendTablet(tablets, 0, 124, 20, 100, 0, 0);
     }
     DISALLOW_COPY_AND_ASSIGN(MasterRecoverTest);
 };

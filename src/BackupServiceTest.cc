@@ -143,7 +143,8 @@ class BackupServiceTest : public ::testing::Test {
     appendTablet(ProtoBuf::Tablets& tablets,
                  uint64_t partitionId,
                  uint32_t tableId,
-                 uint64_t start, uint64_t end)
+                 uint64_t start, uint64_t end,
+                 uint64_t ctimeHeadSegmentId, uint32_t ctimeHeadSegmentOffset)
     {
         ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
         tablet.set_table_id(tableId);
@@ -151,21 +152,29 @@ class BackupServiceTest : public ::testing::Test {
         tablet.set_end_key_hash(end);
         tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
         tablet.set_user_data(partitionId);
+        tablet.set_ctime_log_head_id(ctimeHeadSegmentId);
+        tablet.set_ctime_log_head_offset(ctimeHeadSegmentOffset);
     }
 
     void
     createTabletList(ProtoBuf::Tablets& tablets)
     {
         // partition 0
-        appendTablet(tablets, 0, 123, getKeyHash("9", 1), getKeyHash("9", 1));
-        appendTablet(tablets, 0, 123, getKeyHash("10", 2), getKeyHash("10", 2));
-        appendTablet(tablets, 0, 123, getKeyHash("29", 2), getKeyHash("29", 2));
+        appendTablet(tablets, 0, 123,
+            getKeyHash("9", 1), getKeyHash("9", 1), 0, 0);
+        appendTablet(tablets, 0, 123,
+            getKeyHash("10", 2), getKeyHash("10", 2), 0, 0);
+        appendTablet(tablets, 0, 123,
+            getKeyHash("29", 2), getKeyHash("29", 2), 0, 0);
 
-        appendTablet(tablets, 0, 124, getKeyHash("20", 2), getKeyHash("20", 2));
+        appendTablet(tablets, 0, 124,
+            getKeyHash("20", 2), getKeyHash("20", 2), 0, 0);
 
         // partition 1
-        appendTablet(tablets, 1, 123, getKeyHash("30", 2), getKeyHash("30", 2));
-        appendTablet(tablets, 1, 125, 0, std::numeric_limits<uint64_t>::max());
+        appendTablet(tablets, 1, 123,
+            getKeyHash("30", 2), getKeyHash("30", 2), 0, 0);
+        appendTablet(tablets, 1, 125,
+            0, std::numeric_limits<uint64_t>::max(), 0, 0);
     }
 
     static bool
@@ -193,7 +202,8 @@ class BackupServiceTest : public ::testing::Test {
 
         SegmentEntryHandle seh = s.append(LOG_ENTRY_TYPE_LOGDIGEST,
             digestBuf, downCast<uint32_t>(sizeof(digestBuf)));
-        uint32_t segmentLength = seh->logTime().second + seh->totalLength();
+        uint32_t segmentLength = seh->logPosition().segmentOffset() +
+                                 seh->totalLength();
         client->writeSegment(masterId, segmentId, 0, s.getBaseAddress(),
             segmentLength, BackupWriteRpc::NONE, atomic);
 
@@ -573,7 +583,8 @@ TEST_F(BackupServiceTest, restartFromStorage)
 
     off_t offset = 0;
     for (uint32_t frame = 0; frame < config.backup.numSegmentFrames; ++frame) {
-        SegmentHeader header{99, 88, config.segmentSize};
+        SegmentHeader header{99, 88, config.segmentSize,
+            Segment::INVALID_SEGMENT_ID};
         SegmentEntry headerEntry(LOG_ENTRY_TYPE_SEGHEADER, sizeof(header));
         SegmentFooter footer{0xcafebabe};
         SegmentEntry footerEntry(LOG_ENTRY_TYPE_SEGFOOTER, sizeof(footer));
@@ -646,7 +657,7 @@ TEST_F(BackupServiceTest, restartFromStorage)
             "frame 2 | "
         "restartFromStorage: Unexpected log entry length while reading "
             "segment replica header from backup storage, discarding replica, "
-            "(expected length 20, stored length 999) | "
+            "(expected length 28, stored length 999) | "
         "restartFromStorage: Found stored replica <99,92> on backup storage "
             "in frame 4 which was open | "
         "restartFromStorage: Found stored replica <99,93> on backup storage "
@@ -753,7 +764,7 @@ TEST_F(BackupServiceTest, startReadingData_logDigest_simple) {
         EXPECT_EQ(LogDigest::getBytesFromCount(1),
             result.logDigestBytes);
         EXPECT_EQ(88U, result.logDigestSegmentId);
-        EXPECT_EQ(52U, result.logDigestSegmentLen);
+        EXPECT_EQ(60U, result.logDigestSegmentLen);
         LogDigest ld(result.logDigestBuffer.get(), result.logDigestBytes);
         EXPECT_EQ(1, ld.getSegmentCount());
         EXPECT_EQ(0x3f17c2451f0cafUL, ld.getSegmentIds()[0]);
@@ -769,7 +780,7 @@ TEST_F(BackupServiceTest, startReadingData_logDigest_simple) {
         EXPECT_EQ(LogDigest::getBytesFromCount(1),
             result.logDigestBytes);
         EXPECT_EQ(89U, result.logDigestSegmentId);
-        EXPECT_EQ(52U, result.logDigestSegmentLen);
+        EXPECT_EQ(60U, result.logDigestSegmentLen);
         LogDigest ld(result.logDigestBuffer.get(), result.logDigestBytes);
         EXPECT_EQ(1, ld.getSegmentCount());
         EXPECT_EQ(0x5d8ec445d537e15UL, ld.getSegmentIds()[0]);
@@ -789,7 +800,7 @@ TEST_F(BackupServiceTest, startReadingData_logDigest_latest) {
         BackupClient::StartReadingData::Result result =
             client->startReadingData(ServerId(99, 0), ProtoBuf::Tablets());
         EXPECT_EQ(88U, result.logDigestSegmentId);
-        EXPECT_EQ(52U, result.logDigestSegmentLen);
+        EXPECT_EQ(60U, result.logDigestSegmentLen);
         EXPECT_EQ(LogDigest::getBytesFromCount(1),
             result.logDigestBytes);
         LogDigest ld(result.logDigestBuffer.get(), result.logDigestBytes);
@@ -1082,7 +1093,8 @@ void
 appendTablet(ProtoBuf::Tablets& tablets,
              uint64_t partitionId,
              uint32_t tableId,
-             uint64_t start, uint64_t end)
+             uint64_t start, uint64_t end,
+             uint64_t ctimeHeadSegmentId, uint32_t ctimeHeadSegmentOffset)
 {
     ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
     tablet.set_table_id(tableId);
@@ -1090,20 +1102,28 @@ appendTablet(ProtoBuf::Tablets& tablets,
     tablet.set_end_key_hash(end);
     tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
     tablet.set_user_data(partitionId);
+    tablet.set_ctime_log_head_id(ctimeHeadSegmentId);
+    tablet.set_ctime_log_head_offset(ctimeHeadSegmentOffset);
 }
 
 void
 createTabletList(ProtoBuf::Tablets& tablets)
 {
-    appendTablet(tablets, 0, 123, getKeyHash("10", 2), getKeyHash("10", 2));
-    appendTablet(tablets, 1, 123, getKeyHash("30", 2), getKeyHash("30", 2));
+    appendTablet(tablets, 0, 123,
+        getKeyHash("10", 2), getKeyHash("10", 2), 0, 0);
+    appendTablet(tablets, 1, 123,
+        getKeyHash("30", 2), getKeyHash("30", 2), 0, 0);
+
+    // tablet created when log head was > (0, 0)
+    appendTablet(tablets, 0, 123,
+        getKeyHash("XX", 2), getKeyHash("XX", 2), 12741, 57273);
 }
 
 TEST_F(SegmentInfoTest, appendRecoverySegment) {
     info.open();
     Segment segment(123, 88, info.segment, segmentSize);
 
-    SegmentHeader header = { 99, 88, segmentSize };
+    SegmentHeader header = { 99, 88, segmentSize, Segment::INVALID_SEGMENT_ID };
     segment.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
 
     DECLARE_OBJECT(object, 2, 0);
@@ -1141,7 +1161,7 @@ TEST_F(SegmentInfoTest, appendRecoverySegmentSecondarySegment) {
     info.open();
     Segment segment(123, 88, info.segment, segmentSize);
 
-    SegmentHeader header = { 99, 88, segmentSize };
+    SegmentHeader header = { 99, 88, segmentSize, Segment::INVALID_SEGMENT_ID };
     segment.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
 
     DECLARE_OBJECT(object, 2, 0);
@@ -1238,28 +1258,126 @@ TEST_F(SegmentInfoTest, appendRecoverySegmentPartitionOutOfBounds) {
               TestLog::get());
 }
 
+class MockSegmentIterator : public SegmentIterator {
+  public:
+    MockSegmentIterator(LogEntryType type,
+                        uint64_t headSegmentIdDuringCleaning,
+                        LogPosition pos)
+        : SegmentIterator(),
+          type(type),
+          header(),
+          pos(pos)
+    {
+        header.headSegmentIdDuringCleaning = headSegmentIdDuringCleaning;
+    }
+
+    LogEntryType getType() const { return type; }
+    const SegmentHeader& getHeader() const { return header; }
+    LogPosition getLogPosition() const { return pos; }
+
+  private:
+    LogEntryType type;
+    SegmentHeader header;
+    LogPosition pos;
+};
+
+TEST_F(SegmentInfoTest, isEntryAlive) {
+    ProtoBuf::Tablets partitions;
+    createTabletList(partitions);
+
+    // Tablet's creation time log position was (12741, 57273)
+    const ProtoBuf::Tablets::Tablet& tablet(partitions.tablet(2));
+
+    // Is a cleaner segment...
+    {
+        MockSegmentIterator it(LOG_ENTRY_TYPE_OBJ,
+                               12742,
+                               LogPosition());
+        EXPECT_TRUE(isEntryAlive(it, tablet));
+    }
+    {
+        MockSegmentIterator it(LOG_ENTRY_TYPE_OBJ,
+                               12740,
+                               LogPosition());
+        EXPECT_FALSE(isEntryAlive(it, tablet));
+    }
+    {
+        MockSegmentIterator it(LOG_ENTRY_TYPE_OBJ,
+                               12741,
+                               LogPosition());
+        EXPECT_FALSE(isEntryAlive(it, tablet));
+    }
+
+    // Is not a cleaner segment...
+    {
+        MockSegmentIterator it(LOG_ENTRY_TYPE_OBJ,
+                               Segment::INVALID_SEGMENT_ID,
+                               LogPosition(12741, 57273));
+        EXPECT_TRUE(isEntryAlive(it, tablet));
+    }
+    {
+        MockSegmentIterator it(LOG_ENTRY_TYPE_OBJ,
+                               Segment::INVALID_SEGMENT_ID,
+                               LogPosition(12741, 57274));
+        EXPECT_TRUE(isEntryAlive(it, tablet));
+    }
+    {
+        MockSegmentIterator it(LOG_ENTRY_TYPE_OBJ,
+                               Segment::INVALID_SEGMENT_ID,
+                               LogPosition(12742, 57273));
+        EXPECT_TRUE(isEntryAlive(it, tablet));
+    }
+    {
+        MockSegmentIterator it(LOG_ENTRY_TYPE_OBJ,
+                               Segment::INVALID_SEGMENT_ID,
+                               LogPosition(12740, 57273));
+        EXPECT_FALSE(isEntryAlive(it, tablet));
+    }
+    {
+        MockSegmentIterator it(LOG_ENTRY_TYPE_OBJ,
+                               Segment::INVALID_SEGMENT_ID,
+                               LogPosition(12741, 57272));
+        EXPECT_FALSE(isEntryAlive(it, tablet));
+    }
+}
+
 TEST_F(SegmentInfoTest, whichPartition) {
     ProtoBuf::Tablets partitions;
     createTabletList(partitions);
+
+    info.open();
+    Segment segment(123, 88, info.segment, segmentSize);
 
     DECLARE_OBJECT(object, 2, 0);
     object->tableId = 123;
     object->keyLength = 2;
     object->version = 0;
 
+    // Create some test objects with different keys and append to segment.
     memcpy(object->getKeyLocation(), "10", 2);
-    auto r = whichPartition(LOG_ENTRY_TYPE_OBJ, object, partitions);
+    segment.append(LOG_ENTRY_TYPE_OBJ, object, object->objectLength(0));
+    memcpy(object->getKeyLocation(), "30", 2);
+    segment.append(LOG_ENTRY_TYPE_OBJ, object, object->objectLength(0));
+    memcpy(object->getKeyLocation(), "40", 2);
+    segment.append(LOG_ENTRY_TYPE_OBJ, object, object->objectLength(0));
+    memcpy(object->getKeyLocation(), "XX", 2);
+    segment.append(LOG_ENTRY_TYPE_OBJ, object, object->objectLength(0));
+
+    SegmentIterator it(&segment);
+
+    it.next();
+    auto r = whichPartition(it, partitions);
     EXPECT_TRUE(r);
     EXPECT_EQ(0u, *r);
 
-    memcpy(object->getKeyLocation(), "30", 2);
-    r = whichPartition(LOG_ENTRY_TYPE_OBJ, object, partitions);
+    it.next();
+    r = whichPartition(it, partitions);
     EXPECT_TRUE(r);
     EXPECT_EQ(1u, *r);
 
+    it.next();
     TestLog::Enable _;
-    memcpy(object->getKeyLocation(), "40", 2);
-    r = whichPartition(LOG_ENTRY_TYPE_OBJ, object, partitions);
+    r = whichPartition(it, partitions);
     EXPECT_FALSE(r);
     HashType keyHash = getKeyHash("40", 2);
     EXPECT_EQ(format("whichPartition: Couldn't place object with "
@@ -1267,13 +1385,23 @@ TEST_F(SegmentInfoTest, whichPartition) {
               "of the given tablets for recovery; hopefully it belonged to "
               "a deleted tablet or lives in another log now", keyHash),
               TestLog::get());
+
+    TestLog::reset();
+    it.next();
+    r = whichPartition(it, partitions);
+    EXPECT_FALSE(r);
+
+    keyHash = getKeyHash("XX", 2);
+    EXPECT_EQ(format("whichPartition: Skipping object with <tableId, keyHash> "
+        "of <123,%lu> because it appears to have existed prior to this "
+        "tablet's creation.", keyHash), TestLog::get());
 }
 
 TEST_F(SegmentInfoTest, buildRecoverySegment) {
     info.open();
     Segment segment(123, 88, info.segment, segmentSize);
 
-    SegmentHeader header = { 99, 88, segmentSize };
+    SegmentHeader header = { 99, 88, segmentSize, Segment::INVALID_SEGMENT_ID };
     segment.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
 
     DECLARE_OBJECT(object, 2, 0);

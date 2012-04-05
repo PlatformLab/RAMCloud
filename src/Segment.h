@@ -76,11 +76,22 @@ static_assert(sizeof(SegmentEntry) == 10,
               "SegmentEntry has unexpected padding");
 
 struct SegmentHeader {
+    /// ID of the Log this segment belongs to.
     uint64_t logId;
+
+    /// Log-unique ID for this Segment.
     uint64_t segmentId;
+
+    /// Total capacity of this segment in bytes.
     uint32_t segmentCapacity;
+
+    /// If != INVALID_SEGMENT_ID, this Segment was created by the cleaner and
+    /// the value here is the id of the head segment at the time cleaning
+    /// started. Any data in this segment is guaranteed to have come from
+    /// earlier segments.
+    uint64_t headSegmentIdDuringCleaning;
 } __attribute__((__packed__));
-static_assert(sizeof(SegmentHeader) == 20,
+static_assert(sizeof(SegmentHeader) == 28,
               "SegmentHeader has unexpected padding");
 
 struct SegmentFooter {
@@ -179,9 +190,11 @@ class Segment {
 
     Segment(Log *log, bool isLogHead, uint64_t segmentId, void *baseAddress,
             uint32_t capacity, ReplicaManager* replicaManager,
-            LogEntryType type, const void *buffer, uint32_t length);
+            LogEntryType type, const void *buffer, uint32_t length,
+            uint64_t headSegmentIdDuringCleaning = INVALID_SEGMENT_ID);
     Segment(uint64_t logId, uint64_t segmentId, void *baseAddress,
-            uint32_t capacity, ReplicaManager* replicaManager = NULL);
+            uint32_t capacity, ReplicaManager* replicaManager = NULL,
+            uint64_t headSegmentIdDuringCleaning = INVALID_SEGMENT_ID);
     ~Segment();
 
     SegmentEntryHandle append(LogEntryType type,
@@ -208,6 +221,7 @@ class Segment {
     uint32_t           appendableBytes();
     int                getUtilisation();
     uint32_t           getLiveBytes();
+    uint32_t           getTotalBytesAppended();
     uint32_t           getFreeBytes();
     uint64_t           getAverageTimestamp();
 
@@ -291,7 +305,8 @@ class Segment {
 
   PRIVATE:
     void               commonConstructor(bool isLogHead, LogEntryType type,
-                                         const void *buffer, uint32_t length);
+                                         const void *buffer, uint32_t length,
+                                         uint64_t headSegmentIdDuringCleaning);
     SegmentEntryHandle locklessAppend(LogEntryType type,
                             const void *buffer, uint32_t length, bool sync,
                             Tub<SegmentChecksum::ResultType> expectedChecksum);
@@ -527,13 +542,13 @@ class _SegmentEntryHandle {
     }
 
     /**
-     * Return the LogTime assocated with this entry. To do so we need
+     * Return the LogPosition assocated with this entry. To do so we need
      * to calculate the base address of the Segment. This lets us access
      * the SegmentHeader, which contains the SegmentId, as well as determine
      * our offset.
      */
-    LogTime
-    logTime() const
+    LogPosition
+    logPosition() const
     {
         uintptr_t entryAddress = reinterpret_cast<uintptr_t>(this);
         uintptr_t segmentBase  = reinterpret_cast<uintptr_t>(
@@ -548,7 +563,7 @@ class _SegmentEntryHandle {
 
         const SegmentHeader* header = headerHandle->userData<SegmentHeader>();
 
-        return LogTime(header->segmentId, entryAddress - segmentBase);
+        return LogPosition(header->segmentId, entryAddress - segmentBase);
     }
 
     /**

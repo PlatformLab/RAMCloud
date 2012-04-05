@@ -42,16 +42,18 @@ struct SegmentIteratorException : public Exception {
 
 class SegmentIterator {
   public:
+    SegmentIterator();
     explicit SegmentIterator(const Segment *segment);
     SegmentIterator(const void *buffer, uint64_t capacity,
                     bool ignoreCapacityMismatch = false);
+    VIRTUAL_FOR_TESTING ~SegmentIterator();
 
-    bool         isDone() const;
-    void         next();
-    LogEntryType getType() const;
-    uint32_t     getLength() const;
-    uint32_t     getLengthInLog() const;
-    LogTime      getLogTime() const;
+    VIRTUAL_FOR_TESTING bool         isDone() const;
+    VIRTUAL_FOR_TESTING void         next();
+    VIRTUAL_FOR_TESTING LogEntryType getType() const;
+    VIRTUAL_FOR_TESTING uint32_t     getLength() const;
+    VIRTUAL_FOR_TESTING uint32_t     getLengthInLog() const;
+    VIRTUAL_FOR_TESTING LogPosition  getLogPosition() const;
 
     /**
      * Obtain a const T* to the data associated with the current SegmentEntry.
@@ -71,12 +73,15 @@ class SegmentIterator {
         return reinterpret_cast<const T*>(blobPtr);
     }
 
-    SegmentEntryHandle          getHandle() const;
-    const void                 *getPointer() const;
-    uint64_t                    getOffset() const;
-    SegmentChecksum::ResultType generateChecksum() const;
-    bool                        isChecksumValid() const;
-    bool                        isSegmentChecksumValid() const;
+    VIRTUAL_FOR_TESTING SegmentEntryHandle          getHandle() const;
+    VIRTUAL_FOR_TESTING const SegmentHeader&        getHeader() const;
+    VIRTUAL_FOR_TESTING const void                 *getPointer() const;
+    VIRTUAL_FOR_TESTING uint64_t                    getOffset() const;
+    VIRTUAL_FOR_TESTING SegmentChecksum::ResultType generateChecksum() const;
+    VIRTUAL_FOR_TESTING bool                        isCleanerSegment() const;
+    VIRTUAL_FOR_TESTING bool                        isChecksumValid() const;
+    VIRTUAL_FOR_TESTING bool                        isSegmentChecksumValid()
+                                                                        const;
 
   PRIVATE:
     void            commonConstructor(bool ignoreCapacityMismatch);
