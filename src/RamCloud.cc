@@ -205,8 +205,21 @@ RamCloud::read(uint64_t tableId, const char* key, uint16_t keyLength,
                uint64_t* version)
 {
     Context::Guard _(clientContext);
-    return Read(*this, tableId, key, keyLength, value, rejectRules,
-                version)();
+    while (1) {
+        // Keep trying the operation if the server responded with a retry
+        // status.
+        try {
+            return Read(*this, tableId, key, keyLength, value, rejectRules,
+                        version)();
+        } catch (RetryException& e) {
+        } catch (UnknownTableException& e) {
+            // The Tablet Map pointed to some server, but it's no longer
+            // in charge of the appropriate tablet. We need to refresh.
+            objectFinder.flush();
+        } catch (...) {
+            throw;
+        }
+    }
 }
 
 /**
@@ -254,6 +267,10 @@ RamCloud::remove(uint64_t tableId, const char* key, uint16_t keyLength,
             master.remove(tableId, key, keyLength, rejectRules, version);
             break;
         } catch (RetryException& e) {
+        } catch (UnknownTableException& e) {
+            // The Tablet Map pointed to some server, but it's no longer
+            // in charge of the appropriate tablet. We need to refresh.
+            objectFinder.flush();
         } catch (...) {
             throw;
         }
@@ -276,6 +293,10 @@ RamCloud::write(uint64_t tableId, const char* key, uint16_t keyLength,
                   rejectRules, version, async)();
             break;
         } catch (RetryException& e) {
+        } catch (UnknownTableException &e) {
+            // The Tablet Map pointed to some server, but it's no longer
+            // in charge of the appropriate tablet. We need to refresh.
+            objectFinder.flush();
         } catch (...) {
             throw;
         }
@@ -311,6 +332,10 @@ RamCloud::write(uint64_t tableId, const char* key, uint16_t keyLength,
                   downCast<int>(strlen(s)), NULL, NULL, false)();
             break;
         } catch (RetryException& e) {
+        } catch (UnknownTableException &e) {
+            // The Tablet Map pointed to some server, but it's no longer
+            // in charge of the appropriate tablet. We need to refresh.
+            objectFinder.flush();
         } catch (...) {
             throw;
         }

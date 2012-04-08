@@ -188,6 +188,117 @@ MasterClient::read(uint64_t tableId, const char* key, uint16_t keyLength,
     Read(*this, tableId, key, keyLength, value, rejectRules, version)();
 }
 
+/**
+ * Request that a master decide whether it will accept a migrated tablet
+ * and set up any necessary state to begin receiving its data from the
+ * original master.
+ * 
+ * \param tableId
+ *      Identifier for the table.
+ *
+ * \param firstKey
+ *      First key of the tablet range to be migrated.
+ *
+ * \param lastKey
+ *      Last key of the tablet range to be migrated.
+ *
+ * \param expectedObjects
+ *      Estimate of the total number of objects that will be migrated.
+ *
+ * \param expectedBytes
+ *      Estimate of the total number of bytes that will be migrated.
+ */
+void
+MasterClient::prepForMigration(uint64_t tableId,
+                               uint64_t firstKey,
+                               uint64_t lastKey,
+                               uint64_t expectedObjects,
+                               uint64_t expectedBytes)
+{
+    Buffer req, resp;
+
+    PrepForMigrationRpc::Request& reqHdr(allocHeader<PrepForMigrationRpc>(req));
+    reqHdr.tableId = tableId;
+    reqHdr.firstKey = firstKey;
+    reqHdr.lastKey = lastKey;
+    reqHdr.expectedObjects = expectedObjects;
+    reqHdr.expectedBytes = expectedBytes;
+
+    sendRecv<PrepForMigrationRpc>(session, req, resp);
+    checkStatus(HERE);
+}
+
+/**
+ * Request that the master owning a particular tablet migrate it
+ * to another designated master.
+ * 
+ * \param tableId
+ *      Identifier for the table.
+ *
+ * \param firstKey
+ *      First key of the tablet range to be migrated.
+ *
+ * \param lastKey
+ *      Last key of the tablet range to be migrated.
+ *
+ * \param newOwnerMasterId 
+ *      ServerId of the node to which the tablet should be migrated.
+ */
+void
+MasterClient::migrateTablet(uint64_t tableId,
+                            uint64_t firstKey,
+                            uint64_t lastKey,
+                            ServerId newOwnerMasterId)
+{
+    Buffer req, resp;
+
+    MigrateTabletRpc::Request& reqHdr(allocHeader<MigrateTabletRpc>(req));
+    reqHdr.tableId = tableId;
+    reqHdr.firstKey = firstKey;
+    reqHdr.lastKey = lastKey;
+    reqHdr.newOwnerMasterId = *newOwnerMasterId;
+    sendRecv<MigrateTabletRpc>(session, req, resp);
+    checkStatus(HERE);
+}
+
+/**
+ * Request that a master add some migrated data to its storage.
+ * The receiving master will not service requests on the data,
+ * but will add it to its log and hash table.
+ * 
+ * \param tableId
+ *      Identifier for the table.
+ *
+ * \param firstKey
+ *      First key of the tablet range to be migrated.
+ *
+ * \param segment 
+ *      Segment containing the data to be migrated.
+ *
+ * \param segmentBytes
+ *      Number of bytes in the segment to be migrated.
+ */
+void
+MasterClient::receiveMigrationData(uint64_t tableId,
+                                   uint64_t firstKey,
+                                   const void* segment,
+                                   uint32_t segmentBytes)
+{
+    Buffer req, resp;
+
+    ReceiveMigrationDataRpc::Request& reqHdr(
+        allocHeader<ReceiveMigrationDataRpc>(req));
+    reqHdr.tableId = tableId;
+    reqHdr.firstKey = firstKey;
+    reqHdr.segmentBytes = segmentBytes;
+    memcpy(new(&req, APPEND) char[segmentBytes],
+           segment,
+           segmentBytes);
+
+    sendRecv<ReceiveMigrationDataRpc>(session, req, resp);
+    checkStatus(HERE);
+}
+
 /// Start a multiRead RPC. See MasterClient::multiRead.
 MasterClient::MultiRead::MultiRead(MasterClient& client,
                                    std::vector<ReadObject*>& requests)

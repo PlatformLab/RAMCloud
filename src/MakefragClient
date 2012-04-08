@@ -103,6 +103,10 @@ $(OBJDIR)/ensureServers: $(OBJDIR)/EnsureServers.o $(OBJDIR)/OptionParser.o $(OB
 	@mkdir -p $(@D)
 	$(CXX) -o $@ $^ -L$(OBJDIR) $(LIBS)
 
+$(OBJDIR)/migrateTablet: $(OBJDIR)/MigrateTabletMain.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramcloud.a
+	@mkdir -p $(@D)
+	$(CXX) $(LIBS) -o $@ $^ -L$(OBJDIR)
+
 .PHONY: client client-lib client-lib-static client-lib-shared recovery ensureServers
 
 client-lib-static: $(OBJDIR)/libramcloud.a

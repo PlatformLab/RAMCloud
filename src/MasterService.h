@@ -102,6 +102,15 @@ class MasterService : public Service {
     void takeTabletOwnership(const TakeTabletOwnershipRpc::Request& reqHdr,
                              TakeTabletOwnershipRpc::Response& respHdr,
                              Rpc& rpc);
+    void prepForMigration(const PrepForMigrationRpc::Request& reqHdr,
+                          PrepForMigrationRpc::Response& respHdr,
+                          Rpc& rpc);
+    void migrateTablet(const MigrateTabletRpc::Request& reqHdr,
+                       MigrateTabletRpc::Response& respHdr,
+                       Rpc& rpc);
+    void receiveMigrationData(const ReceiveMigrationDataRpc::Request& reqHdr,
+                              ReceiveMigrationDataRpc::Response& respHdr,
+                              Rpc& rpc);
     void recover(const RecoverRpc::Request& reqHdr,
                  RecoverRpc::Response& respHdr,
                  Rpc& rpc);

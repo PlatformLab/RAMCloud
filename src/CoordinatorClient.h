@@ -54,6 +54,10 @@ class CoordinatorClient : public Client {
     void getTabletMap(ProtoBuf::Tablets& tabletMap);
     void hintServerDown(ServerId serverId);
     void quiesce();
+    void reassignTabletOwnership(uint64_t tableId,
+                                 uint64_t firstKey,
+                                 uint64_t lastKey,
+                                 ServerId newOwnerMasterId);
     void tabletsRecovered(ServerId masterId,
                           const ProtoBuf::Tablets& tablets);
     void setWill(uint64_t masterId, const ProtoBuf::Tablets& will);

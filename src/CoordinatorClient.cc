@@ -288,6 +288,43 @@ CoordinatorClient::quiesce()
 }
 
 /**
+ * After migrating all data for a tablet to another master, instruct the
+ * coordinator to transfer ownership of that data and alert the new
+ * master so that they take ownership (i.e. process requests on the
+ * tablet).
+ *
+ * \param[in] tableId
+ *      TableId of the tablet that was migrated.
+ *
+ * \param[in] firstKey
+ *      First key in the range of the tablet that was migrated.
+ *
+ * \param[in] lastKey
+ *      Last key in the range of the tablet that was migrated.
+ *
+ * \param[in] newOwnerMasterId
+ *      ServerId of the master that we want ownership of the tablet
+ *      to be transferred to.
+ */
+void
+CoordinatorClient::reassignTabletOwnership(uint64_t tableId,
+                                           uint64_t firstKey,
+                                           uint64_t lastKey,
+                                           ServerId newOwnerMasterId)
+{
+    Buffer req, resp;
+
+    ReassignTabletOwnershipRpc::Request& reqHdr(
+        allocHeader<ReassignTabletOwnershipRpc>(req));
+    reqHdr.tableId = tableId;
+    reqHdr.firstKey = firstKey;
+    reqHdr.lastKey = lastKey;
+    reqHdr.newOwnerMasterId = *newOwnerMasterId;
+    sendRecv<ReassignTabletOwnershipRpc>(session, req, resp);
+    checkStatus(HERE);
+}
+
+/**
  * Tell the coordinator that recovery of a particular tablets have
  * been recovered on the master who is calling.
  *

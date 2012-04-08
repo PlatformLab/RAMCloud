@@ -98,7 +98,11 @@ enum RpcOpcode {
     TAKE_TABLET_OWNERSHIP   = 40,
     BACKUP_ASSIGN_GROUP     = 41,
     GET_HEAD_OF_LOG         = 42,
-    ILLEGAL_RPC_TYPE        = 43,  // 1 + the highest legitimate RpcOpcode
+    PREP_FOR_MIGRATION      = 43,
+    RECEIVE_MIGRATION_DATA  = 44,
+    REASSIGN_TABLET_OWNERSHIP = 45,
+    MIGRATE_TABLET          = 46,
+    ILLEGAL_RPC_TYPE        = 47,  // 1 + the highest legitimate RpcOpcode
 };
 
 /**
@@ -164,12 +168,27 @@ struct GetHeadOfLogRpc {
     static const ServiceType service = MASTER_SERVICE;
     struct Request {
         RpcRequestCommon common;
-    };
+    } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
         uint64_t headSegmentId;     // ID of head segment in the log.
         uint32_t headSegmentOffset; // Byte offset of head within the segment.
-    };
+    } __attribute__((packed));
+};
+
+struct MigrateTabletRpc {
+    static const RpcOpcode opcode = MIGRATE_TABLET;
+    static const ServiceType service = MASTER_SERVICE;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t tableId;           // TabletId of the tablet to migrate.
+        uint64_t firstKey;          // First key of the tablet to migrate.
+        uint64_t lastKey;           // Last key of the tablet to migrate.
+        uint64_t newOwnerMasterId;  // ServerId of the master to migrate to.
+    } __attribute__((packed));
+    struct Response {
+        RpcResponseCommon common;
+    } __attribute__((packed));
 };
 
 struct MultiReadRpc {
@@ -199,6 +218,22 @@ struct MultiReadRpc {
     } __attribute__((packed));
 };
 
+struct PrepForMigrationRpc {
+    static const RpcOpcode opcode = PREP_FOR_MIGRATION;
+    static const ServiceType service = MASTER_SERVICE;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t tableId;           // TableId of the tablet we'll move.
+        uint64_t firstKey;          // First key in the tablet range.
+        uint64_t lastKey;           // Last key in the tablet range.
+        uint64_t expectedObjects;   // Expected number of objects to migrate.
+        uint64_t expectedBytes;     // Expected total object bytes to migrate.
+    } __attribute__((packed));
+    struct Response {
+        RpcResponseCommon common;
+    } __attribute__((packed));
+};
+
 struct ReadRpc {
     static const RpcOpcode opcode = READ;
     static const ServiceType service = MASTER_SERVICE;
@@ -216,6 +251,21 @@ struct ReadRpc {
         uint32_t length;              // Length of the object's value in bytes.
                                       // The actual bytes of the object follow
                                       // immediately after this header.
+    } __attribute__((packed));
+};
+
+struct ReceiveMigrationDataRpc {
+    static const RpcOpcode opcode = RECEIVE_MIGRATION_DATA;
+    static const ServiceType service = MASTER_SERVICE;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t tableId;           // Id of the table this data belongs to.
+        uint64_t firstKey;          // 1st key of the tablet range for the data.
+        uint32_t segmentBytes;      // Length of the Segment containing migrated
+                                    // data immediately following this header.
+    } __attribute__((packed));
+    struct Response {
+        RpcResponseCommon common;
     } __attribute__((packed));
 };
 
@@ -463,6 +513,21 @@ struct SetWillRpc {
                                    // The bytes of the will map follow
                                    // immediately after this header. See
                                    // ProtoBuf::Tablets.
+    } __attribute__((packed));
+    struct Response {
+        RpcResponseCommon common;
+    } __attribute__((packed));
+};
+
+struct ReassignTabletOwnershipRpc {
+    static const RpcOpcode opcode = REASSIGN_TABLET_OWNERSHIP;
+    static const ServiceType service = COORDINATOR_SERVICE;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t tableId;           // Id of the table whose tablet was moved.
+        uint64_t firstKey;          // First key of the migrated tablet.
+        uint64_t lastKey;           // Last key of the migrated tablet.
+        uint64_t newOwnerMasterId;  // ServerId of the new master.
     } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;

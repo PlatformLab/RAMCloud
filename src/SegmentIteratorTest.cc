@@ -77,7 +77,7 @@ TEST_F(SegmentIteratorTest, isEntryValid) {
     memset(alignedBuf, 0, sizeof(alignedBuf));
 
     Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf));
-    SegmentIterator si(&s);
+    SegmentIterator si(alignedBuf, sizeof(alignedBuf));
 
     SegmentEntry *se = reinterpret_cast<SegmentEntry *>(alignedBuf);
     EXPECT_TRUE(si.isEntryValid(se));
@@ -150,7 +150,7 @@ TEST_F(SegmentIteratorTest, next) {
 
     {
         Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf));
-        SegmentIterator si(&s);
+        SegmentIterator si(alignedBuf, sizeof(alignedBuf));
 
         s.close(NULL);
         si.next(); // Skip the padding entry.
@@ -212,6 +212,18 @@ TEST_F(SegmentIteratorTest, isChecksumValid) {
     EXPECT_TRUE(i.isChecksumValid());
     alignedBuf[sizeof(SegmentEntry)]++;
     EXPECT_FALSE(i.isChecksumValid());
+}
+
+TEST_F(SegmentIteratorTest, isCleanerSegment) {
+    char alignedBuf[8192] __attribute__((aligned(8192)));
+    memset(alignedBuf, 0, sizeof(alignedBuf));
+    Segment s(1, 2, alignedBuf, sizeof(alignedBuf));
+    EXPECT_FALSE(SegmentIterator(&s).isCleanerSegment());
+
+    SegmentHeader* sh = reinterpret_cast<SegmentHeader*>(
+        reinterpret_cast<uintptr_t>(s.baseAddress) + sizeof(SegmentEntry));
+    sh->headSegmentIdDuringCleaning = 72374823421UL;
+    EXPECT_TRUE(SegmentIterator(&s).isCleanerSegment());
 }
 
 TEST_F(SegmentIteratorTest, isSegmentChecksumValid) {

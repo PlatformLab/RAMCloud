@@ -425,6 +425,7 @@ class Segment {
     ReplicatedSegment* replicatedSegment;
 
     friend class Log;
+    friend class SegmentIterator;
 
     DISALLOW_COPY_AND_ASSIGN(Segment);
 };

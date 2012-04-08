@@ -38,6 +38,7 @@ const bool prefetching = true;
 SegmentIterator::SegmentIterator()
     : baseAddress(NULL),
       segmentCapacity(0),
+      segmentBytesUsed(0),
       id(Segment::INVALID_SEGMENT_ID),
       type(LOG_ENTRY_TYPE_INVALID),
       length(0),
@@ -58,6 +59,7 @@ SegmentIterator::SegmentIterator()
 SegmentIterator::SegmentIterator(const Segment *segment)
     : baseAddress(segment->getBaseAddress()),
       segmentCapacity(segment->getCapacity()),
+      segmentBytesUsed(segment->tail),
       id(segment->getId()),
       type(LOG_ENTRY_TYPE_INVALID),
       length(0),
@@ -89,6 +91,7 @@ SegmentIterator::SegmentIterator(const void *buffer, uint64_t capacity,
     bool ignoreCapacityMismatch)
     : baseAddress(buffer),
       segmentCapacity(capacity),
+      segmentBytesUsed(capacity),
       id(-1),
       type(LOG_ENTRY_TYPE_INVALID),
       length(0),
@@ -117,7 +120,7 @@ SegmentIterator::~SegmentIterator()
 void
 SegmentIterator::commonConstructor(bool ignoreCapacityMismatch)
 {
-    if (segmentCapacity < (sizeof(SegmentEntry) + sizeof(SegmentHeader))) {
+    if (segmentBytesUsed < (sizeof(SegmentEntry) + sizeof(SegmentHeader))) {
         throw SegmentIteratorException(HERE,
                                        "impossibly small Segment provided");
     }
@@ -162,7 +165,7 @@ SegmentIterator::commonConstructor(bool ignoreCapacityMismatch)
 bool
 SegmentIterator::isEntryValid(const SegmentEntry *entry) const
 {
-    uintptr_t pastEnd       = (uintptr_t)baseAddress + segmentCapacity;
+    uintptr_t pastEnd       = (uintptr_t)baseAddress + segmentBytesUsed;
     uintptr_t entryStart    = (uintptr_t)entry;
 
     // this is an internal error

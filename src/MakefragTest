@@ -37,6 +37,7 @@ TESTS_SRCFILES := \
 		  src/IpAddressTest.cc \
 		  src/LogCleanerTest.cc \
 		  src/LoggerTest.cc \
+		  src/LogIteratorTest.cc \
 		  src/LogTest.cc \
 		  src/MacAddressTest.cc \
 		  src/MasterServiceTest.cc \

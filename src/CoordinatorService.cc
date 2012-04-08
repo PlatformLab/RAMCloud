@@ -101,6 +101,10 @@ CoordinatorService::dispatch(RpcOpcode opcode,
             callHandler<RequestServerListRpc, CoordinatorService,
                         &CoordinatorService::requestServerList>(rpc);
             break;
+        case ReassignTabletOwnershipRpc::opcode:
+            callHandler<ReassignTabletOwnershipRpc, CoordinatorService,
+                        &CoordinatorService::reassignTabletOwnership>(rpc);
+            break;
         case SetMinOpenSegmentIdRpc::opcode:
             callHandler<SetMinOpenSegmentIdRpc, CoordinatorService,
                         &CoordinatorService::setMinOpenSegmentId>(rpc);
@@ -560,6 +564,65 @@ CoordinatorService::setWill(const SetWillRpc::Request& reqHdr,
         // TODO(ongaro): should be some other error or silent
         throw RequestFormatError(HERE);
     }
+}
+
+/**
+ * Handle the REASSIGN_TABLET_OWNER RPC. This involves switching
+ * ownership of the tablet and alerting the new owner that it may
+ * begin servicing requests on that tablet.
+ *
+ * \copydetails Service::ping
+ */
+void
+CoordinatorService::reassignTabletOwnership(
+    const ReassignTabletOwnershipRpc::Request& reqHdr,
+    ReassignTabletOwnershipRpc::Response& respHdr,
+    Rpc& rpc)
+{
+    ServerId newOwner(reqHdr.newOwnerMasterId);
+    CoordinatorServerList::Entry& entry = serverList[newOwner];
+
+    foreach (ProtoBuf::Tablets::Tablet& tablet, *tabletMap.mutable_tablet()) {
+        if (tablet.table_id() == reqHdr.tableId &&
+          tablet.start_key_hash() == reqHdr.firstKey &&
+          tablet.end_key_hash() == reqHdr.lastKey) {
+            LOG(NOTICE, "Reassigning tablet %lu, range [%lu, %lu] from server "
+                "id %lu to server id %lu.", reqHdr.tableId, reqHdr.firstKey,
+                reqHdr.lastKey, tablet.server_id(), *newOwner);
+
+            Transport::SessionRef session = serverList.getSession(newOwner);
+            MasterClient masterClient(session);
+
+            // Get current head of log to preclude all previous data in the log
+            // from being considered part of this tablet.
+            LogPosition headOfLog = masterClient.getHeadOfLog();
+
+            tablet.set_server_id(*newOwner);
+            tablet.set_service_locator(entry.serviceLocator);
+            tablet.set_ctime_log_head_id(headOfLog.segmentId());
+            tablet.set_ctime_log_head_offset(headOfLog.segmentOffset());
+
+            // No need to keep the master waiting. If it sent us this request,
+            // then it has guaranteed that all data has been migrated. So long
+            // as we think the new owner is up (i.e. haven't started a recovery
+            // on it), then it's safe for the old owner to drop the data and for
+            // us to switch over.
+            rpc.sendReply();
+
+            // TODO(rumble/slaughter) If we fail to alert the new owner we could
+            //      get stuck in limbo. What should we do? Retry? Fail the
+            //      server and recover it? Can't return to the old master if we
+            //      reply early...
+            masterClient.takeTabletOwnership(reqHdr.tableId,
+                                             reqHdr.firstKey,
+                                             reqHdr.lastKey);
+            return;
+        }
+    }
+
+    LOG(WARNING, "Could not reassign tablet %lu, range [%lu, %lu]: not found!",
+        reqHdr.tableId, reqHdr.firstKey, reqHdr.lastKey);
+    respHdr.common.status = STATUS_TABLE_DOESNT_EXIST;
 }
 
 /**

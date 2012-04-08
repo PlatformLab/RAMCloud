@@ -174,7 +174,7 @@ TEST_F(MasterServiceTest, read_basics) {
 TEST_F(MasterServiceTest, read_badTable) {
     Buffer value;
     EXPECT_THROW(client->read(4, "0", 1, &value),
-                 TableDoesntExistException);
+                 UnknownTableException);
 }
 
 TEST_F(MasterServiceTest, read_noSuchObject) {
@@ -231,7 +231,7 @@ TEST_F(MasterServiceTest, multiRead_badTable) {
 
     client->multiRead(requests);
 
-    EXPECT_STREQ("STATUS_TABLE_DOESNT_EXIST",
+    EXPECT_STREQ("STATUS_UNKNOWN_TABLE",
                  statusToSymbol(requestError.status));
 }
 
@@ -720,7 +720,7 @@ TEST_F(MasterServiceTest, remove_basics) {
 }
 
 TEST_F(MasterServiceTest, remove_badTable) {
-    EXPECT_THROW(client->remove(4, "key0", 4), TableDoesntExistException);
+    EXPECT_THROW(client->remove(4, "key0", 4), UnknownTableException);
 }
 
 TEST_F(MasterServiceTest, remove_rejectRules) {

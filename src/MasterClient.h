@@ -169,6 +169,19 @@ class MasterClient : public Client {
     void read(uint64_t tableId, const char* key, uint16_t keyLength,
               Buffer* value, const RejectRules* rejectRules = NULL,
               uint64_t* version = NULL);
+    void prepForMigration(uint64_t tableId,
+                          uint64_t firstKey,
+                          uint64_t lastKey,
+                          uint64_t expectedObjects,
+                          uint64_t expectedBytes);
+    void receiveMigrationData(uint64_t tableId,
+                              uint64_t firstKey,
+                              const void* segment,
+                              uint32_t segmentBytes);
+    void migrateTablet(uint64_t tableId,
+                       uint64_t firstKey,
+                       uint64_t lastKey,
+                       ServerId newMasterOwnerId);
     void recover(ServerId masterId, uint64_t partitionId,
                  const ProtoBuf::Tablets& tablets,
                  const RecoverRpc::Replica* replicas, uint32_t numReplicas);

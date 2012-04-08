@@ -375,6 +375,10 @@ class Log {
     /// various lists and maps that represent their current state.
     SpinLock listLock;
 
+    /// Lock taken around log append operations. This is currently only used
+    /// to delay appends to the log head while migration is underway.
+    SpinLock appendLock;
+
     /// Given to Segments to make them durable
     ReplicaManager *replicaManager;
 
@@ -384,6 +388,14 @@ class Log {
     /// Cleaner. Must come after backup so that it can create its own
     /// ReplicaManager from the Log's.
     LogCleaner     cleaner;
+
+    /// Count of the number of LogIterators currently in existence that
+    /// refer to this log. So long as this count is non-zero, no changes
+    /// made by the cleaner may be applied. I.e., survivor segments must
+    /// not be added to the log and cleaned segments must not be freed.
+    int logIteratorCount;
+
+    friend class LogIterator;
 
     DISALLOW_COPY_AND_ASSIGN(Log);
 };

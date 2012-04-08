@@ -87,9 +87,18 @@ class SegmentIterator {
     void            commonConstructor(bool ignoreCapacityMismatch);
     bool            isEntryValid(const SegmentEntry *entry) const;
 
-    const void     *baseAddress;     // base address for the Segment
-    uint64_t        segmentCapacity; // maximum length of the segment in bytes
-    uint64_t        id;              // segment identification number
+    /// Base address for the segment being iterated over.
+    const void     *baseAddress;
+
+    /// Maximum length of the segment in bytes.
+    uint64_t        segmentCapacity;
+
+    /// Number of bytes actually used in the segment. This is used to tell
+    /// when we're done iterating on an open segment.
+    uint64_t        segmentBytesUsed;
+
+    /// Segment identification number.
+    uint64_t        id;
 
     // current iteration state
     LogEntryType     type;

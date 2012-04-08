@@ -79,6 +79,10 @@ class CoordinatorService : public Service {
     void setWill(const SetWillRpc::Request& reqHdr,
                  SetWillRpc::Response& respHdr,
                  Rpc& rpc);
+    void reassignTabletOwnership(
+                const ReassignTabletOwnershipRpc::Request& reqHdr,
+                ReassignTabletOwnershipRpc::Response& respHdr,
+                Rpc& rpc);
     void requestServerList(const RequestServerListRpc::Request& reqHdr,
                            RequestServerListRpc::Response& respHdr,
                            Rpc& rpc);

@@ -428,6 +428,9 @@ Segment::close(Segment* nextHead, bool sync)
     if (closed)
         throw SegmentException(HERE, "Segment has already been closed");
 
+    // TODO(rumble/stutsman): Adding this fake entry is inefficient. We
+    // may end up sending up to 1MB over the network needlessly.
+
     // Insert padding entry to align the footer to the end of the segment.
     // Don't include the padding or its entry in the checksum.  It doesn't
     // matter if it has integrity.  If we can't find the footer as a result

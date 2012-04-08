@@ -76,10 +76,12 @@ Log::Log(const ServerId& logId,
       activeBaseAddressMap(),
       logTypeMap(),
       listLock(),
+      appendLock(),
       replicaManager(replicaManager),
       cleanerOption(cleanerOption),
       cleaner(this, replicaManager,
-              cleanerOption == CONCURRENT_CLEANER)
+              cleanerOption == CONCURRENT_CLEANER),
+      logIteratorCount(0)
 {
     if (logCapacity == 0) {
         throw LogException(HERE,
@@ -256,6 +258,8 @@ Log::multiAppend(LogMultiAppendVector& appends, bool sync)
                 maximumBytesPerAppend));
         }
     }
+
+    std::lock_guard<SpinLock> lock(appendLock);
 
     do {
         if (head != NULL)
@@ -683,19 +687,27 @@ Log::allocateHeadInternal(Lock& lock, Tub<uint64_t> segmentId)
     if (head != NULL)
         cleanableNewList.push_back(*head);
 
-    // new Log head + active Segments + cleaner pending Segments
+    // New Log head + active Segments + cleaner pending Segments (but
+    // only if we're not locked out of freeing by LogIterator(s)).
     size_t segmentCount = 1;
     segmentCount += cleanableList.size() + cleanableNewList.size();
-    segmentCount += cleanablePendingDigestList.size();
+
+    if (logIteratorCount == 0)
+        segmentCount += cleanablePendingDigestList.size();
+    else
+        segmentCount += freePendingDigestAndReferenceList.size();
 
     size_t digestBytes = LogDigest::getBytesFromCount(segmentCount);
     char temp[digestBytes];
     LogDigest digest(segmentCount, temp, digestBytes);
 
-    while (!cleanablePendingDigestList.empty()) {
-        Segment& s = cleanablePendingDigestList.front();
-        cleanablePendingDigestList.pop_front();
-        cleanableNewList.push_back(s);
+    // Only include new survivor segments if no log iteration in progress.
+    if (logIteratorCount == 0) {
+        while (!cleanablePendingDigestList.empty()) {
+            Segment& s = cleanablePendingDigestList.front();
+            cleanablePendingDigestList.pop_front();
+            cleanableNewList.push_back(s);
+        }
     }
 
     foreach (Segment& s, cleanableList)
@@ -706,10 +718,16 @@ Log::allocateHeadInternal(Lock& lock, Tub<uint64_t> segmentId)
 
     digest.addSegment(newHeadId);
 
-    while (!freePendingDigestAndReferenceList.empty()) {
-        Segment& s = freePendingDigestAndReferenceList.front();
-        freePendingDigestAndReferenceList.pop_front();
-        freePendingReferenceList.push_back(s);
+    // Only preclude/free cleaned segments if no log iteration in progress.
+    if (logIteratorCount == 0) {
+        while (!freePendingDigestAndReferenceList.empty()) {
+            Segment& s = freePendingDigestAndReferenceList.front();
+            freePendingDigestAndReferenceList.pop_front();
+            freePendingReferenceList.push_back(s);
+        }
+    } else {
+        foreach (Segment& s, freePendingDigestAndReferenceList)
+            digest.addSegment(downCast<LogDigest::SegmentId>(s.getId()));
     }
 
     Segment* nextHead = new Segment(this, true, newHeadId, baseAddress,
@@ -849,7 +867,7 @@ Log::getFromFreeList(Lock& lock, bool mayUseLastSegment)
         throw LogOutOfMemoryException(HERE, "Log is out of space");
 
     if (freeList.size() == 1 && cleanerOption != CLEANER_DISABLED) {
-        if (!mayUseLastSegment) {
+        if (!mayUseLastSegment || logIteratorCount > 0) {
             throw LogOutOfMemoryException(HERE, "Log is out of space "
                 "(last one is reserved for the next head)");
         }

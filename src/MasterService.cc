@@ -20,7 +20,9 @@
 #include "ClientException.h"
 #include "Cycles.h"
 #include "Dispatch.h"
+#include "LogIterator.h"
 #include "ShortMacros.h"
+#include "MasterClient.h"
 #include "MasterService.h"
 #include "RawMetrics.h"
 #include "Tub.h"
@@ -155,13 +157,25 @@ MasterService::dispatch(RpcOpcode opcode, Rpc& rpc)
             callHandler<GetHeadOfLogRpc, MasterService,
                         &MasterService::getHeadOfLog>(rpc);
             break;
+        case MigrateTabletRpc::opcode:
+            callHandler<MigrateTabletRpc, MasterService,
+                        &MasterService::migrateTablet>(rpc);
+            break;
         case MultiReadRpc::opcode:
             callHandler<MultiReadRpc, MasterService,
                         &MasterService::multiRead>(rpc);
             break;
+        case PrepForMigrationRpc::opcode:
+            callHandler<PrepForMigrationRpc, MasterService,
+                        &MasterService::prepForMigration>(rpc);
+            break;
         case ReadRpc::opcode:
             callHandler<ReadRpc, MasterService,
                         &MasterService::read>(rpc);
+            break;
+        case ReceiveMigrationDataRpc::opcode:
+            callHandler<ReceiveMigrationDataRpc, MasterService,
+                        &MasterService::receiveMigrationData>(rpc);
             break;
         case RecoverRpc::opcode:
             callHandler<RecoverRpc, MasterService,
@@ -316,7 +330,7 @@ MasterService::multiRead(const MultiReadRpc::Request& reqHdr,
         // have an entry in the hash table that's invalid because its tablet no
         // longer lives here.
         if (getTable(currentReq->tableId, key, currentReq->keyLength) == NULL) {
-            *status = STATUS_TABLE_DOESNT_EXIST;
+            *status = STATUS_UNKNOWN_TABLE;
             continue;
         }
         LogEntryHandle handle = objectMap.lookup(currentReq->tableId,
@@ -364,7 +378,7 @@ MasterService::read(const ReadRpc::Request& reqHdr,
     // no longer lives here.
 
     if (getTable(reqHdr.tableId, key, reqHdr.keyLength) == NULL) {
-        respHdr.common.status = STATUS_TABLE_DOESNT_EXIST;
+        respHdr.common.status = STATUS_UNKNOWN_TABLE;
         return;
     }
 
@@ -495,6 +509,291 @@ MasterService::takeTabletOwnership(
         // added tombstones to the hash table. Clean them up.
         removeTombstones();
     }
+}
+
+/**
+ * Top-level server method to handle the PREP_FOR_MIGRATION request.
+ *
+ * This is used during tablet migration to request that a destination
+ * master take on a tablet from the current owner. The receiver may
+ * accept or refuse.
+ *
+ * \copydetails Service::ping 
+ */
+void
+MasterService::prepForMigration(const PrepForMigrationRpc::Request& reqHdr,
+                                PrepForMigrationRpc::Response& respHdr,
+                                Rpc& rpc)
+{
+    // Decide if we want to decline this request.
+
+    // Ensure that there's no tablet overlap, just in case.
+    bool overlap = (getTableForHash(reqHdr.tableId, reqHdr.firstKey) != NULL ||
+                    getTableForHash(reqHdr.tableId, reqHdr.lastKey) != NULL);
+    if (overlap) {
+        LOG(WARNING, "already have tablet in range [%lu, %lu] for tableId %lu",
+            reqHdr.firstKey, reqHdr.lastKey, reqHdr.tableId);
+        respHdr.common.status = STATUS_OBJECT_EXISTS;
+        return;
+    }
+
+    // Add the tablet to our map and mark it as RECOVERING so that no requests
+    // are served on it.
+    ProtoBuf::Tablets_Tablet& tablet(*tablets.add_tablet());
+    tablet.set_table_id(reqHdr.tableId);
+    tablet.set_start_key_hash(reqHdr.firstKey);
+    tablet.set_end_key_hash(reqHdr.lastKey);
+    tablet.set_state(ProtoBuf::Tablets_Tablet_State_RECOVERING);
+
+    Table* table = new Table(reqHdr.tableId);
+    tablet.set_user_data(reinterpret_cast<uint64_t>(table));
+
+    // TODO(rumble) would be nice to have a method to get a SL from an Rpc
+    // object.
+    LOG(NOTICE, "Ready to receive tablet from \"??\". Table %lu, "
+        "range [%lu,%lu]", reqHdr.tableId, reqHdr.firstKey, reqHdr.lastKey);
+}
+
+/**
+ * Top-level server method to handle the MIGRATE_TABLET request.
+ *
+ * This is used to manually initiate the migration of a tablet (or piece of a
+ * tablet) that this master owns to another master.
+ *
+ * \copydetails Service::ping 
+ */
+void
+MasterService::migrateTablet(const MigrateTabletRpc::Request& reqHdr,
+                             MigrateTabletRpc::Response& respHdr,
+                             Rpc& rpc)
+{
+    uint64_t tableId = reqHdr.tableId;
+    uint64_t firstKey = reqHdr.firstKey;
+    uint64_t lastKey = reqHdr.lastKey;
+    ServerId newOwnerMasterId(reqHdr.newOwnerMasterId);
+
+    LOG(NOTICE, "MIGRATE_TABLET!!!\n");
+
+    // Find the tablet we're trying to move. We only support migration
+    // when the tablet to be migrated consists of a range within a single,
+    // contiguous tablet of ours.
+    const ProtoBuf::Tablets::Tablet* tablet = NULL;
+    int tabletIndex = 0;
+    foreach (const ProtoBuf::Tablets::Tablet& i, tablets.tablet()) {
+        if (tableId == i.table_id() &&
+          firstKey >= i.start_key_hash() &&
+          lastKey <= i.end_key_hash()) {
+            tablet = &i;
+            break;
+        }
+        tabletIndex++;
+    }
+
+    if (tablet == NULL) {
+        LOG(WARNING, "Migration request for range this master does not "
+            "own. TableId %lu, range [%lu,%lu]", tableId, firstKey, lastKey);
+        respHdr.common.status = STATUS_UNKNOWN_TABLE;
+        return;
+    }
+
+    if (newOwnerMasterId == serverId) {
+        LOG(WARNING, "Migrating to myself doesn't make much sense");
+        respHdr.common.status = STATUS_REQUEST_FORMAT_ERROR;
+        return;
+    }
+
+    Transport::SessionRef session = serverList.getSession(newOwnerMasterId);
+    MasterClient recipient(session);
+
+    Table* table = reinterpret_cast<Table*>(tablet->user_data());
+
+    // TODO(rumble/slaughter) what if we end up splitting?!?
+
+    // TODO(rumble/slaughter) add method to query TabletProfiler for # objs,
+    // # bytes in a range in order for this to really work, we'll need to
+    // split on a bucket
+    // boundary. Otherwise we can't tell where bytes are in the chosen range.
+    recipient.prepForMigration(tableId, firstKey, lastKey, 0, 0);
+
+    LOG(NOTICE, "Migrating tablet (id %lu, first %lu, last %lu) to "
+        "ServerId %lu (\"%s\")", tableId, firstKey, lastKey,
+        *newOwnerMasterId, session->getServiceLocator().c_str());
+
+    // We'll send over objects in Segment containers for better network
+    // efficiency and convenience.
+    void* transferBuf = Memory::xmemalign(HERE, 8*1024*1024, 8*1024*1024);
+    Tub<Segment> transferSeg;
+
+    // Hold on the the iterator since it locks the head Segment, avoiding any
+    // additional appends once we've finished iterating.
+    LogIterator it(log);
+    for (; !it.isDone(); it.next()) {
+        LogEntryHandle h = it.getHandle();
+        if (h->type() == LOG_ENTRY_TYPE_OBJ) {
+            const Object* logObj = h->userData<Object>();
+
+            // Skip if not applicable.
+            if (logObj->tableId != tableId)
+                continue;
+
+            if (logObj->keyHash() < firstKey || logObj->keyHash() > lastKey)
+                continue;
+
+            // Only send objects when they're currently in the hash table (
+            // otherwise they're dead).
+            LogEntryHandle curHandle = objectMap.lookup(logObj->tableId,
+                                                        logObj->getKey(),
+                                                        logObj->keyLength);
+            if (curHandle == NULL)
+                continue;
+
+            if (curHandle->type() != LOG_ENTRY_TYPE_OBJ)
+                continue;
+
+            // NB: The cleaner is currently locked out due to the global
+            //     objectUpdateLock. In the future this may not be the
+            //     case and objects may be moved forward during iteration.
+            if (curHandle->userData<Object>() != logObj)
+                continue;
+
+        } else if (h->type() == LOG_ENTRY_TYPE_OBJTOMB) {
+            const ObjectTombstone* logTomb = h->userData<ObjectTombstone>();
+
+            // Skip if not applicable.
+            if (logTomb->tableId != tableId)
+                continue;
+
+            if (logTomb->keyHash() < firstKey || logTomb->keyHash() > lastKey)
+                continue;
+
+            // We must always send tombstones, since an object we may have sent
+            // could have been deleted more recently. We could be smarter and
+            // more selective here, but that'd require keeping extra state to
+            // know what we've already sent.
+            //
+            // TODO(rumble/slaughter) Actually, we can do better. The stupid way
+            //      is to track each object or tombstone we've sent. The smarter
+            //      way is to just record the LogPosition when we started
+            //      iterating and only send newer tombstones.
+
+        } else {
+            // We're not interested in any other types.
+            continue;
+        }
+
+        if (!transferSeg)
+            transferSeg.construct(-1, -1, transferBuf, 8*1024*1024);
+
+        // If we can't fit it, send the current buffer and retry.
+        if (transferSeg->append(it.getHandle(), false) == NULL) {
+            transferSeg->close(NULL, false);
+            recipient.receiveMigrationData(tableId,
+                                          firstKey,
+                                          transferSeg->getBaseAddress(),
+                                          transferSeg->getTotalBytesAppended());
+            LOG(DEBUG, "Sending migration segment");
+
+            transferSeg.destroy();
+            transferSeg.construct(-1, -1, transferBuf, 8*1024*1024);
+
+            // If it doesn't fit this time, we're in trouble.
+            if (transferSeg->append(it.getHandle(), false) == NULL) {
+                LOG(ERROR, "Tablet migration failed: could not fit object "
+                    "into empty segment (obj bytes %u)",
+                    it.getHandle()->length());
+                respHdr.common.status = STATUS_INTERNAL_ERROR;
+                transferSeg.destroy();
+                free(transferBuf);
+                return;
+            }
+        }
+    }
+
+    if (transferSeg) {
+        transferSeg->close(NULL, false);
+        recipient.receiveMigrationData(tableId,
+                                        firstKey,
+                                        transferSeg->getBaseAddress(),
+                                        transferSeg->getTotalBytesAppended());
+        LOG(DEBUG, "Sending last migration segment");
+        transferSeg.destroy();
+    }
+
+    free(transferBuf);
+
+    // Now that all data has been transferred, we can reassign ownership of
+    // the tablet. If this succeeds, we are free to drop the tablet. The
+    // data is all on the other machine and the coordinator knows to use it
+    // for any recoveries.
+    coordinator->reassignTabletOwnership(
+        tableId, firstKey, lastKey, newOwnerMasterId);
+
+    LOG(NOTICE, "Tablet migration succeeded");
+
+    tablets.mutable_tablet()->SwapElements(tablets.tablet_size() - 1,
+                                           tabletIndex);
+    tablets.mutable_tablet()->RemoveLast();
+    free(table);
+}
+
+/**
+ * Top-level server method to handle the RECEIVE_MIGRATION_DATA request.
+ *
+ * This RPC delivers tablet data to be added to a master during migration.
+ * It must have been preceeded by an appropriate PREP_FOR_MIGRATION rpc.
+ *
+ * \copydetails Service::ping
+ */
+void
+MasterService::receiveMigrationData(
+    const ReceiveMigrationDataRpc::Request& reqHdr,
+    ReceiveMigrationDataRpc::Response& respHdr,
+    Rpc& rpc)
+{
+    uint64_t tableId = reqHdr.tableId;
+    uint64_t firstKey = reqHdr.firstKey;
+    uint32_t segmentBytes = reqHdr.segmentBytes;
+
+    // TODO(rumble/slaughter) need to make sure we have a table available
+    //      (the scanning thread will start processing segments immediately
+    //      to add them to the tabletprofiler).
+    const ProtoBuf::Tablets::Tablet* tablet = NULL;
+    foreach (const ProtoBuf::Tablets::Tablet& i, tablets.tablet()) {
+        if (tableId == i.table_id() && firstKey == i.start_key_hash()) {
+            tablet = &i;
+            break;
+        }
+    }
+
+    if (tablet == NULL) {
+        LOG(WARNING, "migration data received for unknown tablet %lu, "
+            "firstKey %lu", tableId, firstKey);
+        respHdr.common.status = STATUS_UNKNOWN_TABLE;
+        return;
+    }
+
+    LOG(NOTICE, "RECEIVED MIGRATION DATA (tbl %lu, fk %lu, bytes %u)!\n",
+        tableId, firstKey, segmentBytes);
+
+    rpc.requestPayload.truncateFront(sizeof(reqHdr));
+    if (rpc.requestPayload.getTotalLength() != segmentBytes) {
+        LOG(ERROR, "RPC size (%u) does not match advertised length (%u)",
+            rpc.requestPayload.getTotalLength(),
+            segmentBytes);
+        respHdr.common.status = STATUS_REQUEST_FORMAT_ERROR;
+        return;
+    }
+    const void* segmentMemory = rpc.requestPayload.getStart<const void*>();
+    recoverSegment(-1, segmentMemory, segmentBytes);
+
+    // TODO(rumble/slaughter) what about tablet version numbers?
+    //          - need to be made per-server now, no? then take max of two?
+    //            but this needs to happen at the end (after head on orig.
+    //            master is locked)
+    //    - what about autoincremented keys?
+    //    - what if we didn't send a whole tablet, but rather split one?!
+    //      how does this affect autoincr. keys and the version number(s),
+    //      if at all?
 }
 
 /**
@@ -1283,7 +1582,7 @@ MasterService::remove(const RemoveRpc::Request& reqHdr,
 
     Table* table = getTable(reqHdr.tableId, key, reqHdr.keyLength);
     if (table == NULL) {
-        respHdr.common.status = STATUS_TABLE_DOESNT_EXIST;
+        respHdr.common.status = STATUS_UNKNOWN_TABLE;
         return;
     }
 
@@ -1691,7 +1990,7 @@ tombstoneTimestampCallback(LogEntryHandle handle)
  *      If false, this write will be replicated to backups before return.
  * \return
  *      STATUS_OK if the object was written. Otherwise, for example,
- *      STATUS_TABLE_DOESNT_EXIST may be returned.
+ *      STATUS_UKNOWN_TABLE may be returned.
  */
 Status
 MasterService::storeData(uint64_t tableId,
@@ -1717,7 +2016,7 @@ MasterService::storeData(uint64_t tableId,
 
     Table* table = getTable(tableId, newObject->getKey(), keyLength);
     if (table == NULL)
-        return STATUS_TABLE_DOESNT_EXIST;
+        return STATUS_UNKNOWN_TABLE;
 
     if (!anyWrites) {
         // This is the first write; use this as a trigger to update the
