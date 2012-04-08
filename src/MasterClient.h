@@ -38,7 +38,7 @@ class MasterClient : public Client {
          * The table containing the desired object (return value from
          * a previous call to openTable).
          */
-        uint32_t tableId;
+        uint64_t tableId;
         /**
          * Variable length key that uniquely identifies the object within table.
          * It does not necessarily have to be null terminated like a string.
@@ -64,7 +64,7 @@ class MasterClient : public Client {
          */
         Status status;
 
-        ReadObject(uint32_t tableId, const char* key, uint16_t keyLength,
+        ReadObject(uint64_t tableId, const char* key, uint16_t keyLength,
                    Tub<Buffer>* value)
             : tableId(tableId)
             , key(key)
@@ -106,7 +106,7 @@ class MasterClient : public Client {
     class Read {
       public:
         Read(MasterClient& client,
-             uint32_t tableId, const char* key, uint16_t keyLength,
+             uint64_t tableId, const char* key, uint16_t keyLength,
              Buffer* value, const RejectRules* rejectRules,
              uint64_t* version);
         void cancel() { state.cancel(); }
@@ -142,12 +142,12 @@ class MasterClient : public Client {
     class Write {
       public:
         Write(MasterClient& client,
-              uint32_t tableId, const char* key, uint16_t keyLength,
+              uint64_t tableId, const char* key, uint16_t keyLength,
               Buffer& buffer,
               const RejectRules* rejectRules = NULL,
               uint64_t* version = NULL, bool async = false);
         Write(MasterClient& client,
-              uint32_t tableId, const char* key, uint16_t keyLength,
+              uint64_t tableId, const char* key, uint16_t keyLength,
               const void* buf, uint32_t length,
               const RejectRules* rejectRules = NULL,
               uint64_t* version = NULL, bool async = false);
@@ -166,13 +166,13 @@ class MasterClient : public Client {
     void fillWithTestData(uint32_t numObjects, uint32_t objectSize);
     LogPosition getHeadOfLog();
     void multiRead(std::vector<ReadObject*> requests);
-    void read(uint32_t tableId, const char* key, uint16_t keyLength,
+    void read(uint64_t tableId, const char* key, uint16_t keyLength,
               Buffer* value, const RejectRules* rejectRules = NULL,
               uint64_t* version = NULL);
     void recover(ServerId masterId, uint64_t partitionId,
                  const ProtoBuf::Tablets& tablets,
                  const RecoverRpc::Replica* replicas, uint32_t numReplicas);
-    void remove(uint32_t tableId, const char* key, uint16_t keyLength,
+    void remove(uint64_t tableId, const char* key, uint16_t keyLength,
                 const RejectRules* rejectRules = NULL,
                 uint64_t* version = NULL);
     void dropTabletOwnership(uint64_t tabletId,
@@ -181,7 +181,7 @@ class MasterClient : public Client {
     void takeTabletOwnership(uint64_t tableId,
                              uint64_t firstKey,
                              uint64_t lastKey);
-    void write(uint32_t tableId, const char* key, uint16_t keyLength,
+    void write(uint64_t tableId, const char* key, uint16_t keyLength,
                const void* buf, uint32_t length,
                const RejectRules* rejectRules = NULL, uint64_t* version = NULL,
                bool async = false);

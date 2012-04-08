@@ -458,10 +458,8 @@ MasterService::takeTabletOwnership(
 
     if (tablet == NULL) {
         // Sanity check that this tablet doesn't overlap with an existing one.
-        if (getTableForHash(downCast<uint32_t>(reqHdr.tableId),
-                            reqHdr.firstKey) != NULL ||
-            getTableForHash(downCast<uint32_t>(reqHdr.tableId),
-                            reqHdr.lastKey) != NULL) {
+        if (getTableForHash(reqHdr.tableId, reqHdr.firstKey) != NULL ||
+          getTableForHash(reqHdr.tableId, reqHdr.lastKey) != NULL) {
             LOG(WARNING, "Tablet being assigned (%lu, range [%lu,%lu]) "
                 "partially overlaps an existing tablet!", reqHdr.tableId,
                 reqHdr.firstKey, reqHdr.lastKey);
@@ -1368,7 +1366,7 @@ MasterService::write(const WriteRpc::Request& reqHdr,
  *      or NULL if this master does not own the tablet.
  */
 Table*
-MasterService::getTable(uint32_t tableId, const char* key, uint16_t keyLength)
+MasterService::getTable(uint64_t tableId, const char* key, uint16_t keyLength)
 {
     return getTableForHash(tableId, getKeyHash(key, keyLength));
 }
@@ -1388,7 +1386,7 @@ MasterService::getTable(uint32_t tableId, const char* key, uint16_t keyLength)
  *      or NULL if this master does not own the tablet.
  */
 Table*
-MasterService::getTableForHash(uint32_t tableId, HashType keyHash)
+MasterService::getTableForHash(uint64_t tableId, HashType keyHash)
 {
     foreach (const ProtoBuf::Tablets::Tablet& tablet, tablets.tablet()) {
         if (tablet.table_id() == tableId &&
@@ -1457,8 +1455,9 @@ objectLivenessCallback(LogEntryHandle handle, void* cookie)
 
     std::lock_guard<SpinLock> lock(svr->objectUpdateLock);
 
-    Table* t = svr->getTable(downCast<uint32_t>(evictObj->tableId),
-                             evictObj->getKey(), evictObj->keyLength);
+    Table* t = svr->getTable(evictObj->tableId,
+                             evictObj->getKey(),
+                             evictObj->keyLength);
     if (t == NULL)
         return false;
 
@@ -1514,8 +1513,9 @@ objectRelocationCallback(LogEntryHandle oldHandle,
 
     std::lock_guard<SpinLock> lock(svr->objectUpdateLock);
 
-    Table* table = svr->getTable(downCast<uint32_t>(evictObj->tableId),
-                                 evictObj->getKey(), evictObj->keyLength);
+    Table* table = svr->getTable(evictObj->tableId,
+                                 evictObj->getKey(),
+                                 evictObj->keyLength);
     if (table == NULL) {
         // That tablet doesn't exist on this server anymore.
         // Just remove the hash table entry, if it exists.
@@ -1633,8 +1633,9 @@ tombstoneRelocationCallback(LogEntryHandle oldHandle,
     // see if the referent is still there
     bool keepNewTomb = svr->log.isSegmentLive(tomb->segmentId);
 
-    Table* table = svr->getTable(downCast<uint32_t>(tomb->tableId),
-                                 tomb->getKey(), tomb->keyLength);
+    Table* table = svr->getTable(tomb->tableId,
+                                 tomb->getKey(),
+                                 tomb->keyLength);
     if (table != NULL && !keepNewTomb) {
         table->tombstoneCount--;
         table->tombstoneBytes -= oldHandle->length();
@@ -1714,8 +1715,7 @@ MasterService::storeData(uint64_t tableId,
     keyAndData->copy(keyOffset, keyLength + dataLength,
                      newObject->getKeyLocation());
 
-    Table* table = getTable(downCast<uint32_t>(tableId),
-                            newObject->getKey(), keyLength);
+    Table* table = getTable(tableId, newObject->getKey(), keyLength);
     if (table == NULL)
         return STATUS_TABLE_DOESNT_EXIST;
 

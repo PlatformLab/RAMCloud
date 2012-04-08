@@ -179,11 +179,11 @@ struct MultiReadRpc {
         RpcRequestCommon common;
         uint32_t count;
         struct Part {
-            uint32_t tableId;
+            uint64_t tableId;
             uint16_t keyLength;
             // In buffer: The actual key for this part
             // follows immediately after this.
-            Part(uint32_t tableId, uint16_t keyLength)
+            Part(uint64_t tableId, uint16_t keyLength)
                 : tableId(tableId), keyLength(keyLength) {}
         } __attribute__((packed));
     } __attribute__((packed));
@@ -204,7 +204,7 @@ struct ReadRpc {
     static const ServiceType service = MASTER_SERVICE;
     struct Request {
         RpcRequestCommon common;
-        uint32_t tableId;
+        uint64_t tableId;
         uint16_t keyLength;           // Length of the key in bytes.
                                       // The actual key follows
                                       // immediately after this header.
@@ -261,7 +261,7 @@ struct RemoveRpc {
     static const ServiceType service = MASTER_SERVICE;
     struct Request {
         RpcRequestCommon common;
-        uint32_t tableId;
+        uint64_t tableId;
         uint16_t keyLength;           // Length of the key in bytes.
                                       // The actual key follows
                                       // immediately after this header.
@@ -292,7 +292,7 @@ struct WriteRpc {
     static const ServiceType service = MASTER_SERVICE;
     struct Request {
         RpcRequestCommon common;
-        uint32_t tableId;
+        uint64_t tableId;
         uint16_t keyLength;           // Length of the key in bytes.
                                       // The actual bytes of the key follow
                                       // immediately after this header.
@@ -354,7 +354,7 @@ struct OpenTableRpc {
     } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
-        uint32_t tableId;
+        uint64_t tableId;
     } __attribute__((packed));
 };
 

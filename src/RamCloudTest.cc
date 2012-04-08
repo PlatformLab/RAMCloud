@@ -25,8 +25,8 @@ class RamCloudTest : public ::testing::Test {
   public:
     MockCluster cluster;
     Tub<RamCloud> ramcloud;
-    uint32_t tableId1;
-    uint32_t tableId2;
+    uint64_t tableId1;
+    uint64_t tableId2;
 
   public:
     RamCloudTest()
@@ -122,7 +122,7 @@ TEST_F(RamCloudTest, multiRead) {
 }
 
 TEST_F(RamCloudTest, writeString) {
-    uint32_t tableId1 = ramcloud->openTable("table1");
+    uint64_t tableId1 = ramcloud->openTable("table1");
     ramcloud->write(tableId1, "99", 2, "abcdef");
     Buffer value;
     ramcloud->read(tableId1, "99", 2, &value);

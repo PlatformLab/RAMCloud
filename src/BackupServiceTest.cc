@@ -142,7 +142,7 @@ class BackupServiceTest : public ::testing::Test {
     void
     appendTablet(ProtoBuf::Tablets& tablets,
                  uint64_t partitionId,
-                 uint32_t tableId,
+                 uint64_t tableId,
                  uint64_t start, uint64_t end,
                  uint64_t ctimeHeadSegmentId, uint32_t ctimeHeadSegmentOffset)
     {
@@ -1092,7 +1092,7 @@ TEST_F(SegmentInfoTest, destructorLoading) {
 void
 appendTablet(ProtoBuf::Tablets& tablets,
              uint64_t partitionId,
-             uint32_t tableId,
+             uint64_t tableId,
              uint64_t start, uint64_t end,
              uint64_t ctimeHeadSegmentId, uint32_t ctimeHeadSegmentOffset)
 {

@@ -115,7 +115,7 @@ def load_so():
     rejectRules         = POINTER(RejectRules)
     serviceLocator      = ctypes.c_char_p
     status              = ctypes.c_int
-    table               = ctypes.c_uint32
+    table               = ctypes.c_uint64
     version             = ctypes.c_uint64
 
     so.rc_connect.argtypes = [address, POINTER(client)]
@@ -241,7 +241,7 @@ class RAMCloud(object):
         self.handle_error(s)
 
     def open_table(self, name):
-        handle = ctypes.c_uint32()
+        handle = ctypes.c_uint64()
         s = so.rc_openTable(self.client, name, ctypes.byref(handle))
         self.handle_error(s)
         return handle.value

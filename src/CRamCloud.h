@@ -40,22 +40,22 @@ RAMCloud::Status    rc_createTable(struct rc_client* client, const char* name);
 RAMCloud::Status    rc_dropTable(struct rc_client* client, const char* name);
 RAMCloud::Status    rc_getStatus(struct rc_client* client);
 RAMCloud::Status    rc_openTable(struct rc_client* client, const char* name,
-                            uint32_t* tableId);
+                            uint64_t* tableId);
 RAMCloud::Status    rc_ping(struct rc_client* client,
                             const char* serviceLocator,
                             uint64_t nonce, uint64_t timeoutNanoseconds,
                             uint64_t* result);
 
-RAMCloud::Status    rc_read(struct rc_client* client, uint32_t tableId,
+RAMCloud::Status    rc_read(struct rc_client* client, uint64_t tableId,
                             const char* key, uint16_t keyLength,
                             const struct RAMCloud::RejectRules* rejectRules,
                             uint64_t* version, void* buf, uint32_t maxLength,
                             uint32_t* actualLength);
-RAMCloud::Status    rc_remove(struct rc_client* client, uint32_t tableId,
+RAMCloud::Status    rc_remove(struct rc_client* client, uint64_t tableId,
                               const char* key, uint16_t keyLength,
                               const struct RAMCloud::RejectRules* rejectRules,
                               uint64_t* version);
-RAMCloud::Status    rc_write(struct rc_client* client, uint32_t tableId,
+RAMCloud::Status    rc_write(struct rc_client* client, uint64_t tableId,
                              const char* key, uint16_t keyLength,
                              const void* buf, uint32_t length,
                              const struct RAMCloud::RejectRules* rejectRules,

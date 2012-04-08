@@ -96,7 +96,7 @@ CoordinatorClient::dropTable(const char* name)
  * \exception TableDoesntExistException
  * \exception InternalError
  */
-uint32_t
+uint64_t
 CoordinatorClient::openTable(const char* name)
 {
     Buffer req, resp;

@@ -138,7 +138,7 @@ rc_getStatus(struct rc_client* client) {
 
 Status
 rc_openTable(struct rc_client* client, const char* name,
-        uint32_t* tableId)
+        uint64_t* tableId)
 {
     try {
         *tableId = client->client->openTable(name);
@@ -196,7 +196,7 @@ rc_ping(struct rc_client* client, const char* serviceLocator,
  *      0 means success, anything else indicates an error.
  */
 Status
-rc_read(struct rc_client* client, uint32_t tableId,
+rc_read(struct rc_client* client, uint64_t tableId,
         const char* key, uint16_t keyLength,
         const struct RejectRules* rejectRules, uint64_t* version,
         void* buf, uint32_t maxLength, uint32_t* actualLength)
@@ -219,7 +219,7 @@ rc_read(struct rc_client* client, uint32_t tableId,
 }
 
 Status
-rc_remove(struct rc_client* client, uint32_t tableId,
+rc_remove(struct rc_client* client, uint64_t tableId,
           const char* key, uint16_t keyLength,
           const struct RejectRules* rejectRules, uint64_t* version)
 {
@@ -232,7 +232,7 @@ rc_remove(struct rc_client* client, uint32_t tableId,
 }
 
 Status
-rc_write(struct rc_client* client, uint32_t tableId,
+rc_write(struct rc_client* client, uint64_t tableId,
          const char* key, uint16_t keyLength,
          const void* buf, uint32_t length,
          const struct RejectRules* rejectRules,

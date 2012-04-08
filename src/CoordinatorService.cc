@@ -128,7 +128,7 @@ CoordinatorService::createTable(const CreateTableRpc::Request& reqHdr,
                                  reqHdr.nameLength);
     if (tables.find(name) != tables.end())
         return;
-    uint32_t tableId = nextTableId++;
+    uint64_t tableId = nextTableId++;
     tables[name] = tableId;
 
     uint32_t serverSpan = reqHdr.serverSpan;
@@ -196,11 +196,11 @@ CoordinatorService::createTable(const CreateTableRpc::Request& reqHdr,
                                          tablet.start_key_hash(),
                                          tablet.end_key_hash());
 
-        LOG(DEBUG, "Created table '%s' with id %u and a span %u on master %lu",
+        LOG(DEBUG, "Created table '%s' with id %lu and a span %u on master %lu",
                     name, tableId, serverSpan, master->serverId.getId());
     }
 
-    LOG(NOTICE, "Created table '%s' with id %u",
+    LOG(NOTICE, "Created table '%s' with id %lu",
                     name, tableId);
 }
 
@@ -218,7 +218,7 @@ CoordinatorService::dropTable(const DropTableRpc::Request& reqHdr,
     Tables::iterator it = tables.find(name);
     if (it == tables.end())
         return;
-    uint32_t tableId = it->second;
+    uint64_t tableId = it->second;
     tables.erase(it);
     int32_t i = 0;
     while (i < tabletMap.tablet_size()) {
@@ -237,7 +237,7 @@ CoordinatorService::dropTable(const DropTableRpc::Request& reqHdr,
         }
     }
 
-    LOG(NOTICE, "Dropped table '%s' with id %u", name, tableId);
+    LOG(NOTICE, "Dropped table '%s' with id %lu", name, tableId);
     LOG(DEBUG, "There are now %d tablets in the map", tabletMap.tablet_size());
 }
 

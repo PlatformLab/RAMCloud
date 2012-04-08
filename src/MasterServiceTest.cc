@@ -136,7 +136,7 @@ class MasterServiceTest : public ::testing::Test {
     void
     appendTablet(ProtoBuf::Tablets& tablets,
                  uint64_t partitionId,
-                 uint32_t tableId,
+                 uint64_t tableId,
                  uint64_t start, uint64_t end,
                  uint64_t ctimeHeadSegmentId, uint32_t ctimeHeadSegmentOffset)
     {
@@ -1024,7 +1024,7 @@ TEST_F(MasterServiceTest, objectLivenessCallback_objectAlive) {
     const LogTypeInfo *cb = service->log.getTypeInfo(LOG_ENTRY_TYPE_OBJ);
     ASSERT_TRUE(cb != NULL);
 
-    uint32_t tableId = 0;
+    uint64_t tableId = 0;
     const char* key = "key0";
     uint16_t keyLength = downCast<uint16_t>(strlen(key));
     uint64_t version;
@@ -1039,7 +1039,7 @@ TEST_F(MasterServiceTest, objectLivenessCallback_objectDeleted) {
     const LogTypeInfo *cb = service->log.getTypeInfo(LOG_ENTRY_TYPE_OBJ);
     ASSERT_TRUE(cb != NULL);
 
-    uint32_t tableId = 0;
+    uint64_t tableId = 0;
     const char* key = "key0";
     uint16_t keyLength = downCast<uint16_t>(strlen(key));
     uint64_t version;
@@ -1056,7 +1056,7 @@ TEST_F(MasterServiceTest, objectLivenessCallback_objectModified) {
     const LogTypeInfo *cb = service->log.getTypeInfo(LOG_ENTRY_TYPE_OBJ);
     ASSERT_TRUE(cb != NULL);
 
-    uint32_t tableId = 0;
+    uint64_t tableId = 0;
     const char* key = "key0";
     uint16_t keyLength = downCast<uint16_t>(strlen(key));
     uint64_t version;
@@ -1081,7 +1081,7 @@ TEST_F(MasterServiceTest, objectLivenessCallback_tableDoesntExist) {
     ASSERT_TRUE(cb != NULL);
 
     coordinator->createTable("table1");
-    uint32_t tableId = coordinator->openTable("table1");
+    uint64_t tableId = coordinator->openTable("table1");
     const char* key = "key0";
     uint16_t keyLength = downCast<uint16_t>(strlen(key));
     uint64_t version;
@@ -1101,7 +1101,7 @@ TEST_F(MasterServiceTest, objectRelocationCallback_objectAlive) {
     const LogTypeInfo *cb = service->log.getTypeInfo(LOG_ENTRY_TYPE_OBJ);
     ASSERT_TRUE(cb != NULL);
 
-    uint32_t tableId = 0;
+    uint64_t tableId = 0;
     const char* key = "key0";
     uint16_t keyLength = downCast<uint16_t>(strlen(key));
     uint64_t version;
@@ -1135,7 +1135,7 @@ TEST_F(MasterServiceTest, objectRelocationCallback_objectDeleted) {
     const LogTypeInfo *cb = service->log.getTypeInfo(LOG_ENTRY_TYPE_OBJ);
     ASSERT_TRUE(cb != NULL);
 
-    uint32_t tableId = 0;
+    uint64_t tableId = 0;
     const char* key = "key0";
     uint16_t keyLength = downCast<uint16_t>(strlen(key));
     uint64_t version;
@@ -1161,7 +1161,7 @@ TEST_F(MasterServiceTest, objectRelocationCallback_objectModified) {
     const LogTypeInfo *cb = service->log.getTypeInfo(LOG_ENTRY_TYPE_OBJ);
     ASSERT_TRUE(cb != NULL);
 
-    uint32_t tableId = 0;
+    uint64_t tableId = 0;
     const char* key = "key0";
     uint16_t keyLength = downCast<uint16_t>(strlen(key));
     uint64_t version;
@@ -1195,7 +1195,7 @@ TEST_F(MasterServiceTest, tombstoneRelocationCallback_basics) {
             service->log.getTypeInfo(LOG_ENTRY_TYPE_OBJTOMB);
     ASSERT_TRUE(cb != NULL);
 
-    uint32_t tableId = 0;
+    uint64_t tableId = 0;
     const char* key = "key0";
     uint16_t keyLength = downCast<uint16_t>(strlen(key));
     uint64_t version;
@@ -1318,7 +1318,7 @@ class MasterRecoverTest : public ::testing::Test {
     void
     appendTablet(ProtoBuf::Tablets& tablets,
                  uint64_t partitionId,
-                 uint32_t tableId,
+                 uint64_t tableId,
                  uint64_t start, uint64_t end,
                  uint64_t ctimeHeadSegmentId, uint32_t ctimeHeadSegmentOffset)
     {

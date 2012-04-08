@@ -67,7 +67,7 @@ ObjectFinder::ObjectFinder(CoordinatorClient& coordinator)
  *      The coordinator has no record of the table.
  */
 Transport::SessionRef
-ObjectFinder::lookup(uint32_t table, const char* key, uint16_t keyLength) {
+ObjectFinder::lookup(uint64_t table, const char* key, uint16_t keyLength) {
     HashType keyHash = getKeyHash(key, keyLength);
 
     /*

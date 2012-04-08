@@ -77,7 +77,7 @@ RamCloud::dropTable(const char* name)
 }
 
 /// \copydoc CoordinatorClient::openTable
-uint32_t
+uint64_t
 RamCloud::openTable(const char* name)
 {
     Context::Guard _(clientContext);
@@ -104,7 +104,7 @@ RamCloud::getMetrics(const char* serviceLocator)
  *      Size in bytes of the key.
  */
 ServerMetrics
-RamCloud::getMetrics(uint32_t table, const char* key, uint16_t keyLength)
+RamCloud::getMetrics(uint64_t table, const char* key, uint16_t keyLength)
 {
     PingClient client;
     const char *serviceLocator = objectFinder.lookup(table, key, keyLength)->
@@ -175,7 +175,7 @@ RamCloud::ping(const char* serviceLocator, uint64_t nonce,
  *      The server did not respond within \c timeoutNanoseconds.
  */
 uint64_t
-RamCloud::ping(uint32_t table, const char* key, uint16_t keyLength,
+RamCloud::ping(uint64_t table, const char* key, uint16_t keyLength,
                uint64_t nonce, uint64_t timeoutNanoseconds)
 {
     Context::Guard _(clientContext);
@@ -200,7 +200,7 @@ RamCloud::proxyPing(const char* serviceLocator1,
 
 /// \copydoc MasterClient::read
 void
-RamCloud::read(uint32_t tableId, const char* key, uint16_t keyLength,
+RamCloud::read(uint64_t tableId, const char* key, uint16_t keyLength,
                Buffer* value, const RejectRules* rejectRules,
                uint64_t* version)
 {
@@ -242,7 +242,7 @@ RamCloud::multiRead(MasterClient::ReadObject* requests[], uint32_t numRequests)
 
 /// \copydoc MasterClient::remove
 void
-RamCloud::remove(uint32_t tableId, const char* key, uint16_t keyLength,
+RamCloud::remove(uint64_t tableId, const char* key, uint16_t keyLength,
                  const RejectRules* rejectRules, uint64_t* version)
 {
     Context::Guard _(clientContext);
@@ -262,7 +262,7 @@ RamCloud::remove(uint32_t tableId, const char* key, uint16_t keyLength,
 
 /// \copydoc MasterClient::write
 void
-RamCloud::write(uint32_t tableId, const char* key, uint16_t keyLength,
+RamCloud::write(uint64_t tableId, const char* key, uint16_t keyLength,
                 const void* buf, uint32_t length,
                 const RejectRules* rejectRules, uint64_t* version,
                 bool async)
@@ -299,7 +299,7 @@ RamCloud::write(uint32_t tableId, const char* key, uint16_t keyLength,
  *      terminating NULL character) are stored in the object.
  */
 void
-RamCloud::write(uint32_t tableId, const char* key, uint16_t keyLength,
+RamCloud::write(uint64_t tableId, const char* key, uint16_t keyLength,
                 const char* s)
 {
     Context::Guard _(clientContext);

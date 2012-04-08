@@ -38,7 +38,7 @@ class RamCloud {
       public:
         /// Start a read RPC. See RamCloud::read.
         Read(RamCloud& ramCloud,
-             uint32_t tableId, const char* key, uint16_t keyLength,
+             uint64_t tableId, const char* key, uint16_t keyLength,
              Buffer* value, const RejectRules* rejectRules = NULL,
              uint64_t* version = NULL)
              : constructorContext(ramCloud.clientContext)
@@ -79,7 +79,7 @@ class RamCloud {
       public:
         /// Start a write RPC. See RamCloud::write.
         Write(RamCloud& ramCloud,
-              uint32_t tableId, const char* key, uint16_t keyLength,
+              uint64_t tableId, const char* key, uint16_t keyLength,
               Buffer& buffer,
               const RejectRules* rejectRules = NULL,
               uint64_t* version = NULL, bool async = false)
@@ -96,7 +96,7 @@ class RamCloud {
         }
         /// Start a write RPC. See RamCloud::write.
         Write(RamCloud& ramCloud,
-              uint32_t tableId, const char* key, uint16_t keyLength,
+              uint64_t tableId, const char* key, uint16_t keyLength,
               const void* buf, uint32_t length,
               const RejectRules* rejectRules = NULL,
               uint64_t* version = NULL, bool async = false)
@@ -133,31 +133,31 @@ class RamCloud {
     RamCloud(Context& context, const char* serviceLocator);
     void createTable(const char* name, uint32_t serverSpan = 1);
     void dropTable(const char* name);
-    uint32_t openTable(const char* name);
+    uint64_t openTable(const char* name);
     string* getServiceLocator();
     ServerMetrics getMetrics(const char* serviceLocator);
-    ServerMetrics getMetrics(uint32_t table, const char* key,
+    ServerMetrics getMetrics(uint64_t table, const char* key,
                              uint16_t keyLength);
     uint64_t ping(const char* serviceLocator, uint64_t nonce,
                   uint64_t timeoutNanoseconds);
-    uint64_t ping(uint32_t table, const char* key, uint16_t keyLength,
+    uint64_t ping(uint64_t table, const char* key, uint16_t keyLength,
                   uint64_t nonce, uint64_t timeoutNanoseconds);
     uint64_t proxyPing(const char* serviceLocator1,
                        const char* serviceLocator2,
                        uint64_t timeoutNanoseconds1,
                        uint64_t timeoutNanoseconds2);
-    void read(uint32_t tableId, const char* key, uint16_t keyLength,
+    void read(uint64_t tableId, const char* key, uint16_t keyLength,
               Buffer* value, const RejectRules* rejectRules = NULL,
               uint64_t* version = NULL);
     void multiRead(MasterClient::ReadObject* requests[], uint32_t numRequests);
-    void remove(uint32_t tableId, const char* key, uint16_t keyLength,
+    void remove(uint64_t tableId, const char* key, uint16_t keyLength,
                 const RejectRules* rejectRules = NULL,
                 uint64_t* version = NULL);
-    void write(uint32_t tableId, const char* key, uint16_t keyLength,
+    void write(uint64_t tableId, const char* key, uint16_t keyLength,
                const void* buf, uint32_t length,
                const RejectRules* rejectRules = NULL,
                uint64_t* version = NULL, bool async = false);
-    void write(uint32_t tableId, const char* key, uint16_t keyLength,
+    void write(uint64_t tableId, const char* key, uint16_t keyLength,
                const char* s);
 
   PRIVATE:

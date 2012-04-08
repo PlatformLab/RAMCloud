@@ -217,9 +217,9 @@ class MasterService : public Service {
                                             void* cookie);
     friend void tombstoneScanCallback(LogEntryHandle handle, void* cookie);
     friend void segmentReplayCallback(Segment* seg, void* cookie);
-    Table* getTable(uint32_t tableId, const char* key, uint16_t keyLength)
+    Table* getTable(uint64_t tableId, const char* key, uint16_t keyLength)
         __attribute__((warn_unused_result));
-    Table* getTableForHash(uint32_t tableId, HashType keyHash)
+    Table* getTableForHash(uint64_t tableId, HashType keyHash)
         __attribute__((warn_unused_result));
     Status rejectOperation(const RejectRules& rejectRules, uint64_t version)
         __attribute__((warn_unused_result));

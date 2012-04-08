@@ -73,11 +73,11 @@ static int objectSize;
 static int numTables;
 
 // Identifier for table that is used for test-specific data.
-uint32_t dataTable = -1;
+uint64_t dataTable = -1;
 
 // Identifier for table that is used to communicate between the master
 // and slaves to coordinate execution of tests.
-uint32_t controlTable = -1;
+uint64_t controlTable = -1;
 
 // The locations of objects in controlTable; each of these values is an
 // offset relative to the base for a particular client, as computed by
@@ -250,7 +250,7 @@ printPercent(const char* name, double value, const char* description)
  *      The average time to read the object, in seconds.
  */
 double
-timeRead(uint32_t tableId, const char* key, uint16_t keyLength,
+timeRead(uint64_t tableId, const char* key, uint16_t keyLength,
          double ms, Buffer& value)
 {
     uint64_t runCycles = Cycles::fromSeconds(ms/1e03);
@@ -294,7 +294,7 @@ timeRead(uint32_t tableId, const char* key, uint16_t keyLength,
  *      The average time to write the object, in seconds.
  */
 double
-timeWrite(uint32_t tableId, const char* key, uint16_t keyLength,
+timeWrite(uint64_t tableId, const char* key, uint16_t keyLength,
           const void* value, uint32_t length, double ms)
 {
     uint64_t runCycles = Cycles::fromSeconds(ms/1e03);
@@ -337,7 +337,7 @@ timeWrite(uint32_t tableId, const char* key, uint16_t keyLength,
  *      This key Length will be reflected in the value placed in the buffer.
  */
 void
-fillBuffer(Buffer& buffer, uint32_t size, uint32_t tableId,
+fillBuffer(Buffer& buffer, uint32_t size, uint64_t tableId,
            const char* key, uint16_t keyLength)
 {
     char chunk[51];
@@ -349,7 +349,7 @@ fillBuffer(Buffer& buffer, uint32_t size, uint32_t tableId,
         // ignore the terminating NULL character that snprintf puts at
         // the end.
         snprintf(chunk, sizeof(chunk),
-            "| %d: tableId 0x%x, key %.*s, keyLength 0x%x %s",
+            "| %d: tableId 0x%lx, key %.*s, keyLength 0x%x %s",
             position, tableId, keyLength, key, keyLength,
             "0123456789");
         uint32_t chunkLength = sizeof(chunk) - 1;
@@ -383,7 +383,7 @@ fillBuffer(Buffer& buffer, uint32_t size, uint32_t tableId,
  *      there was an error.
  */
 bool
-checkBuffer(Buffer& buffer, uint32_t expectedLength, uint32_t tableId,
+checkBuffer(Buffer& buffer, uint32_t expectedLength, uint64_t tableId,
             const char* key, uint16_t keyLength)
 {
     uint32_t length = buffer.getTotalLength();
@@ -471,7 +471,7 @@ setSlaveState(const char* state)
  *      make it fit in the buffer.
  */
 char*
-readObject(uint32_t tableId, const char* key, uint16_t keyLength,
+readObject(uint64_t tableId, const char* key, uint16_t keyLength,
            char* value, uint32_t size)
 {
     Buffer buffer;
@@ -540,7 +540,7 @@ getCommand(char* buffer, uint32_t size)
  *      Seconds to wait before giving up and throwing an Exception.
  */
 void
-waitForObject(uint32_t tableId, const char* key, uint16_t keyLength,
+waitForObject(uint64_t tableId, const char* key, uint16_t keyLength,
               const char* desired, Buffer& value, double timeout = 1.0)
 {
     uint64_t start = Cycles::rdtsc();
@@ -560,7 +560,7 @@ waitForObject(uint32_t tableId, const char* key, uint16_t keyLength,
             if (elapsed > timeout) {
                 // Slave is taking too long; time out.
                 throw Exception(HERE, format(
-                        "Object <%u, %.*s> didn't reach desired state '%s' "
+                        "Object <%lu, %.*s> didn't reach desired state '%s' "
                         "(actual: '%.*s')",
                         tableId, keyLength, key, desired,
                         downCast<int>(length), actual));
@@ -642,10 +642,10 @@ sendCommand(const char* command, const char* state, int firstSlave,
  *      Size in bytes of the key.
  *
  */
-int*
+uint64_t*
 createTables(int numTables, int objectSize, const char* key, uint16_t keyLength)
 {
-    int* tableIds = new int[numTables];
+    uint64_t* tableIds = new uint64_t[numTables];
 
     // Create the tables in backwards order to reduce possible correlations
     // between clients, tables, and servers (if we have 60 clients and 60
@@ -947,8 +947,8 @@ netBandwidth()
         getCommand(command, sizeof(command));
         char tableName[20];
         snprintf(tableName, sizeof(tableName), "table%d", clientIndex);
-        int tableId = cluster->openTable(tableName);
-        RAMCLOUD_LOG(NOTICE, "Client %d reading from table %d", clientIndex,
+        uint64_t tableId = cluster->openTable(tableName);
+        RAMCLOUD_LOG(NOTICE, "Client %d reading from table %lu", clientIndex,
                 tableId);
         setSlaveState("running");
 
@@ -969,11 +969,11 @@ netBandwidth()
     int size = objectSize;
     if (size < 0)
         size = 1024*1024;
-    int* tableIds = createTables(numClients, objectSize, key, keyLength);
+    uint64_t* tableIds = createTables(numClients, objectSize, key, keyLength);
 
     // Start all the slaves running, and read our own local object.
     sendCommand("run", "running", 1, numClients-1);
-    RAMCLOUD_LOG(DEBUG, "Master reading from table %d", tableIds[0]);
+    RAMCLOUD_LOG(DEBUG, "Master reading from table %lu", tableIds[0]);
     Buffer value;
     double latency = timeRead(tableIds[0], key, keyLength, 100, value);
     double bandwidth = value.getTotalLength()/latency;
@@ -1012,7 +1012,7 @@ readAllToAll()
         for (int tableNum = 0; tableNum < numTables; ++tableNum) {
             string tableName = format("table%d", tableNum);
             try {
-                int tableId = cluster->openTable(tableName.c_str());
+                uint64_t tableId = cluster->openTable(tableName.c_str());
 
                 Buffer result;
                 uint64_t startCycles = Cycles::rdtsc();
@@ -1047,11 +1047,11 @@ readAllToAll()
     int size = objectSize;
     if (size < 0)
         size = 100;
-    int* tableIds = createTables(numTables, size, "0", 1);
+    uint64_t* tableIds = createTables(numTables, size, "0", 1);
 
     std::cout << "Master client reading from all masters" << std::endl;
     for (int i = 0; i < numTables; ++i) {
-        int tableId = tableIds[i];
+        uint64_t tableId = tableIds[i];
         Buffer result;
         uint64_t startCycles = Cycles::rdtsc();
         RamCloud::Read read(*cluster, tableId, "0", 1, &result);
@@ -1059,7 +1059,7 @@ readAllToAll()
             Context::get().dispatch->poll();
             if (Cycles::toSeconds(Cycles::rdtsc() - startCycles) > 1.0) {
                 RAMCLOUD_LOG(ERROR,
-                            "Master client %d couldn't read from tableId %d",
+                            "Master client %d couldn't read from tableId %lu",
                             clientIndex, tableId);
                 return;
             }
@@ -1209,7 +1209,7 @@ readNotFound()
  *      Information provided by the master about this run; used
  *      in log messages.
  */
-void readRandomCommon(int *tableIds, char *docString)
+void readRandomCommon(uint64_t *tableIds, char *docString)
 {
     // Duration of test.
     double ms = 100;
@@ -1224,7 +1224,7 @@ void readRandomCommon(int *tableIds, char *docString)
     // Each iteration through this loop issues one read operation to a
     // randomly-selected table.
     while (true) {
-        int tableId = tableIds[downCast<int>(generateRandom() % numTables)];
+        uint64_t tableId = tableIds[generateRandom() % numTables];
         readStart = Cycles::rdtsc();
         Buffer value;
         cluster->read(tableId, "0", 1, &value);
@@ -1258,7 +1258,7 @@ void readRandomCommon(int *tableIds, char *docString)
 void
 readRandom()
 {
-    int *tableIds = NULL;
+    uint64_t *tableIds = NULL;
 
     if (clientIndex > 0) {
         // This is a slave: execute commands coming from the master.
@@ -1269,7 +1269,7 @@ readRandom()
             if (strcmp(command, "run") == 0) {
                 if (tableIds == NULL) {
                     // Open all the tables.
-                    tableIds = new int[numTables];
+                    tableIds = new uint64_t[numTables];
                     for (int i = 0; i < numTables; i++) {
                         char tableName[20];
                         snprintf(tableName, sizeof(tableName), "table%d", i);

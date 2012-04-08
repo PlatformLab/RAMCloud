@@ -63,7 +63,7 @@ bool fillWithTestData = false;
  *      This key Length will be reflected in the value placed in the buffer.
  */
 void
-fillBuffer(Buffer& buffer, uint32_t size, uint32_t tableId,
+fillBuffer(Buffer& buffer, uint32_t size, uint64_t tableId,
            const char* key, uint16_t keyLength)
 {
     char chunk[51];
@@ -75,7 +75,7 @@ fillBuffer(Buffer& buffer, uint32_t size, uint32_t tableId,
         // ignore the terminating NULL character that snprintf puts at
         // the end.
         snprintf(chunk, sizeof(chunk),
-            "| %d: tableId 0x%x, key %.*s, keyLength 0x%x %s",
+            "| %d: tableId 0x%lx, key %.*s, keyLength 0x%x %s",
             position, tableId, keyLength, key, keyLength,
             "0123456789");
         uint32_t chunkLength = sizeof(chunk) - 1;
@@ -109,7 +109,7 @@ fillBuffer(Buffer& buffer, uint32_t size, uint32_t tableId,
  *      there was an error.
  */
 bool
-checkBuffer(Buffer& buffer, uint32_t expectedLength, uint32_t tableId,
+checkBuffer(Buffer& buffer, uint32_t expectedLength, uint64_t tableId,
             const char* key, uint16_t keyLength)
 {
     uint32_t length = buffer.getTotalLength();
@@ -218,7 +218,7 @@ try
         DIE("verify not supported with fillWithTestData");
 
     char tableName[20];
-    int tables[tableCount];
+    uint64_t tables[tableCount];
 
     for (uint32_t t = 0; t < tableCount; t++) {
         snprintf(tableName, sizeof(tableName), "%d", t);
@@ -237,7 +237,7 @@ try
             // master that will open connections with all the backups so that
             // connection setup doesn't happen during recovery and slow it down.
             if (t == 0) {
-                int table = client.openTable(tableName);
+                uint64_t table = client.openTable(tableName);
                 client.write(table, "1", 1, "abcd", 4);
             }
         }
@@ -328,7 +328,7 @@ try
     for (uint32_t t = 0; t < tableCount; t++) {
         Transport::SessionRef session =
             client.objectFinder.lookup(tables[t], "0", 1);
-        LOG(NOTICE, "%s has table %u",
+        LOG(NOTICE, "%s has table %lu",
             session->getServiceLocator().c_str(), tables[t]);
     }
 
@@ -369,7 +369,7 @@ try
     uint64_t stopTime = Cycles::rdtsc();
     // Check a value in each table to make sure we're good
     for (uint32_t t = 0; t < tableCount; t++) {
-        int table = tables[t];
+        uint64_t table = tables[t];
         try {
             client.read(table, "0", 1, &nb);
             if (t == 0)
@@ -401,14 +401,14 @@ try
                 try {
                     client.read(tables[t], key.c_str(), keyLength, &nb);
                 } catch (...) {
-                    LOG(ERROR, "Failed to access object (tbl %d, obj %.*s)!",
+                    LOG(ERROR, "Failed to access object (tbl %lu, obj %.*s)!",
                         tables[t], keyLength, key.c_str());
                     continue;
                 }
                 uint32_t objBytes = nb.getTotalLength();
 
                 if (objBytes != objectDataSize) {
-                    LOG(ERROR, "Bad object size (tbl %d, obj %.*s)",
+                    LOG(ERROR, "Bad object size (tbl %lu, obj %.*s)",
                         tables[t], keyLength, key.c_str());
                 } else {
                     checkBuffer(nb, objectDataSize, tables[t],

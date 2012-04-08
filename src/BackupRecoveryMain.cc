@@ -68,7 +68,7 @@ try
     RamCloud client(context, coordinatorLocator.c_str());
 
     client.createTable("mainTable");
-    uint32_t table = client.openTable("mainTable");
+    uint64_t table = client.openTable("mainTable");
     Transport::SessionRef mainTableSession =
         client.objectFinder.lookup(table, "0", 1);
 
@@ -79,12 +79,12 @@ try
     char value[objectDataSize];
     memset(value, 'a', objectDataSize);
     int i = 0;
-    uint32_t lastBackupTable = 0;
+    uint64_t lastBackupTable = 0;
     while (true) {
         char name[10];
         snprintf(name, sizeof(name), "backup%d", ++i);
         client.createTable(name);
-        uint32_t table = client.openTable(name);
+        uint64_t table = client.openTable(name);
         Transport::SessionRef session =
                 client.objectFinder.lookup(table, "0", 1);
         // Round-robin table allocation: create tables until we find we've

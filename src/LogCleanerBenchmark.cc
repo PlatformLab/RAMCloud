@@ -82,8 +82,7 @@ runIt(RamCloud* client,
     uint64_t lastUpdateObjects = 0;
 
     for (uint64_t i = 0; i < maxId * 20; i++) {
-        // TODO(Rumble): u32 table ids!!
-        client->write((uint32_t)tableId, keys[i].c_str(),
+        client->write(tableId, keys[i].c_str(),
                 downCast<uint16_t>(keys[i].length()), objBuf, objectSize);
 
         bytesWritten += objectSize;

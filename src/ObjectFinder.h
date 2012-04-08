@@ -44,7 +44,7 @@ class ObjectFinder {
         std::vector<MasterClient::ReadObject*> requests;
     };
 
-    Transport::SessionRef lookup(uint32_t table, const char* key,
+    Transport::SessionRef lookup(uint64_t table, const char* key,
                                  uint16_t keyLength);
     std::vector<MasterRequests> multiLookup(MasterClient::ReadObject* input[],
                                             uint32_t numRequests);

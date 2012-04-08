@@ -117,7 +117,7 @@ MasterClient::recover(ServerId masterId, uint64_t partitionId,
 
 /// Start a read RPC for an object. See MasterClient::read.
 MasterClient::Read::Read(MasterClient& client,
-                         uint32_t tableId, const char* key,
+                         uint64_t tableId, const char* key,
                          uint16_t keyLength, Buffer* value,
                          const RejectRules* rejectRules,
                          uint64_t* version)
@@ -181,7 +181,7 @@ MasterClient::Read::operator()()
  * \exception InternalError
  */
 void
-MasterClient::read(uint32_t tableId, const char* key, uint16_t keyLength,
+MasterClient::read(uint64_t tableId, const char* key, uint16_t keyLength,
                    Buffer* value, const RejectRules* rejectRules,
                    uint64_t* version)
 {
@@ -301,7 +301,7 @@ MasterClient::multiRead(std::vector<ReadObject*> requests)
  * \exception InternalError
  */
 void
-MasterClient::remove(uint32_t tableId, const char* key, uint16_t keyLength,
+MasterClient::remove(uint64_t tableId, const char* key, uint16_t keyLength,
                      const RejectRules* rejectRules, uint64_t* version)
 {
     Buffer req, resp;
@@ -367,7 +367,7 @@ MasterClient::takeTabletOwnership(uint64_t tableId,
 
 /// Start a write RPC for an object. See MasterClient::write.
 MasterClient::Write::Write(MasterClient& client,
-                           uint32_t tableId,
+                           uint64_t tableId,
                            const char* key, uint16_t keyLength,
                            const void* buf, uint32_t length,
                            const RejectRules* rejectRules,
@@ -393,7 +393,7 @@ MasterClient::Write::Write(MasterClient& client,
 
 /// Start a write RPC. See MasterClient::write.
 MasterClient::Write::Write(MasterClient& client,
-                           uint32_t tableId,
+                           uint64_t tableId,
                            const char* key, uint16_t keyLength,
                            Buffer& buffer,
                            const RejectRules* rejectRules,
@@ -468,7 +468,7 @@ MasterClient::Write::operator()()
  * \exception InternalError
  */
 void
-MasterClient::write(uint32_t tableId, const char* key, uint16_t keyLength,
+MasterClient::write(uint64_t tableId, const char* key, uint16_t keyLength,
                     const void* buf, uint32_t length,
                     const RejectRules* rejectRules, uint64_t* version,
                     bool async)

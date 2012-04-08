@@ -111,7 +111,7 @@ class CoordinatorService : public Service {
      */
     ProtoBuf::Tablets tabletMap;
 
-    typedef std::map<string, uint32_t> Tables;
+    typedef std::map<string, uint64_t> Tables;
     /**
      * Map from table name to table id.
      */
@@ -121,7 +121,7 @@ class CoordinatorService : public Service {
      * The id of the next table to be created.
      * These start at 0 and are never reused.
      */
-    uint32_t nextTableId;
+    uint64_t nextTableId;
 
     /**
      * Used in #createTable() to assign new tables to masters.
