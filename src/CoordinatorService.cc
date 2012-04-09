@@ -314,6 +314,10 @@ CoordinatorService::enlistServer(const EnlistServerRpc::Request& reqHdr,
         "services: %s",
         serviceLocator, newServerId.getId(),
         entry.serviceMask.toString().c_str());
+    if (replacesId.isValid()) {
+        LOG(NOTICE, "Newly enlisted server %lu replaces server %lu",
+            newServerId.getId(), replacesId.getId());
+    }
 
     if (entry.isMaster()) {
         // create empty will
@@ -321,7 +325,7 @@ CoordinatorService::enlistServer(const EnlistServerRpc::Request& reqHdr,
     }
 
     if (entry.isBackup()) {
-        LOG(DEBUG, "Backup at id %lu has %u MB/s read %u MB/s write ",
+        LOG(DEBUG, "Backup at id %lu has %u MB/s read %u MB/s write",
             newServerId.getId(), readSpeed, writeSpeed);
         createReplicationGroup();
     }

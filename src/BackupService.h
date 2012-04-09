@@ -513,6 +513,7 @@ class BackupService : public Service {
     virtual ~BackupService();
     void benchmark(uint32_t& readSpeed, uint32_t& writeSpeed);
     void dispatch(RpcOpcode opcode, Rpc& rpc);
+    ServerId getFormerServerId() const;
     ServerId getServerId() const;
     void init(ServerId id);
 
@@ -549,6 +550,18 @@ class BackupService : public Service {
 
     /// Handle to cluster coordinator
     CoordinatorClient coordinator;
+
+    /**
+     * If the backup was formerly part of a cluster this was its server id.
+     * This is extracted from a superblock that is part of BackupStorage.
+     * "Rejoining" means this backup service may have segment replicas stored
+     * that were created by masters in the cluster.
+     * In this case, the coordinator must be made told of the former server
+     * id under which these replicas were created in order to ensure that
+     * all masters are made aware of the former server's crash before learning
+     * of its re-enlistment.
+     */
+    ServerId formerServerId;
 
     /// Coordinator-assigned ID for this backup service
     ServerId serverId;

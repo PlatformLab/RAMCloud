@@ -45,6 +45,7 @@ struct ServerConfig {
     ServerConfig(Testing) // NOLINT
         : coordinatorLocator()
         , localLocator()
+        , clusterName("__unnamed__")
         , services{MASTER_SERVICE, BACKUP_SERVICE,
                    MEMBERSHIP_SERVICE}
         , detectFailures(false)
@@ -65,6 +66,7 @@ struct ServerConfig {
     ServerConfig()
         : coordinatorLocator()
         , localLocator()
+        , clusterName("__unnamed__")
         , services{MASTER_SERVICE, BACKUP_SERVICE,
                    PING_SERVICE, MEMBERSHIP_SERVICE}
         , detectFailures(true)
@@ -107,6 +109,20 @@ struct ServerConfig {
 
     /// The locator the server should listen for incoming messages on.
     string localLocator;
+
+    /**
+     * Controls the reuse of replicas stored on this backup.  'Tags' replicas
+     * created on this backup with this cluster name.  This has two effects.
+     * First, any replicas found in storage are discarded unless they are
+     * tagged with an identical cluster name. Second, any replicas created by
+     * the backup process will only be reused by future backup processes if the
+     * cluster name on the stored replica matches the cluster name of future
+     * process. The name '__unnamed__' is special and never matches any cluster
+     * name (even itself), so it guarantees all stored replicas are discarded
+     * on start and that all replicas created by this process are discarded by
+     * future backups.  This is convenient for testing.
+     */
+    string clusterName;
 
     /// Which services this server should run and advertise to the cluster.
     ServiceMask services;
@@ -196,7 +212,6 @@ struct ServerConfig {
             , file()
             , strategy(1)
             , mockSpeed(100)
-            , useStoredReplicas(false)
         {}
 
         /**
@@ -210,7 +225,6 @@ struct ServerConfig {
             , file("/var/tmp/backup.log")
             , strategy(1)
             , mockSpeed(0)
-            , useStoredReplicas(false)
         {}
 
         /// Whether the BackupService should store replicas in RAM or on disk.
@@ -238,13 +252,6 @@ struct ServerConfig {
          * just report the performance as mockSpeed; in MB/s.
          */
         uint32_t mockSpeed;
-
-        /**
-         * If true then scan the backup storage at start up to see if any
-         * replicas remain from a former backup, and if so, consider them
-         * part of the new backup.
-         */
-        bool useStoredReplicas;
     } backup;
 
   public:

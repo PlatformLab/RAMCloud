@@ -24,6 +24,7 @@
 #include "TestUtil.h"
 
 #include "BackupStorage.h"
+#include "StringUtil.h"
 
 namespace RAMCloud {
 
@@ -75,7 +76,8 @@ class SingleFileStorageTest : public ::testing::Test {
 TEST_F(SingleFileStorageTest, constructor) {
     struct stat s;
     stat(path, &s);
-    EXPECT_EQ(segmentSize * segmentFrames, s.st_size);
+    EXPECT_EQ(storage->offsetOfSegmentFrame(segmentFrames),
+              uint32_t(s.st_size));
 }
 
 TEST_F(SingleFileStorageTest, openFails) {
@@ -158,55 +160,6 @@ TEST_F(SingleFileStorageTest, free) {
     EXPECT_EQ('E', buf[3]);
 }
 
-TEST_F(SingleFileStorageTest, getSegment) {
-    delete storage->allocate();  // skip the first segment frame
-    std::unique_ptr<BackupStorage::Handle>
-        handle(storage->allocate());
-
-    const char* src = "1234567";
-    char dst[segmentSize];
-
-    storage->putSegment(handle.get(), src);
-    storage->getSegment(handle.get(), dst);
-
-    EXPECT_STREQ("1234567", dst);
-}
-
-TEST_F(SingleFileStorageTest, putSegment) {
-    delete storage->allocate();  // skip the first segment frame
-    std::unique_ptr<BackupStorage::Handle>
-        handle(storage->allocate());
-
-    const char* src = "1234567";
-    EXPECT_EQ(8U, segmentSize);
-    char buf[segmentSize];
-
-    storage->putSegment(handle.get(), src);
-
-    lseek(storage->fd, storage->offsetOfSegmentFrame(1), SEEK_SET);
-    read(storage->fd, &buf[0], segmentSize);
-    EXPECT_STREQ("1234567", buf);
-}
-
-TEST_F(SingleFileStorageTest, putSegment_seekFailed) {
-    std::unique_ptr<BackupStorage::Handle>
-        handle(storage->allocate());
-    close(storage->fd);
-    char buf[segmentSize];
-    memset(buf, 0, sizeof(buf));
-    EXPECT_THROW(
-        storage->putSegment(handle.get(), buf),
-        BackupStorageException);
-    storage->fd = open(path, O_CREAT | O_RDWR, 0666); // supresses LOG ERROR
-}
-
-TEST_F(SingleFileStorageTest, offsetOfSegmentFrame) {
-    storage->segmentSize = 1 << 23;
-    uint64_t offset = storage->offsetOfSegmentFrame(512);
-    EXPECT_NE(0lu, offset);
-    EXPECT_EQ(1lu << 32, offset);
-}
-
 TEST_F(SingleFileStorageTest, getAllHeadersAndFooters) {
     /*
      * Setups with O_DIRECT must be at least block sized (512 on most
@@ -254,6 +207,172 @@ TEST_F(SingleFileStorageTest, getAllHeadersAndFooters) {
         const size_t totalSize = (headerSize + footerSize) * segmentFrames;
         EXPECT_EQ(0, memcmp(p, "0qqqa1qqqb2qqqc3qqqd", totalSize));
     }
+}
+
+TEST_F(SingleFileStorageTest, getSegment) {
+    delete storage->allocate();  // skip the first segment frame
+    std::unique_ptr<BackupStorage::Handle>
+        handle(storage->allocate());
+
+    const char* src = "1234567";
+    char dst[segmentSize];
+
+    storage->putSegment(handle.get(), src);
+    storage->getSegment(handle.get(), dst);
+
+    EXPECT_STREQ("1234567", dst);
+}
+
+TEST_F(SingleFileStorageTest, putSegment) {
+    delete storage->allocate();  // skip the first segment frame
+    std::unique_ptr<BackupStorage::Handle>
+        handle(storage->allocate());
+
+    const char* src = "1234567";
+    EXPECT_EQ(8U, segmentSize);
+    char buf[segmentSize];
+
+    storage->putSegment(handle.get(), src);
+
+    lseek(storage->fd, storage->offsetOfSegmentFrame(1), SEEK_SET);
+    read(storage->fd, &buf[0], segmentSize);
+    EXPECT_STREQ("1234567", buf);
+}
+
+TEST_F(SingleFileStorageTest, putSegment_seekFailed) {
+    std::unique_ptr<BackupStorage::Handle>
+        handle(storage->allocate());
+    close(storage->fd);
+    char buf[segmentSize];
+    memset(buf, 0, sizeof(buf));
+    EXPECT_THROW(
+        storage->putSegment(handle.get(), buf),
+        BackupStorageException);
+    storage->fd = open(path, O_CREAT | O_RDWR, 0666); // supresses LOG ERROR
+}
+
+TEST_F(SingleFileStorageTest, resetSuperblock) {
+    for (uint32_t expectedVersion = 1; expectedVersion < 3; ++expectedVersion) {
+        storage->resetSuperblock({9999, expectedVersion}, "hasso");
+        for (uint32_t frame = 0; frame < 2; ++frame) {
+            auto superblock = storage->tryLoadSuperblock(frame);
+            ASSERT_TRUE(superblock);
+            EXPECT_EQ(ServerId(9999, expectedVersion),
+                      superblock->getServerId());
+            EXPECT_STREQ("hasso", superblock->getClusterName());
+            EXPECT_EQ(expectedVersion, superblock->version);
+            EXPECT_EQ(expectedVersion, storage->superblock.version);
+            EXPECT_EQ(1u, storage->lastSuperblockFrame);
+        }
+    }
+}
+
+TEST_F(SingleFileStorageTest, loadSuperblockBothEqual) {
+    storage->resetSuperblock({9998, 1}, "gruuuu");
+    auto superblock = storage->loadSuperblock();
+    EXPECT_TRUE(!memcmp(&superblock, &storage->superblock, sizeof(superblock)));
+    EXPECT_EQ(ServerId(9998, 1), superblock.getServerId());
+    EXPECT_STREQ("gruuuu", superblock.getClusterName());
+    EXPECT_EQ(1u, superblock.version);
+    EXPECT_EQ(0u, storage->lastSuperblockFrame);
+}
+
+TEST_F(SingleFileStorageTest, loadSuperblockLeftGreater) {
+    // "0x1" means skip writing superblock frame 0.
+    storage->resetSuperblock({9997, 2}, "fruuuu", 0x1);
+    // "0x2" means skip writing superblock frame 1.
+    storage->resetSuperblock({9997, 1}, "gruuuu", 0x2);
+    auto superblock = storage->loadSuperblock();
+    EXPECT_TRUE(!memcmp(&superblock, &storage->superblock, sizeof(superblock)));
+    EXPECT_EQ(ServerId(9997, 1), superblock.getServerId());
+    EXPECT_STREQ("gruuuu", superblock.getClusterName());
+    EXPECT_EQ(2u, superblock.version);
+    EXPECT_EQ(0u, storage->lastSuperblockFrame);
+}
+
+TEST_F(SingleFileStorageTest, loadSuperblockRightGreater) {
+    // "0x2" means skip writing superblock frame 1.
+    storage->resetSuperblock({9996, 2}, "fruuuu", 0x2);
+    // "0x1" means skip writing superblock frame 0.
+    storage->resetSuperblock({9996, 1}, "gruuuu", 0x1);
+    auto superblock = storage->loadSuperblock();
+    EXPECT_TRUE(!memcmp(&superblock, &storage->superblock, sizeof(superblock)));
+    EXPECT_EQ(ServerId(9996, 1), superblock.getServerId());
+    EXPECT_STREQ("gruuuu", superblock.getClusterName());
+    EXPECT_EQ(2u, superblock.version);
+    EXPECT_EQ(1u, storage->lastSuperblockFrame);
+}
+
+namespace {
+bool loadSuperblockFilter(string s) { return s == "loadSuperblock"; }
+}
+
+TEST_F(SingleFileStorageTest, loadSuperblockNoneFound) {
+    TestLog::Enable _(loadSuperblockFilter);
+    auto superblock = storage->loadSuperblock();
+    EXPECT_TRUE(StringUtil::startsWith(TestLog::get(),
+                "loadSuperblock: Backup couldn't find existing superblock;"));
+    EXPECT_TRUE(!memcmp(&superblock, &storage->superblock, sizeof(superblock)));
+    EXPECT_EQ(ServerId(), superblock.getServerId());
+    EXPECT_STREQ("__unnamed__", superblock.getClusterName());
+    EXPECT_EQ(0u, superblock.version);
+    EXPECT_EQ(1u, storage->lastSuperblockFrame);
+}
+
+TEST_F(SingleFileStorageTest, tryLoadSuperblock) {
+    // "0x2" means skip writing superblock frame 1.
+    storage->resetSuperblock({9994, 1}, "fhqwhgads", 0x2);
+    auto superblock = storage->tryLoadSuperblock(0);
+    ASSERT_TRUE(superblock);
+    EXPECT_EQ(ServerId(9994, 1),
+              superblock->getServerId());
+    EXPECT_STREQ("fhqwhgads", superblock->getClusterName());
+    EXPECT_EQ(1u, superblock->version);
+    EXPECT_EQ(1u, storage->superblock.version);
+    EXPECT_EQ(1u, storage->lastSuperblockFrame);
+
+    TestLog::Enable _;
+    superblock = storage->tryLoadSuperblock(1);
+    ASSERT_FALSE(superblock);
+    EXPECT_EQ("tryLoadSuperblock: Stored superblock had a bad checksum: "
+              "stored checksum was 0, but stored data had checksum 88a5c087",
+              TestLog::get());
+}
+
+TEST_F(SingleFileStorageTest, tryLoadSuperblockCannotReadFile) {
+    close(storage->fd);
+    TestLog::Enable _;
+    auto superblock = storage->tryLoadSuperblock(0);
+    ASSERT_FALSE(superblock);
+    EXPECT_EQ("tryLoadSuperblock: Couldn't read superblock from superblock "
+              "frame 0: Bad file descriptor",
+              TestLog::get());
+    // supress destructor error message on file close
+    storage->fd = creat(path, 0666);
+}
+
+namespace {
+bool tryLoadSuperblockFilter(string s) { return s == "tryLoadSuperblock"; }
+}
+
+TEST_F(SingleFileStorageTest, tryLoadSuperblockBadChecksum) {
+    TestLog::Enable _(tryLoadSuperblockFilter);
+    storage->resetSuperblock({9994, 1}, "fhqwhgads");
+    ASSERT_EQ(1, pwrite(storage->fd, " ", 1, 0));
+    auto superblock = storage->tryLoadSuperblock(0);
+    ASSERT_FALSE(superblock);
+    EXPECT_EQ("tryLoadSuperblock: Stored superblock had a bad checksum: "
+              "stored checksum was 6c19c3f1, but stored data had checksum "
+              "9d232a61", TestLog::get());
+    superblock = storage->tryLoadSuperblock(1);
+    ASSERT_TRUE(superblock);
+}
+
+TEST_F(SingleFileStorageTest, offsetOfSegmentFrame) {
+    storage->segmentSize = 1 << 23;
+    uint64_t offset = storage->offsetOfSegmentFrame(512);
+    EXPECT_NE(0lu, offset);
+    EXPECT_EQ(SingleFileStorage::BLOCK_SIZE * 2 + (1lu << 32), offset);
 }
 
 class InMemoryStorageTest : public ::testing::Test {

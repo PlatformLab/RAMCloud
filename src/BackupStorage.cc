@@ -140,6 +140,8 @@ SingleFileStorage::SingleFileStorage(uint32_t segmentSize,
                                      const char* filePath,
                                      int openFlags)
     : BackupStorage(segmentSize, Type::DISK)
+    , superblock()
+    , lastSuperblockFrame(1)
     , freeMap(segmentFrames)
     , openFlags(openFlags)
     , fd(-1)
@@ -150,7 +152,7 @@ SingleFileStorage::SingleFileStorage(uint32_t segmentSize,
 {
     const char* killMessageStr = "\0DIE";
     // Must write block size of larger when O_DIRECT.
-    killMessageLen = 512;
+    killMessageLen = BLOCK_SIZE;
     int r = posix_memalign(&killMessage, killMessageLen, killMessageLen);
     if (r != 0)
         throw std::bad_alloc();
@@ -248,73 +250,6 @@ SingleFileStorage::free(BackupStorage::Handle* handle)
     delete handle;
 }
 
-// See BackupStorage::getSegment().
-// NOTE: This must remain thread-safe, so be careful about adding
-// access to other resources.
-void
-SingleFileStorage::getSegment(const BackupStorage::Handle* handle,
-                              char* segment) const
-{
-    uint32_t sourceSegmentFrame =
-        static_cast<const Handle*>(handle)->getSegmentFrame();
-    off_t offset = offsetOfSegmentFrame(sourceSegmentFrame);
-    ssize_t r = pread(fd, segment, segmentSize, offset);
-    if (r != static_cast<ssize_t>(segmentSize))
-        throw BackupStorageException(HERE, errno);
-}
-
-// See BackupStorage::putSegment().
-// NOTE: This must remain thread-safe, so be careful about adding
-// access to other resources.
-void
-SingleFileStorage::putSegment(const BackupStorage::Handle* handle,
-                              const char* segment) const
-{
-    uint32_t targetSegmentFrame =
-        static_cast<const Handle*>(handle)->getSegmentFrame();
-    off_t offset = offsetOfSegmentFrame(targetSegmentFrame);
-    ssize_t r = pwrite(fd, segment, segmentSize, offset);
-    if (r != static_cast<ssize_t>(segmentSize))
-        throw BackupStorageException(HERE, errno);
-}
-
-// - private -
-
-/**
- * Pure function.
- *
- * \param segmentFrame
- *      The segmentFrame to find the offset of in the file.
- * \return
- *      The offset into the file a particular segmentFrame starts at.
- */
-uint64_t
-SingleFileStorage::offsetOfSegmentFrame(uint32_t segmentFrame) const
-{
-    // Watch out for overflow; multiplying to 32-bit values.
-    return uint64_t(segmentFrame) * segmentSize;
-}
-
-/**
- * Fix the size of the logfile to ensure that the OS doesn't tell us
- * the filesystem is out of space later.
- *
- * \throw BackupStorageException
- *      If space for segmentFrames segments of segmentSize cannot be reserved.
- */
-void
-SingleFileStorage::reserveSpace()
-{
-    uint64_t logSpace = segmentSize;
-    logSpace *= segmentFrames;
-
-    LOG(DEBUG, "Reserving %lu bytes of log space", logSpace);
-    int r = ftruncate(fd, logSpace);
-    if (r == -1)
-        throw BackupStorageException(HERE,
-                "Couldn't reserve storage space for backup", errno);
-}
-
 /**
  * Fetch the starting and ending bytes from each segment frame.
  * Since segments align their header and footer entries to the
@@ -346,8 +281,10 @@ SingleFileStorage::getAllHeadersAndFooters(size_t headerSize,
     size_t headerBlockSize;
     size_t footerBlockSize;
     if (openFlags & O_DIRECT) {
-        headerBlockSize = ((headerSize + 511) / 512) * 512;
-        footerBlockSize = ((footerSize + 511) / 512) * 512;
+        headerBlockSize = ((headerSize + BLOCK_SIZE - 1) / BLOCK_SIZE) *
+                                BLOCK_SIZE;
+        footerBlockSize = ((footerSize + BLOCK_SIZE - 1) / BLOCK_SIZE) *
+                                BLOCK_SIZE;
     } else {
         headerBlockSize = headerSize;
         footerBlockSize = footerSize;
@@ -404,6 +341,287 @@ SingleFileStorage::getAllHeadersAndFooters(size_t headerSize,
     nextResult += footerSize;
 
     return results;
+}
+
+// See BackupStorage::getSegment().
+// NOTE: This must remain thread-safe, so be careful about adding
+// access to other resources.
+void
+SingleFileStorage::getSegment(const BackupStorage::Handle* handle,
+                              char* segment) const
+{
+    uint32_t sourceSegmentFrame =
+        static_cast<const Handle*>(handle)->getSegmentFrame();
+    off_t offset = offsetOfSegmentFrame(sourceSegmentFrame);
+    ssize_t r = pread(fd, segment, segmentSize, offset);
+    if (r != static_cast<ssize_t>(segmentSize))
+        throw BackupStorageException(HERE, errno);
+}
+
+// See BackupStorage::putSegment().
+// NOTE: This must remain thread-safe, so be careful about adding
+// access to other resources.
+void
+SingleFileStorage::putSegment(const BackupStorage::Handle* handle,
+                              const char* segment) const
+{
+    uint32_t targetSegmentFrame =
+        static_cast<const Handle*>(handle)->getSegmentFrame();
+    off_t offset = offsetOfSegmentFrame(targetSegmentFrame);
+    ssize_t r = pwrite(fd, segment, segmentSize, offset);
+    if (r != static_cast<ssize_t>(segmentSize))
+        throw BackupStorageException(HERE, errno);
+}
+
+/**
+ * Overwrite the on-storage superblock with new information that future
+ * backups reusing this storage will need (in the case of this backup's
+ * demise).
+ * This is done safely so that a failure in the middle of the update
+ * will leave either the old superblock or the new.
+ *
+ * \param serverId
+ *      The server id of the process as assigned by the coordinator.
+ *      It is persisted for the benefit of future processes reusing this
+ *      storage.
+ * \param clusterName
+ *      Controls the reuse of replicas stored on this backup.  'Tags'
+ *      replicas created on this backup with this cluster name.  This has
+ *      two effects.  First, any replicas found in storage are discarded
+ *      unless they are tagged with an identical cluster name. Second, any
+ *      replicas created by the backup process will only be reused by future
+ *      backup processes if the cluster name on the stored replica matches
+ *      the cluster name of future process. The name '__unnamed__' is
+ *      special and never matches any cluster name (even itself), so it
+ *      guarantees all stored replicas are discarded on start and that all
+ *      replicas created by this process are discarded by future backups.
+ *      This is convenient for testing.
+ * \param frameSkipMask
+ *      Used for testing. This storage keeps two superblock images and
+ *      overwrites the older first then the newer in the case a failure
+ *      occurs in the middle of writing. Setting frameSkipMask to 0x1
+ *      skips writing the first superblock image, 0x2 skips the second,
+ *      and 0x3 skips both.
+ */
+void
+SingleFileStorage::resetSuperblock(ServerId serverId,
+                                   const string& clusterName,
+                                   const uint32_t frameSkipMask)
+{
+    Superblock newSuperblock =
+        Superblock(superblock.version + 1, serverId, clusterName.c_str());
+
+    Memory::unique_ptr_free block(
+        Memory::xmemalign(HERE, getpagesize(), BLOCK_SIZE), std::free);
+    struct FileContents {
+        explicit FileContents(const Superblock& newSuperblock)
+            : superblock(newSuperblock)
+            , checksum()
+        {
+            Crc32C crc;
+            crc.update(&superblock, sizeof(superblock));
+            checksum = crc.getResult();
+        }
+        Superblock superblock;
+        Crc32C::ResultType checksum;
+    } __attribute__((packed));
+    new(block.get()) FileContents(newSuperblock);
+
+    // Overwrite the two superblock images starting with the older one.
+    for (uint32_t i = 0; i < 2; ++i) {
+        const uint32_t nextFrame = (lastSuperblockFrame + 1) % 2;
+        if (!((frameSkipMask >> nextFrame) & 0x01)) {
+            const uint64_t offset = offsetOfSuperblockFrame(nextFrame);
+            ssize_t r = pwrite(fd, block.get(), BLOCK_SIZE, offset);
+            // An accurate superblock is required to determine if replicas
+            // should be preserved at startup.  Without it any replicas
+            // written by this backup would be in jeopardy.
+            if (r == -1) {
+                DIE("Failed to write the backup superblock; "
+                    "cannot continue safely: %s", strerror(errno));
+            } else if (r < BLOCK_SIZE) {
+                DIE("Short write while writing the backup superblock; "
+                    "cannot continue safely");
+            }
+            int s = fdatasync(fd);
+            if (s == -1) {
+                DIE("Failed to flush the backup superblock; "
+                    "cannot continue safely: %s", strerror(errno));
+            }
+            LOG(DEBUG, "Superblock frame %u written", nextFrame);
+        }
+        lastSuperblockFrame = nextFrame;
+    }
+
+    superblock = newSuperblock;
+}
+
+/**
+ * Read both on-storage superblock locations and return the most up-to-date
+ * and complete superblock since the last resetSuperblock().
+ *
+ * \return
+ *      The most up-to-date complete superblock found on storage.  If no
+ *      superblock can be found a default superblock is returned which
+ *      indicates no prior backup instance left behind intelligible
+ *      traces of life on storage.
+ */
+BackupStorage::Superblock
+SingleFileStorage::loadSuperblock()
+{
+    Tub<Superblock> left;
+    Tub<Superblock> right;
+
+    try {
+        left = tryLoadSuperblock(0);
+    } catch (Exception& e) {}
+    try {
+        right = tryLoadSuperblock(1);
+    } catch (Exception& e) {}
+
+    bool chooseLeft = false;
+    if (left && right) {
+        chooseLeft = left->version >= right->version;
+    } else if (!left && !right) {
+        LOG(WARNING,
+            "Backup couldn't find existing superblock; "
+            "starting as fresh backup.");
+        right.construct();
+        chooseLeft = false;
+    } else {
+        chooseLeft = left;
+    }
+
+    if (chooseLeft) {
+        superblock = *left;
+        lastSuperblockFrame = 0;
+    } else {
+        superblock = *right;
+        lastSuperblockFrame = 1;
+    }
+
+    LOG(DEBUG,
+        "Reloading backup superblock (version %lu, superblockFrame %u) "
+        "from previous run", superblock.version, lastSuperblockFrame);
+    LOG(DEBUG, "Prior backup had ServerId %lu", superblock.serverId);
+    LOG(DEBUG, "Prior backup had cluster name '%s'", superblock.clusterName);
+
+    return superblock;
+}
+
+// - private -
+
+/**
+ * Pure function.
+ *
+ * \param segmentFrame
+ *      The segmentFrame to find the offset of in the file.
+ * \return
+ *      The offset into the file a particular segmentFrame starts at.
+ */
+uint64_t
+SingleFileStorage::offsetOfSegmentFrame(uint32_t segmentFrame) const
+{
+    const uint64_t firstSegmentFrameStart = offsetOfSuperblockFrame(2);
+    // Watch out for overflow; multiplying to 32-bit values.
+    return firstSegmentFrameStart + uint64_t(segmentFrame) * segmentSize;
+}
+
+/**
+ * Pure function.
+ *
+ * \param index
+ *      The superblock can be stored at two locations in the file.
+ *      Passing 0 returns the start of the first location,
+ *      passing 1 returns the start of the second location,
+ *      passing 2 returns the start of the first segment frame.
+ * \return
+ *      The offset into the file where a copy of the superblock may
+ *      be located.
+ */
+uint64_t
+SingleFileStorage::offsetOfSuperblockFrame(uint32_t index) const
+{
+    return index *
+           ((sizeof(Superblock) + BLOCK_SIZE - 1) / BLOCK_SIZE) *
+           BLOCK_SIZE;
+}
+
+/**
+ * Fix the size of the logfile to ensure that the OS doesn't tell us
+ * the filesystem is out of space later.
+ *
+ * \throw BackupStorageException
+ *      If space for segmentFrames segments of segmentSize cannot be reserved.
+ */
+void
+SingleFileStorage::reserveSpace()
+{
+    uint64_t logSpace = offsetOfSegmentFrame(segmentFrames);
+
+    LOG(DEBUG, "Reserving %lu bytes of log space", logSpace);
+    int r = ftruncate(fd, logSpace);
+    if (r == -1)
+        throw BackupStorageException(HERE,
+                "Couldn't reserve storage space for backup", errno);
+}
+
+/**
+ * Try to read one of the multiple storage locations which may contain
+ * a superblock.
+ *
+ * \param superblockFrame
+ *      Which of the multiple superblock storage locations to read.
+ *      Currently, there are two in order to avoid corrupting an existing
+ *      superblock if a failure occurs in the middle of an update.
+ * \return
+ *      The superblock stored at \a superblockFrame is returned if
+ *      it was loaded the stored checksum was correct.  Otherwise,
+ *      if there was a problem reading the file or the contents appears
+ *      to be damaged or incomplete the returned value is empty.
+ */
+Tub<BackupStorage::Superblock>
+SingleFileStorage::tryLoadSuperblock(uint32_t superblockFrame)
+{
+    Memory::unique_ptr_free block(
+        Memory::xmemalign(HERE, getpagesize(), BLOCK_SIZE), std::free);
+    struct FileContents {
+        Superblock superblock;
+        Crc32C::ResultType checksum;
+    } __attribute__((packed));
+    uint64_t offset = offsetOfSuperblockFrame(superblockFrame);
+    ssize_t r = pread(fd, block.get(), BLOCK_SIZE, offset);
+    if (r == -1) {
+        LOG(NOTICE, "Couldn't read superblock from superblock frame %u: %s",
+            superblockFrame, strerror(errno));
+        return {};
+    } else if (r < BLOCK_SIZE) {
+        LOG(NOTICE, "Couldn't read superblock from superblock frame %u: "
+            "read was short (read %ld bytes of %u)",
+            superblockFrame, r, BLOCK_SIZE);
+        return {};
+    }
+    FileContents* fileContents = reinterpret_cast<FileContents*>(block.get());
+    Superblock& superblock = fileContents->superblock;
+
+    Crc32C crc;
+    crc.update(&superblock, sizeof(superblock));
+    uint32_t checksum = crc.getResult();
+
+    // Check stored checksum against the computed checksum for stored data.
+    if (fileContents->checksum != checksum) {
+        LOG(NOTICE, "Stored superblock had a bad checksum: "
+            "stored checksum was %x, but stored data had checksum %x",
+            fileContents->checksum, checksum);
+        return {};
+    }
+    char& endOfName =
+        superblock.clusterName[sizeof(superblock.clusterName) - 1];
+    if (endOfName != '\0')
+        DIE("Stored superblock's cluster name should end in \\0; "
+            "this should never happen unless there is a software bug");
+
+    return { superblock };
 }
 
 // --- InMemoryStorage ---
@@ -497,6 +715,36 @@ InMemoryStorage::putSegment(const BackupStorage::Handle* handle,
 {
     char* address = static_cast<const Handle*>(handle)->getAddress();
     memcpy(address, segment, segmentSize);
+}
+
+/**
+ * No-op for InMemoryStorage since it can't actually persist a superblock.
+ *
+ * \param serverId
+ *      Ignored.
+ * \param clusterName
+ *      Ignored.
+ * \param frameSkipMask
+ *      Ignored.
+ */
+void
+InMemoryStorage::resetSuperblock(ServerId serverId,
+                                 const string& clusterName,
+                                 uint32_t frameSkipMask)
+{
+}
+
+/**
+ * Returns a default superblock since InMemoryStorage has no persistence.
+ *
+ * \return
+ *      A default constructed superblock corresponding to no known prior
+ *      server id and an unnamed cluster.
+ */
+BackupStorage::Superblock
+InMemoryStorage::loadSuperblock()
+{
+    return {};
 }
 
 } // namespace RAMCloud

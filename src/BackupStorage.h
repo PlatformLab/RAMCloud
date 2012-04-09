@@ -75,6 +75,78 @@ struct SegmentAllocator
  */
 class BackupStorage {
   PUBLIC:
+    /**
+     * Format for persisent metadata.  Includes the serverId of the backup that
+     * uses this storage along with the name of the cluster to which this
+     * backup belongs.
+     */
+    struct Superblock {
+        /**
+         * Distinguishes redundant copies of the superblock from one another
+         * on storage so that only the most recent is used.
+         */
+        uint64_t version;
+
+        /**
+         * Server id of the backup which owns the replicas in the storage.
+         * Before enlistment,  this contains the former server id that operated
+         * using this storage.  After enlistment, this contains the server id
+         * which is currently storing data in this storage.
+         */
+        uint64_t serverId;
+
+        /**
+         * Controls the reuse of replicas stored on this backup.  'Tags'
+         * replicas created on this backup with this cluster name.  This has
+         * two effects.  First, any replicas found in storage are discarded
+         * unless they are tagged with an identical cluster name. Second, any
+         * replicas created by the backup process will only be reused by future
+         * backup processes if the cluster name on the stored replica matches
+         * the cluster name of future process. The name '__unnamed__' is
+         * special and never matches any cluster name (even itself), so it
+         * guarantees all stored replicas are discarded on start and that all
+         * replicas created by this process are discarded by future backups.
+         * This is convenient for testing.
+         */
+        char clusterName[256];
+
+        /**
+         * Create a default superblock image; used in the case none is found
+         * on storage.
+         */
+        Superblock()
+            : version(0)
+            , serverId(ServerId().getId())
+            , clusterName()
+        {
+            const char* unnamed = "__unnamed__";
+            assert(strlen(unnamed) < sizeof(clusterName) - 1);
+            strncpy(clusterName, unnamed, sizeof(clusterName) - 1);
+        }
+
+        /**
+         * Create a superblock image.
+         */
+        Superblock(uint64_t version, ServerId serverId, const char* name)
+            : version(version)
+            , serverId(serverId.getId())
+        {
+            assert(strlen(clusterName) < sizeof(clusterName) - 1);
+            strncpy(clusterName, name, sizeof(clusterName) - 1);
+        }
+
+        /// Return '\0' terminated cluster name in this superblock.
+        const char* getClusterName() { return clusterName; }
+
+        /// Return the server id in this superblock.
+        ServerId getServerId() { return ServerId(serverId); }
+    } __attribute__((packed));
+
+    virtual void resetSuperblock(ServerId serverId,
+                                 const string& clusterName,
+                                 uint32_t frameSkipMask = 0) = 0;
+    virtual Superblock loadSuperblock() = 0;
+
     virtual ~BackupStorage()
     {
     }
@@ -236,6 +308,10 @@ class BackupStorage {
  */
 class SingleFileStorage : public BackupStorage {
   public:
+    enum { BLOCK_SIZE = 512 };
+    static_assert(sizeof(Superblock) < BLOCK_SIZE,
+                  "Superblock doesn't fit in a single disk block");
+
     /**
      * An opaque handle users of SingleFileStorage must use to access a
      * stored segment.
@@ -280,10 +356,21 @@ class SingleFileStorage : public BackupStorage {
                char* segment) const;
     virtual void putSegment(const BackupStorage::Handle* handle,
                             const char* segment) const;
+    virtual void resetSuperblock(ServerId serverId,
+                                 const string& clusterName,
+                                 uint32_t frameSkipMask = 0);
+    virtual Superblock loadSuperblock();
 
   PRIVATE:
     uint64_t offsetOfSegmentFrame(uint32_t segmentFrame) const;
+    uint64_t offsetOfSuperblockFrame(uint32_t index) const;
     void reserveSpace();
+    Tub<Superblock> tryLoadSuperblock(uint32_t superblockFrame);
+
+    Superblock superblock;
+
+    /// Tracks which of the superblock frames was most recently written.
+    uint32_t lastSuperblockFrame;
 
     /// Type of the freeMap.  A bitmap.
     typedef boost::dynamic_bitset<> FreeMap;
@@ -373,6 +460,10 @@ class InMemoryStorage : public BackupStorage {
                char* segment) const;
     virtual void putSegment(const BackupStorage::Handle* handle,
                             const char* segment) const;
+    virtual void resetSuperblock(ServerId serverId,
+                                 const string& clusterName,
+                                 uint32_t frameSkipMask = 0);
+    virtual Superblock loadSuperblock();
 
   PRIVATE:
     typedef boost::pool<SegmentAllocator> Pool;

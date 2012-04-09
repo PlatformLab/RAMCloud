@@ -33,8 +33,8 @@ namespace RAMCloud {
 void
 Server::startForTesting(BindTransport& bindTransport)
 {
-    createAndRegisterServices(&bindTransport);
-    enlist();
+    ServerId formerServerId = createAndRegisterServices(&bindTransport);
+    enlist(formerServerId);
 }
 
 /**
@@ -45,7 +45,7 @@ Server::startForTesting(BindTransport& bindTransport)
 void
 Server::run()
 {
-    createAndRegisterServices(NULL);
+    ServerId formerServerId = createAndRegisterServices(NULL);
 
     // Only pin down memory _after_ users of LargeBlockOfMemory have
     // obtained their allocations (since LBOM probes are much slower if
@@ -59,7 +59,7 @@ Server::run()
     Dispatch& dispatch = *Context::get().dispatch;
     dispatch.currentTime = Cycles::rdtsc();
 
-    enlist();
+    enlist(formerServerId);
 
     while (true)
         dispatch.poll();
@@ -75,10 +75,19 @@ Server::run()
  * \param bindTransport
  *      If given register the services with \a bindTransport instead of
  *      the Context's ServiceManager.
+ * \return
+ *      If this server is rejoining a cluster its former server id is returned,
+ *      otherwise an invalid server is returned.  "Rejoining" means the backup
+ *      service on this server may have segment replicas stored that were
+ *      created by masters in the cluster.  In this case, the coordinator must
+ *      be told of the former server id under which these replicas were
+ *      created to ensure correct garbage collection of the stored replicas.
  */
-void
+ServerId
 Server::createAndRegisterServices(BindTransport* bindTransport)
 {
+    ServerId formerServerId;
+
     if (config.services.has(COORDINATOR_SERVICE)) {
         DIE("Server class is not capable of running the CoordinatorService "
             "(yet).");
@@ -101,6 +110,7 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
 
     if (config.services.has(BACKUP_SERVICE)) {
         backup.construct(config);
+        formerServerId = backup->getFormerServerId();
         if (config.backup.mockSpeed == 0) {
             backup->benchmark(backupReadSpeed, backupWriteSpeed);
         } else {
@@ -139,20 +149,31 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
                                                        PING_SERVICE);
         }
     }
+
+    return formerServerId;
 }
 
 /**
  * Enlist the Server with the coordinator and start the failure detector
  * if it is enabled in #config.
+ *
+ * \param replacingId
+ *      If this server has found replicas on storage written by a now-defunct
+ *      server then the backup must report the server id that formerly owned
+ *      those replicas upon enlistment. This is used to ensure that all
+ *      servers in the cluster know of the crash of the old server which
+ *      created the replicas before a new server enters the cluster
+ *      attempting to reuse those replicas.  This property is used as part
+ *      of the backup's replica garbage collection routines.
  */
 void
-Server::enlist()
+Server::enlist(ServerId replacingId)
 {
     // Enlist with the coordinator just before dedicating this thread
     // to rpc dispatch. This reduces the window of being unavailable to
     // service rpcs after enlisting with the coordinator (which can
     // lead to session open timeouts).
-    serverId = coordinator->enlistServer({},
+    serverId = coordinator->enlistServer(replacingId,
                                          config.services,
                                          config.localLocator,
                                          backupReadSpeed, backupWriteSpeed);

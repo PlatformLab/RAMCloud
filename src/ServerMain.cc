@@ -86,12 +86,20 @@ main(int argc, char *argv[])
              ProgramOptions::value<bool>(&config.detectFailures)->
                 default_value(true),
              "Whether to use the randomized failure detector")
-            ("useStoredReplicas",
-             ProgramOptions::bool_switch(&config.backup.useStoredReplicas),
-             "If set then scan the backup storage at startup and consider any "
-             "replicas found to be part of this backup, if this is not set "
-             "all segment frames in storage are scribbled on before startup "
-             "to ensure the replicas are never reused in future runs.");
+            ("clusterName",
+             ProgramOptions::value<string>(&config.clusterName),
+             "Controls the reuse of replicas stored on this backup."
+             "'Tags' replicas created on the backup with this cluster name. "
+             "This has two effects. First, any replicas found in storage "
+             "are discarded unless they are tagged with an identical cluster "
+             "name. Second, any replicas created by the backup process will "
+             "only be reused by future backup processes if the cluster name "
+             "on the stored replica matches the cluster name of future"
+             "process. The name '__unnamed__' is special and never matches "
+             "any cluster name (even itself), so it guarantees all stored "
+             "replicas are discarded on start and that all replicas created "
+             "by this process are discarded by future backups. "
+             "This is convenient for testing.");
 
         OptionParser optionParser(serverOptions, argc, argv);
 
