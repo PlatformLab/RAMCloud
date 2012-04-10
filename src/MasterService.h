@@ -87,6 +87,9 @@ class MasterService : public Service {
     void fillWithTestData(const FillWithTestDataRpc::Request& reqHdr,
                           FillWithTestDataRpc::Response& respHdr,
                           Rpc& rpc);
+    void increment(const IncrementRpc::Request& reqHdr,
+                 IncrementRpc::Response& respHdr,
+                 Rpc& rpc);
     void multiRead(const MultiReadRpc::Request& reqHdr,
                    MultiReadRpc::Response& respHdr,
                    Rpc& rpc);
@@ -102,15 +105,12 @@ class MasterService : public Service {
     void recover(const RecoverRpc::Request& reqHdr,
                  RecoverRpc::Response& respHdr,
                  Rpc& rpc);
-
     void recoverSegmentPrefetcher(RecoverySegmentIterator& i);
     void recoverSegment(uint64_t segmentId, const void *buffer,
                         uint32_t bufferLength);
-
     void recover(ServerId masterId,
                  uint64_t partitionId,
                  vector<Replica>& replicas);
-
     void remove(const RemoveRpc::Request& reqHdr,
                 RemoveRpc::Response& respHdr,
                 Rpc& rpc);

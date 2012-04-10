@@ -151,6 +151,10 @@ MasterService::dispatch(RpcOpcode opcode, Rpc& rpc)
             callHandler<FillWithTestDataRpc, MasterService,
                         &MasterService::fillWithTestData>(rpc);
             break;
+        case IncrementRpc::opcode:
+            callHandler<IncrementRpc, MasterService,
+                        &MasterService::increment>(rpc);
+            break;
         case MultiReadRpc::opcode:
             callHandler<MultiReadRpc, MasterService,
                         &MasterService::multiRead>(rpc);
@@ -421,7 +425,7 @@ MasterService::dropTabletOwnership(
  * receiving this rpc owns the tablet specified and all requests for it
  * will be directed here from now on.
  *
- * \copydetails Service::ping 
+ * \copydetails Service::ping
  */
 void
 MasterService::takeTabletOwnership(
@@ -1102,7 +1106,7 @@ MasterService::recoverSegmentPrefetcher(RecoverySegmentIterator& i)
  *
  * \param segmentId
  *      The segmentId of the segment as it was in the log of the crashed Master.
- * \param buffer 
+ * \param buffer
  *      A pointer to a valid segment which has been pre-filtered of all
  *      objects except those that pertain to the tablet ranges this Master
  *      will be responsible for after the recovery completes.
@@ -1308,6 +1312,75 @@ MasterService::remove(const RemoveRpc::Request& reqHdr,
 }
 
 /**
+ * Top-level server method to handle the INCREMENT request.
+ *
+ * \copydetails MasterService::read
+ */
+void
+MasterService::increment(const IncrementRpc::Request& reqHdr,
+                     IncrementRpc::Response& respHdr,
+                     Rpc& rpc)
+{
+    //Read the current value of the object and add the increment value
+    uint32_t reqOffset = downCast<uint32_t>(sizeof(reqHdr));
+    const char* key = static_cast<const char*>(rpc.requestPayload.getRange(
+                                               reqOffset, reqHdr.keyLength));
+
+    if (getTable(reqHdr.tableId, key, reqHdr.keyLength) == NULL) {
+        respHdr.common.status = STATUS_TABLE_DOESNT_EXIST;
+        return;
+    }
+
+    LogEntryHandle handle = objectMap.lookup(reqHdr.tableId,
+                                             key, reqHdr.keyLength);
+
+    if (handle == NULL || handle->type() != LOG_ENTRY_TYPE_OBJ) {
+        respHdr.common.status = STATUS_OBJECT_DOESNT_EXIST;
+        return;
+    }
+
+    const Object* obj = handle->userData<Object>();
+    Status status = rejectOperation(reqHdr.rejectRules, obj->version);
+    if (status != STATUS_OK) {
+        respHdr.common.status = status;
+        return;
+    }
+
+    if (obj->dataLength(handle->length()) != 8) {
+        respHdr.common.status = STATUS_INVALID_OBJECT;
+        return;
+    }
+
+    int64_t oldValue;
+    int64_t newValue;
+    memcpy(&oldValue, obj->getData(), obj->dataLength(handle->length()));
+    newValue = oldValue + reqHdr.incrementValue;
+
+    //Write the new value back
+    Buffer newValueBuffer;
+    Buffer::Chunk::appendToBuffer(&newValueBuffer, rpc.requestPayload.getRange(
+                                  reqOffset, reqHdr.keyLength),
+                                  reqHdr.keyLength);
+    Buffer::Chunk::appendToBuffer(&newValueBuffer, &newValue,
+                                  sizeof(int64_t));
+
+    status = storeData(reqHdr.tableId, &reqHdr.rejectRules,
+                              &newValueBuffer,
+                              static_cast<uint32_t>(0),
+                              reqHdr.keyLength,
+                              static_cast<uint32_t>(sizeof(int64_t)),
+                              &respHdr.version, false);
+
+    if (status != STATUS_OK) {
+        respHdr.common.status = status;
+        return;
+    }
+
+    //return new value
+    respHdr.newValue = newValue;
+}
+
+/**
  * Top-level server method to handle the WRITE request.
  *
  * \copydetails MasterService::read
@@ -1414,7 +1487,7 @@ MasterService::rejectOperation(const RejectRules& rejectRules, uint64_t version)
  * Determine whether or not an object is still alive (i.e. is referenced
  * by the hash table). If so, the cleaner must perpetuate it. If not, it
  * can be safely discarded.
- * 
+ *
  * \param[in] handle
  *      LogEntryHandle to the object whose liveness is being queried.
  * \param[in] cookie
@@ -1532,7 +1605,7 @@ objectRelocationCallback(LogEntryHandle oldHandle,
  * Object. Timestamps are stored in the Object itself, rather than in the
  * Log, since not all Log entries need timestamps and other parts of the
  * system (or clients) may care about Object modification times.
- * 
+ *
  * \param[in]  handle
  *      LogEntryHandle to the entry being examined.
  * \return
@@ -1549,7 +1622,7 @@ objectTimestampCallback(LogEntryHandle handle)
  * Determine whether or not a tombstone is still alive (i.e. it references
  * a segment that still exists). If so, the cleaner must perpetuate it. If
  * not, it can be safely discarded.
- * 
+ *
  * \param[in] handle
  *      LogEntryHandle to the object whose liveness is being queried.
  * \param[in] cookie
@@ -1625,7 +1698,7 @@ tombstoneRelocationCallback(LogEntryHandle oldHandle,
  * Callback used by the Log to determine the age of Tombstone. We don't
  * current store tombstone ages, so just return the current timstamp
  * (they're perpetually young). This needs to be re-thought.
- * 
+ *
  * \param[in]  handle
  *      LogEntryHandle to the entry being examined.
  * \return

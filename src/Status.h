@@ -73,7 +73,11 @@ enum Status {
     STATUS_TIMEOUT                      = 19,
     STATUS_SERVER_DOESNT_EXIST          = 20,
     STATUS_INTERNAL_ERROR               = 21,
-    STATUS_MAX_VALUE                    = 21
+
+    /// Indicates that the object chosen for an operation does not match the
+    /// associated requirements. Therefore the chosen object is invalid.
+    STATUS_INVALID_OBJECT               = 22,
+    STATUS_MAX_VALUE                    = 22
     // Note: if you add a new status value you must make the following
     // additional updates:
     // * Modify STATUS_MAX_VALUE to have a value equal to the largest

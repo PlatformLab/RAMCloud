@@ -97,7 +97,8 @@ enum RpcOpcode {
     DROP_TABLET_OWNERSHIP   = 39,
     TAKE_TABLET_OWNERSHIP   = 40,
     BACKUP_ASSIGN_GROUP     = 41,
-    ILLEGAL_RPC_TYPE        = 42,  // 1 + the highest legitimate RpcOpcode
+    INCREMENT               = 42,
+    ILLEGAL_RPC_TYPE        = 43,  // 1 + the highest legitimate RpcOpcode
 };
 
 /**
@@ -157,6 +158,27 @@ struct FillWithTestDataRpc {
         RpcResponseCommon common;
     } __attribute__((packed));
 };
+
+struct IncrementRpc {
+    static const RpcOpcode opcode = INCREMENT;
+    static const ServiceType service = MASTER_SERVICE;
+    struct Request {
+        RpcRequestCommon common;
+        uint32_t tableId;
+        uint16_t keyLength;           // Length of the key in bytes.
+                                      // The actual bytes of the key follow
+                                      // immediately after this header.
+        int64_t incrementValue;       // Value that the object will be
+                                      // incremented by.
+        RejectRules rejectRules;
+    } __attribute__((packed));
+    struct Response {
+        RpcResponseCommon common;
+        uint64_t version;
+        int64_t newValue;                // The new value of the object.
+    } __attribute__((packed));
+};
+
 
 struct MultiReadRpc {
     static const RpcOpcode opcode = MULTI_READ;

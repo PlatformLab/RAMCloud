@@ -149,6 +149,9 @@ class RamCloud {
     void read(uint32_t tableId, const char* key, uint16_t keyLength,
               Buffer* value, const RejectRules* rejectRules = NULL,
               uint64_t* version = NULL);
+    void increment(uint32_t tableId, const char* key, uint16_t keyLength,
+              int64_t incrementValue, const RejectRules* rejectRules = NULL,
+              uint64_t* version = NULL, int64_t* newValue = NULL);
     void multiRead(MasterClient::ReadObject* requests[], uint32_t numRequests);
     void remove(uint32_t tableId, const char* key, uint16_t keyLength,
                 const RejectRules* rejectRules = NULL,
