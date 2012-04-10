@@ -188,6 +188,7 @@ class Log {
     uint64_t       getBytesAppended() const;
     uint64_t       getBytesFreed() const;
     uint64_t       getId() const;
+    LogPosition    headOfLog();
     uint64_t       getCapacity() const;
     uint32_t       getSegmentCapacity() const;
     size_t         getNumberOfSegments() const;

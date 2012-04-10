@@ -85,6 +85,7 @@ Rpc::opcodeSymbol(uint32_t opcode)
         case TAKE_TABLET_OWNERSHIP:      return "TAKE_TABLET_OWNERSHIP";
         case BACKUP_ASSIGN_GROUP:        return "BACKUP_ASSIGN_GROUP";
         case INCREMENT:                  return "INCREMENT";
+        case GET_HEAD_OF_LOG:            return "GET_HEAD_OF_LOG";
         case ILLEGAL_RPC_TYPE:           return "ILLEGAL_RPC_TYPE";
     }
 

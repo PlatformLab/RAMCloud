@@ -45,6 +45,22 @@ MasterClient::fillWithTestData(uint32_t numObjects, uint32_t objectSize)
 }
 
 /**
+ * Obtain a master's log head position. This is currently used to determine
+ * the minimum position at which data belonging to newly assigned tablet
+ * may exist at. Any prior data can be ignored.
+ */
+LogPosition
+MasterClient::getHeadOfLog()
+{
+    Buffer req, resp;
+    allocHeader<GetHeadOfLogRpc>(req);
+    const GetHeadOfLogRpc::Response& respHdr(
+        sendRecv<GetHeadOfLogRpc>(session, req, resp));
+    checkStatus(HERE);
+    return { respHdr.headSegmentId, respHdr.headSegmentOffset };
+}
+
+/**
  * Recover a set of tablets on behalf of a crashed master.
  *
  * \param client

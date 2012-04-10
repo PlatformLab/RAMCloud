@@ -155,6 +155,10 @@ MasterService::dispatch(RpcOpcode opcode, Rpc& rpc)
             callHandler<IncrementRpc, MasterService,
                         &MasterService::increment>(rpc);
             break;
+        case GetHeadOfLogRpc::opcode:
+            callHandler<GetHeadOfLogRpc, MasterService,
+                        &MasterService::getHeadOfLog>(rpc);
+            break;
         case MultiReadRpc::opcode:
             callHandler<MultiReadRpc, MasterService,
                         &MasterService::multiRead>(rpc);
@@ -255,6 +259,19 @@ MasterService::fillWithTestData(const FillWithTestDataRpc::Request& reqHdr,
     log.sync();
 
     LOG(NOTICE, "Done writing objects.");
+}
+
+/**
+ * Top-level server method to handle the GET_HEAD_OF_LOG request.
+ */
+void
+MasterService::getHeadOfLog(const GetHeadOfLogRpc::Request& reqHdr,
+                            GetHeadOfLogRpc::Response& respHdr,
+                            Rpc& rpc)
+{
+    LogPosition head = log.headOfLog();
+    respHdr.headSegmentId = head.segmentId();
+    respHdr.headSegmentOffset = head.segmentOffset();
 }
 
 /**
@@ -1023,6 +1040,9 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
         newTablets.push_back(&newTablet);
     }
 
+    // Record the log position before recovery started.
+    LogPosition headOfLog = log.headOfLog();
+
     // Recover Segments, firing MasterService::recoverSegment for each one.
     recover(masterId, partitionId, replicas);
 
@@ -1046,6 +1066,8 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
                  serverId.getId());
         tablet.set_service_locator(config.localLocator);
         tablet.set_server_id(serverId.getId());
+        tablet.set_ctime_log_head_id(headOfLog.segmentId());
+        tablet.set_ctime_log_head_offset(headOfLog.segmentOffset());
     }
     coordinator->tabletsRecovered(serverId, recoveryTablets);
 

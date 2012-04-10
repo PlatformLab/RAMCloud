@@ -23,6 +23,7 @@
 #include "Buffer.h"
 #include "ServerId.h"
 #include "Tub.h"
+#include "LogTypes.h"
 
 namespace RAMCloud {
 
@@ -167,6 +168,7 @@ class MasterClient : public Client {
                    int64_t incrementValue,
                    const RejectRules* rejectRules = NULL,
                    uint64_t* version = NULL, int64_t* newValue = NULL);
+    LogPosition getHeadOfLog();
     void multiRead(std::vector<ReadObject*> requests);
     void read(uint32_t tableId, const char* key, uint16_t keyLength,
               Buffer* value, const RejectRules* rejectRules = NULL,

@@ -98,7 +98,8 @@ enum RpcOpcode {
     TAKE_TABLET_OWNERSHIP   = 40,
     BACKUP_ASSIGN_GROUP     = 41,
     INCREMENT               = 42,
-    ILLEGAL_RPC_TYPE        = 43,  // 1 + the highest legitimate RpcOpcode
+    GET_HEAD_OF_LOG         = 43,
+    ILLEGAL_RPC_TYPE        = 44,  // 1 + the highest legitimate RpcOpcode
 };
 
 /**
@@ -179,6 +180,18 @@ struct IncrementRpc {
     } __attribute__((packed));
 };
 
+struct GetHeadOfLogRpc {
+    static const RpcOpcode opcode = GET_HEAD_OF_LOG;
+    static const ServiceType service = MASTER_SERVICE;
+    struct Request {
+        RpcRequestCommon common;
+    };
+    struct Response {
+        RpcResponseCommon common;
+        uint64_t headSegmentId;     // ID of head segment in the log.
+        uint32_t headSegmentOffset; // Byte offset of head within the segment.
+    };
+};
 
 struct MultiReadRpc {
     static const RpcOpcode opcode = MULTI_READ;

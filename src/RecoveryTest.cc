@@ -294,6 +294,8 @@ TEST_F(RecoveryTest, start) {
         tablet.set_end_key_hash(9);
         tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
         tablet.set_user_data(0); // partition 0
+        tablet.set_ctime_log_head_id(0);
+        tablet.set_ctime_log_head_offset(0);
     }{
         ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
         tablet.set_table_id(123);
@@ -301,6 +303,8 @@ TEST_F(RecoveryTest, start) {
         tablet.set_end_key_hash(29);
         tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
         tablet.set_user_data(0); // partition 0
+        tablet.set_ctime_log_head_id(0);
+        tablet.set_ctime_log_head_offset(0);
     }{
         ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
         tablet.set_table_id(123);
@@ -308,6 +312,8 @@ TEST_F(RecoveryTest, start) {
         tablet.set_end_key_hash(19);
         tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
         tablet.set_user_data(1); // partition 1
+        tablet.set_ctime_log_head_id(0);
+        tablet.set_ctime_log_head_offset(0);
     }
 
     Recovery recovery(ServerId(99), tablets, *serverList);
@@ -393,6 +399,8 @@ TEST_F(RecoveryTest, start_notEnoughMasters) {
         tablet.set_end_key_hash(9);
         tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
         tablet.set_user_data(0); // partition 0
+        tablet.set_ctime_log_head_id(0);
+        tablet.set_ctime_log_head_offset(0);
     }{
         ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
         tablet.set_table_id(123);
@@ -400,6 +408,8 @@ TEST_F(RecoveryTest, start_notEnoughMasters) {
         tablet.set_end_key_hash(19);
         tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
         tablet.set_user_data(1); // partition 1
+        tablet.set_ctime_log_head_id(0);
+        tablet.set_ctime_log_head_offset(0);
     }{
         ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
         tablet.set_table_id(123);
@@ -407,6 +417,8 @@ TEST_F(RecoveryTest, start_notEnoughMasters) {
         tablet.set_end_key_hash(29);
         tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
         tablet.set_user_data(2); // partition 2
+        tablet.set_ctime_log_head_id(0);
+        tablet.set_ctime_log_head_offset(0);
     }
 
     Recovery recovery(ServerId(99), tablets, *serverList);

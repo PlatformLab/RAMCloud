@@ -144,7 +144,6 @@ CoordinatorService::createTable(const CreateTableRpc::Request& reqHdr,
         if (i == serverSpan - 1)
             endKeyHash = ~0UL;
 
-
         // Find the next master in the list.
         CoordinatorServerList::Entry* master = NULL;
         while (true) {
@@ -156,6 +155,13 @@ CoordinatorService::createTable(const CreateTableRpc::Request& reqHdr,
             }
         }
 
+        const char* locator = master->serviceLocator.c_str();
+        MasterClient masterClient(
+            Context::get().transportManager->getSession(locator));
+
+        // Get current log head. Only entries >= this can be part of the tablet.
+        LogPosition headOfLog = masterClient.getHeadOfLog();
+
         // Create tablet map entry.
         ProtoBuf::Tablets_Tablet& tablet(*tabletMap.add_tablet());
         tablet.set_table_id(tableId);
@@ -164,6 +170,8 @@ CoordinatorService::createTable(const CreateTableRpc::Request& reqHdr,
         tablet.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
         tablet.set_server_id(master->serverId.getId());
         tablet.set_service_locator(master->serviceLocator);
+        tablet.set_ctime_log_head_id(headOfLog.segmentId());
+        tablet.set_ctime_log_head_offset(headOfLog.segmentOffset());
 
         // Create will entry. The tablet is empty, so it doesn't matter where it
         // goes or in how many partitions, initially.
@@ -180,11 +188,10 @@ CoordinatorService::createTable(const CreateTableRpc::Request& reqHdr,
         else
             maxPartitionId = -1;
         willEntry.set_user_data(maxPartitionId + 1);
+        willEntry.set_ctime_log_head_id(headOfLog.segmentId());
+        willEntry.set_ctime_log_head_offset(headOfLog.segmentOffset());
 
         // Inform the master.
-        const char* locator = master->serviceLocator.c_str();
-        MasterClient masterClient(
-            Context::get().transportManager->getSession(locator));
         masterClient.takeTabletOwnership(tableId,
                                          tablet.start_key_hash(),
                                          tablet.end_key_hash());
@@ -455,6 +462,9 @@ CoordinatorService::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
     LOG(NOTICE, "called by masterId %lu with %u tablets",
         reqHdr.masterId, recoveredTablets.tablet_size());
 
+    TEST_LOG("Recovered tablets");
+    TEST_LOG("%s", recoveredTablets.ShortDebugString().c_str());
+
     // update tablet map to point to new owner and mark as available
     foreach (const ProtoBuf::Tablets::Tablet& recoveredTablet,
              recoveredTablets.tablet())
@@ -479,6 +489,14 @@ CoordinatorService::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
                 // it over.
                 tablet.set_service_locator(recoveredTablet.service_locator());
                 tablet.set_server_id(recoveredTablet.server_id());
+
+                // Record the log position of the recovery master at creation of
+                // this new tablet assignment. The value is the position of the
+                // head at the very start of recovery.
+                tablet.set_ctime_log_head_id(
+                    recoveredTablet.ctime_log_head_id());
+                tablet.set_ctime_log_head_offset(
+                    recoveredTablet.ctime_log_head_offset());
 
                 bool recoveryComplete =
                     recovery->tabletsRecovered(recoveredTablets);

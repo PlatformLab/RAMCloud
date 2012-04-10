@@ -254,7 +254,7 @@ TEST_F(LogTest, getSegmentId) {
 }
 
 TEST_F(LogTest, append) {
-    Log l(serverId, 3 * 8192, 8192, 8138, NULL, Log::CLEANER_DISABLED);
+    Log l(serverId, 3 * 8192, 8192, 8130, NULL, Log::CLEANER_DISABLED);
     l.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
         NULL, NULL, NULL);
     static char buf[13];
@@ -270,9 +270,9 @@ TEST_F(LogTest, append) {
     EXPECT_EQ(sizeof(SegmentEntry) + sizeof(buf),
         seh->totalLength());
     EXPECT_EQ(0, memcmp(buf, seh->userData(), sizeof(buf)));
-    EXPECT_TRUE(LogTime(0,
+    EXPECT_TRUE(LogPosition(0,
         sizeof(SegmentEntry) + sizeof(SegmentHeader) + sizeof(SegmentEntry)
-        + LogDigest::getBytesFromCount(1)) == seh->logTime());
+        + LogDigest::getBytesFromCount(1)) == seh->logPosition());
     EXPECT_TRUE(l.activeIdMap.find(l.head->getId()) !=
         l.activeIdMap.end());
     EXPECT_TRUE(l.activeBaseAddressMap.find(l.head->getBaseAddress()) !=
@@ -298,11 +298,11 @@ TEST_F(LogTest, append) {
     EXPECT_TRUE(oldHead != l.head);
 
     // execise regular head != NULL path
-    LogTime logTime = seh->logTime();
-    LogTime nextTime;
+    LogPosition logPosition = seh->logPosition();
+    LogPosition nextTime;
     seh = l.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf), NULL);
     EXPECT_TRUE(seh != NULL);
-    EXPECT_TRUE(seh->logTime() > logTime);
+    EXPECT_TRUE(seh->logPosition() > logPosition);
 
     EXPECT_EQ(4U, l.stats.totalAppends);
 

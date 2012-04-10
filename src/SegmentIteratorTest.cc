@@ -174,7 +174,7 @@ TEST_F(SegmentIteratorTest, getters) {
     EXPECT_EQ(sizeof(SegmentHeader), si.getLength());
     EXPECT_EQ(sizeof(SegmentEntry) + sizeof(SegmentHeader),
         si.getLengthInLog());
-    EXPECT_EQ(si.getLogTime(), LogTime(98765, 0));
+    EXPECT_EQ(si.getLogPosition(), LogPosition(98765, 0));
     EXPECT_EQ((const void *)(alignedBuf + sizeof(SegmentEntry)),
         si.getPointer());
     EXPECT_EQ((uintptr_t)si.getPointer() -
@@ -183,15 +183,15 @@ TEST_F(SegmentIteratorTest, getters) {
     si.next();
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, si.getType());
     EXPECT_EQ(sizeof(buf), si.getLength());
-    uint32_t segmentOffset = h->logTime().second;
-    EXPECT_EQ(si.getLogTime(), LogTime(98765, segmentOffset));
-    EXPECT_TRUE(si.getLogTime() > LogTime(98765, 0));
+    uint32_t segmentOffset = h->logPosition().segmentOffset();
+    EXPECT_EQ(si.getLogPosition(), LogPosition(98765, segmentOffset));
+    EXPECT_TRUE(si.getLogPosition() > LogPosition(98765, 0));
 
     si.currentEntry = NULL;
     EXPECT_THROW(si.getType(), SegmentIteratorException);
     EXPECT_THROW(si.getLength(), SegmentIteratorException);
     EXPECT_THROW(si.getLengthInLog(), SegmentIteratorException);
-    EXPECT_THROW(si.getLogTime(), SegmentIteratorException);
+    EXPECT_THROW(si.getLogPosition(), SegmentIteratorException);
     EXPECT_THROW(si.getPointer(), SegmentIteratorException);
     EXPECT_THROW(si.getType(), SegmentIteratorException);
 }
@@ -201,7 +201,7 @@ TEST_F(SegmentIteratorTest, generateChecksum) {
     memset(alignedBuf, 0, sizeof(alignedBuf));
     Segment s(1, 2, alignedBuf, sizeof(alignedBuf));
     SegmentIterator i(&s);
-    EXPECT_EQ(0x0bd2d711U, i.generateChecksum());
+    EXPECT_EQ(0x941b1041, i.generateChecksum());
 }
 
 TEST_F(SegmentIteratorTest, isChecksumValid) {

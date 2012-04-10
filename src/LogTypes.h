@@ -23,11 +23,35 @@
 namespace RAMCloud {
 
 /**
- * LogTime is a (Segment #, Segment Offset) tuple that represents the logical
- * time at which something was appended to the Log. It is currently only used
- * for computing table partitions.
+ * LogPosition is a (Segment Id, Segment Offset) tuple that represents a
+ * position in the log. For example, it can be considered the logical time
+ * at which something was appended to the Log. It can be used for things like
+ * computing table partitions and obtaining a master's current log position.
  */
-typedef std::pair<uint64_t, uint32_t> LogTime;
+class LogPosition {
+  public:
+    LogPosition()
+        : pos(0, 0)
+    {
+    }
+
+    LogPosition(uint64_t segmentId, uint64_t segmentOffset)
+        : pos(segmentId, downCast<uint32_t>(segmentOffset))
+    {
+    }
+
+    bool operator==(const LogPosition& other) const { return pos == other.pos; }
+    bool operator!=(const LogPosition& other) const { return pos != other.pos; }
+    bool operator< (const LogPosition& other) const { return pos <  other.pos; }
+    bool operator<=(const LogPosition& other) const { return pos <= other.pos; }
+    bool operator> (const LogPosition& other) const { return pos >  other.pos; }
+    bool operator>=(const LogPosition& other) const { return pos >= other.pos; }
+    uint64_t segmentId() const { return pos.first; }
+    uint32_t segmentOffset() const { return pos.second; }
+
+  private:
+    std::pair<uint64_t, uint32_t> pos;
+};
 
 /**
  * Each entry in the log has an 8-bit type field. In a disaster recovery

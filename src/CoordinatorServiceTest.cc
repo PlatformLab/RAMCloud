@@ -61,38 +61,49 @@ TEST_F(CoordinatorServiceTest, createTable) {
     ServerConfig master2Config = masterConfig;
     master2Config.localLocator = "mock:host=master2";
     MasterService& master2 = *cluster.addServer(master2Config)->master;
+
+    // Advance the log head slightly so creation time offset is non-zero.
+    master->log.append(LOG_ENTRY_TYPE_OBJ, "hi", 2);
+
     // master is already enlisted
     client->createTable("foo");
     client->createTable("foo"); // should be no-op
     client->createTable("bar"); // should go to master2
     client->createTable("baz"); // and back to master1
+
     EXPECT_EQ(0U, get(service->tables, "foo"));
     EXPECT_EQ(1U, get(service->tables, "bar"));
     EXPECT_EQ("tablet { table_id: 0 start_key_hash: 0 "
               "end_key_hash: 18446744073709551615 "
               "state: NORMAL server_id: 1 "
-              "service_locator: \"mock:host=master\" } "
+              "service_locator: \"mock:host=master\" "
+              "ctime_log_head_id: 0 ctime_log_head_offset: 72 } "
               "tablet { table_id: 1 start_key_hash: 0 "
               "end_key_hash: 18446744073709551615 "
               "state: NORMAL server_id: 2 "
-              "service_locator: \"mock:host=master2\" } "
+              "service_locator: \"mock:host=master2\" "
+              "ctime_log_head_id: 0 ctime_log_head_offset: 0 } "
               "tablet { table_id: 2 start_key_hash: 0 "
               "end_key_hash: 18446744073709551615 "
               "state: NORMAL server_id: 1 "
-              "service_locator: \"mock:host=master\" }",
+              "service_locator: \"mock:host=master\" "
+              "ctime_log_head_id: 0 ctime_log_head_offset: 72 }",
               service->tabletMap.ShortDebugString());
     ProtoBuf::Tablets& will1 = *service->serverList[1]->will;
     EXPECT_EQ("tablet { table_id: 0 start_key_hash: 0 "
               "end_key_hash: 18446744073709551615 "
-              "state: NORMAL user_data: 0 } "
+              "state: NORMAL user_data: 0 "
+              "ctime_log_head_id: 0 ctime_log_head_offset: 72 } "
               "tablet { table_id: 2 start_key_hash: 0 "
               "end_key_hash: 18446744073709551615 "
-              "state: NORMAL user_data: 1 }",
+              "state: NORMAL user_data: 1 "
+              "ctime_log_head_id: 0 ctime_log_head_offset: 72 }",
               will1.ShortDebugString());
     ProtoBuf::Tablets& will2 = *service->serverList[2]->will;
     EXPECT_EQ("tablet { table_id: 1 start_key_hash: 0 "
               "end_key_hash: 18446744073709551615 "
-              "state: NORMAL user_data: 0 }",
+              "state: NORMAL user_data: 0 "
+              "ctime_log_head_id: 0 ctime_log_head_offset: 0 }",
               will2.ShortDebugString());
     EXPECT_EQ(2, master->tablets.tablet_size());
     EXPECT_EQ(1, master2.tablets.tablet_size());
@@ -112,11 +123,13 @@ TEST_F(CoordinatorServiceTest,
     EXPECT_EQ("tablet { table_id: 0 start_key_hash: 0 "
               "end_key_hash: 9223372036854775807 "
               "state: NORMAL server_id: 1 "
-              "service_locator: \"mock:host=master\" } "
+              "service_locator: \"mock:host=master\" "
+              "ctime_log_head_id: 0 ctime_log_head_offset: 0 } "
               "tablet { table_id: 0 start_key_hash: 9223372036854775808 "
               "end_key_hash: 18446744073709551615 "
               "state: NORMAL server_id: 2 "
-              "service_locator: \"mock:host=master2\" }",
+              "service_locator: \"mock:host=master2\" "
+              "ctime_log_head_id: 0 ctime_log_head_offset: 0 }",
               service->tabletMap.ShortDebugString());
     EXPECT_EQ(1, master->tablets.tablet_size());
     EXPECT_EQ(1, master2.tablets.tablet_size());
@@ -135,15 +148,18 @@ TEST_F(CoordinatorServiceTest,
     EXPECT_EQ("tablet { table_id: 0 start_key_hash: 0 "
               "end_key_hash: 6148914691236517205 "
               "state: NORMAL server_id: 1 "
-              "service_locator: \"mock:host=master\" } "
+              "service_locator: \"mock:host=master\" "
+              "ctime_log_head_id: 0 ctime_log_head_offset: 0 } "
               "tablet { table_id: 0 start_key_hash: 6148914691236517206 "
               "end_key_hash: 12297829382473034410 "
               "state: NORMAL server_id: 2 "
-              "service_locator: \"mock:host=master2\" } "
+              "service_locator: \"mock:host=master2\" "
+              "ctime_log_head_id: 0 ctime_log_head_offset: 0 } "
               "tablet { table_id: 0 start_key_hash: 12297829382473034411 "
               "end_key_hash: 18446744073709551615 "
               "state: NORMAL server_id: 1 "
-              "service_locator: \"mock:host=master\" }",
+              "service_locator: \"mock:host=master\" "
+              "ctime_log_head_id: 0 ctime_log_head_offset: 0 }",
               service->tabletMap.ShortDebugString());
     EXPECT_EQ(2, master->tablets.tablet_size());
     EXPECT_EQ(1, master2.tablets.tablet_size());
@@ -280,7 +296,8 @@ TEST_F(CoordinatorServiceTest, getTabletMap) {
     EXPECT_EQ("tablet { table_id: 0 start_key_hash: 0 "
               "end_key_hash: 18446744073709551615 "
               "state: NORMAL server_id: 1 "
-              "service_locator: \"mock:host=master\" }",
+              "service_locator: \"mock:host=master\" "
+              "ctime_log_head_id: 0 ctime_log_head_offset: 0 }",
               tabletMap.ShortDebugString());
 }
 
@@ -302,12 +319,14 @@ TEST_F(CoordinatorServiceTest, hintServerDown_master) {
             EXPECT_EQ("tablet { table_id: 0 start_key_hash: 0 "
                     "end_key_hash: 18446744073709551615 "
                     "state: RECOVERING server_id: 1 "
-                    "service_locator: \"mock:host=master\" }",
+                    "service_locator: \"mock:host=master\" "
+                    "ctime_log_head_id: 0 ctime_log_head_offset: 0 }",
                     test.service->tabletMap.ShortDebugString());
             EXPECT_EQ(1LU, masterId.getId());
             EXPECT_EQ("tablet { table_id: 0 start_key_hash: 0 "
                       "end_key_hash: 18446744073709551615 "
-                      "state: NORMAL user_data: 0 }",
+                      "state: NORMAL user_data: 0 "
+                      "ctime_log_head_id: 0 ctime_log_head_offset: 0 }",
                       will.ShortDebugString());
             EXPECT_TRUE(TestUtil::matchesPosixRegex(
                         "server { service_mask: 9 "
@@ -383,6 +402,8 @@ TEST_F(CoordinatorServiceTest, tabletsRecovered_basics) {
     tablet.set_service_locator("mock:host=master2");
     tablet.set_server_id(*master2Id);
     tablet.set_user_data(0);
+    tablet.set_ctime_log_head_id(5);
+    tablet.set_ctime_log_head_offset(210);
 
     Tablet& stablet(*service->tabletMap.add_tablet());
     stablet.set_table_id(0);
@@ -391,6 +412,8 @@ TEST_F(CoordinatorServiceTest, tabletsRecovered_basics) {
     stablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
     stablet.set_user_data(
         reinterpret_cast<uint64_t>(new BaseRecovery(master2Id)));
+    stablet.set_ctime_log_head_id(0);
+    stablet.set_ctime_log_head_offset(0);
 
     EXPECT_EQ(3u, service->serverList.versionNumber);
 
@@ -399,6 +422,11 @@ TEST_F(CoordinatorServiceTest, tabletsRecovered_basics) {
         client->tabletsRecovered(ServerId(1, 0), tablets);
         EXPECT_EQ(
             "tabletsRecovered: called by masterId 1 with 1 tablets | "
+            "tabletsRecovered: Recovered tablets | tabletsRecovered: "
+            "tablet { table_id: 0 start_key_hash: 0 end_key_hash: "
+            "18446744073709551615 state: NORMAL server_id: 2 "
+            "service_locator: \"mock:host=master2\" user_data: 0 "
+            "ctime_log_head_id: 5 ctime_log_head_offset: 210 } | "
             "tabletsRecovered: Recovery complete on tablet "
             "0,0,18446744073709551615 | "
             "tabletsRecovered: Recovery completed for master 2 | "
@@ -413,6 +441,8 @@ TEST_F(CoordinatorServiceTest, tabletsRecovered_basics) {
               service->tabletMap.tablet(0).state());
     EXPECT_EQ("mock:host=master2",
               service->tabletMap.tablet(0).service_locator());
+    EXPECT_EQ(5UL, service->tabletMap.tablet(0).ctime_log_head_id());
+    EXPECT_EQ(210U, service->tabletMap.tablet(0).ctime_log_head_offset());
     EXPECT_EQ(*master2Id, service->tabletMap.tablet(0).server_id());
     EXPECT_FALSE(service->serverList.contains(master2Id));
     EXPECT_EQ(4u, service->serverList.versionNumber);
@@ -433,6 +463,8 @@ TEST_F(CoordinatorServiceTest, setWill) {
     t.set_end_key_hash(47234);
     t.set_state(ProtoBuf::Tablets::Tablet::NORMAL);
     t.set_user_data(19);
+    t.set_ctime_log_head_id(0);
+    t.set_ctime_log_head_offset(0);
 
     TestLog::Enable _(&setWillFilter);
     client->setWill(2, will);

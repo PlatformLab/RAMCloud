@@ -94,7 +94,7 @@ TEST_F(SegmentTest, constructor) {
     Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf),
               &replicaManager);
     EXPECT_EQ("openSegment: "
-                            "openSegment 1020304050, 98765, ..., 30",
+                            "openSegment 1020304050, 98765, ..., 38",
                             TestLog::get());
     EXPECT_EQ(s.baseAddress,
                             reinterpret_cast<void *>(alignedBuf));
@@ -161,7 +161,7 @@ TEST_F(SegmentTest, append) {
     EXPECT_TRUE(NULL == seh);
 
     EXPECT_EQ(
-        "openSegment: openSegment 1, 2, ..., 30",
+        "openSegment: openSegment 1, 2, ..., 38",
         TestLog::get());
 
     char c = '!';
@@ -170,7 +170,7 @@ TEST_F(SegmentTest, append) {
     EXPECT_EQ(sizeof(c) + sizeof(SegmentEntry),
         seh->totalLength());
     EXPECT_EQ(sizeof(SegmentEntry) + sizeof(SegmentHeader),
-        seh->logTime().second);
+        seh->logPosition().segmentOffset());
 
     // ensure the checksum argument works
     EXPECT_THROW(s.append(LOG_ENTRY_TYPE_OBJ, &c, 1, true, 5),
@@ -372,7 +372,7 @@ TEST_F(SegmentTest, appendableBytes) {
     while (s.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf)))
         i++;
     EXPECT_EQ(87, i);
-    EXPECT_EQ(47U, s.appendableBytes());
+    EXPECT_EQ(39U, s.appendableBytes());
 
     s.close(NULL);
     EXPECT_EQ(0U, s.appendableBytes());
@@ -481,7 +481,7 @@ TEST_F(SegmentTest, syncToBackup) {
     s.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header), false);
     EXPECT_EQ("", TestLog::get());
     s.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header), true);
-    EXPECT_EQ("write: 1, 2, 90 | sync: syncing",
+    EXPECT_EQ("write: 1, 2, 114 | sync: syncing",
               TestLog::get());
 }
 

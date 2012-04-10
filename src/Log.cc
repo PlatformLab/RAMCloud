@@ -901,6 +901,26 @@ Log::getSegmentFromAddress(const void* address)
 }
 
 /**
+ * Get the current position of the log head. This can be used when adding
+ * tablets in order to preclude any prior log data from being considered
+ * part of the tablet. This is important in tablet migration and when
+ * creating, deleting, and re-creating the same tablet on a master since we
+ * don't want recovery to resurrect old objects.
+ */
+LogPosition
+Log::headOfLog()
+{
+    std::lock_guard<SpinLock> lock(listLock);
+
+    if (head == NULL) {
+        assert(nextSegmentId == 0);
+        return { 0, 0 };
+    }
+
+    return { head->getId(), head->getTotalBytesAppended() };
+}
+
+/**
  * Obtain the 64-bit identifier assigned to this Log.
  */
 uint64_t

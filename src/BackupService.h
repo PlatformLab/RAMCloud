@@ -46,13 +46,15 @@
 #include "Rpc.h"
 #include "Service.h"
 #include "ServerConfig.h"
+#include "SegmentIterator.h"
 
 namespace RAMCloud {
 
 #if TESTING
-Tub<uint64_t> whichPartition(const LogEntryType type,
-                                   const void* data,
-                                   const ProtoBuf::Tablets& partitions);
+bool isEntryAlive(const SegmentIterator& it,
+                  const ProtoBuf::Tablets::Tablet& tablet);
+Tub<uint64_t> whichPartition(const SegmentIterator& it,
+                             const ProtoBuf::Tablets& partitions);
 #endif
 
 /**
