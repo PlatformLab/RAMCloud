@@ -449,6 +449,68 @@ TEST_F(CoordinatorServiceTest, tabletsRecovered_basics) {
 }
 
 static bool
+reassignTabletOwnershipFilter(string s)
+{
+    return s == "reassignTabletOwnership";
+}
+
+TEST_F(CoordinatorServiceTest, reassignTabletOwnership) {
+    ServerConfig master2Config = masterConfig;
+    master2Config.services = { MASTER_SERVICE,
+                               PING_SERVICE,
+                               MEMBERSHIP_SERVICE };
+    master2Config.localLocator = "mock:host=master2";
+    auto* master2 = cluster.addServer(master2Config);
+
+    // Advance the log head slightly so creation time offset is non-zero
+    // on host being migrated to.
+    master2->master->log.append(LOG_ENTRY_TYPE_OBJ, "hi", 2);
+
+    // master is already enlisted
+    client->createTable("foo");
+    EXPECT_EQ(1, master->tablets.tablet_size());
+    EXPECT_EQ(0, master2->master->tablets.tablet_size());
+    EXPECT_EQ(*masterServerId, service->tabletMap.tablet(0).server_id());
+    EXPECT_EQ(masterConfig.localLocator,
+              service->tabletMap.tablet(0).service_locator());
+    EXPECT_EQ(0U, service->tabletMap.tablet(0).ctime_log_head_id());
+    EXPECT_EQ(0U, service->tabletMap.tablet(0).ctime_log_head_offset());
+
+    TestLog::Enable _(reassignTabletOwnershipFilter);
+
+    EXPECT_THROW(client->reassignTabletOwnership(0, 0, -1, ServerId(472, 2)),
+        ServerDoesntExistException);
+    EXPECT_EQ("reassignTabletOwnership: Server id 8589935064 does not exist! "
+        "Cannot reassign ownership of tablet 0, range "
+        "[0, 18446744073709551615]!", TestLog::get());
+    EXPECT_EQ(1, master->tablets.tablet_size());
+    EXPECT_EQ(0, master2->master->tablets.tablet_size());
+
+    TestLog::reset();
+    EXPECT_THROW(client->reassignTabletOwnership(0, 0, 57, master2->serverId),
+        TableDoesntExistException);
+    EXPECT_EQ("reassignTabletOwnership: Could not reassign tablet 0, "
+        "range [0, 57]: not found!", TestLog::get());
+    EXPECT_EQ(1, master->tablets.tablet_size());
+    EXPECT_EQ(0, master2->master->tablets.tablet_size());
+
+    TestLog::reset();
+    client->reassignTabletOwnership(0, 0, -1, master2->serverId);
+    EXPECT_EQ("reassignTabletOwnership: Reassigning tablet 0, range "
+        "[0, 18446744073709551615] from server id 1 to server id 2.",
+        TestLog::get());
+    // Calling master removes the entry itself after the RPC completes on coord.
+    EXPECT_EQ(1, master->tablets.tablet_size());
+    EXPECT_EQ(1, master2->master->tablets.tablet_size());
+    EXPECT_EQ(*master2->serverId,
+              service->tabletMap.tablet(0).server_id());
+    EXPECT_EQ(master2Config.localLocator,
+              service->tabletMap.tablet(0).service_locator());
+    EXPECT_EQ(0U, service->tabletMap.tablet(0).ctime_log_head_id());
+    EXPECT_EQ(72U, service->tabletMap.tablet(0).ctime_log_head_offset());
+}
+
+static bool
 setWillFilter(string s) {
     return s == "setWill";
 }

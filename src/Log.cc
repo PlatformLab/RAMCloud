@@ -894,6 +894,30 @@ Log::getFromFreeList(Lock& lock, bool mayUseLastSegment)
 }
 
 /**
+ * Called whenever a LogIterator is created. This must be invoked
+ * with the listLock held. The whole point is that the log keeps
+ * track of when iterators exist and ensures that cleaning does
+ * not permute the log until after all iteration has completed.
+ */
+void
+Log::iteratorCreated()
+{
+    assert(!listLock.try_lock());
+    logIteratorCount++;
+}
+
+/**
+ * Called whenever a LogIterator is destroyed. This must be invoked
+ * with the listLock held.
+ */
+void
+Log::iteratorDestroyed()
+{
+    assert(!listLock.try_lock());
+    --logIteratorCount;
+}
+
+/**
  * Given a pointer into the backing memory of some Segment, return
  * the Segment object associated with it.
  *

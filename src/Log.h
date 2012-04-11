@@ -262,6 +262,8 @@ class Log {
     void*       getFromFreeList(Lock& lock, bool mayUseLastSegment);
     void        markActive(Segment *s);
     Segment*    getSegmentFromAddress(const void*);
+    void        iteratorCreated();
+    void        iteratorDestroyed();
 
     const ServerId& logId;
 

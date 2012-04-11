@@ -36,6 +36,7 @@ class MasterServiceTest : public ::testing::Test {
     MasterService* service;
     std::unique_ptr<MasterClient> client;
     CoordinatorClient* coordinator;
+    Server* masterServer;
 
     // To make tests that don't need big segments faster, set a smaller default
     // segmentSize. Since we can't provide arguments to it in gtest, nor can we
@@ -49,6 +50,7 @@ class MasterServiceTest : public ::testing::Test {
         , service()
         , client()
         , coordinator()
+        , masterServer()
     {
         Context::get().logger->setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
 
@@ -66,9 +68,9 @@ class MasterServiceTest : public ::testing::Test {
         masterConfig.localLocator = "mock:host=master";
         masterConfig.services = {MASTER_SERVICE, MEMBERSHIP_SERVICE};
         masterConfig.master.numReplicas = 1;
-        Server* server = cluster.addServer(masterConfig);
-        service = server->master.get();
-        client = cluster.get<MasterClient>(server);
+        masterServer = cluster.addServer(masterConfig);
+        service = masterServer->master.get();
+        client = cluster.get<MasterClient>(masterServer);
 
         ProtoBuf::Tablets_Tablet& tablet(*service->tablets.add_tablet());
         tablet.set_table_id(0);
@@ -92,8 +94,8 @@ class MasterServiceTest : public ::testing::Test {
         newObject->keyLength = keyLength;
         newObject->version = version;
         memcpy(newObject->getKeyLocation(), key, keyLength);
-        strcpy(static_cast<char*>(newObject->getDataLocation()),    // NOLINT
-               objContents.c_str());
+        memcpy(newObject->getDataLocation(), objContents.c_str(),
+            objContents.length() + 1);
 
         const void *p = s.append(LOG_ENTRY_TYPE_OBJ, newObject,
             newObject->objectLength(dataLength))->userData();
@@ -887,6 +889,131 @@ TEST_F(MasterServiceTest, takeTabletOwnership_migratingTablet) {
 
     EXPECT_EQ("takeTabletOwnership: Taking ownership of existing tablet "
         "(1, range [0,5]) in state 1", TestLog::get());
+}
+
+static bool
+prepForMigrationFilter(string s)
+{
+    return s == "prepForMigration";
+}
+
+TEST_F(MasterServiceTest, prepForMigration) {
+    ProtoBuf::Tablets_Tablet& tablet(*service->tablets.add_tablet());
+    tablet.set_table_id(5);
+    tablet.set_start_key_hash(27);
+    tablet.set_end_key_hash(873);
+    tablet.set_user_data(reinterpret_cast<uint64_t>(new Table(0)));
+
+    TestLog::Enable _(prepForMigrationFilter);
+
+    // Overlap
+    EXPECT_THROW(client->prepForMigration(5, 27, 873, 0, 0),
+        ObjectExistsException);
+    EXPECT_EQ("prepForMigration: already have tablet in range "
+        "[27, 873] for tableId 5", TestLog::get());
+    EXPECT_THROW(client->prepForMigration(5, 0, 27, 0, 0),
+        ObjectExistsException);
+    EXPECT_THROW(client->prepForMigration(5, 873, 82743, 0, 0),
+        ObjectExistsException);
+
+    TestLog::reset();
+    client->prepForMigration(5, 1000, 2000, 0, 0);
+    int i = service->tablets.tablet_size() - 1;
+    EXPECT_EQ(5U, service->tablets.tablet(i).table_id());
+    EXPECT_EQ(1000U, service->tablets.tablet(i).start_key_hash());
+    EXPECT_EQ(2000U, service->tablets.tablet(i).end_key_hash());
+    EXPECT_EQ(ProtoBuf::Tablets_Tablet_State_RECOVERING,
+        service->tablets.tablet(i).state());
+    EXPECT_EQ("prepForMigration: Ready to receive tablet from "
+        "\"\?\?\". Table 5, range [1000,2000]", TestLog::get());
+}
+
+static bool
+migrateTabletFilter(string s)
+{
+    return s == "migrateTablet";
+}
+
+TEST_F(MasterServiceTest, migrateTablet_simple) {
+    ProtoBuf::Tablets_Tablet& tablet(*service->tablets.add_tablet());
+    tablet.set_table_id(5);
+    tablet.set_start_key_hash(27);
+    tablet.set_end_key_hash(873);
+    tablet.set_user_data(reinterpret_cast<uint64_t>(new Table(0)));
+
+    TestLog::Enable _(migrateTabletFilter);
+
+    // Wrong table
+    EXPECT_THROW(client->migrateTablet(4, 0, -1, ServerId(0, 0)),
+        UnknownTableException);
+    EXPECT_EQ("migrateTablet: Migration request for range this master does "
+        "not own. TableId 4, range [0,18446744073709551615]", TestLog::get());
+    EXPECT_THROW(client->migrateTablet(5, 0, 26, ServerId(0, 0)),
+        UnknownTableException);
+    EXPECT_THROW(client->migrateTablet(5, 874, -1, ServerId(0, 0)),
+        UnknownTableException);
+
+    // Migrating to self!?
+    TestLog::reset();
+    EXPECT_THROW(client->migrateTablet(5, 27, 873, masterServer->serverId),
+        RequestFormatError);
+    EXPECT_EQ("migrateTablet: Migrating to myself doesn't make much sense",
+        TestLog::get());
+}
+
+TEST_F(MasterServiceTest, migrateTablet_movingData) {
+    coordinator->createTable("migrationTable");
+    uint64_t tbl = coordinator->openTable("migrationTable");
+    client->write(tbl, "hi", 2, "abcdefg", 7);
+
+    ServerConfig master2Config = masterConfig;
+    master2Config.master.numReplicas = 0;
+    master2Config.localLocator = "mock:host=master2";
+    Server* master2 = cluster.addServer(master2Config);
+
+    TestLog::Enable _(migrateTabletFilter);
+
+    client->migrateTablet(tbl, 0, -1, master2->serverId);
+    EXPECT_EQ("migrateTablet: Migrating tablet (id 0, first 0, last "
+        "18446744073709551615) to ServerId 3 (\"mock:host=master2\") "
+        "| migrateTablet: Sending last migration segment | "
+        "migrateTablet: Tablet migration succeeded. Sent 1 objects "
+        "and 0 tombstones. 41 bytes in total.", TestLog::get());
+}
+
+static bool
+receiveMigrationDataFilter(string s)
+{
+    return s == "receiveMigrationData";
+}
+
+TEST_F(MasterServiceTest, receiveMigrationData) {
+    client->prepForMigration(5, 1000, 2000, 0, 0);
+
+    TestLog::Enable _(receiveMigrationDataFilter);
+
+    EXPECT_THROW(client->receiveMigrationData(6, 0, NULL, 0),
+        UnknownTableException);
+    EXPECT_EQ("receiveMigrationData: migration data received for "
+        "unknown tablet 6, firstKey 0", TestLog::get());
+    EXPECT_THROW(client->receiveMigrationData(5, 0, NULL, 0),
+        UnknownTableException);
+
+    TestLog::reset();
+    EXPECT_THROW(client->receiveMigrationData(0, 0, NULL, 0),
+        InternalError);
+    EXPECT_EQ("receiveMigrationData: migration data received for tablet "
+        "not in the RECOVERING state (state = NORMAL)!", TestLog::get());
+
+    char alignedBuf[8192] __attribute__((aligned(8192)));
+    buildRecoverySegment(alignedBuf, sizeof(alignedBuf),
+        5, "wee!", 4, 57, "watch out for the migrant object");
+
+    client->receiveMigrationData(5, 1000, alignedBuf, sizeof(alignedBuf));
+    LogEntryHandle h = service->objectMap.lookup(5, "wee!", 4);
+    EXPECT_TRUE(h != NULL);
+    EXPECT_EQ(0, strcmp(h->userData<Object>()->getData(),
+         "watch out for the migrant object"));
 }
 
 TEST_F(MasterServiceTest, write_basics) {

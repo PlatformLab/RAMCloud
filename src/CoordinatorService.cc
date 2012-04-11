@@ -580,6 +580,13 @@ CoordinatorService::reassignTabletOwnership(
     Rpc& rpc)
 {
     ServerId newOwner(reqHdr.newOwnerMasterId);
+    if (!serverList.contains(newOwner)) {
+        LOG(WARNING, "Server id %lu does not exist! Cannot reassign "
+            "ownership of tablet %lu, range [%lu, %lu]!", *newOwner,
+            reqHdr.tableId, reqHdr.firstKey, reqHdr.lastKey);
+        respHdr.common.status = STATUS_SERVER_DOESNT_EXIST;
+        return;
+    }
     CoordinatorServerList::Entry& entry = serverList[newOwner];
 
     foreach (ProtoBuf::Tablets::Tablet& tablet, *tabletMap.mutable_tablet()) {

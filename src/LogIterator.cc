@@ -15,6 +15,7 @@
 
 #include "Common.h"
 #include "LogIterator.h"
+#include "Segment.h"
 
 /*
  * NOTES:
@@ -60,7 +61,7 @@ LogIterator::LogIterator(Log& log)
     : log(log),
       segmentList(),
       currentIterator(),
-      currentSegmentId(-1),
+      currentSegmentId(Segment::INVALID_SEGMENT_ID),
       headLocked(false)
 {
     // If there's no log head yet we need to preclude any appends.
@@ -69,7 +70,7 @@ LogIterator::LogIterator(Log& log)
         log.appendLock.lock();
         headLocked = true;
     }
-    log.logIteratorCount++;
+    log.iteratorCreated();
     log.listLock.unlock();
 
     next();
@@ -80,7 +81,7 @@ LogIterator::~LogIterator()
     if (headLocked)
         log.appendLock.unlock();
     std::lock_guard<SpinLock> lock(log.listLock);
-    log.logIteratorCount--;
+    log.iteratorDestroyed();
 }
 
 /**
@@ -114,12 +115,6 @@ LogIterator::next()
         return;
     }
 
-    // If we're iterating the head we can safely ignore any newer Segments,
-    // since they contain only data we've already seen that has been moved
-    // by the cleaner.
-    if (headLocked)
-        return;
-
     // We've exhausted the current segment. Now try the next one, if there
     // is one.
 
@@ -131,10 +126,8 @@ LogIterator::next()
     if (segmentList.size() == 0)
         populateSegmentList(currentSegmentId + 1);
 
-    if (segmentList.size() == 0) {
-        assert(log.head != NULL);
+    if (segmentList.size() == 0)
         return;
-    }
 
     if (segmentList.back() == log.head) {
         log.appendLock.lock();
@@ -143,6 +136,16 @@ LogIterator::next()
 
     currentIterator.construct(segmentList.back());
     currentSegmentId = segmentList.back()->getId();
+
+    // If we've just iterated over the head, then the only segments
+    // that can exist in the log with higher IDs must have been generated
+    // by the cleaner prior to iteration.
+    //
+    // TODO(rumble): It's a bummer that we're holding the head locked. Should
+    // we not iterate over these segments before the head?
+    if (headLocked && log.head != segmentList.back())
+        assert(currentIterator->isCleanerSegment());
+
     segmentList.pop_back();
 }
 
@@ -190,6 +193,7 @@ LogIterator::populateSegmentList(uint64_t nextSegmentId)
     Log::SegmentList *lists[] = {
         &log.cleanableNewList,
         &log.cleanableList,
+        &log.freePendingDigestAndReferenceList,
         NULL
     };
 

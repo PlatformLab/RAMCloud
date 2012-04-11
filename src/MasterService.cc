@@ -572,8 +572,6 @@ MasterService::migrateTablet(const MigrateTabletRpc::Request& reqHdr,
     uint64_t lastKey = reqHdr.lastKey;
     ServerId newOwnerMasterId(reqHdr.newOwnerMasterId);
 
-    LOG(NOTICE, "MIGRATE_TABLET!!!\n");
-
     // Find the tablet we're trying to move. We only support migration
     // when the tablet to be migrated consists of a range within a single,
     // contiguous tablet of ours.
@@ -624,6 +622,11 @@ MasterService::migrateTablet(const MigrateTabletRpc::Request& reqHdr,
     void* transferBuf = Memory::xmemalign(HERE, 8*1024*1024, 8*1024*1024);
     Tub<Segment> transferSeg;
 
+    // TODO(rumble/slaughter): These should probably be metrics.
+    uint64_t totalObjects = 0;
+    uint64_t totalTombstones = 0;
+    uint64_t totalBytes = 0;
+
     // Hold on the the iterator since it locks the head Segment, avoiding any
     // additional appends once we've finished iterating.
     LogIterator it(log);
@@ -656,6 +659,7 @@ MasterService::migrateTablet(const MigrateTabletRpc::Request& reqHdr,
             if (curHandle->userData<Object>() != logObj)
                 continue;
 
+            totalObjects++;
         } else if (h->type() == LOG_ENTRY_TYPE_OBJTOMB) {
             const ObjectTombstone* logTomb = h->userData<ObjectTombstone>();
 
@@ -676,10 +680,13 @@ MasterService::migrateTablet(const MigrateTabletRpc::Request& reqHdr,
             //      way is to just record the LogPosition when we started
             //      iterating and only send newer tombstones.
 
+            totalTombstones++;
         } else {
             // We're not interested in any other types.
             continue;
         }
+
+        totalBytes += h->totalLength();
 
         if (!transferSeg)
             transferSeg.construct(-1, -1, transferBuf, 8*1024*1024);
@@ -728,7 +735,9 @@ MasterService::migrateTablet(const MigrateTabletRpc::Request& reqHdr,
     coordinator->reassignTabletOwnership(
         tableId, firstKey, lastKey, newOwnerMasterId);
 
-    LOG(NOTICE, "Tablet migration succeeded");
+    LOG(NOTICE, "Tablet migration succeeded. Sent %lu objects and %lu "
+        "tombstones. %lu bytes in total.", totalObjects, totalTombstones,
+        totalBytes);
 
     tablets.mutable_tablet()->SwapElements(tablets.tablet_size() - 1,
                                            tabletIndex);
@@ -754,9 +763,8 @@ MasterService::receiveMigrationData(
     uint64_t firstKey = reqHdr.firstKey;
     uint32_t segmentBytes = reqHdr.segmentBytes;
 
-    // TODO(rumble/slaughter) need to make sure we have a table available
-    //      (the scanning thread will start processing segments immediately
-    //      to add them to the tabletprofiler).
+    // TODO(rumble/slaughter) need to make sure we already have a table
+    // created that was previously prepped for migration.
     const ProtoBuf::Tablets::Tablet* tablet = NULL;
     foreach (const ProtoBuf::Tablets::Tablet& i, tablets.tablet()) {
         if (tableId == i.table_id() && firstKey == i.start_key_hash()) {
@@ -769,6 +777,15 @@ MasterService::receiveMigrationData(
         LOG(WARNING, "migration data received for unknown tablet %lu, "
             "firstKey %lu", tableId, firstKey);
         respHdr.common.status = STATUS_UNKNOWN_TABLE;
+        return;
+    }
+
+    if (tablet->state() != ProtoBuf::Tablets_Tablet_State_RECOVERING) {
+        LOG(WARNING, "migration data received for tablet not in the "
+            "RECOVERING state (state = %s)!",
+            ProtoBuf::Tablets_Tablet_State_Name(tablet->state()).c_str());
+        // TODO(rumble/slaughter): better error code here?
+        respHdr.common.status = STATUS_INTERNAL_ERROR;
         return;
     }
 
