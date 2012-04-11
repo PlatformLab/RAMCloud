@@ -386,6 +386,55 @@ MasterClient::multiRead(std::vector<ReadObject*> requests)
 }
 
 /**
+ * Increments a numeric object by a specifiable value. The
+ * object should be an 8-byte, two's complement, little-endian integer.
+ * If the object has a different size than 8bytes,
+ * the method throws a STATUS_INVALID_OBJECT exception.
+ * The increment value can be negative in order to decrease the value of the
+ * object.
+ *
+ * \param tableId
+ *      The table containing the to be incremented object (return value from
+ *      a previous call to openTable).
+ * \param key
+ *      Variable length key that uniquely identifies the object within tableId.
+ *      It does not necessarily have to be null terminated like a string.
+ *      The caller is responsible for ensuring that this key remains valid
+ *      until the call is reaped/canceled.
+ * \param keyLength
+ *      Size in bytes of the key.
+ * \param incrementValue
+ *      The value that the object should be incremented by (can be negative).
+ * \param rejectRules
+ *      If non-NULL, specifies conditions under which the read
+ *      should be aborted with an error.
+ * \param[out] version
+ *      May not be NULL. The version number of the object is returned here.
+ * \param[out] newValue
+ *      May not be NULL. The new value of the object after incrementing.
+ */
+void
+MasterClient::increment(uint32_t tableId, const char* key, uint16_t keyLength,
+               int64_t incrementValue, const RejectRules* rejectRules,
+               uint64_t* version, int64_t* newValue)
+{
+    Buffer req, resp;
+    IncrementRpc::Request& reqHdr(allocHeader<IncrementRpc>(req));
+    reqHdr.tableId = tableId;
+    reqHdr.keyLength = keyLength;
+    reqHdr.incrementValue = incrementValue;
+    reqHdr.rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
+    Buffer::Chunk::appendToBuffer(&req, key, keyLength);
+
+    const IncrementRpc::Response& respHdr(sendRecv<IncrementRpc>(
+                                                        session, req, resp));
+    *version = respHdr.version;
+    *newValue = respHdr.newValue;
+
+    checkStatus(HERE);
+}
+
+/**
  * Delete an object from a table. If the object does not currently exist and
  * no rejectRules match, then the operation succeeds without doing anything.
  *

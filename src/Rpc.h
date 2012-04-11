@@ -98,11 +98,12 @@ enum RpcOpcode {
     TAKE_TABLET_OWNERSHIP   = 40,
     BACKUP_ASSIGN_GROUP     = 41,
     GET_HEAD_OF_LOG         = 42,
-    PREP_FOR_MIGRATION      = 43,
-    RECEIVE_MIGRATION_DATA  = 44,
-    REASSIGN_TABLET_OWNERSHIP = 45,
-    MIGRATE_TABLET          = 46,
-    ILLEGAL_RPC_TYPE        = 47,  // 1 + the highest legitimate RpcOpcode
+    INCREMENT               = 43,
+    PREP_FOR_MIGRATION      = 44,
+    RECEIVE_MIGRATION_DATA  = 45,
+    REASSIGN_TABLET_OWNERSHIP = 46,
+    MIGRATE_TABLET          = 47,
+    ILLEGAL_RPC_TYPE        = 48,  // 1 + the highest legitimate RpcOpcode
 };
 
 /**
@@ -160,6 +161,26 @@ struct FillWithTestDataRpc {
     } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
+    } __attribute__((packed));
+};
+
+struct IncrementRpc {
+    static const RpcOpcode opcode = INCREMENT;
+    static const ServiceType service = MASTER_SERVICE;
+    struct Request {
+        RpcRequestCommon common;
+        uint32_t tableId;
+        uint16_t keyLength;           // Length of the key in bytes.
+                                      // The actual bytes of the key follow
+                                      // immediately after this header.
+        int64_t incrementValue;       // Value that the object will be
+                                      // incremented by.
+        RejectRules rejectRules;
+    } __attribute__((packed));
+    struct Response {
+        RpcResponseCommon common;
+        uint64_t version;
+        int64_t newValue;                // The new value of the object.
     } __attribute__((packed));
 };
 

@@ -503,6 +503,31 @@ class ServerTracker : public ServerTrackerInterface {
         return numberOfServers;
     }
 
+    /**
+     * Return a human-readable string representation of the contents of
+     * the tracker.
+     *
+     * \return
+     *      The string representing the contents of the tracker.
+     */
+    string
+    toString()
+    {
+        string result;
+        foreach (const auto& server, serverList) {
+            if (!server.server.serverId.isValid())
+                continue;
+            result.append(
+                format("server %lu at %s with %s is %s\n",
+                       server.server.serverId.getId(),
+                       server.server.serviceLocator.c_str(),
+                       server.server.services.toString().c_str(),
+                       ServerList::toString(server.server.status).c_str()));
+        }
+
+        return result;
+    }
+
   PRIVATE:
     /**
      * A ServerChange represents a single addition or removal of a server

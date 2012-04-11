@@ -68,8 +68,8 @@ class Server {
     void run() __attribute__ ((noreturn));
 
   PRIVATE:
-    void createAndRegisterServices(BindTransport* bindTransport);
-    void enlist();
+    ServerId createAndRegisterServices(BindTransport* bindTransport);
+    void enlist(ServerId replacingId);
 
     /**
      * Configuration that controls which services are started as part of

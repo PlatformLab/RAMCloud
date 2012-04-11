@@ -1049,6 +1049,52 @@ TEST_F(MasterServiceTest, write_rejectRules) {
     EXPECT_EQ(VERSION_NONEXISTENT, version);
 }
 
+TEST_F(MasterServiceTest, increment) {
+    Buffer buffer;
+    uint64_t version;
+    int64_t oldValue = 16;
+    int32_t oldValue32 = 16;
+    int64_t newValue;
+    int64_t readResult;
+
+    client->write(0, "key0", 4, &oldValue, 8, NULL, &version);
+    client->increment(0, "key0", 4, 5, NULL, &version, &newValue);
+    EXPECT_EQ(2U, version);
+    EXPECT_EQ(21, newValue);
+
+    client->read(0, "key0", 4, &buffer);
+    buffer.copy(0, sizeof(int64_t), &readResult);
+    EXPECT_EQ(newValue, readResult);
+
+    client->write(0, "key1", 4, &oldValue, 8, NULL, &version);
+    client->increment(0, "key1", 4, -32, NULL, &version, &newValue);
+    EXPECT_EQ(-16, newValue);
+
+    client->read(0, "key1", 4, &buffer);
+    buffer.copy(0, sizeof(int64_t), &readResult);
+    EXPECT_EQ(newValue, readResult);
+
+    client->write(0, "key2", 4, &oldValue32, 4, NULL, &version);
+    EXPECT_THROW(client->increment(0, "key2", 4, 4, NULL, &version, &newValue),
+                 InvalidObjectException);
+}
+
+TEST_F(MasterServiceTest, increment_rejectRules) {
+    Buffer buffer;
+    RejectRules rules;
+    memset(&rules, 0, sizeof(rules));
+    rules.exists = true;
+    uint64_t version;
+    int64_t oldValue = 16;
+    int64_t newValue;
+
+    client->write(0, "key0", 4, &oldValue, 8, NULL, &version);
+    EXPECT_THROW(client->increment(0, "key0", 4, 5, &rules, &version,
+                 &newValue),
+        ObjectDoesntExistException);
+}
+
+
 /**
  * Generate a random string.
  *

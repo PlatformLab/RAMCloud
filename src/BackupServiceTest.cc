@@ -214,6 +214,56 @@ class BackupServiceTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(BackupServiceTest);
 };
 
+namespace {
+bool storageFilter(string s) {
+    return s == "killAllStorage" || s == "restartFromStorage";
+}
+};
+
+TEST_F(BackupServiceTest, constructorNoReuseReplicas) {
+    TestLog::Enable _(storageFilter);
+    cluster->addServer(config);
+    EXPECT_EQ("killAllStorage: Scribbling storage to destroy "
+              "replicas from former backups",
+              TestLog::get().substr(0, TestLog::get().find(" |")));
+}
+
+namespace {
+bool constructFilter(string s) {
+    return s == "BackupService" || s == "init";
+}
+};
+
+struct TempCleanup {
+    string path;
+    explicit TempCleanup(string path) : path(path) {}
+    ~TempCleanup() {
+        int r = unlink(path.c_str());
+        if (r == -1) {
+            DIE("Unit test left garbage tmp file around %s: %s",
+                path.c_str(), strerror(errno));
+        }
+    }
+};
+
+TEST_F(BackupServiceTest, constructorReuseReplicas)
+{
+    config.backup.inMemory = false;
+    config.clusterName = "testing";
+    config.backup.file = "/tmp/ramcloud-backup-storage-test-delete-this";
+
+    TempCleanup __(config.backup.file);
+    cluster->addServer(config);
+
+    TestLog::Enable _(constructFilter);
+    cluster->addServer(config);
+    EXPECT_EQ("BackupService: Backup replaces Server Id 2 | "
+              "BackupService: Backup formerly stored replicas under "
+                  "cluster name 'testing' | "
+              "init: My server ID is 4294967298 | "
+              "init: Backup 4294967298 will store replicas under cluster name "
+                  "'testing'", TestLog::get());
+}
 
 TEST_F(BackupServiceTest, findSegmentInfo) {
     EXPECT_TRUE(NULL == backup->findSegmentInfo(ServerId(99, 0), 88));
@@ -462,31 +512,24 @@ TEST_F(BackupServiceTest, getRecoveryData_notRecovered) {
 TEST_F(BackupServiceTest, killAllStorage)
 {
     const char* path = "/tmp/ramcloud-backup-storage-test-delete-this";
+    TempCleanup __(path);
     ServerConfig config = ServerConfig::forTesting();
     config.backup.inMemory = false;
-    config.backup.useStoredReplicas = false;
     config.segmentSize = 4096;
     config.backup.numSegmentFrames = 6;
     config.backup.file = path;
     config.services = {BACKUP_SERVICE};
 
-    try {
-        BackupService* backup = cluster->addServer(config)->backup.get();
-        return;
-        std::unique_ptr<BackupStorage::Handle>
-            handle(backup->storage->associate(0));
-        Memory::unique_ptr_free segment(
-            Memory::xmemalign(HERE, getpagesize(),
-                              config.segmentSize),
-            std::free);
-        char *p = static_cast<char*>(segment.get());
-        backup->storage->getSegment(handle.get(), p);
-        EXPECT_EQ(0, memcmp("\0DIE", p, 4));
-    } catch (...) {
-        unlink(path);
-        throw;
-    }
-    unlink(path);
+    BackupService* backup = cluster->addServer(config)->backup.get();
+    std::unique_ptr<BackupStorage::Handle>
+        handle(backup->storage->associate(0));
+    Memory::unique_ptr_free segment(
+        Memory::xmemalign(HERE, getpagesize(),
+                          config.segmentSize),
+        std::free);
+    char *p = static_cast<char*>(segment.get());
+    backup->storage->getSegment(handle.get(), p);
+    EXPECT_EQ(0, memcmp("\0DIE", p, 4));
 }
 
 TEST_F(BackupServiceTest, recoverySegmentBuilder) {
@@ -552,8 +595,10 @@ TEST_F(BackupServiceTest, recoverySegmentBuilder) {
     EXPECT_TRUE(it2.isDone());
 }
 
-static bool restartFilter(string s) {
+namespace {
+bool restartFilter(string s) {
     return s == "restartFromStorage";
+}
 }
 
 TEST_F(BackupServiceTest, restartFromStorage)
@@ -563,12 +608,15 @@ TEST_F(BackupServiceTest, restartFromStorage)
     void* file = NULL;
     ServerConfig config = ServerConfig::forTesting();
     config.backup.inMemory = false;
-    config.backup.useStoredReplicas = true;
     config.segmentSize = 4096;
     config.backup.numSegmentFrames = 6;
     config.backup.file = path;
     config.services = {BACKUP_SERVICE};
-    const size_t fileSize = config.segmentSize * config.backup.numSegmentFrames;
+    config.clusterName = "testing";
+    // Space for superblock images and then segment frames.
+    const size_t superblockSize = 2 * SingleFileStorage::BLOCK_SIZE;
+    const size_t fileSize = superblockSize +
+                            config.segmentSize * config.backup.numSegmentFrames;
 
     try {
     fd = open(path, O_CREAT | O_RDWR, 0666);
@@ -581,7 +629,13 @@ TEST_F(BackupServiceTest, restartFromStorage)
 
     typedef char* b;
 
-    off_t offset = 0;
+    BackupStorage::Superblock superblock(0, {99, 0}, "testing");
+    memcpy(file, &superblock, sizeof(superblock));
+    Crc32C crc;
+    crc.update(&superblock, sizeof(superblock));
+    auto checksum = crc.getResult();
+    memcpy(b(file) + sizeof(superblock), &checksum, sizeof(checksum));
+
     for (uint32_t frame = 0; frame < config.backup.numSegmentFrames; ++frame) {
         SegmentHeader header{99, 88, config.segmentSize,
             Segment::INVALID_SEGMENT_ID};
@@ -628,14 +682,16 @@ TEST_F(BackupServiceTest, restartFromStorage)
             FAIL();
         };
 
-        offset = frame * config.segmentSize;
+        off_t offset = superblockSize;
+        offset += frame * config.segmentSize;
         memcpy(b(file) + offset, &headerEntry, sizeof(headerEntry));
         offset += sizeof(headerEntry);
         memcpy(b(file) + offset, &header, sizeof(header));
         offset += sizeof(header);
 
         if (close) {
-            offset = (frame + 1) * config.segmentSize -
+            offset = superblockSize;
+            offset += (frame + 1) * config.segmentSize -
                 sizeof(footerEntry) - sizeof(footer);
             memcpy(b(file) + offset, &footerEntry, sizeof(footerEntry));
             offset += sizeof(footerEntry);
@@ -648,6 +704,7 @@ TEST_F(BackupServiceTest, restartFromStorage)
 
     TestLog::Enable _(restartFilter);
     BackupService* backup = cluster->addServer(config)->backup.get();
+    EXPECT_EQ(ServerId(99, 0), backup->getFormerServerId());
     EXPECT_NE(string::npos, TestLog::get().find(
         "restartFromStorage: Found stored replica <99,88> on backup storage "
             "in frame 0 which was closed | "

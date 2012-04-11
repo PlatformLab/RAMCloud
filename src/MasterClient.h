@@ -31,7 +31,7 @@ class MasterClient : public Client {
   public:
 
     /**
-     * Format for requesting a read of an object as a part of multiRead 
+     * Format for requesting a read of an object as a part of multiRead
      */
     struct ReadObject {
         /**
@@ -59,7 +59,7 @@ class MasterClient : public Client {
          */
         uint64_t version;
         /**
-         * The status of read (either that the read succeeded, or the 
+         * The status of read (either that the read succeeded, or the
          * error in case it didn't) is returned here.
          */
         Status status;
@@ -164,6 +164,10 @@ class MasterClient : public Client {
 
     explicit MasterClient(Transport::SessionRef session) : session(session) {}
     void fillWithTestData(uint32_t numObjects, uint32_t objectSize);
+    void increment(uint32_t tableId, const char* key, uint16_t keyLength,
+                   int64_t incrementValue,
+                   const RejectRules* rejectRules = NULL,
+                   uint64_t* version = NULL, int64_t* newValue = NULL);
     LogPosition getHeadOfLog();
     void multiRead(std::vector<ReadObject*> requests);
     void read(uint64_t tableId, const char* key, uint16_t keyLength,

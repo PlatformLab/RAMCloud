@@ -140,7 +140,7 @@ RamCloud::getServiceLocator()
  *
  * \throw TimeoutException
  *      A TimeoutException is thrown if no reply is received
- *      in #timeoutNanoseconds. 
+ *      in #timeoutNanoseconds.
  */
 uint64_t
 RamCloud::ping(const char* serviceLocator, uint64_t nonce,
@@ -220,6 +220,18 @@ RamCloud::read(uint64_t tableId, const char* key, uint16_t keyLength,
             throw;
         }
     }
+}
+
+/// \copydoc MasterClient::increment
+void
+RamCloud::increment(uint32_t tableId, const char* key, uint16_t keyLength,
+                    int64_t incrementValue, const RejectRules* rejectRules,
+                    uint64_t* version, int64_t* newValue)
+{
+    Context::Guard _(clientContext);
+    MasterClient master(objectFinder.lookup(tableId, key, keyLength));
+    master.increment(tableId, key, keyLength, incrementValue, rejectRules,
+                     version, newValue);
 }
 
 /**

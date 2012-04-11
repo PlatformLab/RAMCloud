@@ -66,6 +66,25 @@ TEST_F(ServerListTest, toString) {
               sl.toString(ServerId(1)));
 }
 
+TEST_F(ServerListTest, toString_status) {
+    EXPECT_EQ("UP", ServerList::toString(ServerStatus::UP));
+    EXPECT_EQ("CRASHED", ServerList::toString(ServerStatus::CRASHED));
+    EXPECT_EQ("DOWN", ServerList::toString(ServerStatus::DOWN));
+}
+
+TEST_F(ServerListTest, toString_all) {
+    EXPECT_EQ("", sl.toString());
+    sl.add(ServerId(1), "mock:host=one", {MASTER_SERVICE}, 100);
+    EXPECT_EQ(
+        "server 1 at mock:host=one with MASTER_SERVICE is UP\n",
+        sl.toString());
+    sl.add(ServerId(2), "mock:host=two", {BACKUP_SERVICE}, 75);
+    EXPECT_EQ(
+        "server 1 at mock:host=one with MASTER_SERVICE is UP\n"
+        "server 2 at mock:host=two with BACKUP_SERVICE is UP\n",
+        sl.toString());
+}
+
 TEST_F(ServerListTest, size) {
     EXPECT_EQ(sl.serverList.size(), sl.size());
     sl.add(ServerId(572, 0), "mock:", {}, 100);

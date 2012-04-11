@@ -111,6 +111,8 @@ ClientException::throwException(const CodeLocation& where, Status status)
             throw TimeoutException(where);
         case STATUS_SERVER_DOESNT_EXIST:
             throw ServerDoesntExistException(where);
+         case STATUS_INVALID_OBJECT:
+            throw InvalidObjectException(where);
         case STATUS_INTERNAL_ERROR:
             throw InternalError(where, status);
         default:

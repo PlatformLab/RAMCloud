@@ -101,6 +101,54 @@ ServerList::toString(ServerId id)
 }
 
 /**
+ * Return a human-readable string representation of a status.
+ *
+ * \return
+ *      The string representing the status.
+ */
+string
+ServerList::toString(ServerStatus status)
+{
+    switch (status) {
+        case ServerStatus::UP:
+            return "UP";
+        case ServerStatus::CRASHED:
+            return "CRASHED";
+        case ServerStatus::DOWN:
+            return "DOWN";
+        default:
+            return "UNKOWN";
+    }
+}
+
+/**
+ * Return a human-readable string representation of the contents of
+ * the list.
+ *
+ * \return
+ *      The string representing the contents of the list.
+ */
+string
+ServerList::toString()
+{
+    Lock lock(mutex);
+
+    string result;
+    foreach (const auto& server, serverList) {
+        if (!server)
+            continue;
+        result.append(
+            format("server %lu at %s with %s is %s\n",
+                   server->serverId.getId(),
+                   server->serviceLocator.c_str(),
+                   server->services.toString().c_str(),
+                   toString(server->status).c_str()));
+    }
+
+    return result;
+}
+
+/**
  * Open a session to the given ServerId. This method simply calls through to
  * TransportManager::getSession. See the documentation there for exceptions
  * that may be thrown.

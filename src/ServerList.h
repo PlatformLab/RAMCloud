@@ -148,6 +148,8 @@ class ServerList {
 
     string getLocator(ServerId id);
     string toString(ServerId serverId);
+    static string toString(ServerStatus status);
+    string toString();
     Transport::SessionRef getSession(ServerId id);
     uint32_t size();
     ServerId operator[](uint32_t indexNumber);

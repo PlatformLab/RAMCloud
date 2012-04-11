@@ -1035,6 +1035,7 @@ BackupService::RecoverySegmentBuilder::operator()()
 BackupService::BackupService(const ServerConfig& config)
     : config(config)
     , coordinator(config.coordinatorLocator.c_str())
+    , formerServerId(0)
     , serverId(0)
     , recoveryTicks()
     , pool(config.segmentSize)
@@ -1078,10 +1079,18 @@ BackupService::BackupService(const ServerConfig& config)
         throw;
     }
 
-    if (config.backup.useStoredReplicas)
-        restartFromStorage();
-    else
+    BackupStorage::Superblock superblock = storage->loadSuperblock();
+    formerServerId = superblock.getServerId();
+    LOG(NOTICE, "Backup replaces Server Id %lu", formerServerId.getId());
+    LOG(NOTICE, "Backup formerly stored replicas under cluster name '%s'",
+        superblock.getClusterName());
+    if (config.clusterName == "__unnamed__" ||
+        !strcmp("__unnamed__", superblock.getClusterName()) ||
+        config.clusterName != superblock.getClusterName()) {
         killAllStorage();
+    } else {
+        restartFromStorage();
+    }
 }
 
 /**
@@ -1111,6 +1120,22 @@ BackupService::~BackupService()
         delete info;
     }
     segments.clear();
+}
+
+/**
+ * If this server is rejoining a cluster the previous server id it
+ * operated under is returned, otherwise an invalid server is returned.
+ * "Rejoining" means this backup service may have segment replicas stored
+ * that were created by masters in the cluster.
+ * In this case, the coordinator must be made told of the former server
+ * id under which these replicas were created in order to ensure that
+ * all masters are made aware of the former server's crash before learning
+ * of its re-enlistment.
+ */
+ServerId
+BackupService::getFormerServerId() const
+{
+    return formerServerId;
 }
 
 /// Returns the serverId granted to this backup by the coordinator.
@@ -1333,6 +1358,9 @@ BackupService::init(ServerId id)
         metrics->serverId = *serverId;
     }
 
+    storage->resetSuperblock(serverId, config.clusterName);
+    LOG(NOTICE, "Backup %lu will store replicas under cluster name '%s'",
+        serverId.getId(), config.clusterName.c_str());
     initCalled = true;
 }
 
