@@ -220,20 +220,6 @@ bool storageFilter(string s) {
 }
 };
 
-TEST_F(BackupServiceTest, constructorNoReuseReplicas) {
-    TestLog::Enable _(storageFilter);
-    cluster->addServer(config);
-    EXPECT_EQ("killAllStorage: Scribbling storage to destroy "
-              "replicas from former backups",
-              TestLog::get().substr(0, TestLog::get().find(" |")));
-}
-
-namespace {
-bool constructFilter(string s) {
-    return s == "BackupService" || s == "init";
-}
-};
-
 struct TempCleanup {
     string path;
     explicit TempCleanup(string path) : path(path) {}
@@ -244,6 +230,29 @@ struct TempCleanup {
                 path.c_str(), strerror(errno));
         }
     }
+};
+
+TEST_F(BackupServiceTest, constructorNoReuseReplicas) {
+    config.backup.inMemory = false;
+    config.clusterName = "testing";
+    config.backup.file = "/tmp/ramcloud-backup-storage-test-delete-this";
+
+    TempCleanup __(config.backup.file);
+    cluster->addServer(config);
+
+    config.clusterName = "__unnamed__";
+    TestLog::Enable _(storageFilter);
+    BackupService* backup = cluster->addServer(config)->backup.get();
+    EXPECT_EQ(ServerId(), backup->getFormerServerId());
+    EXPECT_EQ("killAllStorage: Scribbling storage to destroy "
+              "replicas from former backups",
+              TestLog::get().substr(0, TestLog::get().find(" |")));
+}
+
+namespace {
+bool constructFilter(string s) {
+    return s == "BackupService" || s == "init";
+}
 };
 
 TEST_F(BackupServiceTest, constructorReuseReplicas)

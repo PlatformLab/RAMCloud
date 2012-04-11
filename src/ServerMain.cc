@@ -154,12 +154,22 @@ main(int argc, char *argv[])
         server.run(); // Never returns except for exceptions.
 
         return 0;
-    } catch (std::exception& e) {
-        using namespace RAMCloud;
+    } catch (const Exception& e) {
         LOG(ERROR, "Fatal error in server at %s: %s",
             Context::get().
                 transportManager->getListeningLocatorsString().c_str(),
             e.what());
+        return 1;
+    } catch (const std::exception& e) {
+        LOG(ERROR, "Fatal error in server at %s: %s",
+            Context::get().
+                transportManager->getListeningLocatorsString().c_str(),
+            e.what());
+        return 1;
+    } catch (...) {
+        LOG(ERROR, "Unknown fatal error in server at %s",
+            Context::get().
+                transportManager->getListeningLocatorsString().c_str());
         return 1;
     }
 }

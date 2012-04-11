@@ -1035,7 +1035,7 @@ BackupService::RecoverySegmentBuilder::operator()()
 BackupService::BackupService(const ServerConfig& config)
     : config(config)
     , coordinator(config.coordinatorLocator.c_str())
-    , formerServerId(0)
+    , formerServerId()
     , serverId(0)
     , recoveryTicks()
     , pool(config.segmentSize)
@@ -1080,15 +1080,15 @@ BackupService::BackupService(const ServerConfig& config)
     }
 
     BackupStorage::Superblock superblock = storage->loadSuperblock();
-    formerServerId = superblock.getServerId();
-    LOG(NOTICE, "Backup replaces Server Id %lu", formerServerId.getId());
-    LOG(NOTICE, "Backup formerly stored replicas under cluster name '%s'",
-        superblock.getClusterName());
     if (config.clusterName == "__unnamed__" ||
         !strcmp("__unnamed__", superblock.getClusterName()) ||
         config.clusterName != superblock.getClusterName()) {
         killAllStorage();
     } else {
+        formerServerId = superblock.getServerId();
+        LOG(NOTICE, "Backup replaces Server Id %lu", formerServerId.getId());
+        LOG(NOTICE, "Backup formerly stored replicas under cluster name '%s'",
+            superblock.getClusterName());
         restartFromStorage();
     }
 }
