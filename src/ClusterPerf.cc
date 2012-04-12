@@ -826,45 +826,48 @@ basic()
     Buffer input, output;
     int sizes[] = {100, 1000, 10000, 100000, 1000000};
     const char* ids[] = {"100", "1K", "10K", "100K", "1M"};
+    const char* key = "123456789012345678901234567890";
+    uint16_t keyLength = downCast<uint16_t>(strlen(key));
     char name[50], description[50];
 
     for (int i = 0; i < 5; i++) {
         int size = sizes[i];
-        fillBuffer(input, size, dataTable, "key0", 4);
-        cluster->write(dataTable, "key0", 4, input.getRange(0, size), size);
+        fillBuffer(input, size, dataTable, key, keyLength);
+        cluster->write(dataTable, key, keyLength,
+                input.getRange(0, size), size);
         Buffer output;
-        double t = timeRead(dataTable, "key0", 4, 100, output);
-        checkBuffer(output, size, dataTable, "key0", 4);
+        double t = timeRead(dataTable, key, keyLength, 100, output);
+        checkBuffer(output, size, dataTable, key, keyLength);
 
         snprintf(name, sizeof(name), "basic.read%s", ids[i]);
         snprintf(description, sizeof(description),
-                "read single %sB object", ids[i]);
+                "read single %sB object with %uB key", ids[i], keyLength);
         printTime(name, t, description);
         snprintf(name, sizeof(name), "basic.readBw%s", ids[i]);
         snprintf(description, sizeof(description),
-                "bandwidth reading %sB object", ids[i]);
+                "bandwidth reading %sB object with %uB key", ids[i], keyLength);
         printBandwidth(name, size/t, description);
     }
 
     for (int i = 0; i < 5; i++) {
         int size = sizes[i];
-        fillBuffer(input, size, dataTable, "key0", 4);
-        cluster->write(dataTable, "key0", 4, input.getRange(0, size), size);
+        fillBuffer(input, size, dataTable, key, keyLength);
+        cluster->write(dataTable, key, keyLength,
+                input.getRange(0, size), size);
         Buffer output;
-        double t = timeWrite(dataTable, "key0", 4, input.getRange(0, size),
-                size, 100);
-
+        double t = timeWrite(dataTable, key, keyLength,
+                input.getRange(0, size), size, 100);
         // Make sure the object was properly written.
-        cluster->read(dataTable, "key0", 4, &output);
-        checkBuffer(output, size, dataTable, "key0", 4);
+        cluster->read(dataTable, key, keyLength, &output);
+        checkBuffer(output, size, dataTable, key, keyLength);
 
         snprintf(name, sizeof(name), "basic.write%s", ids[i]);
         snprintf(description, sizeof(description),
-                "write single %sB object", ids[i]);
+                "write single %sB object with %uB key", ids[i], keyLength);
         printTime(name, t, description);
         snprintf(name, sizeof(name), "basic.writeBw%s", ids[i]);
         snprintf(description, sizeof(description),
-                "bandwidth writing %sB object", ids[i]);
+                "bandwidth writing %sB object with %uB key", ids[i], keyLength);
         printBandwidth(name, size/t, description);
     }
 }
@@ -934,8 +937,8 @@ broadcast()
 void
 netBandwidth()
 {
-    const char* key = "99";
-    uint16_t keyLength = 2;
+    const char* key = "123456789012345678901234567890";
+    uint16_t keyLength = downCast<uint16_t>(strlen(key));
 
     // Duration of the test, in ms.
     int ms = 100;
@@ -958,8 +961,9 @@ netBandwidth()
         double bandwidth = value.getTotalLength()/latency;
         sendMetrics(bandwidth);
         setSlaveState("done");
-        RAMCLOUD_LOG(NOTICE, "Bandwidth (%u-byte object): %.1f MB/sec",
-                value.getTotalLength(), bandwidth/(1024*1024));
+        RAMCLOUD_LOG(NOTICE,
+                "Bandwidth (%u-byte object with %u-byte key): %.1f MB/sec",
+                value.getTotalLength(), keyLength, bandwidth/(1024*1024));
         return;
     }
 
@@ -982,8 +986,9 @@ netBandwidth()
     // Collect statistics.
     ClientMetrics metrics;
     getMetrics(metrics, numClients);
-    RAMCLOUD_LOG(DEBUG, "Bandwidth (%u-byte object): %.1f MB/sec",
-            value.getTotalLength(), bandwidth/(1024*1024));
+    RAMCLOUD_LOG(DEBUG,
+            "Bandwidth (%u-byte object with %u-byte key): %.1f MB/sec",
+            value.getTotalLength(), keyLength, bandwidth/(1024*1024));
 
     printBandwidth("netBandwidth", sum(metrics[0]),
             "many clients reading from different servers");
@@ -999,6 +1004,9 @@ netBandwidth()
 void
 readAllToAll()
 {
+    const char* key = "123456789012345678901234567890";
+    uint16_t keyLength = downCast<uint16_t>(strlen(key));
+
     if (clientIndex > 0) {
         char command[20];
         do {
@@ -1016,7 +1024,7 @@ readAllToAll()
 
                 Buffer result;
                 uint64_t startCycles = Cycles::rdtsc();
-                RamCloud::Read read(*cluster, tableId, "0", 1, &result);
+                RamCloud::Read read(*cluster, tableId, key, keyLength, &result);
                 while (!read.isReady()) {
                     Context::get().dispatch->poll();
                     double secsWaiting =
@@ -1047,14 +1055,14 @@ readAllToAll()
     int size = objectSize;
     if (size < 0)
         size = 100;
-    uint64_t* tableIds = createTables(numTables, size, "0", 1);
+    uint64_t* tableIds = createTables(numTables, size, key, keyLength);
 
     std::cout << "Master client reading from all masters" << std::endl;
     for (int i = 0; i < numTables; ++i) {
         uint64_t tableId = tableIds[i];
         Buffer result;
         uint64_t startCycles = Cycles::rdtsc();
-        RamCloud::Read read(*cluster, tableId, "0", 1, &result);
+        RamCloud::Read read(*cluster, tableId, key, keyLength, &result);
         while (!read.isReady()) {
             Context::get().dispatch->poll();
             if (Cycles::toSeconds(Cycles::rdtsc() - startCycles) > 1.0) {
@@ -1081,6 +1089,9 @@ readAllToAll()
 void
 readLoaded()
 {
+    const char* key = "123456789012345678901234567890";
+    uint16_t keyLength = downCast<uint16_t>(strlen(key));
+
     if (clientIndex > 0) {
         // Slaves execute the following code, which creates load by
         // repeatedly reading a particular object.
@@ -1089,9 +1100,9 @@ readLoaded()
             char doc[200];
             getCommand(command, sizeof(command));
             if (strcmp(command, "run") == 0) {
-                MakeKey key(keyVal(0, DOC));
-                readObject(controlTable, key.get(), key.length(), doc,
-                        sizeof(doc));
+                MakeKey controlKey(keyVal(0, DOC));
+                readObject(controlTable, controlKey.get(), controlKey.length(),
+                        doc, sizeof(doc));
                 setSlaveState("running");
 
                 // Although the main purpose here is to generate load, we
@@ -1104,7 +1115,7 @@ readLoaded()
                 int count = 0;
                 int size = 0;
                 while (true) {
-                    cluster->read(dataTable, "111", 3, &buffer);
+                    cluster->read(dataTable, key, keyLength, &buffer);
                     int currentSize = buffer.getTotalLength();
                     if (currentSize != 0) {
                         if (start == 0) {
@@ -1117,9 +1128,10 @@ readLoaded()
                             break;
                     }
                 }
-                RAMCLOUD_LOG(NOTICE, "Average latency (size %d): %.1fus (%s)",
-                        size, Cycles::toSeconds(Cycles::rdtsc() - start)
-                        *1e06/count, doc);
+                RAMCLOUD_LOG(NOTICE, "Average latency (object size %d, "
+                        "key size %u): %.1fus (%s)", size, keyLength,
+                        Cycles::toSeconds(Cycles::rdtsc() - start)*1e06/count,
+                        doc);
                 setSlaveState("idle");
             } else if (strcmp(command, "done") == 0) {
                 setSlaveState("done");
@@ -1137,8 +1149,8 @@ readLoaded()
     if (size < 0)
         size = 100;
     printf("# RAMCloud read performance as a function of load (1 or more\n");
-    printf("# clients all reading a single %d-byte object repeatedly).\n",
-            size);
+    printf("# clients all reading a single %d-byte object with %d-byte key\n"
+           "# repeatedly).\n", size, keyLength);
     printf("# Generated by 'clusterperf.py readLoaded'\n");
     printf("#\n");
     printf("# numClients  readLatency(us)  throughput(total kreads/sec)\n");
@@ -1147,15 +1159,17 @@ readLoaded()
         char message[100];
         Buffer input, output;
         snprintf(message, sizeof(message), "%d active clients", numSlaves+1);
-        MakeKey key(keyVal(0, DOC));
-        cluster->write(controlTable, key.get(), key.length(), message);
-        cluster->write(dataTable, "111", 3, "");
+        MakeKey controlKey(keyVal(0, DOC));
+        cluster->write(controlTable, controlKey.get(), controlKey.length(),
+                message);
+        cluster->write(dataTable, key, keyLength, "");
         sendCommand("run", "running", 1, numSlaves);
-        fillBuffer(input, size, dataTable, "111", 3);
-        cluster->write(dataTable, "111", 3, input.getRange(0, size), size);
-        double t = timeRead(dataTable, "111", 3, 100, output);
-        cluster->write(dataTable, "111", 3, "");
-        checkBuffer(output, size, dataTable, "111", 3);
+        fillBuffer(input, size, dataTable, key, keyLength);
+        cluster->write(dataTable, key, keyLength,
+                input.getRange(0, size), size);
+        double t = timeRead(dataTable, key, keyLength, 100, output);
+        cluster->write(dataTable, key, keyLength, "");
+        checkBuffer(output, size, dataTable, key, keyLength);
         printf("%5d     %10.1f          %8.0f\n", numSlaves+1, t*1e06,
                 (numSlaves+1)/(1e03*t));
         sendCommand(NULL, "idle", 1, numSlaves);
@@ -1221,13 +1235,16 @@ void readRandomCommon(uint64_t *tableIds, char *docString)
     int count = 0;
     int slowReads = 0;
 
+    const char* key = "123456789012345678901234567890";
+    uint16_t keyLength = downCast<uint16_t>(strlen(key));
+
     // Each iteration through this loop issues one read operation to a
     // randomly-selected table.
     while (true) {
         uint64_t tableId = tableIds[generateRandom() % numTables];
         readStart = Cycles::rdtsc();
         Buffer value;
-        cluster->read(tableId, "0", 1, &value);
+        cluster->read(tableId, key, keyLength, &value);
         readEnd = Cycles::rdtsc();
         count++;
         uint64_t latency = readEnd - readStart;
@@ -1276,8 +1293,8 @@ readRandom()
                         tableIds[i] = cluster->openTable(tableName);
                     }
                 }
-                MakeKey key(keyVal(0, DOC));
-                readObject(controlTable, key.get(), key.length(),
+                MakeKey controlKey(keyVal(0, DOC));
+                readObject(controlTable, controlKey.get(), controlKey.length(),
                         doc, sizeof(doc));
                 setSlaveState("running");
                 readRandomCommon(tableIds, doc);
@@ -1296,12 +1313,14 @@ readRandom()
     int size = objectSize;
     if (size < 0)
         size = 100;
-    tableIds = createTables(numTables, size, "0", 1);
+    const char* key = "123456789012345678901234567890";
+    uint16_t keyLength = downCast<uint16_t>(strlen(key));
+    tableIds = createTables(numTables, size, key, keyLength);
 
     // Vary the number of clients and repeat the test for each number.
     printf("# RAMCloud read performance when 1 or more clients read\n");
-    printf("# %d-byte objects chosen at random from %d servers.\n",
-            size, numTables);
+    printf("# %d-byte objects with %u-byte keys chosen at random from\n"
+           "# %d servers.\n", size, keyLength, numTables);
     printf("# Generated by 'clusterperf.py readRandom'\n");
     printf("#\n");
     printf("# numClients  throughput(total kreads/sec)  slowest(ms)  "
@@ -1342,31 +1361,27 @@ readVaryingKeyLength()
          2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000,
          20000, 30000, 40000, 50000, 60000
     };
-    char name[50], description[50];
     int dataLength = 100;
+
+    printf("# RAMCloud read performance for %u B objects\n", dataLength);
+    printf("# with keys of various lengths.\n");
+    printf("# Generated by 'clusterperf.py readVaryingKeyLength'\n#\n");
+    printf("# Key Length      Latency (us)     Bandwidth (MB/s)\n");
+    printf("#--------------------------------------------------------"
+            "--------------------\n");
 
     foreach (uint16_t keyLength, keyLengths) {
         char key[keyLength];
         genRandomString(key, keyLength);
 
         fillBuffer(input, dataLength, dataTable, key, keyLength);
-        cluster->write(dataTable, key, keyLength, input.getRange(0, dataLength),
-                dataLength);
+        cluster->write(dataTable, key, keyLength,
+                input.getRange(0, dataLength), dataLength);
         double t = timeRead(dataTable, key, keyLength, 100, output);
         checkBuffer(output, dataLength, dataTable, key, keyLength);
 
-        snprintf(name, sizeof(name), "readVaryingKeyLength.read%u",
-                 keyLength);
-        snprintf(description, sizeof(description),
-                "read single object with %uB string key",
-                 keyLength);
-        printTime(name, t, description);
-        snprintf(name, sizeof(name), "readVaryingKeyLength.readBw%u",
-                 keyLength);
-        snprintf(description, sizeof(description),
-                "bandwidth reading object with %uB string key",
-                 keyLength);
-        printBandwidth(name, keyLength/t, description);
+        printf("%12u %16.1f %19.1f\n", keyLength, 1e06*t,
+               (keyLength / t)/(1024.0*1024.0));
     }
 }
 
@@ -1384,8 +1399,14 @@ writeVaryingKeyLength()
          2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000,
          20000, 30000, 40000, 50000, 60000
     };
-    char name[50], description[50];
     int dataLength = 100;
+
+    printf("# RAMCloud write performance for %u B objects\n", dataLength);
+    printf("# with keys of various lengths.\n");
+    printf("# Generated by 'clusterperf.py writeVaryingKeyLength'\n#\n");
+    printf("# Key Length      Latency (us)     Bandwidth (MB/s)\n");
+    printf("#--------------------------------------------------------"
+            "--------------------\n");
 
     foreach (uint16_t keyLength, keyLengths) {
         char key[keyLength];
@@ -1400,18 +1421,8 @@ writeVaryingKeyLength()
         cluster->read(dataTable, key, keyLength, &output);
         checkBuffer(output, dataLength, dataTable, key, keyLength);
 
-        snprintf(name, sizeof(name), "writeVaryingKeyLength.write%u",
-                 keyLength);
-        snprintf(description, sizeof(description),
-                "write single object with %uB string key",
-                 keyLength);
-        printTime(name, t, description);
-        snprintf(name, sizeof(name), "writeVaryingKeyLength.writeBw%u",
-                 keyLength);
-        snprintf(description, sizeof(description),
-                "bandwidth writing object with %uB string key",
-                 keyLength);
-        printBandwidth(name, keyLength/t, description);
+        printf("%12u %16.1f %19.1f\n", keyLength, 1e06*t,
+               (keyLength / t)/(1024.0*1024.0));
     }
 }
 
@@ -1435,13 +1446,17 @@ writeAsyncSync()
         maxSize = std::max(maxSize, asyncObjectSizes[j]);
 
     char* garbage = new char[maxSize];
-    // prime
-    cluster->write(dataTable, "111", 3, &garbage[0], syncObjectSize);
-    cluster->write(dataTable, "111", 3, &garbage[0], syncObjectSize);
 
-    printf("# RAMCloud %u B write performance during interleaved\n",
-           syncObjectSize);
-    printf("# asynchronous writes of various sizes\n");
+    const char* key = "123456789012345678901234567890";
+    uint16_t keyLength = downCast<uint16_t>(strlen(key));
+
+    // prime
+    cluster->write(dataTable, key, keyLength, &garbage[0], syncObjectSize);
+    cluster->write(dataTable, key, keyLength, &garbage[0], syncObjectSize);
+
+    printf("# RAMCloud write performance for %u B object with %u B key\n",
+            syncObjectSize, keyLength);
+    printf("# during interleaved asynchronous writes of various sizes\n");
     printf("# Generated by 'clusterperf.py writeAsyncSync'\n#\n");
     printf("# firstWriteIsSync firstObjectSize firstWriteLatency(us) "
             "syncWriteLatency(us)\n");
@@ -1455,12 +1470,12 @@ writeAsyncSync()
             for (uint32_t i = 0; i < count; ++i) {
                 {
                     CycleCounter<> _(&asyncTicks);
-                    cluster->write(dataTable, "111", 3, &garbage[0],
+                    cluster->write(dataTable, key, keyLength, &garbage[0],
                                    asyncObjectSize, NULL, NULL, !sync);
                 }
                 {
                     CycleCounter<> _(&syncTicks);
-                    cluster->write(dataTable, "111", 3, &garbage[0],
+                    cluster->write(dataTable, key, keyLength, &garbage[0],
                                    syncObjectSize);
                 }
             }

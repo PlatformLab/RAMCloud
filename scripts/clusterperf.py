@@ -225,12 +225,12 @@ simple_tests = [
     Test("netBandwidth", netBandwidth),
     Test("readAllToAll", readAllToAll),
     Test("readNotFound", default),
-    Test("readVaryingKeyLength", default),
-    Test("writeVaryingKeyLength", default),
     Test("writeAsyncSync", default),
 ]
 
 graph_tests = [
+    Test("readVaryingKeyLength", default),
+    Test("writeVaryingKeyLength", default),
     Test("readLoaded", readLoaded),
     Test("readRandom", readRandom)
 ]
