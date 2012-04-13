@@ -133,8 +133,8 @@ def load_so():
     so.rc_getStatus.argtypes = []
     so.rc_getStatus.restype  = status
 
-    so.rc_openTable.argtypes = [client, name, POINTER(table)]
-    so.rc_openTable.restype  = status
+    so.rc_getTableId.argtypes = [client, name, POINTER(table)]
+    so.rc_getTableId.restype  = status
 
     so.rc_ping.argtypes = [client, serviceLocator, nonce, nanoseconds,
                            POINTER(nonce)]
@@ -240,9 +240,9 @@ class RAMCloud(object):
         s = so.rc_dropTable(self.client, name)
         self.handle_error(s)
 
-    def open_table(self, name):
+    def get_table_id(self, name):
         handle = ctypes.c_uint64()
-        s = so.rc_openTable(self.client, name, ctypes.byref(handle))
+        s = so.rc_getTableId(self.client, name, ctypes.byref(handle))
         self.handle_error(s)
         return handle.value
 
@@ -306,7 +306,7 @@ def main():
 
     r.create_table("test")
     print "Created table 'test'",
-    table = r.open_table("test")
+    table = r.get_table_id("test")
     print "with id %s" % table
 
     r.create(table, 0, "Hello, World, from Python")
@@ -329,8 +329,8 @@ def main():
     # were truncated to 8 characters
     r.create_table("01234567890123456789A")
     r.create_table("01234567890123456789B")
-    assert (r.open_table("01234567890123456789A") !=
-            r.open_table("01234567890123456789B"))
+    assert (r.get_table_id("01234567890123456789A") !=
+            r.get_table_id("01234567890123456789B"))
     r.drop_table("01234567890123456789A")
     r.drop_table("01234567890123456789B")
 

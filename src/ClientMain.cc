@@ -101,7 +101,7 @@ try
     b = Cycles::rdtsc();
     client.createTable("test");
     uint64_t table;
-    table = client.openTable("test");
+    table = client.getTableId("test");
     LOG(NOTICE, "create+open table took %lu ticks", Cycles::rdtsc() - b);
 
     b = Cycles::rdtsc();

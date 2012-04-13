@@ -86,7 +86,7 @@ try
     }
 #endif
 
-    tableId = client.openTable(tableName.c_str());
+    tableId = client.getTableId(tableName.c_str());
 
     Transport::SessionRef session = client.objectFinder.lookup(
         downCast<uint32_t>(tableId), reinterpret_cast<char*>(&firstKey),

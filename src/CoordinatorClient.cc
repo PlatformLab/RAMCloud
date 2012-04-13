@@ -97,15 +97,15 @@ CoordinatorClient::dropTable(const char* name)
  * \exception InternalError
  */
 uint64_t
-CoordinatorClient::openTable(const char* name)
+CoordinatorClient::getTableId(const char* name)
 {
     Buffer req, resp;
     uint32_t length = downCast<uint32_t>(strlen(name) + 1);
-    OpenTableRpc::Request& reqHdr(allocHeader<OpenTableRpc>(req));
+    GetTableIdRpc::Request& reqHdr(allocHeader<GetTableIdRpc>(req));
     reqHdr.nameLength = length;
     memcpy(new(&req, APPEND) char[length], name, length);
-    const OpenTableRpc::Response& respHdr(
-        sendRecv<OpenTableRpc>(session, req, resp));
+    const GetTableIdRpc::Response& respHdr(
+        sendRecv<GetTableIdRpc>(session, req, resp));
     checkStatus(HERE);
     return respHdr.tableId;
 }

@@ -656,7 +656,7 @@ createTables(int numTables, int objectSize, const char* key, uint16_t keyLength)
         char tableName[20];
         snprintf(tableName, sizeof(tableName), "table%d", i);
         cluster->createTable(tableName);
-        tableIds[i] = cluster->openTable(tableName);
+        tableIds[i] = cluster->getTableId(tableName);
         Buffer data;
         fillBuffer(data, objectSize, tableIds[i], key, keyLength);
         cluster->write(tableIds[i], key, keyLength,
@@ -950,7 +950,7 @@ netBandwidth()
         getCommand(command, sizeof(command));
         char tableName[20];
         snprintf(tableName, sizeof(tableName), "table%d", clientIndex);
-        uint64_t tableId = cluster->openTable(tableName);
+        uint64_t tableId = cluster->getTableId(tableName);
         RAMCLOUD_LOG(NOTICE, "Client %d reading from table %lu", clientIndex,
                 tableId);
         setSlaveState("running");
@@ -1020,7 +1020,7 @@ readAllToAll()
         for (int tableNum = 0; tableNum < numTables; ++tableNum) {
             string tableName = format("table%d", tableNum);
             try {
-                uint64_t tableId = cluster->openTable(tableName.c_str());
+                uint64_t tableId = cluster->getTableId(tableName.c_str());
 
                 Buffer result;
                 uint64_t startCycles = Cycles::rdtsc();
@@ -1290,7 +1290,7 @@ readRandom()
                     for (int i = 0; i < numTables; i++) {
                         char tableName[20];
                         snprintf(tableName, sizeof(tableName), "table%d", i);
-                        tableIds[i] = cluster->openTable(tableName);
+                        tableIds[i] = cluster->getTableId(tableName);
                     }
                 }
                 MakeKey controlKey(keyVal(0, DOC));
@@ -1577,9 +1577,9 @@ try
     RamCloud r(context, coordinatorLocator.c_str());
     cluster = &r;
     cluster->createTable("data");
-    dataTable = cluster->openTable("data");
+    dataTable = cluster->getTableId("data");
     cluster->createTable("control");
-    controlTable = cluster->openTable("control");
+    controlTable = cluster->getTableId("control");
 
     if (testNames.size() == 0) {
         // No test names specified; run all tests.

@@ -133,7 +133,7 @@ class RamCloud {
     RamCloud(Context& context, const char* serviceLocator);
     void createTable(const char* name, uint32_t serverSpan = 1);
     void dropTable(const char* name);
-    uint64_t openTable(const char* name);
+    uint64_t getTableId(const char* name);
     string* getServiceLocator();
     ServerMetrics getMetrics(const char* serviceLocator);
     ServerMetrics getMetrics(uint64_t table, const char* key,

@@ -36,7 +36,7 @@ class MasterClient : public Client {
     struct ReadObject {
         /**
          * The table containing the desired object (return value from
-         * a previous call to openTable).
+         * a previous call to getTableId).
          */
         uint64_t tableId;
         /**

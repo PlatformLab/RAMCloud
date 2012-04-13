@@ -188,7 +188,7 @@ if __name__ == '__main__':
     r.connect()
 
     r.create_table("test")
-    table = r.open_table("test")
+    table = r.get_table_id("test")
 
     oids = range(options.num_objects)
 

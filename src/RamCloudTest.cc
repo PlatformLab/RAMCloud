@@ -51,9 +51,9 @@ class RamCloudTest : public ::testing::Test {
 
         ramcloud.construct(Context::get(), "mock:host=coordinator");
         ramcloud->createTable("table1");
-        tableId1 = ramcloud->openTable("table1");
+        tableId1 = ramcloud->getTableId("table1");
         ramcloud->createTable("table2");
-        tableId2 = ramcloud->openTable("table2");
+        tableId2 = ramcloud->getTableId("table2");
     }
 
     DISALLOW_COPY_AND_ASSIGN(RamCloudTest);
@@ -122,7 +122,7 @@ TEST_F(RamCloudTest, multiRead) {
 }
 
 TEST_F(RamCloudTest, writeString) {
-    uint64_t tableId1 = ramcloud->openTable("table1");
+    uint64_t tableId1 = ramcloud->getTableId("table1");
     ramcloud->write(tableId1, "99", 2, "abcdef");
     Buffer value;
     ramcloud->read(tableId1, "99", 2, &value);

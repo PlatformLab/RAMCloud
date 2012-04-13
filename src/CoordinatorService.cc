@@ -65,9 +65,9 @@ CoordinatorService::dispatch(RpcOpcode opcode,
             callHandler<DropTableRpc, CoordinatorService,
                         &CoordinatorService::dropTable>(rpc);
             break;
-        case OpenTableRpc::opcode:
-            callHandler<OpenTableRpc, CoordinatorService,
-                        &CoordinatorService::openTable>(rpc);
+        case GetTableIdRpc::opcode:
+            callHandler<GetTableIdRpc, CoordinatorService,
+                        &CoordinatorService::getTableId>(rpc);
             break;
         case EnlistServerRpc::opcode:
             callHandler<EnlistServerRpc, CoordinatorService,
@@ -246,12 +246,12 @@ CoordinatorService::dropTable(const DropTableRpc::Request& reqHdr,
 }
 
 /**
- * Top-level server method to handle the OPEN_TABLE request.
+ * Top-level server method to handle the GET_TABLE_ID request.
  * \copydetails Service::ping
  */
 void
-CoordinatorService::openTable(const OpenTableRpc::Request& reqHdr,
-                              OpenTableRpc::Response& respHdr,
+CoordinatorService::getTableId(const GetTableIdRpc::Request& reqHdr,
+                              GetTableIdRpc::Response& respHdr,
                               Rpc& rpc)
 {
     const char* name = getString(rpc.requestPayload, sizeof(reqHdr),

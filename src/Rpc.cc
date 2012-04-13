@@ -53,7 +53,7 @@ Rpc::opcodeSymbol(uint32_t opcode)
         case PROXY_PING:                 return "PROXY_PING";
         case KILL:                       return "KILL";
         case CREATE_TABLE:               return "CREATE_TABLE";
-        case OPEN_TABLE:                 return "OPEN_TABLE";
+        case GET_TABLE_ID:               return "GET_TABLE_ID";
         case DROP_TABLE:                 return "DROP_TABLE";
         case READ:                       return "READ";
         case WRITE:                      return "WRITE";

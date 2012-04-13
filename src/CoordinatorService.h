@@ -55,8 +55,8 @@ class CoordinatorService : public Service {
     void dropTable(const DropTableRpc::Request& reqHdr,
                    DropTableRpc::Response& respHdr,
                    Rpc& rpc);
-    void openTable(const OpenTableRpc::Request& reqHdr,
-                   OpenTableRpc::Response& respHdr,
+    void getTableId(const GetTableIdRpc::Request& reqHdr,
+                   GetTableIdRpc::Response& respHdr,
                    Rpc& rpc);
     void enlistServer(const EnlistServerRpc::Request& reqHdr,
                       EnlistServerRpc::Response& respHdr,

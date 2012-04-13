@@ -68,7 +68,7 @@ try
     RamCloud client(context, coordinatorLocator.c_str());
 
     client.createTable("mainTable");
-    uint64_t table = client.openTable("mainTable");
+    uint64_t table = client.getTableId("mainTable");
     Transport::SessionRef mainTableSession =
         client.objectFinder.lookup(table, "0", 1);
 
@@ -84,7 +84,7 @@ try
         char name[10];
         snprintf(name, sizeof(name), "backup%d", ++i);
         client.createTable(name);
-        uint64_t table = client.openTable(name);
+        uint64_t table = client.getTableId(name);
         Transport::SessionRef session =
                 client.objectFinder.lookup(table, "0", 1);
         // Round-robin table allocation: create tables until we find we've

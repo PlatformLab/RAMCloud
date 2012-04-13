@@ -56,7 +56,7 @@ ObjectFinder::ObjectFinder(CoordinatorClient& coordinator)
  *
  * \param table
  *      The table containing the desired object (return value from a
- *      previous call to openTable).
+ *      previous call to getTableId).
  * \param key
  *      Variable length key that uniquely identifies the object within tableId.
  *      It does not necessarily have to be null terminated like a string.

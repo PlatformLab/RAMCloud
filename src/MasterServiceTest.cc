@@ -963,7 +963,7 @@ TEST_F(MasterServiceTest, migrateTablet_simple) {
 
 TEST_F(MasterServiceTest, migrateTablet_movingData) {
     coordinator->createTable("migrationTable");
-    uint64_t tbl = coordinator->openTable("migrationTable");
+    uint64_t tbl = coordinator->getTableId("migrationTable");
     client->write(tbl, "hi", 2, "abcdefg", 7);
 
     ServerConfig master2Config = masterConfig;
@@ -1254,7 +1254,7 @@ TEST_F(MasterServiceTest, objectLivenessCallback_tableDoesntExist) {
     ASSERT_TRUE(cb != NULL);
 
     coordinator->createTable("table1");
-    uint64_t tableId = coordinator->openTable("table1");
+    uint64_t tableId = coordinator->getTableId("table1");
     const char* key = "key0";
     uint16_t keyLength = downCast<uint16_t>(strlen(key));
     uint64_t version;

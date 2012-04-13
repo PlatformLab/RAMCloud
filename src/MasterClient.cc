@@ -159,7 +159,7 @@ MasterClient::Read::operator()()
  *
  * \param tableId
  *      The table containing the desired object (return value from
- *      a previous call to openTable).
+ *      a previous call to getTableId).
  * \param key
  *      Variable length key that uniquely identifies the object within tableId.
  *      It does not necessarily have to be null terminated like a string.
@@ -395,7 +395,7 @@ MasterClient::multiRead(std::vector<ReadObject*> requests)
  *
  * \param tableId
  *      The table containing the to be incremented object (return value from
- *      a previous call to openTable).
+ *      a previous call to getTableId).
  * \param key
  *      Variable length key that uniquely identifies the object within tableId.
  *      It does not necessarily have to be null terminated like a string.
@@ -440,7 +440,7 @@ MasterClient::increment(uint32_t tableId, const char* key, uint16_t keyLength,
  *
  * \param tableId
  *      The table containing the object to be deleted (return value from
- *      a previous call to openTable).
+ *      a previous call to getTableId).
  * \param key
  *      Variable length key that uniquely identifies the object within tableId.
  *      It does not necessarily have to be null terminated like a string.
@@ -595,7 +595,7 @@ MasterClient::Write::operator()()
  *
  * \param tableId
  *      The table containing the desired object (return value from a
- *      previous call to openTable).
+ *      previous call to getTableId).
  * \param key
  *      Variable length key that uniquely identifies the object within tableId.
  *      It does not necessarily have to be null terminated like a string.

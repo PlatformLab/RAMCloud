@@ -223,7 +223,7 @@ try
     for (uint32_t t = 0; t < tableCount; t++) {
         snprintf(tableName, sizeof(tableName), "%d", t);
         client.createTable(tableName);
-        tables[t] = client.openTable(tableName);
+        tables[t] = client.getTableId(tableName);
 
         // Create tables on the other masters so we skip back around to the
         // first in round-robin order to create multiple tables in the same
@@ -237,7 +237,7 @@ try
             // master that will open connections with all the backups so that
             // connection setup doesn't happen during recovery and slow it down.
             if (t == 0) {
-                uint64_t table = client.openTable(tableName);
+                uint64_t table = client.getTableId(tableName);
                 client.write(table, "1", 1, "abcd", 4);
             }
         }

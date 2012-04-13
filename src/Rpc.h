@@ -66,7 +66,7 @@ enum RpcOpcode {
     PROXY_PING              = 8,
     KILL                    = 9,
     CREATE_TABLE            = 10,
-    OPEN_TABLE              = 11,
+    GET_TABLE_ID            = 11,
     DROP_TABLE              = 12,
     READ                    = 13,
     WRITE                   = 14,
@@ -413,8 +413,8 @@ struct DropTableRpc {
     } __attribute__((packed));
 };
 
-struct OpenTableRpc {
-    static const RpcOpcode opcode = OPEN_TABLE;
+struct GetTableIdRpc {
+    static const RpcOpcode opcode = GET_TABLE_ID;
     static const ServiceType service = COORDINATOR_SERVICE;
     struct Request {
         RpcRequestCommon common;

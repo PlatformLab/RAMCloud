@@ -187,7 +187,7 @@ try
 
     RamCloud* client = new RamCloud(coordinatorLocator.c_str());
     client->createTable(tableName.c_str());
-    uint64_t table = client->openTable(tableName.c_str());
+    uint64_t table = client->getTableId(tableName.c_str());
 
     if (distribution == "uniform")
         runIt(client, table, maxKeyVal, objectSize, uniform);

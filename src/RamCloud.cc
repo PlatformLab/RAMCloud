@@ -76,12 +76,12 @@ RamCloud::dropTable(const char* name)
     coordinator.dropTable(name);
 }
 
-/// \copydoc CoordinatorClient::openTable
+/// \copydoc CoordinatorClient::getTableId
 uint64_t
-RamCloud::openTable(const char* name)
+RamCloud::getTableId(const char* name)
 {
     Context::Guard _(clientContext);
-    return coordinator.openTable(name);
+    return coordinator.getTableId(name);
 }
 
 /// \copydoc PingClient::getMetrics
@@ -321,7 +321,7 @@ RamCloud::write(uint64_t tableId, const char* key, uint16_t keyLength,
  *
  * \param tableId
  *      The table containing the desired object (return value from a
- *      previous call to openTable).
+ *      previous call to getTableId).
  * \param key
  *      Variable length key that uniquely identifies the object within tableId.
  *      It does not necessarily have to be null terminated like a string.

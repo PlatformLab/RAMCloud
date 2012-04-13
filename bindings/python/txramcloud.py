@@ -892,7 +892,7 @@ def main():
 
     r.create_table("test")
     print "Created table 'test'",
-    table = r.open_table("test")
+    table = r.get_table_id("test")
     print "with id %s" % table
 
     r.create(table, 0, "Hello, World, from Python")

@@ -137,11 +137,11 @@ rc_getStatus(struct rc_client* client) {
 }
 
 Status
-rc_openTable(struct rc_client* client, const char* name,
+rc_getTableId(struct rc_client* client, const char* name,
         uint64_t* tableId)
 {
     try {
-        *tableId = client->client->openTable(name);
+        *tableId = client->client->getTableId(name);
     } catch (ClientException& e) {
         return e.status;
     }
@@ -170,7 +170,7 @@ rc_ping(struct rc_client* client, const char* serviceLocator,
  *      Handle for the RAMCloud connection.
  * \param tableId
  *      The table containing the desired object (return value from
- *      a previous call to openTable).
+ *      a previous call to getTableId).
  * \param key
  *      Variable length key that uniquely identifies the object within tableId.
  *      It does not necessarily have to be null terminated like a string.

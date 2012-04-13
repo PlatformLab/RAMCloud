@@ -39,7 +39,7 @@ void                rc_disconnect(struct rc_client* client);
 RAMCloud::Status    rc_createTable(struct rc_client* client, const char* name);
 RAMCloud::Status    rc_dropTable(struct rc_client* client, const char* name);
 RAMCloud::Status    rc_getStatus(struct rc_client* client);
-RAMCloud::Status    rc_openTable(struct rc_client* client, const char* name,
+RAMCloud::Status    rc_getTableId(struct rc_client* client, const char* name,
                             uint64_t* tableId);
 RAMCloud::Status    rc_ping(struct rc_client* client,
                             const char* serviceLocator,

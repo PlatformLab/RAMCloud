@@ -139,7 +139,7 @@ try
     RamCloud client(optionParser.options.getCoordinatorLocator().c_str());
 
     client.createTable("TransportBench");
-    auto table = client.openTable("TransportBench");
+    auto table = client.getTableId("TransportBench");
     assert(table == 0);
 
     bench(client, table, mcp, count, size, uncached);
