@@ -325,8 +325,8 @@ CoordinatorClient::reassignTabletOwnership(uint64_t tableId,
 }
 
 /**
- * Tell the coordinator that recovery of a particular tablets have
- * been recovered on the master who is calling.
+ * Tell the coordinator that recovery of particular tablets have
+ * been completed on the master who is calling.
  *
  * \param[in] masterId
  *      The masterId of the server invoking this method.
