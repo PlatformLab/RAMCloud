@@ -56,8 +56,8 @@ class CoordinatorService : public Service {
                    DropTableRpc::Response& respHdr,
                    Rpc& rpc);
     void getTableId(const GetTableIdRpc::Request& reqHdr,
-                   GetTableIdRpc::Response& respHdr,
-                   Rpc& rpc);
+                    GetTableIdRpc::Response& respHdr,
+                    Rpc& rpc);
     void enlistServer(const EnlistServerRpc::Request& reqHdr,
                       EnlistServerRpc::Response& respHdr,
                       Rpc& rpc);
@@ -83,9 +83,9 @@ class CoordinatorService : public Service {
                 const ReassignTabletOwnershipRpc::Request& reqHdr,
                 ReassignTabletOwnershipRpc::Response& respHdr,
                 Rpc& rpc);
-    void requestServerList(const RequestServerListRpc::Request& reqHdr,
-                           RequestServerListRpc::Response& respHdr,
-                           Rpc& rpc);
+    void sendServerList(const SendServerListRpc::Request& reqHdr,
+                        SendServerListRpc::Response& respHdr,
+                        Rpc& rpc);
     // - helper methods -
     bool assignReplicationGroup(uint64_t replicationId,
                                 const vector<ServerId>& replicationGroupIds);

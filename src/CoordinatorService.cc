@@ -97,9 +97,9 @@ CoordinatorService::dispatch(RpcOpcode opcode,
             callHandler<SetWillRpc, CoordinatorService,
                         &CoordinatorService::setWill>(rpc);
             break;
-        case RequestServerListRpc::opcode:
-            callHandler<RequestServerListRpc, CoordinatorService,
-                        &CoordinatorService::requestServerList>(rpc);
+        case SendServerListRpc::opcode:
+            callHandler<SendServerListRpc, CoordinatorService,
+                        &CoordinatorService::sendServerList>(rpc);
             break;
         case ReassignTabletOwnershipRpc::opcode:
             callHandler<ReassignTabletOwnershipRpc, CoordinatorService,
@@ -637,7 +637,7 @@ CoordinatorService::reassignTabletOwnership(
 }
 
 /**
- * Handle the REQUEST_SERVER_LIST RPC.
+ * Handle the SEND_SERVER_LIST RPC.
  *
  * The Coordinator always pushes server lists and their updates. If a server's
  * FailureDetector determines that the list is out of date, it issues an RPC
@@ -646,9 +646,9 @@ CoordinatorService::reassignTabletOwnership(
  * \copydetails Service::ping
  */
 void
-CoordinatorService::requestServerList(
-    const RequestServerListRpc::Request& reqHdr,
-    RequestServerListRpc::Response& respHdr,
+CoordinatorService::sendServerList(
+    const SendServerListRpc::Request& reqHdr,
+    SendServerListRpc::Response& respHdr,
     Rpc& rpc)
 {
     ServerId id(reqHdr.serverId);

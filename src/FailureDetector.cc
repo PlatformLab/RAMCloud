@@ -265,7 +265,7 @@ FailureDetector::checkForStaleServerList()
             currentVersion, staleServerListVersion,
             Cycles::toNanoseconds(deltaTicks) / 1000);
         try {
-            coordinatorClient.requestServerList(ourServerId);
+            coordinatorClient.sendServerList(ourServerId);
             staleServerListSuspected = false;
         } catch (TransportException &te) {
             LOG(WARNING, "Request to coordinator failed: %s", te.what());

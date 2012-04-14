@@ -544,17 +544,17 @@ bool statusFilter(string s) {
 }
 }
 
-TEST_F(CoordinatorServiceTest, requestServerList) {
+TEST_F(CoordinatorServiceTest, sendServerList_client) {
     TestLog::Enable _(statusFilter);
 
-    client->requestServerList(ServerId(52, 0));
+    client->sendServerList(ServerId(52, 0));
     EXPECT_EQ(0U, TestLog::get().find(
-        "requestServerList: Could not send list to unknown server 52"));
+        "sendServerList: Could not send list to unknown server 52"));
 
     TestLog::reset();
-    client->requestServerList(masterServerId);
+    client->sendServerList(masterServerId);
     EXPECT_EQ(0U, TestLog::get().find(
-        "requestServerList: Could not send list to server without "
+        "sendServerList: Could not send list to server without "
         "membership service: 1"));
 
     ServerConfig config = ServerConfig::forTesting();
@@ -562,17 +562,17 @@ TEST_F(CoordinatorServiceTest, requestServerList) {
     ServerId id = cluster.addServer(config)->serverId;
 
     TestLog::reset();
-    client->requestServerList(id);
+    client->sendServerList(id);
     EXPECT_EQ(0U, TestLog::get().find(
-        "requestServerList: Sending server list to server id"));
+        "sendServerList: Sending server list to server id"));
     EXPECT_NE(string::npos, TestLog::get().find(
         "applyFullList: Got complete list of servers"));
 
     ProtoBuf::ServerList update;
     service->serverList.crashed(id, update);
     TestLog::reset();
-    client->requestServerList(id);
-    EXPECT_EQ("requestServerList: Could not send list to crashed server 2",
+    client->sendServerList(id);
+    EXPECT_EQ("sendServerList: Could not send list to crashed server 2",
               TestLog::get());
 }
 
@@ -642,7 +642,7 @@ TEST_F(CoordinatorServiceTest, removeReplicationGroup) {
     EXPECT_EQ(0U, service->serverList[serverIds[2]].replicationId);
 }
 
-TEST_F(CoordinatorServiceTest, sendServerList) {
+TEST_F(CoordinatorServiceTest, sendServerList_service) {
     ServerConfig config = ServerConfig::forTesting();
     config.services = {MEMBERSHIP_SERVICE};
     ServerId id = cluster.addServer(config)->serverId;

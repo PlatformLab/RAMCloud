@@ -374,13 +374,13 @@ CoordinatorClient::setWill(uint64_t masterId, const ProtoBuf::Tablets& will)
  *      to.
  */
 void
-CoordinatorClient::requestServerList(ServerId destination)
+CoordinatorClient::sendServerList(ServerId destination)
 {
     Buffer req, resp;
-    RequestServerListRpc::Request& reqHdr(
-        allocHeader<RequestServerListRpc>(req));
+    SendServerListRpc::Request& reqHdr(
+        allocHeader<SendServerListRpc>(req));
     reqHdr.serverId = *destination;
-    sendRecv<RequestServerListRpc>(session, req, resp);
+    sendRecv<SendServerListRpc>(session, req, resp);
     checkStatus(HERE);
 }
 

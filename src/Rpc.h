@@ -92,7 +92,7 @@ enum RpcOpcode {
     BACKUP_QUIESCE          = 34,
     SET_SERVER_LIST         = 35,
     UPDATE_SERVER_LIST      = 36,
-    REQUEST_SERVER_LIST     = 37,
+    SEND_SERVER_LIST        = 37,
     GET_SERVER_ID           = 38,
     DROP_TABLET_OWNERSHIP   = 39,
     TAKE_TABLET_OWNERSHIP   = 40,
@@ -555,8 +555,8 @@ struct ReassignTabletOwnershipRpc {
     } __attribute__((packed));
 };
 
-struct RequestServerListRpc {
-    static const RpcOpcode opcode = REQUEST_SERVER_LIST;
+struct SendServerListRpc {
+    static const RpcOpcode opcode = SEND_SERVER_LIST;
     static const ServiceType service = COORDINATOR_SERVICE;
     struct Request {
         RpcRequestCommon common;

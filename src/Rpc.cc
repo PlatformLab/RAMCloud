@@ -78,7 +78,7 @@ Rpc::opcodeSymbol(uint32_t opcode)
         case BACKUP_QUIESCE:             return "BACKUP_QUIESCE";
         case SET_SERVER_LIST:            return "SET_SERVER_LIST";
         case UPDATE_SERVER_LIST:         return "UPDATE_SERVER_LIST";
-        case REQUEST_SERVER_LIST:        return "REQUEST_SERVER_LIST";
+        case SEND_SERVER_LIST:           return "SEND_SERVER_LIST";
         case GET_SERVER_ID:              return "GET_SERVER_ID";
         case SET_MIN_OPEN_SEGMENT_ID:    return "SET_MIN_OPEN_SEGMENT_ID";
         case DROP_TABLET_OWNERSHIP:      return "DROP_TABLET_OWNERSHIP";

@@ -61,7 +61,7 @@ class CoordinatorClient : public Client {
     void tabletsRecovered(ServerId masterId,
                           const ProtoBuf::Tablets& tablets);
     void setWill(uint64_t masterId, const ProtoBuf::Tablets& will);
-    void requestServerList(ServerId destination);
+    void sendServerList(ServerId destination);
 
     class SetMinOpenSegmentId {
       public:
