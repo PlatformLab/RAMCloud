@@ -80,12 +80,42 @@ ReplicaManager::~ReplicaManager()
         destroyAndFreeReplicatedSegment(&replicatedSegmentList.front());
 }
 
-// Means all queued data is properly acknowledged everywhere in the log.
+/**
+ * Returns true when all data that has been queued (via write()) is properly
+ * replicated for all segments in the log. Can occasionally return false
+ * even when the above property is true (e.g. while pending free requests are
+ * being performed).
+ */
 bool
 ReplicaManager::isIdle()
 {
     Lock lock(dataMutex);
     return taskManager.isIdle();
+}
+
+/**
+ * Returns the durability status of a particular segment.
+ *
+ * \param segmentId
+ *      The id of the segment whose durability is being queried.
+ * \return
+ *      Returns empty when no segment with \a segmentId is known about (i.e.
+ *      the segment was never created or it was freed).  Otherwise, returns
+ *      true when all data that has been queued (via write()) is properly
+ *      replicated for the specified segment.  Returns false, if not.
+ */
+Tub<bool>
+ReplicaManager::isSegmentSynced(uint64_t segmentId)
+{
+    Lock lock(dataMutex);
+    // TODO(stutsman): Potentially slow, probably want to add an incrementally
+    // maintained index to ReplicaManager.
+    foreach (auto& segment, replicatedSegmentList) {
+        if (segmentId == segment.segmentId)
+            return {segment.isSynced()};
+    }
+
+    return {};
 }
 
 /**

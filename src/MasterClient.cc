@@ -435,6 +435,48 @@ MasterClient::increment(uint32_t tableId, const char* key, uint16_t keyLength,
 }
 
 /**
+ * Return whether a replica for a segment created by this master may still
+ * be needed for recovery. Backups use this after restarting after a failure
+ * to determine if replicas found in persistent storage must be retained.
+ *
+ * The cluster membership protocol must guarantee that if the master "knows
+ * about" the calling backup server that it must already know about the crash
+ * of the backup which created the on-storage replicas the calling backup
+ * has rediscovered.  This guarantees that when the master responds to this
+ * call that it must have already recovered from crash mentioned above if
+ * it returns false.
+ *
+ * \param backupServerId
+ *      The server id which is requesting information about a replica.
+ *      This is used to ensure the master is aware of the backup via
+ *      the cluster membership protocol, which ensures that it is
+ *      aware of any crash of the backup that created the replica
+ *      being inquired about.
+ * \param segmentId
+ *      The segmentId of the replica which a backup server is considering
+ *      freeing.
+ * \return
+ *      Master returns true if the segment is not currently known to be
+ *      adequately replicated. This means if the master knows of any
+ *      replicas which haven't been fully synced or that haven't been
+ *      fully recreated in response to a crash it returns true.  Otherwise,
+ *      if the master believes the segment is adequately replicated then
+ *      it returns false.
+ */
+bool
+MasterClient::isReplicaNeeded(ServerId backupServerId, uint64_t segmentId)
+{
+    Buffer req, resp;
+    IsReplicaNeededRpc::Request& reqHdr(allocHeader<IsReplicaNeededRpc>(req));
+    reqHdr.backupServerId = backupServerId.getId();
+    reqHdr.segmentId = segmentId;
+    const IsReplicaNeededRpc::Response& respHdr(sendRecv<IsReplicaNeededRpc>(
+                                                        session, req, resp));
+    checkStatus(HERE);
+    return respHdr.needed;
+}
+
+/**
  * Delete an object from a table. If the object does not currently exist and
  * no rejectRules match, then the operation succeeds without doing anything.
  *

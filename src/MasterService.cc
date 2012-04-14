@@ -157,6 +157,10 @@ MasterService::dispatch(RpcOpcode opcode, Rpc& rpc)
             callHandler<IncrementRpc, MasterService,
                         &MasterService::increment>(rpc);
             break;
+        case IsReplicaNeededRpc::opcode:
+            callHandler<IsReplicaNeededRpc, MasterService,
+                        &MasterService::isReplicaNeeded>(rpc);
+            break;
         case GetHeadOfLogRpc::opcode:
             callHandler<GetHeadOfLogRpc, MasterService,
                         &MasterService::getHeadOfLog>(rpc);
@@ -1714,6 +1718,21 @@ MasterService::increment(const IncrementRpc::Request& reqHdr,
 
     //return new value
     respHdr.newValue = newValue;
+}
+
+/**
+ * RPC handler for IS_REPLICA_NEEDED; indicates to backup servers whether
+ * a replica for a particular segment that this master generated is needed
+ * for durability or that it can be safely discarded.
+ */
+void
+MasterService::isReplicaNeeded(const IsReplicaNeededRpc::Request& reqHdr,
+                               IsReplicaNeededRpc::Response& respHdr,
+                               Rpc& rpc)
+{
+    ServerId backupServerId = ServerId(reqHdr.backupServerId);
+    respHdr.needed = failureMonitor->isReplicaNeeded(backupServerId,
+                                                     reqHdr.segmentId);
 }
 
 /**

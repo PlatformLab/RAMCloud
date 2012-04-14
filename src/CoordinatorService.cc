@@ -511,6 +511,7 @@ CoordinatorService::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
                 if (recoveryComplete) {
                     LOG(NOTICE, "Recovery completed for master %lu",
                         recovery->masterId.getId());
+                    auto masterId = recovery->masterId;
                     delete recovery;
 
                     // dump the tabletMap out for easy debugging
@@ -524,7 +525,7 @@ CoordinatorService::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
                     }
 
                     ProtoBuf::ServerList update;
-                    serverList.remove(recovery->masterId, update);
+                    serverList.remove(masterId, update);
                     serverList.incrementVersion(update);
                     sendMembershipUpdate(update, ServerId(/* invalid id */));
                     return;

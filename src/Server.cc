@@ -109,7 +109,7 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
     }
 
     if (config.services.has(BACKUP_SERVICE)) {
-        backup.construct(config);
+        backup.construct(config, serverList);
         formerServerId = backup->getFormerServerId();
         if (config.backup.mockSpeed == 0) {
             backup->benchmark(backupReadSpeed, backupWriteSpeed);

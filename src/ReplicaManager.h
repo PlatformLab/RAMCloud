@@ -66,6 +66,7 @@ class ReplicaManager
     ~ReplicaManager();
 
     bool isIdle();
+    Tub<bool> isSegmentSynced(uint64_t segmentId);
     ReplicatedSegment* openSegment(bool isLogHead, uint64_t segmentId,
                                    const void* data, uint32_t openLen)
         __attribute__((warn_unused_result));

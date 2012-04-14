@@ -34,6 +34,7 @@ class BackupServiceTest : public ::testing::Test {
     ServerConfig config;
     Tub<MockCluster> cluster;
     std::unique_ptr<BackupClient> client;
+    Server* server;
     BackupService* backup;
     mode_t oldUmask;
 
@@ -41,6 +42,7 @@ class BackupServiceTest : public ::testing::Test {
         : config(ServerConfig::forTesting())
         , cluster()
         , client()
+        , server()
         , backup()
         , oldUmask(umask(0))
     {
@@ -48,7 +50,8 @@ class BackupServiceTest : public ::testing::Test {
 
         cluster.construct();
         config.services = {BACKUP_SERVICE};
-        Server* server = cluster->addServer(config);
+        config.backup.numSegmentFrames = 5;
+        server = cluster->addServer(config);
         backup = server->backup.get();
         client = cluster->get<BackupClient>(server);
     }
@@ -1060,6 +1063,7 @@ TEST_F(BackupServiceTest, writeSegment_openSegmentSecondary) {
 }
 
 TEST_F(BackupServiceTest, writeSegment_openSegmentOutOfStorage) {
+    client->openSegment(ServerId(99, 0), 85);
     client->openSegment(ServerId(99, 0), 86);
     client->openSegment(ServerId(99, 0), 87);
     client->openSegment(ServerId(99, 0), 88);
@@ -1067,7 +1071,7 @@ TEST_F(BackupServiceTest, writeSegment_openSegmentOutOfStorage) {
     EXPECT_THROW(
         client->openSegment(ServerId(99, 0), 90),
         BackupStorageException);
-    EXPECT_EQ(4, BackupStorage::Handle::getAllocatedHandlesCount());
+    EXPECT_EQ(5, BackupStorage::Handle::getAllocatedHandlesCount());
 }
 
 TEST_F(BackupServiceTest, writeSegment_atomic) {
@@ -1085,6 +1089,106 @@ TEST_F(BackupServiceTest, writeSegment_atomic) {
     EXPECT_TRUE(info.replicateAtomically);
     EXPECT_TRUE(info.satisfiesAtomicReplicationGuarantees());
     EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
+}
+
+namespace {
+class GcMockMasterService : public Service {
+    void dispatch(RpcOpcode opcode, Rpc& rpc) {
+        const RpcRequestCommon* hdr =
+            rpc.requestPayload.getStart<RpcRequestCommon>();
+        switch (hdr->service) {
+        case MEMBERSHIP_SERVICE:
+            switch (opcode) {
+            case GET_SERVER_ID:
+            {
+                auto* resp =
+                    new(&rpc.replyPayload, APPEND) GetServerIdRpc::Response();
+                resp->serverId = ServerId(13, 0).getId();
+                resp->common.status = STATUS_OK;
+                break;
+            }
+            default:
+                FAIL();
+                break;
+            }
+            break;
+        case MASTER_SERVICE:
+            switch (hdr->opcode) {
+            case IS_REPLICA_NEEDED:
+            {
+                const IsReplicaNeededRpc::Request* req =
+                    rpc.requestPayload.getStart<IsReplicaNeededRpc::Request>();
+                auto* resp =
+                    new(&rpc.replyPayload, APPEND)
+                        IsReplicaNeededRpc::Response();
+                resp->needed = req->segmentId % 2;
+                resp->common.status = STATUS_OK;
+                break;
+            }
+            default:
+                FAIL();
+                break;
+            }
+            break;
+        default:
+            FAIL();
+            break;
+        }
+    }
+};
+};
+
+TEST_F(BackupServiceTest, gc) {
+    GcMockMasterService master;
+    cluster->transport.addService(master, "mock:host=m", MEMBERSHIP_SERVICE);
+    cluster->transport.addService(master, "mock:host=m", MASTER_SERVICE);
+
+    // Server 10 is up and has a replica written by the current backup process:
+    // it should be retained waiting for explicit free from server
+    server->serverList.add({10, 0}, "mock:", {}, 100);
+    client->writeSegment({10, 0}, 10, 0, NULL, 0, BackupWriteRpc::OPENCLOSE);
+
+    // Server 11 is down and had a replica: should be gc'ed
+    client->writeSegment({11, 0}, 11, 0, NULL, 0, BackupWriteRpc::OPENCLOSE);
+
+    // Server 12 is crashed and had a replica: should be retained
+    server->serverList.crashed({12, 0}, "mock:", {}, 100);
+    client->writeSegment({12, 0}, 12, 0, NULL, 0, BackupWriteRpc::OPENCLOSE);
+
+    // Server 13 is up and has two replica writtens by *a former* backup
+    // process: the master is contacted to see whether replicas should be freed.
+    server->serverList.add({13, 0}, "mock:host=m", {}, 100);
+    client->writeSegment({13, 0}, 13, 0, NULL, 0, BackupWriteRpc::OPENCLOSE);
+    backup->findSegmentInfo({13, 0}, 13)->createdByCurrentProcess = false;
+    client->writeSegment({13, 0}, 14, 0, NULL, 0, BackupWriteRpc::OPENCLOSE);
+    backup->findSegmentInfo({13, 0}, 14)->createdByCurrentProcess = false;
+
+    EXPECT_EQ(5u, backup->segments.size());
+
+    EXPECT_TRUE(backup->gc());
+    EXPECT_EQ(3u, backup->segments.size());
+    EXPECT_TRUE(backup->findSegmentInfo({10, 0}, 10));
+    EXPECT_FALSE(backup->findSegmentInfo({11, 0}, 11));
+    EXPECT_TRUE(backup->findSegmentInfo({12, 0}, 12));
+    EXPECT_TRUE(backup->findSegmentInfo({13, 0}, 13));
+    EXPECT_FALSE(backup->findSegmentInfo({13, 0}, 14));
+}
+
+TEST_F(BackupServiceTest, gcRestartOnFreedReplica) {
+    server->serverList.add({10, 0}, "mock:", {}, 100);
+    client->writeSegment({10, 0}, 10, 0, NULL, 0, BackupWriteRpc::OPENCLOSE);
+    server->serverList.add({11, 0}, "mock:", {}, 100);
+    client->writeSegment({11, 0}, 11, 0, NULL, 0, BackupWriteRpc::OPENCLOSE);
+
+    EXPECT_FALSE(backup->gc());
+    EXPECT_EQ(ServerId(11, 0), backup->gcLeftOffAt.masterId);
+    EXPECT_EQ(11u, backup->gcLeftOffAt.segmentId);
+
+    client->freeSegment(ServerId(11, 0), 11lu);
+
+    EXPECT_FALSE(backup->gc());
+    EXPECT_EQ(ServerId(10, 0), backup->gcLeftOffAt.masterId);
+    EXPECT_EQ(10u, backup->gcLeftOffAt.segmentId);
 }
 
 class SegmentInfoTest : public ::testing::Test {

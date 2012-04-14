@@ -133,4 +133,27 @@ TEST_F(BackupFailureMonitorTest, trackerChangesEnqueued) {
               TestLog::get());
 }
 
+TEST_F(BackupFailureMonitorTest, isReplicaNeeded) {
+    ServerDetails server;
+    ServerChangeEvent event;
+
+    // Is needed if we've never heard of the calling backup.
+    // They'll try later when we've found out about them from the coordinator
+    // or they'll die and the next backup server that comes up will take care
+    // of it.
+    EXPECT_TRUE(monitor.isReplicaNeeded({2, 0}, 99));
+
+    // Is not needed if we know about the backup (and hence the crashes of any
+    // of its predecessors and we have no record of this segment.
+    serverList.add({2, 0}, "mock:host=backup1", {BACKUP_SERVICE}, 100);
+    while (monitor.tracker->getChange(server, event));
+    EXPECT_FALSE(monitor.isReplicaNeeded({2, 0}, 99));
+
+    // Is needed if we know the calling backup has crashed; the successor
+    // backup will take care of garbage collection.
+    serverList.crashed({2, 0}, "mock:host=backup1", {BACKUP_SERVICE}, 100);
+    while (monitor.tracker->getChange(server, event));
+    EXPECT_TRUE(monitor.isReplicaNeeded({2, 0}, 99));
+}
+
 } // namespace RAMCloud

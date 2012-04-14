@@ -21,12 +21,13 @@
 #include "ClientException.h"
 #include "Cycles.h"
 #include "Log.h"
-#include "ShortMacros.h"
 #include "LogTypes.h"
+#include "MasterClient.h"
 #include "RecoverySegmentIterator.h"
 #include "Rpc.h"
 #include "ServerConfig.h"
 #include "SegmentIterator.h"
+#include "ShortMacros.h"
 #include "Status.h"
 #include "TransportManager.h"
 
@@ -73,6 +74,7 @@ BackupService::SegmentInfo::SegmentInfo(BackupStorage& storage,
     : masterId(masterId)
     , primary(primary)
     , segmentId(segmentId)
+    , createdByCurrentProcess(true)
     , mutex()
     , condition()
     , ioScheduler(ioScheduler)
@@ -130,6 +132,7 @@ BackupService::SegmentInfo::SegmentInfo(BackupStorage& storage,
     : masterId(masterId)
     , primary(false)
     , segmentId(segmentId)
+    , createdByCurrentProcess(false)
     , mutex()
     , condition()
     , ioScheduler(ioScheduler)
@@ -1031,9 +1034,13 @@ BackupService::RecoverySegmentBuilder::operator()()
  * \param config
  *      Settings for this instance. The caller guarantees that config will
  *      exist for the duration of this BackupService's lifetime.
+ * \param serverList
+ *      A reference to the global ServerList.
  */
-BackupService::BackupService(const ServerConfig& config)
-    : config(config)
+BackupService::BackupService(const ServerConfig& config,
+                             ServerList& serverList)
+    : mutex()
+    , config(config)
     , coordinator(config.coordinatorLocator.c_str())
     , formerServerId()
     , serverId(0)
@@ -1054,6 +1061,10 @@ BackupService::BackupService(const ServerConfig& config)
     , initCalled(false)
     , replicationId(0)
     , replicationGroup()
+    , gcTracker(serverList)
+    , gcLeftOffAt(ServerId(), 0)
+    , gcRunning(false)
+    , gcThread()
 {
     if (config.backup.inMemory)
         storage.reset(new InMemoryStorage(config.segmentSize,
@@ -1098,6 +1109,13 @@ BackupService::BackupService(const ServerConfig& config)
  */
 BackupService::~BackupService()
 {
+    // Stop the garbage collector.
+    if (gcRunning) {
+        gcRunning = false;
+        gcThread->join();
+        gcThread.destroy();
+    }
+
     int lastThreadCount = 0;
     while (recoveryThreadCount > 0) {
         if (lastThreadCount != recoveryThreadCount) {
@@ -1168,6 +1186,8 @@ BackupService::benchmark(uint32_t& readSpeed, uint32_t& writeSpeed) {
 void
 BackupService::dispatch(RpcOpcode opcode, Rpc& rpc)
 {
+    Lock _(mutex); // Lock out GC while any RPC is being processed.
+
     // This is a hack. We allow the AssignGroup Rpc to be processed before
     // initCalled is set to true, since it is sent during initialization.
     assert(initCalled || opcode == BackupAssignGroupRpc::opcode);
@@ -1270,10 +1290,9 @@ BackupService::freeSegment(const BackupFreeRpc::Request& reqHdr,
         return;
     }
 
-    SegmentInfo *info = it->second;
-    info->free();
+    it->second->free();
     segments.erase(it);
-    delete info;
+    delete it->second;
 }
 
 /**
@@ -1362,6 +1381,14 @@ BackupService::init(ServerId id)
     LOG(NOTICE, "Backup %lu will store replicas under cluster name '%s'",
         serverId.getId(), config.clusterName.c_str());
     initCalled = true;
+
+    // Start the replica garbage collector.
+    if (config.backup.gc) {
+        LOG(NOTICE, "Starting backup replica garbage collector thread");
+        gcRunning = true;
+        gcThread.construct(&BackupService::gcMain,
+                           this, std::ref(Context::get()));
+    }
 }
 
 /**
@@ -1801,6 +1828,150 @@ BackupService::writeSegment(const BackupWriteRpc::Request& reqHdr,
     // peform close, if any
     if (reqHdr.flags & BackupWriteRpc::CLOSE)
         info->close();
+}
+
+/**
+ * Perform a garbage collection round to free up replicas from storage that
+ * may have become disassociated from their master.
+ * Usually replicas are freed explicitly by masters, but this doesn't work
+ * in all cases due to failures; gc() makes progress in handling these edge
+ * cases.
+ *
+ * Be aware, this method may generate RPCs to some masters to determine
+ * the status of some replicas which survived on-storage across backup
+ * failures.
+ *
+ * \return
+ *      True if #GC_CONTINUE_COUNT replicas were freed indicating that
+ *      it makes sense for the caller to attempt another garbage collection
+ *      round immediately.
+ */
+bool
+BackupService::gc()
+{
+    Lock _(mutex); // Lock out RPCS while GC is ongoing.
+    CycleCounter<> cycles;
+    LOG(DEBUG, "Running backup replica garbage collection");
+
+    // Apply all update to #gcTracker since last round.
+    {
+        ServerDetails server;
+        ServerChangeEvent event;
+        while (gcTracker.getChange(server, event));
+    }
+
+    auto nextToTry = segments.upper_bound(gcLeftOffAt);
+    if (nextToTry == segments.end())
+        nextToTry = segments.begin();
+
+    uint32_t isNeededRpcsSent = 0;
+    const size_t replicaCount = segments.size();
+    size_t tries = GC_REPLICAS_TO_TRY;
+    tries = std::min(tries, replicaCount);
+    for (size_t i = 0; i < tries; ++i) {
+        SegmentInfo* replica = nextToTry->second;
+        gcLeftOffAt = nextToTry->first;
+        ++nextToTry; // iterator may be invalid later due to potential erase
+        if (nextToTry == segments.end())
+            nextToTry = segments.begin();
+
+        ServerDetails* server = NULL;
+        try {
+            server = gcTracker.getServerDetails(replica->masterId);
+        } catch (const Exception& e) {}
+
+        if (!server) {
+            LOG(DEBUG, "Server down; freeing replica for <%lu,%lu>",
+                replica->masterId.getId(), replica->segmentId);
+            replica->free();
+            segments.erase({replica->masterId, replica->segmentId});
+            delete replica;
+            continue;
+        }
+
+        // ServerStatus::DOWN already handled above.
+        switch (server->status) {
+        case ServerStatus::UP:
+            if (!replica->createdByCurrentProcess) {
+                LOG(DEBUG, "Server up; probing server for status of <%lu,%lu>",
+                    replica->masterId.getId(), replica->segmentId);
+                bool needed = true;
+                try {
+                    ++isNeededRpcsSent;
+                    MasterClient m(gcTracker.getSession(replica->masterId));
+                    needed = m.isReplicaNeeded(serverId, replica->segmentId);
+                } catch (const TransportException& e) {
+                    // No problem, just assume we should retain it for now.
+                }
+                if (!needed) {
+                    LOG(DEBUG, "Server has recovered from loss replica; "
+                        "freeing replica for <%lu,%lu>",
+                        replica->masterId.getId(), replica->segmentId);
+                    replica->free();
+                    segments.erase({replica->masterId, replica->segmentId});
+                    delete replica;
+                } else {
+                    LOG(DEBUG, "Server has not recovered from lost "
+                        "replica; retaining replica for <%lu,%lu>; will "
+                        "probe replica status again later",
+                        replica->masterId.getId(), replica->segmentId);
+                }
+            } else {
+                // Noisy but occasionally useful for debugging gc.
+                if (false)
+                    LOG(DEBUG, "Server up; holding replica for <%lu,%lu> (it "
+                        "was created by the current backup process)",
+                        replica->masterId.getId(), replica->segmentId);
+            }
+            break;
+        case ServerStatus::CRASHED:
+            LOG(DEBUG, "Server crashed; retaining replica for <%lu,%lu>",
+                replica->masterId.getId(), replica->segmentId);
+            break;
+        default:
+            LOG(ERROR, "Found server in tracker with DOWN status; this "
+                "should never happen; it is a software bug.");
+            break;
+        }
+    }
+
+    LOG(DEBUG, "-- Backup Garbage Collection Summary --");
+    LOG(DEBUG, "Replicas stored before GC: %lu", replicaCount);
+    LOG(DEBUG, "Replicas stored after GC : %lu", segments.size());
+    LOG(DEBUG, "isReplicaNeeded RPC sent : %u", isNeededRpcsSent);
+    LOG(DEBUG, "Round run time: %.2f us",
+        Cycles::toSeconds(cycles.stop()) * 1000 * 1000);
+
+    bool keepGoing = (segments.size() - replicaCount) >= GC_CONTINUE_COUNT;
+    if (keepGoing)
+        LOG(DEBUG, "Backup Garbage Collection continuing since sufficient "
+            "progress is being made.");
+    LOG(DEBUG, " ");
+
+    return keepGoing;
+}
+
+/**
+ * Runs garbage collection periodically.
+ * Sleeps GC_MSECS and then calls gc() until gc() returns false.
+ *
+ * \param context
+ *      Context in which the new thread runs (same as the parent thread).
+ */
+void
+BackupService::gcMain(Context& context)
+{
+    Context::Guard _(context);
+    while (true) {
+        while (gc());
+        uint32_t waited = 0;
+        while (waited < GC_MSECS) {
+            if (!gcRunning)
+                return;
+            usleep(10 * 1000);
+            waited += 10;
+        }
+    }
 }
 
 } // namespace RAMCloud

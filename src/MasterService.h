@@ -90,6 +90,9 @@ class MasterService : public Service {
     void increment(const IncrementRpc::Request& reqHdr,
                  IncrementRpc::Response& respHdr,
                  Rpc& rpc);
+    void isReplicaNeeded(const IsReplicaNeededRpc::Request& reqHdr,
+                         IsReplicaNeededRpc::Response& respHdr,
+                         Rpc& rpc);
     void getHeadOfLog(const GetHeadOfLogRpc::Request& reqHdr,
                       GetHeadOfLogRpc::Response& respHdr,
                       Rpc& rpc);

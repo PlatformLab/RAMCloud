@@ -207,7 +207,8 @@ struct ServerConfig {
          * unit tests.
          */
         Backup(Testing) // NOLINT
-            : inMemory(true)
+            : gc(false)
+            , inMemory(true)
             , numSegmentFrames(4)
             , file()
             , strategy(1)
@@ -220,12 +221,21 @@ struct ServerConfig {
          * fields are set explicitly from command-line arguments in main().
          */
         Backup()
-            : inMemory(false)
+            : gc(true)
+            , inMemory(false)
             , numSegmentFrames(512)
             , file("/var/tmp/backup.log")
             , strategy(1)
             , mockSpeed(0)
         {}
+
+        /**
+         * Whether the BackupService should periodically try to free replicas
+         * from its storage that may have become disassociated from their
+         * creating master.  This disassociation can happen due to failures of
+         * backups.
+         */
+        bool gc;
 
         /// Whether the BackupService should store replicas in RAM or on disk.
         bool inMemory;

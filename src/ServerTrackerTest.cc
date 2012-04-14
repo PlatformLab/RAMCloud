@@ -194,6 +194,7 @@ TEST_F(ServerTrackerTest, getChange) {
     EXPECT_TRUE(tr.getChange(server, event));
     EXPECT_EQ(ServerId(2, 0), server.serverId);
     EXPECT_EQ(ServerChangeEvent::SERVER_CRASHED, event);
+    EXPECT_EQ(ServerStatus::CRASHED, tr.getServerDetails({2, 0})->status);
 
     // Remove
     tr[ServerId(2, 0)] = reinterpret_cast<int*>(57);
@@ -324,6 +325,14 @@ TEST_F(ServerTrackerTest, getServerDetails) {
     EXPECT_THROW(tr.getLocator(ServerId(2, 0)), Exception);
     EXPECT_EQ(details.services.serialize(),
               tr.getServerDetails(ServerId(1, 1))->services.serialize());
+
+    details.status = ServerStatus::CRASHED;
+    tr.enqueueChange(details, ServerChangeEvent::SERVER_CRASHED);
+    EXPECT_TRUE(tr.getChange(server, event));
+    EXPECT_EQ(details.services.serialize(),
+              tr.getServerDetails(ServerId(1, 1))->services.serialize());
+    EXPECT_EQ(details.status,
+              tr.getServerDetails(ServerId(1, 1))->status);
 }
 
 TEST_F(ServerTrackerTest, getSession) {

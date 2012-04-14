@@ -321,6 +321,7 @@ class ServerTracker : public ServerTrackerInterface {
             assert(serverList[index].pointer == NULL);
             numberOfServers++;
         } else if (change.event == SERVER_CRASHED) {
+            serverList[index].server = change.server;
         } else if (change.event == SERVER_REMOVED) {
             lastRemovedIndex = index;
             assert(numberOfServers > 0);

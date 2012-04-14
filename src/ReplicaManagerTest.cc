@@ -94,6 +94,41 @@ struct ReplicaManagerTest : public ::testing::Test {
     }
 };
 
+TEST_F(ReplicaManagerTest, isSegmentSynced) {
+    const char data[] = "Hello world!";
+
+    // Unknown segment; trivially safely replicated.
+    Tub<bool> result = mgr->isSegmentSynced(88);
+    EXPECT_FALSE(result);
+
+    // Segment not yet fully replicated.
+    auto segment = mgr->openSegment(true, 88, data, arrayLength(data));
+    result = mgr->isSegmentSynced(88);
+    EXPECT_TRUE(result);
+    EXPECT_FALSE(*result);
+
+    // Segment fully replicated.
+    segment->sync(segment->queued.bytes);
+    result = mgr->isSegmentSynced(88);
+    EXPECT_TRUE(result);
+    EXPECT_TRUE(*result);
+
+    // Segment not fully replicated due to failure.
+    mgr->handleBackupFailure(backup1Id);
+    // Fake rollover to a new log head to allow replica recreation.
+    segment->close(NULL);
+    result = mgr->isSegmentSynced(88);
+    EXPECT_TRUE(result);
+    EXPECT_FALSE(*result);
+
+    // Segment fully replicated after a failure.
+    while (!segment->isSynced())
+        mgr->proceed();
+    result = mgr->isSegmentSynced(88);
+    EXPECT_TRUE(result);
+    EXPECT_TRUE(*result);
+}
+
 TEST_F(ReplicaManagerTest, openSegment) {
     MockRandom _(1);
     const char data[] = "Hello world!";

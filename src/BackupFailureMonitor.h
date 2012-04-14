@@ -55,6 +55,8 @@ class BackupFailureMonitor
 
     void trackerChangesEnqueued();
 
+    bool isReplicaNeeded(ServerId backupServerId, uint64_t segmentId);
+
   PRIVATE:
     void main(Context& context);
 

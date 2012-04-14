@@ -103,7 +103,8 @@ enum RpcOpcode {
     RECEIVE_MIGRATION_DATA  = 45,
     REASSIGN_TABLET_OWNERSHIP = 46,
     MIGRATE_TABLET          = 47,
-    ILLEGAL_RPC_TYPE        = 48,  // 1 + the highest legitimate RpcOpcode
+    IS_REPLICA_NEEDED       = 48,
+    ILLEGAL_RPC_TYPE        = 49,  // 1 + the highest legitimate RpcOpcode
 };
 
 /**
@@ -181,6 +182,26 @@ struct IncrementRpc {
         RpcResponseCommon common;
         uint64_t version;
         int64_t newValue;                // The new value of the object.
+    } __attribute__((packed));
+};
+
+/**
+ * Used by backups to determine if a particular replica is still needed
+ * by a master.  This is only used in the case the backup has crashed, and
+ * has since restarted.
+ */
+struct IsReplicaNeededRpc {
+    static const RpcOpcode opcode = IS_REPLICA_NEEDED;
+    static const ServiceType service = MASTER_SERVICE;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t backupServerId;
+        uint64_t segmentId;
+    } __attribute__((packed));
+    struct Response {
+        RpcResponseCommon common;
+        bool needed;                // False if the master's segment is
+                                    // fully replicated, true otherwise.
     } __attribute__((packed));
 };
 

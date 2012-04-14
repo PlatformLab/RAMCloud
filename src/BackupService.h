@@ -307,6 +307,12 @@ class BackupService : public Service {
         /// The segment id given to this segment by the master who sent it.
         const uint64_t segmentId;
 
+#if TESTING
+        bool createdByCurrentProcess;
+#else
+        const bool createdByCurrentProcess;
+#endif
+
       PRIVATE:
         /// Return true if this segment is fully in memory.
         bool inMemory() { return segment; }
@@ -509,7 +515,7 @@ class BackupService : public Service {
     };
 
   public:
-    explicit BackupService(const ServerConfig& config);
+    BackupService(const ServerConfig& config, ServerList& serverList);
     virtual ~BackupService();
     void benchmark(uint32_t& readSpeed, uint32_t& writeSpeed);
     void dispatch(RpcOpcode opcode, Rpc& rpc);
@@ -544,6 +550,15 @@ class BackupService : public Service {
     void writeSegment(const BackupWriteRpc::Request& req,
                       BackupWriteRpc::Response& resp,
                       Rpc& rpc);
+    bool gc();
+    void gcMain(Context& context);
+
+    /**
+     * Provides mutual exclusion between handling RPCs and garbage collector.
+     * Locked once for all RPCs in dispatch().
+     */
+    std::mutex mutex;
+    typedef std::unique_lock<std::mutex> Lock;
 
     /// Settings passed to the constructor
     const ServerConfig& config;
@@ -637,6 +652,40 @@ class BackupService : public Service {
     /// The ServerId's all the members of the replication group. The backup
     /// needs to notify the masters who the other members in its group are.
     vector<ServerId> replicationGroup;
+
+    /// Milliseconds to wait in between garbage collection runs.
+    enum { GC_MSECS = 1000 };
+
+    /**
+     * Replicas to attempt garbage collection on per round. Because the
+     * garbage collector can make RPCs for some replicas (those which
+     * persisted across failures, but whose creating masters are still up) this
+     * is used to throttle the garbage collector.
+     */
+    enum { GC_REPLICAS_TO_TRY = 10 };
+
+    /**
+     * If a garbage collection round frees at least this many replicas then
+     * immediately perform another round. This boosts the garbage
+     * collection rate when there seems to be a fair amount of garbage.
+     */
+    enum { GC_CONTINUE_COUNT = 1 };
+
+    /// Used to determine server status of masters for garbage collection.
+    ServerTracker<void> gcTracker;
+
+    /**
+     * Replica in #segments where garbage collection left off after the last
+     * round.  Used instead of an iterator because an iterator could be
+     * invalidated by freeSegment() operations between rounds.
+     */
+    SegmentsMap::key_type gcLeftOffAt;
+
+    /// Used to signal to the garbage collection thread that it should exit.
+    atomic<bool> gcRunning;
+
+    /// Runs garbage collection periodically.
+    Tub<std::thread> gcThread;
 
     DISALLOW_COPY_AND_ASSIGN(BackupService);
 };

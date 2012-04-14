@@ -168,6 +168,7 @@ class MasterClient : public Client {
                    int64_t incrementValue,
                    const RejectRules* rejectRules = NULL,
                    uint64_t* version = NULL, int64_t* newValue = NULL);
+    bool isReplicaNeeded(ServerId backupServerId, uint64_t segmentId);
     LogPosition getHeadOfLog();
     void multiRead(std::vector<ReadObject*> requests);
     void read(uint64_t tableId, const char* key, uint16_t keyLength,
