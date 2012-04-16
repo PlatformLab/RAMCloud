@@ -46,16 +46,15 @@ class BackupFailureMonitor
 {
   PUBLIC:
     BackupFailureMonitor(ServerList& serverList,
-                         ReplicaManager* replicaManager,
-                         Log* log);
+                         ReplicaManager* replicaManager);
     ~BackupFailureMonitor();
 
-    void start();
+    void start(Log* log);
     void halt();
 
-    void trackerChangesEnqueued();
+    bool serverIsUp(ServerId serverId);
 
-    bool isReplicaNeeded(ServerId backupServerId, uint64_t segmentId);
+    void trackerChangesEnqueued();
 
   PRIVATE:
     void main(Context& context);
@@ -71,7 +70,7 @@ class BackupFailureMonitor
      * on a replica of the head segment is discovered (it must roll over
      * to a new log head in that case).
      */
-    Log* const log;
+    Log* log;
 
     /**
      * Used by start()/halt() to inform the main() loop of when it should
@@ -118,7 +117,7 @@ class BackupFailureMonitor
      * will cause an invocation of trackerChangesEnqueued() and its important
      * that "this" is constructed by that time.  Hence the Tub.
      */
-    Tub<FailureTracker> tracker;
+    FailureTracker tracker;
 
     DISALLOW_COPY_AND_ASSIGN(BackupFailureMonitor);
 };

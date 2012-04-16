@@ -17,7 +17,6 @@
 #define RAMCLOUD_MASTERSERVICE_H
 
 #include "Common.h"
-#include "BackupFailureMonitor.h"
 #include "CoordinatorClient.h"
 #include "Log.h"
 #include "LogCleaner.h"
@@ -141,18 +140,21 @@ class MasterService : public Service {
     ServerId serverId;
 
   PRIVATE:
-
     /// A reference to the global ServerList.
     ServerList& serverList;
+
+    /**
+     * Creates and tracks replicas of in-memory log segments on remote backups.
+     * Its BackupFailureMonitor must be started after the log is created
+     * and halted before the log is destroyed.
+     */
+    ReplicaManager replicaManager;
 
     /// Maximum number of bytes per partition. For Will calculation.
     static const uint64_t maxBytesPerPartition = 640UL * 1024 * 1024;
 
     /// Maximum number of referents (objs) per partition. For Will calculation.
     static const uint64_t maxReferentsPerPartition = 10UL * 1000 * 1000;
-
-    /// Creates and tracks replicas of in-memory log segments on remote backups.
-    ReplicaManager replicaManager;
 
     /// Track total bytes of object data written (not including log overhead).
     uint64_t bytesWritten;
@@ -162,15 +164,6 @@ class MasterService : public Service {
      * on this server.
      */
     Log log;
-
-    /**
-     * Waits for backup failure notifications from the Server's main ServerList
-     * and informs this Log which takes corrective actions.  Runs in
-     * a separate thread in order to provide immediate response to failures and
-     * to provide a context for potentially long-running corrective actions even
-     * while the master is otherwise idle.
-     */
-    Tub<BackupFailureMonitor> failureMonitor;
 
     /**
      * The (table ID, key, keyLength) to #RAMCloud::Object pointer map for all

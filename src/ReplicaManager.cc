@@ -56,6 +56,7 @@ ReplicaManager::ReplicaManager(ServerList& serverList,
     , taskManager()
     , writeRpcsInFlight(0)
     , minOpenSegmentId()
+    , failureMonitor(serverList, this)
 {
     if (coordinatorLocator)
         coordinator.construct(coordinatorLocator->c_str());
@@ -71,6 +72,9 @@ ReplicaManager::ReplicaManager(ServerList& serverList,
  */
 ReplicaManager::~ReplicaManager()
 {
+    // Make sure failureMonitor isn't in proceed().
+    failureMonitor.halt();
+
     Lock lock(dataMutex);
 
     if (!taskManager.isIdle())
@@ -94,28 +98,57 @@ ReplicaManager::isIdle()
 }
 
 /**
- * Returns the durability status of a particular segment.
+ * Indicates a replica for a particular segment that this master generated is
+ * needed for durability or that it can be safely discarded.
  *
+ * This method ensures (together with server list update ordering constraints
+ * and backup server id replacement on enlistment) that the ReplicaManager has
+ * been made aware (via #failureMonitor) of all the failures necessary
+ * to ensure the master can correctly respond to the garbage collection query.
+ *
+ * \param backupServerId
+ *      The id of the server which has the replica in storage. This is used
+ *      to ensure that this master only retuns false if it has been made aware
+ *      of any crashes of (now dead) backup servers which used the same
+ *      storage as the calling backup.
  * \param segmentId
- *      The id of the segment whose durability is being queried.
+ *      The id of the segment of the replica whose status is in question.
  * \return
- *      Returns empty when no segment with \a segmentId is known about (i.e.
- *      the segment was never created or it was freed).  Otherwise, returns
- *      true when all data that has been queued (via write()) is properly
- *      replicated for the specified segment.  Returns false, if not.
+ *      True if the replica for \a segmentId may be needed to recover from
+ *      failures.  False if the replica is no longer needed because the
+ *      segment is fully replicated.
  */
-Tub<bool>
-ReplicaManager::isSegmentSynced(uint64_t segmentId)
+bool
+ReplicaManager::isReplicaNeeded(ServerId backupServerId, uint64_t segmentId)
 {
+    // If backupServerId does not appear "up" then the master can be in one
+    // of two situtations:
+    // 1) It hasn't heard about backupServerId yet, in which case it also
+    //    may not know that the failure of the server which backupServerId
+    //    is replacing (i.e. the backup that formerly operated the storage
+    //    that backupServerId has restarted from and is attempting to
+    //    garbage collect).
+    // 2) backupServerId has come and gone in the cluster and is actually
+    //    now dead.
+    // In either of these cases the only safe thing to do is to tell
+    // the backup to hold on to the replica.
+    if (!failureMonitor.serverIsUp(backupServerId))
+        return true;
+
     Lock lock(dataMutex);
+    // Now that the master knows it has at least heard and processed
+    // the failure notification for the backup server that is being
+    // replaced by backupServerId it is safe to indicate the replica
+    // is no longer needed if the segment seems to be fully replicated.
+    //
     // TODO(stutsman): Potentially slow, probably want to add an incrementally
     // maintained index to ReplicaManager.
     foreach (auto& segment, replicatedSegmentList) {
         if (segmentId == segment.segmentId)
-            return {segment.isSynced()};
+            return !segment.isSynced();
     }
 
-    return {};
+    return false;
 }
 
 /**
@@ -180,6 +213,37 @@ ReplicaManager::openSegment(bool isLogHead, uint64_t segmentId,
     replicatedSegmentList.push_back(*replicatedSegment);
     replicatedSegment->schedule();
     return replicatedSegment;
+}
+
+/**
+ * Start monitoring for failures.  Subsequent calls to startFailureMonitor()
+ * have no effect, unless \a log disagrees between the calls, in which case
+ * the behavior is undefined.
+ *
+ * \param log
+ *      Which Log is associated with \a replicaManager.  Used to roll over
+ *      the log head in the case that a replica of the head is lost.  Can
+ *      be NULL for testing, but take care because operations on
+ *      \a replicaManager may fail to sync (instead spinning forever) since
+ *      rolling over to a new log head is required for queued writes to
+ *      make progress.
+ */
+void
+ReplicaManager::startFailureMonitor(Log* log)
+{
+    failureMonitor.start(log);
+}
+
+/**
+ * Stop monitoring for failures.
+ * After this call returns the ReplicaManager holds no references to the
+ * Log (passed in on startFailureMonitor()).  Failing to call this before
+ * the destruction of the Log will result in undefined behavior.
+ */
+void
+ReplicaManager::haltFailureMonitor()
+{
+    failureMonitor.halt();
 }
 
 /**

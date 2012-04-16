@@ -30,7 +30,7 @@ struct BackupFailureMonitorTest : public ::testing::Test {
 
     BackupFailureMonitorTest()
         : serverList()
-        , monitor(serverList, NULL, NULL)
+        , monitor(serverList, NULL)
     {
         Context::get().logger->setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
     }
@@ -40,7 +40,7 @@ static bool mainFilter(string s) { return s == "main"; }
 
 TEST_F(BackupFailureMonitorTest, main) {
     TestLog::Enable _(&mainFilter);
-    monitor.start();
+    monitor.start(NULL);
     serverList.add(ServerId(2, 0), "mock:host=backup1",
                    {BACKUP_SERVICE}, 100);
     serverList.remove(ServerId(2, 0));
@@ -51,7 +51,7 @@ TEST_F(BackupFailureMonitorTest, main) {
     while (true) {
         // Until getChanges has drained the queue.
         BackupFailureMonitor::Lock lock(monitor.mutex);
-        if (!monitor.tracker->hasChanges())
+        if (!monitor.tracker.hasChanges())
             break;
     }
     BackupFailureMonitor::Lock lock(monitor.mutex); // processing is done.
@@ -61,13 +61,13 @@ TEST_F(BackupFailureMonitorTest, main) {
 }
 
 TEST_F(BackupFailureMonitorTest, startAndHalt) {
-    monitor.start(); // check start
+    monitor.start(NULL); // check start
     {
         BackupFailureMonitor::Lock lock(monitor.mutex);
         EXPECT_TRUE(monitor.running);
         EXPECT_TRUE(monitor.thread);
     }
-    monitor.start(); // check dup start call
+    monitor.start(NULL); // check dup start call
     {
         BackupFailureMonitor::Lock lock(monitor.mutex);
         EXPECT_TRUE(monitor.running);
@@ -85,12 +85,27 @@ TEST_F(BackupFailureMonitorTest, startAndHalt) {
         EXPECT_FALSE(monitor.running);
         EXPECT_FALSE(monitor.thread);
     }
-    monitor.start(); // check restart after halt
+    monitor.start(NULL); // check restart after halt
     {
         BackupFailureMonitor::Lock lock(monitor.mutex);
         EXPECT_TRUE(monitor.running);
         EXPECT_TRUE(monitor.thread);
     }
+}
+
+TEST_F(BackupFailureMonitorTest, serverIsUp) {
+    ServerDetails server;
+    ServerChangeEvent event;
+
+    EXPECT_FALSE(monitor.serverIsUp({2, 0}));
+
+    serverList.add({2, 0}, "mock:host=backup1", {BACKUP_SERVICE}, 100);
+    while (monitor.tracker.getChange(server, event));
+    EXPECT_TRUE(monitor.serverIsUp({2, 0}));
+
+    serverList.crashed({2, 0}, "mock:host=backup1", {BACKUP_SERVICE}, 100);
+    while (monitor.tracker.getChange(server, event));
+    EXPECT_FALSE(monitor.serverIsUp({2, 0}));
 }
 
 TEST_F(BackupFailureMonitorTest, trackerChangesEnqueued) {
@@ -99,14 +114,14 @@ TEST_F(BackupFailureMonitorTest, trackerChangesEnqueued) {
     // callback from the serverList.  There is no good way to
     // tell which caused the processing, so run through these
     // entries and set up the real test once this race is over.
-    monitor.start();
+    monitor.start(NULL);
     serverList.add(ServerId(2, 0), "mock:host=backup1",
                    {BACKUP_SERVICE}, 100);
     serverList.remove(ServerId(2, 0));
     monitor.trackerChangesEnqueued();
     while (true) { // getChanges drained
         BackupFailureMonitor::Lock _(monitor.mutex);
-        if (!monitor.tracker->hasChanges())
+        if (!monitor.tracker.hasChanges())
             break;
     }
     BackupFailureMonitor::Lock lock(monitor.mutex); // processing is done.
@@ -123,7 +138,7 @@ TEST_F(BackupFailureMonitorTest, trackerChangesEnqueued) {
     monitor.trackerChangesEnqueued();     // Notify the monitor thread.
     while (true) { // getChanges drained
         BackupFailureMonitor::Lock _(monitor.mutex);
-        if (!monitor.tracker->hasChanges())
+        if (!monitor.tracker.hasChanges())
             break;
     }
     lock.lock(); // processing changes is done.
@@ -131,29 +146,6 @@ TEST_F(BackupFailureMonitorTest, trackerChangesEnqueued) {
     // Make sure it processed the new event.
     EXPECT_EQ("main: Notifying log of failure of serverId 3",
               TestLog::get());
-}
-
-TEST_F(BackupFailureMonitorTest, isReplicaNeeded) {
-    ServerDetails server;
-    ServerChangeEvent event;
-
-    // Is needed if we've never heard of the calling backup.
-    // They'll try later when we've found out about them from the coordinator
-    // or they'll die and the next backup server that comes up will take care
-    // of it.
-    EXPECT_TRUE(monitor.isReplicaNeeded({2, 0}, 99));
-
-    // Is not needed if we know about the backup (and hence the crashes of any
-    // of its predecessors and we have no record of this segment.
-    serverList.add({2, 0}, "mock:host=backup1", {BACKUP_SERVICE}, 100);
-    while (monitor.tracker->getChange(server, event));
-    EXPECT_FALSE(monitor.isReplicaNeeded({2, 0}, 99));
-
-    // Is needed if we know the calling backup has crashed; the successor
-    // backup will take care of garbage collection.
-    serverList.crashed({2, 0}, "mock:host=backup1", {BACKUP_SERVICE}, 100);
-    while (monitor.tracker->getChange(server, event));
-    EXPECT_TRUE(monitor.isReplicaNeeded({2, 0}, 99));
 }
 
 } // namespace RAMCloud

@@ -33,31 +33,19 @@ namespace RAMCloud {
  *      Which ReplicaManager should be informed of backup failures (via
  *      ReplicaManager::handleBackupFailures()). Can be NULL for testing,
  *      in which case no action will be taken on backup failures.
- * \param log
- *      Which Log is associated with \a replicaManager.  Used to roll over
- *      the log head in the case that a replica of the head is lost.  Can
- *      be NULL for testing, but take care because operations on
- *      \a replicaManager may fail to sync (instead spinning forever) since
- *      rolling over to a new log head is required for queued writes to
- *      make progress.
  */
 BackupFailureMonitor::BackupFailureMonitor(ServerList& serverList,
-                                           ReplicaManager* replicaManager,
-                                           Log* log)
+                                           ReplicaManager* replicaManager)
     : replicaManager(replicaManager)
-    , log(log)
+    , log(NULL)
     , running(false)
     , changesOrExit()
     , mutex()
     , thread()
-    , tracker()
+    , tracker(serverList, this)
 {
-    assert((!replicaManager && !log) || (replicaManager && log));
-    // Important that this get constructed AFTER "this" is constructed
-    // because the construction of tracker will cause an invocation of
-    // trackerChangesEnqueued() and its important that the instance
-    // is constructed by that time.  Hence the Tub.
-    tracker.construct(serverList, this);
+    // #tracker may call trackerChangesEnqueued() but all notifications will
+    // be ignored until start() is called.
 }
 
 /**
@@ -86,7 +74,7 @@ BackupFailureMonitor::main(Context& context)
         // If the replicaManager isn't working and there aren't any
         // cluster membership notifications, then go to sleep.
         while ((!replicaManager || replicaManager->isIdle()) &&
-               !tracker->hasChanges()) {
+               !tracker.hasChanges()) {
             if (!running)
                 return;
             changesOrExit.wait(lock);
@@ -97,7 +85,7 @@ BackupFailureMonitor::main(Context& context)
         // can be accessed that way.
         ServerDetails server;
         ServerChangeEvent event;
-        while (tracker->getChange(server, event)) {
+        while (tracker.getChange(server, event)) {
             ServerId id = server.serverId;
             if (event != SERVER_CRASHED)
                 continue;
@@ -120,14 +108,25 @@ BackupFailureMonitor::main(Context& context)
 
 /**
  * Start monitoring for failures.  Calling start() on an instance that is
- * already started has no effect.
+ * already started has no effect, unless \a log is different between the
+ * calls, in which case the behavior is undefined.
+ *
+ * \param log
+ *      Which Log is associated with \a replicaManager.  Used to roll over
+ *      the log head in the case that a replica of the head is lost.  Can
+ *      be NULL for testing, but take care because operations on
+ *      \a replicaManager may fail to sync (instead spinning forever) since
+ *      rolling over to a new log head is required for queued writes to
+ *      make progress.
  */
 void
-BackupFailureMonitor::start()
+BackupFailureMonitor::start(Log* log)
 {
     Lock lock(mutex);
+    assert(!this->log || this->log == log);
     if (running)
         return;
+    this->log = log;
     running = true;
     thread.construct(&BackupFailureMonitor::main,
                      this, std::ref(Context::get()));
@@ -143,11 +142,35 @@ BackupFailureMonitor::halt()
     Lock lock(mutex);
     if (!running)
         return;
+    log = NULL;
     running = false;
     changesOrExit.notify_one();
     lock.unlock();
     thread->join();
     thread.destroy();
+}
+
+/**
+ * Return whether the server \a serverId is up as far as the
+ * local ReplicaManager is aware.
+ *
+ * \param serverId
+ *      A coordinator-assigned server id whose status is to be checked.
+ * \return
+ *      True is \a serverId is up according to the server list updates
+ *      that the local ReplicaManager has been informed of, false otherwise.
+ */
+bool
+BackupFailureMonitor::serverIsUp(ServerId serverId)
+{
+    Lock lock(mutex);
+    ServerDetails* backup = NULL;
+    try {
+        backup = tracker.getServerDetails(serverId);
+    } catch (const Exception& e) {}
+    if (!backup || backup->status != ServerStatus::UP)
+        return false;
+    return true;
 }
 
 /**
@@ -158,63 +181,9 @@ void
 BackupFailureMonitor::trackerChangesEnqueued()
 {
     Lock lock(mutex);
+    if (!running)
+        return;
     changesOrExit.notify_one();
-}
-
-/**
- * Indicates a replica for a particular segment that this master generated is
- * needed for durability or that it can be safely discarded.
- *
- * This method really belongs on ReplicaManager, but due to some circular
- * dependencies it is hard to provide there. It is here so that the method
- * so the calling backup can ensure the ReplicaManager has been made aware
- * (via #tracker) of all the failures necessary to ensure the master can
- * correctly respond to the garbage collection query.
- *
- * \param backupServerId
- *      The id of the server which has the replica in storage. This is used
- *      to ensure that this master only retuns false if it has been made aware
- *      of any crashes of (now dead) backup servers which used the same
- *      storage as the calling backup.
- * \param segmentId
- *      The id of the segment of the replica whose status is in question.
- * \return
- *      True if the replica for \a segmentId may be needed to recover from
- *      failures.  False if the replica is no longer needed because the
- *      segment is fully replicated.
- */
-bool
-BackupFailureMonitor::isReplicaNeeded(ServerId backupServerId,
-                                      uint64_t segmentId)
-{
-    // If backupServerId does not appear "up" then the master can be in one
-    // of two situtations:
-    // 1) It hasn't heard about backupServerId yet, in which case it also
-    //    may not know that the failure of the server which backupServerId
-    //    is replacing (i.e. the backup that formerly operated the storage
-    //    that backupServerId has restarted from and is attempting to
-    //    garbage collect).
-    // 2) backupServerId has come and gone in the cluster and is actually
-    //    now dead.
-    // In either of these cases the only safe thing to do is to tell
-    // the backup to hold on to the replica.
-    ServerDetails* backup = NULL;
-    try {
-        backup = tracker->getServerDetails(backupServerId);
-    } catch (const Exception& e) {}
-    if (!backup || backup->status != ServerStatus::UP)
-        return true;
-
-    // This is just for testing.
-    if (!replicaManager)
-        return false;
-
-    // Now that the master knows it has at least heard and processed
-    // the failure notification for the backup server that is being
-    // replaced by backupServerId it is safe to indicate the replica
-    // is no longer needed if the segment seems to be fully replicated.
-    Tub<bool> synced = replicaManager->isSegmentSynced(segmentId);
-    return !synced || !*synced;
 }
 
 } // namespace RAMCloud

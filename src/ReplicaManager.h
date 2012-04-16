@@ -20,9 +20,10 @@
 #include <boost/pool/pool.hpp>
 
 #include "Common.h"
-#include "CoordinatorClient.h"
+#include "BackupFailureMonitor.h"
 #include "BoostIntrusive.h"
 #include "BackupSelector.h"
+#include "CoordinatorClient.h"
 #include "MinOpenSegmentId.h"
 #include "ReplicatedSegment.h"
 #include "ServerTracker.h"
@@ -66,10 +67,12 @@ class ReplicaManager
     ~ReplicaManager();
 
     bool isIdle();
-    Tub<bool> isSegmentSynced(uint64_t segmentId);
+    bool isReplicaNeeded(ServerId backupServerId, uint64_t segmentId);
     ReplicatedSegment* openSegment(bool isLogHead, uint64_t segmentId,
                                    const void* data, uint32_t openLen)
         __attribute__((warn_unused_result));
+    void startFailureMonitor(Log* log);
+    void haltFailureMonitor();
     void proceed();
 
     /// Number replicas to keep of each segment.
@@ -135,6 +138,15 @@ class ReplicaManager
      * to the value stored on the coordinator.
      */
     Tub<MinOpenSegmentId> minOpenSegmentId;
+
+    /**
+     * Waits for backup failure notifications from the Server's main ServerList
+     * and informs the ReplicaManager which takes corrective actions.  Runs in
+     * a separate thread in order to provide immediate response to failures and
+     * to provide a context for potentially long-running corrective actions even
+     * while the master is otherwise idle.
+     */
+    BackupFailureMonitor failureMonitor;
 
   PUBLIC:
     // Only used by Log.

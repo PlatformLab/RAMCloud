@@ -101,7 +101,6 @@ MasterService::MasterService(const ServerConfig& config,
           &replicaManager,
           config.master.disableLogCleaner ? Log::CLEANER_DISABLED :
                                             Log::CONCURRENT_CLEANER)
-    , failureMonitor()
     , objectMap(config.master.hashTableBytes /
         HashTable<LogEntryHandle>::bytesPerCacheLine())
     , tablets()
@@ -124,12 +123,12 @@ MasterService::MasterService(const ServerConfig& config,
                      this,
                      tombstoneTimestampCallback);
 
-    failureMonitor.construct(serverList, &replicaManager, &log);
-    failureMonitor->start();
+    replicaManager.startFailureMonitor(&log);
 }
 
 MasterService::~MasterService()
 {
+    replicaManager.haltFailureMonitor();
     std::set<Table*> tables;
     foreach (const ProtoBuf::Tablets::Tablet& tablet, tablets.tablet())
         tables.insert(reinterpret_cast<Table*>(tablet.user_data()));
@@ -1731,8 +1730,8 @@ MasterService::isReplicaNeeded(const IsReplicaNeededRpc::Request& reqHdr,
                                Rpc& rpc)
 {
     ServerId backupServerId = ServerId(reqHdr.backupServerId);
-    respHdr.needed = failureMonitor->isReplicaNeeded(backupServerId,
-                                                     reqHdr.segmentId);
+    respHdr.needed = replicaManager.isReplicaNeeded(backupServerId,
+                                                    reqHdr.segmentId);
 }
 
 /**

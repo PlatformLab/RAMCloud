@@ -94,39 +94,27 @@ struct ReplicaManagerTest : public ::testing::Test {
     }
 };
 
-TEST_F(ReplicaManagerTest, isSegmentSynced) {
-    const char data[] = "Hello world!";
+TEST_F(ReplicaManagerTest, isReplicaNeeded) {
+    ServerDetails server;
+    ServerChangeEvent event;
 
-    // Unknown segment; trivially safely replicated.
-    Tub<bool> result = mgr->isSegmentSynced(88);
-    EXPECT_FALSE(result);
+    // Is needed if we've never heard of the calling backup.
+    // It'll try later when we've found out about it from the coordinator
+    // or it'll die and the next backup server that comes up will take care
+    // of it.
+    EXPECT_TRUE(mgr->isReplicaNeeded({2, 0}, 99));
 
-    // Segment not yet fully replicated.
-    auto segment = mgr->openSegment(true, 88, data, arrayLength(data));
-    result = mgr->isSegmentSynced(88);
-    EXPECT_TRUE(result);
-    EXPECT_FALSE(*result);
+    // Is not needed if we know about the backup (and hence the crashes of any
+    // of its predecessors and we have no record of this segment.
+    serverList.add({2, 0}, "mock:host=backup1", {BACKUP_SERVICE}, 100);
+    while (mgr->failureMonitor.tracker.getChange(server, event));
+    EXPECT_FALSE(mgr->isReplicaNeeded({2, 0}, 99));
 
-    // Segment fully replicated.
-    segment->sync(segment->queued.bytes);
-    result = mgr->isSegmentSynced(88);
-    EXPECT_TRUE(result);
-    EXPECT_TRUE(*result);
-
-    // Segment not fully replicated due to failure.
-    mgr->handleBackupFailure(backup1Id);
-    // Fake rollover to a new log head to allow replica recreation.
-    segment->close(NULL);
-    result = mgr->isSegmentSynced(88);
-    EXPECT_TRUE(result);
-    EXPECT_FALSE(*result);
-
-    // Segment fully replicated after a failure.
-    while (!segment->isSynced())
-        mgr->proceed();
-    result = mgr->isSegmentSynced(88);
-    EXPECT_TRUE(result);
-    EXPECT_TRUE(*result);
+    // Is needed if we know the calling backup has crashed; the successor
+    // backup will take care of garbage collection.
+    serverList.crashed({2, 0}, "mock:host=backup1", {BACKUP_SERVICE}, 100);
+    while (mgr->failureMonitor.tracker.getChange(server, event));
+    EXPECT_TRUE(mgr->isReplicaNeeded({2, 0}, 99));
 }
 
 TEST_F(ReplicaManagerTest, openSegment) {
@@ -322,8 +310,8 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
     EXPECT_FALSE(mgr->isIdle());
 
     TestLog::Enable _(filter);
-    BackupFailureMonitor failureMonitor(serverList, mgr.get(), &log);
-    failureMonitor.start();
+    BackupFailureMonitor failureMonitor(serverList, mgr.get());
+    failureMonitor.start(&log);
     serverList.remove(backup1Id);
 
     // Wait for backup recovery to finish.
