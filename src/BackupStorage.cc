@@ -235,13 +235,8 @@ SingleFileStorage::free(BackupStorage::Handle* handle)
     uint32_t segmentFrame =
         static_cast<const Handle*>(handle)->getSegmentFrame();
 
-    off_t offset = lseek(fd,
-                         offsetOfSegmentFrame(segmentFrame),
-                         SEEK_SET);
-    if (offset == -1)
-        throw BackupStorageException(HERE,
-                "Failed to seek to segment frame to free storage", errno);
-    ssize_t r = write(fd, killMessage, killMessageLen);
+    ssize_t r = pwrite(fd, killMessage, killMessageLen,
+                       offsetOfSegmentFrame(segmentFrame));
     if (r != killMessageLen)
         throw BackupStorageException(HERE,
                 "Couldn't overwrite stored segment header to free", errno);
