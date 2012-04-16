@@ -112,10 +112,6 @@ class BackupFailureMonitor
      * A tracker which is only used to receive change notifications from
      * the master's main ServerList.  No extra/optional data is stored in
      * this tracker.
-     * It is important that this get constructed AFTER "this" is constructed
-     * to at least a usable state.  This is because the construction of tracker
-     * will cause an invocation of trackerChangesEnqueued() and its important
-     * that "this" is constructed by that time.  Hence the Tub.
      */
     FailureTracker tracker;
 

@@ -98,8 +98,8 @@ ReplicaManager::isIdle()
 }
 
 /**
- * Indicates a replica for a particular segment that this master generated is
- * needed for durability or that it can be safely discarded.
+ * Indicates whether a replica for a particular segment that this master
+ * generated is needed for durability, or whether it can be safely discarded.
  *
  * This method ensures (together with server list update ordering constraints
  * and backup server id replacement on enlistment) that the ReplicaManager has
@@ -140,8 +140,8 @@ ReplicaManager::isReplicaNeeded(ServerId backupServerId, uint64_t segmentId)
     // the failure notification for the backup server that is being
     // replaced by backupServerId it is safe to indicate the replica
     // is no longer needed if the segment seems to be fully replicated.
-    //
-    // TODO(stutsman): Potentially slow, probably want to add an incrementally
+
+    // TODO(stutsman): Slow, probably want to add an incrementally
     // maintained index to ReplicaManager.
     foreach (auto& segment, replicatedSegmentList) {
         if (segmentId == segment.segmentId)
@@ -221,10 +221,10 @@ ReplicaManager::openSegment(bool isLogHead, uint64_t segmentId,
  * the behavior is undefined.
  *
  * \param log
- *      Which Log is associated with \a replicaManager.  Used to roll over
+ *      Which Log is associated with #replicaManager.  Used to roll over
  *      the log head in the case that a replica of the head is lost.  Can
  *      be NULL for testing, but take care because operations on
- *      \a replicaManager may fail to sync (instead spinning forever) since
+ *      #replicaManager may fail to sync (instead spinning forever) since
  *      rolling over to a new log head is required for queued writes to
  *      make progress.
  */

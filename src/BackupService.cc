@@ -1853,7 +1853,7 @@ BackupService::gc()
     CycleCounter<> cycles;
     LOG(DEBUG, "Running backup replica garbage collection");
 
-    // Apply all update to #gcTracker since last round.
+    // Apply all updates to #gcTracker since last round.
     {
         ServerDetails server;
         ServerChangeEvent event;

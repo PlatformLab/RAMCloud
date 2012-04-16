@@ -112,10 +112,10 @@ BackupFailureMonitor::main(Context& context)
  * calls, in which case the behavior is undefined.
  *
  * \param log
- *      Which Log is associated with \a replicaManager.  Used to roll over
+ *      Which Log is associated with #replicaManager.  Used to roll over
  *      the log head in the case that a replica of the head is lost.  Can
  *      be NULL for testing, but take care because operations on
- *      \a replicaManager may fail to sync (instead spinning forever) since
+ *      #replicaManager may fail to sync (instead spinning forever) since
  *      rolling over to a new log head is required for queued writes to
  *      make progress.
  */
@@ -157,7 +157,7 @@ BackupFailureMonitor::halt()
  * \param serverId
  *      A coordinator-assigned server id whose status is to be checked.
  * \return
- *      True is \a serverId is up according to the server list updates
+ *      True if \a serverId is up according to the server list updates
  *      that the local ReplicaManager has been informed of, false otherwise.
  */
 bool
