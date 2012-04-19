@@ -467,6 +467,16 @@ MasterService::takeTabletOwnership(
     TakeTabletOwnershipRpc::Response& respHdr,
     Rpc& rpc)
 {
+    if (log.headOfLog() == LogPosition()) {
+        // Before any tablets can be assigned to this master it must have at
+        // least one segment on backups, otherwise it is impossible to
+        // distinguish between the loss of its entire log and the case where no
+        // data was ever written to it.
+        LOG(DEBUG, "Allocating log head before accepting tablet assignment");
+        log.allocateHead();
+        log.sync();
+    }
+
     ProtoBuf::Tablets::Tablet* tablet = NULL;
     foreach (ProtoBuf::Tablets::Tablet& i, *tablets.mutable_tablet()) {
         if (reqHdr.tableId == i.table_id() &&

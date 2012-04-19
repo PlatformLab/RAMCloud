@@ -978,12 +978,21 @@ CoordinatorService::startMasterRecovery(
         return;
 
     ServerId serverId = serverEntry.serverId;
-    std::unique_ptr<ProtoBuf::Tablets> will(serverEntry.will);
 
+    bool hadTablets = false;
     foreach (ProtoBuf::Tablets::Tablet& tablet,
              *tabletMap.mutable_tablet()) {
-        if (tablet.server_id() == serverId.getId())
+        if (tablet.server_id() == serverId.getId()) {
             tablet.set_state(ProtoBuf::Tablets_Tablet::RECOVERING);
+            hadTablets = true;
+        }
+    }
+
+    if (!hadTablets) {
+        LOG(NOTICE, "Master %lu (\"%s\") crashed, but it had no tablets",
+            serverId.getId(),
+            serverEntry.serviceLocator.c_str());
+        return;
     }
 
     LOG(NOTICE, "Recovering master %lu (\"%s\") on %u recovery masters "
@@ -994,10 +1003,10 @@ CoordinatorService::startMasterRecovery(
 
     BaseRecovery* recovery = NULL;
     if (mockRecovery != NULL) {
-        (*mockRecovery)(serverId, *will, serverList);
+        (*mockRecovery)(serverId, *serverEntry.will, serverList);
         recovery = mockRecovery;
     } else {
-        recovery = new Recovery(serverId, *will, serverList);
+        recovery = new Recovery(serverId, *serverEntry.will, serverList);
     }
 
     // Keep track of recovery for each of the tablets it's working on.

@@ -145,6 +145,9 @@ TEST_F(CoordinatorServiceTest,
     MasterService& master2 = *cluster.addServer(master2Config)->master;
     // master is already enlisted
     client->createTable("foo", 3);
+    // ctime_log_head_offset is non-zero when master1 accepts the
+    // second tablet since accepting the first forces the creation
+    // of an initial head log segment.
     EXPECT_EQ("tablet { table_id: 0 start_key_hash: 0 "
               "end_key_hash: 6148914691236517205 "
               "state: NORMAL server_id: 1 "
@@ -159,7 +162,7 @@ TEST_F(CoordinatorServiceTest,
               "end_key_hash: 18446744073709551615 "
               "state: NORMAL server_id: 1 "
               "service_locator: \"mock:host=master\" "
-              "ctime_log_head_id: 0 ctime_log_head_offset: 0 }",
+              "ctime_log_head_id: 0 ctime_log_head_offset: 60 }",
               service->tabletMap.ShortDebugString());
     EXPECT_EQ(2, master->tablets.tablet_size());
     EXPECT_EQ(1, master2.tablets.tablet_size());
@@ -210,6 +213,7 @@ TEST_F(CoordinatorServiceTest, enlistServerReplaceAMaster) {
     } mockRecovery;
     service->mockRecovery = &mockRecovery;
 
+    client->createTable("foo");
     EXPECT_EQ(ServerId(2, 0),
         client->enlistServer(masterServerId,
                              {BACKUP_SERVICE}, "mock:host=backup"));
@@ -685,7 +689,17 @@ TEST_F(CoordinatorServiceTest, setMinOpenSegmentId) {
     EXPECT_EQ(11u, service->serverList[masterServerId].minOpenSegmentId);
 }
 
-// startMasterRecovery is covered by hintServerDown tests.
+// Most of startMasterRecovery is covered by hintServerDown tests.
+TEST_F(CoordinatorServiceTest, startMasterRecoveryNoTabletsOnMaster) {
+    Context::get().logger->setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
+    client->enlistServer({}, {MASTER_SERVICE, PING_SERVICE},
+                         "mock:host=master2");
+    client->enlistServer({}, {BACKUP_SERVICE}, "mock:host=backup");
+    TestLog::Enable _;
+    service->startMasterRecovery(service->serverList[masterServerId]);
+    EXPECT_EQ("startMasterRecovery: Master 1 (\"mock:host=master\") crashed, "
+              "but it had no tablets", TestLog::get());
+}
 
 TEST_F(CoordinatorServiceTest, verifyServerFailure) {
     EXPECT_FALSE(service->verifyServerFailure(masterServerId));

@@ -844,12 +844,15 @@ TEST_F(MasterServiceTest, takeTabletOwnership_newTablet) {
             service->tablets.tablet(4).user_data()),
                                 service->tablets.ShortDebugString());
 
-        EXPECT_EQ("takeTabletOwnership: Taking ownership of new tablet "
-            "(2, range [2,3]) | "
+        EXPECT_EQ(
+            "takeTabletOwnership: Allocating log head before accepting "
+                "tablet assignment | "
             "takeTabletOwnership: Taking ownership of new tablet "
-            "(2, range [4,5]) | "
+                "(2, range [2,3]) | "
             "takeTabletOwnership: Taking ownership of new tablet "
-            "(3, range [0,1])", TestLog::get());
+                "(2, range [4,5]) | "
+            "takeTabletOwnership: Taking ownership of new tablet "
+                "(3, range [0,1])", TestLog::get());
     }
 
     TestLog::reset();
@@ -887,8 +890,11 @@ TEST_F(MasterServiceTest, takeTabletOwnership_migratingTablet) {
 
     client->takeTabletOwnership(1, 0, 5);
 
-    EXPECT_EQ("takeTabletOwnership: Taking ownership of existing tablet "
-        "(1, range [0,5]) in state 1", TestLog::get());
+    EXPECT_EQ(
+        "takeTabletOwnership: Allocating log head before accepting tablet "
+            "assignment | "
+        "takeTabletOwnership: Taking ownership of existing tablet "
+            "(1, range [0,5]) in state 1", TestLog::get());
 }
 
 static bool
