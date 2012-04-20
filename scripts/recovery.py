@@ -250,8 +250,8 @@ if __name__ == '__main__':
             help='Print progress messages')
     parser.add_option('-p', '--partitions', type=int, default=5,
             metavar='N', dest='num_partitions',
-            help=('Number of partitions on the old master )' +
-                  '(also number of recovery masters part of recovery'))
+            help=('Number of partitions on the old master '
+                  '(also number of recovery masters part of recovery)'))
     parser.add_option('--masterRam', type=int,
             metavar='N', dest='master_ram',
             help='Megabytes to allocate for the log per recovery master')

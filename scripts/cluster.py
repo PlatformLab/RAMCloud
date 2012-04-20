@@ -20,7 +20,7 @@ Used to exercise a RAMCloud cluster (e.g., for performance measurements)
 by running a collection of servers and clients.
 """
 
-from __future__ import division
+from __future__ import division, print_function
 from common import *
 import itertools
 import log
@@ -31,10 +31,6 @@ import subprocess
 import sys
 import time
 from optparse import OptionParser
-
-#------------------------------------------------------------------
-# End of site-specific configuration.
-#------------------------------------------------------------------
 
 # Locations of various RAMCloud executables.
 coordinator_binary = '%s/coordinator' % obj_path
@@ -113,6 +109,238 @@ def coord_locator(transport, host):
                 'id': host[2]})
     return locator
 
+class Cluster(object):
+    """Helper context manager for scripting and coordinating RAMCloud on a
+    cluster.  Useful for configuring and running experiments.  See run() for
+    a simpler interface useful for running single-shot experiments where the
+    cluster configuration is (mostly) static throughout the experiment.
+
+    === Configuration/Defaults ===
+    The fields below control various aspects of the run as well as some
+    of the defaults that are used when creating processes in the cluster.
+    Most users of this class will want to override some of these after
+    an instance of Cluster is created but before any operations are
+    performed with it.
+    @ivar log_level: Log level to use for spawned servers. (default: NOTICE)
+    @ivar verbose: If True then print progress of starting clients/servers.
+                   (default: False)
+    @ivar transport: Transport name to use for servers
+                     (see server_locator_templates) (default: infrc).
+    @ivar replicas: Replication factor to use for each log segment. (default: 3)
+    @ivar disk: Server args for specifying the storage device to use for
+                backups (default: default_disk1 taken from {,local}config.py).
+
+    === Other Stuff ===
+    @ivar coordinator: None until start_coordinator() is run, then a
+                       Sandbox.Process corresponding to the coordinator process.
+    @ivar servers: List of Sandbox.Process corresponding to each of the
+                   server processes started with start_server().
+    @ivar masters_started: Number of masters started via start_server(). Notice,
+                           ensure_servers() uses this, so if you kill processes
+                           in the cluster ensure this is consistent.
+    @ivar backups_started: Number of backups started via start_server(). Notice,
+                           ensure_servers() uses this, so if you kill processes
+                           in the cluster ensure this is consistent.
+    @ivar log_subdir: Specific directory where all the processes created by
+                      this cluster will log.
+    @ivar sandbox: Nested context manager that cleans up processes when the
+                   the context of this cluster is exited.
+    """
+
+    def __init__(self, log_dir='logs'):
+        """
+        @param log_dir: Top-level directory in which to write log files.
+                        A separate subdirectory will be created in this
+                        directory for the log files from this run. This can
+                        only be overridden by passing it to __init__() since
+                        that method creates the subdirectory.
+                        (default: logs)
+        """
+        self.log_level = 'NOTICE'
+        self.verbose = False
+        self.transport = 'infrc'
+        self.replicas = 3
+        self.disk = default_disk1
+
+        self.coordinator = None
+        self.masters_started = 0
+        self.backups_started = 0
+
+        self.log_subdir = log.createDir(log_dir)
+        self.sandbox = Sandbox()
+
+    def start_coordinator(self, host, args=''):
+        """Start a coordinator on a node.
+        @param host: (hostname, ip, id) tuple describing the node on which
+                     to start the RAMCloud coordinator.
+        @param args: Additional command-line args to pass to the coordinator.
+                     (default: '')
+        @return: Sandbox.Process representing the coordinator process.
+        """
+        if self.coordinator:
+            raise Exception('Coordinator already started')
+        self.coordinator_host = host
+        self.coordinator_locator = coord_locator(self.transport,
+                                                 self.coordinator_host)
+        self.coordinator = self.sandbox.rsh(self.coordinator_host[0],
+                  ('%s -C %s -l %s --logFile %s/coordinator.%s.log %s' %
+                   (coordinator_binary, self.coordinator_locator,
+                    self.log_level, self.log_subdir,
+                    self.coordinator_host[0], args)),
+                  bg=True, stderr=subprocess.STDOUT)
+        self.ensure_servers(0, 0)
+        if self.verbose:
+            print('Coordinator started on %s at %s' %
+                   (self.coordinator_host[0], self.coordinator_locator))
+        return self.coordinator
+
+    def start_server(self,
+                     host,
+                     args='',
+                     master=True,
+                     backup=True,
+                     disk=None,
+                     port=server_port
+                     ):
+        """Start a server on a node.
+        @param host: (hostname, ip, id) tuple describing the node on which
+                     to start the RAMCloud server.
+        @param args: Additional command-line args to pass to the server.
+                     (default: '')
+        @param master: If True then the started server provides a master
+                       service. (default: True)
+        @param backup: If True then the started server provides a backup
+                       service. (default: True)
+        @param disk: If backup is True then the started server passes these
+                     additional arguments to select the storage type and
+                     location. (default: self.disk)
+        @param port: The port the server should listen on.
+                     (default: see server_locator())
+        @return: Sandbox.Process representing the server process.
+        """
+        command = ('%s -C %s -L %s -r %d -l %s '
+                   '--logFile %s/server.%s.log %s' %
+                   (server_binary, self.coordinator_locator,
+                    server_locator(self.transport, host, port),
+                    self.replicas,
+                    self.log_level, self.log_subdir, host[0], args))
+        if master and backup:
+            pass
+        elif master:
+            command += ' --masterOnly'
+        elif backup:
+            command += ' --backupOnly'
+        else:
+            raise Exception('Cannot start a server that is neither a master '
+                            'nor backup')
+
+        if backup:
+            if not disk:
+                disk = self.disk
+            command += ' %s' % disk
+            self.backups_started += 1
+
+        if master:
+            self.masters_started += 1
+
+        server = self.sandbox.rsh(host[0], command, bg=True,
+                                  stderr=subprocess.STDOUT)
+
+        if self.verbose:
+            print('Server started on %s at %s: %s' %
+                  (host[0],
+                   server_locator(self.transport, host, port), command))
+        return server
+
+    def ensure_servers(self, numMasters=None, numBackups=None):
+        """Poll the coordinator and block until the specified number of
+        masters and backups have enlisted. Useful for ensuring that the
+        cluster is in the expected state before experiments begin.
+        If the expected state isn't acheived within 5 seconds the call
+        will throw an exception.
+
+        @param numMasters: Number of masters that must be part of the
+                           cluster before this call returns successfully.
+                           If unspecified then wait until all the masters
+                           started with start_servers() have enlisted.
+        @param numBackups: Number of backups that must be part of the
+                           cluster before this call returns successfully.
+                           If unspecified then wait until all the backups
+                           started with start_servers() have enlisted.
+        """
+        if not numMasters:
+            numMasters = self.masters_started
+        if not numBackups:
+            numBackups = self.backups_started
+        self.sandbox.checkFailures()
+        try:
+            self.sandbox.rsh(hosts[0][0], '%s -C %s -m %d -b %d -l 1 --wait 10 '
+                        '--logFile %s/ensureServers.log' %
+                        (ensure_servers_bin, self.coordinator_locator,
+                         numMasters, numBackups, self.log_subdir))
+        except:
+            # prefer exceptions from dead processes to timeout error
+            self.sandbox.checkFailures()
+            raise
+
+    def start_clients(self, hosts, client):
+        """Start a client binary on a set of nodes.
+        @param hosts: List of (hostname, ip, id) tuples describing the
+                      nodes on which to start the client binary.
+                      Each binary is launch with a --numClients and
+                      --clientIndex argument.
+        @param client: Path to the client binary to run along with any
+                       args to pass to each client.
+        @return: Sandbox.Process representing the client process.
+        """
+        num_clients = len(hosts)
+        args = client.split(' ')
+        client_bin = args[0]
+        client_args = ' '.join(args[1:])
+        clients = []
+        for i, client_host in enumerate(hosts):
+            command = ('%s -C %s --numClients %d --clientIndex %d '
+                       '--logFile %s/client%d.%s.log %s' %
+                       (client_bin, self.coordinator_locator, num_clients,
+                        i, self.log_subdir, i, client_host[0], client_args))
+            clients.append(self.sandbox.rsh(client_host[0], command, bg=True))
+            if self.verbose:
+                print('Client %d started on %s: %s' % (i, client_host[0],
+                        command))
+        return clients
+
+    def wait(self, processes, timeout=30):
+        """Wait for a set of processes to exit.
+
+        @param processes: List of Sandbox.Process instances as returned by
+                          start_coordinator, start_server, and start_clients
+                          whose exit should be waited on.
+        @param timeout: Seconds to wait for exit before giving up and throwing
+                        an exception. (default: 30)
+        """
+        start = time.time()
+        for i, p in enumerate(processes):
+            while p.proc.returncode is None:
+                self.sandbox.checkFailures()
+                time.sleep(.1)
+                if time.time() - start > timeout:
+                    raise Exception('timeout exceeded')
+            if self.verbose:
+                print('%s finished' % p.sonce)
+
+    def shutdown():
+        """Kill all remaining processes started as part of this cluster and
+        wait for their exit. Usually called implicitly if 'with' keyword is
+        used with the cluster."""
+        self.__exit__(None, None, None)
+
+    def __enter__(self):
+        self.sandbox.__enter__()
+        return self
+
+    def __exit__(self, exc_type, exc_value, exc_tb):
+        self.sandbox.__exit__(exc_type, exc_value, exc_tb)
+
 def run(
         num_servers=4,             # Number of hosts on which to start
                                    # servers (not including coordinator).
@@ -162,7 +390,7 @@ def run(
                                    # before the others are started.  Useful
                                    # for creating the old master for
                                    # recoveries.
-        old_master_args=""         # Additional arguments to run on the
+        old_master_args=''         # Additional arguments to run on the
                                    # old master (e.g. total RAM).
         ):       
     """
@@ -172,147 +400,77 @@ def run(
     """
 
     if not client:
-        raise Exception("You must specify a client binary to run "
-                        "(try obj.master/client)")
+        raise Exception('You must specify a client binary to run '
+                        '(try obj.master/client)')
 
     if num_servers > len(hosts):
-        raise Exception("num_servers (%d) exceeds the available hosts (%d)"
+        raise Exception('num_servers (%d) exceeds the available hosts (%d)'
                         % (num_servers, len(hosts)))
 
-    # Create a subdirectory of the log directory for this run
-    log_subdir = log.createDir(log_dir)
+    if not share_hosts:
+        if (len(hosts) - num_servers) < 1:
+            raise Exception('Asked for %d servers without sharing hosts with '
+                            'clients, but only %d hosts were available'
+                            % (num_servers, num_clients, len(hosts)))
 
-    coordinator = None
-    servers = []
-    clients = []
-    with Sandbox() as sandbox:
-        def ensure_servers(numMasters, numBackups):
-            sandbox.checkFailures()
-            try:
-                sandbox.rsh(hosts[0][0], '%s -C %s -m %d -b %d -l 1 --wait 5 '
-                            '--logFile %s/ensureServers.log' %
-                            (ensure_servers_bin, coordinator_locator,
-                             numMasters, numBackups, log_subdir))
-            except:
-                # prefer exceptions from dead processes to timeout error
-                sandbox.checkFailures()
-                raise
+    masters_started = 0
+    backups_started = 0
 
-        # Start coordinator
-        if num_servers > 0:
-            coordinator_host = hosts[0]
-            coordinator_locator = coord_locator(transport, coordinator_host)
-            coordinator = sandbox.rsh(coordinator_host[0],
-                      ('%s -C %s -l %s --logFile %s/coordinator.%s.log %s' %
-                       (coordinator_binary, coordinator_locator, log_level,
-                        log_subdir, coordinator_host[0], coordinator_args)),
-                      bg=True, stderr=subprocess.STDOUT)
-            ensure_servers(0, 0)
-            if verbose:
-                print "Coordinator started on %s at %s" % (coordinator_host[0],
-                        coordinator_locator)
+    with Cluster(log_dir) as cluster:
+        cluster.log_level = log_level
+        cluster.verbose = verbose
+        cluster.transport = transport
+        cluster.replicas = replicas
+        cluster.timeout = 20
+        cluster.disk = disk1
 
-        # Track how many services are registered with the coordinator
-        # for ensure_servers
-        masters_started = 0
-        backups_started = 0
+        coordinator = cluster.start_coordinator(hosts[0], coordinator_args)
 
-        # Start old master - a specialized master for recovery with lots of data
         if old_master_host:
-            host = old_master_host
-            command = ('%s -C %s -L %s -M -r %d -l %s '
-                       '--logFile %s/oldMaster.%s.log %s' %
-                       (server_binary, coordinator_locator,
-                        server_locator(transport, host),
-                        replicas, log_level, log_subdir, host[0],
-                        old_master_args))
-            servers.append(sandbox.rsh(host[0], command, ignoreFailures=True,
-                           bg=True, stderr=subprocess.STDOUT))
+            oldMaster = cluster.start_server(old_master_host,
+                                             old_master_args,
+                                             backup=False)
+            oldMaster.ignoreFailures = True
             masters_started += 1
-            ensure_servers(masters_started, 0)
+            cluster.ensure_servers()
 
-        # Start servers
-        for i in range(num_servers):
-            # First start the main server on this host, which runs a master
-            # and possibly a backup.  The first server shares the same machine
-            # as the coordinator.
-            host = hosts[i];
-            command = ('%s -C %s -L %s -r %d -l %s '
-                       '--logFile %s/server.%s.log %s' %
-                       (server_binary, coordinator_locator,
-                        server_locator(transport, host),
-                        replicas, log_level, log_subdir, host[0],
-                        master_args))
+        for host in hosts[:num_servers]:
+            backup = False
+            args = master_args
             if backups_per_server > 0:
-                command += ' %s %s' % (disk1, backup_args)
-                masters_started += 1
+                backup = True
+                args += ' %s' % backup_args
                 backups_started += 1
-            else:
-                command += ' -M'
-                masters_started += 1
-            servers.append(sandbox.rsh(host[0], command, bg=True,
-                           stderr=subprocess.STDOUT))
-            if verbose:
-                print "Server started on %s at %s" % (host[0],
-                                                      server_locator(transport,
-                                                                     host))
-            
-            # Start an extra backup server in this host, if needed.
-            if backups_per_server == 2:
-                command = ('%s -C %s -L %s -B %s -l %s '
-                           '--logFile %s/backup.%s.log %s' %
-                           (server_binary, coordinator_locator,
-                            server_locator(transport, host, second_backup_port),
-                            disk2, log_level, log_subdir, host[0],
-                            backup_args))
-                servers.append(sandbox.rsh(host[0], command, bg=True,
-                                           stderr=subprocess.STDOUT))
+            cluster.start_server(host, args, backup=backup)
+            masters_started += 1
+
+        if backups_per_server == 2:
+            for host in hosts[:num_servers]:
+                cluster.start_server(host, backup_args,
+                                     master=False,
+                                     disk=disk2, port=second_backup_port)
                 backups_started += 1
-                if verbose:
-                    print "Extra backup started on %s at %s" % (host[0],
-                            server_locator(transport, host, second_backup_port))
+
         if debug:
-            print "Servers started; pausing for debug setup."
-            raw_input("Type <Enter> to continue: ")
+            print('Servers started; pausing for debug setup.')
+            raw_input('Type <Enter> to continue: ')
         if masters_started > 0 or backups_started > 0:
-            ensure_servers(masters_started, backups_started)
+            cluster.ensure_servers()
             if verbose:
-                print "All servers running"
+                print('All servers running')
 
-        # Start clients
-        args = client.split(" ")
-        client_bin = args[0]
-        client_args = " ".join(args[1:])
-        host_index = num_servers
-        for i in range(num_clients):
-            if host_index >= len(hosts):
-                if share_hosts or num_servers >= len(hosts):
-                    host_index = 0
-                else:
-                    host_index = num_servers
-            client_host = hosts[host_index]
-            command = ('%s -C %s --numClients %d --clientIndex %d '
-                       '--logFile %s/client%d.%s.log %s' %
-                       (client_bin, coordinator_locator, num_clients,
-                        i, log_subdir, i, client_host[0], client_args))
-            clients.append(sandbox.rsh(client_host[0], command, bg=True))
-            if verbose:
-                print "Client %d started on %s: %s" % (i, client_host[0],
-                        command)
-            host_index += 1
+        if client:
+            host_list = hosts
+            if not share_hosts:
+                host_list = hosts[num_servers:]
+            client_hosts = [host_list[i % len(host_list)]
+                            for i in range(num_clients)]
+            assert(len(client_hosts) == num_clients)
 
-        # Wait for all of the clients to complete
-        start = time.time()
-        for i in range(num_clients):
-            while clients[i].returncode is None:
-                sandbox.checkFailures()
-                time.sleep(.1)
-                if time.time() - start > timeout:
-                    raise Exception('timeout exceeded')
-            if verbose:
-                print "Client %d finished" % i
+            clients = cluster.start_clients(client_hosts, client)
+            cluster.wait(clients)
 
-        return log_subdir
+        return cluster.log_subdir
 
 if __name__ == '__main__':
     parser = OptionParser(description=
@@ -385,6 +543,6 @@ if __name__ == '__main__':
     finally:
         logInfo = log.scan("logs/latest", ["WARNING", "ERROR"])
         if len(logInfo) > 0:
-            print >>sys.stderr, logInfo
+            print(logInfo, file=sys.stderr)
             status = 1
     quit(status)

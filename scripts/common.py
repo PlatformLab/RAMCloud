@@ -60,10 +60,19 @@ class Sandbox(object):
             self.sonce = sonce
             self.proc = proc
             self.ignoreFailures = ignoreFailures
+
+        def __repr__(self):
+            return repr(self.__dict__)
+
     def __init__(self):
         self.processes = []
+
     def rsh(self, host, command, ignoreFailures=False, bg=False, **kwargs):
-        """Execute a remote command."""
+        """Execute a remote command.
+
+        @return: If bg is True then a Process corresponding to the command
+                 which was run, otherwise None.
+        """
         if bg:
             sonce = ''.join([chr(random.choice(range(ord('a'), ord('z'))))
                              for c in range(8)])
@@ -72,16 +81,37 @@ class Sandbox(object):
                           '%s/regexec' % scripts_path, sonce,
                           os.getcwd(), "'%s'" % command]
             p = subprocess.Popen(sh_command, **kwargs)
-            self.processes.append(self.Process(host, command, kwargs, sonce,
-                                               p, ignoreFailures))
-            return p
+            process = self.Process(host, command, kwargs, sonce,
+                                   p, ignoreFailures)
+            self.processes.append(process)
+            return process
         else:
             sh_command = ['ssh', host,
                           '%s/remoteexec.py' % scripts_path,
                           "'%s'" % command, os.getcwd()]
             subprocess.check_call(sh_command, **kwargs)
+            return None
+
+    def kill(self, process):
+        """Kill a remote process started with rsh().
+
+        @param process: A Process corresponding to the command to kill which
+                        was created with rsh().
+        """
+        killer = subprocess.Popen(['ssh', process.host,
+                                   '%s/killpid' % scripts_path,
+                                    process.sonce])
+        killer.wait()
+        try:
+            process.proc.kill()
+        except:
+            pass
+        process.proc.wait()
+        self.processes.remove(process)
+
     def __enter__(self):
         return self
+
     def __exit__(self, exc_type, exc_value, exc_tb):
         with delayedInterrupts():
             killers = []
@@ -99,6 +129,7 @@ class Sandbox(object):
             except:
                 pass
             p.proc.wait()
+
     def checkFailures(self):
         """Raise exception if any process has exited with a non-zero status."""
         for p in self.processes:
