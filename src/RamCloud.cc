@@ -76,6 +76,15 @@ RamCloud::dropTable(const char* name)
     coordinator.dropTable(name);
 }
 
+/// \copydoc CoordinatorClient::splitTablet
+void
+RamCloud::splitTablet(const char* name, uint64_t startKeyHash,
+                      uint64_t endKeyHash, uint64_t splitKeyHash)
+{
+    Context::Guard _(clientContext);
+    coordinator.splitTablet(name, startKeyHash, endKeyHash, splitKeyHash);
+}
+
 /// \copydoc CoordinatorClient::getTableId
 uint64_t
 RamCloud::getTableId(const char* name)

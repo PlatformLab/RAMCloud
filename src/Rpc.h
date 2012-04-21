@@ -104,7 +104,8 @@ enum RpcOpcode {
     REASSIGN_TABLET_OWNERSHIP = 46,
     MIGRATE_TABLET          = 47,
     IS_REPLICA_NEEDED       = 48,
-    ILLEGAL_RPC_TYPE        = 49,  // 1 + the highest legitimate RpcOpcode
+    SPLIT_TABLET            = 49,
+    ILLEGAL_RPC_TYPE        = 50,  // 1 + the highest legitimate RpcOpcode
 };
 
 /**
@@ -433,6 +434,50 @@ struct DropTableRpc {
         RpcResponseCommon common;
     } __attribute__((packed));
 };
+
+struct SplitTabletRpc {
+    static const RpcOpcode opcode = SPLIT_TABLET;
+    static const ServiceType service = COORDINATOR_SERVICE;
+    struct Request {
+        RpcRequestCommon common;
+        uint32_t nameLength;          // Number of bytes in the name,
+                                      // including terminating NULL
+                                      // character. The bytes of the name
+                                      // follow immediately after this header.
+        uint64_t startKeyHash;        // Identify the to be split tablet by
+                                      // providing its current start key hash.
+        uint64_t endKeyHash;          // Identify the to be split tablet by
+                                      // providing its current end key hash.
+        uint64_t splitKeyHash;        // Indicate where to split the tablet.
+                                      // This will be the first key of the
+                                      // second tablet after the split.
+    } __attribute__((packed));
+    struct Response {
+        RpcResponseCommon common;
+    } __attribute__((packed));
+};
+
+
+struct SplitMasterTabletRpc {
+    static const RpcOpcode opcode = SPLIT_TABLET;
+    static const ServiceType service = MASTER_SERVICE;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t tableId;             // Id of the table that contains the to
+                                      // be split tablet.
+        uint64_t startKeyHash;        // Identify the to be split tablet by
+                                      // providing its current start key hash.
+        uint64_t endKeyHash;          // Identify the to be split tablet by
+                                      // providing its current end key hash.
+        uint64_t splitKeyHash;        // Indicate where to split the tablet.
+                                      // This will be the first key of the
+                                      // second tablet after the split.
+    } __attribute__((packed));
+    struct Response {
+        RpcResponseCommon common;
+    } __attribute__((packed));
+};
+
 
 struct GetTableIdRpc {
     static const RpcOpcode opcode = GET_TABLE_ID;

@@ -26,7 +26,7 @@ namespace RAMCloud {
  *      Name for the new table (NULL-terminated string).
  *
  * \param serverSpan
- *      The number of servers across which this table will be divided 
+ *      The number of servers across which this table will be divided
  *      (defaults to 1). Keys within the table will be evenly distributed
  *      to this number of servers according to their hash. This is a temporary
  *      work-around until tablet migration is complete; until then, we must
@@ -66,7 +66,7 @@ CoordinatorClient::createTable(const char* name, uint32_t serverSpan)
  *
  * \param name
  *      Name of the table to delete (NULL-terminated string).
- *  
+ *
  * \exception InternalError
  */
 void
@@ -82,12 +82,52 @@ CoordinatorClient::dropTable(const char* name)
 }
 
 /**
+ * Split a tablet.
+ *
+ * The tablet is identified by the table it belongs to and its start- and
+ * endKeyHash. Additionally, a splitKeyHash has to be provided that
+ * indicates where the tablet should be split. This key will be the
+ * first key of the second part after the split. Internally, this
+ * function updates the entries in the tabletMap in the cooridnator first and
+ * then tells the corresponding master to execute the split as well.
+ *
+ * \param name
+ *      Name of the table that contains the to be split tablet
+ *     (NULL-terminated string).
+ * \param startKeyHash
+ *      First key of the key range of the to be split tablet.
+ * \param endKeyHash
+ *      Last key of the key range of the to be split tablet.
+ * \param splitKeyHash
+ *      The key where the split occurs.
+ *
+ * \exception StatusRequestFormatError
+ * \exception StatusTableDoesntExist
+ * \exception StatusTabletDoesntExist
+ */
+void
+CoordinatorClient::splitTablet(const char* name, uint64_t startKeyHash,
+                               uint64_t endKeyHash, uint64_t splitKeyHash)
+{
+    Buffer req, resp;
+    uint32_t length = downCast<uint32_t>(strlen(name) + 1);
+    SplitTabletRpc::Request& reqHdr(allocHeader<SplitTabletRpc>(req));
+    reqHdr.nameLength = length;
+    reqHdr.startKeyHash = startKeyHash;
+    reqHdr.endKeyHash = endKeyHash;
+    reqHdr.splitKeyHash = splitKeyHash;
+    memcpy(new(&req, APPEND) char[length], name, length);
+    sendRecv<SplitTabletRpc>(session, req, resp);
+    checkStatus(HERE);
+}
+
+/**
  * Look up a table by name and return a small integer handle that
  * can be used to access the table.
  *
  * \param name
  *      Name of the desired table (NULL-terminated string).
- *      
+ *
  * \return
  *      The return value is an identifier for the table; this is used
  *      instead of the table's name for most RAMCloud operations
@@ -351,7 +391,7 @@ CoordinatorClient::tabletsRecovered(ServerId masterId,
  *
  * \param[in] masterId
  *      The masterId whose Will we're updating.
- * \param[in] will 
+ * \param[in] will
  *      The ProtoBuf serialised representation of the Will.
  */
 void

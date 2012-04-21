@@ -113,6 +113,8 @@ ClientException::throwException(const CodeLocation& where, Status status)
             throw ServerDoesntExistException(where);
          case STATUS_INVALID_OBJECT:
             throw InvalidObjectException(where);
+        case STATUS_TABLET_DOESNT_EXIST:
+            throw TabletDoesntExistException(where);
         case STATUS_INTERNAL_ERROR:
             throw InternalError(where, status);
         default:

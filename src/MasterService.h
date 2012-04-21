@@ -128,6 +128,9 @@ class MasterService : public Service {
     void remove(const RemoveRpc::Request& reqHdr,
                 RemoveRpc::Response& respHdr,
                 Rpc& rpc);
+    void splitMasterTablet(const SplitMasterTabletRpc::Request& reqHdr,
+                SplitMasterTabletRpc::Response& respHdr,
+                Rpc& rpc);
     void write(const WriteRpc::Request& reqHdr,
                WriteRpc::Response& respHdr,
                Rpc& rpc);

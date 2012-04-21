@@ -45,6 +45,7 @@ static const char* messages[] = {
     "server doesn't exist",                      // SERVER_DOESNT_EXIST
     "internal RAMCloud error",                   // STATUS_INTERNAL_ERROR
     "object is invalid for the chosen operation",// STATUS_INVALID_OBJECT
+    "tablet doesn't exist",                      // STATUS_TABLET_DOESNT_EXIST
 };
 
 // The following table maps from a Status value to the internal name
@@ -73,6 +74,7 @@ static const char* symbols[] = {
     "STATUS_SERVER_DOESNT_EXIST",
     "STATUS_INTERNAL_ERROR",
     "STATUS_INVALID_OBJECT",
+    "STATUS_TABLET_DOESNT_EXIST",
 };
 
 /**

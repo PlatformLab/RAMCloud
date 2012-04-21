@@ -45,7 +45,8 @@ class CoordinatorServiceTest : public ::testing::Test {
 
         service = cluster.coordinator.get();
 
-        masterConfig.services = {MASTER_SERVICE, PING_SERVICE};
+        masterConfig.services = {MASTER_SERVICE, PING_SERVICE,
+                                 MEMBERSHIP_SERVICE};
         masterConfig.localLocator = "mock:host=master";
         Server* masterServer = cluster.addServer(masterConfig);
         master = masterServer->master.get();
@@ -109,7 +110,6 @@ TEST_F(CoordinatorServiceTest, createTable) {
     EXPECT_EQ(1, master2.tablets.tablet_size());
 }
 
-
 TEST_F(CoordinatorServiceTest,
   createTableSpannedAcrossTwoMastersWithThreeServers) {
     ServerConfig master2Config = masterConfig;
@@ -168,6 +168,58 @@ TEST_F(CoordinatorServiceTest,
     EXPECT_EQ(1, master2.tablets.tablet_size());
 }
 
+TEST_F(CoordinatorServiceTest, splitTablet) {
+
+    // master is already enlisted
+    client->createTable("foo");
+    client->splitTablet("foo", 0, ~0UL, (~0UL/2));
+
+
+    EXPECT_EQ("tablet { table_id: 0 start_key_hash: 0 "
+              "end_key_hash: 9223372036854775806 "
+              "state: NORMAL server_id: 1 "
+              "service_locator: \"mock:host=master\" "
+              "ctime_log_head_id: 0 ctime_log_head_offset: 0 } "
+              "tablet { table_id: 0 "
+              "start_key_hash: 9223372036854775807 "
+              "end_key_hash: 18446744073709551615 "
+              "state: NORMAL server_id: 1 "
+              "service_locator: \"mock:host=master\" "
+              "ctime_log_head_id: 0 ctime_log_head_offset: 0 }",
+              service->tabletMap.ShortDebugString());
+
+    client->splitTablet("foo", 0, 9223372036854775806, 4611686018427387903);
+
+    EXPECT_EQ("tablet { table_id: 0 start_key_hash: 0 "
+              "end_key_hash: 4611686018427387902 "
+              "state: NORMAL server_id: 1 "
+              "service_locator: \"mock:host=master\" "
+              "ctime_log_head_id: 0 ctime_log_head_offset: 0 } "
+              "tablet { table_id: 0 "
+              "start_key_hash: 9223372036854775807 "
+              "end_key_hash: 18446744073709551615 "
+              "state: NORMAL server_id: 1 "
+              "service_locator: \"mock:host=master\" "
+              "ctime_log_head_id: 0 ctime_log_head_offset: 0 } "
+              "tablet { table_id: 0 "
+              "start_key_hash: 4611686018427387903 "
+              "end_key_hash: 9223372036854775806 "
+              "state: NORMAL server_id: 1 "
+              "service_locator: \"mock:host=master\" "
+              "ctime_log_head_id: 0 ctime_log_head_offset: 0 }",
+              service->tabletMap.ShortDebugString());
+
+    EXPECT_THROW(client->splitTablet("foo", 0, 16, 8),
+                 TabletDoesntExistException);
+
+    EXPECT_THROW(client->splitTablet("foo", 0, 0, (~0UL/2)),
+                 RequestFormatError);
+
+    EXPECT_THROW(client->splitTablet("bar", 0, ~0UL, (~0UL/2)),
+                 TableDoesntExistException);
+}
+
+
 // TODO(ongaro): Find a way to test createTable with no masters online.
 
 // TODO(ongaro): test drop, open table
@@ -180,7 +232,7 @@ TEST_F(CoordinatorServiceTest, enlistServer) {
     ProtoBuf::ServerList masterList;
     service->serverList.serialize(masterList, {MASTER_SERVICE});
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-                "server { service_mask: 9 server_id: 1 "
+                "server { service_mask: 25 server_id: 1 "
                 "service_locator: \"mock:host=master\" "
                 "backup_read_mbytes_per_sec: [0-9]\\+ status: 0 } "
                 "version_number: 2",
@@ -259,7 +311,7 @@ TEST_F(CoordinatorServiceTest, getMasterList) {
     client->getMasterList(masterList);
     // need to avoid non-deterministic mbytes_per_sec field.
     EXPECT_EQ(0U, masterList.ShortDebugString().find(
-              "server { service_mask: 9 server_id: 1 "
+              "server { service_mask: 25 server_id: 1 "
               "service_locator: \"mock:host=master\" "
               "backup_read_mbytes_per_sec: "));
 }
@@ -287,7 +339,8 @@ TEST_F(CoordinatorServiceTest, getServerList) {
     ProtoBuf::ServerList serverList;
     client->getServerList(serverList);
     EXPECT_EQ(2, serverList.server_size());
-    auto masterMask = ServiceMask{MASTER_SERVICE, PING_SERVICE}.serialize();
+    auto masterMask = ServiceMask{MASTER_SERVICE, PING_SERVICE,
+                                  MEMBERSHIP_SERVICE}.serialize();
     EXPECT_EQ(masterMask, serverList.server(0).service_mask());
     auto backupMask = ServiceMask{BACKUP_SERVICE}.serialize();
     EXPECT_EQ(backupMask, serverList.server(1).service_mask());
@@ -555,15 +608,19 @@ TEST_F(CoordinatorServiceTest, sendServerList_client) {
     EXPECT_EQ(0U, TestLog::get().find(
         "sendServerList: Could not send list to unknown server 52"));
 
+    ServerConfig config = ServerConfig::forTesting();
+    config.services = {MASTER_SERVICE, PING_SERVICE};
+    ServerId id = cluster.addServer(config)->serverId;
+
     TestLog::reset();
-    client->sendServerList(masterServerId);
+    client->sendServerList(id);
     EXPECT_EQ(0U, TestLog::get().find(
         "sendServerList: Could not send list to server without "
-        "membership service: 1"));
+        "membership service: 2"));
 
-    ServerConfig config = ServerConfig::forTesting();
+    config = ServerConfig::forTesting();
     config.services = {MEMBERSHIP_SERVICE};
-    ServerId id = cluster.addServer(config)->serverId;
+    id = cluster.addServer(config)->serverId;
 
     TestLog::reset();
     client->sendServerList(id);
@@ -576,7 +633,7 @@ TEST_F(CoordinatorServiceTest, sendServerList_client) {
     service->serverList.crashed(id, update);
     TestLog::reset();
     client->sendServerList(id);
-    EXPECT_EQ("sendServerList: Could not send list to crashed server 2",
+    EXPECT_EQ("sendServerList: Could not send list to crashed server 3",
               TestLog::get());
 }
 
@@ -660,15 +717,19 @@ TEST_F(CoordinatorServiceTest, sendServerList_service) {
 
 TEST_F(CoordinatorServiceTest, sendMembershipUpdate) {
     ServerConfig config = ServerConfig::forTesting();
-    config.services = {MEMBERSHIP_SERVICE};
+    config.services = {MASTER_SERVICE, PING_SERVICE};
     ServerId id = cluster.addServer(config)->serverId;
+    config = ServerConfig::forTesting();
+    config.services = {MASTER_SERVICE, PING_SERVICE, MEMBERSHIP_SERVICE};
+    id = cluster.addServer(config)->serverId;
     ProtoBuf::ServerList update;
-    service->serverList.crashed(cluster.addServer(config)->serverId, update);
+    service->serverList.crashed(masterServerId, update);
 
     update.Clear();
     update.set_version_number(4);
     TestLog::Enable _(statusFilter);
     service->sendMembershipUpdate(update, ServerId(/* invalid id */));
+
     EXPECT_NE(string::npos, TestLog::get().find(
         "updateServerList: Got server list update (version number 4)"));
     // Make sure updateServerList only got called once (the crashed server

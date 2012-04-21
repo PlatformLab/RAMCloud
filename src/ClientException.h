@@ -158,6 +158,9 @@ DEFINE_EXCEPTION(ServerDoesntExistException,
 DEFINE_EXCEPTION(InvalidObjectException,
                  STATUS_INVALID_OBJECT,
                  ClientException)
+DEFINE_EXCEPTION(TabletDoesntExistException,
+                 STATUS_TABLET_DOESNT_EXIST,
+                 ClientException)
 
 } // namespace RAMCloud
 

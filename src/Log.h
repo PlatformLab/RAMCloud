@@ -444,11 +444,11 @@ class LogDigest {
      * Create a LogDigest object from a previous one that was
      * serialised in the given buffer. This is the method to
      * call when accessing a previously-constructed and
-     * serialised LogDigest. 
+     * serialised LogDigest.
      *
      * \param[in] base
      *      Base address of a buffer that contains a serialised
-     *      LogDigest. 
+     *      LogDigest.
      * \param[in] length
      *      Length of the buffer pointed to by ``base'' in bytes.
      */

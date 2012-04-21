@@ -77,7 +77,10 @@ enum Status {
     /// Indicates that the object chosen for an operation does not match the
     /// associated requirements. Therefore the chosen object is invalid.
     STATUS_INVALID_OBJECT               = 22,
-    STATUS_MAX_VALUE                    = 22
+    /// Indicates that a tablet does not exist. This status is of relevance
+    /// when doing split or merge operations on tablets are executed.
+    STATUS_TABLET_DOESNT_EXIST          = 23,
+    STATUS_MAX_VALUE                    = 23
     // Note: if you add a new status value you must make the following
     // additional updates:
     // * Modify STATUS_MAX_VALUE to have a value equal to the largest

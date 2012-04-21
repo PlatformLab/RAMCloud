@@ -91,6 +91,7 @@ Rpc::opcodeSymbol(uint32_t opcode)
         case REASSIGN_TABLET_OWNERSHIP:  return "REASSIGN_TABLET_OWNERSHIP";
         case MIGRATE_TABLET:             return "MIGRATE_TABLET";
         case IS_REPLICA_NEEDED:          return "IS_REPLICA_NEEDED";
+        case SPLIT_TABLET:               return "SPLIT_TABLET";
         case ILLEGAL_RPC_TYPE:           return "ILLEGAL_RPC_TYPE";
     }
 

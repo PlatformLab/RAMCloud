@@ -109,6 +109,10 @@ CoordinatorService::dispatch(RpcOpcode opcode,
             callHandler<SetMinOpenSegmentIdRpc, CoordinatorService,
                         &CoordinatorService::setMinOpenSegmentId>(rpc);
             break;
+        case SplitTabletRpc::opcode:
+            callHandler<SplitTabletRpc, CoordinatorService,
+                        &CoordinatorService::splitTablet>(rpc);
+            break;
         default:
             throw UnimplementedRequestError(HERE);
     }
@@ -243,6 +247,70 @@ CoordinatorService::dropTable(const DropTableRpc::Request& reqHdr,
 
     LOG(NOTICE, "Dropped table '%s' with id %lu", name, tableId);
     LOG(DEBUG, "There are now %d tablets in the map", tabletMap.tablet_size());
+}
+
+/**
+ * Top-level server method to handle the SPLIT_TABLET request.
+ * \copydetails Service::ping
+ */
+void
+CoordinatorService::splitTablet(const SplitTabletRpc::Request& reqHdr,
+                              SplitTabletRpc::Response& respHdr,
+                              Rpc& rpc)
+{
+    // Sanity check on provided key ranges
+    if (!(reqHdr.startKeyHash < (reqHdr.splitKeyHash - 1) &&
+        reqHdr.splitKeyHash < reqHdr.endKeyHash)) {
+         respHdr.common.status = STATUS_REQUEST_FORMAT_ERROR;
+         return;
+    }
+
+    // Check that the tablet with the described key ranges exists.
+    // If the tablet exists, adjust its endKeyHash so it becomes the tablet
+    // for the first part after the split and also copy the tablet and use
+    // the copy for the second part after the split.
+    const char* name = getString(rpc.requestPayload, sizeof(reqHdr),
+                                 reqHdr.nameLength);
+    Tables::iterator it(tables.find(name));
+    if (it == tables.end()) {
+        respHdr.common.status = STATUS_TABLE_DOESNT_EXIST;
+        return;
+    }
+    uint64_t tableId = it->second;
+
+    bool tabletExists = false;
+    ProtoBuf::Tablets_Tablet newTablet;
+
+    for (int i = 0; i < tabletMap.tablet_size(); i++) {
+        if (tabletMap.tablet(i).table_id() != tableId) {
+            continue;
+        }
+        if (tabletMap.tablet(i).start_key_hash() == reqHdr.startKeyHash &&
+            tabletMap.tablet(i).end_key_hash() == reqHdr.endKeyHash) {
+                tabletExists = true;
+                newTablet = tabletMap.tablet(i);
+                tabletMap.mutable_tablet(i)->
+                set_end_key_hash(reqHdr.splitKeyHash - 1);
+        }
+    }
+    if (!tabletExists) {
+        respHdr.common.status = STATUS_TABLET_DOESNT_EXIST;
+        return;
+    }
+
+    // Adjust the start key hash for the tablet for the second part and add it
+    newTablet.set_start_key_hash(reqHdr.splitKeyHash);
+    *tabletMap.add_tablet() = newTablet;
+
+    // Tell the master to split the tablet
+    ServerId masterId(newTablet.server_id());
+    MasterClient master(serverList.getSession(masterId));
+    master.splitMasterTablet(tableId, reqHdr.startKeyHash, reqHdr.endKeyHash,
+                       reqHdr.splitKeyHash);
+
+    LOG(NOTICE, "In table '%s' I split the tablet that started at key %lu and "
+                "ended at key %lu", name, reqHdr.startKeyHash,
+                reqHdr.endKeyHash);
 }
 
 /**
@@ -398,7 +466,7 @@ CoordinatorService::hintServerDown(const HintServerDownRpc::Request& reqHdr,
  * Returns true if server is down, false otherwise.
  *
  * \param serverId
- *     ServerId of the server that is suspected to be down. 
+ *     ServerId of the server that is suspected to be down.
  */
 bool
 CoordinatorService::hintServerDown(ServerId serverId)
@@ -677,7 +745,7 @@ CoordinatorService::sendServerList(
 
 /**
  * Assign a new replicationId to a backup, and inform the backup which nodes
- * are in its replication group. 
+ * are in its replication group.
  *
  * \param replicationId
  *      New replication group Id that is assigned to backup.
@@ -738,7 +806,7 @@ CoordinatorService::assignReplicationGroup(
  * If there are not enough available candidates for a new group, the function
  * returns without sending out any Rpcs. If there are enough group members
  * to form a new group, but one of the servers is down, hintServerDown will
- * reset the replication group of that server. 
+ * reset the replication group of that server.
  */
 void
 CoordinatorService::createReplicationGroup()
@@ -778,7 +846,7 @@ CoordinatorService::createReplicationGroup()
 }
 
 /**
- * Reset the replicationId for all backups with groupId. 
+ * Reset the replicationId for all backups with groupId.
  *
  * \param groupId
  *      Replication group that needs to be reset.

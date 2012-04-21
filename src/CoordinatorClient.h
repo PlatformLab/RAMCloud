@@ -41,6 +41,8 @@ class CoordinatorClient : public Client {
 
     void createTable(const char* name, uint32_t serverSpan = 1);
     void dropTable(const char* name);
+    void splitTablet(const char* name, uint64_t startKeyHash,
+                uint64_t endKeyHash, uint64_t splitKeyHash);
     uint64_t getTableId(const char* name);
 
     ServerId enlistServer(ServerId replacesId,

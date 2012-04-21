@@ -192,7 +192,7 @@ MasterClient::read(uint64_t tableId, const char* key, uint16_t keyLength,
  * Request that a master decide whether it will accept a migrated tablet
  * and set up any necessary state to begin receiving its data from the
  * original master.
- * 
+ *
  * \param tableId
  *      Identifier for the table.
  *
@@ -231,7 +231,7 @@ MasterClient::prepForMigration(uint64_t tableId,
 /**
  * Request that the master owning a particular tablet migrate it
  * to another designated master.
- * 
+ *
  * \param tableId
  *      Identifier for the table.
  *
@@ -241,7 +241,7 @@ MasterClient::prepForMigration(uint64_t tableId,
  * \param lastKey
  *      Last key of the tablet range to be migrated.
  *
- * \param newOwnerMasterId 
+ * \param newOwnerMasterId
  *      ServerId of the node to which the tablet should be migrated.
  */
 void
@@ -265,14 +265,14 @@ MasterClient::migrateTablet(uint64_t tableId,
  * Request that a master add some migrated data to its storage.
  * The receiving master will not service requests on the data,
  * but will add it to its log and hash table.
- * 
+ *
  * \param tableId
  *      Identifier for the table.
  *
  * \param firstKey
  *      First key of the tablet range to be migrated.
  *
- * \param segment 
+ * \param segment
  *      Segment containing the data to be migrated.
  *
  * \param segmentBytes
@@ -539,6 +539,42 @@ MasterClient::dropTabletOwnership(uint64_t tableId,
     reqHdr.firstKey = firstKey;
     reqHdr.lastKey = lastKey;
     sendRecv<DropTabletOwnershipRpc>(session, req, resp);
+    checkStatus(HERE);
+}
+
+/**
+ * Split a tablet in a master.
+ *
+ * This function splits a tablet inside a master and is issued by the
+ * coordinator. The tablet is identified by the table it belongs to and its
+ * start- and endKeyHash. Additionally, a splitKeyHash has
+ * to be provided that indicates where the tablet should be split. This key
+ * will be the first key of the second part after the split.
+ *
+ * \param tableId
+ *      Id of the table that contains the to be split tablet
+ * \param startKeyHash
+ *      First key of the key range of the to be split tablet.
+ * \param endKeyHash
+ *      Last key of the key range of the to be split tablet.
+ * \param splitKeyHash
+ *      The key where the split occurs.
+ *
+ */
+void
+MasterClient::splitMasterTablet(uint64_t tableId,
+                                uint64_t startKeyHash,
+                                uint64_t endKeyHash,
+                                uint64_t splitKeyHash)
+{
+    Buffer req, resp;
+    SplitMasterTabletRpc::Request& reqHdr(
+        allocHeader<SplitMasterTabletRpc>(req));
+    reqHdr.tableId = tableId;
+    reqHdr.startKeyHash = startKeyHash;
+    reqHdr.endKeyHash = endKeyHash;
+    reqHdr.splitKeyHash = splitKeyHash;
+    sendRecv<SplitMasterTabletRpc>(session, req, resp);
     checkStatus(HERE);
 }
 

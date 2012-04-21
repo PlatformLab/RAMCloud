@@ -196,6 +196,10 @@ class MasterClient : public Client {
     void dropTabletOwnership(uint64_t tabletId,
                              uint64_t firstKey,
                              uint64_t lastKey);
+    void splitMasterTablet(uint64_t tableId,
+                           uint64_t startKeyHash,
+                           uint64_t endKeyHash,
+                           uint64_t splitKeyHash);
     void takeTabletOwnership(uint64_t tableId,
                              uint64_t firstKey,
                              uint64_t lastKey);

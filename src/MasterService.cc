@@ -192,6 +192,10 @@ MasterService::dispatch(RpcOpcode opcode, Rpc& rpc)
             callHandler<RemoveRpc, MasterService,
                         &MasterService::remove>(rpc);
             break;
+        case SplitMasterTabletRpc::opcode:
+            callHandler<SplitMasterTabletRpc, MasterService,
+                        &MasterService::splitMasterTablet>(rpc);
+            break;
         case TakeTabletOwnershipRpc::opcode:
             callHandler<TakeTabletOwnershipRpc, MasterService,
                         &MasterService::takeTabletOwnership>(rpc);
@@ -451,6 +455,44 @@ MasterService::dropTabletOwnership(
 }
 
 /**
+ * Top-level server method to handle the SPLIT_MASTER_TABLET_OWNERSHIP request.
+ *
+ * This RPC is issued by the coordinator when a tablet should be splitted. The
+ * coordinator specifies the to be splitted tablet and at which point the split
+ * should occur (splitKeyHash).
+ *
+ * \copydetails Service::ping
+ */
+void
+MasterService::splitMasterTablet(
+    const SplitMasterTabletRpc::Request& reqHdr,
+    SplitMasterTabletRpc::Response& respHdr,
+    Rpc& rpc)
+{
+    ProtoBuf::Tablets_Tablet newTablet;
+
+    int index = 0;
+    foreach (ProtoBuf::Tablets::Tablet& i, *tablets.mutable_tablet()) {
+        if (reqHdr.tableId == i.table_id() &&
+          reqHdr.startKeyHash == i.start_key_hash() &&
+          reqHdr.endKeyHash == i.end_key_hash()) {
+
+            newTablet = i;
+            i.set_end_key_hash(reqHdr.splitKeyHash - 1);
+        }
+
+        index++;
+    }
+
+    newTablet.set_start_key_hash(reqHdr.splitKeyHash);
+    *tablets.add_tablet() = newTablet;
+
+    LOG(NOTICE, "In table '%lu' I split the tablet that started at key %lu and "
+                "ended at key %lu", reqHdr.tableId, reqHdr.startKeyHash,
+                reqHdr.endKeyHash);
+}
+
+/**
  * Top-level server method to handle the TAKE_TABLET_OWNERSHIP request.
  *
  * This RPC is issued by the coordinator when assigning ownership of a
@@ -535,7 +577,7 @@ MasterService::takeTabletOwnership(
  * master take on a tablet from the current owner. The receiver may
  * accept or refuse.
  *
- * \copydetails Service::ping 
+ * \copydetails Service::ping
  */
 void
 MasterService::prepForMigration(const PrepForMigrationRpc::Request& reqHdr,
@@ -577,7 +619,7 @@ MasterService::prepForMigration(const PrepForMigrationRpc::Request& reqHdr,
  * This is used to manually initiate the migration of a tablet (or piece of a
  * tablet) that this master owns to another master.
  *
- * \copydetails Service::ping 
+ * \copydetails Service::ping
  */
 void
 MasterService::migrateTablet(const MigrateTabletRpc::Request& reqHdr,

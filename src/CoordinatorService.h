@@ -55,6 +55,9 @@ class CoordinatorService : public Service {
     void dropTable(const DropTableRpc::Request& reqHdr,
                    DropTableRpc::Response& respHdr,
                    Rpc& rpc);
+    void splitTablet(const SplitTabletRpc::Request& reqHdr,
+                   SplitTabletRpc::Response& respHdr,
+                   Rpc& rpc);
     void getTableId(const GetTableIdRpc::Request& reqHdr,
                     GetTableIdRpc::Response& respHdr,
                     Rpc& rpc);

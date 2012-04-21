@@ -759,6 +759,17 @@ TEST_F(MasterServiceTest, remove_objectAlreadyDeleted) {
     EXPECT_EQ(VERSION_NONEXISTENT, version);
 }
 
+TEST_F(MasterServiceTest, splitMasterTablet) {
+
+    client->splitMasterTablet(0, 0, ~0UL, (~0UL/2));
+    EXPECT_TRUE(TestUtil::matchesPosixRegex("tablet { table_id: 0 "
+              "start_key_hash: 0 "
+              "end_key_hash: 9223372036854775806 user_data: [0-9]* } "
+              "tablet { table_id: 0 start_key_hash: 9223372036854775807 "
+              "end_key_hash: 18446744073709551615 user_data: [0-9]* }",
+              service->tablets.ShortDebugString()));
+}
+
 static bool
 dropTabletOwnership_filter(string s)
 {
