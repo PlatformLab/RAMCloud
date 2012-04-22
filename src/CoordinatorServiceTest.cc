@@ -219,10 +219,53 @@ TEST_F(CoordinatorServiceTest, splitTablet) {
                  TableDoesntExistException);
 }
 
+TEST_F(CoordinatorServiceTest, dropTable) {
+    ServerConfig master2Config = masterConfig;
+    master2Config.localLocator = "mock:host=master2";
+    MasterService& master2 = *cluster.addServer(master2Config)->master;
+
+    // Add a table, so the tests won't just compare against an empty tabletMap
+    client->createTable("foo");
+
+    // Test dropping a table that is spread across one master
+    client->createTable("bar");
+    EXPECT_EQ(1, master2.tablets.tablet_size());
+    client->dropTable("bar");
+    EXPECT_EQ("tablet { table_id: 0 start_key_hash: 0 "
+              "end_key_hash: 18446744073709551615 "
+              "state: NORMAL server_id: 1 "
+              "service_locator: \"mock:host=master\" "
+              "ctime_log_head_id: 0 ctime_log_head_offset: 0 }",
+              service->tabletMap.ShortDebugString());
+    EXPECT_EQ(0, master2.tablets.tablet_size());
+
+    // Test dropping a table that is spread across two masters
+    client->createTable("bar", 2);
+    EXPECT_EQ(2, master->tablets.tablet_size());
+    EXPECT_EQ(1, master2.tablets.tablet_size());
+    client->dropTable("bar");
+    EXPECT_EQ("tablet { table_id: 0 start_key_hash: 0 "
+              "end_key_hash: 18446744073709551615 "
+              "state: NORMAL server_id: 1 "
+              "service_locator: \"mock:host=master\" "
+              "ctime_log_head_id: 0 ctime_log_head_offset: 0 }",
+              service->tabletMap.ShortDebugString());
+    EXPECT_EQ(1, master->tablets.tablet_size());
+    EXPECT_EQ(0, master2.tablets.tablet_size());
+}
+
+TEST_F(CoordinatorServiceTest, getTableId) {
+    // Get the id for an existing table
+    client->createTable("foo");
+    uint64_t tableId = client->getTableId("foo");
+    EXPECT_EQ(tableId, service->tabletMap.tablet(0).table_id());
+
+    // Try to get the id for a non-existing table
+    EXPECT_THROW(client->getTableId("bar"), TableDoesntExistException);
+}
+
 
 // TODO(ongaro): Find a way to test createTable with no masters online.
-
-// TODO(ongaro): test drop, open table
 
 TEST_F(CoordinatorServiceTest, enlistServer) {
     EXPECT_EQ(1U, master->serverId.getId());
