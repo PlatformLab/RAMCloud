@@ -414,7 +414,7 @@ MasterClient::multiRead(std::vector<ReadObject*> requests)
  *      May not be NULL. The new value of the object after incrementing.
  */
 void
-MasterClient::increment(uint32_t tableId, const char* key, uint16_t keyLength,
+MasterClient::increment(uint64_t tableId, const char* key, uint16_t keyLength,
                int64_t incrementValue, const RejectRules* rejectRules,
                uint64_t* version, int64_t* newValue)
 {

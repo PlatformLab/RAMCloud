@@ -171,7 +171,7 @@ struct IncrementRpc {
     static const ServiceType service = MASTER_SERVICE;
     struct Request {
         RpcRequestCommon common;
-        uint32_t tableId;
+        uint64_t tableId;
         uint16_t keyLength;           // Length of the key in bytes.
                                       // The actual bytes of the key follow
                                       // immediately after this header.

@@ -682,7 +682,7 @@ class BackupService : public Service {
     SegmentsMap::key_type gcLeftOffAt;
 
     /// Used to signal to the garbage collection thread that it should exit.
-    atomic<bool> gcRunning;
+    std::atomic<bool> gcRunning;
 
     /// Runs garbage collection periodically.
     Tub<std::thread> gcThread;

@@ -16,13 +16,7 @@
 #ifndef RAMCLOUD_BACKUPFAILUREMONITOR_H
 #define RAMCLOUD_BACKUPFAILUREMONITOR_H
 
-#if __GNUC_MINOR__ < 6
-#define _GLIBCXX_USE_SCHED_YIELD
-#endif
 #include <thread>
-#if __GNUC_MINOR__ < 6
-#undef _GLIBCXX_USE_SCHED_YIELD
-#endif
 
 #include "ServerTracker.h"
 #include "Tub.h"

@@ -534,8 +534,18 @@ class LogCleaner {
     /// Number of clean Segments to produce in each cleaning pass.
     static const size_t CLEANED_SEGMENTS_PER_PASS = 10;
 
+    // Initializing a double statically from a constant is (still) not legal
+    // C++, though g++ 4.4 allowed it.  g++ 4.6 now disallows it but C++11 now
+    // supports this via constexpr, but, of course, g++ 4.4 doesn't support
+    // constexpr.  Awesome.  Another option would be to remove 'static' and
+    // have it be a member variable that is initialized at runtime.
+#if __GNUC__ == 4 && __GNUC_MINOR__ >= 6
+    /// Maximum write cost we'll permit. Anything higher and we won't clean.
+    static constexpr double MAXIMUM_CLEANABLE_WRITE_COST = 6.0;
+#else
     /// Maximum write cost we'll permit. Anything higher and we won't clean.
     static const double MAXIMUM_CLEANABLE_WRITE_COST = 6.0;
+#endif
 
     /// When walking the age-sorted list of entries to relocate, prefetch the
     /// entry this far ahead of current position. Each operation takes long

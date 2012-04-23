@@ -23,7 +23,7 @@
 #ifndef RAMCLOUD_ATOMICPATCH_H
 #define RAMCLOUD_ATOMICPATCH_H
 
-#if __GNUC_MINOR__ < 6
+#if __GNUC__ == 4 && __GNUC_MINOR__ < 6
 
 namespace std {
     template<typename _Tp>

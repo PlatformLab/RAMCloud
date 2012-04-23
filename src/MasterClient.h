@@ -164,7 +164,7 @@ class MasterClient : public Client {
 
     explicit MasterClient(Transport::SessionRef session) : session(session) {}
     void fillWithTestData(uint32_t numObjects, uint32_t objectSize);
-    void increment(uint32_t tableId, const char* key, uint16_t keyLength,
+    void increment(uint64_t tableId, const char* key, uint16_t keyLength,
                    int64_t incrementValue,
                    const RejectRules* rejectRules = NULL,
                    uint64_t* version = NULL, int64_t* newValue = NULL);

@@ -233,7 +233,7 @@ RamCloud::read(uint64_t tableId, const char* key, uint16_t keyLength,
 
 /// \copydoc MasterClient::increment
 void
-RamCloud::increment(uint32_t tableId, const char* key, uint16_t keyLength,
+RamCloud::increment(uint64_t tableId, const char* key, uint16_t keyLength,
                     int64_t incrementValue, const RejectRules* rejectRules,
                     uint64_t* version, int64_t* newValue)
 {
