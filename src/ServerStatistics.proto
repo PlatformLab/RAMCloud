@@ -1,0 +1,41 @@
+/* Copyright (c) 2010,2011,2012 Stanford University
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR(S) DISCLAIM ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL AUTHORS BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+
+package RAMCloud.ProtoBuf;
+
+/// A list of statistical information about a single master server.
+///
+/// This message is used when a master server is asked for its statistical
+/// information via GetServerStatisticsRpc.
+message ServerStatistics {
+  // Each tablet on the master has a correspsonding TabletEntry in the
+  // ServerStatistics where its access statistics are being stored.
+  message TabletEntry {
+    /// The id of the containing table.
+    required uint64 table_id = 1;
+
+    /// The smallest hash value for a key that is in this tablet.
+    required uint64 start_key_hash = 2;
+
+    /// The largest hash value for a key that is in this tablet.
+    required uint64 end_key_hash = 3;
+
+    /// Read and write access statistics for a single tablet.
+    optional uint64 number_read_and_writes = 4 [default = 0];
+  }
+
+  /// List of TabletEntries.
+  repeated TabletEntry tabletentry = 1;
+}

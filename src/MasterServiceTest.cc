@@ -23,6 +23,7 @@
 #include "MasterService.h"
 #include "ReplicaManager.h"
 #include "ShortMacros.h"
+#include "Tablets.pb.h"
 
 namespace RAMCloud {
 
@@ -76,7 +77,7 @@ class MasterServiceTest : public ::testing::Test {
         tablet.set_table_id(0);
         tablet.set_start_key_hash(0);
         tablet.set_end_key_hash(~0UL);
-        tablet.set_user_data(reinterpret_cast<uint64_t>(new Table(0)));
+        tablet.set_user_data(reinterpret_cast<uint64_t>(new Table(0, 0, ~0UL)));
     }
 
     uint32_t
@@ -759,6 +760,62 @@ TEST_F(MasterServiceTest, remove_objectAlreadyDeleted) {
     EXPECT_EQ(VERSION_NONEXISTENT, version);
 }
 
+TEST_F(MasterServiceTest, incrementReadAndWriteStatistics) {
+    Buffer value;
+    uint64_t version;
+    int64_t objectValue = 16;
+
+    client->write(0, "key0", 4, &objectValue, 8, NULL, &version);
+    client->write(0, "key1", 4, &objectValue, 8, NULL, &version);
+    client->read(0, "key0", 4, &value);
+    client->increment(0, "key0", 4, 5, NULL, &version, &objectValue);
+
+    std::vector<MasterClient::ReadObject*> requests;
+
+    Tub<Buffer> val1;
+    MasterClient::ReadObject request1(0, "key0", 4, &val1);
+    request1.status = STATUS_RETRY;
+    requests.push_back(&request1);
+    Tub<Buffer> val2;
+    MasterClient::ReadObject request2(0, "key1", 4, &val2);
+    request2.status = STATUS_RETRY;
+    requests.push_back(&request2);
+
+    client->multiRead(requests);
+
+    Table* table = reinterpret_cast<Table*>(
+                                    service->tablets.tablet(0).user_data());
+    EXPECT_EQ((uint64_t)7, table->statEntry.number_read_and_writes());
+}
+
+
+TEST_F(MasterServiceTest, GetServerStatistics) {
+    Buffer value;
+    uint64_t version;
+    int64_t objectValue = 16;
+
+    client->write(0, "key0", 4, &objectValue, 8, NULL, &version);
+    client->read(0, "key0", 4, &value);
+    client->read(0, "key0", 4, &value);
+    client->read(0, "key0", 4, &value);
+
+    ProtoBuf::ServerStatistics serverStats;
+    client->getServerStatistics(serverStats);
+    EXPECT_EQ("tabletentry { table_id: 0 start_key_hash: 0 "
+              "end_key_hash: 18446744073709551615 number_read_and_writes: 4 }",
+              serverStats.ShortDebugString());
+
+    client->splitMasterTablet(0, 0, ~0UL, (~0UL/2));
+    client->getServerStatistics(serverStats);
+    EXPECT_EQ("tabletentry { table_id: 0 "
+              "start_key_hash: 0 "
+              "end_key_hash: 9223372036854775806 } "
+              "tabletentry { table_id: 0 start_key_hash: 9223372036854775807 "
+              "end_key_hash: 18446744073709551615 }",
+              serverStats.ShortDebugString());
+}
+
+
 TEST_F(MasterServiceTest, splitMasterTablet) {
 
     client->splitMasterTablet(0, 0, ~0UL, (~0UL/2));
@@ -800,9 +857,9 @@ takeTabletOwnership_filter(string s)
 TEST_F(MasterServiceTest, takeTabletOwnership_newTablet) {
     TestLog::Enable _(takeTabletOwnership_filter);
 
-    std::unique_ptr<Table> table1(new Table(1));
+    std::unique_ptr<Table> table1(new Table(1 , 0 , 1));
     uint64_t addrTable1 = reinterpret_cast<uint64_t>(table1.get());
-    std::unique_ptr<Table> table2(new Table(2));
+    std::unique_ptr<Table> table2(new Table(2 , 0 , 1));
     uint64_t addrTable2 = reinterpret_cast<uint64_t>(table2.get());
 
     // Start empty.
@@ -897,7 +954,7 @@ TEST_F(MasterServiceTest, takeTabletOwnership_migratingTablet) {
     tab.set_start_key_hash(0);
     tab.set_end_key_hash(5);
     tab.set_state(ProtoBuf::Tablets_Tablet_State_RECOVERING);
-    tab.set_user_data(reinterpret_cast<uint64_t>(new Table(1)));
+    tab.set_user_data(reinterpret_cast<uint64_t>(new Table(1 , 0 , 5)));
 
     client->takeTabletOwnership(1, 0, 5);
 
@@ -919,7 +976,7 @@ TEST_F(MasterServiceTest, prepForMigration) {
     tablet.set_table_id(5);
     tablet.set_start_key_hash(27);
     tablet.set_end_key_hash(873);
-    tablet.set_user_data(reinterpret_cast<uint64_t>(new Table(0)));
+    tablet.set_user_data(reinterpret_cast<uint64_t>(new Table(0 , 27 , 873)));
 
     TestLog::Enable _(prepForMigrationFilter);
 
@@ -956,7 +1013,7 @@ TEST_F(MasterServiceTest, migrateTablet_simple) {
     tablet.set_table_id(5);
     tablet.set_start_key_hash(27);
     tablet.set_end_key_hash(873);
-    tablet.set_user_data(reinterpret_cast<uint64_t>(new Table(0)));
+    tablet.set_user_data(reinterpret_cast<uint64_t>(new Table(0 , 27 , 873)));
 
     TestLog::Enable _(migrateTabletFilter);
 

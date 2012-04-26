@@ -26,6 +26,7 @@
 #include "ReplicaManager.h"
 #include "SegmentIterator.h"
 #include "ServerList.h"
+#include "ServerStatistics.pb.h"
 #include "Service.h"
 #include "ServerConfig.h"
 #include "SpinLock.h"
@@ -101,6 +102,9 @@ class MasterService : public Service {
     void read(const ReadRpc::Request& reqHdr,
               ReadRpc::Response& respHdr,
               Rpc& rpc);
+    void getServerStatistics(const GetServerStatisticsRpc::Request& reqHdr,
+                             GetServerStatisticsRpc::Response& respHdr,
+                             Rpc& rpc);
     void dropTabletOwnership(const DropTabletOwnershipRpc::Request& reqHdr,
                              DropTabletOwnershipRpc::Response& respHdr,
                              Rpc& rpc);
@@ -207,6 +211,9 @@ class MasterService : public Service {
     /* Tombstone cleanup method used after recovery. */
     void removeTombstones();
 
+  PRIVATE:
+    void incrementReadAndWriteStatistics(Table* table);
+
     static void
     detectSegmentRecoveryFailure(
                         const ServerId masterId,
@@ -228,6 +235,9 @@ class MasterService : public Service {
     Table* getTable(uint64_t tableId, const char* key, uint16_t keyLength)
         __attribute__((warn_unused_result));
     Table* getTableForHash(uint64_t tableId, HashType keyHash)
+        __attribute__((warn_unused_result));
+    ProtoBuf::Tablets::Tablet const* getTabletForHash(uint64_t tableId,
+                                                      HashType keyHash)
         __attribute__((warn_unused_result));
     Status rejectOperation(const RejectRules& rejectRules, uint64_t version)
         __attribute__((warn_unused_result));

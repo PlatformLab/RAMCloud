@@ -93,6 +93,7 @@ SHARED_SRCFILES := \
 		   $(INFINIBAND_SRCFILES) \
 		   $(OBJDIR)/MetricList.pb.cc \
 		   $(OBJDIR)/ServerList.pb.cc \
+		   $(OBJDIR)/ServerStatistics.pb.cc \
 		   $(OBJDIR)/Tablets.pb.cc \
 		   $(NULL)
 

@@ -534,7 +534,7 @@ class _SegmentEntryHandle {
 
     /**
      * Calculate a checksum for this SegmentEntry and compare it against
-     * the stored checksum. Returns true if they match, else false. 
+     * the stored checksum. Returns true if they match, else false.
      */
     bool
     isChecksumValid() const
@@ -597,7 +597,7 @@ class _SegmentEntryHandle {
 
     /**
      * Used by HashTable to get the string key (2nd part of the total key).
-     */    
+     */
     const char*
     key2() const
     {

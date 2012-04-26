@@ -160,6 +160,10 @@ MasterService::dispatch(RpcOpcode opcode, Rpc& rpc)
             callHandler<IsReplicaNeededRpc, MasterService,
                         &MasterService::isReplicaNeeded>(rpc);
             break;
+        case GetServerStatisticsRpc::opcode:
+            callHandler<GetServerStatisticsRpc, MasterService,
+                        &MasterService::getServerStatistics>(rpc);
+            break;
         case GetHeadOfLogRpc::opcode:
             callHandler<GetHeadOfLogRpc, MasterService,
                         &MasterService::getHeadOfLog>(rpc);
@@ -296,6 +300,26 @@ MasterService::getHeadOfLog(const GetHeadOfLogRpc::Request& reqHdr,
 }
 
 /**
+ * Top-level server method to handle the GET_SERVER_STATISTICS request.
+ */
+void
+MasterService::getServerStatistics(
+                            const GetServerStatisticsRpc::Request& reqHdr,
+                            GetServerStatisticsRpc::Response& respHdr,
+                            Rpc& rpc)
+{
+    ProtoBuf::ServerStatistics serverStats;
+
+    foreach (const ProtoBuf::Tablets::Tablet& i, tablets.tablet()) {
+        Table* table = reinterpret_cast<Table*>(i.user_data());
+        *serverStats.add_tabletentry() = table->statEntry;
+    }
+
+    respHdr.serverStatsLength = serializeToResponse(rpc.replyPayload,
+                                                    serverStats);
+}
+
+/**
  * Top-level server method to handle the MULTIREAD request.
  *
  * \param reqHdr
@@ -355,6 +379,7 @@ MasterService::multiRead(const MultiReadRpc::Request& reqHdr,
             reinterpret_cast<const SegmentEntry*>(handle);
         Buffer::Chunk::appendToBuffer(&rpc.replyPayload, entry,
             downCast<uint32_t>(sizeof(SegmentEntry)) + handle->length());
+
     }
 }
 
@@ -408,6 +433,7 @@ MasterService::read(const ReadRpc::Request& reqHdr,
         respHdr.common.status = status;
         return;
     }
+
     Buffer::Chunk::appendToBuffer(&rpc.replyPayload,
         obj->getData(), obj->dataLength(handle->length()));
     // TODO(ongaro): We'll need a new type of Chunk to block the cleaner
@@ -471,20 +497,26 @@ MasterService::splitMasterTablet(
 {
     ProtoBuf::Tablets_Tablet newTablet;
 
-    int index = 0;
     foreach (ProtoBuf::Tablets::Tablet& i, *tablets.mutable_tablet()) {
         if (reqHdr.tableId == i.table_id() &&
           reqHdr.startKeyHash == i.start_key_hash() &&
           reqHdr.endKeyHash == i.end_key_hash()) {
 
             newTablet = i;
+
+            Table* newTable = new Table(reqHdr.tableId, reqHdr.startKeyHash,
+                                 reqHdr.splitKeyHash - 1);
+            i.set_user_data(reinterpret_cast<uint64_t>(newTable));
             i.set_end_key_hash(reqHdr.splitKeyHash - 1);
         }
 
-        index++;
     }
 
     newTablet.set_start_key_hash(reqHdr.splitKeyHash);
+    Table* newTable = new Table(reqHdr.tableId, reqHdr.splitKeyHash,
+                                 reqHdr.endKeyHash);
+    newTablet.set_user_data(reinterpret_cast<uint64_t>(newTable));
+
     *tablets.add_tablet() = newTablet;
 
     LOG(NOTICE, "In table '%lu' I split the tablet that started at key %lu and "
@@ -544,13 +576,15 @@ MasterService::takeTabletOwnership(
         LOG(NOTICE, "Taking ownership of new tablet (%lu, range "
             "[%lu,%lu])", reqHdr.tableId, reqHdr.firstKey, reqHdr.lastKey);
 
+
         ProtoBuf::Tablets_Tablet& newTablet(*tablets.add_tablet());
         newTablet.set_table_id(reqHdr.tableId);
         newTablet.set_start_key_hash(reqHdr.firstKey);
         newTablet.set_end_key_hash(reqHdr.lastKey);
         newTablet.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
 
-        Table* table = new Table(reqHdr.tableId);
+        Table* table = new Table(reqHdr.tableId, reqHdr.firstKey,
+                                 reqHdr.lastKey);
         newTablet.set_user_data(reinterpret_cast<uint64_t>(table));
     } else {
         LOG(NOTICE, "Taking ownership of existing tablet (%lu, range "
@@ -604,7 +638,8 @@ MasterService::prepForMigration(const PrepForMigrationRpc::Request& reqHdr,
     tablet.set_end_key_hash(reqHdr.lastKey);
     tablet.set_state(ProtoBuf::Tablets_Tablet_State_RECOVERING);
 
-    Table* table = new Table(reqHdr.tableId);
+    Table* table = new Table(reqHdr.tableId, reqHdr.firstKey,
+                             reqHdr.lastKey);
     tablet.set_user_data(reinterpret_cast<uint64_t>(table));
 
     // TODO(rumble) would be nice to have a method to get a SL from an Rpc
@@ -1024,6 +1059,20 @@ class RecoveryTask {
 } // namespace MasterServiceInternal
 using namespace MasterServiceInternal; // NOLINT
 
+
+/**
+ * Increments the access statistics for each read and write operation
+ * on the repsective tablet.
+ * \param *table
+ *      Pointer to the table object that is assosiated with each tablet.
+ */
+void
+MasterService::incrementReadAndWriteStatistics(Table* table)
+{
+    table->statEntry.set_number_read_and_writes(
+                                table->statEntry.number_read_and_writes() + 1);
+}
+
 /**
  * Look through \a backups and ensure that for each segment id that appears
  * in the list that at least one copy of that segment was replayed.
@@ -1403,7 +1452,9 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
              recoveryTablets.tablet()) {
         ProtoBuf::Tablets_Tablet& newTablet(*tablets.add_tablet());
         newTablet = tablet;
-        Table* table = new Table(newTablet.table_id());
+        Table* table = new Table(newTablet.table_id(),
+                                 newTablet.start_key_hash(),
+                                 newTablet.end_key_hash());
         newTablet.set_user_data(reinterpret_cast<uint64_t>(table));
         newTablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
         newTablets.push_back(&newTablet);
@@ -1827,7 +1878,16 @@ MasterService::write(const WriteRpc::Request& reqHdr,
 Table*
 MasterService::getTable(uint64_t tableId, const char* key, uint16_t keyLength)
 {
-    return getTableForHash(tableId, getKeyHash(key, keyLength));
+
+    ProtoBuf::Tablets::Tablet const* tablet = getTabletForHash(tableId,
+                                                        getKeyHash(key,
+                                                                   keyLength));
+    if (tablet == NULL)
+        return NULL;
+
+    Table* table = reinterpret_cast<Table*>(tablet->user_data());
+    incrementReadAndWriteStatistics(table);
+    return table;
 }
 
 /**
@@ -1847,11 +1907,37 @@ MasterService::getTable(uint64_t tableId, const char* key, uint16_t keyLength)
 Table*
 MasterService::getTableForHash(uint64_t tableId, HashType keyHash)
 {
+    ProtoBuf::Tablets::Tablet const* tablet = getTabletForHash(tableId,
+                                                               keyHash);
+    if (tablet == NULL)
+        return NULL;
+
+    Table* table = reinterpret_cast<Table*>(tablet->user_data());
+    return table;
+}
+
+/**
+ * Ensures that this master owns the tablet for any object corresponding
+ * to the given hash value of its string key and returns the
+ * corresponding Table.
+ *
+ * \param tableId
+ *      Identifier for a desired table.
+ * \param keyHash
+ *      Hash value of the variable length key of the object.
+ *
+ * \return
+ *      The Table of which the tablet containing this object is a part,
+ *      or NULL if this master does not own the tablet.
+ */
+ProtoBuf::Tablets::Tablet const*
+MasterService::getTabletForHash(uint64_t tableId, HashType keyHash)
+{
     foreach (const ProtoBuf::Tablets::Tablet& tablet, tablets.tablet()) {
         if (tablet.table_id() == tableId &&
             tablet.start_key_hash() <= keyHash &&
             keyHash <= tablet.end_key_hash()) {
-            return reinterpret_cast<Table*>(tablet.user_data());
+            return &tablet;
         }
     }
     return NULL;

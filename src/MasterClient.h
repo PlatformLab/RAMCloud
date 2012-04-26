@@ -22,6 +22,7 @@
 #include "Transport.h"
 #include "Buffer.h"
 #include "ServerId.h"
+#include "ServerStatistics.pb.h"
 #include "Tub.h"
 #include "LogTypes.h"
 
@@ -171,6 +172,7 @@ class MasterClient : public Client {
     bool isReplicaNeeded(ServerId backupServerId, uint64_t segmentId);
     LogPosition getHeadOfLog();
     void multiRead(std::vector<ReadObject*> requests);
+    void getServerStatistics(ProtoBuf::ServerStatistics& serverStats);
     void read(uint64_t tableId, const char* key, uint16_t keyLength,
               Buffer* value, const RejectRules* rejectRules = NULL,
               uint64_t* version = NULL);

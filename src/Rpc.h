@@ -105,7 +105,8 @@ enum RpcOpcode {
     MIGRATE_TABLET          = 47,
     IS_REPLICA_NEEDED       = 48,
     SPLIT_TABLET            = 49,
-    ILLEGAL_RPC_TYPE        = 50,  // 1 + the highest legitimate RpcOpcode
+    GET_SERVER_STATISTICS   = 50,
+    ILLEGAL_RPC_TYPE        = 51,  // 1 + the highest legitimate RpcOpcode
 };
 
 /**
@@ -521,6 +522,21 @@ struct EnlistServerRpc {
         RpcResponseCommon common;
         uint64_t serverId;             // Unique ServerId assigned to this
                                        // enlisting server process.
+    } __attribute__((packed));
+};
+
+struct GetServerStatisticsRpc {
+    static const RpcOpcode opcode = GET_SERVER_STATISTICS;
+    static const ServiceType service = MASTER_SERVICE;
+    struct Request {
+        RpcRequestCommon common;
+    } __attribute__((packed));
+    struct Response {
+        RpcResponseCommon common;
+        uint32_t serverStatsLength;// Number of bytes in the ServerStatistics
+                                   // protobuf. The bytes of the protobuf
+                                   // follow immediately after this header.
+                                   // See ProtoBuf::Tablets.
     } __attribute__((packed));
 };
 

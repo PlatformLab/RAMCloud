@@ -19,6 +19,7 @@
 #include "Common.h"
 #include "Object.h"
 #include "HashTable.h"
+#include "ServerStatistics.pb.h"
 
 namespace RAMCloud {
 
@@ -33,14 +34,19 @@ namespace RAMCloud {
 class Table {
   public:
 
-    explicit Table(uint64_t tableId)
+    explicit Table(uint64_t tableId, uint64_t start_key_hash,
+                   uint64_t end_key_hash)
         : objectCount(0),
           objectBytes(0),
           tombstoneCount(0),
           tombstoneBytes(0),
+          statEntry(),
           tableId(tableId),
           nextVersion(1)
     {
+        statEntry.set_table_id(tableId);
+        statEntry.set_start_key_hash(start_key_hash);
+        statEntry.set_end_key_hash(end_key_hash);
     }
 
     /**
@@ -76,6 +82,7 @@ class Table {
     uint64_t objectBytes;
     uint64_t tombstoneCount;
     uint64_t tombstoneBytes;
+    ProtoBuf::ServerStatistics_TabletEntry statEntry;
 
   private:
 

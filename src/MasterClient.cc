@@ -61,6 +61,29 @@ MasterClient::getHeadOfLog()
 }
 
 /**
+ * Returns the ServerStatistics protobuf to a client. This protobuf
+ * contains all statistical information about a master, see
+ * ServerStatistics.proto for all contained fields.
+ *
+ * \param[out] serverStats
+ *      A ServerStatsistics protobuf containing the current statistical
+ *      information about the master.
+ *
+ */
+void
+MasterClient::getServerStatistics(ProtoBuf::ServerStatistics& serverStats)
+{
+    Buffer req;
+    Buffer resp;
+    allocHeader<GetServerStatisticsRpc>(req);
+    const GetServerStatisticsRpc::Response& respHdr(
+        sendRecv<GetServerStatisticsRpc>(session, req, resp));
+    checkStatus(HERE);
+    ProtoBuf::parseFromResponse(resp, sizeof(respHdr),
+        respHdr.serverStatsLength, serverStats);
+}
+
+/**
  * Recover a set of tablets on behalf of a crashed master.
  *
  * \param client
