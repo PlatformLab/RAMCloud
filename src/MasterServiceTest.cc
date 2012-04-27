@@ -1133,6 +1133,7 @@ TEST_F(MasterServiceTest, increment) {
 
     client->write(0, "key0", 4, &oldValue, 8, NULL, &version);
     client->increment(0, "key0", 4, 5, NULL, &version, &newValue);
+    client->increment(0, "key0", 4, 0, NULL, NULL, NULL);
     EXPECT_EQ(2U, version);
     EXPECT_EQ(21, newValue);
 

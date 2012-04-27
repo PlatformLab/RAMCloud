@@ -451,8 +451,10 @@ MasterClient::increment(uint64_t tableId, const char* key, uint16_t keyLength,
 
     const IncrementRpc::Response& respHdr(sendRecv<IncrementRpc>(
                                                         session, req, resp));
-    *version = respHdr.version;
-    *newValue = respHdr.newValue;
+    if (version != NULL)
+        *version = respHdr.version;
+    if (newValue != NULL)
+        *newValue = respHdr.newValue;
 
     checkStatus(HERE);
 }
