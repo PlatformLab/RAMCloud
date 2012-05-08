@@ -163,6 +163,8 @@ class Cluster(object):
         self.disk = default_disk1
 
         self.coordinator = None
+        self.next_server_id = 0
+        self.next_client_id = 0
         self.masters_started = 0
         self.backups_started = 0
 
@@ -219,11 +221,13 @@ class Cluster(object):
         @return: Sandbox.Process representing the server process.
         """
         command = ('%s -C %s -L %s -r %d -l %s '
-                   '--logFile %s/server.%s.log %s' %
+                   '--logFile %s/server%d.%s.log %s' %
                    (server_binary, self.coordinator_locator,
                     server_locator(self.transport, host, port),
                     self.replicas,
-                    self.log_level, self.log_subdir, host[0], args))
+                    self.log_level, self.log_subdir,
+                    self.next_server_id, host[0], args))
+        self.next_server_id += 1
         if master and backup:
             pass
         elif master:
@@ -302,7 +306,9 @@ class Cluster(object):
             command = ('%s -C %s --numClients %d --clientIndex %d '
                        '--logFile %s/client%d.%s.log %s' %
                        (client_bin, self.coordinator_locator, num_clients,
-                        i, self.log_subdir, i, client_host[0], client_args))
+                        i, self.log_subdir, self.next_client_id,
+                        client_host[0], client_args))
+            self.next_client_id += 1
             clients.append(self.sandbox.rsh(client_host[0], command, bg=True))
             if self.verbose:
                 print('Client %d started on %s: %s' % (i, client_host[0],
