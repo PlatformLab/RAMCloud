@@ -78,15 +78,17 @@ class Recovery : public BaseRecovery {
       PUBLIC:
         BackupStartTask(const CoordinatorServerList::Entry& backupHost,
              ServerId crashedMasterId,
-             const ProtoBuf::Tablets& partitions);
+             const ProtoBuf::Tablets& partitions, uint64_t minOpenSegmentId);
         bool isDone() const { return done; }
         bool isReady() { return rpc && rpc->isReady(); }
         void send();
+        void filterOutInvalidReplicas();
         void wait();
         const CoordinatorServerList::Entry& backupHost;
       PRIVATE:
         const ServerId crashedMasterId;
         const ProtoBuf::Tablets& partitions;
+        const uint64_t minOpenSegmentId;
         Tub<BackupClient> client;
         Tub<BackupClient::StartReadingData> rpc;
       PUBLIC:

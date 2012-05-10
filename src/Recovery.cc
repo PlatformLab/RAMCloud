@@ -183,10 +183,12 @@ using namespace RecoveryInternal; // NOLINT
 Recovery::BackupStartTask::BackupStartTask(
             const CoordinatorServerList::Entry& backupHost,
             ServerId crashedMasterId,
-            const ProtoBuf::Tablets& partitions)
+            const ProtoBuf::Tablets& partitions,
+            uint64_t minOpenSegmentId)
     : backupHost(backupHost)
     , crashedMasterId(crashedMasterId)
     , partitions(partitions)
+    , minOpenSegmentId(minOpenSegmentId)
     , client()
     , rpc()
     , result()
@@ -205,6 +207,58 @@ Recovery::BackupStartTask::send()
                  backupHost.serviceLocator.c_str());
 }
 
+/**
+ * Removes replicas and log digests from results that may be
+ * inconsistent with the most recent state of the log being recovered.
+ *
+ * This involves checking "open" replicas and log digests against the
+ * recorded minOpenSegmentId for the master being recovered and discarding
+ * any entries or digests that have come from replicas for segments with an
+ * id less than it.
+ */
+void
+Recovery::BackupStartTask::filterOutInvalidReplicas()
+{
+    // Remove any replicas from the results that are invalid because they
+    // were found open and their segmentId is less than the minOpenSegmentId
+    // for this master.
+    enum { BYTES_WRITTEN_CLOSED = ~(0u) };
+    vector<pair<uint64_t, uint32_t>> newIdAndLength;
+    newIdAndLength.reserve(result.segmentIdAndLength.size());
+    uint32_t newPrimarySegmentCount = 0;
+    for (size_t i = 0; i < result.segmentIdAndLength.size(); ++i) {
+        auto& idAndLength = result.segmentIdAndLength[i];
+        if (idAndLength.second != BYTES_WRITTEN_CLOSED &&
+            idAndLength.first < minOpenSegmentId) {
+            LOG(DEBUG, "Removing replica for segmentId %lu from replica list "
+                "for backup %lu because it was open and had an id less than "
+                "the minOpenSegmentId (%lu) for the recovering master",
+               idAndLength.first, backupHost.serverId.getId(),
+               minOpenSegmentId);
+            continue;
+        }
+        if (i < result.primarySegmentCount)
+            ++newPrimarySegmentCount;
+        newIdAndLength.push_back(idAndLength);
+    }
+    std::swap(result.segmentIdAndLength, newIdAndLength);
+    std::swap(result.primarySegmentCount, newPrimarySegmentCount);
+    // We cannot use a log digest if it comes from a segment with a segmentId
+    // less than minOpenSegmentId (the fact that minOpenSegmentId is higher
+    // than this replicas segmentId demonstrates that a more recent log digest
+    // was durably written to a later segment).
+    if (result.logDigestSegmentId < minOpenSegmentId) {
+        LOG(DEBUG, "Backup %lu returned a log digest for segmentId %lu but "
+            "minOpenSegmentId for this master is %lu so discarding it",
+            backupHost.serverId.getId(), result.logDigestSegmentId,
+            minOpenSegmentId);
+        result.logDigestBytes = 0;
+        result.logDigestBuffer.reset();
+        result.logDigestSegmentId = -1;
+        result.logDigestSegmentLen = -1;
+    }
+}
+
 void
 Recovery::BackupStartTask::wait()
 {
@@ -221,6 +275,9 @@ Recovery::BackupStartTask::wait()
     }
     rpc.destroy();
     client.destroy();
+
+    filterOutInvalidReplicas();
+
     done = true;
     LOG(DEBUG, "Backup %lu has %lu segment replicas",
         backupHost.serverId.getId(),
@@ -281,7 +338,6 @@ Recovery::buildSegmentIdToBackups()
     LOG(DEBUG, "Getting segment lists from backups and preparing "
                "them for recovery");
 
-
     const uint32_t numBackups = serverList.backupCount();
     const uint32_t maxActiveBackupHosts = 10;
 
@@ -289,10 +345,21 @@ Recovery::buildSegmentIdToBackups()
     auto backupStartTasks = std::unique_ptr<Tub<BackupStartTask>[]>(
             new Tub<BackupStartTask>[numBackups]);
     uint32_t nextIssueIndex = 0;
+    uint64_t minOpenSegmentId = 0;
+    try {
+        minOpenSegmentId = serverList[masterId].minOpenSegmentId;
+    } catch (const Exception& e) {
+        LOG(ERROR, "Couldn't determine minOpenSegmentId while recovering "
+            "master %lu; recovery could use invalid replicas",
+            masterId.getId());
+        // This is handled essentially so unit tests succeed even when
+        // the server being recovered is not in the CoordinatorServerList.
+        // It is a risk to continue in this case.
+    }
     for (uint32_t i = 0; i < numBackups; ++i) {
         nextIssueIndex = serverList.nextBackupIndex(nextIssueIndex);
         backupStartTasks[i].construct(*serverList[nextIssueIndex],
-                                      masterId, will);
+                                      masterId, will, minOpenSegmentId);
         ++nextIssueIndex;
     }
     parallelRun(backupStartTasks.get(), numBackups, maxActiveBackupHosts);
