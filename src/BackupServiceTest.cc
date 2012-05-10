@@ -574,7 +574,7 @@ TEST_F(BackupServiceTest, recoverySegmentBuilder) {
 
     ProtoBuf::Tablets partitions;
     createTabletList(partitions);
-    AtomicInt recoveryThreadCount{0};
+    Atomic<int> recoveryThreadCount{0};
     BackupService::RecoverySegmentBuilder builder(Context::get(),
                                                   toBuild,
                                                   partitions,

@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -140,7 +140,7 @@ class Worker {
     int busyIndex;                     /// Location of this worker in
                                        /// #busyThreads, or -1 if this worker
                                        /// is idle.
-    AtomicInt state;                   /// Shared variable used to pass RPCs
+    Atomic<int> state;                   /// Shared variable used to pass RPCs
                                        /// between the dispatch thread and this
                                        /// worker.
 

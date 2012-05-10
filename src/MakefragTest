@@ -12,7 +12,7 @@ INFINIBAND_SRCFILES :=
 endif
 
 TESTS_SRCFILES := \
-		  src/AtomicIntTest.cc \
+		  src/AtomicTest.cc \
 		  src/BackupFailureMonitorTest.cc \
 		  src/BackupSelectorTest.cc \
 		  src/BackupServiceTest.cc \

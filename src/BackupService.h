@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2011 Stanford University
+/* Copyright (c) 2009-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -35,7 +35,7 @@
 #include <queue>
 
 #include "Common.h"
-#include "AtomicInt.h"
+#include "Atomic.h"
 #include "BackupClient.h"
 #include "BackupStorage.h"
 #include "CoordinatorClient.h"
@@ -90,7 +90,7 @@ class BackupService : public Service {
         ~ReferenceDecrementer()
         {
             // The following statement is really only needed when value
-            // is an AtomicInt.
+            // is an Atomic.
             Fence::leave();
             --value;
         }
@@ -487,7 +487,7 @@ class BackupService : public Service {
         RecoverySegmentBuilder(Context& context,
                                const vector<SegmentInfo*>& infos,
                                const ProtoBuf::Tablets& partitions,
-                               AtomicInt& recoveryThreadCount,
+                               Atomic<int>& recoveryThreadCount,
                                uint32_t segmentSize);
         void operator()();
 
@@ -508,7 +508,7 @@ class BackupService : public Service {
         /// Copy of the partitions use to split out the recovery segments.
         const ProtoBuf::Tablets partitions;
 
-        AtomicInt& recoveryThreadCount;
+        Atomic<int>& recoveryThreadCount;
 
         /// The uniform size of each segment this backup deals with.
         const uint32_t segmentSize;
@@ -594,7 +594,7 @@ class BackupService : public Service {
     ThreadSafePool pool;
 
     /// Count of threads performing recoveries.
-    AtomicInt recoveryThreadCount;
+    Atomic<int> recoveryThreadCount;
 
     /// Type of the key for the segments map.
     struct MasterSegmentIdPair {

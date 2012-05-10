@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -24,7 +24,7 @@
 #include <thread>
 
 #include "Common.h"
-#include "AtomicInt.h"
+#include "Atomic.h"
 #include "ThreadId.h"
 #include "Tub.h"
 #include "SpinLock.h"
@@ -299,10 +299,10 @@ class Dispatch {
 
     // Nonzero means there is a (non-dispatch) thread trying to lock the
     // dispatcher.
-    AtomicInt lockNeeded;
+    Atomic<int> lockNeeded;
 
     // Nonzero means the dispatch thread is locked.
-    AtomicInt locked;
+    Atomic<int> locked;
 
     /**
      * True if there is a thread which owns this dispatch (this is

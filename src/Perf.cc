@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  * Copyright (c) 2011 Facebook
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -38,7 +38,7 @@
 #include <vector>
 
 #include "Common.h"
-#include "AtomicInt.h"
+#include "Atomic.h"
 #include "Cycles.h"
 #include "Dispatch.h"
 #include "Fence.h"
@@ -73,11 +73,11 @@ void bindThreadToCpu(int cpu)
 // Test functions start here
 //----------------------------------------------------------------------
 
-// Measure the cost of AtomicInt::compareExchange.
+// Measure the cost of Atomic<int>::compareExchange.
 double atomicIntCmpX()
 {
     int count = 1000000;
-    AtomicInt value(11);
+    Atomic<int> value(11);
     int test = 11;
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
@@ -88,11 +88,11 @@ double atomicIntCmpX()
     // printf("Final value: %d\n", value.load());
     return Cycles::toSeconds(stop - start)/count;
 }
-// Measure the cost of AtomicInt::inc.
+// Measure the cost of Atomic<int>::inc.
 double atomicIntInc()
 {
     int count = 1000000;
-    AtomicInt value(11);
+    Atomic<int> value(11);
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
          value.inc();
@@ -102,11 +102,11 @@ double atomicIntInc()
     return Cycles::toSeconds(stop - start)/count;
 }
 
-// Measure the cost of reading an AtomicInt.
+// Measure the cost of reading an Atomic<int>.
 double atomicIntLoad()
 {
     int count = 1000000;
-    AtomicInt value(11);
+    Atomic<int> value(11);
     int total = 0;
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
@@ -117,11 +117,11 @@ double atomicIntLoad()
     return Cycles::toSeconds(stop - start)/count;
 }
 
-// Measure the cost of AtomicInt::exchange.
+// Measure the cost of Atomic<int>::exchange.
 double atomicIntXchg()
 {
     int count = 1000000;
-    AtomicInt value(11);
+    Atomic<int> value(11);
     int total = 0;
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
@@ -132,11 +132,11 @@ double atomicIntXchg()
     return Cycles::toSeconds(stop - start)/count;
 }
 
-// Measure the cost of storing a new value in a AtomicInt.
+// Measure the cost of storing a new value in a Atomic<int>.
 double atomicIntStore()
 {
     int count = 1000000;
-    AtomicInt value(11);
+    Atomic<int> value(11);
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
         value.store(88);
@@ -759,15 +759,15 @@ struct TestInfo {
 };
 TestInfo tests[] = {
     {"atomicIntCmpX", atomicIntCmpX,
-     "AtomicInt::compareExchange"},
+     "Atomic<int>::compareExchange"},
     {"atomicIntInc", atomicIntInc,
-     "AtomicInt::inc"},
+     "Atomic<int>::inc"},
     {"atomicIntLoad", atomicIntLoad,
-     "AtomicInt::load"},
+     "Atomic<int>::load"},
     {"atomicIntStore", atomicIntStore,
-     "AtomicInt::store"},
+     "Atomic<int>::store"},
     {"atomicIntXchg", atomicIntXchg,
-     "AtomicInt::exchange"},
+     "Atomic<int>::exchange"},
     {"bMutexNoBlock", bMutexNoBlock,
      "std::mutex lock/unlock (no blocking)"},
     {"cppAtomicExchg", cppAtomicExchange,

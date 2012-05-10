@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2011 Stanford University
+/* Copyright (c) 2009-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -964,7 +964,7 @@ BackupService::RecoverySegmentBuilder::RecoverySegmentBuilder(
         Context& context,
         const vector<SegmentInfo*>& infos,
         const ProtoBuf::Tablets& partitions,
-        AtomicInt& recoveryThreadCount,
+        Atomic<int>& recoveryThreadCount,
         uint32_t segmentSize)
     : context(context)
     , infos(infos)
@@ -990,7 +990,7 @@ BackupService::RecoverySegmentBuilder::operator()()
     Context::Guard scopedContext(context);
 
     uint64_t startTime = Cycles::rdtsc();
-    ReferenceDecrementer<AtomicInt> _(recoveryThreadCount);
+    ReferenceDecrementer<Atomic<int>> _(recoveryThreadCount);
     LOG(DEBUG, "Building recovery segments on new thread");
 
     if (infos.empty())

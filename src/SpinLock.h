@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,7 +16,7 @@
 #ifndef RAMCLOUD_SPINLOCK_H
 #define RAMCLOUD_SPINLOCK_H
 
-#include "AtomicInt.h"
+#include "Atomic.h"
 
 namespace RAMCloud {
 
@@ -39,7 +39,7 @@ class SpinLock {
     void unlock();
   PRIVATE:
     // Implements the lock: 0 means free, anything else means locked.
-    AtomicInt mutex;
+    Atomic<int> mutex;
 };
 
 } // end RAMCloud
