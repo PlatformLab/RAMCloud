@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -391,6 +391,78 @@ TEST_F(ServiceManagerTest, Worker_handoff_callFutex) {
     waitUntilDone(1);
     manager->poll();
     EXPECT_EQ("serverReply: 0x10001 100", transport.outputLog);
+}
+
+// The following tests both the constructor and the clientSend method
+// for WorkerSession.
+TEST_F(ServiceManagerTest, WorkerSession) {
+    MockTransport transport;
+    Buffer request;
+    Buffer reply;
+    request.fillFromString("abcdefg");
+    MockTransport::sessionDeleteCount = 0;
+
+    Transport::Session* wrappedSession = new ServiceManager::WorkerSession(
+            transport.getSession());
+
+    // Make sure that clientSend gets passed down to the underlying session.
+    wrappedSession->clientSend(&request, &reply);
+    EXPECT_STREQ("clientSend: abcdefg/0", transport.outputLog.c_str());
+    EXPECT_EQ(0U, MockTransport::sessionDeleteCount);
+
+    // Make sure that sessions get cleaned up properly.
+    delete wrappedSession;
+    EXPECT_EQ(1U, MockTransport::sessionDeleteCount);
+}
+
+// The next test makes sure that clientSend synchronizes properly with the
+// dispatch thread.
+
+void serviceManagerTestWorker(Context* context,
+        Transport::SessionRef session) {
+    Context::Guard _(*context);
+    Buffer request;
+    Buffer reply;
+    request.fillFromString("abcdefg");
+    session->clientSend(&request, &reply);
+}
+
+TEST_F(ServiceManagerTest, WorkerSession_SyncWithDispatchThread) {
+    Context context(true);
+    Context::Guard _(context);
+    TestLog::Enable logSilencer;
+
+    MockTransport transport;
+    Transport::SessionRef wrappedSession = new ServiceManager::WorkerSession(
+            transport.getSession());
+    std::thread child(serviceManagerTestWorker, &Context::get(),
+            wrappedSession);
+
+    // Make sure the child hangs in clientSend until we invoke the dispatcher.
+    usleep(1000);
+    EXPECT_STREQ("", transport.outputLog.c_str());
+    for (int i = 0; i < 1000; i++) {
+        Context::get().dispatch->poll();
+        if (transport.outputLog.size() > 0) {
+            break;
+        }
+    }
+    EXPECT_STREQ("clientSend: abcdefg/0", transport.outputLog.c_str());
+    child.join();
+}
+
+TEST_F(ServiceManagerTest, WorkerSession_abort) {
+    MockTransport transport;
+    Buffer request;
+    Buffer reply;
+    request.fillFromString("abcdefg");
+    MockTransport::sessionDeleteCount = 0;
+
+    Transport::Session* wrappedSession = new ServiceManager::WorkerSession(
+            transport.getSession());
+
+    wrappedSession->abort("test message");
+    EXPECT_STREQ("abort: test message", transport.outputLog.c_str());
 }
 
 } // namespace RAMCloud

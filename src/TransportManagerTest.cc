@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  * Copyright (c) 2011 Facebook
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -229,75 +229,6 @@ TEST_F(TransportManagerTest, registerMemory) {
               TestLog::get());
     manager.unregisterMock();
     manager.unregisterMock();
-}
-
-// The following tests both the constructor and the clientSend method.
-TEST_F(TransportManagerTest, workerSession) {
-    MockTransport transport;
-    Buffer request;
-    Buffer reply;
-    request.fillFromString("abcdefg");
-    MockTransport::sessionDeleteCount = 0;
-
-    Transport::Session* wrappedSession = new TransportManager::WorkerSession(
-            transport.getSession());
-
-    // Make sure that clientSend gets passed down to the underlying session.
-    wrappedSession->clientSend(&request, &reply);
-    EXPECT_STREQ("clientSend: abcdefg/0", transport.outputLog.c_str());
-    EXPECT_EQ(0U, MockTransport::sessionDeleteCount);
-
-    // Make sure that sessions get cleaned up properly.
-    delete wrappedSession;
-    EXPECT_EQ(1U, MockTransport::sessionDeleteCount);
-}
-
-// The next test makes sure that clientSend synchronizes properly with the
-// dispatch thread.
-
-void worker(Context* context, Transport::SessionRef session) {
-    Context::Guard _(*context);
-    Buffer request;
-    Buffer reply;
-    request.fillFromString("abcdefg");
-    session->clientSend(&request, &reply);
-}
-
-TEST_F(TransportManagerTest, workerSessionSyncWithDispatchThread) {
-    Context context(true);
-    Context::Guard _(context);
-    TestLog::Enable logSilencer;
-
-    MockTransport transport;
-    Transport::SessionRef wrappedSession = new TransportManager::WorkerSession(
-            transport.getSession());
-    std::thread child(worker, &Context::get(), wrappedSession);
-
-    // Make sure the child hangs in clientSend until we invoke the dispatcher.
-    usleep(1000);
-    EXPECT_STREQ("", transport.outputLog.c_str());
-    for (int i = 0; i < 1000; i++) {
-        Context::get().dispatch->poll();
-        if (transport.outputLog.size() > 0) {
-            break;
-        }
-    }
-    EXPECT_STREQ("clientSend: abcdefg/0", transport.outputLog.c_str());
-    child.join();
-}
-
-TEST_F(TransportManagerTest, abort) {
-    MockTransport transport;
-    Buffer request;
-    Buffer reply;
-    request.fillFromString("abcdefg");
-    MockTransport::sessionDeleteCount = 0;
-
-    Transport::Session* wrappedSession = new TransportManager::WorkerSession(
-            transport.getSession());
-
-    wrappedSession->abort("test message");
-    EXPECT_STREQ("abort: test message", transport.outputLog.c_str());
 }
 
 }  // namespace RAMCloud

@@ -16,14 +16,8 @@
 #ifndef RAMCLOUD_SERVICEMANAGER_H
 #define RAMCLOUD_SERVICEMANAGER_H
 
-#if __GNUC__ >= 4 && __GNUC_MINOR__ >= 5
-#include <atomic>
-#else
-#include <cstdatomic>
-#endif
 #include <queue>
 
-#include "atomicPatch.h"
 #include "Dispatch.h"
 #include "Service.h"
 #include "Transport.h"
@@ -110,6 +104,31 @@ class ServiceManager : Dispatch::Poller {
     static Syscall *sys;
 
     friend class Worker;
+
+  public:
+    /**
+     * Sessions of this type are used as wrappers in worker threads on
+     * servers.  These are needed because "real" Session objects are owned
+     * by transports (which run in the dispatch thread) and hence cannot be
+     * accessed in worker threads without synchronization.  WorkerSession
+     * objects forward methods to the actual Session object after
+     * synchronizing appropriately with the dispatch thread.
+     */
+    class WorkerSession : public Transport::Session {
+      public:
+        explicit WorkerSession(Transport::SessionRef wrapped);
+        ~WorkerSession() {}
+        virtual void abort(const string& message);
+        virtual Transport::ClientRpc* clientSend(Buffer* request,
+                Buffer* reply) __attribute__((warn_unused_result));
+        void release() {
+            delete this;
+        }
+      PRIVATE:
+        Transport::SessionRef wrapped; /// clientSend calls must be forwarded
+                                       /// to this underlying object.
+        DISALLOW_COPY_AND_ASSIGN(WorkerSession);
+    };
     DISALLOW_COPY_AND_ASSIGN(ServiceManager);
 };
 
@@ -140,7 +159,7 @@ class Worker {
     int busyIndex;                     /// Location of this worker in
                                        /// #busyThreads, or -1 if this worker
                                        /// is idle.
-    Atomic<int> state;                   /// Shared variable used to pass RPCs
+    Atomic<int> state;                 /// Shared variable used to pass RPCs
                                        /// between the dispatch thread and this
                                        /// worker.
 

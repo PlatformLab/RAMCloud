@@ -100,30 +100,6 @@ class TransportManager {
 
   PRIVATE:
     /**
-     * Sessions of this type are used as wrappers in worker threads on
-     * servers.  These are needed because "real" Session objects are owned
-     * by transports (which run in the dispatch thread) and hence cannot be
-     * accessed in worker threads without synchronization.  WorkerSession
-     * objects forward the #clientSend method to the actual Session object
-     * after synchronizing appropriately with the dispatch thread.
-     */
-    class WorkerSession : public Transport::Session {
-      public:
-        explicit WorkerSession(Transport::SessionRef wrapped);
-        ~WorkerSession() {}
-        virtual void abort(const string& message);
-        virtual Transport::ClientRpc* clientSend(Buffer* request,
-                Buffer* reply) __attribute__((warn_unused_result));
-        void release() {
-            delete this;
-        }
-      PRIVATE:
-        Transport::SessionRef wrapped; /// clientSend calls must be forwarded
-                                       /// to this underlying object.
-        DISALLOW_COPY_AND_ASSIGN(WorkerSession);
-    };
-
-    /**
      * True means this is a server application, false means this is a client only.
      */
     bool isServer;

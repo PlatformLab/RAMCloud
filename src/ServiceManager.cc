@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -422,6 +422,39 @@ Worker::sendReply()
 {
     Fence::leave();
     state.store(POSTPROCESSING);
+}
+
+/**
+ * Construct a WorkerSession.
+ *
+ * \param wrapped
+ *      Another Session object, to which #clientSend requests will be
+ *      forwarded.
+ */
+ServiceManager::WorkerSession::WorkerSession(Transport::SessionRef wrapped)
+    : wrapped(wrapped)
+{
+    TEST_LOG("created");
+}
+
+// See Transport::Session::abort for documentation.
+void
+ServiceManager::WorkerSession::abort(const string& message)
+{
+    // Must make sure that the dispatch thread isn't running when we
+    // invoked the real abort.
+    Dispatch::Lock lock;
+    return wrapped->abort(message);
+}
+
+// See Transport::Session::clientSend for documentation.
+Transport::ClientRpc*
+ServiceManager::WorkerSession::clientSend(Buffer* request, Buffer* reply)
+{
+    // Must make sure that the dispatch thread isn't running when we
+    // invoked the real clientSend.
+    Dispatch::Lock lock;
+    return wrapped->clientSend(request, reply);
 }
 
 } // namespace RAMCloud

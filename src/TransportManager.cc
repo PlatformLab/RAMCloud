@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  * Copyright (c) 2011 Facebook
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -18,6 +18,7 @@
 #include "MembershipClient.h"
 #include "ShortMacros.h"
 #include "RawMetrics.h"
+#include "ServiceManager.h"
 #include "TransportManager.h"
 #include "TransportFactory.h"
 
@@ -279,9 +280,10 @@ TransportManager::getSession(const char* serviceLocator)
 
             transportSupported = true;
             try {
-                auto session = transports[i]->getSession(locator, timeoutMs);
+                Transport::SessionRef session = transports[i]->getSession(
+                        locator, timeoutMs);
                 if (isServer) {
-                    session = new WorkerSession(session);
+                    session = new ServiceManager::WorkerSession(session);
                 }
 
                 // The cache is based on the complete initial service locator
@@ -439,40 +441,6 @@ TransportManager::dumpTransportFactories()
           LOG(NOTICE, "  %s", protocol);
         ++i;
     }
-}
-
-
-/**
- * Construct a WorkerSession.
- *
- * \param wrapped
- *      Another Session object, to which #clientSend requests will be
- *      forwarded.
- */
-TransportManager::WorkerSession::WorkerSession(Transport::SessionRef wrapped)
-    : wrapped(wrapped)
-{
-    TEST_LOG("created");
-}
-
-// See Transport::Session::abort for documentation.
-void
-TransportManager::WorkerSession::abort(const string& message)
-{
-    // Must make sure that the dispatch thread isn't running when we
-    // invoked the real abort.
-    Dispatch::Lock lock;
-    return wrapped->abort(message);
-}
-
-// See Transport::Session::clientSend for documentation.
-Transport::ClientRpc*
-TransportManager::WorkerSession::clientSend(Buffer* request, Buffer* reply)
-{
-    // Must make sure that the dispatch thread isn't running when we
-    // invoked the real clientSend.
-    Dispatch::Lock lock;
-    return wrapped->clientSend(request, reply);
 }
 
 } // namespace RAMCloud
