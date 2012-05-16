@@ -61,6 +61,7 @@ class CoordinatorClient : public Client {
                                  uint64_t lastKey,
                                  ServerId newOwnerMasterId);
     void tabletsRecovered(ServerId masterId,
+                          ServerId crashedMasterId,
                           const ProtoBuf::Tablets& tablets);
     void setWill(uint64_t masterId, const ProtoBuf::Tablets& will);
     void sendServerList(ServerId destination);

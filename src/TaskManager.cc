@@ -24,7 +24,8 @@ namespace RAMCloud {
  *
  * \param taskManager
  *      TaskManager which will execute performTask().
- */ Task::Task(TaskManager& taskManager)
+ */
+Task::Task(TaskManager& taskManager)
     : taskManager(taskManager)
     , scheduled(false)
 {

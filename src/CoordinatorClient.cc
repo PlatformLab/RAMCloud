@@ -368,19 +368,23 @@ CoordinatorClient::reassignTabletOwnership(uint64_t tableId,
  * Tell the coordinator that recovery of particular tablets have
  * been completed on the master who is calling.
  *
- * \param[in] masterId
+ * \param masterId
  *      The masterId of the server invoking this method.
- * \param[in] tablets
+ * \param masterId
+ *      ServerId the server whose tablets have been recovered.
+ * \param tablets
  *      The tablets which form a partition of a will which are
  *      now done recovering.
  */
 void
 CoordinatorClient::tabletsRecovered(ServerId masterId,
+                                    ServerId crashedMasterId,
                                     const ProtoBuf::Tablets& tablets)
 {
     Buffer req, resp;
     TabletsRecoveredRpc::Request& reqHdr(allocHeader<TabletsRecoveredRpc>(req));
     reqHdr.masterId = *masterId;
+    reqHdr.crashedMasterId = *crashedMasterId;
     reqHdr.tabletsLength = serializeToRequest(req, tablets);
     sendRecv<TabletsRecoveredRpc>(session, req, resp);
     checkStatus(HERE);

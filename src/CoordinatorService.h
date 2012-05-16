@@ -21,6 +21,7 @@
 
 #include "Common.h"
 #include "ClientException.h"
+#include "MasterRecoveryManager.h"
 #include "RawMetrics.h"
 #include "Recovery.h"
 #include "Rpc.h"
@@ -104,7 +105,6 @@ class CoordinatorService : public Service {
                              Rpc& rpc);
     bool setWill(ServerId masterId, Buffer& buffer,
                  uint32_t offset, uint32_t length);
-    void startMasterRecovery(const CoordinatorServerList::Entry& serverEntry);
     bool verifyServerFailure(ServerId serverId);
 
     /**
@@ -147,24 +147,16 @@ class CoordinatorService : public Service {
      */
     uint64_t nextReplicationId;
 
-    /// Used in unit testing.
-    BaseRecovery* mockRecovery;
+    /**
+     * Handles all master recovery details on behalf of the coordinator.
+     */
+    MasterRecoveryManager recoveryManager;
 
     /**
      * Used for testing only. If true, the HINT_SERVER_DOWN handler will
      * assume that the server has failed (rather than checking for itself).
      */
     bool forceServerDownForTesting;
-
-    typedef std::map<std::tuple<uint64_t, uint64_t, uint64_t>,
-                     BaseRecovery*> RecoveryMap;
-    /**
-     * Maps tablets (tableId, startKeyHash, endKeyHash tuples) to the
-     * recoveries ongoing for that tablet, if any. Used by recovery to
-     * reassociate tablets which finished recovery to the recovery that
-     * was recovering them.
-     */
-    RecoveryMap recoveries;
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorService);
 };

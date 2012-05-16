@@ -1489,7 +1489,7 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
         tablet.set_ctime_log_head_id(headOfLog.segmentId());
         tablet.set_ctime_log_head_offset(headOfLog.segmentOffset());
     }
-    coordinator->tabletsRecovered(serverId, recoveryTablets);
+    coordinator->tabletsRecovered(serverId, masterId, recoveryTablets);
 
     // TODO(anyone) Should delete tablets if tabletsRecovered returns
     //              failure. Also, should handle tabletsRecovered

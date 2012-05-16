@@ -34,14 +34,15 @@ CoordinatorService::CoordinatorService()
     , nextTableId(0)
     , nextTableMasterIdx(0)
     , nextReplicationId(1)
-    , mockRecovery(NULL)
+    , recoveryManager(serverList, tabletMap)
     , forceServerDownForTesting(false)
-    , recoveries()
 {
+    recoveryManager.start();
 }
 
 CoordinatorService::~CoordinatorService()
 {
+    recoveryManager.halt();
 }
 
 void
@@ -358,7 +359,8 @@ CoordinatorService::enlistServer(const EnlistServerRpc::Request& reqHdr,
     // Recovery on the replaced host is deferred until the replacing host
     // has been enlisted.
     if (replacedEntry)
-        startMasterRecovery(*replacedEntry);
+        recoveryManager.startMasterRecovery(replacedEntry->serverId,
+                                            *replacedEntry->will);
 }
 
 /**
@@ -426,8 +428,6 @@ CoordinatorService::hintServerDown(ServerId serverId)
         return true;
     }
 
-    const uint64_t replicationId = serverList[serverId].replicationId;
-
     if (!verifyServerFailure(serverId))
         return false;
     LOG(NOTICE, "Server id %lu has crashed, notifying the cluster and "
@@ -450,14 +450,12 @@ CoordinatorService::hintServerDown(ServerId serverId)
     // Update cluster membership information.
     // Backup recovery is kicked off via this update.
     // Deciding whether to place this before or after the start of master
-    // recovery is difficult.  With small cluster sizes kicking off backup
-    // recoveries this early didn't interfere with master recovery
-    // performance, but we'll want to keep an eye on this.
+    // recovery is difficult.
     sendMembershipUpdate(update, ServerId(/* invalid id */));
 
-    startMasterRecovery(entry);
+    recoveryManager.startMasterRecovery(entry.serverId, *entry.will);
 
-    removeReplicationGroup(replicationId);
+    removeReplicationGroup(entry.replicationId);
     createReplicationGroup();
 
     return true;
@@ -472,74 +470,31 @@ CoordinatorService::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
                                      TabletsRecoveredRpc::Response& respHdr,
                                      Rpc& rpc)
 {
-    if (reqHdr.status != STATUS_OK) {
-        // we'll need to restart a recovery of that partition elsewhere
-        // right now this just leaks the recovery object in the tabletMap
-        LOG(ERROR, "A recovery master failed to recover its partition");
-    }
-
     ProtoBuf::Tablets recoveredTablets;
     ProtoBuf::parseFromResponse(rpc.requestPayload,
                                 downCast<uint32_t>(sizeof(reqHdr)),
                                 reqHdr.tabletsLength, recoveredTablets);
+    // TODO(stutsman): This call was also supposed to set the new will
+    // for the recovery master, but it was never implemented. Might
+    // be best just to gut it and use setWill separate from tabletsRecovered.
+    ProtoBuf::Tablets will;
 
-    LOG(NOTICE, "called by masterId %lu with %u tablets",
-        reqHdr.masterId, recoveredTablets.tablet_size());
-
-    LOG(DEBUG, "Recovered tablets");
-    LOG(DEBUG, "%s", recoveredTablets.ShortDebugString().c_str());
-
-    // TODO(stutsman): Currently won't work with concurrent access on the
-    // tablet map but recovery will soon be revised to accept only one call
-    // into recovery per master instead of tablet which will fix this.
-
-    // Update tablet map to point to new owner and mark as available.
-    foreach (const auto& tablet, recoveredTablets.tablet()) {
-        auto it =
-            recoveries.find(
-                std::make_tuple(tablet.table_id(),
-                                tablet.start_key_hash(),
-                                tablet.end_key_hash()));
-        if (it == recoveries.end()) {
-            LOG(ERROR, "Recovery master reported completing recovery of "
-                "tablet %lu,%lu,%lu but that tablet doesn't seem to be "
-                "under recovery; this should never happen in RAMCloud",
-                tablet.table_id(),
-                tablet.start_key_hash(), tablet.end_key_hash());
-            continue;
-        }
-        BaseRecovery* recovery = it->second;
-        recoveries.erase(it);
-        // The caller has filled in recoveredTablets with new service
-        // locator and server id of the recovery master, so just copy
-        // it over.
-        // Record the log position of the recovery master at creation of
-        // this new tablet assignment. The value is the position of the
-        // head at the very start of recovery.
-        tabletMap.modifyTablet(tablet.table_id(),
-                               tablet.start_key_hash(),
-                               tablet.end_key_hash(),
-                               ServerId(tablet.server_id()),
-                               Tablet::NORMAL,
-                               {tablet.ctime_log_head_id(),
-                                tablet.ctime_log_head_offset()});
-        bool recoveryComplete = recovery->tabletsRecovered(recoveredTablets);
-        if (recoveryComplete) {
-            LOG(NOTICE, "Recovery completed for master %lu",
-                recovery->masterId.getId());
-            auto masterId = recovery->masterId;
-            delete recovery;
-
-            // dump the tabletMap out for easy debugging
-            LOG(DEBUG, "Coordinator tabletMap: %s",
-                tabletMap.debugString().c_str());
-
-            ProtoBuf::ServerList update;
-            serverList.remove(masterId, update);
-            serverList.incrementVersion(update);
-            sendMembershipUpdate(update, ServerId(/* invalid id */));
-            return;
-        }
+    ServerId serverId = ServerId(reqHdr.masterId);
+    ServerId crashedMasterId = ServerId(reqHdr.crashedMasterId);
+    bool recoverySuccessfullyCompleted =
+        recoveryManager.tabletsRecovered(serverId,
+                                         crashedMasterId,
+                                         recoveredTablets,
+                                         will,
+                                         reqHdr.status);
+    // Dump the tabletMap out for easy debugging.
+    LOG(DEBUG, "Coordinator tabletMap: %s",
+        tabletMap.debugString().c_str());
+    if (recoverySuccessfullyCompleted) {
+        ProtoBuf::ServerList update;
+        serverList.remove(crashedMasterId, update);
+        serverList.incrementVersion(update);
+        sendMembershipUpdate(update, ServerId(/* broadcast */));
     }
 }
 
@@ -956,57 +911,6 @@ CoordinatorService::setWill(ServerId masterId, Buffer& buffer,
         return false;
     }
     return true;
-}
-
-/**
- * Initiate a recovery of a crashed master.
- *
- * \param serverEntry
- *      The crashed server which is to be recovered.  If the server was
- *      not running a master service then nothing is done.
- * \throw Exception
- *      If \a serverId is not in #serverList.
- */
-void
-CoordinatorService::startMasterRecovery(
-                                const CoordinatorServerList::Entry& serverEntry)
-{
-    if (!serverEntry.isMaster())
-        return;
-
-    ServerId serverId = serverEntry.serverId;
-
-    auto tablets = tabletMap.setStatusForServer(serverId, Tablet::RECOVERING);
-    if (tablets.empty()) {
-        LOG(NOTICE, "Master %lu (\"%s\") crashed, but it had no tablets",
-            serverId.getId(),
-            serverEntry.serviceLocator.c_str());
-        return;
-    }
-
-    LOG(NOTICE, "Recovering master %lu (\"%s\") on %u recovery masters "
-        "using %u backups", serverId.getId(),
-        serverEntry.serviceLocator.c_str(),
-        serverList.masterCount(),
-        serverList.backupCount());
-
-    BaseRecovery* recovery = NULL;
-    if (mockRecovery != NULL) {
-        (*mockRecovery)(serverId, *serverEntry.will, serverList);
-        recovery = mockRecovery;
-    } else {
-        recovery = new Recovery(serverId, *serverEntry.will, serverList);
-    }
-
-    // Keep track of recovery for each of the tablets it's working on.
-    foreach (const auto& tablet, tablets) {
-        recoveries.insert(make_pair(std::make_tuple(tablet.tableId,
-                                                    tablet.startKeyHash,
-                                                    tablet.endKeyHash),
-                                    recovery));
-    }
-
-    recovery->start();
 }
 
 /**

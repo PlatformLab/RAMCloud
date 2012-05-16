@@ -591,6 +591,8 @@ struct TabletsRecoveredRpc {
     struct Request {
         RpcRequestCommon common;
         uint64_t masterId;         // Server Id from whom the request is coming.
+        uint64_t crashedMasterId;  // Server Id of the master whose tablets
+                                   // were recovered.
         Status status;             // Indicates whether the recovery
                                    // succeeded; if not, it explains why.
         uint32_t tabletsLength;    // Number of bytes in the tablet map.

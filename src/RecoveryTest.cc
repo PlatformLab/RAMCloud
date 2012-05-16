@@ -160,7 +160,11 @@ TEST_F(RecoveryTest, buildSegmentIdToBackups) {
     // Zero segs on backup3
 
     ProtoBuf::Tablets tablets;
-    Recovery recovery(ServerId(99), tablets, *serverList);
+    TaskManager mgr;
+    Recovery::Deleter deleter;
+    Recovery recovery(mgr, *serverList, deleter, ServerId(99), tablets);
+    recovery.schedule();
+    mgr.proceed();
     EXPECT_EQ((vector<RecoverRpc::Replica> {
                     { 1, 88 },
                     { 2, 88 },
@@ -196,9 +200,13 @@ TEST_F(RecoveryTest, buildSegmentIdToBackups_secondariesEarlyInSomeList) {
             segmentSize, {"mock:host=backup2", "mock:host=backup3"}, false));
 
     ProtoBuf::Tablets tablets;
-    Recovery recovery(ServerId(99), tablets, *serverList);
+    TaskManager mgr;
+    Recovery::Deleter deleter;
+    Recovery recovery(mgr, *serverList, deleter, ServerId(99), tablets);
+    recovery.schedule();
+    mgr.proceed();
 
-    EXPECT_EQ(6U, recovery.replicaLocations.size());
+    ASSERT_EQ(6U, recovery.replicaLocations.size());
     // The secondary of segment 91 must be last in the list.
     EXPECT_EQ(91U, recovery.replicaLocations.at(5).segmentId);
 }
@@ -316,7 +324,11 @@ TEST_F(RecoveryTest, start) {
         tablet.set_ctime_log_head_offset(0);
     }
 
-    Recovery recovery(ServerId(99), tablets, *serverList);
+    TaskManager mgr;
+    Recovery::Deleter deleter;
+    Recovery recovery(mgr, *serverList, deleter, ServerId(99), tablets);
+    recovery.schedule();
+    mgr.proceed();
 
     /*
      * Make sure all segments are partitioned on the backups before proceeding,
@@ -349,10 +361,9 @@ TEST_F(RecoveryTest, start) {
     }
 
     TestLog::Enable _(&getRecoveryDataFilter);
-    recovery.start();
-    EXPECT_EQ(3U, recovery.tabletsUnderRecovery);
+    mgr.proceed();
+    EXPECT_EQ(2u, recovery.startedRecoveryMasters);
     EXPECT_EQ(
-        "start: Starting recovery for 2 partitions | "
         "getRecoveryData: getRecoveryData masterId 99, segmentId 88, "
         "partitionId 0 | "
         "getRecoveryData: getRecoveryData complete | "
@@ -421,10 +432,12 @@ TEST_F(RecoveryTest, start_notEnoughMasters) {
         tablet.set_ctime_log_head_offset(0);
     }
 
-    Recovery recovery(ServerId(99), tablets, *serverList);
+    TaskManager mgr;
+    Recovery::Deleter deleter;
+    Recovery recovery(mgr, *serverList, deleter, ServerId(99), tablets);
     MockRandom __(1); // triggers deterministic rand().
     TestLog::Enable _(&getRecoveryDataFilter);
-    EXPECT_THROW(recovery.start(), FatalError);
+    EXPECT_THROW(recovery.startRecoveryMasters(), FatalError);
 }
 
 } // namespace RAMCloud

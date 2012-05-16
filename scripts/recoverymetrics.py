@@ -492,7 +492,7 @@ def makeReport(data):
                     total=recoveryTime)
 
     coordSection.ms('Starting recovery on backups',
-        coord.coordinator.recoveryConstructorTicks / coord.clockFrequency,
+        coord.coordinator.recoveryBuildReplicaMapTicks / coord.clockFrequency,
         total=recoveryTime)
     coordSection.ms('Starting recovery on masters',
         coord.coordinator.recoveryStartTicks / coord.clockFrequency,
@@ -511,7 +511,7 @@ def makeReport(data):
         total=recoveryTime)
     coordSection.ms('Other',
         ((coord.coordinator.recoveryTicks -
-          coord.coordinator.recoveryConstructorTicks -
+          coord.coordinator.recoveryBuildReplicaMapTicks -
           coord.coordinator.recoveryStartTicks -
           coord.rpc.setWillTicks -
           coord.rpc.getTabletMapTicks -

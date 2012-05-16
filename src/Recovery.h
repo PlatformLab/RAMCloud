@@ -25,6 +25,7 @@
 #include "ProtoBuf.h"
 #include "ServerList.pb.h"
 #include "Tablets.pb.h"
+#include "TaskManager.h"
 
 namespace RAMCloud {
 
@@ -32,106 +33,102 @@ namespace RecoveryInternal {
 struct MasterStartTask;
 }
 
-/// Used to allow custom mocks of recovery in unit testing.
-class BaseRecovery {
-  public:
-    BaseRecovery() : masterId() {}
-    explicit BaseRecovery(ServerId masterId) : masterId(masterId) {}
-    virtual ~BaseRecovery() {}
-    virtual void start()
-    {}
-    /**
-     * Used to check constructor args for mock recoveries.  A normal
-     * constructor cannot be used because the mocks are instantiated
-     * early.
-     */
-    virtual void operator()(ServerId masterId,
-                            const ProtoBuf::Tablets& will,
-                            const CoordinatorServerList& serverList)
-    {}
-    virtual bool tabletsRecovered(const ProtoBuf::Tablets& tablets)
-    { return true; }
-
-    /// The id of the crashed master whose is being recovered.
-    ServerId masterId;
-
-    DISALLOW_COPY_AND_ASSIGN(BaseRecovery);
-};
-
 /**
- * A Recovery from the perspective of the CoordinatorService.
+ * Manages the recovery of a crashed master.
  */
-class Recovery : public BaseRecovery {
+class Recovery : public Task {
   public:
-    Recovery(ServerId masterId,
-             const ProtoBuf::Tablets& will,
-             const CoordinatorServerList& serverList);
+    /**
+     * Internal to MasterRecoveryManager; describes what to do whenever
+     * we don't want to go on living. MasterRecoveryManager needs to do some
+     * special cleanup after Recoveries, but Recoveries know best when to
+     * destroy themselves. The default logic does nothing which is useful for
+     * Recovery during unit testing.
+     */
+    struct Deleter {
+        virtual void destroyAndFreeRecovery(Recovery* recovery) {}
+        virtual ~Deleter() {}
+    };
+
+    Recovery(TaskManager& taskManager,
+             const CoordinatorServerList& serverList,
+             Deleter& deleter,
+             ServerId masterId,
+             const ProtoBuf::Tablets& will);
     ~Recovery();
 
-    void buildSegmentIdToBackups();
-    void start();
-    bool tabletsRecovered(const ProtoBuf::Tablets& tablets);
+    virtual void performTask();
+    void recoveryMasterCompleted(bool success);
+
+    bool isDone();
+    bool wasCompletelySuccessful();
+
+    /// The id of the crashed master which is being recovered.
+    const ServerId masterId;
+
+    /**
+     * A partitioning of tablets ('will') for the crashed master which
+     * describes how its contents should be divided up among recovery
+     * masters in order to balance recovery time across recovery masters.
+     */
+    const ProtoBuf::Tablets will;
 
   PRIVATE:
-    // Only used in Recovery::buildSegmentIdToBackups().
-    class BackupStartTask {
-      PUBLIC:
-        BackupStartTask(const CoordinatorServerList::Entry& backupHost,
-             ServerId crashedMasterId,
-             const ProtoBuf::Tablets& partitions, uint64_t minOpenSegmentId);
-        bool isDone() const { return done; }
-        bool isReady() { return rpc && rpc->isReady(); }
-        void send();
-        void filterOutInvalidReplicas();
-        void wait();
-        const CoordinatorServerList::Entry backupHost;
-      PRIVATE:
-        const ServerId crashedMasterId;
-        const ProtoBuf::Tablets& partitions;
-        const uint64_t minOpenSegmentId;
-        Tub<BackupClient> client;
-        Tub<BackupClient::StartReadingData> rpc;
-      PUBLIC:
-        BackupClient::StartReadingData::Result result;
-      PRIVATE:
-        bool done;
-        DISALLOW_COPY_AND_ASSIGN(BackupStartTask);
+    void buildReplicaMap();
+    void startRecoveryMasters();
+    void broadcastRecoveryComplete();
+
+    /// The list of all servers in the system.
+    const CoordinatorServerList& serverList;
+
+    /// Deletes this when this determines it is no longer needed. See #Deleter.
+    Deleter& deleter;
+
+    enum Status {
+        BUILD_REPLICA_MAP,           ///< Contact all backups and find replicas.
+        START_RECOVERY_MASTERS,      ///< Choose and start recovery masters.
+        WAIT_FOR_RECOVERY_MASTERS,   ///< Wait on completion of recovery masters.
+        BROADCAST_RECOVERY_COMPLETE, ///< Inform backups of end of recovery.
+        DONE,
     };
+    /**
+     * What stage of master recovery this recovery is at. See #Status for
+     * details about each status.
+     */
+    Status status;
 
-    class SegmentAndDigestTuple {
-      public:
-        SegmentAndDigestTuple(const char* backupServiceLocator,
-                              uint64_t segmentId, uint32_t segmentLength,
-            const void* logDigestPtr, uint32_t logDigestBytes)
-            : backupServiceLocator(backupServiceLocator),
-              segmentId(segmentId),
-              segmentLength(segmentLength),
-              logDigest(logDigestPtr, logDigestBytes)
-        {
-        }
-
-        const char* backupServiceLocator;
-        uint64_t  segmentId;
-        uint32_t  segmentLength;
-        LogDigest logDigest;
-    };
-
-    CycleCounter<RawMetric> recoveryTicks;
+    /**
+     * Measures time between start and end of recovery on the coordinator.
+     */
+    Tub<CycleCounter<RawMetric>> recoveryTicks;
 
     /**
      * A mapping of segmentIds to backup host service locators.
-     * Created from #hosts in createBackupList().
+     * Populated by buildReplicaMap().
      */
     vector<RecoverRpc::Replica> replicaLocations;
 
-    /// The list of all masters.
-    const CoordinatorServerList& serverList;
+    /**
+     * Number of recovery masters started during START_RECOVERY_MASTERS phase.
+     * Recovery isDone() and moves to BROADCAST_RECOVERY_COMPLETE phase
+     * when this is equal to the sum of successful and unsuccessful recovery
+     * masters.
+     */
+    uint32_t startedRecoveryMasters;
 
-    /// Number of tablets left to recover before done.
-    uint32_t tabletsUnderRecovery;
+    /**
+     * Number of recovery masters which have completed (as part of the
+     * WAIT_FOR_RECOVERY_MASTERS phase) and successfully recovered
+     * their partition of the tablets of the crashed master.
+     */
+    uint32_t successfulRecoveryMasters;
 
-    /// A partitioning of tablets for the crashed master.
-    const ProtoBuf::Tablets& will;
+    /**
+     * Number of recovery masters which either encountered some error
+     * recovering their partition of the tablets under recovery or
+     * which crashed without completing recovery.
+     */
+    uint32_t unsuccessfulRecoveryMasters;
 
     friend class RecoveryInternal::MasterStartTask;
     DISALLOW_COPY_AND_ASSIGN(Recovery);

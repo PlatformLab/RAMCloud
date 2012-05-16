@@ -21,6 +21,7 @@
 #include "MockCluster.h"
 #include "Recovery.h"
 #include "ServerList.h"
+#include "TaskManager.h"
 
 namespace RAMCloud {
 
@@ -274,58 +275,48 @@ TEST_F(CoordinatorServiceTest, enlistServer) {
               backupList.ShortDebugString());
 }
 
+namespace {
+bool startMasterRecoveryFilter(string s) {
+    return s == "startMasterRecovery";
+}
+}
+
 TEST_F(CoordinatorServiceTest, enlistServerReplaceAMaster) {
-    struct MockRecovery : public BaseRecovery {
-        explicit MockRecovery() : called(false) {}
-        void operator()(ServerId masterId,
-                        const ProtoBuf::Tablets& will,
-                        const CoordinatorServerList& serverList)
-        {
-            called = true;
-            this->masterId = masterId;
-        }
-        void start() {}
-        bool called;
-    } mockRecovery;
-    service->mockRecovery = &mockRecovery;
+    TaskManager mgr;
+    service->recoveryManager.doNotStartRecoveries = true;
 
     client->createTable("foo");
+    TestLog::Enable _(startMasterRecoveryFilter);
     EXPECT_EQ(ServerId(2, 0),
         client->enlistServer(masterServerId,
                              {BACKUP_SERVICE}, "mock:host=backup"));
-
-    EXPECT_TRUE(mockRecovery.called);
-    EXPECT_EQ(ServerId(1, 0), mockRecovery.masterId);
+    EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1 | "
+              "startMasterRecovery: Recovery serverId: 1 | "
+              "startMasterRecovery: Recovery will: tablet { table_id: 0 "
+                  "start_key_hash: 0 end_key_hash: 18446744073709551615 "
+                  "state: NORMAL user_data: 0 "
+                  "ctime_log_head_id: 0 ctime_log_head_offset: 0 }",
+              TestLog::get());
     EXPECT_TRUE(service->serverList.contains(masterServerId));
     EXPECT_EQ(ServerStatus::CRASHED,
               service->serverList[masterServerId].status);
 }
 
 TEST_F(CoordinatorServiceTest, enlistServerReplaceANonMaster) {
-    struct MockRecovery : public BaseRecovery {
-        explicit MockRecovery() : called(false) {}
-        void operator()(ServerId masterId,
-                        const ProtoBuf::Tablets& will,
-                        const CoordinatorServerList& serverList)
-        {
-            called = true;
-            this->masterId = masterId;
-        }
-        void start() {}
-        bool called;
-    } mockRecovery;
-    service->mockRecovery = &mockRecovery;
+    TaskManager mgr;
+    service->recoveryManager.doNotStartRecoveries = true;
 
     ServerConfig config = ServerConfig::forTesting();
     config.localLocator = "mock:host=backup1";
     config.services = {BACKUP_SERVICE};
     ServerId replacesId = cluster.addServer(config)->serverId;
 
+    TestLog::Enable _(startMasterRecoveryFilter);
     EXPECT_EQ(ServerId(2, 1),
         client->enlistServer(replacesId,
                              {BACKUP_SERVICE}, "mock:host=backup2"));
-
-    EXPECT_FALSE(mockRecovery.called);
+    EXPECT_EQ("startMasterRecovery: Server 2 crashed, but it had no tablets",
+              TestLog::get());
     EXPECT_FALSE(service->serverList.contains(replacesId));
 }
 
@@ -383,72 +374,28 @@ TEST_F(CoordinatorServiceTest, getTabletMap) {
 }
 
 TEST_F(CoordinatorServiceTest, hintServerDown_master) {
-    struct MockRecovery : public BaseRecovery {
-        explicit MockRecovery(CoordinatorServiceTest& test)
-            : test(test), called(false) {}
-        void
-        operator()(ServerId masterId,
-                   const ProtoBuf::Tablets& will,
-                   const CoordinatorServerList& serverList)
-        {
-            this->masterId = masterId;
-
-            ProtoBuf::ServerList masterHosts, backupHosts;
-            serverList.serialize(masterHosts, {MASTER_SERVICE});
-            serverList.serialize(backupHosts, {BACKUP_SERVICE});
-
-            EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
-                      "endKeyHash: 18446744073709551615 "
-                      "serverId: 1 status: RECOVERING "
-                      "ctime: 0, 0 }",
-                      test.service->tabletMap.debugString());
-            EXPECT_EQ(1LU, masterId.getId());
-            EXPECT_EQ("tablet { table_id: 0 start_key_hash: 0 "
-                      "end_key_hash: 18446744073709551615 "
-                      "state: NORMAL user_data: 0 "
-                      "ctime_log_head_id: 0 ctime_log_head_offset: 0 }",
-                      will.ShortDebugString());
-            EXPECT_TRUE(TestUtil::matchesPosixRegex(
-                        "server { service_mask: 9 "
-                        "server_id: 2 service_locator: "
-                        "\"mock:host=master2\" backup_read_mbytes_per_sec: "
-                        "[0-9]\\+ "
-                        "status: 0 } version_number: 4",
-                        masterHosts.ShortDebugString()));
-            EXPECT_EQ("server { service_mask: 2 "
-                      "server_id: 3 "
-                      "service_locator: \"mock:host=backup\" "
-                      "backup_read_mbytes_per_sec: 0 status: 0 } "
-                      "version_number: 4",
-                      backupHosts.ShortDebugString());
-            called = true;
-        }
-        void start() {}
-        CoordinatorServiceTest& test;
-        bool called;
-    } mockRecovery(*this);
-    service->mockRecovery = &mockRecovery;
+    TaskManager mgr;
+    service->recoveryManager.doNotStartRecoveries = true;
     // master is already enlisted
     client->enlistServer({}, {MASTER_SERVICE, PING_SERVICE},
                          "mock:host=master2");
     client->enlistServer({}, {BACKUP_SERVICE}, "mock:host=backup");
     client->createTable("foo");
     service->forceServerDownForTesting = true;
+    TestLog::Enable _(startMasterRecoveryFilter);
     client->hintServerDown(masterServerId);
-    EXPECT_TRUE(mockRecovery.called);
+    EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1 | "
+              "startMasterRecovery: Recovery serverId: 1 | "
+              "startMasterRecovery: Recovery will: tablet { table_id: 0 "
+                  "start_key_hash: 0 end_key_hash: 18446744073709551615 "
+                  "state: NORMAL user_data: 0 "
+                  "ctime_log_head_id: 0 ctime_log_head_offset: 0 }",
+               TestLog::get());
 
     // Status should already be RECOVERING, just using this to get a list
     // of the tablets that should be part of the recovery.
     auto tablets = service->tabletMap.setStatusForServer(masterServerId,
                                                          Tablet::RECOVERING);
-    foreach (const auto& tablet, tablets) {
-        auto it = service->recoveries.find(std::make_tuple(tablet.tableId,
-                                                           tablet.startKeyHash,
-                                                           tablet.endKeyHash));
-        ASSERT_NE(service->recoveries.end(), it);
-        EXPECT_TRUE(&mockRecovery == it->second);
-    }
-
     EXPECT_EQ(ServerStatus::CRASHED,
               service->serverList[master->serverId].status);
 }
@@ -463,9 +410,10 @@ TEST_F(CoordinatorServiceTest, hintServerDown_backup) {
     EXPECT_FALSE(service->serverList.contains(id));
 }
 
-static bool
-tabletsRecoveredFilter(string s) {
+namespace {
+bool tabletsRecoveredFilter(string s) {
     return s == "tabletsRecovered";
+}
 }
 
 TEST_F(CoordinatorServiceTest, tabletsRecovered_basics) {
@@ -487,17 +435,18 @@ TEST_F(CoordinatorServiceTest, tabletsRecovered_basics) {
 
     service->tabletMap.addTablet({0, 0, ~(0ul), {1, 0},
                                   Tablet::RECOVERING, {0, 0}});
-    service->recoveries.insert(
-        make_pair(std::make_tuple(tablet.table_id(),
-                                  tablet.start_key_hash(),
-                                  tablet.end_key_hash()),
-                  new BaseRecovery(master2Id)));
-
+    ProtoBuf::Tablets will;
+    Recovery* recovery = new Recovery(service->recoveryManager.taskManager,
+                                      service->serverList,
+                                      service->recoveryManager,
+                                      master2Id, will);
+    recovery->startedRecoveryMasters = 1;
+    service->recoveryManager.activeRecoveries[master2Id.getId()] = recovery;
     EXPECT_EQ(3u, service->serverList.versionNumber);
 
     {
         TestLog::Enable _(&tabletsRecoveredFilter);
-        client->tabletsRecovered(ServerId(1, 0), tablets);
+        client->tabletsRecovered(ServerId(1, 0), master2Id, tablets);
         EXPECT_EQ(
             "tabletsRecovered: called by masterId 1 with 1 tablets | "
             "tabletsRecovered: Recovered tablets | tabletsRecovered: "
@@ -772,9 +721,10 @@ TEST_F(CoordinatorServiceTest, startMasterRecoveryNoTabletsOnMaster) {
     client->enlistServer({}, {MASTER_SERVICE, PING_SERVICE},
                          "mock:host=master2");
     client->enlistServer({}, {BACKUP_SERVICE}, "mock:host=backup");
+    ProtoBuf::Tablets will;
     TestLog::Enable _;
-    service->startMasterRecovery(service->serverList[masterServerId]);
-    EXPECT_EQ("startMasterRecovery: Master 1 (\"mock:host=master\") crashed, "
+    service->recoveryManager.startMasterRecovery(masterServerId, will);
+    EXPECT_EQ("startMasterRecovery: Server 1 crashed, "
               "but it had no tablets", TestLog::get());
 }
 

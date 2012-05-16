@@ -159,7 +159,9 @@ coordinator = Group('Coordinator', 'metrics for coordinator')
 coordinator.metric('recoveryCount',
     'number of recoveries in which this coordinator participated')
 coordinator.metric('recoveryTicks', 'elapsed time during recoveries')
-coordinator.metric('recoveryConstructorTicks', 'time in Recovery constructor')
+coordinator.metric('recoveryBuildReplicaMapTicks',
+                   'time contacting backups and finding replicas for crashed '
+                   'master')
 coordinator.metric('recoveryStartTicks', 'time in Recovery::start')
 coordinator.metric('recoveryCompleteTicks',
     'time sending recovery complete RPCs to backups')

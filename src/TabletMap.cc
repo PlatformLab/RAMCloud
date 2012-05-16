@@ -209,8 +209,15 @@ TabletMap::serialize(const CoordinatorServerList& serverList,
             entry.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
         else
             DIE("Unknown status stored in tablet map");
-        const string& locator = serverList[tablet.serverId].serviceLocator;
-        entry.set_service_locator(locator);
+        try {
+            const string& locator = serverList[tablet.serverId].serviceLocator;
+            entry.set_service_locator(locator);
+        } catch (const Exception& e) {
+            LOG(NOTICE, "Server id (%lu) in tablet map no longer in server "
+                "list; sending empty locator for entry",
+                tablet.serverId.getId());
+            entry.set_service_locator("");
+        }
         entry.set_ctime_log_head_id(tablet.ctime.segmentId());
         entry.set_ctime_log_head_offset(tablet.ctime.segmentOffset());
     }
