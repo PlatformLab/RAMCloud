@@ -23,6 +23,7 @@
 #include "MasterService.h"
 #include "ReplicaManager.h"
 #include "ShortMacros.h"
+#include "StringUtil.h"
 #include "Tablets.pb.h"
 
 namespace RAMCloud {
@@ -489,8 +490,10 @@ TEST_F(MasterServiceTest, recover_ctimeUpdateIssued) {
     RecoverRpc::Replica replicas[] = {};
     client->recover(ServerId(123), 0, tablets, replicas, 0);
 
-    EXPECT_EQ("tabletsRecovered: called by masterId 2 with 4 tablets | "
-        "tabletsRecovered: Recovered tablets | tabletsRecovered: tablet { "
+    EXPECT_TRUE(StringUtil::startsWith(TestLog::get(),
+        "tabletsRecovered: called by masterId 2 with 4 tablets | "
+        "tabletsRecovered: Recovered tablets | "
+        "tabletsRecovered: tablet { "
         "table_id: 123 start_key_hash: 0 end_key_hash: 9 state: RECOVERING "
         "server_id: 2 service_locator: \"mock:host=master\" user_data: 0 "
         "ctime_log_head_id: 0 ctime_log_head_offset: 99 } tablet { table_id: "
@@ -498,8 +501,7 @@ TEST_F(MasterServiceTest, recover_ctimeUpdateIssued) {
         "2 service_locator: \"mock:host=master\" user_data: 0 "
         "ctime_log_head_id: 0 ctime_log_head_offset: 99 } tablet { table_id: "
         "123 start_key_hash: 20 end_key_hash: 29 state: RECOVERING server_id: "
-        "2 service_locator: \"mock:host=master\" user_data: ",
-        TestLog::get());
+        "2 service_locator: \"mock:host=master\" user_data: "));
 }
 
 TEST_F(MasterServiceTest, recoverSegment) {

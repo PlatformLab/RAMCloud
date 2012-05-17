@@ -26,6 +26,7 @@
 #include "Rpc.h"
 #include "ServerId.h"
 #include "Service.h"
+#include "TabletMap.h"
 #include "TransportManager.h"
 
 namespace RAMCloud {
@@ -116,7 +117,7 @@ class CoordinatorService : public Service {
     /**
      * What are the tablets, and who is the master for each.
      */
-    ProtoBuf::Tablets tabletMap;
+    TabletMap tabletMap;
 
     typedef std::map<string, uint64_t> Tables;
     /**
@@ -154,6 +155,16 @@ class CoordinatorService : public Service {
      * assume that the server has failed (rather than checking for itself).
      */
     bool forceServerDownForTesting;
+
+    typedef std::map<std::tuple<uint64_t, uint64_t, uint64_t>,
+                     BaseRecovery*> RecoveryMap;
+    /**
+     * Maps tablets (tableId, startKeyHash, endKeyHash tuples) to the
+     * recoveries ongoing for that tablet, if any. Used by recovery to
+     * reassociate tablets which finished recovery to the recovery that
+     * was recovering them.
+     */
+    RecoveryMap recoveries;
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorService);
 };

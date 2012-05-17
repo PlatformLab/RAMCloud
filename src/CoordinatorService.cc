@@ -36,6 +36,7 @@ CoordinatorService::CoordinatorService()
     , nextReplicationId(1)
     , mockRecovery(NULL)
     , forceServerDownForTesting(false)
+    , recoveries()
 {
 }
 
@@ -171,15 +172,8 @@ CoordinatorService::createTable(const CreateTableRpc::Request& reqHdr,
         LogPosition headOfLog = masterClient.getHeadOfLog();
 
         // Create tablet map entry.
-        ProtoBuf::Tablets_Tablet& tablet(*tabletMap.add_tablet());
-        tablet.set_table_id(tableId);
-        tablet.set_start_key_hash(startKeyHash);
-        tablet.set_end_key_hash(endKeyHash);
-        tablet.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
-        tablet.set_server_id(master->serverId.getId());
-        tablet.set_service_locator(master->serviceLocator);
-        tablet.set_ctime_log_head_id(headOfLog.segmentId());
-        tablet.set_ctime_log_head_offset(headOfLog.segmentOffset());
+        tabletMap.addTablet({tableId, startKeyHash, endKeyHash,
+                             master->serverId, Tablet::NORMAL, headOfLog});
 
         // Create will entry. The tablet is empty, so it doesn't matter where it
         // goes or in how many partitions, initially.
@@ -200,9 +194,7 @@ CoordinatorService::createTable(const CreateTableRpc::Request& reqHdr,
         willEntry.set_ctime_log_head_offset(headOfLog.segmentOffset());
 
         // Inform the master.
-        masterClient.takeTabletOwnership(tableId,
-                                         tablet.start_key_hash(),
-                                         tablet.end_key_hash());
+        masterClient.takeTabletOwnership(tableId, startKeyHash, endKeyHash);
 
         LOG(DEBUG, "Created table '%s' with id %lu and a span %u on master %lu",
                     name, tableId, serverSpan, master->serverId.getId());
@@ -228,25 +220,16 @@ CoordinatorService::dropTable(const DropTableRpc::Request& reqHdr,
         return;
     uint64_t tableId = it->second;
     tables.erase(it);
-    int32_t i = 0;
-    while (i < tabletMap.tablet_size()) {
-        if (tabletMap.tablet(i).table_id() == tableId) {
-            ServerId masterId(tabletMap.tablet(i).server_id());
-            MasterClient master(serverList.getSession(masterId));
+    vector<Tablet> removed = tabletMap.removeTabletsForTable(tableId);
+    foreach (const auto& tablet, removed) {
+            MasterClient master(serverList.getSession(tablet.serverId));
             master.dropTabletOwnership(tableId,
-                                       tabletMap.tablet(i).start_key_hash(),
-                                       tabletMap.tablet(i).end_key_hash());
-
-            tabletMap.mutable_tablet()->SwapElements(
-                    tabletMap.tablet_size() - 1, i);
-            tabletMap.mutable_tablet()->RemoveLast();
-        } else {
-            ++i;
-        }
+                                       tablet.startKeyHash,
+                                       tablet.endKeyHash);
     }
 
     LOG(NOTICE, "Dropped table '%s' with id %lu", name, tableId);
-    LOG(DEBUG, "There are now %d tablets in the map", tabletMap.tablet_size());
+    LOG(DEBUG, "There are now %lu tablets in the map", tabletMap.size());
 }
 
 /**
@@ -258,13 +241,6 @@ CoordinatorService::splitTablet(const SplitTabletRpc::Request& reqHdr,
                               SplitTabletRpc::Response& respHdr,
                               Rpc& rpc)
 {
-    // Sanity check on provided key ranges
-    if (!(reqHdr.startKeyHash < (reqHdr.splitKeyHash - 1) &&
-        reqHdr.splitKeyHash < reqHdr.endKeyHash)) {
-         respHdr.common.status = STATUS_REQUEST_FORMAT_ERROR;
-         return;
-    }
-
     // Check that the tablet with the described key ranges exists.
     // If the tablet exists, adjust its endKeyHash so it becomes the tablet
     // for the first part after the split and also copy the tablet and use
@@ -278,35 +254,24 @@ CoordinatorService::splitTablet(const SplitTabletRpc::Request& reqHdr,
     }
     uint64_t tableId = it->second;
 
-    bool tabletExists = false;
-    ProtoBuf::Tablets_Tablet newTablet;
-
-    for (int i = 0; i < tabletMap.tablet_size(); i++) {
-        if (tabletMap.tablet(i).table_id() != tableId) {
-            continue;
-        }
-        if (tabletMap.tablet(i).start_key_hash() == reqHdr.startKeyHash &&
-            tabletMap.tablet(i).end_key_hash() == reqHdr.endKeyHash) {
-                tabletExists = true;
-                newTablet = tabletMap.tablet(i);
-                tabletMap.mutable_tablet(i)->
-                set_end_key_hash(reqHdr.splitKeyHash - 1);
-        }
-    }
-    if (!tabletExists) {
+    ServerId serverId;
+    try {
+        serverId = tabletMap.splitTablet(tableId,
+                                         reqHdr.startKeyHash,
+                                         reqHdr.endKeyHash,
+                                         reqHdr.splitKeyHash).first.serverId;
+    } catch (const TabletMap::NoSuchTablet& e) {
         respHdr.common.status = STATUS_TABLET_DOESNT_EXIST;
+        return;
+    } catch (const TabletMap::BadSplit& e) {
+        respHdr.common.status = STATUS_REQUEST_FORMAT_ERROR;
         return;
     }
 
-    // Adjust the start key hash for the tablet for the second part and add it
-    newTablet.set_start_key_hash(reqHdr.splitKeyHash);
-    *tabletMap.add_tablet() = newTablet;
-
     // Tell the master to split the tablet
-    ServerId masterId(newTablet.server_id());
-    MasterClient master(serverList.getSession(masterId));
+    MasterClient master(serverList.getSession(serverId));
     master.splitMasterTablet(tableId, reqHdr.startKeyHash, reqHdr.endKeyHash,
-                       reqHdr.splitKeyHash);
+                             reqHdr.splitKeyHash);
 
     LOG(NOTICE, "In table '%s' I split the tablet that started at key %lu and "
                 "ended at key %lu", name, reqHdr.startKeyHash,
@@ -442,8 +407,10 @@ CoordinatorService::getTabletMap(const GetTabletMapRpc::Request& reqHdr,
                                  GetTabletMapRpc::Response& respHdr,
                                  Rpc& rpc)
 {
+    ProtoBuf::Tablets tablets;
+    tabletMap.serialize(serverList, tablets);
     respHdr.tabletMapLength = serializeToResponse(rpc.replyPayload,
-                                                  tabletMap);
+                                                  tablets);
 }
 
 /**
@@ -538,67 +505,59 @@ CoordinatorService::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
     LOG(NOTICE, "called by masterId %lu with %u tablets",
         reqHdr.masterId, recoveredTablets.tablet_size());
 
-    TEST_LOG("Recovered tablets");
-    TEST_LOG("%s", recoveredTablets.ShortDebugString().c_str());
+    LOG(DEBUG, "Recovered tablets");
+    LOG(DEBUG, "%s", recoveredTablets.ShortDebugString().c_str());
 
-    // update tablet map to point to new owner and mark as available
-    foreach (const ProtoBuf::Tablets::Tablet& recoveredTablet,
-             recoveredTablets.tablet())
-    {
-        foreach (ProtoBuf::Tablets::Tablet& tablet,
-                 *tabletMap.mutable_tablet())
-        {
-            if (recoveredTablet.table_id() == tablet.table_id() &&
-                recoveredTablet.start_key_hash() == tablet.start_key_hash() &&
-                recoveredTablet.end_key_hash() == tablet.end_key_hash())
-            {
-                LOG(NOTICE, "Recovery complete on tablet %lu,%lu,%lu",
-                    tablet.table_id(), tablet.start_key_hash(),
-                    tablet.end_key_hash());
-                BaseRecovery* recovery =
-                    reinterpret_cast<Recovery*>(tablet.user_data());
-                tablet.set_state(ProtoBuf::Tablets_Tablet::NORMAL);
-                tablet.set_user_data(0);
+    // TODO(stutsman): Currently won't work with concurrent access on the
+    // tablet map but recovery will soon be revised to accept only one call
+    // into recovery per master instead of tablet which will fix this.
 
-                // The caller has filled in recoveredTablets with new service
-                // locator and server id of the recovery master, so just copy
-                // it over.
-                tablet.set_service_locator(recoveredTablet.service_locator());
-                tablet.set_server_id(recoveredTablet.server_id());
+    // Update tablet map to point to new owner and mark as available.
+    foreach (const auto& tablet, recoveredTablets.tablet()) {
+        auto it =
+            recoveries.find(
+                std::make_tuple(tablet.table_id(),
+                                tablet.start_key_hash(),
+                                tablet.end_key_hash()));
+        if (it == recoveries.end()) {
+            LOG(ERROR, "Recovery master reported completing recovery of "
+                "tablet %lu,%lu,%lu but that tablet doesn't seem to be "
+                "under recovery; this should never happen in RAMCloud",
+                tablet.table_id(),
+                tablet.start_key_hash(), tablet.end_key_hash());
+            continue;
+        }
+        BaseRecovery* recovery = it->second;
+        recoveries.erase(it);
+        // The caller has filled in recoveredTablets with new service
+        // locator and server id of the recovery master, so just copy
+        // it over.
+        // Record the log position of the recovery master at creation of
+        // this new tablet assignment. The value is the position of the
+        // head at the very start of recovery.
+        tabletMap.modifyTablet(tablet.table_id(),
+                               tablet.start_key_hash(),
+                               tablet.end_key_hash(),
+                               ServerId(tablet.server_id()),
+                               Tablet::NORMAL,
+                               {tablet.ctime_log_head_id(),
+                                tablet.ctime_log_head_offset()});
+        bool recoveryComplete = recovery->tabletsRecovered(recoveredTablets);
+        if (recoveryComplete) {
+            LOG(NOTICE, "Recovery completed for master %lu",
+                recovery->masterId.getId());
+            auto masterId = recovery->masterId;
+            delete recovery;
 
-                // Record the log position of the recovery master at creation of
-                // this new tablet assignment. The value is the position of the
-                // head at the very start of recovery.
-                tablet.set_ctime_log_head_id(
-                    recoveredTablet.ctime_log_head_id());
-                tablet.set_ctime_log_head_offset(
-                    recoveredTablet.ctime_log_head_offset());
+            // dump the tabletMap out for easy debugging
+            LOG(DEBUG, "Coordinator tabletMap: %s",
+                tabletMap.debugString().c_str());
 
-                bool recoveryComplete =
-                    recovery->tabletsRecovered(recoveredTablets);
-                if (recoveryComplete) {
-                    LOG(NOTICE, "Recovery completed for master %lu",
-                        recovery->masterId.getId());
-                    auto masterId = recovery->masterId;
-                    delete recovery;
-
-                    // dump the tabletMap out for easy debugging
-                    LOG(DEBUG, "Coordinator tabletMap:");
-                    foreach (const ProtoBuf::Tablets::Tablet& tablet,
-                             tabletMap.tablet()) {
-                        LOG(DEBUG, "table: %lu [%lu:%lu] state: %u owner: %lu",
-                            tablet.table_id(), tablet.start_key_hash(),
-                            tablet.end_key_hash(), tablet.state(),
-                            tablet.server_id());
-                    }
-
-                    ProtoBuf::ServerList update;
-                    serverList.remove(masterId, update);
-                    serverList.incrementVersion(update);
-                    sendMembershipUpdate(update, ServerId(/* invalid id */));
-                    return;
-                }
-            }
+            ProtoBuf::ServerList update;
+            serverList.remove(masterId, update);
+            serverList.incrementVersion(update);
+            sendMembershipUpdate(update, ServerId(/* invalid id */));
+            return;
         }
     }
 }
@@ -660,49 +619,53 @@ CoordinatorService::reassignTabletOwnership(
         respHdr.common.status = STATUS_SERVER_DOESNT_EXIST;
         return;
     }
-    CoordinatorServerList::Entry& entry = serverList[newOwner];
 
-    foreach (ProtoBuf::Tablets::Tablet& tablet, *tabletMap.mutable_tablet()) {
-        if (tablet.table_id() == reqHdr.tableId &&
-          tablet.start_key_hash() == reqHdr.firstKey &&
-          tablet.end_key_hash() == reqHdr.lastKey) {
-            LOG(NOTICE, "Reassigning tablet %lu, range [%lu, %lu] from server "
-                "id %lu to server id %lu.", reqHdr.tableId, reqHdr.firstKey,
-                reqHdr.lastKey, tablet.server_id(), *newOwner);
-
-            Transport::SessionRef session = serverList.getSession(newOwner);
-            MasterClient masterClient(session);
-
-            // Get current head of log to preclude all previous data in the log
-            // from being considered part of this tablet.
-            LogPosition headOfLog = masterClient.getHeadOfLog();
-
-            tablet.set_server_id(*newOwner);
-            tablet.set_service_locator(entry.serviceLocator);
-            tablet.set_ctime_log_head_id(headOfLog.segmentId());
-            tablet.set_ctime_log_head_offset(headOfLog.segmentOffset());
-
-            // No need to keep the master waiting. If it sent us this request,
-            // then it has guaranteed that all data has been migrated. So long
-            // as we think the new owner is up (i.e. haven't started a recovery
-            // on it), then it's safe for the old owner to drop the data and for
-            // us to switch over.
-            rpc.sendReply();
-
-            // TODO(rumble/slaughter) If we fail to alert the new owner we could
-            //      get stuck in limbo. What should we do? Retry? Fail the
-            //      server and recover it? Can't return to the old master if we
-            //      reply early...
-            masterClient.takeTabletOwnership(reqHdr.tableId,
-                                             reqHdr.firstKey,
-                                             reqHdr.lastKey);
-            return;
-        }
+    try {
+        // Note currently this log message may not be exactly correct due to
+        // concurrent operations on the tablet map which may slip in between
+        // the message and the actual operation.
+        Tablet tablet = tabletMap.getTablet(reqHdr.tableId,
+                                           reqHdr.firstKey, reqHdr.lastKey);
+        LOG(NOTICE, "Reassigning tablet %lu, range [%lu, %lu] from server "
+            "id %lu to server id %lu.", reqHdr.tableId, reqHdr.firstKey,
+            reqHdr.lastKey, tablet.serverId.getId(), newOwner.getId());
+    } catch (const TabletMap::NoSuchTablet& e) {
+        LOG(WARNING, "Could not reassign tablet %lu, range [%lu, %lu]: "
+            "not found!", reqHdr.tableId, reqHdr.firstKey, reqHdr.lastKey);
+        respHdr.common.status = STATUS_TABLE_DOESNT_EXIST;
+        return;
     }
 
-    LOG(WARNING, "Could not reassign tablet %lu, range [%lu, %lu]: not found!",
-        reqHdr.tableId, reqHdr.firstKey, reqHdr.lastKey);
-    respHdr.common.status = STATUS_TABLE_DOESNT_EXIST;
+    Transport::SessionRef session = serverList.getSession(newOwner);
+    MasterClient masterClient(session);
+    // Get current head of log to preclude all previous data in the log
+    // from being considered part of this tablet.
+    LogPosition headOfLog = masterClient.getHeadOfLog();
+
+    try {
+        tabletMap.modifyTablet(reqHdr.tableId, reqHdr.firstKey, reqHdr.lastKey,
+                               newOwner, Tablet::NORMAL, headOfLog);
+    } catch (const TabletMap::NoSuchTablet& e) {
+        LOG(WARNING, "Could not reassign tablet %lu, range [%lu, %lu]: "
+            "not found!", reqHdr.tableId, reqHdr.firstKey, reqHdr.lastKey);
+        respHdr.common.status = STATUS_TABLE_DOESNT_EXIST;
+        return;
+    }
+
+    // No need to keep the master waiting. If it sent us this request,
+    // then it has guaranteed that all data has been migrated. So long
+    // as we think the new owner is up (i.e. haven't started a recovery
+    // on it), then it's safe for the old owner to drop the data and for
+    // us to switch over.
+    rpc.sendReply();
+
+    // TODO(rumble/slaughter) If we fail to alert the new owner we could
+    //      get stuck in limbo. What should we do? Retry? Fail the
+    //      server and recover it? Can't return to the old master if we
+    //      reply early...
+    masterClient.takeTabletOwnership(reqHdr.tableId,
+                                     reqHdr.firstKey,
+                                     reqHdr.lastKey);
 }
 
 /**
@@ -1047,16 +1010,8 @@ CoordinatorService::startMasterRecovery(
 
     ServerId serverId = serverEntry.serverId;
 
-    bool hadTablets = false;
-    foreach (ProtoBuf::Tablets::Tablet& tablet,
-             *tabletMap.mutable_tablet()) {
-        if (tablet.server_id() == serverId.getId()) {
-            tablet.set_state(ProtoBuf::Tablets_Tablet::RECOVERING);
-            hadTablets = true;
-        }
-    }
-
-    if (!hadTablets) {
+    auto tablets = tabletMap.setStatusForServer(serverId, Tablet::RECOVERING);
+    if (tablets.empty()) {
         LOG(NOTICE, "Master %lu (\"%s\") crashed, but it had no tablets",
             serverId.getId(),
             serverEntry.serviceLocator.c_str());
@@ -1078,10 +1033,11 @@ CoordinatorService::startMasterRecovery(
     }
 
     // Keep track of recovery for each of the tablets it's working on.
-    foreach (ProtoBuf::Tablets::Tablet& tablet,
-             *tabletMap.mutable_tablet()) {
-        if (tablet.server_id() == serverId.getId())
-            tablet.set_user_data(reinterpret_cast<uint64_t>(recovery));
+    foreach (const auto& tablet, tablets) {
+        recoveries.insert(make_pair(std::make_tuple(tablet.tableId,
+                                                    tablet.startKeyHash,
+                                                    tablet.endKeyHash),
+                                    recovery));
     }
 
     recovery->start();

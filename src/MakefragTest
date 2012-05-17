@@ -74,6 +74,7 @@ TESTS_SRCFILES := \
 		  src/SpinLockTest.cc \
 		  src/StatusTest.cc \
 		  src/StringUtilTest.cc \
+		  src/TabletMapTest.cc \
 		  src/TaskManagerTest.cc \
 		  src/TcpTransportTest.cc \
 		  src/TestRunner.cc \
