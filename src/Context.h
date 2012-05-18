@@ -49,6 +49,10 @@ class SessionAlarmTimer;
  * current the context using a Context::Guard. The remainder of RAMCloud code
  * uses Context::get() when it needs to access variables in the current
  * context.
+ *
+ * Expected usage: on client machines there will be one Context per RamCloud
+ * object, which also means one Context per thread.  On server machines there
+ * is a single Context object shared among all the threads.
  */
 class Context {
   PUBLIC:

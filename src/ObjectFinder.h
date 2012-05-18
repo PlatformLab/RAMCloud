@@ -26,7 +26,9 @@
 namespace RAMCloud {
 
 /**
- * The client uses this class to get session handles to masters.
+ * This class maps from an object identifier (table and key) to a session
+ * that can be used to communicate with the master that stores the object.
+ * It retrieves configuration information from the coordinator and caches it.
  */
 class ObjectFinder {
   public:

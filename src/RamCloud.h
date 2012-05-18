@@ -30,6 +30,9 @@ namespace RAMCloud {
  *
  * Each RamCloud object provides access to a particular RAMCloud cluster;
  * all of the RAMCloud RPC requests appear as methods on this object.
+ *
+ * In multi-threaded clients there must be a separate RamCloud object for
+ * each thread; as of 5/2012 these objects are not thread-safe.
  */
 class RamCloud {
   public:
