@@ -42,15 +42,6 @@ CoordinatorService::CoordinatorService()
 
 CoordinatorService::~CoordinatorService()
 {
-    // Delete wills. They aren't automatically deleted in the
-    // CoordinatorServerList::Entry destructor because we may
-    // want to stash a copy of the entry and then remove from
-    // the list before using it (e.g. when we start recovery).
-    for (size_t i = 0; i < serverList.size(); i++) {
-        CoordinatorServerList::Entry* entry = serverList[i];
-        if (entry != NULL && entry->isMaster() && entry->will != NULL)
-            delete entry->will;
-    }
 }
 
 void
@@ -145,7 +136,6 @@ CoordinatorService::createTable(const CreateTableRpc::Request& reqHdr,
         serverSpan = 1;
 
     for (uint32_t i = 0; i < serverSpan; i++) {
-
         uint64_t startKeyHash = i * (~0UL / serverSpan);
         if (i != 0)
             startKeyHash++;
@@ -154,50 +144,46 @@ CoordinatorService::createTable(const CreateTableRpc::Request& reqHdr,
             endKeyHash = ~0UL;
 
         // Find the next master in the list.
-        CoordinatorServerList::Entry* master = NULL;
+        CoordinatorServerList::Entry master;
         while (true) {
             size_t masterIdx = nextTableMasterIdx++ % serverList.size();
-            if (serverList[masterIdx] != NULL &&
-                serverList[masterIdx]->isMaster()) {
-                master = serverList[masterIdx];
+            auto entry = serverList[masterIdx];
+            if (entry && entry->isMaster()) {
+                master = *entry;
                 break;
             }
         }
-
-        const char* locator = master->serviceLocator.c_str();
+        const char* locator = master.serviceLocator.c_str();
         MasterClient masterClient(
             Context::get().transportManager->getSession(locator));
-
         // Get current log head. Only entries >= this can be part of the tablet.
         LogPosition headOfLog = masterClient.getHeadOfLog();
 
         // Create tablet map entry.
         tabletMap.addTablet({tableId, startKeyHash, endKeyHash,
-                             master->serverId, Tablet::NORMAL, headOfLog});
+                             master.serverId, Tablet::NORMAL, headOfLog});
 
         // Create will entry. The tablet is empty, so it doesn't matter where it
         // goes or in how many partitions, initially.
         // It just has to go somewhere.
-        ProtoBuf::Tablets& will = *master->will;
+        ProtoBuf::Tablets will;
         ProtoBuf::Tablets_Tablet& willEntry(*will.add_tablet());
         willEntry.set_table_id(tableId);
         willEntry.set_start_key_hash(startKeyHash);
         willEntry.set_end_key_hash(endKeyHash);
         willEntry.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
-        uint64_t maxPartitionId;
-        if (will.tablet_size() > 1)
-            maxPartitionId = will.tablet(will.tablet_size() - 2).user_data();
-        else
-            maxPartitionId = -1;
-        willEntry.set_user_data(maxPartitionId + 1);
+        // Hack which hints to the server list that it should assign
+        // partition ids.
+        willEntry.set_user_data(~(0lu));
         willEntry.set_ctime_log_head_id(headOfLog.segmentId());
         willEntry.set_ctime_log_head_offset(headOfLog.segmentOffset());
+        serverList.addToWill(master.serverId, will);
 
         // Inform the master.
         masterClient.takeTabletOwnership(tableId, startKeyHash, endKeyHash);
 
         LOG(DEBUG, "Created table '%s' with id %lu and a span %u on master %lu",
-                    name, tableId, serverSpan, master->serverId.getId());
+                    name, tableId, serverSpan, master.serverId.getId());
     }
 
     LOG(NOTICE, "Created table '%s' with id %lu",
@@ -345,7 +331,7 @@ CoordinatorService::enlistServer(const EnlistServerRpc::Request& reqHdr,
                                           readSpeed,
                                           serverListUpdate);
     serverList.incrementVersion(serverListUpdate);
-    CoordinatorServerList::Entry& entry = serverList[newServerId];
+    CoordinatorServerList::Entry entry = serverList[newServerId];
 
     LOG(NOTICE, "Enlisting new server at %s (server id %lu) supporting "
         "services: %s",
@@ -354,11 +340,6 @@ CoordinatorService::enlistServer(const EnlistServerRpc::Request& reqHdr,
     if (replacesId.isValid()) {
         LOG(NOTICE, "Newly enlisted server %lu replaces server %lu",
             newServerId.getId(), replacesId.getId());
-    }
-
-    if (entry.isMaster()) {
-        // create empty will
-        entry.will = new ProtoBuf::Tablets;
     }
 
     if (entry.isBackup()) {
@@ -439,7 +420,7 @@ bool
 CoordinatorService::hintServerDown(ServerId serverId)
 {
     if (!serverList.contains(serverId) ||
-        serverList[serverId.indexNumber()]->status != ServerStatus::UP) {
+        serverList[serverId].status != ServerStatus::UP) {
         LOG(NOTICE, "Spurious crash report on unknown server id %lu",
             serverId.getId());
         return true;
@@ -572,7 +553,7 @@ CoordinatorService::quiesce(const BackupQuiesceRpc::Request& reqHdr,
                             Rpc& rpc)
 {
     for (size_t i = 0; i < serverList.size(); i++) {
-        if (serverList[i] != NULL && serverList[i]->isBackup()) {
+        if (serverList[i] && serverList[i]->isBackup()) {
             BackupClient(Context::get().transportManager->getSession(
                 serverList[i]->serviceLocator.c_str())).quiesce();
         }
@@ -691,7 +672,7 @@ CoordinatorService::sendServerList(
         return;
     }
 
-    if (serverList[id.indexNumber()]->status != ServerStatus::UP) {
+    if (serverList[id].status != ServerStatus::UP) {
         LOG(WARNING, "Could not send list to crashed server %lu", *id);
         return;
     }
@@ -727,7 +708,7 @@ CoordinatorService::assignReplicationGroup(
         if (!serverList.contains(backupId)) {
             return false;
         }
-        serverList[backupId].replicationId = replicationId;
+        serverList.setReplicationId(backupId, replicationId);
         // Try to send an assignReplicationId Rpc to a backup. If the Rpc
         // fails, hintServerDown. If hintServerDown is true, the function
         // aborts. If it fails, keep trying to send the Rpc to the backup.
@@ -779,7 +760,7 @@ CoordinatorService::createReplicationGroup()
     // required for correctness.
     vector<ServerId> freeBackups;
     for (size_t i = 0; i < serverList.size(); i++) {
-        if (serverList[i] != NULL &&
+        if (serverList[i] &&
             serverList[i]->isBackup() &&
             serverList[i]->replicationId == 0) {
             freeBackups.push_back(serverList[i]->serverId);
@@ -822,7 +803,7 @@ CoordinatorService::removeReplicationGroup(uint64_t groupId)
         return;
     }
     for (size_t i = 0; i < serverList.size(); i++) {
-        if (serverList[i] != NULL &&
+        if (serverList[i] &&
             serverList[i]->replicationId == groupId) {
             vector<ServerId> group;
             group.push_back(serverList[i]->serverId);
@@ -860,7 +841,7 @@ CoordinatorService::sendMembershipUpdate(ProtoBuf::ServerList& update,
 {
     MembershipClient client;
     for (size_t i = 0; i < serverList.size(); i++) {
-        if (serverList[i] == NULL ||
+        if (!serverList[i] ||
             serverList[i]->status != ServerStatus::UP ||
             !serverList[i]->serviceMask.has(MEMBERSHIP_SERVICE))
             continue;
@@ -938,16 +919,14 @@ CoordinatorService::setMinOpenSegmentId(
     LOG(DEBUG, "setMinOpenSegmentId for server %lu to %lu",
         serverId.getId(), segmentId);
 
-    if (!serverList.contains(serverId)) {
+    try {
+        serverList.setMinOpenSegmentId(serverId, segmentId);
+    } catch (const Exception& e) {
         LOG(WARNING, "setMinOpenSegmentId server doesn't exist: %lu",
             serverId.getId());
         respHdr.common.status = STATUS_SERVER_DOESNT_EXIST;
         return;
     }
-
-    CoordinatorServerList::Entry& entry = serverList[serverId];
-    if (entry.minOpenSegmentId < segmentId)
-        entry.minOpenSegmentId = segmentId;
 }
 
 /**
@@ -955,41 +934,28 @@ CoordinatorService::setMinOpenSegmentId(
  *
  * \param masterId
  *      ServerId of the master whose will is to be set.
- *
  * \param buffer
  *      Buffer containing the will.
- *
  * \param offset
  *      Byte offset of the will in the buffer.
- *
  * \param length
  *      Length of the will in bytes.
+ * \return
+ *      False if masterId is not in the server list, true otherwise.
  */
 bool
 CoordinatorService::setWill(ServerId masterId, Buffer& buffer,
                             uint32_t offset, uint32_t length)
 {
-    if (serverList.contains(masterId)) {
-        CoordinatorServerList::Entry& master = serverList[masterId];
-        if (!master.isMaster()) {
-            LOG(WARNING, "Server %lu is not a master!!", masterId.getId());
-            return false;
-        }
-
-        ProtoBuf::Tablets* oldWill = master.will;
-        ProtoBuf::Tablets* newWill = new ProtoBuf::Tablets();
-        ProtoBuf::parseFromResponse(buffer, offset, length, *newWill);
-        master.will = newWill;
-
-        LOG(NOTICE, "Master %lu updated its Will (now %d entries, was %d)",
-            masterId.getId(), newWill->tablet_size(), oldWill->tablet_size());
-
-        delete oldWill;
-        return true;
+    ProtoBuf::Tablets newWill;
+    ProtoBuf::parseFromResponse(buffer, offset, length, newWill);
+    try {
+        serverList.setWill(masterId, newWill);
+    } catch (const Exception& e) {
+        LOG(WARNING, "Master %lu could not be found!!", masterId.getId());
+        return false;
     }
-
-    LOG(WARNING, "Master %lu could not be found!!", masterId.getId());
-    return false;
+    return true;
 }
 
 /**

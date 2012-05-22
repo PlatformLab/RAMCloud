@@ -61,7 +61,7 @@ TEST_F(MinOpenSegmentIdTest, isGreaterThan) {
 }
 
 TEST_F(MinOpenSegmentIdTest, updateToAtLeast) {
-    const uint64_t& coordMin = service->serverList[serverId].minOpenSegmentId;
+    uint64_t coordMin = service->serverList[serverId].minOpenSegmentId;
     min.updateToAtLeast(1lu); // first request
     EXPECT_EQ(1lu, min.requested);
     EXPECT_EQ(0lu, min.sent);
@@ -69,6 +69,7 @@ TEST_F(MinOpenSegmentIdTest, updateToAtLeast) {
     EXPECT_EQ(0lu, coordMin);
     EXPECT_TRUE(min.isScheduled());
     taskManager.proceed(); // send rpc
+    coordMin = service->serverList[serverId].minOpenSegmentId;
     min.updateToAtLeast(2lu); // request while rpc outstanding
     EXPECT_EQ(2lu, min.requested);
     EXPECT_EQ(1lu, min.sent);
@@ -77,6 +78,7 @@ TEST_F(MinOpenSegmentIdTest, updateToAtLeast) {
     EXPECT_TRUE(min.rpc);
     EXPECT_TRUE(min.isScheduled());
     taskManager.proceed(); // reap rpc
+    coordMin = service->serverList[serverId].minOpenSegmentId;
     EXPECT_EQ(2lu, min.requested);
     EXPECT_EQ(1lu, min.sent);
     EXPECT_EQ(1lu, min.current);
@@ -85,6 +87,7 @@ TEST_F(MinOpenSegmentIdTest, updateToAtLeast) {
     EXPECT_TRUE(min.isScheduled());
     taskManager.proceed(); // send rpc
     taskManager.proceed(); // reap rpc
+    coordMin = service->serverList[serverId].minOpenSegmentId;
     EXPECT_EQ(2lu, min.requested);
     EXPECT_EQ(2lu, min.sent);
     EXPECT_EQ(2lu, min.current);
@@ -101,7 +104,7 @@ bool filter(string s) {
 
 TEST_F(MinOpenSegmentIdTest, performTaskCantTalkToCoordinator) {
     TestLog::Enable _(filter);
-    const uint64_t& coordMin = service->serverList[serverId].minOpenSegmentId;
+    uint64_t coordMin = service->serverList[serverId].minOpenSegmentId;
     min.updateToAtLeast(1lu);
     EXPECT_EQ(1lu, min.requested);
     EXPECT_EQ(0lu, min.sent);
@@ -111,6 +114,7 @@ TEST_F(MinOpenSegmentIdTest, performTaskCantTalkToCoordinator) {
     EXPECT_EQ("", TestLog::get());
     cluster.transport.errorMessage = "testing";
     taskManager.proceed(); // send rpc
+    coordMin = service->serverList[serverId].minOpenSegmentId;
     EXPECT_EQ("", TestLog::get());
     EXPECT_EQ(1lu, min.requested);
     EXPECT_EQ(1lu, min.sent);
@@ -119,6 +123,7 @@ TEST_F(MinOpenSegmentIdTest, performTaskCantTalkToCoordinator) {
     EXPECT_TRUE(min.rpc);
     min.updateToAtLeast(2lu);
     taskManager.proceed(); // fail to reap rpc
+    coordMin = service->serverList[serverId].minOpenSegmentId;
     EXPECT_EQ("performTask: Problem communicating with the coordinator during "
               "setMinOpenSegmentId call, retrying", TestLog::get());
     EXPECT_EQ(2lu, min.requested);
@@ -127,6 +132,7 @@ TEST_F(MinOpenSegmentIdTest, performTaskCantTalkToCoordinator) {
     EXPECT_EQ(0lu, coordMin);
     EXPECT_FALSE(min.rpc);
     taskManager.proceed(); // retry send rpc, but with higher request.
+    coordMin = service->serverList[serverId].minOpenSegmentId;
     EXPECT_TRUE(min.rpc);
     EXPECT_EQ(2lu, min.requested);
     EXPECT_EQ(2lu, min.sent);

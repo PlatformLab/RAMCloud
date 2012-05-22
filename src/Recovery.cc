@@ -92,7 +92,7 @@ struct MasterStartTask {
     Recovery& recovery;
 
     /// The master server to kick off this partition's recovery on.
-    const CoordinatorServerList::Entry& masterEntry;
+    const CoordinatorServerList::Entry masterEntry;
 
     /// TODO(Rumble): Document me for the love of God.
     const vector<RecoverRpc::Replica>& replicaLocations;
@@ -461,14 +461,13 @@ Recovery::buildSegmentIdToBackups()
         assert(nextBackupIndex != (uint32_t)-1);
 
         const auto& task = backupStartTasks[taskIndex];
-        const CoordinatorServerList::Entry* backup =
-            serverList[nextBackupIndex];
-        const uint64_t speed = backup->backupReadMBytesPerSec;
+        auto backup = *serverList[nextBackupIndex];
+        const uint64_t speed = backup.backupReadMBytesPerSec;
 
         LOG(DEBUG, "Adding %lu segment replicas from %s "
                    "with bench speed of %lu",
             task->result.segmentIdAndLength.size(),
-            backup->serviceLocator.c_str(), speed);
+            backup.serviceLocator.c_str(), speed);
 
         for (size_t i = 0; i < task->result.segmentIdAndLength.size(); ++i) {
             uint64_t expectedLoadTimeMs;
@@ -487,7 +486,7 @@ Recovery::buildSegmentIdToBackups()
             uint32_t segmentLen = task->result.segmentIdAndLength[i].second;
             if (segmentId < headId ||
                 (segmentId == headId && segmentLen == headLen)) {
-                ReplicaAndLoadTime r {{ backup->serverId.getId(), segmentId },
+                ReplicaAndLoadTime r {{ backup.serverId.getId(), segmentId },
                                       expectedLoadTimeMs};
                 replicasToSort.push_back(r);
             } else {
@@ -503,7 +502,7 @@ Recovery::buildSegmentIdToBackups()
                     "segment ID %lu, len %u from backup %s "
                     "because it's %s the head segment (%lu, %u)",
                     segmentId, segmentLen,
-                    backup->serviceLocator.c_str(),
+                    backup.serviceLocator.c_str(),
                     why, headId, headLen);
             }
         }
@@ -554,7 +553,6 @@ Recovery::start()
         task.construct(*this, *serverList[nextMasterIndex],
                        i, replicaLocations);
         nextMasterIndex++;
-
     }
     foreach (auto& tablet, will.tablet()) {
         auto& task = recoverTasks[tablet.user_data()];
@@ -578,7 +576,7 @@ Recovery::tabletsRecovered(const ProtoBuf::Tablets& tablets)
     uint32_t numBackups = serverList.backupCount();
     Tub<BackupEndTask> tasks[numBackups];
     for (size_t i = 0, taskNum = 0; i < serverList.size(); i++) {
-        if (serverList[i] == NULL || !serverList[i]->isBackup())
+        if (!serverList[i] || !serverList[i]->isBackup())
             continue;
         auto& backup = *serverList[i];
         tasks[taskNum++].construct(backup.serviceLocator, masterId);

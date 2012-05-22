@@ -84,7 +84,7 @@ class Recovery : public BaseRecovery {
         void send();
         void filterOutInvalidReplicas();
         void wait();
-        const CoordinatorServerList::Entry& backupHost;
+        const CoordinatorServerList::Entry backupHost;
       PRIVATE:
         const ServerId crashedMasterId;
         const ProtoBuf::Tablets& partitions;

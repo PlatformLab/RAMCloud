@@ -33,10 +33,11 @@ namespace RAMCloud {
  * Constructor for CoordinatorServerList.
  */
 CoordinatorServerList::CoordinatorServerList()
-    : serverList(),
-      numberOfMasters(0),
-      numberOfBackups(0),
-      versionNumber(0)
+    : mutex()
+    , serverList()
+    , numberOfMasters(0)
+    , numberOfBackups(0)
+    , versionNumber(0)
 {
 }
 
@@ -45,6 +46,11 @@ CoordinatorServerList::CoordinatorServerList()
  */
 CoordinatorServerList::~CoordinatorServerList()
 {
+    for (size_t i = 0; i < size(); i++) {
+        Entry* entry = const_cast<Entry*>(getPointerFromIndex(i));
+        if (entry != NULL && entry->isMaster() && entry->will != NULL)
+            delete entry->will;
+    }
 }
 
 /**
@@ -77,14 +83,18 @@ CoordinatorServerList::add(string serviceLocator,
                            uint32_t readSpeed,
                            ProtoBuf::ServerList& update)
 {
+    Lock _(mutex);
     uint32_t index = firstFreeIndex();
 
     ServerId id(index, serverList[index].nextGenerationNumber);
     serverList[index].nextGenerationNumber++;
     serverList[index].entry.construct(id, serviceLocator, serviceMask);
 
-    if (serviceMask.has(MASTER_SERVICE))
+    if (serviceMask.has(MASTER_SERVICE)) {
         numberOfMasters++;
+        serverList[index].entry->will = new ProtoBuf::Tablets;
+    }
+
     if (serviceMask.has(BACKUP_SERVICE)) {
         numberOfBackups++;
         serverList[index].entry->backupReadMBytesPerSec = readSpeed;
@@ -122,26 +132,8 @@ void
 CoordinatorServerList::crashed(ServerId serverId,
                                ProtoBuf::ServerList& update)
 {
-    uint32_t index = serverId.indexNumber();
-    if (index >= serverList.size() || !serverList[index].entry ||
-        serverList[index].entry->serverId != serverId) {
-        throw Exception(HERE,
-                        format("Invalid ServerId (%lu)", serverId.getId()));
-    }
-
-    if (serverList[index].entry->status == ServerStatus::CRASHED)
-        return;
-    assert(serverList[index].entry->status != ServerStatus::DOWN);
-
-    if (serverList[index].entry->isMaster())
-        numberOfMasters--;
-    if (serverList[index].entry->isBackup())
-        numberOfBackups--;
-
-    serverList[index].entry->status = ServerStatus::CRASHED;
-
-    ProtoBuf::ServerList_Entry& protoBufEntry(*update.add_server());
-    serverList[index].entry->serialize(protoBufEntry);
+    Lock lock(mutex);
+    crashed(lock, serverId, update);
 }
 
 /**
@@ -170,6 +162,7 @@ void
 CoordinatorServerList::remove(ServerId serverId,
                               ProtoBuf::ServerList& update)
 {
+    Lock lock(mutex);
     uint32_t index = serverId.indexNumber();
     if (index >= serverList.size() || !serverList[index].entry ||
         serverList[index].entry->serverId != serverId) {
@@ -177,7 +170,7 @@ CoordinatorServerList::remove(ServerId serverId,
                         format("Invalid ServerId (%lu)", serverId.getId()));
     }
 
-    crashed(serverId, update);
+    crashed(lock, serverId, update);
 
     // Even though we destroy this entry almost immediately setting the state
     // gets the serialized update message's state field correct.
@@ -197,8 +190,116 @@ CoordinatorServerList::remove(ServerId serverId,
 void
 CoordinatorServerList::incrementVersion(ProtoBuf::ServerList& update)
 {
+    Lock _(mutex);
     versionNumber++;
     update.set_version_number(versionNumber);
+}
+
+/**
+ * Add on to existing will for some server.
+ *
+ * \param serverId
+ *      Server whose will is being changed.
+ * \param willEntries
+ *      Entries to append to the existing will for server \a serverId.
+ *      Each entry's user_data field should either contain a
+ *      partition id to group the will entries or ~0lu which indicates
+ *      this method should automatically group the entries (by placing
+ *      each entry into its own partition).
+ * \throw
+ *      Exception is thrown if the given ServerId is not in this list.
+ */
+void
+CoordinatorServerList::addToWill(ServerId serverId,
+                                 const ProtoBuf::Tablets& willEntries)
+{
+    Lock _(mutex);
+    Entry& server = const_cast<Entry&>(getReferenceFromServerId(serverId));
+    uint64_t nextPartition = 0;
+    if (server.will->tablet_size() > 0) {
+        foreach (const auto& tablet, server.will->tablet()) {
+            nextPartition = std::max(nextPartition, tablet.user_data());
+        }
+        ++nextPartition;
+    }
+    // Do it the hard way because the protobuf docs aren't clear enough
+    // to safely use CopyFrom/MergeFrom.
+    foreach (const auto& tablet, willEntries.tablet()) {
+        auto& entry = *server.will->add_tablet();
+        entry = tablet;
+        // Hack: if the 'partition' field is left ~0 then put it in
+        // its own partition.
+        if (entry.user_data() == ~(0lu))
+            entry.set_user_data(nextPartition++);
+    }
+}
+
+/**
+ * Replace an existing will for some server with an updated will.
+ *
+ * \param serverId
+ *      Server whose will is being changed.
+ * \param will
+ *      Replaces the existing will for server \a serverId.
+ * \throw
+ *      Exception is thrown if the given ServerId is not in this list.
+ */
+void
+CoordinatorServerList::setWill(ServerId serverId,
+                               const ProtoBuf::Tablets& will)
+{
+    Lock _(mutex);
+    Entry& server = const_cast<Entry&>(getReferenceFromServerId(serverId));
+    if (!server.isMaster()) {
+        LOG(WARNING, "Server %lu is not a master! Ignoring new will.",
+            server.serverId.getId());
+        return;
+    }
+    uint32_t oldWillSize = server.will->tablet_size();
+    *server.will = will;
+    LOG(NOTICE, "Master %lu updated its Will (now %d entries, was %d)",
+        server.serverId.getId(), will.tablet_size(), oldWillSize);
+}
+
+/**
+ * Modify the min open segment id associated with a specific server.
+ *
+ * \param serverId
+ *      Server whose min open segment id is being changed.
+ * \param segmentId
+ *      New min open segment id for the server \a serverId.
+ *      If the current min open segment id is at least as high as
+ *      \a segmentId then the current value is not changed.
+ * \throw
+ *      Exception is thrown if the given ServerId is not in this list.
+ */
+void
+CoordinatorServerList::setMinOpenSegmentId(ServerId serverId,
+                                           uint64_t segmentId)
+{
+    Lock _(mutex);
+    Entry& entry = const_cast<Entry&>(getReferenceFromServerId(serverId));
+    if (entry.minOpenSegmentId < segmentId)
+        entry.minOpenSegmentId = segmentId;
+}
+
+/**
+ * Modify the replication group id associated with a specific server.
+ *
+ * \param serverId
+ *      Server whose replication group id is being changed.
+ * \param replicationId
+ *      New replication group id for the server \a serverId.
+ * \throw
+ *      Exception is thrown if the given ServerId is not in this list.
+ */
+void
+CoordinatorServerList::setReplicationId(ServerId serverId,
+                                        uint64_t replicationId)
+{
+    Lock _(mutex);
+    Entry& entry = const_cast<Entry&>(getReferenceFromServerId(serverId));
+    entry.replicationId = replicationId;
 }
 
 /**
@@ -206,51 +307,51 @@ CoordinatorServerList::incrementVersion(ProtoBuf::ServerList& update)
  * TransportManager::getSession. See the documentation there for exceptions
  * that may be thrown.
  *
- * \throw CoordinatorServerListException
- *      A CoordinatorServerListException is thrown if the given ServerId is not
- *      in this list.
+ * \throw Exception
+ *      Exception is thrown if the given ServerId is not in this list.
  */
 Transport::SessionRef
 CoordinatorServerList::getSession(ServerId id) const
 {
+    Lock _(mutex);
     return Context::get().transportManager->getSession(
         getReferenceFromServerId(id).serviceLocator.c_str(), id);
 }
 
 /**
- * \copydetails CoordinatorServerList::getReferenceFromServerId
+ * Returns a copy of the details associated with the given ServerId.
+ *
+ * \param serverId
+ *      ServerId to look up in the list.
+ * \throw
+ *      Exception is thrown if the given ServerId is not in this list.
  */
-const CoordinatorServerList::Entry&
+CoordinatorServerList::Entry
 CoordinatorServerList::operator[](const ServerId& serverId) const
 {
+    Lock _(mutex);
     return getReferenceFromServerId(serverId);
 }
 
 /**
- * \copydetails CoordinatorServerList::getReferenceFromServerId
+ * Returns a copy of the details associated with the given position
+ * in the server list or empty if the position in the list is
+ * unoccupied.
+ *
+ * \param index
+ *      Position of entry in the server list to return a copy of.
+ * \throw
+ *      Exception is thrown if the given ServerId is not in this list.
  */
-CoordinatorServerList::Entry&
-CoordinatorServerList::operator[](const ServerId& serverId)
-{
-    return const_cast<Entry&>(getReferenceFromServerId(serverId));
-}
-
-/**
- * \copydetails CoordinatorServerList::getPointerFromIndex
- */
-const CoordinatorServerList::Entry*
+Tub<CoordinatorServerList::Entry>
 CoordinatorServerList::operator[](size_t index) const
 {
-    return getPointerFromIndex(index);
-}
-
-/**
- * \copydetails CoordinatorServerList::getPointerFromIndex
- */
-CoordinatorServerList::Entry*
-CoordinatorServerList::operator[](size_t index)
-{
-    return const_cast<Entry*>(getPointerFromIndex(index));
+    Lock _(mutex);
+    Tub<Entry> result;
+    auto* entry = getPointerFromIndex(index);
+    if (entry)
+        result.construct(*entry);
+    return result;
 }
 
 /**
@@ -261,6 +362,7 @@ CoordinatorServerList::operator[](size_t index)
 bool
 CoordinatorServerList::contains(ServerId serverId) const
 {
+    Lock _(mutex);
     if (!serverId.isValid())
         return false;
 
@@ -282,6 +384,7 @@ CoordinatorServerList::contains(ServerId serverId) const
 size_t
 CoordinatorServerList::size() const
 {
+    Lock _(mutex);
     return serverList.size();
 }
 
@@ -292,6 +395,7 @@ CoordinatorServerList::size() const
 uint32_t
 CoordinatorServerList::masterCount() const
 {
+    Lock _(mutex);
     return numberOfMasters;
 }
 
@@ -302,14 +406,20 @@ CoordinatorServerList::masterCount() const
 uint32_t
 CoordinatorServerList::backupCount() const
 {
+    Lock _(mutex);
     return numberOfBackups;
 }
 
 /**
- * Returns the next index greater than or equal to the given index
- * that describes a master server in the list; masters in crashed
- * status are not returned. If there is no next master or startIndex
- * exceeds the list size, -1 is returned.
+ * Finds a master in the list starting at some position in the list.
+ *
+ * \param startIndex
+ *      Position in the list to start searching for a master.
+ * \return
+ *      If no backup is found in the remainder of the list then -1,
+ *      otherwise the position of the first master in the list
+ *      starting at or after \a startIndex. Also, -1 if
+ *      \a startIndex is greater than or equal to the list size.
  */
 uint32_t
 CoordinatorServerList::nextMasterIndex(uint32_t startIndex) const
@@ -323,10 +433,15 @@ CoordinatorServerList::nextMasterIndex(uint32_t startIndex) const
 }
 
 /**
- * Returns the next index greater than or equal to the given index
- * that describes a backup server in the list; backups in crashed
- * status are not returned.  If there is no next backup or startIndex
- * exceeds the list size, -1 is returned.
+ * Finds a backup in the list starting at some position in the list.
+ *
+ * \param startIndex
+ *      Position in the list to start searching for a backup.
+ * \return
+ *      If no backup is found in the remainder of the list then -1,
+ *      otherwise the position of the first backup in the list
+ *      starting at or after \a startIndex. Also, -1 if
+ *      \a startIndex is greater than or equal to the list size.
  */
 uint32_t
 CoordinatorServerList::nextBackupIndex(uint32_t startIndex) const
@@ -368,6 +483,7 @@ void
 CoordinatorServerList::serialize(ProtoBuf::ServerList& protoBuf,
                                  ServiceMask services) const
 {
+    Lock _(mutex);
     for (size_t i = 0; i < serverList.size(); i++) {
         if (!serverList[i].entry)
             continue;
@@ -387,6 +503,35 @@ CoordinatorServerList::serialize(ProtoBuf::ServerList& protoBuf,
 //////////////////////////////////////////////////////////////////////
 // CoordinatorServerList Private Methods
 //////////////////////////////////////////////////////////////////////
+
+// See docs on public version.
+// This version doesn't acquire locks since it is used internally.
+void
+CoordinatorServerList::crashed(const Lock& lock,
+                               ServerId serverId,
+                               ProtoBuf::ServerList& update)
+{
+    uint32_t index = serverId.indexNumber();
+    if (index >= serverList.size() || !serverList[index].entry ||
+        serverList[index].entry->serverId != serverId) {
+        throw Exception(HERE,
+                        format("Invalid ServerId (%lu)", serverId.getId()));
+    }
+
+    if (serverList[index].entry->status == ServerStatus::CRASHED)
+        return;
+    assert(serverList[index].entry->status != ServerStatus::DOWN);
+
+    if (serverList[index].entry->isMaster())
+        numberOfMasters--;
+    if (serverList[index].entry->isBackup())
+        numberOfBackups--;
+
+    serverList[index].entry->status = ServerStatus::CRASHED;
+
+    ProtoBuf::ServerList_Entry& protoBufEntry(*update.add_server());
+    serverList[index].entry->serialize(protoBufEntry);
+}
 
 /**
  * Return the first free index in the server list. If the list is
@@ -459,6 +604,21 @@ CoordinatorServerList::getPointerFromIndex(size_t index) const
 //////////////////////////////////////////////////////////////////////
 // CoordinatorServerList::Entry Methods
 //////////////////////////////////////////////////////////////////////
+
+/**
+ * Construct a new Entry, which contains no valid information.
+ */
+CoordinatorServerList::Entry::Entry()
+    : serverId(),
+      serviceLocator(),
+      serviceMask(),
+      will(),
+      backupReadMBytesPerSec(),
+      status(ServerStatus::DOWN),
+      minOpenSegmentId(),
+      replicationId()
+{
+}
 
 /**
  * Construct a new Entry, which contains the data a coordinator

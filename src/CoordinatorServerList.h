@@ -57,6 +57,7 @@ class CoordinatorServerList {
      */
     class Entry {
       public:
+        Entry();
         Entry(ServerId serverId,
               string serviceLocatorString,
               ServiceMask serviceMask);
@@ -120,8 +121,7 @@ class CoordinatorServerList {
 
     CoordinatorServerList();
     ~CoordinatorServerList();
-    ServerId add(string serviceLocator,
-                 ServiceMask serviceMask,
+    ServerId add(string serviceLocator, ServiceMask serviceMask,
                  uint32_t readSpeed,
                  ProtoBuf::ServerList& update);
     void crashed(ServerId serverId,
@@ -129,11 +129,17 @@ class CoordinatorServerList {
     void remove(ServerId serverId,
                 ProtoBuf::ServerList& update);
     void incrementVersion(ProtoBuf::ServerList& update);
+
+    void addToWill(ServerId serverId,
+                   const ProtoBuf::Tablets& willEntries);
+    void setWill(ServerId serverId,
+                 const ProtoBuf::Tablets& willEntries);
+    void setMinOpenSegmentId(ServerId serverId, uint64_t segmentId);
+    void setReplicationId(ServerId serverId, uint64_t segmentId);
+
     Transport::SessionRef getSession(ServerId id) const;
-    const Entry& operator[](const ServerId& serverId) const;
-    Entry& operator[](const ServerId& serverId);
-    const Entry* operator[](size_t index) const;
-    Entry* operator[](size_t index);
+    Entry operator[](const ServerId& serverId) const;
+    Tub<Entry> operator[](size_t index) const;
     bool contains(ServerId serverId) const;
     size_t size() const;
     uint32_t masterCount() const;
@@ -166,22 +172,31 @@ class CoordinatorServerList {
         Tub<Entry> entry;
     };
 
+    typedef std::lock_guard<std::mutex> Lock;
+
+    void crashed(const Lock& lock,
+                 ServerId serverId,
+                 ProtoBuf::ServerList& update);
     uint32_t firstFreeIndex();
     const Entry& getReferenceFromServerId(const ServerId& serverId) const;
     const Entry* getPointerFromIndex(size_t index) const;
 
+    /**
+     * Provides monitor-style protection for all operations on the tablet map.
+     * A Lock for this mutex must be held to read or modify any state in
+     * the server list.
+     */
+    mutable std::mutex mutex;
+
     /// Slots in the server list.
     std::vector<GenerationNumberEntryPair> serverList;
 
-    // TODO(Rumble): This is only a temporary hack until we clean up enlistment.
-  PUBLIC:
     /// Number of masters in the server list.
     uint32_t numberOfMasters;
 
     /// Number of backups in the server list.
     uint32_t numberOfBackups;
 
-  PRIVATE:
     /// Incremented each time the server list is modified (i.e. when add or
     /// remove is called). Since we usually send delta updates to clients,
     /// they can use this to determine if any previous RPC was missed and
