@@ -36,6 +36,65 @@ namespace RAMCloud {
  */
 class RamCloud {
   public:
+    /// Enumerate the contents of a table.
+    class Enumeration {
+      public:
+        /**
+         * Start an enumeration. The resulting object can be used to
+         * incrementally retrieve the contents of the table.
+         *
+         * \param ramCloud
+         *      The RAMCloud context.
+         * \param tableId
+         *      The table to enumerate.
+         */
+        Enumeration(RamCloud& ramCloud, uint64_t tableId)
+                    : ramCloud(ramCloud)
+                    , tableId(tableId)
+                    , tabletStartHash(0)
+                    , done(false)
+                    , currentIter(0)
+                    , objects()
+                    , nextOffset(0)
+        {
+        }
+
+        bool hasNext();
+        void next(uint32_t* size, const void** object);
+      private:
+        void requestMoreObjects();
+
+        /// The RamCloud master object.
+        RamCloud& ramCloud;
+
+        /// The table containing the tablet being enumerated.
+        uint64_t tableId;
+
+        /// The start hash of the tablet being enumerated.
+        uint64_t tabletStartHash;
+
+        /// Flag to be set when the entire enumeration has completed.
+        bool done;
+
+        /// A double buffer containing the opaque iterator values to
+        /// replay back to the server. See EnumerationIterator.
+        Buffer iter[2];
+
+        /// The toggle between the two buffers in the iterator double
+        /// buffer. Points to the iterator value currently being read;
+        /// !iterator points to the iterator currently being written.
+        bool currentIter;
+
+        /// A buffer to hold the payload of object last received from
+        /// the server, and currently being read out by the client.
+        Buffer objects;
+
+        /// The next offset to read within the objects buffer.
+        uint32_t nextOffset;
+
+        DISALLOW_COPY_AND_ASSIGN(Enumeration);
+    };
+
     /// An asynchronous version of #read().
     class Read {
       public:

@@ -20,6 +20,7 @@
 
 #include "Common.h"
 #include "CoordinatorClient.h"
+#include "KeyHash.h"
 #include "Transport.h"
 #include "MasterClient.h"
 
@@ -48,6 +49,7 @@ class ObjectFinder {
 
     Transport::SessionRef lookup(uint64_t table, const char* key,
                                  uint16_t keyLength);
+    Transport::SessionRef lookup(uint64_t table, HashType keyHash);
     std::vector<MasterRequests> multiLookup(MasterClient::ReadObject* input[],
                                             uint32_t numRequests);
 

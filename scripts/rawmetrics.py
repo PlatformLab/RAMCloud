@@ -319,6 +319,7 @@ rpc.metric('isReplicaNeededCount', 'number of invocations of IS_REPLICA_NEEDED_R
 rpc.metric('splitTabletCount', 'number of invocations of SPLIT_TABLET')
 rpc.metric('getServerStatisticsCount', 'number of invocations of GET_SERVER_STATISTICS')
 rpc.metric('setRuntimeOptionCount', 'number of invocations of SET_RUNTIME_OPTION')
+rpc.metric('enumerateCount', 'number of invocations of ENUMERATE RPC')
 rpc.metric('illegalRpcCount', 'number of invocations of RPCs with illegal opcodes')
 
 rpc.metric('rpc0Ticks', 'time spent executing RPC 0 (undefined)')
@@ -373,6 +374,7 @@ rpc.metric('isReplicaNeededTicks', 'time spent executing IS_REPLICA_NEEDED_RPC')
 rpc.metric('splitTabletTicks', 'time spent executing SPLIT_TABLET RPC')
 rpc.metric('getServerStatisticsTicks', 'time spent executing GET_SERVER_STATISTICS RPC')
 rpc.metric('setRuntimeOptionTicks', 'time spent executing SET_RUNTIME_OPTION RPC')
+rpc.metric('enumerateTicks', 'time spent executing ENUMERATE RPC')
 rpc.metric('illegalRpcTicks', 'time spent executing RPCs with illegal opcodes')
 
 transmit = Group('Transmit', 'metrics related to transmitting messages')

@@ -233,6 +233,112 @@ MasterClient::read(uint64_t tableId, const char* key, uint16_t keyLength,
     Read(*this, tableId, key, keyLength, value, rejectRules, version)();
 }
 
+/// Start an enumeration RPC for an object. See MasterClient::enumeration.
+MasterClient::Enumeration::Enumeration(MasterClient& client, uint64_t tableId,
+                                       uint64_t tabletStartHash,
+                                       uint64_t* nextTabletStartHashOut,
+                                       Buffer* iter, Buffer* nextIterOut,
+                                       Buffer* objectsOut)
+    : client(client)
+    , requestBuffer()
+    , responseBuffer()
+    , nextTabletStartHash(nextTabletStartHashOut)
+    , nextIter(*nextIterOut)
+    , objects(*objectsOut)
+    , state()
+{
+    nextIter.reset();
+    objects.reset();
+    EnumerationRpc::Request& reqHdr(
+        client.allocHeader<EnumerationRpc>(requestBuffer));
+    reqHdr.tableId = tableId;
+    reqHdr.tabletStartHash = tabletStartHash;
+    reqHdr.iteratorBytes = iter->getTotalLength();
+    for (Buffer::Iterator it(*iter); !it.isDone(); it.next())
+        Buffer::Chunk::appendToBuffer(&requestBuffer,
+                                      it.getData(), it.getLength());
+
+    state = client.send<EnumerationRpc>(client.session,
+                                        requestBuffer,
+                                        responseBuffer);
+}
+
+/// Wait for the enumeration RPC to complete.
+void
+MasterClient::Enumeration::operator()()
+{
+    const EnumerationRpc::Response& respHdr(client.recv<EnumerationRpc>(state));
+
+    uint32_t payloadBytes = respHdr.payloadBytes;
+    uint32_t iteratorBytes = respHdr.iteratorBytes;
+    uint32_t respOffset = downCast<uint32_t>(sizeof(respHdr));
+    assert(responseBuffer.getTotalLength() ==
+           respOffset + payloadBytes + iteratorBytes);
+
+    // Copy tablet start hash into out pointer.
+    *nextTabletStartHash = respHdr.tabletStartHash;
+
+    // Copy objects from response into objects buffer.
+    responseBuffer.copy(respOffset, payloadBytes,
+                        new(&objects, APPEND) char[payloadBytes]);
+    respOffset += payloadBytes;
+
+    // Copy iterator from response into nextIter buffer.
+    responseBuffer.copy(respOffset, iteratorBytes,
+                        new(&nextIter, APPEND) char[iteratorBytes]);
+    respOffset += iteratorBytes;
+
+    client.checkStatus(HERE);
+}
+
+/**
+ * Enumerate the contents of a tablet.
+ *
+ * \param tableId
+ *      The table containing the desired tablet (return value from
+ *      a previous call to getTableId).
+ * \param tabletStartHash
+ *      The tablet to iterate. The caller should provide zero to the
+ *      initial call. On subsequent calls, the caller should pass the
+ *      value returned through nextTabletStartHash from the previous
+ *      call.
+ * \param[out] nextTabletStartHash
+ *      The next tablet to iterate. The caller should pass the value
+ *      returned as the tabletStartHash parameter to the next call to
+ *      enumeration(). When iteration over the entire table is
+ *      complete, zero will be returned through this parameter (and no
+ *      objects will be returned).
+ * \param iter
+ *      The opaque iterator to pass to the server. The caller should
+ *      provide an empty Buffer to the initial call. On subsequent
+ *      calls, the caller should pass the contents returned through
+ *      nextIter from the previous call.
+ * \param[out] nextIter
+ *      The next iterator state. The caller should pass the value
+ *      returned as the iter parameter to the next call to
+ *      enumeration().
+ * \param[out] objects
+ *      After a successful return, this buffer will contain zero or
+ *      more objects from the requested tablet. If zero objects are
+ *      returned, then there are no more objects remaining in the
+ *      tablet. When this happens, nextTabletStartHash will be set to
+ *      point to the next tablet, or will be set to zero if this is
+ *      the end of the entire table.
+ *
+ * \exception InternalError
+ */
+void
+MasterClient::enumeration(uint64_t tableId,
+                          uint64_t tabletStartHash,
+                          uint64_t* nextTabletStartHash,
+                          Buffer* iter, Buffer* nextIter,
+                          Buffer* objects)
+{
+    Enumeration(*this, tableId,
+                tabletStartHash, nextTabletStartHash,
+                iter, nextIter, objects)();
+}
+
 /**
  * Request that a master decide whether it will accept a migrated tablet
  * and set up any necessary state to begin receiving its data from the

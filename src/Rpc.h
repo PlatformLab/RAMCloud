@@ -107,7 +107,8 @@ enum RpcOpcode {
     SPLIT_TABLET            = 49,
     GET_SERVER_STATISTICS   = 50,
     SET_RUNTIME_OPTION      = 51,
-    ILLEGAL_RPC_TYPE        = 52,  // 1 + the highest legitimate RpcOpcode
+    ENUMERATION             = 52,
+    ILLEGAL_RPC_TYPE        = 53,  // 1 + the highest legitimate RpcOpcode
 };
 
 /**
@@ -151,6 +152,34 @@ struct DropTabletOwnershipRpc {
     } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
+    } __attribute__((packed));
+};
+
+struct EnumerationRpc {
+    static const RpcOpcode opcode = ENUMERATION;
+    static const ServiceType service = MASTER_SERVICE;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t tableId;
+        uint64_t tabletStartHash;
+        uint32_t iteratorBytes;     // Size of iterator in bytes. The
+                                    // actual iterator follows
+                                    // immediately after this header.
+                                    // See EnumerationIterator.
+    } __attribute__((packed));
+    struct Response {
+        RpcResponseCommon common;
+        uint64_t tabletStartHash;
+        uint32_t payloadBytes;      // Size of payload, where each object in
+                                    // payload is a uint32_t size,
+                                    // Object metadata, and key and data
+                                    // blobs. The actual payload
+                                    // follows immediately after this
+                                    // header.
+        uint32_t iteratorBytes;     // Size of iterator in bytes. The
+                                    // actual iterator follows after
+                                    // the payload. See
+                                    // EnumerationIterator.
     } __attribute__((packed));
 };
 

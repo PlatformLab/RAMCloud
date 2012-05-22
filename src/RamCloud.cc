@@ -20,6 +20,92 @@
 namespace RAMCloud {
 
 /**
+ * Test if any objects remain in the table.
+ *
+ * \result
+ *      True if any objects remain, or false otherwise.
+ */
+bool
+RamCloud::Enumeration::hasNext()
+{
+    requestMoreObjects();
+    return !done;
+}
+
+/**
+ * Return the next object in the table.
+ *
+ * \param[out] size
+ *      After a successful return, this field will hold the size of
+ *      the object in bytes.
+ * \param[out] object
+ *      After a successful return, this will point to contiguous
+ *      memory containing an instance of Object immediately followed
+ *      by its key and data payloads.
+ */
+void
+RamCloud::Enumeration::next(uint32_t* size, const void** object)
+{
+    *size = 0;
+    *object = NULL;
+
+    requestMoreObjects();
+    if (done) return;
+
+    uint32_t objectSize = *objects.getOffset<uint32_t>(nextOffset);
+    nextOffset += downCast<uint32_t>(sizeof(uint32_t));
+
+    const void* blob = objects.getRange(nextOffset, objectSize);
+    nextOffset += objectSize;
+
+    // Store result in out params.
+    *size = objectSize;
+    *object = blob;
+}
+
+/**
+ * Used internally by #hasNext() and #next() to retrieve objects. Will
+ * set the #done field if enumeration is complete. Otherwise the
+ * #objects Buffer will contain at least one object.
+ */
+void
+RamCloud::Enumeration::requestMoreObjects()
+{
+    if (done || nextOffset < objects.getTotalLength()) return;
+
+    uint64_t nextTabletStartHash;
+    objects.reset();
+    nextOffset = 0;
+
+    while (objects.getTotalLength() == 0) {
+        try {
+            MasterClient master(
+                ramCloud.objectFinder.lookup(tableId, tabletStartHash));
+            master.enumeration(tableId, tabletStartHash, &nextTabletStartHash,
+                               &iter[currentIter], &iter[!currentIter],
+                               &objects);
+        } catch (RetryException& e) {
+            continue;
+        } catch (UnknownTableException& e) {
+            // The Tablet Map pointed to some server, but it's no longer
+            // in charge of the appropriate tablet. We need to refresh.
+            ramCloud.objectFinder.flush();
+            continue;
+        }
+
+        // End of table?
+        if (objects.getTotalLength() == 0 &&
+            nextTabletStartHash <= tabletStartHash) {
+            done = true;
+            return;
+        }
+
+        currentIter = !currentIter;
+        tabletStartHash = nextTabletStartHash;
+    }
+}
+
+/**
  * Construct a RamCloud for a particular service: opens a connection with the
  * service.
  *

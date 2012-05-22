@@ -15,7 +15,6 @@
 
 #include "ObjectFinder.h"
 #include "ShortMacros.h"
-#include "KeyHash.h"
 
 namespace RAMCloud {
 
@@ -73,6 +72,25 @@ Transport::SessionRef
 ObjectFinder::lookup(uint64_t table, const char* key, uint16_t keyLength) {
     HashType keyHash = getKeyHash(key, keyLength);
 
+    return lookup(table, keyHash);
+}
+
+/**
+ * Lookup the master for a key hash in a given table. Useful for
+ * looking up a key hash range in the table when you do not have a
+ * specific key.
+ *
+ * \param table
+ *      The table containing the desired object (return value from a
+ *      previous call to getTableId).
+ * \param keyHash
+ *      A hash value in the space of key hashes.
+ *
+ * \throw TableDoesntExistException
+ *      The coordinator has no record of the table.
+ */
+Transport::SessionRef
+ObjectFinder::lookup(uint64_t table, HashType keyHash) {
     /*
     * The control flow in here is a bit tricky:
     * Since tabletMap is a cache of the coordinator's tablet map, we can only
