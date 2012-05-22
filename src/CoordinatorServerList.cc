@@ -424,6 +424,7 @@ CoordinatorServerList::backupCount() const
 uint32_t
 CoordinatorServerList::nextMasterIndex(uint32_t startIndex) const
 {
+    Lock _(mutex);
     for (; startIndex < serverList.size(); startIndex++) {
         uint32_t i = startIndex;
         if (serverList[i].entry && serverList[i].entry->isMaster())
@@ -446,6 +447,7 @@ CoordinatorServerList::nextMasterIndex(uint32_t startIndex) const
 uint32_t
 CoordinatorServerList::nextBackupIndex(uint32_t startIndex) const
 {
+    Lock _(mutex);
     for (; startIndex < serverList.size(); startIndex++) {
         uint32_t i = startIndex;
         if (serverList[i].entry && serverList[i].entry->isBackup())
