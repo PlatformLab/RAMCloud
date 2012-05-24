@@ -21,7 +21,7 @@
 #include "MockCluster.h"
 #include "Recovery.h"
 #include "ServerList.h"
-#include "TaskManager.h"
+#include "TaskQueue.h"
 
 namespace RAMCloud {
 
@@ -282,7 +282,7 @@ bool startMasterRecoveryFilter(string s) {
 }
 
 TEST_F(CoordinatorServiceTest, enlistServerReplaceAMaster) {
-    TaskManager mgr;
+    TaskQueue mgr;
     service->recoveryManager.doNotStartRecoveries = true;
 
     client->createTable("foo");
@@ -303,7 +303,7 @@ TEST_F(CoordinatorServiceTest, enlistServerReplaceAMaster) {
 }
 
 TEST_F(CoordinatorServiceTest, enlistServerReplaceANonMaster) {
-    TaskManager mgr;
+    TaskQueue mgr;
     service->recoveryManager.doNotStartRecoveries = true;
 
     ServerConfig config = ServerConfig::forTesting();
@@ -374,7 +374,7 @@ TEST_F(CoordinatorServiceTest, getTabletMap) {
 }
 
 TEST_F(CoordinatorServiceTest, hintServerDown_master) {
-    TaskManager mgr;
+    TaskQueue mgr;
     service->recoveryManager.doNotStartRecoveries = true;
     // master is already enlisted
     client->enlistServer({}, {MASTER_SERVICE, PING_SERVICE},
@@ -436,7 +436,7 @@ TEST_F(CoordinatorServiceTest, tabletsRecovered_basics) {
     service->tabletMap.addTablet({0, 0, ~(0ul), {1, 0},
                                   Tablet::RECOVERING, {0, 0}});
     ProtoBuf::Tablets will;
-    Recovery* recovery = new Recovery(service->recoveryManager.taskManager,
+    Recovery* recovery = new Recovery(service->recoveryManager.taskQueue,
                                       service->serverList,
                                       service->recoveryManager,
                                       master2Id, will);

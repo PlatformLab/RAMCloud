@@ -16,14 +16,14 @@
 #include "TestUtil.h"
 #include "Common.h"
 #include "ShortMacros.h"
-#include "TaskManager.h"
+#include "TaskQueue.h"
 
 namespace RAMCloud {
 
-struct TaskManagerTest : public ::testing::Test {
+struct TaskQueueTest : public ::testing::Test {
     struct MockTask : Task {
-        explicit MockTask(TaskManager& taskManager)
-            : Task(taskManager)
+        explicit MockTask(TaskQueue& taskQueue)
+            : Task(taskQueue)
             , count(0)
         {
         }
@@ -38,8 +38,8 @@ struct TaskManagerTest : public ::testing::Test {
     };
 
     struct ReschedulingMockTask : Task {
-        explicit ReschedulingMockTask(TaskManager& taskManager)
-            : Task(taskManager)
+        explicit ReschedulingMockTask(TaskQueue& taskQueue)
+            : Task(taskQueue)
             , count(0)
         {
         }
@@ -55,30 +55,30 @@ struct TaskManagerTest : public ::testing::Test {
         int count;
     };
 
-    TaskManager taskManager;
+    TaskQueue taskQueue;
     MockTask task1;
     MockTask task2;
 
-    TaskManagerTest()
-        : taskManager()
-        , task1(taskManager)
-        , task2(taskManager)
+    TaskQueueTest()
+        : taskQueue()
+        , task1(taskQueue)
+        , task2(taskQueue)
     {
     }
 };
 
-TEST_F(TaskManagerTest, proceedEmpty)
+TEST_F(TaskQueueTest, proceedEmpty)
 {
-    taskManager.proceed();
+    taskQueue.proceed();
 }
 
-TEST_F(TaskManagerTest, proceed)
+TEST_F(TaskQueueTest, proceed)
 {
     const int times = 3;
     for (int i = 0; i < times; ++i) {
         task1.schedule();
         task2.schedule();
-        taskManager.proceed();
+        taskQueue.proceed();
         EXPECT_FALSE(task1.isScheduled());
         EXPECT_FALSE(task2.isScheduled());
     }
@@ -86,29 +86,29 @@ TEST_F(TaskManagerTest, proceed)
     EXPECT_EQ(3, task2.count);
 }
 
-TEST_F(TaskManagerTest, schedule)
+TEST_F(TaskQueueTest, schedule)
 {
     task1.schedule();
     ASSERT_TRUE(task1.isScheduled());
     task1.schedule(); // check to make sure double schedules don't happen
-    ASSERT_EQ(1u, taskManager.tasks.size());
-    EXPECT_EQ(&task1, taskManager.tasks.front());
-    taskManager.proceed(); // clear out task queue
+    ASSERT_EQ(1u, taskQueue.tasks.size());
+    EXPECT_EQ(&task1, taskQueue.tasks.front());
+    taskQueue.proceed(); // clear out task queue
 }
 
-TEST_F(TaskManagerTest, scheduleNested)
+TEST_F(TaskQueueTest, scheduleNested)
 {
-    ReschedulingMockTask task(taskManager);
+    ReschedulingMockTask task(taskQueue);
     task.schedule();
     ASSERT_TRUE(task.isScheduled());
-    ASSERT_EQ(1u, taskManager.tasks.size());
-    EXPECT_EQ(&task, taskManager.tasks.front());
-    taskManager.proceed();
+    ASSERT_EQ(1u, taskQueue.tasks.size());
+    EXPECT_EQ(&task, taskQueue.tasks.front());
+    taskQueue.proceed();
     EXPECT_EQ(1, task.count);
     ASSERT_TRUE(task.isScheduled());
-    ASSERT_EQ(1u, taskManager.tasks.size());
-    EXPECT_EQ(&task, taskManager.tasks.front());
-    taskManager.proceed(); // clear out task queue
+    ASSERT_EQ(1u, taskQueue.tasks.size());
+    EXPECT_EQ(&task, taskQueue.tasks.front());
+    taskQueue.proceed(); // clear out task queue
     EXPECT_EQ(2, task.count);
 }
 

@@ -75,7 +75,7 @@ TESTS_SRCFILES := \
 		  src/StatusTest.cc \
 		  src/StringUtilTest.cc \
 		  src/TabletMapTest.cc \
-		  src/TaskManagerTest.cc \
+		  src/TaskQueueTest.cc \
 		  src/TcpTransportTest.cc \
 		  src/TestRunner.cc \
 		  src/TestUtil.cc \

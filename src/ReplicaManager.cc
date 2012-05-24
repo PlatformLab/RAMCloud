@@ -53,14 +53,14 @@ ReplicaManager::ReplicaManager(ServerList& serverList,
     , masterId(masterId)
     , replicatedSegmentPool(ReplicatedSegment::sizeOf(numReplicas))
     , replicatedSegmentList()
-    , taskManager()
+    , taskQueue()
     , writeRpcsInFlight(0)
     , minOpenSegmentId()
     , failureMonitor(serverList, this)
 {
     if (coordinatorLocator)
         coordinator.construct(coordinatorLocator->c_str());
-    minOpenSegmentId.construct(&taskManager,
+    minOpenSegmentId.construct(&taskQueue,
                                coordinator ? coordinator.get() : NULL,
                                &masterId);
 }
@@ -77,7 +77,7 @@ ReplicaManager::~ReplicaManager()
 
     Lock lock(dataMutex);
 
-    if (!taskManager.isIdle())
+    if (!taskQueue.isIdle())
         LOG(WARNING, "Master exiting while outstanding replication "
             "operations were still pending");
     while (!replicatedSegmentList.empty())
@@ -94,7 +94,7 @@ bool
 ReplicaManager::isIdle()
 {
     Lock lock(dataMutex);
-    return taskManager.isIdle();
+    return taskQueue.isIdle();
 }
 
 /**
@@ -205,7 +205,7 @@ ReplicaManager::openSegment(bool isLogHead, uint64_t segmentId,
     if (p == NULL)
         DIE("Out of memory");
     auto* replicatedSegment =
-        new(p) ReplicatedSegment(taskManager, tracker, backupSelector, *this,
+        new(p) ReplicatedSegment(taskQueue, tracker, backupSelector, *this,
                                  writeRpcsInFlight, *minOpenSegmentId,
                                  dataMutex,
                                  isLogHead, masterId, segmentId,
@@ -256,8 +256,8 @@ ReplicaManager::proceed()
 {
     CycleCounter<RawMetric> _(&metrics->master.replicaManagerTicks);
     Lock __(dataMutex);
-    taskManager.proceed();
-    metrics->master.replicationTasks = taskManager.outstandingTasks();
+    taskQueue.proceed();
+    metrics->master.replicationTasks = taskQueue.outstandingTasks();
 }
 
 // - private -

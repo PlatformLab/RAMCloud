@@ -38,7 +38,7 @@ MasterRecoveryManager::MasterRecoveryManager(CoordinatorServerList& serverList,
     , waitingRecoveries()
     , activeRecoveries()
     , maxActiveRecoveries(1u)
-    , taskManager()
+    , taskQueue()
     , doNotStartRecoveries()
 {
 }
@@ -125,7 +125,7 @@ MasterRecoveryManager::startMasterRecovery(Lock& lock,
     }
 
     Recovery* recovery =
-        new Recovery(taskManager, serverList, *this, serverId, will);
+        new Recovery(taskQueue, serverList, *this, serverId, will);
     waitingRecoveries.push(recovery);
     changesOrExit.notify_one();
 }
@@ -167,7 +167,7 @@ MasterRecoveryManager::main(Context& context)
     Context::Guard _(context);
     Lock lock(mutex);
     while (true) {
-        while (taskManager.isIdle() &&
+        while (taskQueue.isIdle() &&
                (waitingRecoveries.empty() ||
                 activeRecoveries.size() >= maxActiveRecoveries))
                 // TODO(stutsman): Need another condition here - wait even if
@@ -202,7 +202,7 @@ MasterRecoveryManager::main(Context& context)
                 recovery->masterId.getId(), activeRecoveries.size());
         }
 
-        taskManager.proceed();
+        taskQueue.proceed();
     }
 }
 

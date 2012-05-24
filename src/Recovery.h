@@ -25,7 +25,7 @@
 #include "ProtoBuf.h"
 #include "ServerList.pb.h"
 #include "Tablets.pb.h"
-#include "TaskManager.h"
+#include "TaskQueue.h"
 
 namespace RAMCloud {
 
@@ -50,7 +50,7 @@ class Recovery : public Task {
         virtual ~Deleter() {}
     };
 
-    Recovery(TaskManager& taskManager,
+    Recovery(TaskQueue& taskQueue,
              const CoordinatorServerList& serverList,
              Deleter& deleter,
              ServerId masterId,

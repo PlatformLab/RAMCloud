@@ -160,7 +160,7 @@ TEST_F(RecoveryTest, buildSegmentIdToBackups) {
     // Zero segs on backup3
 
     ProtoBuf::Tablets tablets;
-    TaskManager mgr;
+    TaskQueue mgr;
     Recovery::Deleter deleter;
     Recovery recovery(mgr, *serverList, deleter, ServerId(99), tablets);
     recovery.schedule();
@@ -200,7 +200,7 @@ TEST_F(RecoveryTest, buildSegmentIdToBackups_secondariesEarlyInSomeList) {
             segmentSize, {"mock:host=backup2", "mock:host=backup3"}, false));
 
     ProtoBuf::Tablets tablets;
-    TaskManager mgr;
+    TaskQueue mgr;
     Recovery::Deleter deleter;
     Recovery recovery(mgr, *serverList, deleter, ServerId(99), tablets);
     recovery.schedule();
@@ -324,7 +324,7 @@ TEST_F(RecoveryTest, start) {
         tablet.set_ctime_log_head_offset(0);
     }
 
-    TaskManager mgr;
+    TaskQueue mgr;
     Recovery::Deleter deleter;
     Recovery recovery(mgr, *serverList, deleter, ServerId(99), tablets);
     recovery.schedule();
@@ -432,7 +432,7 @@ TEST_F(RecoveryTest, start_notEnoughMasters) {
         tablet.set_ctime_log_head_offset(0);
     }
 
-    TaskManager mgr;
+    TaskQueue mgr;
     Recovery::Deleter deleter;
     Recovery recovery(mgr, *serverList, deleter, ServerId(99), tablets);
     MockRandom __(1); // triggers deterministic rand().

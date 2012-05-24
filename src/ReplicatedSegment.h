@@ -25,7 +25,7 @@
 #include "MinOpenSegmentId.h"
 #include "RawMetrics.h"
 #include "Transport.h"
-#include "TaskManager.h"
+#include "TaskQueue.h"
 #include "VarLenArray.h"
 
 namespace RAMCloud {
@@ -57,7 +57,7 @@ namespace RAMCloud {
  * the example, the segment would inspect its replicas' states and find it was
  * missing one replica.  In that case, it would proceed as normal (choosing a
  * new backup, sending out open rpcs, etc.).  ReplicatedSegments subclass Task
- * and are scheduled as part of the ReplicaManager's TaskManager whenever their
+ * and are scheduled as part of the ReplicaManager's TaskQueue whenever their
  * state changed in a way that may cause them to need to perform work (write(),
  * close(), free(), or host failure).  ReplicatedSegments keep themselves
  * scheduled until they are in the state the log module has requested.
@@ -321,7 +321,7 @@ class ReplicatedSegment : public Task {
      */
     enum { MAX_WRITE_RPCS_IN_FLIGHT = 4 };
 
-    ReplicatedSegment(TaskManager& taskManager,
+    ReplicatedSegment(TaskQueue& taskQueue,
                       BackupTracker& tracker,
                       BaseBackupSelector& backupSelector,
                       Deleter& deleter,

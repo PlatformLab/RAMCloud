@@ -127,10 +127,10 @@ class MasterRecoveryManager : public Recovery::Deleter
 
     /**
      * Enqueues recoveries that are ready to take steps toward completion
-     * and makes progress on enqueued recoveries whenever taskManager.proceed()
+     * and makes progress on enqueued recoveries whenever taskQueue.proceed()
      * is called.
      */
-    TaskManager taskManager;
+    TaskQueue taskQueue;
 
     /**
      * Prevents startMasterRecovery() from actually starting recovery and,

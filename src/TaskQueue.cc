@@ -13,20 +13,20 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "TaskManager.h"
+#include "TaskQueue.h"
 
 namespace RAMCloud {
 
 // --- Task ---
 
 /**
- * Create a Task which will be run by #taskManager if scheduled.
+ * Create a Task which will be run by #taskQueue if scheduled.
  *
- * \param taskManager
- *      TaskManager which will execute performTask().
+ * \param taskQueue
+ *      TaskQueue which will execute performTask().
  */
-Task::Task(TaskManager& taskManager)
-    : taskManager(taskManager)
+Task::Task(TaskQueue& taskQueue)
+    : taskQueue(taskQueue)
     , scheduled(false)
 {
 }
@@ -34,7 +34,7 @@ Task::Task(TaskManager& taskManager)
 /**
  * Virtual destructor; does nothing.
  * Subclasses of Task will often want to ensure that an outstanding task
- * completes before it is destroyed (otherwise it remains in the TaskManager's
+ * completes before it is destroyed (otherwise it remains in the TaskQueue's
  * queue and will result in undefined behavior on the next iteration); they can
  * easily do so since they have access to the undestructed state belonging to
  * the subclass.  This destructor cannot performTask() until scheduled == false
@@ -46,9 +46,9 @@ Task::~Task()
 }
 
 /**
- * Return true if this Task will be executed by #taskManager
+ * Return true if this Task will be executed by #taskQueue
  * (that is, performTask() will be called the next time
- * taskManager.proceed() is called).
+ * taskQueue.proceed() is called).
  */
 bool
 Task::isScheduled()
@@ -57,49 +57,49 @@ Task::isScheduled()
 }
 
 /**
- * Ensure this Task will be executed (once) by #taskManager (that is,
- * performTask() will be called the next time taskManager.proceed() is
+ * Ensure this Task will be executed (once) by #taskQueue (that is,
+ * performTask() will be called the next time taskQueue.proceed() is
  * called).
  *
- * Just before taskManager executes this task, isScheduled() is reset to
+ * Just before taskQueue executes this task, isScheduled() is reset to
  * false and this task will not be executed on subsequent passes made
- * by #taskManager unless schedule() is called again.  It is perfectly
+ * by #taskQueue unless schedule() is called again.  It is perfectly
  * legal to call schedule() during a call to performTask(), which indicates
- * that the task should be run again on the next pass of the #taskManager.
+ * that the task should be run again on the next pass of the #taskQueue.
  * Calling schedule() when isScheduled() == true has no effect.
  *
  * Importantly, creators of tasks must take care to ensure that a task is not
  * scheduled when it is destroyed, otherwise future calls to
- * taskManager.proceed() will result in undefined behavior.
+ * taskQueue.proceed() will result in undefined behavior.
  */
 void
 Task::schedule()
 {
-    taskManager.schedule(this);
+    taskQueue.schedule(this);
 }
 
-// --- TaskManager ---
+// --- TaskQueue ---
 
-/// Create a TaskManager.
-TaskManager::TaskManager()
+/// Create a TaskQueue.
+TaskQueue::TaskQueue()
     : tasks()
 {
 }
 
-TaskManager::~TaskManager()
+TaskQueue::~TaskQueue()
 {
 }
 
 /// Returns true if no tasks are waiting to run on the next call to proceed().
 bool
-TaskManager::isIdle()
+TaskQueue::isIdle()
 {
     return tasks.size() == 0;
 }
 
 /// Returns number of tasks waiting to run on the next call to proceed().
 size_t
-TaskManager::outstandingTasks()
+TaskQueue::outstandingTasks()
 {
     return tasks.size();
 }
@@ -108,14 +108,14 @@ TaskManager::outstandingTasks()
  * Execute all tasks scheduled since the last call to proceed() (by
  * calling their performTask() virtual method).
  *
- * Just before taskManager executes this task, task->isScheduled() is reset to
+ * Just before taskQueue executes this task, task->isScheduled() is reset to
  * false and this task will not be executed on subsequent proceed() calls
  * unless Task::schedule() is called again.  It is perfectly
  * legal to call Task::schedule() during a call to performTask(), which
  * indicates that the task should be run again on the next call to proceed().
  */
 void
-TaskManager::proceed()
+TaskQueue::proceed()
 {
     size_t numTasks = tasks.size();
     for (size_t i = 0; i < numTasks; ++i) {
@@ -137,7 +137,7 @@ TaskManager::proceed()
  *      Asynchronous job to be executed on the next call to proceed().
  */
 void
-TaskManager::schedule(Task* task)
+TaskQueue::schedule(Task* task)
 {
     if (task->isScheduled())
         return;

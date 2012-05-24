@@ -30,10 +30,10 @@ namespace RAMCloud {
 /**
  * Create a Recovery to manage the recovery of a crashed master.
  * No recovery operations are performed until performTask() is called
- * (presumably by the MasterRecoveryManager's TaskManager).
+ * (presumably by the MasterRecoveryManager's TaskQueue).
  *
- * \param taskManager
- *      MasterRecoveryManager TaskManager which drives this recovery
+ * \param taskQueue
+ *      MasterRecoveryManager TaskQueue which drives this recovery
  *      (by calling performTask() whenever this recovery is scheduled).
  * \param deleter
  *      Used to delete this (and inform the MasterRecoveryManager) when
@@ -53,12 +53,12 @@ namespace RAMCloud {
  *      is used to select recovery masters and to find all backup data for
  *      the crashed master.
  */
-Recovery::Recovery(TaskManager& taskManager,
+Recovery::Recovery(TaskQueue& taskQueue,
                    const CoordinatorServerList& serverList,
                    Deleter& deleter,
                    ServerId masterId,
                    const ProtoBuf::Tablets& will)
-    : Task(taskManager)
+    : Task(taskQueue)
     , masterId(masterId)
     , will(will)
     , serverList(serverList)

@@ -13,8 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_TASKMANAGER_H
-#define RAMCLOUD_TASKMANAGER_H
+#ifndef RAMCLOUD_TASKQUEUE_H
+#define RAMCLOUD_TASKQUEUE_H
 
 #include <queue>
 
@@ -22,7 +22,7 @@
 
 namespace RAMCloud {
 
-class TaskManager;      // forward-declaration
+class TaskQueue;      // forward-declaration
 
 /**
  * Abstract class which represents some work that can be queued up and executed
@@ -32,22 +32,22 @@ class TaskManager;      // forward-declaration
  *
  * Users subclass Task and provide an implementation for performTask()
  * specific to the deferred work they want done.  Each task is associated with
- * a TaskManager which eventually performs it whenever the task is scheduled
+ * a TaskQueue which eventually performs it whenever the task is scheduled
  * (see schedule()).
  *
  * Importantly, creators of tasks must take care to ensure that a task is not
  * scheduled when it is destroyed, otherwise future calls to
- * taskManager.proceed() will result in undefined behavior.
+ * taskQueue.proceed() will result in undefined behavior.
  */
 class Task {
   PUBLIC:
-    explicit Task(TaskManager& taskManager);
+    explicit Task(TaskQueue& taskQueue);
     virtual ~Task();
 
     /**
      * Pure virtual method implemented by subclasses; its execution
      * is deferred to a later time perform work asynchronously.
-     * See schedule() and TaskManager::proceed().
+     * See schedule() and TaskQueue::proceed().
      */
     virtual void performTask() = 0;
 
@@ -55,14 +55,14 @@ class Task {
     void schedule();
 
   PROTECTED:
-    /// Executes this Task when it isScheduled() on taskManager.proceed().
-    TaskManager& taskManager;
+    /// Executes this Task when it isScheduled() on taskQueue.proceed().
+    TaskQueue& taskQueue;
 
   PRIVATE:
-    /// True if performTask() will be run on the next taskManager.proceed().
+    /// True if performTask() will be run on the next taskQueue.proceed().
     bool scheduled;
 
-    friend class TaskManager;
+    friend class TaskQueue;
 };
 
 /**
@@ -71,10 +71,10 @@ class Task {
  * completeness out of a performance sensitive context.
  * See Task for details on how to create tasks and releated gotchas.
  */
-class TaskManager {
+class TaskQueue {
   PUBLIC:
-    TaskManager();
-    ~TaskManager();
+    TaskQueue();
+    ~TaskQueue();
     bool isIdle();
     size_t outstandingTasks();
     void proceed();

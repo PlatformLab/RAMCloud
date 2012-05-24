@@ -19,13 +19,13 @@
 #include "Common.h"
 #include "CoordinatorClient.h"
 #include "ServerId.h"
-#include "TaskManager.h"
+#include "TaskQueue.h"
 #include "Tub.h"
 
 namespace RAMCloud {
 
 /**
- * A Task (see TaskManager) which provides access to the latest
+ * A Task (see TaskQueue) which provides access to the latest
  * minOpenSegmentId acknowledged by the coordinator for a particular
  * ServerId, and allows easy, asynchronous updates to the value stored
  * on the coordinator.
@@ -41,8 +41,8 @@ class MinOpenSegmentId : public Task {
      * Construct an instance to track and update the minOpenSegmentId
      * stored on the coordinator.
      *
-     * \param taskManager
-     *      The TaskManager which this Task will schedule itself with in
+     * \param taskQueue
+     *      The TaskQueue which this Task will schedule itself with in
      *      the case the minOpenSegmentId stored on the coordinator
      *      needs to be updated.
      * \param coordinator
@@ -53,10 +53,10 @@ class MinOpenSegmentId : public Task {
      *      The ServerId of the master whose minOpenSegmentId is to be updated
      *      on the coordinator.
      */
-    MinOpenSegmentId(TaskManager* taskManager,
+    MinOpenSegmentId(TaskQueue* taskQueue,
                      CoordinatorClient* coordinator,
                      const ServerId* serverId)
-        : Task(*taskManager)
+        : Task(*taskQueue)
         , coordinator(coordinator)
         , serverId(serverId)
         , current(0)
@@ -102,11 +102,11 @@ class MinOpenSegmentId : public Task {
     }
 
     /**
-     * Called by #taskManager when it makes progress if this Task is scheduled.
+     * Called by #taskQueue when it makes progress if this Task is scheduled.
      * That is, whenever a rpc needs to be sent or there is an outstanding rpc
      * to the coordinator.
      * This should never be called by normal users of this class, but only
-     * by its #taskManager.
+     * by its #taskQueue.
      */
     virtual void performTask() {
         if (!coordinator) {
