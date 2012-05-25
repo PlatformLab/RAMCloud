@@ -63,7 +63,7 @@ Rpc::opcodeSymbol(uint32_t opcode)
         case GET_TABLET_MAP:             return "GET_TABLET_MAP";
         case RECOVER:                    return "RECOVER";
         case HINT_SERVER_DOWN:           return "HINT_SERVER_DOWN";
-        case TABLETS_RECOVERED:          return "TABLETS_RECOVERED";
+        case RECOVERY_MASTER_FINISHED:   return "RECOVERY_MASTER_FINISHED";
         case SET_WILL:                   return "SET_WILL";
         case FILL_WITH_TEST_DATA:        return "FILL_WITH_TEST_DATA";
         case MULTI_READ:                 return "MULTI_READ";

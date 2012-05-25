@@ -17,7 +17,6 @@
 #define RAMCLOUD_MASTERRECOVERYMANAGER_H
 
 #include <thread>
-#include <unordered_set>
 
 #include "CoordinatorServerList.h"
 #include "ProtoBuf.h"
@@ -26,6 +25,12 @@
 #include "Tub.h"
 
 namespace RAMCloud {
+
+namespace MasterRecoveryManagerInternal {
+class MaybeStartRecoveryTask;
+class EnqueueMasterRecoveryTask;
+class RecoveryMasterFinishedTask;
+}
 
 /**
  * Handles all master recovery details on behalf of the coordinator.
@@ -48,53 +53,27 @@ class MasterRecoveryManager : public Recovery::Deleter
     void start();
     void halt();
 
-    void startMasterRecovery(ServerId serverId, const ProtoBuf::Tablets& will);
-    bool tabletsRecovered(ServerId serverId,
-                          ServerId crashedMasterId,
-                          const ProtoBuf::Tablets& tablets,
-                          const ProtoBuf::Tablets& will,
-                          Status status);
+    void startMasterRecovery(ServerId crashedServerId,
+                             const ProtoBuf::Tablets& will);
+    void recoveryMasterFinished(uint64_t recoveryId,
+                                ServerId recoveryMasterId,
+                                const ProtoBuf::Tablets& recoveredTablets,
+                                bool successful);
 
     void handleServerFailure(ServerId serverId);
 
     virtual void destroyAndFreeRecovery(Recovery* recovery);
 
   PRIVATE:
-    /**
-     * unique_lock is used to lock #mutex since the lock needs to be
-     * relinquished when waiting on #changesOrExit.
-     */
-    typedef std::unique_lock<std::mutex> Lock;
-    void startMasterRecovery(Lock& lock,
-                             ServerId serverId,
-                             const ProtoBuf::Tablets& will);
     void main(Context& context);
+    void restartMasterRecovery(ServerId crashedServerId,
+                               const ProtoBuf::Tablets& will);
 
     /// Authoritative list of all servers in the system and their details.
     CoordinatorServerList& serverList;
 
     /// Authoritative information about tablets and their mapping to servers.
     TabletMap& tabletMap;
-
-    /**
-     * Used by start()/halt() to inform the main() loop of when it should
-     * exit.  Protected by #mutex and changes are notified through
-     * #changesOrExit.
-     */
-    bool running;
-
-    /**
-     * Used to inform the main() loop of when it should wake up.
-     * Notified after any halt(), startMasterRecovery(), or during
-     * tabletsRecovered if all recovery masters completed.
-     */
-    std::condition_variable changesOrExit;
-
-    /**
-     * Protects all fields in this class so methods can safely communicate
-     * with the loop running in main().
-     */
-    std::mutex mutex;
 
     /**
      * Drives recoveries; wakes up whenever new recoveries are waiting
@@ -104,18 +83,17 @@ class MasterRecoveryManager : public Recovery::Deleter
 
     /**
      * Recoveries the coordinator must complete in order to restore the
-     * cluster to full working condition. Entries are created in response
-     * to changes in the coordinator tablet map.
+     * cluster to full working condition, but which haven't been started
+     * yet.
      */
     std::queue<Recovery*> waitingRecoveries;
 
     typedef std::unordered_map<uint64_t, Recovery*> RecoveryMap;
     /**
-     * Recoveries which are actively in progress in the cluster.
-     * Maps crashed server ids to the recovery ongoing for that server, if any.
-     * Used by recovery to reassociate recovery masters which finished
-     * recovery to the recovery that was recovering them.
-     * The size of this map is less than #maxActiveRecoveries at all times.
+     * Recoveries which are actively in progress in the cluster.  Maps recovery
+     * ids to an ongoing recovery. Used to reassociate recovery masters which
+     * finished recovery to the recovery that was recovering them.  The size of
+     * this map is less than or equal to #maxActiveRecoveries at all times.
      */
     RecoveryMap activeRecoveries;
 
@@ -123,7 +101,7 @@ class MasterRecoveryManager : public Recovery::Deleter
      * Maximum number of concurrent recoveries to attempt. Right now anything
      * higher than 1 will fail (likely with deadlock).
      */
-    const uint32_t maxActiveRecoveries;
+    uint32_t maxActiveRecoveries;
 
     /**
      * Enqueues recoveries that are ready to take steps toward completion
@@ -138,6 +116,9 @@ class MasterRecoveryManager : public Recovery::Deleter
      */
     bool doNotStartRecoveries;
 
+    friend class MasterRecoveryManagerInternal::MaybeStartRecoveryTask;
+    friend class MasterRecoveryManagerInternal::EnqueueMasterRecoveryTask;
+    friend class MasterRecoveryManagerInternal::RecoveryMasterFinishedTask;
     DISALLOW_COPY_AND_ASSIGN(MasterRecoveryManager);
 };
 

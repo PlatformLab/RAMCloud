@@ -1421,7 +1421,8 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
     metrics->master.recoveryCount++;
     metrics->master.replicas = replicaManager.numReplicas;
 
-    ServerId masterId(reqHdr.masterId);
+    uint64_t recoveryId = reqHdr.recoveryId;
+    ServerId crashedServerId(reqHdr.crashedServerId);
     uint64_t partitionId = reqHdr.partitionId;
     ProtoBuf::Tablets recoveryTablets;
     ProtoBuf::parseFromResponse(rpc.requestPayload, sizeof(reqHdr),
@@ -1464,7 +1465,7 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
     LogPosition headOfLog = log.headOfLog();
 
     // Recover Segments, firing MasterService::recoverSegment for each one.
-    recover(masterId, partitionId, replicas);
+    recover(crashedServerId, partitionId, replicas);
 
     // Free recovery tombstones left in the hash table.
     removeTombstones();
@@ -1489,10 +1490,13 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
         tablet.set_ctime_log_head_id(headOfLog.segmentId());
         tablet.set_ctime_log_head_offset(headOfLog.segmentOffset());
     }
-    coordinator->tabletsRecovered(serverId, masterId, recoveryTablets);
+    LOG(NOTICE, "Reporting completion of recovery %lu", reqHdr.recoveryId);
+    coordinator->recoveryMasterFinished(recoveryId,
+                                        serverId, recoveryTablets,
+                                        true /*successful*/);
 
-    // TODO(anyone) Should delete tablets if tabletsRecovered returns
-    //              failure. Also, should handle tabletsRecovered
+    // TODO(anyone) Should delete tablets if recoveryMasterFinished returns
+    //              failure. Also, should handle recoveryMasterFinished
     //              timing out.
 
     // Ok - we're expected to be serving now. Mark recovered tablets

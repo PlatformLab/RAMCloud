@@ -22,8 +22,6 @@
 #include "CycleCounter.h"
 #include "Log.h"
 #include "RawMetrics.h"
-#include "ProtoBuf.h"
-#include "ServerList.pb.h"
 #include "Tablets.pb.h"
 #include "TaskQueue.h"
 
@@ -53,18 +51,18 @@ class Recovery : public Task {
     Recovery(TaskQueue& taskQueue,
              const CoordinatorServerList& serverList,
              Deleter& deleter,
-             ServerId masterId,
+             ServerId crashedServerId,
              const ProtoBuf::Tablets& will);
     ~Recovery();
 
     virtual void performTask();
-    void recoveryMasterCompleted(bool success);
+    void recoveryMasterFinished(bool successful);
 
     bool isDone();
     bool wasCompletelySuccessful();
 
     /// The id of the crashed master which is being recovered.
-    const ServerId masterId;
+    const ServerId crashedServerId;
 
     /**
      * A partitioning of tablets ('will') for the crashed master which
@@ -72,6 +70,13 @@ class Recovery : public Task {
      * masters in order to balance recovery time across recovery masters.
      */
     const ProtoBuf::Tablets will;
+
+    /**
+     * Returns a unique identifier associated with this recovery.
+     * Used to reassociate recovery related rpcs from recovery masters to the
+     * recovery that they are part of.
+     */
+    uint64_t getRecoveryId() const { return recoveryId; }
 
   PRIVATE:
     void buildReplicaMap();
@@ -83,6 +88,13 @@ class Recovery : public Task {
 
     /// Deletes this when this determines it is no longer needed. See #Deleter.
     Deleter& deleter;
+
+    /**
+     * A unique identifier associated with this recovery generated on
+     * construction. Used to reassociate recovery related rpcs from recovery
+     * masters to the recovery that they are part of.
+     */
+    uint64_t recoveryId;
 
     enum Status {
         BUILD_REPLICA_MAP,           ///< Contact all backups and find replicas.
@@ -106,7 +118,7 @@ class Recovery : public Task {
      * A mapping of segmentIds to backup host service locators.
      * Populated by buildReplicaMap().
      */
-    vector<RecoverRpc::Replica> replicaLocations;
+    vector<RecoverRpc::Replica> replicaMap;
 
     /**
      * Number of recovery masters started during START_RECOVERY_MASTERS phase.

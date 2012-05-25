@@ -88,7 +88,11 @@ MasterClient::getServerStatistics(ProtoBuf::ServerStatistics& serverStats)
  *
  * \param client
  *      The MasterClient instance over which the RPC should be issued.
- * \param masterId
+ * \param recoveryId
+ *      Identifies the recovery this master is a part of.
+ *      Should be returned to this coordinator in future recoveryMasterFinished()
+ *      calls.
+ * \param crashedServerId
  *      The ServerId of the crashed master whose data is to be recovered.
  * \param partitionId
  *      The partition id of #tablets inside the crashed master's will.
@@ -101,7 +105,9 @@ MasterClient::getServerStatistics(ProtoBuf::ServerStatistics& serverStats)
  *      The number of replicas in the 'replicas' list.
  */
 MasterClient::Recover::Recover(MasterClient& client,
-                               ServerId masterId, uint64_t partitionId,
+                               uint64_t recoveryId,
+                               ServerId crashedServerId,
+                               uint64_t partitionId,
                                const ProtoBuf::Tablets& tablets,
                                const RecoverRpc::Replica* replicas,
                                uint32_t numReplicas)
@@ -111,7 +117,8 @@ MasterClient::Recover::Recover(MasterClient& client,
     , state()
 {
     RecoverRpc::Request& reqHdr(client.allocHeader<RecoverRpc>(requestBuffer));
-    reqHdr.masterId = masterId.getId();
+    reqHdr.recoveryId = recoveryId;
+    reqHdr.crashedServerId = crashedServerId.getId();
     reqHdr.partitionId = partitionId;
     reqHdr.tabletsLength = serializeToResponse(requestBuffer, tablets);
     reqHdr.numReplicas = numReplicas;
@@ -130,12 +137,15 @@ MasterClient::Recover::operator()()
 }
 
 void
-MasterClient::recover(ServerId masterId, uint64_t partitionId,
+MasterClient::recover(uint64_t recoveryId,
+                      ServerId crashedServerId,
+                      uint64_t partitionId,
                       const ProtoBuf::Tablets& tablets,
                       const RecoverRpc::Replica* replicas,
                       uint32_t numReplicas)
 {
-    Recover(*this, masterId, partitionId, tablets, replicas, numReplicas)();
+    Recover(*this, recoveryId, crashedServerId,
+            partitionId, tablets, replicas, numReplicas)();
 }
 
 /// Start a read RPC for an object. See MasterClient::read.

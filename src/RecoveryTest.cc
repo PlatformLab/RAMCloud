@@ -145,7 +145,7 @@ class RecoveryTest : public ::testing::Test {
 };
 
 TEST_F(RecoveryTest, buildSegmentIdToBackups) {
-    MockRandom _(1);
+    MockRandom _(1); // Controls order of primary lists returned by backups.
     // Two segs on backup1, one that overlaps with backup2
     segmentsToFree.push_back(
         new WriteValidSegment(ServerId(99, 0), 88, { 88 }, segmentSize,
@@ -166,11 +166,11 @@ TEST_F(RecoveryTest, buildSegmentIdToBackups) {
     recovery.schedule();
     mgr.performTask();
     EXPECT_EQ((vector<RecoverRpc::Replica> {
-                    { 1, 88 },
-                    { 2, 88 },
                     { 1, 89 },
+                    { 2, 88 },
+                    { 1, 88 },
                }),
-              recovery.replicaLocations);
+              recovery.replicaMap);
 }
 
 TEST_F(RecoveryTest, buildSegmentIdToBackups_secondariesEarlyInSomeList) {
@@ -206,9 +206,9 @@ TEST_F(RecoveryTest, buildSegmentIdToBackups_secondariesEarlyInSomeList) {
     recovery.schedule();
     mgr.performTask();
 
-    ASSERT_EQ(6U, recovery.replicaLocations.size());
+    ASSERT_EQ(6U, recovery.replicaMap.size());
     // The secondary of segment 91 must be last in the list.
-    EXPECT_EQ(91U, recovery.replicaLocations.at(5).segmentId);
+    EXPECT_EQ(91U, recovery.replicaMap.at(5).segmentId);
 }
 
 static bool
@@ -272,7 +272,7 @@ getRecoveryDataFilter(string s)
             s == "start";
 }
 
-TEST_F(RecoveryTest, start) {
+TEST_F(RecoveryTest, startRecoveryMasters) {
     MockRandom __(1);
 
     // Two segs on backup1, one that overlaps with backup2
@@ -364,22 +364,22 @@ TEST_F(RecoveryTest, start) {
     mgr.performTask();
     EXPECT_EQ(2u, recovery.startedRecoveryMasters);
     EXPECT_EQ(
-        "getRecoveryData: getRecoveryData masterId 99, segmentId 88, "
-        "partitionId 0 | "
-        "getRecoveryData: getRecoveryData complete | "
         "getRecoveryData: getRecoveryData masterId 99, segmentId 89, "
         "partitionId 0 | "
         "getRecoveryData: getRecoveryData complete | "
         "getRecoveryData: getRecoveryData masterId 99, segmentId 88, "
+        "partitionId 0 | "
+        "getRecoveryData: getRecoveryData complete | "
+        "getRecoveryData: getRecoveryData masterId 99, segmentId 89, "
         "partitionId 1 | "
         "getRecoveryData: getRecoveryData complete | "
-        "getRecoveryData: getRecoveryData masterId 99, segmentId 89, "
+        "getRecoveryData: getRecoveryData masterId 99, segmentId 88, "
         "partitionId 1 | "
         "getRecoveryData: getRecoveryData complete",
         TestLog::get());
 }
 
-TEST_F(RecoveryTest, start_notEnoughMasters) {
+TEST_F(RecoveryTest, startRecoveryMasters_notEnoughMasters) {
     ServerConfig config = ServerConfig::forTesting();
     config.services = {MASTER_SERVICE};
     config.localLocator = "mock:host=master1";

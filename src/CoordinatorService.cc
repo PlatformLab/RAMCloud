@@ -78,9 +78,9 @@ CoordinatorService::dispatch(RpcOpcode opcode,
             callHandler<HintServerDownRpc, CoordinatorService,
                         &CoordinatorService::hintServerDown>(rpc);
             break;
-        case TabletsRecoveredRpc::opcode:
-            callHandler<TabletsRecoveredRpc, CoordinatorService,
-                        &CoordinatorService::tabletsRecovered>(rpc);
+        case RecoveryMasterFinishedRpc::opcode:
+            callHandler<RecoveryMasterFinishedRpc, CoordinatorService,
+                        &CoordinatorService::recoveryMasterFinished>(rpc);
             break;
         case BackupQuiesceRpc::opcode:
             callHandler<BackupQuiesceRpc, CoordinatorService,
@@ -466,36 +466,28 @@ CoordinatorService::hintServerDown(ServerId serverId)
  * \copydetails Service::ping
  */
 void
-CoordinatorService::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
-                                     TabletsRecoveredRpc::Response& respHdr,
-                                     Rpc& rpc)
+CoordinatorService::recoveryMasterFinished(
+    const RecoveryMasterFinishedRpc::Request& reqHdr,
+    RecoveryMasterFinishedRpc::Response& respHdr,
+    Rpc& rpc)
 {
     ProtoBuf::Tablets recoveredTablets;
     ProtoBuf::parseFromResponse(rpc.requestPayload,
                                 downCast<uint32_t>(sizeof(reqHdr)),
                                 reqHdr.tabletsLength, recoveredTablets);
-    // TODO(stutsman): This call was also supposed to set the new will
-    // for the recovery master, but it was never implemented. Might
-    // be best just to gut it and use setWill separate from tabletsRecovered.
-    ProtoBuf::Tablets will;
 
-    ServerId serverId = ServerId(reqHdr.masterId);
-    ServerId crashedMasterId = ServerId(reqHdr.crashedMasterId);
-    bool recoverySuccessfullyCompleted =
-        recoveryManager.tabletsRecovered(serverId,
-                                         crashedMasterId,
-                                         recoveredTablets,
-                                         will,
-                                         reqHdr.status);
+    ServerId serverId = ServerId(reqHdr.recoveryMasterId);
+    recoveryManager.recoveryMasterFinished(reqHdr.recoveryId,
+                                           serverId,
+                                           recoveredTablets,
+                                           reqHdr.successful);
     // Dump the tabletMap out for easy debugging.
     LOG(DEBUG, "Coordinator tabletMap: %s",
         tabletMap.debugString().c_str());
-    if (recoverySuccessfullyCompleted) {
-        ProtoBuf::ServerList update;
-        serverList.remove(crashedMasterId, update);
-        serverList.incrementVersion(update);
-        sendMembershipUpdate(update, ServerId(/* broadcast */));
-    }
+
+    // TODO(stutsman): Eventually we'll want to be able to 'reject' recovery
+    // master completions, so we'll need to get a return value from
+    // recoveryMasterFinished.
 }
 
 /**

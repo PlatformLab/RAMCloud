@@ -134,7 +134,7 @@ class MasterServiceTest : public ::testing::Test {
     recoverSegmentFilter(string s)
     {
         return (s == "recoverSegment" || s == "recover" ||
-                s == "tabletsRecovered");
+                s == "recoveryMasterFinished");
     }
 
     void
@@ -306,7 +306,7 @@ TEST_F(MasterServiceTest, recover_basics) {
     };
 
     TestLog::Enable __(&recoverSegmentFilter);
-    client->recover(ServerId(123), 0, tablets,
+    client->recover(10lu, ServerId(123), 0, tablets,
                     replicas, arrayLength(replicas));
 
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
@@ -334,7 +334,8 @@ TEST_F(MasterServiceTest, recover_basics) {
         "recover: set tablet 123 20 29 to locator mock:host=master, id 2 | "
         "recover: set tablet 124 20 100 to locator mock:host=master, "
         "id 2 | "
-        "tabletsRecovered: called by masterId 2 with 4 tablets",
+        "recover: Reporting completion of recovery 10 | "
+        "recoveryMasterFinished: called by masterId 2 with 4 tablets",
         TestLog::get()));
     free(segMem);
 }
@@ -477,23 +478,23 @@ TEST_F(MasterServiceTest, recover) {
 }
 
 static bool
-tabletsRecoveredFilter(string s)
+recoveryMasterFinishedFilter(string s)
 {
-    return (s == "tabletsRecovered");
+    return (s == "recoveryMasterFinished");
 }
 
 TEST_F(MasterServiceTest, recover_ctimeUpdateIssued) {
-    TestLog::Enable _(tabletsRecoveredFilter);
+    TestLog::Enable _(recoveryMasterFinishedFilter);
     client->write(0, "0", 1, "abcdef", 6);
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
     RecoverRpc::Replica replicas[] = {};
-    client->recover(ServerId(123), 0, tablets, replicas, 0);
+    client->recover(10lu, ServerId(123), 0, tablets, replicas, 0);
 
     EXPECT_TRUE(StringUtil::startsWith(TestLog::get(),
-        "tabletsRecovered: called by masterId 2 with 4 tablets | "
-        "tabletsRecovered: Recovered tablets | "
-        "tabletsRecovered: tablet { "
+        "recoveryMasterFinished: called by masterId 2 with 4 tablets | "
+        "recoveryMasterFinished: Recovered tablets | "
+        "recoveryMasterFinished: tablet { "
         "table_id: 123 start_key_hash: 0 end_key_hash: 9 state: RECOVERING "
         "server_id: 2 service_locator: \"mock:host=master\" user_data: 0 "
         "ctime_log_head_id: 0 ctime_log_head_offset: 99 } tablet { table_id: "

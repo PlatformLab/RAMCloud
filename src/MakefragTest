@@ -40,6 +40,7 @@ TESTS_SRCFILES := \
 		  src/LogIteratorTest.cc \
 		  src/LogTest.cc \
 		  src/MacAddressTest.cc \
+		  src/MasterRecoveryManagerTest.cc \
 		  src/MasterServiceTest.cc \
 		  src/MembershipServiceTest.cc \
 		  src/MinOpenSegmentIdTest.cc \

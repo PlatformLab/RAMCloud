@@ -75,9 +75,10 @@ class CoordinatorService : public Service {
     void hintServerDown(const HintServerDownRpc::Request& reqHdr,
                         HintServerDownRpc::Response& respHdr,
                         Rpc& rpc);
-    void tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
-                          TabletsRecoveredRpc::Response& respHdr,
-                          Rpc& rpc);
+    void recoveryMasterFinished(
+        const RecoveryMasterFinishedRpc::Request& reqHdr,
+        RecoveryMasterFinishedRpc::Response& respHdr,
+        Rpc& rpc);
     void quiesce(const BackupQuiesceRpc::Request& reqHdr,
                  BackupQuiesceRpc::Response& respHdr,
                  Rpc& rpc);

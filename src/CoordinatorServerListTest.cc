@@ -369,9 +369,10 @@ TEST_F(CoordinatorServerListTest, sendMembershipUpdate) {
     TransportManager::MockRegistrar _(transport);
 
     ProtoBuf::ServerList update;
-    // Test unoccupied server slot. Remove must wait until after last add to ensure
-    // slot isn't recycled.
-    ServerId serverId1 = sl.add("mock:host=server1", {MEMBERSHIP_SERVICE}, 0, update);
+    // Test unoccupied server slot. Remove must wait until after last add to
+    // ensure slot isn't recycled.
+    ServerId serverId1 =
+        sl.add("mock:host=server1", {MEMBERSHIP_SERVICE}, 0, update);
 
     // Test crashed server gets skipped.
     ServerId serverId2 = sl.add("mock:host=server2", {}, 0, update);
@@ -381,7 +382,8 @@ TEST_F(CoordinatorServerListTest, sendMembershipUpdate) {
     ServerId serverId3 = sl.add("mock:host=server3", {}, 0, update);
 
     // Test exclude list.
-    ServerId serverId4 = sl.add("mock:host=server4", {MEMBERSHIP_SERVICE}, 0, update);
+    ServerId serverId4 =
+        sl.add("mock:host=server4", {MEMBERSHIP_SERVICE}, 0, update);
     sl.remove(serverId1, update);
 
     update.Clear();
@@ -394,13 +396,14 @@ TEST_F(CoordinatorServerListTest, sendMembershipUpdate) {
     EXPECT_EQ("", transport.outputLog);
     EXPECT_EQ("", TestLog::get());
 
-    ServerId serverId5 = sl.add("mock:host=server5", {MEMBERSHIP_SERVICE}, 0, update);
+    ServerId serverId5 =
+        sl.add("mock:host=server5", {MEMBERSHIP_SERVICE}, 0, update);
 
     update.Clear();
     update.set_version_number(1);
 
-    transport.setInput("0 1"); // Server 5 (now in the first slot) runs into trouble.
-    transport.setInput("0");   // Server 5 replies ok to the send of the entire list.
+    transport.setInput("0 1"); // Server 5 (in the first slot) has trouble.
+    transport.setInput("0");   // Server 5 ok to the send of the entire list.
     transport.setInput("0 0"); // Server 4 gets the update just fine.
 
     TestLog::reset();
