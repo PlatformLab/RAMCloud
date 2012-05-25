@@ -16,6 +16,8 @@
 #ifndef RAMCLOUD_TASKQUEUE_H
 #define RAMCLOUD_TASKQUEUE_H
 
+#include <condition_variable>
+#include <mutex>
 #include <queue>
 
 #include "Common.h"
@@ -36,8 +38,8 @@ class TaskQueue;      // forward-declaration
  * (see schedule()).
  *
  * Importantly, creators of tasks must take care to ensure that a task is not
- * scheduled when it is destroyed, otherwise future calls to
- * taskQueue.proceed() will result in undefined behavior.
+ * scheduled when it is destroyed, otherwise the taskQueue will exhibit
+ * undefined behavior when it attempts to execute this (destroyed) task.
  */
 class Task {
   PUBLIC:
@@ -47,7 +49,7 @@ class Task {
     /**
      * Pure virtual method implemented by subclasses; its execution
      * is deferred to a later time perform work asynchronously.
-     * See schedule() and TaskQueue::proceed().
+     * See schedule() and TaskQueue::performTask().
      */
     virtual void performTask() = 0;
 
@@ -55,21 +57,21 @@ class Task {
     void schedule();
 
   PROTECTED:
-    /// Executes this Task when it isScheduled() on taskQueue.proceed().
+    /// Executes this Task when it isScheduled() on taskQueue.performTask().
     TaskQueue& taskQueue;
 
   PRIVATE:
-    /// True if performTask() will be run on the next taskQueue.proceed().
+    /// True if performTask() will be run on the next taskQueue.performTask().
     bool scheduled;
 
     friend class TaskQueue;
 };
 
 /**
- * Queues up tasks and exceutes them at a later time.  This makes it easy to
+ * Queues up tasks and executes them at a later time.  This makes it easy to
  * quickly schedule asynchronous jobs which are periodically checked for
  * completeness out of a performance sensitive context.
- * See Task for details on how to create tasks and releated gotchas.
+ * See Task for details on how to create tasks and related gotchas.
  */
 class TaskQueue {
   PUBLIC:
@@ -77,13 +79,36 @@ class TaskQueue {
     ~TaskQueue();
     bool isIdle();
     size_t outstandingTasks();
-    void proceed();
+    void performTask();
+    void performTasksUntilHalt();
+    void halt();
 
   PRIVATE:
     void schedule(Task* task);
+    Task* getNextTask(bool sleepIfIdle);
 
     /**
-     * Points to tasks which should be executed on the next call to proceed().
+     * Protects all modifications to #tasks and #running; used to allow
+     * safe concurrent calls to schedule(), performTask(), and
+     * performTasksUntilHalt().
+     */
+    std::mutex mutex;
+    typedef std::unique_lock<std::mutex> Lock;
+
+    /**
+     * Waited on during performTasksUntilHalt() if there are no tasks to run.
+     * Notified on schedule() or halt().
+     */
+    std::condition_variable taskAdded;
+
+    /**
+     * Used to tell performTasksUntilHalt() to return after the completion of
+     * any currently running task.
+     */
+    bool running;
+
+    /**
+     * Points to tasks which should be executed.
      * Provides FIFO order for task scheduling.
      */
     std::queue<Task*> tasks;

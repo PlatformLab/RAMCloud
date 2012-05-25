@@ -202,7 +202,7 @@ MasterRecoveryManager::main(Context& context)
                 recovery->masterId.getId(), activeRecoveries.size());
         }
 
-        taskQueue.proceed();
+        taskQueue.performTask();
     }
 }
 
@@ -235,9 +235,10 @@ MasterRecoveryManager::tabletsRecovered(
     if (status == STATUS_OK) {
         // Update tablet map to point to new owner and mark as available.
         foreach (const auto& tablet, recoveredTablets.tablet()) {
-            // TODO(stutsman): Currently won't work with concurrent access on the
-            // tablet map but recovery will soon be revised to accept only one call
-            // into recovery per master instead of tablet which will fix this.
+            // TODO(stutsman): Currently won't work with concurrent access on
+            // the tablet map but recovery will soon be revised to accept only
+            // one call into recovery per master instead of tablet which will
+            // fix this.
 
             // The caller has filled in recoveredTablets with new service
             // locator and server id of the recovery master, so just copy

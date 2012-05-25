@@ -164,7 +164,7 @@ TEST_F(RecoveryTest, buildSegmentIdToBackups) {
     Recovery::Deleter deleter;
     Recovery recovery(mgr, *serverList, deleter, ServerId(99), tablets);
     recovery.schedule();
-    mgr.proceed();
+    mgr.performTask();
     EXPECT_EQ((vector<RecoverRpc::Replica> {
                     { 1, 88 },
                     { 2, 88 },
@@ -204,7 +204,7 @@ TEST_F(RecoveryTest, buildSegmentIdToBackups_secondariesEarlyInSomeList) {
     Recovery::Deleter deleter;
     Recovery recovery(mgr, *serverList, deleter, ServerId(99), tablets);
     recovery.schedule();
-    mgr.proceed();
+    mgr.performTask();
 
     ASSERT_EQ(6U, recovery.replicaLocations.size());
     // The secondary of segment 91 must be last in the list.
@@ -328,7 +328,7 @@ TEST_F(RecoveryTest, start) {
     Recovery::Deleter deleter;
     Recovery recovery(mgr, *serverList, deleter, ServerId(99), tablets);
     recovery.schedule();
-    mgr.proceed();
+    mgr.performTask();
 
     /*
      * Make sure all segments are partitioned on the backups before proceeding,
@@ -361,7 +361,7 @@ TEST_F(RecoveryTest, start) {
     }
 
     TestLog::Enable _(&getRecoveryDataFilter);
-    mgr.proceed();
+    mgr.performTask();
     EXPECT_EQ(2u, recovery.startedRecoveryMasters);
     EXPECT_EQ(
         "getRecoveryData: getRecoveryData masterId 99, segmentId 88, "

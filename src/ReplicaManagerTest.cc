@@ -225,6 +225,8 @@ TEST_F(ReplicaManagerTest, handleBackupFailure) {
     auto s2 = mgr->openSegment(true, 90, NULL, 0);
     auto s3 = mgr->openSegment(true, 91, NULL, 0);
     mgr->proceed();
+    mgr->proceed();
+    mgr->proceed();
     Tub<uint64_t> segmentId = mgr->handleBackupFailure(backup1Id);
     ASSERT_TRUE(segmentId);
     EXPECT_EQ(91u, *segmentId);

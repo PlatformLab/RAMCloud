@@ -13,6 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <functional>
+
 #include "TestUtil.h"
 #include "Common.h"
 #include "ShortMacros.h"
@@ -67,23 +69,63 @@ struct TaskQueueTest : public ::testing::Test {
     }
 };
 
-TEST_F(TaskQueueTest, proceedEmpty)
+TEST_F(TaskQueueTest, performTaskEmpty)
 {
-    taskQueue.proceed();
+    taskQueue.performTask();
 }
 
-TEST_F(TaskQueueTest, proceed)
+TEST_F(TaskQueueTest, performTask)
 {
     const int times = 3;
     for (int i = 0; i < times; ++i) {
         task1.schedule();
         task2.schedule();
-        taskQueue.proceed();
+        taskQueue.performTask();
         EXPECT_FALSE(task1.isScheduled());
+        EXPECT_TRUE(task2.isScheduled()); taskQueue.performTask();
         EXPECT_FALSE(task2.isScheduled());
     }
     EXPECT_EQ(3, task1.count);
     EXPECT_EQ(3, task2.count);
+}
+
+namespace {
+void runTaskQueue(TaskQueue& taskQueue) {
+    taskQueue.performTasksUntilHalt();
+}
+}
+
+TEST_F(TaskQueueTest, performTasksUntilHalt)
+{
+    std::thread thread(&runTaskQueue, std::ref(taskQueue));
+    task1.schedule();
+    task2.schedule();
+    while (!taskQueue.isIdle());
+    taskQueue.halt();
+    EXPECT_FALSE(task1.isScheduled());
+    EXPECT_FALSE(task2.isScheduled());
+    EXPECT_EQ(1, task1.count);
+    EXPECT_EQ(1, task2.count);
+    thread.join();
+}
+
+TEST_F(TaskQueueTest, performTasksUntilHaltNested)
+{
+    std::thread thread(&runTaskQueue, std::ref(taskQueue));
+    ReschedulingMockTask task(taskQueue);
+    task.schedule();
+    while (!taskQueue.isIdle());
+    taskQueue.halt();
+    EXPECT_FALSE(task.isScheduled());
+    EXPECT_EQ(2, task.count);
+    thread.join();
+}
+
+TEST_F(TaskQueueTest, halt)
+{
+    std::thread thread(&runTaskQueue, std::ref(taskQueue));
+    taskQueue.halt();
+    thread.join();
 }
 
 TEST_F(TaskQueueTest, schedule)
@@ -93,7 +135,7 @@ TEST_F(TaskQueueTest, schedule)
     task1.schedule(); // check to make sure double schedules don't happen
     ASSERT_EQ(1u, taskQueue.tasks.size());
     EXPECT_EQ(&task1, taskQueue.tasks.front());
-    taskQueue.proceed(); // clear out task queue
+    taskQueue.performTask(); // clear out task queue
 }
 
 TEST_F(TaskQueueTest, scheduleNested)
@@ -103,13 +145,24 @@ TEST_F(TaskQueueTest, scheduleNested)
     ASSERT_TRUE(task.isScheduled());
     ASSERT_EQ(1u, taskQueue.tasks.size());
     EXPECT_EQ(&task, taskQueue.tasks.front());
-    taskQueue.proceed();
+    taskQueue.performTask();
     EXPECT_EQ(1, task.count);
     ASSERT_TRUE(task.isScheduled());
     ASSERT_EQ(1u, taskQueue.tasks.size());
     EXPECT_EQ(&task, taskQueue.tasks.front());
-    taskQueue.proceed(); // clear out task queue
+    taskQueue.performTask(); // clear out task queue
     EXPECT_EQ(2, task.count);
+}
+
+TEST_F(TaskQueueTest, getNextTask)
+{
+    EXPECT_EQ(static_cast<Task*>(NULL), taskQueue.getNextTask(false));
+    task1.schedule();
+    EXPECT_EQ(&task1, taskQueue.getNextTask(false));
+    task1.schedule();
+    EXPECT_EQ(&task1, taskQueue.getNextTask(true));
+    taskQueue.halt();
+    EXPECT_EQ(static_cast<Task*>(NULL), taskQueue.getNextTask(true));
 }
 
 } // namespace RAMCloud

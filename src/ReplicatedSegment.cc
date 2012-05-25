@@ -141,7 +141,7 @@ ReplicatedSegment::free()
     foreach (auto& replica, replicas) {
         if (!replica.isActive || !replica.writeRpc)
             continue;
-        taskQueue.proceed();
+        taskQueue.performTask();
         // Release and reacquire the lock; this gives other operations
         // a chance to slip in while this thread waits for all write
         // rpcs to finish up.
@@ -363,7 +363,7 @@ ReplicatedSegment::sync(uint32_t offset)
         // it is safe to use the usual definition.
         if (!recoveringFromLostOpenReplicas && getAcked().bytes >= offset)
             break;
-        taskQueue.proceed();
+        taskQueue.performTask();
     }
 }
 

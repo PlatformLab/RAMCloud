@@ -87,7 +87,7 @@ class Recovery : public Task {
     enum Status {
         BUILD_REPLICA_MAP,           ///< Contact all backups and find replicas.
         START_RECOVERY_MASTERS,      ///< Choose and start recovery masters.
-        WAIT_FOR_RECOVERY_MASTERS,   ///< Wait on completion of recovery masters.
+        WAIT_FOR_RECOVERY_MASTERS,   ///< Wait on recovery master completion.
         BROADCAST_RECOVERY_COMPLETE, ///< Inform backups of end of recovery.
         DONE,
     };

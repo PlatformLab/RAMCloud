@@ -122,7 +122,7 @@ class ReplicaManager
 
     /**
      * Enqueues segments that need replication/freeing and makes progress
-     * on enqueued operations whenever taskQueue.proceed() is called.
+     * on enqueued operations whenever taskQueue.performTask() is called.
      */
     TaskQueue taskQueue;
 
