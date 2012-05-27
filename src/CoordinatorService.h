@@ -97,8 +97,6 @@ class CoordinatorService : public Service {
     void createReplicationGroup();
     bool hintServerDown(ServerId serverId);
     void removeReplicationGroup(uint64_t replicationId);
-    void sendMembershipUpdate(ProtoBuf::ServerList& update,
-                              ServerId excludeServerId);
     void sendServerList(ServerId destination);
     void setMinOpenSegmentId(const SetMinOpenSegmentIdRpc::Request& reqHdr,
                              SetMinOpenSegmentIdRpc::Response& respHdr,

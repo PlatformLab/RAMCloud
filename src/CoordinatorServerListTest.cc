@@ -15,6 +15,8 @@
 
 #include "TestUtil.h"
 #include "CoordinatorServerList.h"
+#include "MockTransport.h"
+#include "TransportManager.h"
 
 namespace RAMCloud {
 
@@ -356,6 +358,64 @@ TEST_F(CoordinatorServerListTest, serialize) {
     }
 }
 
+namespace {
+bool statusFilter(string s) {
+    return s != "checkStatus";
+}
+}
+
+TEST_F(CoordinatorServerListTest, sendMembershipUpdate) {
+    MockTransport transport;
+    TransportManager::MockRegistrar _(transport);
+
+    ProtoBuf::ServerList update;
+    // Test unoccupied server slot. Remove must wait until after last add to ensure
+    // slot isn't recycled.
+    ServerId serverId1 = sl.add("mock:host=server1", {MEMBERSHIP_SERVICE}, 0, update);
+
+    // Test crashed server gets skipped.
+    ServerId serverId2 = sl.add("mock:host=server2", {}, 0, update);
+    sl.crashed(serverId2, update);
+
+    // Test server with no membership service.
+    ServerId serverId3 = sl.add("mock:host=server3", {}, 0, update);
+
+    // Test exclude list.
+    ServerId serverId4 = sl.add("mock:host=server4", {MEMBERSHIP_SERVICE}, 0, update);
+    sl.remove(serverId1, update);
+
+    update.Clear();
+    update.set_version_number(1);
+    TestLog::Enable __(statusFilter);
+    sl.sendMembershipUpdate(update, serverId4);
+
+    // Nothing should be sent. All servers are invalid recipients for
+    // various reasons.
+    EXPECT_EQ("", transport.outputLog);
+    EXPECT_EQ("", TestLog::get());
+
+    ServerId serverId5 = sl.add("mock:host=server5", {MEMBERSHIP_SERVICE}, 0, update);
+
+    update.Clear();
+    update.set_version_number(1);
+
+    transport.setInput("0 1"); // Server 5 (now in the first slot) runs into trouble.
+    transport.setInput("0");   // Server 5 replies ok to the send of the entire list.
+    transport.setInput("0 0"); // Server 4 gets the update just fine.
+
+    TestLog::reset();
+    transport.outputLog = "";
+    sl.sendMembershipUpdate(update, {});
+
+    EXPECT_EQ("clientSend: 0x40024 9 273 0 /0 | " // Update to server 5.
+              "clientSend: 0x40023 9 17 0 /0 | "  // Set list to server 5.
+              "clientSend: 0x40024 9 273 0 /0",   // Update to server 4.
+              transport.outputLog);
+    EXPECT_EQ("sendMembershipUpdate: Server 4294967297 had lost an update. "
+              "Sending whole list.",
+              TestLog::get());
+}
+
 TEST_F(CoordinatorServerListTest, firstFreeIndex) {
     ProtoBuf::ServerList update;
 
@@ -382,24 +442,6 @@ TEST_F(CoordinatorServerListTest, getReferenceFromServerId) {
     EXPECT_THROW(sl.getReferenceFromServerId(ServerId(0, 0)), Exception);
     EXPECT_NO_THROW(sl.getReferenceFromServerId(ServerId(1, 0)));
     EXPECT_THROW(sl.getReferenceFromServerId(ServerId(2, 0)), Exception);
-}
-
-TEST_F(CoordinatorServerListTest, getPointerFromIndex) {
-    ProtoBuf::ServerList update;
-
-    EXPECT_THROW(sl.getPointerFromIndex(0), Exception);
-    EXPECT_THROW(sl.getPointerFromIndex(1), Exception);
-
-    sl.add("", {MASTER_SERVICE}, 100, update);
-    EXPECT_EQ(static_cast<const CoordinatorServerList::Entry*>(NULL),
-        sl.getPointerFromIndex(0));
-    EXPECT_EQ(static_cast<const CoordinatorServerList::Entry*>(
-        sl.serverList[1].entry.get()), sl.getPointerFromIndex(1));
-    EXPECT_THROW(sl.getPointerFromIndex(2), Exception);
-
-    sl.remove(ServerId(1, 0), update);
-    EXPECT_EQ(static_cast<const CoordinatorServerList::Entry*>(NULL),
-        sl.getPointerFromIndex(1));
 }
 
 TEST_F(CoordinatorServerListTest, Entry_constructor) {

@@ -20,6 +20,7 @@
 
 #include "Common.h"
 #include "CoordinatorServerList.h"
+#include "MembershipClient.h"
 #include "ShortMacros.h"
 #include "TransportManager.h"
 
@@ -46,9 +47,9 @@ CoordinatorServerList::CoordinatorServerList()
  */
 CoordinatorServerList::~CoordinatorServerList()
 {
-    for (size_t i = 0; i < size(); i++) {
-        Entry* entry = const_cast<Entry*>(getPointerFromIndex(i));
-        if (entry != NULL && entry->isMaster() && entry->will != NULL)
+    foreach (auto& pair, serverList) {
+        Tub<Entry>& entry = pair.entry;
+        if (entry && entry->isMaster() && entry->will != NULL)
             delete entry->will;
     }
 }
@@ -347,11 +348,9 @@ Tub<CoordinatorServerList::Entry>
 CoordinatorServerList::operator[](size_t index) const
 {
     Lock _(mutex);
-    Tub<Entry> result;
-    auto* entry = getPointerFromIndex(index);
-    if (entry)
-        result.construct(*entry);
-    return result;
+    if (index >= serverList.size())
+        throw Exception(HERE, format("Index beyond array length (%zd)", index));
+    return serverList[index].entry;
 }
 
 /**
@@ -457,7 +456,7 @@ CoordinatorServerList::nextBackupIndex(uint32_t startIndex) const
 }
 
 /**
- * Serialise the entire list to a Protocol Buffer form.
+ * Serialize the entire list to a Protocol Buffer form.
  *
  * \param[out] protoBuf
  *      Reference to the ProtoBuf to fill.
@@ -469,14 +468,13 @@ CoordinatorServerList::serialize(ProtoBuf::ServerList& protoBuf) const
 }
 
 /**
- * Serialise this list (or part of it, depending on which services the
+ * Serialize this list (or part of it, depending on which services the
  * caller wants) to a protocol buffer. Not all state is included, but
  * enough to be useful for disseminating cluster membership information
  * to other servers.
  *
  * \param[out] protoBuf
  *      Reference to the ProtoBuf to fill.
- *
  * \param services
  *      If a server has *any* service included in \a services it will be
  *      included in the serialization; otherwise, it is skipped.
@@ -485,21 +483,74 @@ void
 CoordinatorServerList::serialize(ProtoBuf::ServerList& protoBuf,
                                  ServiceMask services) const
 {
-    Lock _(mutex);
+    Lock lock(mutex);
+    serialize(lock, protoBuf, services);
+}
+
+/**
+ * Issue a cluster membership update to all enlisted servers in the system
+ * that are running the MembershipService.
+ *
+ * Currently this call happens synchronously on the calling thread, but
+ * eventually the CoordinatorServerList should provide a context to
+ * send these updates automatically and asynchronously.
+ * TODO(stutsman): Implement this feature.
+ *
+ * \param update
+ *      Protocol Buffer containing the update to be sent.
+ * \param excludeServerId
+ *      ServerId of a server that is not to receive this update. This is
+ *      used to avoid sending an update message to a server immediately
+ *      following its enlistment (since we'll be sending the entire list
+ *      instead).
+ */
+void
+CoordinatorServerList::sendMembershipUpdate(ProtoBuf::ServerList& update,
+                                            ServerId excludeServerId)
+{
+    Lock lock(mutex);
+
+    Tub<ProtoBuf::ServerList> serializedServerList;
+
+    MembershipClient client;
     for (size_t i = 0; i < serverList.size(); i++) {
-        if (!serverList[i].entry)
+        Tub<Entry>& entry = serverList[i].entry;
+        if (!entry ||
+            entry->status != ServerStatus::UP ||
+            !entry->serviceMask.has(MEMBERSHIP_SERVICE))
+            continue;
+        if (entry->serverId == excludeServerId)
             continue;
 
-        const Entry& entry = *serverList[i].entry;
+        bool succeeded = false;
+        try {
+            succeeded =
+                client.updateServerList(entry->serviceLocator.c_str(), update);
+        } catch (const TransportException& e) {
+            // It's suspicious that pushing the update failed, but
+            // perhaps it's best to wait to try the full list push
+            // before jumping to conclusions.
+        }
 
-        if ((entry.isMaster() && services.has(MASTER_SERVICE)) ||
-            (entry.isBackup() && services.has(BACKUP_SERVICE))) {
-            ProtoBuf::ServerList_Entry& protoBufEntry(*protoBuf.add_server());
-            entry.serialize(protoBufEntry);
+        // If this server had missed a previous update it will return
+        // failure and expect us to push the whole list again.
+        if (!succeeded) {
+            LOG(NOTICE, "Server %lu had lost an update. Sending whole list.",
+                entry->serverId.getId());
+            if (!serializedServerList) {
+                serializedServerList.construct();
+                serialize(lock, *serializedServerList);
+            }
+            try {
+                client.setServerList(entry->serviceLocator.c_str(),
+                                     *serializedServerList);
+            } catch (const TransportException& e) {
+                // TODO(stutsman): Things aren't looking good for this
+                // server.  The coordinator will probably want to investigate
+                // the server and evict it.
+            }
         }
     }
-
-    protoBuf.set_version_number(versionNumber);
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -578,29 +629,57 @@ CoordinatorServerList::getReferenceFromServerId(const ServerId& serverId) const
 }
 
 /**
- * Obtain a pointer to the entry at the given index of the list. This can
- * be used to iterate over the entire list (in conjunction with the #size
- * method), or by . If there is no entry at the given index, NULL is returned.
+ * Serialize the entire list to a Protocol Buffer form. Only used internally in
+ * CoordinatorServerList; requires a lock on #mutex is held for duration of call.
  *
- * TODO(Rumble): Should this method always return NULL (i.e. not throw if the index
- *      is out of bounds)?.
- *
- * \param index
- *      The index of the entry to return, if there is one.
- *
- * \throw
- *      An exception is thrown if the index exceeds the length of the list.
+ * \param lock
+ *      Unused, but required to statically check that the caller is aware that
+ *      a lock must be held on #mutex for this call to be safe.
+ * \param[out] protoBuf
+ *      Reference to the ProtoBuf to fill.
  */
-const CoordinatorServerList::Entry*
-CoordinatorServerList::getPointerFromIndex(size_t index) const
+void
+CoordinatorServerList::serialize(const Lock& lock,
+                                 ProtoBuf::ServerList& protoBuf) const
 {
-    if (index >= serverList.size())
-        throw Exception(HERE, format("Index beyond array length (%zd)", index));
+    serialize(lock, protoBuf, {MASTER_SERVICE, BACKUP_SERVICE});
+}
 
-    if (!serverList[index].entry)
-        return NULL;
+/**
+ * Serialize this list (or part of it, depending on which services the
+ * caller wants) to a protocol buffer. Not all state is included, but
+ * enough to be useful for disseminating cluster membership information
+ * to other servers. Only used internally in CoordinatorServerList; requires
+ * a lock on #mutex is held for duration of call.
+ *
+ * \param lock
+ *      Unused, but required to statically check that the caller is aware that
+ *      a lock must be held on #mutex for this call to be safe.
+ * \param[out] protoBuf
+ *      Reference to the ProtoBuf to fill.
+ * \param services
+ *      If a server has *any* service included in \a services it will be
+ *      included in the serialization; otherwise, it is skipped.
+ */
+void
+CoordinatorServerList::serialize(const Lock& lock,
+                                 ProtoBuf::ServerList& protoBuf,
+                                 ServiceMask services) const
+{
+    for (size_t i = 0; i < serverList.size(); i++) {
+        if (!serverList[i].entry)
+            continue;
 
-    return serverList[index].entry.get();
+        const Entry& entry = *serverList[i].entry;
+
+        if ((entry.isMaster() && services.has(MASTER_SERVICE)) ||
+            (entry.isBackup() && services.has(BACKUP_SERVICE))) {
+            ProtoBuf::ServerList_Entry& protoBufEntry(*protoBuf.add_server());
+            entry.serialize(protoBufEntry);
+        }
+    }
+
+    protoBuf.set_version_number(versionNumber);
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -651,7 +730,7 @@ CoordinatorServerList::Entry::Entry(ServerId serverId,
 }
 
 /**
- * Serialise this entry into the given ProtoBuf.
+ * Serialize this entry into the given ProtoBuf.
  */
 void
 CoordinatorServerList::Entry::serialize(ProtoBuf::ServerList_Entry& dest) const

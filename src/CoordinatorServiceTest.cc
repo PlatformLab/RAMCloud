@@ -680,29 +680,6 @@ TEST_F(CoordinatorServiceTest, sendServerList_service) {
         "entries (version number 2)"));
 }
 
-TEST_F(CoordinatorServiceTest, sendMembershipUpdate) {
-    ServerConfig config = ServerConfig::forTesting();
-    config.services = {MASTER_SERVICE, PING_SERVICE};
-    ServerId id = cluster.addServer(config)->serverId;
-    config = ServerConfig::forTesting();
-    config.services = {MASTER_SERVICE, PING_SERVICE, MEMBERSHIP_SERVICE};
-    id = cluster.addServer(config)->serverId;
-    ProtoBuf::ServerList update;
-    service->serverList.crashed(masterServerId, update);
-
-    update.Clear();
-    update.set_version_number(4);
-    TestLog::Enable _(statusFilter);
-    service->sendMembershipUpdate(update, ServerId(/* invalid id */));
-
-    EXPECT_NE(string::npos, TestLog::get().find(
-        "updateServerList: Got server list update (version number 4)"));
-    // Make sure updateServerList only got called once (the crashed server
-    // was skipped).
-    EXPECT_EQ(0u, TestLog::get().find("updateServerList"));
-    EXPECT_EQ(0u, TestLog::get().rfind("updateServerList"));
-}
-
 TEST_F(CoordinatorServiceTest, setMinOpenSegmentId) {
     EXPECT_THROW(client->setMinOpenSegmentId(ServerId(2, 2), 100),
                  ClientException);

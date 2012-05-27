@@ -149,6 +149,8 @@ class CoordinatorServerList {
     void serialize(ProtoBuf::ServerList& protoBuf) const;
     void serialize(ProtoBuf::ServerList& protobuf,
                    ServiceMask services) const;
+    void sendMembershipUpdate(ProtoBuf::ServerList& update,
+                              ServerId excludeServerId);
 
   PRIVATE:
     /**
@@ -179,7 +181,9 @@ class CoordinatorServerList {
                  ProtoBuf::ServerList& update);
     uint32_t firstFreeIndex();
     const Entry& getReferenceFromServerId(const ServerId& serverId) const;
-    const Entry* getPointerFromIndex(size_t index) const;
+    void serialize(const Lock& lock, ProtoBuf::ServerList& protoBuf) const;
+    void serialize(const Lock& lock, ProtoBuf::ServerList& protobuf,
+                   ServiceMask services) const;
 
     /**
      * Provides monitor-style protection for all operations on the tablet map.

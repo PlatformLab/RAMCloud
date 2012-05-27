@@ -354,7 +354,7 @@ CoordinatorService::enlistServer(const EnlistServerRpc::Request& reqHdr,
 
     if (entry.serviceMask.has(MEMBERSHIP_SERVICE))
         sendServerList(newServerId);
-    sendMembershipUpdate(serverListUpdate, newServerId);
+    serverList.sendMembershipUpdate(serverListUpdate, newServerId);
 
     // Recovery on the replaced host is deferred until the replacing host
     // has been enlisted.
@@ -451,7 +451,7 @@ CoordinatorService::hintServerDown(ServerId serverId)
     // Backup recovery is kicked off via this update.
     // Deciding whether to place this before or after the start of master
     // recovery is difficult.
-    sendMembershipUpdate(update, ServerId(/* invalid id */));
+    serverList.sendMembershipUpdate(update, ServerId(/* invalid id */));
 
     recoveryManager.startMasterRecovery(entry.serverId, *entry.will);
 
@@ -772,58 +772,6 @@ CoordinatorService::removeReplicationGroup(uint64_t groupId)
             // one of the servers in the group is down.
             if (serverList[i]->isBackup()) {
                 assignReplicationGroup(0, group);
-            }
-        }
-    }
-}
-
-/**
- * Issue a cluster membership update to all enlisted servers in the system
- * that are running the MembershipService.
- *
- * \param update
- *      Protocol Buffer containing the update to be sent.
- *
- * \param excludeServerId
- *      ServerId of a server that is not to receive this update. This is
- *      used to avoid sending an update message to a server immediately
- *      following its enlistment (since we'll be sending the entire list
- *      instead).
- */
-void
-CoordinatorService::sendMembershipUpdate(ProtoBuf::ServerList& update,
-                                         ServerId excludeServerId)
-{
-    MembershipClient client;
-    for (size_t i = 0; i < serverList.size(); i++) {
-        if (!serverList[i] ||
-            serverList[i]->status != ServerStatus::UP ||
-            !serverList[i]->serviceMask.has(MEMBERSHIP_SERVICE))
-            continue;
-        if (serverList[i]->serverId == excludeServerId)
-            continue;
-
-        bool succeeded = false;
-        try {
-            succeeded = client.updateServerList(
-                serverList[i]->serviceLocator.c_str(), update);
-        } catch (TransportException& e) {
-            // It's suspicious that pushing the update failed, but
-            // perhaps it's best to wait to try the full list push
-            // before jumping to conclusions.
-        }
-
-        // If this server had missed a previous update it will return
-        // failure and expect us to push the whole list again.
-        if (!succeeded) {
-            LOG(NOTICE, "Server %lu had lost an update. Sending whole list.",
-                *serverList[i]->serverId);
-            try {
-                sendServerList(serverList[i]->serverId);
-            } catch (TransportException& e) {
-                // TODO(stutsman): Things aren't looking good for this
-                // server.  The coordinator will probably want to investigate
-                // the server and evict it.
             }
         }
     }
