@@ -446,6 +446,7 @@ TEST_F(ServiceManagerTest, WorkerSession_SyncWithDispatchThread) {
         if (transport.outputLog.size() > 0) {
             break;
         }
+        usleep(1000);
     }
     EXPECT_STREQ("clientSend: abcdefg/0", transport.outputLog.c_str());
     child.join();
