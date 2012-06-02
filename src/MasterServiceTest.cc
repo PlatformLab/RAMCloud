@@ -340,6 +340,30 @@ TEST_F(MasterServiceTest, recover_basics) {
     free(segMem);
 }
 
+TEST_F(MasterServiceTest, removeIfFromUnknownTablet) {
+    const char* key = "1";
+    const uint32_t keyLength = 1;
+    coordinator->createTable("table");
+    uint64_t tableId = coordinator->getTableId("table");
+    client->write(tableId, key, keyLength, NULL, 0);
+    auto handle = service->objectMap.lookup(tableId, key, keyLength);
+    EXPECT_TRUE(service->objectMap.lookup(tableId, key, keyLength));
+
+    EXPECT_TRUE(service->getTable(tableId, key, keyLength));
+    removeObjectIfFromUnknownTablet(handle, service);
+    EXPECT_TRUE(service->objectMap.lookup(tableId, key, keyLength));
+    EXPECT_EQ(0lu, service->log.getBytesFreed());
+
+    foreach (const ProtoBuf::Tablets::Tablet& tablet, service->tablets.tablet())
+        delete reinterpret_cast<Table*>(tablet.user_data());
+    service->tablets.Clear();
+
+    EXPECT_FALSE(service->getTable(tableId, key, keyLength));
+    removeObjectIfFromUnknownTablet(handle, service);
+    EXPECT_FALSE(service->objectMap.lookup(tableId, key, keyLength));
+    EXPECT_NE(0lu, service->log.getBytesFreed());
+}
+
 /**
   * Properties checked:
   * 1) At most length of tasks number of RPCs are started initially
@@ -503,6 +527,37 @@ TEST_F(MasterServiceTest, recover_ctimeUpdateIssued) {
         "ctime_log_head_id: 0 ctime_log_head_offset: 99 } tablet { table_id: "
         "123 start_key_hash: 20 end_key_hash: 29 state: RECOVERING server_id: "
         "2 service_locator: \"mock:host=master\" user_data: "));
+}
+
+namespace {
+bool recoverFilter(string s) {
+    return s == "recover";
+}
+}
+
+TEST_F(MasterServiceTest, recover_unsuccessful) {
+    TestLog::Enable _(recoverFilter);
+    client->write(0, "0", 1, "abcdef", 6);
+    ProtoBuf::Tablets tablets;
+    createTabletList(tablets);
+    RecoverRpc::Replica replicas[] = {
+        // Bad ServerId, should cause recovery to fail.
+        {1004, 92},
+    };
+    client->recover(10lu, {123, 0}, 0, tablets, replicas, 1);
+
+    string log = TestLog::get();
+    log = log.substr(log.rfind("recover:"));
+    EXPECT_EQ("recover: Failed to recover partition for recovery 10; "
+              "aborting recovery on this recovery master", log);
+
+    foreach (const auto& tablet, tablets.tablet()) {
+        foreach (const auto& mtablet, service->tablets.tablet()) {
+            EXPECT_FALSE(tablet.table_id() == mtablet.table_id() &&
+                         tablet.start_key_hash() == mtablet.start_key_hash() &&
+                         tablet.end_key_hash() == mtablet.end_key_hash());
+        }
+    }
 }
 
 TEST_F(MasterServiceTest, recoverSegment) {

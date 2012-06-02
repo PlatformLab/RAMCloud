@@ -120,6 +120,7 @@ class MasterService : public Service {
     void receiveMigrationData(const ReceiveMigrationDataRpc::Request& reqHdr,
                               ReceiveMigrationDataRpc::Response& respHdr,
                               Rpc& rpc);
+    void purgeObjectsFromUnknownTablets();
     void recover(const RecoverRpc::Request& reqHdr,
                  RecoverRpc::Response& respHdr,
                  Rpc& rpc);
@@ -221,6 +222,8 @@ class MasterService : public Service {
                         const vector<MasterService::Replica>& replicas);
 
     friend void recoveryCleanup(LogEntryHandle maybeTomb, void *cookie);
+    friend void removeObjectIfFromUnknownTablet(LogEntryHandle entry,
+                                                void *cookie);
     friend bool objectLivenessCallback(LogEntryHandle handle, void* cookie);
     friend bool objectRelocationCallback(LogEntryHandle oldHandle,
                                          LogEntryHandle newHandle,
