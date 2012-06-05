@@ -52,6 +52,8 @@ struct TaskQueueTest : public ::testing::Test {
             ++count;
             if (count == 1)
                 schedule();
+            if (count == 2)
+                taskQueue.halt();
         }
 
         int count;
@@ -98,27 +100,11 @@ void runTaskQueue(TaskQueue& taskQueue) {
 TEST_F(TaskQueueTest, performTasksUntilHalt)
 {
     std::thread thread(&runTaskQueue, std::ref(taskQueue));
-    task1.schedule();
-    task2.schedule();
-    while (!taskQueue.isIdle());
-    taskQueue.halt();
-    EXPECT_FALSE(task1.isScheduled());
-    EXPECT_FALSE(task2.isScheduled());
-    EXPECT_EQ(1, task1.count);
-    EXPECT_EQ(1, task2.count);
-    thread.join();
-}
-
-TEST_F(TaskQueueTest, performTasksUntilHaltNested)
-{
-    std::thread thread(&runTaskQueue, std::ref(taskQueue));
     ReschedulingMockTask task(taskQueue);
     task.schedule();
-    while (!taskQueue.isIdle());
-    taskQueue.halt();
+    thread.join();
     EXPECT_FALSE(task.isScheduled());
     EXPECT_EQ(2, task.count);
-    thread.join();
 }
 
 TEST_F(TaskQueueTest, halt)
