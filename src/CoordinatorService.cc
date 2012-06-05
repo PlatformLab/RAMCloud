@@ -725,7 +725,7 @@ CoordinatorService::createReplicationGroup()
         for (uint32_t i = 0; i < numReplicas; i++) {
             const ServerId& backupId = freeBackups.back();
             group.push_back(backupId);
-            serverList[backupId].replicationId = nextReplicationId;
+            serverList.setReplicationId(backupId, nextReplicationId);
             freeBackups.pop_back();
         }
         // Assign a new replication group. AssignReplicationGroup handles
@@ -754,7 +754,7 @@ CoordinatorService::removeReplicationGroup(uint64_t groupId)
             serverList[i]->replicationId == groupId) {
             vector<ServerId> group;
             group.push_back(serverList[i]->serverId);
-            serverList[i]->replicationId = 0;
+            serverList.setReplicationId(serverList[i]->serverId, 0);
             // We check whether the server is up, in order to prevent
             // recursively calling removeReplicationGroup by hintServerDown.
             // If the backup is still up, we tell it to reset its
