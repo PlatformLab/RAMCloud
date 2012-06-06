@@ -25,22 +25,14 @@
 #include <queue>
 
 #include "Common.h"
+#include "CoordinatorServerList.h"
 #include "ServerId.h"
-#include "ServerList.h"
 #include "SpinLock.h"
+#include "ServerList.h"
 #include "Tub.h"
 #include "TransportManager.h"
 
 namespace RAMCloud {
-
-class ServerList;
-
-/*
- * Possible issues:
- *  - What if users don't want to see changes? Could this ever be the case?
- *  - What if users don't service their queues efficiently? Should there be
- *    any cap? If so, what would the behaviour be? Block? Drop on the floor?
- */
 
 /**
  * The two possible events that could be associated with a
@@ -51,14 +43,6 @@ enum ServerChangeEvent {
     SERVER_CRASHED,
     SERVER_REMOVED,
 };
-
-/**
- * Each change provided to a ServerTracker by its ServerList includes a
- * ServerDetails which describes details about the server which was
- * added or removed from the cluster.  On SERVER_ADDED event all fields
- * are valid; on SERVER_REMOVED on the #serverId field is valid.
- */
-typedef ServerList::ServerDetails ServerDetails;
 
 /**
  * Interface used to ensure that every template typed ServerTracker object
@@ -130,14 +114,15 @@ class ServerTracker : public ServerTrackerInterface {
      *      single, process-global list used by all trackers.
      */
     explicit ServerTracker(ServerList& parent)
-        : ServerTrackerInterface(),
-          parent(parent),
-          serverList(),
-          changes(),
-          lastRemovedIndex(-1),
-          eventCallback(),
-          numberOfServers(0),
-          testing_avoidGetChangeAssertion(false)
+        : ServerTrackerInterface()
+        , serverListParent(&parent)
+        , coordinatorServerListParent()
+        , serverList()
+        , changes()
+        , lastRemovedIndex(-1)
+        , eventCallback()
+        , numberOfServers(0)
+        , testing_avoidGetChangeAssertion(false)
     {
         parent.registerTracker(*this);
     }
@@ -156,17 +141,70 @@ class ServerTracker : public ServerTrackerInterface {
      *      event and should be extremely efficient so as to not
      *      hold up delivery of the same or future events to other
      *      ServerTrackers.
-     */ 
+     */
     explicit ServerTracker(ServerList& parent,
                            Callback* eventCallback)
-        : ServerTrackerInterface(),
-          parent(parent),
-          serverList(),
-          changes(),
-          lastRemovedIndex(-1),
-          eventCallback(eventCallback),
-          numberOfServers(0),
-          testing_avoidGetChangeAssertion(false)
+        : ServerTrackerInterface()
+        , serverListParent(&parent)
+        , coordinatorServerListParent()
+        , serverList()
+        , changes()
+        , lastRemovedIndex(-1)
+        , eventCallback(eventCallback)
+        , numberOfServers(0)
+        , testing_avoidGetChangeAssertion(false)
+    {
+        parent.registerTracker(*this);
+    }
+
+    /**
+     * Create a ServerTracker and register it with a CoordinatorServerList.
+     *
+     * \param parent
+     *      The coordinator's CoordinatorServerList whose updates will be
+     *      tracked.
+     */
+    explicit ServerTracker(CoordinatorServerList& parent)
+        : ServerTrackerInterface()
+        , serverListParent()
+        , coordinatorServerListParent(&parent)
+        , serverList()
+        , changes()
+        , lastRemovedIndex(-1)
+        , eventCallback()
+        , numberOfServers(0)
+        , testing_avoidGetChangeAssertion(false)
+    {
+        parent.registerTracker(*this);
+    }
+
+    /**
+     * Create a ServerTracker and register it with a CoordinatorServerList
+     * along with a callback that will be invoked any time changes are
+     * enqueued with this tracker.
+     *
+     * \param parent
+     *      The coordinator's CoordinatorServerList whose updates will be
+     *      tracked.
+     * \param eventCallback
+     *      A callback functor to be invoked whenever there is an
+     *      upcoming change to the list. This functor will execute
+     *      in the context of the CoordinatorServerList that has
+     *      fed us the event and should be extremely efficient so as to not
+     *      hold up delivery of the same or future events to other
+     *      ServerTrackers.
+     */ 
+    explicit ServerTracker(CoordinatorServerList& parent,
+                           Callback* eventCallback)
+        : ServerTrackerInterface()
+        , serverListParent()
+        , coordinatorServerListParent(&parent)
+        , serverList()
+        , changes()
+        , lastRemovedIndex(-1)
+        , eventCallback(eventCallback)
+        , numberOfServers(0)
+        , testing_avoidGetChangeAssertion(false)
     {
         parent.registerTracker(*this);
     }
@@ -176,7 +214,10 @@ class ServerTracker : public ServerTrackerInterface {
      */ 
     ~ServerTracker()
     {
-        parent.unregisterTracker(*this);
+        if (serverListParent)
+            serverListParent->unregisterTracker(*this);
+        if (coordinatorServerListParent)
+            coordinatorServerListParent->unregisterTracker(*this);
     }
 
     /**
@@ -631,8 +672,17 @@ class ServerTracker : public ServerTrackerInterface {
         T* pointer;
     };
 
-    /// The parent ServerList from which this tracker gets all updates.
-    ServerList& parent;
+    /**
+     * ServerList from which this tracker gets all updates, NULL if the tracker
+     * is registered with a CoordinatorServerList instead.
+     */
+    ServerList* serverListParent;
+
+    /**
+     * CoordinatorServerList from which this tracker gets all updates, NULL if the
+     * the tracker is registered with a ServerList instead.
+     */
+    CoordinatorServerList* coordinatorServerListParent;
 
     /// Slots in the server list.
     std::vector<ServerDetailsWithTPtr> serverList;

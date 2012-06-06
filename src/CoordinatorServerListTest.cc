@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -13,21 +13,40 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <queue>
+
 #include "TestUtil.h"
 #include "CoordinatorServerList.h"
 #include "MockTransport.h"
+#include "ServerTracker.h"
+#include "ShortMacros.h"
 #include "TransportManager.h"
 
 namespace RAMCloud {
 
+namespace {
+struct MockServerTracker : public ServerTrackerInterface {
+    MockServerTracker() : changes() {}
+    void
+    enqueueChange(const ServerDetails& server, ServerChangeEvent event)
+    {
+        changes.push({server, event});
+    }
+    void fireCallback() { TEST_LOG("called"); }
+    std::queue<ServerTracker<int>::ServerChange> changes;
+};
+}
+
 class CoordinatorServerListTest : public ::testing::Test {
   public:
+    CoordinatorServerList sl;
+    MockServerTracker tr;
+
     CoordinatorServerListTest()
         : sl()
+        , tr()
     {
     }
-
-    CoordinatorServerList sl;
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorServerListTest);
 };
@@ -41,15 +60,15 @@ protoBufMatchesEntry(const ProtoBuf::ServerList_Entry& protoBufEntry,
                      const CoordinatorServerList::Entry& serverListEntry,
                      ServerStatus status)
 {
-    if (serverListEntry.serviceMask.serialize() !=
-        protoBufEntry.service_mask())
+    if (serverListEntry.services.serialize() !=
+        protoBufEntry.services())
         return false;
     if (*serverListEntry.serverId != protoBufEntry.server_id())
         return false;
     if (serverListEntry.serviceLocator != protoBufEntry.service_locator())
         return false;
-    if (serverListEntry.backupReadMBytesPerSec !=
-        protoBufEntry.backup_read_mbytes_per_sec())
+    if (serverListEntry.expectedReadMBytesPerSec !=
+        protoBufEntry.expected_read_mbytes_per_sec())
         return false;
     if (status != ServerStatus(protoBufEntry.status()))
         return false;
@@ -80,7 +99,7 @@ TEST_F(CoordinatorServerListTest, add) {
         EXPECT_EQ("hi", sl.serverList[1].entry->serviceLocator);
         EXPECT_TRUE(sl.serverList[1].entry->isMaster());
         EXPECT_FALSE(sl.serverList[1].entry->isBackup());
-        EXPECT_EQ(0u, sl.serverList[1].entry->backupReadMBytesPerSec);
+        EXPECT_EQ(0u, sl.serverList[1].entry->expectedReadMBytesPerSec);
         EXPECT_EQ(1U, sl.serverList[1].nextGenerationNumber);
         EXPECT_EQ(0U, sl.versionNumber);
         sl.incrementVersion(update1);
@@ -100,7 +119,7 @@ TEST_F(CoordinatorServerListTest, add) {
         EXPECT_EQ("hi again", sl.serverList[2].entry->serviceLocator);
         EXPECT_FALSE(sl.serverList[2].entry->isMaster());
         EXPECT_TRUE(sl.serverList[2].entry->isBackup());
-        EXPECT_EQ(100u, sl.serverList[2].entry->backupReadMBytesPerSec);
+        EXPECT_EQ(100u, sl.serverList[2].entry->expectedReadMBytesPerSec);
         EXPECT_EQ(1U, sl.serverList[2].nextGenerationNumber);
         EXPECT_EQ(1U, sl.numberOfMasters);
         EXPECT_EQ(1U, sl.numberOfBackups);
@@ -111,6 +130,23 @@ TEST_F(CoordinatorServerListTest, add) {
         EXPECT_TRUE(protoBufMatchesEntry(update2.server(0),
             *sl.serverList[2].entry, ServerStatus::UP));
     }
+}
+
+TEST_F(CoordinatorServerListTest, add_trackerUpdated) {
+    sl.registerTracker(tr);
+    ProtoBuf::ServerList update;
+    TestLog::Enable _;
+    sl.add("hi!", {MASTER_SERVICE}, 100, update);
+    EXPECT_EQ("fireCallback: called", TestLog::get());
+    ASSERT_FALSE(tr.changes.empty());
+    auto& server = tr.changes.front().server;
+    EXPECT_EQ(ServerId(1, 0), server.serverId);
+    EXPECT_EQ("hi!", server.serviceLocator);
+    EXPECT_EQ("MASTER_SERVICE", server.services.toString());
+    // Not set when no BACKUP_SERVICE.
+    EXPECT_EQ(0u, server.expectedReadMBytesPerSec);
+    EXPECT_EQ(ServerStatus::UP, server.status);
+    EXPECT_EQ(SERVER_ADDED, tr.changes.front().event);
 }
 
 TEST_F(CoordinatorServerListTest, crashed) {
@@ -134,6 +170,26 @@ TEST_F(CoordinatorServerListTest, crashed) {
     EXPECT_EQ(0, update.server_size());
     EXPECT_EQ(0U, sl.numberOfMasters);
     EXPECT_EQ(0U, sl.numberOfBackups);
+}
+
+TEST_F(CoordinatorServerListTest, crashed_trackerUpdated) {
+    sl.registerTracker(tr);
+    ProtoBuf::ServerList update;
+    TestLog::Enable _;
+    ServerId serverId = sl.add("hi!", {MASTER_SERVICE}, 100, update);
+    sl.crashed(serverId, update);
+    EXPECT_EQ("fireCallback: called | fireCallback: called", TestLog::get());
+    ASSERT_FALSE(tr.changes.empty());
+    tr.changes.pop();
+    ASSERT_FALSE(tr.changes.empty());
+    auto& server = tr.changes.front().server;
+    EXPECT_EQ(serverId, server.serverId);
+    EXPECT_EQ("hi!", server.serviceLocator);
+    EXPECT_EQ("MASTER_SERVICE", server.services.toString());
+    // Not set when no BACKUP_SERVICE.
+    EXPECT_EQ(0u, server.expectedReadMBytesPerSec);
+    EXPECT_EQ(ServerStatus::CRASHED, server.status);
+    EXPECT_EQ(SERVER_CRASHED, tr.changes.front().event);
 }
 
 TEST_F(CoordinatorServerListTest, remove) {
@@ -164,6 +220,29 @@ TEST_F(CoordinatorServerListTest, remove) {
     EXPECT_EQ(uint32_t(ServerStatus::DOWN), removeUpdate.server(0).status());
     EXPECT_EQ(0U, sl.numberOfMasters);
     EXPECT_EQ(0U, sl.numberOfBackups);
+}
+
+TEST_F(CoordinatorServerListTest, remove_trackerUpdated) {
+    sl.registerTracker(tr);
+    ProtoBuf::ServerList update;
+    TestLog::Enable _;
+    ServerId serverId = sl.add("hi!", {MASTER_SERVICE}, 100, update);
+    sl.remove(serverId, update);
+    EXPECT_EQ("fireCallback: called | fireCallback: called | "
+              "fireCallback: called", TestLog::get());
+    ASSERT_FALSE(tr.changes.empty());
+    tr.changes.pop();
+    ASSERT_FALSE(tr.changes.empty());
+    tr.changes.pop();
+    ASSERT_FALSE(tr.changes.empty());
+    auto& server = tr.changes.front().server;
+    EXPECT_EQ(serverId, server.serverId);
+    EXPECT_EQ("hi!", server.serviceLocator);
+    EXPECT_EQ("MASTER_SERVICE", server.services.toString());
+    // Not set when no BACKUP_SERVICE.
+    EXPECT_EQ(0u, server.expectedReadMBytesPerSec);
+    EXPECT_EQ(ServerStatus::DOWN, server.status);
+    EXPECT_EQ(SERVER_REMOVED, tr.changes.front().event);
 }
 
 TEST_F(CoordinatorServerListTest, incrementVersion) {
@@ -337,24 +416,24 @@ TEST_F(CoordinatorServerListTest, serialize) {
         EXPECT_EQ(0, serverList.server_size());
         sl.serialize(serverList, {MASTER_SERVICE});
         EXPECT_EQ(2, serverList.server_size());
-        EXPECT_EQ(masterMask, serverList.server(0).service_mask());
-        EXPECT_EQ(masterMask, serverList.server(1).service_mask());
+        EXPECT_EQ(masterMask, serverList.server(0).services());
+        EXPECT_EQ(masterMask, serverList.server(1).services());
     }
 
     {
         ProtoBuf::ServerList serverList;
         sl.serialize(serverList, {BACKUP_SERVICE});
         EXPECT_EQ(1, serverList.server_size());
-        EXPECT_EQ(backupMask, serverList.server(0).service_mask());
+        EXPECT_EQ(backupMask, serverList.server(0).services());
     }
 
     {
         ProtoBuf::ServerList serverList;
         sl.serialize(serverList, {MASTER_SERVICE, BACKUP_SERVICE});
         EXPECT_EQ(3, serverList.server_size());
-        EXPECT_EQ(masterMask, serverList.server(0).service_mask());
-        EXPECT_EQ(masterMask, serverList.server(1).service_mask());
-        EXPECT_EQ(backupMask, serverList.server(2).service_mask());
+        EXPECT_EQ(masterMask, serverList.server(0).services());
+        EXPECT_EQ(masterMask, serverList.server(1).services());
+        EXPECT_EQ(backupMask, serverList.server(2).services());
     }
 }
 
@@ -435,6 +514,53 @@ TEST_F(CoordinatorServerListTest, firstFreeIndex) {
     EXPECT_EQ(1U, sl.firstFreeIndex());
 }
 
+TEST_F(CoordinatorServerListTest, registerTracker) {
+    sl.registerTracker(tr);
+    EXPECT_EQ(1U, sl.trackers.size());
+    EXPECT_EQ(&tr, sl.trackers[0]);
+    EXPECT_THROW(sl.registerTracker(tr), Exception);
+}
+
+TEST_F(CoordinatorServerListTest, registerTracker_pushAdds) {
+    ProtoBuf::ServerList update;
+    auto serverId1 = sl.add("mock:", {}, 100, update);
+    auto serverId2 = sl.add("mock:", {}, 100, update);
+    auto serverId3 = sl.add("mock:", {}, 100, update);
+    auto serverId4 = sl.add("mock:", {}, 100, update);
+    sl.crashed(serverId4, update);
+    sl.remove(serverId2, update);
+    sl.registerTracker(tr);
+
+    // Should be serverId4 up/crashed first, then in order,
+    // but missing serverId2
+    EXPECT_EQ(4U, tr.changes.size());
+    EXPECT_EQ(serverId4, tr.changes.front().server.serverId);
+    EXPECT_EQ(ServerChangeEvent::SERVER_ADDED, tr.changes.front().event);
+    tr.changes.pop();
+    EXPECT_EQ(serverId4, tr.changes.front().server.serverId);
+    EXPECT_EQ(ServerChangeEvent::SERVER_CRASHED, tr.changes.front().event);
+    tr.changes.pop();
+    EXPECT_EQ(serverId1, tr.changes.front().server.serverId);
+    EXPECT_EQ(ServerChangeEvent::SERVER_ADDED, tr.changes.front().event);
+    tr.changes.pop();
+    EXPECT_EQ(serverId3, tr.changes.front().server.serverId);
+    EXPECT_EQ(ServerChangeEvent::SERVER_ADDED, tr.changes.front().event);
+    tr.changes.pop();
+}
+
+TEST_F(CoordinatorServerListTest, unregisterTracker) {
+    EXPECT_EQ(0U, sl.trackers.size());
+
+    sl.unregisterTracker(tr);
+    EXPECT_EQ(0U, sl.trackers.size());
+
+    sl.registerTracker(tr);
+    EXPECT_EQ(1U, sl.trackers.size());
+
+    sl.unregisterTracker(tr);
+    EXPECT_EQ(0U, sl.trackers.size());
+}
+
 TEST_F(CoordinatorServerListTest, getReferenceFromServerId) {
     ProtoBuf::ServerList update;
 
@@ -455,7 +581,7 @@ TEST_F(CoordinatorServerListTest, Entry_constructor) {
     EXPECT_TRUE(a.isMaster());
     EXPECT_FALSE(a.isBackup());
     EXPECT_EQ(static_cast<ProtoBuf::Tablets*>(NULL), a.will);
-    EXPECT_EQ(0U, a.backupReadMBytesPerSec);
+    EXPECT_EQ(0U, a.expectedReadMBytesPerSec);
 
     CoordinatorServerList::Entry b(ServerId(27, 72),
         "I ain't got time to bleed", {BACKUP_SERVICE});
@@ -464,54 +590,7 @@ TEST_F(CoordinatorServerListTest, Entry_constructor) {
     EXPECT_FALSE(b.isMaster());
     EXPECT_TRUE(b.isBackup());
     EXPECT_EQ(static_cast<ProtoBuf::Tablets*>(NULL), b.will);
-    EXPECT_EQ(0U, b.backupReadMBytesPerSec);
-}
-
-static bool
-compareEntries(CoordinatorServerList::Entry& a,
-               CoordinatorServerList::Entry& b)
-{
-    // If this trips, you need to update some checks below.
-    EXPECT_EQ(56U, sizeof(a));
-
-    if (a.serverId != b.serverId)
-        return false;
-    if (a.serviceLocator != b.serviceLocator)
-        return false;
-    if (a.isMaster() != b.isMaster())
-        return false;
-    if (a.isBackup() != b.isBackup())
-        return false;
-    if (a.will != b.will)
-        return false;
-    if (a.backupReadMBytesPerSec != b.backupReadMBytesPerSec)
-        return false;
-    if (a.minOpenSegmentId != b.minOpenSegmentId)
-        return false;
-    if (a.replicationId != b.replicationId)
-        return false;
-
-    return true;
-}
-
-TEST_F(CoordinatorServerListTest, Entry_copyConstructor) {
-    CoordinatorServerList::Entry source(
-        ServerId(234, 273), "hi!", {BACKUP_SERVICE});
-    source.backupReadMBytesPerSec = 57;
-    source.will = reinterpret_cast<ProtoBuf::Tablets*>(0x11deadbeef22UL);
-    CoordinatorServerList::Entry dest(source);
-    EXPECT_TRUE(compareEntries(source, dest));
-}
-
-TEST_F(CoordinatorServerListTest, Entry_assignmentOperator) {
-    CoordinatorServerList::Entry source(ServerId(73, 72), "hi",
-                                        {BACKUP_SERVICE});
-    source.backupReadMBytesPerSec = 785;
-    source.will = reinterpret_cast<ProtoBuf::Tablets*>(0x11beefcafe22UL);
-    CoordinatorServerList::Entry dest(ServerId(0, 0), "bye",
-                                      {MASTER_SERVICE});
-    dest = source;
-    EXPECT_TRUE(compareEntries(source, dest));
+    EXPECT_EQ(0U, b.expectedReadMBytesPerSec);
 }
 
 TEST_F(CoordinatorServerListTest, Entry_serialize) {
@@ -519,23 +598,23 @@ TEST_F(CoordinatorServerListTest, Entry_serialize) {
                                        {BACKUP_SERVICE});
     entry.serverId = ServerId(5234, 23482);
     entry.serviceLocator = "giggity";
-    entry.backupReadMBytesPerSec = 723;
+    entry.expectedReadMBytesPerSec = 723;
 
     ProtoBuf::ServerList_Entry serialEntry;
     entry.serialize(serialEntry);
     auto backupMask = ServiceMask{BACKUP_SERVICE}.serialize();
-    EXPECT_EQ(backupMask, serialEntry.service_mask());
+    EXPECT_EQ(backupMask, serialEntry.services());
     EXPECT_EQ(ServerId(5234, 23482).getId(), serialEntry.server_id());
     EXPECT_EQ("giggity", serialEntry.service_locator());
-    EXPECT_EQ(723U, serialEntry.backup_read_mbytes_per_sec());
+    EXPECT_EQ(723U, serialEntry.expected_read_mbytes_per_sec());
     EXPECT_EQ(ServerStatus::UP, ServerStatus(serialEntry.status()));
 
-    entry.serviceMask = ServiceMask{MASTER_SERVICE};
+    entry.services = ServiceMask{MASTER_SERVICE};
     ProtoBuf::ServerList_Entry serialEntry2;
     entry.serialize(serialEntry2);
     auto masterMask = ServiceMask{MASTER_SERVICE}.serialize();
-    EXPECT_EQ(masterMask, serialEntry2.service_mask());
-    EXPECT_EQ(0U, serialEntry2.backup_read_mbytes_per_sec());
+    EXPECT_EQ(masterMask, serialEntry2.services());
+    EXPECT_EQ(0U, serialEntry2.expected_read_mbytes_per_sec());
     EXPECT_EQ(ServerStatus::UP, ServerStatus(serialEntry2.status()));
 }
 

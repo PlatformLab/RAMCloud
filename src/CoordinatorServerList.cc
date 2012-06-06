@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -22,6 +22,7 @@
 #include "CoordinatorServerList.h"
 #include "MembershipClient.h"
 #include "ShortMacros.h"
+#include "ServerTracker.h"
 #include "TransportManager.h"
 
 namespace RAMCloud {
@@ -39,6 +40,7 @@ CoordinatorServerList::CoordinatorServerList()
     , numberOfMasters(0)
     , numberOfBackups(0)
     , versionNumber(0)
+    , trackers()
 {
 }
 
@@ -65,6 +67,9 @@ CoordinatorServerList::~CoordinatorServerList()
  * servers which re-enlist.  For now, this means calls to remove()/crashed()
  * must proceed call to add() if they have a common \a update.
  *
+ * The addition will be pushed to all registered trackers and those with
+ * callbacks will be notified.
+ *
  * \param serviceLocator
  *      The ServiceLocator string of the server to add.
  * \param serviceMask
@@ -87,22 +92,28 @@ CoordinatorServerList::add(string serviceLocator,
     Lock _(mutex);
     uint32_t index = firstFreeIndex();
 
-    ServerId id(index, serverList[index].nextGenerationNumber);
-    serverList[index].nextGenerationNumber++;
-    serverList[index].entry.construct(id, serviceLocator, serviceMask);
+    auto& pair = serverList[index];
+    ServerId id(index, pair.nextGenerationNumber);
+    pair.nextGenerationNumber++;
+    pair.entry.construct(id, serviceLocator, serviceMask);
 
     if (serviceMask.has(MASTER_SERVICE)) {
         numberOfMasters++;
-        serverList[index].entry->will = new ProtoBuf::Tablets;
+        pair.entry->will = new ProtoBuf::Tablets;
     }
 
     if (serviceMask.has(BACKUP_SERVICE)) {
         numberOfBackups++;
-        serverList[index].entry->backupReadMBytesPerSec = readSpeed;
+        pair.entry->expectedReadMBytesPerSec = readSpeed;
     }
 
     ProtoBuf::ServerList_Entry& protoBufEntry(*update.add_server());
-    serverList[index].entry->serialize(protoBufEntry);
+    pair.entry->serialize(protoBufEntry);
+
+    foreach (ServerTrackerInterface* tracker, trackers)
+        tracker->enqueueChange(*pair.entry, ServerChangeEvent::SERVER_ADDED);
+    foreach (ServerTrackerInterface* tracker, trackers)
+        tracker->fireCallback();
 
     return id;
 }
@@ -121,6 +132,9 @@ CoordinatorServerList::add(string serviceLocator,
  * in the update to ensure ordering guarantees about notifications related to
  * servers which re-enlist.  For now, this means calls to remove()/crashed()
  * must proceed call to add() if they have a common \a update.
+ *
+ * The addition will be pushed to all registered trackers and those with
+ * callbacks will be notified.
  *
  * \param serverId
  *      The ServerId of the server to remove from the CoordinatorServerList.
@@ -151,6 +165,9 @@ CoordinatorServerList::crashed(ServerId serverId,
  * servers which re-enlist.  For now, this means calls to remove()/crashed()
  * must proceed call to add() if they have a common \a update.
  *
+ * The addition will be pushed to all registered trackers and those with
+ * callbacks will be notified.
+ *
  * \param serverId
  *      The ServerId of the server to remove from the CoordinatorServerList.
  *      It must be in the list (either UP or CRASHED).
@@ -173,13 +190,21 @@ CoordinatorServerList::remove(ServerId serverId,
 
     crashed(lock, serverId, update);
 
+    auto& entry = serverList[index].entry;
     // Even though we destroy this entry almost immediately setting the state
     // gets the serialized update message's state field correct.
-    serverList[index].entry->status = ServerStatus::DOWN;
+    entry->status = ServerStatus::DOWN;
 
     ProtoBuf::ServerList_Entry& protoBufEntry(*update.add_server());
-    serverList[index].entry->serialize(protoBufEntry);
-    serverList[index].entry.destroy();
+    entry->serialize(protoBufEntry);
+
+    Entry removedEntry = *entry;
+    entry.destroy();
+
+    foreach (ServerTrackerInterface* tracker, trackers)
+        tracker->enqueueChange(removedEntry, ServerChangeEvent::SERVER_REMOVED);
+    foreach (ServerTrackerInterface* tracker, trackers)
+        tracker->fireCallback();
 }
 
 /**
@@ -517,7 +542,7 @@ CoordinatorServerList::sendMembershipUpdate(ProtoBuf::ServerList& update,
         Tub<Entry>& entry = serverList[i].entry;
         if (!entry ||
             entry->status != ServerStatus::UP ||
-            !entry->serviceMask.has(MEMBERSHIP_SERVICE))
+            !entry->services.has(MEMBERSHIP_SERVICE))
             continue;
         if (entry->serverId == excludeServerId)
             continue;
@@ -553,6 +578,68 @@ CoordinatorServerList::sendMembershipUpdate(ProtoBuf::ServerList& update,
     }
 }
 
+/**
+ * Register a ServerTracker with this list. Any updates to this
+ * list (additions, removals, or crashes) will be propagated to the tracker.
+ * The current list of hosts will be pushed to the tracker immediately so
+ * that its state is synchronised with this list.
+ *
+ * \throw ServerListException
+ *      An exception is thrown if the same tracker is registered more
+ *      than once.
+ */
+void
+CoordinatorServerList::registerTracker(ServerTrackerInterface& tracker)
+{
+    Lock _(mutex);
+
+    auto it = std::find(trackers.begin(), trackers.end(), &tracker);
+    if (it != trackers.end()) {
+        throw ServerListException(HERE,
+            "Cannot register the same tracker twice!");
+    }
+
+    trackers.push_back(&tracker);
+
+    // Push all known servers which are crashed first.
+    // Order is important to guarantee that if one server replaced another
+    // during enlistment that the registering tracker queue will have the
+    // crash event for the replaced server before the add event of the
+    // server which replaced it.
+    foreach (const auto& server, serverList) {
+        if (!server.entry || server.entry->status != ServerStatus::CRASHED)
+            continue;
+        const Entry& entry = *server.entry;
+        ServerDetails details = entry;
+        details.status = ServerStatus::UP;
+        tracker.enqueueChange(details, ServerChangeEvent::SERVER_ADDED);
+        tracker.enqueueChange(entry, ServerChangeEvent::SERVER_CRASHED);
+    }
+    // Push all known server which are up.
+    foreach (const auto& server, serverList) {
+        if (!server.entry || server.entry->status != ServerStatus::UP)
+            continue;
+        tracker.enqueueChange(*server.entry, ServerChangeEvent::SERVER_ADDED);
+    }
+    tracker.fireCallback();
+}
+
+/**
+ * Unregister a ServerTracker that was previously registered with this
+ * list. Doing so will cease all update propagation.
+ */
+void
+CoordinatorServerList::unregisterTracker(ServerTrackerInterface& tracker)
+{
+    Lock _(mutex);
+    for (auto it = trackers.begin(); it != trackers.end(); ++it) {
+        if (*it == &tracker) {
+            trackers.erase(it);
+            break;
+        }
+    }
+}
+
 //////////////////////////////////////////////////////////////////////
 // CoordinatorServerList Private Methods
 //////////////////////////////////////////////////////////////////////
@@ -571,19 +658,25 @@ CoordinatorServerList::crashed(const Lock& lock,
                         format("Invalid ServerId (%lu)", serverId.getId()));
     }
 
-    if (serverList[index].entry->status == ServerStatus::CRASHED)
+    auto& entry = serverList[index].entry;
+    if (entry->status == ServerStatus::CRASHED)
         return;
-    assert(serverList[index].entry->status != ServerStatus::DOWN);
+    assert(entry->status != ServerStatus::DOWN);
 
-    if (serverList[index].entry->isMaster())
+    if (entry->isMaster())
         numberOfMasters--;
-    if (serverList[index].entry->isBackup())
+    if (entry->isBackup())
         numberOfBackups--;
 
-    serverList[index].entry->status = ServerStatus::CRASHED;
+    entry->status = ServerStatus::CRASHED;
 
     ProtoBuf::ServerList_Entry& protoBufEntry(*update.add_server());
-    serverList[index].entry->serialize(protoBufEntry);
+    entry->serialize(protoBufEntry);
+
+    foreach (ServerTrackerInterface* tracker, trackers)
+        tracker->enqueueChange(*entry, ServerChangeEvent::SERVER_CRASHED);
+    foreach (ServerTrackerInterface* tracker, trackers)
+        tracker->fireCallback();
 }
 
 /**
@@ -690,14 +783,10 @@ CoordinatorServerList::serialize(const Lock& lock,
  * Construct a new Entry, which contains no valid information.
  */
 CoordinatorServerList::Entry::Entry()
-    : serverId(),
-      serviceLocator(),
-      serviceMask(),
-      will(),
-      backupReadMBytesPerSec(),
-      status(ServerStatus::DOWN),
-      minOpenSegmentId(),
-      replicationId()
+    : ServerDetails()
+    , will()
+    , minOpenSegmentId()
+    , replicationId()
 {
 }
 
@@ -708,24 +797,25 @@ CoordinatorServerList::Entry::Entry()
  * \param serverId
  *      The ServerId of the server this entry describes.
  *
- * \param serviceLocatorString
+ * \param serviceLocator
  *      The ServiceLocator string that can be used to address this
  *      entry's server.
  *
- * \param serviceMask
+ * \param services
  *      Which services this server supports.
  */
 CoordinatorServerList::Entry::Entry(ServerId serverId,
-                                    string serviceLocatorString,
-                                    ServiceMask serviceMask)
-    : serverId(serverId),
-      serviceLocator(serviceLocatorString),
-      serviceMask(serviceMask),
-      will(NULL),
-      backupReadMBytesPerSec(0),
-      status(ServerStatus::UP),
-      minOpenSegmentId(0),
-      replicationId(0)
+                                    const string& serviceLocator,
+                                    ServiceMask services)
+
+    : ServerDetails(serverId,
+                    serviceLocator,
+                    services,
+                    0,
+                    ServerStatus::UP)
+    , will(NULL)
+    , minOpenSegmentId(0)
+    , replicationId(0)
 {
 }
 
@@ -735,14 +825,14 @@ CoordinatorServerList::Entry::Entry(ServerId serverId,
 void
 CoordinatorServerList::Entry::serialize(ProtoBuf::ServerList_Entry& dest) const
 {
-    dest.set_service_mask(serviceMask.serialize());
+    dest.set_services(services.serialize());
     dest.set_server_id(serverId.getId());
     dest.set_service_locator(serviceLocator);
     dest.set_status(uint32_t(status));
     if (isBackup())
-        dest.set_backup_read_mbytes_per_sec(backupReadMBytesPerSec);
+        dest.set_expected_read_mbytes_per_sec(expectedReadMBytesPerSec);
     else
-        dest.set_backup_read_mbytes_per_sec(0); // Tests expect the field.
+        dest.set_expected_read_mbytes_per_sec(0); // Tests expect the field.
 }
 
 } // namespace RAMCloud

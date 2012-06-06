@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -11,11 +11,6 @@
  * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
- */
-
-/**
- * \file
- * This file defines the ServerList class.
  */
 
 #ifndef RAMCLOUD_SERVERLIST_H
@@ -50,6 +45,78 @@ enum class ServerStatus : uint32_t {
     DOWN = 2,
 };
 
+/**
+ * Each change provided to a ServerTracker by its ServerList includes a
+ * ServerDetails which describes details about the server which was
+ * added, crashed, or was removed from the cluster.
+ */
+class ServerDetails {
+  PUBLIC:
+    /**
+     * Create an instance that doesn't represent any server.
+     */
+    ServerDetails()
+        : serverId()
+        , serviceLocator()
+        , services()
+        , expectedReadMBytesPerSec()
+        , status(ServerStatus::DOWN)
+    {}
+
+    /**
+     * Create an instance where only #serverId is valid. Used to represent
+     * the details of a SERVER_CRASHED or SERVER_REMOVED event.
+     */
+    ServerDetails(ServerId id, ServerStatus status)
+        : serverId(id)
+        , serviceLocator()
+        , services()
+        , expectedReadMBytesPerSec()
+        , status(status)
+    {}
+
+    /**
+     * Create an instance where all fields are valid.
+     */
+    ServerDetails(ServerId id,
+                  const string& locator,
+                  ServiceMask services,
+                  uint32_t expectedReadMBytesPerSec,
+                  ServerStatus status)
+        : serverId(id)
+        , serviceLocator(locator)
+        , services(services)
+        , expectedReadMBytesPerSec(expectedReadMBytesPerSec)
+        , status(status)
+    {}
+
+    virtual ~ServerDetails() {}
+
+    /// ServerId associated with this index in the serverList (never reused).
+    ServerId serverId;
+
+    /// Service locator which can be used to contact this server.
+    string serviceLocator;
+
+    /// Which services are supported by the process at #serverId.
+    ServiceMask services;
+
+    /**
+     * Disk bandwidth of the backup server in MB/s, if
+     * services.has(BACKUP_SERVICE), invalid otherwise.
+     */
+    uint32_t expectedReadMBytesPerSec;
+
+    /**
+     * Whether this server is believed to be up, crashed, or down.
+     * The crashed state initiates some operations throughout the cluster
+     * (backup recovery) and also indicates that resources needed to recover
+     * this server (replicas) need to be retained until this server is
+     * completely removed from the cluster.
+     */
+    ServerStatus status;
+};
+
 /// Forward declartion.
 class ServerTrackerInterface;
 
@@ -80,69 +147,6 @@ struct ServerListException : public Exception {
  */
 class ServerList {
   PUBLIC:
-    /**
-     * Information about a particular server in the serverList vector.
-     * This information is disseminated as part of ServerChanges to listening
-     * trackers and replicated there for fast, lock-free access.
-     */
-    class ServerDetails {
-      PUBLIC:
-        /**
-         * Create an instance where all fields are invalid. Used to 'zero-out'
-         * serverList entries which aren't currently associated with a server.
-         */
-        ServerDetails()
-            : serverId()
-            , serviceLocator()
-            , services()
-            , expectedReadMBytesPerSec()
-            , status(ServerStatus::DOWN)
-        {}
-
-        /**
-         * Create an instance where only #serverId is valid. Used to represent
-         * the details of a SERVER_CRASHED or SERVER_REMOVED event.
-         */
-        ServerDetails(ServerId id, ServerStatus status)
-            : serverId(id)
-            , serviceLocator()
-            , services()
-            , expectedReadMBytesPerSec()
-            , status(status)
-        {}
-
-        /**
-         * Create an instance where all fields are valid.
-         */
-        ServerDetails(ServerId id,
-                      const string& locator,
-                      ServiceMask services,
-                      uint32_t expectedReadMBytesPerSec,
-                      ServerStatus status)
-            : serverId(id)
-            , serviceLocator(locator)
-            , services(services)
-            , expectedReadMBytesPerSec(expectedReadMBytesPerSec)
-            , status(status)
-        {}
-
-        /// ServerId associated with this index in the serverList.
-        ServerId serverId;
-
-        /// Service locator associated with this serverId in the serverList.
-        string serviceLocator;
-
-        /// Which services are supported by the process at #serverId.
-        ServiceMask services;
-
-        /// Disk bandwidth of the backup server in MB/s, if
-        /// services.has(BACKUP_SERVICE), invalid otherwise.
-        uint32_t expectedReadMBytesPerSec;
-
-        /// Whether this server is believed to be up, crashed, or down.
-        ServerStatus status;
-    };
-
     ServerList();
     ~ServerList();
 

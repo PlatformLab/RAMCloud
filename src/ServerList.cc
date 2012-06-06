@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -11,11 +11,6 @@
  * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
- */
-
-/**
- * \file
- * This file implements the ServerList class.
  */
 
 #include <unordered_set>
@@ -329,8 +324,8 @@ ServerList::applyFullList(const ProtoBuf::ServerList& list)
         if (ServerStatus(server.status()) != ServerStatus::CRASHED)
             continue;
         crashed(ServerId(server.server_id()), server.service_locator(),
-                ServiceMask::deserialize(server.service_mask()),
-                server.backup_read_mbytes_per_sec());
+                ServiceMask::deserialize(server.services()),
+                server.expected_read_mbytes_per_sec());
     }
 
     // Finally UPs are done.
@@ -338,8 +333,8 @@ ServerList::applyFullList(const ProtoBuf::ServerList& list)
         if (ServerStatus(server.status()) != ServerStatus::UP)
             continue;
         add(ServerId(server.server_id()), server.service_locator(),
-            ServiceMask::deserialize(server.service_mask()),
-            server.backup_read_mbytes_per_sec());
+            ServiceMask::deserialize(server.services()),
+            server.expected_read_mbytes_per_sec());
     }
 
     version = list.version_number();
@@ -383,8 +378,8 @@ ServerList::applyUpdate(const ProtoBuf::ServerList& update)
         ServerStatus status = ServerStatus(server.status());
         const string& locator = server.service_locator();
         ServiceMask services =
-            ServiceMask::deserialize(server.service_mask());
-        uint32_t readMBytesPerSec = server.backup_read_mbytes_per_sec();
+            ServiceMask::deserialize(server.services());
+        uint32_t readMBytesPerSec = server.expected_read_mbytes_per_sec();
         if (status == ServerStatus::UP) {
             LOG(NOTICE, "  Adding server id %lu (locator \"%s\") "
                          "with services %s and %u MB/s storage",

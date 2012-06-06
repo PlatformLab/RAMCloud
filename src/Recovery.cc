@@ -470,7 +470,7 @@ Recovery::buildReplicaMap()
 
         const auto& task = backupStartTasks[taskIndex];
         auto backup = *serverList[nextBackupIndex];
-        const uint64_t speed = backup.backupReadMBytesPerSec;
+        const uint64_t speed = backup.expectedReadMBytesPerSec;
 
         LOG(DEBUG, "Adding %lu segment replicas from %s "
                    "with bench speed of %lu",

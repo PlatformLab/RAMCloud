@@ -257,9 +257,9 @@ TEST_F(CoordinatorServiceTest, enlistServer) {
     ProtoBuf::ServerList masterList;
     service->serverList.serialize(masterList, {MASTER_SERVICE});
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-                "server { service_mask: 25 server_id: 1 "
+                "server { services: 25 server_id: 1 "
                 "service_locator: \"mock:host=master\" "
-                "backup_read_mbytes_per_sec: [0-9]\\+ status: 0 } "
+                "expected_read_mbytes_per_sec: [0-9]\\+ status: 0 } "
                 "version_number: 2",
                 masterList.ShortDebugString()));
 
@@ -268,9 +268,9 @@ TEST_F(CoordinatorServiceTest, enlistServer) {
 
     ProtoBuf::ServerList backupList;
     service->serverList.serialize(backupList, {BACKUP_SERVICE});
-    EXPECT_EQ("server { service_mask: 2 server_id: 2 "
+    EXPECT_EQ("server { services: 2 server_id: 2 "
               "service_locator: \"mock:host=backup\" "
-              "backup_read_mbytes_per_sec: 0 status: 0 } "
+              "expected_read_mbytes_per_sec: 0 status: 0 } "
               "version_number: 2",
               backupList.ShortDebugString());
 }
@@ -326,9 +326,9 @@ TEST_F(CoordinatorServiceTest, getMasterList) {
     client->getMasterList(masterList);
     // need to avoid non-deterministic mbytes_per_sec field.
     EXPECT_EQ(0U, masterList.ShortDebugString().find(
-              "server { service_mask: 25 server_id: 1 "
+              "server { services: 25 server_id: 1 "
               "service_locator: \"mock:host=master\" "
-              "backup_read_mbytes_per_sec: "));
+              "expected_read_mbytes_per_sec: "));
 }
 
 TEST_F(CoordinatorServiceTest, getBackupList) {
@@ -337,13 +337,13 @@ TEST_F(CoordinatorServiceTest, getBackupList) {
     client->enlistServer({}, {BACKUP_SERVICE}, "mock:host=backup2");
     ProtoBuf::ServerList backupList;
     client->getBackupList(backupList);
-    EXPECT_EQ("server { service_mask: 2 server_id: 2 "
+    EXPECT_EQ("server { services: 2 server_id: 2 "
               "service_locator: \"mock:host=backup1\" "
-              "backup_read_mbytes_per_sec: 0 "
+              "expected_read_mbytes_per_sec: 0 "
               "status: 0 } "
-              "server { service_mask: 2 server_id: 3 "
+              "server { services: 2 server_id: 3 "
               "service_locator: \"mock:host=backup2\" "
-              "backup_read_mbytes_per_sec: 0 "
+              "expected_read_mbytes_per_sec: 0 "
               "status: 0 } version_number: 3",
                             backupList.ShortDebugString());
 }
@@ -356,9 +356,9 @@ TEST_F(CoordinatorServiceTest, getServerList) {
     EXPECT_EQ(2, serverList.server_size());
     auto masterMask = ServiceMask{MASTER_SERVICE, PING_SERVICE,
                                   MEMBERSHIP_SERVICE}.serialize();
-    EXPECT_EQ(masterMask, serverList.server(0).service_mask());
+    EXPECT_EQ(masterMask, serverList.server(0).services());
     auto backupMask = ServiceMask{BACKUP_SERVICE}.serialize();
-    EXPECT_EQ(backupMask, serverList.server(1).service_mask());
+    EXPECT_EQ(backupMask, serverList.server(1).services());
 }
 
 TEST_F(CoordinatorServiceTest, getTabletMap) {

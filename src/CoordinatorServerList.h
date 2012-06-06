@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -32,6 +32,9 @@
 
 namespace RAMCloud {
 
+/// Forward declartion.
+class ServerTrackerInterface;
+
 /**
  * A CoordinatorServerList allocates ServerIds and holds Coordinator
  * state associated with live servers. It is closely related to the
@@ -40,9 +43,14 @@ namespace RAMCloud {
  * does not propagate events to trackers, and unlike ServerTrackers it
  * is not an asynchronous model of queued updates.
  *
- * There's probably some clever class hierarchy that could be used for
- * all of these related bits, but I'm not sure that it would offer much
- * in terms of code reuse or simplifications.
+ * If a module wishes to keep track of changes to the CoordinatorServerList
+ * (when machines are added, crash, or are removed), then it may register
+ * its own private ServerTracker with the CoordinatorServerList.
+ * The tracker will be fed updates whenever servers come or go. The tracker
+ * also provides a convenient way to associate their own per-server state
+ * with ServerIds that they're using or keeping track of.
+ *
+ * Operations on CoordinatorServerList are thread-safe.
  */
 class CoordinatorServerList {
   PUBLIC:
@@ -55,54 +63,33 @@ class CoordinatorServerList {
      * It's up to the user to ensure proper memory management, and they're
      * free to copy entries all they want.
      */
-    class Entry {
+    class Entry : public ServerDetails {
       public:
         Entry();
         Entry(ServerId serverId,
-              string serviceLocatorString,
-              ServiceMask serviceMask);
+              const string& serviceLocator,
+              ServiceMask services);
         Entry(const Entry& other) = default;
         Entry& operator=(const Entry& other) = default;
         void serialize(ProtoBuf::ServerList_Entry& dest) const;
 
         bool isMaster() const {
             return (status == ServerStatus::UP) &&
-                   serviceMask.has(MASTER_SERVICE);
+                   services.has(MASTER_SERVICE);
         }
         bool isBackup() const {
             return (status == ServerStatus::UP) &&
-                   serviceMask.has(BACKUP_SERVICE);
+                   services.has(BACKUP_SERVICE);
         }
-
-        /// ServerId of the server (uniquely identifies it, never reused).
-        ServerId serverId;
-
-        /// The ServiceLocator of the server (used to address it).
-        string serviceLocator;
-
-        /// Which services this particular server is running.
-        ServiceMask serviceMask;
-
-        /// The master's will (only to be set if the serviceMask includes
-        /// MASTER_SERVICE).
-        ProtoBuf::Tablets* will;
-
-        /// The backup's read speed in megabytes per second (only to set
-        /// set if serviceMask includes BACKUP_SERVICE).
-        uint32_t backupReadMBytesPerSec;
-
-        /**
-         * Keeps track of whether this server is a normal cluster member
-         * or whether it is in a crashed state.  The crashed state initiates
-         * some operations throughout the cluster (backup recovery) and also
-         * indicates that resources needed to recover this server (replicas)
-         * need to be retained until this server is completely removed from
-         * the cluster.
-         */
-        ServerStatus status;
 
         // Fields below this point are maintained on the coordinator only
         // and are not transmitted to members' ServerLists.
+
+        /**
+         * The master's will (only valid if the services includes
+         * MASTER_SERVICE).
+         */
+        ProtoBuf::Tablets* will;
 
         /**
          * Any open replicas found during recovery are considered invalid
@@ -151,6 +138,9 @@ class CoordinatorServerList {
                    ServiceMask services) const;
     void sendMembershipUpdate(ProtoBuf::ServerList& update,
                               ServerId excludeServerId);
+
+    void registerTracker(ServerTrackerInterface& tracker);
+    void unregisterTracker(ServerTrackerInterface& tracker);
 
   PRIVATE:
     /**
@@ -206,6 +196,12 @@ class CoordinatorServerList {
     /// they can use this to determine if any previous RPC was missed and
     /// then re-fetch the latest list in its entirety to get back on track.
     uint64_t versionNumber;
+
+    /**
+     * ServerTrackers that have registered with us and will receive updates
+     * regarding additions or removals from this list.
+     */
+    std::vector<ServerTrackerInterface*> trackers;
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorServerList);
 };

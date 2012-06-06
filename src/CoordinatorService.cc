@@ -337,7 +337,7 @@ CoordinatorService::enlistServer(const EnlistServerRpc::Request& reqHdr,
     LOG(NOTICE, "Enlisting new server at %s (server id %lu) supporting "
         "services: %s",
         serviceLocator, newServerId.getId(),
-        entry.serviceMask.toString().c_str());
+        entry.services.toString().c_str());
     if (replacesId.isValid()) {
         LOG(NOTICE, "Newly enlisted server %lu replaces server %lu",
             newServerId.getId(), replacesId.getId());
@@ -352,7 +352,7 @@ CoordinatorService::enlistServer(const EnlistServerRpc::Request& reqHdr,
     respHdr.serverId = newServerId.getId();
     rpc.sendReply();
 
-    if (entry.serviceMask.has(MEMBERSHIP_SERVICE))
+    if (entry.services.has(MEMBERSHIP_SERVICE))
         sendServerList(newServerId);
     serverList.sendMembershipUpdate(serverListUpdate, newServerId);
 
@@ -624,7 +624,7 @@ CoordinatorService::sendServerList(
         return;
     }
 
-    if (!serverList[id].serviceMask.has(MEMBERSHIP_SERVICE)) {
+    if (!serverList[id].services.has(MEMBERSHIP_SERVICE)) {
         LOG(WARNING, "Could not send list to server without membership "
             "service: %lu", *id);
         return;

@@ -101,7 +101,7 @@ TEST_F(ServerTest, enlist) {
     EXPECT_EQ(1, serverList.server_size());
     auto mask = config.services.serialize();
     EXPECT_EQ(config.localLocator, serverList.server(0).service_locator());
-    EXPECT_EQ(mask, serverList.server(0).service_mask());
+    EXPECT_EQ(mask, serverList.server(0).services());
 }
 
 } // namespace RAMCloud
