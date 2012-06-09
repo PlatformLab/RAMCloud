@@ -55,10 +55,10 @@ RamCloud::RamCloud(Context& context, const char* serviceLocator)
 }
 
 /// \copydoc CoordinatorClient::createTable
-void
+uint64_t
 RamCloud::createTable(const char* name, uint32_t serverSpan)
 {
-    coordinator.createTable(name, serverSpan);
+    return coordinator.createTable(name, serverSpan);
 }
 
 /// \copydoc CoordinatorClient::dropTable

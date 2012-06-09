@@ -419,6 +419,7 @@ struct CreateTableRpc {
     } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
+        uint64_t tableId;             // The id of the created table.
     } __attribute__((packed));
 };
 

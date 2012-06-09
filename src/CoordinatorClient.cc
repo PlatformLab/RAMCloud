@@ -31,10 +31,16 @@ namespace RAMCloud {
  *      to this number of servers according to their hash. This is a temporary
  *      work-around until tablet migration is complete; until then, we must
  *      place tablets on servers statically.
+ * 
+ * \return
+ *      The return value is an identifier for the created table; this is
+ *      used instead of the table's name for most RAMCloud operations
+ *      involving the table.
+ *
  *
  * \exception InternalError
  */
-void
+uint64_t
 CoordinatorClient::createTable(const char* name, uint32_t serverSpan)
 {
     Buffer req;
@@ -45,10 +51,11 @@ CoordinatorClient::createTable(const char* name, uint32_t serverSpan)
     memcpy(new(&req, APPEND) char[length], name, length);
     while (true) {
         Buffer resp;
-        sendRecv<CreateTableRpc>(session, req, resp);
+        const CreateTableRpc::Response& respHdr(
+            sendRecv<CreateTableRpc>(session, req, resp));
         try {
             checkStatus(HERE);
-            return;
+            return respHdr.tableId;
         } catch (const RetryException& e) {
             LOG(DEBUG, "RETRY trying to create table");
             usleep(500);

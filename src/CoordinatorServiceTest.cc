@@ -70,10 +70,10 @@ TEST_F(CoordinatorServiceTest, createTable) {
     master->log.append(LOG_ENTRY_TYPE_OBJ, "hi", 2);
 
     // master is already enlisted
-    client->createTable("foo");
-    client->createTable("foo"); // should be no-op
-    client->createTable("bar"); // should go to master2
-    client->createTable("baz"); // and back to master1
+    EXPECT_EQ(0U, client->createTable("foo"));
+    EXPECT_EQ(0U, client->createTable("foo")); // should be no-op
+    EXPECT_EQ(1U, client->createTable("bar")); // should go to master2
+    EXPECT_EQ(2U, client->createTable("baz")); // and back to master1
 
     EXPECT_EQ(0U, get(service->tables, "foo"));
     EXPECT_EQ(1U, get(service->tables, "bar"));

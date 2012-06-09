@@ -132,6 +132,7 @@ CoordinatorService::createTable(const CreateTableRpc::Request& reqHdr,
         return;
     uint64_t tableId = nextTableId++;
     tables[name] = tableId;
+    respHdr.tableId = tableId;
 
     uint32_t serverSpan = reqHdr.serverSpan;
     if (serverSpan == 0)

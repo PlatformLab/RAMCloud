@@ -52,10 +52,8 @@ class RamCloudTest : public ::testing::Test {
         cluster.addServer(config);
 
         ramcloud.construct(context, "mock:host=coordinator");
-        ramcloud->createTable("table1");
-        tableId1 = ramcloud->getTableId("table1");
-        ramcloud->createTable("table2");
-        tableId2 = ramcloud->getTableId("table2");
+        tableId1 = ramcloud->createTable("table1");
+        tableId2 = ramcloud->createTable("table2");
     }
 
     DISALLOW_COPY_AND_ASSIGN(RamCloudTest);
