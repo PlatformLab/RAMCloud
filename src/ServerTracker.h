@@ -107,6 +107,22 @@ class ServerTracker : public ServerTrackerInterface {
     };
 
     /**
+     * Constructor for a ServerTracker which is not associated with
+     * and ServerList. For unit testing.
+     */
+    ServerTracker()
+        : ServerTrackerInterface()
+        , serverListParent()
+        , coordinatorServerListParent()
+        , serverList()
+        , changes()
+        , lastRemovedIndex(-1)
+        , eventCallback()
+        , numberOfServers(0)
+        , testing_avoidGetChangeAssertion(false)
+    {}
+
+    /**
      * Constructor for ServerTracker.
      * 
      * \param parent
@@ -567,6 +583,30 @@ class ServerTracker : public ServerTrackerInterface {
                        ServerList::toString(server.server.status).c_str()));
         }
 
+        return result;
+    }
+
+    /**
+     * Find all servers having a particular service.
+     *
+     * \param service
+     *      Only return servers which have this particular service type
+     *      running.
+     * \return
+     *      List of ServerIds of servers this tracker contains that have
+     *      #service.
+     */
+    std::vector<ServerId>
+    getServersWithService(ServiceType service)
+    {
+        std::vector<ServerId> result;
+        result.reserve(serverList.size());
+        foreach (const auto& entry, serverList) {
+            const auto& server = entry.server;
+            if (server.status == ServerStatus::UP &&
+                server.services.has(service))
+                result.push_back(server.serverId);
+        }
         return result;
     }
 

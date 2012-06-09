@@ -21,12 +21,14 @@
 #include "CoordinatorServerList.h"
 #include "ProtoBuf.h"
 #include "Recovery.h"
+#include "ServerTracker.h"
 #include "TabletMap.h"
 #include "Tub.h"
 
 namespace RAMCloud {
 
 namespace MasterRecoveryManagerInternal {
+class ApplyTrackerChangesTask;
 class MaybeStartRecoveryTask;
 class EnqueueMasterRecoveryTask;
 class RecoveryMasterFinishedTask;
@@ -44,6 +46,7 @@ class RecoveryMasterFinishedTask;
  * to this manager.
  */
 class MasterRecoveryManager : public Recovery::Deleter
+                            , public ServerTracker<Recovery>::Callback
 {
   PUBLIC:
     MasterRecoveryManager(CoordinatorServerList& serverList,
@@ -53,21 +56,19 @@ class MasterRecoveryManager : public Recovery::Deleter
     void start();
     void halt();
 
-    void startMasterRecovery(ServerId crashedServerId,
-                             const ProtoBuf::Tablets& will);
+    void startMasterRecovery(ServerId crashedServerId);
     void recoveryMasterFinished(uint64_t recoveryId,
                                 ServerId recoveryMasterId,
                                 const ProtoBuf::Tablets& recoveredTablets,
                                 bool successful);
 
-    void handleServerFailure(ServerId serverId);
+    virtual void trackerChangesEnqueued();
 
     virtual void destroyAndFreeRecovery(Recovery* recovery);
 
   PRIVATE:
     void main(Context& context);
-    void restartMasterRecovery(ServerId crashedServerId,
-                               const ProtoBuf::Tablets& will);
+    void restartMasterRecovery(ServerId crashedServerId);
 
     /// Authoritative list of all servers in the system and their details.
     CoordinatorServerList& serverList;
@@ -111,11 +112,22 @@ class MasterRecoveryManager : public Recovery::Deleter
     TaskQueue taskQueue;
 
     /**
+     * Maintains a list of all servers in RAMCloud along with a pointer to any
+     * Recovery the server is particpating in (as a recovery master). This is
+     * used by recoveries to select recovery masters and to find all backup
+     * data for the crashed master. Changes to #serverList are pushed to
+     * #tracker and applied asynchronously at an opportune time. See
+     * trackerChangesEnqueued().
+     */
+    RecoveryTracker tracker;
+
+    /**
      * Prevents startMasterRecovery() from actually starting recovery and,
      * instead, logs arguments to the call. Used for unit testing.
      */
     bool doNotStartRecoveries;
 
+    friend class MasterRecoveryManagerInternal::ApplyTrackerChangesTask;
     friend class MasterRecoveryManagerInternal::MaybeStartRecoveryTask;
     friend class MasterRecoveryManagerInternal::EnqueueMasterRecoveryTask;
     friend class MasterRecoveryManagerInternal::RecoveryMasterFinishedTask;

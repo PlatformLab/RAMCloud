@@ -36,6 +36,7 @@ MasterRecoveryManager::MasterRecoveryManager(CoordinatorServerList& serverList,
     , activeRecoveries()
     , maxActiveRecoveries(1u)
     , taskQueue()
+    , tracker(serverList, this)
     , doNotStartRecoveries()
 {
 }
@@ -83,18 +84,9 @@ MasterRecoveryManager::halt()
  * \param crashedServerId
  *      The crashed server which is to be recovered. If the server did
  *      not own any tablets when it crashed then no recovery is started.
- * \param will
- *      A partitioned set of tablets or "will" of the crashed Master.
- *      It is represented as a tablet map with a partition id in the
- *      user_data field.  Partition ids must start at 0 and be
- *      consecutive.  No partition id can have 0 entries before
- *      any other partition that has more than 0 entries.  This
- *      is because the recovery recovers partitions up but excluding the
- *      first with no entries.
  */
 void
-MasterRecoveryManager::startMasterRecovery(ServerId crashedServerId,
-                                           const ProtoBuf::Tablets& will)
+MasterRecoveryManager::startMasterRecovery(ServerId crashedServerId)
 {
     auto tablets =
         tabletMap.setStatusForServer(crashedServerId, Tablet::RECOVERING);
@@ -103,19 +95,55 @@ MasterRecoveryManager::startMasterRecovery(ServerId crashedServerId,
             crashedServerId.getId());
         return;
     }
-    restartMasterRecovery(crashedServerId, will);
+    restartMasterRecovery(crashedServerId);
 }
 
-void
-MasterRecoveryManager::handleServerFailure(ServerId serverId)
-{
-    assert(false);
-    /*
-     * TODO(stutsman): Need some kind of tracker-like mechanism on
-     * the coordinator server list.
-     * Work through all active recoveries and subtract off the count of
-     * tablets they are waiting on.
+namespace MasterRecoveryManagerInternal {
+class ApplyTrackerChangesTask : public Task {
+  PUBLIC:
+    /**
+     * Create a task which when run will apply all enqueued changes to
+     * #tracker and notifies any recoveries which have lost recovery masters.
+     * This brings #mgr.tracker into sync with #mgr.serverList. Because this
+     * task is run by #mgr.taskQueue is it serialized with other tasks.
      */
+    explicit ApplyTrackerChangesTask(MasterRecoveryManager& mgr)
+        : Task(mgr.taskQueue)
+        , mgr(mgr)
+    {
+        schedule();
+    }
+
+    void performTask()
+    {
+        ServerDetails server;
+        ServerChangeEvent event;
+        while (mgr.tracker.getChange(server, event)) {
+            if (event == SERVER_CRASHED || event == SERVER_REMOVED) {
+                Recovery* recovery = mgr.tracker[server.serverId];
+                if (!recovery)
+                    break;
+                // Like it or not, recovery is done on this recovery master
+                // but unsuccessfully.
+                recovery->recoveryMasterFinished(server.serverId, false);
+            }
+        }
+    }
+
+    MasterRecoveryManager& mgr;
+};
+}
+using namespace MasterRecoveryManagerInternal; // NOLINT
+
+/**
+ * Schedule the handling of recovery master failures and the application
+ * of changes to #tracker.  Invoked by #serverList whenever #tracker has
+ * pending changes are pushed to it due to modifications to #serverList.
+ */
+void
+MasterRecoveryManager::trackerChangesEnqueued()
+{
+    (new ApplyTrackerChangesTask(*this))->schedule();
 }
 
 /**
@@ -227,16 +255,24 @@ class EnqueueMasterRecoveryTask : public Task {
      *      any other partition that has more than 0 entries.  This
      *      is because the recovery recovers partitions up but excluding the
      *      first with no entries.
+     * \param minOpenSegmentId
+     *      Used to filter out replicas of segments which may have become
+     *      inconsistent. A replica with a segment id less than this is
+     *      not eligible to be used for recovery (both for log digest and
+     *      object data purposes). Stored in and provided by the coordinator
+     *      server list.
      */
     EnqueueMasterRecoveryTask(MasterRecoveryManager& recoveryManager,
                               ServerId crashedServerId,
-                              const ProtoBuf::Tablets& will)
+                              const ProtoBuf::Tablets& will,
+                              uint64_t minOpenSegmentId)
         : Task(recoveryManager.taskQueue)
         , mgr(recoveryManager)
         , recovery()
+        , minOpenSegmentId(minOpenSegmentId)
     {
-        recovery = new Recovery(mgr.taskQueue, mgr.serverList, mgr,
-                                crashedServerId, will);
+        recovery = new Recovery(mgr.taskQueue, &mgr.tracker, &mgr,
+                                crashedServerId, will, minOpenSegmentId);
     }
 
     /**
@@ -254,6 +290,7 @@ class EnqueueMasterRecoveryTask : public Task {
   PRIVATE:
     MasterRecoveryManager& mgr;
     Recovery* recovery;
+    uint64_t minOpenSegmentId;
     DISALLOW_COPY_AND_ASSIGN(EnqueueMasterRecoveryTask);
 };
 
@@ -310,7 +347,7 @@ class RecoveryMasterFinishedTask : public Task {
         auto it = mgr.activeRecoveries.find(recoveryId);
         if (it == mgr.activeRecoveries.end()) {
             LOG(ERROR, "Recovery master reported completing recovery "
-                "%lu but that there is no ongoing recovery with that id; "
+                "%lu but there is no ongoing recovery with that id; "
                 "this should never happen in RAMCloud", recoveryId);
             delete this;
             return;
@@ -331,12 +368,12 @@ class RecoveryMasterFinishedTask : public Task {
                 // position of the head at the very start of recovery.
                 try {
                     mgr.tabletMap.modifyTablet(tablet.table_id(),
-                                           tablet.start_key_hash(),
-                                           tablet.end_key_hash(),
-                                           ServerId(tablet.server_id()),
-                                           Tablet::NORMAL,
-                                           {tablet.ctime_log_head_id(),
-                                            tablet.ctime_log_head_offset()});
+                                               tablet.start_key_hash(),
+                                               tablet.end_key_hash(),
+                                               ServerId(tablet.server_id()),
+                                               Tablet::NORMAL,
+                                               {tablet.ctime_log_head_id(),
+                                               tablet.ctime_log_head_offset()});
                 } catch (const Exception& e) {
                     // TODO(stutsman): What should we do here?
                     DIE("Entry wasn't in the list anymore; "
@@ -348,7 +385,7 @@ class RecoveryMasterFinishedTask : public Task {
         }
 
         Recovery* recovery = it->second;
-        recovery->recoveryMasterFinished(successful);
+        recovery->recoveryMasterFinished(recoveryMasterId, successful);
         if (recovery->isDone()) {
             LOG(NOTICE, "Recovery completed for master %lu",
                 recovery->crashedServerId.getId());
@@ -371,7 +408,9 @@ class RecoveryMasterFinishedTask : public Task {
                 // Enqueue will schedule a MaybeStartRecoveryTask.
                 (new EnqueueMasterRecoveryTask(mgr,
                                                recovery->crashedServerId,
-                                               recovery->will))->schedule();
+                                               recovery->will,
+                                               recovery->minOpenSegmentId))->
+                                                                    schedule();
             }
         }
         delete this;
@@ -446,35 +485,36 @@ MasterRecoveryManager::main(Context& context)
 }
 
 /**
- * Enqueue the recovery of the tablets indicated by \a will; actual recovery
- * happens asynchronously. This method does NOT mark the tablets of \a will
- * as RECOVERING; see startMasterRecovery() for that.
+ * Enqueue the recovery of the tablets indicated in the will stored in the
+ * CoordinatorServerList; actual recovery happens asynchronously. This method
+ * does NOT mark the recovering tablets as RECOVERING; see startMasterRecovery()
+ * for that.
  *
  * \param crashedServerId
  *      The crashed server which is to be recovered. If the server did
  *      not own any tablets when it crashed then no recovery is started.
- * \param will
- *      A partitioned set of tablets or "will" of the crashed Master.
- *      It is represented as a tablet map with a partition id in the
- *      user_data field.  Partition ids must start at 0 and be
- *      consecutive.  No partition id can have 0 entries before
- *      any other partition that has more than 0 entries.  This
- *      is because the recovery recovers partitions up but excluding the
- *      first with no entries.
+ *      This id *must* be in #serverList so the will and minOpenSegmentId
+ *      can be determined.
+ *
+ *  TODO(stutsman): Do we want to compare the will with the tablet map entries
+ *  marked recovering in the callee? Or should we work toward making the
+ *  wills and the tablet map consistent?
  */
 void
-MasterRecoveryManager::restartMasterRecovery(ServerId crashedServerId,
-                                             const ProtoBuf::Tablets& will)
+MasterRecoveryManager::restartMasterRecovery(ServerId crashedServerId)
 {
+    CoordinatorServerList::Entry server = serverList[crashedServerId];
     LOG(NOTICE, "Scheduling recovery of master %lu", crashedServerId.getId());
 
     if (doNotStartRecoveries) {
         TEST_LOG("Recovery crashedServerId: %lu", crashedServerId.getId());
-        TEST_LOG("Recovery will: %s", will.ShortDebugString().c_str());
+        TEST_LOG("Recovery will: %s", server.will->ShortDebugString().c_str());
         return;
     }
 
-    (new EnqueueMasterRecoveryTask(*this, crashedServerId, will))->schedule();
+    (new EnqueueMasterRecoveryTask(*this, crashedServerId,
+                                   *server.will,
+                                   server.minOpenSegmentId))->schedule();
 }
 
 } // namespace RAMCloud

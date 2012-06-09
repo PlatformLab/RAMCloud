@@ -18,6 +18,7 @@
 #include "MasterRecoveryManager.h"
 #include "ShortMacros.h"
 #include "TabletMap.h"
+#include "TabletsBuilder.h"
 
 namespace RAMCloud {
 
@@ -35,6 +36,42 @@ struct MasterRecoveryManagerTest : public ::testing::Test {
     {
         Context::get().logger->setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
     }
+
+    /**
+     * Add an entry to #serverList and process all tasks in #taskQueue
+     * (because adding an entry generates a Task which must be processed
+     * to bring #tracker into sync with #serverList).
+     * Careful not to call this when there are existing tasks on
+     * #taskQueue.
+     *
+     * \return
+     *      ServerId of the entry added to #serverList.
+     */
+    ServerId addMaster() {
+        ProtoBuf::ServerList update;
+        ServerId serverId =
+            serverList.add("fake-locator", {MASTER_SERVICE}, 0, update);
+        while (!mgr.taskQueue.isIdle())
+            mgr.taskQueue.performTask();
+        return serverId;
+    }
+
+    /**
+     * Change an entry in #serverList to crashed state and process all
+     * tasks in #taskQueue to force application of the server list change
+     * to #tracker.
+     * Careful not to call this when there are existing tasks on
+     * #taskQueue.
+     *
+     * \param crashedServerId
+     *      Server to mark as crashed.
+     */
+    void crashServer(ServerId crashedServerId) {
+        ProtoBuf::ServerList update;
+        serverList.crashed(crashedServerId, update);
+        while (!mgr.taskQueue.isIdle())
+            mgr.taskQueue.performTask();
+    }
 };
 
 TEST_F(MasterRecoveryManagerTest, startAndHalt) {
@@ -51,25 +88,19 @@ TEST_F(MasterRecoveryManagerTest, startAndHalt) {
 }
 
 TEST_F(MasterRecoveryManagerTest, startMasterRecoveryNoTablets) {
-    ProtoBuf::ServerList update;
-    const ServerId crashedServerId =
-        serverList.add("cerulean", {MASTER_SERVICE}, 0, update);
-    ProtoBuf::Tablets will;
+    auto crashedServerId = addMaster();
     TestLog::Enable _;
-    mgr.startMasterRecovery(crashedServerId, will);
+    mgr.startMasterRecovery(crashedServerId);
     EXPECT_EQ("startMasterRecovery: Server 1 crashed, "
               "but it had no tablets", TestLog::get());
 }
 
 TEST_F(MasterRecoveryManagerTest, startMasterRecovery) {
-    ProtoBuf::ServerList update;
-    const ServerId crashedServerId =
-        serverList.add("cerulean", {MASTER_SERVICE}, 0, update);
-    serverList.crashed(crashedServerId, update);
+    auto crashedServerId = addMaster();
+    crashServer(crashedServerId);
     tabletMap.addTablet({0, 0, ~0lu, crashedServerId, Tablet::NORMAL, {2, 3}});
-    ProtoBuf::Tablets will;
     TestLog::Enable _;
-    mgr.startMasterRecovery(crashedServerId, will);
+    mgr.startMasterRecovery(crashedServerId);
     EXPECT_EQ("restartMasterRecovery: Scheduling recovery of master 1",
               TestLog::get());
     auto tablet = tabletMap.getTablet(0, 0, ~0lu);
@@ -79,55 +110,76 @@ TEST_F(MasterRecoveryManagerTest, startMasterRecovery) {
 TEST_F(MasterRecoveryManagerTest, destroyAndFreeRecovery) {
     ProtoBuf::Tablets will;
     std::unique_ptr<Recovery> recovery{
-        new Recovery(mgr.taskQueue, serverList, mgr, {1, 0}, will)};
+        new Recovery(mgr.taskQueue, &mgr.tracker, &mgr,
+                     {1, 0}, will, 0lu)};
     mgr.activeRecoveries[recovery->recoveryId] = recovery.get();
     mgr.destroyAndFreeRecovery(recovery.get());
     recovery.release();
     EXPECT_EQ(0lu, mgr.activeRecoveries.size());
 }
 
+TEST_F(MasterRecoveryManagerTest, trackerChangesEnqueued) {
+    // Changes to serverList implicitly call trackerChangesEnqueued.
+    auto serverId = addMaster();
+
+    // Create a recovery which has serverId as a recovery master, make
+    // sure it gets informed if serverId crashes.
+    ProtoBuf::Tablets will;
+    std::unique_ptr<Recovery> recovery{
+        new Recovery(mgr.taskQueue, &mgr.tracker, &mgr,
+                     {1, 0}, will, 0lu)};
+    recovery->numPartitions = 2;
+    mgr.tracker[ServerId(1, 0)] = recovery.get();
+
+    TestLog::Enable _;
+    EXPECT_EQ(0lu, recovery->unsuccessfulRecoveryMasters);
+    crashServer(serverId);
+    EXPECT_EQ(1lu, recovery->unsuccessfulRecoveryMasters);
+}
+
 TEST_F(MasterRecoveryManagerTest, recoveryMasterFinishedNoSuchRecovery) {
+    addMaster();
     const ProtoBuf::Tablets recoveredTablets;
     mgr.recoveryMasterFinished(0lu, {1, 0}, recoveredTablets, false);
     TestLog::Enable _;
-    mgr.taskQueue.performTask();
+    mgr.taskQueue.performTask(); // Do RecoveryMasterFinishedTask.
     EXPECT_EQ("performTask: Recovery master reported completing recovery 0 "
-              "but that there is no ongoing recovery with that id; this "
+              "but there is no ongoing recovery with that id; this "
               "should never happen in RAMCloud", TestLog::get());
 }
 
 TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
     tabletMap.addTablet({0, 0, ~0lu, {1, 0}, Tablet::NORMAL, {2, 3}});
 
-    ProtoBuf::ServerList update;
-    const ServerId crashedServerId =
-        serverList.add("cerulean", {MASTER_SERVICE}, 0, update);
-    serverList.crashed(crashedServerId, update);
+    auto crashedServerId = addMaster();
+    crashServer(crashedServerId);
+    addMaster(); // Recovery master.
 
     const ProtoBuf::Tablets will;
     std::unique_ptr<Recovery> recovery{
-        new Recovery(mgr.taskQueue, serverList, mgr, crashedServerId, will)};
-    recovery->startedRecoveryMasters = 1;
+        new Recovery(mgr.taskQueue, &mgr.tracker, &mgr,
+                     crashedServerId, will, 0lu)};
+    recovery->numPartitions = 1;
     mgr.activeRecoveries[recovery->recoveryId] = recovery.get();
+    // Register {2, 0} as a recovery master for this recovery.
+    mgr.tracker[ServerId(2, 0)] = recovery.get();
 
     ProtoBuf::Tablets recoveredTablets;
-    auto& tablet = *recoveredTablets.add_tablet();
-    tablet.set_table_id(0);
-    tablet.set_start_key_hash(0);
-    tablet.set_end_key_hash(~0lu);
-    tablet.set_server_id(ServerId(2, 0).getId());
-    tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
+    TabletsBuilder{recoveredTablets}
+        (0, 0, ~0lu, TabletsBuilder::RECOVERING, 0, {2, 0});
     tabletMap.addTablet({0, 0, ~0lu, {1, 0}, Tablet::RECOVERING, {2, 3}});
 
     mgr.recoveryMasterFinished(recovery->recoveryId,
-                               {1, 0}, recoveredTablets, true);
+                               {2, 0}, recoveredTablets, true);
     EXPECT_EQ(0lu, serverList.versionNumber);
+    EXPECT_EQ(1lu, mgr.taskQueue.outstandingTasks());
     TestLog::Enable _;
-    mgr.taskQueue.performTask();
+    mgr.taskQueue.performTask(); // Do RecoveryMasterFinishedTask.
     EXPECT_EQ("performTask: Recovery completed for master 1", TestLog::get());
 
-    // Recovery task which is finishing up and MaybeStart task.
-    EXPECT_EQ(2lu, mgr.taskQueue.outstandingTasks());
+    // Recovery task which is finishing up, ApplyTrackerChangesTask (due to
+    // change in server list to remove crashed master), and MaybeStart task.
+    EXPECT_EQ(3lu, mgr.taskQueue.outstandingTasks());
 
     // Ensure server list broadcast happened.
     EXPECT_EQ(1lu, serverList.versionNumber);
@@ -138,27 +190,25 @@ TEST_F(MasterRecoveryManagerTest,
 {
     tabletMap.addTablet({0, 0, ~0lu, {1, 0}, Tablet::NORMAL, {2, 3}});
 
-    ProtoBuf::ServerList update;
-    const ServerId crashedServerId =
-        serverList.add("cerulean", {MASTER_SERVICE}, 0, update);
-    serverList.crashed(crashedServerId, update);
+    auto crashedServerId = addMaster();
+    crashServer(crashedServerId);
+    addMaster(); // Recovery master.
 
     const ProtoBuf::Tablets will;
     std::unique_ptr<Recovery> recovery{
-        new Recovery(mgr.taskQueue, serverList, mgr, crashedServerId, will)};
-    recovery->startedRecoveryMasters = 1;
+        new Recovery(mgr.taskQueue, &mgr.tracker, &mgr,
+                     crashedServerId, will, 0lu)};
+    recovery->numPartitions = 1;
     mgr.activeRecoveries[recovery->recoveryId] = recovery.get();
+    // Register {2, 0} as a recovery master for this recovery.
+    mgr.tracker[ServerId(2, 0)] = recovery.get();
 
     ProtoBuf::Tablets recoveredTablets;
-    auto& tablet = *recoveredTablets.add_tablet();
-    tablet.set_table_id(0);
-    tablet.set_start_key_hash(0);
-    tablet.set_end_key_hash(~0lu);
-    tablet.set_server_id(ServerId(2, 0).getId());
-    tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
+    TabletsBuilder{recoveredTablets}
+        (0, 0, ~0lu, TabletsBuilder::RECOVERING, 0, {2, 0});
     tabletMap.addTablet({0, 0, ~0lu, {1, 0}, Tablet::RECOVERING, {2, 3}});
 
-    mgr.recoveryMasterFinished(recovery->recoveryId, {1, 0},
+    mgr.recoveryMasterFinished(recovery->recoveryId, {2, 0},
                                recoveredTablets, false);
     TestLog::Enable _;
     mgr.taskQueue.performTask();
@@ -185,8 +235,9 @@ TEST_F(MasterRecoveryManagerTest,
 }
 
 TEST_F(MasterRecoveryManagerTest, restartMasterRecovery) {
+    crashServer(addMaster());
     const ProtoBuf::Tablets will;
-    mgr.restartMasterRecovery({1, 0}, will);
+    mgr.restartMasterRecovery({1, 0});
     EXPECT_EQ(1lu, mgr.taskQueue.outstandingTasks());
     EXPECT_EQ(0lu, mgr.waitingRecoveries.size());
     TestLog::Enable _;
@@ -201,11 +252,15 @@ TEST_F(MasterRecoveryManagerTest, restartMasterRecovery) {
 TEST_F(MasterRecoveryManagerTest,
        MaybeStartRecoveryTaskTwoRecoveriesAtTheSameTime)
 {
+    crashServer(addMaster());
+    crashServer(addMaster());
+    crashServer(addMaster());
+
     // Damn straight. I always wanted to do that, man.
     ProtoBuf::Tablets will;
-    mgr.restartMasterRecovery({1, 0}, will);
-    mgr.restartMasterRecovery({2, 0}, will);
-    mgr.restartMasterRecovery({3, 0}, will);
+    mgr.restartMasterRecovery({1, 0});
+    mgr.restartMasterRecovery({2, 0});
+    mgr.restartMasterRecovery({3, 0});
     // Process each of the Enqueue tasks.
     mgr.taskQueue.performTask();
     mgr.taskQueue.performTask();
@@ -231,9 +286,13 @@ TEST_F(MasterRecoveryManagerTest,
 TEST_F(MasterRecoveryManagerTest,
        MaybeStartRecoveryTaskServerAlreadyRecovering)
 {
+    auto crashedServerId = addMaster();
+    crashServer(crashedServerId);
+    EXPECT_EQ(ServerId(1, 0), crashedServerId);
+
     ProtoBuf::Tablets will;
-    mgr.restartMasterRecovery({1, 0}, will);
-    mgr.restartMasterRecovery({1, 0}, will);
+    mgr.restartMasterRecovery({1, 0});
+    mgr.restartMasterRecovery({1, 0});
     // Process each of the Enqueue tasks.
     mgr.taskQueue.performTask();
     mgr.taskQueue.performTask();

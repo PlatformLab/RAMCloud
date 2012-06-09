@@ -359,8 +359,7 @@ CoordinatorService::enlistServer(const EnlistServerRpc::Request& reqHdr,
     // Recovery on the replaced host is deferred until the replacing host
     // has been enlisted.
     if (replacedEntry)
-        recoveryManager.startMasterRecovery(replacedEntry->serverId,
-                                            *replacedEntry->will);
+        recoveryManager.startMasterRecovery(replacedEntry->serverId);
 }
 
 /**
@@ -453,7 +452,7 @@ CoordinatorService::hintServerDown(ServerId serverId)
     // recovery is difficult.
     serverList.sendMembershipUpdate(update, ServerId(/* invalid id */));
 
-    recoveryManager.startMasterRecovery(entry.serverId, *entry.will);
+    recoveryManager.startMasterRecovery(entry.serverId);
 
     removeReplicationGroup(entry.replicationId);
     createReplicationGroup();

@@ -81,13 +81,14 @@ class ParallelRun {
      *
      * \param tasks
      *      An array of \a numTasks entries in length of objects having the
-     *      interface documented in #AsynchronousTaskConcept.
+     *      interface documented in #AsynchronousTaskConcept. Any empty
+     *      entries will be skipped.
      * \param numTasks
      *      The number of entries in the \a tasks array.
      * \param maxOutstanding
      *      The maximum number of task to run in parallel with each other.
      */
-    ParallelRun(Tub<T>* tasks, uint32_t numTasks, uint32_t maxOutstanding)
+    ParallelRun(Tub<T>* tasks, size_t numTasks, size_t maxOutstanding)
         : tasks(tasks)
         , numTasks(numTasks)
         , maxOutstanding(maxOutstanding)
@@ -99,7 +100,8 @@ class ParallelRun {
         // Start off first round of tasks
         for (uint32_t i = 0; i < numTasks; ++i) {
             auto& task = tasks[i];
-            task->send();
+            if (task)
+                task->send();
             ++firstNotIssued;
             if (i + 1 == maxOutstanding)
                 break;
@@ -116,7 +118,7 @@ class ParallelRun {
     bool proceed() {
         for (uint32_t i = firstNotDone; i < firstNotIssued; ++i) {
             auto& task = tasks[i];
-            if (task->isDone()) { // completed already
+            if (!task || task->isDone()) { // completed already
                 if (firstNotDone == i)
                     ++firstNotDone;
                 continue;
@@ -155,10 +157,10 @@ class ParallelRun {
     Tub<T>* tasks;
 
     /// The number of entries in the #tasks array.
-    uint32_t numTasks;
+    size_t numTasks;
 
     /// The maximum number of tasks to run in parallel with each other.
-    const uint32_t maxOutstanding;
+    const size_t maxOutstanding;
 
   PRIVATE:
     /// The first element of #tasks has not yet had start() called.
@@ -184,7 +186,7 @@ class ParallelRun {
  */
 template<typename T>
 void
-parallelRun(Tub<T>* tasks, uint32_t numTasks, uint32_t maxOutstanding)
+parallelRun(Tub<T>* tasks, size_t numTasks, size_t maxOutstanding)
 {
     ParallelRun<T>(tasks, numTasks, maxOutstanding).wait();
 }

@@ -32,9 +32,15 @@ namespace RAMCloud {
  * \param taskQueue
  *      MasterRecoveryManager TaskQueue which drives this recovery
  *      (by calling performTask() whenever this recovery is scheduled).
+ * \param tracker
+ *      The MasterRecoveryManager's tracker which maintains a list of all
+ *      servers in RAMCloud along with a pointer to any Recovery the server is
+ *      particpating in (as a recovery master). This is used to select recovery
+ *      masters and to find all backup data for the crashed master.
  * \param deleter
  *      Used to delete this (and inform the MasterRecoveryManager) when
- *      this determines it is no longer needed.
+ *      this determines it is no longer needed. May be NULL for testing
+ *      if the test takes care of deallocation of the Recovery.
  * \param crashedServerId
  *      The crashed master this Recovery will rebuild.
  * \param will
@@ -45,30 +51,41 @@ namespace RAMCloud {
  *      any other partition that has more than 0 entries.  This
  *      is because the recovery recovers partitions up but excluding the
  *      first with no entries.
- * \param serverList
- *      Reference to the Coordinator's list of all servers in RAMCloud. This
- *      is used to select recovery masters and to find all backup data for
- *      the crashed master.
+ * \param minOpenSegmentId
+ *      Used to filter out replicas of segments which may have become
+ *      inconsistent. A replica with a segment id less than this is
+ *      not eligible to be used for recovery (both for log digest and
+ *      object data purposes).
  */
 Recovery::Recovery(TaskQueue& taskQueue,
-                   const CoordinatorServerList& serverList,
-                   Deleter& deleter,
+                   RecoveryTracker* tracker,
+                   Deleter* deleter,
                    ServerId crashedServerId,
-                   const ProtoBuf::Tablets& will)
+                   const ProtoBuf::Tablets& will,
+                   uint64_t minOpenSegmentId)
     : Task(taskQueue)
     , crashedServerId(crashedServerId)
     , will(will)
-    , serverList(serverList)
+    , minOpenSegmentId(minOpenSegmentId)
+    , tracker(tracker)
     , deleter(deleter)
     , recoveryId(generateRandom())
     , status(BUILD_REPLICA_MAP)
     , recoveryTicks()
     , replicaMap()
-    , startedRecoveryMasters()
+    , numPartitions()
     , successfulRecoveryMasters()
     , unsuccessfulRecoveryMasters()
+    , testingBackupStartTaskSendCallback()
+    , testingMasterStartTaskSendCallback()
 {
     metrics->coordinator.recoveryCount++;
+
+    // Figure out the number of partitions specified in the will.
+    foreach (auto& tablet, will.tablet()) {
+        if (tablet.user_data() + 1 > numPartitions)
+            numPartitions = downCast<uint32_t>(tablet.user_data()) + 1;
+    }
 }
 
 Recovery::~Recovery()
@@ -120,7 +137,8 @@ Recovery::performTask()
         broadcastRecoveryComplete();
 #endif
         status = DONE;
-        deleter.destroyAndFreeRecovery(this);
+        if (deleter)
+            deleter->destroyAndFreeRecovery(this);
         break;
     case DONE:
     default:
@@ -135,7 +153,7 @@ Recovery::performTask()
  * continue doing additional cleanup operations before deleting itself.
  */
 bool
-Recovery::isDone()
+Recovery::isDone() const
 {
     return status > WAIT_FOR_RECOVERY_MASTERS;
 }
@@ -147,10 +165,21 @@ Recovery::isDone()
  * crashed master. If !isDone() the return value has no meaning.
  */
 bool
-Recovery::wasCompletelySuccessful()
+Recovery::wasCompletelySuccessful() const
 {
     assert(isDone());
     return unsuccessfulRecoveryMasters == 0;
+}
+
+/**
+ * Returns a unique identifier associated with this recovery.
+ * Used to reassociate recovery related rpcs from recovery masters to the
+ * recovery that they are part of.
+ */
+uint64_t
+Recovery::getRecoveryId() const
+{
+    return recoveryId;
 }
 
 // - private -
@@ -165,55 +194,59 @@ namespace RecoveryInternal {
  */
 class BackupStartTask {
   PUBLIC:
-    BackupStartTask(const CoordinatorServerList::Entry& backupHost,
+    BackupStartTask(Recovery& recovery,
+                    ServerId backupId,
                     ServerId crashedMasterId,
                     const ProtoBuf::Tablets& partitions,
                     uint64_t minOpenSegmentId);
     bool isDone() const { return done; }
-    bool isReady() { return rpc && rpc->isReady(); }
+    bool isReady() { return testingCallback || (rpc && rpc->isReady()); }
     void send();
     void filterOutInvalidReplicas();
     void wait();
-    const CoordinatorServerList::Entry backupHost;
+    const ServerId backupId;
+    BackupClient::StartReadingData::Result result;
   PRIVATE:
     const ServerId crashedMasterId;
     const ProtoBuf::Tablets& partitions;
     const uint64_t minOpenSegmentId;
     Tub<BackupClient> client;
     Tub<BackupClient::StartReadingData> rpc;
-  PUBLIC:
-    BackupClient::StartReadingData::Result result;
-  PRIVATE:
     bool done;
+    BackupStartTaskTestingCallback* testingCallback;
     DISALLOW_COPY_AND_ASSIGN(BackupStartTask);
 };
 
 BackupStartTask::BackupStartTask(
-            const CoordinatorServerList::Entry& backupHost,
+            Recovery& recovery,
+            ServerId backupId,
             ServerId crashedMasterId,
             const ProtoBuf::Tablets& partitions,
             uint64_t minOpenSegmentId)
-    : backupHost(backupHost)
+    : backupId(backupId)
+    , result()
     , crashedMasterId(crashedMasterId)
     , partitions(partitions)
     , minOpenSegmentId(minOpenSegmentId)
     , client()
     , rpc()
-    , result()
     , done()
+    , testingCallback(recovery.testingBackupStartTaskSendCallback)
 {
+    if (!testingCallback)
+        client.construct(recovery.tracker->getSession(backupId));
 }
 
 /// Asynchronously send the startReadingData RPC to #backupHost.
 void
 BackupStartTask::send()
 {
-    client.construct(
-        Context::get().transportManager->getSession(
-            backupHost.serviceLocator.c_str()));
-    rpc.construct(*client, crashedMasterId, partitions);
-    RAMCLOUD_LOG(DEBUG, "Starting startReadingData on %s",
-                 backupHost.serviceLocator.c_str());
+    if (!testingCallback) {
+        rpc.construct(*client, crashedMasterId, partitions);
+    } else {
+        testingCallback->backupStartTaskSend(result);
+    }
+    LOG(DEBUG, "Starting startReadingData on backup %lu", backupId.getId());
 }
 
 /**
@@ -242,7 +275,7 @@ BackupStartTask::filterOutInvalidReplicas()
             LOG(DEBUG, "Removing replica for segmentId %lu from replica list "
                 "for backup %lu because it was open and had an id less than "
                 "the minOpenSegmentId (%lu) for the recovering master",
-               idAndLength.first, backupHost.serverId.getId(),
+               idAndLength.first, backupId.getId(),
                minOpenSegmentId);
             continue;
         }
@@ -259,7 +292,7 @@ BackupStartTask::filterOutInvalidReplicas()
     if (result.logDigestSegmentId < minOpenSegmentId) {
         LOG(DEBUG, "Backup %lu returned a log digest for segmentId %lu but "
             "minOpenSegmentId for this master is %lu so discarding it",
-            backupHost.serverId.getId(), result.logDigestSegmentId,
+            backupId.getId(), result.logDigestSegmentId,
             minOpenSegmentId);
         result.logDigestBytes = 0;
         result.logDigestBuffer.reset();
@@ -272,14 +305,15 @@ void
 BackupStartTask::wait()
 {
     try {
-        result = (*rpc)();
+        if (!testingCallback)
+            result = (*rpc)();
     } catch (const TransportException& e) {
-        LOG(WARNING, "Couldn't contact %s, failure was: %s",
-            backupHost.serviceLocator.c_str(), e.str().c_str());
+        LOG(WARNING, "Couldn't contact %lu, failure was: %s",
+            backupId.getId(), e.str().c_str());
         // Leave empty result as if the backup has no replicas.
     } catch (const ClientException& e) {
-        LOG(WARNING, "startReadingData failed on %s, failure was: %s",
-            backupHost.serviceLocator.c_str(), e.str().c_str());
+        LOG(WARNING, "startReadingData failed on %lu, failure was: %s",
+            backupId.getId(), e.str().c_str());
         // Leave empty result as if the backup has no replicas.
     }
     rpc.destroy();
@@ -289,8 +323,7 @@ BackupStartTask::wait()
 
     done = true;
     LOG(DEBUG, "Backup %lu has %lu segment replicas",
-        backupHost.serverId.getId(),
-        result.segmentIdAndLength.size());
+        backupId.getId(), result.segmentIdAndLength.size());
 }
 
 /**
@@ -312,19 +345,17 @@ expectedLoadCmp(const ReplicaAndLoadTime& l, const ReplicaAndLoadTime& r)
     return l.expectedLoadTimeMs < r.expectedLoadTimeMs;
 }
 
-class SegmentAndDigestTuple {
-  public:
-    SegmentAndDigestTuple(const char* backupServiceLocator,
+struct SegmentAndDigestTuple {
+    SegmentAndDigestTuple(ServerId backupId,
                           uint64_t segmentId, uint32_t segmentLength,
                           const void* logDigestPtr, uint32_t logDigestBytes)
-        : backupServiceLocator(backupServiceLocator),
-          segmentId(segmentId),
-          segmentLength(segmentLength),
-          logDigest(logDigestPtr, logDigestBytes)
-    {
-    }
+        : backupId(backupId)
+        , segmentId(segmentId)
+        , segmentLength(segmentLength)
+        , logDigest(logDigestPtr, logDigestBytes)
+    {}
 
-    const char* backupServiceLocator;
+    ServerId backupId;
     uint64_t  segmentId;
     uint32_t  segmentLength;
     LogDigest logDigest;
@@ -346,36 +377,25 @@ Recovery::buildReplicaMap()
     LOG(DEBUG, "Getting segment lists from backups and preparing "
                "them for recovery");
 
-    const uint32_t numBackups = serverList.backupCount();
     const uint32_t maxActiveBackupHosts = 10;
-
+    std::vector<ServerId> backups =
+        tracker->getServersWithService(BACKUP_SERVICE);
     /// List of asynchronous startReadingData tasks and their replies
     auto backupStartTasks = std::unique_ptr<Tub<BackupStartTask>[]>(
-            new Tub<BackupStartTask>[numBackups]);
-    uint32_t nextIssueIndex = 0;
-    uint64_t minOpenSegmentId = 0;
-    try {
-        minOpenSegmentId = serverList[crashedServerId].minOpenSegmentId;
-    } catch (const Exception& e) {
-        LOG(ERROR, "Couldn't determine minOpenSegmentId while recovering "
-            "master %lu; recovery could use invalid replicas",
-            crashedServerId.getId());
-        // This is handled essentially so unit tests succeed even when
-        // the server being recovered is not in the CoordinatorServerList.
-        // It is a risk to continue in this case.
+            new Tub<BackupStartTask>[backups.size()]);
+    uint32_t i = 0;
+    foreach (ServerId backup, backups) {
+        backupStartTasks[i++].construct(*this,
+                                        backup,
+                                        crashedServerId, will,
+                                        minOpenSegmentId);
     }
-    for (uint32_t i = 0; i < numBackups; ++i) {
-        nextIssueIndex = serverList.nextBackupIndex(nextIssueIndex);
-        backupStartTasks[i].construct(*serverList[nextIssueIndex],
-                                      crashedServerId, will, minOpenSegmentId);
-        ++nextIssueIndex;
-    }
-    parallelRun(backupStartTasks.get(), numBackups, maxActiveBackupHosts);
+    parallelRun(backupStartTasks.get(), backups.size(), maxActiveBackupHosts);
 
     // Map of Segment Ids -> counts of backup copies that were found.
     // This is used to cross-check with the log digest.
     std::unordered_map<uint64_t, uint32_t> segmentMap;
-    for (uint32_t i = 0; i < numBackups; ++i) {
+    for (size_t i = 0; i < backups.size(); ++i) {
         const auto& task = backupStartTasks[i];
         foreach (auto replica, task->result.segmentIdAndLength) {
             uint64_t segmentId = replica.first;
@@ -386,22 +406,22 @@ Recovery::buildReplicaMap()
     // List of serialised LogDigests from possible log heads, including
     // the corresponding Segment IDs and lengths.
     vector<SegmentAndDigestTuple> digestList;
-    for (uint32_t i = 0; i < numBackups; ++i) {
+    for (size_t i = 0; i < backups.size(); ++i) {
         const auto& task = backupStartTasks[i];
 
         // If this backup returned a potential head of the log and it
         // includes a LogDigest, set it aside for verifyCompleteLog().
         if (task->result.logDigestBuffer) {
-            digestList.push_back({ task->backupHost.serviceLocator.c_str(),
+            digestList.push_back({ task->backupId,
                                    task->result.logDigestSegmentId,
                                    task->result.logDigestSegmentLen,
                                    task->result.logDigestBuffer.get(),
                                    task->result.logDigestBytes });
 
             if (task->result.logDigestSegmentId == (uint32_t)-1) {
-                LOG(ERROR, "segment %lu has a LogDigest, but len "
-                    "== -1!! from %s\n", task->result.logDigestSegmentId,
-                    task->backupHost.serviceLocator.c_str());
+                LOG(ERROR, "Segment %lu has a LogDigest, but its length "
+                    "is -1 from server %lu", task->result.logDigestSegmentId,
+                    task->backupId.getId());
             }
         }
     }
@@ -435,9 +455,9 @@ Recovery::buildReplicaMap()
             throw Exception(HERE, "ouch! data lost!");
         }
 
-        LOG(NOTICE, "Segment %lu of length %u bytes from backup %s "
+        LOG(NOTICE, "Segment %lu of length %u bytes from backup %lu "
             "is the head of the log",
-            headId, headLen, headReplica->backupServiceLocator);
+            headId, headLen, headReplica->backupId.getId());
 
         // scan the backup map to determine if all needed segments are available
         uint32_t missing = 0;
@@ -462,20 +482,15 @@ Recovery::buildReplicaMap()
     // Order primaries (and even secondaries among themselves anyway) based
     // on when they are expected to be loaded in from disk.
     vector<ReplicaAndLoadTime> replicasToSort;
-    for (uint32_t nextBackupIndex = 0, taskIndex = 0;
-         taskIndex < numBackups;
-         nextBackupIndex++, taskIndex++) {
-        nextBackupIndex = serverList.nextBackupIndex(nextBackupIndex);
-        assert(nextBackupIndex != (uint32_t)-1);
-
+    for (uint32_t taskIndex = 0; taskIndex < backups.size(); taskIndex++) {
         const auto& task = backupStartTasks[taskIndex];
-        auto backup = *serverList[nextBackupIndex];
-        const uint64_t speed = backup.expectedReadMBytesPerSec;
+        const auto backupId = task->backupId;
+        const uint64_t speed = (*tracker).getServerDetails(backupId)->
+                                                    expectedReadMBytesPerSec;
 
-        LOG(DEBUG, "Adding %lu segment replicas from %s "
+        LOG(DEBUG, "Adding %lu segment replicas from %lu "
                    "with bench speed of %lu",
-            task->result.segmentIdAndLength.size(),
-            backup.serviceLocator.c_str(), speed);
+            task->result.segmentIdAndLength.size(), backupId.getId(), speed);
 
         for (size_t i = 0; i < task->result.segmentIdAndLength.size(); ++i) {
             uint64_t expectedLoadTimeMs;
@@ -494,7 +509,7 @@ Recovery::buildReplicaMap()
             uint32_t segmentLen = task->result.segmentIdAndLength[i].second;
             if (segmentId < headId ||
                 (segmentId == headId && segmentLen == headLen)) {
-                ReplicaAndLoadTime r {{ backup.serverId.getId(), segmentId },
+                ReplicaAndLoadTime r {{ backupId.getId(), segmentId },
                                       expectedLoadTimeMs};
                 replicasToSort.push_back(r);
             } else {
@@ -507,10 +522,9 @@ Recovery::buildReplicaMap()
                     why = "past";
                 }
                 LOG(DEBUG, "Ignoring replica for "
-                    "segment ID %lu, len %u from backup %s "
+                    "segment ID %lu, len %u from backup %lu "
                     "because it's %s the head segment (%lu, %u)",
-                    segmentId, segmentLen,
-                    backup.serviceLocator.c_str(),
+                    segmentId, segmentLen, backupId.getId(),
                     why, headId, headLen);
             }
         }
@@ -530,68 +544,75 @@ namespace RecoveryInternal {
 /// Used in Recovery::startRecoveryMasters().
 struct MasterStartTask {
     MasterStartTask(Recovery& recovery,
-                    const CoordinatorServerList::Entry& masterEntry,
+                    ServerId serverId,
                     uint32_t partitionId,
                     const vector<RecoverRpc::Replica>& replicaMap)
         : recovery(recovery)
-        , masterEntry(masterEntry)
+        , serverId(serverId)
         , replicaMap(replicaMap)
         , partitionId(partitionId)
         , tablets()
         , masterClient()
         , rpc()
         , done(false)
+        , testingCallback(recovery.testingMasterStartTaskSendCallback)
     {}
-    bool isReady() { return rpc && rpc->isReady(); }
+    bool isReady() { return testingCallback || (rpc && rpc->isReady()); }
     bool isDone() { return done; }
     void send() {
-        auto locator = masterEntry.serviceLocator.c_str();
-        LOG(NOTICE, "Initiating recovery with recovery master %s, "
-            "partition %d", locator, partitionId);
+        LOG(NOTICE, "Starting recovery %lu on recovery master %lu, "
+            "partition %d", recovery.recoveryId, serverId.getId(), partitionId);
+        (*recovery.tracker)[serverId] = &recovery;
         try {
-            masterClient.construct(
-                Context::get().transportManager->getSession(locator));
-            rpc.construct(*masterClient,
-                          recovery.recoveryId,
-                          recovery.crashedServerId, partitionId,
-                          tablets,
-                          replicaMap.data(),
-                          downCast<uint32_t>(replicaMap.size()));
+            if (!testingCallback) {
+                masterClient.construct(recovery.tracker->getSession(serverId));
+                rpc.construct(*masterClient,
+                              recovery.recoveryId,
+                              recovery.crashedServerId, partitionId,
+                              tablets,
+                              replicaMap.data(),
+                              downCast<uint32_t>(replicaMap.size()));
+            } else {
+                testingCallback->masterStartTaskSend(recovery.recoveryId,
+                                                     recovery.crashedServerId,
+                                                     partitionId,
+                                                     tablets,
+                                                     replicaMap.data(),
+                                                     replicaMap.size());
+            }
+            return;
         } catch (const TransportException& e) {
-            LOG(WARNING, "Couldn't contact %s, trying next master; "
-                "failure was: %s", locator, e.message.c_str());
-            send();
+            LOG(WARNING, "Couldn't contact server %lu; to start recovery: %s",
+                serverId.getId(), e.what());
         } catch (const ClientException& e) {
-            LOG(WARNING, "recover failed on %s, trying next master; "
-                "failure was: %s", locator, e.toString());
-            send();
+            LOG(WARNING, "Couldn't contact server %lu; to start recovery: %s",
+                serverId.getId(), e.what());
         }
+        ++recovery.unsuccessfulRecoveryMasters;
+        (*recovery.tracker)[serverId] = NULL;
     }
     void wait() {
         try {
-            (*rpc)();
+            if (!testingCallback)
+                (*rpc)();
+            done = true;
+            return;
         } catch (const TransportException& e) {
-            auto locator = masterEntry.serviceLocator.c_str();
-            LOG(WARNING, "Couldn't contact %s, trying next master; "
-                "failure was: %s", locator, e.message.c_str());
-            send();
-            return;
+            LOG(WARNING, "Couldn't contact server %lu; to start recovery: %s",
+                serverId.getId(), e.what());
         } catch (const ClientException& e) {
-            auto locator = masterEntry.serviceLocator.c_str();
-            LOG(WARNING, "recover failed on %s, trying next master; "
-                "failure was: %s", locator, e.toString());
-            send();
-            return;
+            LOG(WARNING, "Couldn't contact server %lu; to start recovery: %s",
+                serverId.getId(), e.what());
         }
-        ++recovery.startedRecoveryMasters;
-        done = true;
+        ++recovery.unsuccessfulRecoveryMasters;
+        (*recovery.tracker)[serverId] = NULL;
     }
 
     /// The parent recovery object.
     Recovery& recovery;
 
-    /// The master server to kick off this partition's recovery on.
-    const CoordinatorServerList::Entry masterEntry;
+    /// Id of master server to kick off this partition's recovery on.
+    ServerId serverId;
 
     const vector<RecoverRpc::Replica>& replicaMap;
     const uint32_t partitionId;
@@ -599,50 +620,57 @@ struct MasterStartTask {
     Tub<MasterClient> masterClient;
     Tub<MasterClient::Recover> rpc;
     bool done;
+    MasterStartTaskTestingCallback* testingCallback;
     DISALLOW_COPY_AND_ASSIGN(MasterStartTask);
 };
 }
 using namespace RecoveryInternal; // NOLINT
 
 /**
- * Begin recovery, recovering one partition on a master.
- *
- * \bug Only tries each master once regardless of failure.
- * \bug Only tries each master once regardless of whether recovery
- *      failure could be avoided by doing multiple parition recoveries
- *      on a single master.
+ * Start recovery of each of the partitions of the will on a recovery master.
+ * Each master will only be assigned one partition of one will at a time. If
+ * there are too few masters to perform the full recovery then only a subset
+ * of the partitions will be recovered. When this recovery completes if there
+ * are partitions of the will the still need recovery a follow up recovery
+ * will be scheduled.
  */
 void
 Recovery::startRecoveryMasters()
 {
     CycleCounter<RawMetric> _(&metrics->coordinator.recoveryStartTicks);
 
-    // Figure out the number of partitions specified in the will.
-    uint32_t numPartitions = 0;
-    foreach (auto& tablet, will.tablet()) {
-        if (tablet.user_data() + 1 > numPartitions)
-            numPartitions = downCast<uint32_t>(tablet.user_data()) + 1;
-    }
-
-    if (serverList.masterCount() < numPartitions) {
-        // TODO(ongaro): this is not ok in a real system
-        DIE("not enough recovery masters to complete recovery "
-            "(only %d available)", serverList.masterCount());
-    }
-
     // Set up the tasks to execute the RPCs.
-    uint32_t nextMasterIndex = 0;
+    std::vector<ServerId> masters =
+        tracker->getServersWithService(MASTER_SERVICE);
+    uint32_t started = 0;
     Tub<MasterStartTask> recoverTasks[numPartitions];
-    for (uint32_t i = 0; i < numPartitions; i++) {
-        auto& task = recoverTasks[i];
-        nextMasterIndex = serverList.nextMasterIndex(nextMasterIndex);
-        task.construct(*this, *serverList[nextMasterIndex],
-                       i, replicaMap);
-        nextMasterIndex++;
+    foreach (ServerId master, masters) {
+        Recovery* preexistingRecovery = (*tracker)[master];
+        if (!preexistingRecovery) {
+            auto& task = recoverTasks[started];
+            task.construct(*this, master, started, replicaMap);
+            ++started;
+        }
+        if (started == numPartitions)
+            break;
     }
+
+    // If we couldn't find enough masters that weren't already busy with
+    // another recovery, then count the remaining partitions as having
+    // been on unsuccessful recovery masters so we know when to quit
+    // waiting for recovery masters.
+    unsuccessfulRecoveryMasters += (numPartitions - started);
+    if (unsuccessfulRecoveryMasters > 0)
+        LOG(NOTICE, "Couldn't find enough masters not already performing a "
+            "recovery to recover all partitions: %u partitions will be "
+            "recovered later", unsuccessfulRecoveryMasters);
+
+    // Hand out each tablet from the will to on of the recovery masters
+    // depending on which partition it was in.
     foreach (auto& tablet, will.tablet()) {
         auto& task = recoverTasks[tablet.user_data()];
-        *task->tablets.add_tablet() = tablet;
+        if (task)
+            *task->tablets.add_tablet() = tablet;
     }
 
     // Tell the recovery masters to begin recovery.
@@ -656,6 +684,10 @@ Recovery::startRecoveryMasters()
  * the recovery to be accounted for then the recovery is marked
  * as isDone() and moves to the next phase (cleanup phases).
  *
+ * \param recoveryMasterId
+ *      ServerId of the master which has successfully or
+ *      unsuccessfully finished recovering the partition of the
+ *      will which was assigned to it.
  * \param successful
  *      True if the recovery master successfully recovered its
  *      partition of the crashed master and is ready to take
@@ -664,8 +696,13 @@ Recovery::startRecoveryMasters()
  *      recovery master failed before completing recovery.
  */
 void
-Recovery::recoveryMasterFinished(bool successful)
+Recovery::recoveryMasterFinished(ServerId recoveryMasterId,
+                                 bool successful)
 {
+    if (!(*tracker)[recoveryMasterId])
+        return;
+    (*tracker)[recoveryMasterId] = NULL;
+
     if (successful)
         ++successfulRecoveryMasters;
     else
@@ -673,7 +710,7 @@ Recovery::recoveryMasterFinished(bool successful)
 
     const uint32_t completedRecoveryMasters =
         successfulRecoveryMasters + unsuccessfulRecoveryMasters;
-    if (completedRecoveryMasters == startedRecoveryMasters) {
+    if (completedRecoveryMasters == numPartitions) {
         recoveryTicks.destroy();
         status = BROADCAST_RECOVERY_COMPLETE;
         schedule();
@@ -690,9 +727,12 @@ namespace RecoveryInternal {
  * Used in Recovery::broadcastRecoveryComplete().
  */
 struct BackupEndTask {
-    BackupEndTask(const string& serviceLocator, ServerId crashedServerId)
-        : crashedServerId(crashedServerId)
-        , serviceLocator(serviceLocator)
+    BackupEndTask(Recovery& recovery,
+                  ServerId serverId,
+                  ServerId crashedServerId)
+        : recovery(recovery)
+        , serverId(serverId)
+        , crashedServerId(crashedServerId)
         , client()
         , rpc()
         , done(false)
@@ -700,18 +740,16 @@ struct BackupEndTask {
     bool isReady() { return rpc && rpc->isReady(); }
     bool isDone() { return done; }
     void send() {
-        auto locator = serviceLocator.c_str();
         try {
-            client.construct(
-                Context::get().transportManager->getSession(locator));
+            client.construct(recovery.tracker->getSession(serverId));
             rpc.construct(*client, crashedServerId);
             return;
         } catch (const TransportException& e) {
-            LOG(WARNING, "Couldn't contact %s, ignoring; "
-                "failure was: %s", locator, e.message.c_str());
+            LOG(DEBUG, "recoveryComplete failed on %lu, ignoring; "
+                "failure was: %s", serverId.getId(), e.what());
         } catch (const ClientException& e) {
-            LOG(WARNING, "recoveryComplete failed on %s, ignoring; "
-                "failure was: %s", locator, e.toString());
+            LOG(DEBUG, "recoveryComplete failed on %lu, ignoring; "
+                "failure was: %s", serverId.getId(), e.what());
         }
         client.destroy();
         rpc.destroy();
@@ -723,18 +761,17 @@ struct BackupEndTask {
         try {
             (*rpc)();
         } catch (const TransportException& e) {
-            auto locator = serviceLocator.c_str();
-            LOG(WARNING, "Couldn't contact %s, ignoring; "
-                "failure was: %s", locator, e.message.c_str());
+            LOG(DEBUG, "recoveryComplete failed on %lu, ignoring; "
+                "failure was: %s", serverId.getId(), e.what());
         } catch (const ClientException& e) {
-            auto locator = serviceLocator.c_str();
-            LOG(WARNING, "recoveryComplete failed on %s, ignoring; "
-                "failure was: %s", locator, e.toString());
+            LOG(DEBUG, "recoveryComplete failed on %lu, ignoring; "
+                "failure was: %s", serverId.getId(), e.what());
         }
         done = true;
     }
+    Recovery& recovery;
+    const ServerId serverId;
     const ServerId crashedServerId;
-    const string& serviceLocator; // NOLINT
     Tub<BackupClient> client;
     Tub<BackupClient::RecoveryComplete> rpc;
     bool done;
@@ -752,15 +789,13 @@ Recovery::broadcastRecoveryComplete()
 {
     CycleCounter<RawMetric> ticks(&metrics->coordinator.recoveryCompleteTicks);
     // broadcast to backups that recovery is done
-    uint32_t numBackups = serverList.backupCount();
-    Tub<BackupEndTask> tasks[numBackups];
-    for (size_t i = 0, taskNum = 0; i < serverList.size(); i++) {
-        if (!serverList[i] || !serverList[i]->isBackup())
-            continue;
-        auto& backup = *serverList[i];
-        tasks[taskNum++].construct(backup.serviceLocator, crashedServerId);
-    }
-    parallelRun(tasks, numBackups, 10);
+    std::vector<ServerId> backups =
+        tracker->getServersWithService(BACKUP_SERVICE);
+    Tub<BackupEndTask> tasks[backups.size()];
+    size_t taskNum = 0;
+    foreach (ServerId backup, backups)
+        tasks[taskNum++].construct(*this, backup, crashedServerId);
+    parallelRun(tasks, backups.size(), 10);
 }
 
 } // namespace RAMCloud
