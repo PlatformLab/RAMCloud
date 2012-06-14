@@ -1224,9 +1224,8 @@ TEST_F(MasterServiceTest, increment_rejectRules) {
     client->write(0, "key0", 4, &oldValue, 8, NULL, &version);
     EXPECT_THROW(client->increment(0, "key0", 4, 5, &rules, &version,
                  &newValue),
-        ObjectDoesntExistException);
+        ObjectExistsException);
 }
-
 
 /**
  * Generate a random string.
@@ -1301,7 +1300,7 @@ TEST_F(MasterServiceTest, rejectOperation) {
     rules = empty;
     rules.exists = 1;
     EXPECT_EQ(service->rejectOperation(rules, 2),
-              STATUS_OBJECT_DOESNT_EXIST);
+              STATUS_OBJECT_EXISTS);
 
     // versionLeGiven.
     rules = empty;

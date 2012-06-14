@@ -2042,7 +2042,7 @@ MasterService::rejectOperation(const RejectRules& rejectRules, uint64_t version)
         return STATUS_OK;
     }
     if (rejectRules.exists)
-        return STATUS_OBJECT_DOESNT_EXIST;
+        return STATUS_OBJECT_EXISTS;
     if (rejectRules.versionLeGiven && version <= rejectRules.givenVersion)
         return STATUS_WRONG_VERSION;
     if (rejectRules.versionNeGiven && version != rejectRules.givenVersion)
