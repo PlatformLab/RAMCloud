@@ -46,7 +46,8 @@ class RecoveryTask;
  */
 class MasterService : public Service {
   public:
-    MasterService(const ServerConfig& config,
+    MasterService(Context& context,
+                  const ServerConfig& config,
                   CoordinatorClient* coordinator,
                   ServerList& serverList);
     virtual ~MasterService();
@@ -69,6 +70,7 @@ class MasterService : public Service {
         };
         Replica(uint64_t backupId, uint64_t segmentId,
                 State state = State::NOT_STARTED);
+
         /**
          * The backup containing the replica.
          */
@@ -139,9 +141,11 @@ class MasterService : public Service {
                WriteRpc::Response& respHdr,
                Rpc& rpc);
 
-    const ServerConfig& config;
-
   public:
+    /// Shared RAMCloud information.
+    Context& context;
+
+    const ServerConfig& config;
     CoordinatorClient* coordinator;
 
     ServerId serverId;

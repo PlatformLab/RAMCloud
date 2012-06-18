@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -153,8 +153,8 @@ namespace TestLog {
     /// Reset and enable/disable the test log on construction/destruction.
     Enable::Enable()
     {
-        Context::get().logger->saveLogLevels(savedLogLevels);
-        Context::get().logger->setLogLevels(SILENT_LOG_LEVEL);
+        Logger::get().saveLogLevels(savedLogLevels);
+        Logger::get().setLogLevels(SILENT_LOG_LEVEL);
         enable();
     }
 
@@ -167,8 +167,8 @@ namespace TestLog {
      */
     Enable::Enable(bool (*pred)(string))
     {
-        Context::get().logger->saveLogLevels(savedLogLevels);
-        Context::get().logger->setLogLevels(SILENT_LOG_LEVEL);
+        Logger::get().saveLogLevels(savedLogLevels);
+        Logger::get().setLogLevels(SILENT_LOG_LEVEL);
         setPredicate(pred);
         enable();
     }
@@ -177,7 +177,7 @@ namespace TestLog {
     Enable::~Enable()
     {
         disable();
-        Context::get().logger->restoreLogLevels(savedLogLevels);
+        Logger::get().restoreLogLevels(savedLogLevels);
     }
 
 } // end RAMCloud::TestLog

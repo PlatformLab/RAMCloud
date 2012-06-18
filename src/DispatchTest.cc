@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -175,35 +175,26 @@ class DummyFile : public Dispatch::File {
 
 class DispatchTest : public ::testing::Test {
   public:
+    Dispatch dispatch;
     string exceptionMessage;
     MockSyscall* sys;
     Syscall *savedSyscall;
     TestLog::Enable* logEnabler;
     int pipeFds[2];
-    Dispatch *td;
 
     DispatchTest()
-        : exceptionMessage()
+        : dispatch(false)
+        , exceptionMessage()
         , sys(NULL)
         , savedSyscall(NULL)
         , logEnabler(NULL)
-        , td(NULL)
     {
-
-        // delete the context objects that depend on dispatch.
-        // This allows us to mess with the context's dispatch safely.
-        delete Context::get().serviceManager;
-        Context::get().serviceManager = NULL;
-        delete Context::get().transportManager;
-        Context::get().transportManager = NULL;
-
         exceptionMessage = "no exception";
         if (!localLog) {
             localLog = new string;
         }
         localLog->clear();
-        td = Context::get().dispatch;
-        td->currentTime = 100;
+        dispatch.currentTime = 100;
         sys = new MockSyscall();
         savedSyscall = Dispatch::sys;
         Dispatch::sys = sys;
@@ -220,13 +211,13 @@ class DispatchTest : public ::testing::Test {
         Cycles::mockTscValue = 0;
     }
 
-    // Calls td->poll repeatedly until either a log entry is
+    // Calls dispatch.poll repeatedly until either a log entry is
     // generated or a given amount of time has elapsed.
     void waitForPollSuccess(double timeoutSeconds) {
         uint64_t start = Cycles::rdtsc();
         while (localLog->size() == 0) {
             usleep(100);
-            td->poll();
+            dispatch.poll();
             if (Cycles::toSeconds(Cycles::rdtsc() - start) > timeoutSeconds)
                 return;
         }
@@ -236,7 +227,7 @@ class DispatchTest : public ::testing::Test {
     // elapsed time.
     void waitForReadyFd(double timeoutSeconds) {
         uint64_t start = Cycles::rdtsc();
-        while (td->readyFd < 0) {
+        while (dispatch.readyFd < 0) {
             usleep(1000);
             if (Cycles::toSeconds(Cycles::rdtsc() - start) > timeoutSeconds)
                 return;
@@ -247,10 +238,10 @@ class DispatchTest : public ::testing::Test {
     // and see if it gets invoked.
     string checkReady(int fd, int events) {
         // Flush any stale events.
-        for (int i = 0; i < 100; i++) td->poll();
-        DummyFile f("f1", false, fd, events, td);
+        for (int i = 0; i < 100; i++) dispatch.poll();
+        DummyFile f("f1", false, fd, events, &dispatch);
         usleep(5000);
-        td->poll();
+        dispatch.poll();
         return f.eventInfo;
     }
   private:
@@ -258,10 +249,11 @@ class DispatchTest : public ::testing::Test {
 };
 
 TEST_F(DispatchTest, constructor) {
-    EXPECT_TRUE(td->isDispatchThread());
+    EXPECT_TRUE(dispatch.isDispatchThread());
 }
 
 TEST_F(DispatchTest, destructor) {
+    Dispatch *td = new Dispatch(false);
     DummyPoller* p1 = new DummyPoller("p1", 0, td);
     DummyPoller* p2 = new DummyPoller("p2", 0, td);
     DummyTimer* t1 = new DummyTimer("t1", 100, td);
@@ -273,7 +265,6 @@ TEST_F(DispatchTest, destructor) {
     EXPECT_EQ("", TestLog::get());
     delete td;
     td = NULL;
-    Context::get().dispatch = NULL;
     EXPECT_EQ("epollThreadMain: done", TestLog::get());
     close(fds[0]);
     close(fds[1]);
@@ -295,18 +286,16 @@ TEST_F(DispatchTest, destructor) {
 }
 
 // Helper function that runs in a separate thread for the following test.
-static void lockTestThread(Context* context, volatile int* flag,
+static void lockTestThread(Dispatch* dispatch, volatile int* flag,
         CountPoller** poller) {
-    Context::Guard _(*context);
-    Dispatch& dispatch = *Context::get().dispatch;
-    dispatch.hasDedicatedThread = true;
-    dispatch.ownerId = ThreadId::get();
-    *poller = new CountPoller(&dispatch);
+    dispatch->hasDedicatedThread = true;
+    dispatch->ownerId = ThreadId::get();
+    *poller = new CountPoller(dispatch);
     *flag = 1;
     while (*flag == 1)
-        dispatch.poll();
+        dispatch->poll();
     delete *poller;
-    dispatch.hasDedicatedThread = false;
+    dispatch->hasDedicatedThread = false;
 }
 
 TEST_F(DispatchTest, poll_locking) {
@@ -315,8 +304,7 @@ TEST_F(DispatchTest, poll_locking) {
     // from there.
     CountPoller* counter = NULL;
     volatile int flag = 0;
-    std::thread thread(lockTestThread, &Context::get(), &flag, &counter);
-    Dispatch& dispatch = *Context::get().dispatch;
+    std::thread thread(lockTestThread, &dispatch, &flag, &counter);
 
     // Wait for the child thread to start up and enter its polling loop.
     for (int i = 0; i < 1000; i++) {
@@ -329,7 +317,7 @@ TEST_F(DispatchTest, poll_locking) {
 
     // Create a lock and make sure that the dispatcher stops (e.g. make
     // sure that pollers aren't being invoked).
-    lock.construct();
+    lock.construct(&dispatch);
     EXPECT_EQ(1, dispatch.lockNeeded.load());
     EXPECT_EQ(1, dispatch.locked.load());
     int oldCount = counter->count;
@@ -352,12 +340,12 @@ TEST_F(DispatchTest, poll_locking) {
 
 TEST_F(DispatchTest, poll_fileHandling) {
     DummyFile *f = new DummyFile("f1", true, pipeFds[0],
-            Dispatch::FileEvent::READABLE, td);
-    td->fileInvocationSerial = -2;
+            Dispatch::FileEvent::READABLE, &dispatch);
+    dispatch.fileInvocationSerial = -2;
 
     // No event on file.
     usleep(5000);
-    td->poll();
+    dispatch.poll();
     EXPECT_EQ("", *localLog);
     write(pipeFds[1], "0123456789abcdefghijklmnop", 26);
 
@@ -375,7 +363,7 @@ TEST_F(DispatchTest, poll_fileHandling) {
     delete f;
 
     // File still ready, but object has been deleted.
-    td->poll();
+    dispatch.poll();
     EXPECT_EQ("", *localLog);
 }
 
@@ -383,9 +371,9 @@ TEST_F(DispatchTest, poll_fileDeletedDuringInvocation) {
     int fds[2];
     pipe(fds);
     DummyFile *f = new DummyFile("f1", false, fds[1],
-            Dispatch::FileEvent::WRITABLE, td);
+            Dispatch::FileEvent::WRITABLE, &dispatch);
     f->deleteThis = true;
-    td->fileInvocationSerial = 400;
+    dispatch.fileInvocationSerial = 400;
     waitForPollSuccess(1.0);
     EXPECT_EQ("file f1 invoked", *localLog);
     // If poll tried to reenable the event it would have thrown an
@@ -393,33 +381,34 @@ TEST_F(DispatchTest, poll_fileDeletedDuringInvocation) {
     // Just to double-check, wait a moment and make sure the
     // fd doesn't appear in readyFd.
     usleep(5000);
-    EXPECT_EQ(-1, td->readyFd);
+    EXPECT_EQ(-1, dispatch.readyFd);
     close(fds[0]);
 }
 
 TEST_F(DispatchTest, poll_dontEvenCheckTimers) {
-    DummyTimer t1("t1", td);
+    DummyTimer t1("t1", &dispatch);
     t1.start(150);
     Cycles::mockTscValue = 200;
-    td->earliestTriggerTime = 201;
-    td->poll();
+    dispatch.earliestTriggerTime = 201;
+    dispatch.poll();
     EXPECT_EQ("", *localLog);
-    td->earliestTriggerTime = 0;
-    td->poll();
+    dispatch.earliestTriggerTime = 0;
+    dispatch.poll();
     EXPECT_EQ("timer t1 invoked", *localLog);
 }
 
 TEST_F(DispatchTest, poll_triggerTimers) {
-    DummyTimer t1("t1", td), t2("t2", td), t3("t3", td), t4("t4", td);
+    DummyTimer t1("t1", &dispatch), t2("t2", &dispatch);
+    DummyTimer t3("t3", &dispatch), t4("t4", &dispatch);
     t1.start(150);
     t2.start(160);
     t3.start(180);
     t4.start(170);
     Cycles::mockTscValue = 175;
-    td->poll();
+    dispatch.poll();
     EXPECT_EQ("timer t1 invoked; timer t4 invoked; "
                 "timer t2 invoked", *localLog);
-    EXPECT_EQ(180UL, td->earliestTriggerTime);
+    EXPECT_EQ(180UL, dispatch.earliestTriggerTime);
 }
 
 TEST_F(DispatchTest, poll_callEachTimerOnlyOnce) {
@@ -440,27 +429,27 @@ TEST_F(DispatchTest, poll_callEachTimerOnlyOnce) {
         int count;
         DISALLOW_COPY_AND_ASSIGN(LoopTimer);
     };
-    DummyTimer t1("t1", td);
-    LoopTimer t2("t2", td);
+    DummyTimer t1("t1", &dispatch);
+    LoopTimer t2("t2", &dispatch);
     t1.start(150);
     t2.start(160);
     Cycles::mockTscValue = 175;
-    td->poll();
+    dispatch.poll();
 
     // t2 had better be invoked only once, even though it rescheduled
     // itself and is actually runnable.
     EXPECT_EQ("timer t1 invoked; timer t2 invoked", *localLog);
     localLog->clear();
-    td->poll();
+    dispatch.poll();
     EXPECT_EQ("timer t2 invoked", *localLog);
 }
 
 TEST_F(DispatchTest, poll_handlerDeletesTimers) {
     // If one timer deletes others, make sure that the loop index doesn't
     // overflow the length of the "timers" vector.
-    DummyTimer t1("t1", td), t4("t4", td);
-    DummyTimer* t2 = new DummyTimer("t2", td);
-    DummyTimer* t3 = new DummyTimer("t3", td);
+    DummyTimer t1("t1", &dispatch), t4("t4", &dispatch);
+    DummyTimer* t2 = new DummyTimer("t2", &dispatch);
+    DummyTimer* t3 = new DummyTimer("t3", &dispatch);
     t1.start(150);
     t2->start(160);
     t3->start(180);
@@ -468,45 +457,45 @@ TEST_F(DispatchTest, poll_handlerDeletesTimers) {
     t1.deleteWhenInvoked(t2);
     t1.deleteWhenInvoked(t3);
     Cycles::mockTscValue = 175;
-    td->poll();
+    dispatch.poll();
     EXPECT_EQ("timer t1 invoked; timer t4 invoked", *localLog);
 }
 
 // Helper function that runs in a separate thread for the following test.
-static void checkDispatchThread(Dispatch* td, bool* result) {
-    *result = td->isDispatchThread();
+static void checkDispatchThread(Dispatch* dispatch, bool* result) {
+    *result = dispatch->isDispatchThread();
 }
 TEST_F(DispatchTest, isDispatchThread) {
-    td->hasDedicatedThread = true;
-    EXPECT_TRUE(td->isDispatchThread());
+    dispatch.hasDedicatedThread = true;
+    EXPECT_TRUE(dispatch.isDispatchThread());
     bool childResult = true;
-    std::thread(checkDispatchThread, td, &childResult).join();
+    std::thread(checkDispatchThread, &dispatch, &childResult).join();
     EXPECT_FALSE(childResult);
 }
 
 // The following test exercises most of the functionality related to
 // pollers (creation, deletion, invocation).
 TEST_F(DispatchTest, Poller_basics) {
-    DummyPoller p1("p1", 1000, td);
-    td->poll();
+    DummyPoller p1("p1", 1000, &dispatch);
+    dispatch.poll();
     EXPECT_EQ("poller p1 invoked", *localLog);
     {
-        DummyPoller p2("p2", 1000, td);
-        DummyPoller p3("p3", 0, td);
+        DummyPoller p2("p2", 1000, &dispatch);
+        DummyPoller p3("p3", 0, &dispatch);
         localLog->clear();
-        td->poll();
+        dispatch.poll();
         EXPECT_EQ("poller p1 invoked; poller p2 invoked; "
                 "poller p3 invoked", *localLog);
     }
     localLog->clear();
-    td->poll();
+    dispatch.poll();
     EXPECT_EQ("poller p1 invoked", *localLog);
 }
 
 TEST_F(DispatchTest, Poller_destructor_updateSlot) {
-    DummyPoller* p1 = new DummyPoller("p1", 0, td);
-    DummyPoller* p2 = new DummyPoller("p2", 0, td);
-    DummyPoller p3("p3", 0, td);
+    DummyPoller* p1 = new DummyPoller("p1", 0, &dispatch);
+    DummyPoller* p2 = new DummyPoller("p2", 0, &dispatch);
+    DummyPoller p3("p3", 0, &dispatch);
     EXPECT_EQ(2, p3.slot);
     delete p2;
     EXPECT_EQ(1, p3.slot);
@@ -517,12 +506,12 @@ TEST_F(DispatchTest, Poller_destructor_updateSlot) {
 TEST_F(DispatchTest, Poller_reentrant) {
     // Make sure everything still works if a poller gets deleted
     // in the middle of invoking pollers.
-    DummyPoller p1("p1", 0, td);
-    DummyPoller *p2 = new DummyPoller("p2", 0, td);
+    DummyPoller p1("p1", 0, &dispatch);
+    DummyPoller *p2 = new DummyPoller("p2", 0, &dispatch);
     p2->deleteWhenInvoked(p2);
-    p2->deleteWhenInvoked(new DummyPoller("p3", 0, td));
-    p2->deleteWhenInvoked(new DummyPoller("p4", 0, td));
-    td->poll();
+    p2->deleteWhenInvoked(new DummyPoller("p3", 0, &dispatch));
+    p2->deleteWhenInvoked(new DummyPoller("p4", 0, &dispatch));
+    dispatch.poll();
     EXPECT_EQ("poller p1 invoked; poller p2 invoked",
             *localLog);
 }
@@ -530,7 +519,7 @@ TEST_F(DispatchTest, Poller_reentrant) {
 TEST_F(DispatchTest, File_constructor_errorInEpollCreate) {
     sys->epollCreateErrno = EPERM;
     try {
-        DummyFile f1("f1", false, pipeFds[0], td);
+        DummyFile f1("f1", false, pipeFds[0], &dispatch);
     } catch (FatalError& e) {
         exceptionMessage = e.message;
     }
@@ -541,7 +530,7 @@ TEST_F(DispatchTest, File_constructor_errorInEpollCreate) {
 TEST_F(DispatchTest, File_constructor_errorCreatingExitPipe) {
     sys->pipeErrno = EPERM;
     try {
-        DummyFile f1("f1", false, pipeFds[0], td);
+        DummyFile f1("f1", false, pipeFds[0], &dispatch);
     } catch (FatalError& e) {
         exceptionMessage = e.message;
     }
@@ -552,7 +541,7 @@ TEST_F(DispatchTest, File_constructor_errorCreatingExitPipe) {
 TEST_F(DispatchTest, File_constructor_errorInEpollCtl) {
     sys->epollCtlErrno = EPERM;
     try {
-        DummyFile f1("f1", false, pipeFds[0], td);
+        DummyFile f1("f1", false, pipeFds[0], &dispatch);
     } catch (FatalError& e) {
         exceptionMessage = e.message;
     }
@@ -561,24 +550,24 @@ TEST_F(DispatchTest, File_constructor_errorInEpollCtl) {
 }
 
 TEST_F(DispatchTest, File_constructor_createPollingThread) {
-    EXPECT_FALSE(td->epollThread);
-    DummyFile f1("f1", false, pipeFds[0], td);
-    EXPECT_TRUE(td->epollThread);
+    EXPECT_FALSE(dispatch.epollThread);
+    DummyFile f1("f1", false, pipeFds[0], &dispatch);
+    EXPECT_TRUE(dispatch.epollThread);
 }
 
 TEST_F(DispatchTest, File_constructor_growFileTable) {
     uint32_t fd = 100;
-    if (fd < td->files.size()) {
-        fd = downCast<uint32_t>(td->files.size()) + 10;
+    if (fd < dispatch.files.size()) {
+        fd = downCast<uint32_t>(dispatch.files.size()) + 10;
     }
-    DummyFile f1("f1", false, fd, td);
-    EXPECT_EQ(2*fd, td->files.size());
+    DummyFile f1("f1", false, fd, &dispatch);
+    EXPECT_EQ(2*fd, dispatch.files.size());
 }
 
 TEST_F(DispatchTest, File_constructor_twoHandlersForSameFd) {
     try {
-        DummyFile f1("f1", false, pipeFds[0], td);
-        DummyFile f2("f2", false, pipeFds[0], td);
+        DummyFile f1("f1", false, pipeFds[0], &dispatch);
+        DummyFile f2("f2", false, pipeFds[0], &dispatch);
     } catch (FatalError& e) {
         exceptionMessage = e.message;
     }
@@ -588,7 +577,7 @@ TEST_F(DispatchTest, File_constructor_twoHandlersForSameFd) {
 
 TEST_F(DispatchTest, File_destructor_disableEvent) {
     DummyFile* f1 = new DummyFile("f1", true, pipeFds[0],
-            Dispatch::FileEvent::READABLE, td);
+            Dispatch::FileEvent::READABLE, &dispatch);
 
     // First make sure that the handler responds to data written
     // to the pipe.
@@ -600,14 +589,14 @@ TEST_F(DispatchTest, File_destructor_disableEvent) {
     // is ignored.
     delete f1;
     usleep(5000);
-    EXPECT_EQ(-1, td->readyFd);
+    EXPECT_EQ(-1, dispatch.readyFd);
     EXPECT_EQ(1, write(pipeFds[1], "y", 1));
     usleep(5000);
-    EXPECT_EQ(-1, td->readyFd);
+    EXPECT_EQ(-1, dispatch.readyFd);
 }
 
 TEST_F(DispatchTest, File_checkInvocationId) {
-    DummyFile f("f", false, 22, td);
+    DummyFile f("f", false, 22, &dispatch);
     f.invocationId = 99;
     try {
         sys->epollCtlErrno = EPERM;
@@ -667,7 +656,7 @@ TEST_F(DispatchTest, File_setEvents_variousEvents) {
 }
 
 TEST_F(DispatchTest, File_setEvents_errorInEpollCtl) {
-    DummyFile f("f", false, 22, td);
+    DummyFile f("f", false, 22, &dispatch);
     try {
         sys->epollCtlErrno = EPERM;
         f.setEvents(Dispatch::FileEvent::READABLE);
@@ -683,7 +672,7 @@ TEST_F(DispatchTest, epollThreadMain_errorsInEpollWait) {
     sys->epollWaitCount = 0;
     sys->epollWaitEvents = &event;
     sys->epollWaitErrno = EPERM;
-    Dispatch::epollThreadMain(&Context::get());
+    Dispatch::epollThreadMain(&dispatch);
     EXPECT_EQ("epollThreadMain: epoll_wait returned no "
             "events in Dispatch::epollThread | epollThreadMain: "
             "epoll_wait failed in Dispatch::epollThread: Operation "
@@ -693,12 +682,12 @@ TEST_F(DispatchTest, epollThreadMain_errorsInEpollWait) {
 TEST_F(DispatchTest, epollThreadMain_exitIgnoringFd) {
     sys->write(pipeFds[1], "blah", 4);
     DummyFile f1("f1", false, pipeFds[0],
-            Dispatch::FileEvent::READABLE, td);
-    //Dispatch::epollThreadMain(&Context::get());
+            Dispatch::FileEvent::READABLE, &dispatch);
+    //Dispatch::epollThreadMain(dispatch);
     usleep(5000);
     EXPECT_EQ("", TestLog::get());
-    EXPECT_NE(-1, td->readyFd);
-    sys->write(td->exitPipeFds[1], "x", 1);
+    EXPECT_NE(-1, dispatch.readyFd);
+    sys->write(dispatch.exitPipeFds[1], "x", 1);
     usleep(5000);
     EXPECT_EQ("epollThreadMain: done", TestLog::get());
 }
@@ -713,8 +702,8 @@ TEST_F(DispatchTest, fdIsReady) {
     close(fds[0]);
 }
 
-static void epollThreadWrapper(Context* context) {
-    Dispatch::epollThreadMain(context);
+static void epollThreadWrapper(Dispatch* dispatch) {
+    Dispatch::epollThreadMain(dispatch);
     *localLog = "epoll thread finished";
 }
 
@@ -733,56 +722,56 @@ TEST_F(DispatchTest, epollThreadMain_signalEventsAndExit) {
     sys->epollWaitCount = 3;
 
     // Start up the polling thread; it will signal the first ready file.
-    td->readyFd = -1;
-    std::thread(epollThreadWrapper, &Context::get()).detach();
+    dispatch.readyFd = -1;
+    std::thread(epollThreadWrapper, &dispatch).detach();
     waitForReadyFd(1.0);
-    EXPECT_EQ(43, td->readyFd);
-    EXPECT_EQ(Dispatch::FileEvent::WRITABLE, td->readyEvents);
+    EXPECT_EQ(43, dispatch.readyFd);
+    EXPECT_EQ(Dispatch::FileEvent::WRITABLE, dispatch.readyEvents);
 
     // The polling thread should already be waiting on readyFd,
     // so clearing it should cause another fd to appear immediately.
-    td->readyFd = -1;
+    dispatch.readyFd = -1;
     waitForReadyFd(1.0);
-    EXPECT_EQ(19, td->readyFd);
+    EXPECT_EQ(19, dispatch.readyFd);
     EXPECT_EQ(Dispatch::FileEvent::READABLE|Dispatch::FileEvent::WRITABLE,
-            td->readyEvents);
+            dispatch.readyEvents);
 
     // Let the polling thread see the next ready file, which should
     // cause it to exit.
-    td->readyFd = -1;
+    dispatch.readyFd = -1;
     usleep(5000);
-    EXPECT_EQ(-1, td->readyFd);
+    EXPECT_EQ(-1, dispatch.readyFd);
     EXPECT_EQ("epoll thread finished", *localLog);
 }
 
 TEST_F(DispatchTest, Timer_constructorDestructor) {
-    DummyTimer* t1 = new DummyTimer("t1", td);
-    DummyTimer* t2 = new DummyTimer("t2", 100, td);
-    EXPECT_EQ(1U, td->timers.size());
+    DummyTimer* t1 = new DummyTimer("t1", &dispatch);
+    DummyTimer* t2 = new DummyTimer("t2", 100, &dispatch);
+    EXPECT_EQ(1U, dispatch.timers.size());
     EXPECT_EQ(-1, t1->slot);
     EXPECT_EQ(0, t2->slot);
     EXPECT_EQ(100UL, t2->triggerTime);
     delete t1;
     delete t2;
-    EXPECT_EQ(0U, td->timers.size());
+    EXPECT_EQ(0U, dispatch.timers.size());
 }
 
 // Make sure that a timer can safely be deleted from a timer
 // handler.
 TEST_F(DispatchTest, Timer_reentrant) {
-    DummyTimer t1("t1", 500, td);
-    DummyTimer* t2 = new DummyTimer("t2", 100, td);
+    DummyTimer t1("t1", 500, &dispatch);
+    DummyTimer* t2 = new DummyTimer("t2", 100, &dispatch);
     t2->deleteWhenInvoked(t2);
-    t2->deleteWhenInvoked(new DummyTimer("t3", td));
-    t2->deleteWhenInvoked(new DummyTimer("t4", td));
+    t2->deleteWhenInvoked(new DummyTimer("t3", &dispatch));
+    t2->deleteWhenInvoked(new DummyTimer("t4", &dispatch));
     Cycles::mockTscValue = 300;
-    td->poll();
+    dispatch.poll();
     EXPECT_EQ("timer t2 invoked", *localLog);
-    EXPECT_EQ(1U, td->timers.size());
+    EXPECT_EQ(1U, dispatch.timers.size());
 }
 
 TEST_F(DispatchTest, Timer_isRunning) {
-    DummyTimer t1("t1", td);
+    DummyTimer t1("t1", &dispatch);
     EXPECT_FALSE(t1.isRunning());
     t1.start(200);
     EXPECT_TRUE(t1.isRunning());
@@ -791,15 +780,15 @@ TEST_F(DispatchTest, Timer_isRunning) {
 }
 
 TEST_F(DispatchTest, Timer_start) {
-    DummyTimer t1("t1", td);
-    DummyTimer t2("t2", td);
-    td->earliestTriggerTime = 200;
+    DummyTimer t1("t1", &dispatch);
+    DummyTimer t2("t2", &dispatch);
+    dispatch.earliestTriggerTime = 200;
     t1.start(210);
     EXPECT_EQ(210UL, t1.triggerTime);
     EXPECT_EQ(0, t1.slot);
-    EXPECT_EQ(200UL, td->earliestTriggerTime);
+    EXPECT_EQ(200UL, dispatch.earliestTriggerTime);
     t2.start(190);
-    EXPECT_EQ(190UL, td->earliestTriggerTime);
+    EXPECT_EQ(190UL, dispatch.earliestTriggerTime);
     EXPECT_EQ(1, t2.slot);
     t1.start(300);
     EXPECT_EQ(300UL, t1.triggerTime);
@@ -817,23 +806,23 @@ TEST_F(DispatchTest, Timer_start_dispatchDeleted) {
 }
 
 TEST_F(DispatchTest, Timer_stop) {
-    DummyTimer t1("t1", 100, td);
-    DummyTimer t2("t2", 100, td);
-    DummyTimer t3("t3", 100, td);
+    DummyTimer t1("t1", 100, &dispatch);
+    DummyTimer t2("t2", 100, &dispatch);
+    DummyTimer t3("t3", 100, &dispatch);
     EXPECT_EQ(0, t1.slot);
     t1.stop();
     EXPECT_EQ(-1, t1.slot);
-    EXPECT_EQ(2U, td->timers.size());
+    EXPECT_EQ(2U, dispatch.timers.size());
     t1.stop();
     EXPECT_EQ(-1, t1.slot);
-    EXPECT_EQ(2U, td->timers.size());
+    EXPECT_EQ(2U, dispatch.timers.size());
 }
 
 TEST_F(DispatchTest, Lock_inDispatchThread) {
     // Creating a lock shouldn't stop the Dispatcher from polling.
-    DummyPoller p1("p1", 1000, td);
-    Dispatch::Lock lock;
-    td->poll();
+    DummyPoller p1("p1", 1000, &dispatch);
+    Dispatch::Lock lock(&dispatch);
+    dispatch.poll();
     EXPECT_EQ("poller p1 invoked", *localLog);
 }
 

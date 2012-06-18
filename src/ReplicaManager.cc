@@ -27,6 +27,8 @@ namespace RAMCloud {
 /**
  * Create a ReplicaManager.  Creating more than one ReplicaManager for a
  * single log results in undefined behavior.
+ * \param context
+ *      Overall information about the RAMCloud server.
  * \param serverList
  *      Used to construct a tracker to find backups and track replica
  *      distribution stats.
@@ -41,12 +43,14 @@ namespace RAMCloud {
  *      NULL for testing in which case updates will not be sent to the
  *      coordinator.
  */
-ReplicaManager::ReplicaManager(ServerList& serverList,
+ReplicaManager::ReplicaManager(Context& context,
+                               ServerList& serverList,
                                const ServerId& masterId,
                                uint32_t numReplicas,
                                const string* coordinatorLocator)
-    : numReplicas(numReplicas)
-    , tracker(serverList)
+    : context(context)
+    , numReplicas(numReplicas)
+    , tracker(context, serverList)
     , backupSelector(tracker)
     , coordinator()
     , dataMutex()
@@ -56,10 +60,10 @@ ReplicaManager::ReplicaManager(ServerList& serverList,
     , taskManager()
     , writeRpcsInFlight(0)
     , minOpenSegmentId()
-    , failureMonitor(serverList, this)
+    , failureMonitor(context, serverList, this)
 {
     if (coordinatorLocator)
-        coordinator.construct(coordinatorLocator->c_str());
+        coordinator.construct(context, coordinatorLocator->c_str());
     minOpenSegmentId.construct(&taskManager,
                                coordinator ? coordinator.get() : NULL,
                                &masterId);

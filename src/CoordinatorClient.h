@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -33,9 +33,9 @@ namespace RAMCloud {
  */
 class CoordinatorClient : public Client {
   public:
-    explicit CoordinatorClient(const char* coordinatorLocator)
-        : session(Context::get().transportManager->
-                    getSession(coordinatorLocator))
+    explicit CoordinatorClient(Context& context,
+                               const char* coordinatorLocator)
+        : session(context.transportManager->getSession(coordinatorLocator))
     {
     }
 

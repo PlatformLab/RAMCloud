@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -63,7 +63,8 @@ class BaseRecovery {
  */
 class Recovery : public BaseRecovery {
   public:
-    Recovery(ServerId masterId,
+    Recovery(Context& context,
+             ServerId masterId,
              const ProtoBuf::Tablets& will,
              const CoordinatorServerList& serverList);
     ~Recovery();
@@ -77,7 +78,7 @@ class Recovery : public BaseRecovery {
     class BackupStartTask {
       PUBLIC:
         BackupStartTask(const CoordinatorServerList::Entry& backupHost,
-             ServerId crashedMasterId,
+             Context& context, ServerId crashedMasterId,
              const ProtoBuf::Tablets& partitions, uint64_t minOpenSegmentId);
         bool isDone() const { return done; }
         bool isReady() { return rpc && rpc->isReady(); }
@@ -86,6 +87,7 @@ class Recovery : public BaseRecovery {
         void wait();
         const CoordinatorServerList::Entry& backupHost;
       PRIVATE:
+        Context& context;
         const ServerId crashedMasterId;
         const ProtoBuf::Tablets& partitions;
         const uint64_t minOpenSegmentId;
@@ -115,6 +117,9 @@ class Recovery : public BaseRecovery {
         uint32_t  segmentLength;
         LogDigest logDigest;
     };
+
+    /// Shared RAMCloud information.
+    Context& context;
 
     CycleCounter<RawMetric> recoveryTicks;
 

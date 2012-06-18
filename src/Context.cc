@@ -1,4 +1,5 @@
 /* Copyright (c) 2011 Facebook
+ * Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -53,26 +54,18 @@ class MockContextMember {
  * Create a new context.
  * This should be called when creating a RamCloud instance and in the main
  * function of RAMCloud daemons.
- * You will almost always want to enter the current thread into this new
- * context using a Context::Guard.
  * \param hasDedicatedDispatchThread
  *      Argument passed on to Dispatch's constructor.
  */
 Context::Context(bool hasDedicatedDispatchThread)
-    : logger(NULL)
-    , mockContextMember1(NULL)
+    : mockContextMember1(NULL)
     , dispatch(NULL)
     , mockContextMember2(NULL)
     , transportManager(NULL)
     , serviceManager(NULL)
     , sessionAlarmTimer(NULL)
 {
-    // The constructors of inner members may try to access the outer members.
-    // Set the current context while running the constructors to allow this.
-    Guard _(*this);
-
     try {
-        logger = new Logger();
 #if TESTING
         mockContextMember1 = new MockContextMember(1);
 #endif
@@ -80,8 +73,8 @@ Context::Context(bool hasDedicatedDispatchThread)
 #if TESTING
         mockContextMember2 = new MockContextMember(2);
 #endif
-        transportManager = new TransportManager();
-        serviceManager = new ServiceManager();
+        transportManager = new TransportManager(*this);
+        serviceManager = new ServiceManager(*this);
         sessionAlarmTimer = new SessionAlarmTimer(*dispatch);
     } catch (...) {
         destroy();
@@ -105,10 +98,6 @@ Context::~Context()
 void
 Context::destroy()
 {
-    // The destructors of inner members may try to access the outer members.
-    // Set the current context while running the destructors to allow this.
-    Guard _(*this);
-
     // The pointers are set to NULL here after they're deleted to make it
     // easier to catch bugs in which outer members try to access inner members.
 
@@ -133,30 +122,6 @@ Context::destroy()
     delete mockContextMember1;
     mockContextMember1 = NULL;
 #endif
-
-    delete logger;
-    logger = NULL;
 }
-
-/**
- * This is a slower version of Context::get() that outputs a reasonable error
- * message if the context isn't set. Normally, Context::get() will just
- * segfault, but this version is called instead if TESTING is set.
- */
-Context&
-Context::friendlyGet() {
-    if (currentContext == NULL) {
-        DIE("Tried to call Context::get() but not currently running within a "
-            "context. You need to set the context with ScopedContext in every "
-            "main function (for threads too!) and every client-facing method.");
-    }
-    return *currentContext;
-}
-
-/**
- * The current Context that would be returned by Context::get(). This variable
- * is manipulated with Context::Guard instances.
- */
-__thread Context* Context::currentContext = NULL;
 
 } // namespace RAMCloud

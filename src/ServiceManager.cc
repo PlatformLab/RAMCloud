@@ -53,8 +53,9 @@ int ServiceManager::pollMicros = 10000;
 /**
  * Construct a ServiceManager.
  */
-ServiceManager::ServiceManager()
-    : Dispatch::Poller(*Context::get().dispatch)
+ServiceManager::ServiceManager(Context &context)
+    : Dispatch::Poller(*context.dispatch)
+    , context(context)
     , services()
     , busyThreads()
     , idleThreads()
@@ -69,7 +70,7 @@ ServiceManager::ServiceManager()
  */
 ServiceManager::~ServiceManager()
 {
-    Dispatch& dispatch = *Context::get().dispatch;
+    Dispatch& dispatch = *context.dispatch;
     assert(dispatch.isDispatchThread());
     while (!busyThreads.empty()) {
         dispatch.poll();
@@ -106,7 +107,7 @@ ServiceManager::addService(Service& service, ServiceType type) {
     // can cause timeouts.
 
     for (int i = services[type]->maxThreads; i > 0; i--) {
-        Worker* worker = new Worker(Context::get());
+        Worker* worker = new Worker(context);
         worker->thread.construct(workerMain, worker);
         idleThreads.push_back(worker);
     }
@@ -281,7 +282,7 @@ ServiceManager::waitForRpc(double timeoutSeconds) {
         if (Cycles::toSeconds(Cycles::rdtsc() - start) > timeoutSeconds) {
             return NULL;
         }
-        Context::get().dispatch->poll();
+        context.dispatch->poll();
     }
 }
 
@@ -297,8 +298,7 @@ ServiceManager::waitForRpc(double timeoutSeconds) {
 void
 ServiceManager::workerMain(Worker* worker)
 {
-    Context::Guard _(worker->context);
-    Dispatch& dispatch = *Context::get().dispatch;
+    Dispatch& dispatch = *worker->context.dispatch;
     try {
         uint64_t pollCycles = Cycles::fromNanoseconds(1000*pollMicros);
         while (true) {
@@ -358,7 +358,7 @@ ServiceManager::workerMain(Worker* worker)
 void
 Worker::exit()
 {
-    Dispatch& dispatch = *Context::get().dispatch;
+    Dispatch& dispatch = *context.dispatch;
     assert(dispatch.isDispatchThread());
     if (exited) {
         // Worker already exited; nothing to do.  This should only happen
@@ -427,12 +427,16 @@ Worker::sendReply()
 /**
  * Construct a WorkerSession.
  *
+ * \param context
+ *      Overall information about the RAMCloud server.
  * \param wrapped
  *      Another Session object, to which #clientSend requests will be
  *      forwarded.
  */
-ServiceManager::WorkerSession::WorkerSession(Transport::SessionRef wrapped)
-    : wrapped(wrapped)
+ServiceManager::WorkerSession::WorkerSession(Context& context,
+        Transport::SessionRef wrapped)
+    : context(context)
+    , wrapped(wrapped)
 {
     TEST_LOG("created");
 }
@@ -443,7 +447,7 @@ ServiceManager::WorkerSession::abort(const string& message)
 {
     // Must make sure that the dispatch thread isn't running when we
     // invoked the real abort.
-    Dispatch::Lock lock;
+    Dispatch::Lock lock(context.dispatch);
     return wrapped->abort(message);
 }
 
@@ -453,7 +457,7 @@ ServiceManager::WorkerSession::clientSend(Buffer* request, Buffer* reply)
 {
     // Must make sure that the dispatch thread isn't running when we
     // invoked the real clientSend.
-    Dispatch::Lock lock;
+    Dispatch::Lock lock(context.dispatch);
     return wrapped->clientSend(request, reply);
 }
 

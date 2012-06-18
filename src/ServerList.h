@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -143,7 +143,7 @@ class ServerList {
         ServerStatus status;
     };
 
-    ServerList();
+    explicit ServerList(Context& context);
     ~ServerList();
 
     string getLocator(ServerId id);
@@ -170,6 +170,9 @@ class ServerList {
     bool crashed(ServerId id, const string& locator,
                  ServiceMask services, uint32_t expectedReadMBytesPerSec);
     bool remove(ServerId id);
+
+    /// Shared RAMCloud information.
+    Context& context;
 
     /// Slots in the server list.
     std::vector<Tub<ServerDetails>> serverList;

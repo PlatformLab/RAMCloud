@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2011 Stanford University
+/* Copyright (c) 2009-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -74,6 +74,7 @@ struct CountingDeleter : public ReplicatedSegment::Deleter {
 struct ReplicatedSegmentTest : public ::testing::Test {
     enum { DATA_LEN = 100 };
     enum { MAX_BYTES_PER_WRITE = 21 };
+    Context context;
     TaskManager taskManager;
     ServerList serverList;
     BackupTracker tracker;
@@ -88,13 +89,14 @@ struct ReplicatedSegmentTest : public ::testing::Test {
     const uint32_t numReplicas;
     MockBackupSelector backupSelector;
     MockTransport transport;
-    TransportManager::MockRegistrar _;
+    TransportManager::MockRegistrar mockRegistrar;
     std::unique_ptr<ReplicatedSegment> segment;
 
     ReplicatedSegmentTest()
-        : taskManager()
-        , serverList()
-        , tracker(serverList, NULL)
+        : context()
+        , taskManager()
+        , serverList(context)
+        , tracker(context, serverList, NULL)
         , deleter()
         , writeRpcsInFlight(0)
         , dataMutex()
@@ -105,8 +107,8 @@ struct ReplicatedSegmentTest : public ::testing::Test {
         , openLen(10)
         , numReplicas(2)
         , backupSelector(numReplicas)
-        , transport()
-        , _(transport)
+        , transport(context)
+        , mockRegistrar(context, transport)
         , segment(NULL)
     {
         segment = newSegment(segmentId);

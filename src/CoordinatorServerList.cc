@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -32,8 +32,9 @@ namespace RAMCloud {
 /**
  * Constructor for CoordinatorServerList.
  */
-CoordinatorServerList::CoordinatorServerList()
-    : serverList(),
+CoordinatorServerList::CoordinatorServerList(Context& context)
+    : context(context),
+      serverList(),
       numberOfMasters(0),
       numberOfBackups(0),
       versionNumber(0)
@@ -213,7 +214,7 @@ CoordinatorServerList::incrementVersion(ProtoBuf::ServerList& update)
 Transport::SessionRef
 CoordinatorServerList::getSession(ServerId id) const
 {
-    return Context::get().transportManager->getSession(
+    return context.transportManager->getSession(
         getReferenceFromServerId(id).serviceLocator.c_str(), id);
 }
 

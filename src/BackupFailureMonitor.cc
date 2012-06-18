@@ -26,6 +26,8 @@ namespace RAMCloud {
  * won't be dispatched until after start() is called, which starts a
  * thread to monitor for failures.  The thread is cleaned up on destruction.
  *
+ * \param context
+ *      Overall information about the RAMCloud server.
  * \param serverList
  *      A ServerList maintained by the MembershipService which will be
  *      monitored for changes.
@@ -34,15 +36,17 @@ namespace RAMCloud {
  *      ReplicaManager::handleBackupFailures()). Can be NULL for testing,
  *      in which case no action will be taken on backup failures.
  */
-BackupFailureMonitor::BackupFailureMonitor(ServerList& serverList,
+BackupFailureMonitor::BackupFailureMonitor(Context& context,
+                                           ServerList& serverList,
                                            ReplicaManager* replicaManager)
-    : replicaManager(replicaManager)
+    : context(context)
+    , replicaManager(replicaManager)
     , log(NULL)
     , running(false)
     , changesOrExit()
     , mutex()
     , thread()
-    , tracker(serverList, this)
+    , tracker(context, serverList, this)
 {
     // #tracker may call trackerChangesEnqueued() but all notifications will
     // be ignored until start() is called.
@@ -68,7 +72,6 @@ BackupFailureMonitor::~BackupFailureMonitor()
 void
 BackupFailureMonitor::main(Context& context)
 {
-    Context::Guard _(context);
     Lock lock(mutex);
     while (true) {
         // If the replicaManager isn't working and there aren't any
@@ -129,7 +132,7 @@ BackupFailureMonitor::start(Log* log)
     this->log = log;
     running = true;
     thread.construct(&BackupFailureMonitor::main,
-                     this, std::ref(Context::get()));
+                     this, std::ref(context));
 }
 
 /**

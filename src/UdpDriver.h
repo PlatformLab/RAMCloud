@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -35,7 +35,8 @@ class UdpDriver : public Driver {
     /// The maximum number bytes we can stuff in a UDP packet payload.
     static const uint32_t MAX_PAYLOAD_SIZE = 1400;
 
-    explicit UdpDriver(const ServiceLocator* localServiceLocator = NULL);
+    explicit UdpDriver(Context& context,
+                       const ServiceLocator* localServiceLocator = NULL);
     virtual ~UdpDriver();
     virtual void connect(IncomingPacketHandler* incomingPacketHandler);
     virtual void disconnect();
@@ -62,6 +63,9 @@ class UdpDriver : public Driver {
                                                /// of the allocated space).
     };
 
+    /// Shared RAMCloud information.
+    Context &context;
+
     /// File descriptor of the UDP socket this driver uses for communication.
     int socketFd;
 
@@ -75,7 +79,7 @@ class UdpDriver : public Driver {
     class ReadHandler : public Dispatch::File {
       public:
         ReadHandler(int fd, UdpDriver* driver)
-            : Dispatch::File(*Context::get().dispatch,
+            : Dispatch::File(*driver->context.dispatch,
                              fd, Dispatch::FileEvent::READABLE)
             , driver(driver)
         { }

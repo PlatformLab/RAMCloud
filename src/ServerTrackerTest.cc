@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -31,13 +31,15 @@ struct CountCallback : public ServerTracker<int>::Callback {
 class ServerTrackerTest : public ::testing::Test {
   public:
     ServerTrackerTest()
-        : callback()
-        , sl()
-        , tr(sl)
-        , trcb(sl, &callback)
+        : context()
+        , callback()
+        , sl(context)
+        , tr(context, sl)
+        , trcb(context, sl, &callback)
     {
     }
 
+    Context context;
     CountCallback callback;
     ServerList sl;
     ServerTracker<int> tr;
@@ -129,9 +131,9 @@ TEST_F(ServerTrackerTest, fireCallback) {
     // Ensure that all trackers have changes enqueued
     // before any of the trackers receives notification.
     EnsureBothHaveChangesCallback orderCheckCb;
-    ServerTracker<int> tr1(sl, &orderCheckCb);
+    ServerTracker<int> tr1(context, sl, &orderCheckCb);
     CountCallback countCb;
-    ServerTracker<int> tr2(sl, &countCb);
+    ServerTracker<int> tr2(context, sl, &countCb);
     orderCheckCb.tr1 = &tr1;
     orderCheckCb.tr2 = &tr2;
     while (tr1.getChange(details, event)); // clear out both queues
@@ -217,7 +219,7 @@ TEST_F(ServerTrackerTest, getChange) {
 }
 
 TEST_F(ServerTrackerTest, getRandomServerIdWithService) {
-    Context::get().logger->setLogLevels(SILENT_LOG_LEVEL);
+    Logger::get().setLogLevels(SILENT_LOG_LEVEL);
 
     ServerDetails server;
     ServerChangeEvent event;
@@ -267,7 +269,7 @@ TEST_F(ServerTrackerTest, getRandomServerIdWithService) {
 }
 
 TEST_F(ServerTrackerTest, getRandomServerIdWithService_evenDistribution) {
-    Context::get().logger->setLogLevels(SILENT_LOG_LEVEL);
+    Logger::get().setLogLevels(SILENT_LOG_LEVEL);
 
     ServerDetails server;
     ServerChangeEvent event;

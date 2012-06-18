@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  * Copyright (c) 2011 Facebook
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -50,6 +50,9 @@ namespace po = boost::program_options;
 #include "KeyUtil.h"
 
 using namespace RAMCloud;
+
+// Shared state for client library.
+Context context(true);
 
 // Used to invoke RAMCloud operations.
 static RamCloud* cluster;
@@ -1026,7 +1029,7 @@ readAllToAll()
                 uint64_t startCycles = Cycles::rdtsc();
                 RamCloud::Read read(*cluster, tableId, key, keyLength, &result);
                 while (!read.isReady()) {
-                    Context::get().dispatch->poll();
+                    context.dispatch->poll();
                     double secsWaiting =
                         Cycles::toSeconds(Cycles::rdtsc() - startCycles);
                     if (secsWaiting > 1.0) {
@@ -1064,7 +1067,7 @@ readAllToAll()
         uint64_t startCycles = Cycles::rdtsc();
         RamCloud::Read read(*cluster, tableId, key, keyLength, &result);
         while (!read.isReady()) {
-            Context::get().dispatch->poll();
+            context.dispatch->poll();
             if (Cycles::toSeconds(Cycles::rdtsc() - startCycles) > 1.0) {
                 RAMCLOUD_LOG(ERROR,
                             "Master client %d couldn't read from tableId %lu",
@@ -1513,10 +1516,6 @@ int
 main(int argc, char *argv[])
 try
 {
-    // need external context to set log levels
-    Context context(true);
-    Context::Guard _(context);
-
     // Parse command-line options.
     vector<string> testNames;
     string coordinatorLocator, logFile;
@@ -1564,7 +1563,7 @@ try
         }
         stdout = stderr = f;
     }
-    Context::get().logger->setLogLevels(logLevel);
+    Logger::get().setLogLevels(logLevel);
     if (vm.count("help")) {
         std::cout << desc << '\n';
         exit(0);

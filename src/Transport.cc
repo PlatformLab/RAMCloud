@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -14,6 +14,7 @@
  */
 
 #include "Dispatch.h"
+#include "Fence.h"
 #include "Rpc.h"
 #include "Transport.h"
 
@@ -32,17 +33,16 @@ namespace RAMCloud {
 void
 Transport::ClientRpc::wait()
 {
-    Dispatch& dispatch = *Context::get().dispatch;
-
     // When invoked in RAMCloud servers there is a separate dispatch thread,
     // so we just busy-wait here. When invoked on RAMCloud clients we're in
     // the dispatch thread so we have to invoke the dispatcher while waiting.
-    bool isDispatchThread = dispatch.isDispatchThread();
+    bool isDispatchThread = context.dispatch->isDispatchThread();
 
     while (!finished.load()) {
         if (isDispatchThread)
-            dispatch.poll();
+            context.dispatch->poll();
     }
+    Fence::lfence();
 
     if (errorMessage) {
         throw TransportException(HERE, *errorMessage);
@@ -98,7 +98,7 @@ Transport::ClientRpc::markFinished(const string& errorMessage)
 void
 Transport::ClientRpc::cancel(const string& message)
 {
-    Dispatch::Lock lock;
+    Dispatch::Lock lock(context.dispatch);
     if (isReady())
         return;
     cancelCleanup();

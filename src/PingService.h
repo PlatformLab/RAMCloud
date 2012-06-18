@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -28,8 +28,8 @@ namespace RAMCloud {
  */
 class PingService : public Service {
   public:
-    PingService();
-    explicit PingService(ServerList* serverList);
+    explicit PingService(Context& context);
+    explicit PingService(Context& context, ServerList* serverList);
     void dispatch(RpcOpcode opcode, Rpc& rpc);
     virtual int maxThreads() {
         return 5;
@@ -48,6 +48,9 @@ class PingService : public Service {
     void kill(const KillRpc::Request& reqHdr,
                KillRpc::Response& respHdr,
                Rpc& rpc);
+
+    /// Shared RAMCloud information.
+    Context& context;
 
     /// ServerList whose version will be returned on ping requests. This
     /// should refer to the server's global ServerList, which is being

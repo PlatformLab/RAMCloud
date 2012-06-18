@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2011 Stanford University
+/* Copyright (c) 2009-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -35,7 +35,7 @@ namespace RAMCloud {
  */
 class CoordinatorService : public Service {
   public:
-    CoordinatorService();
+    explicit CoordinatorService(Context& context);
     ~CoordinatorService();
     void dispatch(RpcOpcode opcode,
                   Rpc& rpc);
@@ -105,6 +105,11 @@ class CoordinatorService : public Service {
                  uint32_t offset, uint32_t length);
     void startMasterRecovery(const CoordinatorServerList::Entry& serverEntry);
     bool verifyServerFailure(ServerId serverId);
+
+    /**
+     * Shared RAMCloud information.
+     */
+    Context& context;
 
     /**
      * List of all servers in the system. This structure is used to allocate

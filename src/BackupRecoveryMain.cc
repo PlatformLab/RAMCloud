@@ -37,7 +37,6 @@ try
     uint32_t objectDataSize;
 
     Context context(true);
-    Context::Guard _(context);
 
     OptionsDescription clientOptions("Client");
     clientOptions.add_options()
@@ -59,7 +58,7 @@ try
          "Number of bytes to insert per object during insert phase.");
 
     OptionParser optionParser(clientOptions, argc, argv);
-    Context::get().transportManager->setTimeout(
+    context.transportManager->setTimeout(
             optionParser.options.getTransportTimeout());
 
     const string& coordinatorLocator =
@@ -111,7 +110,7 @@ try
     LOG(NOTICE, "Killing %s", session->getServiceLocator().c_str());
 
     CycleCounter<> backupRecoveryCycles;
-    PingClient pingClient;
+    PingClient pingClient(context);
     PingClient::Kill killOp(pingClient, session->getServiceLocator().c_str());
     killOp.cancel();
 

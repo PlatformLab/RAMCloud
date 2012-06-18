@@ -67,22 +67,26 @@ class MockCluster {
      * example, PingService).  Create and register those manually (with
      * #transport) if you need them.
      *
+     * \param context
+     *      Overall information about the RAMCloud server or client.
      * \param coordinatorLocator
      *      The service locator that other servers in the MockCluster will
      *      use to talk to the coordinator.
      */
-    explicit MockCluster(string coordinatorLocator = "mock:host=coordinator")
-        : transport()
-        , mockRegistrar(transport)
+    explicit MockCluster(Context& context,
+            string coordinatorLocator = "mock:host=coordinator")
+        : context(context)
+        , transport(context)
+        , mockRegistrar(context, transport)
         , coordinatorLocator(coordinatorLocator)
         , coordinator()
         , coordinatorClient()
         , servers()
     {
-        coordinator.construct();
+        coordinator.construct(context);
         transport.addService(*coordinator, coordinatorLocator,
                              COORDINATOR_SERVICE);
-        coordinatorClient.construct(coordinatorLocator.c_str());
+        coordinatorClient.construct(context, coordinatorLocator.c_str());
     }
 
     /**
@@ -144,7 +148,7 @@ class MockCluster {
             size_t nextIdx = servers.size();
             config.localLocator = format("mock:host=server%lu", nextIdx);
         }
-        std::unique_ptr<Server> server(new Server(config));
+        std::unique_ptr<Server> server(new Server(context, config));
         server->startForTesting(transport);
         servers.push_back(server.get());
         return server.release();
@@ -161,11 +165,8 @@ class MockCluster {
     template <typename T>
     std::unique_ptr<T> get(Server* server) {
         return std::unique_ptr<T>(
-            new T(
-                Context::get().
-                    transportManager->
-                        getSession(server->
-                            config.localLocator.c_str())));
+            new T(context.transportManager->
+                    getSession(server->config.localLocator.c_str())));
     }
 
     /**
@@ -177,6 +178,11 @@ class MockCluster {
     CoordinatorClient* getCoordinatorClient() {
         return coordinatorClient.get();
     }
+
+    /**
+     * Shared RAMCloud information.
+     */
+    Context& context;
 
     /**
      * Transport the servers in the cluster use to communicate.  Unlike a

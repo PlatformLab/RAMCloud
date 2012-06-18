@@ -31,6 +31,7 @@ namespace RAMCloud {
  */
 class BackupServiceTest : public ::testing::Test {
   public:
+    Context context;
     ServerConfig config;
     Tub<MockCluster> cluster;
     std::unique_ptr<BackupClient> client;
@@ -39,16 +40,17 @@ class BackupServiceTest : public ::testing::Test {
     mode_t oldUmask;
 
     BackupServiceTest()
-        : config(ServerConfig::forTesting())
+        : context()
+        , config(ServerConfig::forTesting())
         , cluster()
         , client()
         , server()
         , backup()
         , oldUmask(umask(0))
     {
-        Context::get().logger->setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
+        Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
 
-        cluster.construct();
+        cluster.construct(context);
         config.services = {BACKUP_SERVICE};
         config.backup.numSegmentFrames = 5;
         server = cluster->addServer(config);
@@ -545,6 +547,7 @@ TEST_F(BackupServiceTest, killAllStorage)
 }
 
 TEST_F(BackupServiceTest, recoverySegmentBuilder) {
+    Context context;
     uint32_t offset = 0;
     client->openSegment(ServerId(99, 0), 87);
     offset = writeHeader(ServerId(99, 0), 87);
@@ -575,7 +578,7 @@ TEST_F(BackupServiceTest, recoverySegmentBuilder) {
     ProtoBuf::Tablets partitions;
     createTabletList(partitions);
     Atomic<int> recoveryThreadCount{0};
-    BackupService::RecoverySegmentBuilder builder(Context::get(),
+    BackupService::RecoverySegmentBuilder builder(context,
                                                   toBuild,
                                                   partitions,
                                                   recoveryThreadCount,
@@ -1379,6 +1382,7 @@ TEST_F(SegmentInfoTest, appendRecoverySegmentSecondarySegment) {
 }
 
 TEST_F(SegmentInfoTest, appendRecoverySegmentMalformedSegment) {
+    TestLog::Enable _;
     info.open();
     memcpy(info.segment, "garbage", 7);
     info.setRecovering();
@@ -1601,6 +1605,7 @@ TEST_F(SegmentInfoTest, buildRecoverySegment) {
 }
 
 TEST_F(SegmentInfoTest, buildRecoverySegmentMalformedSegment) {
+    TestLog::Enable _;
     info.open();
     memcpy(info.segment, "garbage", 7);
     info.setRecovering();

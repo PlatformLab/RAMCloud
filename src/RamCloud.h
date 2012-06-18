@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -44,33 +44,24 @@ class RamCloud {
              uint64_t tableId, const char* key, uint16_t keyLength,
              Buffer* value, const RejectRules* rejectRules = NULL,
              uint64_t* version = NULL)
-             : constructorContext(ramCloud.clientContext)
-             , ramCloud(ramCloud)
+             : ramCloud(ramCloud)
              , master(ramCloud.objectFinder.lookup(tableId,
                                                    key, keyLength))
              , masterRead(master, tableId, key, keyLength, value,
                           rejectRules, version)
         {
-            // This should be the last line on all return paths of this
-            // constructor.
-            constructorContext.leave();
         }
         void cancel() {
-            Context::Guard _(ramCloud.clientContext);
             masterRead.cancel();
         }
         bool isReady() {
-            Context::Guard _(ramCloud.clientContext);
             return masterRead.isReady();
         }
         /// Wait for the read RPC to complete.
         void operator()() {
-            Context::Guard _(ramCloud.clientContext);
             masterRead();
         }
       private:
-        /// Analogous to RamCloud::constructorContext.
-        Context::Guard constructorContext;
         RamCloud& ramCloud;
         MasterClient master;
         MasterClient::Read masterRead;
@@ -86,16 +77,12 @@ class RamCloud {
               Buffer& buffer,
               const RejectRules* rejectRules = NULL,
               uint64_t* version = NULL, bool async = false)
-              : constructorContext(ramCloud.clientContext)
-              , ramCloud(ramCloud)
+              : ramCloud(ramCloud)
               , master(ramCloud.objectFinder.lookup(tableId,
                        key, keyLength))
               , masterWrite(master, tableId, key, keyLength, buffer,
                             rejectRules, version, async)
         {
-            // This should be the last line on all return paths of this
-            // constructor.
-            constructorContext.leave();
         }
         /// Start a write RPC. See RamCloud::write.
         Write(RamCloud& ramCloud,
@@ -103,29 +90,21 @@ class RamCloud {
               const void* buf, uint32_t length,
               const RejectRules* rejectRules = NULL,
               uint64_t* version = NULL, bool async = false)
-              : constructorContext(ramCloud.clientContext)
-              , ramCloud(ramCloud)
+              : ramCloud(ramCloud)
               , master(ramCloud.objectFinder.lookup(tableId,
                        key, keyLength))
               , masterWrite(master, tableId, key, keyLength, buf, length,
                             rejectRules, version, async)
         {
-            // This should be the last line on all return paths of this
-            // constructor.
-            constructorContext.leave();
         }
         bool isReady() {
-            Context::Guard _(ramCloud.clientContext);
             return masterWrite.isReady();
         }
         /// Wait for the write RPC to complete.
         void operator()() {
-            Context::Guard _(ramCloud.clientContext);
             masterWrite();
         }
       private:
-        /// Analogous to RamCloud::constructorContext.
-        Context::Guard constructorContext;
         RamCloud& ramCloud;
         MasterClient master;
         MasterClient::Write masterWrite;
@@ -186,13 +165,6 @@ class RamCloud {
      * this refers to an externally defined context.
      */
     Context& clientContext;
-
-    /**
-     * This should only be used in the constructor. This guard sets the context
-     * within the constructor, both during the initializer list and during the
-     * code in the constructor.
-     */
-    Context::Guard constructorContext;
   public:
 
     /// \copydoc Client::status

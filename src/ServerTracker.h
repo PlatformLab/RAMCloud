@@ -125,12 +125,15 @@ class ServerTracker : public ServerTrackerInterface {
     /**
      * Constructor for ServerTracker.
      * 
+     * \param context
+     *      Overall information about the RAMCloud server.
      * \param parent
      *      The ServerList to obtain updates from. This is typically a
      *      single, process-global list used by all trackers.
      */
-    explicit ServerTracker(ServerList& parent)
+    explicit ServerTracker(Context& context, ServerList& parent)
         : ServerTrackerInterface(),
+          context(context),
           parent(parent),
           serverList(),
           changes(),
@@ -145,10 +148,11 @@ class ServerTracker : public ServerTrackerInterface {
     /**
      * Constructor for ServerTracker.
      *
+     * \param context
+     *      Overall information about the RAMCloud server or client.
      * \param parent
      *      The ServerList to obtain updates from. This is typically a
      *      single, process-global list used by all trackers.
-     *
      * \param eventCallback
      *      A callback functor to be invoked whenever there is an
      *      upcoming change to the list. This functor will execute
@@ -157,9 +161,11 @@ class ServerTracker : public ServerTrackerInterface {
      *      hold up delivery of the same or future events to other
      *      ServerTrackers.
      */ 
-    explicit ServerTracker(ServerList& parent,
+    explicit ServerTracker(Context& context,
+                           ServerList& parent,
                            Callback* eventCallback)
         : ServerTrackerInterface(),
+          context(context),
           parent(parent),
           serverList(),
           changes(),
@@ -466,7 +472,7 @@ class ServerTracker : public ServerTrackerInterface {
                             format("ServerId %lu is not up.",
                                    id.getId()));
         }
-        return Context::get().transportManager->getSession(
+        return context.transportManager->getSession(
                 getLocator(id).c_str(), id);
     }
 
@@ -630,6 +636,9 @@ class ServerTracker : public ServerTrackerInterface {
         /// Pointer type T associated with this ServerId in the serverList.
         T* pointer;
     };
+
+    /// Shared RAMCloud information.
+    Context& context;
 
     /// The parent ServerList from which this tracker gets all updates.
     ServerList& parent;

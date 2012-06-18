@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -33,28 +33,30 @@ namespace RAMCloud {
  * MembershipService running and keeping the global Context::serverList up
  * to date. Without it, we'd not know of new servers to ping.
  *
+ * \param context
+ *      Overall information about the RAMCloud server.
  * \param[in] coordinatorLocatorString
  *      The ServiceLocator string of the coordinator. 
- *
  * \param[in] ourServerId
  *      The ServerId of this server, as returned by enlistment with the
  *      coordinator. Used only to avoid pinging ourself.
- *
  * \param[in] serverList
  *      The ServerList for this server. This module will check to see if
  *      any updates have been missed by comparing versions with other
  *      servers that it pings. If it falls behind, a request will to
  *      sent to the coordinator to fix any discrepancy.
  */
-FailureDetector::FailureDetector(const string &coordinatorLocatorString,
+FailureDetector::FailureDetector(Context& context,
+                                 const string &coordinatorLocatorString,
                                  const ServerId ourServerId,
                                  ServerList& serverList)
-    : ourServerId(ourServerId),
-      serverTracker(serverList),
+    : context(context),
+      ourServerId(ourServerId),
+      serverTracker(context, serverList),
       thread(),
       threadShouldExit(false),
-      pingClient(),
-      coordinatorClient(coordinatorLocatorString.c_str()),
+      pingClient(context),
+      coordinatorClient(context, coordinatorLocatorString.c_str()),
       serverList(serverList),
       staleServerListSuspected(false),
       staleServerListVersion(0),
@@ -77,7 +79,7 @@ FailureDetector::~FailureDetector()
 void
 FailureDetector::start()
 {
-    thread.construct(detectorThreadEntry, this, &Context::get());
+    thread.construct(detectorThreadEntry, this, &context);
 }
 
 /**
@@ -111,8 +113,6 @@ void
 FailureDetector::detectorThreadEntry(FailureDetector* detector,
                                      Context* context)
 {
-    Context::Guard _(*context);
-
     LOG(NOTICE, "Failure detector thread started");
 
     while (1) {

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -40,13 +40,14 @@ class RecoveryTest : public ::testing::Test {
         void *segMem;
         Segment* seg;
 
-        WriteValidSegment(ServerId serverId,
+        WriteValidSegment(Context& context,
+                          ServerId serverId,
                           uint64_t segmentId,
                           vector<uint64_t> digestIds,
                           const uint32_t segmentSize,
                           const vector<const char*> locators,
                           bool close)
-            : serverList()
+            : serverList(context)
             , masterId(serverId)
             , mgr()
             , segMem()
@@ -55,7 +56,7 @@ class RecoveryTest : public ::testing::Test {
             // TODO(ongaro): Jesus, this is the moral equivalent of linking
             // with libhphp.a.
 
-            mgr = new ReplicaManager(serverList, masterId,
+            mgr = new ReplicaManager(context, serverList, masterId,
                                      downCast<uint32_t>(locators.size()), NULL);
             foreach (const auto& locator, locators) {
                 size_t len = strlen(locator);
@@ -93,6 +94,7 @@ class RecoveryTest : public ::testing::Test {
         DISALLOW_COPY_AND_ASSIGN(WriteValidSegment);
     };
 
+    Context context;
     Tub<MockCluster> cluster;
     std::unique_ptr<BackupClient> backup1;
     std::unique_ptr<BackupClient> backup2;
@@ -103,7 +105,8 @@ class RecoveryTest : public ::testing::Test {
 
   public:
     RecoveryTest()
-        : cluster()
+        : context()
+        , cluster()
         , backup1()
         , backup2()
         , backup3()
@@ -111,9 +114,9 @@ class RecoveryTest : public ::testing::Test {
         , segmentSize(1 << 16)
         , segmentsToFree()
     {
-        Context::get().logger->setLogLevels(SILENT_LOG_LEVEL);
+        Logger::get().setLogLevels(SILENT_LOG_LEVEL);
 
-        cluster.construct();
+        cluster.construct(context);
 
         ServerConfig config = ServerConfig::forTesting();
         config.services = {BACKUP_SERVICE, MEMBERSHIP_SERVICE};
@@ -148,19 +151,22 @@ TEST_F(RecoveryTest, buildSegmentIdToBackups) {
     MockRandom _(1);
     // Two segs on backup1, one that overlaps with backup2
     segmentsToFree.push_back(
-        new WriteValidSegment(ServerId(99, 0), 88, { 88 }, segmentSize,
-            {"mock:host=backup1"}, true));
+        new WriteValidSegment(context,
+            ServerId(99, 0), 88, { 88 },
+            segmentSize, {"mock:host=backup1"}, true));
     segmentsToFree.push_back(
-        new WriteValidSegment(ServerId(99, 0), 89, { 88, 89 }, segmentSize,
-            {"mock:host=backup1"}, false));
+        new WriteValidSegment(context,
+            ServerId(99, 0), 89, { 88, 89 },
+            segmentSize, {"mock:host=backup1"}, false));
     // One seg on backup2
     segmentsToFree.push_back(
-        new WriteValidSegment(ServerId(99, 0), 88, { 88 }, segmentSize,
-            {"mock:host=backup2"}, true));
+        new WriteValidSegment(context,
+            ServerId(99, 0), 88, { 88 },
+            segmentSize, {"mock:host=backup2"}, true));
     // Zero segs on backup3
 
     ProtoBuf::Tablets tablets;
-    Recovery recovery(ServerId(99), tablets, *serverList);
+    Recovery recovery(context, ServerId(99), tablets, *serverList);
     EXPECT_EQ((vector<RecoverRpc::Replica> {
                     { 1, 88 },
                     { 2, 88 },
@@ -172,15 +178,18 @@ TEST_F(RecoveryTest, buildSegmentIdToBackups) {
 TEST_F(RecoveryTest, buildSegmentIdToBackups_secondariesEarlyInSomeList) {
     // Two segs on backup1, one that overlaps with backup2
     segmentsToFree.push_back(
-        new WriteValidSegment(ServerId(99, 0), 88, { 88 }, segmentSize,
-            {"mock:host=backup1"}, true));
+        new WriteValidSegment(context,
+            ServerId(99, 0), 88, { 88 },
+            segmentSize, {"mock:host=backup1"}, true));
     segmentsToFree.push_back(
-        new WriteValidSegment(ServerId(99, 0), 89, { 88, 89 }, segmentSize,
-            {"mock:host=backup1"}, true));
+        new WriteValidSegment(context,
+            ServerId(99, 0), 89, { 88, 89 },
+            segmentSize, {"mock:host=backup1"}, true));
     // One seg on backup2
     segmentsToFree.push_back(
-        new WriteValidSegment(ServerId(99, 0), 88, { 88 }, segmentSize,
-            {"mock:host=backup2"}, true));
+        new WriteValidSegment(context,
+            ServerId(99, 0), 88, { 88 },
+            segmentSize, {"mock:host=backup2"}, true));
     // Zero segs on backup3
     // Add one more primary to backup1
     // Add a primary/secondary segment pair to backup2 and backup3
@@ -189,14 +198,16 @@ TEST_F(RecoveryTest, buildSegmentIdToBackups_secondariesEarlyInSomeList) {
     // in slot 3).  Check to make sure the code prevents this secondary
     // from showing up before any primary in the list.
     segmentsToFree.push_back(
-        new WriteValidSegment(ServerId(99, 0), 90, { 88, 89, 90 }, segmentSize,
-            {"mock:host=backup1"}, true));
+        new WriteValidSegment(context,
+            ServerId(99, 0), 90, { 88, 89, 90 },
+            segmentSize, {"mock:host=backup1"}, true));
     segmentsToFree.push_back(
-        new WriteValidSegment(ServerId(99, 0), 91, { 88, 89, 90, 91 },
+        new WriteValidSegment(context,
+            ServerId(99, 0), 91, { 88, 89, 90, 91 },
             segmentSize, {"mock:host=backup2", "mock:host=backup3"}, false));
 
     ProtoBuf::Tablets tablets;
-    Recovery recovery(ServerId(99), tablets, *serverList);
+    Recovery recovery(context, ServerId(99), tablets, *serverList);
 
     EXPECT_EQ(6U, recovery.replicaLocations.size());
     // The secondary of segment 91 must be last in the list.
@@ -216,7 +227,7 @@ TEST_F(RecoveryTest, verifyCompleteLog) {
     TestLog::Enable _(&verifyCompleteLogFilter);
 #if 0
     ProtoBuf::Tablets tablets;
-    Recovery recovery(ServerId(99), tablets, serverList);
+    Recovery recovery(context, ServerId(99), tablets, serverList);
 
     vector<Recovery::SegmentAndDigestTuple> oldDigestList =
         recovery.digestList;
@@ -269,15 +280,18 @@ TEST_F(RecoveryTest, start) {
 
     // Two segs on backup1, one that overlaps with backup2
     segmentsToFree.push_back(
-        new WriteValidSegment(ServerId(99, 0), 88, { 88 }, segmentSize,
-            {"mock:host=backup1"}, true));
+        new WriteValidSegment(context,
+            ServerId(99, 0), 88, { 88 },
+            segmentSize, {"mock:host=backup1"}, true));
     segmentsToFree.push_back(
-        new WriteValidSegment(ServerId(99, 0), 89, { 88, 89 }, segmentSize,
-            {"mock:host=backup1"}, false));
+        new WriteValidSegment(context,
+            ServerId(99, 0), 89, { 88, 89 },
+            segmentSize, {"mock:host=backup1"}, false));
     // One seg on backup2
     segmentsToFree.push_back(
-        new WriteValidSegment(ServerId(99, 0), 88, { 88 }, segmentSize,
-            {"mock:host=backup2"}, true));
+        new WriteValidSegment(context,
+            ServerId(99, 0), 88, { 88 },
+            segmentSize, {"mock:host=backup2"}, true));
     // Zero segs on backup3
 
     ServerConfig config = ServerConfig::forTesting();
@@ -316,7 +330,7 @@ TEST_F(RecoveryTest, start) {
         tablet.set_ctime_log_head_offset(0);
     }
 
-    Recovery recovery(ServerId(99), tablets, *serverList);
+    Recovery recovery(context, ServerId(99), tablets, *serverList);
 
     /*
      * Make sure all segments are partitioned on the backups before proceeding,
@@ -378,15 +392,18 @@ TEST_F(RecoveryTest, start_notEnoughMasters) {
 
     // Two segs on backup1, one that overlaps with backup2
     segmentsToFree.push_back(
-        new WriteValidSegment(ServerId(99, 0), 88, { 88 }, segmentSize,
-            {"mock:host=backup1"}, true));
+        new WriteValidSegment(context,
+            ServerId(99, 0), 88, { 88 },
+            segmentSize, {"mock:host=backup1"}, true));
     segmentsToFree.push_back(
-        new WriteValidSegment(ServerId(99, 0), 89, { 88, 89 }, segmentSize,
-            {"mock:host=backup1"}, false));
+        new WriteValidSegment(context,
+            ServerId(99, 0), 89, { 88, 89 },
+            segmentSize, {"mock:host=backup1"}, false));
     // One seg on backup2
     segmentsToFree.push_back(
-        new WriteValidSegment(ServerId(99, 0), 88, { 88 }, segmentSize,
-            {"mock:host=backup2"}, true));
+        new WriteValidSegment(context,
+            ServerId(99, 0), 88, { 88 },
+            segmentSize, {"mock:host=backup2"}, true));
     // Zero segs on backup3
 
     // Constructor should have created two masters.
@@ -421,7 +438,8 @@ TEST_F(RecoveryTest, start_notEnoughMasters) {
         tablet.set_ctime_log_head_offset(0);
     }
 
-    Recovery recovery(ServerId(99), tablets, *serverList);
+    Recovery recovery(context, ServerId(99), tablets,
+            *serverList);
     MockRandom __(1); // triggers deterministic rand().
     TestLog::Enable _(&getRecoveryDataFilter);
     EXPECT_THROW(recovery.start(), FatalError);

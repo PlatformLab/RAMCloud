@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -43,7 +43,8 @@ namespace RAMCloud {
  */
 class FailureDetector {
   public:
-    FailureDetector(const string &coordinatorLocatorString,
+    FailureDetector(Context& context,
+                    const string &coordinatorLocatorString,
                     ServerId ourServerId,
                     ServerList& serverList);
     ~FailureDetector();
@@ -76,6 +77,9 @@ class FailureDetector {
 
     static_assert(TIMEOUT_USECS <= PROBE_INTERVAL_USECS,
                   "Timeout us should be less than probe interval.");
+
+    /// Shared RAMCloud information.
+    Context& context;
 
     /// Our ServerId (used to avoid pinging oneself).
     const ServerId       ourServerId;

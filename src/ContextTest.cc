@@ -22,11 +22,12 @@ extern int mockContextMemberThrowException;
 
 TEST(Context, constructor) {
     TestLog::Enable _;
-    EXPECT_TRUE(Context::get().logger != NULL);
-    EXPECT_TRUE(Context::get().dispatch != NULL);
-    EXPECT_TRUE(Context::get().transportManager != NULL);
-    EXPECT_TRUE(Context::get().serviceManager != NULL);
+    Context context;
+    EXPECT_TRUE(context.dispatch != NULL);
+    EXPECT_TRUE(context.transportManager != NULL);
+    EXPECT_TRUE(context.serviceManager != NULL);
     mockContextMemberThrowException = 2;
+    TestLog::reset();
     EXPECT_THROW(Context inner(false), Exception);
     EXPECT_EQ("MockContextMember: 1 | "
               "MockContextMember: 2 | "
@@ -44,35 +45,6 @@ TEST(Context, destructor) {
               "~MockContextMember: 2 | "
               "~MockContextMember: 1",
               TestLog::get());
-}
-
-TEST(Context, isSet) {
-    // the test runner set up our current context
-    EXPECT_TRUE(Context::isSet());
-    Context::currentContext = NULL;
-    EXPECT_FALSE(Context::isSet());
-}
-
-TEST(Context, friendlyGet) {
-    Context::currentContext = NULL;
-    EXPECT_THROW(Context::get(), FatalError);
-}
-
-TEST(Context, guard) {
-    Context& outer = Context::get(); // the test runner set this one up
-    Context inner(false);
-    {
-        Context::Guard g(inner);
-        EXPECT_EQ(&inner, &Context::get());
-    }
-    EXPECT_EQ(&outer, &Context::get());
-    {
-        Context::Guard g(inner);
-        EXPECT_EQ(&inner, &Context::get());
-        g.leave();
-        EXPECT_EQ(&outer, &Context::get());
-    }
-    EXPECT_EQ(&outer, &Context::get());
 }
 
 }  // namespace RAMCloud

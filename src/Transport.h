@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -72,14 +72,19 @@ class Transport {
         /**
          * Constructor for ClientRpc.
          *
+         * \param context
+         *      Overall information about the RAMCloud server or client.
          * \param request
          *      Holds the outgoing (request) message for the RPC.
          * \param response
          *      Used to hold the response message, when it arrives.
          */
-        ClientRpc(Buffer* request, Buffer* response)
-            : request(request), response(response), finished(0),
-              errorMessage() {}
+        ClientRpc(Context& context, Buffer* request, Buffer* response)
+            : context(context)
+            , request(request)
+            , response(response)
+            , finished(0)
+            , errorMessage() {}
 
       public:
 
@@ -116,6 +121,9 @@ class Transport {
 
         void cancel(const string& message);
         void cancel(const char* message = "");
+
+        // Shared RAMCloud information.
+        Context& context;
 
         // Request and response messages.
         Buffer* request;

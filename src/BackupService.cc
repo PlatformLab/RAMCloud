@@ -987,8 +987,6 @@ BackupService::RecoverySegmentBuilder::RecoverySegmentBuilder(
 void
 BackupService::RecoverySegmentBuilder::operator()()
 {
-    Context::Guard scopedContext(context);
-
     uint64_t startTime = Cycles::rdtsc();
     ReferenceDecrementer<Atomic<int>> _(recoveryThreadCount);
     LOG(DEBUG, "Building recovery segments on new thread");
@@ -1031,17 +1029,21 @@ BackupService::RecoverySegmentBuilder::operator()()
 /**
  * Create a BackupService.
  *
+ * \param context
+ *      Overall information about the RAMCloud server.
  * \param config
  *      Settings for this instance. The caller guarantees that config will
  *      exist for the duration of this BackupService's lifetime.
  * \param serverList
  *      A reference to the global ServerList.
  */
-BackupService::BackupService(const ServerConfig& config,
+BackupService::BackupService(Context& context,
+                             const ServerConfig& config,
                              ServerList& serverList)
-    : mutex()
+    : context(context)
+    , mutex()
     , config(config)
-    , coordinator(config.coordinatorLocator.c_str())
+    , coordinator(context, config.coordinatorLocator.c_str())
     , formerServerId()
     , serverId(0)
     , recoveryTicks()
@@ -1061,7 +1063,7 @@ BackupService::BackupService(const ServerConfig& config,
     , initCalled(false)
     , replicationId(0)
     , replicationGroup()
-    , gcTracker(serverList)
+    , gcTracker(context, serverList)
     , gcLeftOffAt(ServerId(), 0)
     , gcRunning(false)
     , gcThread()
@@ -1386,8 +1388,7 @@ BackupService::init(ServerId id)
     if (config.backup.gc) {
         LOG(NOTICE, "Starting backup replica garbage collector thread");
         gcRunning = true;
-        gcThread.construct(&BackupService::gcMain,
-                           this, std::ref(Context::get()));
+        gcThread.construct(&BackupService::gcMain, this);
     }
 }
 
@@ -1700,7 +1701,7 @@ BackupService::startReadingData(
     rpc.sendReply();
 
 #ifndef SINGLE_THREADED_BACKUP
-    RecoverySegmentBuilder builder(Context::get(),
+    RecoverySegmentBuilder builder(context,
                                    primarySegments,
                                    partitions,
                                    recoveryThreadCount,
@@ -1954,14 +1955,10 @@ BackupService::gc()
 /**
  * Runs garbage collection periodically.
  * Sleeps GC_MSECS and then calls gc() until gc() returns false.
- *
- * \param context
- *      Context in which the new thread runs (same as the parent thread).
  */
 void
-BackupService::gcMain(Context& context)
+BackupService::gcMain()
 {
-    Context::Guard _(context);
     while (true) {
         while (gc());
         uint32_t waited = 0;

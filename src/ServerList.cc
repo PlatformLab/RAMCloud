@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -30,9 +30,13 @@ namespace RAMCloud {
 
 /**
  * Constructor for ServerList.
+
+ * \param context
+ *      Overall information about the RAMCloud server
  */
-ServerList::ServerList()
-    : serverList(),
+ServerList::ServerList(Context& context)
+    : context(context),
+      serverList(),
       version(0),
       trackers(),
       mutex()
@@ -160,7 +164,7 @@ ServerList::toString()
 Transport::SessionRef
 ServerList::getSession(ServerId id)
 {
-    return Context::get().transportManager->getSession(
+    return context.transportManager->getSession(
         getLocator(id).c_str(), id);
 }
 

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -25,12 +25,7 @@
 
 namespace RAMCloud {
 
-/**
- * This logger is used when RAMCLOUD_LOG is called without a current context.
- * This shouldn't ever happen, but it wouldn't be friendly to otherwise
- * segfault the process for a log message.
- */
-Logger fallbackLogger(NOTICE);
+Logger* Logger::sharedLogger = NULL;
 
 /**
  * Friendly names for each #LogLevel value.
@@ -73,7 +68,7 @@ class FileLocker {
  *      Messages for all modules at least as important as \a level will be
  *      logged.
  */
-Logger::Logger(LogLevel level) : stream(NULL)
+Logger::Logger(LogLevel level) : stream(NULL), mutex()
 {
     setLogLevels(level);
 }
@@ -83,8 +78,21 @@ Logger::Logger(LogLevel level) : stream(NULL)
  */
 Logger::~Logger()
 {
+    Lock lock(mutex);
     if (stream != NULL)
         fclose(stream);
+}
+
+/**
+ * Return the singleton shared instance that is normally used for logging.
+ */
+Logger&
+Logger::get()
+{
+    if (sharedLogger == NULL) {
+        sharedLogger = new Logger();
+    }
+    return *sharedLogger;
 }
 
 /**
@@ -100,6 +108,7 @@ Logger::~Logger()
 void
 Logger::setLogFile(const char* path, bool truncate)
 {
+    Lock lock(mutex);
     FILE* f = fopen(path, truncate ? "w" : "a");
     if (f == NULL) {
         throw Exception(HERE,
@@ -122,6 +131,7 @@ Logger::setLogFile(const char* path, bool truncate)
 void
 Logger::setLogLevel(LogModule module, LogLevel level)
 {
+    Lock lock(mutex);
     logLevels[module] = level;
 }
 
@@ -136,6 +146,7 @@ Logger::setLogLevel(LogModule module, LogLevel level)
 void
 Logger::setLogLevel(LogModule module, int level)
 {
+    // No lock needed: doesn't access Logger object.
     if (level < 0)
         level = 0;
     else if (level >= NUM_LOG_LEVELS)
@@ -156,6 +167,7 @@ Logger::setLogLevel(LogModule module, int level)
 void
 Logger::setLogLevel(string module, string level)
 {
+    // No lock needed: doesn't access Logger object.
     int moduleIndex = 0;
     for (; moduleIndex < NUM_LOG_MODULES; ++moduleIndex) {
         if (module == logModuleNames[moduleIndex])
@@ -196,6 +208,7 @@ Logger::setLogLevel(string module, string level)
 void
 Logger::changeLogLevel(LogModule module, int delta)
 {
+    Lock lock(mutex);
     int level = static_cast<int>(logLevels[module]);
     setLogLevel(module, level + delta);
 }
@@ -209,6 +222,7 @@ Logger::changeLogLevel(LogModule module, int delta)
 void
 Logger::setLogLevels(LogLevel level)
 {
+    // No lock needed: doesn't access Logger object.
     for (int i = 0; i < NUM_LOG_MODULES; i++) {
         LogModule module = static_cast<LogModule>(i);
         setLogLevel(module, level);
@@ -223,6 +237,7 @@ Logger::setLogLevels(LogLevel level)
 void
 Logger::setLogLevels(int level)
 {
+    // No lock needed: doesn't access Logger object.
     if (level < 0)
         level = 0;
     else if (level >= NUM_LOG_LEVELS)
@@ -238,6 +253,7 @@ Logger::setLogLevels(int level)
 void
 Logger::setLogLevels(string level)
 {
+    // No lock needed: doesn't access Logger object.
     int moduleLevel;
     try {
         moduleLevel = boost::lexical_cast<int>(level);
@@ -267,6 +283,7 @@ Logger::setLogLevels(string level)
 void
 Logger::changeLogLevels(int delta)
 {
+    // No lock needed: doesn't access Logger object.
     for (int i = 0; i < NUM_LOG_MODULES; i++) {
         LogModule module = static_cast<LogModule>(i);
         changeLogLevel(module, delta);
@@ -288,6 +305,7 @@ void
 Logger::logBacktrace(LogModule module, LogLevel level,
                      const CodeLocation& where)
 {
+    // No lock needed: doesn't access Logger object.
     const int maxFrames = 128;
     void* retAddrs[maxFrames];
     int frames = backtrace(retAddrs, maxFrames);
@@ -324,6 +342,7 @@ Logger::logMessage(LogModule module, LogLevel level,
                    const CodeLocation& where,
                    const char* format, ...)
 {
+    Lock lock(mutex);
     static int pid = getpid();
     va_list ap;
     struct timespec now;
@@ -335,15 +354,14 @@ Logger::logMessage(LogModule module, LogLevel level,
     clock_gettime(CLOCK_REALTIME, &now);
     FileLocker _(f);
 
-    fprintf(f, "%010lu.%09lu %s:%d in %s %s %s[%d:%lu]%s: ",
+    fprintf(f, "%010lu.%09lu %s:%d in %s %s %s[%d:%lu]: ",
             now.tv_sec, now.tv_nsec,
             where.relativeFile().c_str(), where.line,
             where.qualifiedFunction().c_str(),
             logModuleNames[module],
             logLevelNames[level],
             pid,
-            ThreadId::get(),
-            (this == &fallbackLogger ? " with no context" : ""));
+            ThreadId::get());
 
     va_start(ap, format);
     vfprintf(f, format, ap);

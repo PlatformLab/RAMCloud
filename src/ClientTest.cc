@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -106,21 +106,23 @@ struct TestRpc {
 
 class ClientTest : public ::testing::Test {
   public:
+    Context context;
     Client client;
     MockTransport* transport;
     Transport::SessionRef session;
 
-    ClientTest() : client(), transport(NULL), session()
+    ClientTest() : context(), client(),
+        transport(NULL), session()
     {
         client.status = STATUS_OK;
-        transport = new MockTransport();
-        Context::get().transportManager->registerMock(transport);
+        transport = new MockTransport(context);
+        context.transportManager->registerMock(transport);
         session = transport->getSession();
     }
 
     ~ClientTest()
     {
-        Context::get().transportManager->unregisterMock();
+        context.transportManager->unregisterMock();
         delete transport;
     }
 

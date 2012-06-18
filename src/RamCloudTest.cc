@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -23,6 +23,7 @@ namespace RAMCloud {
 
 class RamCloudTest : public ::testing::Test {
   public:
+    Context context;
     MockCluster cluster;
     Tub<RamCloud> ramcloud;
     uint64_t tableId1;
@@ -30,12 +31,13 @@ class RamCloudTest : public ::testing::Test {
 
   public:
     RamCloudTest()
-        : cluster()
+        : context()
+        , cluster(context)
         , ramcloud()
         , tableId1(-1)
         , tableId2(-2)
     {
-        Context::get().logger->setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
+        Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
 
 
         ServerConfig config = ServerConfig::forTesting();
@@ -49,7 +51,7 @@ class RamCloudTest : public ::testing::Test {
         config.localLocator = "mock:host=ping1";
         cluster.addServer(config);
 
-        ramcloud.construct(Context::get(), "mock:host=coordinator");
+        ramcloud.construct(context, "mock:host=coordinator");
         ramcloud->createTable("table1");
         tableId1 = ramcloud->getTableId("table1");
         ramcloud->createTable("table2");

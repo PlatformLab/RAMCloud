@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -21,28 +21,30 @@ namespace RAMCloud {
 
 class InfRcTransportTest : public ::testing::Test {
   public:
-    ServiceLocator* locator;
+    Context context;
+    ServiceLocator locator;
+    InfRcTransport<RealInfiniband> server;
+    InfRcTransport<RealInfiniband> client;
 
-    InfRcTransportTest() : locator(NULL)
+    InfRcTransportTest()
+        : context()
+        , locator("infrc: host=localhost, port=11000")
+        , server(context, &locator)
+        , client(context)
     {
-        locator = new ServiceLocator("infrc: host=localhost, port=11000");
     }
 
-    ~InfRcTransportTest() {
-        delete locator;
-    }
+    ~InfRcTransportTest() {}
   private:
     DISALLOW_COPY_AND_ASSIGN(InfRcTransportTest);
 };
 
 TEST_F(InfRcTransportTest, sanityCheck) {
-    // Create a server and a client and verify that we can
-    // send a request, receive it, send a reply, and receive it.
-    // Then try a second request with bigger chunks of data.
+    // Verify that we can send a request, receive it, send a reply,
+    // and receive it. Then try a second request with bigger chunks
+    // of data.
 
-    InfRcTransport<RealInfiniband> server(locator);
-    InfRcTransport<RealInfiniband> client;
-    Transport::SessionRef session = client.getSession(*locator);
+    Transport::SessionRef session = client.getSession(locator);
 
     Buffer request;
     Buffer reply;
@@ -50,19 +52,19 @@ TEST_F(InfRcTransportTest, sanityCheck) {
     Transport::ClientRpc* clientRpc = session->clientSend(&request,
             &reply);
     Transport::ServerRpc* serverRpc =
-            Context::get().serviceManager->waitForRpc(1.0);
+            context.serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_EQ("abcdefg/0", TestUtil::toString(&serverRpc->requestPayload));
     EXPECT_FALSE(clientRpc->isReady());
     serverRpc->replyPayload.fillFromString("klmn");
     serverRpc->sendReply();
-    EXPECT_TRUE(TestUtil::waitForRpc(*clientRpc));
+    EXPECT_TRUE(TestUtil::waitForRpc(context, *clientRpc));
     EXPECT_EQ("klmn/0", TestUtil::toString(&reply));
 
     TestUtil::fillLargeBuffer(&request, 100000);
     reply.reset();
     clientRpc = session->clientSend(&request, &reply);
-    serverRpc = Context::get().serviceManager->waitForRpc(1.0);
+    serverRpc = context.serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_EQ("ok",
             TestUtil::checkLargeBuffer(&serverRpc->requestPayload, 100000));
@@ -74,10 +76,7 @@ TEST_F(InfRcTransportTest, sanityCheck) {
 
 TEST_F(InfRcTransportTest, InfRcSession_abort_onClientSendQueue) {
     TestLog::Enable _;
-    // Create a server and a client.
-    InfRcTransport<RealInfiniband> server(locator);
-    InfRcTransport<RealInfiniband> client;
-    InfRcTransport<RealInfiniband>::InfRcSession session(&client, *locator, 0);
+    InfRcTransport<RealInfiniband>::InfRcSession session(&client, locator, 0);
 
     // Arrange for 2 messages on clientSendQueue.
     Buffer request1, request2;
@@ -108,10 +107,7 @@ TEST_F(InfRcTransportTest, InfRcSession_abort_onClientSendQueue) {
 
 TEST_F(InfRcTransportTest, InfRcSession_abort_onOutstandingRpcs) {
     TestLog::Enable _;
-    // Create a server and a client.
-    InfRcTransport<RealInfiniband> server(locator);
-    InfRcTransport<RealInfiniband> client;
-    InfRcTransport<RealInfiniband>::InfRcSession session(&client, *locator, 0);
+    InfRcTransport<RealInfiniband>::InfRcSession session(&client, locator, 0);
 
     // Arrange for 2 messages on outstandingRpcs.
     Buffer request1, request2;
@@ -140,9 +136,7 @@ TEST_F(InfRcTransportTest, InfRcSession_abort_onOutstandingRpcs) {
 TEST_F(InfRcTransportTest, ClientRpc_cancelCleanup_rpcPending) {
     TestLog::Enable _;
     // Create a server and a client.
-    InfRcTransport<RealInfiniband> server(locator);
-    InfRcTransport<RealInfiniband> client;
-    InfRcTransport<RealInfiniband>::InfRcSession session(&client, *locator, 0);
+    InfRcTransport<RealInfiniband>::InfRcSession session(&client, locator, 0);
 
     // Send a message, then cancel before the response is received.
     Buffer request;
@@ -168,10 +162,7 @@ TEST_F(InfRcTransportTest, ClientRpc_cancelCleanup_rpcPending) {
 
 TEST_F(InfRcTransportTest, ClientRpc_cancelCleanup_rpcSent) {
     TestLog::Enable _;
-    // Create a server and a client.
-    InfRcTransport<RealInfiniband> server(locator);
-    InfRcTransport<RealInfiniband> client;
-    InfRcTransport<RealInfiniband>::InfRcSession session(&client, *locator, 0);
+    InfRcTransport<RealInfiniband>::InfRcSession session(&client, locator, 0);
 
     // Send a message, then cancel before the response is received.
     Buffer request;
@@ -180,7 +171,7 @@ TEST_F(InfRcTransportTest, ClientRpc_cancelCleanup_rpcSent) {
     Transport::ClientRpc* clientRpc = session.clientSend(&request,
             &reply);
     Transport::ServerRpc* serverRpc =
-            Context::get().serviceManager->waitForRpc(1.0);
+            context.serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_FALSE(clientRpc->isReady());
     EXPECT_EQ(1U, client.outstandingRpcs.size());
@@ -207,7 +198,7 @@ TEST_F(InfRcTransportTest, ClientRpc_cancelCleanup_rpcSent) {
     request.fillFromString("xyzzy");
     reply.reset();
     clientRpc = session.clientSend(&request, &reply);
-    serverRpc = Context::get().serviceManager->waitForRpc(1.0);
+    serverRpc = context.serviceManager->waitForRpc(1.0);
 
     // Note: the log entry for the unrecognized response to the canceled
     // RPC only appears here (InfRc doesn't check for responses unless
@@ -224,9 +215,7 @@ TEST_F(InfRcTransportTest, ClientRpc_cancelCleanup_rpcSent) {
 }
 
 TEST_F(InfRcTransportTest, ClientRpc_clientSend_sessionAborted) {
-    InfRcTransport<RealInfiniband> server(locator);
-    InfRcTransport<RealInfiniband> client;
-    InfRcTransport<RealInfiniband>::InfRcSession session(&client, *locator, 0);
+    InfRcTransport<RealInfiniband>::InfRcSession session(&client, locator, 0);
     session.abort("test abort");
     Buffer request;
     Buffer reply;
@@ -242,18 +231,11 @@ TEST_F(InfRcTransportTest, ClientRpc_clientSend_sessionAborted) {
 }
 
 TEST_F(InfRcTransportTest, ServerRpc_getClientServiceLocator) {
-
-    // Create a server and a client and verify that we can
-    // send a request, receive it, send a reply, and receive it.
-    // Then try a second request with bigger chunks of data.
-
-    InfRcTransport<RealInfiniband> server(locator);
-    InfRcTransport<RealInfiniband> client;
-    Transport::SessionRef session = client.getSession(*locator);
+    Transport::SessionRef session = client.getSession(locator);
     Buffer request, reply;
     Transport::ClientRpc* clientRpc = session->clientSend(&request, &reply);
     Transport::ServerRpc* serverRpc =
-            Context::get().serviceManager->waitForRpc(1.0);
+            context.serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
         "infrc:host=127\\.0\\.0\\.1,port=[0-9][0-9]*",

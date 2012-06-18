@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2011 Stanford University
+/* Copyright (c) 2009-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -54,7 +54,6 @@ try
 {
     // need external context to set log levels with OptionParser
     Context context(true);
-    Context::Guard _(context);
 
     OptionsDescription clientOptions("EnsureServers");
     int numMasters = 0;

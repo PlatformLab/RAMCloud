@@ -29,13 +29,10 @@ namespace RAMCloud {
  * RAMCloud services.  It also implements an asynchronous interface between
  * the dispatch thread (which manages all of the network connections for a
  * server and runs Transport code) and the worker threads.
- *
- * To get a pointer to the current ServiceManager instance, use
- * Context::get().serviceManager; see the Context class for more info.
  */
 class ServiceManager : Dispatch::Poller {
   public:
-    explicit ServiceManager();
+    explicit ServiceManager(Context &context);
     ~ServiceManager();
 
     void addService(Service& service, ServiceType type);
@@ -56,6 +53,9 @@ class ServiceManager : Dispatch::Poller {
     /// testing.
     static int pollMicros;
     static void workerMain(Worker* worker);
+
+    /// Shared RAMCloud information.
+    Context &context;
 
     // Contains one entry for each possible RpcService value, which is used
     // to dispatch requests to the service associated with that RpcService
@@ -116,7 +116,8 @@ class ServiceManager : Dispatch::Poller {
      */
     class WorkerSession : public Transport::Session {
       public:
-        explicit WorkerSession(Transport::SessionRef wrapped);
+        explicit WorkerSession(Context& context,
+                Transport::SessionRef wrapped);
         ~WorkerSession() {}
         virtual void abort(const string& message);
         virtual Transport::ClientRpc* clientSend(Buffer* request,
@@ -125,6 +126,7 @@ class ServiceManager : Dispatch::Poller {
             delete this;
         }
       PRIVATE:
+        Context &context;              /// Global RAMCloud state.
         Transport::SessionRef wrapped; /// clientSend calls must be forwarded
                                        /// to this underlying object.
         DISALLOW_COPY_AND_ASSIGN(WorkerSession);
@@ -146,11 +148,11 @@ class Worker {
     void sendReply();
 
   PRIVATE:
+    Context& context;                  /// Shared RAMCloud information.
     ServiceManager::ServiceInfo *serviceInfo;
                                        /// Service for the last request
                                        /// executed by this worker.
     Tub<std::thread> thread;           /// Thread that executes this worker.
-    Context& context;
     Transport::ServerRpc* rpc;         /// RPC being serviced by this worker.
                                        /// NULL means the last RPC given to
                                        /// the worker has been finished and a
@@ -197,7 +199,7 @@ class Worker {
                                        /// running.
 
     explicit Worker(Context& context)
-        : serviceInfo(NULL), thread(), context(context), rpc(NULL),
+        : context(context), serviceInfo(NULL), thread(), rpc(NULL),
           busyIndex(-1), state(POLLING), exited(false) {}
     void exit();
     void handoff(Transport::ServerRpc* rpc);

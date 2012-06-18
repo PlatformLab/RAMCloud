@@ -25,6 +25,7 @@ namespace RAMCloud {
 
 class ServiceManagerTest : public ::testing::Test {
   public:
+    Context context;
     Tub<ServiceManager> manager;
     MockTransport transport;
     MockService service;
@@ -32,10 +33,10 @@ class ServiceManagerTest : public ::testing::Test {
     Syscall *savedSyscall;
     MockSyscall sys;
 
-    ServiceManagerTest() : manager(), transport(), service(),
-            logEnabler(), savedSyscall(NULL), sys()
+    ServiceManagerTest() : context(), manager(), transport(context),
+            service(), logEnabler(), savedSyscall(NULL), sys()
     {
-        manager.construct();
+        manager.construct(context);
         manager->addService(service, BACKUP_SERVICE);
         savedSyscall = ServiceManager::sys;
         ServiceManager::sys = &sys;
@@ -80,7 +81,7 @@ TEST_F(ServiceManagerTest, sanityCheck) {
 
     // Wait for the request to be processed for (but don't wait forever).
     for (int i = 0; i < 1000; i++) {
-        Context::get().dispatch->poll();
+        context.dispatch->poll();
         if (!transport.outputLog.empty())
             break;
         usleep(1000);
@@ -91,8 +92,8 @@ TEST_F(ServiceManagerTest, sanityCheck) {
 
 TEST_F(ServiceManagerTest, constructor) {
     MockService mock;
-    ServiceManager manager1;
-    ServiceManager manager2;
+    ServiceManager manager1(context);
+    ServiceManager manager2(context);
     manager2.addService(mock, BACKUP_SERVICE);
     EXPECT_EQ(0, manager1.serviceCount);
     EXPECT_EQ(1, manager2.serviceCount);
@@ -124,7 +125,7 @@ TEST_F(ServiceManagerTest, destructor_cleanupThreads) {
 
 TEST_F(ServiceManagerTest, addService) {
     MockService mock;
-    ServiceManager manager1;
+    ServiceManager manager1(context);
     EXPECT_EQ(0, manager1.serviceCount);
     EXPECT_FALSE(manager1.services[1]);
     EXPECT_EQ(0U, manager1.idleThreads.size());
@@ -290,7 +291,7 @@ TEST_F(ServiceManagerTest, workerMain_goToSleep) {
 
     // Update dispatch->currentTime. When the worker sees this it should
     // go to sleep.
-    Context::get().dispatch->currentTime = Cycles::rdtsc();
+    context.dispatch->currentTime = Cycles::rdtsc();
     for (int i = 0; i < 1000; i++) {
         usleep(100);
         if (worker->state.load() == Worker::SLEEPING) {
@@ -314,7 +315,7 @@ TEST_F(ServiceManagerTest, workerMain_futexError) {
     TestLog::reset();
 
     // Create a new manager, whose service has only 1 thread.
-    ServiceManager manager2;
+    ServiceManager manager2(context);
     MockService service2(1);
     manager2.addService(service2, BACKUP_SERVICE);
     Worker* worker = manager2.idleThreads[0];
@@ -323,7 +324,7 @@ TEST_F(ServiceManagerTest, workerMain_futexError) {
     // Wait for the worker to go to sleep, then make sure it logged
     // an error message.
     usleep(20000);
-    Context::get().dispatch->currentTime = Cycles::rdtsc();
+    context.dispatch->currentTime = Cycles::rdtsc();
     for (int i = 0; i < 1000; i++) {
         usleep(100);
         if (worker->state.load() == Worker::SLEEPING) {
@@ -380,7 +381,7 @@ TEST_F(ServiceManagerTest, Worker_handoff_callFutex) {
             break;
         }
         usleep(1000);
-        Context::get().dispatch->poll();
+        context.dispatch->poll();
     }
     EXPECT_STREQ("", message);
 
@@ -396,14 +397,14 @@ TEST_F(ServiceManagerTest, Worker_handoff_callFutex) {
 // The following tests both the constructor and the clientSend method
 // for WorkerSession.
 TEST_F(ServiceManagerTest, WorkerSession) {
-    MockTransport transport;
+    MockTransport transport(context);
     Buffer request;
     Buffer reply;
     request.fillFromString("abcdefg");
     MockTransport::sessionDeleteCount = 0;
 
     Transport::Session* wrappedSession = new ServiceManager::WorkerSession(
-            transport.getSession());
+            context, transport.getSession());
 
     // Make sure that clientSend gets passed down to the underlying session.
     wrappedSession->clientSend(&request, &reply);
@@ -420,7 +421,6 @@ TEST_F(ServiceManagerTest, WorkerSession) {
 
 void serviceManagerTestWorker(Context* context,
         Transport::SessionRef session) {
-    Context::Guard _(*context);
     Buffer request;
     Buffer reply;
     request.fillFromString("abcdefg");
@@ -429,20 +429,19 @@ void serviceManagerTestWorker(Context* context,
 
 TEST_F(ServiceManagerTest, WorkerSession_SyncWithDispatchThread) {
     Context context(true);
-    Context::Guard _(context);
     TestLog::Enable logSilencer;
 
-    MockTransport transport;
+    MockTransport transport(context);
     Transport::SessionRef wrappedSession = new ServiceManager::WorkerSession(
-            transport.getSession());
-    std::thread child(serviceManagerTestWorker, &Context::get(),
+            context, transport.getSession());
+    std::thread child(serviceManagerTestWorker, &context,
             wrappedSession);
 
     // Make sure the child hangs in clientSend until we invoke the dispatcher.
     usleep(1000);
     EXPECT_STREQ("", transport.outputLog.c_str());
     for (int i = 0; i < 1000; i++) {
-        Context::get().dispatch->poll();
+        context.dispatch->poll();
         if (transport.outputLog.size() > 0) {
             break;
         }
@@ -452,14 +451,14 @@ TEST_F(ServiceManagerTest, WorkerSession_SyncWithDispatchThread) {
 }
 
 TEST_F(ServiceManagerTest, WorkerSession_abort) {
-    MockTransport transport;
+    MockTransport transport(context);
     Buffer request;
     Buffer reply;
     request.fillFromString("abcdefg");
     MockTransport::sessionDeleteCount = 0;
 
     Transport::Session* wrappedSession = new ServiceManager::WorkerSession(
-            transport.getSession());
+            context, transport.getSession());
 
     wrappedSession->abort("test message");
     EXPECT_STREQ("abort: test message", transport.outputLog.c_str());

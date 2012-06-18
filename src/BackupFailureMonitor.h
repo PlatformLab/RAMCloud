@@ -39,7 +39,8 @@ class BackupFailureMonitor
     : public ServerTracker<void>::Callback
 {
   PUBLIC:
-    BackupFailureMonitor(ServerList& serverList,
+    BackupFailureMonitor(Context& context,
+                         ServerList& serverList,
                          ReplicaManager* replicaManager);
     ~BackupFailureMonitor();
 
@@ -52,6 +53,11 @@ class BackupFailureMonitor
 
   PRIVATE:
     void main(Context& context);
+
+    /**
+     * Shared RAMCloud information.
+     */
+    Context& context;
 
     /**
      * The ReplicaManager to take corrective actions on when a backup failure

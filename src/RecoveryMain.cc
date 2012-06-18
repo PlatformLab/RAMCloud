@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2011 Stanford University
+/* Copyright (c) 2009-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -161,7 +161,6 @@ try
 
     // need external context to set log levels with OptionParser
     Context context(true);
-    Context::Guard _(context);
 
     OptionsDescription clientOptions("Client");
     clientOptions.add_options()
@@ -201,7 +200,7 @@ try
          "Verify the contents of all objects after recovery completes.");
 
     OptionParser optionParser(clientOptions, argc, argv);
-    Context::get().transportManager->setTimeout(
+    context.transportManager->setTimeout(
             optionParser.options.getTransportTimeout());
 
     LOG(NOTICE, "client: Connecting to %s",
@@ -349,7 +348,7 @@ try
     ClusterMetrics metricsBefore(&client);
 
     MasterClient oldMaster(session);
-    PingClient pingClient;
+    PingClient pingClient(context);
     uint64_t startTime = Cycles::rdtsc();
     PingClient::Kill killOp(pingClient, session->getServiceLocator().c_str());
 

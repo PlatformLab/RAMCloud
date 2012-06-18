@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2011 Stanford University
+/* Copyright (c) 2009-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -24,6 +24,7 @@
 namespace RAMCloud {
 
 struct ReplicaManagerTest : public ::testing::Test {
+    Context context;
     MockCluster cluster;
     const uint32_t segmentSize;
     Tub<ReplicaManager> mgr;
@@ -33,15 +34,16 @@ struct ReplicaManagerTest : public ::testing::Test {
     ServerList serverList;
 
     ReplicaManagerTest()
-        : cluster()
+        : context()
+        , cluster(context)
         , segmentSize(1 << 16)
         , mgr()
         , serverId(99, 0)
         , backup1Id()
         , backup2Id()
-        , serverList()
+        , serverList(context)
     {
-        Context::get().logger->setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
+        Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
 
         ServerConfig config = ServerConfig::forTesting();
         config.services = {BACKUP_SERVICE, MEMBERSHIP_SERVICE};
@@ -53,7 +55,8 @@ struct ReplicaManagerTest : public ::testing::Test {
         config.localLocator = "mock:host=backup2";
         backup2Id = addToServerList(cluster.addServer(config));
 
-        mgr.construct(serverList, serverId, 2, &cluster.coordinatorLocator);
+        mgr.construct(context, serverList, serverId, 2,
+                      &cluster.coordinatorLocator);
         serverId = cluster.getCoordinatorClient()->
                             enlistServer({}, {MASTER_SERVICE}, "", 0 , 0);
     }
@@ -279,7 +282,8 @@ bool filter(string s) {
 TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
     MockRandom __(1);
     const uint64_t logSegs = 4;
-    Log log(serverId, logSegs * 8192, 8192, 4298,
+    Context context;
+    Log log(context, serverId, logSegs * 8192, 8192, 4298,
             mgr.get(), Log::CLEANER_DISABLED);
     log.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
                     NULL, NULL, NULL);
@@ -310,7 +314,7 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
     EXPECT_FALSE(mgr->isIdle());
 
     TestLog::Enable _(filter);
-    BackupFailureMonitor failureMonitor(serverList, mgr.get());
+    BackupFailureMonitor failureMonitor(context, serverList, mgr.get());
     failureMonitor.start(&log);
     serverList.remove(backup1Id);
 

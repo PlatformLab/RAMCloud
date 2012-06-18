@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -81,7 +81,7 @@ class FastTransport : public Transport {
     class ServerSession;
     class ClientSession;
   public:
-    explicit FastTransport(Driver* driver);
+    explicit FastTransport(Context& context, Driver* driver);
     ~FastTransport();
 
     void dumpStats() {
@@ -497,7 +497,7 @@ class FastTransport : public Transport {
 
         /// Runs continuously between calls to init() and reset(); detects
         /// server timeouts.
-        Timer timer;
+        Tub<Timer> timer;
 
         /// False means we don't use the timer (typically means we're the
         /// server side and timeouts are handled by the client)
@@ -621,7 +621,7 @@ class FastTransport : public Transport {
         };
 
         /// Handles idle session cleanup and retransmits due to timeout.
-        Timer timer;
+        Tub<Timer> timer;
 
         /// False means we don't use the timer (typically means we're the
         /// server side and timeouts are handled by the client)
@@ -656,7 +656,7 @@ class FastTransport : public Transport {
          */
         explicit Session(FastTransport* transport, uint32_t id)
             : id(id)
-            , lastActivityTime(Context::get().dispatch->currentTime)
+            , lastActivityTime(transport->context.dispatch->currentTime)
             , transport(transport)
             , timeoutCycles(0)
             , token(INVALID_TOKEN)
@@ -1182,7 +1182,7 @@ class FastTransport : public Transport {
         void expire()
         {
             const uint32_t sessionsToCheck = 5;
-            uint64_t now = Context::get().dispatch->currentTime;
+            uint64_t now = transport->context.dispatch->currentTime;
             for (uint32_t i = 0; i < sessionsToCheck; i++) {
                 lastCleanedIndex++;
                 if (lastCleanedIndex >= sessions.size()) {
@@ -1236,6 +1236,9 @@ class FastTransport : public Transport {
     void sendBadSessionError(Header *header, const Driver::Address* address);
     void sendPacket(const Driver::Address* address,
                     Header* header, Buffer::Iterator* payload);
+
+    /// Shared RAMCloud information.
+    Context &context;
 
     /// The Driver used to send/recv packets for this FastTransport.
     Driver* const driver;

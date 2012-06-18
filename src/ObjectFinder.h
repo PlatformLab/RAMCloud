@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -34,7 +34,7 @@ class ObjectFinder {
   public:
     class TabletMapFetcher; // forward declaration, see full declaration below
 
-    explicit ObjectFinder(CoordinatorClient& coordinator);
+    explicit ObjectFinder(Context& context, CoordinatorClient& coordinator);
 
     /**
      * A partition (or bin) corresponding to the requests to be sent
@@ -63,6 +63,11 @@ class ObjectFinder {
     void waitForAllTabletsNormal();
 
   PRIVATE:
+    /**
+     * Shared RAMCloud information.
+     */
+    Context& context;
+
     /**
      * A cache of the coordinator's tablet map.
      */

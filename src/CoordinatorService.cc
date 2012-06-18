@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2011 Stanford University
+/* Copyright (c) 2009-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -27,8 +27,9 @@
 
 namespace RAMCloud {
 
-CoordinatorService::CoordinatorService()
-    : serverList()
+CoordinatorService::CoordinatorService(Context& context)
+    : context(context)
+    , serverList(context)
     , tabletMap()
     , tables()
     , nextTableId(0)
@@ -165,7 +166,7 @@ CoordinatorService::createTable(const CreateTableRpc::Request& reqHdr,
 
         const char* locator = master->serviceLocator.c_str();
         MasterClient masterClient(
-            Context::get().transportManager->getSession(locator));
+            context.transportManager->getSession(locator));
 
         // Get current log head. Only entries >= this can be part of the tablet.
         LogPosition headOfLog = masterClient.getHeadOfLog();
@@ -614,7 +615,7 @@ CoordinatorService::quiesce(const BackupQuiesceRpc::Request& reqHdr,
 {
     for (size_t i = 0; i < serverList.size(); i++) {
         if (serverList[i] != NULL && serverList[i]->isBackup()) {
-            BackupClient(Context::get().transportManager->getSession(
+            BackupClient(context.transportManager->getSession(
                 serverList[i]->serviceLocator.c_str())).quiesce();
         }
     }
@@ -776,7 +777,7 @@ CoordinatorService::assignReplicationGroup(
                 const char* locator =
                     serverList[backupId].serviceLocator.c_str();
                 BackupClient backupClient(
-                    Context::get().transportManager->getSession(locator));
+                    context.transportManager->getSession(locator));
                 backupClient.assignGroup(
                     replicationId,
                     static_cast<uint32_t>(replicationGroupIds.size()),
@@ -895,7 +896,7 @@ void
 CoordinatorService::sendMembershipUpdate(ProtoBuf::ServerList& update,
                                          ServerId excludeServerId)
 {
-    MembershipClient client;
+    MembershipClient client(context);
     for (size_t i = 0; i < serverList.size(); i++) {
         if (serverList[i] == NULL ||
             serverList[i]->status != ServerStatus::UP ||
@@ -944,7 +945,7 @@ CoordinatorService::sendServerList(ServerId destination)
     ProtoBuf::ServerList serializedServerList;
     serverList.serialize(serializedServerList);
 
-    MembershipClient client;
+    MembershipClient client(context);
     client.setServerList(serverList[destination].serviceLocator.c_str(),
                          serializedServerList);
 }
@@ -1074,7 +1075,8 @@ CoordinatorService::startMasterRecovery(
         (*mockRecovery)(serverId, *serverEntry.will, serverList);
         recovery = mockRecovery;
     } else {
-        recovery = new Recovery(serverId, *serverEntry.will, serverList);
+        recovery = new Recovery(context, serverId, *serverEntry.will,
+                                serverList);
     }
 
     // Keep track of recovery for each of the tablets it's working on.
@@ -1106,7 +1108,7 @@ CoordinatorService::verifyServerFailure(ServerId serverId) {
     const string& serviceLocator = serverList[serverId].serviceLocator;
     try {
         uint64_t nonce = generateRandom();
-        PingClient pingClient;
+        PingClient pingClient(context);
         pingClient.ping(serviceLocator.c_str(),
                         nonce, TIMEOUT_USECS * 1000);
         LOG(NOTICE, "False positive for server id %lu (\"%s\")",

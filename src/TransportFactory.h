@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -73,13 +73,16 @@ class TransportFactory {
      * Create a concrete #Transport instance.
      * The Dispatch lock must be held by the caller for the duration of this
      * function.
+     * \param context
+     *      Overall information about the RAMCloud server or client.
      * \param localServiceLocator
      *      The local address on which the transport should receive RPCs.
      *      May be NULL, indicating the Transport should only behave as a
      *      client.
      */
     virtual Transport*
-    createTransport(const ServiceLocator* localServiceLocator = NULL) = 0;
+    createTransport(Context& context,
+            const ServiceLocator* localServiceLocator = NULL) = 0;
 
     /**
      * Return the list of supported protocols as provided to the constructor.

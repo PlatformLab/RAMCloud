@@ -32,7 +32,6 @@ main(int argc, char *argv[])
 {
     using namespace RAMCloud;
     Context context(true);
-    Context::Guard _(context);
     try {
         ServerConfig config = ServerConfig::forExecution();
         string masterTotalMemory, hashTableMemory;
@@ -131,16 +130,16 @@ main(int argc, char *argv[])
 #if INFINIBAND
         InfRcTransport<>::setName(localLocator.c_str());
 #endif
-        Context::get().transportManager->setTimeout(
+        context.transportManager->setTimeout(
                 optionParser.options.getTransportTimeout());
-        Context::get().transportManager->initialize(localLocator.c_str());
+        context.transportManager->initialize(localLocator.c_str());
 
         config.coordinatorLocator =
             optionParser.options.getCoordinatorLocator();
         // Transports may augment the local locator somewhat.
         // Make sure the server is aware of that augmented locator.
         config.localLocator =
-            Context::get().transportManager->getListeningLocatorsString();
+            context.transportManager->getListeningLocatorsString();
 
         LOG(NOTICE, "%s: Listening on %s",
             config.services.toString().c_str(), config.localLocator.c_str());
@@ -150,26 +149,23 @@ main(int argc, char *argv[])
             config.setLogAndHashTableSize(masterTotalMemory, hashTableMemory);
         }
 
-        Server server(config);
+        Server server(context, config);
         server.run(); // Never returns except for exceptions.
 
         return 0;
     } catch (const Exception& e) {
         LOG(ERROR, "Fatal error in server at %s: %s",
-            Context::get().
-                transportManager->getListeningLocatorsString().c_str(),
+            context.transportManager->getListeningLocatorsString().c_str(),
             e.what());
         return 1;
     } catch (const std::exception& e) {
         LOG(ERROR, "Fatal error in server at %s: %s",
-            Context::get().
-                transportManager->getListeningLocatorsString().c_str(),
+            context.transportManager->getListeningLocatorsString().c_str(),
             e.what());
         return 1;
     } catch (...) {
         LOG(ERROR, "Unknown fatal error in server at %s",
-            Context::get().
-                transportManager->getListeningLocatorsString().c_str());
+            context.transportManager->getListeningLocatorsString().c_str());
         return 1;
     }
 }

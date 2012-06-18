@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -20,8 +20,9 @@
 
 namespace RAMCloud {
 
-UnreliableTransport::UnreliableTransport(Driver* driver)
-    : driver(driver)
+UnreliableTransport::UnreliableTransport(Context& context, Driver* driver)
+    : context(context)
+    , driver(driver)
     , clientPendingList()
     , serverRpcPool()
     , serverPendingList()
@@ -61,7 +62,7 @@ UnreliableTransport::UnreliableTransport(Driver* driver)
                                  data);
                 if (!header->getMoreWillFollow()) {
                     erase(t.serverPendingList, *rpc);
-                    Context::get().serviceManager->handleRpc(rpc);
+                    t.context.serviceManager->handleRpc(rpc);
                 }
             } else {
                 foreach (UnreliableClientRpc& rpc, t.clientPendingList) {
@@ -215,7 +216,7 @@ UnreliableTransport::UnreliableClientRpc::UnreliableClientRpc(
                                             Buffer* request,
                                             Buffer* response,
                                             Driver::Address& serverAddress)
-    : Transport::ClientRpc(request, response)
+    : Transport::ClientRpc(t.context, request, response)
     , t(t)
     , nonce(static_cast<uint32_t>(generateRandom() & Header::NONCE_MASK))
     , listEntries()

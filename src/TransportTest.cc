@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -23,9 +23,9 @@ namespace RAMCloud {
 // Wait for a given number of invocations, then mark an RPC as finished.
 class TransportTestPoller : public Dispatch::Poller {
   public:
-    TransportTestPoller(int *count, Transport::ClientRpc* rpc,
-            const char* errorMessage)
-        : Dispatch::Poller(*Context::get().dispatch),
+    TransportTestPoller(Context& context, int *count,
+            Transport::ClientRpc* rpc, const char* errorMessage)
+        : Dispatch::Poller(*context.dispatch),
           count(count), rpc(rpc), errorMessage(errorMessage) { }
     void poll() {
         (*count)--;
@@ -42,37 +42,34 @@ class TransportTestPoller : public Dispatch::Poller {
 
 class TransportTest : public ::testing::Test {
   public:
+    Context context;
     Buffer request, response;
-    TransportTest() : request(), response() { }
+    TransportTest() : context(), request(), response() { }
     ~TransportTest() { }
     DISALLOW_COPY_AND_ASSIGN(TransportTest);
 };
 
 TEST_F(TransportTest, wait_noError) {
-    Context context(true);
-    Context::Guard _(context);
     int count = 3;
-    Transport::ClientRpc rpc(&request, &response);
-    TransportTestPoller poller(&count, &rpc, NULL);
+    Transport::ClientRpc rpc(context, &request, &response);
+    TransportTestPoller poller(context, &count, &rpc, NULL);
     rpc.wait();
     EXPECT_EQ(0, count);
 }
 
-void waitOnRpc(Context* context, Transport::ClientRpc* rpc, const char** state)
+void waitOnRpc(Transport::ClientRpc* rpc, const char** state)
 {
-    Context::Guard _(*context);
     rpc->wait();
     *state = "finished";
 };
 
 TEST_F(TransportTest, wait_notDispatchThread) {
-    Context context(true);
-    Context::Guard _(context);
+    Context context2(true);
     int count = 3;
-    Transport::ClientRpc rpc(&request, &response);
-    TransportTestPoller poller(&count, &rpc, NULL);
+    Transport::ClientRpc rpc(context2, &request, &response);
+    TransportTestPoller poller(context2, &count, &rpc, NULL);
     const char *state = "not finished";
-    std::thread(waitOnRpc, &Context::get(), &rpc, &state).detach();
+    std::thread(waitOnRpc, &rpc, &state).detach();
 
     // Wait a while and make sure that the RPC hasn't finished, and
     // that the dispatcher hasn't been invoked.
@@ -94,11 +91,9 @@ TEST_F(TransportTest, wait_notDispatchThread) {
 }
 
 TEST_F(TransportTest, wait_error) {
-    Context context(true);
-    Context::Guard _(context);
     int count = 3;
-    Transport::ClientRpc rpc(&request, &response);
-    TransportTestPoller poller(&count, &rpc, "test error message");
+    Transport::ClientRpc rpc(context, &request, &response);
+    TransportTestPoller poller(context, &count, &rpc, "test error message");
     string message("no exception");
     try {
         rpc.wait();
@@ -110,14 +105,14 @@ TEST_F(TransportTest, wait_error) {
 
 TEST_F(TransportTest, markFinished) {
     // No error.
-    Transport::ClientRpc rpc(&request, &response);
+    Transport::ClientRpc rpc(context, &request, &response);
     EXPECT_FALSE(rpc.isReady());
     rpc.markFinished();
     EXPECT_TRUE(rpc.isReady());
     rpc.wait();
 
     // Error via char*.
-    Transport::ClientRpc rpc2(&request, &response);
+    Transport::ClientRpc rpc2(context, &request, &response);
     rpc2.markFinished("error XXX");
     EXPECT_TRUE(rpc2.isReady());
     string message("no exception");
@@ -129,7 +124,7 @@ TEST_F(TransportTest, markFinished) {
     EXPECT_EQ("error XXX", message);
 
     // Error via string.
-    Transport::ClientRpc rpc3(&request, &response);
+    Transport::ClientRpc rpc3(context, &request, &response);
     string msg2("error 123");
     rpc3.markFinished(msg2);
     EXPECT_TRUE(rpc3.isReady());
@@ -143,14 +138,14 @@ TEST_F(TransportTest, markFinished) {
 }
 
 TEST_F(TransportTest, cancel_alreadyFinished) {
-    Transport::ClientRpc rpc(&request, &response);
+    Transport::ClientRpc rpc(context, &request, &response);
     rpc.markFinished();
     rpc.cancel();
     EXPECT_NO_THROW(rpc.wait());
 }
 TEST_F(TransportTest, cancel_stringArgument) {
     Client::allocHeader<PingRpc>(request);
-    Transport::ClientRpc rpc(&request, &response);
+    Transport::ClientRpc rpc(context, &request, &response);
     string s("test message");
     rpc.cancel(s);
     string message("no exception");
@@ -162,7 +157,7 @@ TEST_F(TransportTest, cancel_stringArgument) {
     EXPECT_EQ("PING RPC cancelled: test message", message);
 }
 TEST_F(TransportTest, cancel_charArgument) {
-    Transport::ClientRpc rpc(&request, &response);
+    Transport::ClientRpc rpc(context, &request, &response);
     rpc.cancel("message2");
     string message("no exception");
     try {
@@ -173,7 +168,7 @@ TEST_F(TransportTest, cancel_charArgument) {
     EXPECT_EQ("null RPC cancelled: message2", message);
 }
 TEST_F(TransportTest, cancel_defaultMessage) {
-    Transport::ClientRpc rpc(&request, &response);
+    Transport::ClientRpc rpc(context, &request, &response);
     rpc.cancel();
     string message("no exception");
     try {

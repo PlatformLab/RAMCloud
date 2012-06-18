@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,6 +16,7 @@
 #ifndef RAMCLOUD_LOGGER_H
 #define RAMCLOUD_LOGGER_H
 
+#include <mutex>
 #include "Common.h"
 
 namespace RAMCloud {
@@ -61,13 +62,15 @@ enum LogModule {
  * This class is used to print informational and error messages to stderr or a
  * file. You'll usually want to use the RAMCLOUD_LOG macro to log messages, but
  * you'll need to access this class to configure the verbosity of the logger
- * and where the log messages should go. To get a pointer to the current Logger
- * instance, use Context::get().logger; see the Context class for more info.
+ * and where the log messages should go.
+ *
+ * Note: this class is thread-safe.
  */
 class Logger {
   public:
     explicit Logger(LogLevel level = NOTICE);
     ~Logger();
+    static Logger& get();
 
     void setLogFile(const char* path, bool truncate = false);
 
@@ -122,10 +125,20 @@ class Logger {
      */
     LogLevel logLevels[NUM_LOG_MODULES];
 
+    /**
+     * Used for monitor-style locking, so the Logger is thread-safe.
+     */
+    std::recursive_mutex mutex;
+    typedef std::unique_lock<std::recursive_mutex> Lock;
+
+    /**
+     * Singleton global logger that will be returned by Logger::get.
+     */
+    static Logger* sharedLogger;
+
     DISALLOW_COPY_AND_ASSIGN(Logger);
 };
 
-extern Logger fallbackLogger;
 
 } // end RAMCloud
 
@@ -139,9 +152,7 @@ extern Logger fallbackLogger;
  *      The level of importance of the message (LogLevel).
  */
 #define RAMCLOUD_BACKTRACE(level) do { \
-    RAMCloud::Logger& _logger = RAMCloud::Context::isSet() \
-            ? *RAMCloud::Context::get().logger \
-            : RAMCloud::fallbackLogger; \
+    RAMCloud::Logger& _logger = Logger::get(); \
     if (_logger.isLogging(RAMCLOUD_CURRENT_LOG_MODULE, level)) { \
         _logger.logBacktrace(RAMCLOUD_CURRENT_LOG_MODULE, level, HERE); \
     } \
@@ -160,9 +171,7 @@ extern Logger fallbackLogger;
  *      The arguments to the format string.
  */
 #define RAMCLOUD_LOG(level, format, ...) do { \
-    RAMCloud::Logger& _logger = RAMCloud::Context::isSet() \
-            ? *RAMCloud::Context::get().logger \
-            : RAMCloud::fallbackLogger; \
+    RAMCloud::Logger& _logger = Logger::get(); \
     if (_logger.isLogging(RAMCLOUD_CURRENT_LOG_MODULE, level)) { \
         _logger.logMessage(RAMCLOUD_CURRENT_LOG_MODULE, level, HERE, \
                            format "\n", ##__VA_ARGS__); \

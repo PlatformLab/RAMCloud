@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -25,12 +25,15 @@ namespace RAMCloud {
  */
 class LogIteratorTest : public ::testing::Test {
   public:
+    Context context;
     ServerId serverId;
     Log l;
 
     LogIteratorTest()
-        : serverId(ServerId(57, 0)),
-          l(serverId, 10 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED)
+        : context(),
+          serverId(ServerId(57, 0)),
+          l(context, serverId, 10 * 8192, 8192, 4298, NULL,
+              Log::CLEANER_DISABLED)
     {
         l.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
             NULL, NULL, NULL);

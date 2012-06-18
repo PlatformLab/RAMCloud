@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -31,11 +31,13 @@ namespace RecoveryInternal {
 
 /// Used in #Recovery::start().
 struct MasterStartTask {
-    MasterStartTask(Recovery& recovery,
+    MasterStartTask(Context& context,
+                    Recovery& recovery,
                     const CoordinatorServerList::Entry& masterEntry,
                     uint32_t partitionId,
                     const vector<RecoverRpc::Replica>& replicaLocations)
-        : recovery(recovery)
+        : context(context)
+        , recovery(recovery)
         , masterEntry(masterEntry)
         , replicaLocations(replicaLocations)
         , partitionId(partitionId)
@@ -52,7 +54,7 @@ struct MasterStartTask {
             "partition %d", locator, partitionId);
         try {
             masterClient.construct(
-                Context::get().transportManager->getSession(locator));
+                context.transportManager->getSession(locator));
             rpc.construct(*masterClient,
                           recovery.masterId, partitionId,
                           tablets,
@@ -88,6 +90,9 @@ struct MasterStartTask {
         done = true;
     }
 
+    /// Shared RAMCloud information.
+    Context& context;
+
     /// The parent recovery object.
     Recovery& recovery;
 
@@ -105,8 +110,10 @@ struct MasterStartTask {
 };
 
 struct BackupEndTask {
-    BackupEndTask(const string& serviceLocator, ServerId masterId)
-        : masterId(masterId)
+    BackupEndTask(Context& context, const string& serviceLocator,
+                  ServerId masterId)
+        : context(context)
+        , masterId(masterId)
         , serviceLocator(serviceLocator)
         , client()
         , rpc()
@@ -118,7 +125,7 @@ struct BackupEndTask {
         auto locator = serviceLocator.c_str();
         try {
             client.construct(
-                Context::get().transportManager->getSession(locator));
+                context.transportManager->getSession(locator));
             rpc.construct(*client, masterId);
             return;
         } catch (const TransportException& e) {
@@ -148,6 +155,7 @@ struct BackupEndTask {
         }
         done = true;
     }
+    Context& context;
     const ServerId masterId;
     const string& serviceLocator; // NOLINT
     Tub<BackupClient> client;
@@ -182,10 +190,12 @@ using namespace RecoveryInternal; // NOLINT
 
 Recovery::BackupStartTask::BackupStartTask(
             const CoordinatorServerList::Entry& backupHost,
+            Context& context,
             ServerId crashedMasterId,
             const ProtoBuf::Tablets& partitions,
             uint64_t minOpenSegmentId)
     : backupHost(backupHost)
+    , context(context)
     , crashedMasterId(crashedMasterId)
     , partitions(partitions)
     , minOpenSegmentId(minOpenSegmentId)
@@ -200,7 +210,7 @@ void
 Recovery::BackupStartTask::send()
 {
     client.construct(
-        Context::get().transportManager->getSession(
+        context.transportManager->getSession(
             backupHost.serviceLocator.c_str()));
     rpc.construct(*client, crashedMasterId, partitions);
     RAMCLOUD_LOG(DEBUG, "Starting startReadingData on %s",
@@ -290,6 +300,8 @@ Recovery::BackupStartTask::wait()
  * Create a Recovery to coordinate a recovery from the perspective
  * of a CoordinatorService.
  *
+ * \param context
+ *      Overall information about the RAMCloud server. 
  * \param masterId
  *      The crashed master this Recovery will rebuild.
  * \param will
@@ -305,11 +317,13 @@ Recovery::BackupStartTask::wait()
  *      is used to select recovery masters and to find all backup data for
  *      the crashed master.
  */
-Recovery::Recovery(ServerId masterId,
+Recovery::Recovery(Context& context,
+                   ServerId masterId,
                    const ProtoBuf::Tablets& will,
                    const CoordinatorServerList& serverList)
 
     : BaseRecovery(masterId)
+    , context(context)
     , recoveryTicks(&metrics->coordinator.recoveryTicks)
     , replicaLocations()
     , serverList(serverList)
@@ -358,7 +372,7 @@ Recovery::buildSegmentIdToBackups()
     }
     for (uint32_t i = 0; i < numBackups; ++i) {
         nextIssueIndex = serverList.nextBackupIndex(nextIssueIndex);
-        backupStartTasks[i].construct(*serverList[nextIssueIndex],
+        backupStartTasks[i].construct(*serverList[nextIssueIndex], context,
                                       masterId, will, minOpenSegmentId);
         ++nextIssueIndex;
     }
@@ -551,7 +565,7 @@ Recovery::start()
     for (uint32_t i = 0; i < numPartitions; i++) {
         auto& task = recoverTasks[i];
         nextMasterIndex = serverList.nextMasterIndex(nextMasterIndex);
-        task.construct(*this, *serverList[nextMasterIndex],
+        task.construct(context, *this, *serverList[nextMasterIndex],
                        i, replicaLocations);
         nextMasterIndex++;
 
@@ -581,7 +595,7 @@ Recovery::tabletsRecovered(const ProtoBuf::Tablets& tablets)
         if (serverList[i] == NULL || !serverList[i]->isBackup())
             continue;
         auto& backup = *serverList[i];
-        tasks[taskNum++].construct(backup.serviceLocator, masterId);
+        tasks[taskNum++].construct(context, backup.serviceLocator, masterId);
     }
     parallelRun(tasks, numBackups, 10);
     return true;

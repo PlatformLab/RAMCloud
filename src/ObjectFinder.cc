@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -42,11 +42,14 @@ class RealTabletMapFetcher : public ObjectFinder::TabletMapFetcher {
 
 /**
  * Constructor.
+ * \param context
+ *      Overall information about the RAMCloud server.
  * \param coordinator
  *      This object keeps a reference to \a coordinator
  */
-ObjectFinder::ObjectFinder(CoordinatorClient& coordinator)
-    : tabletMap()
+ObjectFinder::ObjectFinder(Context& context, CoordinatorClient& coordinator)
+    : context(context)
+    , tabletMap()
     , tabletMapFetcher(new RealTabletMapFetcher(coordinator))
 {
 }
@@ -86,7 +89,7 @@ ObjectFinder::lookup(uint64_t table, const char* key, uint16_t keyLength) {
                 keyHash <= tablet.end_key_hash()) {
                 if (tablet.state() == ProtoBuf::Tablets_Tablet_State_NORMAL) {
                     // TODO(ongaro): add cache
-                    return Context::get().transportManager->getSession(
+                    return context.transportManager->getSession(
                             tablet.service_locator().c_str());
                 } else {
                     // tablet is recovering or something, try again

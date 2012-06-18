@@ -26,6 +26,7 @@ namespace RAMCloud {
 
 class CoordinatorServiceTest : public ::testing::Test {
   public:
+    Context context;
     ServerConfig masterConfig;
     MockCluster cluster;
     CoordinatorClient* client;
@@ -34,14 +35,15 @@ class CoordinatorServiceTest : public ::testing::Test {
     ServerId masterServerId;
 
     CoordinatorServiceTest()
-        : masterConfig(ServerConfig::forTesting())
-        , cluster()
+        : context()
+        , masterConfig(ServerConfig::forTesting())
+        , cluster(context)
         , client()
         , service()
         , master()
         , masterServerId()
     {
-        Context::get().logger->setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
+        Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
 
         service = cluster.coordinator.get();
 
@@ -795,7 +797,7 @@ TEST_F(CoordinatorServiceTest, setMinOpenSegmentId) {
 
 // Most of startMasterRecovery is covered by hintServerDown tests.
 TEST_F(CoordinatorServiceTest, startMasterRecoveryNoTabletsOnMaster) {
-    Context::get().logger->setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
+    Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
     client->enlistServer({}, {MASTER_SERVICE, PING_SERVICE},
                          "mock:host=master2");
     client->enlistServer({}, {BACKUP_SERVICE}, "mock:host=backup");

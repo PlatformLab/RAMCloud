@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -33,7 +33,7 @@ namespace RAMCloud {
  */
 class MembershipClient : public Client {
   public:
-    MembershipClient() {}
+    explicit MembershipClient(Context& context) : context(context) {}
     ServerId getServerId(Transport::SessionRef session);
     void setServerList(const char* serviceLocator,
                        ProtoBuf::ServerList& list);
@@ -41,6 +41,9 @@ class MembershipClient : public Client {
                           ProtoBuf::ServerList& update);
 
   private:
+    /// Shared RAMCloud information.
+    Context& context;
+
     DISALLOW_COPY_AND_ASSIGN(MembershipClient);
 };
 } // namespace RAMCloud

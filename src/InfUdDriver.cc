@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -42,6 +42,8 @@ namespace RAMCloud {
 /**
  * Construct an InfUdDriver.
  *
+ * \param context
+ *      Overall information about the RAMCloud server or client.
  * \param sl
  *      Specifies the Infiniband device and physical port to use.
  *      If NULL, the first device and port are used by default.
@@ -53,9 +55,11 @@ namespace RAMCloud {
  *      Whether to use the Ethernet port.
  */
 template<typename Infiniband>
-InfUdDriver<Infiniband>::InfUdDriver(const ServiceLocator *sl,
+InfUdDriver<Infiniband>::InfUdDriver(Context& context,
+                                     const ServiceLocator *sl,
                                      bool ethernet)
-    : realInfiniband()
+    : context(context)
+    , realInfiniband()
     , infiniband()
     , QKEY(ethernet ? 0 : 0xdeadbeef)
     , rxcq(0)
@@ -180,7 +184,7 @@ void
 InfUdDriver<Infiniband>::connect(IncomingPacketHandler*
                                                 incomingPacketHandler) {
     this->incomingPacketHandler.reset(incomingPacketHandler);
-    poller.construct(this);
+    poller.construct(context, this);
 }
 
 /*
@@ -257,7 +261,7 @@ InfUdDriver<Infiniband>::release(char *payload)
 {
     // Must sync with the dispatch thread, since this method could potentially
     // be invoked in a worker.
-    Dispatch::Lock _;
+    Dispatch::Lock _(context.dispatch);
 
     // Note: the payload is actually contained in a PacketBuf structure,
     // which we return to a pool for reuse later.
@@ -327,7 +331,7 @@ template<typename Infiniband>
 void
 InfUdDriver<Infiniband>::Poller::poll()
 {
-    assert(Context::get().dispatch->isDispatchThread());
+    assert(driver->context.dispatch->isDispatchThread());
 
     PacketBuf* buffer = driver->packetBufPool.construct();
     BufferDescriptor* bd = NULL;

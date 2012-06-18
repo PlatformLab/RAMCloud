@@ -515,7 +515,8 @@ class BackupService : public Service {
     };
 
   public:
-    BackupService(const ServerConfig& config, ServerList& serverList);
+    BackupService(Context& context, const ServerConfig& config,
+                  ServerList& serverList);
     virtual ~BackupService();
     void benchmark(uint32_t& readSpeed, uint32_t& writeSpeed);
     void dispatch(RpcOpcode opcode, Rpc& rpc);
@@ -551,7 +552,12 @@ class BackupService : public Service {
                       BackupWriteRpc::Response& resp,
                       Rpc& rpc);
     bool gc();
-    void gcMain(Context& context);
+    void gcMain();
+
+    /**
+     * Shared RAMCloud information.
+     */
+    Context& context;
 
     /**
      * Provides mutual exclusion between handling RPCs and garbage collector.

@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -40,7 +40,7 @@ class PingClient : public Client {
         DISALLOW_COPY_AND_ASSIGN(Kill);
     };
 
-    PingClient() {}
+    explicit PingClient(Context& context) : context(context) {}
     ServerMetrics getMetrics(const char* serviceLocator);
     uint64_t ping(const char* serviceLocator,
                   uint64_t nonce,
@@ -50,6 +50,9 @@ class PingClient : public Client {
             const char* serviceLocator2,
             uint64_t timeoutNanoseconds1,
             uint64_t timeoutNanoseconds2);
+
+    /// Shared RAMCloud information.
+    Context& context;
 
   private:
     DISALLOW_COPY_AND_ASSIGN(PingClient);

@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -24,7 +24,7 @@ namespace RAMCloud {
  * Constructor for SessionAlarm objects.
  * \param timer
  *      Shared structure that will manage this alarm.  Usually comes from
- *      Context::get().sessionAlarmTimer.
+ *      a Context object.
  * \param session
  *      The transport session to monitor in this alarm.  Any RPCs in this
  *      session should result in calls to rpcStarted and rpcFinished.

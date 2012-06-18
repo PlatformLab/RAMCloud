@@ -35,13 +35,15 @@ class MockServerTracker : public ServerTrackerInterface {
 
 class ServerListTest : public ::testing::Test {
   public:
+    Context context;
     ServerList sl;
     MockServerTracker tr;
 
     typedef ServerList::ServerDetails ServerDetails;
 
     ServerListTest()
-        : sl(),
+        : context(),
+          sl(context),
           tr()
     {
         while (!changes.empty())
@@ -590,7 +592,7 @@ removeFilter(string s)
 
 TEST_F(ServerListTest, remove) {
     sl.registerTracker(tr);
-    Context::get().logger->setLogLevels(DEBUG);
+    Logger::get().setLogLevels(DEBUG);
     TestLog::Enable _(&removeFilter);
 
     EXPECT_EQ(0U, sl.serverList.size());

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010, 2011 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -30,6 +30,8 @@ namespace RAMCloud {
 /**
  * Construct a new LogCleaner object.
  *
+ * \param context
+ *      Overall information about the RAMCloud server.
  * \param[in] log
  *      Pointer to the Log we'll be cleaning.
  * \param[in] replicaManager
@@ -41,10 +43,12 @@ namespace RAMCloud {
  *      this object will call the #clean method when they want cleaning
  *      to occur.
  */
-LogCleaner::LogCleaner(Log* log,
+LogCleaner::LogCleaner(Context& context,
+                       Log* log,
                        ReplicaManager *replicaManager,
                        bool startThread)
-    : bytesFreedBeforeLastCleaning(0),
+    : context(context),
+      bytesFreedBeforeLastCleaning(0),
       scanList(),
       cleanableSegments(),
       log(log),
@@ -54,7 +58,7 @@ LogCleaner::LogCleaner(Log* log,
       perfCounters()
 {
     if (startThread)
-        thread.construct(cleanerThreadEntry, this, &Context::get());
+        thread.construct(cleanerThreadEntry, this, &context);
 }
 
 LogCleaner::~LogCleaner()
@@ -164,7 +168,6 @@ LogCleaner::halt()
 void
 LogCleaner::cleanerThreadEntry(LogCleaner* logCleaner, Context* context)
 {
-    Context::Guard _(*context);
     LOG(NOTICE, "LogCleaner thread spun up");
 
     while (1) {

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010,2011 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -33,7 +33,6 @@ main(int argc, char *argv[])
     using namespace RAMCloud;
     string localLocator("???");
     Context context(true);
-    Context::Guard _(context);
     try {
         OptionParser optionParser(OptionsDescription("Coordinator"),
                                   argc, argv);
@@ -49,18 +48,18 @@ main(int argc, char *argv[])
 
         pinAllMemory();
         localLocator = optionParser.options.getCoordinatorLocator();
-        Context::get().transportManager->setTimeout(
+        context.transportManager->setTimeout(
                 optionParser.options.getTransportTimeout());
-        Context::get().transportManager->initialize(localLocator.c_str());
-        localLocator = Context::get().transportManager->
+        context.transportManager->initialize(localLocator.c_str());
+        localLocator = context.transportManager->
                                 getListeningLocatorsString();
         LOG(NOTICE, "coordinator: Listening on %s", localLocator.c_str());
-        CoordinatorService coordinatorService;
-        Context::get().serviceManager->addService(coordinatorService,
+        CoordinatorService coordinatorService(context);
+        context.serviceManager->addService(coordinatorService,
                                                 COORDINATOR_SERVICE);
-        PingService pingService;
-        Context::get().serviceManager->addService(pingService, PING_SERVICE);
-        Dispatch& dispatch = *Context::get().dispatch;
+        PingService pingService(context);
+        context.serviceManager->addService(pingService, PING_SERVICE);
+        Dispatch& dispatch = *context.dispatch;
         while (true) {
             dispatch.poll();
         }
