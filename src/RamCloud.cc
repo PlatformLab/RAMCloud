@@ -363,4 +363,32 @@ RamCloud::write(uint64_t tableId, const char* key, uint16_t keyLength,
     }
 }
 
+void
+RamCloud::testingKill(uint64_t tableId, const char* key, uint16_t keyLength)
+{
+    Context::Guard _(clientContext);
+    Transport::SessionRef session =
+        objectFinder.lookup(tableId, key, keyLength);
+    PingClient pingClient;
+    PingClient::Kill killOp(pingClient, session->getServiceLocator().c_str());
+    objectFinder.waitForTabletDown();
+    killOp.cancel();
+}
+
+void
+RamCloud::testingFill(uint64_t tableId, const char* key, uint16_t keyLength,
+                      uint32_t objectCount, uint32_t objectSize)
+{
+    Context::Guard _(clientContext);
+    MasterClient master(objectFinder.lookup(tableId, key, keyLength));
+    master.fillWithTestData(objectCount, objectSize);
+}
+
+void
+RamCloud::testingWaitForAllTabletsNormal()
+{
+    Context::Guard _(clientContext);
+    objectFinder.waitForAllTabletsNormal();
+}
+
 }  // namespace RAMCloud

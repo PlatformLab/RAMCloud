@@ -168,6 +168,11 @@ class RamCloud {
     void write(uint64_t tableId, const char* key, uint16_t keyLength,
                const char* s);
 
+    void testingKill(uint64_t tableId, const char* key, uint16_t keyLength);
+    void testingFill(uint64_t tableId, const char* key, uint16_t keyLength,
+                     uint32_t objectCount, uint32_t objectSize);
+    void testingWaitForAllTabletsNormal();
+
   PRIVATE:
     /**
      * Service locator for the cluster coordinator.

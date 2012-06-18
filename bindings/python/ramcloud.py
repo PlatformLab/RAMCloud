@@ -152,6 +152,16 @@ def load_so():
                             POINTER(version)]
     so.rc_write.restype  = status
 
+    so.rc_testing_kill.argtypes = [client, table, key, keyLength]
+    so.rc_testing_kill.restype  = status
+
+    so.rc_testing_fill.argtypes = [client, table, key, keyLength,
+                                   ctypes.c_uint32, ctypes.c_uint32]
+    so.rc_testing_fill.restype  = status
+
+    so.rc_testing_wait_for_all_tablets_normal.argtypes = [client]
+    so.rc_testing_wait_for_all_tablets_normal.restype = None
+
     return so
 
 def _ctype_copy(addr, var, width):
@@ -297,6 +307,20 @@ class RAMCloud(object):
                         ctypes.byref(reject_rules), ctypes.byref(got_version))
         self.handle_error(s, got_version.value)
         return got_version.value
+
+    def testing_kill(self, table_id, id):
+        s = so.rc_testing_kill(self.client, table_id,
+                               get_key(id), get_keyLength(id))
+        self.handle_error(s)
+
+    def testing_fill(self, table_id, id, object_count, object_size):
+        s = so.rc_testing_fill(self.client, table_id,
+                               get_key(id), get_keyLength(id),
+                               object_count, object_size)
+        self.handle_error(s)
+
+    def testing_wait_for_all_tablets_normal(self):
+        so.rc_testing_wait_for_all_tablets_normal(self.client)
 
 def main():
     r = RAMCloud()
