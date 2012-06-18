@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -27,19 +27,63 @@
 
 namespace RAMCloud {
 
-namespace RecoveryInternal {
-// Forward declarations for friend declarations.
-struct BackupStartTask;
-struct MasterStartTask;
-struct BackupEndTask;
+class Recovery;
+typedef ServerTracker<Recovery> RecoveryTracker;
 
-// Interfaces for testing callbacks. See
-// Recovery::testingBackupStartTaskCallback, etc. for more info.
-struct BackupStartTaskTestingCallback {
-    virtual void backupStartTaskSend(
-                            BackupClient::StartReadingData::Result& result) {}
-    virtual ~BackupStartTaskTestingCallback() {}
+namespace RecoveryInternal {
+/**
+ * AsynchronousTaskConcept which contacts a backup, informs it
+ * that it should load/partition replicas for segments belonging to the
+ * crashed master, and gathers any log digest and list of replicas the
+ * backup had for the crashed master.
+ * Only used in Recovery::buildReplicaMap().
+ */
+class BackupStartTask {
+  PUBLIC:
+    BackupStartTask(Recovery* recovery,
+                    ServerId backupId,
+                    ServerId crashedMasterId,
+                    const ProtoBuf::Tablets& partitions,
+                    uint64_t minOpenSegmentId);
+    bool isDone() const { return done; }
+    bool isReady() { return testingCallback || (rpc && rpc->isReady()); }
+    void send();
+    void filterOutInvalidReplicas();
+    void wait();
+    const ServerId backupId;
+    BackupClient::StartReadingData::Result result;
+
+  PRIVATE:
+    Recovery* recovery;
+    const ServerId crashedMasterId;
+    const ProtoBuf::Tablets& partitions;
+    const uint64_t minOpenSegmentId;
+    Tub<BackupClient> client;
+    Tub<BackupClient::StartReadingData> rpc;
+    bool done;
+
+  PUBLIC:
+    struct TestingCallback {
+        virtual void backupStartTaskSend(
+                        BackupClient::StartReadingData::Result& result) {}
+        virtual ~TestingCallback() {}
+    };
+    TestingCallback* testingCallback;
+    DISALLOW_COPY_AND_ASSIGN(BackupStartTask);
 };
+
+bool verifyLogComplete(Tub<BackupStartTask> tasks[],
+                       size_t taskCount,
+                       const LogDigest& digest);
+Tub<std::tuple<uint64_t, uint32_t, LogDigest>>
+findLogDigest(Tub<BackupStartTask> tasks[], size_t taskCount);
+vector<RecoverRpc::Replica> buildReplicaMap(Tub<BackupStartTask> tasks[],
+                                            size_t taskCount,
+                                            RecoveryTracker* tracker,
+                                            uint64_t headId,
+                                            uint32_t headLength);
+
+struct MasterStartTask;
 struct MasterStartTaskTestingCallback {
     virtual void masterStartTaskSend(uint64_t recoveryId,
                                      ServerId crashedServerId,
@@ -49,10 +93,13 @@ struct MasterStartTaskTestingCallback {
                                      size_t replicaMapSize) {}
     virtual ~MasterStartTaskTestingCallback() {}
 };
-}
 
-class Recovery;
-typedef ServerTracker<Recovery> RecoveryTracker;
+struct BackupEndTask;
+struct BackupEndTaskTestingCallback {
+    virtual void backupEndTaskSend(ServerId backup, ServerId crashedServerId) {}
+    virtual ~BackupEndTaskTestingCallback() {}
+};
+}
 
 /**
  * Manages the recovery of a crashed master.
@@ -60,20 +107,22 @@ typedef ServerTracker<Recovery> RecoveryTracker;
 class Recovery : public Task {
   public:
     /**
-     * Internal to MasterRecoveryManager; describes what to do whenever
-     * we don't want to go on living. MasterRecoveryManager needs to do some
-     * special cleanup after Recoveries, but Recoveries know best when to
-     * destroy themselves. The default logic does nothing which is useful for
+     * Internal to MasterRecoveryManager; describes what to do when the
+     * recovery has completed or whenever we don't want to go on living.
+     * MasterRecoveryManager needs to do some special cleanup after
+     * Recoveries, but Recoveries know best when to destroy themselves.
+     * The default logic does nothing which is useful for
      * Recovery during unit testing.
      */
-    struct Deleter {
+    struct Owner{
+        virtual void recoveryFinished(Recovery* recovery) {}
         virtual void destroyAndFreeRecovery(Recovery* recovery) {}
-        virtual ~Deleter() {}
+        virtual ~Owner() {}
     };
 
     Recovery(TaskQueue& taskQueue,
              RecoveryTracker* tracker,
-             Deleter* deleter,
+             Owner* owner,
              ServerId crashedServerId,
              const ProtoBuf::Tablets& will,
              uint64_t minOpenSegmentId);
@@ -85,7 +134,6 @@ class Recovery : public Task {
     bool isDone() const;
     bool wasCompletelySuccessful() const;
     uint64_t getRecoveryId() const;
-
 
     /// The id of the crashed master which is being recovered.
     const ServerId crashedServerId;
@@ -106,7 +154,7 @@ class Recovery : public Task {
     const uint64_t minOpenSegmentId;
 
   PRIVATE:
-    void buildReplicaMap();
+    void startBackups();
     void startRecoveryMasters();
     void broadcastRecoveryComplete();
 
@@ -118,8 +166,11 @@ class Recovery : public Task {
       */
     RecoveryTracker* tracker;
 
-    /// Deletes this when this determines it is no longer needed. See #Deleter.
-    Deleter* deleter;
+    /**
+     * Owning object, if any, which gets called back on certain events.
+     * See #Owner.
+     */
+    Owner* owner;
 
     /**
      * A unique identifier associated with this recovery generated on
@@ -129,7 +180,7 @@ class Recovery : public Task {
     uint64_t recoveryId;
 
     enum Status {
-        BUILD_REPLICA_MAP,           ///< Contact all backups and find replicas.
+        START_RECOVERY_ON_BACKUPS,   ///< Contact all backups and find replicas.
         START_RECOVERY_MASTERS,      ///< Choose and start recovery masters.
         WAIT_FOR_RECOVERY_MASTERS,   ///< Wait on recovery master completion.
         BROADCAST_RECOVERY_COMPLETE, ///< Inform backups of end of recovery.
@@ -182,7 +233,7 @@ class Recovery : public Task {
      * to mock out the call and results. Exact interface is provided
      * above.
      */
-    RecoveryInternal::BackupStartTaskTestingCallback*
+    RecoveryInternal::BackupStartTask::TestingCallback*
         testingBackupStartTaskSendCallback;
 
     /**
@@ -193,6 +244,15 @@ class Recovery : public Task {
      */
     RecoveryInternal::MasterStartTaskTestingCallback*
         testingMasterStartTaskSendCallback;
+
+    /**
+     * If non-NULL then this callback is invoked instead of
+     * sending recoveryComplete RPCs to backup giving a chance
+     * to mock out the call. Exact interface is provided
+     * above.
+     */
+    RecoveryInternal::BackupEndTaskTestingCallback*
+        testingBackupEndTaskSendCallback;
 
     friend class RecoveryInternal::BackupStartTask;
     friend class RecoveryInternal::MasterStartTask;

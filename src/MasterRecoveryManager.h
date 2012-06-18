@@ -45,7 +45,7 @@ class RecoveryMasterFinishedTask;
  * safe.  The coordinator delegates the handling of recovery related RPCs
  * to this manager.
  */
-class MasterRecoveryManager : public Recovery::Deleter
+class MasterRecoveryManager : public Recovery::Owner
                             , public ServerTracker<Recovery>::Callback
 {
   PUBLIC:
@@ -65,6 +65,7 @@ class MasterRecoveryManager : public Recovery::Deleter
     virtual void trackerChangesEnqueued();
 
     virtual void destroyAndFreeRecovery(Recovery* recovery);
+    virtual void recoveryFinished(Recovery* recovery);
 
   PRIVATE:
     void main(Context& context);

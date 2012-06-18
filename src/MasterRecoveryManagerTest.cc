@@ -137,6 +137,34 @@ TEST_F(MasterRecoveryManagerTest, trackerChangesEnqueued) {
     EXPECT_EQ(1lu, recovery->unsuccessfulRecoveryMasters);
 }
 
+TEST_F(MasterRecoveryManagerTest, recoveryFinished) {
+    addMaster();
+    ProtoBuf::Tablets will;
+    Recovery recovery(mgr.taskQueue, &mgr.tracker, NULL, {1, 0}, will, 0lu);
+    recovery.status = Recovery::BROADCAST_RECOVERY_COMPLETE;
+    ASSERT_EQ(0lu, mgr.taskQueue.outstandingTasks());
+    EXPECT_EQ(0lu, serverList.versionNumber);
+    mgr.recoveryFinished(&recovery);
+
+    // ApplyTrackerChangesTask for crashed, one for remove, and the
+    // MaybeStartRecoveryTask.
+    EXPECT_EQ(3lu, mgr.taskQueue.outstandingTasks());
+    EXPECT_EQ(1lu, serverList.versionNumber);
+}
+
+TEST_F(MasterRecoveryManagerTest, recoveryFinishedUnsuccessful) {
+    addMaster();
+    ProtoBuf::Tablets will;
+    Recovery recovery(mgr.taskQueue, &mgr.tracker, NULL, {1, 0}, will, 0lu);
+    ASSERT_EQ(0lu, mgr.taskQueue.outstandingTasks());
+    EXPECT_EQ(0lu, serverList.versionNumber);
+    mgr.recoveryFinished(&recovery);
+
+    // EnqueueRecoveryTask.
+    EXPECT_EQ(1lu, mgr.taskQueue.outstandingTasks());
+    EXPECT_EQ(0lu, serverList.versionNumber);
+}
+
 TEST_F(MasterRecoveryManagerTest, recoveryMasterFinishedNoSuchRecovery) {
     addMaster();
     const ProtoBuf::Tablets recoveredTablets;
@@ -175,7 +203,8 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
     EXPECT_EQ(1lu, mgr.taskQueue.outstandingTasks());
     TestLog::Enable _;
     mgr.taskQueue.performTask(); // Do RecoveryMasterFinishedTask.
-    EXPECT_EQ("performTask: Recovery completed for master 1", TestLog::get());
+    EXPECT_EQ("recoveryFinished: Recovery completed for master 1",
+              TestLog::get());
 
     // Recovery task which is finishing up, ApplyTrackerChangesTask (due to
     // change in server list to remove crashed master), and MaybeStart task.
@@ -214,9 +243,9 @@ TEST_F(MasterRecoveryManagerTest,
     mgr.taskQueue.performTask();
     EXPECT_EQ(
         "performTask: A recovery master failed to recover its partition | "
-        "performTask: Recovery completed for master 1 | "
-        "performTask: Recovery of server 1 failed to recover some tablets, "
-            "rescheduling another recovery", TestLog::get());
+        "recoveryFinished: Recovery completed for master 1 | "
+        "recoveryFinished: Recovery of server 1 failed to recover some "
+            "tablets, rescheduling another recovery", TestLog::get());
 
     TestLog::reset();
     mgr.taskQueue.performTask();
@@ -252,11 +281,11 @@ TEST_F(MasterRecoveryManagerTest, restartMasterRecovery) {
 TEST_F(MasterRecoveryManagerTest,
        MaybeStartRecoveryTaskTwoRecoveriesAtTheSameTime)
 {
+    // Damn straight. I always wanted to do that, man.
     crashServer(addMaster());
     crashServer(addMaster());
     crashServer(addMaster());
 
-    // Damn straight. I always wanted to do that, man.
     ProtoBuf::Tablets will;
     mgr.restartMasterRecovery({1, 0});
     mgr.restartMasterRecovery({2, 0});

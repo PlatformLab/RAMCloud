@@ -150,10 +150,20 @@ MasterRecoveryManager::trackerChangesEnqueued()
  * Deletes a Recovery and cleans up all resources associated with
  * it in the MasterRecoveryManager. Invoked by Recovery instances
  * when they've outlived their usefulness.
+ * Note, this method performs no synchronization itself and is unsafe to call
+ * in general. Basically it should only be called in the context of a performTask
+ * method on a Recovery which is serialized by #taskQueue.
+ *
+ * \param recovery
+ *      Recovery that is prepared to meet its maker.
  */
 void
 MasterRecoveryManager::destroyAndFreeRecovery(Recovery* recovery)
 {
+    // Waiting until destruction to remove the activeRecoveries
+    // means another recovery won't start until after the end of
+    // recovery broadcast. To change that just move the erase
+    // to recoveryFinished().
     activeRecoveries.erase(recovery->getRecoveryId());
     LOG(NOTICE,
         "Recovery of server %lu done (now %lu active recoveries)",
@@ -179,7 +189,8 @@ class MaybeStartRecoveryTask : public Task {
      */
     explicit MaybeStartRecoveryTask(MasterRecoveryManager& recoveryManager)
         : Task(recoveryManager.taskQueue)
-        , mgr(recoveryManager) {}
+        , mgr(recoveryManager)
+    {}
 
     /**
      * Called by #taskQueue which serializes it with other tasks; this makes
@@ -386,33 +397,6 @@ class RecoveryMasterFinishedTask : public Task {
 
         Recovery* recovery = it->second;
         recovery->recoveryMasterFinished(recoveryMasterId, successful);
-        if (recovery->isDone()) {
-            LOG(NOTICE, "Recovery completed for master %lu",
-                recovery->crashedServerId.getId());
-            if (recovery->wasCompletelySuccessful()) {
-                // Remove recovered server from the server list and broadcast
-                // the change to the cluster.
-                // TODO(stutsman): Eventually we'll want CoordinatorServerList
-                // to take care of this for us automatically. So we can just
-                // do the remove.
-                ProtoBuf::ServerList update;
-                mgr.serverList.remove(recovery->crashedServerId, update);
-                mgr.serverList.incrementVersion(update);
-                mgr.serverList.sendMembershipUpdate(update, {});
-                (new MaybeStartRecoveryTask(mgr))->schedule();
-            } else {
-                LOG(NOTICE,
-                    "Recovery of server %lu failed to recover some "
-                    "tablets, rescheduling another recovery",
-                    recovery->crashedServerId.getId());
-                // Enqueue will schedule a MaybeStartRecoveryTask.
-                (new EnqueueMasterRecoveryTask(mgr,
-                                               recovery->crashedServerId,
-                                               recovery->will,
-                                               recovery->minOpenSegmentId))->
-                                                                    schedule();
-            }
-        }
         delete this;
     }
 
@@ -425,6 +409,57 @@ class RecoveryMasterFinishedTask : public Task {
 };
 }
 using namespace MasterRecoveryManagerInternal; // NOLINT
+
+/**
+ * Note \a recovery as finished and either send out the updated server list
+ * marked the crashed master as down or, if the recovery wasn't completely
+ * successful, schedule a follow up recovery.
+ * Called by a recovery once it has done as much as it can.
+ * This means either recovery couldn't find a complete log and bailed
+ * out almost immediately, or that all the recovery masters either finished
+ * recovering their partition of the crashed master's will or failed.
+ * This recovery may still be performing some cleanup tasks and will
+ * call destroyAndFreeRecovery() when it is safe to delete it.
+ * Note, this method performs no synchronization itself and is unsafe to call
+ * in general. Basically it should only be called in the context of a performTask
+ * method on a Recovery which is serialized by #taskQueue.
+ *
+ * \param recovery
+ *      Recovery which is done.
+ */
+void
+MasterRecoveryManager::recoveryFinished(Recovery* recovery)
+{
+    // Waiting until destruction to remove the activeRecoveries
+    // means another recovery won't start until after the end of
+    // recovery broadcast. To change that just move the erase
+    // from destroyAndFreeRecovery() to recoveryFinished().
+    LOG(NOTICE, "Recovery completed for master %lu",
+        recovery->crashedServerId.getId());
+    if (recovery->wasCompletelySuccessful()) {
+        // Remove recovered server from the server list and broadcast
+        // the change to the cluster.
+        // TODO(stutsman): Eventually we'll want CoordinatorServerList
+        // to take care of this for us automatically. So we can just
+        // do the remove.
+        ProtoBuf::ServerList update;
+        serverList.remove(recovery->crashedServerId, update);
+        serverList.incrementVersion(update);
+        serverList.sendMembershipUpdate(update, {});
+        (new MaybeStartRecoveryTask(*this))->schedule();
+    } else {
+        LOG(NOTICE,
+            "Recovery of server %lu failed to recover some "
+            "tablets, rescheduling another recovery",
+            recovery->crashedServerId.getId());
+        // Enqueue will schedule a MaybeStartRecoveryTask.
+        (new EnqueueMasterRecoveryTask(*this,
+                                       recovery->crashedServerId,
+                                       recovery->will,
+                                       recovery->minOpenSegmentId))->
+                                                            schedule();
+    }
+}
 
 /**
  * Schedule the notification of an ongoing Recovery that a recovery
