@@ -52,12 +52,7 @@ class BackupFailureMonitor
     void trackerChangesEnqueued();
 
   PRIVATE:
-    void main(Context& context);
-
-    /**
-     * Shared RAMCloud information.
-     */
-    Context& context;
+    void main();
 
     /**
      * The ReplicaManager to take corrective actions on when a backup failure

@@ -39,8 +39,7 @@ namespace RAMCloud {
 BackupFailureMonitor::BackupFailureMonitor(Context& context,
                                            ServerList& serverList,
                                            ReplicaManager* replicaManager)
-    : context(context)
-    , replicaManager(replicaManager)
+    : replicaManager(replicaManager)
     , log(NULL)
     , running(false)
     , changesOrExit()
@@ -65,12 +64,9 @@ BackupFailureMonitor::~BackupFailureMonitor()
  * Server's main ServerList and kicks-off actions in response to backup
  * failures.  This method shouldn't be called directly; use start() to start a
  * handler and halt() to terminate one cleanly.
- *
- * \param context
- *      The Context this thread should start in.
  */
 void
-BackupFailureMonitor::main(Context& context)
+BackupFailureMonitor::main()
 {
     Lock lock(mutex);
     while (true) {
@@ -131,8 +127,7 @@ BackupFailureMonitor::start(Log* log)
         return;
     this->log = log;
     running = true;
-    thread.construct(&BackupFailureMonitor::main,
-                     this, std::ref(context));
+    thread.construct(&BackupFailureMonitor::main, this);
 }
 
 /**
