@@ -385,7 +385,7 @@ TEST_F(RecoveryTest, buildReplicaMap_badReplicas) {
     addServersToTracker(2, {BACKUP_SERVICE});
 
     auto replicaMap = buildReplicaMap(tasks, 1, &tracker, 91, 100);
-    EXPECT_EQ((vector<RecoverRpc::Replica> {}), replicaMap);
+    EXPECT_EQ((vector<RecoverRpc::Replica>()), replicaMap);
 }
 
 TEST_F(RecoveryTest, startRecoveryMasters) {
