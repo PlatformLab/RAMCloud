@@ -330,7 +330,7 @@ double lockInDispThrd()
 void dispatchThread(Dispatch **d, volatile int* flag)
 {
     bindThreadToCpu(2);
-    Dispatch dispatch(false);
+    Dispatch dispatch(true);
     *d = &dispatch;
     dispatch.poll();
     *flag = 1;
