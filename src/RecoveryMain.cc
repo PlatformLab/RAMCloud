@@ -248,8 +248,7 @@ try
     if (fillWithTestData) {
         LOG(NOTICE, "Using the fillWithTestData rpc on a single master");
         uint64_t b = Cycles::rdtsc();
-        MasterClient master(client.objectFinder.lookup(0, "0", 1));
-        master.fillWithTestData(count * tableCount, objectDataSize);
+        client.testingFill(0, "0", 1, count * tableCount, objectDataSize);
         LOG(NOTICE, "%d inserts took %lu ticks",
             count * tableCount, Cycles::rdtsc() - b);
         LOG(NOTICE, "avg insert took %lu ticks",
@@ -339,26 +338,13 @@ try
     LOG(NOTICE, "- quiescing writes");
     client.coordinator.quiesce();
 
-    Transport::SessionRef session =
-        client.objectFinder.lookup(tables[0], "0", 1);
-    LOG(NOTICE, "--- Terminating master %s ---",
-        session->getServiceLocator().c_str());
-
     // Take an initial snapshot of performance metrics.
     ClusterMetrics metricsBefore(&client);
 
-    MasterClient oldMaster(session);
-    PingClient pingClient(context);
     uint64_t startTime = Cycles::rdtsc();
-    PingClient::Kill killOp(pingClient, session->getServiceLocator().c_str());
-
-    // Wait for failure to be detected
-    client.objectFinder.waitForTabletDown();
+    client.testingKill(tables[0], "0", 1);
     uint64_t downTime = Cycles::rdtsc();
     LOG(NOTICE, "tablet down");
-
-    // Cancel the kill RPC
-    killOp.cancel();
 
     // Wait for recovery to complete
     client.objectFinder.waitForAllTabletsNormal();
@@ -375,7 +361,7 @@ try
                 stopTime = Cycles::rdtsc();
         } catch (...) {
         }
-        session = client.objectFinder.lookup(tables[t], "0", 1);
+        auto session = client.objectFinder.lookup(tables[t], "0", 1);
         LOG(NOTICE, "recovered value read from %s has length %u",
             session->getServiceLocator().c_str(), nb.getTotalLength());
     }
