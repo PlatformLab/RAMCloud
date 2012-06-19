@@ -29,7 +29,18 @@
 namespace RAMCloud {
 
 /**
- * This class implements the client-side interface to the ping service.
+ * This class implements the client-side interface to the membership service,
+ * which runs on each RAMCloud server. The coordinator uses this interface to
+ * push cluster membership updates so that servers have an up-to-date view of
+ * all other servers in the cluster and receive failure notifications that may
+ * require some action.
+ *
+ * In addition, Servers may use this interface to obtain the ServerId of another
+ * server. This can be used to ensure that the proper server is being talked to,
+ * since ServiceLocators can be ambiguous (restarted servers may listen on the
+ * exact same network address that a previous one might have).
+ *
+ * See #MembershipService for more information.
  */
 class MembershipClient : public Client {
   public:
