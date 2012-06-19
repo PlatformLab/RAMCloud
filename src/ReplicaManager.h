@@ -27,7 +27,7 @@
 #include "MinOpenSegmentId.h"
 #include "ReplicatedSegment.h"
 #include "ServerTracker.h"
-#include "TaskManager.h"
+#include "TaskQueue.h"
 #include "Tub.h"
 
 namespace RAMCloud {
@@ -104,7 +104,7 @@ class ReplicaManager
      * Protects all internal data structures during concurrent calls to the
      * ReplicaManager and any of its ReplicatedSegments.
      * This includes all data being tracked for each individual segment and
-     * its replicas as well as helper structures like the #taskManager and
+     * its replicas as well as helper structures like the #taskQueue and
      * #replicatedSegmentList.  A lock for this mutex must be held to read
      * or modify any state in the ReplicaManager.
      */
@@ -128,9 +128,9 @@ class ReplicaManager
 
     /**
      * Enqueues segments that need replication/freeing and makes progress
-     * on enqueued operations whenever taskManager.proceed() is called.
+     * on enqueued operations whenever taskQueue.performTask() is called.
      */
-    TaskManager taskManager;
+    TaskQueue taskQueue;
 
     /**
      * Number of collective outstanding write rpcs to all backups.

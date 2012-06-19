@@ -40,6 +40,19 @@ struct Foo {
 };
 int Foo::liveCount = 0;
 
+struct Bar {
+    Bar() : x(123456789) {}
+    Bar& operator=(const Bar& other) {
+        if (this == &other)
+            return *this;
+        EXPECT_EQ(123456789, x);
+        x = other.x;
+        EXPECT_EQ(123456789, x);
+        return *this;
+    }
+    int x;
+};
+
 typedef Tub<Foo> FooTub;
 typedef Tub<int> IntTub;
 
@@ -76,6 +89,13 @@ TEST(Tub, copyAndAssign) {
     int p = 5;
     IntTub q(p);
     EXPECT_EQ(5, *q);
+
+    Tub<Bar> b1;
+    Tub<Bar> b2;
+    b2.construct();
+    // Assignment to a tub with an unconstructed value needs
+    // to use the copy constructor instead of assignment operator.
+    b1 = b2;
 }
 
 TEST(Tub, putInVector) {

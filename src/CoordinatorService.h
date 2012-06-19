@@ -21,11 +21,13 @@
 
 #include "Common.h"
 #include "ClientException.h"
+#include "MasterRecoveryManager.h"
 #include "RawMetrics.h"
 #include "Recovery.h"
 #include "Rpc.h"
 #include "ServerId.h"
 #include "Service.h"
+#include "TabletMap.h"
 #include "TransportManager.h"
 
 namespace RAMCloud {
@@ -73,9 +75,10 @@ class CoordinatorService : public Service {
     void hintServerDown(const HintServerDownRpc::Request& reqHdr,
                         HintServerDownRpc::Response& respHdr,
                         Rpc& rpc);
-    void tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
-                          TabletsRecoveredRpc::Response& respHdr,
-                          Rpc& rpc);
+    void recoveryMasterFinished(
+        const RecoveryMasterFinishedRpc::Request& reqHdr,
+        RecoveryMasterFinishedRpc::Response& respHdr,
+        Rpc& rpc);
     void quiesce(const BackupQuiesceRpc::Request& reqHdr,
                  BackupQuiesceRpc::Response& respHdr,
                  Rpc& rpc);
@@ -95,15 +98,12 @@ class CoordinatorService : public Service {
     void createReplicationGroup();
     bool hintServerDown(ServerId serverId);
     void removeReplicationGroup(uint64_t replicationId);
-    void sendMembershipUpdate(ProtoBuf::ServerList& update,
-                              ServerId excludeServerId);
     void sendServerList(ServerId destination);
     void setMinOpenSegmentId(const SetMinOpenSegmentIdRpc::Request& reqHdr,
                              SetMinOpenSegmentIdRpc::Response& respHdr,
                              Rpc& rpc);
     bool setWill(ServerId masterId, Buffer& buffer,
                  uint32_t offset, uint32_t length);
-    void startMasterRecovery(const CoordinatorServerList::Entry& serverEntry);
     bool verifyServerFailure(ServerId serverId);
 
     /**
@@ -121,7 +121,7 @@ class CoordinatorService : public Service {
     /**
      * What are the tablets, and who is the master for each.
      */
-    ProtoBuf::Tablets tabletMap;
+    TabletMap tabletMap;
 
     typedef std::map<string, uint64_t> Tables;
     /**
@@ -151,8 +151,10 @@ class CoordinatorService : public Service {
      */
     uint64_t nextReplicationId;
 
-    /// Used in unit testing.
-    BaseRecovery* mockRecovery;
+    /**
+     * Handles all master recovery details on behalf of the coordinator.
+     */
+    MasterRecoveryManager recoveryManager;
 
     /**
      * Used for testing only. If true, the HINT_SERVER_DOWN handler will

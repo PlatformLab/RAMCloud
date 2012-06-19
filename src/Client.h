@@ -69,39 +69,56 @@ struct AsynchronousTaskConcept {
 
 /**
  * Execute asynchronous tasks in parallel until they complete.
- * This is useful for broadcasting RPCs, etc.  This method should be invoked
- * only in worker threads (not in the dispatch thread).
- * \param tasks
- *      An array of \a numTasks entries in length of objects having the
- *      interface documented in #AsynchronousTaskConcept.
- * \param numTasks
- *      The number of entries in the \a tasks array.
- * \param maxOutstanding
- *      The maximum number of task to run in parallel with each other.
+ * This is useful for broadcasting RPCs, etc.  This should be
+ * used only in worker threads (not in the dispatch thread).
  */
-template<typename T>
-void
-parallelRun(Tub<T>* tasks, uint32_t numTasks, uint32_t maxOutstanding)
-{
-    assert(maxOutstanding > 0 || numTasks == 0);
+template <typename T>
+class ParallelRun {
+  PUBLIC:
+    /**
+     * Kick off the first round of tasks to execute. Calls to proceed()
+     * reap completed tasks and start new tasks.
+     *
+     * \param tasks
+     *      An array of \a numTasks entries in length of objects having the
+     *      interface documented in #AsynchronousTaskConcept. Any empty
+     *      entries will be skipped.
+     * \param numTasks
+     *      The number of entries in the \a tasks array.
+     * \param maxOutstanding
+     *      The maximum number of task to run in parallel with each other.
+     */
+    ParallelRun(Tub<T>* tasks, size_t numTasks, size_t maxOutstanding)
+        : tasks(tasks)
+        , numTasks(numTasks)
+        , maxOutstanding(maxOutstanding)
+        , firstNotIssued(0)
+        , firstNotDone(0)
+    {
+        assert(maxOutstanding > 0 || numTasks == 0);
 
-    uint32_t firstNotIssued = 0;
-    uint32_t firstNotDone = 0;
-
-    // Start off first round of tasks
-    for (uint32_t i = 0; i < numTasks; ++i) {
-        auto& task = tasks[i];
-        task->send();
-        ++firstNotIssued;
-        if (i + 1 == maxOutstanding)
-            break;
+        // Start off first round of tasks
+        for (uint32_t i = 0; i < numTasks; ++i) {
+            auto& task = tasks[i];
+            if (task)
+                task->send();
+            ++firstNotIssued;
+            if (i + 1 == maxOutstanding)
+                break;
+        }
     }
 
-    // As tasks complete, kick off new ones
-    while (firstNotDone < numTasks) {
+    /**
+     * Reap any tasks which were started earlier and have now finished, and
+     * kick off new tasks.
+     *
+     * \return
+     *      True if all tasks have been completed, false otherwise.
+     */
+    bool proceed() {
         for (uint32_t i = firstNotDone; i < firstNotIssued; ++i) {
             auto& task = tasks[i];
-            if (task->isDone()) { // completed already
+            if (!task || task->isDone()) { // completed already
                 if (firstNotDone == i)
                     ++firstNotDone;
                 continue;
@@ -118,7 +135,60 @@ parallelRun(Tub<T>* tasks, uint32_t numTasks, uint32_t maxOutstanding)
                 ++firstNotIssued;
             }
         }
+
+        return firstNotDone == numTasks;
     }
+
+    /// Return true if all tasks have been completed, false otherwise.
+    bool isDone() {
+        return firstNotDone == numTasks;
+    }
+
+    /// Block until all tasks have been completed.
+    void wait() {
+        while (!isDone())
+            proceed();
+    }
+
+    /**
+     * An array of #numTasks entries in length of objects having the
+     * interface documented in #AsynchronousTaskConcept.
+     */
+    Tub<T>* tasks;
+
+    /// The number of entries in the #tasks array.
+    size_t numTasks;
+
+    /// The maximum number of tasks to run in parallel with each other.
+    const size_t maxOutstanding;
+
+  PRIVATE:
+    /// The first element of #tasks has not yet had start() called.
+    uint32_t firstNotIssued;
+
+    /// The first element of #tasks is not yet done.
+    uint32_t firstNotDone;
+
+    DISALLOW_COPY_AND_ASSIGN(ParallelRun);
+};
+
+/**
+ * Execute asynchronous tasks in parallel until they complete.
+ * This is useful for broadcasting RPCs, etc.  This method should be invoked
+ * only in worker threads (not in the dispatch thread).
+ * \param tasks
+ *      An array of \a numTasks entries in length of objects having the
+ *      interface documented in #AsynchronousTaskConcept.
+ * \param numTasks
+ *      The number of entries in the \a tasks array.
+ * \param maxOutstanding
+ *      The maximum number of task to run in parallel with each other.
+ */
+template<typename T>
+void
+parallelRun(Tub<T>* tasks, size_t numTasks, size_t maxOutstanding)
+{
+    ParallelRun<T>(tasks, numTasks, maxOutstanding).wait();
 }
 
 /**

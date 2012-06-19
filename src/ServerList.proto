@@ -24,7 +24,7 @@ package RAMCloud.ProtoBuf;
 message ServerList {
   message Entry {
     /// Which services this server is running.
-    required fixed32 service_mask = 1;
+    required fixed32 services = 1;
 
     /// A unique id for the service.
     required fixed64 server_id = 2;
@@ -34,7 +34,7 @@ message ServerList {
 
     /// Disk bandwidth of the backup server in MB/s, if this entry represents
     /// a server which is running a backup service.
-    required fixed32 backup_read_mbytes_per_sec = 5;
+    required fixed32 expected_read_mbytes_per_sec = 5;
 
     /// The current status of this server in terms of cluster membership.
     /// See above for ServerStatus details.

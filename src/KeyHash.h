@@ -19,8 +19,23 @@
 #include "MurmurHash3.h"
 
 namespace RAMCloud {
+
+/**
+ * The type of the hash for the key of an object.
+ */
 typedef uint64_t HashType;
 
+/**
+ * Given a key, returns its hash value.
+ *
+ * \param key
+ *      Variable length key that uniquely identifies the object within tableId.
+ *      It does not necessarily have to be null terminated like a string.
+ * \param keyLength
+ *      Size in bytes of the key.
+ * \return
+ *      Hash value of the given key.
+ */
 static inline HashType
 getKeyHash(const char* key, uint16_t keyLength)
 {

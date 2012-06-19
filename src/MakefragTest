@@ -40,6 +40,7 @@ TESTS_SRCFILES := \
 		  src/LogIteratorTest.cc \
 		  src/LogTest.cc \
 		  src/MacAddressTest.cc \
+		  src/MasterRecoveryManagerTest.cc \
 		  src/MasterServiceTest.cc \
 		  src/MembershipServiceTest.cc \
 		  src/MinOpenSegmentIdTest.cc \
@@ -74,7 +75,8 @@ TESTS_SRCFILES := \
 		  src/SpinLockTest.cc \
 		  src/StatusTest.cc \
 		  src/StringUtilTest.cc \
-		  src/TaskManagerTest.cc \
+		  src/TabletMapTest.cc \
+		  src/TaskQueueTest.cc \
 		  src/TcpTransportTest.cc \
 		  src/TestRunner.cc \
 		  src/TestUtil.cc \

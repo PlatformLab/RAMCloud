@@ -13,11 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * This file implements the ServerList class.
- */
-
 #include <unordered_set>
 
 #include "Common.h"
@@ -333,8 +328,8 @@ ServerList::applyFullList(const ProtoBuf::ServerList& list)
         if (ServerStatus(server.status()) != ServerStatus::CRASHED)
             continue;
         crashed(ServerId(server.server_id()), server.service_locator(),
-                ServiceMask::deserialize(server.service_mask()),
-                server.backup_read_mbytes_per_sec());
+                ServiceMask::deserialize(server.services()),
+                server.expected_read_mbytes_per_sec());
     }
 
     // Finally UPs are done.
@@ -342,8 +337,8 @@ ServerList::applyFullList(const ProtoBuf::ServerList& list)
         if (ServerStatus(server.status()) != ServerStatus::UP)
             continue;
         add(ServerId(server.server_id()), server.service_locator(),
-            ServiceMask::deserialize(server.service_mask()),
-            server.backup_read_mbytes_per_sec());
+            ServiceMask::deserialize(server.services()),
+            server.expected_read_mbytes_per_sec());
     }
 
     version = list.version_number();
@@ -387,8 +382,8 @@ ServerList::applyUpdate(const ProtoBuf::ServerList& update)
         ServerStatus status = ServerStatus(server.status());
         const string& locator = server.service_locator();
         ServiceMask services =
-            ServiceMask::deserialize(server.service_mask());
-        uint32_t readMBytesPerSec = server.backup_read_mbytes_per_sec();
+            ServiceMask::deserialize(server.services());
+        uint32_t readMBytesPerSec = server.expected_read_mbytes_per_sec();
         if (status == ServerStatus::UP) {
             LOG(NOTICE, "  Adding server id %lu (locator \"%s\") "
                          "with services %s and %u MB/s storage",

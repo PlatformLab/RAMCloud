@@ -475,13 +475,13 @@ class LogDigest {
     /**
      * Get the number of SegmentIDs in this LogDigest.
      */
-    int getSegmentCount() { return ldd->segmentCount; }
+    int getSegmentCount() const { return ldd->segmentCount; }
 
     /**
      * Get an array of SegmentIDs in this LogDigest. There
      * will be getSegmentCount() elements in the array.
      */
-    const SegmentId* getSegmentIds() { return ldd->segmentIds; }
+    const SegmentId* getSegmentIds() const { return ldd->segmentIds; }
 
     /**
      * Return the number of bytes needed to store a LogDigest

@@ -18,6 +18,9 @@
 
 namespace RAMCloud {
 
+/**
+ * Wrapper around a numeric key value to get a string key.
+ */
 class MakeKey {
   public:
     explicit MakeKey(uint64_t value)
@@ -26,18 +29,22 @@ class MakeKey {
     explicit MakeKey(int value)
     : val(static_cast<uint64_t>(value)) {}
 
+    /// Return a string key corresponding to the numeric key value stored.
     const char*
     get() const
     {
         return (const char*)&val;
     }
 
+    /// Return the length of the string key.
     uint16_t
     length() const
     {
         return downCast<uint16_t>(sizeof(val));
     }
 
+    // Stores the numeric key value to ensure that the string key is valid
+    // for the lifetime of this object.
     uint64_t val;
 };
 

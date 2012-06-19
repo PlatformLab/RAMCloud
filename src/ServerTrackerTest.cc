@@ -411,6 +411,30 @@ TEST_F(ServerTrackerTest, toString) {
         tr.toString());
 }
 
+TEST_F(ServerTrackerTest, getServersWithService) {
+    tr.enqueueChange({{1, 0}, "", {MASTER_SERVICE}, 100, ServerStatus::UP},
+                      ServerChangeEvent::SERVER_ADDED);
+    tr.enqueueChange({{2, 0}, "", {BACKUP_SERVICE}, 100, ServerStatus::UP},
+                      ServerChangeEvent::SERVER_ADDED);
+    tr.enqueueChange({{3, 0}, "", {BACKUP_SERVICE}, 100, ServerStatus::UP},
+                      ServerChangeEvent::SERVER_ADDED);
+    tr.enqueueChange({{3, 0}, "", {BACKUP_SERVICE}, 100, ServerStatus::CRASHED},
+                      ServerChangeEvent::SERVER_CRASHED);
+    tr.enqueueChange({{4, 0}, "", {BACKUP_SERVICE}, 100, ServerStatus::UP},
+                      ServerChangeEvent::SERVER_ADDED);
+    tr.enqueueChange({{4, 0}, "", {BACKUP_SERVICE}, 100, ServerStatus::DOWN},
+                      ServerChangeEvent::SERVER_REMOVED);
+    ServerDetails server;
+    ServerChangeEvent event;
+    while (tr.getChange(server, event));
+    auto servers = tr.getServersWithService(MASTER_SERVICE);
+    ASSERT_EQ(1lu, servers.size());
+    EXPECT_EQ(ServerId(1, 0), servers[0]);
+    servers = tr.getServersWithService(BACKUP_SERVICE);
+    ASSERT_EQ(1lu, servers.size());
+    EXPECT_EQ(ServerId(2, 0), servers[0]);
+}
+
 TEST_F(ServerTrackerTest, ChangeQueue_addChange) {
     EXPECT_EQ(0U, tr.changes.changes.size());
     auto details = ServerDetails(ServerId(5, 4), ServerStatus::UP);

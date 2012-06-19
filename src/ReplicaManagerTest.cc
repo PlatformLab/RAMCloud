@@ -126,8 +126,8 @@ TEST_F(ReplicaManagerTest, openSegment) {
 
     auto segment = mgr->openSegment(true, 88, data, arrayLength(data));
 
-    ASSERT_FALSE(mgr->taskManager.isIdle());
-    EXPECT_EQ(segment, mgr->taskManager.tasks.front());
+    ASSERT_FALSE(mgr->taskQueue.isIdle());
+    EXPECT_EQ(segment, mgr->taskQueue.tasks.front());
     EXPECT_EQ(1u, mgr->replicatedSegmentList.size());
     EXPECT_EQ(segment, &mgr->replicatedSegmentList.front());
 
@@ -228,6 +228,8 @@ TEST_F(ReplicaManagerTest, handleBackupFailure) {
     auto s2 = mgr->openSegment(true, 90, NULL, 0);
     auto s3 = mgr->openSegment(true, 91, NULL, 0);
     mgr->proceed();
+    mgr->proceed();
+    mgr->proceed();
     Tub<uint64_t> segmentId = mgr->handleBackupFailure(backup1Id);
     ASSERT_TRUE(segmentId);
     EXPECT_EQ(91u, *segmentId);
@@ -242,7 +244,7 @@ TEST_F(ReplicaManagerTest, handleBackupFailure) {
 TEST_F(ReplicaManagerTest, destroyAndFreeReplicatedSegment) {
     auto* segment = mgr->openSegment(true, 89, NULL, 0);
     segment->sync(0);
-    while (!mgr->taskManager.isIdle())
+    while (!mgr->taskQueue.isIdle())
         mgr->proceed(); // Make sure the close gets pushed out as well.
     EXPECT_FALSE(mgr->replicatedSegmentList.empty());
     EXPECT_EQ(segment, &mgr->replicatedSegmentList.front());

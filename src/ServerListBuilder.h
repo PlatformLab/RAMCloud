@@ -56,10 +56,10 @@ struct ServerListBuilder {
     {
         ProtoBuf::ServerList_Entry& server(*servers.add_server());
         ServiceMask serviceMask(services);
-        server.set_service_mask(serviceMask.serialize());
+        server.set_services(serviceMask.serialize());
         server.set_server_id(id);
         server.set_service_locator(locator);
-        server.set_backup_read_mbytes_per_sec(backupReadMBytesPerSec);
+        server.set_expected_read_mbytes_per_sec(backupReadMBytesPerSec);
         server.set_status(uint32_t(status));
         return *this;
     }

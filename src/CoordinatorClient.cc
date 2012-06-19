@@ -365,24 +365,39 @@ CoordinatorClient::reassignTabletOwnership(uint64_t tableId,
 }
 
 /**
- * Tell the coordinator that recovery of particular tablets have
- * been completed on the master who is calling.
+ * Tell the coordinator that the partition of a crashed master that it
+ * asked this master to recover has finished (either successfully, or
+ * unsuccessfully).
  *
- * \param[in] masterId
- *      The masterId of the server invoking this method.
- * \param[in] tablets
+ * \param recoveryId
+ *      Identifies the recovery this master has completed a portion of.
+ *      This id is received as part of the recover rpc and should simply
+ *      be returned as given by the coordinator.
+ * \param recoveryMasterId
+ *      ServerId of the server invoking this method.
+ * \param tablets
  *      The tablets which form a partition of a will which are
  *      now done recovering.
+ * \param successful
+ *      Indicates to the coordinator whether this recovery master succeeded
+ *      in recovering its partition of the crashed master. If false the
+ *      coordinator will not assign ownership to this master and this master
+ *      can clean up any state resulting attempting recovery.
  */
 void
-CoordinatorClient::tabletsRecovered(ServerId masterId,
-                                    const ProtoBuf::Tablets& tablets)
+CoordinatorClient::recoveryMasterFinished(uint64_t recoveryId,
+                                          ServerId recoveryMasterId,
+                                          const ProtoBuf::Tablets& tablets,
+                                          bool successful)
 {
     Buffer req, resp;
-    TabletsRecoveredRpc::Request& reqHdr(allocHeader<TabletsRecoveredRpc>(req));
-    reqHdr.masterId = *masterId;
+    RecoveryMasterFinishedRpc::Request&
+        reqHdr(allocHeader<RecoveryMasterFinishedRpc>(req));
+    reqHdr.recoveryId = recoveryId;
+    reqHdr.recoveryMasterId = recoveryMasterId.getId();
     reqHdr.tabletsLength = serializeToRequest(req, tablets);
-    sendRecv<TabletsRecoveredRpc>(session, req, resp);
+    reqHdr.successful = successful;
+    sendRecv<RecoveryMasterFinishedRpc>(session, req, resp);
     checkStatus(HERE);
 }
 

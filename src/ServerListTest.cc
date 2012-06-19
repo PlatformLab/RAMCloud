@@ -22,6 +22,7 @@
 
 namespace RAMCloud {
 
+namespace {
 static std::queue<ServerTracker<int>::ServerChange> changes;
 
 class MockServerTracker : public ServerTrackerInterface {
@@ -32,14 +33,13 @@ class MockServerTracker : public ServerTrackerInterface {
     }
     void fireCallback() {}
 };
+}
 
 class ServerListTest : public ::testing::Test {
   public:
     Context context;
     ServerList sl;
     MockServerTracker tr;
-
-    typedef ServerList::ServerDetails ServerDetails;
 
     ServerListTest()
         : context(),

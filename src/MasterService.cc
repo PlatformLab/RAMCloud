@@ -1414,6 +1414,48 @@ MasterService::recover(ServerId masterId,
 }
 
 /**
+ * Removes an object from the hashtable and frees it from the log if
+ * it belongs to a tablet that isn't listed in the master's tablets.
+ * Used by purgeObjectsFromUnknownTablets().
+ *
+ * \param entry
+ *      Handle to an object as returned from the master's
+ *      objectMap.lookup() or on callback from objectMap.forEach().
+ *      This object is removed from the objectMap and freed from
+ *      the log if it doesn't belong to any tablet the master
+ *      lists among its tablets.
+ * \param cookie
+ *      Pointer to the MasterService where this object is currently
+ *      stored.
+ */
+void
+removeObjectIfFromUnknownTablet(LogEntryHandle entry, void *cookie)
+{
+    if (entry->type() != LOG_ENTRY_TYPE_OBJ)
+        return;
+    const Object* obj = entry->userData<Object>();
+    MasterService* master = reinterpret_cast<MasterService*>(cookie);
+    if (!master->getTable(obj->tableId, obj->getKey(), obj->keyLength)) {
+        bool r = master->objectMap.remove(obj->tableId,
+                                          obj->getKey(),
+                                          obj->keyLength);
+        assert(r);
+        master->log.free(entry);
+    }
+}
+
+/**
+ * Scan the hashtable and remove all objects that do not belong to a
+ * tablet currently owned by this master. Used to clean up any objects
+ * created as part of an aborted recovery.
+ */
+void
+MasterService::purgeObjectsFromUnknownTablets()
+{
+    objectMap.forEach(removeObjectIfFromUnknownTablet, this);
+}
+
+/**
  * Top-level server method to handle the RECOVER request.
  * \copydetails Service::ping
  */
@@ -1426,7 +1468,8 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
     metrics->master.recoveryCount++;
     metrics->master.replicas = replicaManager.numReplicas;
 
-    ServerId masterId(reqHdr.masterId);
+    uint64_t recoveryId = reqHdr.recoveryId;
+    ServerId crashedServerId(reqHdr.crashedServerId);
     uint64_t partitionId = reqHdr.partitionId;
     ProtoBuf::Tablets recoveryTablets;
     ProtoBuf::parseFromResponse(rpc.requestPayload, sizeof(reqHdr),
@@ -1469,7 +1512,13 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
     LogPosition headOfLog = log.headOfLog();
 
     // Recover Segments, firing MasterService::recoverSegment for each one.
-    recover(masterId, partitionId, replicas);
+    bool successful = false;
+    try {
+        recover(crashedServerId, partitionId, replicas);
+        successful = true;
+    } catch (const SegmentRecoveryFailedException& e) {
+        // Recovery wasn't successful.
+    }
 
     // Free recovery tombstones left in the hash table.
     removeTombstones();
@@ -1480,9 +1529,9 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
 
     // Update the recoveryTablets to reflect the fact that this master is
     // going to try to become the owner. The coordinator will assign final
-    // ownership in response to the TABLETS_RECOVERED rpc (i.e. we'll only
-    // be owners if the call succeeds. It could fail if the coordinator
-    // decided to recover these tablets elsewhere instead).
+    // ownership in response to the RECOVERY_MASTER_FINISHED rpc (i.e.
+    // we'll only be owners if the call succeeds. It could fail if the
+    // coordinator decided to recover these tablets elsewhere instead).
     foreach (ProtoBuf::Tablets::Tablet& tablet,
              *recoveryTablets.mutable_tablet()) {
         LOG(NOTICE, "set tablet %lu %lu %lu to locator %s, id %lu",
@@ -1494,16 +1543,42 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
         tablet.set_ctime_log_head_id(headOfLog.segmentId());
         tablet.set_ctime_log_head_offset(headOfLog.segmentOffset());
     }
-    coordinator->tabletsRecovered(serverId, recoveryTablets);
+    LOG(NOTICE, "Reporting completion of recovery %lu", reqHdr.recoveryId);
+    coordinator->recoveryMasterFinished(recoveryId,
+                                        serverId, recoveryTablets,
+                                        successful);
 
-    // TODO(anyone) Should delete tablets if tabletsRecovered returns
-    //              failure. Also, should handle tabletsRecovered
-    //              timing out.
+    // TODO(stutsman) Delete tablets if recoveryMasterFinished returns
+    // failure by setting successful to false. Rest is handled below.
 
-    // Ok - we're expected to be serving now. Mark recovered tablets
-    // as normal so we can handle clients.
-    foreach (ProtoBuf::Tablets_Tablet* newTablet, newTablets)
-        newTablet->set_state(ProtoBuf::Tablets::Tablet::NORMAL);
+    if (successful) {
+        // Ok - we're expected to be serving now. Mark recovered tablets
+        // as normal so we can handle clients.
+        foreach (ProtoBuf::Tablets_Tablet* newTablet, newTablets)
+            newTablet->set_state(ProtoBuf::Tablets::Tablet::NORMAL);
+    } else {
+        LOG(WARNING, "Failed to recover partition for recovery %lu; "
+            "aborting recovery on this recovery master", recoveryId);
+        // If recovery failed then cleanup all objects written by
+        // recovery before starting to serve requests again.
+        foreach (ProtoBuf::Tablets_Tablet* newTablet, newTablets) {
+            for (int i = 0; i < tablets.tablet_size(); ++i) {
+                const auto& tablet = tablets.tablet(i);
+                if (tablet.table_id() == newTablet->table_id() &&
+                    tablet.start_key_hash() == newTablet->start_key_hash() &&
+                    tablet.end_key_hash() == newTablet->end_key_hash())
+                {
+                    Table* table = reinterpret_cast<Table*>(tablet.user_data());
+                    delete table;
+                    tablets.mutable_tablet()->
+                        SwapElements(tablets.tablet_size() - 1, i);
+                    tablets.mutable_tablet()->RemoveLast();
+                    break;
+                }
+            }
+        }
+        purgeObjectsFromUnknownTablets();
+    }
 }
 
 /**
@@ -1972,7 +2047,7 @@ MasterService::rejectOperation(const RejectRules& rejectRules, uint64_t version)
         return STATUS_OK;
     }
     if (rejectRules.exists)
-        return STATUS_OBJECT_DOESNT_EXIST;
+        return STATUS_OBJECT_EXISTS;
     if (rejectRules.versionLeGiven && version <= rejectRules.givenVersion)
         return STATUS_WRONG_VERSION;
     if (rejectRules.versionNeGiven && version != rejectRules.givenVersion)

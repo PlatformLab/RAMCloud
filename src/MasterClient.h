@@ -43,6 +43,8 @@ class MasterClient : public Client {
         /**
          * Variable length key that uniquely identifies the object within table.
          * It does not necessarily have to be null terminated like a string.
+         * The caller is responsible for ensuring that this key remains valid
+         * until the call is reaped/canceled.
          */
         const char* key;
         /**
@@ -125,7 +127,9 @@ class MasterClient : public Client {
     class Recover {
       public:
         Recover(MasterClient& client,
-                ServerId masterId, uint64_t partitionId,
+                uint64_t recoveryId,
+                ServerId crashedServerId,
+                uint64_t partitionId,
                 const ProtoBuf::Tablets& tablets,
                 const RecoverRpc::Replica* replicas,
                 uint32_t numReplicas);
@@ -189,7 +193,8 @@ class MasterClient : public Client {
                        uint64_t firstKey,
                        uint64_t lastKey,
                        ServerId newMasterOwnerId);
-    void recover(ServerId masterId, uint64_t partitionId,
+    void recover(uint64_t recoveryId,
+                 ServerId crashedServerId, uint64_t partitionId,
                  const ProtoBuf::Tablets& tablets,
                  const RecoverRpc::Replica* replicas, uint32_t numReplicas);
     void remove(uint64_t tableId, const char* key, uint16_t keyLength,

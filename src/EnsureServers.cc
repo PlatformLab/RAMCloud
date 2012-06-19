@@ -40,7 +40,7 @@ countServices(ProtoBuf::ServerList& serverList, int& masters, int &backups)
         if (status != ServerStatus::UP)
             continue;
         ServiceMask mask =
-            ServiceMask::deserialize(serverList.server(i).service_mask());
+            ServiceMask::deserialize(serverList.server(i).services());
         if (mask.has(MASTER_SERVICE))
             masters++;
         if (mask.has(BACKUP_SERVICE))

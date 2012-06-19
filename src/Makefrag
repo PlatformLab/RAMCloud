@@ -80,7 +80,7 @@ SHARED_SRCFILES := \
 		   src/SpinLock.cc \
 		   src/Status.cc \
 		   src/StringUtil.cc \
-		   src/TaskManager.cc \
+		   src/TaskQueue.cc \
 		   src/TcpTransport.cc \
 		   src/TestLog.cc \
 		   src/ThreadId.cc \

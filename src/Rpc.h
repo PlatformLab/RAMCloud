@@ -76,7 +76,7 @@ enum RpcOpcode {
     GET_TABLET_MAP          = 18,
     RECOVER                 = 19,
     HINT_SERVER_DOWN        = 20,
-    TABLETS_RECOVERED       = 21,
+    RECOVERY_MASTER_FINISHED = 21,
     SET_WILL                = 22,
     SET_MIN_OPEN_SEGMENT_ID = 23,
     FILL_WITH_TEST_DATA     = 24,
@@ -318,7 +318,8 @@ struct RecoverRpc {
     static const ServiceType service = MASTER_SERVICE;
     struct Request {
         RpcRequestCommon common;
-        uint64_t masterId;
+        uint64_t recoveryId;
+        uint64_t crashedServerId;
         uint64_t partitionId;
         uint32_t tabletsLength;    // Number of bytes in the tablet map.
                                    // The bytes of the tablet map follow
@@ -585,21 +586,18 @@ struct HintServerDownRpc {
     } __attribute__((packed));
 };
 
-struct TabletsRecoveredRpc {
-    static const RpcOpcode opcode = TABLETS_RECOVERED;
+struct RecoveryMasterFinishedRpc {
+    static const RpcOpcode opcode = RECOVERY_MASTER_FINISHED;
     static const ServiceType service = COORDINATOR_SERVICE;
     struct Request {
         RpcRequestCommon common;
-        uint64_t masterId;         // Server Id from whom the request is coming.
-        Status status;             // Indicates whether the recovery
-                                   // succeeded; if not, it explains why.
+        uint64_t recoveryId;
+        uint64_t recoveryMasterId; // Server Id from whom the request is coming.
+        bool successful;           // Indicates whether the recovery succeeded.
         uint32_t tabletsLength;    // Number of bytes in the tablet map.
                                    // The bytes of the tablet map follow
                                    // immediately after this header. See
                                    // ProtoBuf::Tablets.
-        uint32_t willLength;       // Number of bytes in the new will.
-                                   // The bytes follow immediately after
-                                   // the tablet map.
     } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;

@@ -113,10 +113,13 @@ class Tub {
     Tub<ElementType>&
     operator=(const Tub<ElementType>& other) {
         if (this != &other) {
-            destroy();
             if (other.occupied) {
-                *object = *other.object; // use ElementType's assignment
-                occupied = true;
+                if (occupied)
+                    *object = *other.object; // use ElementType's assignment
+                else
+                    construct(*other.object);
+            } else {
+                destroy();
             }
         }
         return *this;

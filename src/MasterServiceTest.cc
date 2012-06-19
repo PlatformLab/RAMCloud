@@ -23,6 +23,7 @@
 #include "MasterService.h"
 #include "ReplicaManager.h"
 #include "ShortMacros.h"
+#include "StringUtil.h"
 #include "Tablets.pb.h"
 
 namespace RAMCloud {
@@ -135,7 +136,7 @@ class MasterServiceTest : public ::testing::Test {
     recoverSegmentFilter(string s)
     {
         return (s == "recoverSegment" || s == "recover" ||
-                s == "tabletsRecovered");
+                s == "recoveryMasterFinished");
     }
 
     void
@@ -307,7 +308,7 @@ TEST_F(MasterServiceTest, recover_basics) {
     };
 
     TestLog::Enable __(&recoverSegmentFilter);
-    client->recover(ServerId(123), 0, tablets,
+    client->recover(10lu, ServerId(123), 0, tablets,
                     replicas, arrayLength(replicas));
 
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
@@ -335,9 +336,34 @@ TEST_F(MasterServiceTest, recover_basics) {
         "recover: set tablet 123 20 29 to locator mock:host=master, id 2 | "
         "recover: set tablet 124 20 100 to locator mock:host=master, "
         "id 2 | "
-        "tabletsRecovered: called by masterId 2 with 4 tablets",
+        "recover: Reporting completion of recovery 10 | "
+        "recoveryMasterFinished: called by masterId 2 with 4 tablets",
         TestLog::get()));
     free(segMem);
+}
+
+TEST_F(MasterServiceTest, removeIfFromUnknownTablet) {
+    const char* key = "1";
+    const uint32_t keyLength = 1;
+    coordinator->createTable("table");
+    uint64_t tableId = coordinator->getTableId("table");
+    client->write(tableId, key, keyLength, NULL, 0);
+    auto handle = service->objectMap.lookup(tableId, key, keyLength);
+    EXPECT_TRUE(service->objectMap.lookup(tableId, key, keyLength));
+
+    EXPECT_TRUE(service->getTable(tableId, key, keyLength));
+    removeObjectIfFromUnknownTablet(handle, service);
+    EXPECT_TRUE(service->objectMap.lookup(tableId, key, keyLength));
+    EXPECT_EQ(0lu, service->log.getBytesFreed());
+
+    foreach (const ProtoBuf::Tablets::Tablet& tablet, service->tablets.tablet())
+        delete reinterpret_cast<Table*>(tablet.user_data());
+    service->tablets.Clear();
+
+    EXPECT_FALSE(service->getTable(tableId, key, keyLength));
+    removeObjectIfFromUnknownTablet(handle, service);
+    EXPECT_FALSE(service->objectMap.lookup(tableId, key, keyLength));
+    EXPECT_NE(0lu, service->log.getBytesFreed());
 }
 
 /**
@@ -478,21 +504,23 @@ TEST_F(MasterServiceTest, recover) {
 }
 
 static bool
-tabletsRecoveredFilter(string s)
+recoveryMasterFinishedFilter(string s)
 {
-    return (s == "tabletsRecovered");
+    return (s == "recoveryMasterFinished");
 }
 
 TEST_F(MasterServiceTest, recover_ctimeUpdateIssued) {
-    TestLog::Enable _(tabletsRecoveredFilter);
+    TestLog::Enable _(recoveryMasterFinishedFilter);
     client->write(0, "0", 1, "abcdef", 6);
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
     RecoverRpc::Replica replicas[] = {};
-    client->recover(ServerId(123), 0, tablets, replicas, 0);
+    client->recover(10lu, ServerId(123), 0, tablets, replicas, 0);
 
-    EXPECT_EQ("tabletsRecovered: called by masterId 2 with 4 tablets | "
-        "tabletsRecovered: Recovered tablets | tabletsRecovered: tablet { "
+    EXPECT_TRUE(StringUtil::startsWith(TestLog::get(),
+        "recoveryMasterFinished: called by masterId 2 with 4 tablets | "
+        "recoveryMasterFinished: Recovered tablets | "
+        "recoveryMasterFinished: tablet { "
         "table_id: 123 start_key_hash: 0 end_key_hash: 9 state: RECOVERING "
         "server_id: 2 service_locator: \"mock:host=master\" user_data: 0 "
         "ctime_log_head_id: 0 ctime_log_head_offset: 99 } tablet { table_id: "
@@ -500,8 +528,38 @@ TEST_F(MasterServiceTest, recover_ctimeUpdateIssued) {
         "2 service_locator: \"mock:host=master\" user_data: 0 "
         "ctime_log_head_id: 0 ctime_log_head_offset: 99 } tablet { table_id: "
         "123 start_key_hash: 20 end_key_hash: 29 state: RECOVERING server_id: "
-        "2 service_locator: \"mock:host=master\" user_data: ",
-        TestLog::get());
+        "2 service_locator: \"mock:host=master\" user_data: "));
+}
+
+namespace {
+bool recoverFilter(string s) {
+    return s == "recover";
+}
+}
+
+TEST_F(MasterServiceTest, recover_unsuccessful) {
+    TestLog::Enable _(recoverFilter);
+    client->write(0, "0", 1, "abcdef", 6);
+    ProtoBuf::Tablets tablets;
+    createTabletList(tablets);
+    RecoverRpc::Replica replicas[] = {
+        // Bad ServerId, should cause recovery to fail.
+        {1004, 92},
+    };
+    client->recover(10lu, {123, 0}, 0, tablets, replicas, 1);
+
+    string log = TestLog::get();
+    log = log.substr(log.rfind("recover:"));
+    EXPECT_EQ("recover: Failed to recover partition for recovery 10; "
+              "aborting recovery on this recovery master", log);
+
+    foreach (const auto& tablet, tablets.tablet()) {
+        foreach (const auto& mtablet, service->tablets.tablet()) {
+            EXPECT_FALSE(tablet.table_id() == mtablet.table_id() &&
+                         tablet.start_key_hash() == mtablet.start_key_hash() &&
+                         tablet.end_key_hash() == mtablet.end_key_hash());
+        }
+    }
 }
 
 TEST_F(MasterServiceTest, recoverSegment) {
@@ -1168,9 +1226,8 @@ TEST_F(MasterServiceTest, increment_rejectRules) {
     client->write(0, "key0", 4, &oldValue, 8, NULL, &version);
     EXPECT_THROW(client->increment(0, "key0", 4, 5, &rules, &version,
                  &newValue),
-        ObjectDoesntExistException);
+        ObjectExistsException);
 }
-
 
 /**
  * Generate a random string.
@@ -1245,7 +1302,7 @@ TEST_F(MasterServiceTest, rejectOperation) {
     rules = empty;
     rules.exists = 1;
     EXPECT_EQ(service->rejectOperation(rules, 2),
-              STATUS_OBJECT_DOESNT_EXIST);
+              STATUS_OBJECT_EXISTS);
 
     // versionLeGiven.
     rules = empty;

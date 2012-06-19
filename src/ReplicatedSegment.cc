@@ -23,7 +23,7 @@ namespace RAMCloud {
 /**
  * Create a ReplicatedSegment.  Only called by ReplicaManager.
  *
- * \param taskManager
+ * \param taskQueue
  *      The ReplicaManager's work queue, this is added to it when schedule()
  *      is called.
  * \param tracker
@@ -62,7 +62,7 @@ namespace RAMCloud {
  *      Maximum bytes to send in a single write rpc; can help latency of
  *      GetRecoveryDataRequests by unclogging backups a bit.
  */
-ReplicatedSegment::ReplicatedSegment(TaskManager& taskManager,
+ReplicatedSegment::ReplicatedSegment(TaskQueue& taskQueue,
                                      BackupTracker& tracker,
                                      BaseBackupSelector& backupSelector,
                                      Deleter& deleter,
@@ -76,7 +76,7 @@ ReplicatedSegment::ReplicatedSegment(TaskManager& taskManager,
                                      uint32_t openLen,
                                      uint32_t numReplicas,
                                      uint32_t maxBytesPerWriteRpc)
-    : Task(taskManager)
+    : Task(taskQueue)
     , tracker(tracker)
     , backupSelector(backupSelector)
     , deleter(deleter)
@@ -141,7 +141,7 @@ ReplicatedSegment::free()
     foreach (auto& replica, replicas) {
         if (!replica.isActive || !replica.writeRpc)
             continue;
-        taskManager.proceed();
+        taskQueue.performTask();
         // Release and reacquire the lock; this gives other operations
         // a chance to slip in while this thread waits for all write
         // rpcs to finish up.
@@ -363,7 +363,7 @@ ReplicatedSegment::sync(uint32_t offset)
         // it is safe to use the usual definition.
         if (!recoveringFromLostOpenReplicas && getAcked().bytes >= offset)
             break;
-        taskManager.proceed();
+        taskQueue.performTask();
     }
 }
 

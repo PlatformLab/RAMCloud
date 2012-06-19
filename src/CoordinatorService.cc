@@ -35,22 +35,15 @@ CoordinatorService::CoordinatorService(Context& context)
     , nextTableId(0)
     , nextTableMasterIdx(0)
     , nextReplicationId(1)
-    , mockRecovery(NULL)
+    , recoveryManager(context, serverList, tabletMap)
     , forceServerDownForTesting(false)
 {
+    recoveryManager.start();
 }
 
 CoordinatorService::~CoordinatorService()
 {
-    // Delete wills. They aren't automatically deleted in the
-    // CoordinatorServerList::Entry destructor because we may
-    // want to stash a copy of the entry and then remove from
-    // the list before using it (e.g. when we start recovery).
-    for (size_t i = 0; i < serverList.size(); i++) {
-        CoordinatorServerList::Entry* entry = serverList[i];
-        if (entry != NULL && entry->isMaster() && entry->will != NULL)
-            delete entry->will;
-    }
+    recoveryManager.halt();
 }
 
 void
@@ -86,9 +79,9 @@ CoordinatorService::dispatch(RpcOpcode opcode,
             callHandler<HintServerDownRpc, CoordinatorService,
                         &CoordinatorService::hintServerDown>(rpc);
             break;
-        case TabletsRecoveredRpc::opcode:
-            callHandler<TabletsRecoveredRpc, CoordinatorService,
-                        &CoordinatorService::tabletsRecovered>(rpc);
+        case RecoveryMasterFinishedRpc::opcode:
+            callHandler<RecoveryMasterFinishedRpc, CoordinatorService,
+                        &CoordinatorService::recoveryMasterFinished>(rpc);
             break;
         case BackupQuiesceRpc::opcode:
             callHandler<BackupQuiesceRpc, CoordinatorService,
@@ -145,7 +138,6 @@ CoordinatorService::createTable(const CreateTableRpc::Request& reqHdr,
         serverSpan = 1;
 
     for (uint32_t i = 0; i < serverSpan; i++) {
-
         uint64_t startKeyHash = i * (~0UL / serverSpan);
         if (i != 0)
             startKeyHash++;
@@ -154,59 +146,46 @@ CoordinatorService::createTable(const CreateTableRpc::Request& reqHdr,
             endKeyHash = ~0UL;
 
         // Find the next master in the list.
-        CoordinatorServerList::Entry* master = NULL;
+        CoordinatorServerList::Entry master;
         while (true) {
             size_t masterIdx = nextTableMasterIdx++ % serverList.size();
-            if (serverList[masterIdx] != NULL &&
-                serverList[masterIdx]->isMaster()) {
-                master = serverList[masterIdx];
+            auto entry = serverList[masterIdx];
+            if (entry && entry->isMaster()) {
+                master = *entry;
                 break;
             }
         }
-
-        const char* locator = master->serviceLocator.c_str();
+        const char* locator = master.serviceLocator.c_str();
         MasterClient masterClient(
             context.transportManager->getSession(locator));
-
         // Get current log head. Only entries >= this can be part of the tablet.
         LogPosition headOfLog = masterClient.getHeadOfLog();
 
         // Create tablet map entry.
-        ProtoBuf::Tablets_Tablet& tablet(*tabletMap.add_tablet());
-        tablet.set_table_id(tableId);
-        tablet.set_start_key_hash(startKeyHash);
-        tablet.set_end_key_hash(endKeyHash);
-        tablet.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
-        tablet.set_server_id(master->serverId.getId());
-        tablet.set_service_locator(master->serviceLocator);
-        tablet.set_ctime_log_head_id(headOfLog.segmentId());
-        tablet.set_ctime_log_head_offset(headOfLog.segmentOffset());
+        tabletMap.addTablet({tableId, startKeyHash, endKeyHash,
+                             master.serverId, Tablet::NORMAL, headOfLog});
 
         // Create will entry. The tablet is empty, so it doesn't matter where it
         // goes or in how many partitions, initially.
         // It just has to go somewhere.
-        ProtoBuf::Tablets& will = *master->will;
+        ProtoBuf::Tablets will;
         ProtoBuf::Tablets_Tablet& willEntry(*will.add_tablet());
         willEntry.set_table_id(tableId);
         willEntry.set_start_key_hash(startKeyHash);
         willEntry.set_end_key_hash(endKeyHash);
         willEntry.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
-        uint64_t maxPartitionId;
-        if (will.tablet_size() > 1)
-            maxPartitionId = will.tablet(will.tablet_size() - 2).user_data();
-        else
-            maxPartitionId = -1;
-        willEntry.set_user_data(maxPartitionId + 1);
+        // Hack which hints to the server list that it should assign
+        // partition ids.
+        willEntry.set_user_data(~(0lu));
         willEntry.set_ctime_log_head_id(headOfLog.segmentId());
         willEntry.set_ctime_log_head_offset(headOfLog.segmentOffset());
+        serverList.addToWill(master.serverId, will);
 
         // Inform the master.
-        masterClient.takeTabletOwnership(tableId,
-                                         tablet.start_key_hash(),
-                                         tablet.end_key_hash());
+        masterClient.takeTabletOwnership(tableId, startKeyHash, endKeyHash);
 
         LOG(DEBUG, "Created table '%s' with id %lu and a span %u on master %lu",
-                    name, tableId, serverSpan, master->serverId.getId());
+                    name, tableId, serverSpan, master.serverId.getId());
     }
 
     LOG(NOTICE, "Created table '%s' with id %lu",
@@ -229,25 +208,16 @@ CoordinatorService::dropTable(const DropTableRpc::Request& reqHdr,
         return;
     uint64_t tableId = it->second;
     tables.erase(it);
-    int32_t i = 0;
-    while (i < tabletMap.tablet_size()) {
-        if (tabletMap.tablet(i).table_id() == tableId) {
-            ServerId masterId(tabletMap.tablet(i).server_id());
-            MasterClient master(serverList.getSession(masterId));
+    vector<Tablet> removed = tabletMap.removeTabletsForTable(tableId);
+    foreach (const auto& tablet, removed) {
+            MasterClient master(serverList.getSession(tablet.serverId));
             master.dropTabletOwnership(tableId,
-                                       tabletMap.tablet(i).start_key_hash(),
-                                       tabletMap.tablet(i).end_key_hash());
-
-            tabletMap.mutable_tablet()->SwapElements(
-                    tabletMap.tablet_size() - 1, i);
-            tabletMap.mutable_tablet()->RemoveLast();
-        } else {
-            ++i;
-        }
+                                       tablet.startKeyHash,
+                                       tablet.endKeyHash);
     }
 
     LOG(NOTICE, "Dropped table '%s' with id %lu", name, tableId);
-    LOG(DEBUG, "There are now %d tablets in the map", tabletMap.tablet_size());
+    LOG(DEBUG, "There are now %lu tablets in the map", tabletMap.size());
 }
 
 /**
@@ -259,13 +229,6 @@ CoordinatorService::splitTablet(const SplitTabletRpc::Request& reqHdr,
                               SplitTabletRpc::Response& respHdr,
                               Rpc& rpc)
 {
-    // Sanity check on provided key ranges
-    if (!(reqHdr.startKeyHash < (reqHdr.splitKeyHash - 1) &&
-        reqHdr.splitKeyHash < reqHdr.endKeyHash)) {
-         respHdr.common.status = STATUS_REQUEST_FORMAT_ERROR;
-         return;
-    }
-
     // Check that the tablet with the described key ranges exists.
     // If the tablet exists, adjust its endKeyHash so it becomes the tablet
     // for the first part after the split and also copy the tablet and use
@@ -279,35 +242,24 @@ CoordinatorService::splitTablet(const SplitTabletRpc::Request& reqHdr,
     }
     uint64_t tableId = it->second;
 
-    bool tabletExists = false;
-    ProtoBuf::Tablets_Tablet newTablet;
-
-    for (int i = 0; i < tabletMap.tablet_size(); i++) {
-        if (tabletMap.tablet(i).table_id() != tableId) {
-            continue;
-        }
-        if (tabletMap.tablet(i).start_key_hash() == reqHdr.startKeyHash &&
-            tabletMap.tablet(i).end_key_hash() == reqHdr.endKeyHash) {
-                tabletExists = true;
-                newTablet = tabletMap.tablet(i);
-                tabletMap.mutable_tablet(i)->
-                set_end_key_hash(reqHdr.splitKeyHash - 1);
-        }
-    }
-    if (!tabletExists) {
+    ServerId serverId;
+    try {
+        serverId = tabletMap.splitTablet(tableId,
+                                         reqHdr.startKeyHash,
+                                         reqHdr.endKeyHash,
+                                         reqHdr.splitKeyHash).first.serverId;
+    } catch (const TabletMap::NoSuchTablet& e) {
         respHdr.common.status = STATUS_TABLET_DOESNT_EXIST;
+        return;
+    } catch (const TabletMap::BadSplit& e) {
+        respHdr.common.status = STATUS_REQUEST_FORMAT_ERROR;
         return;
     }
 
-    // Adjust the start key hash for the tablet for the second part and add it
-    newTablet.set_start_key_hash(reqHdr.splitKeyHash);
-    *tabletMap.add_tablet() = newTablet;
-
     // Tell the master to split the tablet
-    ServerId masterId(newTablet.server_id());
-    MasterClient master(serverList.getSession(masterId));
+    MasterClient master(serverList.getSession(serverId));
     master.splitMasterTablet(tableId, reqHdr.startKeyHash, reqHdr.endKeyHash,
-                       reqHdr.splitKeyHash);
+                             reqHdr.splitKeyHash);
 
     LOG(NOTICE, "In table '%s' I split the tablet that started at key %lu and "
                 "ended at key %lu", name, reqHdr.startKeyHash,
@@ -381,20 +333,15 @@ CoordinatorService::enlistServer(const EnlistServerRpc::Request& reqHdr,
                                           readSpeed,
                                           serverListUpdate);
     serverList.incrementVersion(serverListUpdate);
-    CoordinatorServerList::Entry& entry = serverList[newServerId];
+    CoordinatorServerList::Entry entry = serverList[newServerId];
 
     LOG(NOTICE, "Enlisting new server at %s (server id %lu) supporting "
         "services: %s",
         serviceLocator, newServerId.getId(),
-        entry.serviceMask.toString().c_str());
+        entry.services.toString().c_str());
     if (replacesId.isValid()) {
         LOG(NOTICE, "Newly enlisted server %lu replaces server %lu",
             newServerId.getId(), replacesId.getId());
-    }
-
-    if (entry.isMaster()) {
-        // create empty will
-        entry.will = new ProtoBuf::Tablets;
     }
 
     if (entry.isBackup()) {
@@ -406,14 +353,14 @@ CoordinatorService::enlistServer(const EnlistServerRpc::Request& reqHdr,
     respHdr.serverId = newServerId.getId();
     rpc.sendReply();
 
-    if (entry.serviceMask.has(MEMBERSHIP_SERVICE))
+    if (entry.services.has(MEMBERSHIP_SERVICE))
         sendServerList(newServerId);
-    sendMembershipUpdate(serverListUpdate, newServerId);
+    serverList.sendMembershipUpdate(serverListUpdate, newServerId);
 
     // Recovery on the replaced host is deferred until the replacing host
     // has been enlisted.
     if (replacedEntry)
-        startMasterRecovery(*replacedEntry);
+        recoveryManager.startMasterRecovery(replacedEntry->serverId);
 }
 
 /**
@@ -443,8 +390,10 @@ CoordinatorService::getTabletMap(const GetTabletMapRpc::Request& reqHdr,
                                  GetTabletMapRpc::Response& respHdr,
                                  Rpc& rpc)
 {
+    ProtoBuf::Tablets tablets;
+    tabletMap.serialize(serverList, tablets);
     respHdr.tabletMapLength = serializeToResponse(rpc.replyPayload,
-                                                  tabletMap);
+                                                  tablets);
 }
 
 /**
@@ -473,13 +422,11 @@ bool
 CoordinatorService::hintServerDown(ServerId serverId)
 {
     if (!serverList.contains(serverId) ||
-        serverList[serverId.indexNumber()]->status != ServerStatus::UP) {
+        serverList[serverId].status != ServerStatus::UP) {
         LOG(NOTICE, "Spurious crash report on unknown server id %lu",
             serverId.getId());
         return true;
     }
-
-    const uint64_t replicationId = serverList[serverId].replicationId;
 
     if (!verifyServerFailure(serverId))
         return false;
@@ -503,14 +450,12 @@ CoordinatorService::hintServerDown(ServerId serverId)
     // Update cluster membership information.
     // Backup recovery is kicked off via this update.
     // Deciding whether to place this before or after the start of master
-    // recovery is difficult.  With small cluster sizes kicking off backup
-    // recoveries this early didn't interfere with master recovery
-    // performance, but we'll want to keep an eye on this.
-    sendMembershipUpdate(update, ServerId(/* invalid id */));
+    // recovery is difficult.
+    serverList.sendMembershipUpdate(update, ServerId(/* invalid id */));
 
-    startMasterRecovery(entry);
+    recoveryManager.startMasterRecovery(entry.serverId);
 
-    removeReplicationGroup(replicationId);
+    removeReplicationGroup(entry.replicationId);
     createReplicationGroup();
 
     return true;
@@ -521,87 +466,28 @@ CoordinatorService::hintServerDown(ServerId serverId)
  * \copydetails Service::ping
  */
 void
-CoordinatorService::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
-                                     TabletsRecoveredRpc::Response& respHdr,
-                                     Rpc& rpc)
+CoordinatorService::recoveryMasterFinished(
+    const RecoveryMasterFinishedRpc::Request& reqHdr,
+    RecoveryMasterFinishedRpc::Response& respHdr,
+    Rpc& rpc)
 {
-    if (reqHdr.status != STATUS_OK) {
-        // we'll need to restart a recovery of that partition elsewhere
-        // right now this just leaks the recovery object in the tabletMap
-        LOG(ERROR, "A recovery master failed to recover its partition");
-    }
-
     ProtoBuf::Tablets recoveredTablets;
     ProtoBuf::parseFromResponse(rpc.requestPayload,
                                 downCast<uint32_t>(sizeof(reqHdr)),
                                 reqHdr.tabletsLength, recoveredTablets);
 
-    LOG(NOTICE, "called by masterId %lu with %u tablets",
-        reqHdr.masterId, recoveredTablets.tablet_size());
+    ServerId serverId = ServerId(reqHdr.recoveryMasterId);
+    recoveryManager.recoveryMasterFinished(reqHdr.recoveryId,
+                                           serverId,
+                                           recoveredTablets,
+                                           reqHdr.successful);
+    // Dump the tabletMap out for easy debugging.
+    LOG(DEBUG, "Coordinator tabletMap: %s",
+        tabletMap.debugString().c_str());
 
-    TEST_LOG("Recovered tablets");
-    TEST_LOG("%s", recoveredTablets.ShortDebugString().c_str());
-
-    // update tablet map to point to new owner and mark as available
-    foreach (const ProtoBuf::Tablets::Tablet& recoveredTablet,
-             recoveredTablets.tablet())
-    {
-        foreach (ProtoBuf::Tablets::Tablet& tablet,
-                 *tabletMap.mutable_tablet())
-        {
-            if (recoveredTablet.table_id() == tablet.table_id() &&
-                recoveredTablet.start_key_hash() == tablet.start_key_hash() &&
-                recoveredTablet.end_key_hash() == tablet.end_key_hash())
-            {
-                LOG(NOTICE, "Recovery complete on tablet %lu,%lu,%lu",
-                    tablet.table_id(), tablet.start_key_hash(),
-                    tablet.end_key_hash());
-                BaseRecovery* recovery =
-                    reinterpret_cast<Recovery*>(tablet.user_data());
-                tablet.set_state(ProtoBuf::Tablets_Tablet::NORMAL);
-                tablet.set_user_data(0);
-
-                // The caller has filled in recoveredTablets with new service
-                // locator and server id of the recovery master, so just copy
-                // it over.
-                tablet.set_service_locator(recoveredTablet.service_locator());
-                tablet.set_server_id(recoveredTablet.server_id());
-
-                // Record the log position of the recovery master at creation of
-                // this new tablet assignment. The value is the position of the
-                // head at the very start of recovery.
-                tablet.set_ctime_log_head_id(
-                    recoveredTablet.ctime_log_head_id());
-                tablet.set_ctime_log_head_offset(
-                    recoveredTablet.ctime_log_head_offset());
-
-                bool recoveryComplete =
-                    recovery->tabletsRecovered(recoveredTablets);
-                if (recoveryComplete) {
-                    LOG(NOTICE, "Recovery completed for master %lu",
-                        recovery->masterId.getId());
-                    auto masterId = recovery->masterId;
-                    delete recovery;
-
-                    // dump the tabletMap out for easy debugging
-                    LOG(DEBUG, "Coordinator tabletMap:");
-                    foreach (const ProtoBuf::Tablets::Tablet& tablet,
-                             tabletMap.tablet()) {
-                        LOG(DEBUG, "table: %lu [%lu:%lu] state: %u owner: %lu",
-                            tablet.table_id(), tablet.start_key_hash(),
-                            tablet.end_key_hash(), tablet.state(),
-                            tablet.server_id());
-                    }
-
-                    ProtoBuf::ServerList update;
-                    serverList.remove(masterId, update);
-                    serverList.incrementVersion(update);
-                    sendMembershipUpdate(update, ServerId(/* invalid id */));
-                    return;
-                }
-            }
-        }
-    }
+    // TODO(stutsman): Eventually we'll want to be able to 'reject' recovery
+    // master completions, so we'll need to get a return value from
+    // recoveryMasterFinished.
 }
 
 /**
@@ -614,7 +500,7 @@ CoordinatorService::quiesce(const BackupQuiesceRpc::Request& reqHdr,
                             Rpc& rpc)
 {
     for (size_t i = 0; i < serverList.size(); i++) {
-        if (serverList[i] != NULL && serverList[i]->isBackup()) {
+        if (serverList[i] && serverList[i]->isBackup()) {
             BackupClient(context.transportManager->getSession(
                 serverList[i]->serviceLocator.c_str())).quiesce();
         }
@@ -661,49 +547,53 @@ CoordinatorService::reassignTabletOwnership(
         respHdr.common.status = STATUS_SERVER_DOESNT_EXIST;
         return;
     }
-    CoordinatorServerList::Entry& entry = serverList[newOwner];
 
-    foreach (ProtoBuf::Tablets::Tablet& tablet, *tabletMap.mutable_tablet()) {
-        if (tablet.table_id() == reqHdr.tableId &&
-          tablet.start_key_hash() == reqHdr.firstKey &&
-          tablet.end_key_hash() == reqHdr.lastKey) {
-            LOG(NOTICE, "Reassigning tablet %lu, range [%lu, %lu] from server "
-                "id %lu to server id %lu.", reqHdr.tableId, reqHdr.firstKey,
-                reqHdr.lastKey, tablet.server_id(), *newOwner);
-
-            Transport::SessionRef session = serverList.getSession(newOwner);
-            MasterClient masterClient(session);
-
-            // Get current head of log to preclude all previous data in the log
-            // from being considered part of this tablet.
-            LogPosition headOfLog = masterClient.getHeadOfLog();
-
-            tablet.set_server_id(*newOwner);
-            tablet.set_service_locator(entry.serviceLocator);
-            tablet.set_ctime_log_head_id(headOfLog.segmentId());
-            tablet.set_ctime_log_head_offset(headOfLog.segmentOffset());
-
-            // No need to keep the master waiting. If it sent us this request,
-            // then it has guaranteed that all data has been migrated. So long
-            // as we think the new owner is up (i.e. haven't started a recovery
-            // on it), then it's safe for the old owner to drop the data and for
-            // us to switch over.
-            rpc.sendReply();
-
-            // TODO(rumble/slaughter) If we fail to alert the new owner we could
-            //      get stuck in limbo. What should we do? Retry? Fail the
-            //      server and recover it? Can't return to the old master if we
-            //      reply early...
-            masterClient.takeTabletOwnership(reqHdr.tableId,
-                                             reqHdr.firstKey,
-                                             reqHdr.lastKey);
-            return;
-        }
+    try {
+        // Note currently this log message may not be exactly correct due to
+        // concurrent operations on the tablet map which may slip in between
+        // the message and the actual operation.
+        Tablet tablet = tabletMap.getTablet(reqHdr.tableId,
+                                           reqHdr.firstKey, reqHdr.lastKey);
+        LOG(NOTICE, "Reassigning tablet %lu, range [%lu, %lu] from server "
+            "id %lu to server id %lu.", reqHdr.tableId, reqHdr.firstKey,
+            reqHdr.lastKey, tablet.serverId.getId(), newOwner.getId());
+    } catch (const TabletMap::NoSuchTablet& e) {
+        LOG(WARNING, "Could not reassign tablet %lu, range [%lu, %lu]: "
+            "not found!", reqHdr.tableId, reqHdr.firstKey, reqHdr.lastKey);
+        respHdr.common.status = STATUS_TABLE_DOESNT_EXIST;
+        return;
     }
 
-    LOG(WARNING, "Could not reassign tablet %lu, range [%lu, %lu]: not found!",
-        reqHdr.tableId, reqHdr.firstKey, reqHdr.lastKey);
-    respHdr.common.status = STATUS_TABLE_DOESNT_EXIST;
+    Transport::SessionRef session = serverList.getSession(newOwner);
+    MasterClient masterClient(session);
+    // Get current head of log to preclude all previous data in the log
+    // from being considered part of this tablet.
+    LogPosition headOfLog = masterClient.getHeadOfLog();
+
+    try {
+        tabletMap.modifyTablet(reqHdr.tableId, reqHdr.firstKey, reqHdr.lastKey,
+                               newOwner, Tablet::NORMAL, headOfLog);
+    } catch (const TabletMap::NoSuchTablet& e) {
+        LOG(WARNING, "Could not reassign tablet %lu, range [%lu, %lu]: "
+            "not found!", reqHdr.tableId, reqHdr.firstKey, reqHdr.lastKey);
+        respHdr.common.status = STATUS_TABLE_DOESNT_EXIST;
+        return;
+    }
+
+    // No need to keep the master waiting. If it sent us this request,
+    // then it has guaranteed that all data has been migrated. So long
+    // as we think the new owner is up (i.e. haven't started a recovery
+    // on it), then it's safe for the old owner to drop the data and for
+    // us to switch over.
+    rpc.sendReply();
+
+    // TODO(rumble/slaughter) If we fail to alert the new owner we could
+    //      get stuck in limbo. What should we do? Retry? Fail the
+    //      server and recover it? Can't return to the old master if we
+    //      reply early...
+    masterClient.takeTabletOwnership(reqHdr.tableId,
+                                     reqHdr.firstKey,
+                                     reqHdr.lastKey);
 }
 
 /**
@@ -729,12 +619,12 @@ CoordinatorService::sendServerList(
         return;
     }
 
-    if (serverList[id.indexNumber()]->status != ServerStatus::UP) {
+    if (serverList[id].status != ServerStatus::UP) {
         LOG(WARNING, "Could not send list to crashed server %lu", *id);
         return;
     }
 
-    if (!serverList[id].serviceMask.has(MEMBERSHIP_SERVICE)) {
+    if (!serverList[id].services.has(MEMBERSHIP_SERVICE)) {
         LOG(WARNING, "Could not send list to server without membership "
             "service: %lu", *id);
         return;
@@ -765,7 +655,7 @@ CoordinatorService::assignReplicationGroup(
         if (!serverList.contains(backupId)) {
             return false;
         }
-        serverList[backupId].replicationId = replicationId;
+        serverList.setReplicationId(backupId, replicationId);
         // Try to send an assignReplicationId Rpc to a backup. If the Rpc
         // fails, hintServerDown. If hintServerDown is true, the function
         // aborts. If it fails, keep trying to send the Rpc to the backup.
@@ -817,7 +707,7 @@ CoordinatorService::createReplicationGroup()
     // required for correctness.
     vector<ServerId> freeBackups;
     for (size_t i = 0; i < serverList.size(); i++) {
-        if (serverList[i] != NULL &&
+        if (serverList[i] &&
             serverList[i]->isBackup() &&
             serverList[i]->replicationId == 0) {
             freeBackups.push_back(serverList[i]->serverId);
@@ -835,7 +725,7 @@ CoordinatorService::createReplicationGroup()
         for (uint32_t i = 0; i < numReplicas; i++) {
             const ServerId& backupId = freeBackups.back();
             group.push_back(backupId);
-            serverList[backupId].replicationId = nextReplicationId;
+            serverList.setReplicationId(backupId, nextReplicationId);
             freeBackups.pop_back();
         }
         // Assign a new replication group. AssignReplicationGroup handles
@@ -860,11 +750,11 @@ CoordinatorService::removeReplicationGroup(uint64_t groupId)
         return;
     }
     for (size_t i = 0; i < serverList.size(); i++) {
-        if (serverList[i] != NULL &&
+        if (serverList[i] &&
             serverList[i]->replicationId == groupId) {
             vector<ServerId> group;
             group.push_back(serverList[i]->serverId);
-            serverList[i]->replicationId = 0;
+            serverList.setReplicationId(serverList[i]->serverId, 0);
             // We check whether the server is up, in order to prevent
             // recursively calling removeReplicationGroup by hintServerDown.
             // If the backup is still up, we tell it to reset its
@@ -874,58 +764,6 @@ CoordinatorService::removeReplicationGroup(uint64_t groupId)
             // one of the servers in the group is down.
             if (serverList[i]->isBackup()) {
                 assignReplicationGroup(0, group);
-            }
-        }
-    }
-}
-
-/**
- * Issue a cluster membership update to all enlisted servers in the system
- * that are running the MembershipService.
- *
- * \param update
- *      Protocol Buffer containing the update to be sent.
- *
- * \param excludeServerId
- *      ServerId of a server that is not to receive this update. This is
- *      used to avoid sending an update message to a server immediately
- *      following its enlistment (since we'll be sending the entire list
- *      instead).
- */
-void
-CoordinatorService::sendMembershipUpdate(ProtoBuf::ServerList& update,
-                                         ServerId excludeServerId)
-{
-    MembershipClient client(context);
-    for (size_t i = 0; i < serverList.size(); i++) {
-        if (serverList[i] == NULL ||
-            serverList[i]->status != ServerStatus::UP ||
-            !serverList[i]->serviceMask.has(MEMBERSHIP_SERVICE))
-            continue;
-        if (serverList[i]->serverId == excludeServerId)
-            continue;
-
-        bool succeeded = false;
-        try {
-            succeeded = client.updateServerList(
-                serverList[i]->serviceLocator.c_str(), update);
-        } catch (TransportException& e) {
-            // It's suspicious that pushing the update failed, but
-            // perhaps it's best to wait to try the full list push
-            // before jumping to conclusions.
-        }
-
-        // If this server had missed a previous update it will return
-        // failure and expect us to push the whole list again.
-        if (!succeeded) {
-            LOG(NOTICE, "Server %lu had lost an update. Sending whole list.",
-                *serverList[i]->serverId);
-            try {
-                sendServerList(serverList[i]->serverId);
-            } catch (TransportException& e) {
-                // TODO(stutsman): Things aren't looking good for this
-                // server.  The coordinator will probably want to investigate
-                // the server and evict it.
             }
         }
     }
@@ -976,16 +814,14 @@ CoordinatorService::setMinOpenSegmentId(
     LOG(DEBUG, "setMinOpenSegmentId for server %lu to %lu",
         serverId.getId(), segmentId);
 
-    if (!serverList.contains(serverId)) {
+    try {
+        serverList.setMinOpenSegmentId(serverId, segmentId);
+    } catch (const Exception& e) {
         LOG(WARNING, "setMinOpenSegmentId server doesn't exist: %lu",
             serverId.getId());
         respHdr.common.status = STATUS_SERVER_DOESNT_EXIST;
         return;
     }
-
-    CoordinatorServerList::Entry& entry = serverList[serverId];
-    if (entry.minOpenSegmentId < segmentId)
-        entry.minOpenSegmentId = segmentId;
 }
 
 /**
@@ -993,100 +829,28 @@ CoordinatorService::setMinOpenSegmentId(
  *
  * \param masterId
  *      ServerId of the master whose will is to be set.
- *
  * \param buffer
  *      Buffer containing the will.
- *
  * \param offset
  *      Byte offset of the will in the buffer.
- *
  * \param length
  *      Length of the will in bytes.
+ * \return
+ *      False if masterId is not in the server list, true otherwise.
  */
 bool
 CoordinatorService::setWill(ServerId masterId, Buffer& buffer,
                             uint32_t offset, uint32_t length)
 {
-    if (serverList.contains(masterId)) {
-        CoordinatorServerList::Entry& master = serverList[masterId];
-        if (!master.isMaster()) {
-            LOG(WARNING, "Server %lu is not a master!!", masterId.getId());
-            return false;
-        }
-
-        ProtoBuf::Tablets* oldWill = master.will;
-        ProtoBuf::Tablets* newWill = new ProtoBuf::Tablets();
-        ProtoBuf::parseFromResponse(buffer, offset, length, *newWill);
-        master.will = newWill;
-
-        LOG(NOTICE, "Master %lu updated its Will (now %d entries, was %d)",
-            masterId.getId(), newWill->tablet_size(), oldWill->tablet_size());
-
-        delete oldWill;
-        return true;
+    ProtoBuf::Tablets newWill;
+    ProtoBuf::parseFromResponse(buffer, offset, length, newWill);
+    try {
+        serverList.setWill(masterId, newWill);
+    } catch (const Exception& e) {
+        LOG(WARNING, "Master %lu could not be found!!", masterId.getId());
+        return false;
     }
-
-    LOG(WARNING, "Master %lu could not be found!!", masterId.getId());
-    return false;
-}
-
-/**
- * Initiate a recovery of a crashed master.
- *
- * \param serverEntry
- *      The crashed server which is to be recovered.  If the server was
- *      not running a master service then nothing is done.
- * \throw Exception
- *      If \a serverId is not in #serverList.
- */
-void
-CoordinatorService::startMasterRecovery(
-                                const CoordinatorServerList::Entry& serverEntry)
-{
-    if (!serverEntry.isMaster())
-        return;
-
-    ServerId serverId = serverEntry.serverId;
-
-    bool hadTablets = false;
-    foreach (ProtoBuf::Tablets::Tablet& tablet,
-             *tabletMap.mutable_tablet()) {
-        if (tablet.server_id() == serverId.getId()) {
-            tablet.set_state(ProtoBuf::Tablets_Tablet::RECOVERING);
-            hadTablets = true;
-        }
-    }
-
-    if (!hadTablets) {
-        LOG(NOTICE, "Master %lu (\"%s\") crashed, but it had no tablets",
-            serverId.getId(),
-            serverEntry.serviceLocator.c_str());
-        return;
-    }
-
-    LOG(NOTICE, "Recovering master %lu (\"%s\") on %u recovery masters "
-        "using %u backups", serverId.getId(),
-        serverEntry.serviceLocator.c_str(),
-        serverList.masterCount(),
-        serverList.backupCount());
-
-    BaseRecovery* recovery = NULL;
-    if (mockRecovery != NULL) {
-        (*mockRecovery)(serverId, *serverEntry.will, serverList);
-        recovery = mockRecovery;
-    } else {
-        recovery = new Recovery(context, serverId, *serverEntry.will,
-                                serverList);
-    }
-
-    // Keep track of recovery for each of the tablets it's working on.
-    foreach (ProtoBuf::Tablets::Tablet& tablet,
-             *tabletMap.mutable_tablet()) {
-        if (tablet.server_id() == serverId.getId())
-            tablet.set_user_data(reinterpret_cast<uint64_t>(recovery));
-    }
-
-    recovery->start();
+    return true;
 }
 
 /**
