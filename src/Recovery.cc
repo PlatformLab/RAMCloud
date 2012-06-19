@@ -596,14 +596,14 @@ struct MasterStartTask {
             }
             return;
         } catch (const TransportException& e) {
-            LOG(WARNING, "Couldn't contact server %lu; to start recovery: %s",
+            LOG(WARNING, "Couldn't contact server %lu to start recovery: %s",
                 serverId.getId(), e.what());
         } catch (const ClientException& e) {
-            LOG(WARNING, "Couldn't contact server %lu; to start recovery: %s",
+            LOG(WARNING, "Couldn't contact server %lu to start recovery: %s",
                 serverId.getId(), e.what());
         }
-        ++recovery.unsuccessfulRecoveryMasters;
-        (*recovery.tracker)[serverId] = NULL;
+        recovery.recoveryMasterFinished(serverId, false);
+        done = true;
     }
     void wait() {
         try {
@@ -612,14 +612,14 @@ struct MasterStartTask {
             done = true;
             return;
         } catch (const TransportException& e) {
-            LOG(WARNING, "Couldn't contact server %lu; to start recovery: %s",
+            LOG(WARNING, "Couldn't contact server %lu to start recovery: %s",
                 serverId.getId(), e.what());
         } catch (const ClientException& e) {
-            LOG(WARNING, "Couldn't contact server %lu; to start recovery: %s",
+            LOG(WARNING, "Couldn't contact server %lu to start recovery: %s",
                 serverId.getId(), e.what());
         }
-        ++recovery.unsuccessfulRecoveryMasters;
-        (*recovery.tracker)[serverId] = NULL;
+        recovery.recoveryMasterFinished(serverId, false);
+        done = true;
     }
 
     /// The parent recovery object.
@@ -692,6 +692,10 @@ Recovery::startRecoveryMasters()
     LOG(NOTICE, "Starting recovery for %u partitions", numPartitions);
     parallelRun(recoverTasks, numPartitions, 10);
 
+    // If all of the recovery masters failed to get off to a start then
+    // skip waiting for them.
+    if (status == BROADCAST_RECOVERY_COMPLETE)
+        return;
     status = WAIT_FOR_RECOVERY_MASTERS;
     LOG(DEBUG, "Waiting for recovery to complete on recovery masters");
 }

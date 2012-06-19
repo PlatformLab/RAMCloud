@@ -493,6 +493,24 @@ TEST_F(RecoveryTest, startRecoveryMasters_tooFewIdleMasters) {
     EXPECT_FALSE(recovery.wasCompletelySuccessful());
 }
 
+TEST_F(RecoveryTest, startRecoveryMasters_allFailDuringRecoverRpc) {
+    TabletsBuilder{tablets}
+        (123,  0,  9, TabletsBuilder::RECOVERING, 0)
+        (123, 20, 29, TabletsBuilder::RECOVERING, 0)
+        (123, 10, 19, TabletsBuilder::RECOVERING, 1);
+    addServersToTracker(2, {MASTER_SERVICE});
+    Recovery recovery(taskQueue, &tracker, NULL, {99, 0}, tablets, 0lu);
+    recovery.startRecoveryMasters();
+
+    EXPECT_EQ(2u, recovery.numPartitions);
+    EXPECT_EQ(0u, recovery.successfulRecoveryMasters);
+    EXPECT_EQ(2u, recovery.unsuccessfulRecoveryMasters);
+    EXPECT_EQ(Recovery::BROADCAST_RECOVERY_COMPLETE, recovery.status);
+    EXPECT_TRUE(recovery.isScheduled()); // scheduled to send broadcast
+    EXPECT_FALSE(tracker[ServerId(1, 0)]);
+    EXPECT_FALSE(tracker[ServerId(2, 0)]);
+}
+
 TEST_F(RecoveryTest, recoveryMasterFinished) {
     addServersToTracker(3, {MASTER_SERVICE});
     Recovery recovery(taskQueue, &tracker, NULL, {99, 0}, tablets, 0lu);
