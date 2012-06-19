@@ -1017,8 +1017,6 @@ readAllToAll()
             usleep(10 * 1000);
         } while (strcmp(command, "run") != 0);
         setSlaveState("running");
-        std::cout << "Slave id " << clientIndex
-                  << " reading from all masters" << std::endl;
 
         for (int tableNum = 0; tableNum < numTables; ++tableNum) {
             string tableName = format("table%d", tableNum);
