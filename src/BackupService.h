@@ -237,12 +237,18 @@ class BackupService : public Service {
             return !replicateAtomically || state == CLOSED;
         }
 
-        /// Return true if this segment is OPEN.
+        /**
+         * Return true if this replica is open. Notice, this isn't the same
+         * as state == OPEN. A replica may be considered open even if its
+         * state is RECOVERING, for example.  This nastiness is a good
+         * indicator that SegmentInfo needs a complete rewrite (as well
+         * as a rename, and relocation to a new file).
+         */
         bool
         isOpen()
         {
             Lock lock(mutex);
-            return state == OPEN;
+            return rightmostWrittenOffset != BYTES_WRITTEN_CLOSED;
         }
 
         void open();

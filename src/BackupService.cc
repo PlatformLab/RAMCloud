@@ -1638,7 +1638,7 @@ BackupService::startReadingData(
                 secondarySegments).push_back(info);
 
             // Obtain the LogDigest from the lowest Segment Id of any
-            // #OPEN Segment.
+            // open replica.
             uint64_t segmentId = info->segmentId;
             if (info->isOpen() && segmentId <= logDigestLastId) {
                 const void* newDigest = NULL;

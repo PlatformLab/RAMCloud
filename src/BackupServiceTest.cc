@@ -828,31 +828,45 @@ TEST_F(BackupServiceTest, startReadingData_empty) {
 TEST_F(BackupServiceTest, startReadingData_logDigest_simple) {
     // ensure that we get the LogDigest back at all.
     client->openSegment(ServerId(99, 0), 88);
-    {
-        writeDigestedSegment(ServerId(99, 0), 88, { 0x3f17c2451f0cafUL });
+    writeDigestedSegment(ServerId(99, 0), 88, { 0x3f17c2451f0cafUL });
 
-        BackupClient::StartReadingData::Result result =
-            client->startReadingData(ServerId(99, 0), ProtoBuf::Tablets());
-        EXPECT_EQ(LogDigest::getBytesFromCount(1),
-            result.logDigestBytes);
-        EXPECT_EQ(88U, result.logDigestSegmentId);
-        EXPECT_EQ(60U, result.logDigestSegmentLen);
+    BackupClient::StartReadingData::Result result =
+        client->startReadingData(ServerId(99, 0), ProtoBuf::Tablets());
+    EXPECT_EQ(LogDigest::getBytesFromCount(1),
+        result.logDigestBytes);
+    EXPECT_EQ(88U, result.logDigestSegmentId);
+    EXPECT_EQ(60U, result.logDigestSegmentLen);
+    {
         LogDigest ld(result.logDigestBuffer.get(), result.logDigestBytes);
         EXPECT_EQ(1, ld.getSegmentCount());
         EXPECT_EQ(0x3f17c2451f0cafUL, ld.getSegmentIds()[0]);
     }
 
+    // Repeating the call should yield the same digest.
+    result = client->startReadingData({99, 0}, ProtoBuf::Tablets());
+    EXPECT_EQ(LogDigest::getBytesFromCount(1), result.logDigestBytes);
+    EXPECT_EQ(88U, result.logDigestSegmentId);
+    EXPECT_EQ(60U, result.logDigestSegmentLen);
+    {
+        LogDigest ld(result.logDigestBuffer.get(), result.logDigestBytes);
+        EXPECT_EQ(1, ld.getSegmentCount());
+        EXPECT_EQ(0x3f17c2451f0cafUL, ld.getSegmentIds()[0]);
+    }
+
+    auto* info = backup->findSegmentInfo({99, 0}, 88);
+    // Make 88 look like it was actually closed.
+    info->rightmostWrittenOffset = ~0u;
+
     // add a newer Segment and check that we get its LogDigest instead.
     client->openSegment(ServerId(99, 0), 89);
-    {
-        writeDigestedSegment(ServerId(99, 0), 89, { 0x5d8ec445d537e15UL });
+    writeDigestedSegment(ServerId(99, 0), 89, { 0x5d8ec445d537e15UL });
 
-        BackupClient::StartReadingData::Result result =
-            client->startReadingData(ServerId(99, 0), ProtoBuf::Tablets());
-        EXPECT_EQ(LogDigest::getBytesFromCount(1),
-            result.logDigestBytes);
-        EXPECT_EQ(89U, result.logDigestSegmentId);
-        EXPECT_EQ(60U, result.logDigestSegmentLen);
+    result = client->startReadingData(ServerId(99, 0), ProtoBuf::Tablets());
+    EXPECT_EQ(LogDigest::getBytesFromCount(1),
+        result.logDigestBytes);
+    EXPECT_EQ(89U, result.logDigestSegmentId);
+    EXPECT_EQ(60U, result.logDigestSegmentLen);
+    {
         LogDigest ld(result.logDigestBuffer.get(), result.logDigestBytes);
         EXPECT_EQ(1, ld.getSegmentCount());
         EXPECT_EQ(0x5d8ec445d537e15UL, ld.getSegmentIds()[0]);

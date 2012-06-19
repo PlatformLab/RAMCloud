@@ -83,7 +83,7 @@ class ServerTrackerInterface {
  * ServerTrackers' lists of servers are synchronised with the ServerList, but
  * updates only occur when explicitly invoked by their users. That is, users of
  * ServerTrackers decide when updates are applied by pulling events off of the
- * queue. In between doing so, the state in their ServerTracker is not muted.
+ * queue. In between doing so, the state in their ServerTracker is not mutated.
  * This way, data can be associated with a particular ServerId and will not go
  * away (even if that machine goes down) until the user of the class explicitly
  * pulls the event that indicates that the machine went away. This helps avoid
@@ -740,7 +740,11 @@ class ServerTracker : public ServerTrackerInterface {
     /// if the the tracker is registered with a ServerList instead.
     CoordinatorServerList* coordinatorServerListParent;
 
-    /// Slots in the server list.
+    /// Servers that we're tracking and the templated state we're associating
+    /// with them. Note that this list is not synchronously updated when the
+    /// parent ServerList changes, rather it is updated when then #getChange
+    /// method is invoked. See the #ServerTracker class documentation for more
+    /// details.
     std::vector<ServerDetailsWithTPtr> serverList;
 
     /// Queue of list membership changes.
