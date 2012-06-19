@@ -550,12 +550,14 @@ ReplicatedSegment::performWrite(Replica& replica)
         // backup unless it is discovered that that backup failed.
         // Not doing so risks the existence a lost open replica which
         // isn't recovered from properly.
-        ServerId conflicts[replicas.numElements - 1];
+        ServerId conflicts[replicas.numElements];
         uint32_t numConflicts = 0;
+        // A master conflicts with its local backup.
+        conflicts[numConflicts++] = masterId;
         foreach (auto& conflictingReplica, replicas) {
             if (conflictingReplica.isActive)
                 conflicts[numConflicts++] = conflictingReplica.backupId;
-            assert(numConflicts < replicas.numElements);
+            assert(numConflicts <= replicas.numElements);
         }
         ServerId backupId;
         if (replicaIsPrimary(replica)) {
