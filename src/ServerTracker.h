@@ -89,6 +89,10 @@ class ServerTrackerInterface {
  * pulls the event that indicates that the machine went away. This helps avoid
  * concurrency issues while providing a convenient way to associate information
  * with a ServerId that is (or was recently) active.
+ *
+ * Note that ServerTracker is <b>not</b> thread-safe. Either use a separate
+ * tracker for each thread, or serialize access to the object with a lock or
+ * other synchronization primitive. 
  */
 template<typename T>
 class ServerTracker : public ServerTrackerInterface {
@@ -653,6 +657,9 @@ class ServerTracker : public ServerTrackerInterface {
      * A ChangeQueue is used to communicate additions and removals from a
      * ServerList to some consumer. It is used by ServerTrackers to have
      * changes propagated from the master ServerList.
+     *
+     * The queue is protected by a spinlock to allow concurrent access by
+     * the ServerList (producer) and client code (consumer).
      */
     class ChangeQueue {
       PUBLIC:
@@ -742,7 +749,7 @@ class ServerTracker : public ServerTrackerInterface {
 
     /// Servers that we're tracking and the templated state we're associating
     /// with them. Note that this list is not synchronously updated when the
-    /// parent ServerList changes, rather it is updated when then #getChange
+    /// parent ServerList changes, rather it is updated when the #getChange
     /// method is invoked. See the #ServerTracker class documentation for more
     /// details.
     std::vector<ServerDetailsWithTPtr> serverList;
