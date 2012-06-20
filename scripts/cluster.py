@@ -278,10 +278,11 @@ class Cluster(object):
             numBackups = self.backups_started
         self.sandbox.checkFailures()
         try:
-            self.sandbox.rsh(hosts[0][0], '%s -C %s -m %d -b %d -l 1 --wait 10 '
-                        '--logFile %s/ensureServers.log' %
-                        (ensure_servers_bin, self.coordinator_locator,
-                         numMasters, numBackups, self.log_subdir))
+            self.sandbox.rsh(self.coordinator_host[0],
+                             '%s -C %s -m %d -b %d -l 1 --wait 10 '
+                             '--logFile %s/ensureServers.log' %
+                             (ensure_servers_bin, self.coordinator_locator,
+                              numMasters, numBackups, self.log_subdir))
         except:
             # prefer exceptions from dead processes to timeout error
             self.sandbox.checkFailures()
