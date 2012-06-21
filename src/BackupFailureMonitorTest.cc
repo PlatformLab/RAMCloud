@@ -25,14 +25,16 @@ namespace RAMCloud {
  * more end-to-end way can be found in ReplicaManagerTest.cc.
  */
 struct BackupFailureMonitorTest : public ::testing::Test {
+    Context context;
     ServerList serverList;
     BackupFailureMonitor monitor;
 
     BackupFailureMonitorTest()
-        : serverList()
-        , monitor(serverList, NULL)
+        : context()
+        , serverList(context)
+        , monitor(context, serverList, NULL)
     {
-        Context::get().logger->setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
+        Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
     }
 };
 

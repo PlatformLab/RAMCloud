@@ -23,14 +23,16 @@ namespace RAMCloud {
 
 class MockClusterTest : public ::testing::Test {
   public:
+    Context context;
     Tub<MockCluster> cluster;
     ServerConfig config;
 
     MockClusterTest()
-        : cluster()
+        : context()
+        , cluster()
         , config(ServerConfig::forTesting())
     {
-        cluster.construct();
+        cluster.construct(context);
     }
 
     DISALLOW_COPY_AND_ASSIGN(MockClusterTest);

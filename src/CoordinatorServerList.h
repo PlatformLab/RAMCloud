@@ -106,7 +106,7 @@ class CoordinatorServerList {
         uint64_t replicationId;
     };
 
-    CoordinatorServerList();
+    explicit CoordinatorServerList(Context& context);
     ~CoordinatorServerList();
     ServerId add(string serviceLocator, ServiceMask serviceMask,
                  uint32_t readSpeed,
@@ -175,11 +175,12 @@ class CoordinatorServerList {
     void serialize(const Lock& lock, ProtoBuf::ServerList& protobuf,
                    ServiceMask services) const;
 
-    /**
-     * Provides monitor-style protection for all operations on the tablet map.
-     * A Lock for this mutex must be held to read or modify any state in
-     * the server list.
-     */
+    /// Shared RAMCloud information.
+    Context& context;
+
+    /// Provides monitor-style protection for all operations on the tablet map.
+    /// A Lock for this mutex must be held to read or modify any state in
+    /// the server list.
     mutable std::mutex mutex;
 
     /// Slots in the server list.

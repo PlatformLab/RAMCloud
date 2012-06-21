@@ -45,16 +45,19 @@ class Server {
      * Bind a configuration to a Server, but don't start anything up
      * yet.
      *
+     * \param context
+     *      Overall information about the RAMCloud server.
      * \param config
      *      Specifies which services and their configuration details for
      *      when the Server is run.
      */
-    explicit Server(const ServerConfig& config)
-        : config(config)
+    explicit Server(Context& context, const ServerConfig& config)
+        : context(context)
+        , config(config)
         , backupReadSpeed()
         , backupWriteSpeed()
         , serverId()
-        , serverList()
+        , serverList(context)
         , coordinator()
         , failureDetector()
         , master()
@@ -70,6 +73,11 @@ class Server {
   PRIVATE:
     ServerId createAndRegisterServices(BindTransport* bindTransport);
     void enlist(ServerId replacingId);
+
+    /**
+     * Shared RAMCloud information.
+     */
+    Context& context;
 
     /**
      * Configuration that controls which services are started as part of

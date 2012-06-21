@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -36,7 +36,7 @@ namespace RAMCloud {
  */
 class UnreliableTransport : public Transport {
   public:
-    explicit UnreliableTransport(Driver* driver);
+    explicit UnreliableTransport(Context& context, Driver* driver);
     ~UnreliableTransport();
     string getServiceLocator();
     SessionRef getSession(const ServiceLocator& serviceLocator,
@@ -102,6 +102,7 @@ class UnreliableTransport : public Transport {
     void sendPacketized(const Driver::Address* recipient,
                         Header headerTemplate, Buffer& payload);
 
+    Context& context;
     std::unique_ptr<Driver> driver;
 
     INTRUSIVE_LIST_TYPEDEF(UnreliableClientRpc, listEntries)

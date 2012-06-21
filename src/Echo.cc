@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -46,7 +46,6 @@ try
     using namespace RAMCloud;
 
     Context context(false);
-    Context::Guard _(context);
 
     OptionParser optionParser(argc, argv);
     context.transportManager->initialize(

@@ -49,7 +49,8 @@ class MasterRecoveryManager : public Recovery::Owner
                             , public ServerTracker<Recovery>::Callback
 {
   PUBLIC:
-    MasterRecoveryManager(CoordinatorServerList& serverList,
+    MasterRecoveryManager(Context& context,
+                          CoordinatorServerList& serverList,
                           TabletMap& tabletMap);
     ~MasterRecoveryManager();
 
@@ -68,7 +69,7 @@ class MasterRecoveryManager : public Recovery::Owner
     virtual void recoveryFinished(Recovery* recovery);
 
   PRIVATE:
-    void main(Context& context);
+    void main();
     void restartMasterRecovery(ServerId crashedServerId);
 
     /// Authoritative list of all servers in the system and their details.

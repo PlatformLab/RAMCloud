@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for
  * any purpose with or without fee is hereby granted, provided that
@@ -31,14 +31,15 @@ class ClusterMetricsTest : public ::testing::Test {
 };
 
 TEST_F(ClusterMetricsTest, load) {
-    MockCluster cluster;
+    Context context;
+    MockCluster cluster(context);
 
-    ServerList serverList;
-    PingService pingforCoordinator(&serverList);
+    ServerList serverList(context);
+    PingService pingforCoordinator(context, &serverList);
     cluster.transport.addService(pingforCoordinator, "mock:host=coordinator",
             PING_SERVICE);
 
-    RamCloud ramcloud(Context::get(), "mock:host=coordinator");
+    RamCloud ramcloud(context, "mock:host=coordinator");
 
     // Create two servers (faked with ping).
     ServerConfig ping1Config = ServerConfig::forTesting();

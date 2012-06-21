@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -30,6 +30,7 @@ namespace RAMCloud {
 
 class MasterServiceTest : public ::testing::Test {
   public:
+    Context context;
     MockCluster cluster;
     ServerConfig backup1Config;
     ServerId backup1Id;
@@ -45,7 +46,8 @@ class MasterServiceTest : public ::testing::Test {
     // apparently template easily on that, we need to subclass this if we want
     // to provide a fixture with a different value.
     explicit MasterServiceTest(uint32_t segmentSize = 256 * 1024)
-        : cluster()
+        : context()
+        , cluster(context)
         , backup1Config(ServerConfig::forTesting())
         , backup1Id()
         , masterConfig(ServerConfig::forTesting())
@@ -54,7 +56,7 @@ class MasterServiceTest : public ::testing::Test {
         , coordinator()
         , masterServer()
     {
-        Context::get().logger->setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
+        Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
 
         coordinator = cluster.getCoordinatorClient();
 
@@ -286,17 +288,17 @@ TEST_F(MasterServiceTest, recover_basics) {
     char* segMem =
         static_cast<char*>(Memory::xmemalign(HERE, segmentSize, segmentSize));
     ServerId serverId(123, 0);
-    ServerList serverList;
+    ServerList serverList(context);
     foreach (auto* server, cluster.servers)
         serverList.add(server->serverId, server->config.localLocator,
                        server->config.services, 100);
-    ReplicaManager mgr(serverList, serverId, 1, NULL);
+    ReplicaManager mgr(context, serverList, serverId, 1, NULL);
     Segment segment(123, 87, segMem, segmentSize, &mgr);
     segment.sync();
 
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
-    BackupClient(Context::get().transportManager->getSession(
+    BackupClient(cluster.context.transportManager->getSession(
                                                 "mock:host=backup1"))
         .startReadingData(ServerId(123), tablets);
 
@@ -384,11 +386,11 @@ TEST_F(MasterServiceTest, recover) {
     char* segMem =
         static_cast<char*>(Memory::xmemalign(HERE, segmentSize, segmentSize));
     ServerId serverId(123, 0);
-    ServerList serverList;
+    ServerList serverList(context);
     foreach (auto* server, cluster.servers)
         serverList.add(server->serverId, server->config.localLocator,
                        server->config.services, 100);
-    ReplicaManager mgr(serverList, serverId, 1, NULL);
+    ReplicaManager mgr(context, serverList, serverId, 1, NULL);
     Segment __(123, 88, segMem, segmentSize, &mgr);
     __.sync();
 
@@ -398,7 +400,7 @@ TEST_F(MasterServiceTest, recover) {
 
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
-    BackupClient(Context::get().transportManager->getSession(
+    BackupClient(context.transportManager->getSession(
                                                     "mock:host=backup1"))
         .startReadingData(ServerId(123), tablets);
 
@@ -1564,8 +1566,8 @@ TEST_F(MasterServiceFullSegmentSizeTest, write_maximumObjectSize) {
 
 class MasterRecoverTest : public ::testing::Test {
   public:
+    Context context;
     Tub<MockCluster> cluster;
-
     CoordinatorClient* coordinator;
     const uint32_t segmentSize;
     const uint32_t segmentFrames;
@@ -1574,16 +1576,17 @@ class MasterRecoverTest : public ::testing::Test {
 
     public:
     MasterRecoverTest()
-        : cluster()
+        : context()
+        , cluster()
         , coordinator()
         , segmentSize(1 << 16) // Smaller than usual to make tests faster.
         , segmentFrames(2)
         , backup1Id()
         , backup2Id()
     {
-        Context::get().logger->setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
+        Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
 
-        cluster.construct();
+        cluster.construct(context);
         coordinator = cluster->getCoordinatorClient();
 
         ServerConfig config = ServerConfig::forTesting();
@@ -1656,10 +1659,10 @@ TEST_F(MasterRecoverTest, recover) {
     char* segMem1 = static_cast<char*>(Memory::xmemalign(HERE, segmentSize,
                                                          segmentSize));
     ServerId serverId(99, 0);
-    ServerList serverList;
+    ServerList serverList(context);
     serverList.add(backup1Id, "mock:host=backup1", {BACKUP_SERVICE,
                                                     MEMBERSHIP_SERVICE}, 100);
-    ReplicaManager mgr(serverList, serverId, 1, NULL);
+    ReplicaManager mgr(context, serverList, serverId, 1, NULL);
     Segment s1(99, 87, segMem1, segmentSize, &mgr);
     s1.close(NULL);
     char* segMem2 = static_cast<char*>(Memory::xmemalign(HERE, segmentSize,
@@ -1670,12 +1673,12 @@ TEST_F(MasterRecoverTest, recover) {
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
     {
-        BackupClient(Context::get().transportManager->getSession(
+        BackupClient(context.transportManager->getSession(
                                                     "mock:host=backup1"))
             .startReadingData(ServerId(99), tablets);
     }
     {
-        BackupClient(Context::get().transportManager->getSession(
+        BackupClient(context.transportManager->getSession(
                                                     "mock:host=backup2"))
             .startReadingData(ServerId(99), tablets);
     }

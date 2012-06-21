@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -30,11 +30,13 @@ namespace RAMCloud {
 class LogTest : public ::testing::Test {
   public:
     LogTest()
-        : serverId(57, 0)
+        : context(),
+          serverId(57, 0)
     {
-        Context::get().logger->setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
+        Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
     }
 
+    Context context;
     ServerId serverId;
 
   private:
@@ -42,7 +44,7 @@ class LogTest : public ::testing::Test {
 };
 
 TEST_F(LogTest, constructor) {
-    Log l(serverId, 2 * 8192, 8192, 4298);
+    Log l(context, serverId, 2 * 8192, 8192, 4298);
 
     EXPECT_EQ(ServerId(57, 0), l.logId);
     EXPECT_EQ(2 * 8192U, l.logCapacity);
@@ -58,15 +60,16 @@ TEST_F(LogTest, constructor) {
     EXPECT_TRUE(NULL == l.head);
     EXPECT_EQ(Log::CONCURRENT_CLEANER, l.cleanerOption);
 
-    Log l2(serverId, 2 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
+    Log l2(context, serverId, 2 * 8192, 8192, 4298, NULL,
+        Log::CLEANER_DISABLED);
     EXPECT_EQ(Log::CLEANER_DISABLED, l2.cleanerOption);
 
-    EXPECT_THROW(new Log(serverId, 8192, 8192, 8193),
+    EXPECT_THROW(new Log(context, serverId, 8192, 8192, 8193),
         LogException);
 }
 
 TEST_F(LogTest, allocateHead_basics) {
-    Log l(serverId, 4 * 8192, 8192, 4298);
+    Log l(context, serverId, 4 * 8192, 8192, 4298);
 
     {
         l.allocateHead();
@@ -113,7 +116,8 @@ TEST_F(LogTest, allocateHead_basics) {
 }
 
 TEST_F(LogTest, allocateHead_lists) {
-    Log l(serverId, 6 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
+    Log l(context, serverId, 6 * 8192, 8192, 4298, NULL,
+        Log::CLEANER_DISABLED);
 
     Segment* cleaned = new Segment(&l, false, l.allocateSegmentId(),
         l.getFromFreeList(false), 8192, NULL, LOG_ENTRY_TYPE_UNINIT,
@@ -153,7 +157,7 @@ TEST_F(LogTest, allocateHead_lists) {
 }
 
 TEST_F(LogTest, allocateHeadIfStillOn) {
-    Log l(serverId, 4 * 8192, 8192, 4298);
+    Log l(context, serverId, 4 * 8192, 8192, 4298);
 
     l.allocateHead();
     Segment* oldHead = l.head;
@@ -167,7 +171,8 @@ TEST_F(LogTest, allocateHeadIfStillOn) {
 
 
 TEST_F(LogTest, locklessAddToFreeList) {
-    Log l(serverId, 2 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
+    Log l(context, serverId, 2 * 8192, 8192, 4298, NULL,
+        Log::CLEANER_DISABLED);
 
     // Ensure set up as expected.
     EXPECT_EQ(1U, l.freeList.size());
@@ -199,7 +204,8 @@ TEST_F(LogTest, locklessAddToFreeList) {
 }
 
 TEST_F(LogTest, getFromFreeList) {
-    Log l(serverId, 3 * 8192, 8192, 4298, NULL, Log::INLINED_CLEANER);
+    Log l(context, serverId, 3 * 8192, 8192, 4298, NULL,
+        Log::INLINED_CLEANER);
 
     // Ensure constant is right for testing.
     EXPECT_EQ(1U, l.emergencyCleanerList.size());
@@ -229,7 +235,8 @@ TEST_F(LogTest, getFromFreeList) {
 }
 
 TEST_F(LogTest, isSegmentLive) {
-    Log l(serverId, 2 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
+    Log l(context, serverId, 2 * 8192, 8192, 4298, NULL,
+        Log::CLEANER_DISABLED);
     l.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
         NULL, NULL, NULL);
     static char buf[64];
@@ -241,7 +248,8 @@ TEST_F(LogTest, isSegmentLive) {
 }
 
 TEST_F(LogTest, getSegmentId) {
-    Log l(serverId, 2 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
+    Log l(context, serverId, 2 * 8192, 8192, 4298, NULL,
+        Log::CLEANER_DISABLED);
     l.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
         NULL, NULL, NULL);
     static char buf[64];
@@ -254,7 +262,8 @@ TEST_F(LogTest, getSegmentId) {
 }
 
 TEST_F(LogTest, append) {
-    Log l(serverId, 3 * 8192, 8192, 8130, NULL, Log::CLEANER_DISABLED);
+    Log l(context, serverId, 3 * 8192, 8192, 8130, NULL,
+        Log::CLEANER_DISABLED);
     l.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
         NULL, NULL, NULL);
     static char buf[13];
@@ -317,7 +326,7 @@ TEST_F(LogTest, append) {
 }
 
 TEST_F(LogTest, free) {
-    Log l(serverId, 2 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
+    Log l(context, serverId, 2 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
     l.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
         NULL, NULL, NULL);
     static char buf[64];
@@ -351,7 +360,8 @@ timestampCallback(LogEntryHandle handle)
 }
 
 TEST_F(LogTest, registerType) {
-    Log l(serverId, 1 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
+    Log l(context, serverId, 1 * 8192, 8192, 4298, NULL,
+        Log::CLEANER_DISABLED);
 
     l.registerType(LOG_ENTRY_TYPE_OBJ,
                    true,
@@ -387,7 +397,8 @@ TEST_F(LogTest, registerType) {
 }
 
 TEST_F(LogTest, getTypeInfo) {
-    Log l(serverId, 1 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
+    Log l(context, serverId, 1 * 8192, 8192, 4298, NULL,
+        Log::CLEANER_DISABLED);
 
     l.registerType(LOG_ENTRY_TYPE_OBJ,
                    true,
@@ -404,7 +415,8 @@ TEST_F(LogTest, getTypeInfo) {
 }
 
 TEST_F(LogTest, getNewCleanableSegments) {
-    Log l(serverId, 2 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
+    Log l(context, serverId, 2 * 8192, 8192, 4298, NULL,
+        Log::CLEANER_DISABLED);
 
     mockWallTimeValue = 1;
 
@@ -438,7 +450,8 @@ class TestServerRpc : public Transport::ServerRpc {
 };
 
 TEST_F(LogTest, cleaningComplete) {
-    Log l(serverId, 3 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
+    Log l(context, serverId, 3 * 8192, 8192, 4298, NULL,
+        Log::CLEANER_DISABLED);
 
     ServerRpcPoolInternal::currentEpoch = 5;
 

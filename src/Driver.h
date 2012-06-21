@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -132,10 +132,6 @@ class Driver {
                      uint32_t dataLength,
                      Driver* driver,
                      char* const payload);
-
-        /// The context in which the chunk was created. This same context is
-        /// used when the chunk is destroyed. See comment in destructor.
-        Context& context;
 
         /// Return the PayloadChunk memory here.
         Driver* const driver;

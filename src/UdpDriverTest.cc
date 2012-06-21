@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -30,6 +30,7 @@ class UdpDriverTest : public ::testing::Test {
     MockSyscall* sys;
     Syscall *savedSyscall;
     TestLog::Enable* logEnabler;
+    Context context;
     MockFastTransport *clientTransport, *serverTransport;
 
     UdpDriverTest()
@@ -41,6 +42,7 @@ class UdpDriverTest : public ::testing::Test {
         , sys(NULL)
         , savedSyscall(NULL)
         , logEnabler(NULL)
+        , context()
         , clientTransport(NULL)
         , serverTransport(NULL)
     {
@@ -50,11 +52,11 @@ class UdpDriverTest : public ::testing::Test {
         exceptionMessage = "no exception";
         serverLocator = new ServiceLocator("udp: host=localhost, port=8100");
         serverAddress = new IpAddress(*serverLocator);
-        server = new UdpDriver(serverLocator);
-        client = new UdpDriver;
+        server = new UdpDriver(context, serverLocator);
+        client = new UdpDriver(context);
         logEnabler = new TestLog::Enable();
-        clientTransport = new MockFastTransport(client);
-        serverTransport = new MockFastTransport(server);
+        clientTransport = new MockFastTransport(context, client);
+        serverTransport = new MockFastTransport(context, server);
     }
 
     ~UdpDriverTest() {
@@ -94,7 +96,7 @@ class UdpDriverTest : public ::testing::Test {
         transport->packetData.clear();
         uint64_t start = Cycles::rdtsc();
         while (true) {
-            Context::get().dispatch->poll();
+            context.dispatch->poll();
             if (transport->packetData.size() != 0) {
                 return transport->packetData.c_str();
             }
@@ -131,7 +133,7 @@ TEST_F(UdpDriverTest, basics) {
 TEST_F(UdpDriverTest, constructor_errorInSocketCall) {
     sys->socketErrno = EPERM;
     try {
-        UdpDriver server2(serverLocator);
+        UdpDriver server2(context, serverLocator);
     } catch (DriverException& e) {
         exceptionMessage = e.message;
     }
@@ -141,7 +143,7 @@ TEST_F(UdpDriverTest, constructor_errorInSocketCall) {
 
 TEST_F(UdpDriverTest, constructor_socketInUse) {
     try {
-        UdpDriver server2(serverLocator);
+        UdpDriver server2(context, serverLocator);
     } catch (DriverException& e) {
         exceptionMessage = e.message;
     }
@@ -156,8 +158,8 @@ TEST_F(UdpDriverTest, destructor_closeSocket) {
     delete serverTransport;
     serverTransport = NULL;
     try {
-        server = new UdpDriver(serverLocator);
-        serverTransport = new MockFastTransport(server);
+        server = new UdpDriver(context, serverLocator);
+        serverTransport = new MockFastTransport(context, server);
     } catch (DriverException& e) {
         exceptionMessage = e.message;
     }

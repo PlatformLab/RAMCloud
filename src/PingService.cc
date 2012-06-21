@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -27,9 +27,13 @@ namespace RAMCloud {
  * Construct a PingService. This one will not be associated with a ServerList
  * and will therefore not return a valid ServerList version in response to
  * pings.
+ *
+ * \param context
+ *      Overall information about the RAMCloud server.
  */
-PingService::PingService()
-    : serverList(NULL)
+PingService::PingService(Context& context)
+    : context(context)
+    , serverList(NULL)
 {
 }
 
@@ -38,11 +42,14 @@ PingService::PingService()
  * ping response will include the list's current version. This is used by
  * the FailureDetector to discover if a server's list is stale.
  *
+ * \param context
+ *      Overall information about the RAMCloud server or client.
  * \param serverList
  *      The ServerList whose version will be reflected in ping responses.
  */
-PingService::PingService(ServerList* serverList)
-    : serverList(serverList)
+PingService::PingService(Context& context, ServerList* serverList)
+    : context(context)
+    , serverList(serverList)
 {
 }
 
@@ -90,7 +97,7 @@ PingService::proxyPing(const ProxyPingRpc::Request& reqHdr,
              ProxyPingRpc::Response& respHdr,
              Rpc& rpc)
 {
-    PingClient client;
+    PingClient client(context);
     const char* serviceLocator = getString(rpc.requestPayload,
                                            sizeof(ProxyPingRpc::Request),
                                            reqHdr.serviceLocatorLength);

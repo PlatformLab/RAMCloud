@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2011 Stanford University
+/* Copyright (c) 2009-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -48,7 +48,6 @@ try
 
     // need external context to set log levels with OptionParser
     Context context(true);
-    Context::Guard _(context);
 
     OptionsDescription clientOptions("Client");
     clientOptions.add_options()
@@ -89,7 +88,7 @@ try
          "Number of bytes to insert per object during insert phase.");
 
     OptionParser optionParser(clientOptions, argc, argv);
-    Context::get().transportManager->setTimeout(
+    context.transportManager->setTimeout(
             optionParser.options.getTransportTimeout());
 
     LOG(NOTICE, "client: Connecting to %s",

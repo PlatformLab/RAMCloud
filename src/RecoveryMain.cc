@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2011 Stanford University
+/* Copyright (c) 2009-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -161,7 +161,6 @@ try
 
     // need external context to set log levels with OptionParser
     Context context(true);
-    Context::Guard _(context);
 
     OptionsDescription clientOptions("Client");
     clientOptions.add_options()
@@ -201,7 +200,7 @@ try
          "Verify the contents of all objects after recovery completes.");
 
     OptionParser optionParser(clientOptions, argc, argv);
-    Context::get().transportManager->setTimeout(
+    context.transportManager->setTimeout(
             optionParser.options.getTransportTimeout());
 
     LOG(NOTICE, "client: Connecting to %s",
@@ -249,8 +248,7 @@ try
     if (fillWithTestData) {
         LOG(NOTICE, "Using the fillWithTestData rpc on a single master");
         uint64_t b = Cycles::rdtsc();
-        MasterClient master(client.objectFinder.lookup(0, "0", 1));
-        master.fillWithTestData(count * tableCount, objectDataSize);
+        client.testingFill(0, "0", 1, count * tableCount, objectDataSize);
         LOG(NOTICE, "%d inserts took %lu ticks",
             count * tableCount, Cycles::rdtsc() - b);
         LOG(NOTICE, "avg insert took %lu ticks",
@@ -340,26 +338,13 @@ try
     LOG(NOTICE, "- quiescing writes");
     client.coordinator.quiesce();
 
-    Transport::SessionRef session =
-        client.objectFinder.lookup(tables[0], "0", 1);
-    LOG(NOTICE, "--- Terminating master %s ---",
-        session->getServiceLocator().c_str());
-
     // Take an initial snapshot of performance metrics.
     ClusterMetrics metricsBefore(&client);
 
-    MasterClient oldMaster(session);
-    PingClient pingClient;
     uint64_t startTime = Cycles::rdtsc();
-    PingClient::Kill killOp(pingClient, session->getServiceLocator().c_str());
-
-    // Wait for failure to be detected
-    client.objectFinder.waitForTabletDown();
+    client.testingKill(tables[0], "0", 1);
     uint64_t downTime = Cycles::rdtsc();
     LOG(NOTICE, "tablet down");
-
-    // Cancel the kill RPC
-    killOp.cancel();
 
     // Wait for recovery to complete
     client.objectFinder.waitForAllTabletsNormal();
@@ -376,7 +361,7 @@ try
                 stopTime = Cycles::rdtsc();
         } catch (...) {
         }
-        session = client.objectFinder.lookup(tables[t], "0", 1);
+        auto session = client.objectFinder.lookup(tables[t], "0", 1);
         LOG(NOTICE, "recovered value read from %s has length %u",
             session->getServiceLocator().c_str(), nb.getTotalLength());
     }

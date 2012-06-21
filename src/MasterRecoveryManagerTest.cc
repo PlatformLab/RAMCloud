@@ -25,16 +25,18 @@ namespace RAMCloud {
 using namespace MasterRecoveryManagerInternal; // NOLINT
 
 struct MasterRecoveryManagerTest : public ::testing::Test {
+    Context context;
     CoordinatorServerList serverList;
     TabletMap tabletMap;
     MasterRecoveryManager mgr;
 
     MasterRecoveryManagerTest()
-        : serverList()
+        : context()
+        , serverList(context)
         , tabletMap()
-        , mgr(serverList, tabletMap)
+        , mgr(context, serverList, tabletMap)
     {
-        Context::get().logger->setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
+        Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
     }
 
     /**

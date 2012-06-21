@@ -27,22 +27,24 @@ namespace RAMCloud {
 
 class ServerTest: public ::testing::Test {
   public:
+    Context context;
     MockCluster cluster;
     ServerConfig config;
     Tub<Server> server;
     PingClient ping;
 
     ServerTest()
-        : cluster()
+        : context()
+        , cluster(context)
         , config(ServerConfig::forTesting())
         , server()
-        , ping()
+        , ping(context)
     {
         config.services = {MASTER_SERVICE, BACKUP_SERVICE, MEMBERSHIP_SERVICE,
                            PING_SERVICE};
         config.coordinatorLocator = cluster.coordinatorLocator;
         config.localLocator = "mock:host=server0";
-        server.construct(config);
+        server.construct(context, config);
     }
 
     DISALLOW_COPY_AND_ASSIGN(ServerTest);
@@ -66,7 +68,7 @@ TEST_F(ServerTest, createAndRegisterServices) {
     EXPECT_TRUE(server->backup);
     EXPECT_TRUE(server->membership);
     EXPECT_TRUE(server->ping);
-    const auto& services = Context::get().serviceManager->services;
+    const auto& services = context.serviceManager->services;
     ASSERT_TRUE(services[MASTER_SERVICE]);
     EXPECT_EQ(server->master.get(), &services[MASTER_SERVICE]->service);
     ASSERT_TRUE(services[BACKUP_SERVICE]);

@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -33,26 +33,29 @@ namespace RAMCloud {
  */
 class FailureDetectorTest : public ::testing::Test {
   public:
+    Context context;
     TestLog::Enable logEnabler;
     MockTransport mockTransport;
     ServerList* serverList;
     FailureDetector *fd;
 
     FailureDetectorTest()
-        : logEnabler(),
-          mockTransport(),
+        : context(),
+          logEnabler(),
+          mockTransport(context),
           serverList(NULL),
           fd(NULL)
     {
-        serverList = new ServerList();
-        Context::get().transportManager->registerMock(&mockTransport, "mock");
-        fd = new FailureDetector("mock:", ServerId(57, 27342), *serverList);
+        serverList = new ServerList(context);
+        context.transportManager->registerMock(&mockTransport, "mock");
+        fd = new FailureDetector(context, "mock:", ServerId(57, 27342),
+                *serverList);
     }
 
     ~FailureDetectorTest()
     {
         delete fd;
-        Context::get().transportManager->unregisterMock();
+        context.transportManager->unregisterMock();
         delete serverList;
     }
 

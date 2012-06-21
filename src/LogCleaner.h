@@ -1,4 +1,4 @@
-/* Copyright (c) 2009, 2010 Stanford University
+/* Copyright (c) 2009-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -54,7 +54,8 @@ class Log;
  */
 class LogCleaner {
   public:
-    explicit LogCleaner(Log* log, ReplicaManager* replicaManager,
+    explicit LogCleaner(Context& context, Log* log,
+                        ReplicaManager* replicaManager,
                         bool startThread);
     ~LogCleaner();
     bool clean();
@@ -567,6 +568,9 @@ class LogCleaner {
     /// each failure, randomly select this many segments to scan and update
     /// counts for.
     static const size_t EMERGENCY_CLEANING_RANDOM_FREE_SPACE_SCANS = 20;
+
+    /// Shared RAMCloud information.
+    Context& context;
 
     /// The number of bytes that have been freed in the Log since the last
     /// cleaning operation completed. This is used to avoid invoking the

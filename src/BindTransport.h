@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -36,8 +36,8 @@ struct BindTransport : public Transport {
         Service* services[INVALID_SERVICE];
     };
 
-    explicit BindTransport(Service* service = NULL)
-        : services(), abortCounter(0), errorMessage()
+    explicit BindTransport(Context& context, Service* service = NULL)
+        : context(context), services(), abortCounter(0), errorMessage()
     {
         if (service)
             addService(*service, "mock:", MASTER_SERVICE);
@@ -66,7 +66,7 @@ struct BindTransport : public Transport {
 
     Transport::SessionRef
     getSession() {
-        return Context::get().transportManager->getSession("mock:");
+        return context.transportManager->getSession("mock:");
     }
 
     struct BindServerRpc : public ServerRpc {
@@ -76,8 +76,8 @@ struct BindTransport : public Transport {
     };
 
     struct BindClientRpc : public ClientRpc {
-        BindClientRpc(Buffer* request, Buffer* response)
-            : Transport::ClientRpc(request, response) {}
+        BindClientRpc(Context& context, Buffer* request, Buffer* response)
+            : Transport::ClientRpc(context, request, response) {}
         friend class BindTransport;
         friend class BindSession;
         DISALLOW_COPY_AND_ASSIGN(BindClientRpc);
@@ -91,7 +91,7 @@ struct BindTransport : public Transport {
         void abort(const string& message) {}
         ClientRpc* clientSend(Buffer* request, Buffer* response) {
             BindClientRpc* result = new(response, MISC)
-                    BindClientRpc(request, response);
+                    BindClientRpc(transport.context, request, response);
             Service::Rpc rpc(NULL, *request, *response);
             if (transport.abortCounter > 0) {
                 transport.abortCounter--;
@@ -128,6 +128,9 @@ struct BindTransport : public Transport {
         const string locator;
         DISALLOW_COPY_AND_ASSIGN(BindSession);
     };
+
+    // Shared RAMCloud information.
+    Context& context;
 
     typedef std::map<const string, ServiceArray> ServiceMap;
     ServiceMap services;

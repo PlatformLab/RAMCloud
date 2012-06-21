@@ -26,12 +26,14 @@ namespace RAMCloud {
 
 class TabletMapTest : public ::testing::Test {
   public:
+    Context context;
     TabletMap map;
 
     TabletMapTest()
-        : map()
+        : context()
+        , map()
     {
-        Context::get().logger->setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
+        Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
     }
 
     void fillMap(uint32_t entries) {
@@ -135,7 +137,7 @@ TEST_F(TabletMapTest, removeTabletsForTable) {
 }
 
 TEST_F(TabletMapTest, serialize) {
-    CoordinatorServerList serverList;
+    CoordinatorServerList serverList(context);
     ProtoBuf::ServerList update;
     auto id1 = serverList.add("mock:host=one", {MASTER_SERVICE}, 1, update);
     auto id2 = serverList.add("mock:host=two", {MASTER_SERVICE}, 2, update);

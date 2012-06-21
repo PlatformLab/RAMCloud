@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-20121 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -39,11 +39,12 @@ namespace RAMCloud {
 class TcpTransport : public Transport {
   public:
 
-    explicit TcpTransport(const ServiceLocator* serviceLocator = NULL);
+    explicit TcpTransport(Context& context,
+            const ServiceLocator* serviceLocator = NULL);
     ~TcpTransport();
     SessionRef getSession(const ServiceLocator& serviceLocator,
             uint32_t timeoutMs = 0) {
-        return new TcpSession(serviceLocator, timeoutMs);
+        return new TcpSession(*this, serviceLocator, timeoutMs);
     }
     string getServiceLocator() {
         return locatorString;
@@ -131,7 +132,7 @@ class TcpTransport : public Transport {
         void sendReply();
         string getClientServiceLocator();
       PRIVATE:
-        TcpServerRpc(Socket* socket, int fd, TcpTransport* transport)
+        TcpServerRpc(Socket* socket, int fd, TcpTransport& transport)
             : fd(fd), socketId(socket->id), message(&requestPayload, NULL),
             queueEntries(), transport(transport) { }
 
@@ -146,7 +147,7 @@ class TcpTransport : public Transport {
         IntrusiveListHook queueEntries;
                                   /// Used to link this RPC onto the
                                   /// rpcsWaitingToReply list of the Socket.
-        TcpTransport* transport;  /// The parent TcpTransport object.
+        TcpTransport& transport;  /// The parent TcpTransport object.
 
         DISALLOW_COPY_AND_ASSIGN(TcpServerRpc);
     };
@@ -158,17 +159,18 @@ class TcpTransport : public Transport {
       public:
         friend class TcpTransport;
         friend class TcpSession;
-        explicit TcpClientRpc(TcpSession* session, Buffer*request,
+        explicit TcpClientRpc(TcpSession& session, Buffer*request,
                 Buffer* response, uint64_t nonce)
-            : Transport::ClientRpc(request, response), nonce(nonce),
-              session(session), sent(false), queueEntries()
+            : Transport::ClientRpc(session.transport.context,
+                    request, response),
+              nonce(nonce), session(session), sent(false), queueEntries()
                { }
       PROTECTED:
         virtual void cancelCleanup();
       PRIVATE:
         uint64_t nonce;           /// Unique identifier for this RPC; used
                                   /// to pair the RPC with its response.
-        TcpSession *session;      /// Session used for this RPC.
+        TcpSession& session;      /// Session used for this RPC.
         bool sent;                /// True means the request has been sent
                                   /// and we are waiting for the response;
                                   /// false means this RPC is queued on
@@ -201,11 +203,11 @@ class TcpTransport : public Transport {
      */
     class AcceptHandler : public Dispatch::File {
       public:
-        AcceptHandler(int fd, TcpTransport* transport);
+        AcceptHandler(int fd, TcpTransport& transport);
         virtual void handleFileEvent(int events);
       PRIVATE:
         // Transport that manages this socket.
-        TcpTransport* transport;
+        TcpTransport& transport;
         DISALLOW_COPY_AND_ASSIGN(AcceptHandler);
     };
 
@@ -214,12 +216,12 @@ class TcpTransport : public Transport {
      */
     class ServerSocketHandler : public Dispatch::File {
       public:
-        ServerSocketHandler(int fd, TcpTransport* transport, Socket* socket);
+        ServerSocketHandler(int fd, TcpTransport& transport, Socket* socket);
         virtual void handleFileEvent(int events);
       PRIVATE:
         // The following variables are just copies of constructor arguments.
         int fd;
-        TcpTransport* transport;
+        TcpTransport& transport;
         Socket* socket;
         DISALLOW_COPY_AND_ASSIGN(ServerSocketHandler);
     };
@@ -229,12 +231,12 @@ class TcpTransport : public Transport {
      */
     class ClientSocketHandler : public Dispatch::File {
       public:
-        ClientSocketHandler(int fd, TcpSession* session);
+        ClientSocketHandler(int fd, TcpSession& session);
         virtual void handleFileEvent(int events);
       PRIVATE:
         // The following variables are just copies of constructor arguments.
         int fd;
-        TcpSession* session;
+        TcpSession& session;
         DISALLOW_COPY_AND_ASSIGN(ClientSocketHandler);
     };
 
@@ -247,7 +249,8 @@ class TcpTransport : public Transport {
       friend class TcpClientRpc;
       friend class ClientSocketHandler;
       public:
-        explicit TcpSession(const ServiceLocator& serviceLocator,
+        explicit TcpSession(TcpTransport& transport,
+                const ServiceLocator& serviceLocator,
                 uint32_t timeoutMs = 0);
         ~TcpSession();
         virtual void abort(const string& message);
@@ -259,14 +262,17 @@ class TcpTransport : public Transport {
         }
       PRIVATE:
 #if TESTING
-        TcpSession() : address(), fd(-1), serial(1), rpcsWaitingToSend(),
-            bytesLeftToSend(0), rpcsWaitingForResponse(), current(NULL),
+        explicit TcpSession(TcpTransport& transport) : transport(transport),
+            address(), fd(-1), serial(1),
+            rpcsWaitingToSend(), bytesLeftToSend(0),
+            rpcsWaitingForResponse(), current(NULL),
             message(), clientIoHandler(), errorInfo(),
-            alarm(*Context::get().sessionAlarmTimer, *this, 0) { }
+            alarm(*transport.context.sessionAlarmTimer, *this, 0) { }
 #endif
         void close();
         static void tryReadReply(int fd, int16_t event, void *arg);
 
+        TcpTransport& transport;  /// Transport that owns this session.
         IpAddress address;        /// Server to which requests will be sent.
         int fd;                   /// File descriptor for the socket that
                                   /// connects to address  -1 means no socket
@@ -304,6 +310,9 @@ class TcpTransport : public Transport {
 
     static Syscall* sys;
 
+    /// Shared RAMCloud information.
+    Context& context;
+
     /// Service locator used to open server socket (empty string if this
     /// isn't a server). May differ from what was passed to the constructor
     /// if dynamic ports are used.
@@ -320,9 +329,9 @@ class TcpTransport : public Transport {
     /// a socket, on which RPC requests may arrive.
     class Socket {
         public:
-        Socket(int fd, TcpTransport *transport, sockaddr_in& sin);
+        Socket(int fd, TcpTransport& transport, sockaddr_in& sin);
         ~Socket();
-        TcpTransport* transport;  /// The parent TcpTransport object.
+        TcpTransport& transport;  /// The parent TcpTransport object.
         uint64_t id;              /// Unique identifier: no other Socket
                                   /// for this transport instance will use
                                   /// the same value.

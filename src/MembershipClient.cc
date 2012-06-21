@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -60,7 +60,7 @@ MembershipClient::setServerList(const char* serviceLocator,
     Buffer req, resp;
     SetServerListRpc::Request& reqHdr(allocHeader<SetServerListRpc>(req));
     Transport::SessionRef session =
-            Context::get().transportManager->getSession(serviceLocator);
+            context.transportManager->getSession(serviceLocator);
     reqHdr.serverListLength = serializeToRequest(req, list);
     sendRecv<SetServerListRpc>(session, req, resp);
     checkStatus(HERE);
@@ -92,7 +92,7 @@ MembershipClient::updateServerList(const char* serviceLocator,
     Buffer req, resp;
     UpdateServerListRpc::Request& reqHdr(allocHeader<UpdateServerListRpc>(req));
     Transport::SessionRef session =
-            Context::get().transportManager->getSession(serviceLocator);
+            context.transportManager->getSession(serviceLocator);
     reqHdr.serverListLength = serializeToRequest(req, update);
     const UpdateServerListRpc::Response& respHdr(
         sendRecv<UpdateServerListRpc>(session, req, resp));

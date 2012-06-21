@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2011 Stanford University
+/* Copyright (c) 2009-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -27,14 +27,15 @@
 
 namespace RAMCloud {
 
-CoordinatorService::CoordinatorService()
-    : serverList()
+CoordinatorService::CoordinatorService(Context& context)
+    : context(context)
+    , serverList(context)
     , tabletMap()
     , tables()
     , nextTableId(0)
     , nextTableMasterIdx(0)
     , nextReplicationId(1)
-    , recoveryManager(serverList, tabletMap)
+    , recoveryManager(context, serverList, tabletMap)
     , forceServerDownForTesting(false)
 {
     recoveryManager.start();
@@ -131,6 +132,7 @@ CoordinatorService::createTable(const CreateTableRpc::Request& reqHdr,
         return;
     uint64_t tableId = nextTableId++;
     tables[name] = tableId;
+    respHdr.tableId = tableId;
 
     uint32_t serverSpan = reqHdr.serverSpan;
     if (serverSpan == 0)
@@ -156,7 +158,7 @@ CoordinatorService::createTable(const CreateTableRpc::Request& reqHdr,
         }
         const char* locator = master.serviceLocator.c_str();
         MasterClient masterClient(
-            Context::get().transportManager->getSession(locator));
+            context.transportManager->getSession(locator));
         // Get current log head. Only entries >= this can be part of the tablet.
         LogPosition headOfLog = masterClient.getHeadOfLog();
 
@@ -500,7 +502,7 @@ CoordinatorService::quiesce(const BackupQuiesceRpc::Request& reqHdr,
 {
     for (size_t i = 0; i < serverList.size(); i++) {
         if (serverList[i] && serverList[i]->isBackup()) {
-            BackupClient(Context::get().transportManager->getSession(
+            BackupClient(context.transportManager->getSession(
                 serverList[i]->serviceLocator.c_str())).quiesce();
         }
     }
@@ -666,7 +668,7 @@ CoordinatorService::assignReplicationGroup(
                 const char* locator =
                     serverList[backupId].serviceLocator.c_str();
                 BackupClient backupClient(
-                    Context::get().transportManager->getSession(locator));
+                    context.transportManager->getSession(locator));
                 backupClient.assignGroup(
                     replicationId,
                     static_cast<uint32_t>(replicationGroupIds.size()),
@@ -782,7 +784,7 @@ CoordinatorService::sendServerList(ServerId destination)
     ProtoBuf::ServerList serializedServerList;
     serverList.serialize(serializedServerList);
 
-    MembershipClient client;
+    MembershipClient client(context);
     client.setServerList(serverList[destination].serviceLocator.c_str(),
                          serializedServerList);
 }
@@ -871,7 +873,7 @@ CoordinatorService::verifyServerFailure(ServerId serverId) {
     const string& serviceLocator = serverList[serverId].serviceLocator;
     try {
         uint64_t nonce = generateRandom();
-        PingClient pingClient;
+        PingClient pingClient(context);
         pingClient.ping(serviceLocator.c_str(),
                         nonce, TIMEOUT_USECS * 1000);
         LOG(NOTICE, "False positive for server id %lu (\"%s\")",

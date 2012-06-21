@@ -34,8 +34,9 @@ namespace RAMCloud {
 /**
  * Constructor for CoordinatorServerList.
  */
-CoordinatorServerList::CoordinatorServerList()
-    : mutex()
+CoordinatorServerList::CoordinatorServerList(Context& context)
+    : context(context)
+    , mutex()
     , serverList()
     , numberOfMasters(0)
     , numberOfBackups(0)
@@ -340,7 +341,7 @@ Transport::SessionRef
 CoordinatorServerList::getSession(ServerId id) const
 {
     Lock _(mutex);
-    return Context::get().transportManager->getSession(
+    return context.transportManager->getSession(
         getReferenceFromServerId(id).serviceLocator.c_str(), id);
 }
 
@@ -537,7 +538,7 @@ CoordinatorServerList::sendMembershipUpdate(ProtoBuf::ServerList& update,
 
     Tub<ProtoBuf::ServerList> serializedServerList;
 
-    MembershipClient client;
+    MembershipClient client(context);
     for (size_t i = 0; i < serverList.size(); i++) {
         Tub<Entry>& entry = serverList[i].entry;
         if (!entry ||

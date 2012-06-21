@@ -74,6 +74,8 @@ uint32_t tombstoneTimestampCallback(LogEntryHandle handle);
 /**
  * Construct a MasterService.
  *
+ * \param context
+ *      Overall information about the RAMCloud server or client.
  * \param config
  *      Contains various parameters that configure the operation of
  *      this server.
@@ -82,17 +84,20 @@ uint32_t tombstoneTimestampCallback(LogEntryHandle handle);
  * \param serverList
  *      A reference to the global ServerList.
  */
-MasterService::MasterService(const ServerConfig& config,
+MasterService::MasterService(Context& context,
+                             const ServerConfig& config,
                              CoordinatorClient* coordinator,
                              ServerList& serverList)
-    : config(config)
+    : context(context)
+    , config(config)
     , coordinator(coordinator)
     , serverId()
     , serverList(serverList)
-    , replicaManager(serverList, serverId,
+    , replicaManager(context, serverList, serverId,
                      config.master.numReplicas, &config.coordinatorLocator)
     , bytesWritten(0)
-    , log(serverId,
+    , log(context,
+          serverId,
           config.master.logBytes,
           config.segmentSize,
           downCast<uint32_t>(sizeof(Object)) +
@@ -946,7 +951,7 @@ class RemoveTombstonePoller : public Dispatch::Poller {
      */
     RemoveTombstonePoller(MasterService& masterService,
                           HashTable<LogEntryHandle>& objectMap)
-        : Dispatch::Poller(*Context::get().dispatch)
+        : Dispatch::Poller(*masterService.context.dispatch)
         , currentBucket(0)
         , masterService(masterService)
         , objectMap(objectMap)
@@ -964,7 +969,7 @@ class RemoveTombstonePoller : public Dispatch::Poller {
         // This method runs in the dispatch thread, so it isn't safe to
         // manipulate any of the objectMap state if any RPCs are currently
         // executing.
-        if (!Context::get().serviceManager->idle())
+        if (!masterService.context.serviceManager->idle())
             return;
         objectMap.forEachInBucket(
             recoveryCleanup, &masterService, currentBucket);
@@ -1000,7 +1005,7 @@ MasterService::removeTombstones()
     // Asynchronous tombstone removal raises hell in unit tests.
     objectMap.forEach(recoveryCleanup, this);
 #else
-    Dispatch::Lock lock;
+    Dispatch::Lock lock(context.dispatch);
     new RemoveTombstonePoller(*this, objectMap);
 #endif
 }
@@ -2352,7 +2357,7 @@ MasterService::storeData(uint64_t tableId,
             ProtoBuf::ServerList backups;
             coordinator->getBackupList(backups);
             TransportManager& transportManager =
-                *Context::get().transportManager;
+                *context.transportManager;
             foreach(auto& backup, backups.server())
                 transportManager.getSession(backup.service_locator().c_str());
         }

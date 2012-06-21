@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -59,7 +59,8 @@ class TestUtil {
     static string readFile(const char* fileName);
     static string toString(const char *buf, uint32_t length);
     static string toString(Buffer* buffer);
-    static bool waitForRpc(Transport::ClientRpc& rpc, int ms = 1000);
+    static bool waitForRpc(Context& context, Transport::ClientRpc& rpc,
+            int ms = 1000);
 };
 
 } // namespace RAMCloud

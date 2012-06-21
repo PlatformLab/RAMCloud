@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -57,7 +57,6 @@ try
     using namespace RAMCloud; // NOLINT
 
     Context context(false);
-    Context::Guard _(context);
 
     // Telnet-specific options
     OptionsDescription telnetOptions("Telnet");
@@ -79,7 +78,7 @@ try
     int serverCount = downCast<uint32_t>(serverLocators.size());
     Transport::SessionRef session[serverCount];
     for (int i = 0; i < serverCount; i++) {
-        session[i] = Context::get().transportManager->getSession(
+        session[i] = context.transportManager->getSession(
                                                     serverLocators[i].c_str());
     }
 

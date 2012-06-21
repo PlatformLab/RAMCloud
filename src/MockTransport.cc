@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -27,8 +27,10 @@ uint32_t RAMCloud::MockTransport::sessionDeleteCount = 0;
 /**
  * Construct a MockTransport.
  */
-MockTransport::MockTransport(const ServiceLocator *serviceLocator)
-            : outputLog()
+MockTransport::MockTransport(Context& context,
+                             const ServiceLocator *serviceLocator)
+            : context(context)
+            , outputLog()
             , status(Status(STATUS_MAX_VALUE+1))
             , inputMessages()
             , serverSendCount(0)
@@ -213,7 +215,7 @@ MockTransport::MockServerRpc::getClientServiceLocator()
 MockTransport::MockClientRpc::MockClientRpc(MockTransport* transport,
                                             Buffer* request,
                                             Buffer* response)
-        : Transport::ClientRpc(request, response)
+        : Transport::ClientRpc(transport->context, request, response)
 {
     if (transport->inputMessages.empty()) {
         markFinished("no responses enqueued for MockTransport");

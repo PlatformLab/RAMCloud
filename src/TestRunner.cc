@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2011 Stanford University
+/* Copyright (c) 2009-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -122,22 +122,15 @@ main(int argc, char *argv[])
 
     // set up the environment for unit tests
     struct GTestSetupListener : public ::testing::EmptyTestEventListener {
-        GTestSetupListener()
-            : testContext()
-            , scopedContext() {}
+        GTestSetupListener() {}
         // this fires before each test fixture's constructor
         void OnTestStart(const ::testing::TestInfo& testInfo) {
-            testContext.construct(false);
-            scopedContext.construct(*testContext);
-            testContext->logger->setLogLevels(RAMCloud::WARNING);
+            RAMCloud::Logger::get().setLogLevels(RAMCloud::WARNING);
         }
         // this fires after each test fixture's destructor
         void OnTestEnd(const ::testing::TestInfo& testInfo) {
-            scopedContext.destroy();
-            testContext.destroy();
+            // Currently does nothing.
         }
-        RAMCloud::Tub<RAMCloud::Context> testContext;
-        RAMCloud::Tub<RAMCloud::Context::Guard> scopedContext;
     };
     listeners.Append(new GTestSetupListener());
 

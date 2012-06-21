@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2011 Stanford University
+/* Copyright (c) 2009-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -26,16 +26,18 @@
 namespace RAMCloud {
 
 struct BackupSelectorTest : public ::testing::Test {
+    Context context;
     MockCluster cluster;
     CoordinatorClient* coordinator;
     BackupSelector* selector;
 
     BackupSelectorTest()
-        : cluster()
+        : context()
+        , cluster(context)
         , coordinator()
         , selector()
     {
-        Context::get().logger->setLogLevels(SILENT_LOG_LEVEL);
+        Logger::get().setLogLevels(SILENT_LOG_LEVEL);
 
         coordinator = cluster.getCoordinatorClient();
 
@@ -90,7 +92,6 @@ struct BackgroundEnlistBackup {
         : context(context), coordinator(coordinator) {}
 
     void operator()() {
-        Context::Guard _(*context);
         // Try to get selectPrimary to block on the empty server list.
         std::this_thread::yield();
         usleep(1 * 1000);
@@ -108,7 +109,7 @@ struct BackgroundEnlistBackup {
 TEST_F(BackupSelectorTest, selectPrimaryNoHosts) {
     // Check to make sure the server waits on server list updates from the
     // coordinator.
-    BackgroundEnlistBackup enlist{&Context::get(), coordinator};
+    BackgroundEnlistBackup enlist{&context, coordinator};
     std::thread enlistThread{std::ref(enlist)};
     ServerId id = selector->selectPrimary(0, NULL);
     EXPECT_EQ(ServerId(2, 0), id);
@@ -120,7 +121,7 @@ TEST_F(BackupSelectorTest, selectPrimaryAllConflict) {
     std::vector<ServerId> ids;
     addEqualHosts(coordinator, ids);
 
-    BackgroundEnlistBackup enlist{&Context::get(), coordinator};
+    BackgroundEnlistBackup enlist{&context, coordinator};
     std::thread enlistThread{std::ref(enlist)};
 
     ServerId id = selector->selectPrimary(9, &ids[0]);

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -24,16 +24,18 @@ namespace RAMCloud {
 
 class ServiceTest : public ::testing::Test {
   public:
+    Context context;
     Service service;
     Buffer request, response;
     Worker worker;
     Service::Rpc rpc;
 
     ServiceTest()
-        : service()
+        : context()
+        , service()
         , request()
         , response()
-        , worker(Context::get())
+        , worker(context)
         , rpc(&worker, request, response)
     {
         TestLog::enable();
@@ -151,24 +153,25 @@ TEST_F(ServiceTest, sendReply) {
     MockService service;
     service.gate = -1;
     service.sendReply = true;
-    MockTransport transport;
-    ServiceManager manager;
-    manager.addService(service, BACKUP_SERVICE);
+    Context context;
+    MockTransport transport(context);
+    ServiceManager* manager = context.serviceManager;
+    manager->addService(service, BACKUP_SERVICE);
     MockTransport::MockServerRpc* rpc = new MockTransport::MockServerRpc(
             &transport, "0x10000 3 4");
-    manager.handleRpc(rpc);
+    manager->handleRpc(rpc);
 
     // Verify that the reply has been sent even though the worker has not
     // returned yet.
     for (int i = 0; i < 1000; i++) {
-        Context::get().dispatch->poll();
-        if (manager.busyThreads[0]->rpc == NULL) {
+        context.dispatch->poll();
+        if (manager->busyThreads[0]->rpc == NULL) {
             break;
         }
         usleep(1000);
     }
-    EXPECT_EQ((Transport::ServerRpc*) NULL, manager.busyThreads[0]->rpc);
-    EXPECT_EQ(Worker::POSTPROCESSING, manager.busyThreads[0]->state.load());
+    EXPECT_EQ((Transport::ServerRpc*) NULL, manager->busyThreads[0]->rpc);
+    EXPECT_EQ(Worker::POSTPROCESSING, manager->busyThreads[0]->state.load());
     EXPECT_EQ("serverReply: 0x10001 4 5", transport.outputLog);
     service.gate = 3;
 }

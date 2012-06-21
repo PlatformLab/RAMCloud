@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -28,6 +28,7 @@ namespace RAMCloud {
 
 class MembershipServiceTest : public ::testing::Test {
   public:
+    Context context;
     ServerId serverId;
     ServerList serverList;
     MembershipService service;
@@ -36,12 +37,13 @@ class MembershipServiceTest : public ::testing::Test {
     MembershipClient client;
 
     MembershipServiceTest()
-        : serverId()
-        , serverList()
+        : context()
+        , serverId()
+        , serverList(context)
         , service(serverId, serverList)
-        , transport()
-        , mockRegistrar(transport)
-        , client()
+        , transport(context)
+        , mockRegistrar(context, transport)
+        , client(context)
     {
         transport.addService(service, "mock:host=member", MEMBERSHIP_SERVICE);
     }
@@ -52,7 +54,7 @@ class MembershipServiceTest : public ::testing::Test {
 TEST_F(MembershipServiceTest, getServerId) {
     serverId = ServerId(523, 234);
     EXPECT_EQ(ServerId(523, 234), client.getServerId(
-        Context::get().transportManager->getSession("mock:host=member")));
+        context.transportManager->getSession("mock:host=member")));
 }
 
 }  // namespace RAMCloud

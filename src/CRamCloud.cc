@@ -246,3 +246,36 @@ rc_write(struct rc_client* client, uint64_t tableId,
     }
     return STATUS_OK;
 }
+
+Status
+rc_testing_kill(struct rc_client* client, uint64_t tableId,
+                const char* key, uint16_t keyLength)
+{
+    try {
+        client->client->testingKill(tableId, key, keyLength);
+    } catch (const ClientException& e) {
+        return e.status;
+    }
+    return STATUS_OK;
+}
+
+Status
+rc_testing_fill(struct rc_client* client, uint64_t tableId,
+                const char* key, uint16_t keyLength,
+                uint32_t objectCount, uint32_t objectSize)
+{
+    try {
+        client->client->testingFill(tableId, key, keyLength,
+                                    objectCount, objectSize);
+    } catch (const ClientException& e) {
+        return e.status;
+    }
+    return STATUS_OK;
+}
+
+void
+rc_testing_wait_for_all_tablets_normal(struct rc_client* client)
+{
+    client->client->testingWaitForAllTabletsNormal();
+}
+

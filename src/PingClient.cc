@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -47,7 +47,7 @@ PingClient::Kill::Kill(PingClient& client, const char *serviceLocator)
     responseBuffer.reset();
     client.allocHeader<KillRpc>(requestBuffer);
     Transport::SessionRef session =
-            Context::get().transportManager->getSession(serviceLocator);
+            client.context.transportManager->getSession(serviceLocator);
     state = client.send<KillRpc>(session,
                                  requestBuffer,
                                  responseBuffer);
@@ -69,7 +69,7 @@ PingClient::getMetrics(const char* serviceLocator)
     Buffer req, resp;
     allocHeader<GetMetricsRpc>(req);
     Transport::SessionRef session =
-            Context::get().transportManager->getSession(serviceLocator);
+            context.transportManager->getSession(serviceLocator);
     const GetMetricsRpc::Response& respHdr(
             sendRecv<GetMetricsRpc>(session, req, resp));
     checkStatus(HERE);
@@ -114,13 +114,13 @@ PingClient::ping(const char* serviceLocator,
 
     // Send the request and wait for a response.
     Transport::SessionRef session =
-            Context::get().transportManager->getSession(serviceLocator);
+            context.transportManager->getSession(serviceLocator);
     AsyncState state = send<PingRpc>(session, req, resp);
     uint64_t abortTime = Cycles::rdtsc() + Cycles::fromNanoseconds(
             timeoutNanoseconds);
     while (true) {
-        if (Context::get().dispatch->isDispatchThread())
-            Context::get().dispatch->poll();
+        if (context.dispatch->isDispatchThread())
+            context.dispatch->poll();
         if (state.isReady())
             break;
         if (Cycles::rdtsc() >= abortTime) {
@@ -179,13 +179,13 @@ PingClient::proxyPing(const char* serviceLocator1,
 
     // Send the request and wait for a response.
     Transport::SessionRef session =
-            Context::get().transportManager->getSession(serviceLocator1);
+            context.transportManager->getSession(serviceLocator1);
     AsyncState state = send<ProxyPingRpc>(session, req, resp);
     uint64_t abortTime = Cycles::rdtsc() + Cycles::fromNanoseconds(
             timeoutNanoseconds1);
     while (true) {
-        if (Context::get().dispatch->isDispatchThread())
-            Context::get().dispatch->poll();
+        if (context.dispatch->isDispatchThread())
+            context.dispatch->poll();
         if (state.isReady())
             break;
         if (Cycles::rdtsc() >= abortTime) {

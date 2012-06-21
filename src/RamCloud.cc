@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -33,13 +33,10 @@ RamCloud::RamCloud(const char* serviceLocator)
     : coordinatorLocator(serviceLocator)
     , realClientContext()
     , clientContext(*realClientContext.construct(false))
-    , constructorContext(clientContext)
     , status(STATUS_OK)
-    , coordinator(serviceLocator)
-    , objectFinder(coordinator)
+    , coordinator(clientContext, serviceLocator)
+    , objectFinder(clientContext, coordinator)
 {
-    // This should be the last line on all return paths of this constructor.
-    constructorContext.leave();
 }
 
 /**
@@ -51,28 +48,23 @@ RamCloud::RamCloud(Context& context, const char* serviceLocator)
     : coordinatorLocator(serviceLocator)
     , realClientContext()
     , clientContext(context)
-    , constructorContext(clientContext)
     , status(STATUS_OK)
-    , coordinator(serviceLocator)
-    , objectFinder(coordinator)
+    , coordinator(context, serviceLocator)
+    , objectFinder(clientContext, coordinator)
 {
-    // This should be the last line on all return paths of this constructor.
-    constructorContext.leave();
 }
 
 /// \copydoc CoordinatorClient::createTable
-void
+uint64_t
 RamCloud::createTable(const char* name, uint32_t serverSpan)
 {
-    Context::Guard _(clientContext);
-    coordinator.createTable(name, serverSpan);
+    return coordinator.createTable(name, serverSpan);
 }
 
 /// \copydoc CoordinatorClient::dropTable
 void
 RamCloud::dropTable(const char* name)
 {
-    Context::Guard _(clientContext);
     coordinator.dropTable(name);
 }
 
@@ -81,7 +73,6 @@ void
 RamCloud::splitTablet(const char* name, uint64_t startKeyHash,
                       uint64_t endKeyHash, uint64_t splitKeyHash)
 {
-    Context::Guard _(clientContext);
     coordinator.splitTablet(name, startKeyHash, endKeyHash, splitKeyHash);
 }
 
@@ -89,7 +80,6 @@ RamCloud::splitTablet(const char* name, uint64_t startKeyHash,
 uint64_t
 RamCloud::getTableId(const char* name)
 {
-    Context::Guard _(clientContext);
     return coordinator.getTableId(name);
 }
 
@@ -97,7 +87,7 @@ RamCloud::getTableId(const char* name)
 ServerMetrics
 RamCloud::getMetrics(const char* serviceLocator)
 {
-    PingClient client;
+    PingClient client(clientContext);
     return client.getMetrics(serviceLocator);
 }
 
@@ -115,7 +105,7 @@ RamCloud::getMetrics(const char* serviceLocator)
 ServerMetrics
 RamCloud::getMetrics(uint64_t table, const char* key, uint16_t keyLength)
 {
-    PingClient client;
+    PingClient client(clientContext);
     const char *serviceLocator = objectFinder.lookup(table, key, keyLength)->
             getServiceLocator().c_str();
     return client.getMetrics(serviceLocator);
@@ -155,8 +145,7 @@ uint64_t
 RamCloud::ping(const char* serviceLocator, uint64_t nonce,
                uint64_t timeoutNanoseconds)
 {
-    Context::Guard _(clientContext);
-    PingClient client;
+    PingClient client(clientContext);
     return client.ping(serviceLocator, nonce, timeoutNanoseconds);
 }
 
@@ -187,8 +176,7 @@ uint64_t
 RamCloud::ping(uint64_t table, const char* key, uint16_t keyLength,
                uint64_t nonce, uint64_t timeoutNanoseconds)
 {
-    Context::Guard _(clientContext);
-    PingClient client;
+    PingClient client(clientContext);
     const char *serviceLocator = objectFinder.lookup(table, key, keyLength)->
             getServiceLocator().c_str();
     return client.ping(serviceLocator, nonce, timeoutNanoseconds);
@@ -201,8 +189,7 @@ RamCloud::proxyPing(const char* serviceLocator1,
                     uint64_t timeoutNanoseconds1,
                     uint64_t timeoutNanoseconds2)
 {
-    Context::Guard _(clientContext);
-    PingClient client;
+    PingClient client(clientContext);
     return client.proxyPing(serviceLocator1, serviceLocator2,
                             timeoutNanoseconds1, timeoutNanoseconds2);
 }
@@ -213,7 +200,6 @@ RamCloud::read(uint64_t tableId, const char* key, uint16_t keyLength,
                Buffer* value, const RejectRules* rejectRules,
                uint64_t* version)
 {
-    Context::Guard _(clientContext);
     while (1) {
         // Keep trying the operation if the server responded with a retry
         // status.
@@ -237,7 +223,6 @@ RamCloud::increment(uint64_t tableId, const char* key, uint16_t keyLength,
                     int64_t incrementValue, const RejectRules* rejectRules,
                     uint64_t* version, int64_t* newValue)
 {
-    Context::Guard _(clientContext);
     MasterClient master(objectFinder.lookup(tableId, key, keyLength));
     master.increment(tableId, key, keyLength, incrementValue, rejectRules,
                      version, newValue);
@@ -255,7 +240,6 @@ RamCloud::increment(uint64_t tableId, const char* key, uint16_t keyLength,
 void
 RamCloud::multiRead(MasterClient::ReadObject* requests[], uint32_t numRequests)
 {
-    Context::Guard _(clientContext);
     std::vector<ObjectFinder::MasterRequests> requestBins =
                             objectFinder.multiLookup(requests, numRequests);
 
@@ -279,7 +263,6 @@ void
 RamCloud::remove(uint64_t tableId, const char* key, uint16_t keyLength,
                  const RejectRules* rejectRules, uint64_t* version)
 {
-    Context::Guard _(clientContext);
     MasterClient master(objectFinder.lookup(tableId, key, keyLength));
     while (1) {
         // Keep trying the operation if the server responded with a retry
@@ -305,7 +288,6 @@ RamCloud::write(uint64_t tableId, const char* key, uint16_t keyLength,
                 const RejectRules* rejectRules, uint64_t* version,
                 bool async)
 {
-    Context::Guard _(clientContext);
     while (1) {
         // Keep trying the operation if the server responded with a retry
         // status.
@@ -344,7 +326,6 @@ void
 RamCloud::write(uint64_t tableId, const char* key, uint16_t keyLength,
                 const char* s)
 {
-    Context::Guard _(clientContext);
     while (1) {
         // Keep trying the operation if the server responded with a retry
         // status.
@@ -361,6 +342,31 @@ RamCloud::write(uint64_t tableId, const char* key, uint16_t keyLength,
             throw;
         }
     }
+}
+
+void
+RamCloud::testingKill(uint64_t tableId, const char* key, uint16_t keyLength)
+{
+    Transport::SessionRef session =
+        objectFinder.lookup(tableId, key, keyLength);
+    PingClient pingClient(clientContext);
+    PingClient::Kill killOp(pingClient, session->getServiceLocator().c_str());
+    objectFinder.waitForTabletDown();
+    killOp.cancel();
+}
+
+void
+RamCloud::testingFill(uint64_t tableId, const char* key, uint16_t keyLength,
+                      uint32_t objectCount, uint32_t objectSize)
+{
+    MasterClient master(objectFinder.lookup(tableId, key, keyLength));
+    master.fillWithTestData(objectCount, objectSize);
+}
+
+void
+RamCloud::testingWaitForAllTabletsNormal()
+{
+    objectFinder.waitForAllTabletsNormal();
 }
 
 }  // namespace RAMCloud

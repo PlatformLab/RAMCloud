@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -59,16 +59,18 @@ struct Refresher : public ObjectFinder::TabletMapFetcher {
 
 class ObjectFinderTest : public ::testing::Test {
   public:
+    Context context;
     MockCluster cluster;
     Tub<ObjectFinder> objectFinder;
     Refresher* refresher;
 
     ObjectFinderTest()
-        : cluster()
+        : context()
+        , cluster(context)
         , objectFinder()
         , refresher()
     {
-        objectFinder.construct(*cluster.getCoordinatorClient());
+        objectFinder.construct(context, *cluster.getCoordinatorClient());
 
         ServerConfig config = ServerConfig::forTesting();
         config.services = {MASTER_SERVICE};

@@ -141,13 +141,14 @@ struct ServerListException : public Exception {
  * come or go. The tracker also provides a convenient way to associate their
  * own per-server state with ServerIds that they're using or keeping track of.
  *
- * The ServerList is re-entrant. It is expected that one or more threads will
- * feed it updates from the coordinator while others register or unregister
- * ServerTrackers.
+ * ServerList is thread-safe (it's protected by a monitor-style lock). It is
+ * expected that one or more threads will feed it updates from the coordinator
+ * while others register or unregister ServerTrackers.
  */
 class ServerList {
   PUBLIC:
-    ServerList();
+
+    explicit ServerList(Context& context);
     ~ServerList();
 
     string getLocator(ServerId id);
@@ -174,6 +175,9 @@ class ServerList {
     bool crashed(ServerId id, const string& locator,
                  ServiceMask services, uint32_t expectedReadMBytesPerSec);
     bool remove(ServerId id);
+
+    /// Shared RAMCloud information.
+    Context& context;
 
     /// Slots in the server list.
     std::vector<Tub<ServerDetails>> serverList;

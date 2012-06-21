@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -29,6 +29,8 @@ class MockTransportFactory : public TransportFactory {
     /**
      * Construct a MockTransportFactory.
      *
+     * \param context
+     *      Overall information about the RAMCloud server
      * \param transport
      *      Transport (owned by the caller) to return whenever
      *      is invoked #createTransport.  If NULL, a new MockTransport
@@ -36,21 +38,25 @@ class MockTransportFactory : public TransportFactory {
      * \param protocol
      *      Protocol supported by #transport.
      */
-    MockTransportFactory(Transport* transport, const char* protocol = "mock")
+    MockTransportFactory(Context& context, Transport* transport,
+                         const char* protocol = "mock")
         : TransportFactory(protocol)
+        , context(context)
         , transport(transport)
         , protocol(protocol)
     {}
-    Transport* createTransport(const ServiceLocator* local) {
+    Transport* createTransport(Context& context,
+                               const ServiceLocator* local) {
         if (strcmp(protocol, "error") == 0) {
             RAMCLOUD_TEST_LOG("exception thrown");
             throw TransportException(HERE, "boom!");
         }
         if (transport == NULL) {
-            return new MockTransport(local);
+            return new MockTransport(context, local);
         }
         return transport;
     }
+    Context& context;
     Transport* transport;
     const char* protocol;
     DISALLOW_COPY_AND_ASSIGN(MockTransportFactory);

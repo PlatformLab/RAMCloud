@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -45,12 +45,13 @@ TEST(ServerRpcPoolTest, destructor) {
 }
 
 TEST(ServerRpcPoolTest, construct) {
+    Context context;
     ServerRpcPool<TestServerRpc> pool;
 
     ServerRpcPoolInternal::currentEpoch = 12;
     TestServerRpc* rpc = pool.construct();
     EXPECT_EQ(12UL, rpc->epoch);
-    EXPECT_EQ(12UL, ServerRpcPool<>::getEarliestOutstandingEpoch());
+    EXPECT_EQ(12UL, ServerRpcPool<>::getEarliestOutstandingEpoch(context));
     EXPECT_EQ(true, rpc->outstandingRpcListHook.is_linked());
     EXPECT_EQ(1U, pool.outstandingAllocations);
 
@@ -58,12 +59,13 @@ TEST(ServerRpcPoolTest, construct) {
 }
 
 TEST(ServerRpcPoolTest, destroy) {
+    Context context;
     ServerRpcPool<TestServerRpc> pool;
 
     TestServerRpc* rpc = pool.construct();
     pool.destroy(rpc);
     EXPECT_EQ(0U, pool.outstandingAllocations);
-    EXPECT_EQ(-1UL, ServerRpcPool<>::getEarliestOutstandingEpoch());
+    EXPECT_EQ(-1UL, ServerRpcPool<>::getEarliestOutstandingEpoch(context));
 }
 
 TEST(ServerRpcPoolTest, getCurrentEpoch) {
@@ -72,15 +74,16 @@ TEST(ServerRpcPoolTest, getCurrentEpoch) {
 }
 
 TEST(ServerRpcPoolTest, getEarliestOutstandingEpoch) {
-    EXPECT_EQ(-1UL, ServerRpcPool<>::getEarliestOutstandingEpoch());
+    Context context;
+    EXPECT_EQ(-1UL, ServerRpcPool<>::getEarliestOutstandingEpoch(context));
 
     ServerRpcPoolInternal::currentEpoch = 57;
     ServerRpcPool<TestServerRpc> pool;
     TestServerRpc* rpc = pool.construct();
-    EXPECT_EQ(57UL, ServerRpcPool<>::getEarliestOutstandingEpoch());
+    EXPECT_EQ(57UL, ServerRpcPool<>::getEarliestOutstandingEpoch(context));
     pool.destroy(rpc);
 
-    EXPECT_EQ(-1UL, ServerRpcPool<>::getEarliestOutstandingEpoch());
+    EXPECT_EQ(-1UL, ServerRpcPool<>::getEarliestOutstandingEpoch(context));
 }
 
 TEST(ServerRpcPoolTest, incrementCurrentEpoch) {

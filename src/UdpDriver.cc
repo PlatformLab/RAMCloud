@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -41,6 +41,8 @@ Syscall* UdpDriver::sys = &defaultSyscall;
 /**
  * Construct a UdpDriver.
  *
+ * \param context
+ *      Overall information about the RAMCloud server or client.
  * \param localServiceLocator
  *      Specifies a particular socket on which this driver will listen
  *      for incoming packets. Must include "host" and "port" options
@@ -49,9 +51,15 @@ Syscall* UdpDriver::sys = &defaultSyscall;
  *      explicitly for server-side drivers but not for client-side
  *      drivers.
  */
-UdpDriver::UdpDriver(const ServiceLocator* localServiceLocator)
-    : socketFd(-1), incomingPacketHandler(), readHandler(),
-      packetBufPool(), packetBufsUtilized(0), locatorString()
+UdpDriver::UdpDriver(Context& context,
+        const ServiceLocator* localServiceLocator)
+    : context(context)
+    , socketFd(-1)
+    , incomingPacketHandler()
+    , readHandler()
+    , packetBufPool()
+    , packetBufsUtilized(0)
+    , locatorString()
 {
     if (localServiceLocator != NULL)
         locatorString = localServiceLocator->getOriginalString();
@@ -116,7 +124,7 @@ UdpDriver::release(char *payload)
 {
     // Must sync with the dispatch thread, since this method could potentially
     // be invoked in a worker.
-    Dispatch::Lock _;
+    Dispatch::Lock _(context.dispatch);
 
     // Note: the payload is actually contained in a PacketBuf structure,
     // which we return to a pool for reuse later.

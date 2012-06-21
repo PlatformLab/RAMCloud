@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -41,13 +41,10 @@ class TransportFactory;
  *
  * Servers should first use #transportManager's #initialize(). Then, they may
  * use #getSession().
- *
- * To get a pointer to the current TransportManager instance, use
- * Context::get().transportManager; see the Context class for more info.
  */
 class TransportManager {
   public:
-    TransportManager();
+    explicit TransportManager(Context& context);
     ~TransportManager();
     void initialize(const char* serviceLocator);
     Transport::SessionRef getSession(const char* serviceLocator);
@@ -73,7 +70,7 @@ class TransportManager {
      */
     void registerMock(Transport* transport, const char* protocol = "mock") {
         transportFactories.push_back(
-                new MockTransportFactory(transport, protocol));
+                new MockTransportFactory(context, transport, protocol));
         transports.push_back(NULL);
     }
 
@@ -89,16 +86,24 @@ class TransportManager {
     }
 
     struct MockRegistrar {
-        explicit MockRegistrar(Transport& transport) {
-            Context::get().transportManager->registerMock(&transport);
+        Context& context;
+        explicit MockRegistrar(Context& context, Transport& transport)
+            : context(context)
+        {
+            context.transportManager->registerMock(&transport);
         }
         ~MockRegistrar() {
-            Context::get().transportManager->unregisterMock();
+            context.transportManager->unregisterMock();
         }
     };
 #endif
 
   PRIVATE:
+    /**
+     * Shared RAMCloud information.
+     */
+    Context &context;
+
     /**
      * True means this is a server application, false means this is a client only.
      */

@@ -59,7 +59,8 @@ BackupSelector::BackupSelector(BackupTracker& tracker)
  *      The number of entries in the \a backupIds array.
  * \param backupIds
  *      An array of numBackups backup ids, none of which may conflict with the
- *      returned backup.
+ *      returned backup. All existing replica locations as well as the
+ *      server id of the master should be listed.
  */
 ServerId
 BackupSelector::selectPrimary(uint32_t numBackups,
@@ -90,7 +91,8 @@ BackupSelector::selectPrimary(uint32_t numBackups,
  *      The number of entries in the \a backupIds array.
  * \param backupIds
  *      An array of numBackups backup ids, none of which may conflict with the
- *      returned backup.
+ *      returned backup. All existing replica locations as well as the
+ *      server id of the master should be listed.
  */
 ServerId
 BackupSelector::selectSecondary(uint32_t numBackups,
@@ -146,11 +148,6 @@ BackupSelector::conflict(const ServerId backupId,
     if (backupId == otherBackupId)
         return true;
     // TODO(ongaro): Add other notions of conflicts, such as same rack.
-    // TODO(stutsman): This doesn't even capture the notion of a master
-    // conflicting with its local backup.  It only prevents us from
-    // choosing the same backup more than once in odd edge cases of the
-    // algorithm. In order to capture that we'll need to pass down the
-    // id of the server this is running on.
     return false;
 }
 

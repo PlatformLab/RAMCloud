@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -29,6 +29,7 @@ namespace RAMCloud {
 
 class PingServiceTest : public ::testing::Test {
   public:
+    Context context;
     BindTransport transport;
     TransportManager::MockRegistrar mockRegistrar;
     ServerList serverList;
@@ -36,11 +37,12 @@ class PingServiceTest : public ::testing::Test {
     PingClient client;
 
     PingServiceTest()
-        : transport(),
-          mockRegistrar(transport),
-          serverList(),
-          pingService(&serverList),
-          client()
+        : context()
+        , transport(context)
+        , mockRegistrar(context, transport)
+        , serverList(context)
+        , pingService(context, &serverList)
+        , client(context)
     {
         transport.addService(pingService, "mock:host=ping", PING_SERVICE);
     }
@@ -89,14 +91,14 @@ TEST_F(PingServiceTest, proxyPing_timeout2) {
     EXPECT_LE(elapsedMicros, 2000.0);
 }
 TEST_F(PingServiceTest, proxyPing_pingReturnsBadValue) {
-    MockTransport mockTransport;
+    MockTransport mockTransport(context);
     mockTransport.setInput("0 0 55 0 1 0");
-    Context::get().transportManager->registerMock(&mockTransport, "mock2");
+    context.transportManager->registerMock(&mockTransport, "mock2");
     transport.addService(pingService, "mock2:host=ping2", PING_SERVICE);
     EXPECT_EQ(0xffffffffffffffffU,
               client.proxyPing("mock:host=ping", "mock2:host=ping2",
                                2000000, 1000000));
-    Context::get().transportManager->unregisterMock();
+    context.transportManager->unregisterMock();
 }
 TEST_F(PingServiceTest, proxyPing_timeout1) {
     // Test the situation where the proxy (serviceLocator1) times out.

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010, 2011 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -35,10 +35,12 @@ namespace RAMCloud {
 class LogCleanerTest : public ::testing::Test {
   public:
     LogCleanerTest()
-        : serverId(5, 23)
+        : context()
+        , serverId(5, 23)
     {
     }
 
+    Context context;
     ServerId serverId;
 
   private:
@@ -46,7 +48,8 @@ class LogCleanerTest : public ::testing::Test {
 };
 
 TEST_F(LogCleanerTest, constructor) {
-    Log log(serverId, 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
+    Log log(context, serverId, 8192, 8192, 4298, NULL,
+        Log::CLEANER_DISABLED);
     LogCleaner* cleaner = &log.cleaner;
 
     EXPECT_EQ(0U, cleaner->bytesFreedBeforeLastCleaning);
@@ -56,7 +59,8 @@ TEST_F(LogCleanerTest, constructor) {
 }
 
 TEST_F(LogCleanerTest, getCleanSegmentMemory) {
-    Log log(serverId, 5 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
+    Log log(context, serverId, 5 * 8192, 8192, 4298, NULL,
+        Log::CLEANER_DISABLED);
     LogCleaner* cleaner = &log.cleaner;
 
     std::vector<void*> cleanMemory;
@@ -86,7 +90,8 @@ TEST_F(LogCleanerTest, isCleanable) {
 }
 
 TEST_F(LogCleanerTest, scanNewCleanableSegments) {
-    Log log(serverId, 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
+    Log log(context, serverId, 8192, 8192, 4298, NULL,
+        Log::CLEANER_DISABLED);
     LogCleaner* cleaner = &log.cleaner;
     char alignedBuf0[8192] __attribute__((aligned(8192)));
     char alignedBuf1[8192] __attribute__((aligned(8192)));
@@ -112,7 +117,8 @@ liveCB(LogEntryHandle h, void* cookie)
 }
 
 TEST_F(LogCleanerTest, scanSegment_implicitlyFreed) {
-    Log log(serverId, 3 * 1024, 1024, 768, NULL, Log::CLEANER_DISABLED);
+    Log log(context, serverId, 3 * 1024, 1024, 768, NULL,
+        Log::CLEANER_DISABLED);
     LogCleaner* cleaner = &log.cleaner;
 
     log.registerType(LOG_ENTRY_TYPE_OBJ,
@@ -148,7 +154,8 @@ negativeLiveCB(LogEntryHandle h, void* cookie)
 }
 
 TEST_F(LogCleanerTest, scanForFreeSpace) {
-    Log log(serverId, 5 * 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
+    Log log(context, serverId, 5 * 8192, 8192, 4298, NULL,
+        Log::CLEANER_DISABLED);
     log.registerType(LOG_ENTRY_TYPE_OBJ,
                      true,
                      negativeLiveCB, NULL,
@@ -205,7 +212,8 @@ fiveTimestampCB(LogEntryHandle h)
 }
 
 TEST_F(LogCleanerTest, scanSegmentForFreeSpace) {
-    Log log(serverId, 8192 * 1000, 8192, 4298, NULL, Log::CLEANER_DISABLED);
+    Log log(context, serverId, 8192 * 1000, 8192, 4298, NULL,
+        Log::CLEANER_DISABLED);
     log.registerType(LOG_ENTRY_TYPE_OBJ,
                      true,
                      liveCB, NULL,
@@ -233,7 +241,8 @@ TEST_F(LogCleanerTest, scanSegmentForFreeSpace) {
 }
 
 TEST_F(LogCleanerTest, getSegmentsToClean) {
-    Log log(serverId, 8192 * 1000, 8192, 4298, NULL, Log::CLEANER_DISABLED);
+    Log log(context, serverId, 8192 * 1000, 8192, 4298, NULL,
+        Log::CLEANER_DISABLED);
     log.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
         NULL, NULL, NULL);
     LogCleaner* cleaner = &log.cleaner;
@@ -299,7 +308,8 @@ TEST_F(LogCleanerTest, getSegmentsToClean_writeCost) {
             continue;
         }
 
-        Log log(serverId, 8192 * 1000, 8192, 4298, NULL, Log::CLEANER_DISABLED);
+        Log log(context, serverId, 8192 * 1000, 8192, 4298, NULL,
+            Log::CLEANER_DISABLED);
         log.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
             NULL, NULL, NULL);
         LogCleaner* cleaner = &log.cleaner;
@@ -331,7 +341,8 @@ TEST_F(LogCleanerTest, getSegmentsToClean_writeCost) {
 }
 
 TEST_F(LogCleanerTest, getSegmentsToClean_costBenefitOrder) {
-    Log log(serverId, 8192 * 1000, 8192, 4298, NULL, Log::CLEANER_DISABLED);
+    Log log(context, serverId, 8192 * 1000, 8192, 4298, NULL,
+        Log::CLEANER_DISABLED);
     log.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
         NULL, NULL, NULL);
     LogCleaner* cleaner = &log.cleaner;
@@ -392,7 +403,8 @@ timestampCB(LogEntryHandle h)
 }
 
 TEST_F(LogCleanerTest, getLiveEntries) {
-    Log log(serverId, 8192 * 20, 8192, 8000, NULL, Log::CLEANER_DISABLED);
+    Log log(context, serverId, 8192 * 20, 8192, 8000, NULL,
+        Log::CLEANER_DISABLED);
     LogCleaner* cleaner = &log.cleaner;
 
     log.registerType(LOG_ENTRY_TYPE_OBJ,
@@ -424,7 +436,8 @@ TEST_F(LogCleanerTest, getLiveEntries) {
 }
 
 TEST_F(LogCleanerTest, getSortedLiveEntries) {
-    Log log(serverId, 8192 * 20, 8192, 8000, NULL, Log::CLEANER_DISABLED);
+    Log log(context, serverId, 8192 * 20, 8192, 8000, NULL,
+        Log::CLEANER_DISABLED);
     LogCleaner* cleaner = &log.cleaner;
 
     log.registerType(LOG_ENTRY_TYPE_OBJ,
@@ -464,7 +477,8 @@ relocationCBFalse(LogEntryHandle oldH, LogEntryHandle newH, void* cookie)
 }
 
 TEST_F(LogCleanerTest, moveToFillSegment) {
-    Log log(serverId, 8192 * 20, 8192, 8000, NULL, Log::CLEANER_DISABLED);
+    Log log(context, serverId, 8192 * 20, 8192, 8000, NULL,
+        Log::CLEANER_DISABLED);
     LogCleaner* cleaner = &log.cleaner;
 
     // live

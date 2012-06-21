@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -24,14 +24,16 @@ namespace RAMCloud {
 class RecoverSegmentBenchmark {
 
   public:
+    Context context;
     ServerConfig config;
     ServerList serverList;
     MasterService* service;
 
     RecoverSegmentBenchmark(string logSize, string hashTableSize,
         int numSegments)
-        : config(ServerConfig::forTesting())
-        , serverList()
+        : context()
+        , config(ServerConfig::forTesting())
+        , serverList(context)
         , service(NULL)
     {
         config.localLocator = "bogus";
@@ -39,7 +41,7 @@ class RecoverSegmentBenchmark {
         config.setLogAndHashTableSize(logSize, hashTableSize);
         config.services = {MASTER_SERVICE};
         config.master.numReplicas = 0;
-        service = new MasterService(config, NULL, serverList);
+        service = new MasterService(context, config, NULL, serverList);
         service->serverId = ServerId(1, 0);
     }
 

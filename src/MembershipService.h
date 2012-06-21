@@ -27,11 +27,11 @@
 namespace RAMCloud {
 
 /**
- * This Service is used only to maintain a server's global ServerList object.
- * More specifically, the coordinator issues RPCs to this service indicating
- * when servers enter or leave the system (i.e. when the cluster membership
- * changes). When the server first enlists, or if any updates are lost, the
- * coordinator will push the full list.
+ * This Service is primarily used to maintain a server's global ServerList
+ * object. More specifically, the coordinator issues RPCs to this service
+ * indicating when servers enter or leave the system (i.e. when the cluster
+ * membership changes). When the server first enlists, or if any updates are
+ * lost, the coordinator will push the full list.
  *
  * Lost updates are noticed in one of two ways. First, if the coordinator
  * pushes an update newer than the next expected one, we reply will a request
@@ -41,6 +41,9 @@ namespace RAMCloud {
  * not, then the FailureDetector will wait a short interval and request that
  * the coordinator resend the list if the lost update still has not been
  * received.
+ *
+ * Additional functionality includes retrieving the ServerId of the machine
+ * running this service. See #ServerId for more information.
  */
 class MembershipService : public Service {
   public:

@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -119,11 +119,15 @@ class ServerRpcPool {
      * Note that this method is not particularly efficient and should not be
      * called very frequently (it will grab the Dispatch lock and query all
      * outstanding server RPCs).
+     * 
+     * \param context
+     *      Overall information about the RAMCloud server; used to lock the
+     *      dispatcher.
      */
     static uint64_t
-    getEarliestOutstandingEpoch()
+    getEarliestOutstandingEpoch(Context& context)
     {
-        Dispatch::Lock lock;
+        Dispatch::Lock lock(context.dispatch);
         uint64_t earliest = -1;
 
         ServerRpcPoolInternal::ServerRpcList::iterator it =

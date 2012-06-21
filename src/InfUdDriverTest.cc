@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -21,8 +21,11 @@
 namespace RAMCloud {
 class InfUdDriverTest : public ::testing::Test {
   public:
+    Context context;
 
-    InfUdDriverTest() {}
+    InfUdDriverTest()
+        : context()
+    {}
 
     // Used to wait for data to arrive on a driver by invoking the
     // dispatcher's polling loop; gives up if a long time goes by with
@@ -31,7 +34,7 @@ class InfUdDriverTest : public ::testing::Test {
         transport->packetData.clear();
         uint64_t start = Cycles::rdtsc();
         while (true) {
-            Context::get().dispatch->poll();
+            context.dispatch->poll();
             if (transport->packetData.size() != 0) {
                 return transport->packetData.c_str();
             }
@@ -50,11 +53,11 @@ TEST_F(InfUdDriverTest, basics) {
     // driver.
     ServiceLocator serverLocator("fast+infud:");
     InfUdDriver<RealInfiniband> *server =
-            new InfUdDriver<RealInfiniband>(&serverLocator, false);
-    MockFastTransport serverTransport(server);
+            new InfUdDriver<RealInfiniband>(context, &serverLocator, false);
+    MockFastTransport serverTransport(context, server);
     InfUdDriver<RealInfiniband> *client =
-            new InfUdDriver<RealInfiniband>(NULL, false);
-    MockFastTransport clientTransport(client);
+            new InfUdDriver<RealInfiniband>(context, NULL, false);
+    MockFastTransport clientTransport(context, client);
     Driver::Address* serverAddress =
             client->newAddress(ServiceLocator(server->getServiceLocator()));
 

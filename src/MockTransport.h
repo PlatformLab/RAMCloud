@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-20121 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -30,7 +30,8 @@ namespace RAMCloud {
  */
 class MockTransport : public Transport {
   public:
-    explicit MockTransport(const ServiceLocator *serviceLocator = NULL);
+    explicit MockTransport(Context& context,
+                           const ServiceLocator *serviceLocator = NULL);
     virtual ~MockTransport() { }
     virtual string getServiceLocator();
 
@@ -88,6 +89,11 @@ class MockTransport : public Transport {
             const ServiceLocator serviceLocator;
             DISALLOW_COPY_AND_ASSIGN(MockSession);
     };
+
+    /**
+     * Shared RAMCloud information.
+     */
+    Context& context;
 
     /**
      * Records information from each call to clientSend and sendReply.

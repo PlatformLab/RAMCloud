@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-20121 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -109,41 +109,45 @@ namespace RAMCloud {
 /**
  * Construct a InfRcTransport.
  *
+ * \param context
+ *      Overall information about the RAMCloud server or client.
  * \param sl
  *      The ServiceLocator describing which HCA to use and the IP/UDP
  *      address and port numbers to use for handshaking. If NULL,
  *      the transport will be configured for client use only.
  */
 template<typename Infiniband>
-InfRcTransport<Infiniband>::InfRcTransport(const ServiceLocator *sl)
-    : realInfiniband(),
-      infiniband(),
-      rxBuffers(),
-      txBuffers(),
-      freeTxBuffers(),
-      serverSrq(NULL),
-      clientSrq(NULL),
-      serverRxCq(NULL),
-      clientRxCq(NULL),
-      commonTxCq(NULL),
-      ibPhysicalPort(1),
-      lid(0),
-      serverSetupSocket(-1),
-      clientSetupSocket(-1),
-      queuePairMap(),
-      clientSendQueue(),
-      numUsedClientSrqBuffers(MAX_SHARED_RX_QUEUE_DEPTH),
-      numFreeServerSrqBuffers(0),
-      outstandingRpcs(),
-      clientRpcsActiveTime(),
-      locatorString(),
-      poller(this),
-      serverConnectHandler(),
-      logMemoryBase(0),
-      logMemoryBytes(0),
-      logMemoryRegion(0),
-      transmitCycleCounter(),
-      serverRpcPool()
+InfRcTransport<Infiniband>::InfRcTransport(Context& context,
+                                           const ServiceLocator *sl)
+    : context(context)
+    , realInfiniband()
+    , infiniband()
+    , rxBuffers()
+    , txBuffers()
+    , freeTxBuffers()
+    , serverSrq(NULL)
+    , clientSrq(NULL)
+    , serverRxCq(NULL)
+    , clientRxCq(NULL)
+    , commonTxCq(NULL)
+    , ibPhysicalPort(1)
+    , lid(0)
+    , serverSetupSocket(-1)
+    , clientSetupSocket(-1)
+    , queuePairMap()
+    , clientSendQueue()
+    , numUsedClientSrqBuffers(MAX_SHARED_RX_QUEUE_DEPTH)
+    , numFreeServerSrqBuffers(0)
+    , outstandingRpcs()
+    , clientRpcsActiveTime()
+    , locatorString()
+    , poller(this)
+    , serverConnectHandler()
+    , logMemoryBase(0)
+    , logMemoryBytes(0)
+    , logMemoryRegion(0)
+    , transmitCycleCounter()
+    , serverRpcPool()
 {
     const char *ibDeviceName = NULL;
 
@@ -313,7 +317,7 @@ InfRcTransport<Infiniband>::InfRcSession::InfRcSession(
     InfRcTransport *transport, const ServiceLocator& sl, uint32_t timeoutMs)
     : transport(transport)
     , qp(NULL)
-    , alarm(*Context::get().sessionAlarmTimer, *this,
+    , alarm(*transport->context.sessionAlarmTimer, *this,
             (timeoutMs != 0) ? timeoutMs : DEFAULT_TIMEOUT_MS)
     , abortMessage()
 {
@@ -505,7 +509,7 @@ InfRcTransport<Infiniband>::clientTryExchangeQueuePairs(struct sockaddr_in *sin,
         // We need to call the dispatcher in order to let other event handlers
         // run (this is particularly important if the server we are trying to
         // connect to is us).
-        Dispatch& dispatch = *Context::get().dispatch;
+        Dispatch& dispatch = *context.dispatch;
         if (dispatch.isDispatchThread()) {
             dispatch.poll();
         }
@@ -893,7 +897,7 @@ InfRcTransport<Infiniband>::ClientRpc::ClientRpc(InfRcTransport* transport,
                                      Buffer* request,
                                      Buffer* response,
                                      uint64_t nonce)
-    : Transport::ClientRpc(request, response),
+    : Transport::ClientRpc(transport->context, request, response),
       transport(transport),
       session(session),
       nonce(nonce),
@@ -1120,7 +1124,7 @@ InfRcTransport<Infiniband>::Poller::poll()
             LOG(DEBUG, "Received %s request from %s",
                     Rpc::opcodeSymbol(r->requestPayload),
                     qp->getPeerName());
-            Context::get().serviceManager->handleRpc(r);
+            t->context.serviceManager->handleRpc(r);
             ++metrics->transport.receive.messageCount;
             ++metrics->transport.receive.packetCount;
             metrics->transport.receive.iovecCount +=
@@ -1209,11 +1213,6 @@ InfRcTransport<Infiniband>::PayloadChunk::appendToBuffer(Buffer* buffer,
 template<typename Infiniband>
 InfRcTransport<Infiniband>::PayloadChunk::~PayloadChunk()
 {
-    // This is a botch. These chunks get destroyed when Buffers are
-    // destroyed, which can happen in client applications outside of a
-    // context. The driver release, however, might need a context to, e.g.,
-    // lock the dispatch thread.
-    Context::Guard _(context);
     transport->postSrqReceiveAndKickTransmit(srq, bd);
 }
 
@@ -1240,7 +1239,6 @@ InfRcTransport<Infiniband>::PayloadChunk::PayloadChunk(void* data,
                                           ibv_srq* srq,
                                           BufferDescriptor* bd)
     : Buffer::Chunk(data, dataLength),
-      context(Context::get()),
       transport(transport),
       srq(srq),
       bd(bd)

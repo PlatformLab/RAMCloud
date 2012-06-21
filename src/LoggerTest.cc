@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -26,7 +26,7 @@ class LoggerTest : public ::testing::Test {
     LoggerTest() {}
 
     ~LoggerTest() {
-        Context::get().logger->stream = stderr;
+        Logger::get().stream = stderr;
         unlink("__test.log");
     }
     DISALLOW_COPY_AND_ASSIGN(LoggerTest);
@@ -196,7 +196,7 @@ TEST_F(LoggerTest, LOG) { // also tests logMessage
     char* buf = NULL;
     size_t size = 0;
 
-    Logger& logger = *Context::get().logger;
+    Logger& logger = Logger::get();
     logger.stream = open_memstream(&buf, &size);
     assert(logger.stream != NULL);
 
@@ -217,7 +217,7 @@ TEST_F(LoggerTest, LOG) { // also tests logMessage
 }
 
 TEST_F(LoggerTest, DIE) { // also tests getMessage
-    Logger& logger = *Context::get().logger;
+    Logger& logger = Logger::get();
     logger.stream = fmemopen(NULL, 1024, "w");
     assert(logger.stream != NULL);
     try {

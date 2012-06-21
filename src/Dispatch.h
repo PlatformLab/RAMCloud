@@ -44,9 +44,6 @@ namespace RAMCloud {
  * - Other threads can invoke Dispatch methods, but they must hold a
  *   Dispatch::Lock object at the time of the invocation, in order to avoid
  *   synchronization problems.
- *
- * To get a pointer to the current Dispatch instance, use
- * Context::get().dispatch; see the Context class for more info.
  */
 class Dispatch {
   public:
@@ -218,7 +215,7 @@ class Dispatch {
      */
     class Lock {
       public:
-        explicit Lock(Dispatch* dispatch = Context::get().dispatch);
+        explicit Lock(Dispatch* dispatch);
         ~Lock();
       PRIVATE:
         /// The Dispatch object associated with this Lock.
@@ -233,7 +230,7 @@ class Dispatch {
     };
 
   PRIVATE:
-    static void epollThreadMain(Context* context);
+    static void epollThreadMain(Dispatch* owner);
     static bool fdIsReady(int fd);
 
     // Keeps track of all of the pollers currently defined.  We don't

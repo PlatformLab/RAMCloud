@@ -22,6 +22,7 @@ namespace RAMCloud {
 
 class MinOpenSegmentIdTest : public ::testing::Test {
   public:
+    Context context;
     MockCluster cluster;
     CoordinatorClient* client;
     CoordinatorService* service;
@@ -30,7 +31,8 @@ class MinOpenSegmentIdTest : public ::testing::Test {
     MinOpenSegmentId min;
 
     MinOpenSegmentIdTest()
-        : cluster()
+        : context()
+        , cluster(context)
         , client(cluster.getCoordinatorClient())
         , service(cluster.coordinator.get())
         , serverId()

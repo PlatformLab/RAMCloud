@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -424,6 +424,8 @@ const char *TestUtil::getStatus(Buffer* buffer)
 /**
  * Wait for an RPC request to complete (but give up if it takes too long).
  *
+ * \param context
+ *      RAMCloud Context whose dispatcher should be used for polling.
  * \param rpc
  *      RPC request that is expected to finish very soon.
  * \param ms
@@ -434,10 +436,10 @@ const char *TestUtil::getStatus(Buffer* buffer)
  *      false if it doesn't.
  */
 bool
-TestUtil::waitForRpc(Transport::ClientRpc& rpc, int ms)
+TestUtil::waitForRpc(Context& context, Transport::ClientRpc& rpc, int ms)
 {
     for (int i = 0; i < ms; i++) {
-        Context::get().dispatch->poll();
+        context.dispatch->poll();
         if (rpc.isReady())
             return true;
         usleep(1000);

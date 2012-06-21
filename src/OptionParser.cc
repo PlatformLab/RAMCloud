@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -181,8 +181,8 @@ OptionParser::setup(int argc, char* argv[])
             usageAndExit();
 
         if (logFile.size() != 0)
-            Context::get().logger->setLogFile(logFile.c_str());
-        Context::get().logger->setLogLevels(defaultLogLevel);
+            Logger::get().setLogFile(logFile.c_str());
+        Logger::get().setLogLevels(defaultLogLevel);
         foreach (auto moduleLevel, logLevels) {
             auto pos = moduleLevel.find("=");
             if (pos == string::npos) {
@@ -192,7 +192,7 @@ OptionParser::setup(int argc, char* argv[])
             }
             auto name = moduleLevel.substr(0, pos);
             auto level = moduleLevel.substr(pos + 1);
-            Context::get().logger->setLogLevel(name, level);
+            Logger::get().setLogLevel(name, level);
         }
 
         if (options.pcapFilePath != "")

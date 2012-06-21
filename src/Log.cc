@@ -28,6 +28,8 @@ namespace RAMCloud {
 
 /**
  * Constructor for Log.
+ * \param context
+ *      Overall information about the RAMCloud server.
  * \param[in] logId
  *      A unique numerical identifier for this Log. This should be globally
  *      unique in the RAMCloud system.
@@ -50,13 +52,15 @@ namespace RAMCloud {
  *      An exception is thrown if #logCapacity is not sufficient for
  *      a single segment's worth of log.
  */
-Log::Log(const ServerId& logId,
+Log::Log(Context& context,
+         const ServerId& logId,
          uint64_t logCapacity,
          uint32_t segmentCapacity,
          uint32_t maximumBytesPerAppend,
          ReplicaManager *replicaManager,
          CleanerOption cleanerOption)
-    : stats(),
+    : context(context),
+      stats(),
       logCapacity((logCapacity / segmentCapacity) * segmentCapacity),
       segmentCapacity(segmentCapacity),
       maximumBytesPerAppend(maximumBytesPerAppend),
@@ -79,7 +83,7 @@ Log::Log(const ServerId& logId,
       appendLock(),
       replicaManager(replicaManager),
       cleanerOption(cleanerOption),
-      cleaner(this, replicaManager,
+      cleaner(context, this, replicaManager,
               cleanerOption == CONCURRENT_CLEANER),
       logIteratorCount(0)
 {
@@ -100,8 +104,8 @@ Log::Log(const ServerId& logId,
             i * segmentCapacity);
     }
 
-    Context::get().transportManager->registerMemory(segmentMemory.get(),
-                                                    segmentMemory.length);
+    context.transportManager->registerMemory(segmentMemory.get(),
+                                             segmentMemory.length);
 }
 
 /**
@@ -601,7 +605,8 @@ Log::cleaningComplete(SegmentVector& clean,
     // This is a good time to check cleaned Segments that are no
     // longer part of the Log, but may or may not still be referenced
     // by outstanding RPCs.
-    uint64_t earliestEpoch = ServerRpcPool<>::getEarliestOutstandingEpoch();
+    uint64_t earliestEpoch = ServerRpcPool<>::getEarliestOutstandingEpoch(
+        context);
     SegmentVector freeSegments;
     foreach (Segment& s, freePendingReferenceList) {
         if (s.cleanedEpoch < earliestEpoch) {

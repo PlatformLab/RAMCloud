@@ -22,12 +22,15 @@ namespace RAMCloud {
  * Create a new instance; usually just one instance is created as part
  * of the CoordinatorService.
  *
+ * \param context
+ *      Overall information about the RAMCloud server or client.
  * \param serverList
  *      Authoritative list of all servers in the system and their details.
  * \param  tabletMap
  *      Authoritative information about tablets and their mapping to servers.
  */
-MasterRecoveryManager::MasterRecoveryManager(CoordinatorServerList& serverList,
+MasterRecoveryManager::MasterRecoveryManager(Context& context,
+                                             CoordinatorServerList& serverList,
                                              TabletMap& tabletMap)
     : serverList(serverList)
     , tabletMap(tabletMap)
@@ -36,7 +39,7 @@ MasterRecoveryManager::MasterRecoveryManager(CoordinatorServerList& serverList,
     , activeRecoveries()
     , maxActiveRecoveries(1u)
     , taskQueue()
-    , tracker(serverList, this)
+    , tracker(context, serverList, this)
     , doNotStartRecoveries()
 {
 }
@@ -59,8 +62,7 @@ void
 MasterRecoveryManager::start()
 {
     if (!thread)
-        thread.construct(&MasterRecoveryManager::main,
-                         this, std::ref(Context::get()));
+        thread.construct(&MasterRecoveryManager::main, this);
 }
 
 /**
@@ -508,14 +510,10 @@ MasterRecoveryManager::recoveryMasterFinished(
  * Drive the next step in any ongoing recoveries; start new
  * recoveries if they were blocked on other recoveries. Exits
  * when taskQueue.halt() is called.
- *
- * \param context
- *      The Context this thread should start in.
  */
 void
-MasterRecoveryManager::main(Context& context)
+MasterRecoveryManager::main()
 {
-    Context::Guard _(context);
     taskQueue.performTasksUntilHalt();
 }
 

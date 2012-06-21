@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -334,8 +334,7 @@ Dispatch::File::File(Dispatch& dispatch, int fd, int events)
                     "Dispatch couldn't set epoll event for exit pipe",
                     errno);
         }
-        owner->epollThread.construct(Dispatch::epollThreadMain,
-                                     &Context::get());
+        owner->epollThread.construct(Dispatch::epollThreadMain, owner);
     }
 
     if (owner->files.size() <= static_cast<uint32_t>(fd)) {
@@ -421,13 +420,10 @@ void Dispatch::File::setEvents(int events)
  * event.  By putting this functionality in a separate thread the main
  * poll loop never needs to incur the overhead of a kernel call.
  *
- * \param context
- *      The context under which this thread should execute, including the
- *      dispatch object on whose behalf this thread is working.
+ * \param owner
+ *      The dispatch object on whose behalf this thread is working.
  */
-void Dispatch::epollThreadMain(Context* context) {
-    Context::Guard _(*context);
-    Dispatch* owner = context->dispatch;
+void Dispatch::epollThreadMain(Dispatch* owner) {
 #define MAX_EVENTS 10
     struct epoll_event events[MAX_EVENTS];
     while (true) {
@@ -628,7 +624,7 @@ static NoOp<int> thisThreadHasDispatchLock;
  * someone up the stack already has one).
  *
  * \param dispatch
- *      Dispatch object to lock (defaults to the context's dispatch object).
+ *      Dispatch object to lock.
  */
 Dispatch::Lock::Lock(Dispatch* dispatch)
     : dispatch(dispatch), lock()

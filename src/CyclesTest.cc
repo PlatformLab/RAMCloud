@@ -43,7 +43,7 @@ TEST_F(CyclesTest, basics) {
         usleep(1000);
         elapsed = Cycles::toSeconds(Cycles::rdtsc() - start);
         ASSERT_LE(.001, elapsed);
-        ASSERT_GT(.0035, elapsed)
+        ASSERT_GT(.0040, elapsed)
           << "Your system slept longer than it should have. "
              "There's probably nothing wrong -- this test is dubious.";
     }

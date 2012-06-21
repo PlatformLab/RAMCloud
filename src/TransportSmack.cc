@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Stanford University
+/* Copyright (c) 2009-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -79,6 +79,8 @@
 using namespace RAMCloud;
 
 namespace {
+
+    Context context(true);
 
 /// RPC format used by #Echo.
 struct EchoRpc {
@@ -309,7 +311,7 @@ struct Do : public Test {
                                               desc.getProtocol());
                 const string& serviceLocator(desc.getOption("server"));
                 Transport::SessionRef server(
-                    Context::get().transportManager->getSession(
+                    context.transportManager->getSession(
                                                     serviceLocator.c_str()));
                 bool async = desc.getOption("async", false);
                 TestRef tests[repeat];
@@ -424,8 +426,6 @@ main(int argc, char *argv[])
             RAMCLOUD_LOG(NOTICE,
                 "Running TransportSmack server, listening on %s",
                 localLocator.c_str());
-            Context context(true);
-            Context::Guard _(context);
             context.transportManager->initialize(localLocator.c_str());
 
             TSService service;

@@ -60,7 +60,8 @@ class ReplicaManager
     : public ReplicatedSegment::Deleter
 {
   PUBLIC:
-    ReplicaManager(ServerList& serverList,
+    ReplicaManager(Context& context,
+                   ServerList& serverList,
                    const ServerId& masterId,
                    uint32_t numReplicas,
                    const string* coordinatorLocator);
@@ -75,6 +76,11 @@ class ReplicaManager
     void haltFailureMonitor();
     void proceed();
 
+  PRIVATE:
+    /// Shared RAMCloud information.
+    Context& context;
+
+  PUBLIC:
     /// Number replicas to keep of each segment.
     const uint32_t numReplicas;
 

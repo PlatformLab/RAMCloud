@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2011 Stanford University
+/* Copyright (c) 2009-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -74,6 +74,7 @@ struct CountingDeleter : public ReplicatedSegment::Deleter {
 struct ReplicatedSegmentTest : public ::testing::Test {
     enum { DATA_LEN = 100 };
     enum { MAX_BYTES_PER_WRITE = 21 };
+    Context context;
     TaskQueue taskQueue;
     ServerList serverList;
     BackupTracker tracker;
@@ -88,13 +89,14 @@ struct ReplicatedSegmentTest : public ::testing::Test {
     const uint32_t numReplicas;
     MockBackupSelector backupSelector;
     MockTransport transport;
-    TransportManager::MockRegistrar _;
+    TransportManager::MockRegistrar mockRegistrar;
     std::unique_ptr<ReplicatedSegment> segment;
 
     ReplicatedSegmentTest()
-        : taskQueue()
-        , serverList()
-        , tracker(serverList, NULL)
+        : context()
+        , taskQueue()
+        , serverList(context)
+        , tracker(context, serverList, NULL)
         , deleter()
         , writeRpcsInFlight(0)
         , dataMutex()
@@ -105,8 +107,8 @@ struct ReplicatedSegmentTest : public ::testing::Test {
         , openLen(10)
         , numReplicas(2)
         , backupSelector(numReplicas)
-        , transport()
-        , _(transport)
+        , transport(context)
+        , mockRegistrar(context, transport)
         , segment(NULL)
     {
         segment = newSegment(segmentId);
@@ -425,6 +427,7 @@ TEST_F(ReplicatedSegmentTest, syncRecoveringFromLostOpenReplicas) {
     // Fragile test log check, but left here because the output is pretty
     // reassuring to a human reader that the test does what one expects.
     EXPECT_EQ("sync: syncing | "
+              "selectSecondary: conflicting backupId: 999 | "
               "selectSecondary: conflicting backupId: 1 | "
               "performWrite: Starting replication on backup 0 | "
               "performWrite: Sending open to backup 0 | "
@@ -714,8 +717,10 @@ TEST_F(ReplicatedSegmentTest, performWriteOpen) {
     {
         TestLog::Enable _(filter);
         taskQueue.performTask();
-        EXPECT_EQ("performWrite: Starting replication on backup 0 | "
+        EXPECT_EQ("selectSecondary: conflicting backupId: 999 | "
+                  "performWrite: Starting replication on backup 0 | "
                   "performWrite: Sending open to backup 0 | "
+                  "selectSecondary: conflicting backupId: 999 | "
                   "selectSecondary: conflicting backupId: 0 | "
                   "performWrite: Starting replication on backup 1 | "
                   "performWrite: Sending open to backup 1",

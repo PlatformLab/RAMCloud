@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-20121 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -49,7 +49,8 @@ class InfUdDriver : public Driver {
     typedef typename Infiniband::RegisteredBuffers RegisteredBuffers;
 
   public:
-    explicit InfUdDriver(const ServiceLocator* localServiceLocator,
+    explicit InfUdDriver(Context& context,
+                         const ServiceLocator* localServiceLocator,
                          bool ethernet);
     virtual ~InfUdDriver();
     virtual void connect(IncomingPacketHandler* incomingPacketHandler);
@@ -107,6 +108,9 @@ class InfUdDriver : public Driver {
         char payload[2048 - GRH_SIZE];
     };
 
+    /// Shared RAMCloud information.
+    Context &context;
+
     /// See #infiniband.
     Tub<Infiniband> realInfiniband;
 
@@ -157,8 +161,8 @@ class InfUdDriver : public Driver {
      */
     class Poller : public Dispatch::Poller {
       public:
-        explicit Poller(InfUdDriver* driver)
-            : Dispatch::Poller(*Context::get().dispatch)
+        explicit Poller(Context& context, InfUdDriver* driver)
+            : Dispatch::Poller(*context.dispatch)
             , driver(driver) { }
         virtual void poll();
       private:

@@ -26,24 +26,31 @@ namespace RAMCloud {
 
 class TransportManagerTest : public ::testing::Test {
   public:
-    TransportManagerTest() {}
+    Context context;
+    TransportManager manager;
+
+    TransportManagerTest()
+        : context()
+        , manager(context)
+    {}
+    DISALLOW_COPY_AND_ASSIGN(TransportManagerTest);
 };
 
 TEST_F(TransportManagerTest, initialize) {
-    MockTransportFactory mockTransportFactory(NULL, "mock");
-    MockTransportFactory fooTransportFactory(NULL, "foo");
+    MockTransportFactory mockTransportFactory(context, NULL, "mock");
+    MockTransportFactory fooTransportFactory(context, NULL, "foo");
 
     // If "mockThrow:" is _not_ in the service locator, that should be
     // caught and the transport ignored. If it is, then any exception
     // is an error and should propagate up.
     static struct MockThrowTransportFactory : public TransportFactory {
         MockThrowTransportFactory() : TransportFactory("mockThrow") {}
-        Transport* createTransport(const ServiceLocator* local) {
+        Transport* createTransport(Context& context,
+                const ServiceLocator* local) {
             throw TransportException(HERE, "boom!");
         }
     } mockThrowTransportFactory;
 
-    TransportManager manager;
     manager.transportFactories.clear();  /* Speeds up initialization. */
     manager.transportFactories.push_back(&mockTransportFactory);
     manager.transportFactories.push_back(&fooTransportFactory);
@@ -58,31 +65,27 @@ TEST_F(TransportManagerTest, initialize) {
 }
 
 TEST_F(TransportManagerTest, initialize_emptyLocator) {
-    TransportManager manager;
     EXPECT_THROW(manager.initialize(""), Exception);
     EXPECT_THROW(manager.initialize("  "), Exception);
 }
 
 TEST_F(TransportManagerTest, initialize_transportEmptyLocator) {
-    MockTransport* t = new MockTransport();
+    MockTransport* t = new MockTransport(context);
     t->locatorString = "";
-    MockTransportFactory mockTransportFactory(t, "mock");
+    MockTransportFactory mockTransportFactory(context, t, "mock");
 
-    TransportManager manager;
     manager.transportFactories.clear();
     manager.transportFactories.push_back(&mockTransportFactory);
     EXPECT_THROW(manager.initialize("mock:"), Exception);
 }
 
 TEST_F(TransportManagerTest, initialize_noListeningTransports) {
-    TransportManager manager;
     EXPECT_THROW(manager.initialize("rofl:"), Exception);
 }
 
 TEST_F(TransportManagerTest, initialize_registerExistingMemory) {
     TestLog::Enable _;
-    MockTransportFactory mockTransportFactory(NULL, "mock");
-    TransportManager manager;
+    MockTransportFactory mockTransportFactory(context, NULL, "mock");
     manager.transportFactories.clear();  /* Speeds up initialization. */
     manager.transportFactories.push_back(&mockTransportFactory);
     manager.transports.resize(1, NULL);
@@ -95,7 +98,6 @@ TEST_F(TransportManagerTest, initialize_registerExistingMemory) {
 }
 
 TEST_F(TransportManagerTest, getSession_basics) {
-    TransportManager manager;
     manager.registerMock(NULL);
     Transport::SessionRef session(manager.getSession("foo:;mock:"));
     EXPECT_TRUE(session.get() != NULL);
@@ -103,7 +105,6 @@ TEST_F(TransportManagerTest, getSession_basics) {
 }
 
 TEST_F(TransportManagerTest, getSession_reuseCachedSession) {
-    TransportManager manager;
     manager.registerMock(NULL);
     Transport::SessionRef session(manager.getSession("foo:;mock:"));
     EXPECT_TRUE(session.get() != NULL);
@@ -113,7 +114,6 @@ TEST_F(TransportManagerTest, getSession_reuseCachedSession) {
 
 TEST_F(TransportManagerTest, getSession_registerExistingMemory) {
     TestLog::Enable _;
-    TransportManager manager;
     manager.registerMock(NULL, "mock");
     manager.registerMemory(reinterpret_cast<void*>(11), 10);
     manager.registerMemory(reinterpret_cast<void*>(22), 20);
@@ -126,7 +126,6 @@ TEST_F(TransportManagerTest, getSession_registerExistingMemory) {
 
 TEST_F(TransportManagerTest, getSession_ignoreTransportCreateError) {
     TestLog::Enable _;
-    TransportManager manager;
     manager.registerMock(NULL, "error");
     manager.registerMock(NULL, "mock");
     Transport::SessionRef session(manager.getSession("error:;mock:"));
@@ -138,7 +137,6 @@ TEST_F(TransportManagerTest, getSession_ignoreTransportCreateError) {
 
 TEST_F(TransportManagerTest, getSession_createWorkerSession) {
     TestLog::Enable _;
-    TransportManager manager;
     manager.registerMock(NULL);
 
     // First session: no need for WorkerSession
@@ -155,7 +153,6 @@ TEST_F(TransportManagerTest, getSession_createWorkerSession) {
 }
 
 TEST_F(TransportManagerTest, getSession_badTransportFailure) {
-    TransportManager manager;
     manager.registerMock(NULL);
     EXPECT_THROW(manager.getSession("foo:"), TransportException);
     try {
@@ -167,7 +164,6 @@ TEST_F(TransportManagerTest, getSession_badTransportFailure) {
 }
 
 TEST_F(TransportManagerTest, getSession_transportgetSessionFailure) {
-    TransportManager manager;
     manager.registerMock(NULL);
     EXPECT_THROW(manager.getSession("mock:host=error"), TransportException);
     try {
@@ -185,33 +181,32 @@ TEST_F(TransportManagerTest, getSession_matchServerId) {
     TestLog::Enable _;
 
     ServerId id(1, 53);
-    ServerList list;
-    BindTransport transport;
-    Context::get().transportManager->registerMock(&transport);
+    ServerList list(context);
+    BindTransport transport(context);
+    context.transportManager->registerMock(&transport);
     MembershipService membership(id, list);
     transport.addService(membership, "mock:host=member", MEMBERSHIP_SERVICE);
 
-    EXPECT_NO_THROW(Context::get().transportManager->getSession(
+    EXPECT_NO_THROW(context.transportManager->getSession(
         "mock:host=member", id));
-    EXPECT_THROW(Context::get().transportManager->getSession("mock:host=member",
+    EXPECT_THROW(context.transportManager->getSession("mock:host=member",
         ServerId(1, 52)), TransportException);
     EXPECT_NE(string::npos, TestLog::get().find("getSession: Expected ServerId "
         "223338299393 at \"mock:host=member\", but actual server id was "
         "227633266689!"));
 
-    Context::get().transportManager->unregisterMock();
+    context.transportManager->unregisterMock();
 }
 
 // No tests for getListeningLocatorsString: it's trivial.
 
 TEST_F(TransportManagerTest, registerMemory) {
     TestLog::Enable _;
-    TransportManager manager;
     ServiceLocator s1("mock1:");
-    MockTransport t1(&s1);
+    MockTransport t1(context, &s1);
     manager.registerMock(&t1, "mock1");
     ServiceLocator s2("mock2:");
-    MockTransport t2(&s2);
+    MockTransport t2(context, &s2);
     manager.registerMock(&t2, "mock2");
     Transport::SessionRef session1(manager.getSession("mock1:"));
     EXPECT_EQ("", TestLog::get());

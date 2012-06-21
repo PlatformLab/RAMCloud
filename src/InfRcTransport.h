@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -62,7 +62,7 @@ class InfRcTransport : public Transport {
     typedef typename Infiniband::RegisteredBuffers RegisteredBuffers;
 
   public:
-    explicit InfRcTransport(const ServiceLocator* sl = NULL);
+    explicit InfRcTransport(Context& context, const ServiceLocator* sl = NULL);
     ~InfRcTransport();
     SessionRef getSession(const ServiceLocator& sl, uint32_t timeoutMs = 0) {
         return new InfRcSession(this, sl, timeoutMs);
@@ -213,8 +213,6 @@ class InfRcTransport : public Transport {
                      ibv_srq* srq,
                      BufferDescriptor* bd);
 
-        Context& context;
-
         InfRcTransport* transport;
 
         /// Return the PayloadChunk memory here.
@@ -243,6 +241,9 @@ class InfRcTransport : public Transport {
                                            QueuePairTuple *outgoingQpt,
                                            QueuePairTuple *incomingQpt,
                                            uint32_t usTimeout);
+
+    /// Shared RAMCloud information.
+    Context &context;
 
     /// See #infiniband.
     Tub<Infiniband> realInfiniband;
@@ -314,7 +315,7 @@ class InfRcTransport : public Transport {
     class Poller : public Dispatch::Poller {
       public:
         explicit Poller(InfRcTransport* transport)
-            : Dispatch::Poller(*Context::get().dispatch)
+            : Dispatch::Poller(*transport->context.dispatch)
             , transport(transport) {}
         virtual void poll();
 
@@ -332,7 +333,7 @@ class InfRcTransport : public Transport {
     class ServerConnectHandler : public Dispatch::File {
       public:
         ServerConnectHandler(int fd, InfRcTransport* transport)
-            : Dispatch::File(*Context::get().dispatch, fd,
+            : Dispatch::File(*transport->context.dispatch, fd,
                              Dispatch::FileEvent::READABLE)
             , fd(fd)
             , transport(transport) { }

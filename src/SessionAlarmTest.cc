@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -24,15 +24,17 @@ namespace RAMCloud {
 // The following class is used for testing.
 class AlarmSession : public Transport::Session {
   public:
-    AlarmSession() :rpcs(), alarm(NULL)
+    Context& context;
+    explicit AlarmSession(Context& context)
+        : context(context), rpcs(), alarm(NULL)
     {
         setServiceLocator("test:alarm");
     }
 
     class ClientRpc: public Transport::ClientRpc {
       public:
-        ClientRpc(Buffer* request, Buffer* response)
-            : Transport::ClientRpc(request, response) {}
+        ClientRpc(Context& context, Buffer* request, Buffer* response)
+            : Transport::ClientRpc(context, request, response) {}
         virtual void cancelCleanup()
         {
             if (log.length() != 0) {
@@ -47,11 +49,13 @@ class AlarmSession : public Transport::Session {
     virtual Transport::ClientRpc*
     clientSend(Buffer* request, Buffer* response)
     {
-        ClientRpc* rpc = new(response, MISC) ClientRpc(request, response);
+        ClientRpc* rpc = new(response, MISC)
+                ClientRpc(context, request, response);
         rpcs.push_back(rpc);
         if (alarm != NULL)
             alarm->rpcStarted();
-        const PingRpc::Request *message = request->getStart<PingRpc::Request>();
+        const PingRpc::Request *message =
+                request->getStart<PingRpc::Request>();
         if (log.length() != 0) {
             log.append(", ");
         }
@@ -92,14 +96,16 @@ std::string AlarmSession::log;
 
 class SessionAlarmTest : public ::testing::Test {
   public:
+    Context context;
     Dispatch dispatch;
     SessionAlarmTimer timer;
     AlarmSession session;
 
     SessionAlarmTest()
-        : dispatch(true)
+        : context()
+        , dispatch(true)
         , timer(dispatch)
-        , session()
+        , session(context)
     {
         AlarmSession::log.clear();
     }
@@ -270,12 +276,12 @@ TEST_F(SessionAlarmTest, handleTimerEvent_cleanupPings) {
     session.alarm = &alarm1;
     alarm1.rpcStarted();
 
-    AlarmSession session2;
+    AlarmSession session2(context);
     SessionAlarm alarm2(timer, session2, 0);
     session2.alarm = &alarm2;
     alarm2.rpcStarted();
 
-    AlarmSession session3;
+    AlarmSession session3(context);
     SessionAlarm alarm3(timer, session3, 0);
     session3.alarm = &alarm3;
     alarm3.rpcStarted();

@@ -39,7 +39,8 @@ class BackupFailureMonitor
     : public ServerTracker<void>::Callback
 {
   PUBLIC:
-    BackupFailureMonitor(ServerList& serverList,
+    BackupFailureMonitor(Context& context,
+                         ServerList& serverList,
                          ReplicaManager* replicaManager);
     ~BackupFailureMonitor();
 
@@ -51,7 +52,7 @@ class BackupFailureMonitor
     void trackerChangesEnqueued();
 
   PRIVATE:
-    void main(Context& context);
+    void main();
 
     /**
      * The ReplicaManager to take corrective actions on when a backup failure

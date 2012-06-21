@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -176,11 +176,6 @@ Driver::PayloadChunk::appendToBuffer(Buffer* buffer,
 Driver::PayloadChunk::~PayloadChunk()
 {
     if (driver) {
-        // This is a botch. These chunks get destroyed when Buffers are
-        // destroyed, which can happen in client applications outside of a
-        // context. The driver release, however, might need a context to, e.g.,
-        // lock the dispatch thread.
-        Context::Guard _(context);
         driver->release(payload);
     }
 }
@@ -208,7 +203,6 @@ Driver::PayloadChunk::PayloadChunk(void* data,
                                           Driver* driver,
                                           char* const payload)
     : Buffer::Chunk(data, dataLength)
-    , context(Context::get())
     , driver(driver)
     , payload(payload)
 {

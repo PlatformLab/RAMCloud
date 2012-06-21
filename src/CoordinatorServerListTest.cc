@@ -39,15 +39,16 @@ struct MockServerTracker : public ServerTrackerInterface {
 
 class CoordinatorServerListTest : public ::testing::Test {
   public:
+    Context context;
     CoordinatorServerList sl;
     MockServerTracker tr;
 
     CoordinatorServerListTest()
-        : sl()
+        : context()
+        , sl(context)
         , tr()
     {
     }
-
     DISALLOW_COPY_AND_ASSIGN(CoordinatorServerListTest);
 };
 
@@ -444,8 +445,8 @@ bool statusFilter(string s) {
 }
 
 TEST_F(CoordinatorServerListTest, sendMembershipUpdate) {
-    MockTransport transport;
-    TransportManager::MockRegistrar _(transport);
+    MockTransport transport(context);
+    TransportManager::MockRegistrar _(context, transport);
 
     ProtoBuf::ServerList update;
     // Test unoccupied server slot. Remove must wait until after last add to
