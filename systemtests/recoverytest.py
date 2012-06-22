@@ -51,26 +51,39 @@ class RecoveryTestCase(ContextManagerTestCase):
         """Store a value on a master, crash that master, wait for recovery,
         then read a value from the recovery master.
         """
-        rc = self.rc
-        value = rc.read(self.table, 'testKey')
+        value = self.rc.read(self.table, 'testKey')
         self.assertEqual(('testValue', 1), value)
-        rc.testing_kill(0, '0')
-        rc.testing_wait_for_all_tablets_normal()
-        value = rc.read(self.table, 'testKey')
+        self.rc.testing_kill(0, '0')
+        self.rc.testing_wait_for_all_tablets_normal()
+        value = self.rc.read(self.table, 'testKey')
         self.assertEqual(('testValue', 1), value)
+
+    @timeout()
+    def test_600M_recovery(self):
+        """Store 600 MB of objects on a master, crash that master,
+        wait for recovery, then read a value from the recovery master.
+        """
+        self.assertEqual(0, self.table)
+        self.rc.testing_fill(self.table, '0', 592415, 1024)
+        expectedValue = (chr(0xcc) * 1024, 2)
+        value = self.rc.read(self.table, '0')
+        self.assertEqual(expectedValue, value)
+        self.rc.testing_kill(0, '0')
+        self.rc.testing_wait_for_all_tablets_normal()
+        value = self.rc.read(self.table, '0')
+        self.assertEqual(expectedValue, value)
 
     @timeout()
     def test_recovery_master_failure(self):
         """Cause a recovery where one of the recovery masters fails which
         is remedied by a follow up recovery.
         """
-        rc = self.rc
-        value = rc.read(self.table, 'testKey')
+        value = self.rc.read(self.table, 'testKey')
         self.assertEqual(('testValue', 1), value)
-        rc.testing_set_runtime_option('failRecoveryMasters', '1')
-        rc.testing_kill(0, '0')
-        rc.testing_wait_for_all_tablets_normal()
-        value = rc.read(self.table, 'testKey')
+        self.rc.testing_set_runtime_option('failRecoveryMasters', '1')
+        self.rc.testing_kill(0, '0')
+        self.rc.testing_wait_for_all_tablets_normal()
+        value = self.rc.read(self.table, 'testKey')
         self.assertEqual(('testValue', 1), value)
 
     @timeout()
@@ -79,13 +92,12 @@ class RecoveryTestCase(ContextManagerTestCase):
         the followup recovery has its recovery master fail as well, then
         on the third recovery things work out.
         """
-        rc = self.rc
-        value = rc.read(self.table, 'testKey')
+        value = self.rc.read(self.table, 'testKey')
         self.assertEqual(('testValue', 1), value)
-        rc.testing_set_runtime_option('failRecoveryMasters', '1 1')
-        rc.testing_kill(0, '0')
-        rc.testing_wait_for_all_tablets_normal()
-        value = rc.read(self.table, 'testKey')
+        self.rc.testing_set_runtime_option('failRecoveryMasters', '1 1')
+        self.rc.testing_kill(0, '0')
+        self.rc.testing_wait_for_all_tablets_normal()
+        value = self.rc.read(self.table, 'testKey')
         self.assertEqual(('testValue', 1), value)
 
     @timeout()
@@ -95,18 +107,42 @@ class RecoveryTestCase(ContextManagerTestCase):
         TODO(stutsman): This test doesn't work right yet because the
         original master currently only has one table on it.
         """
-        rc = self.rc
-        value = rc.read(self.table, 'testKey')
+        value = self.rc.read(self.table, 'testKey')
         self.assertEqual(('testValue', 1), value)
-        rc.testing_set_runtime_option('failRecoveryMasters', '2')
-        rc.testing_kill(0, '0')
-        rc.testing_fill(0, '0', 1000, 1000)
-        rc.testing_wait_for_all_tablets_normal()
-        value = rc.read(self.table, 'testKey')
+        self.rc.testing_set_runtime_option('failRecoveryMasters', '2')
+        self.rc.testing_kill(0, '0')
+        self.rc.testing_fill(0, '0', 1000, 1000)
+        self.rc.testing_wait_for_all_tablets_normal()
+        value = self.rc.read(self.table, 'testKey')
         self.assertEqual(('testValue', 1), value)
+
+    @timeout()
+    def test_only_one_recovery_master_for_many_partitions(self):
+        """Cause a recovery when there is only one recovery master available
+        and make sure that eventually all of the partitions of the will are
+        recovered on that recovery master.
+        """
+        value = self.rc.read(self.table, 'testKey')
+        self.assertEqual(('testValue', 1), value)
+        self.rc.testing_set_runtime_option('failRecoveryMasters', '2')
+        self.rc.testing_kill(0, '0')
+        self.rc.testing_fill(0, '0', 1000, 1000)
+        self.rc.testing_wait_for_all_tablets_normal()
+        value = self.rc.read(self.table, 'testKey')
+        self.assertEqual(('testValue', 1), value)
+
+def removeAllTestsExcept(klass, name):
+    for k in dir(klass):
+        if k.startswith('test') and not k == name:
+            delattr(klass, k)
 
 import unittest
 suite = unittest.TestLoader().loadTestsFromTestCase(RecoveryTestCase)
 
 if __name__ == '__main__':
+    import sys
+    if len(sys.argv) > 0:
+        removeAllTestsExcept(RecoveryTestCase, sys.argv[1])
+        suite = unittest.TestLoader().loadTestsFromTestCase(RecoveryTestCase)
     unittest.TextTestRunner(verbosity=2).run(suite)
+
