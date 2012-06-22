@@ -23,7 +23,6 @@
 #include "TransportFactory.h"
 #include "TcpTransport.h"
 #include "FastTransport.h"
-#include "UnreliableTransport.h"
 #include "UdpDriver.h"
 
 #ifdef INFINIBAND
@@ -52,16 +51,6 @@ static struct FastUdpTransportFactory : public TransportFactory {
     }
 } fastUdpTransportFactory;
 
-static struct UnreliableUdpTransportFactory : public TransportFactory {
-    UnreliableUdpTransportFactory()
-        : TransportFactory("unreliable+kernelUdp", "unreliable+udp") {}
-    Transport* createTransport(Context& context,
-            const ServiceLocator* localServiceLocator) {
-        return new UnreliableTransport(context,
-                new UdpDriver(context, localServiceLocator));
-    }
-} unreliableUdpTransportFactory;
-
 #ifdef INFINIBAND
 static struct FastInfUdTransportFactory : public TransportFactory {
     FastInfUdTransportFactory()
@@ -73,16 +62,6 @@ static struct FastInfUdTransportFactory : public TransportFactory {
     }
 } fastInfUdTransportFactory;
 
-static struct UnreliableInfUdTransportFactory : public TransportFactory {
-    UnreliableInfUdTransportFactory()
-        : TransportFactory("unreliable+infinibandud", "unreliable+infud") {}
-    Transport* createTransport(Context& context,
-            const ServiceLocator* localServiceLocator) {
-        return new UnreliableTransport(context,
-                new InfUdDriver<>(context, localServiceLocator, false));
-    }
-} unreliableInfUdTransportFactory;
-
 static struct FastInfEthTransportFactory : public TransportFactory {
     FastInfEthTransportFactory()
         : TransportFactory("fast+infinibandethernet", "fast+infeth") {}
@@ -92,17 +71,6 @@ static struct FastInfEthTransportFactory : public TransportFactory {
                 new InfUdDriver<>(context, localServiceLocator, true));
     }
 } fastInfEthTransportFactory;
-
-static struct UnreliableInfEthTransportFactory : public TransportFactory {
-    UnreliableInfEthTransportFactory()
-        : TransportFactory("unreliable+infinibandethernet",
-                           "unreliable+infeth") {}
-    Transport* createTransport(Context& context,
-            const ServiceLocator* localServiceLocator) {
-        return new UnreliableTransport(context,
-                new InfUdDriver<>(context, localServiceLocator, true));
-    }
-} unreliableInfEthTransportFactory;
 
 static struct InfRcTransportFactory : public TransportFactory {
     InfRcTransportFactory()
@@ -128,12 +96,9 @@ TransportManager::TransportManager(Context& context)
 {
     transportFactories.push_back(&tcpTransportFactory);
     transportFactories.push_back(&fastUdpTransportFactory);
-    transportFactories.push_back(&unreliableUdpTransportFactory);
 #ifdef INFINIBAND
     transportFactories.push_back(&fastInfUdTransportFactory);
-    transportFactories.push_back(&unreliableInfUdTransportFactory);
     transportFactories.push_back(&fastInfEthTransportFactory);
-    transportFactories.push_back(&unreliableInfEthTransportFactory);
     transportFactories.push_back(&infRcTransportFactory);
 #endif
     transports.resize(transportFactories.size(), NULL);

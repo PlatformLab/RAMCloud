@@ -88,7 +88,6 @@ SHARED_SRCFILES := \
 		   src/Transport.cc \
 		   src/TransportManager.cc \
 		   src/UdpDriver.cc \
-		   src/UnreliableTransport.cc \
 		   src/WallTime.cc \
 		   $(INFINIBAND_SRCFILES) \
 		   $(OBJDIR)/MetricList.pb.cc \
