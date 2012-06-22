@@ -236,8 +236,17 @@ MasterService::init(ServerId id)
 }
 
 /**
- * Fill this server with test data. Objects are added to all
- * existing tables in a round-robin fashion.
+ * Fill a master server with the given number of objects, each of the
+ * same given size. Objects are added to all tables in the master in
+ * a round-robin fashion. This method exists simply to quickly fill a
+ * master for experiments.
+ *
+ * See MasterClient::fillWithTestData() for more information.
+ *
+ * \bug Will return an error if the master only owns part of a table
+ * (because the hash of the fabricated keys may land in a region it
+ * doesn't own).
+ *
  * \copydetails Service::ping
  */
 void
@@ -1471,6 +1480,8 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
     uint64_t recoveryId = reqHdr.recoveryId;
     ServerId crashedServerId(reqHdr.crashedServerId);
     uint64_t partitionId = reqHdr.partitionId;
+    if (partitionId == ~0u)
+        DIE("Recovery master got super secret partition id; killing self.");
     ProtoBuf::Tablets recoveryTablets;
     ProtoBuf::parseFromResponse(rpc.requestPayload, sizeof(reqHdr),
                                 reqHdr.tabletsLength, recoveryTablets);

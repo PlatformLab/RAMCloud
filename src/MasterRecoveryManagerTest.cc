@@ -34,7 +34,7 @@ struct MasterRecoveryManagerTest : public ::testing::Test {
         : context()
         , serverList(context)
         , tabletMap()
-        , mgr(context, serverList, tabletMap)
+        , mgr(context, serverList, tabletMap, NULL)
     {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
     }

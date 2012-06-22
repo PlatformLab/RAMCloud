@@ -25,6 +25,7 @@
 #include "RawMetrics.h"
 #include "Recovery.h"
 #include "Rpc.h"
+#include "RuntimeOptions.h"
 #include "ServerId.h"
 #include "Service.h"
 #include "TabletMap.h"
@@ -92,6 +93,9 @@ class CoordinatorService : public Service {
     void sendServerList(const SendServerListRpc::Request& reqHdr,
                         SendServerListRpc::Response& respHdr,
                         Rpc& rpc);
+    void setRuntimeOption(const SetRuntimeOptionRpc::Request& reqHdr,
+                          SetRuntimeOptionRpc::Response& respHdr,
+                          Rpc& rpc);
     // - helper methods -
     bool assignReplicationGroup(uint64_t replicationId,
                                 const vector<ServerId>& replicationGroupIds);
@@ -150,6 +154,13 @@ class CoordinatorService : public Service {
      * Id 0 is reserved for nodes that do not belong to a replication group.
      */
     uint64_t nextReplicationId;
+
+    /**
+     * Contains coordinator configuration options which can be modified while
+     * the cluster is running. Currently mostly used for setting debugging
+     * or testing parameters.
+     */
+    RuntimeOptions runtimeOptions;
 
     /**
      * Handles all master recovery details on behalf of the coordinator.

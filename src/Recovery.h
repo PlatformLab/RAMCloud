@@ -254,6 +254,12 @@ class Recovery : public Task {
     RecoveryInternal::BackupEndTaskTestingCallback*
         testingBackupEndTaskSendCallback;
 
+    /**
+     * For testing; send a magical partition id to this many of
+     * the recovery masters which will cause them to explode.
+     */
+    uint32_t testingFailRecoveryMasters;
+
     friend class RecoveryInternal::BackupStartTask;
     friend class RecoveryInternal::MasterStartTask;
     friend class RecoveryInternal::BackupEndTask;

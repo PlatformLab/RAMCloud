@@ -111,7 +111,8 @@ TEST_F(ServiceTest, handleRpc_messageTooShortForCommon) {
 }
 TEST_F(ServiceTest, handleRpc_undefinedType) {
     metrics->rpc.illegalRpcCount = 0;
-    request.fillFromString("1000 abcdef");
+    auto* header = new(&request, APPEND) RpcRequestCommon;
+    header->opcode = ILLEGAL_RPC_TYPE;
     service.handleRpc(rpc);
     EXPECT_STREQ("STATUS_UNIMPLEMENTED_REQUEST",
             TestUtil::getStatus(&response));

@@ -35,7 +35,8 @@ CoordinatorService::CoordinatorService(Context& context)
     , nextTableId(0)
     , nextTableMasterIdx(0)
     , nextReplicationId(1)
-    , recoveryManager(context, serverList, tabletMap)
+    , runtimeOptions()
+    , recoveryManager(context, serverList, tabletMap, &runtimeOptions)
     , forceServerDownForTesting(false)
 {
     recoveryManager.start();
@@ -94,6 +95,10 @@ CoordinatorService::dispatch(RpcOpcode opcode,
         case SendServerListRpc::opcode:
             callHandler<SendServerListRpc, CoordinatorService,
                         &CoordinatorService::sendServerList>(rpc);
+            break;
+        case SetRuntimeOptionRpc::opcode:
+            callHandler<SetRuntimeOptionRpc, CoordinatorService,
+                        &CoordinatorService::setRuntimeOption>(rpc);
             break;
         case ReassignTabletOwnershipRpc::opcode:
             callHandler<ReassignTabletOwnershipRpc, CoordinatorService,
@@ -633,6 +638,30 @@ CoordinatorService::sendServerList(
 
     LOG(DEBUG, "Sending server list to server id %lu as requested", *id);
     sendServerList(id);
+}
+
+/**
+ * Sets a runtime option field on the coordinator to the indicated value.
+ * See CoordinatorClient::setRuntimeOption() for details.
+ *
+ * \copydetails Service::ping
+ */
+void
+CoordinatorService::setRuntimeOption(const SetRuntimeOptionRpc::Request& reqHdr,
+                                     SetRuntimeOptionRpc::Response& respHdr,
+                                     Rpc& rpc)
+{
+    const char* option = getString(rpc.requestPayload, sizeof(reqHdr),
+                                   reqHdr.optionLength);
+    const char* value = getString(rpc.requestPayload,
+                                  downCast<uint32_t>(sizeof(reqHdr) +
+                                                     reqHdr.optionLength),
+                                  reqHdr.valueLength);
+    try {
+        runtimeOptions.set(option, value);
+    } catch (const std::out_of_range& e) {
+        respHdr.common.status = STATUS_OBJECT_DOESNT_EXIST;
+    }
 }
 
 /**

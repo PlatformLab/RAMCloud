@@ -446,6 +446,34 @@ CoordinatorClient::sendServerList(ServerId destination)
     checkStatus(HERE);
 }
 
+/**
+ * Sets a runtime option field on the coordinator to the indicated value.
+ *
+ * \param option
+ *      String name which corresponds to a member field in the RuntimeOptions
+ *      class (e.g.  "failRecoveryMasters") whose value should be replaced with
+ *      the given value.
+ * \param value
+ *      String which can be parsed into the type of the field indicated by
+ *      \a option. The format is specific to the type of each field but is
+ *      generally either a single value (e.g. "10", "word") or a collection
+ *      separated by spaces (e.g. "1 2 3", "first second"). See RuntimeOptions
+ *      for more information.
+ */
+void
+CoordinatorClient::setRuntimeOption(const char* option, const char* value)
+{
+    Buffer req, resp;
+    SetRuntimeOptionRpc::Request& reqHdr(
+        allocHeader<SetRuntimeOptionRpc>(req));
+    reqHdr.optionLength = downCast<uint32_t>(strlen(option) + 1);
+    reqHdr.valueLength = downCast<uint32_t>(strlen(value) + 1);
+    Buffer::Chunk::appendToBuffer(&req, option, reqHdr.optionLength);
+    Buffer::Chunk::appendToBuffer(&req, value, reqHdr.valueLength);
+    sendRecv<SetRuntimeOptionRpc>(session, req, resp);
+    checkStatus(HERE);
+}
+
 CoordinatorClient::SetMinOpenSegmentId::SetMinOpenSegmentId(
         CoordinatorClient& client,
         ServerId serverId,

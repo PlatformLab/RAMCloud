@@ -150,6 +150,7 @@ class RamCloud {
     void testingKill(uint64_t tableId, const char* key, uint16_t keyLength);
     void testingFill(uint64_t tableId, const char* key, uint16_t keyLength,
                      uint32_t objectCount, uint32_t objectSize);
+    void testingSetRuntimeOption(const char* option, const char* value);
     void testingWaitForAllTabletsNormal();
 
   PRIVATE:

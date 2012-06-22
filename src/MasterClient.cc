@@ -29,9 +29,21 @@ RejectRules defaultRejectRules;
 /**
  * Fill a master server with the given number of objects, each of the
  * same given size. Objects are added to all tables in the master in
- * a round-robin fashion.
+ * a round-robin fashion. This method exists simply to quickly fill a
+ * master for experiments.
  *
- * This method exists simply to quickly fill a master for experiments.
+ * See MasterClient::fillWithTestData() for more information.
+ *
+ * \bug Will return an error if the master only owns part of a table
+ * (because the hash of the fabricated keys may land in a region it
+ * doesn't own).
+ *
+ * \param numObjects
+ *      Total number of objects to add to the server.
+ * \param objectSize
+ *      Bytes of garbage data to place in each object not including the
+ *      key (the keys are ASCII strings starting with "0" and increasing
+ *      numerically in each table).
  */
 void
 MasterClient::fillWithTestData(uint32_t numObjects, uint32_t objectSize)

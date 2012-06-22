@@ -59,6 +59,7 @@ TESTS_SRCFILES := \
 		  src/ReplicaManagerTest.cc \
 		  src/ReplicatedSegmentTest.cc \
 		  src/RpcTest.cc \
+		  src/RuntimeOptionsTest.cc \
 		  src/SegmentTest.cc \
 		  src/SegmentIteratorTest.cc \
 		  src/ServerTest.cc \

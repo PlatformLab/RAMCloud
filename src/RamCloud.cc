@@ -344,6 +344,20 @@ RamCloud::write(uint64_t tableId, const char* key, uint16_t keyLength,
     }
 }
 
+/**
+ * Crash a master which owns a specific object. Crash is confirmed through
+ * the coordinator at the time the call returns.
+ *
+ * \param tableId
+ *      Together with \a key identifies a master which is the current
+ *      owner of that key which will be crashed.
+ * \param key
+ *      Together with \a tableId identifies a master which is the current
+ *      owner of that key which will be crashed.
+ *      It does not necessarily have to be null terminated like a string.
+ * \param keyLength
+ *      Size in bytes of the key.
+ */
 void
 RamCloud::testingKill(uint64_t tableId, const char* key, uint16_t keyLength)
 {
@@ -355,6 +369,34 @@ RamCloud::testingKill(uint64_t tableId, const char* key, uint16_t keyLength)
     killOp.cancel();
 }
 
+/**
+ * Fill a master server with the given number of objects, each of the
+ * same given size. Objects are added to all tables in the master in
+ * a round-robin fashion. This method exists simply to quickly fill a
+ * master for experiments.
+ *
+ * See MasterClient::fillWithTestData() for more information.
+ *
+ * \bug Will return an error if the master only owns part of a table
+ * (because the hash of the fabricated keys may land in a region it
+ * doesn't own).
+ *
+ * \param tableId
+ *      Together with \a key identifies a master which is the current
+ *      owner of that key which will be filled with junk data.
+ * \param key
+ *      Together with \a tableId identifies a master which is the current
+ *      owner of that key which will be filled with junk data.
+ *      It does not necessarily have to be null terminated like a string.
+ * \param keyLength
+ *      Size in bytes of the key.
+ * \param objectCount
+ *      Total number of objects to add to the server.
+ * \param objectSize
+ *      Bytes of garbage data to place in each object not including the
+ *      key (the keys are ASCII strings starting with "0" and increasing
+ *      numerically in each table).
+ */
 void
 RamCloud::testingFill(uint64_t tableId, const char* key, uint16_t keyLength,
                       uint32_t objectCount, uint32_t objectSize)
@@ -363,6 +405,30 @@ RamCloud::testingFill(uint64_t tableId, const char* key, uint16_t keyLength,
     master.fillWithTestData(objectCount, objectSize);
 }
 
+/**
+ * Sets a runtime option field on the coordinator to the indicated value.
+ *
+ * \param option
+ *      String name which corresponds to a member field in the RuntimeOptions
+ *      class (e.g.  "failRecoveryMasters") whose value should be replaced with
+ *      the given value.
+ * \param value
+ *      String which can be parsed into the type of the field indicated by
+ *      \a option. The format is specific to the type of each field but is
+ *      generally either a single value (e.g. "10", "word") or a collection
+ *      separated by spaces (e.g. "1 2 3", "first second"). See RuntimeOptions
+ *      for more information.
+ */
+void
+RamCloud::testingSetRuntimeOption(const char* option, const char* value)
+{
+    coordinator.setRuntimeOption(option, value);
+}
+
+/**
+ * Block and query coordinator until all tablets have normal status
+ * (that is, no tablet is under recovery).
+ */
 void
 RamCloud::testingWaitForAllTabletsNormal()
 {

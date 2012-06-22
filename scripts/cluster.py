@@ -345,8 +345,9 @@ class Cluster(object):
         self.sandbox.__enter__()
         return self
 
-    def __exit__(self, exc_type, exc_value, exc_tb):
+    def __exit__(self, exc_type=None, exc_value=None, exc_tb=None):
         self.sandbox.__exit__(exc_type, exc_value, exc_tb)
+        return False # rethrow exception, if any
 
 def run(
         num_servers=4,             # Number of hosts on which to start

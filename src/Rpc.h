@@ -106,7 +106,8 @@ enum RpcOpcode {
     IS_REPLICA_NEEDED       = 48,
     SPLIT_TABLET            = 49,
     GET_SERVER_STATISTICS   = 50,
-    ILLEGAL_RPC_TYPE        = 51,  // 1 + the highest legitimate RpcOpcode
+    SET_RUNTIME_OPTION      = 51,
+    ILLEGAL_RPC_TYPE        = 52,  // 1 + the highest legitimate RpcOpcode
 };
 
 /**
@@ -481,7 +482,6 @@ struct SplitMasterTabletRpc {
     } __attribute__((packed));
 };
 
-
 struct GetTableIdRpc {
     static const RpcOpcode opcode = GET_TABLE_ID;
     static const ServiceType service = COORDINATOR_SERVICE;
@@ -539,6 +539,22 @@ struct GetServerStatisticsRpc {
                                    // protobuf. The bytes of the protobuf
                                    // follow immediately after this header.
                                    // See ProtoBuf::Tablets.
+    } __attribute__((packed));
+};
+
+struct SetRuntimeOptionRpc {
+    static const RpcOpcode opcode = SET_RUNTIME_OPTION;
+    static const ServiceType service = COORDINATOR_SERVICE;
+    struct Request {
+        RpcRequestCommon common;
+        uint32_t optionLength; // Number of bytes in the name of the option
+                               // to set including terminating NULL character.
+        uint32_t valueLength;  // Number of bytes in string representing the
+                               // value to set the option to including
+                               // terminating NULL character.
+    } __attribute__((packed));
+    struct Response {
+        RpcResponseCommon common;
     } __attribute__((packed));
 };
 

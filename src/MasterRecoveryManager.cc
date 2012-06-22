@@ -28,12 +28,17 @@ namespace RAMCloud {
  *      Authoritative list of all servers in the system and their details.
  * \param  tabletMap
  *      Authoritative information about tablets and their mapping to servers.
+ * \param runtimeOptions
+ *      Configuration options which are stored by the coordinator.
+ *      May be NULL for testing.
  */
 MasterRecoveryManager::MasterRecoveryManager(Context& context,
                                              CoordinatorServerList& serverList,
-                                             TabletMap& tabletMap)
+                                             TabletMap& tabletMap,
+                                             RuntimeOptions* runtimeOptions)
     : serverList(serverList)
     , tabletMap(tabletMap)
+    , runtimeOptions(runtimeOptions)
     , thread()
     , waitingRecoveries()
     , activeRecoveries()
@@ -226,6 +231,9 @@ class MaybeStartRecoveryTask : public Task {
                     "another recovery is active for the same ServerId",
                     recovery->crashedServerId.getId());
             } else {
+                if (mgr.runtimeOptions)
+                    recovery->testingFailRecoveryMasters =
+                        mgr.runtimeOptions->popFailRecoveryMasters();
                 recovery->schedule();
                 mgr.activeRecoveries[recovery->getRecoveryId()] = recovery;
                 mgr.waitingRecoveries.pop();

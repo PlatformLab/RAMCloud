@@ -14,6 +14,7 @@
  */
 
 #include "TestUtil.h"
+#include "ClientException.h"
 #include "CoordinatorClient.h"
 #include "CoordinatorService.h"
 #include "MasterService.h"
@@ -612,6 +613,17 @@ TEST_F(CoordinatorServiceTest, sendServerList_service) {
     EXPECT_NE(string::npos, TestLog::get().find(
         "applyFullList: Got complete list of servers containing 1 "
         "entries (version number 2)"));
+}
+
+TEST_F(CoordinatorServiceTest, setRuntimeOption) {
+    client->setRuntimeOption("failRecoveryMasters", "1 2 3");
+    ASSERT_EQ(3u, service->runtimeOptions.failRecoveryMasters.size());
+    EXPECT_EQ(1u, service->runtimeOptions.popFailRecoveryMasters());
+    EXPECT_EQ(2u, service->runtimeOptions.popFailRecoveryMasters());
+    EXPECT_EQ(3u, service->runtimeOptions.popFailRecoveryMasters());
+    EXPECT_EQ(0u, service->runtimeOptions.popFailRecoveryMasters());
+    EXPECT_THROW(client->setRuntimeOption("BAD", "1 2 3"),
+                 ObjectDoesntExistException);
 }
 
 TEST_F(CoordinatorServiceTest, setMinOpenSegmentId) {

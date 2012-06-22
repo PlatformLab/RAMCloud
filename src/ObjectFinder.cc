@@ -104,8 +104,14 @@ ObjectFinder::lookup(uint64_t table, const char* key, uint16_t keyLength) {
             throw TableDoesntExistException(HERE);
         }
         refresh_and_retry:
-            tabletMapFetcher->getTabletMap(tabletMap);
-            haveRefreshed = true;
+            try {
+                tabletMapFetcher->getTabletMap(tabletMap);
+                haveRefreshed = true;
+            } catch (const TransportException& e) {
+                LOG(WARNING, "Couldn't get tablet map from coordinator; "
+                    "retrying: %s", e.what());
+                usleep(10000);
+            }
     }
 }
 
@@ -174,7 +180,13 @@ ObjectFinder::waitForTabletDown()
             }
         }
         usleep(200);
-        tabletMapFetcher->getTabletMap(tabletMap);
+        try {
+            tabletMapFetcher->getTabletMap(tabletMap);
+        } catch (const TransportException& e) {
+            LOG(WARNING, "Couldn't get tablet map from coordinator; "
+                "retrying: %s", e.what());
+            usleep(10000);
+        }
     }
 }
 
@@ -183,7 +195,7 @@ ObjectFinder::waitForTabletDown()
  * Flush the tablet map and refresh it until it is non-empty and all of
  * the tablets have normal status.
  *
- * Used only by RecoveryMain.c to detect when the recovery is complete.
+ * Used for testing to detect when the recovery is complete.
  */
 void
 ObjectFinder::waitForAllTabletsNormal()
@@ -201,7 +213,13 @@ ObjectFinder::waitForAllTabletsNormal()
         if (allNormal && tabletMap.tablet_size() > 0)
             return;
         usleep(200);
-        tabletMapFetcher->getTabletMap(tabletMap);
+        try {
+            tabletMapFetcher->getTabletMap(tabletMap);
+        } catch (const TransportException& e) {
+            LOG(WARNING, "Couldn't get tablet map from coordinator; "
+                "retrying: %s", e.what());
+            usleep(10000);
+        }
     }
 }
 

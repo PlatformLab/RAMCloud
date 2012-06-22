@@ -66,6 +66,7 @@ class CoordinatorClient : public Client {
                                 bool successful);
     void setWill(uint64_t masterId, const ProtoBuf::Tablets& will);
     void sendServerList(ServerId destination);
+    void setRuntimeOption(const char* option, const char* value);
 
     class SetMinOpenSegmentId {
       public:

@@ -21,6 +21,7 @@
 #include "CoordinatorServerList.h"
 #include "ProtoBuf.h"
 #include "Recovery.h"
+#include "RuntimeOptions.h"
 #include "ServerTracker.h"
 #include "TabletMap.h"
 #include "Tub.h"
@@ -51,7 +52,8 @@ class MasterRecoveryManager : public Recovery::Owner
   PUBLIC:
     MasterRecoveryManager(Context& context,
                           CoordinatorServerList& serverList,
-                          TabletMap& tabletMap);
+                          TabletMap& tabletMap,
+                          RuntimeOptions* runtimeOptions);
     ~MasterRecoveryManager();
 
     void start();
@@ -77,6 +79,13 @@ class MasterRecoveryManager : public Recovery::Owner
 
     /// Authoritative information about tablets and their mapping to servers.
     TabletMap& tabletMap;
+
+    /**
+     * Contains coordinator configuration options which can be modified while
+     * the cluster is running. Currently mostly used for setting debugging
+     * or testing parameters.
+     */
+    RuntimeOptions* runtimeOptions;
 
     /**
      * Drives recoveries; wakes up whenever new recoveries are waiting

@@ -79,6 +79,7 @@ Recovery::Recovery(TaskQueue& taskQueue,
     , testingBackupStartTaskSendCallback()
     , testingMasterStartTaskSendCallback()
     , testingBackupEndTaskSendCallback()
+    , testingFailRecoveryMasters()
 {
     metrics->coordinator.recoveryCount++;
 
@@ -582,10 +583,17 @@ struct MasterStartTask {
                 masterClient.construct(recovery.tracker->getSession(serverId));
                 rpc.construct(*masterClient,
                               recovery.recoveryId,
-                              recovery.crashedServerId, partitionId,
+                              recovery.crashedServerId,
+                              recovery.testingFailRecoveryMasters > 0
+                                  ? ~0u : partitionId,
                               tablets,
                               replicaMap.data(),
                               downCast<uint32_t>(replicaMap.size()));
+                if (recovery.testingFailRecoveryMasters > 0) {
+                    LOG(NOTICE, "Told recovery master %lu to kill itself",
+                        serverId.getId());
+                    --recovery.testingFailRecoveryMasters;
+                }
             } else {
                 testingCallback->masterStartTaskSend(recovery.recoveryId,
                                                      recovery.crashedServerId,
