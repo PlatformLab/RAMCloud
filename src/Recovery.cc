@@ -193,13 +193,23 @@ BackupStartTask::BackupStartTask(
 void
 BackupStartTask::send()
 {
+    LOG(DEBUG, "Starting startReadingData on backup %lu", backupId.getId());
     if (!testingCallback) {
-        client.construct(recovery->tracker->getSession(backupId));
-        rpc.construct(*client, crashedMasterId, partitions);
+        try {
+            client.construct(recovery->tracker->getSession(backupId));
+            rpc.construct(*client, crashedMasterId, partitions);
+            return;
+        } catch (const TransportException& e) {
+            LOG(WARNING, "Couldn't contact backup %lu to start recovery: %s",
+                backupId.getId(), e.what());
+        } catch (const ClientException& e) {
+            LOG(WARNING, "Couldn't contact backup %lu to start recovery: %s",
+                backupId.getId(), e.what());
+        }
+        done = true;
     } else {
         testingCallback->backupStartTaskSend(result);
     }
-    LOG(DEBUG, "Starting startReadingData on backup %lu", backupId.getId());
 }
 
 /**
@@ -733,10 +743,14 @@ Recovery::recoveryMasterFinished(ServerId recoveryMasterId,
         return;
     (*tracker)[recoveryMasterId] = NULL;
 
-    if (successful)
+    if (successful) {
         ++successfulRecoveryMasters;
-    else
+    } else {
         ++unsuccessfulRecoveryMasters;
+        LOG(NOTICE, "Recovery master %lu failed to recover its partition "
+            "of the will for crashed server %lu", recoveryMasterId.getId(),
+            crashedServerId.getId());
+    }
 
     const uint32_t completedRecoveryMasters =
         successfulRecoveryMasters + unsuccessfulRecoveryMasters;

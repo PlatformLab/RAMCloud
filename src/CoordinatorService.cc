@@ -429,7 +429,7 @@ CoordinatorService::hintServerDown(ServerId serverId)
 {
     if (!serverList.contains(serverId) ||
         serverList[serverId].status != ServerStatus::UP) {
-        LOG(NOTICE, "Spurious crash report on unknown server id %lu",
+        LOG(DEBUG, "Spurious crash report on unknown server id %lu",
             serverId.getId());
         return true;
     }

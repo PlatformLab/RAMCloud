@@ -154,6 +154,13 @@ TEST_F(RecoveryTest, startBackups) {
               recovery.replicaMap);
 }
 
+TEST_F(RecoveryTest, startBackups_failureContactingSomeBackup) {
+    Recovery recovery(taskQueue, &tracker, NULL, ServerId(99), tablets, 0lu);
+    ProtoBuf::Tablets partitions;
+    BackupStartTask task(&recovery, {2, 0}, {1, 0}, partitions, 0);
+    EXPECT_NO_THROW(task.send());
+}
+
 TEST_F(RecoveryTest, startBackups_secondariesEarlyInSomeList) {
     // See buildReplicaMap test for info about how the callback is used.
     struct Cb : public BackupStartTask::TestingCallback {

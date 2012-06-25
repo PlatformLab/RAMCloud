@@ -130,6 +130,9 @@ class ApplyTrackerChangesTask : public Task {
                 Recovery* recovery = mgr.tracker[server.serverId];
                 if (!recovery)
                     break;
+                LOG(NOTICE, "Recovery master %lu crashed while recovering "
+                    " a partition of server %lu", server.serverId.getId(),
+                    recovery->crashedServerId.getId());
                 // Like it or not, recovery is done on this recovery master
                 // but unsuccessfully.
                 recovery->recoveryMasterFinished(server.serverId, false);

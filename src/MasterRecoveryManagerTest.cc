@@ -245,6 +245,8 @@ TEST_F(MasterRecoveryManagerTest,
     mgr.taskQueue.performTask();
     EXPECT_EQ(
         "performTask: A recovery master failed to recover its partition | "
+        "recoveryMasterFinished: Recovery master 2 failed to recover its "
+            "partition of the will for crashed server 1 | "
         "recoveryFinished: Recovery completed for master 1 | "
         "recoveryFinished: Recovery of server 1 failed to recover some "
             "tablets, rescheduling another recovery", TestLog::get());
