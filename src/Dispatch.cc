@@ -505,8 +505,7 @@ Dispatch::fdIsReady(int fd)
  * is invoked.
  *
  * \param dispatch
- *      Dispatch object that will manage this timer (defaults to the
- *      global #RAMCloud::dispatch object).
+ *      Dispatch object that will manage this timer.
  */
 Dispatch::Timer::Timer(Dispatch& dispatch)
     : owner(&dispatch), triggerTime(0), slot(-1)
@@ -517,8 +516,7 @@ Dispatch::Timer::Timer(Dispatch& dispatch)
  * Construct a timer and start it running.
  *
  * \param dispatch
- *      Dispatch object that will manage this timer (defaults to the
- *      global #RAMCloud::dispatch object).
+ *      Dispatch object that will manage this timer.
  * \param cycles
  *      Time at which the timer should trigger, measured in cycles (the units
  *      returned by #Cycles::rdtsc).
