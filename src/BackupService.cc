@@ -725,7 +725,7 @@ BackupService::IoScheduler::IoScheduler()
  */
 void
 BackupService::IoScheduler::operator()()
-{
+try {
     while (true) {
         SegmentInfo* info = NULL;
         bool isLoad = false;
@@ -756,6 +756,12 @@ BackupService::IoScheduler::operator()()
             doStore(*info);
         }
     }
+} catch (const std::exception& e) {
+    LOG(ERROR, "Fatal error in BackupService::IoScheduler: %s", e.what());
+    throw;
+} catch (...) {
+    LOG(ERROR, "Unknown fatal error in BackupService::IoScheduler.");
+    throw;
 }
 
 /**
@@ -1958,7 +1964,7 @@ BackupService::gc()
  */
 void
 BackupService::gcMain()
-{
+try {
     while (true) {
         while (gc());
         uint32_t waited = 0;
@@ -1969,6 +1975,12 @@ BackupService::gcMain()
             waited += 10;
         }
     }
+} catch (const std::exception& e) {
+    LOG(ERROR, "Fatal error in BackupService::gcThread: %s", e.what());
+    throw;
+} catch (...) {
+    LOG(ERROR, "Unknown fatal error in BackupService::gcThread.");
+    throw;
 }
 
 } // namespace RAMCloud

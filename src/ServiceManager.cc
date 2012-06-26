@@ -347,6 +347,9 @@ ServiceManager::workerMain(Worker* worker)
     } catch (std::exception& e) {
         LOG(ERROR, "worker: %s", e.what());
         throw; // will likely call std::terminate()
+    } catch (...) {
+        LOG(ERROR, "worker");
+        throw; // will likely call std::terminate()
     }
 }
 

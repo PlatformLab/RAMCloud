@@ -167,7 +167,7 @@ LogCleaner::halt()
  */
 void
 LogCleaner::cleanerThreadEntry(LogCleaner* logCleaner, Context* context)
-{
+try {
     LOG(NOTICE, "LogCleaner thread spun up");
 
     while (1) {
@@ -177,6 +177,12 @@ LogCleaner::cleanerThreadEntry(LogCleaner* logCleaner, Context* context)
         if (!logCleaner->clean())
             usleep(LogCleaner::POLL_USEC);
     }
+} catch (const std::exception& e) {
+    LOG(ERROR, "Fatal error in LogCleaner: %s", e.what());
+    throw;
+} catch (...) {
+    LOG(ERROR, "Unknown fatal error in LogCleaner.");
+    throw;
 }
 
 /**

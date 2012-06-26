@@ -131,7 +131,7 @@ class ApplyTrackerChangesTask : public Task {
                 if (!recovery)
                     break;
                 LOG(NOTICE, "Recovery master %lu crashed while recovering "
-                    " a partition of server %lu", server.serverId.getId(),
+                    "a partition of server %lu", server.serverId.getId(),
                     recovery->crashedServerId.getId());
                 // Like it or not, recovery is done on this recovery master
                 // but unsuccessfully.
@@ -524,8 +524,14 @@ MasterRecoveryManager::recoveryMasterFinished(
  */
 void
 MasterRecoveryManager::main()
-{
+try {
     taskQueue.performTasksUntilHalt();
+} catch (const std::exception& e) {
+    LOG(ERROR, "Fatal error in MasterRecoveryManager: %s", e.what());
+    throw;
+} catch (...) {
+    LOG(ERROR, "Unknown fatal error in MasterRecoveryManager.");
+    throw;
 }
 
 /**

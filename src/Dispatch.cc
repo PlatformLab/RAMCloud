@@ -423,7 +423,8 @@ void Dispatch::File::setEvents(int events)
  * \param owner
  *      The dispatch object on whose behalf this thread is working.
  */
-void Dispatch::epollThreadMain(Dispatch* owner) {
+void Dispatch::epollThreadMain(Dispatch* owner)
+try {
 #define MAX_EVENTS 10
     struct epoll_event events[MAX_EVENTS];
     while (true) {
@@ -479,6 +480,12 @@ void Dispatch::epollThreadMain(Dispatch* owner) {
             owner->readyFd = events[i].data.fd;
         }
     }
+} catch (const std::exception& e) {
+    LOG(ERROR, "Fatal error in epollThreadMain: %s", e.what());
+    throw;
+} catch (...) {
+    LOG(ERROR, "Unknown fatal error in epollThreadMain.");
+    throw;
 }
 
 /**
