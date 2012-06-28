@@ -174,7 +174,7 @@ SessionAlarmTimer::handleTimerEvent()
         Buffer* request = new Buffer;
         Buffer* response = new Buffer;
         PingRpc::Request& reqHdr(Client::allocHeader<PingRpc>(*request));
-        reqHdr.nonce = 12345;
+        reqHdr.nonce = 0x12345;
         Transport::ClientRpc* rpc = alarm->session.clientSend(request,
                 response);
         pings[alarm] = {rpc, request, response};
