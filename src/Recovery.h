@@ -114,7 +114,7 @@ class Recovery : public Task {
      * The default logic does nothing which is useful for
      * Recovery during unit testing.
      */
-    struct Owner{
+    struct Owner {
         virtual void recoveryFinished(Recovery* recovery) {}
         virtual void destroyAndFreeRecovery(Recovery* recovery) {}
         virtual ~Owner() {}

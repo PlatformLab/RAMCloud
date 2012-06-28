@@ -404,6 +404,9 @@ class RecoveryMasterFinishedTask : public Task {
                         "we need to handle this sensibly");
                 }
             }
+            LOG(DEBUG, "Coordinator tabletMap after recovery master %lu "
+                "finished: %s",
+                recoveryMasterId.getId(), mgr.tabletMap.debugString().c_str());
         } else {
             LOG(WARNING, "A recovery master failed to recover its partition");
         }

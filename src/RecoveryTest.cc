@@ -502,6 +502,54 @@ TEST_F(RecoveryTest, startRecoveryMasters_tooFewIdleMasters) {
     EXPECT_FALSE(recovery.wasCompletelySuccessful());
 }
 
+/**
+ * Slightly different than the tooFewIdleMasters case above: because
+ * no recovery master get started we need to make sure recovery doesn't
+ * enter the 'wait for recovery masters' phase and that it finishes early.
+ */
+TEST_F(RecoveryTest, startRecoveryMasters_noIdleMasters) {
+    struct Owner : public Recovery::Owner {
+        Owner() : finishedCalled(), destroyCalled() {}
+        bool finishedCalled;
+        bool destroyCalled;
+        void recoveryFinished(Recovery* recovery) {
+            finishedCalled = true;
+        }
+        void destroyAndFreeRecovery(Recovery* recovery) {
+            destroyCalled = true;
+        }
+    } owner;
+    MockRandom __(1);
+    TabletsBuilder{tablets}
+        (123,  0,  9, TabletsBuilder::RECOVERING, 0)
+        (123, 20, 29, TabletsBuilder::RECOVERING, 0)
+        (123, 10, 19, TabletsBuilder::RECOVERING, 1);
+    addServersToTracker(2, {MASTER_SERVICE});
+    tracker[ServerId(1, 0)] = reinterpret_cast<Recovery*>(0x1);
+    tracker[ServerId(2, 0)] = reinterpret_cast<Recovery*>(0x1);
+    Recovery recovery(taskQueue, &tracker, &owner, {99, 0}, tablets, 0lu);
+
+    TestLog::Enable _;
+    recovery.startRecoveryMasters();
+
+    EXPECT_EQ(
+        "startRecoveryMasters: Starting recovery 1 for crashed server 99 "
+            "with 2 partitions | "
+        "startRecoveryMasters: Couldn't find enough masters not already "
+            "performing a recovery to recover all partitions: 2 partitions "
+            "will be recovered later | "
+        "recoveryMasterFinished: Recovery wasn't completely successful; "
+            "will not broadcast the end of recovery 1 for server 99 to backups",
+        TestLog::get());
+    EXPECT_EQ(2u, recovery.numPartitions);
+    EXPECT_EQ(0u, recovery.successfulRecoveryMasters);
+    EXPECT_EQ(2u, recovery.unsuccessfulRecoveryMasters);
+    EXPECT_EQ(Recovery::DONE, recovery.status);
+    EXPECT_FALSE(recovery.wasCompletelySuccessful());
+    EXPECT_TRUE(owner.finishedCalled);
+    EXPECT_TRUE(owner.destroyCalled);
+}
+
 TEST_F(RecoveryTest, startRecoveryMasters_allFailDuringRecoverRpc) {
     TabletsBuilder{tablets}
         (123,  0,  9, TabletsBuilder::RECOVERING, 0)
@@ -514,8 +562,8 @@ TEST_F(RecoveryTest, startRecoveryMasters_allFailDuringRecoverRpc) {
     EXPECT_EQ(2u, recovery.numPartitions);
     EXPECT_EQ(0u, recovery.successfulRecoveryMasters);
     EXPECT_EQ(2u, recovery.unsuccessfulRecoveryMasters);
-    EXPECT_EQ(Recovery::BROADCAST_RECOVERY_COMPLETE, recovery.status);
-    EXPECT_TRUE(recovery.isScheduled()); // scheduled to send broadcast
+    EXPECT_EQ(Recovery::DONE, recovery.status);
+    EXPECT_FALSE(recovery.isScheduled()); // NOT scheduled to send broadcast
     EXPECT_FALSE(tracker[ServerId(1, 0)]);
     EXPECT_FALSE(tracker[ServerId(2, 0)]);
 }
@@ -541,7 +589,7 @@ TEST_F(RecoveryTest, recoveryMasterFinished) {
     recovery.recoveryMasterFinished({3, 0}, false);
     EXPECT_EQ(1u, recovery.successfulRecoveryMasters);
     EXPECT_EQ(1u, recovery.unsuccessfulRecoveryMasters);
-    EXPECT_EQ(Recovery::BROADCAST_RECOVERY_COMPLETE, recovery.status);
+    EXPECT_EQ(Recovery::DONE, recovery.status);
 }
 
 TEST_F(RecoveryTest, broadcastRecoveryComplete) {
