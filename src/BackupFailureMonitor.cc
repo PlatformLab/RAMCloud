@@ -184,9 +184,6 @@ BackupFailureMonitor::serverIsUp(ServerId serverId)
 void
 BackupFailureMonitor::trackerChangesEnqueued()
 {
-    Lock lock(mutex);
-    if (!running)
-        return;
     changesOrExit.notify_one();
 }
 

@@ -487,9 +487,6 @@ CoordinatorService::recoveryMasterFinished(
                                            serverId,
                                            recoveredTablets,
                                            reqHdr.successful);
-    // Dump the tabletMap out for easy debugging.
-    LOG(DEBUG, "Coordinator tabletMap: %s",
-        tabletMap.debugString().c_str());
 
     // TODO(stutsman): Eventually we'll want to be able to 'reject' recovery
     // master completions, so we'll need to get a return value from

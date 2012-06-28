@@ -447,8 +447,8 @@ MasterRecoveryManager::recoveryFinished(Recovery* recovery)
     // means another recovery won't start until after the end of
     // recovery broadcast. To change that just move the erase
     // from destroyAndFreeRecovery() to recoveryFinished().
-    LOG(NOTICE, "Recovery completed for master %lu",
-        recovery->crashedServerId.getId());
+    LOG(NOTICE, "Recovery %lu completed for master %lu",
+        recovery->getRecoveryId(), recovery->crashedServerId.getId());
     if (recovery->wasCompletelySuccessful()) {
         // Remove recovered server from the server list and broadcast
         // the change to the cluster.
