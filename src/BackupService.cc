@@ -442,6 +442,14 @@ BackupService::SegmentInfo::buildRecoverySegments(
     Lock lock(mutex);
     assert(state == RECOVERING);
 
+    if (recoverySegments) {
+        LOG(NOTICE, "Recovery segments already built for <%lu,%lu>",
+            masterId.getId(), segmentId);
+        // Skip if the recovery segments were generated earlier.
+        condition.notify_all();
+        return;
+    }
+
     waitForOngoingOps(lock);
 
     assert(inMemory());
@@ -992,7 +1000,7 @@ BackupService::RecoverySegmentBuilder::RecoverySegmentBuilder(
  */
 void
 BackupService::RecoverySegmentBuilder::operator()()
-{
+try {
     uint64_t startTime = Cycles::rdtsc();
     ReferenceDecrementer<Atomic<int>> _(recoveryThreadCount);
     LOG(DEBUG, "Building recovery segments on new thread");
@@ -1027,6 +1035,13 @@ BackupService::RecoverySegmentBuilder::operator()()
         infos.size(),
         static_cast<double>(segmentSize * infos.size() / (1 << 20)) /
         static_cast<double>(totalTime) / 1e9);
+} catch (const std::exception& e) {
+    LOG(ERROR, "Fatal error in BackupService::RecoverySegmentBuilder: %s",
+        e.what());
+    throw;
+} catch (...) {
+    LOG(ERROR, "Unknown fatal error in BackupService::RecoverySegmentBuilder.");
+    throw;
 }
 
 
@@ -1287,7 +1302,8 @@ BackupService::freeSegment(const BackupFreeRpc::Request& reqHdr,
                            BackupFreeRpc::Response& respHdr,
                            Rpc& rpc)
 {
-    LOG(DEBUG, "Handling: %lu %lu", reqHdr.masterId, reqHdr.segmentId);
+    LOG(DEBUG, "Freeing replica for master %lu segment %lu",
+        reqHdr.masterId, reqHdr.segmentId);
 
     SegmentsMap::iterator it =
         segments.find(MasterSegmentIdPair(ServerId(reqHdr.masterId),
@@ -1608,7 +1624,8 @@ BackupService::startReadingData(
         BackupStartReadingDataRpc::Response& respHdr,
         Rpc& rpc)
 {
-    LOG(DEBUG, "Handling: %lu", reqHdr.masterId);
+    LOG(DEBUG, "Backup preparing for recovery of crashed server %lu",
+        reqHdr.masterId);
     recoveryTicks.construct(&metrics->backup.recoveryTicks);
     recoveryStart = Cycles::rdtsc();
     metrics->backup.recoveryCount++;
@@ -1672,13 +1689,15 @@ BackupService::startReadingData(
 
     typedef BackupStartReadingDataRpc::Replica Replica;
 
+    bool allRecovered = true;
     foreach (auto info, primarySegments) {
         new(&rpc.replyPayload, APPEND) Replica
             {info->segmentId, info->getRightmostWrittenOffset()};
         LOG(DEBUG, "Crashed master %lu had segment %lu (primary) with len %u",
             *info->masterId, info->segmentId,
             info->getRightmostWrittenOffset());
-        info->setRecovering();
+        bool wasRecovering = info->setRecovering();
+        allRecovered &= wasRecovering;
     }
     foreach (auto info, secondarySegments) {
         new(&rpc.replyPayload, APPEND) Replica
@@ -1687,7 +1706,8 @@ BackupService::startReadingData(
             ", stored partitions for deferred recovery segment construction",
             *info->masterId, info->segmentId,
             info->getRightmostWrittenOffset());
-        info->setRecovering(partitions);
+        bool wasRecovering = info->setRecovering(partitions);
+        allRecovered &= wasRecovering;
     }
     respHdr.segmentIdCount = downCast<uint32_t>(primarySegments.size() +
                                                 secondarySegments.size());
@@ -1705,6 +1725,10 @@ BackupService::startReadingData(
     }
 
     rpc.sendReply();
+
+    // Don't spin up a thread if there isn't anything that needs to be built.
+    if (allRecovered)
+        return;
 
 #ifndef SINGLE_THREADED_BACKUP
     RecoverySegmentBuilder builder(context,

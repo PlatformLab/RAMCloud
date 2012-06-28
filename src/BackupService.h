@@ -256,29 +256,34 @@ class BackupService : public Service {
         /**
          * Set the state to #RECOVERING from #OPEN or #CLOSED.
          * This can only be called on a primary segment.
+         * Returns true if the segment was already #RECOVERING.
          */
-        void
+        bool
         setRecovering()
         {
             Lock lock(mutex);
             assert(primary);
+            bool wasRecovering = state == RECOVERING;
             state = RECOVERING;
+            return wasRecovering;
         }
 
         /**
          * Set the state to #RECOVERING from #OPEN or #CLOSED and store
          * a copy of the supplied tablet information in case construction
          * of recovery segments is needed later for this secondary
-         * segment.
+         * segment. Returns true if the segment was already #RECOVERING.
          */
-        void
+        bool
         setRecovering(const ProtoBuf::Tablets& partitions)
         {
             Lock lock(mutex);
             assert(!primary);
+            bool wasRecovering = state == RECOVERING;
             state = RECOVERING;
             // Make a copy of the partition list for deferred filtering.
             recoveryPartitions.construct(partitions);
+            return wasRecovering;
         }
 
         void startLoading();

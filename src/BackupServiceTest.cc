@@ -1610,6 +1610,12 @@ TEST_F(SegmentInfoTest, buildRecoverySegment) {
 
     info.buildRecoverySegments(partitions);
 
+    // Make sure subsequent calls have no effect.
+    TestLog::Enable _;
+    info.buildRecoverySegments(partitions);
+    EXPECT_EQ("buildRecoverySegments: Recovery segments already built for "
+              "<99,88>", TestLog::get());
+
     EXPECT_FALSE(info.recoveryException);
     EXPECT_EQ(2u, info.recoverySegmentsLength);
     ASSERT_TRUE(info.recoverySegments);
