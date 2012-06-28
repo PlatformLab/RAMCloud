@@ -117,8 +117,14 @@ class MinOpenSegmentId : public Task {
         }
         if (!rpc) {
             if (current != requested) {
-                rpc.construct(*coordinator, *serverId, requested);
-                sent = requested;
+                try {
+                    rpc.construct(*coordinator, *serverId, requested);
+                    sent = requested;
+                } catch (const TransportException& e) {
+                    RAMCLOUD_LOG(WARNING, "Problem communicating with the "
+                                 "coordinator during setMinOpenSegmentId call, "
+                                 "retrying");
+                }
             }
         } else {
             if (rpc->isReady()) {
@@ -127,7 +133,7 @@ class MinOpenSegmentId : public Task {
                     current = sent;
                     RAMCLOUD_LOG(DEBUG, "coordinator minOpenSegmentId for %lu "
                                  "updated to %lu", serverId->getId(), current);
-                } catch (TransportException& e) {
+                } catch (const TransportException& e) {
                     RAMCLOUD_LOG(WARNING, "Problem communicating with the "
                                  "coordinator during setMinOpenSegmentId call, "
                                  "retrying");
