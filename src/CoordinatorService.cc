@@ -900,7 +900,7 @@ CoordinatorService::verifyServerFailure(ServerId serverId) {
     try {
         uint64_t nonce = generateRandom();
         PingClient pingClient(context);
-        pingClient.ping(serviceLocator.c_str(),
+        pingClient.ping(serviceLocator.c_str(), ServerId(),
                         nonce, TIMEOUT_USECS * 1000);
         LOG(NOTICE, "False positive for server id %lu (\"%s\")",
                     *serverId, serviceLocator.c_str());

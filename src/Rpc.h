@@ -851,6 +851,9 @@ struct PingRpc {
         uint64_t nonce;             // The nonce may be used to identify
                                     // replies to previously transmitted
                                     // pings.
+        uint64_t callerId;          // ServerId of the server issuing the
+                                    // ping. May be invalid if coming
+                                    // from a client.
     } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;

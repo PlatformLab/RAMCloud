@@ -146,7 +146,7 @@ RamCloud::ping(const char* serviceLocator, uint64_t nonce,
                uint64_t timeoutNanoseconds)
 {
     PingClient client(clientContext);
-    return client.ping(serviceLocator, nonce, timeoutNanoseconds);
+    return client.ping(serviceLocator, ServerId(), nonce, timeoutNanoseconds);
 }
 
 /**
@@ -179,7 +179,7 @@ RamCloud::ping(uint64_t table, const char* key, uint16_t keyLength,
     PingClient client(clientContext);
     const char *serviceLocator = objectFinder.lookup(table, key, keyLength)->
             getServiceLocator().c_str();
-    return client.ping(serviceLocator, nonce, timeoutNanoseconds);
+    return client.ping(serviceLocator, ServerId(), nonce, timeoutNanoseconds);
 }
 
 /// \copydoc PingClient::proxyPing

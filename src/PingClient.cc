@@ -85,6 +85,10 @@ PingClient::getMetrics(const char* serviceLocator)
  *
  * \param serviceLocator
  *      Identifies the server to ping.
+ * \param callerId
+ *      Used to inform the pinged server of which server is sending the ping.
+ *      Used on the pingee side for debug logging.
+ *      Clients and coordinators should use an invalid ServerId (ServerID()).
  * \param nonce
  *      Arbitrary 64-bit value to pass to the server; the server will return
  *      this value in its response.
@@ -103,6 +107,7 @@ PingClient::getMetrics(const char* serviceLocator)
  */
 uint64_t
 PingClient::ping(const char* serviceLocator,
+                 ServerId callerId,
                  uint64_t nonce,
                  uint64_t timeoutNanoseconds,
                  uint64_t* serverListVersion)
@@ -110,6 +115,7 @@ PingClient::ping(const char* serviceLocator,
     // Fill in the request.
     Buffer req, resp;
     PingRpc::Request& reqHdr(allocHeader<PingRpc>(req));
+    reqHdr.callerId = callerId.getId();
     reqHdr.nonce = nonce;
 
     // Send the request and wait for a response.

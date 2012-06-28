@@ -87,7 +87,7 @@ TEST_F(ServiceTest, getString_stringNotTerminated) {
 }
 
 TEST_F(ServiceTest, dispatch_ping) {
-    request.fillFromString("7 0 0 0");
+    request.fillFromString("7 0 0 0 0 0");
     service.dispatch(PingRpc::opcode, rpc);
     EXPECT_TRUE(TestUtil::matchesPosixRegex("Service::ping invoked",
             TestLog::get()));
@@ -145,7 +145,7 @@ TEST_F(ServiceTest, callHandler_messageTooShort) {
         MessageTooShortError);
 }
 TEST_F(ServiceTest, callHandler_normal) {
-    request.fillFromString("7 0 0 0");
+    request.fillFromString("7 0 0 0 0 0");
     service.callHandler<PingRpc, Service, &Service::ping>(rpc);
     EXPECT_TRUE(TestUtil::matchesPosixRegex("ping", TestLog::get()));
 }

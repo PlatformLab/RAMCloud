@@ -51,10 +51,11 @@ class ServerTest: public ::testing::Test {
 };
 
 TEST_F(ServerTest, startForTesting) {
-    EXPECT_THROW(ping.ping(config.localLocator.c_str(), 0, 100 * 1000),
+    EXPECT_THROW(ping.ping(config.localLocator.c_str(), ServerId(),
+                           0, 100 * 1000),
                  TransportException);
     server->startForTesting(cluster.transport);
-    ping.ping(config.localLocator.c_str(), 0, 100 * 1000);
+    ping.ping(config.localLocator.c_str(), ServerId(), 0, 100 * 1000);
 }
 
 // run is too much of a pain to and not that interesting.
