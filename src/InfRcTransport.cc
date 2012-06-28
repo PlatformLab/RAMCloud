@@ -396,9 +396,6 @@ InfRcTransport<Infiniband>::InfRcSession::clientSend(Buffer* request,
         throw TransportException(HERE, abortMessage);
     }
 
-    LOG(DEBUG, "Sending %s request to %s with %u bytes",
-            Rpc::opcodeSymbol(*request), getServiceLocator().c_str(),
-            request->getTotalLength());
     if (request->getTotalLength() > t->getMaxRpcSize()) {
         throw TransportException(HERE,
              format("client request exceeds maximum rpc size "
@@ -846,10 +843,6 @@ InfRcTransport<Infiniband>::ServerRpc::sendReply()
     }
 
     BufferDescriptor* bd = t->getTransmitBuffer();
-    LOG(DEBUG, "Replying to %s RPC from %s at %lu with transmit buffer %lu",
-        Rpc::opcodeSymbol(requestPayload), qp->getPeerName(),
-        reinterpret_cast<uint64_t>(this),
-        reinterpret_cast<uint64_t>(bd));
     new(&replyPayload, PREPEND) Header(nonce);
     {
         CycleCounter<RawMetric> copyTicks(
@@ -925,7 +918,6 @@ InfRcTransport<Infiniband>::ClientRpc::tryZeroCopy(Buffer* request)
         if (addr >= t->logMemoryBase &&
           (addr + it.getLength()) < (t->logMemoryBase + t->logMemoryBytes)) {
             uint32_t hdrBytes = it.getTotalLength() - it.getLength();
-//LOG(NOTICE, "ZERO COPYING WRITE FROM LOG: total: %u bytes, hdr: %lu bytes, 0copy: %u bytes\n", request->getTotalLength(), hdrBytes, it.getLength()); //NOLINT 
             BufferDescriptor* bd = t->getTransmitBuffer();
             {
                 CycleCounter<RawMetric>
@@ -1067,9 +1059,6 @@ InfRcTransport<Infiniband>::Poller::poll()
                 metrics->transport.receive.byteCount +=
                     rpc.response->getTotalLength();
                 metrics->transport.receive.ticks += receiveTicks.stop();
-                LOG(DEBUG, "Received reply for %s request to %s",
-                        Rpc::opcodeSymbol(*rpc.request),
-                        rpc.session->getServiceLocator().c_str());
                 rpc.markFinished();
                 if (t->outstandingRpcs.empty())
                     t->clientRpcsActiveTime.destroy();
@@ -1121,9 +1110,6 @@ InfRcTransport<Infiniband>::Poller::poll()
                     bd->buffer + downCast<uint32_t>(sizeof(header)),
                     len, t, t->serverSrq, bd);
             }
-            LOG(DEBUG, "Received %s request from %s",
-                    Rpc::opcodeSymbol(r->requestPayload),
-                    qp->getPeerName());
             t->context.serviceManager->handleRpc(r);
             ++metrics->transport.receive.messageCount;
             ++metrics->transport.receive.packetCount;
