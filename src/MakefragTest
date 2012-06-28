@@ -126,9 +126,9 @@ $(OBJDIR)/gtest.a: $(OBJDIR)/gtest-all.o
 
 TESTS_LIB := -ldl $(LIBS)
 
-$(OBJDIR)/test: $(TESTS_OBJFILES) $(OBJDIR)/gtest.a
+$(OBJDIR)/test: $(TESTS_OBJFILES) $(LOGCABIN_LIBS) $(OBJDIR)/gtest.a
 	@mkdir -p $(@D)
-	$(CXX) $(TESTS_LIB) -o $@ $^
+	$(CXX)  $(LOGCABIN_DEPS) $(TESTS_LIB) -o $@ $^
 
 # The unit tests don't actually call all of these programs, but
 # they are included here to make sure they continue to build.

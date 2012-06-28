@@ -26,7 +26,7 @@
 
 namespace RAMCloud {
 
-CoordinatorService::CoordinatorService(Context& context)
+CoordinatorService::CoordinatorService(Context& context, string LogCabinLocator)
     : context(context)
     , serverList(*context.coordinatorServerList)
     , tabletMap()
@@ -36,7 +36,20 @@ CoordinatorService::CoordinatorService(Context& context)
     , runtimeOptions()
     , recoveryManager(context, serverList, tabletMap, &runtimeOptions)
     , serverManager(*this)
+    , logCabinCluster()
+    , logCabinLog()
 {
+    if (strcmp(LogCabinLocator.c_str(), "testing") == 0) {
+        LOG(NOTICE, "Connecting to mock LogCabin cluster for testing.");
+        logCabinCluster.construct(LogCabin::Client::Cluster::FOR_TESTING);
+    } else {
+        LOG(NOTICE, "Connecting to LogCabin cluster at %s",
+                    LogCabinLocator.c_str());
+        logCabinCluster.construct(LogCabinLocator);
+    }
+    logCabinLog.construct(logCabinCluster->openLog("coordinator"));
+    LOG(NOTICE, "Connected to LogCabin cluster.");
+
     recoveryManager.start();
 }
 

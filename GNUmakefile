@@ -23,6 +23,7 @@ OBJDIR	:= obj$(OBJSUFFIX)
 
 TOP	:= $(shell echo $${PWD-`pwd`})
 GTEST_DIR ?= $(TOP)/gtest
+LOGCABIN_DIR := $(TOP)/logcabin
 
 ifeq ($(DEBUG),yes)
 BASECFLAGS := -g
@@ -66,7 +67,7 @@ ifeq ($(DEBUG),yes)
 LIBS += -rdynamic
 endif
 
-INCLUDES := -I$(TOP)/src -I$(TOP)/$(OBJDIR) -I$(GTEST_DIR)/include
+INCLUDES := -I$(TOP)/src -I$(TOP)/$(OBJDIR) -I$(GTEST_DIR)/include -I$(LOGCABIN_DIR)
 
 CC ?= gcc
 CXX ?= g++

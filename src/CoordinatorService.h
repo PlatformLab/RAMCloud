@@ -16,6 +16,8 @@
 #ifndef RAMCLOUD_COORDINATORSERVICE_H
 #define RAMCLOUD_COORDINATORSERVICE_H
 
+#include <Client/Client.h>
+
 #include "ServerList.pb.h"
 #include "Tablets.pb.h"
 
@@ -38,7 +40,8 @@ namespace RAMCloud {
  */
 class CoordinatorService : public Service {
   public:
-    explicit CoordinatorService(Context& context);
+    explicit CoordinatorService(Context& context,
+                                string LogCabinLocator = "testing");
     ~CoordinatorService();
     void dispatch(RpcOpcode opcode,
                   Rpc& rpc);
@@ -145,6 +148,17 @@ class CoordinatorService : public Service {
      * Handles all server configuration details on behalf of the coordinator.
      */
     CoordinatorServerManager serverManager;
+
+    /**
+     * Handle to the cluster of LogCabin which provides reliable, consistent
+     * storage.
+     */
+    Tub<LogCabin::Client::Cluster> logCabinCluster;
+
+    /**
+     * Handle to the log interface provided by LogCabin.
+     */
+    Tub<LogCabin::Client::Log> logCabinLog;
 
     friend class CoordinatorServerManager;
     DISALLOW_COPY_AND_ASSIGN(CoordinatorService);
