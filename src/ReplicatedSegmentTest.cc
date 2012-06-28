@@ -242,7 +242,7 @@ TEST_F(ReplicatedSegmentTest, handleBackupFailureWhileOpen) {
     EXPECT_FALSE(segment->replicas[1].replicateAtomically);
 
     // Failure of the second replica.
-    EXPECT_TRUE(segment->handleBackupFailure({1, 0}));
+    EXPECT_FALSE(segment->handleBackupFailure({1, 0}));
     EXPECT_TRUE(segment->replicas[0].replicateAtomically);
     EXPECT_TRUE(segment->replicas[1].replicateAtomically);
 
@@ -429,7 +429,8 @@ TEST_F(ReplicatedSegmentTest, syncRecoveringFromLostOpenReplicas) {
     EXPECT_EQ("sync: syncing | "
               "selectSecondary: conflicting backupId: 999 | "
               "selectSecondary: conflicting backupId: 1 | "
-              "performWrite: Starting replication on backup 0 | "
+              "performWrite: Starting replication of segment 888 replica "
+                  "slot 0 on backup 0 | "
               "performWrite: Sending open to backup 0 | "
               "performWrite: Sending write to backup 1 | "
               "performWrite: Sending write to backup 0 | "
@@ -718,11 +719,13 @@ TEST_F(ReplicatedSegmentTest, performWriteOpen) {
         TestLog::Enable _(filter);
         taskQueue.performTask();
         EXPECT_EQ("selectSecondary: conflicting backupId: 999 | "
-                  "performWrite: Starting replication on backup 0 | "
+                  "performWrite: Starting replication of segment 888 replica "
+                      "slot 0 on backup 0 | "
                   "performWrite: Sending open to backup 0 | "
                   "selectSecondary: conflicting backupId: 999 | "
                   "selectSecondary: conflicting backupId: 0 | "
-                  "performWrite: Starting replication on backup 1 | "
+                  "performWrite: Starting replication of segment 888 replica "
+                      "slot 1 on backup 1 | "
                   "performWrite: Sending open to backup 1",
                   TestLog::get());
     }
