@@ -382,7 +382,9 @@ ReplicatedSegment::sync(uint32_t offset)
  * \pre
  *      All previous segments have been closed (at least locally).
  * \param offset
- *      The number of bytes into the segment to replicate.
+ *      The number of bytes into the segment to replicate. If less than
+ *      the offset passed on any prior calls to this method then it is
+ *      a no-op.
  */
 void
 ReplicatedSegment::write(uint32_t offset)
@@ -393,7 +395,8 @@ ReplicatedSegment::write(uint32_t offset)
     // immutable after close
     assert(!queued.close);
     // offset monotonically increases
-    assert(offset >= queued.bytes);
+    if (offset < queued.bytes)
+        return;
     queued.bytes = offset;
 
     schedule();
@@ -448,7 +451,7 @@ ReplicatedSegment::performTask()
                     // and durably closed its time to make sure it can never
                     // appear as an open segment in the log again (even if
                     // some lost replica comes back from the grave).
-                    TEST_LOG("Updating minOpenSegmentId on coordinator to "
+                    LOG(DEBUG, "Updating minOpenSegmentId on coordinator to "
                              "ensure lost replicas of segment %lu will not be "
                              "reused", segmentId);
                     minOpenSegmentId.updateToAtLeast(segmentId + 1);
@@ -498,7 +501,7 @@ ReplicatedSegment::performFree(Replica& replica)
             // Request is finished, clean up the state.
             try {
                 (*replica.freeRpc)();
-            } catch (TransportException& e) {
+            } catch (const TransportException& e) {
                 // Retry, if it down the server list will let us know.
                 LOG(WARNING,
                     "Failure freeing replica on backup, retrying: %s",
@@ -582,7 +585,7 @@ ReplicatedSegment::performWrite(Replica& replica)
         try {
             Transport::SessionRef session = tracker.getSession(backupId);
             replica.start(backupId, session);
-        } catch (TransportException& e) {
+        } catch (const TransportException& e) {
             LOG(NOTICE, "Cannot create a session to backup %lu, perhaps the "
                 "backup has crashed; will choose another backup",
                 backupId.getId());
@@ -608,7 +611,7 @@ ReplicatedSegment::performWrite(Replica& replica)
                     // Don't poke at potentially non-existent segments later.
                     followingSegment = NULL;
                 }
-            } catch (TransportException& e) {
+            } catch (const TransportException& e) {
                 // Retry, if it is down the server list will let us know.
                 replica.sent = replica.acked;
                 LOG(WARNING,
@@ -653,6 +656,10 @@ ReplicatedSegment::performWrite(Replica& replica)
             } catch (const TransportException& e) {
                 // Ignore the exception and retry; we'll be interrupted by
                 // changes to the server list if the backup is down.
+                LOG(DEBUG, "Cannot create session for write to backup %lu, "
+                    "perhaps the backup has crashed; retrying until "
+                    "coordinator tells us it is gone.",
+                    replica.backupId.getId());
             }
             schedule();
             return;
@@ -721,6 +728,10 @@ ReplicatedSegment::performWrite(Replica& replica)
             } catch (const TransportException& e) {
                 // Ignore the exception and retry; we'll be interrupted by
                 // changes to the server list if the backup is down.
+                LOG(DEBUG, "Cannot create session for write to backup %lu, "
+                    "perhaps the backup has crashed; retrying until "
+                    "coordinator tells us it is gone.",
+                    replica.backupId.getId());
             }
             schedule();
             return;

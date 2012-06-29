@@ -460,6 +460,15 @@ TEST_F(ReplicatedSegmentTest, syncRecoveringFromLostOpenReplicas) {
     EXPECT_EQ("", transport.outputLog);
 }
 
+TEST_F(ReplicatedSegmentTest, write) {
+    segment->write(openLen + 10);
+    EXPECT_EQ(openLen + 10, segment->queued.bytes);
+    segment->write(openLen + 9);
+    EXPECT_EQ(openLen + 10, segment->queued.bytes);
+    segment->write(openLen + 11);
+    EXPECT_EQ(openLen + 11, segment->queued.bytes);
+}
+
 TEST_F(ReplicatedSegmentTest, performTaskFreeNothingToDo) {
     segment->write(openLen + 10);
     segment->close(NULL);
