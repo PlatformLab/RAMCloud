@@ -556,6 +556,8 @@ CoordinatorServerList::sendMembershipUpdate(ProtoBuf::ServerList& update,
             // It's suspicious that pushing the update failed, but
             // perhaps it's best to wait to try the full list push
             // before jumping to conclusions.
+            LOG(NOTICE, "Failed to send cluster membership update to %lu: %s",
+                entry->serverId.getId(), e.what());
         }
 
         // If this server had missed a previous update it will return
@@ -574,8 +576,14 @@ CoordinatorServerList::sendMembershipUpdate(ProtoBuf::ServerList& update,
                 // TODO(stutsman): Things aren't looking good for this
                 // server.  The coordinator will probably want to investigate
                 // the server and evict it.
+                LOG(NOTICE, "Failed to send full cluster server list to %lu "
+                    "after it failed to accept the update: %s",
+                    entry->serverId.getId(), e.what());
             }
         }
+
+        LOG(DEBUG, "Server list update sent to server %lu",
+            entry->serverId.getId());
     }
 }
 
