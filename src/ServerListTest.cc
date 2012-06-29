@@ -57,7 +57,7 @@ TEST_F(ServerListTest, getLocator) {
     EXPECT_THROW(sl.getLocator(ServerId(1, 0)), ServerListException);
     sl.add(ServerId(1, 0), "mock:", {}, 100);
     EXPECT_THROW(sl.getLocator(ServerId(2, 0)), ServerListException);
-    EXPECT_EQ("mock:", sl.getLocator(ServerId(1, 0)));
+    EXPECT_STREQ("mock:", sl.getLocator(ServerId(1, 0)));
 }
 
 TEST_F(ServerListTest, isUp) {
@@ -189,10 +189,10 @@ TEST_F(ServerListTest, applyFullList_fromEmpty) {
     EXPECT_EQ(3U, sl.size());       // [0] is reserved
     EXPECT_EQ(ServerId(1, 0), sl[1]);
     EXPECT_EQ(ServerId(2, 0), sl[2]);
-    EXPECT_EQ("mock:host=one", sl.getLocator(ServerId(1, 0)));
+    EXPECT_STREQ("mock:host=one", sl.getLocator(ServerId(1, 0)));
     EXPECT_EQ(ServerStatus::UP,
               sl.serverList[ServerId(1, 0).indexNumber()]->status);
-    EXPECT_EQ("mock:host=two", sl.getLocator(ServerId(2, 0)));
+    EXPECT_STREQ("mock:host=two", sl.getLocator(ServerId(2, 0)));
     EXPECT_EQ(ServerStatus::CRASHED,
               sl.serverList[ServerId(2, 0).indexNumber()]->status);
     EXPECT_EQ(99u, sl.version);
@@ -235,9 +235,9 @@ TEST_F(ServerListTest, applyFullList_overlap) {
     EXPECT_EQ(ServerId(1, 5), sl[1]);
     EXPECT_EQ(ServerId(2, 0), sl[2]);
     EXPECT_EQ(ServerId(3, 0), sl[3]);
-    EXPECT_EQ("mock:host=oneBeta", sl.getLocator(ServerId(1, 5)));
-    EXPECT_EQ("mock:host=two", sl.getLocator(ServerId(2, 0)));
-    EXPECT_EQ("mock:host=three", sl.getLocator(ServerId(3, 0)));
+    EXPECT_STREQ("mock:host=oneBeta", sl.getLocator(ServerId(1, 5)));
+    EXPECT_STREQ("mock:host=two", sl.getLocator(ServerId(2, 0)));
+    EXPECT_STREQ("mock:host=three", sl.getLocator(ServerId(3, 0)));
     EXPECT_EQ("applyFullList: Got complete list of servers containing 4 "
               "entries (version number 1)", TestLog::get());
     // Removal of {1, 0} proceeds everything but must be preceded by a crash
@@ -304,7 +304,7 @@ TEST_F(ServerListTest, applyUpdate_normal) {
     updateList.set_version_number(1);
     EXPECT_FALSE(sl.applyUpdate(updateList));
     EXPECT_FALSE(sl.contains(ServerId(1, 0)));
-    EXPECT_EQ("mock:host=two", sl.getLocator(ServerId(2, 0)));
+    EXPECT_STREQ("mock:host=two", sl.getLocator(ServerId(2, 0)));
     EXPECT_EQ(
         "applyUpdate: Got server list update (version number 1) | "
         "applyUpdate:   Removing server id 1 | "

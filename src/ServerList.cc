@@ -61,7 +61,7 @@ ServerList::~ServerList()
  *      future for other RPCs to refer to ServerIds that this machine
  *      does not yet know of.
  */
-string
+const char*
 ServerList::getLocator(ServerId id)
 {
     Lock lock(mutex);
@@ -72,7 +72,7 @@ ServerList::getLocator(ServerId id)
             "ServerId %lu is not in the ServerList", *id));
     }
 
-    return serverList[index]->serviceLocator;
+    return serverList[index]->serviceLocator.c_str();
 }
 
 /**
@@ -80,7 +80,7 @@ ServerList::getLocator(ServerId id)
  * actively participating in the cluster.
  *
  * \param id
- *      The ServerId to look up the locator for.
+ *      Identifier for a particular server.
  *
  * \return
  *      Returns true if the server given by #id exists in the server
@@ -180,8 +180,7 @@ ServerList::toString()
 Transport::SessionRef
 ServerList::getSession(ServerId id)
 {
-    return context.transportManager->getSession(
-        getLocator(id).c_str(), id);
+    return context.transportManager->getSession(getLocator(id), id);
 }
 
 /**

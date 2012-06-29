@@ -330,6 +330,23 @@ CoordinatorServerList::setReplicationId(ServerId serverId,
 }
 
 /**
+ * Obtain the locator associated with the given ServerId.
+ *
+ * \param id
+ *      The ServerId to look up the locator for.
+ * \return
+ *      The ServiceLocator string assocated with the given ServerId.
+ * \throw Exception
+ *      Exception is thrown if the given ServerId is not in this list.
+ */
+const char*
+CoordinatorServerList::getLocator(ServerId id) const
+{
+    Lock _(mutex);
+    return getReferenceFromServerId(id).serviceLocator.c_str();
+}
+
+/**
  * Open a session to the given ServerId. This method simply calls through to
  * TransportManager::getSession. See the documentation there for exceptions
  * that may be thrown.
@@ -340,9 +357,27 @@ CoordinatorServerList::setReplicationId(ServerId serverId,
 Transport::SessionRef
 CoordinatorServerList::getSession(ServerId id) const
 {
+    return context.transportManager->getSession(getLocator(id), id);
+}
+
+/**
+ * Indicate whether a particular server is still believed to be
+ * actively participating in the cluster.
+ *
+ * \param id
+ *      Identifier for a particular server.
+ * \return
+ *      Returns true if the server given by #id exists in the server
+ *      list and its state is "up"; returns false otherwise.
+ */
+bool
+CoordinatorServerList::isUp(ServerId id) const
+{
     Lock _(mutex);
-    return context.transportManager->getSession(
-        getReferenceFromServerId(id).serviceLocator.c_str(), id);
+    uint32_t index = id.indexNumber();
+    return index < serverList.size() && serverList[index].entry
+            && serverList[index].entry->serverId == id
+            && serverList[index].entry->status == ServerStatus::UP;
 }
 
 /**
@@ -716,7 +751,8 @@ const CoordinatorServerList::Entry&
 CoordinatorServerList::getReferenceFromServerId(const ServerId& serverId) const
 {
     uint32_t index = serverId.indexNumber();
-    if (index < serverList.size() && serverList[index].entry)
+    if (index < serverList.size() && serverList[index].entry
+            && serverList[index].entry->serverId == serverId)
         return *serverList[index].entry;
 
     throw Exception(HERE, format("Invalid ServerId (%lu)", serverId.getId()));

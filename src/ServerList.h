@@ -151,7 +151,7 @@ class ServerList {
     explicit ServerList(Context& context);
     ~ServerList();
 
-    string getLocator(ServerId id);
+    const char* getLocator(ServerId id);
     bool isUp(ServerId id);
     string toString(ServerId serverId);
     static string toString(ServerStatus status);

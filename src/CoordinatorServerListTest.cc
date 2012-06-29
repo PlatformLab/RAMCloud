@@ -323,6 +323,18 @@ TEST_F(CoordinatorServerListTest, setWill) {
     EXPECT_THROW(sl.setWill({23481234, 0}, will), Exception);
 }
 
+TEST_F(CoordinatorServerListTest, isUp) {
+    ProtoBuf::ServerList update;
+
+    EXPECT_FALSE(sl.isUp(ServerId(1, 0)));
+    sl.add("", {MASTER_SERVICE}, 100, update);
+    EXPECT_TRUE(sl.isUp(ServerId(1, 0)));
+    EXPECT_FALSE(sl.isUp(ServerId(2, 0)));
+    EXPECT_FALSE(sl.isUp(ServerId(1, 2)));
+    sl.crashed(ServerId(1, 0), update);
+    EXPECT_FALSE(sl.isUp(ServerId(1, 0)));
+}
+
 TEST_F(CoordinatorServerListTest, indexOperator) {
     ProtoBuf::ServerList update;
     EXPECT_THROW(sl[ServerId(0, 0)], Exception);
@@ -571,6 +583,7 @@ TEST_F(CoordinatorServerListTest, getReferenceFromServerId) {
     sl.add("", {MASTER_SERVICE}, 100, update);
     EXPECT_THROW(sl.getReferenceFromServerId(ServerId(0, 0)), Exception);
     EXPECT_NO_THROW(sl.getReferenceFromServerId(ServerId(1, 0)));
+    EXPECT_THROW(sl.getReferenceFromServerId(ServerId(1, 1)), Exception);
     EXPECT_THROW(sl.getReferenceFromServerId(ServerId(2, 0)), Exception);
 }
 
