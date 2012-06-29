@@ -21,14 +21,18 @@ import cluster
 
 class RecoveryTestCase(ContextManagerTestCase):
     def __enter__(self):
-        require_hosts(7)
+        num_hosts = 8
+        require_hosts(num_hosts)
+        self.servers = []
         self.cluster = cluster.Cluster()
+        self.cluster.log_level = 'DEBUG'
+        self.cluster.transport = 'infrc'
         self.cluster.__enter__()
 
         try:
             self.cluster.start_coordinator(hosts[0])
-            for host in hosts[:7]:
-                self.cluster.start_server(host)
+            for host in hosts[:num_hosts]:
+                self.servers.append(self.cluster.start_server(host))
             self.cluster.ensure_servers()
 
             self.rc = ramcloud.RAMCloud()
@@ -101,20 +105,32 @@ class RecoveryTestCase(ContextManagerTestCase):
         self.assertEqual(('testValue', 1), value)
 
     @timeout()
-    def test_multiple_recovery_master_failures(self):
+    def test_multiple_recovery_master_failures_in_one_recovery(self):
         """Cause a recovery where two of the recovery masters fail which
         is remedied by a follow up recovery.
-        TODO(stutsman): This test doesn't work right yet because the
-        original master currently only has one table on it.
         """
+        # One table already created.
+        # Stroke the round-robin table creation until we get back to the
+        # server we care about.
+        for t in range(len(self.servers) - 1):
+            self.rc.create_table('junk%d' % t)
+        self.rc.create_table('test2')
+        table2 = self.rc.get_table_id('test2')
+        self.rc.write(table2, 'testKey', 'testValue2')
+
         value = self.rc.read(self.table, 'testKey')
         self.assertEqual(('testValue', 1), value)
+        value = self.rc.read(table2, 'testKey')
+        self.assertEqual(('testValue2', 1), value)
+
         self.rc.testing_set_runtime_option('failRecoveryMasters', '2')
         self.rc.testing_kill(0, '0')
-        self.rc.testing_fill(0, '0', 1000, 1000)
         self.rc.testing_wait_for_all_tablets_normal()
+
         value = self.rc.read(self.table, 'testKey')
         self.assertEqual(('testValue', 1), value)
+        value = self.rc.read(table2, 'testKey')
+        self.assertEqual(('testValue2', 1), value)
 
     @timeout()
     def test_only_one_recovery_master_for_many_partitions(self):
@@ -122,12 +138,27 @@ class RecoveryTestCase(ContextManagerTestCase):
         and make sure that eventually all of the partitions of the will are
         recovered on that recovery master.
         """
+        pass
+
+    @timeout()
+    def test_one_backup_fails_during_recovery(self):
+        # Create a second table, due to round robin this will be on a different
+        # server than the first.
+        self.rc.create_table('elsewhere')
+        self.elsewhereTable = self.rc.get_table_id('elsewhere')
+
+        # Ensure the key was stored ok.
         value = self.rc.read(self.table, 'testKey')
         self.assertEqual(('testValue', 1), value)
-        self.rc.testing_set_runtime_option('failRecoveryMasters', '2')
-        self.rc.testing_kill(0, '0')
-        self.rc.testing_fill(0, '0', 1000, 1000)
+
+        # Kill a backup.
+        self.rc.testing_kill(self.elsewhereTable, '0')
+
+        # Crash the master
+        self.rc.testing_kill(self.table, '0')
         self.rc.testing_wait_for_all_tablets_normal()
+
+        # Ensure the key was recovered.
         value = self.rc.read(self.table, 'testKey')
         self.assertEqual(('testValue', 1), value)
 
