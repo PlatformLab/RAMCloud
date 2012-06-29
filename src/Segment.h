@@ -308,7 +308,7 @@ class Segment {
                                          const void *buffer, uint32_t length,
                                          uint64_t headSegmentIdDuringCleaning);
     SegmentEntryHandle locklessAppend(LogEntryType type,
-                            const void *buffer, uint32_t length, bool sync,
+                            const void *buffer, uint32_t length,
                             Tub<SegmentChecksum::ResultType> expectedChecksum);
     uint32_t           locklessGetLiveBytes() const;
     uint32_t           locklessAppendableBytes() const;
@@ -324,7 +324,6 @@ class Segment {
     SegmentEntryHandle forceAppendWithEntry(LogEntryType type,
                              const void *buffer,
                              uint32_t length,
-                             bool sync = true,
                              bool updateChecksum = true,
                              Tub<SegmentChecksum::ResultType> expectedChecksum =
                                  Tub<SegmentChecksum::ResultType>());
@@ -400,6 +399,7 @@ class Segment {
     // When true, no appends are permitted (the Segment is immutable).
     bool              closed;
 
+    typedef std::unique_lock<SpinLock> Lock;
     /// Lock to protect against concurrent access.
     // TODO(Rumble): This should go away.
     SpinLock          mutex;
