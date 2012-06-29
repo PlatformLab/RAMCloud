@@ -60,6 +60,16 @@ TEST_F(ServerListTest, getLocator) {
     EXPECT_EQ("mock:", sl.getLocator(ServerId(1, 0)));
 }
 
+TEST_F(ServerListTest, isUp) {
+    EXPECT_FALSE(sl.isUp(ServerId(1, 0)));
+    sl.add(ServerId(1, 0), "mock:", {}, 100);
+    EXPECT_TRUE(sl.isUp(ServerId(1, 0)));
+    EXPECT_FALSE(sl.isUp(ServerId(1, 2)));
+    EXPECT_FALSE(sl.isUp(ServerId(2, 0)));
+    sl.crashed(ServerId(1, 0), "mock:", {}, 100);
+    EXPECT_FALSE(sl.isUp(ServerId(1, 0)));
+}
+
 TEST_F(ServerListTest, toString) {
     EXPECT_EQ("server 1 at (locator unavailable)",
               sl.toString(ServerId(1)));

@@ -76,6 +76,27 @@ ServerList::getLocator(ServerId id)
 }
 
 /**
+ * Indicate whether a particular server is still believed to be
+ * actively participating in the cluster.
+ *
+ * \param id
+ *      The ServerId to look up the locator for.
+ *
+ * \return
+ *      Returns true if the server given by #id exists in the server
+ *      list and its state is "up"; returns false otherwise.
+ */
+bool
+ServerList::isUp(ServerId id)
+{
+    Lock lock(mutex);
+    uint32_t index = id.indexNumber();
+    return index < serverList.size() && serverList[index]
+            && serverList[index]->serverId == id
+            && serverList[index]->status == ServerStatus::UP;
+}
+
+/**
  * Return a human-readable string representation for a server.
  *
  * \param id

@@ -152,6 +152,7 @@ class ServerList {
     ~ServerList();
 
     string getLocator(ServerId id);
+    bool isUp(ServerId id);
     string toString(ServerId serverId);
     static string toString(ServerStatus status);
     string toString();
