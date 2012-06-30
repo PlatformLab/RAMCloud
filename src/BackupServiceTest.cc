@@ -219,12 +219,6 @@ class BackupServiceTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(BackupServiceTest);
 };
 
-namespace {
-bool storageFilter(string s) {
-    return s == "killAllStorage" || s == "restartFromStorage";
-}
-};
-
 struct TempCleanup {
     string path;
     explicit TempCleanup(string path) : path(path) {}
@@ -237,6 +231,12 @@ struct TempCleanup {
     }
 };
 
+namespace {
+bool constructFilter(string s) {
+    return s == "BackupService" || s == "init";
+}
+};
+
 TEST_F(BackupServiceTest, constructorNoReuseReplicas) {
     config.backup.inMemory = false;
     config.clusterName = "testing";
@@ -246,19 +246,42 @@ TEST_F(BackupServiceTest, constructorNoReuseReplicas) {
     cluster->addServer(config);
 
     config.clusterName = "__unnamed__";
-    TestLog::Enable _(storageFilter);
+    TestLog::Enable _(constructFilter);
     BackupService* backup = cluster->addServer(config)->backup.get();
     EXPECT_EQ(ServerId(), backup->getFormerServerId());
-    EXPECT_EQ("killAllStorage: Scribbling storage to destroy "
-              "replicas from former backups",
-              TestLog::get().substr(0, TestLog::get().find(" |")));
+    EXPECT_EQ(
+        "BackupService: Cluster '__unnamed__'; ignoring existing backup "
+            "storage. Any replicas stored will not be reusable by future "
+            "backups. Specify clusterName for persistence across backup "
+            "restarts. | "
+        "init: My server ID is 3 | "
+        "init: Backup 3 will store replicas under cluster name '__unnamed__'"
+        , TestLog::get());
 }
 
-namespace {
-bool constructFilter(string s) {
-    return s == "BackupService" || s == "init";
+TEST_F(BackupServiceTest, constructorDestroyConfusingReplicas) {
+    config.backup.inMemory = false;
+    config.clusterName = "__unnamed__";
+    config.backup.file = "/tmp/ramcloud-backup-storage-test-delete-this";
+
+    TempCleanup __(config.backup.file);
+    cluster->addServer(config);
+
+    config.clusterName = "testing";
+    TestLog::Enable _(constructFilter);
+    BackupService* backup = cluster->addServer(config)->backup.get();
+    EXPECT_EQ(ServerId(), backup->getFormerServerId());
+    EXPECT_EQ(
+        "BackupService: Backup storing replicas with clusterName 'testing'. "
+            "Future backups must be restarted with the same clusterName for "
+            "replicas stored on this backup to be reused. | "
+        "BackupService: Replicas stored on disk have a different clusterName "
+            "('__unnamed__'). Scribbling storage to ensure any stale replicas "
+            "left behind by old backups aren't used by future backups | "
+        "init: My server ID is 3 | "
+        "init: Backup 3 will store replicas under cluster name 'testing'"
+        , TestLog::get());
 }
-};
 
 TEST_F(BackupServiceTest, constructorReuseReplicas)
 {
@@ -271,12 +294,19 @@ TEST_F(BackupServiceTest, constructorReuseReplicas)
 
     TestLog::Enable _(constructFilter);
     cluster->addServer(config);
-    EXPECT_EQ("BackupService: Backup replaces Server Id 2 | "
-              "BackupService: Backup formerly stored replicas under "
-                  "cluster name 'testing' | "
-              "init: My server ID is 4294967298 | "
-              "init: Backup 4294967298 will store replicas under cluster name "
-                  "'testing'", TestLog::get());
+    EXPECT_EQ(
+        "BackupService: Backup storing replicas with clusterName 'testing'. "
+            "Future backups must be restarted with the same clusterName for "
+            "replicas stored on this backup to be reused. | "
+        "BackupService: Replicas stored on disk have matching clusterName "
+            "('testing'). Scanning storage to find all replicas and to make "
+            "them available to recoveries. | "
+        "BackupService: Will enlist as a replacement for formerly crashed "
+            "server 2 which left replicas behind on disk | "
+        "init: My server ID is 4294967298 | "
+        "init: Backup 4294967298 will store replicas under cluster name "
+            "'testing'"
+        , TestLog::get());
 }
 
 TEST_F(BackupServiceTest, findSegmentInfo) {
@@ -534,6 +564,10 @@ TEST_F(BackupServiceTest, killAllStorage)
     config.backup.file = path;
     config.services = {BACKUP_SERVICE};
 
+    config.clusterName = "old";
+    cluster->addServer(config);
+
+    config.clusterName = "new";
     BackupService* backup = cluster->addServer(config)->backup.get();
     std::unique_ptr<BackupStorage::Handle>
         handle(backup->storage->associate(0));

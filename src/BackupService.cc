@@ -1114,16 +1114,31 @@ BackupService::BackupService(Context& context,
     }
 
     BackupStorage::Superblock superblock = storage->loadSuperblock();
-    if (config.clusterName == "__unnamed__" ||
-        !strcmp("__unnamed__", superblock.getClusterName()) ||
-        config.clusterName != superblock.getClusterName()) {
-        killAllStorage();
+    if (config.clusterName == "__unnamed__") {
+        LOG(NOTICE, "Cluster '__unnamed__'; ignoring existing backup storage. "
+            "Any replicas stored will not be reusable by future backups. "
+            "Specify clusterName for persistence across backup restarts.");
     } else {
-        formerServerId = superblock.getServerId();
-        LOG(NOTICE, "Backup replaces Server Id %lu", formerServerId.getId());
-        LOG(NOTICE, "Backup formerly stored replicas under cluster name '%s'",
-            superblock.getClusterName());
-        restartFromStorage();
+        LOG(NOTICE, "Backup storing replicas with clusterName '%s'. Future "
+            "backups must be restarted with the same clusterName for replicas "
+            "stored on this backup to be reused.", config.clusterName.c_str());
+        if (config.clusterName == superblock.getClusterName()) {
+            LOG(NOTICE, "Replicas stored on disk have matching clusterName "
+                "('%s'). Scanning storage to find all replicas and to make "
+                "them available to recoveries.",
+                superblock.getClusterName());
+            formerServerId = superblock.getServerId();
+            LOG(NOTICE, "Will enlist as a replacement for formerly crashed "
+                "server %lu which left replicas behind on disk",
+                formerServerId.getId());
+            restartFromStorage();
+        } else {
+            LOG(NOTICE, "Replicas stored on disk have a different clusterName "
+                "('%s'). Scribbling storage to ensure any stale replicas left "
+                "behind by old backups aren't used by future backups",
+                superblock.getClusterName());
+            killAllStorage();
+        }
     }
 }
 
@@ -1426,8 +1441,6 @@ void
 BackupService::killAllStorage()
 {
     CycleCounter<> killTime;
-    LOG(NOTICE, "Scribbling storage to destroy replicas from former backups");
-
     for (uint32_t frame = 0; frame < config.backup.numSegmentFrames; ++frame) {
         std::unique_ptr<BackupStorage::Handle>
             handle(storage->associate(frame));
@@ -1510,8 +1523,6 @@ void
 BackupService::restartFromStorage()
 {
     CycleCounter<> restartTime;
-    LOG(NOTICE, "Scanning storage to find replicas from former backups");
-
     struct HeaderAndFooter {
         SegmentEntry headerEntry;
         SegmentHeader header;
