@@ -111,6 +111,8 @@ struct ReplicatedSegmentTest : public ::testing::Test {
         , mockRegistrar(context, transport)
         , segment(NULL)
     {
+        Logger::get().setLogLevels(SILENT_LOG_LEVEL);
+
         segment = newSegment(segmentId);
         serverList.add(ServerId(0, 0), "mock:host=backup1",
                        {BACKUP_SERVICE}, 100);
@@ -415,7 +417,6 @@ TEST_F(ReplicatedSegmentTest, syncRecoveringFromLostOpenReplicas) {
 
     EXPECT_EQ(0lu, minOpenSegmentId.current);
     // Will drive recovery (open a replica elsewhere, set minOpenSegmentId).
-    //TestLog::Enable _;
     EXPECT_FALSE(segment->getAcked().close);
     // Notice: weird and special case that only happens during testing:
     // The replica gets recreated right back on the backup with id 0
@@ -1044,8 +1045,9 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureCloseBeforeNewHeadWrittenTo) {
     transport.setInput("0 0"); // write - newHead open
     transport.setInput("0 1 0"); // id check
     transport.setInput("0 0"); // write - newHead open
-    transport.setInput("0 0"); // write - segment close
-    transport.setInput("0 0"); // write - segment close
+    transport.setInput("0 0"); // write - segment close replica 1
+    transport.setInput(NULL); // write - fail segment close replica 2
+    transport.setInput("0 0"); // write - segment close repeat close replica 2
     transport.setInput("0 0"); // write - newHead
     transport.setInput("0 0"); // write - newHead
 
@@ -1058,8 +1060,8 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureCloseBeforeNewHeadWrittenTo) {
     segment->close(newHead.get()); // close queued
     newHead->write(openLen + 10); // write queued
 
-    taskQueue.performTask(); // send close rpc, try newHead write but can't
-    taskQueue.performTask();
+    taskQueue.performTask(); // send close rpc
+    taskQueue.performTask(); // try newHead write but can't
 
     EXPECT_TRUE(newHead->isScheduled());
     EXPECT_FALSE(newHead->precedingSegmentCloseAcked);
@@ -1074,8 +1076,36 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureCloseBeforeNewHeadWrittenTo) {
     EXPECT_TRUE(segment->replicas[0].sent.close);
     EXPECT_FALSE(segment->replicas[0].acked.close);
 
-    taskQueue.performTask(); // reap close rpc, send newHead write
-    taskQueue.performTask();
+    taskQueue.performTask(); // reap close rpcs on replicas
+    taskQueue.performTask(); // try newHead write but still can't
+
+    EXPECT_TRUE(newHead->isScheduled());
+    EXPECT_FALSE(newHead->precedingSegmentCloseAcked);
+    ASSERT_TRUE(newHead->replicas[0].isActive);
+    EXPECT_FALSE(newHead->replicas[0].writeRpc);
+    EXPECT_TRUE(newHead->replicas[0].acked.open);
+    EXPECT_EQ(openLen, newHead->replicas[0].sent.bytes);
+
+    EXPECT_TRUE(segment->isScheduled());
+    ASSERT_TRUE(segment->replicas[0].isActive);
+    EXPECT_FALSE(segment->replicas[0].writeRpc);
+    EXPECT_TRUE(segment->replicas[0].sent.close);
+    EXPECT_TRUE(segment->replicas[0].acked.close);
+    ASSERT_TRUE(segment->replicas[1].isActive);
+    EXPECT_FALSE(segment->replicas[1].writeRpc);
+    EXPECT_FALSE(segment->replicas[1].sent.close);
+    EXPECT_FALSE(segment->replicas[1].acked.close);
+
+    taskQueue.performTask(); // resend replica 2 close
+    taskQueue.performTask(); // try newHead write but still can't
+
+    ASSERT_TRUE(segment->replicas[1].isActive);
+    EXPECT_TRUE(segment->replicas[1].writeRpc);
+    EXPECT_TRUE(segment->replicas[1].sent.close);
+    EXPECT_FALSE(segment->replicas[1].acked.close);
+
+    taskQueue.performTask(); // reap close rpc on replica 2
+    taskQueue.performTask(); // send newHead write
 
     EXPECT_TRUE(newHead->isScheduled());
     EXPECT_TRUE(newHead->precedingSegmentCloseAcked);

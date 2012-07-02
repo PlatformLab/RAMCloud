@@ -606,7 +606,7 @@ ReplicatedSegment::performWrite(Replica& replica)
             try {
                 (*replica.writeRpc)();
                 replica.acked = replica.sent;
-                if (replica.acked.close && followingSegment) {
+                if (getAcked().close && followingSegment) {
                     followingSegment->precedingSegmentCloseAcked = true;
                     // Don't poke at potentially non-existent segments later.
                     followingSegment = NULL;
