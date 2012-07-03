@@ -67,32 +67,6 @@ struct ReplicaManagerTest : public ::testing::Test {
                        server->config.backup.mockSpeed);
         return server->serverId;
     }
-
-    void dumpReplicatedSegments()
-    {
-        LOG(ERROR, "%lu open segments:", mgr->replicatedSegmentList.size());
-        foreach (auto& segment, mgr->replicatedSegmentList) {
-            LOG(ERROR, "Segment %lu", segment.segmentId);
-            LOG(ERROR, "  data: %p", segment.data);
-            LOG(ERROR, "  openLen: %u", segment.openLen);
-            LOG(ERROR, "  queued.bytes: %u", segment.queued.bytes);
-            LOG(ERROR, "  queued.close: %u", segment.queued.close);
-            foreach (auto& replica, segment.replicas) {
-                LOG(ERROR, "  Replica:%s",
-                    replica.isActive ? "" : " non-existent");
-                if (!replica.isActive)
-                    continue;
-                LOG(ERROR, "    acked.open: %u", replica.acked.open);
-                LOG(ERROR, "    sent.bytes: %u", replica.sent.bytes);
-                LOG(ERROR, "    sent.close: %u", replica.sent.close);
-                LOG(ERROR, "    Write RPC: %s", replica.writeRpc ?
-                                                    "active" : "inactive");
-                LOG(ERROR, "    Free RPC: %s", replica.freeRpc ?
-                                                    "active" : "inactive");
-            }
-            LOG(ERROR, " ");
-        }
-    }
 };
 
 TEST_F(ReplicaManagerTest, isReplicaNeeded) {
@@ -121,10 +95,12 @@ TEST_F(ReplicaManagerTest, isReplicaNeeded) {
 
 TEST_F(ReplicaManagerTest, allocateHead) {
     MockRandom _(1);
-    const char data[] = "Hello world!";
+    char data[] = "Hello world!";
 
-    auto prior = mgr->allocateHead(NULL, 87, data, arrayLength(data));
-    auto segment = mgr->allocateHead(prior, 88, data, arrayLength(data));
+    Segment priorSeg(87, data, arrayLength(data));
+    auto prior = mgr->allocateHead(&priorSeg, NULL, arrayLength(data));
+    Segment seg(88, data, arrayLength(data));
+    auto segment = mgr->allocateHead(&seg, prior, arrayLength(data));
 
     ASSERT_FALSE(mgr->taskQueue.isIdle());
     EXPECT_EQ(2u, mgr->replicatedSegmentList.size());
@@ -134,9 +110,10 @@ TEST_F(ReplicaManagerTest, allocateHead) {
 
 TEST_F(ReplicaManagerTest, allocateNonHead) {
     MockRandom _(1);
-    const char data[] = "Hello world!";
+    char data[] = "Hello world!";
 
-    auto segment = mgr->allocateHead(NULL, 88, data, arrayLength(data));
+    Segment seg(88, data, arrayLength(data));
+    auto segment = mgr->allocateHead(&seg, NULL, arrayLength(data));
 
     ASSERT_FALSE(mgr->taskQueue.isIdle());
     EXPECT_EQ(segment, mgr->taskQueue.tasks.front());
@@ -146,7 +123,7 @@ TEST_F(ReplicaManagerTest, allocateNonHead) {
     segment->sync(segment->queued.bytes);
 
     // make sure we think data was written
-    EXPECT_EQ(data, segment->data);
+    EXPECT_EQ(&seg, segment->segment);
     EXPECT_EQ(arrayLength(data), segment->queued.bytes);
     EXPECT_FALSE(segment->queued.close);
     foreach (auto& replica, segment->replicas) {
@@ -212,7 +189,8 @@ TEST_F(ReplicaManagerTest, writeSegment) {
 }
 
 TEST_F(ReplicaManagerTest, proceed) {
-    mgr->allocateHead(NULL, 89, NULL, 0)->close();
+    Segment seg(89, NULL, 0);
+    mgr->allocateHead(&seg, NULL, 0)->close();
     auto& segment = mgr->replicatedSegmentList.front();
     EXPECT_FALSE(segment.replicas[0].isActive);
     mgr->proceed();
@@ -221,16 +199,20 @@ TEST_F(ReplicaManagerTest, proceed) {
 }
 
 TEST_F(ReplicaManagerTest, handleBackupFailure) {
-    auto s1 = mgr->allocateHead(NULL, 89, NULL, 0);
-    auto s2 = mgr->allocateHead(s1, 90, NULL, 0);
-    auto s3 = mgr->allocateHead(s2, 91, NULL, 0);
+    Segment seg1(89, NULL, 0);
+    Segment seg2(90, NULL, 0);
+    Segment seg3(91, NULL, 0);
+    auto s1 = mgr->allocateHead(&seg1, NULL, 0);
+    auto s2 = mgr->allocateHead(&seg2, s1, 0);
+    auto s3 = mgr->allocateHead(&seg3, s2, 0);
     mgr->proceed();
     mgr->proceed();
     mgr->proceed();
     Tub<uint64_t> segmentId = mgr->handleBackupFailure(backup1Id);
     ASSERT_TRUE(segmentId);
     EXPECT_EQ(91u, *segmentId);
-    IGNORE_RESULT(mgr->allocateHead(s3, 92, NULL, 0));
+    Segment seg4(92, NULL, 0);
+    IGNORE_RESULT(mgr->allocateHead(&seg4, s3, 0));
     // If we don't meet the dependencies the backup will refuse
     // to tear-down as it tries to make sure there is no data loss.
     s1->close();
@@ -239,7 +221,8 @@ TEST_F(ReplicaManagerTest, handleBackupFailure) {
 }
 
 TEST_F(ReplicaManagerTest, destroyAndFreeReplicatedSegment) {
-    auto* segment = mgr->allocateHead(NULL, 89, NULL, 0);
+    Segment seg(89, NULL, 0);
+    auto* segment = mgr->allocateHead(&seg, NULL, 0);
     segment->sync(0);
     while (!mgr->taskQueue.isIdle())
         mgr->proceed(); // Make sure the close gets pushed out as well.
@@ -299,6 +282,7 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
     // if the wait occurs before the failure notification gets processed this
     // will be trivially true.
     log.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf), false);
+    log.head->replicatedSegment->schedule();
     ASSERT_FALSE(mgr->isIdle());
     ASSERT_EQ(1u, log.head->getId());
 
@@ -346,7 +330,6 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
         // Which provides the required new log digest via open.
         "allocateSegment: Allocating new replicated segment for <3,2> "
             "initial open length 76 | "
-        "write: 3, 1, 8192 | "
         "close: 3, 1, 2 | "
         // And which also provides the needed close on the log segment
         // with the lost open replica.

@@ -100,6 +100,24 @@ struct SegmentFooter {
 static_assert(sizeof(SegmentFooter) == sizeof(SegmentChecksum::ResultType),
               "SegmentFooter has unexpected padding");
 
+/**
+ * SegmentFooter together with its SegmentEntry. Declared explicitly
+ * because this combination of footer with its entry is given by value
+ * to the ReplicaManager on Segment::getCommittedLength() calls.
+ * This is so the ReplicaManager can send a correct footer along with
+ * each write call, while allowing the master to overwrite the footer
+ * in its copy of the segment during writes that are concurrent with
+ * the replication.
+ */
+struct SegmentFooterEntry {
+    explicit SegmentFooterEntry(SegmentChecksum::ResultType checksum)
+        : entry(LOG_ENTRY_TYPE_SEGFOOTER, sizeof(footer))
+        , footer{checksum}
+    {}
+    SegmentEntry entry;
+    SegmentFooter footer;
+} __attribute__((__packed__));
+
 typedef void (*SegmentEntryCallback)(LogEntryType, const void *,
                                      uint64_t, void *);
 
@@ -196,6 +214,7 @@ class Segment {
     Segment(uint64_t logId, uint64_t segmentId, void *baseAddress,
             uint32_t capacity, ReplicaManager* replicaManager = NULL,
             uint64_t headSegmentIdDuringCleaning = INVALID_SEGMENT_ID);
+    Segment(uint64_t segmentId, void* baseAddress, uint32_t tail);
     ~Segment();
 
     SegmentEntryHandle append(LogEntryType type,
@@ -225,6 +244,10 @@ class Segment {
     uint32_t           getTotalBytesAppended();
     uint32_t           getFreeBytes();
     uint64_t           getAverageTimestamp();
+    pair<uint32_t, SegmentFooterEntry> getCommittedLength() const;
+    void               appendRangeToBuffer(Buffer& buffer,
+                                           uint32_t offset,
+                                           uint32_t length) const;
 
     /**
      * Given a pointer anywhere into a Segment's backing memory, obtain the base
@@ -405,7 +428,7 @@ class Segment {
     typedef std::unique_lock<SpinLock> Lock;
     /// Lock to protect against concurrent access.
     // TODO(Rumble): This should go away.
-    SpinLock          mutex;
+    mutable SpinLock          mutex;
 
     /// The number of each type of entry present in the Segment. Note that this
     /// counts all entries, both dead and live.

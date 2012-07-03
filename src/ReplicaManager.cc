@@ -19,6 +19,7 @@
 #include "ShortMacros.h"
 #include "RawMetrics.h"
 #include "ReplicaManager.h"
+#include "Segment.h"
 
 namespace RAMCloud {
 
@@ -162,11 +163,6 @@ ReplicaManager::isReplicaNeeded(ServerId backupServerId, uint64_t segmentId)
  * carefully; some of the requirements and guarantees in order to ensure data
  * is recovered correctly after a crash are subtle.
  *
- * The caller must not reuse the memory starting at #data up through the bytes
- * enqueued via ReplicatedSegment::write until after ReplicatedSegment::free
- * is called and returns (until that time outstanding backup write rpcs may
- * still refer to the segment data).
- *
  * Details of the ordering constraints (most readers will want to skip down
  * to params now):
  *
@@ -247,16 +243,18 @@ ReplicaManager::isReplicaNeeded(ServerId backupServerId, uint64_t segmentId)
  * digest. Cleaned segment replicas are simply sync()'ed before being
  * spliced into the log to ensure all the data is durable.
  *
+ * \param segment
+ *      Segment to be replicated. It is expected that the segment already
+ *      contains a header; see \a openLen. The segment must live at least
+ *      until free() is called on the returned handle, and, up until then, it
+ *      must be able to accept Segment::appendRangeToBuffer() calls for any
+ *      region of the segment which is covered by any calls to sync().
+ *      Caller must ensure no segment with the same segmentId has ever been
+ *      opened before as part of the log this ReplicaManager is managing.
  * \param precedingSegment
  *      The current log head. Used to set up ordering constraints on the
  *      operations issued to backups to ensure safety during crashes. Pass
  *      NULL if this is the first segment in the log.
- * \param segmentId
- *      The unique identifier for this segment given to it by the log module.
- *      The caller must ensure a segment with this segmentId has never been
- *      opened before as part of the log this ReplicaManager is managing.
- * \param data
- *      Starting location of the raw segment data to be replicated.
  * \param openLen
  *      Number of bytes to send atomically to backups with open segment rpc;
  *      used to send the segment header and log digest (when applicable) along
@@ -267,14 +265,13 @@ ReplicaManager::isReplicaNeeded(ServerId backupServerId, uint64_t segmentId)
  *      is destroyed.
  */
 ReplicatedSegment*
-ReplicaManager::allocateHead(ReplicatedSegment* precedingSegment,
-                             uint64_t segmentId,
-                             const void* data, uint32_t openLen)
+ReplicaManager::allocateHead(const Segment* segment,
+                             ReplicatedSegment* precedingSegment,
+                             uint32_t openLen)
 {
     CycleCounter<RawMetric> _(&metrics->master.replicaManagerTicks);
     Lock lock(dataMutex);
-    auto* replicatedSegment = allocateSegment(lock, true, segmentId,
-                                              data, openLen);
+    auto* replicatedSegment = allocateSegment(lock, segment, true, openLen);
 
     // Set up ordering constraints between this new segment and the prior
     // one in the log.
@@ -303,12 +300,14 @@ ReplicaManager::allocateHead(ReplicatedSegment* precedingSegment,
  * is called and returns (until that time outstanding backup write rpcs may
  * still refer to the segment data).
  *
- * \param segmentId
- *      The unique identifier for this segment given to it by the log module.
- *      The caller must ensure a segment with this segmentId has never been
+ * \param segment
+ *      Segment to be replicated. It is expected that the segment already
+ *      contains a header; see \a openLen. The segment must live at least
+ *      until free() is called on the returned handle, and, up until then, it
+ *      must be able to accept Segment::appendRangeToBuffer() calls for any
+ *      region of the segment which is covered by any calls to sync().
+ *      Caller must ensure no segment with the same segmentId has ever been
  *      opened before as part of the log this ReplicaManager is managing.
- * \param data
- *      Starting location of the raw segment data to be replicated.
  * \param openLen
  *      Number of bytes to send atomically to backups with open segment rpc;
  *      used to send the segment header and log digest (when applicable) along
@@ -319,12 +318,11 @@ ReplicaManager::allocateHead(ReplicatedSegment* precedingSegment,
  *      is destroyed.
  */
 ReplicatedSegment*
-ReplicaManager::allocateNonHead(uint64_t segmentId,
-                                const void* data, uint32_t openLen)
+ReplicaManager::allocateNonHead(const Segment* segment, uint32_t openLen)
 {
     CycleCounter<RawMetric> _(&metrics->master.replicaManagerTicks);
     Lock lock(dataMutex);
-    return allocateSegment(lock, false, segmentId, data, openLen);
+    return allocateSegment(lock, segment, false, openLen);
 }
 
 /**
@@ -381,18 +379,20 @@ ReplicaManager::proceed()
  * \param lock
  *      Caller must acquire a lock on #dataMutex before calling. Variable
  *      is unused, but guarantees the caller at least thought about safety.
+ * \param segment
+ *      Segment to be replicated. It is expected that the segment already
+ *      contains a header; see \a openLen. The segment must live at least
+ *      until free() is called on the returned handle, and, up until then, it
+ *      must be able to accept Segment::appendRangeToBuffer() calls for any
+ *      region of the segment which is covered by any calls to sync().
+ *      Caller must ensure no segment with the same segmentId has ever been
+ *      opened before as part of the log this ReplicaManager is managing.
  * \param isLogHead
  *      True if the segment being allocated is part of the main-line log
  *      and should have ordering constraints placed on it to ensure the
  *      log remains recoverable. False indicates the segment is for
  *      other purposes and that the caller is responsible for using sync()
  *      to ensure data is durable before use.
- * \param segmentId
- *      The unique identifier for this segment given to it by the log module.
- *      The caller must ensure a segment with this segmentId has never been
- *      opened before as part of the log this ReplicaManager is managing.
- * \param data
- *      Starting location of the raw segment data to be replicated.
  * \param openLen
  *      Number of bytes to send atomically to backups with open segment rpc;
  *      used to send the segment header and log digest (when applicable) along
@@ -403,21 +403,20 @@ ReplicaManager::proceed()
  *      is destroyed.
  */
 ReplicatedSegment*
-ReplicaManager::allocateSegment(const Lock& lock, bool isLogHead,
-                                uint64_t segmentId,
-                                const void* data, uint32_t openLen)
+ReplicaManager::allocateSegment(const Lock& lock, const Segment* segment,
+                                bool isLogHead, uint32_t openLen)
 {
     LOG(DEBUG, "Allocating new replicated segment for <%lu,%lu> initial open "
-        "length %u", masterId.getId(), segmentId, openLen);
+        "length %u", masterId.getId(), segment->getId(), openLen);
     auto* p = replicatedSegmentPool.malloc();
     if (p == NULL)
         DIE("Out of memory");
     auto* replicatedSegment =
         new(p) ReplicatedSegment(context, taskQueue, tracker, backupSelector,
                                  *this, writeRpcsInFlight, *minOpenSegmentId,
-                                 dataMutex,
-                                 isLogHead, masterId, segmentId,
-                                 data, openLen, numReplicas);
+                                 dataMutex, segment,
+                                 isLogHead, masterId,
+                                 openLen, numReplicas);
     replicatedSegmentList.push_back(*replicatedSegment);
     replicatedSegment->schedule();
 

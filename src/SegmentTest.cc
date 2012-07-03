@@ -328,7 +328,7 @@ TEST_F(SegmentTest, close) {
     Segment s(1, 2, alignedBuf, sizeof(alignedBuf), &replicaManager);
     TestLog::Enable _;
     s.close(false);
-    EXPECT_EQ("write: 1, 2, 8192 | close: 1, 2, 0 | "
+    EXPECT_EQ("close: 1, 2, 0 | "
               "close: Segment 2 closed (length 8192)",
               TestLog::get());
 
@@ -482,8 +482,7 @@ TEST_F(SegmentTest, syncToBackup) {
     s.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header), false);
     EXPECT_EQ("", TestLog::get());
     s.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header), true);
-    EXPECT_EQ("write: 1, 2, 114 | sync: syncing",
-              TestLog::get());
+    EXPECT_EQ("sync: syncing", TestLog::get());
 }
 
 TEST_F(SegmentTest, freeReplicas) {

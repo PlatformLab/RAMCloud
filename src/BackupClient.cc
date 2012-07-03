@@ -17,6 +17,7 @@
 #include "Buffer.h"
 #include "ClientException.h"
 #include "Rpc.h"
+#include "Segment.h"
 #include "ShortMacros.h"
 #include "TransportManager.h"
 
@@ -445,12 +446,10 @@ StartReadingDataRpc2::Result::operator=(Result&& other)
  *      Backup that will store the segment data.
  * \param masterId
  *      The id of the master to which the data belongs.
- * \param segmentId
- *      The id of the segment on which the data is to be stored.
+ * \param segment
+ *      Segment whose data is to be replicated.
  * \param offset
  *      The position in the segment where this data will be placed.
- * \param buf
- *      The actual data to be written into this segment.
  * \param length
  *      The length in bytes of the data to write.
  * \param flags
@@ -477,13 +476,17 @@ StartReadingDataRpc2::Result::operator=(Result&& other)
  *      the backup that handled this RPC.
  */
 vector<ServerId>
-BackupClient::writeSegment(Context& context, ServerId backupId,
-        ServerId masterId, uint64_t segmentId, uint32_t offset,
-        const void* buf, uint32_t length,
-        WireFormat::BackupWrite::Flags flags, bool atomic)
+BackupClient::writeSegment(Context& context,
+                           ServerId backupId,
+                           ServerId masterId,
+                           const Segment* segment,
+                           uint32_t offset,
+                           uint32_t length,
+                           WireFormat::BackupWrite::Flags flags,
+                           bool atomic)
 {
-    WriteSegmentRpc2 rpc(context, backupId, masterId, segmentId, offset,
-        buf, length, flags, atomic);
+    WriteSegmentRpc2 rpc(context, backupId, masterId, segment, offset,
+                         length, flags, atomic);
     return rpc.wait();
 }
 
@@ -498,12 +501,12 @@ BackupClient::writeSegment(Context& context, ServerId backupId,
  *      Backup that will store the segment data.
  * \param masterId
  *      The id of the master to which the data belongs.
- * \param segmentId
- *      The id of the segment on which the data is to be stored.
+ * \param segment
+ *      Segment whose data is to be replicated.
  * \param offset
- *      The position in the segment where this data will be placed.
- * \param buf
- *      The actual data to be written into this segment.
+ *      Both the position in the replica where this data will be placed
+ *      and the starting offset in the segment where the data to be
+ *      replicated starts.
  * \param length
  *      The length in bytes of the data to write.
  * \param flags
@@ -523,22 +526,26 @@ BackupClient::writeSegment(Context& context, ServerId backupId,
  *      set to false will make that replica available for normal
  *      treatment as an open segment.
  */
-WriteSegmentRpc2::WriteSegmentRpc2(Context& context, ServerId backupId,
-        ServerId masterId, uint64_t segmentId, uint32_t offset,
-        const void* buf, uint32_t length,
-        WireFormat::BackupWrite::Flags flags, bool atomic)
+WriteSegmentRpc2::WriteSegmentRpc2(Context& context,
+                                   ServerId backupId,
+                                   ServerId masterId,
+                                   const Segment* segment,
+                                   uint32_t offset,
+                                   uint32_t length,
+                                   WireFormat::BackupWrite::Flags flags,
+                                   bool atomic)
     : ServerIdRpcWrapper(context, backupId,
-            sizeof(WireFormat::BackupWrite::Response))
+                         sizeof(WireFormat::BackupWrite::Response))
 {
     WireFormat::BackupWrite::Request& reqHdr(
             allocHeader<WireFormat::BackupWrite>());
     reqHdr.masterId = masterId.getId();
-    reqHdr.segmentId = segmentId;
+    reqHdr.segmentId = segment->getId();
     reqHdr.offset = offset;
     reqHdr.length = length;
     reqHdr.flags = flags;
     reqHdr.atomic = atomic;
-    Buffer::Chunk::appendToBuffer(&request, buf, length);
+    segment->appendRangeToBuffer(request, offset, length);
     send();
 }
 

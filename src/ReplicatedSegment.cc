@@ -15,6 +15,7 @@
 
 #include "CycleCounter.h"
 #include "ReplicatedSegment.h"
+#include "Segment.h"
 #include "ShortMacros.h"
 
 namespace RAMCloud {
@@ -46,6 +47,9 @@ namespace RAMCloud {
  *      ReplicaManager and all other ReplicatedSegments.
  * \param deleter
  *      Deletes this when this determines it is no longer needed.
+ * \param segment
+ *      Segment to be replicated. It is expected that the segment already
+ *      contains a header; see \a openLen.
  * \param normalLogSegment
  *      False if this segment is being created by the log cleaner,
  *      true if this segment was opened as a head of the log (that is,
@@ -53,10 +57,6 @@ namespace RAMCloud {
  *      as a log head).
  * \param masterId
  *      The server id of the master whose log this segment belongs to.
- * \param segmentId
- *      ID for the segment, must match the segmentId given by the log module.
- * \param data
- *      The start of raw bytes of the in-memory log segment to be replicated.
  * \param openLen
  *      Bytes to send atomically to backups with the open segment rpc.
  * \param numReplicas
@@ -73,10 +73,9 @@ ReplicatedSegment::ReplicatedSegment(Context& context,
                                      uint32_t& writeRpcsInFlight,
                                      MinOpenSegmentId& minOpenSegmentId,
                                      std::mutex& dataMutex,
+                                     const Segment* segment,
                                      bool normalLogSegment,
                                      ServerId masterId,
-                                     uint64_t segmentId,
-                                     const void* data,
                                      uint32_t openLen,
                                      uint32_t numReplicas,
                                      uint32_t maxBytesPerWriteRpc)
@@ -88,10 +87,10 @@ ReplicatedSegment::ReplicatedSegment(Context& context,
     , writeRpcsInFlight(writeRpcsInFlight)
     , minOpenSegmentId(minOpenSegmentId)
     , dataMutex(dataMutex)
+    , segment(segment)
     , normalLogSegment(normalLogSegment)
     , masterId(masterId)
-    , segmentId(segmentId)
-    , data(data)
+    , segmentId(segment->getId())
     , openLen(openLen)
     , maxBytesPerWriteRpc(maxBytesPerWriteRpc)
     , queued(true, openLen, false)
@@ -187,10 +186,18 @@ ReplicatedSegment::close()
     // immutable after close
     assert(!queued.close);
     queued.close = true;
+    // It is necessary to update queued.bytes here because the segment believes
+    // it has fully replicated all data when queued.close and
+    // getAcked().bytes == queued.bytes.
+    // TODO(stutsman): Implement handling of the footer.
+    pair<uint32_t, SegmentFooterEntry> committed =
+                                        segment->getCommittedLength();
+    if (committed.first > queued.bytes)
+        queued.bytes = committed.first;
+    schedule();
+
     LOG(DEBUG, "Segment %lu closed (length %d)", segmentId, queued.bytes);
     ++metrics->master.segmentCloseCount;
-
-    schedule();
 }
 
 /**
@@ -288,37 +295,19 @@ ReplicatedSegment::sync(uint32_t offset)
         // it is safe to use the usual definition.
         if (!recoveringFromLostOpenReplicas && getAcked().bytes >= offset)
             break;
+
+        // TODO(stutsman): Having the getCommittedLength()
+        // call here can delay the shipment of footers to backups leave
+        // data on the backup without a valid segment footer indefinitely.
+        // TODO(stutsman): Implement handling of the footer.
+        pair<uint32_t, SegmentFooterEntry> committed =
+                                            segment->getCommittedLength();
+        if (committed.first > queued.bytes) {
+            queued.bytes = committed.first;
+            schedule();
+        }
         taskQueue.performTask();
     }
-}
-
-/**
- * Request the eventual replication of data ending at \a offset non-inclusive 
- * on a set backups for durability.  Guarantees that no replica will see this
- * write until it has seen all previous writes on this segment.  sync() must
- * be called after write() calls where the operation must be durable.
- *
- * \pre
- *      All previous segments have been closed (at least locally).
- * \param offset
- *      The number of bytes into the segment to replicate. If less than
- *      the offset passed on any prior calls to this method then it is
- *      a no-op.
- */
-void
-ReplicatedSegment::write(uint32_t offset)
-{
-    Lock _(dataMutex);
-    TEST_LOG("%lu, %lu, %u", *masterId, segmentId, offset);
-
-    // immutable after close
-    assert(!queued.close);
-    // offset monotonically increases
-    if (offset < queued.bytes)
-        return;
-    queued.bytes = offset;
-
-    schedule();
 }
 
 // - private -
@@ -578,9 +567,8 @@ ReplicatedSegment::performWrite(Replica& replica)
             TEST_LOG("Sending open to backup %lu", replica.backupId.getId());
             try {
                 replica.writeRpc.construct(context, replica.backupId,
-                                           masterId, segmentId,
-                                           0, data, openLen, flags,
-                                           replica.replicateAtomically);
+                                           masterId, segment, 0, openLen,
+                                           flags, replica.replicateAtomically);
                 ++writeRpcsInFlight;
                 replica.sent.open = true;
                 replica.sent.bytes = openLen;
@@ -613,10 +601,11 @@ ReplicatedSegment::performWrite(Replica& replica)
             }
 
             uint32_t offset = replica.sent.bytes;
-            uint32_t length = queued.bytes - replica.sent.bytes;
-            WireFormat::BackupWrite::Flags flags = queued.close ?
-                                            WireFormat::BackupWrite::CLOSE :
-                                            WireFormat::BackupWrite::NONE;
+            uint32_t length = queued.bytes - offset;
+            bool sendClose = queued.close && (offset + length) == queued.bytes;
+            WireFormat::BackupWrite::Flags flags =
+                sendClose ?  WireFormat::BackupWrite::CLOSE :
+                             WireFormat::BackupWrite::NONE;
 
             // Breaks atomicity of log entries, but it could happen anyway
             // if a segment gets partially written to disk.
@@ -648,11 +637,9 @@ ReplicatedSegment::performWrite(Replica& replica)
             }
 
             TEST_LOG("Sending write to backup %lu", replica.backupId.getId());
-            const char* src = static_cast<const char*>(data) + offset;
             try {
-                replica.writeRpc.construct(context, replica.backupId,
-                                           masterId, segmentId,
-                                           offset, src, length, flags,
+                replica.writeRpc.construct(context, replica.backupId, masterId,
+                                           segment, offset, length, flags,
                                            replica.replicateAtomically);
                 ++writeRpcsInFlight;
                 replica.sent.bytes += length;

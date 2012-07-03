@@ -184,7 +184,7 @@ RpcWrapper::isReady() {
             }
         }
         if (responseHeader->status == STATUS_RETRY) {
-            LOG(NOTICE, "Server %s returned STATUS_RETRY from %s request",
+            LOG(DEBUG, "Server %s returned STATUS_RETRY from %s request",
                     session->getServiceLocator().c_str(),
                     Rpc::opcodeSymbol(request));
             retry(100);

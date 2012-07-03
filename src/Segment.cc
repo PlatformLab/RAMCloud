@@ -160,6 +160,46 @@ Segment::Segment(uint64_t logId,
 }
 
 /**
+ * Extremely dangerous constructor only used during testing. This exists
+ * to make testing plausible until the new log module rewrite makes it
+ * much easier to construct segments.
+ * \param segmentId
+ *      The unique identifier for this Segment.
+ * \param baseAddress
+ *      A pointer to memory that will back this Segment. Memory may need to
+ *      be be at least \a tail bytes in length as well as power-of-two aligned
+ *      depending on what methods are called during testing.
+ * \param tail
+ *      Used to incidate the initial offset to the next free byte in Segment
+ *      AND the #capacity of the segment.
+ */
+Segment::Segment(uint64_t segmentId,
+                 void *baseAddress,
+                 uint32_t tail)
+    : replicaManager(NULL),
+      baseAddress(baseAddress),
+      log(NULL),
+      logId(0lu),
+      id(segmentId),
+      capacity(tail),
+      tail(tail),
+      bytesExplicitlyFreed(0),
+      bytesImplicitlyFreed(0),
+      spaceTimeSum(0),
+      implicitlyFreedSpaceTimeSum(0),
+      checksum(),
+      prevChecksum(),
+      canRollBack(false),
+      closed(false),
+      mutex(),
+      entryCountsByType(),
+      listEntries(),
+      cleanedEpoch(-1),
+      replicatedSegment(NULL)
+{
+}
+
+/**
  * Perform actions common to all Segment constructors, including writing
  * the header and opening the replica on backups.
  * \param isLogHead
@@ -222,10 +262,10 @@ Segment::commonConstructor(bool isLogHead,
             auto* preceding =
                 precedingSegment ?  precedingSegment->replicatedSegment : NULL;
             replicatedSegment =
-                replicaManager->allocateHead(preceding, id, baseAddress, tail);
+                replicaManager->allocateHead(this, preceding, tail);
         } else {
             replicatedSegment =
-                replicaManager->allocateNonHead(id, baseAddress, tail);
+                replicaManager->allocateNonHead(this, tail);
         }
     }
 
@@ -278,10 +318,8 @@ Segment::append(LogEntryType type, const void *buffer, uint32_t length,
     lock.unlock();
 
     // Sync once, if needed, in order to write everything atomically.
-    if (handle && replicatedSegment && sync) {
-        replicatedSegment->write(tail);
+    if (handle && replicatedSegment && sync)
         replicatedSegment->sync(tail);
-    }
 
     return handle;
 }
@@ -347,11 +385,8 @@ Segment::multiAppend(SegmentMultiAppendVector& appends, bool sync)
     lock.unlock();
 
     // Sync once, if needed, in order to write everything atomically.
-    if (replicatedSegment) {
-        replicatedSegment->write(tail);
-        if (sync)
-            replicatedSegment->sync(tail);
-    }
+    if (replicatedSegment && sync)
+        replicatedSegment->sync(tail);
 
     return handles;
 }
@@ -514,7 +549,6 @@ Segment::close(bool sync)
     lock.unlock();
 
     if (replicatedSegment) {
-        replicatedSegment->write(tail);
         replicatedSegment->close();
         if (sync) // sync determines whether to wait for the acks
             replicatedSegment->sync(tail);
@@ -662,6 +696,45 @@ Segment::getAverageTimestamp()
     uint64_t adjustedSpaceTimeSum = spaceTimeSum - implicitlyFreedSpaceTimeSum;
 
     return adjustedSpaceTimeSum / liveBytes;
+}
+
+/**
+ * Query how much data has been appended to the segment.
+ *
+ * \return
+ *      A pair which includes the number of bytes appended to the segment
+ *      so far and a SegmentFooterEntry which can be used to terminate
+ *      the segment on storage. The footer provides a valid checksum of the
+ *      contents of the segment up through the returned length.
+ *      Currently the SegmentFooterEntry is unimplemented and is always
+ *      returned with a 0 checksum.
+ */
+pair<uint32_t, SegmentFooterEntry>
+Segment::getCommittedLength() const
+{
+    Lock lock(mutex);
+    return {tail, SegmentFooterEntry(0)};
+}
+
+/**
+ * Append a subrange of the bytes from this segment to the specified buffer.
+ *
+ * \param buffer
+ *      Buffer to which data from this segment is to be appended.
+ * \param offset
+ *      Starting offset into the segment from which the data to be appended
+ *      to the buffer is to be taken.
+ * \param length
+ *      Number of bytes from the segment to be appended to the buffer.
+ */
+void
+Segment::appendRangeToBuffer(Buffer& buffer,
+                             uint32_t offset,
+                             uint32_t length) const
+{
+    Buffer::Chunk::appendToBuffer(&buffer,
+                                  static_cast<char*>(baseAddress) + offset,
+                                  length);
 }
 
 ////////////////////////////////////////

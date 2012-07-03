@@ -305,7 +305,6 @@ class ReplicatedSegment : public Task {
     bool handleBackupFailure(ServerId failedId)
         __attribute__((warn_unused_result));
     void sync(uint32_t offset);
-    void write(uint32_t offset);
 
   PRIVATE:
     friend class ReplicaManager;
@@ -324,9 +323,10 @@ class ReplicatedSegment : public Task {
                       uint32_t& writeRpcsInFlight,
                       MinOpenSegmentId& minOpenSegmentId,
                       std::mutex& dataMutex,
+                      const Segment* segment,
                       bool normalLogSegment,
-                      ServerId masterId, uint64_t segmentId,
-                      const void* data, uint32_t openLen,
+                      ServerId masterId,
+                      uint32_t openLen,
                       uint32_t numReplicas,
                       uint32_t maxBytesPerWriteRpc = 1024 * 1024);
     ~ReplicatedSegment();
@@ -401,6 +401,13 @@ class ReplicatedSegment : public Task {
     typedef std::lock_guard<std::mutex> Lock;
 
     /**
+     * Segment to be replicated. It is expected that the segment already
+     * contains a header when this ReplicatedSegment is constructed;
+     * see #openLen.
+     */
+    const Segment* segment;
+
+    /**
      * False if this segment was/is being created by the log cleaner,
      * true if this segment was opened as a head of the log (that is,
      * it has a log digest and was/is actively written to by worker
@@ -413,9 +420,6 @@ class ReplicatedSegment : public Task {
 
     /// Id for the segment, must match the segmentId given by the log module.
     const uint64_t segmentId;
-
-    /// The start of raw bytes of the in-memory log segment to be replicated.
-    const void* data;
 
     /// Bytes to send atomically to backups with the open segment rpc.
     const uint32_t openLen;

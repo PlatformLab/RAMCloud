@@ -32,6 +32,8 @@
 
 namespace RAMCloud {
 
+class Segment;
+
 /**
  * Creates and tracks replicas of local in-memory segments on remote backups.
  *
@@ -70,21 +72,19 @@ class ReplicaManager
 
     bool isIdle();
     bool isReplicaNeeded(ServerId backupServerId, uint64_t segmentId);
-    ReplicatedSegment* allocateHead(ReplicatedSegment* precedingSegment,
-                                    uint64_t segmentId,
-                                    const void* data, uint32_t openLen)
+    ReplicatedSegment* allocateHead(const Segment* segment,
+                                    ReplicatedSegment* precedingSegment,
+                                    uint32_t openLen)
         __attribute__((warn_unused_result));
-    ReplicatedSegment* allocateNonHead(uint64_t segmentId,
-                                       const void* data, uint32_t openLen)
+    ReplicatedSegment* allocateNonHead(const Segment* segment, uint32_t openLen)
         __attribute__((warn_unused_result));
     void startFailureMonitor(Log* log);
     void haltFailureMonitor();
     void proceed();
 
   PRIVATE:
-    ReplicatedSegment* allocateSegment(const Lock& lock, bool isLogHead,
-                                       uint64_t segmentId,
-                                       const void* data, uint32_t openLen)
+    ReplicatedSegment* allocateSegment(const Lock& lock, const Segment* segment,
+                                       bool isLogHead, uint32_t openLen)
         __attribute__((warn_unused_result));
 
     /// Shared RAMCloud information.
