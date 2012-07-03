@@ -50,6 +50,8 @@ class ObjectFinder {
     Transport::SessionRef lookup(uint64_t table, const char* key,
                                  uint16_t keyLength);
     Transport::SessionRef lookup(uint64_t table, HashType keyHash);
+    const ProtoBuf::Tablets::Tablet& lookupTablet(uint64_t table,
+                                                  HashType keyHash);
     std::vector<MasterRequests> multiLookup(MasterClient::ReadObject* input[],
                                             uint32_t numRequests);
 

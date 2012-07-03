@@ -69,7 +69,8 @@ ObjectFinder::ObjectFinder(Context& context, CoordinatorClient& coordinator)
  *      The coordinator has no record of the table.
  */
 Transport::SessionRef
-ObjectFinder::lookup(uint64_t table, const char* key, uint16_t keyLength) {
+ObjectFinder::lookup(uint64_t table, const char* key, uint16_t keyLength)
+{
     HashType keyHash = getKeyHash(key, keyLength);
 
     return lookup(table, keyHash);
@@ -90,7 +91,33 @@ ObjectFinder::lookup(uint64_t table, const char* key, uint16_t keyLength) {
  *      The coordinator has no record of the table.
  */
 Transport::SessionRef
-ObjectFinder::lookup(uint64_t table, HashType keyHash) {
+ObjectFinder::lookup(uint64_t table, HashType keyHash)
+{
+    return context.transportManager->getSession(
+                lookupTablet(table, keyHash).service_locator().c_str());
+}
+
+/**
+ * Lookup the master for a particular key in a given table.
+ * Only used internally in lookup() and for some crazy testing/debugging
+ * routines.
+ *
+ * \param table
+ *      The table containing the desired object (return value from a
+ *      previous call to getTableId).
+ * \param keyHash
+ *      A hash value in the space of key hashes.
+ * \return
+ *      Reference to a tablet with the details of the server that owns
+ *      the specified key. This reference may be invalidated by any future
+ *      calls to the ObjectFinder.
+ *
+ * \throw TableDoesntExistException
+ *      The coordinator has no record of the table.
+ */
+const ProtoBuf::Tablets::Tablet&
+ObjectFinder::lookupTablet(uint64_t table, HashType keyHash)
+{
     /*
     * The control flow in here is a bit tricky:
     * Since tabletMap is a cache of the coordinator's tablet map, we can only
@@ -107,8 +134,7 @@ ObjectFinder::lookup(uint64_t table, HashType keyHash) {
                 keyHash <= tablet.end_key_hash()) {
                 if (tablet.state() == ProtoBuf::Tablets_Tablet_State_NORMAL) {
                     // TODO(ongaro): add cache
-                    return context.transportManager->getSession(
-                            tablet.service_locator().c_str());
+                    return tablet;
                 } else {
                     // tablet is recovering or something, try again
                     if (haveRefreshed)
@@ -139,7 +165,7 @@ ObjectFinder::lookup(uint64_t table, HashType keyHash) {
  *      Array listing the objects to be read/written
  * \param numRequests
  *      Length of requests array
- * \return requestBins
+ * \return
  *      Bins requests according to the master they correspond to.
  */
 
@@ -240,6 +266,5 @@ ObjectFinder::waitForAllTabletsNormal()
         }
     }
 }
-
 
 } // namespace RAMCloud

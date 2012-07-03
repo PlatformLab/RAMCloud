@@ -575,6 +575,38 @@ RamCloud::testingFill(uint64_t tableId, const char* key, uint16_t keyLength,
 }
 
 /**
+ * Return the server id of the server which owns the specified key.
+ * Used in testing scripts to associate particular processes with
+ * their internal RAMCloud server id.
+ *
+ * \throw TableDoesntExistException
+ *      The coordinator has no record of the table.
+ */
+uint64_t
+RamCloud::testingGetServerId(uint64_t tableId,
+                             const char* key, uint16_t keyLength)
+{
+    HashType keyHash = getKeyHash(key, keyLength);
+    return objectFinder.lookupTablet(tableId, keyHash).server_id();
+}
+
+/**
+ * Return the service locator of the server which owns the specified key.
+ * Used in testing scripts to associate particular processes with
+ * their internal RAMCloud server id.
+ *
+ * \throw TableDoesntExistException
+ *      The coordinator has no record of the table.
+ */
+string
+RamCloud::testingGetServiceLocator(uint64_t tableId,
+                                   const char* key, uint16_t keyLength)
+{
+    HashType keyHash = getKeyHash(key, keyLength);
+    return objectFinder.lookupTablet(tableId, keyHash).service_locator();
+}
+
+/**
  * Sets a runtime option field on the coordinator to the indicated value.
  *
  * \param option

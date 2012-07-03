@@ -260,6 +260,41 @@ rc_testing_kill(struct rc_client* client, uint64_t tableId,
 }
 
 Status
+rc_testing_get_server_id(struct rc_client* client,
+                         uint64_t tableId,
+                         const char* key,
+                         uint16_t keyLength,
+                         uint64_t* serverId)
+{
+    try {
+        *serverId = client->client->testingGetServerId(tableId, key, keyLength);
+    } catch (const ClientException& e) {
+        return e.status;
+    }
+    return STATUS_OK;
+}
+
+Status
+rc_testing_get_service_locator(struct rc_client* client,
+                               uint64_t tableId,
+                               const char* key,
+                               uint16_t keyLength,
+                               char* locatorBuffer,
+                               size_t bufferLength)
+{
+    try {
+        string locator =
+            client->client->testingGetServiceLocator(tableId, key, keyLength);
+        strncpy(locatorBuffer, locator.data(), bufferLength);
+        if (bufferLength > 0)
+            locatorBuffer[bufferLength - 1] = '\0';
+    } catch (const ClientException& e) {
+        return e.status;
+    }
+    return STATUS_OK;
+}
+
+Status
 rc_testing_fill(struct rc_client* client, uint64_t tableId,
                 const char* key, uint16_t keyLength,
                 uint32_t objectCount, uint32_t objectSize)
