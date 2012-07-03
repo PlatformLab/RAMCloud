@@ -109,6 +109,10 @@ class Sandbox(object):
         process.proc.wait()
         self.processes.remove(process)
 
+    def restart(self, process):
+        self.kill(process)
+        self.rsh(process.host, process.command, process.ignoreFailures, True, **process.kwargs)
+
     def __enter__(self):
         return self
 

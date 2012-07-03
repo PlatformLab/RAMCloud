@@ -19,6 +19,13 @@ from ramcloudtest import *
 import ramcloud
 import cluster
 
+def extractLocatorFromCommand(command):
+    tokens = command.split()
+    dashL = tokens.index('-L')
+    locator = tokens[dashL + 1]
+    return locator
+
+
 class RecoveryTestCase(ContextManagerTestCase):
     def __enter__(self):
         num_hosts = 8
@@ -161,6 +168,43 @@ class RecoveryTestCase(ContextManagerTestCase):
         # Ensure the key was recovered.
         value = self.rc.read(self.table, 'testKey')
         self.assertEqual(('testValue', 1), value)
+
+    def addServerInfo(self, tables):
+        server_ids = {}
+        for table in tables:
+            server_id = self.rc.testing_get_server_id(table, '0')
+            locator = self.rc.testing_get_service_locator(table, '0')
+            server_ids[locator] = server_id
+        for server in self.servers:
+            locator = self.extractLocatorFromCommand(server.command)
+            server.service_locator = locator
+            if locator in server_ids:
+                server.server_id = server_ids[locator]
+
+    @timeout()
+    def test_restart(self):
+        self.addServerInfo([self.table])
+        for server in self.servers:
+            print(repr(server))
+        return
+        # We'll want two flavors of this test, I think. One with re-enlistement
+        # and one as it is now (__unnamed__ means backups don't enlist as
+        # replacements).  Both should be stable as long as they don't
+        # lose too many backups at once, the named one should tolerate replica
+        # unavailbility.
+
+        #def terminated(servers):
+        #    return [p for p in servers if p.proc.poll()]
+        #self.rc.testing_kill(self.table, '0')
+        #self.rc.testing_wait_for_all_tablets_normal()
+        #dead = terminated(self.servers)
+        #self.assertEqual(1, len(dead))
+        #self.cluster.wait(dead[0])
+        self.cluster.sandbox.restart(self.servers[0])
+        import time
+        time.sleep(3)
+
+        self.rc.write(self.table, 'testKey', 'otherValue')
 
 def removeAllTestsExcept(klass, name):
     for k in dir(klass):
