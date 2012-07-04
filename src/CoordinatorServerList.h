@@ -124,6 +124,8 @@ class CoordinatorServerList {
     bool isUp(ServerId id) const;
     Entry operator[](const ServerId& serverId) const;
     Tub<Entry> operator[](size_t index) const;
+    Entry at(const ServerId& serverId) const;
+    Tub<Entry> at(size_t index) const;
     bool contains(ServerId serverId) const;
     size_t size() const;
     uint32_t masterCount() const;

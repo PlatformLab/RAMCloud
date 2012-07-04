@@ -343,6 +343,40 @@ CoordinatorServerList::operator[](size_t index) const
 }
 
 /**
+ * Returns a copy of the details associated with the given ServerId.
+ *
+ * \param serverId
+ *      ServerId to look up in the list.
+ * \throw
+ *      Exception is thrown if the given ServerId is not in this list.
+ */
+CoordinatorServerList::Entry
+CoordinatorServerList::at(const ServerId& serverId) const
+{
+    Lock _(mutex);
+    return getReferenceFromServerId(serverId);
+}
+
+/**
+ * Returns a copy of the details associated with the given position
+ * in the server list or empty if the position in the list is
+ * unoccupied.
+ *
+ * \param index
+ *      Position of entry in the server list to return a copy of.
+ * \throw
+ *      Exception is thrown if the given ServerId is not in this list.
+ */
+Tub<CoordinatorServerList::Entry>
+CoordinatorServerList::at(size_t index) const
+{
+    Lock _(mutex);
+    if (index >= serverList.size())
+        throw Exception(HERE, format("Index beyond array length (%zd)", index));
+    return serverList[index].entry;
+}
+
+/**
  * Return true if the given serverId is in this list regardless of
  * whether it is crashed or not.  This can be used to check membership,
  * rather than having to try and catch around the index operator.
