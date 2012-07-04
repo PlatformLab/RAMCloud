@@ -38,6 +38,7 @@ CoordinatorService::CoordinatorService(Context& context, string LogCabinLocator)
     , serverManager(*this)
     , logCabinCluster()
     , logCabinLog()
+    , logCabinHelper()
 {
     if (strcmp(LogCabinLocator.c_str(), "testing") == 0) {
         LOG(NOTICE, "Connecting to mock LogCabin cluster for testing.");
@@ -48,6 +49,7 @@ CoordinatorService::CoordinatorService(Context& context, string LogCabinLocator)
         logCabinCluster.construct(LogCabinLocator);
     }
     logCabinLog.construct(logCabinCluster->openLog("coordinator"));
+    logCabinHelper.construct(*logCabinLog);
     LOG(NOTICE, "Connected to LogCabin cluster.");
 
     recoveryManager.start();

@@ -23,6 +23,7 @@
 
 #include "Common.h"
 #include "ClientException.h"
+#include "LogCabinHelper.h"
 #include "MasterRecoveryManager.h"
 #include "RawMetrics.h"
 #include "Recovery.h"
@@ -159,6 +160,12 @@ class CoordinatorService : public Service {
      * Handle to the log interface provided by LogCabin.
      */
     Tub<LogCabin::Client::Log> logCabinLog;
+
+    /**
+     * Handle to a helper class that provides higher level abstractions
+     * to interact with LogCabin.
+     */
+    Tub<LogCabinHelper> logCabinHelper;
 
     friend class CoordinatorServerManager;
     DISALLOW_COPY_AND_ASSIGN(CoordinatorService);

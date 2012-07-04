@@ -5,6 +5,7 @@ COORDINATOR_SRCFILES := \
 			src/TabletMap.cc \
 			src/Recovery.cc \
 			src/RuntimeOptions.cc \
+			src/StateSetMinOpenSegmentId.pb.cc \
 			$(NULL)
 
 COORDINATOR_OBJFILES := $(COORDINATOR_SRCFILES)

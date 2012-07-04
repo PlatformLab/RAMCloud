@@ -25,6 +25,10 @@
 
 namespace RAMCloud {
 
+using LogCabin::Client::Entry;
+using LogCabin::Client::EntryId;
+using LogCabin::Client::NO_ID;
+
 class CoordinatorServerManagerTest : public ::testing::Test {
   public:
     Context context;
@@ -34,6 +38,7 @@ class CoordinatorServerManagerTest : public ::testing::Test {
     CoordinatorServerManager* serverManager;
     MasterService* master;
     ServerId masterServerId;
+    CoordinatorServerList* serverList;
 
     CoordinatorServerManagerTest()
         : context()
@@ -43,6 +48,7 @@ class CoordinatorServerManagerTest : public ::testing::Test {
         , serverManager()
         , master()
         , masterServerId()
+        , serverList()
     {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
 
@@ -56,6 +62,8 @@ class CoordinatorServerManagerTest : public ::testing::Test {
         masterServerId = masterServer->serverId;
 
         client = cluster.getCoordinatorClient();
+
+        serverList = &(serverManager->service.serverList);
     }
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorServerManagerTest);
@@ -71,18 +79,14 @@ TEST_F(CoordinatorServerManagerTest, assignReplicationGroup) {
     }
     // Check normal functionality.
     EXPECT_TRUE(serverManager->assignReplicationGroup(10U, serverIds));
-    EXPECT_EQ(10U,
-              serverManager->service.serverList[serverIds[0]].replicationId);
-    EXPECT_EQ(10U,
-              serverManager->service.serverList[serverIds[1]].replicationId);
-    EXPECT_EQ(10U,
-              serverManager->service.serverList[serverIds[2]].replicationId);
+    EXPECT_EQ(10U, serverList->at(serverIds[0]).replicationId);
+    EXPECT_EQ(10U, serverList->at(serverIds[1]).replicationId);
+    EXPECT_EQ(10U, serverList->at(serverIds[2]).replicationId);
     // Generate a single TransportException. assignReplicationGroup should
     // retry and succeed.
     cluster.transport.errorMessage = "I am Bon Jovi's pool cleaner!";
     EXPECT_TRUE(serverManager->assignReplicationGroup(100U, serverIds));
-    EXPECT_EQ(100U,
-              serverManager->service.serverList[serverIds[0]].replicationId);
+    EXPECT_EQ(100U, serverList->at(serverIds[0]).replicationId);
     serverManager->forceServerDownForTesting = true;
     // Crash one of the backups. assignReplicationGroup should fail.
     serverManager->hintServerDown(serverIds[2]);
@@ -98,22 +102,14 @@ TEST_F(CoordinatorServerManagerTest, createReplicationGroup) {
         config.localLocator = format("mock:host=backup%u", i);
         serverIds[i] = cluster.addServer(config)->serverId;
     }
-    EXPECT_EQ(1U,
-              serverManager->service.serverList[serverIds[0]].replicationId);
-    EXPECT_EQ(1U,
-              serverManager->service.serverList[serverIds[1]].replicationId);
-    EXPECT_EQ(1U,
-              serverManager->service.serverList[serverIds[2]].replicationId);
-    EXPECT_EQ(2U,
-              serverManager->service.serverList[serverIds[3]].replicationId);
-    EXPECT_EQ(2U,
-              serverManager->service.serverList[serverIds[4]].replicationId);
-    EXPECT_EQ(2U,
-              serverManager->service.serverList[serverIds[5]].replicationId);
-    EXPECT_EQ(0U,
-              serverManager->service.serverList[serverIds[6]].replicationId);
-    EXPECT_EQ(0U,
-              serverManager->service.serverList[serverIds[7]].replicationId);
+    EXPECT_EQ(1U, serverList->at(serverIds[0]).replicationId);
+    EXPECT_EQ(1U, serverList->at(serverIds[1]).replicationId);
+    EXPECT_EQ(1U, serverList->at(serverIds[2]).replicationId);
+    EXPECT_EQ(2U, serverList->at(serverIds[3]).replicationId);
+    EXPECT_EQ(2U, serverList->at(serverIds[4]).replicationId);
+    EXPECT_EQ(2U, serverList->at(serverIds[5]).replicationId);
+    EXPECT_EQ(0U, serverList->at(serverIds[6]).replicationId);
+    EXPECT_EQ(0U, serverList->at(serverIds[7]).replicationId);
     // Kill server 7.
     serverManager->forceServerDownForTesting = true;
     serverManager->hintServerDown(serverIds[7]);
@@ -121,10 +117,8 @@ TEST_F(CoordinatorServerManagerTest, createReplicationGroup) {
     // Create a new server.
     config.localLocator = format("mock:host=backup%u", 9);
     serverIds[8] = cluster.addServer(config)->serverId;
-    EXPECT_EQ(0U,
-              serverManager->service.serverList[serverIds[6]].replicationId);
-    EXPECT_EQ(0U,
-              serverManager->service.serverList[serverIds[8]].replicationId);
+    EXPECT_EQ(0U, serverList->at(serverIds[6]).replicationId);
+    EXPECT_EQ(0U, serverList->at(serverIds[8]).replicationId);
 }
 
 TEST_F(CoordinatorServerManagerTest, enlistServer) {
@@ -134,7 +128,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServer) {
                                         "mock:host=backup"));
 
     ProtoBuf::ServerList masterList;
-    serverManager->service.serverList.serialize(masterList, {MASTER_SERVICE});
+    serverList->serialize(masterList, {MASTER_SERVICE});
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
                 "server { services: 25 server_id: 1 "
                 "service_locator: \"mock:host=master\" "
@@ -143,7 +137,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServer) {
                 masterList.ShortDebugString()));
 
     ProtoBuf::ServerList backupList;
-    serverManager->service.serverList.serialize(backupList, {BACKUP_SERVICE});
+    serverList->serialize(backupList, {BACKUP_SERVICE});
     EXPECT_EQ("server { services: 2 server_id: 2 "
               "service_locator: \"mock:host=backup\" "
               "expected_read_mbytes_per_sec: 0 status: 0 } "
@@ -170,9 +164,9 @@ TEST_F(CoordinatorServerManagerTest, enlistServerReplaceAMaster) {
     EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1 | "
               "startMasterRecovery: Recovery crashedServerId: 1",
               TestLog::get());
-    EXPECT_TRUE(serverManager->service.serverList.contains(masterServerId));
+    EXPECT_TRUE(serverList->contains(masterServerId));
     EXPECT_EQ(ServerStatus::CRASHED,
-              serverManager->service.serverList[masterServerId].status);
+              serverList->at(masterServerId).status);
 }
 
 TEST_F(CoordinatorServerManagerTest, enlistServerReplaceANonMaster) {
@@ -191,7 +185,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServerReplaceANonMaster) {
                                         "mock:host=backup2"));
     EXPECT_EQ("startMasterRecovery: Server 2 crashed, but it had no tablets",
               TestLog::get());
-    EXPECT_FALSE(serverManager->service.serverList.contains(replacesId));
+    EXPECT_FALSE(serverList->contains(replacesId));
 }
 
 TEST_F(CoordinatorServerManagerTest, getMasterList) {
@@ -245,8 +239,8 @@ TEST_F(CoordinatorServerManagerTest, hintServerDown_backup) {
     EXPECT_EQ(1U, serverManager->service.serverList.backupCount());
     serverManager->forceServerDownForTesting = true;
     client->hintServerDown(id);
-    EXPECT_EQ(0U, serverManager->service.serverList.backupCount());
-    EXPECT_FALSE(serverManager->service.serverList.contains(id));
+    EXPECT_EQ(0U, serverList->backupCount());
+    EXPECT_FALSE(serverList->contains(id));
 }
 
 TEST_F(CoordinatorServerManagerTest, hintServerDown_server) {
@@ -266,7 +260,7 @@ TEST_F(CoordinatorServerManagerTest, hintServerDown_server) {
               "startMasterRecovery: Recovery crashedServerId: 1",
                TestLog::get());
     EXPECT_EQ(ServerStatus::CRASHED,
-              serverManager->service.serverList[master->serverId].status);
+              serverList->at(master->serverId).status);
 }
 
 TEST_F(CoordinatorServerManagerTest, removeReplicationGroup) {
@@ -278,12 +272,9 @@ TEST_F(CoordinatorServerManagerTest, removeReplicationGroup) {
         serverIds[i] = cluster.addServer(config)->serverId;
     }
     serverManager->removeReplicationGroup(1);
-    EXPECT_EQ(0U,
-              serverManager->service.serverList[serverIds[0]].replicationId);
-    EXPECT_EQ(0U,
-              serverManager->service.serverList[serverIds[1]].replicationId);
-    EXPECT_EQ(0U,
-              serverManager->service.serverList[serverIds[2]].replicationId);
+    EXPECT_EQ(0U, serverList->at(serverIds[0]).replicationId);
+    EXPECT_EQ(0U, serverList->at(serverIds[1]).replicationId);
+    EXPECT_EQ(0U, serverList->at(serverIds[2]).replicationId);
 }
 
 namespace {
@@ -321,7 +312,7 @@ TEST_F(CoordinatorServerManagerTest, sendServerList_checkLogs) {
         "applyFullList: Got complete list of servers"));
 
     ProtoBuf::ServerList update;
-    serverManager->service.serverList.crashed(id, update);
+    serverList->crashed(id, update);
     TestLog::reset();
     client->sendServerList(id);
     EXPECT_EQ(
@@ -342,18 +333,52 @@ TEST_F(CoordinatorServerManagerTest, sendServerList_main) {
 }
 
 TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentId) {
+    serverManager->setMinOpenSegmentId(masterServerId, 10);
+    EXPECT_EQ(10u, serverList->at(masterServerId).minOpenSegmentId);
+    serverManager->setMinOpenSegmentId(masterServerId, 9);
+    EXPECT_EQ(10u, serverList->at(masterServerId).minOpenSegmentId);
+    serverManager->setMinOpenSegmentId(masterServerId, 11);
+    EXPECT_EQ(11u, serverList->at(masterServerId).minOpenSegmentId);
+}
+
+TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentIdRecover) {
+    ProtoBuf::StateSetMinOpenSegmentId state;
+    state.set_opcode("SetMinOpenSegmentId");
+    state.set_done(true);
+    state.set_server_id(masterServerId.getId());
+    state.set_segment_id(10);
+
+    string data;
+    state.SerializeToString(&data);
+
+    Entry stateEntry(data.c_str(), uint32_t(data.length() + 1));
+    EntryId entryId = serverManager->service.logCabinLog->append(stateEntry);
+
+    serverManager->setMinOpenSegmentIdRecover(&state, entryId);
+
+    EXPECT_EQ(10u, serverList->at(masterServerId).minOpenSegmentId);
+}
+
+TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentId_execute) {
+    serverManager->setMinOpenSegmentId(masterServerId, 10);
+
+    ProtoBuf::StateSetMinOpenSegmentId readState;
+    vector<EntryId> logCabinEntryIds =
+        serverList->getLogCabinEntryIds(masterServerId);
+    serverManager->service.logCabinHelper->getProtoBufFromEntryId(
+        logCabinEntryIds[0], readState);
+
+    EXPECT_EQ("opcode: \"SetMinOpenSegmentId\"\n"
+              "done: true\nserver_id: 1\nsegment_id: 10\n",
+              readState.DebugString());
+}
+
+TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentId_complete_noSuchServer)
+{
     EXPECT_THROW(client->setMinOpenSegmentId(ServerId(2, 2), 100),
                  ClientException);
-
-    client->setMinOpenSegmentId(masterServerId, 10);
-    EXPECT_EQ(10u,
-        serverManager->service.serverList[masterServerId].minOpenSegmentId);
-    client->setMinOpenSegmentId(masterServerId, 9);
-    EXPECT_EQ(10u,
-        serverManager->service.serverList[masterServerId].minOpenSegmentId);
-    client->setMinOpenSegmentId(masterServerId, 11);
-    EXPECT_EQ(11u,
-        serverManager->service.serverList[masterServerId].minOpenSegmentId);
+    EXPECT_THROW(serverManager->setMinOpenSegmentId(ServerId(2, 2), 100),
+                 CoordinatorServerList::NoSuchServer);
 }
 
 TEST_F(CoordinatorServerManagerTest, verifyServerFailure) {
