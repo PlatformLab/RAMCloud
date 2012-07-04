@@ -534,7 +534,7 @@ CoordinatorService::setMinOpenSegmentId(
 
     try {
         serverManager.setMinOpenSegmentId(serverId, segmentId);
-    } catch (const Exception& e) {
+    } catch (const CoordinatorServerList::NoSuchServer& e) {
         LOG(WARNING, "setMinOpenSegmentId server doesn't exist: %lu",
             serverId.getId());
         respHdr.common.status = STATUS_SERVER_DOESNT_EXIST;

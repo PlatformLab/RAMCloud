@@ -100,6 +100,11 @@ class CoordinatorServerList {
         uint64_t replicationId;
     };
 
+    struct NoSuchServer : public Exception {
+        explicit NoSuchServer(const CodeLocation& where, string msg)
+            : Exception(where, msg) {}
+    };
+
     explicit CoordinatorServerList(Context& context);
     ~CoordinatorServerList();
     ServerId add(string serviceLocator, ServiceMask serviceMask,

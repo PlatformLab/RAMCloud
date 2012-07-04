@@ -179,8 +179,8 @@ CoordinatorServerList::remove(ServerId serverId,
     uint32_t index = serverId.indexNumber();
     if (index >= serverList.size() || !serverList[index].entry ||
         serverList[index].entry->serverId != serverId) {
-        throw Exception(HERE,
-                        format("Invalid ServerId (%lu)", serverId.getId()));
+        throw NoSuchServer(HERE,
+            format("Invalid ServerId (%lu)", serverId.getId()));
     }
 
     crashed(lock, serverId, update);
@@ -626,8 +626,8 @@ CoordinatorServerList::crashed(const Lock& lock,
     uint32_t index = serverId.indexNumber();
     if (index >= serverList.size() || !serverList[index].entry ||
         serverList[index].entry->serverId != serverId) {
-        throw Exception(HERE,
-                        format("Invalid ServerId (%lu)", serverId.getId()));
+        throw NoSuchServer(HERE,
+            format("Invalid ServerId (%lu)", serverId.getId()));
     }
 
     auto& entry = serverList[index].entry;
@@ -691,7 +691,8 @@ CoordinatorServerList::getReferenceFromServerId(const ServerId& serverId) const
             && serverList[index].entry->serverId == serverId)
         return *serverList[index].entry;
 
-    throw Exception(HERE, format("Invalid ServerId (%lu)", serverId.getId()));
+    throw NoSuchServer(HERE,
+        format("Invalid ServerId (%lu)", serverId.getId()));
 }
 
 /**
