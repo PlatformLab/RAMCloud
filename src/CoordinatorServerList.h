@@ -21,6 +21,8 @@
 #ifndef RAMCLOUD_COORDINATORSERVERLIST_H
 #define RAMCLOUD_COORDINATORSERVERLIST_H
 
+#include <Client/Client.h>
+
 #include "ServerList.pb.h"
 #include "Tablets.pb.h"
 
@@ -98,6 +100,12 @@ class CoordinatorServerList {
          * a replication group. Each group has a unique Id.
          */
         uint64_t replicationId;
+
+        /**
+         * List of entry ids corresponding to entries in LogCabin log that have
+         * state updates for this server.
+         */
+         vector<LogCabin::Client::EntryId> logCabinEntryIds;
     };
 
     struct NoSuchServer : public Exception {
@@ -140,6 +148,11 @@ class CoordinatorServerList {
 
     void registerTracker(ServerTrackerInterface& tracker);
     void unregisterTracker(ServerTrackerInterface& tracker);
+
+    void addLogCabinEntryId(ServerId serverId,
+                            LogCabin::Client::EntryId entryId);
+    std::vector<LogCabin::Client::EntryId>
+            getLogCabinEntryIds(ServerId serverId);
 
   PRIVATE:
     /**

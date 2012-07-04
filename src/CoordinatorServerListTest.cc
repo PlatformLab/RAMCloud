@@ -563,4 +563,29 @@ TEST_F(CoordinatorServerListTest, Entry_serialize) {
     EXPECT_EQ(ServerStatus::UP, ServerStatus(serialEntry2.status()));
 }
 
+TEST_F(CoordinatorServerListTest, addLogCabinEntryId) {
+    ProtoBuf::ServerList update;
+    ServerId serverId = sl.add("", {MASTER_SERVICE}, 100, update);
+    sl.addLogCabinEntryId(serverId, 10);
+
+    CoordinatorServerList::Entry entry(sl.getReferenceFromServerId(serverId));
+    EXPECT_EQ(1U, entry.logCabinEntryIds.size());
+    EXPECT_EQ(10U, entry.logCabinEntryIds[0]);
+}
+
+TEST_F(CoordinatorServerListTest, getLogCabinEntryIds) {
+    ProtoBuf::ServerList update;
+    ServerId serverId = sl.add("", {MASTER_SERVICE}, 100, update);
+
+    CoordinatorServerList::Entry& entry =
+        const_cast<CoordinatorServerList::Entry&>(
+            sl.getReferenceFromServerId(serverId));
+    entry.logCabinEntryIds.push_back(10U);
+
+    std::vector<LogCabin::Client::EntryId> entryIds =
+        sl.getLogCabinEntryIds(serverId);
+    EXPECT_EQ(1U, entryIds.size());
+    EXPECT_EQ(10U, entryIds[0]);
+}
+
 }  // namespace RAMCloud

@@ -646,6 +646,30 @@ CoordinatorServerList::unregisterTracker(ServerTrackerInterface& tracker)
     }
 }
 
+/**
+ * Add a LogCabin entry id corresponding to a state change for
+ * a particular server.
+ */
+void
+CoordinatorServerList::addLogCabinEntryId(ServerId serverId,
+                                          LogCabin::Client::EntryId entryId)
+{
+    Lock _(mutex);
+    Entry& entry = const_cast<Entry&>(getReferenceFromServerId(serverId));
+    entry.logCabinEntryIds.push_back(entryId);
+}
+
+/**
+ * Return the list of entry ids corresponding to entries in LogCabin log
+ * that have state updates for a particular server.
+ */
+std::vector<LogCabin::Client::EntryId>
+CoordinatorServerList::getLogCabinEntryIds(ServerId serverId)
+{
+    Entry& entry = const_cast<Entry&>(getReferenceFromServerId(serverId));
+    return entry.logCabinEntryIds;
+}
+
 //////////////////////////////////////////////////////////////////////
 // CoordinatorServerList Private Methods
 //////////////////////////////////////////////////////////////////////
@@ -794,6 +818,7 @@ CoordinatorServerList::Entry::Entry()
     : ServerDetails()
     , minOpenSegmentId()
     , replicationId()
+    , logCabinEntryIds()
 {
 }
 
@@ -822,6 +847,7 @@ CoordinatorServerList::Entry::Entry(ServerId serverId,
                     ServerStatus::UP)
     , minOpenSegmentId(0)
     , replicationId(0)
+    , logCabinEntryIds(vector<LogCabin::Client::EntryId>())
 {
 }
 
