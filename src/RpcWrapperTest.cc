@@ -1,0 +1,259 @@
+/* Copyright (c) 2012 Stanford University
+ *
+ * Permission to use, copy, modify, and distribute this software for any purpose
+ * with or without fee is hereby granted, provided that the above copyright
+ * notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR(S) DISCLAIM ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL AUTHORS BE LIABLE FOR ANY
+ * SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER
+ * RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF
+ * CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+ * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+
+#include "TestUtil.h"
+#include "MockTransport.h"
+#include "RpcWrapper.h"
+#include "ShortMacros.h"
+
+namespace RAMCloud {
+
+class MockWrapper : public RpcWrapper {
+  public:
+    explicit MockWrapper(uint32_t responseHeaderLength)
+        : RpcWrapper(responseHeaderLength)
+    {}
+    virtual bool checkStatus() {
+        TEST_LOG("checkStatus called");
+        return true;
+    }
+    virtual bool handleTransportError() {
+        TEST_LOG("handleTransportError called");
+        return true;
+    }
+};
+
+class RpcWrapperTest : public ::testing::Test {
+  public:
+    Context context;
+    ServiceLocator locator;
+    MockTransport transport;
+    Transport::SessionRef session;
+
+    RpcWrapperTest()
+        : context()
+        , locator("test:server=1")
+        , transport(context)
+        , session(transport.getSession(locator))
+    {}
+
+    ~RpcWrapperTest()
+    {}
+
+    void
+    setStatus(Buffer* buffer, Status status) {
+        WireFormat::ResponseCommon& header(
+                *new(buffer, APPEND) WireFormat::ResponseCommon);
+        header.status = status;
+    }
+
+    DISALLOW_COPY_AND_ASSIGN(RpcWrapperTest);
+};
+
+TEST_F(RpcWrapperTest, constructor_explicit_buffer) {
+    Buffer buffer;
+    RpcWrapper wrapper(100, &buffer);
+    wrapper.response->fillFromString("abcde");
+    EXPECT_EQ("abcde/0", TestUtil::toString(&buffer));
+}
+
+TEST_F(RpcWrapperTest, destructor_cancel) {
+    Tub<RpcWrapper> wrapper1, wrapper2;
+    wrapper1.construct(100);
+    wrapper2.construct(100);
+    wrapper2->session = session;
+    wrapper2->send();
+    wrapper1.destroy();
+    EXPECT_EQ("", transport.outputLog);
+    wrapper2.destroy();
+    EXPECT_EQ("cancel", transport.outputLog);
+}
+
+TEST_F(RpcWrapperTest, cancel) {
+    RpcWrapper wrapper(100);
+    wrapper.session = session;
+    wrapper.cancel();
+    EXPECT_EQ("", transport.outputLog);
+    EXPECT_STREQ("CANCELED", wrapper.stateString());
+    wrapper.send();
+    wrapper.cancel();
+    EXPECT_EQ("cancel", transport.outputLog);
+}
+
+TEST_F(RpcWrapperTest, completed) {
+    RpcWrapper wrapper(100);
+    wrapper.completed();
+    EXPECT_STREQ("FINISHED", wrapper.stateString());
+}
+
+TEST_F(RpcWrapperTest, failed) {
+    RpcWrapper wrapper(100);
+    wrapper.failed();
+    EXPECT_STREQ("FAILED", wrapper.stateString());
+}
+
+TEST_F(RpcWrapperTest, isReady_finished) {
+    RpcWrapper wrapper(4);
+    wrapper.state = RpcWrapper::RpcState::FINISHED;
+    setStatus(wrapper.response, Status::STATUS_OK);
+    EXPECT_EQ(4U, wrapper.response->getTotalLength());
+    EXPECT_TRUE(wrapper.isReady());
+}
+
+TEST_F(RpcWrapperTest, isReady_responseTooShort) {
+    TestLog::Enable _;
+    RpcWrapper wrapper(5);
+    wrapper.state = RpcWrapper::RpcState::FINISHED;
+    wrapper.session = session;
+    setStatus(wrapper.response, Status::STATUS_OK);
+    EXPECT_FALSE(wrapper.isReady());
+    EXPECT_EQ("isReady: Response from test:server=1 for null RPC "
+            "is too short (needed at least 5 bytes, got 4)",
+            TestLog::get());
+    EXPECT_STREQ("RETRY", wrapper.stateString());
+}
+
+TEST_F(RpcWrapperTest, isReady_retryStatus) {
+    TestLog::Enable _;
+    RpcWrapper wrapper(4);
+    wrapper.session = session;
+    setStatus(wrapper.response, Status::STATUS_RETRY);
+    wrapper.state = RpcWrapper::RpcState::FINISHED;
+    EXPECT_FALSE(wrapper.isReady());
+    EXPECT_EQ("isReady: Server test:server=1 returned STATUS_RETRY "
+            "from null request", TestLog::get());
+    EXPECT_STREQ("RETRY", wrapper.stateString());
+}
+
+TEST_F(RpcWrapperTest, isReady_callCheckStatus) {
+    TestLog::Enable _;
+    MockWrapper wrapper(4);
+    wrapper.session = session;
+    setStatus(wrapper.response, Status::STATUS_UNIMPLEMENTED_REQUEST);
+    wrapper.state = RpcWrapper::RpcState::FINISHED;
+    EXPECT_TRUE(wrapper.isReady());
+    EXPECT_EQ("checkStatus: checkStatus called", TestLog::get());
+}
+
+TEST_F(RpcWrapperTest, isReady_inProgress) {
+    TestLog::Enable _;
+    RpcWrapper wrapper(4);
+    wrapper.session = session;
+    wrapper.state = RpcWrapper::RpcState::IN_PROGRESS;
+    EXPECT_FALSE(wrapper.isReady());
+    EXPECT_STREQ("IN_PROGRESS", wrapper.stateString());
+}
+
+TEST_F(RpcWrapperTest, isReady_retry) {
+    RpcWrapper wrapper(4);
+    wrapper.session = session;
+    wrapper.state = RpcWrapper::RpcState::RETRY;
+
+    // First attempt: retry interval has not completed.
+    wrapper.retryTime = Cycles::rdtsc() + Cycles::fromSeconds(100);
+    EXPECT_FALSE(wrapper.isReady());
+    EXPECT_STREQ("RETRY", wrapper.stateString());
+
+    // Second attempt: retry interval has completed.
+    wrapper.retryTime = Cycles::rdtsc();
+    EXPECT_FALSE(wrapper.isReady());
+    EXPECT_STREQ("IN_PROGRESS", wrapper.stateString());
+}
+
+TEST_F(RpcWrapperTest, isReady_canceled) {
+    TestLog::Enable _;
+    RpcWrapper wrapper(4);
+    wrapper.session = session;
+    wrapper.state = RpcWrapper::RpcState::CANCELED;
+    EXPECT_TRUE(wrapper.isReady());
+    EXPECT_STREQ("CANCELED", wrapper.stateString());
+}
+
+TEST_F(RpcWrapperTest, isReady_failed) {
+    TestLog::Enable _;
+    MockWrapper wrapper(4);
+    wrapper.session = session;
+    wrapper.state = RpcWrapper::RpcState::FAILED;
+    EXPECT_TRUE(wrapper.isReady());
+    EXPECT_EQ("handleTransportError: handleTransportError called",
+            TestLog::get());
+}
+
+TEST_F(RpcWrapperTest, isReady_unknownState) {
+    TestLog::Enable _;
+    RpcWrapper wrapper(4);
+    wrapper.session = session;
+    int bogus = 99;
+    wrapper.state = RpcWrapper::RpcState(bogus);
+    EXPECT_FALSE(wrapper.isReady());
+    EXPECT_EQ("isReady: RpcWrapper::isReady found unknown state 99 "
+            "for null request", TestLog::get());
+    EXPECT_STREQ("RETRY", wrapper.stateString());
+}
+
+TEST_F(RpcWrapperTest, retry) {
+    TestLog::Enable _;
+    Cycles::mockTscValue = 1000;
+    RpcWrapper wrapper(4);
+    wrapper.retry(100);
+    EXPECT_STREQ("RETRY", wrapper.stateString());
+    EXPECT_FALSE(wrapper.isReady());
+    EXPECT_EQ(100, int(1e06*Cycles::toSeconds(wrapper.retryTime - 1000)
+            + 0.5));
+    Cycles::mockTscValue = 0;
+}
+
+// Helper function that runs in a separate thread for the following tess.
+static void waitTestThread(Dispatch* dispatch, RpcWrapper* wrapper) {
+    wrapper->waitInternal(*dispatch);
+    TEST_LOG("wrapper finished");
+}
+
+TEST_F(RpcWrapperTest, waitInternal_normalCompletion) {
+    TestLog::Enable _;
+    RpcWrapper wrapper(4);
+    wrapper.session = session;
+    wrapper.send();
+    std::thread thread(waitTestThread, context.dispatch, &wrapper);
+    usleep(1000);
+    EXPECT_EQ("", TestLog::get());
+    setStatus(wrapper.response, Status::STATUS_OK);
+    wrapper.completed();
+
+    // Give the waiting thread a chance to finish.
+    for (int i = 0; i < 1000; i++) {
+        if (TestLog::get().size() != 0)
+            break;
+        usleep(100);
+    }
+    EXPECT_EQ("waitTestThread: wrapper finished", TestLog::get());
+    thread.join();
+}
+
+TEST_F(RpcWrapperTest, waitInternal_canceled) {
+    TestLog::Enable _;
+    RpcWrapper wrapper(4);
+    wrapper.state = RpcWrapper::RpcState::CANCELED;
+    string message = "no exception";
+    try {
+        wrapper.waitInternal(*context.dispatch);
+    }
+    catch (RpcCanceledException& e) {
+        message = "RpcCanceledException";
+    }
+    EXPECT_EQ("RpcCanceledException", message);
+}
+
+}  // namespace RAMCloud
