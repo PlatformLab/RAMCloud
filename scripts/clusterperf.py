@@ -122,7 +122,7 @@ def run_test(
     # test-specific default.
     if cluster_args['num_servers'] == None:
         # Make sure there are enough servers to meet replica requirements.
-        cluster_args['num_servers'] = options.replicas
+        cluster_args['num_servers'] = options.replicas+1
     if options.num_clients != None:
         cluster_args['num_clients'] = options.num_clients
     if options.size != None:
