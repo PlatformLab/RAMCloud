@@ -427,7 +427,7 @@ def run(
         cluster.verbose = verbose
         cluster.transport = transport
         cluster.replicas = replicas
-        cluster.timeout = 20
+        cluster.timeout = timeout
         cluster.disk = disk1
 
         coordinator = cluster.start_coordinator(hosts[0], coordinator_args)
@@ -474,7 +474,7 @@ def run(
             assert(len(client_hosts) == num_clients)
 
             clients = cluster.start_clients(client_hosts, client)
-            cluster.wait(clients)
+            cluster.wait(clients, timeout)
 
         return cluster.log_subdir
 
