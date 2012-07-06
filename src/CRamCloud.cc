@@ -273,6 +273,19 @@ rc_testing_fill(struct rc_client* client, uint64_t tableId,
     return STATUS_OK;
 }
 
+Status
+rc_testing_set_runtime_option(struct rc_client* client,
+                              const char* option,
+                              const char* value)
+{
+    try {
+        client->client->testingSetRuntimeOption(option, value);
+    } catch (const ClientException& e) {
+        return e.status;
+    }
+    return STATUS_OK;
+}
+
 void
 rc_testing_wait_for_all_tablets_normal(struct rc_client* client)
 {

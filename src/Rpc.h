@@ -106,7 +106,9 @@ enum RpcOpcode {
     IS_REPLICA_NEEDED       = 48,
     SPLIT_TABLET            = 49,
     GET_SERVER_STATISTICS   = 50,
-    ILLEGAL_RPC_TYPE        = 51,  // 1 + the highest legitimate RpcOpcode
+    SET_RUNTIME_OPTION      = 51,
+    ENUMERATION             = 52,
+    ILLEGAL_RPC_TYPE        = 53,  // 1 + the highest legitimate RpcOpcode
 };
 
 /**
@@ -150,6 +152,34 @@ struct DropTabletOwnershipRpc {
     } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
+    } __attribute__((packed));
+};
+
+struct EnumerationRpc {
+    static const RpcOpcode opcode = ENUMERATION;
+    static const ServiceType service = MASTER_SERVICE;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t tableId;
+        uint64_t tabletStartHash;
+        uint32_t iteratorBytes;     // Size of iterator in bytes. The
+                                    // actual iterator follows
+                                    // immediately after this header.
+                                    // See EnumerationIterator.
+    } __attribute__((packed));
+    struct Response {
+        RpcResponseCommon common;
+        uint64_t tabletStartHash;
+        uint32_t payloadBytes;      // Size of payload, where each object in
+                                    // payload is a uint32_t size,
+                                    // Object metadata, and key and data
+                                    // blobs. The actual payload
+                                    // follows immediately after this
+                                    // header.
+        uint32_t iteratorBytes;     // Size of iterator in bytes. The
+                                    // actual iterator follows after
+                                    // the payload. See
+                                    // EnumerationIterator.
     } __attribute__((packed));
 };
 
@@ -419,6 +449,7 @@ struct CreateTableRpc {
     } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
+        uint64_t tableId;             // The id of the created table.
     } __attribute__((packed));
 };
 
@@ -480,7 +511,6 @@ struct SplitMasterTabletRpc {
     } __attribute__((packed));
 };
 
-
 struct GetTableIdRpc {
     static const RpcOpcode opcode = GET_TABLE_ID;
     static const ServiceType service = COORDINATOR_SERVICE;
@@ -538,6 +568,22 @@ struct GetServerStatisticsRpc {
                                    // protobuf. The bytes of the protobuf
                                    // follow immediately after this header.
                                    // See ProtoBuf::Tablets.
+    } __attribute__((packed));
+};
+
+struct SetRuntimeOptionRpc {
+    static const RpcOpcode opcode = SET_RUNTIME_OPTION;
+    static const ServiceType service = COORDINATOR_SERVICE;
+    struct Request {
+        RpcRequestCommon common;
+        uint32_t optionLength; // Number of bytes in the name of the option
+                               // to set including terminating NULL character.
+        uint32_t valueLength;  // Number of bytes in string representing the
+                               // value to set the option to including
+                               // terminating NULL character.
+    } __attribute__((packed));
+    struct Response {
+        RpcResponseCommon common;
     } __attribute__((packed));
 };
 
@@ -834,6 +880,9 @@ struct PingRpc {
         uint64_t nonce;             // The nonce may be used to identify
                                     // replies to previously transmitted
                                     // pings.
+        uint64_t callerId;          // ServerId of the server issuing the
+                                    // ping. May be invalid if coming
+                                    // from a client.
     } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;

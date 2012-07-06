@@ -88,8 +88,23 @@ class ObjectFinderTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(ObjectFinderTest);
 };
 
-TEST_F(ObjectFinderTest, lookup) {
+TEST_F(ObjectFinderTest, lookup_key) {
     Transport::SessionRef session(objectFinder->lookup(1, "testKey", 7));
+    // first tablet map is empty, throws TableDoesntExistException
+    // get a new tablet map
+    // find tablet in recovery
+    // get a new tablet map
+    // find tablet in recovery
+    // get a new tablet map
+    // find tablet in operation
+    EXPECT_EQ(3U, refresher->called);
+    EXPECT_EQ("mock:host=server0",
+        static_cast<BindTransport::BindSession*>(session.get())->locator);
+}
+
+TEST_F(ObjectFinderTest, lookup_hash) {
+    HashType keyHash = getKeyHash("testKey", 7);
+    Transport::SessionRef session(objectFinder->lookup(1, keyHash));
     // first tablet map is empty, throws TableDoesntExistException
     // get a new tablet map
     // find tablet in recovery

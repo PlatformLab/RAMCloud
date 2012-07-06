@@ -17,6 +17,7 @@
 #include "BackupStorage.h"
 #include "Buffer.h"
 #include "CoordinatorClient.h"
+#include "EnumerationIterator.h"
 #include "MockCluster.h"
 #include "Memory.h"
 #include "MasterClient.h"
@@ -167,6 +168,95 @@ class MasterServiceTest : public ::testing::Test {
 
     DISALLOW_COPY_AND_ASSIGN(MasterServiceTest);
 };
+
+TEST_F(MasterServiceTest, enumeration_basics) {
+    uint64_t version0, version1;
+    client->write(0, "0", 1, "abcdef", 6, NULL, &version0, false);
+    client->write(0, "1", 1, "ghijkl", 6, NULL, &version1, false);
+    Buffer iter, nextIter, finalIter, objects;
+    uint64_t nextTabletStartHash;
+    client->enumeration(0, 0, &nextTabletStartHash, &iter, &nextIter, &objects);
+    EXPECT_EQ(0U, nextTabletStartHash);
+    EXPECT_EQ(66U, objects.getTotalLength());
+
+    // First object.
+    EXPECT_EQ(29U, *objects.getOffset<uint32_t>(0));        // size
+    const Object* object = objects.getOffset<Object>(4);
+    EXPECT_EQ(0U, object->tableId);                         // table ID
+    EXPECT_EQ(1U, object->keyLength);                       // key length
+    EXPECT_EQ(version0, object->version);                   // version
+    EXPECT_EQ('0', object->keyAndData[0]);                  // key
+    EXPECT_EQ("abcdef", string(&object->keyAndData[1], 6)); // value
+
+    // Second object.
+    EXPECT_EQ(29U, *objects.getOffset<uint32_t>(33));       // size
+    object = objects.getOffset<Object>(37);
+    EXPECT_EQ(0U, object->tableId);                         // table ID
+    EXPECT_EQ(1U, object->keyLength);                       // key length
+    EXPECT_EQ(version1, object->version);                   // version
+    EXPECT_EQ('1', object->keyAndData[0]);                  // key
+    EXPECT_EQ("ghijkl", string(&object->keyAndData[1], 6)); // value
+
+    // We don't actually care about the contents of the iterator as
+    // long as we get back 0 objects on the second call.
+    client->enumeration(0, 0, &nextTabletStartHash,
+                        &nextIter, &finalIter, &objects);
+    EXPECT_EQ(0U, nextTabletStartHash);
+    EXPECT_EQ(0U, objects.getTotalLength());
+}
+
+TEST_F(MasterServiceTest, enumeration_badTable) {
+    Buffer iter, nextIter, finalIter, objects;
+    uint64_t nextTabletStartHash = 0;
+    EXPECT_THROW(client->enumeration(4, 0, &nextTabletStartHash,
+                                     &iter, &nextIter, &objects),
+                 UnknownTableException);
+}
+
+TEST_F(MasterServiceTest, enumeration_mergeTablet) {
+    uint64_t version0, version1;
+    client->write(0, "012345", 6, "abcdef", 6, NULL, &version0, false);
+    client->write(0, "678910", 6, "ghijkl", 6, NULL, &version1, false);
+
+    Buffer iter, nextIter, finalIter, objects;
+    uint64_t nextTabletStartHash;
+
+    // We fake a tablet merge by setting up the initial iterator as if
+    // the merge already happened. We can be sure that the faked merge
+    // worked as expected because the enumeration will not return
+    // objects that it thinks would have lived on the pre-merge
+    // tablet.
+    EnumerationIterator initialIter(iter, 0, 0);
+    EnumerationIterator::Frame preMergeConfiguration(
+        0x0000000000000000LLU, 0x7f00000000000000LLU,
+        service->objectMap.getNumBuckets(),
+        service->objectMap.getNumBuckets()*3/4, 0U);
+    initialIter.push(preMergeConfiguration);
+    initialIter.serialize(iter);
+    client->enumeration(0, 0, &nextTabletStartHash, &iter, &nextIter, &objects);
+    EXPECT_EQ(0U, nextTabletStartHash);
+    EXPECT_EQ(38U, objects.getTotalLength());
+
+    // First object.
+    EXPECT_EQ(34U, *objects.getOffset<uint32_t>(0));        // size
+    const Object* object = objects.getOffset<Object>(4);
+    EXPECT_EQ(0U, object->tableId);                         // table ID
+    EXPECT_EQ(6U, object->keyLength);                       // key length
+    EXPECT_EQ(version0, object->version);                   // version
+    EXPECT_EQ("012345", string(&object->keyAndData[0], 6)); // key
+    EXPECT_EQ("abcdef", string(&object->keyAndData[6], 6)); // value
+
+    // The second object is not returned because it would have lived
+    // on the part of the pre-merge tablet that we (pretended to have)
+    // already iterated.
+
+    // We don't actually care about the contents of the iterator as
+    // long as we get back 0 objects on the second call.
+    client->enumeration(0, 0, &nextTabletStartHash,
+                        &nextIter, &finalIter, &objects);
+    EXPECT_EQ(0U, nextTabletStartHash);
+    EXPECT_EQ(0U, objects.getTotalLength());
+}
 
 TEST_F(MasterServiceTest, read_basics) {
     client->write(0, "0", 1, "abcdef", 6);

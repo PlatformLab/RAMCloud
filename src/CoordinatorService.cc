@@ -18,11 +18,10 @@
 #include "BackupClient.h"
 #include "CoordinatorService.h"
 #include "MasterClient.h"
-#include "MembershipClient.h"
-#include "PingClient.h"
 #include "ProtoBuf.h"
 #include "Recovery.h"
 #include "ShortMacros.h"
+#include "ServerId.h"
 #include "ServiceMask.h"
 
 namespace RAMCloud {
@@ -34,9 +33,9 @@ CoordinatorService::CoordinatorService(Context& context)
     , tables()
     , nextTableId(0)
     , nextTableMasterIdx(0)
-    , nextReplicationId(1)
-    , recoveryManager(context, serverList, tabletMap)
-    , forceServerDownForTesting(false)
+    , runtimeOptions()
+    , recoveryManager(context, serverList, tabletMap, &runtimeOptions)
+    , serverManager(*this)
 {
     recoveryManager.start();
 }
@@ -95,6 +94,10 @@ CoordinatorService::dispatch(RpcOpcode opcode,
             callHandler<SendServerListRpc, CoordinatorService,
                         &CoordinatorService::sendServerList>(rpc);
             break;
+        case SetRuntimeOptionRpc::opcode:
+            callHandler<SetRuntimeOptionRpc, CoordinatorService,
+                        &CoordinatorService::setRuntimeOption>(rpc);
+            break;
         case ReassignTabletOwnershipRpc::opcode:
             callHandler<ReassignTabletOwnershipRpc, CoordinatorService,
                         &CoordinatorService::reassignTabletOwnership>(rpc);
@@ -132,6 +135,7 @@ CoordinatorService::createTable(const CreateTableRpc::Request& reqHdr,
         return;
     uint64_t tableId = nextTableId++;
     tables[name] = tableId;
+    respHdr.tableId = tableId;
 
     uint32_t serverSpan = reqHdr.serverSpan;
     if (serverSpan == 0)
@@ -296,72 +300,24 @@ CoordinatorService::enlistServer(const EnlistServerRpc::Request& reqHdr,
                                  Rpc& rpc)
 {
     ServerId replacesId = ServerId(reqHdr.replacesId);
+    Tub<CoordinatorServerList::Entry> replacedEntry;
     ServiceMask serviceMask = ServiceMask::deserialize(reqHdr.serviceMask);
     const uint32_t readSpeed = reqHdr.readSpeed;
     const uint32_t writeSpeed = reqHdr.writeSpeed;
     const char* serviceLocator = getString(rpc.requestPayload, sizeof(reqHdr),
                                            reqHdr.serviceLocatorLength);
-
-    // Keep track of the details of the server id that is being forced out
-    // of the cluster by the enlister so we can start recovery.
-    Tub<CoordinatorServerList::Entry> replacedEntry;
-
-    // The order of the updates in serverListUpdate is important: the remove
-    // must be ordered before the add to ensure that as members apply the
-    // update they will see the removal of the old server id before the
-    // addition of the new, replacing server id.
     ProtoBuf::ServerList serverListUpdate;
-    if (serverList.contains(replacesId)) {
-        LOG(NOTICE, "%s is enlisting claiming to replace server id "
-            "%lu, which is still in the server list, taking its word "
-            "for it and assuming the old server has failed",
-            serviceLocator, replacesId.getId());
-        replacedEntry.construct(serverList[replacesId]);
-        // Don't increment server list yet; done after the add below.
-        // Note, if the server being replaced is already crashed this may
-        // not append an update at all.
-        serverList.crashed(replacesId, serverListUpdate);
-        // If the server being replaced did not have a master then there
-        // will be no recovery.  That means it needs to transition to
-        // removed status now (usually recoveries remove servers from the
-        // list when they complete).
-        if (!replacedEntry->isMaster())
-            serverList.remove(replacesId, serverListUpdate);
-    }
 
-    ServerId newServerId = serverList.add(serviceLocator,
-                                          serviceMask,
-                                          readSpeed,
-                                          serverListUpdate);
-    serverList.incrementVersion(serverListUpdate);
-    CoordinatorServerList::Entry entry = serverList[newServerId];
-
-    LOG(NOTICE, "Enlisting new server at %s (server id %lu) supporting "
-        "services: %s",
-        serviceLocator, newServerId.getId(),
-        entry.services.toString().c_str());
-    if (replacesId.isValid()) {
-        LOG(NOTICE, "Newly enlisted server %lu replaces server %lu",
-            newServerId.getId(), replacesId.getId());
-    }
-
-    if (entry.isBackup()) {
-        LOG(DEBUG, "Backup at id %lu has %u MB/s read %u MB/s write",
-            newServerId.getId(), readSpeed, writeSpeed);
-        createReplicationGroup();
-    }
+    ServerId newServerId = serverManager.enlistServerStart(
+        replacesId, &replacedEntry, serviceMask, readSpeed, writeSpeed,
+        serviceLocator, &serverListUpdate);
 
     respHdr.serverId = newServerId.getId();
     rpc.sendReply();
 
-    if (entry.services.has(MEMBERSHIP_SERVICE))
-        sendServerList(newServerId);
-    serverList.sendMembershipUpdate(serverListUpdate, newServerId);
-
-    // Recovery on the replaced host is deferred until the replacing host
-    // has been enlisted.
-    if (replacedEntry)
-        recoveryManager.startMasterRecovery(replacedEntry->serverId);
+    serverManager.enlistServerComplete(&replacedEntry,
+                                       newServerId,
+                                       &serverListUpdate);
 }
 
 /**
@@ -375,8 +331,8 @@ CoordinatorService::getServerList(const GetServerListRpc::Request& reqHdr,
 {
     ServiceMask serviceMask = ServiceMask::deserialize(reqHdr.serviceMask);
 
-    ProtoBuf::ServerList serialServerList;
-    serverList.serialize(serialServerList, serviceMask);
+    ProtoBuf::ServerList serialServerList =
+        serverManager.getServerList(serviceMask);
 
     respHdr.serverListLength =
         serializeToResponse(rpc.replyPayload, serialServerList);
@@ -410,56 +366,7 @@ CoordinatorService::hintServerDown(const HintServerDownRpc::Request& reqHdr,
     rpc.sendReply();
 
     // reqHdr, respHdr, and rpc are off-limits now
-    hintServerDown(serverId);
-}
-
-/**
- * Returns true if server is down, false otherwise.
- *
- * \param serverId
- *     ServerId of the server that is suspected to be down.
- */
-bool
-CoordinatorService::hintServerDown(ServerId serverId)
-{
-    if (!serverList.contains(serverId) ||
-        serverList[serverId].status != ServerStatus::UP) {
-        LOG(NOTICE, "Spurious crash report on unknown server id %lu",
-            serverId.getId());
-        return true;
-    }
-
-    if (!verifyServerFailure(serverId))
-        return false;
-    LOG(NOTICE, "Server id %lu has crashed, notifying the cluster and "
-        "starting recovery", serverId.getId());
-
-    // If this machine has a backup and master on the same server it is best
-    // to remove the dead backup before initiating recovery. Otherwise, other
-    // servers may try to backup onto a dead machine which will cause delays.
-    CoordinatorServerList::Entry entry = serverList[serverId];
-    ProtoBuf::ServerList update;
-    serverList.crashed(serverId, update);
-    // If the server being replaced did not have a master then there
-    // will be no recovery.  That means it needs to transition to
-    // removed status now (usually recoveries remove servers from the
-    // list when they complete).
-    if (!entry.isMaster())
-        serverList.remove(serverId, update);
-    serverList.incrementVersion(update);
-
-    // Update cluster membership information.
-    // Backup recovery is kicked off via this update.
-    // Deciding whether to place this before or after the start of master
-    // recovery is difficult.
-    serverList.sendMembershipUpdate(update, ServerId(/* invalid id */));
-
-    recoveryManager.startMasterRecovery(entry.serverId);
-
-    removeReplicationGroup(entry.replicationId);
-    createReplicationGroup();
-
-    return true;
+    serverManager.hintServerDown(serverId);
 }
 
 /**
@@ -482,9 +389,6 @@ CoordinatorService::recoveryMasterFinished(
                                            serverId,
                                            recoveredTablets,
                                            reqHdr.successful);
-    // Dump the tabletMap out for easy debugging.
-    LOG(DEBUG, "Coordinator tabletMap: %s",
-        tabletMap.debugString().c_str());
 
     // TODO(stutsman): Eventually we'll want to be able to 'reject' recovery
     // master completions, so we'll need to get a return value from
@@ -520,8 +424,9 @@ CoordinatorService::setWill(const SetWillRpc::Request& reqHdr,
                             SetWillRpc::Response& respHdr,
                             Rpc& rpc)
 {
-    if (!setWill(ServerId(reqHdr.masterId), rpc.requestPayload, sizeof(reqHdr),
-        reqHdr.willLength)) {
+    if (!serverManager.setWill(
+            ServerId(reqHdr.masterId), rpc.requestPayload, sizeof(reqHdr),
+            reqHdr.willLength)) {
         // TODO(ongaro): should be some other error or silent
         throw RequestFormatError(HERE);
     }
@@ -614,178 +519,31 @@ CoordinatorService::sendServerList(
     ServerId id(reqHdr.serverId);
     rpc.sendReply();
 
-    if (!serverList.contains(id)) {
-        LOG(WARNING, "Could not send list to unknown server %lu", *id);
-        return;
-    }
-
-    if (serverList[id].status != ServerStatus::UP) {
-        LOG(WARNING, "Could not send list to crashed server %lu", *id);
-        return;
-    }
-
-    if (!serverList[id].services.has(MEMBERSHIP_SERVICE)) {
-        LOG(WARNING, "Could not send list to server without membership "
-            "service: %lu", *id);
-        return;
-    }
-
-    LOG(DEBUG, "Sending server list to server id %lu as requested", *id);
-    sendServerList(id);
+    serverManager.sendServerList(id);
 }
 
 /**
- * Assign a new replicationId to a backup, and inform the backup which nodes
- * are in its replication group.
+ * Sets a runtime option field on the coordinator to the indicated value.
+ * See CoordinatorClient::setRuntimeOption() for details.
  *
- * \param replicationId
- *      New replication group Id that is assigned to backup.
- *
- * \param replicationGroupIds
- *      Includes the ServerId's of all the members of the replication group.
- *
- * \return
- *      False if one of the servers is dead, true if all of them are alive.
- */
-bool
-CoordinatorService::assignReplicationGroup(
-    uint64_t replicationId, const vector<ServerId>& replicationGroupIds)
-{
-    foreach (ServerId backupId, replicationGroupIds) {
-        if (!serverList.contains(backupId)) {
-            return false;
-        }
-        serverList.setReplicationId(backupId, replicationId);
-        // Try to send an assignReplicationId Rpc to a backup. If the Rpc
-        // fails, hintServerDown. If hintServerDown is true, the function
-        // aborts. If it fails, keep trying to send the Rpc to the backup.
-        // Note that this is an optimization. Even if we didn't abort in case
-        // of a failed Rpc, masters would still not use the failed replication
-        // group, since it would not accept their Rpcs.
-        while (true) {
-            try {
-                const char* locator =
-                    serverList[backupId].serviceLocator.c_str();
-                BackupClient backupClient(
-                    context.transportManager->getSession(locator));
-                backupClient.assignGroup(
-                    replicationId,
-                    static_cast<uint32_t>(replicationGroupIds.size()),
-                    &replicationGroupIds[0]);
-            } catch (TransportException& e) {
-                if (hintServerDown(backupId)) {
-                    return false;
-                } else {
-                    continue;
-                }
-            } catch (TimeoutException& e) {
-                if (hintServerDown(backupId)) {
-                    return false;
-                } else {
-                    continue;
-                }
-            }
-            break;
-        }
-    }
-    return true;
-}
-
-/**
- * Try to create a new replication group. Look for groups of backups that
- * are not assigned a replication group and are up.
- * If there are not enough available candidates for a new group, the function
- * returns without sending out any Rpcs. If there are enough group members
- * to form a new group, but one of the servers is down, hintServerDown will
- * reset the replication group of that server.
+ * \copydetails Service::ping
  */
 void
-CoordinatorService::createReplicationGroup()
+CoordinatorService::setRuntimeOption(const SetRuntimeOptionRpc::Request& reqHdr,
+                                     SetRuntimeOptionRpc::Response& respHdr,
+                                     Rpc& rpc)
 {
-    // Create a list of all servers who do not belong to a replication group
-    // and are up. Note that this is a performance optimization and is not
-    // required for correctness.
-    vector<ServerId> freeBackups;
-    for (size_t i = 0; i < serverList.size(); i++) {
-        if (serverList[i] &&
-            serverList[i]->isBackup() &&
-            serverList[i]->replicationId == 0) {
-            freeBackups.push_back(serverList[i]->serverId);
-        }
+    const char* option = getString(rpc.requestPayload, sizeof(reqHdr),
+                                   reqHdr.optionLength);
+    const char* value = getString(rpc.requestPayload,
+                                  downCast<uint32_t>(sizeof(reqHdr) +
+                                                     reqHdr.optionLength),
+                                  reqHdr.valueLength);
+    try {
+        runtimeOptions.set(option, value);
+    } catch (const std::out_of_range& e) {
+        respHdr.common.status = STATUS_OBJECT_DOESNT_EXIST;
     }
-
-    // TODO(cidon): The coordinator currently has no knowledge of the
-    // replication factor, so we manually set the replication group size to 3.
-    // We should make this parameter configurable.
-    const uint32_t numReplicas = 3;
-    vector<ServerId> group;
-    while (freeBackups.size() >= numReplicas) {
-        group.clear();
-        // Update the replicationId on serverList.
-        for (uint32_t i = 0; i < numReplicas; i++) {
-            const ServerId& backupId = freeBackups.back();
-            group.push_back(backupId);
-            serverList.setReplicationId(backupId, nextReplicationId);
-            freeBackups.pop_back();
-        }
-        // Assign a new replication group. AssignReplicationGroup handles
-        // Rpc failures.
-        assignReplicationGroup(nextReplicationId,
-                               group);
-        nextReplicationId++;
-    }
-}
-
-/**
- * Reset the replicationId for all backups with groupId.
- *
- * \param groupId
- *      Replication group that needs to be reset.
- */
-void
-CoordinatorService::removeReplicationGroup(uint64_t groupId)
-{
-    // Cannot remove groupId 0, since it is the default groupId.
-    if (groupId == 0) {
-        return;
-    }
-    for (size_t i = 0; i < serverList.size(); i++) {
-        if (serverList[i] &&
-            serverList[i]->replicationId == groupId) {
-            vector<ServerId> group;
-            group.push_back(serverList[i]->serverId);
-            serverList.setReplicationId(serverList[i]->serverId, 0);
-            // We check whether the server is up, in order to prevent
-            // recursively calling removeReplicationGroup by hintServerDown.
-            // If the backup is still up, we tell it to reset its
-            // replicationId, so it will stop accepting Rpcs. This is an
-            // optimization; even if we didn't reset its replicationId, Rpcs
-            // sent to the server's group members would fail, because at least
-            // one of the servers in the group is down.
-            if (serverList[i]->isBackup()) {
-                assignReplicationGroup(0, group);
-            }
-        }
-    }
-}
-
-/**
- * Push the entire server list to the specified server. This is used to both
- * push the initial list when a server enlists, as well as to push the list
- * again if a server misses any updates and has gone out of sync.
- *
- * \param destination
- *      ServerId of the server to send the list to.
- */
-void
-CoordinatorService::sendServerList(ServerId destination)
-{
-    ProtoBuf::ServerList serializedServerList;
-    serverList.serialize(serializedServerList);
-
-    MembershipClient client(context);
-    client.setServerList(serverList[destination].serviceLocator.c_str(),
-                         serializedServerList);
 }
 
 /**
@@ -815,76 +573,13 @@ CoordinatorService::setMinOpenSegmentId(
         serverId.getId(), segmentId);
 
     try {
-        serverList.setMinOpenSegmentId(serverId, segmentId);
+        serverManager.setMinOpenSegmentId(serverId, segmentId);
     } catch (const Exception& e) {
         LOG(WARNING, "setMinOpenSegmentId server doesn't exist: %lu",
             serverId.getId());
         respHdr.common.status = STATUS_SERVER_DOESNT_EXIST;
         return;
     }
-}
-
-/**
- * Update the will associated with a specific master ServerId.
- *
- * \param masterId
- *      ServerId of the master whose will is to be set.
- * \param buffer
- *      Buffer containing the will.
- * \param offset
- *      Byte offset of the will in the buffer.
- * \param length
- *      Length of the will in bytes.
- * \return
- *      False if masterId is not in the server list, true otherwise.
- */
-bool
-CoordinatorService::setWill(ServerId masterId, Buffer& buffer,
-                            uint32_t offset, uint32_t length)
-{
-    ProtoBuf::Tablets newWill;
-    ProtoBuf::parseFromResponse(buffer, offset, length, newWill);
-    try {
-        serverList.setWill(masterId, newWill);
-    } catch (const Exception& e) {
-        LOG(WARNING, "Master %lu could not be found!!", masterId.getId());
-        return false;
-    }
-    return true;
-}
-
-/**
- * Investigate \a serverId and make a verdict about its whether it is alive.
- *
- * \param serverId
- *      Server to investigate.
- * \return
- *      True if the server is dead, false if it is alive.
- * \throw Exception
- *      If \a serverId is not in #serverList.
- */
-bool
-CoordinatorService::verifyServerFailure(ServerId serverId) {
-    // Skip the real ping if this is from a unit test
-    if (forceServerDownForTesting)
-        return true;
-
-    const string& serviceLocator = serverList[serverId].serviceLocator;
-    try {
-        uint64_t nonce = generateRandom();
-        PingClient pingClient(context);
-        pingClient.ping(serviceLocator.c_str(),
-                        nonce, TIMEOUT_USECS * 1000);
-        LOG(NOTICE, "False positive for server id %lu (\"%s\")",
-                    *serverId, serviceLocator.c_str());
-        return false;
-    } catch (TransportException& e) {
-    } catch (TimeoutException& e) {
-    }
-    LOG(NOTICE, "Verified host failure: id %lu (\"%s\")",
-        *serverId, serviceLocator.c_str());
-
-    return true;
 }
 
 } // namespace RAMCloud

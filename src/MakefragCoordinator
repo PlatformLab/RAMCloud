@@ -1,7 +1,9 @@
 COORDINATOR_SRCFILES := \
 			src/CoordinatorService.cc \
-			src/TabletMap.cc \
+			src/CoordinatorServerManager.cc \
 			src/MasterRecoveryManager.cc \
+			src/TabletMap.cc \
+			src/RuntimeOptions.cc \
 			$(NULL)
 
 COORDINATOR_OBJFILES := $(COORDINATOR_SRCFILES)

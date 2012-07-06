@@ -116,6 +116,28 @@ class MasterClient : public Client {
         }
     };
 
+    /// An asynchronous version of #enumeration().
+    class Enumeration {
+      public:
+        Enumeration(MasterClient& client,
+                    uint64_t tableId,
+                    uint64_t tabletStartHash, uint64_t* nextTabletStartHash,
+                    Buffer* iter, Buffer* nextIter,
+                    Buffer* objects);
+        void cancel() { state.cancel(); }
+        bool isReady() { return state.isReady(); }
+        void operator()();
+      private:
+        MasterClient& client;
+        Buffer requestBuffer;
+        Buffer responseBuffer;
+        uint64_t* nextTabletStartHash;
+        Buffer& nextIter;
+        Buffer& objects;
+        AsyncState state;
+        DISALLOW_COPY_AND_ASSIGN(Enumeration);
+    };
+
     /// An asynchronous version of #multiread().
     class MultiRead {
       public:
@@ -195,6 +217,10 @@ class MasterClient : public Client {
     };
 
     explicit MasterClient(Transport::SessionRef session) : session(session) {}
+    void enumeration(uint64_t tableId,
+                     uint64_t tabletStartHash, uint64_t* nextTabletStartHash,
+                     Buffer* iter, Buffer* nextIter,
+                     Buffer* objects);
     void fillWithTestData(uint32_t numObjects, uint32_t objectSize);
     void increment(uint64_t tableId, const char* key, uint16_t keyLength,
                    int64_t incrementValue,

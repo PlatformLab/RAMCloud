@@ -28,12 +28,17 @@ namespace RAMCloud {
  *      Authoritative list of all servers in the system and their details.
  * \param  tabletMap
  *      Authoritative information about tablets and their mapping to servers.
+ * \param runtimeOptions
+ *      Configuration options which are stored by the coordinator.
+ *      May be NULL for testing.
  */
 MasterRecoveryManager::MasterRecoveryManager(Context& context,
                                              CoordinatorServerList& serverList,
-                                             TabletMap& tabletMap)
+                                             TabletMap& tabletMap,
+                                             RuntimeOptions* runtimeOptions)
     : serverList(serverList)
     , tabletMap(tabletMap)
+    , runtimeOptions(runtimeOptions)
     , thread()
     , waitingRecoveries()
     , activeRecoveries()
@@ -125,6 +130,9 @@ class ApplyTrackerChangesTask : public Task {
                 Recovery* recovery = mgr.tracker[server.serverId];
                 if (!recovery)
                     break;
+                LOG(NOTICE, "Recovery master %lu crashed while recovering "
+                    "a partition of server %lu", server.serverId.getId(),
+                    recovery->crashedServerId.getId());
                 // Like it or not, recovery is done on this recovery master
                 // but unsuccessfully.
                 recovery->recoveryMasterFinished(server.serverId, false);
@@ -226,6 +234,9 @@ class MaybeStartRecoveryTask : public Task {
                     "another recovery is active for the same ServerId",
                     recovery->crashedServerId.getId());
             } else {
+                if (mgr.runtimeOptions)
+                    recovery->testingFailRecoveryMasters =
+                        mgr.runtimeOptions->popFailRecoveryMasters();
                 recovery->schedule();
                 mgr.activeRecoveries[recovery->getRecoveryId()] = recovery;
                 mgr.waitingRecoveries.pop();
@@ -393,6 +404,9 @@ class RecoveryMasterFinishedTask : public Task {
                         "we need to handle this sensibly");
                 }
             }
+            LOG(DEBUG, "Coordinator tabletMap after recovery master %lu "
+                "finished: %s",
+                recoveryMasterId.getId(), mgr.tabletMap.debugString().c_str());
         } else {
             LOG(WARNING, "A recovery master failed to recover its partition");
         }
@@ -436,8 +450,8 @@ MasterRecoveryManager::recoveryFinished(Recovery* recovery)
     // means another recovery won't start until after the end of
     // recovery broadcast. To change that just move the erase
     // from destroyAndFreeRecovery() to recoveryFinished().
-    LOG(NOTICE, "Recovery completed for master %lu",
-        recovery->crashedServerId.getId());
+    LOG(NOTICE, "Recovery %lu completed for master %lu",
+        recovery->getRecoveryId(), recovery->crashedServerId.getId());
     if (recovery->wasCompletelySuccessful()) {
         // Remove recovered server from the server list and broadcast
         // the change to the cluster.
@@ -513,8 +527,14 @@ MasterRecoveryManager::recoveryMasterFinished(
  */
 void
 MasterRecoveryManager::main()
-{
+try {
     taskQueue.performTasksUntilHalt();
+} catch (const std::exception& e) {
+    LOG(ERROR, "Fatal error in MasterRecoveryManager: %s", e.what());
+    throw;
+} catch (...) {
+    LOG(ERROR, "Unknown fatal error in MasterRecoveryManager.");
+    throw;
 }
 
 /**

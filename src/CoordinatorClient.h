@@ -64,7 +64,7 @@ class CoordinatorClient : public Client {
     // OLD: everything below here should eventually go away.
     //-------------------------------------------------------
 
-    void createTable(const char* name, uint32_t serverSpan = 1);
+    uint64_t createTable(const char* name, uint32_t serverSpan = 1);
     void dropTable(const char* name);
     void splitTablet(const char* name, uint64_t startKeyHash,
                 uint64_t endKeyHash, uint64_t splitKeyHash);
@@ -85,6 +85,7 @@ class CoordinatorClient : public Client {
                                 bool successful);
     void setWill(uint64_t masterId, const ProtoBuf::Tablets& will);
     void sendServerList(ServerId destination);
+    void setRuntimeOption(const char* option, const char* value);
 
     class SetMinOpenSegmentId {
       public:

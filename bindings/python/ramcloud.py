@@ -159,6 +159,11 @@ def load_so():
                                    ctypes.c_uint32, ctypes.c_uint32]
     so.rc_testing_fill.restype  = status
 
+    so.rc_testing_set_runtime_option.argtypes = [client,
+                                                 ctypes.c_char_p,
+                                                 ctypes.c_char_p]
+    so.rc_testing_set_runtime_option.restype = status
+
     so.rc_testing_wait_for_all_tablets_normal.argtypes = [client]
     so.rc_testing_wait_for_all_tablets_normal.restype = None
 
@@ -318,6 +323,9 @@ class RAMCloud(object):
                                get_key(id), get_keyLength(id),
                                object_count, object_size)
         self.handle_error(s)
+
+    def testing_set_runtime_option(self, option, value):
+        so.rc_testing_set_runtime_option(self.client, option, value)
 
     def testing_wait_for_all_tablets_normal(self):
         so.rc_testing_wait_for_all_tablets_normal(self.client)

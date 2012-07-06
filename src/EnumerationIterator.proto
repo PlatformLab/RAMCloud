@@ -1,0 +1,41 @@
+/* Copyright (c) 2012 Stanford University
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR(S) DISCLAIM ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL AUTHORS BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+
+package RAMCloud.ProtoBuf;
+
+/// The network format for RAMCloud::EnumerationIterator. Any changes
+/// made here must also be made there as well.
+message EnumerationIterator {
+  /// See RAMCloud::EnumerationIterator::Frame.
+  message Frame {
+    /// See RAMCloud::EnumerationIterator::Frame::tabletStartHash.
+    required uint64 tablet_start_hash = 1;
+
+    /// See RAMCloud::EnumerationIterator::Frame::tabletEndHash.
+    required uint64 tablet_end_hash = 2;
+
+    /// See RAMCloud::EnumerationIterator::Frame::numBuckets.
+    required uint64 num_buckets = 3;
+
+    /// See RAMCloud::EnumerationIterator::Frame::bucketIndex.
+    required uint64 bucket_index = 4;
+
+    /// See RAMCloud::EnumerationIterator::Frame::bucketNextHash.
+    required uint64 bucket_next_hash = 5;
+  }
+
+  /// See RAMCloud::EnumerationIterator::frames.
+  repeated Frame frames = 1;
+}

@@ -17,6 +17,7 @@
 #define RAMCLOUD_PINGCLIENT_H
 
 #include "Client.h"
+#include "ServerId.h"
 #include "ServerMetrics.h"
 #include "Transport.h"
 
@@ -43,6 +44,7 @@ class PingClient : public Client {
     explicit PingClient(Context& context) : context(context) {}
     ServerMetrics getMetrics(const char* serviceLocator);
     uint64_t ping(const char* serviceLocator,
+                  ServerId callerId,
                   uint64_t nonce,
                   uint64_t timeoutNanoseconds,
                   uint64_t* serverListVersion = NULL);

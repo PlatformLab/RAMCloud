@@ -93,6 +93,8 @@ Rpc::opcodeSymbol(uint32_t opcode)
         case IS_REPLICA_NEEDED:          return "IS_REPLICA_NEEDED";
         case SPLIT_TABLET:               return "SPLIT_TABLET";
         case GET_SERVER_STATISTICS:      return "GET_SERVER_STATISTICS";
+        case SET_RUNTIME_OPTION:         return "SET_RUNTIME_OPTION";
+        case ENUMERATION:                return "ENUMERATION";
         case ILLEGAL_RPC_TYPE:           return "ILLEGAL_RPC_TYPE";
     }
 

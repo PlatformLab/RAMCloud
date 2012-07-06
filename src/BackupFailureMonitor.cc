@@ -67,7 +67,7 @@ BackupFailureMonitor::~BackupFailureMonitor()
  */
 void
 BackupFailureMonitor::main()
-{
+try {
     Lock lock(mutex);
     while (true) {
         // If the replicaManager isn't working and there aren't any
@@ -103,6 +103,12 @@ BackupFailureMonitor::main()
         if (replicaManager)
             replicaManager->proceed();
     }
+} catch (const std::exception& e) {
+    LOG(ERROR, "Fatal error in BackupFailureMonitor: %s", e.what());
+    throw;
+} catch (...) {
+    LOG(ERROR, "Unknown fatal error in BackupFailureMonitor.");
+    throw;
 }
 
 /**
@@ -178,9 +184,6 @@ BackupFailureMonitor::serverIsUp(ServerId serverId)
 void
 BackupFailureMonitor::trackerChangesEnqueued()
 {
-    Lock lock(mutex);
-    if (!running)
-        return;
     changesOrExit.notify_one();
 }
 

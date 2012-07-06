@@ -17,6 +17,7 @@
 #include <fcntl.h>
 
 #include "Common.h"
+#include "CycleCounter.h"
 #include "Cycles.h"
 #include "Fence.h"
 #include "PingClient.h"
@@ -161,9 +162,14 @@ FailureDetector::pingRandomServer()
     try {
         locator = serverList.getLocator(pingee);
         uint64_t serverListVersion;
-        pingClient.ping(locator.c_str(), nonce, TIMEOUT_USECS * 1000,
-            &serverListVersion);
-        TEST_LOG("Ping succeeded to server %s", locator.c_str());
+        LOG(DEBUG, "Sending ping with nonce %lx to server %lu (%s)",
+                    nonce, pingee.getId(), locator.c_str());
+        CycleCounter<> cycleCounter;
+        pingClient.ping(locator.c_str(), ourServerId,
+                        nonce, TIMEOUT_USECS * 1000, &serverListVersion);
+        LOG(DEBUG, "Ping with nonce %lx succeeded to server %lu (%s) in %lu ns",
+            nonce, pingee.getId(), locator.c_str(),
+            Cycles::toNanoseconds(cycleCounter.stop()));
 
         checkServerListVersion(serverListVersion);
     } catch (ServerListException &sle) {

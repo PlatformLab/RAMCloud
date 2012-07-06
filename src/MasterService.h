@@ -87,6 +87,9 @@ class MasterService : public Service {
         State state;
     };
 
+    void enumeration(const EnumerationRpc::Request& reqHdr,
+                     EnumerationRpc::Response& respHdr,
+                     Rpc& rpc);
     void fillWithTestData(const FillWithTestDataRpc::Request& reqHdr,
                           FillWithTestDataRpc::Response& respHdr,
                           Rpc& rpc);

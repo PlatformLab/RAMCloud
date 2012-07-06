@@ -80,7 +80,14 @@ PingService::ping(const PingRpc::Request& reqHdr,
              PingRpc::Response& respHdr,
              Rpc& rpc)
 {
-    LOG(DEBUG, "received ping request with nonce %ld", reqHdr.nonce);
+    if (ServerId(reqHdr.callerId) == ServerId()) {
+        LOG(DEBUG, "Received ping request from unknown endpoint "
+            "(perhaps the coordinator or a client) with nonce %lx",
+            reqHdr.nonce);
+    } else {
+        LOG(DEBUG, "Received ping request from server %lu with nonce %lx",
+            reqHdr.callerId, reqHdr.nonce);
+    }
     respHdr.nonce = reqHdr.nonce;
     respHdr.serverListVersion = 0;
     if (serverList != NULL)
@@ -103,7 +110,7 @@ PingService::proxyPing(const ProxyPingRpc::Request& reqHdr,
                                            reqHdr.serviceLocatorLength);
     uint64_t start = Cycles::rdtsc();
     try {
-        uint64_t result = client.ping(serviceLocator, 99999,
+        uint64_t result = client.ping(serviceLocator, ServerId(), 99999,
                                       reqHdr.timeoutNanoseconds);
         if (result == 99999U) {
             // We got an incorrect response; treat this as if there were

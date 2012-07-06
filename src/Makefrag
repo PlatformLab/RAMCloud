@@ -43,6 +43,8 @@ SHARED_SRCFILES := \
 		   src/Cycles.cc \
 		   src/Dispatch.cc \
 		   src/Driver.cc \
+		   src/Enumeration.cc \
+		   src/EnumerationIterator.cc \
 		   src/FailureDetector.cc \
 		   src/FailSession.cc \
 		   src/FastTransport.cc \
@@ -96,6 +98,7 @@ SHARED_SRCFILES := \
 		   src/UdpDriver.cc \
 		   src/WallTime.cc \
 		   $(INFINIBAND_SRCFILES) \
+		   $(OBJDIR)/EnumerationIterator.pb.cc \
 		   $(OBJDIR)/MetricList.pb.cc \
 		   $(OBJDIR)/ServerList.pb.cc \
 		   $(OBJDIR)/ServerStatistics.pb.cc \

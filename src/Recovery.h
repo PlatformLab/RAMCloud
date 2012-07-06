@@ -114,7 +114,7 @@ class Recovery : public Task {
      * The default logic does nothing which is useful for
      * Recovery during unit testing.
      */
-    struct Owner{
+    struct Owner {
         virtual void recoveryFinished(Recovery* recovery) {}
         virtual void destroyAndFreeRecovery(Recovery* recovery) {}
         virtual ~Owner() {}
@@ -253,6 +253,12 @@ class Recovery : public Task {
      */
     RecoveryInternal::BackupEndTaskTestingCallback*
         testingBackupEndTaskSendCallback;
+
+    /**
+     * For testing; send a magical partition id to this many of
+     * the recovery masters which will cause them to explode.
+     */
+    uint32_t testingFailRecoveryMasters;
 
     friend class RecoveryInternal::BackupStartTask;
     friend class RecoveryInternal::MasterStartTask;

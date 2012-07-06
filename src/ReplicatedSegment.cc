@@ -284,26 +284,28 @@ ReplicatedSegment::close(ReplicatedSegment* followingSegment)
  *      ServerId of the backup which has failed.
  * \return
  *      True indicates that this segment was not a cleaner generated segment,
- *      that it lost replicas, and that will take corrective actions on future
- *      iterations of the ReplicaManager loop.  These corrective actions rely
- *      on closing the segment if it was still open.  Therefore, the caller
- *      must take appropriate action to ensure that if the only current and
- *      recoverable copy of the digest was stored in this segment that it
+ *      that it lost replicas, and that it will take corrective actions on
+ *      future iterations of the ReplicaManager loop.  These corrective actions
+ *      rely on closing the segment if it was still open.  Therefore, the
+ *      caller must take appropriate action to ensure that if the only current
+ *      and recoverable copy of the digest was stored in this segment that it
  *      creates a new, current, and recoverable digest.  Checking to see if
- *      this segment is the current head from the Log's perspective, and,
- *      if so, rolling over to a new log head solves both constraints;
- *      it closes this segment and ensures a current log digest exists in
- *      another segment.
- *      Not rolling over to a new log head may result in an infinte loop
- *      not just during normal operation, but even during the destruction
- *      of the MasterService.  This is because the server makes every
- *      effort to ensure that all writes are durable/recoverable
- *      but it cannot make that guarantee for pending writes unless
- *      failures are handled.
+ *      this segment is the current head from the Log's perspective, and, if
+ *      so, rolling over to a new log head solves both constraints; it closes
+ *      this segment and ensures a current log digest exists in another
+ *      segment.  Not rolling over to a new log head may result in an infinite
+ *      loop not just during normal operation, but even during the destruction
+ *      of the MasterService.  This is because the server makes every effort to
+ *      ensure that all writes are durable/recoverable but it cannot make that
+ *      guarantee for pending writes unless failures are handled.
+ *      False indicates this segment cannot be the home of the current log
+ *      digest, in which case no action needs to be taken by the caller aside
+ *      from driving the ReplicaManager proceed loop to drive re-replication.
  */
 bool
 ReplicatedSegment::handleBackupFailure(ServerId failedId)
 {
+    auto alreadyRecoveringFromLostOpenReplicas = recoveringFromLostOpenReplicas;
     foreach (auto& replica, replicas) {
         if (!replica.isActive || replica.backupId != failedId)
             continue;
@@ -327,7 +329,11 @@ ReplicatedSegment::handleBackupFailure(ServerId failedId)
         schedule();
     }
 
-    return recoveringFromLostOpenReplicas;
+    // Only need higher-level code to roll over to a new log head once.
+    // If more replicas fail for the same segment while recovering
+    // from lost open replicas don't rollover again.
+    return !alreadyRecoveringFromLostOpenReplicas &&
+           recoveringFromLostOpenReplicas;
 }
 
 /**
@@ -376,7 +382,9 @@ ReplicatedSegment::sync(uint32_t offset)
  * \pre
  *      All previous segments have been closed (at least locally).
  * \param offset
- *      The number of bytes into the segment to replicate.
+ *      The number of bytes into the segment to replicate. If less than
+ *      the offset passed on any prior calls to this method then it is
+ *      a no-op.
  */
 void
 ReplicatedSegment::write(uint32_t offset)
@@ -387,7 +395,8 @@ ReplicatedSegment::write(uint32_t offset)
     // immutable after close
     assert(!queued.close);
     // offset monotonically increases
-    assert(offset >= queued.bytes);
+    if (offset < queued.bytes)
+        return;
     queued.bytes = offset;
 
     schedule();
@@ -442,7 +451,7 @@ ReplicatedSegment::performTask()
                     // and durably closed its time to make sure it can never
                     // appear as an open segment in the log again (even if
                     // some lost replica comes back from the grave).
-                    TEST_LOG("Updating minOpenSegmentId on coordinator to "
+                    LOG(DEBUG, "Updating minOpenSegmentId on coordinator to "
                              "ensure lost replicas of segment %lu will not be "
                              "reused", segmentId);
                     minOpenSegmentId.updateToAtLeast(segmentId + 1);
@@ -492,7 +501,7 @@ ReplicatedSegment::performFree(Replica& replica)
             // Request is finished, clean up the state.
             try {
                 (*replica.freeRpc)();
-            } catch (TransportException& e) {
+            } catch (const TransportException& e) {
                 // Retry, if it down the server list will let us know.
                 LOG(WARNING,
                     "Failure freeing replica on backup, retrying: %s",
@@ -519,7 +528,12 @@ ReplicatedSegment::performFree(Replica& replica)
             return;
         } else {
             // Issue a free rpc for this replica, reschedule to wait on it.
-            replica.freeRpc.construct(*replica.client, masterId, segmentId);
+            try {
+                replica.freeRpc.construct(*replica.client, masterId, segmentId);
+            } catch (const TransportException& e) {
+                // Ignore the exception and retry; we'll be interrupted by
+                // changes to the server list if the backup is down.
+            }
             schedule();
             return;
         }
@@ -565,11 +579,13 @@ ReplicatedSegment::performWrite(Replica& replica)
         } else {
             backupId = backupSelector.selectSecondary(numConflicts, conflicts);
         }
-        LOG(DEBUG, "Starting replication on backup %lu", backupId.getId());
+        LOG(DEBUG, "Starting replication of segment %lu replica slot %ld "
+            "on backup %lu", segmentId, &replica - &replicas[0],
+            backupId.getId());
         try {
             Transport::SessionRef session = tracker.getSession(backupId);
             replica.start(backupId, session);
-        } catch (TransportException& e) {
+        } catch (const TransportException& e) {
             LOG(NOTICE, "Cannot create a session to backup %lu, perhaps the "
                 "backup has crashed; will choose another backup",
                 backupId.getId());
@@ -590,12 +606,12 @@ ReplicatedSegment::performWrite(Replica& replica)
             try {
                 (*replica.writeRpc)();
                 replica.acked = replica.sent;
-                if (replica.acked.close && followingSegment) {
+                if (getAcked().close && followingSegment) {
                     followingSegment->precedingSegmentCloseAcked = true;
                     // Don't poke at potentially non-existent segments later.
                     followingSegment = NULL;
                 }
-            } catch (TransportException& e) {
+            } catch (const TransportException& e) {
                 // Retry, if it is down the server list will let us know.
                 replica.sent = replica.acked;
                 LOG(WARNING,
@@ -630,12 +646,21 @@ ReplicatedSegment::performWrite(Replica& replica)
                 flags = BackupWriteRpc::OPENPRIMARY;
 
             TEST_LOG("Sending open to backup %lu", replica.backupId.getId());
-            replica.writeRpc.construct(*replica.client, masterId, segmentId,
-                                        0, data, openLen, flags,
-                                        replica.replicateAtomically);
-            ++writeRpcsInFlight;
-            replica.sent.open = true;
-            replica.sent.bytes = openLen;
+            try {
+                replica.writeRpc.construct(*replica.client, masterId, segmentId,
+                                            0, data, openLen, flags,
+                                            replica.replicateAtomically);
+                ++writeRpcsInFlight;
+                replica.sent.open = true;
+                replica.sent.bytes = openLen;
+            } catch (const TransportException& e) {
+                // Ignore the exception and retry; we'll be interrupted by
+                // changes to the server list if the backup is down.
+                LOG(DEBUG, "Cannot create session for write to backup %lu, "
+                    "perhaps the backup has crashed; retrying until "
+                    "coordinator tells us it is gone.",
+                    replica.backupId.getId());
+            }
             schedule();
             return;
         }
@@ -693,12 +718,21 @@ ReplicatedSegment::performWrite(Replica& replica)
 
             TEST_LOG("Sending write to backup %lu", replica.backupId.getId());
             const char* src = static_cast<const char*>(data) + offset;
-            replica.writeRpc.construct(*replica.client, masterId, segmentId,
-                                        offset, src, length, flags,
-                                        replica.replicateAtomically);
-            ++writeRpcsInFlight;
-            replica.sent.bytes += length;
-            replica.sent.close = (flags == BackupWriteRpc::CLOSE);
+            try {
+                replica.writeRpc.construct(*replica.client, masterId, segmentId,
+                                            offset, src, length, flags,
+                                            replica.replicateAtomically);
+                ++writeRpcsInFlight;
+                replica.sent.bytes += length;
+                replica.sent.close = (flags == BackupWriteRpc::CLOSE);
+            } catch (const TransportException& e) {
+                // Ignore the exception and retry; we'll be interrupted by
+                // changes to the server list if the backup is down.
+                LOG(DEBUG, "Cannot create session for write to backup %lu, "
+                    "perhaps the backup has crashed; retrying until "
+                    "coordinator tells us it is gone.",
+                    replica.backupId.getId());
+            }
             schedule();
             return;
         } else {

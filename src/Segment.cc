@@ -198,11 +198,11 @@ Segment::commonConstructor(bool isLogHead,
 
     SegmentHeader segHdr = { logId, id, capacity, headSegmentIdDuringCleaning };
     SegmentEntryHandle h = forceAppendWithEntry(LOG_ENTRY_TYPE_SEGHEADER,
-                                                &segHdr, sizeof(segHdr), false);
+                                                &segHdr, sizeof(segHdr));
     assert(h != NULL);
     if (length) {
         SegmentEntryHandle h = forceAppendWithEntry(type,
-                                                    buffer, length, false);
+                                                    buffer, length);
         assert(h != NULL);
     }
     if (replicaManager)
@@ -221,14 +221,49 @@ Segment::~Segment()
 }
 
 /**
- * \copydoc Segment::locklessAppend
+ * Append an entry to this Segment. Entries consist of a typed header, followed
+ * by the user-specified contents. Note that this operation makes no guarantees
+ * about data alignment.
+ * \param type
+ *      The type of entry to append. All types except LOG_ENTRY_TYPE_SEGFOOTER
+ *      are permitted.
+ * \param buffer
+ *      Data to be appended to this Segment.
+ * \param length
+ *      Length of the data to be appended in bytes.
+ * \param sync
+ *      If true then this write to replicated to backups before return,
+ *      otherwise the replication will happen on a subsequent append()
+ *      where sync is true or when the segment is closed.  This defaults
+ *      to true.
+ * \param expectedChecksum
+ *      The checksum we expect this entry to have once appended. If the
+ *      actual calculated checksum does not match, an exception is
+ *      thrown and nothing is appended. This parameter is optional.
+ * \return
+ *      On success, a SegmentEntryHandle is returned, which points to the
+ *      ``buffer'' written. On failure, the handle is NULL. We avoid using
+ *      slow exceptions since this can be on the fast path.
  */
 SegmentEntryHandle
 Segment::append(LogEntryType type, const void *buffer, uint32_t length,
     bool sync, Tub<SegmentChecksum::ResultType> expectedChecksum)
 {
-    std::lock_guard<SpinLock> lock(mutex);
-    return locklessAppend(type, buffer, length, sync, expectedChecksum);
+    Lock lock(mutex);
+    SegmentEntryHandle handle =
+        locklessAppend(type, buffer, length, expectedChecksum);
+    canRollBack = !sync;
+    // May change once lock is released.
+    uint32_t tail = this->tail;
+    lock.unlock();
+
+    // Sync once, if needed, in order to write everything atomically.
+    if (handle && replicatedSegment && sync) {
+        replicatedSegment->write(tail);
+        replicatedSegment->sync(tail);
+    }
+
+    return handle;
 }
 
 /**
@@ -260,7 +295,7 @@ SegmentEntryHandleVector
 Segment::multiAppend(SegmentMultiAppendVector& appends, bool sync)
 {
     CycleCounter<RawMetric> _(&metrics->master.segmentAppendTicks);
-    std::lock_guard<SpinLock> lock(mutex);
+    Lock lock(mutex);
     SegmentEntryHandleVector handles;
 
     if (closed)
@@ -280,13 +315,16 @@ Segment::multiAppend(SegmentMultiAppendVector& appends, bool sync)
         handles.push_back(locklessAppend(appends[i].type,
                                          appends[i].buffer,
                                          appends[i].length,
-                                         false,
                                          appends[i].expectedChecksum));
 
         // This should never fail. It was up to this method to ensure
         // success before starting the appends.
         assert(handles[i] != NULL);
     }
+
+    // May change once lock is released.
+    uint32_t tail = this->tail;
+    lock.unlock();
 
     // Sync once, if needed, in order to write everything atomically.
     if (replicatedSegment) {
@@ -320,7 +358,7 @@ Segment::multiAppend(SegmentMultiAppendVector& appends, bool sync)
 void
 Segment::rollBack(SegmentEntryHandle handle)
 {
-    std::lock_guard<SpinLock> lock(mutex);
+    Lock lock(mutex);
 
     if (closed)
         throw SegmentException(HERE, "Cannot roll back on closed Segment");
@@ -352,7 +390,7 @@ Segment::rollBack(SegmentEntryHandle handle)
 void
 Segment::free(SegmentEntryHandle entry)
 {
-    std::lock_guard<SpinLock> lock(mutex);
+    Lock lock(mutex);
 
     assert((uintptr_t)entry >= ((uintptr_t)baseAddress + sizeof(SegmentEntry)));
     assert((uintptr_t)entry <  ((uintptr_t)baseAddress + capacity));
@@ -389,7 +427,7 @@ void
 Segment::setImplicitlyFreedCounts(uint32_t freeByteSum,
                                   uint64_t freeSpaceTimeSum)
 {
-    std::lock_guard<SpinLock> lock(mutex);
+    Lock lock(mutex);
 
     // Count should never decrease subsequently.
     assert(bytesImplicitlyFreed <= freeByteSum);
@@ -423,7 +461,7 @@ Segment::setImplicitlyFreedCounts(uint32_t freeByteSum,
 void
 Segment::close(Segment* nextHead, bool sync)
 {
-    std::lock_guard<SpinLock> lock(mutex);
+    Lock lock(mutex);
 
     if (closed)
         throw SegmentException(HERE, "Segment has already been closed");
@@ -442,7 +480,7 @@ Segment::close(Segment* nextHead, bool sync)
     // padding log entry header and the footer log entry + header.
     SegmentEntryHandle seh =
         forceAppendWithEntry(LOG_ENTRY_TYPE_INVALID, NULL,
-                             remainingSpace, false, false);
+                             remainingSpace, false);
     // Tweak to make sure this padding entry is still claimed as free space
     // from the perspective of the log cleaner.
     bytesExplicitlyFreed += seh->totalLength();
@@ -452,11 +490,15 @@ Segment::close(Segment* nextHead, bool sync)
     // end of the segment.
     SegmentFooter footer = { checksum.getResult() };
     seh = forceAppendWithEntry(LOG_ENTRY_TYPE_SEGFOOTER, &footer,
-                             sizeof(SegmentFooter), false, false);
+                             sizeof(SegmentFooter), false);
     assert(seh != NULL);
 
     // ensure that any future append() will fail
     closed = true;
+
+    // May change once lock is released.
+    uint32_t tail = this->tail;
+    lock.unlock();
 
     if (replicatedSegment) {
         replicatedSegment->write(tail);
@@ -473,7 +515,6 @@ Segment::close(Segment* nextHead, bool sync)
 void
 Segment::sync()
 {
-    std::lock_guard<SpinLock> lock(mutex);
     if (replicatedSegment)
         replicatedSegment->sync(tail);
 }
@@ -530,7 +571,7 @@ Segment::getCapacity() const
 uint32_t
 Segment::appendableBytes()
 {
-    std::lock_guard<SpinLock> lock(mutex);
+    Lock lock(mutex);
     return locklessAppendableBytes();
 }
 
@@ -542,7 +583,7 @@ Segment::appendableBytes()
 int
 Segment::getUtilisation()
 {
-    std::lock_guard<SpinLock> lock(mutex);
+    Lock lock(mutex);
     return static_cast<int>((100UL * locklessGetLiveBytes()) / capacity);
 }
 
@@ -554,7 +595,7 @@ Segment::getUtilisation()
 uint32_t
 Segment::getTotalBytesAppended()
 {
-    std::lock_guard<SpinLock> lock(mutex);
+    Lock lock(mutex);
     return tail;
 }
 
@@ -564,7 +605,7 @@ Segment::getTotalBytesAppended()
 uint32_t
 Segment::getLiveBytes()
 {
-    std::lock_guard<SpinLock> lock(mutex);
+    Lock lock(mutex);
     return locklessGetLiveBytes();
 }
 
@@ -594,7 +635,7 @@ Segment::getFreeBytes()
 uint64_t
 Segment::getAverageTimestamp()
 {
-    std::lock_guard<SpinLock> lock(mutex);
+    Lock lock(mutex);
 
     if (!log) {
         throw SegmentException(HERE, format("%s() is only valid "
@@ -626,11 +667,6 @@ Segment::getAverageTimestamp()
  *      Data to be appended to this Segment.
  * \param length
  *      Length of the data to be appended in bytes.
- * \param sync
- *      If true then this write to replicated to backups before return,
- *      otherwise the replication will happen on a subsequent append()
- *      where sync is true or when the segment is closed.  This defaults
- *      to true.
  * \param expectedChecksum
  *      The checksum we expect this entry to have once appended. If the
  *      actual calculated checksum does not match, an exception is
@@ -642,7 +678,7 @@ Segment::getAverageTimestamp()
  */
 SegmentEntryHandle
 Segment::locklessAppend(LogEntryType type, const void *buffer, uint32_t length,
-    bool sync, Tub<SegmentChecksum::ResultType> expectedChecksum)
+                        Tub<SegmentChecksum::ResultType> expectedChecksum)
 {
     CycleCounter<RawMetric> _(&metrics->master.segmentAppendTicks);
 
@@ -651,7 +687,7 @@ Segment::locklessAppend(LogEntryType type, const void *buffer, uint32_t length,
         return NULL;
 
     return forceAppendWithEntry(type, buffer, length,
-        sync, true, expectedChecksum);
+                                true, expectedChecksum);
 }
 
 /**
@@ -832,11 +868,6 @@ Segment::forceAppendRepeatedByte(uint8_t byte, uint32_t length)
  *      correct operation.
  * \param length
  *      Length of the data to be appended in bytes.
- * \param sync
- *      If true then this write to replicated to backups before return,
- *      otherwise the replication will happen on a subsequent append()
- *      where sync is true or when the segment is closed.  This defaults
- *      to true.
  * \param updateChecksum
  *      Optional boolean to disable updates to the Segment checksum. The
  *      default is to update the running checksum while appending data, but
@@ -852,8 +883,8 @@ Segment::forceAppendRepeatedByte(uint8_t byte, uint32_t length)
  */
 SegmentEntryHandle
 Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
-    uint32_t length, bool sync, bool updateChecksum,
-    Tub<SegmentChecksum::ResultType> expectedChecksum)
+                              uint32_t length, bool updateChecksum,
+                              Tub<SegmentChecksum::ResultType> expectedChecksum)
 {
     assert(!closed);
 
@@ -911,20 +942,10 @@ Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
         }
     }
 
-    if (sync && replicatedSegment) {
-        // replicatedSegment can be NULL while initial opening entries for the
-        // segment header are appended but before openSegment is called.
-        replicatedSegment->write(tail);
-        replicatedSegment->sync(tail);
-    }
-
     SegmentEntryHandle handle =
         reinterpret_cast<SegmentEntryHandle>(entryPointer);
 
     incrementSpaceTimeSum(handle);
-
-    // If we haven't synced it yet, we can roll it back.
-    canRollBack = !sync;
 
     entryCountsByType[downCast<uint8_t>(type)]++;
 

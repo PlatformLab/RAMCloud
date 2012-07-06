@@ -34,7 +34,7 @@ struct MasterRecoveryManagerTest : public ::testing::Test {
         : context()
         , serverList(context)
         , tabletMap()
-        , mgr(context, serverList, tabletMap)
+        , mgr(context, serverList, tabletMap, NULL)
     {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
     }
@@ -179,6 +179,7 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinishedNoSuchRecovery) {
 }
 
 TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
+    MockRandom __(1);
     tabletMap.addTablet({0, 0, ~0lu, {1, 0}, Tablet::NORMAL, {2, 3}});
 
     auto crashedServerId = addMaster();
@@ -205,7 +206,13 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
     EXPECT_EQ(1lu, mgr.taskQueue.outstandingTasks());
     TestLog::Enable _;
     mgr.taskQueue.performTask(); // Do RecoveryMasterFinishedTask.
-    EXPECT_EQ("recoveryFinished: Recovery completed for master 1",
+    EXPECT_EQ(
+        "performTask: Coordinator tabletMap after recovery master 2 finished: "
+        "Tablet { tableId: 0 startKeyHash: 0 endKeyHash: 18446744073709551615 "
+            "serverId: 2 status: NORMAL ctime: 0, 0 } "
+        "Tablet { tableId: 0 startKeyHash: 0 endKeyHash: 18446744073709551615 "
+            "serverId: 1 status: RECOVERING ctime: 2, 3 } | "
+        "recoveryFinished: Recovery 1 completed for master 1",
               TestLog::get());
 
     // Recovery task which is finishing up, ApplyTrackerChangesTask (due to
@@ -219,6 +226,7 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
 TEST_F(MasterRecoveryManagerTest,
        recoveryMasterFinishedNotCompletelySuccessful)
 {
+    MockRandom __(1);
     tabletMap.addTablet({0, 0, ~0lu, {1, 0}, Tablet::NORMAL, {2, 3}});
 
     auto crashedServerId = addMaster();
@@ -245,14 +253,16 @@ TEST_F(MasterRecoveryManagerTest,
     mgr.taskQueue.performTask();
     EXPECT_EQ(
         "performTask: A recovery master failed to recover its partition | "
-        "recoveryFinished: Recovery completed for master 1 | "
+        "recoveryMasterFinished: Recovery master 2 failed to recover its "
+            "partition of the will for crashed server 1 | "
+        "recoveryMasterFinished: Recovery wasn't completely successful; will "
+            "not broadcast the end of recovery 1 for server 1 to backups | "
+        "recoveryFinished: Recovery 1 completed for master 1 | "
         "recoveryFinished: Recovery of server 1 failed to recover some "
-            "tablets, rescheduling another recovery", TestLog::get());
-
-    TestLog::reset();
-    mgr.taskQueue.performTask();
-    EXPECT_EQ("destroyAndFreeRecovery: Recovery of server 1 done "
-                  "(now 0 active recoveries)", TestLog::get());
+            "tablets, rescheduling another recovery | "
+        "destroyAndFreeRecovery: Recovery of server 1 done (now 0 active "
+            "recoveries)"
+        , TestLog::get());
     recovery.release();
 
     TestLog::reset();

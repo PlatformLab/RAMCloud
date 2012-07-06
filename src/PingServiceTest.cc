@@ -60,14 +60,21 @@ TEST_F(PingServiceTest, getMetrics) {
 
 TEST_F(PingServiceTest, ping_basics) {
     TestLog::Enable _;
-    EXPECT_EQ(0x1234512345U, client.ping("mock:host=ping", 0x1234512345, 0));
-    EXPECT_EQ("ping: received ping request with nonce 78187144005 | "
-            "checkStatus: status: 0", TestLog::get());
+    EXPECT_EQ(0x1234512345U,
+              client.ping("mock:host=ping", ServerId(), 0x1234512345, 0));
+    EXPECT_EQ("ping: Received ping request from unknown endpoint "
+              "(perhaps the coordinator or a client) with nonce 1234512345 | "
+              "checkStatus: status: 0", TestLog::get());
+    TestLog::reset();
+    EXPECT_EQ(0x12345u,
+              client.ping("mock:host=ping", ServerId(99), 0x12345, 0));
+    EXPECT_EQ("ping: Received ping request from server 99 with nonce 12345 | "
+              "checkStatus: status: 0", TestLog::get());
 }
 TEST_F(PingServiceTest, ping_timeout) {
     uint64_t start = Cycles::rdtsc();
     transport.abortCounter = 1;
-    EXPECT_THROW(client.ping("mock:host=ping", 0x1234512345, 100000),
+    EXPECT_THROW(client.ping("mock:host=ping", ServerId(), 0x12345, 100000),
                  TimeoutException);
     double elapsedMicros = 1e06* Cycles::toSeconds(Cycles::rdtsc() - start);
     EXPECT_GE(elapsedMicros, 100.0);

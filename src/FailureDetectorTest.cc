@@ -26,6 +26,7 @@
 #include "Rpc.h"
 #include "ServerList.pb.h"
 #include "ServerList.h"
+#include "StringUtil.h"
 
 namespace RAMCloud {
 
@@ -91,31 +92,45 @@ TEST_F(FailureDetectorTest, pingRandomServer_onlySelfServers) {
 }
 
 TEST_F(FailureDetectorTest, pingRandomServer_pingSuccess) {
+    MockRandom _(1);
     addServer(ServerId(1, 0), "mock:");
     mockTransport.setInput("0 0 55 0 1 0");
     fd->pingRandomServer();
-    EXPECT_EQ("checkStatus: status: 0 | pingRandomServer: "
-              "Ping succeeded to server mock:", TestLog::get());
+    EXPECT_TRUE(StringUtil::startsWith(TestLog::get(),
+                "pingRandomServer: Sending ping with nonce 2 to "
+                    "server 1 (mock:) | "
+                "checkStatus: status: 0 | "
+                "pingRandomServer: Ping with nonce 2 succeeded to "
+                    "server 1 (mock:)"));
 }
 
 TEST_F(FailureDetectorTest, pingRandomServer_pingFailure) {
+    MockRandom _(1);
     addServer(ServerId(1, 0), "mock:");
     mockTransport.setInput(NULL); // ping timeout
     mockTransport.setInput("0");
     fd->pingRandomServer();
-    EXPECT_EQ("alertCoordinator: Ping timeout to server id 1 "
-        "(locator \"mock:\") | checkStatus: status: 0", TestLog::get());
+    EXPECT_EQ("pingRandomServer: Sending ping with nonce 2 to "
+                   "server 1 (mock:) | "
+               "alertCoordinator: Ping timeout to server id 1 "
+                   "(locator \"mock:\") | "
+               "checkStatus: status: 0", TestLog::get());
 }
 
 TEST_F(FailureDetectorTest, pingRandomServer_pingFailureAndCoordFailure) {
+    MockRandom _(1);
     addServer(ServerId(1, 0), "mock:");
     mockTransport.setInput(NULL); // ping timeout
     mockTransport.setInput(NULL); // coordinator timeout
     fd->pingRandomServer();
-    EXPECT_EQ(0U, TestLog::get().find("alertCoordinator: Ping timeout to "
-        "server id 1 (locator \"mock:\") | alertCoordinator: Hint server "
-        "down failed. Maybe the network is disconnected: "
-        "RAMCloud::TransportException: testing thrown"));
+    EXPECT_TRUE(StringUtil::startsWith(TestLog::get(),
+                "pingRandomServer: Sending ping with nonce 2 "
+                    "to server 1 (mock:) | "
+                "alertCoordinator: Ping timeout to server id 1 "
+                    "(locator \"mock:\") | "
+                "alertCoordinator: Hint server down failed. Maybe the network "
+                    "is disconnected: RAMCloud::TransportException: "
+                "testing thrown"));
 }
 
 TEST_F(FailureDetectorTest, checkServerListVersion) {

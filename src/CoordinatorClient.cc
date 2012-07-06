@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -133,10 +133,16 @@ CoordinatorClient::EnlistServerRpc2::wait()
  *      to this number of servers according to their hash. This is a temporary
  *      work-around until tablet migration is complete; until then, we must
  *      place tablets on servers statically.
+ * 
+ * \return
+ *      The return value is an identifier for the created table; this is
+ *      used instead of the table's name for most RAMCloud operations
+ *      involving the table.
+ *
  *
  * \exception InternalError
  */
-void
+uint64_t
 CoordinatorClient::createTable(const char* name, uint32_t serverSpan)
 {
     Buffer req;
@@ -149,10 +155,11 @@ CoordinatorClient::createTable(const char* name, uint32_t serverSpan)
         Buffer resp;
         Transport::SessionRef session =
                 context.coordinatorSession->getSession();
-        sendRecv<CreateTableRpc>(session, req, resp);
+        const CreateTableRpc::Response& respHdr(
+                sendRecv<CreateTableRpc>(session, req, resp));
         try {
             checkStatus(HERE);
-            return;
+            return respHdr.tableId;
         } catch (const RetryException& e) {
             LOG(DEBUG, "RETRY trying to create table");
             usleep(500);
@@ -494,6 +501,35 @@ CoordinatorClient::sendServerList(ServerId destination)
         allocHeader<SendServerListRpc>(req));
     reqHdr.serverId = *destination;
     sendRecv<SendServerListRpc>(session, req, resp);
+    checkStatus(HERE);
+}
+
+/**
+ * Sets a runtime option field on the coordinator to the indicated value.
+ *
+ * \param option
+ *      String name which corresponds to a member field in the RuntimeOptions
+ *      class (e.g.  "failRecoveryMasters") whose value should be replaced with
+ *      the given value.
+ * \param value
+ *      String which can be parsed into the type of the field indicated by
+ *      \a option. The format is specific to the type of each field but is
+ *      generally either a single value (e.g. "10", "word") or a collection
+ *      separated by spaces (e.g. "1 2 3", "first second"). See RuntimeOptions
+ *      for more information.
+ */
+void
+CoordinatorClient::setRuntimeOption(const char* option, const char* value)
+{
+    Buffer req, resp;
+    Transport::SessionRef session = context.coordinatorSession->getSession();
+    SetRuntimeOptionRpc::Request& reqHdr(
+        allocHeader<SetRuntimeOptionRpc>(req));
+    reqHdr.optionLength = downCast<uint32_t>(strlen(option) + 1);
+    reqHdr.valueLength = downCast<uint32_t>(strlen(value) + 1);
+    Buffer::Chunk::appendToBuffer(&req, option, reqHdr.optionLength);
+    Buffer::Chunk::appendToBuffer(&req, value, reqHdr.valueLength);
+    sendRecv<SetRuntimeOptionRpc>(session, req, resp);
     checkStatus(HERE);
 }
 

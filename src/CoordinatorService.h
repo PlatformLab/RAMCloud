@@ -25,10 +25,11 @@
 #include "RawMetrics.h"
 #include "Recovery.h"
 #include "Rpc.h"
-#include "ServerId.h"
+#include "RuntimeOptions.h"
 #include "Service.h"
 #include "TabletMap.h"
 #include "TransportManager.h"
+#include "CoordinatorServerManager.h"
 
 namespace RAMCloud {
 
@@ -43,13 +44,6 @@ class CoordinatorService : public Service {
                   Rpc& rpc);
 
   PRIVATE:
-    /**
-     * The ping timeout used when the Coordinator verifies an incoming
-     * hint server down message. Until we resolve the scheduler issues that we
-     * have been seeing this timeout should be at least 250ms.
-     */
-    static const int TIMEOUT_USECS = 250 * 1000;
-
     // - rpc handlers -
     void createTable(const CreateTableRpc::Request& reqHdr,
                      CreateTableRpc::Response& respHdr,
@@ -76,9 +70,9 @@ class CoordinatorService : public Service {
                         HintServerDownRpc::Response& respHdr,
                         Rpc& rpc);
     void recoveryMasterFinished(
-        const RecoveryMasterFinishedRpc::Request& reqHdr,
-        RecoveryMasterFinishedRpc::Response& respHdr,
-        Rpc& rpc);
+            const RecoveryMasterFinishedRpc::Request& reqHdr,
+            RecoveryMasterFinishedRpc::Response& respHdr,
+            Rpc& rpc);
     void quiesce(const BackupQuiesceRpc::Request& reqHdr,
                  BackupQuiesceRpc::Response& respHdr,
                  Rpc& rpc);
@@ -86,25 +80,18 @@ class CoordinatorService : public Service {
                  SetWillRpc::Response& respHdr,
                  Rpc& rpc);
     void reassignTabletOwnership(
-                const ReassignTabletOwnershipRpc::Request& reqHdr,
-                ReassignTabletOwnershipRpc::Response& respHdr,
-                Rpc& rpc);
+            const ReassignTabletOwnershipRpc::Request& reqHdr,
+            ReassignTabletOwnershipRpc::Response& respHdr,
+            Rpc& rpc);
     void sendServerList(const SendServerListRpc::Request& reqHdr,
                         SendServerListRpc::Response& respHdr,
                         Rpc& rpc);
-    // - helper methods -
-    bool assignReplicationGroup(uint64_t replicationId,
-                                const vector<ServerId>& replicationGroupIds);
-    void createReplicationGroup();
-    bool hintServerDown(ServerId serverId);
-    void removeReplicationGroup(uint64_t replicationId);
-    void sendServerList(ServerId destination);
+    void setRuntimeOption(const SetRuntimeOptionRpc::Request& reqHdr,
+                          SetRuntimeOptionRpc::Response& respHdr,
+                          Rpc& rpc);
     void setMinOpenSegmentId(const SetMinOpenSegmentIdRpc::Request& reqHdr,
                              SetMinOpenSegmentIdRpc::Response& respHdr,
                              Rpc& rpc);
-    bool setWill(ServerId masterId, Buffer& buffer,
-                 uint32_t offset, uint32_t length);
-    bool verifyServerFailure(ServerId serverId);
 
     /**
      * Shared RAMCloud information.
@@ -146,12 +133,11 @@ class CoordinatorService : public Service {
     uint32_t nextTableMasterIdx;
 
     /**
-     * The id of the next replication group to be created. The replication
-     * group is a set of backups that store all of the replicas of a segment.
-     * NextReplicationId starts at 1 and is never reused.
-     * Id 0 is reserved for nodes that do not belong to a replication group.
+     * Contains coordinator configuration options which can be modified while
+     * the cluster is running. Currently mostly used for setting debugging
+     * or testing parameters.
      */
-    uint64_t nextReplicationId;
+    RuntimeOptions runtimeOptions;
 
     /**
      * Handles all master recovery details on behalf of the coordinator.
@@ -159,11 +145,11 @@ class CoordinatorService : public Service {
     MasterRecoveryManager recoveryManager;
 
     /**
-     * Used for testing only. If true, the HINT_SERVER_DOWN handler will
-     * assume that the server has failed (rather than checking for itself).
+     * Handles all server configuration details on behalf of the coordinator.
      */
-    bool forceServerDownForTesting;
+    CoordinatorServerManager serverManager;
 
+    friend class CoordinatorServerManager;
     DISALLOW_COPY_AND_ASSIGN(CoordinatorService);
 };
 

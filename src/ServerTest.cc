@@ -52,10 +52,11 @@ class ServerTest: public ::testing::Test {
 
 TEST_F(ServerTest, startForTesting) {
     TestLog::Enable _;
-    EXPECT_THROW(ping.ping(config.localLocator.c_str(), 0, 100 * 1000),
+    EXPECT_THROW(ping.ping(config.localLocator.c_str(), ServerId(),
+                           0, 100 * 1000),
                  TransportException);
     server->startForTesting(cluster.transport);
-    ping.ping(config.localLocator.c_str(), 0, 100 * 1000);
+    ping.ping(config.localLocator.c_str(), ServerId(), 0, 100 * 1000);
 }
 
 // run is too much of a pain to and not that interesting.
@@ -82,7 +83,7 @@ TEST_F(ServerTest, createAndRegisterServices) {
 
 namespace {
 bool enlistServerFilter(string s) {
-    return s == "enlistServer";
+    return s == "enlistServerStart";
 }
 }
 
@@ -90,12 +91,13 @@ TEST_F(ServerTest, enlist) {
     server->createAndRegisterServices(&cluster.transport);
     TestLog::Enable _(enlistServerFilter);
     server->enlist({128, 0});
-    EXPECT_EQ("enlistServer: Enlisting new server at mock:host=server0 "
-                  "(server id 1) supporting services: MASTER_SERVICE, "
-                  "BACKUP_SERVICE, PING_SERVICE, MEMBERSHIP_SERVICE | "
-              "enlistServer: Newly enlisted server 1 replaces server 128 | "
-              "enlistServer: Backup at id 1 has 100 MB/s read 100 MB/s write",
-              TestLog::get());
+    EXPECT_EQ(
+        "enlistServerStart: Enlisting new server at mock:host=server0 "
+        "(server id 1) supporting services: MASTER_SERVICE, "
+        "BACKUP_SERVICE, PING_SERVICE, MEMBERSHIP_SERVICE | "
+        "enlistServerStart: Newly enlisted server 1 replaces server 128 | "
+        "enlistServerStart: Backup at id 1 has 100 MB/s read 100 MB/s write",
+         TestLog::get());
     ASSERT_TRUE(server->master->serverId.isValid());
     EXPECT_TRUE(server->backup->serverId.isValid());
 

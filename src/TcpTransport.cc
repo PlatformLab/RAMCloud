@@ -404,6 +404,8 @@ TcpTransport::sendMessage(int fd, uint64_t nonce, Buffer& payload,
 #endif
     if (r == -1) {
         if ((errno != EAGAIN) && (errno != EWOULDBLOCK)) {
+            LOG(DEBUG, "I/O error in TcpTransport::sendMessage: %s",
+                strerror(errno));
             throw TransportException(HERE,
                     "I/O error in TcpTransport::sendMessage", errno);
         }
@@ -575,6 +577,8 @@ TcpTransport::TcpSession::TcpSession(TcpTransport& transport,
     setServiceLocator(serviceLocator.getOriginalString());
     fd = sys->socket(PF_INET, SOCK_STREAM, 0);
     if (fd == -1) {
+        LOG(DEBUG, "TcpTransport couldn't open socket for session: %s",
+            strerror(errno));
         throw TransportException(HERE,
                 "TcpTransport couldn't open socket for session", errno);
     }
@@ -583,6 +587,8 @@ TcpTransport::TcpSession::TcpSession(TcpTransport& transport,
     if (r == -1) {
         sys->close(fd);
         fd = -1;
+        LOG(DEBUG, "TcpTransport couldn't connect to %s: %s",
+            getServiceLocator().c_str(), strerror(errno));
         throw TransportException(HERE, format(
                 "TcpTransport couldn't connect to %s",
                 getServiceLocator().c_str()), errno);
@@ -669,6 +675,7 @@ TcpTransport::ClientRpc*
 TcpTransport::TcpSession::clientSend(Buffer* request, Buffer* response)
 {
     if (fd == -1) {
+        LOG(DEBUG, "TcpTransport errorInfo: %s", errorInfo.c_str());
         throw TransportException(HERE, errorInfo);
     }
     alarm.rpcStarted();

@@ -507,7 +507,10 @@ TEST_F(CoordinatorServerListTest, sendMembershipUpdate) {
               "clientSend: 0x40024 9 273 0 /0",   // Update to server 4.
               transport.outputLog);
     EXPECT_EQ("sendMembershipUpdate: Server 4294967297 had lost an update. "
-              "Sending whole list.",
+                  "Sending whole list. | "
+              "sendMembershipUpdate: Server list update sent to "
+                  "server 4294967297 | "
+              "sendMembershipUpdate: Server list update sent to server 4",
               TestLog::get());
 }
 

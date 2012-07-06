@@ -20,6 +20,8 @@
 #include "ClientException.h"
 #include "Cycles.h"
 #include "Dispatch.h"
+#include "Enumeration.h"
+#include "EnumerationIterator.h"
 #include "LogIterator.h"
 #include "ShortMacros.h"
 #include "MasterClient.h"
@@ -153,6 +155,10 @@ MasterService::dispatch(RpcOpcode opcode, Rpc& rpc)
             callHandler<DropTabletOwnershipRpc, MasterService,
                         &MasterService::dropTabletOwnership>(rpc);
             break;
+        case EnumerationRpc::opcode:
+            callHandler<EnumerationRpc, MasterService,
+                        &MasterService::enumeration>(rpc);
+            break;
         case FillWithTestDataRpc::opcode:
             callHandler<FillWithTestDataRpc, MasterService,
                         &MasterService::fillWithTestData>(rpc);
@@ -236,8 +242,74 @@ MasterService::init(ServerId id)
 }
 
 /**
- * Fill this server with test data. Objects are added to all
- * existing tables in a round-robin fashion.
+ * Top-level server method to handle the ENUMERATION request.
+ *
+ * \copydetails Service::ping
+ */
+void
+MasterService::enumeration(const EnumerationRpc::Request& reqHdr,
+                           EnumerationRpc::Response& respHdr,
+                           Rpc& rpc)
+{
+    bool validTablet = false;
+    // In some cases, actualTabletStartHash may differ from
+    // reqHdr.tabletStartHash, e.g. when a tablet is merged in between
+    // RPCs made to enumerate that tablet. If that happens, we must
+    // filter by reqHdr.tabletStartHash, NOT the actualTabletStartHash
+    // for the tablet we own.
+    uint64_t actualTabletStartHash = 0, actualTabletEndHash = 0;
+    foreach (auto& tablet, tablets.tablet()) {
+        if (tablet.table_id() == reqHdr.tableId &&
+            tablet.start_key_hash() <= reqHdr.tabletStartHash &&
+            reqHdr.tabletStartHash <= tablet.end_key_hash()) {
+            validTablet = true;
+            actualTabletStartHash = tablet.start_key_hash();
+            actualTabletEndHash = tablet.end_key_hash();
+            break;
+        }
+    }
+    if (!validTablet) {
+        respHdr.common.status = STATUS_UNKNOWN_TABLE;
+        return;
+    }
+
+    EnumerationIterator iter(
+        rpc.requestPayload,
+        downCast<uint32_t>(sizeof(reqHdr)), reqHdr.iteratorBytes);
+
+    Buffer payload;
+    // A rough upper bound on how much space will be available in the response.
+    uint32_t maxPayloadBytes =
+            downCast<uint32_t>(Transport::MAX_RPC_LEN - sizeof(respHdr)
+                               - reqHdr.iteratorBytes);
+    Enumeration enumeration(reqHdr.tableId, reqHdr.tabletStartHash,
+                            actualTabletStartHash, actualTabletEndHash,
+                            &respHdr.tabletStartHash, iter, objectMap, payload,
+                            maxPayloadBytes);
+    enumeration.complete();
+
+    // Fill response from payload buffer and iterator.
+    for (Buffer::Iterator it(payload); !it.isDone(); it.next())
+        Buffer::Chunk::appendToBuffer(&rpc.replyPayload,
+                                      it.getData(), it.getLength());
+    respHdr.payloadBytes = payload.getTotalLength();
+
+    uint32_t iteratorBytes = iter.serialize(rpc.replyPayload);
+    respHdr.iteratorBytes = iteratorBytes;
+}
+
+/**
+ * Fill a master server with the given number of objects, each of the
+ * same given size. Objects are added to all tables in the master in
+ * a round-robin fashion. This method exists simply to quickly fill a
+ * master for experiments.
+ *
+ * See MasterClient::fillWithTestData() for more information.
+ *
+ * \bug Will return an error if the master only owns part of a table
+ * (because the hash of the fabricated keys may land in a region it
+ * doesn't own).
+ *
  * \copydetails Service::ping
  */
 void
@@ -1471,6 +1543,8 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
     uint64_t recoveryId = reqHdr.recoveryId;
     ServerId crashedServerId(reqHdr.crashedServerId);
     uint64_t partitionId = reqHdr.partitionId;
+    if (partitionId == ~0u)
+        DIE("Recovery master got super secret partition id; killing self.");
     ProtoBuf::Tablets recoveryTablets;
     ProtoBuf::parseFromResponse(rpc.requestPayload, sizeof(reqHdr),
                                 reqHdr.tabletsLength, recoveryTablets);

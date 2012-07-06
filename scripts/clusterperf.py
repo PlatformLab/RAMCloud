@@ -156,6 +156,15 @@ def default(
             (obj_path, flatten_args(client_args), name), master_args='-d', **cluster_args)
     print(get_client_log(), end='')
 
+def multiRead(name, options, cluster_args, client_args):
+    cluster_args['timeout'] = 100
+    if options.num_servers == None:
+        cluster_args['num_servers'] = len(hosts)
+    client_args['--numTables'] = cluster_args['num_servers'];
+    cluster.run(client='%s/ClusterPerf %s %s' %
+            (obj_path, flatten_args(client_args), name), master_args='-d', **cluster_args)
+    print(get_client_log(), end='')
+
 def broadcast(name, options, cluster_args, client_args):
     if 'num_clients' not in cluster_args:
         cluster_args['num_clients'] = 10
@@ -229,6 +238,9 @@ simple_tests = [
 ]
 
 graph_tests = [
+    Test("multiRead_oneMaster", multiRead),
+    Test("multiRead_oneObjectPerMaster", multiRead),
+    Test("multiRead_general", multiRead),
     Test("readVaryingKeyLength", default),
     Test("writeVaryingKeyLength", default),
     Test("readLoaded", readLoaded),

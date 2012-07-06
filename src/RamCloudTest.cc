@@ -28,6 +28,7 @@ class RamCloudTest : public ::testing::Test {
     Tub<RamCloud> ramcloud;
     uint64_t tableId1;
     uint64_t tableId2;
+    uint64_t tableId3;
 
   public:
     RamCloudTest()
@@ -36,6 +37,7 @@ class RamCloudTest : public ::testing::Test {
         , ramcloud()
         , tableId1(-1)
         , tableId2(-2)
+        , tableId3(-3)
     {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
 
@@ -52,14 +54,97 @@ class RamCloudTest : public ::testing::Test {
         cluster.addServer(config);
 
         ramcloud.construct(context, "mock:host=coordinator");
-        ramcloud->createTable("table1");
-        tableId1 = ramcloud->getTableId("table1");
-        ramcloud->createTable("table2");
-        tableId2 = ramcloud->getTableId("table2");
+        tableId1 = ramcloud->createTable("table1");
+        tableId2 = ramcloud->createTable("table2");
+        tableId3 = ramcloud->createTable("table3", 4);
     }
 
     DISALLOW_COPY_AND_ASSIGN(RamCloudTest);
 };
+
+TEST_F(RamCloudTest, enumeration_basics) {
+    uint64_t version0, version1, version2, version3, version4;
+    ramcloud->write(tableId3, "0", 1, "abcdef", 6, NULL, &version0, false);
+    ramcloud->write(tableId3, "1", 1, "ghijkl", 6, NULL, &version1, false);
+    ramcloud->write(tableId3, "2", 1, "mnopqr", 6, NULL, &version2, false);
+    ramcloud->write(tableId3, "3", 1, "stuvwx", 6, NULL, &version3, false);
+    ramcloud->write(tableId3, "4", 1, "yzabcd", 6, NULL, &version4, false);
+    // Write some objects into other tables to make sure they are not returned.
+    ramcloud->write(tableId1, "5", 1, "efghij", 6);
+    ramcloud->write(tableId2, "6", 1, "klmnop", 6);
+
+    RamCloud::Enumeration iter(*ramcloud, tableId3);
+    uint32_t size = 0;
+    const void* buffer = 0;
+
+    EXPECT_TRUE(iter.hasNext());
+    iter.next(&size, &buffer);
+    const Object* object = static_cast<const Object*>(buffer);
+
+    // First object.
+    EXPECT_EQ(29U, size);                                   // size
+    EXPECT_EQ(tableId3, object->tableId);                   // table ID
+    EXPECT_EQ(1U, object->keyLength);                       // key length
+    EXPECT_EQ(version0, object->version);                   // version
+    EXPECT_EQ('0', object->keyAndData[0]);                  // key
+    EXPECT_EQ("abcdef", string(&object->keyAndData[1], 6)); // value
+
+    EXPECT_TRUE(iter.hasNext());
+    iter.next(&size, &buffer);
+    object = static_cast<const Object*>(buffer);
+
+    // Second object.
+    EXPECT_EQ(29U, size);                                   // size
+    EXPECT_EQ(tableId3, object->tableId);                   // table ID
+    EXPECT_EQ(1U, object->keyLength);                       // key length
+    EXPECT_EQ(version1, object->version);                   // version
+    EXPECT_EQ('1', object->keyAndData[0]);                  // key
+    EXPECT_EQ("ghijkl", string(&object->keyAndData[1], 6)); // value
+
+    EXPECT_TRUE(iter.hasNext());
+    iter.next(&size, &buffer);
+    object = static_cast<const Object*>(buffer);
+
+    // Third object.
+    EXPECT_EQ(29U, size);                                   // size
+    EXPECT_EQ(tableId3, object->tableId);                   // table ID
+    EXPECT_EQ(1U, object->keyLength);                       // key length
+    EXPECT_EQ(version2, object->version);                   // version
+    EXPECT_EQ('2', object->keyAndData[0]);                  // key
+    EXPECT_EQ("mnopqr", string(&object->keyAndData[1], 6)); // value
+
+    EXPECT_TRUE(iter.hasNext());
+    iter.next(&size, &buffer);
+    object = static_cast<const Object*>(buffer);
+
+    // Fourth object.
+    EXPECT_EQ(29U, size);                                   // size
+    EXPECT_EQ(tableId3, object->tableId);                   // table ID
+    EXPECT_EQ(1U, object->keyLength);                       // key length
+    EXPECT_EQ(version4, object->version);                   // version
+    EXPECT_EQ('4', object->keyAndData[0]);                  // key
+    EXPECT_EQ("yzabcd", string(&object->keyAndData[1], 6)); // value
+
+
+    EXPECT_TRUE(iter.hasNext());
+    iter.next(&size, &buffer);
+    object = static_cast<const Object*>(buffer);
+
+    // Fifth object.
+    EXPECT_EQ(29U, size);                                   // size
+    EXPECT_EQ(tableId3, object->tableId);                   // table ID
+    EXPECT_EQ(1U, object->keyLength);                       // key length
+    EXPECT_EQ(version3, object->version);                   // version
+    EXPECT_EQ('3', object->keyAndData[0]);                  // key
+    EXPECT_EQ("stuvwx", string(&object->keyAndData[1], 6)); // value
+
+    EXPECT_FALSE(iter.hasNext());
+}
+
+TEST_F(RamCloudTest, enumeration_badTable) {
+    RamCloud::Enumeration iter(*ramcloud, -1);
+    EXPECT_THROW(iter.hasNext(), TableDoesntExistException);
+}
 
 TEST_F(RamCloudTest, getMetrics) {
     metrics->temp.count3 = 10101;

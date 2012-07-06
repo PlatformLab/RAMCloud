@@ -65,9 +65,13 @@ main(int argc, char *argv[])
             dispatch.poll();
         }
         return 0;
-    } catch (RAMCloud::Exception& e) {
+    } catch (const std::exception& e) {
         LOG(ERROR, "Fatal error in coordinator at %s: %s",
-            localLocator.c_str(), e.str().c_str());
+            localLocator.c_str(), e.what());
+        return 1;
+    } catch (...) {
+        LOG(ERROR, "Unknown fatal error in coordinator at %s",
+            localLocator.c_str());
         return 1;
     }
 }

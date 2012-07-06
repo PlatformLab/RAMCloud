@@ -27,6 +27,7 @@ TESTS_SRCFILES := \
 		  src/ContextTest.cc \
 		  src/CoordinatorRpcWrapperTest.cc \
 		  src/CoordinatorServerListTest.cc \
+		  src/CoordinatorServerManagerTest.cc \
 		  src/CoordinatorServiceTest.cc \
 		  src/CoordinatorSessionTest.cc \
 		  src/Crc32CTest.cc \
@@ -64,6 +65,7 @@ TESTS_SRCFILES := \
 		  src/ReplicatedSegmentTest.cc \
 		  src/RpcTest.cc \
 		  src/RpcWrapperTest.cc \
+		  src/RuntimeOptionsTest.cc \
 		  src/SegmentTest.cc \
 		  src/SegmentIteratorTest.cc \
 		  src/ServerIdRpcWrapperTest.cc \
