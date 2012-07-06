@@ -54,6 +54,7 @@ main(int argc, char *argv[])
         localLocator = context.transportManager->
                                 getListeningLocatorsString();
         LOG(NOTICE, "coordinator: Listening on %s", localLocator.c_str());
+        context.coordinatorServerList = new CoordinatorServerList(context);
         CoordinatorService coordinatorService(context);
         context.serviceManager->addService(coordinatorService,
                                                 COORDINATOR_SERVICE);

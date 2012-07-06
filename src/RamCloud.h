@@ -20,6 +20,7 @@
 #include "CoordinatorClient.h"
 #include "MasterClient.h"
 #include "ObjectFinder.h"
+#include "ObjectRpcWrapper.h"
 #include "ServerMetrics.h"
 
 namespace RAMCloud {
@@ -35,6 +36,31 @@ namespace RAMCloud {
  * each thread; as of 5/2012 these objects are not thread-safe.
  */
 class RamCloud {
+  public:
+
+    /**
+     * Encapsulates the state of a RamCloud::read operation,
+     * allowing it to execute asynchronously.
+     */
+    class ReadRpc : public ObjectRpcWrapper {
+      public:
+        ReadRpc(RamCloud& ramcloud, uint64_t tableId, const char* key,
+                uint16_t keyLength, Buffer* value,
+                const RejectRules* rejectRules = NULL);
+        ~ReadRpc() {}
+        void wait(uint64_t* version = NULL);
+
+      PRIVATE:
+        DISALLOW_COPY_AND_ASSIGN(ReadRpc);
+    };
+    void read(uint64_t tableId, const char* key, uint16_t keyLength,
+            Buffer* value, const RejectRules* rejectRules = NULL,
+            uint64_t* version = NULL);
+
+    //-------------------------------------------------------
+    // OLD: everything below here should eventually go away.
+    //-------------------------------------------------------
+
   public:
     /// An asynchronous version of #read().
     class Read {
@@ -130,9 +156,6 @@ class RamCloud {
                        const char* serviceLocator2,
                        uint64_t timeoutNanoseconds1,
                        uint64_t timeoutNanoseconds2);
-    void read(uint64_t tableId, const char* key, uint16_t keyLength,
-              Buffer* value, const RejectRules* rejectRules = NULL,
-              uint64_t* version = NULL);
     void increment(uint64_t tableId, const char* key, uint16_t keyLength,
               int64_t incrementValue, const RejectRules* rejectRules = NULL,
               uint64_t* version = NULL, int64_t* newValue = NULL);
@@ -164,13 +187,13 @@ class RamCloud {
      */
     Tub<Context> realClientContext;
 
+  public:
     /**
      * This usually refers to realClientContext. For testing purposes and
      * clients that want to provide their own context that they've mucked with,
      * this refers to an externally defined context.
      */
     Context& clientContext;
-  public:
 
     /// \copydoc Client::status
     Status status;

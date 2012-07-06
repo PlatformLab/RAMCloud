@@ -19,11 +19,15 @@ CLIENT_SRCFILES := \
 		   src/CodeLocation.cc \
 		   src/Context.cc \
 		   src/CoordinatorClient.cc \
+		   src/CoordinatorRpcWrapper.cc \
+		   src/CoordinatorServerList.cc \
+		   src/CoordinatorSession.cc \
 		   src/Crc32C.cc \
 		   src/Common.cc \
 		   src/Cycles.cc \
 		   src/Dispatch.cc \
 		   src/Driver.cc \
+		   src/FailSession.cc \
 		   src/FastTransport.cc \
 		   src/IpAddress.cc \
 		   src/Logger.cc \
@@ -33,11 +37,14 @@ CLIENT_SRCFILES := \
 		   src/Memory.cc \
 		   src/MurmurHash3.cc \
 		   src/ObjectFinder.cc \
+		   src/ObjectRpcWrapper.cc \
 		   src/PcapFile.cc \
 		   src/PingClient.cc \
 		   src/RamCloud.cc \
 		   src/RawMetrics.cc \
 		   src/Rpc.cc \
+		   src/RpcWrapper.cc \
+		   src/ServerIdRpcWrapper.cc \
 		   src/ServerList.cc \
 		   src/ServerMetrics.cc \
 		   src/ServerRpcPool.cc \

@@ -14,10 +14,112 @@
  */
 
 #include "CoordinatorClient.h"
+#include "CoordinatorSession.h"
 #include "ShortMacros.h"
 #include "ProtoBuf.h"
 
 namespace RAMCloud {
+
+/**
+ * Servers call this when they come online. This request tells the coordinator
+ * that the server is available and can be assigned work.
+ * 
+ * \param context
+ *      Overall information about the RAMCloud server or client.
+ * \param replacesId
+ *      Server id the calling server used to operate at; the coordinator must
+ *      make sure this server is removed from the cluster before enlisting
+ *      the calling server.  If !isValid() then this step is skipped; the
+ *      enlisting server is simply added.
+ * \param serviceMask
+ *      Which services are available on the enlisting server. MASTER_SERVICE,
+ *      BACKUP_SERVICE, etc.
+ * \param localServiceLocator
+ *      Describes how other hosts can contact this server.
+ * \param readSpeed
+ *      Read speed of the backup in MB/s if serviceMask includes BACKUP,
+ *      otherwise ignored.
+ * \param writeSpeed
+ *      Write speed of the backup in MB/s if serviceMask includes BACKUP,
+ *      otherwise ignored.
+ * \return
+ *      A ServerId guaranteed never to have been used before.
+ */
+ServerId
+CoordinatorClient::enlistServer(Context& context, ServerId replacesId,
+        ServiceMask serviceMask, string localServiceLocator,
+        uint32_t readSpeed, uint32_t writeSpeed)
+{
+    EnlistServerRpc2 rpc(context, replacesId, serviceMask, localServiceLocator,
+            readSpeed, writeSpeed);
+    return rpc.wait();
+}
+
+/**
+ * Constructor for EnlistServerRpc: initiates an RPC in the same way as
+ * #CoordinatorClient::enlistServer, but returns once the RPC has been
+ * initiated, without waiting for it to complete.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param replacesId
+ *      Server id the calling server used to operate at; the coordinator must
+ *      make sure this server is removed from the cluster before enlisting
+ *      the calling server.  If !isValid() then this step is skipped; the
+ *      enlisting server is simply added.
+ * \param serviceMask
+ *      Which services are available on the enlisting server. MASTER_SERVICE,
+ *      BACKUP_SERVICE, etc.
+ * \param localServiceLocator
+ *      Describes how other hosts can contact this server.
+ * \param readSpeed
+ *      Read speed of the backup in MB/s if serviceMask includes BACKUP,
+ *      otherwise ignored.
+ * \param writeSpeed
+ *      Write speed of the backup in MB/s if serviceMask includes BACKUP,
+ *      otherwise ignored.
+ * \return
+ *      A ServerId guaranteed never to have been used before.
+ */
+CoordinatorClient::EnlistServerRpc2::EnlistServerRpc2(Context & context,
+        ServerId replacesId, ServiceMask serviceMask,
+        string localServiceLocator, uint32_t readSpeed, uint32_t writeSpeed)
+    : CoordinatorRpcWrapper(context,
+            sizeof(WireFormat::EnlistServer::Response))
+{
+    WireFormat::EnlistServer::Request& reqHdr(
+            allocHeader<WireFormat::EnlistServer>());
+    reqHdr.replacesId = replacesId.getId();
+    reqHdr.serviceMask = serviceMask.serialize();
+    reqHdr.readSpeed = readSpeed;
+    reqHdr.writeSpeed = writeSpeed;
+    reqHdr.serviceLocatorLength =
+        downCast<uint32_t>(localServiceLocator.length() + 1);
+    strncpy(new(&request, APPEND) char[reqHdr.serviceLocatorLength],
+            localServiceLocator.c_str(),
+            reqHdr.serviceLocatorLength);
+    send();
+}
+
+/**
+ * Wait for the RPC to complete, and return the same results as
+ * #CoordinatorClient::enlistServer.
+ */
+ServerId
+CoordinatorClient::EnlistServerRpc2::wait()
+{
+    waitInternal(*context.dispatch);
+    const WireFormat::EnlistServer::Response& respHdr(
+            getResponseHeader<WireFormat::EnlistServer>());
+    if (respHdr.common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr.common.status);
+    return ServerId(respHdr.serverId);
+}
+
+//-------------------------------------------------------
+// OLD: everything below here should eventually go away.
+//-------------------------------------------------------
+
 
 /**
  * Create a new table.
@@ -45,6 +147,8 @@ CoordinatorClient::createTable(const char* name, uint32_t serverSpan)
     memcpy(new(&req, APPEND) char[length], name, length);
     while (true) {
         Buffer resp;
+        Transport::SessionRef session =
+                context.coordinatorSession->getSession();
         sendRecv<CreateTableRpc>(session, req, resp);
         try {
             checkStatus(HERE);
@@ -77,6 +181,7 @@ CoordinatorClient::dropTable(const char* name)
     DropTableRpc::Request& reqHdr(allocHeader<DropTableRpc>(req));
     reqHdr.nameLength = length;
     memcpy(new(&req, APPEND) char[length], name, length);
+    Transport::SessionRef session = context.coordinatorSession->getSession();
     sendRecv<DropTableRpc>(session, req, resp);
     checkStatus(HERE);
 }
@@ -117,6 +222,7 @@ CoordinatorClient::splitTablet(const char* name, uint64_t startKeyHash,
     reqHdr.endKeyHash = endKeyHash;
     reqHdr.splitKeyHash = splitKeyHash;
     memcpy(new(&req, APPEND) char[length], name, length);
+    Transport::SessionRef session = context.coordinatorSession->getSession();
     sendRecv<SplitTabletRpc>(session, req, resp);
     checkStatus(HERE);
 }
@@ -144,67 +250,11 @@ CoordinatorClient::getTableId(const char* name)
     GetTableIdRpc::Request& reqHdr(allocHeader<GetTableIdRpc>(req));
     reqHdr.nameLength = length;
     memcpy(new(&req, APPEND) char[length], name, length);
+    Transport::SessionRef session = context.coordinatorSession->getSession();
     const GetTableIdRpc::Response& respHdr(
         sendRecv<GetTableIdRpc>(session, req, resp));
     checkStatus(HERE);
     return respHdr.tableId;
-}
-
-/**
- * Servers call this when they come online to beg for work.
- * \param replacesId
- *      Server id the calling server used to operate at; the coordinator must
- *      make sure this server is removed from the cluster before enlisting
- *      the calling server.  If !isValid() then this step is skipped; the
- *      enlisting server is simply added.
- * \param serviceMask
- *      Which services are available on the enlisting server. MASTER_SERVICE,
- *      BACKUP_SERVICE, etc.
- * \param localServiceLocator
- *      The service locator describing how other hosts can contact the server.
- * \param readSpeed
- *      Read speed of the backup in MB/s if serviceMask includes BACKUP,
- *      otherwise ignored.
- * \param writeSpeed
- *      Write speed of the backup in MB/s if serviceMask includes BACKUP,
- *      otherwise ignored.
- * \return
- *      A ServerId guaranteed never to have been used before.
- */
-ServerId
-CoordinatorClient::enlistServer(ServerId replacesId,
-                                ServiceMask serviceMask,
-                                string localServiceLocator,
-                                uint32_t readSpeed,
-                                uint32_t writeSpeed)
-{
-    while (true) {
-        try {
-            Buffer req;
-            Buffer resp;
-            EnlistServerRpc::Request& reqHdr(
-                allocHeader<EnlistServerRpc>(req));
-            reqHdr.replacesId = replacesId.getId();
-            reqHdr.serviceMask = serviceMask.serialize();
-            reqHdr.readSpeed = readSpeed;
-            reqHdr.writeSpeed = writeSpeed;
-            reqHdr.serviceLocatorLength =
-                downCast<uint32_t>(localServiceLocator.length() + 1);
-            strncpy(new(&req, APPEND) char[reqHdr.serviceLocatorLength],
-                    localServiceLocator.c_str(),
-                    reqHdr.serviceLocatorLength);
-            const EnlistServerRpc::Response& respHdr(
-                sendRecv<EnlistServerRpc>(session, req, resp));
-            checkStatus(HERE);
-            return ServerId(respHdr.serverId);
-        } catch (TransportException& e) {
-            LOG(NOTICE,
-                "TransportException trying to talk to coordinator: %s",
-                e.str().c_str());
-            LOG(NOTICE, "retrying");
-            usleep(500);
-        }
-    }
 }
 
 /**
@@ -227,6 +277,7 @@ CoordinatorClient::getServerList(ServiceMask services,
     GetServerListRpc::Request& reqHdr(
         allocHeader<GetServerListRpc>(req));
     reqHdr.serviceMask = services.serialize();
+    Transport::SessionRef session = context.coordinatorSession->getSession();
     const GetServerListRpc::Response& respHdr(
         sendRecv<GetServerListRpc>(session, req, resp));
     checkStatus(HERE);
@@ -286,6 +337,7 @@ CoordinatorClient::getTabletMap(ProtoBuf::Tablets& tabletMap)
 {
     Buffer req;
     Buffer resp;
+    Transport::SessionRef session = context.coordinatorSession->getSession();
     allocHeader<GetTabletMapRpc>(req);
     const GetTabletMapRpc::Response& respHdr(
         sendRecv<GetTabletMapRpc>(session, req, resp));
@@ -302,6 +354,7 @@ CoordinatorClient::hintServerDown(ServerId serverId)
 {
     Buffer req;
     Buffer resp;
+    Transport::SessionRef session = context.coordinatorSession->getSession();
     HintServerDownRpc::Request& reqHdr(allocHeader<HintServerDownRpc>(req));
     reqHdr.serverId = *serverId;
     sendRecv<HintServerDownRpc>(session, req, resp);
@@ -317,6 +370,7 @@ CoordinatorClient::quiesce()
 {
     Buffer req;
     Buffer resp;
+    Transport::SessionRef session = context.coordinatorSession->getSession();
     BackupQuiesceRpc::Request& reqHdr(
         allocHeader<BackupQuiesceRpc>(req));
     // By default this RPC is since the backup service; retarget it
@@ -353,6 +407,7 @@ CoordinatorClient::reassignTabletOwnership(uint64_t tableId,
                                            ServerId newOwnerMasterId)
 {
     Buffer req, resp;
+    Transport::SessionRef session = context.coordinatorSession->getSession();
 
     ReassignTabletOwnershipRpc::Request& reqHdr(
         allocHeader<ReassignTabletOwnershipRpc>(req));
@@ -391,6 +446,7 @@ CoordinatorClient::recoveryMasterFinished(uint64_t recoveryId,
                                           bool successful)
 {
     Buffer req, resp;
+    Transport::SessionRef session = context.coordinatorSession->getSession();
     RecoveryMasterFinishedRpc::Request&
         reqHdr(allocHeader<RecoveryMasterFinishedRpc>(req));
     reqHdr.recoveryId = recoveryId;
@@ -413,6 +469,7 @@ void
 CoordinatorClient::setWill(uint64_t masterId, const ProtoBuf::Tablets& will)
 {
     Buffer req, resp;
+    Transport::SessionRef session = context.coordinatorSession->getSession();
     SetWillRpc::Request& reqHdr(allocHeader<SetWillRpc>(req));
     reqHdr.masterId = masterId;
     reqHdr.willLength = serializeToRequest(req, will);
@@ -432,6 +489,7 @@ void
 CoordinatorClient::sendServerList(ServerId destination)
 {
     Buffer req, resp;
+    Transport::SessionRef session = context.coordinatorSession->getSession();
     SendServerListRpc::Request& reqHdr(
         allocHeader<SendServerListRpc>(req));
     reqHdr.serverId = *destination;
@@ -448,11 +506,13 @@ CoordinatorClient::SetMinOpenSegmentId::SetMinOpenSegmentId(
     , responseBuffer()
     , state()
 {
+    Transport::SessionRef session =
+            client.context.coordinatorSession->getSession();
     auto& reqHdr =
         client.allocHeader<SetMinOpenSegmentIdRpc>(requestBuffer);
     reqHdr.serverId = serverId.getId();
     reqHdr.segmentId = segmentId;
-    state = client.send<SetMinOpenSegmentIdRpc>(client.session,
+    state = client.send<SetMinOpenSegmentIdRpc>(session,
                                                 requestBuffer,
                                                 responseBuffer);
 }

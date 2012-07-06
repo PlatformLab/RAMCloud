@@ -29,7 +29,7 @@ namespace RAMCloud {
 
 CoordinatorService::CoordinatorService(Context& context)
     : context(context)
-    , serverList(context)
+    , serverList(*context.coordinatorServerList)
     , tabletMap()
     , tables()
     , nextTableId(0)
@@ -182,7 +182,8 @@ CoordinatorService::createTable(const CreateTableRpc::Request& reqHdr,
         serverList.addToWill(master.serverId, will);
 
         // Inform the master.
-        masterClient.takeTabletOwnership(tableId, startKeyHash, endKeyHash);
+        MasterClient::takeTabletOwnership(context, master.serverId, tableId,
+                                          startKeyHash, endKeyHash);
 
         LOG(DEBUG, "Created table '%s' with id %lu and a span %u on master %lu",
                     name, tableId, serverSpan, master.serverId.getId());
@@ -591,9 +592,8 @@ CoordinatorService::reassignTabletOwnership(
     //      get stuck in limbo. What should we do? Retry? Fail the
     //      server and recover it? Can't return to the old master if we
     //      reply early...
-    masterClient.takeTabletOwnership(reqHdr.tableId,
-                                     reqHdr.firstKey,
-                                     reqHdr.lastKey);
+    MasterClient::takeTabletOwnership(context, newOwner, reqHdr.tableId,
+                                     reqHdr.firstKey, reqHdr.lastKey);
 }
 
 /**

@@ -429,7 +429,7 @@ const char *TestUtil::getStatus(Buffer* buffer)
  * \param rpc
  *      RPC request that is expected to finish very soon.
  * \param ms
- *      How long to weight (in milliseconds) before giving up.
+ *      How long to wait (in milliseconds) before giving up.
  *
  * \result
  *      True if the request finishes within a reasonable time period,
@@ -441,6 +441,32 @@ TestUtil::waitForRpc(Context& context, Transport::ClientRpc& rpc, int ms)
     for (int i = 0; i < ms; i++) {
         context.dispatch->poll();
         if (rpc.isReady())
+            return true;
+        usleep(1000);
+    }
+    return false;
+}
+
+/**
+ * Wait for an RPC request to complete (but give up if it takes too long).
+ *
+ * \param context
+ *      RAMCloud Context whose dispatcher should be used for polling.
+ * \param wrapper
+ *      RPC request that is expected to finish very soon.
+ * \param ms
+ *      How long to wait (in milliseconds) before giving up.
+ *
+ * \result
+ *      True if the request finishes within a reasonable time period,
+ *      false if it doesn't.
+ */
+bool
+TestUtil::waitForRpc(Context& context, RpcWrapper& wrapper, int ms)
+{
+    for (int i = 0; i < ms; i++) {
+        context.dispatch->poll();
+        if (wrapper.getState() == RpcWrapper::RpcState::FINISHED)
             return true;
         usleep(1000);
     }

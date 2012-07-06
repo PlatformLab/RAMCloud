@@ -36,6 +36,7 @@ MockTransport::MockTransport(Context& context,
             , serverSendCount(0)
             , clientSendCount(0)
             , clientRecvCount(0)
+            , sessionCreateCount(0)
             , locatorString()
 {
     if (serviceLocator != NULL) {
@@ -58,17 +59,24 @@ Transport::SessionRef
 MockTransport::getSession(const ServiceLocator& serviceLocator,
         uint32_t timeoutMs)
 {
+    sessionCreateCount++;
+
     // magic hook to invoke failed getSession in testing
-    if (serviceLocator.getOriginalString() == "mock:host=error")
+    if (strstr(serviceLocator.getOriginalString().c_str(),
+            "host=error") != NULL)
         throw TransportException(HERE, "Failed to open session");
 
-    return new MockSession(this, serviceLocator);
+    MockSession* session = new MockSession(this, serviceLocator);
+    session->setServiceLocator(serviceLocator.getOriginalString());
+    return session;
 }
 
 Transport::SessionRef
 MockTransport::getSession()
 {
-    return new MockSession(this);
+    MockSession* session =  new MockSession(this);
+    session->setServiceLocator("test:");
+    return session;
 }
 
 /**
@@ -91,6 +99,16 @@ MockTransport::MockSession::abort(const string& message)
     }
     transport->outputLog.append("abort: ");
     transport->outputLog.append(message);
+}
+
+// See Transport::Session::cancelRequest for documentation.
+void
+MockTransport::MockSession::cancelRequest(RpcNotifier* notifier)
+{
+    if (transport->outputLog.length() != 0) {
+        transport->outputLog.append(" | ");
+    }
+    transport->outputLog.append("cancel");
 }
 
 /**
@@ -116,6 +134,25 @@ MockTransport::MockSession::clientSend(Buffer* payload, Buffer* response)
     transport->outputLog.append("clientSend: ");
     transport->outputLog.append(TestUtil::toString(payload));
     return new(response, MISC) MockClientRpc(transport, payload, response);
+}
+
+// See Transport::Session::release for documentation.
+void
+MockTransport::MockSession::release()
+{
+    delete this;
+}
+
+// See Transport::Session::sendRequest for documentation.
+void
+MockTransport::MockSession::sendRequest(Buffer* request, Buffer* response,
+                RpcNotifier* notifier)
+{
+    if (transport->outputLog.length() != 0) {
+        transport->outputLog.append(" | ");
+    }
+    transport->outputLog.append("sendRequest: ");
+    transport->outputLog.append(TestUtil::toString(request));
 }
 
 /**

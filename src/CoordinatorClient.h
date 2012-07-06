@@ -22,6 +22,7 @@
 #include "Common.h"
 #include "Client.h"
 #include "ClientException.h"
+#include "CoordinatorRpcWrapper.h"
 #include "ServiceMask.h"
 #include "ServerId.h"
 #include "TransportManager.h"
@@ -29,27 +30,45 @@
 namespace RAMCloud {
 
 /**
- * Proxies methods as RPCs to the cluster coordinator.
+ * Provides methods that can be used to invoke RPCs on the cluster
+ * coordinator. 
  */
 class CoordinatorClient : public Client {
   public:
     explicit CoordinatorClient(Context& context,
                                const char* coordinatorLocator)
-        : session(context.transportManager->getSession(coordinatorLocator))
+            :context(context)
     {
     }
+
+    /**
+     * Encapsulates the state of a CoordinatorClient::enlistServer
+     * request, allowing it to execute asynchronously.
+     */
+    class EnlistServerRpc2 : public CoordinatorRpcWrapper {
+      public:
+        EnlistServerRpc2(Context& context, ServerId replacesId,
+                ServiceMask serviceMask, string localServiceLocator,
+                uint32_t readSpeed = 0, uint32_t writeSpeed = 0);
+        ~EnlistServerRpc2() {}
+        ServerId wait();
+
+      PRIVATE:
+        DISALLOW_COPY_AND_ASSIGN(EnlistServerRpc2);
+    };
+    static ServerId enlistServer(Context& context, ServerId replacesId,
+            ServiceMask serviceMask, string localServiceLocator,
+            uint32_t readSpeed = 0, uint32_t writeSpeed = 0);
+
+    //-------------------------------------------------------
+    // OLD: everything below here should eventually go away.
+    //-------------------------------------------------------
 
     void createTable(const char* name, uint32_t serverSpan = 1);
     void dropTable(const char* name);
     void splitTablet(const char* name, uint64_t startKeyHash,
                 uint64_t endKeyHash, uint64_t splitKeyHash);
     uint64_t getTableId(const char* name);
-
-    ServerId enlistServer(ServerId replacesId,
-                          ServiceMask serviceMask,
-                          string localServiceLocator,
-                          uint32_t readSpeed = 0,
-                          uint32_t writeSpeed = 0);
     void getServerList(ProtoBuf::ServerList& serverList);
     void getMasterList(ProtoBuf::ServerList& serverList);
     void getBackupList(ProtoBuf::ServerList& serverList);
@@ -85,7 +104,7 @@ class CoordinatorClient : public Client {
   private:
     void getServerList(ServiceMask services, ProtoBuf::ServerList& serverList);
 
-    Transport::SessionRef session;
+    Context& context;
     DISALLOW_COPY_AND_ASSIGN(CoordinatorClient);
 };
 

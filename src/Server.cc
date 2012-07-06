@@ -94,6 +94,9 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
     }
 
     coordinator.construct(context, config.coordinatorLocator.c_str());
+    if (context.serverList !=  NULL) {
+        context.serverList = &serverList;
+    }
 
     if (config.services.has(MASTER_SERVICE)) {
         LOG(NOTICE, "Master is using %u backups", config.master.numReplicas);
@@ -170,10 +173,9 @@ Server::enlist(ServerId replacingId)
     // to rpc dispatch. This reduces the window of being unavailable to
     // service rpcs after enlisting with the coordinator (which can
     // lead to session open timeouts).
-    serverId = coordinator->enlistServer(replacingId,
-                                         config.services,
-                                         config.localLocator,
-                                         backupReadSpeed, backupWriteSpeed);
+    serverId = CoordinatorClient::enlistServer(context, replacingId,
+            config.services, config.localLocator, backupReadSpeed,
+            backupWriteSpeed);
 
     if (master)
         master->init(serverId);

@@ -902,7 +902,8 @@ TEST_F(MasterServiceTest, dropTabletOwnership) {
 
     TestLog::reset();
 
-    client->takeTabletOwnership(1, 1, 1);
+    MasterClient::takeTabletOwnership(context, masterServer->serverId,
+        1, 1, 1);
     client->dropTabletOwnership(1, 1, 1);
     EXPECT_EQ("dropTabletOwnership: Dropping ownership of tablet "
         "(1, range [1,1])", TestLog::get());
@@ -951,9 +952,12 @@ TEST_F(MasterServiceTest, takeTabletOwnership_newTablet) {
     }
 
     { // set t2, t2b, and t3 through client
-        client->takeTabletOwnership(2, 2, 3);
-        client->takeTabletOwnership(2, 4, 5);
-        client->takeTabletOwnership(3, 0, 1);
+        MasterClient::takeTabletOwnership(context, masterServer->serverId,
+            2, 2, 3);
+        MasterClient::takeTabletOwnership(context, masterServer->serverId,
+            2, 4, 5);
+        MasterClient::takeTabletOwnership(context, masterServer->serverId,
+            3, 0, 1);
 
         EXPECT_EQ(format(
             "tablet { table_id: 1 start_key_hash: 0 end_key_hash: 1 "
@@ -987,7 +991,8 @@ TEST_F(MasterServiceTest, takeTabletOwnership_newTablet) {
 
     // Test assigning ownership of an already-owned tablet.
     {
-        client->takeTabletOwnership(2, 2, 3);
+        MasterClient::takeTabletOwnership(context, masterServer->serverId,
+            2, 2, 3);
         EXPECT_EQ("takeTabletOwnership: Taking ownership of existing tablet "
             "(2, range [2,3]) in state 0 | takeTabletOwnership: Taking "
             "ownership when existing tablet is in unexpected state (0)!",
@@ -999,7 +1004,8 @@ TEST_F(MasterServiceTest, takeTabletOwnership_newTablet) {
     // Test partially overlapping sanity check. The coordinator should
     // know better, but I'd rather be safe sorry...
     {
-        EXPECT_THROW(client->takeTabletOwnership(2, 2, 2), ClientException);
+        EXPECT_THROW(MasterClient::takeTabletOwnership(context,
+            masterServer->serverId, 2, 2, 2), ClientException);
         EXPECT_EQ("takeTabletOwnership: Tablet being assigned (2, range [2,2]) "
             "partially overlaps an existing tablet!", TestLog::get());
     }
@@ -1016,7 +1022,7 @@ TEST_F(MasterServiceTest, takeTabletOwnership_migratingTablet) {
     tab.set_state(ProtoBuf::Tablets_Tablet_State_RECOVERING);
     tab.set_user_data(reinterpret_cast<uint64_t>(new Table(1 , 0 , 5)));
 
-    client->takeTabletOwnership(1, 0, 5);
+    MasterClient::takeTabletOwnership(context, masterServer->serverId, 1, 0, 5);
 
     EXPECT_EQ(
         "takeTabletOwnership: Allocating log head before accepting tablet "

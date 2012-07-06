@@ -51,6 +51,7 @@ class ServerTest: public ::testing::Test {
 };
 
 TEST_F(ServerTest, startForTesting) {
+    TestLog::Enable _;
     EXPECT_THROW(ping.ping(config.localLocator.c_str(), 0, 100 * 1000),
                  TransportException);
     server->startForTesting(cluster.transport);

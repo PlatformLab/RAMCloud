@@ -19,6 +19,7 @@
  */
 
 #include "Context.h"
+#include "CoordinatorSession.h"
 #if INFINIBAND
 #include "InfRcTransport.h"
 #endif
@@ -136,6 +137,8 @@ main(int argc, char *argv[])
 
         config.coordinatorLocator =
             optionParser.options.getCoordinatorLocator();
+        context.coordinatorSession->setLocation(
+                config.coordinatorLocator.c_str());
         // Transports may augment the local locator somewhat.
         // Make sure the server is aware of that augmented locator.
         config.localLocator =

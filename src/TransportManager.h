@@ -47,10 +47,12 @@ class TransportManager {
     explicit TransportManager(Context& context);
     ~TransportManager();
     void initialize(const char* serviceLocator);
+    void flushSession(const char* serviceLocator);
     Transport::SessionRef getSession(const char* serviceLocator);
     Transport::SessionRef getSession(const char* serviceLocator,
                                      ServerId serverId);
     string getListeningLocatorsString();
+    Transport::SessionRef openSession(const char* serviceLocator);
     void registerMemory(void* base, size_t bytes);
     void dumpStats();
     void dumpTransportFactories();

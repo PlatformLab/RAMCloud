@@ -20,11 +20,77 @@
 #include "Segment.h"
 #include "Object.h"
 #include "Status.h"
+#include "WireFormat.h"
 
 namespace RAMCloud {
 
 // Default RejectRules to use if none are provided by the caller.
 RejectRules defaultRejectRules;
+
+/**
+ * Instruct a master that it should begin serving requests for a particular
+ * tablet. If the master does not already store this tablet, then it will
+ * create a new tablet. If the master already has information for the tablet,
+ * but the tablet was frozen (e.g. because data migration was underway),
+ * then the tablet will be unfrozen.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param id
+ *      Identifier for the target server.
+ * \param tableId
+ *      Identifier for the table containing the tablet.
+ * \param firstKeyHash
+ *      Smallest value in the 64-bit key hash space for this table that belongs
+ *      to the tablet.
+ * \param lastKeyHash
+ *      Largest value in the 64-bit key hash space for this table that belongs
+ *      to the tablet.
+ */
+void
+MasterClient::takeTabletOwnership(Context& context, ServerId id,
+        uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash)
+{
+    TakeTabletOwnershipRpc2 rpc(context, id, tableId, firstKeyHash,
+            lastKeyHash);
+    rpc.wait();
+}
+
+/**
+ * Constructor for TakeTabletOwnershipRpc: initiates an RPC in the same way as
+ * #MasterClient::takeTabletOwnership, but returns once the RPC has been
+ * initiated, without waiting for it to complete.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param id
+ *      Identifier for the target server.
+ * \param tableId
+ *      Identifier for the table containing the tablet.
+ * \param firstKeyHash
+ *      Smallest value in the 64-bit key hash space for this table that belongs
+ *      to the tablet.
+ * \param lastKeyHash
+ *      Largest value in the 64-bit key hash space for this table that belongs
+ *      to the tablet.
+ */
+MasterClient::TakeTabletOwnershipRpc2::TakeTabletOwnershipRpc2(
+        Context& context, ServerId id, uint64_t tableId,
+        uint64_t firstKeyHash, uint64_t lastKeyHash)
+        : ServerIdRpcWrapper(context, id,
+                sizeof(WireFormat::TakeTabletOwnership::Response))
+{
+    WireFormat::TakeTabletOwnership::Request& reqHdr(
+        allocHeader<WireFormat::TakeTabletOwnership>());
+    reqHdr.tableId = tableId;
+    reqHdr.firstKeyHash = firstKeyHash;
+    reqHdr.lastKeyHash = lastKeyHash;
+    send();
+}
+
+//-------------------------------------------------------
+// OLD: everything below here should eventually go away.
+//-------------------------------------------------------
 
 /**
  * Fill a master server with the given number of objects, each of the
@@ -610,31 +676,6 @@ MasterClient::splitMasterTablet(uint64_t tableId,
     reqHdr.endKeyHash = endKeyHash;
     reqHdr.splitKeyHash = splitKeyHash;
     sendRecv<SplitMasterTabletRpc>(session, req, resp);
-    checkStatus(HERE);
-}
-
-/**
- * Instruct a master that has been receiving migrated tablet data that it
- * should take ownership of the tablet. The coordinator will issue this to
- * complete the migration. Before this RPC is received, the coordinator will
- * have already considered this host the owner of the data. This call simply
- * tells the host to begin servicing requests for the tablet.
- * \warning
- *      Adding a tablet, removing it, and then adding it back is not currently
- *      supported.
- */
-void
-MasterClient::takeTabletOwnership(uint64_t tableId,
-                                  uint64_t firstKey,
-                                  uint64_t lastKey)
-{
-    Buffer req, resp;
-    TakeTabletOwnershipRpc::Request& reqHdr(
-        allocHeader<TakeTabletOwnershipRpc>(req));
-    reqHdr.tableId = tableId;
-    reqHdr.firstKey = firstKey;
-    reqHdr.lastKey = lastKey;
-    sendRecv<TakeTabletOwnershipRpc>(session, req, resp);
     checkStatus(HERE);
 }
 

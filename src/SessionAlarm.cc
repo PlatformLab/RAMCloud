@@ -159,6 +159,9 @@ SessionAlarmTimer::handleTimerEvent()
         if (alarm->waitingForResponseMs < alarm->pingMs)
             continue;
         if (alarm->waitingForResponseMs > alarm->abortMs) {
+            RAMCLOUD_LOG(WARNING,
+                    "Server at %s is not responding, aborting session",
+                    alarm->session.getServiceLocator().c_str());
             alarm->session.abort(format("server at %s is not responding",
                     alarm->session.getServiceLocator().c_str()));
             continue;

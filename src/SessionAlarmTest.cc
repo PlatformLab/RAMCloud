@@ -85,7 +85,10 @@ class AlarmSession : public Transport::Session {
         finishRpcs(message);
     }
 
+    virtual void cancelRequest(Transport::RpcNotifier* notifier) {}
     virtual void release() {}
+    virtual void sendRequest(Buffer* request, Buffer* response,
+            Transport::RpcNotifier* notifier) {}
     std::vector<ClientRpc*> rpcs;
     SessionAlarm* alarm;
     static string log;

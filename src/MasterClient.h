@@ -22,14 +22,41 @@
 #include "Transport.h"
 #include "Buffer.h"
 #include "ServerId.h"
+#include "ServerIdRpcWrapper.h"
 #include "ServerStatistics.pb.h"
 #include "Tub.h"
 #include "LogTypes.h"
 
 namespace RAMCloud {
 
+/**
+ * Provides methods for invoking RPCs to RAMCloud masters.  The invoking
+ * machine is typically another RAMCloud server (either master or backup)
+ * or the cluster coordinator; these methods are not as frequently used
+ * by RAMCloud applications.
+ */
 class MasterClient : public Client {
   public:
+
+    /**
+     * Encapsulates the state of a CoordinatorClient::enlistServer
+     * request, allowing it to execute asynchronously.
+     */
+    class TakeTabletOwnershipRpc2 : public ServerIdRpcWrapper {
+      public:
+        TakeTabletOwnershipRpc2(Context& context, ServerId id,
+                uint64_t tableId, uint64_t firstKey, uint64_t lastKey);
+        ~TakeTabletOwnershipRpc2() {}
+
+      PRIVATE:
+        DISALLOW_COPY_AND_ASSIGN(TakeTabletOwnershipRpc2);
+    };
+    static void takeTabletOwnership(Context& context, ServerId id,
+            uint64_t tableId, uint64_t firstKey, uint64_t lastKey);
+
+    //-------------------------------------------------------
+    // OLD: everything below here should eventually go away.
+    //-------------------------------------------------------
 
     /**
      * Format for requesting a read of an object as a part of multiRead
@@ -207,9 +234,6 @@ class MasterClient : public Client {
                            uint64_t startKeyHash,
                            uint64_t endKeyHash,
                            uint64_t splitKeyHash);
-    void takeTabletOwnership(uint64_t tableId,
-                             uint64_t firstKey,
-                             uint64_t lastKey);
     void write(uint64_t tableId, const char* key, uint16_t keyLength,
                const void* buf, uint32_t length,
                const RejectRules* rejectRules = NULL, uint64_t* version = NULL,

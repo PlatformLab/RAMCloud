@@ -338,6 +338,7 @@ TEST_F(ServerTrackerTest, getServerDetails) {
 }
 
 TEST_F(ServerTrackerTest, getSession) {
+    TestLog::Enable _;
     EXPECT_THROW(tr.getSession(ServerId(1, 0)), TransportException);
 
     ServerDetails details(ServerId(1, 1), "mock:", {MASTER_SERVICE},

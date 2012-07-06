@@ -111,13 +111,15 @@ class CoordinatorService : public Service {
      */
     Context& context;
 
+  public:
     /**
      * List of all servers in the system. This structure is used to allocate
      * ServerIds as well as to keep track of any information we need to keep
      * for individual servers (e.g. ServiceLocator strings, Wills, etc).
      */
-    CoordinatorServerList serverList;
+    CoordinatorServerList& serverList;
 
+  PRIVATE:
     /**
      * What are the tablets, and who is the master for each.
      */

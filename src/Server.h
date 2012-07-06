@@ -18,6 +18,7 @@
 
 #include "BackupService.h"
 #include "CoordinatorClient.h"
+#include "CoordinatorSession.h"
 #include "FailureDetector.h"
 #include "MasterService.h"
 #include "MembershipService.h"
@@ -65,6 +66,8 @@ class Server {
         , membership()
         , ping()
     {
+        context.coordinatorSession->setLocation(
+                config.coordinatorLocator.c_str());
     }
 
     void startForTesting(BindTransport& bindTransport);

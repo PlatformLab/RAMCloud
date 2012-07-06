@@ -89,6 +89,7 @@ struct BindTransport : public Transport {
                              const string& locator)
             : transport(transport), services(services), locator(locator) {}
         void abort(const string& message) {}
+        void cancelRequest(RpcNotifier* notifier) {}
         ClientRpc* clientSend(Buffer* request, Buffer* response) {
             BindClientRpc* result = new(response, MISC)
                     BindClientRpc(transport.context, request, response);
@@ -105,6 +106,7 @@ struct BindTransport : public Transport {
                 transport.errorMessage = "";
                 return result;
             }
+
             const RpcRequestCommon* header;
             header = request->getStart<RpcRequestCommon>();
             if ((header == NULL) || (header->service >= INVALID_SERVICE)) {
@@ -120,6 +122,35 @@ struct BindTransport : public Transport {
         }
         void release() {
             delete this;
+        }
+        void sendRequest(Buffer* request, Buffer* response,
+                         RpcNotifier* notifier)
+        {
+            Service::Rpc rpc(NULL, *request, *response);
+            if (transport.abortCounter > 0) {
+                transport.abortCounter--;
+                if (transport.abortCounter == 0) {
+                    // Simulate a failure of the server to respond.
+                    notifier->failed();
+                    return;
+                }
+            }
+            if (transport.errorMessage != "") {
+                notifier->failed();
+                transport.errorMessage = "";
+                return;
+            }
+            const RpcRequestCommon* header;
+            header = request->getStart<RpcRequestCommon>();
+            if ((header == NULL) || (header->service >= INVALID_SERVICE)) {
+                throw ServiceNotAvailableException(HERE);
+            }
+            Service* service = services->services[header->service];
+            if (service == NULL) {
+                throw ServiceNotAvailableException(HERE);
+            }
+            service->handleRpc(rpc);
+            notifier->completed();
         }
         BindTransport& transport;
 

@@ -80,10 +80,11 @@ class MockTransport : public Transport {
                 : transport(transport), serviceLocator(serviceLocator) {}
             virtual ~MockSession();
             void abort(const string& message);
+            virtual void cancelRequest(RpcNotifier* notifier);
             virtual ClientRpc* clientSend(Buffer* payload, Buffer* response);
-            virtual void release() {
-                delete this;
-            }
+            virtual void release();
+            virtual void sendRequest(Buffer* request, Buffer* response,
+                    RpcNotifier* notifier);
         private:
             MockTransport* transport;
             const ServiceLocator serviceLocator;
@@ -117,6 +118,9 @@ class MockTransport : public Transport {
     uint32_t serverSendCount;
     uint32_t clientSendCount;
     uint32_t clientRecvCount;
+
+    // Count of number of sessions created.
+    uint32_t sessionCreateCount;
 
     // The following variable must be static: sessions can get deleted
     // *after* their transport, so can't reference anything in a particular

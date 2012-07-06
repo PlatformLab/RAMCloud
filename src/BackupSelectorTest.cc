@@ -96,8 +96,8 @@ struct BackgroundEnlistBackup {
         std::this_thread::yield();
         usleep(1 * 1000);
         // See if enlisting a server unblocks the call.
-        coordinator->enlistServer({}, {BACKUP_SERVICE},
-                                  "mock:host=backup10", 10);
+        CoordinatorClient::enlistServer(*context, {}, {BACKUP_SERVICE},
+                                        "mock:host=backup10", 10);
     }
 
     Context* context;

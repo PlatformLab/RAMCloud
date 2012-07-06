@@ -120,11 +120,14 @@ class ServiceManager : Dispatch::Poller {
                 Transport::SessionRef wrapped);
         ~WorkerSession() {}
         virtual void abort(const string& message);
+        virtual void cancelRequest(Transport::RpcNotifier* notifier);
         virtual Transport::ClientRpc* clientSend(Buffer* request,
                 Buffer* reply) __attribute__((warn_unused_result));
         void release() {
             delete this;
         }
+        virtual void sendRequest(Buffer* request, Buffer* response,
+                Transport::RpcNotifier* notifier);
       PRIVATE:
         Context &context;              /// Global RAMCloud state.
         Transport::SessionRef wrapped; /// clientSend calls must be forwarded

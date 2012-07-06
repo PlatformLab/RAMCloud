@@ -20,6 +20,7 @@
 #include "TestUtil.h"
 
 #include "CoordinatorClient.h"
+#include "CoordinatorSession.h"
 #include "PingClient.h"
 #include "FailureDetector.h"
 #include "Rpc.h"
@@ -48,6 +49,7 @@ class FailureDetectorTest : public ::testing::Test {
     {
         serverList = new ServerList(context);
         context.transportManager->registerMock(&mockTransport, "mock");
+        context.coordinatorSession->setLocation("mock:");
         fd = new FailureDetector(context, "mock:", ServerId(57, 27342),
                 *serverList);
     }

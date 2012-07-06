@@ -14,10 +14,15 @@
  */
 
 #include "RamCloud.h"
+#include "CoordinatorSession.h"
 #include "MasterClient.h"
 #include "PingClient.h"
 
 namespace RAMCloud {
+
+// Default RejectRules to use if none are provided by the caller: rejects
+// nothing.
+static RejectRules defaultRejectRules;
 
 /**
  * Construct a RamCloud for a particular service: opens a connection with the
@@ -37,6 +42,7 @@ RamCloud::RamCloud(const char* serviceLocator)
     , coordinator(clientContext, serviceLocator)
     , objectFinder(clientContext, coordinator)
 {
+    clientContext.coordinatorSession->setLocation(serviceLocator);
 }
 
 /**
@@ -52,7 +58,107 @@ RamCloud::RamCloud(Context& context, const char* serviceLocator)
     , coordinator(context, serviceLocator)
     , objectFinder(clientContext, coordinator)
 {
+    clientContext.coordinatorSession->setLocation(serviceLocator);
 }
+
+/**
+ * Read the current contents of an object.
+ *
+ * \param tableId
+ *      The table containing the desired object (return value from
+ *      a previous call to getTableId).
+ * \param key
+ *      Variable length key that uniquely identifies the object within tableId.
+ *      It does not necessarily have to be null terminated.  The caller must
+ *      ensure that the storage for this key is unchanged through the life of
+ *      the RPC.
+ * \param keyLength
+ *      Size in bytes of the key.
+ * \param[out] value
+ *      After a successful return, this Buffer will hold the
+ *      contents of the desired object.
+ * \param rejectRules
+ *      If non-NULL, specifies conditions under which the read
+ *      should be aborted with an error.
+ * \param[out] version
+ *      If non-NULL, the version number of the object is returned here.
+ */
+void
+RamCloud::read(uint64_t tableId, const char* key, uint16_t keyLength,
+                   Buffer* value, const RejectRules* rejectRules,
+                   uint64_t* version)
+{
+    ReadRpc rpc(*this, tableId, key, keyLength, value, rejectRules);
+    rpc.wait(version);
+}
+
+/**
+ * Constructor for ReadRpc: initiates an RPC in the same way as
+ * #RamCloud::read, but returns once the RPC has been initiated, without
+ * waiting for it to complete.
+ *
+ * \param ramcloud
+ *      The RAMCloud object that governs this RPC.
+ * \param tableId
+ *      The table containing the desired object (return value from
+ *      a previous call to getTableId).
+ * \param key
+ *      Variable length key that uniquely identifies the object within tableId.
+ *      It does not necessarily have to be null terminated.  The caller must
+ *      ensure that the storage for this key is unchanged through the life of
+ *      the RPC.
+ * \param keyLength
+ *      Size in bytes of the key.
+ * \param[out] value
+ *      After a successful return, this Buffer will hold the
+ *      contents of the desired object.
+ * \param rejectRules
+ *      If non-NULL, specifies conditions under which the read
+ *      should be aborted with an error.
+ */
+RamCloud::ReadRpc::ReadRpc(RamCloud& ramcloud, uint64_t tableId,
+        const char* key, uint16_t keyLength, Buffer* value,
+        const RejectRules* rejectRules)
+    : ObjectRpcWrapper(ramcloud, tableId, key, keyLength,
+            sizeof(WireFormat::Read::Response), value)
+{
+    value->reset();
+    WireFormat::Read::Request& reqHdr(allocHeader<WireFormat::Read>());
+    reqHdr.tableId = tableId;
+    reqHdr.keyLength = keyLength;
+    reqHdr.rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
+    Buffer::Chunk::appendToBuffer(&request, key, keyLength);
+    send();
+}
+
+/**
+ * Wait for the RPC to complete, and return the same results as
+ * #RamCloud::read.
+ *
+ * \param[out] version
+ *      If non-NULL, the version number of the object is returned here.
+ */
+void
+RamCloud::ReadRpc::wait(uint64_t* version)
+{
+    waitInternal(*ramcloud.clientContext.dispatch);
+    const WireFormat::Read::Response& respHdr(
+            getResponseHeader<WireFormat::Read>());
+    if (version != NULL)
+        *version = respHdr.version;
+
+    // Truncate the response Buffer so that it consists of nothing
+    // but the object data.
+    response->truncateFront(sizeof(respHdr));
+    assert(respHdr.length == response->getTotalLength());
+
+    if (respHdr.common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr.common.status);
+}
+
+//-------------------------------------------------------
+// OLD: everything below here should eventually go away.
+//-------------------------------------------------------
 
 /// \copydoc CoordinatorClient::createTable
 void
@@ -192,29 +298,6 @@ RamCloud::proxyPing(const char* serviceLocator1,
     PingClient client(clientContext);
     return client.proxyPing(serviceLocator1, serviceLocator2,
                             timeoutNanoseconds1, timeoutNanoseconds2);
-}
-
-/// \copydoc MasterClient::read
-void
-RamCloud::read(uint64_t tableId, const char* key, uint16_t keyLength,
-               Buffer* value, const RejectRules* rejectRules,
-               uint64_t* version)
-{
-    while (1) {
-        // Keep trying the operation if the server responded with a retry
-        // status.
-        try {
-            return Read(*this, tableId, key, keyLength, value, rejectRules,
-                        version)();
-        } catch (RetryException& e) {
-        } catch (UnknownTableException& e) {
-            // The Tablet Map pointed to some server, but it's no longer
-            // in charge of the appropriate tablet. We need to refresh.
-            objectFinder.flush();
-        } catch (...) {
-            throw;
-        }
-    }
 }
 
 /// \copydoc MasterClient::increment

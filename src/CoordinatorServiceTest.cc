@@ -254,7 +254,8 @@ TEST_F(CoordinatorServiceTest, getTableId) {
 TEST_F(CoordinatorServiceTest, enlistServer) {
     EXPECT_EQ(1U, master->serverId.getId());
     EXPECT_EQ(ServerId(2, 0),
-        client->enlistServer({}, {BACKUP_SERVICE}, "mock:host=backup"));
+        CoordinatorClient::enlistServer(context, {}, {BACKUP_SERVICE},
+                "mock:host=backup"));
 
     ProtoBuf::ServerList masterList;
     service->serverList.serialize(masterList, {MASTER_SERVICE});
@@ -290,8 +291,9 @@ TEST_F(CoordinatorServiceTest, enlistServerReplaceAMaster) {
     client->createTable("foo");
     TestLog::Enable _(startMasterRecoveryFilter);
     EXPECT_EQ(ServerId(2, 0),
-        client->enlistServer(masterServerId,
-                             {BACKUP_SERVICE}, "mock:host=backup"));
+        CoordinatorClient::enlistServer(context, masterServerId,
+                                        {BACKUP_SERVICE},
+                                        "mock:host=backup"));
     EXPECT_EQ("restartMasterRecovery: Scheduling recovery of master 1 | "
               "restartMasterRecovery: Recovery crashedServerId: 1 | "
               "restartMasterRecovery: Recovery will: tablet { table_id: 0 "
@@ -315,8 +317,9 @@ TEST_F(CoordinatorServiceTest, enlistServerReplaceANonMaster) {
 
     TestLog::Enable _(startMasterRecoveryFilter);
     EXPECT_EQ(ServerId(2, 1),
-        client->enlistServer(replacesId,
-                             {BACKUP_SERVICE}, "mock:host=backup2"));
+        CoordinatorClient::enlistServer(context, replacesId,
+                                        {BACKUP_SERVICE},
+                                        "mock:host=backup2"));
     EXPECT_EQ("startMasterRecovery: Server 2 crashed, but it had no tablets",
               TestLog::get());
     EXPECT_FALSE(service->serverList.contains(replacesId));
@@ -335,8 +338,10 @@ TEST_F(CoordinatorServiceTest, getMasterList) {
 
 TEST_F(CoordinatorServiceTest, getBackupList) {
     // master is already enlisted
-    client->enlistServer({}, {BACKUP_SERVICE}, "mock:host=backup1");
-    client->enlistServer({}, {BACKUP_SERVICE}, "mock:host=backup2");
+    CoordinatorClient::enlistServer(context, {}, {BACKUP_SERVICE},
+                                    "mock:host=backup1");
+    CoordinatorClient::enlistServer(context, {}, {BACKUP_SERVICE},
+                                    "mock:host=backup2");
     ProtoBuf::ServerList backupList;
     client->getBackupList(backupList);
     EXPECT_EQ("server { services: 2 server_id: 2 "
@@ -352,7 +357,8 @@ TEST_F(CoordinatorServiceTest, getBackupList) {
 
 TEST_F(CoordinatorServiceTest, getServerList) {
     // master is already enlisted
-    client->enlistServer({}, {BACKUP_SERVICE}, "mock:host=backup1");
+    CoordinatorClient::enlistServer(context, {}, {BACKUP_SERVICE},
+                                    "mock:host=backup1");
     ProtoBuf::ServerList serverList;
     client->getServerList(serverList);
     EXPECT_EQ(2, serverList.server_size());
@@ -379,9 +385,11 @@ TEST_F(CoordinatorServiceTest, hintServerDown_master) {
     TaskQueue mgr;
     service->recoveryManager.doNotStartRecoveries = true;
     // master is already enlisted
-    client->enlistServer({}, {MASTER_SERVICE, PING_SERVICE},
-                         "mock:host=master2");
-    client->enlistServer({}, {BACKUP_SERVICE}, "mock:host=backup");
+    CoordinatorClient::enlistServer(context, {},
+                                    {MASTER_SERVICE, PING_SERVICE},
+                                    "mock:host=master2");
+    CoordinatorClient::enlistServer(context, {}, {BACKUP_SERVICE},
+                                    "mock:host=backup");
     client->createTable("foo");
     service->forceServerDownForTesting = true;
     TestLog::Enable _(startMasterRecoveryFilter);
@@ -398,8 +406,9 @@ TEST_F(CoordinatorServiceTest, hintServerDown_master) {
 }
 
 TEST_F(CoordinatorServiceTest, hintServerDown_backup) {
-    ServerId id =
-        client->enlistServer({}, {BACKUP_SERVICE}, "mock:host=backup");
+    ServerId id = CoordinatorClient::enlistServer(context, {},
+                                                  {BACKUP_SERVICE},
+                                                  "mock:host=backup");
     EXPECT_EQ(1U, service->serverList.backupCount());
     service->forceServerDownForTesting = true;
     client->hintServerDown(id);
@@ -472,7 +481,8 @@ setWillFilter(string s) {
 }
 
 TEST_F(CoordinatorServiceTest, setWill) {
-    client->enlistServer({}, {MASTER_SERVICE}, "mock:host=master2");
+    CoordinatorClient::enlistServer(context, {}, {MASTER_SERVICE},
+                                    "mock:host=master2");
 
     ProtoBuf::Tablets will;
     ProtoBuf::Tablets::Tablet& t(*will.add_tablet());

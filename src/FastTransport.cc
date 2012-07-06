@@ -251,13 +251,17 @@ void FastTransport::handleIncomingPacket(Driver::Received* received)
  *      The request payload including RPC headers.
  * \param[out] response
  *      The response payload including the RPC headers.
+ * \param notifier
+ *      Used to notify wrappers when the RPC is finished.
  */
 FastTransport::ClientRpc::ClientRpc(ClientSession* session,
                                     Buffer* request,
-                                    Buffer* response)
+                                    Buffer* response,
+                                    RpcNotifier* notifier)
     : Transport::ClientRpc(session->transport->context, request, response)
     , session(session)
     , channelQueueEntries()
+    , notifier(notifier)
 {
 }
 
@@ -959,6 +963,13 @@ FastTransport::ServerSession::beginSending(uint8_t channelId)
 }
 
 /// This shouldn't ever be called.
+void
+FastTransport::ServerSession::cancelRequest(RpcNotifier* notifier)
+{
+    LOG(WARNING, "invoked unexpectedly");
+}
+
+/// This shouldn't ever be called.
 FastTransport::ClientRpc*
 FastTransport::ServerSession::clientSend(Buffer* request, Buffer* response)
 {
@@ -1081,6 +1092,14 @@ FastTransport::ServerSession::processInboundPacket(Driver::Received* received)
 /// This shouldn't ever be called.
 void
 FastTransport::ServerSession::release()
+{
+    LOG(WARNING, "invoked unexpectedly");
+}
+
+/// This shouldn't ever be called.
+void
+FastTransport::ServerSession::sendRequest(Buffer* request, Buffer* response,
+                                          RpcNotifier* notifier)
 {
     LOG(WARNING, "invoked unexpectedly");
 }
@@ -1241,8 +1260,12 @@ FastTransport::ClientSession::abort(const string& message)
         message.c_str());
     abortMessage = message;
     for (uint32_t i = 0; i < numChannels; i++) {
-        if (channels[i].currentRpc) {
-            channels[i].currentRpc->markFinished(message);
+        ClientRpc* rpc = channels[i].currentRpc;
+        if (rpc) {
+            rpc->markFinished(message);
+            if (rpc->notifier != NULL) {
+                 rpc->notifier->failed();
+            }
         }
     }
     ChannelQueue::iterator iter(channelQueue.begin());
@@ -1250,11 +1273,34 @@ FastTransport::ClientSession::abort(const string& message)
         ClientRpc& rpc(*iter);
         iter = channelQueue.erase(iter);
         rpc.markFinished(message);
+        if (rpc.notifier != NULL) {
+                rpc.notifier->failed();
+        }
     }
     resetChannels();
     serverSessionHint = INVALID_HINT;
     token = INVALID_TOKEN;
     timer.stop();
+}
+
+// See Transport::Session::cancelRequest for documentation.
+void
+FastTransport::ClientSession::cancelRequest(RpcNotifier* notifier)
+{
+    for (uint32_t i = 0; i < numChannels; i++) {
+        ClientRpc* rpc = channels[i].currentRpc;
+        if (rpc && (rpc->notifier == notifier)) {
+            rpc->notifier->failed();
+            reassignChannel(&channels[i]);
+            return;
+        }
+    }
+    foreach (ClientRpc& rpc, channelQueue) {
+        if (rpc.notifier == notifier) {
+            erase(channelQueue, rpc);
+            return;
+        }
+    }
 }
 
 /**
@@ -1284,8 +1330,8 @@ void FastTransport::ClientSession::cancelRpc(FastTransport::ClientRpc* rpc)
 FastTransport::ClientRpc*
 FastTransport::ClientSession::clientSend(Buffer* request, Buffer* response)
 {
-    ClientRpc* rpc = new(response, MISC) ClientRpc(this,
-                                                   request, response);
+    ClientRpc* rpc = new(response, MISC) ClientRpc(this, request, response,
+                                                   NULL);
 
     // rpc will be performed immediately on the first available channel or
     // queued until a channel is idle if none are currently available.
@@ -1469,6 +1515,35 @@ FastTransport::ClientSession::processInboundPacket(Driver::Received* received)
     }
 }
 
+// See Transport::Session::sendRequest for documentation.
+void
+FastTransport::ClientSession::sendRequest(Buffer* request, Buffer* response,
+                                          RpcNotifier* notifier)
+{
+    ClientRpc* rpc = new(response, MISC) ClientRpc(this, request, response,
+                                                   notifier);
+
+    // rpc will be performed immediately on the first available channel or
+    // queued until a channel is idle if none are currently available.
+    lastActivityTime = transport->context.dispatch->currentTime;
+    if (!isConnected()) {
+        connect();
+        LOG(DEBUG, "queueing RPC");
+        channelQueue.push_back(*rpc);
+    } else {
+        ClientChannel* channel = getAvailableChannel();
+        if (!channel) {
+            LOG(DEBUG, "queueing RPC");
+            channelQueue.push_back(*rpc);
+        } else {
+            assert(channel->state == ClientChannel::IDLE);
+            channel->state = ClientChannel::SENDING;
+            channel->currentRpc = rpc;
+            channel->outboundMsg.beginSending(rpc->request);
+        }
+    }
+}
+
 /**
  * Send a SessionOpenRequest packet.
  */
@@ -1592,6 +1667,9 @@ FastTransport::ClientSession::processReceivedData(ClientChannel* channel,
     if (channel->inboundMsg.processReceivedData(received)) {
         // InboundMsg has gotten its last fragment
         channel->currentRpc->markFinished();
+        if (channel->currentRpc->notifier != NULL) {
+            channel->currentRpc->notifier->completed();
+        }
         reassignChannel(channel);
     }
 }

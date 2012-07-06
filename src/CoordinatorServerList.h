@@ -123,7 +123,7 @@ class CoordinatorServerList {
                  const ProtoBuf::Tablets& willEntries);
     void setMinOpenSegmentId(ServerId serverId, uint64_t segmentId);
     void setReplicationId(ServerId serverId, uint64_t segmentId);
-    
+
     const char* getLocator(ServerId id) const;
     Transport::SessionRef getSession(ServerId id) const;
     bool isUp(ServerId id) const;

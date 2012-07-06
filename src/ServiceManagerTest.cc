@@ -465,4 +465,25 @@ TEST_F(ServiceManagerTest, WorkerSession_abort) {
     EXPECT_STREQ("abort: test message", transport.outputLog.c_str());
 }
 
+TEST_F(ServiceManagerTest, WorkerSession_cancelRequest) {
+    MockTransport transport(context);
+    RpcWrapper wrapper(4);
+    wrapper.request.fillFromString("abcdefg");
+    MockTransport::sessionDeleteCount = 0;
+    wrapper.testSend(transport.getSession());
+    wrapper.cancel();
+    EXPECT_STREQ("sendRequest: abcdefg/0 | cancel",
+            transport.outputLog.c_str());
+}
+
+TEST_F(ServiceManagerTest, WorkerSession_sendRequest) {
+    MockTransport transport(context);
+    RpcWrapper wrapper(4);
+    wrapper.request.fillFromString("abcdefg");
+    MockTransport::sessionDeleteCount = 0;
+    wrapper.testSend(transport.getSession());
+    EXPECT_STREQ("sendRequest: abcdefg/0", transport.outputLog.c_str());
+}
+
+
 } // namespace RAMCloud

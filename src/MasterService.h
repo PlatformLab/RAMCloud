@@ -31,6 +31,7 @@
 #include "ServerConfig.h"
 #include "SpinLock.h"
 #include "Table.h"
+#include "WireFormat.h"
 
 namespace RAMCloud {
 
@@ -110,9 +111,10 @@ class MasterService : public Service {
     void dropTabletOwnership(const DropTabletOwnershipRpc::Request& reqHdr,
                              DropTabletOwnershipRpc::Response& respHdr,
                              Rpc& rpc);
-    void takeTabletOwnership(const TakeTabletOwnershipRpc::Request& reqHdr,
-                             TakeTabletOwnershipRpc::Response& respHdr,
-                             Rpc& rpc);
+    void takeTabletOwnership(
+            const TakeTabletOwnershipRpc::Request& reqHdr,
+            TakeTabletOwnershipRpc::Response& respHdr,
+            Rpc& rpc);
     void prepForMigration(const PrepForMigrationRpc::Request& reqHdr,
                           PrepForMigrationRpc::Response& respHdr,
                           Rpc& rpc);
