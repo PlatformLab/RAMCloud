@@ -507,12 +507,22 @@ using namespace RecoveryInternal; // NOLINT
 void
 Recovery::startBackups()
 {
-    LOG(DEBUG, "Getting segment lists from backups and preparing "
-               "them for recovery");
-
     recoveryTicks.construct(&metrics->coordinator.recoveryTicks);
     CycleCounter<RawMetric>
         _(&metrics->coordinator.recoveryBuildReplicaMapTicks);
+
+    if (numPartitions == 0) {
+        LOG(ERROR, "Somehow a recovery got scheduled for a master which "
+            "has no partitions. This should never happen.");
+        if (owner) {
+            owner->recoveryFinished(this);
+            owner->destroyAndFreeRecovery(this);
+        }
+        return;
+    }
+
+    LOG(DEBUG, "Getting segment lists from backups and preparing "
+               "them for recovery");
 
     const uint32_t maxActiveBackupHosts = 10;
     std::vector<ServerId> backups =
@@ -669,9 +679,9 @@ using namespace RecoveryInternal; // NOLINT
 void
 Recovery::startRecoveryMasters()
 {
+    CycleCounter<RawMetric> _(&metrics->coordinator.recoveryStartTicks);
     LOG(NOTICE, "Starting recovery %lu for crashed server %lu with %u "
         "partitions", recoveryId, crashedServerId.getId(), numPartitions);
-    CycleCounter<RawMetric> _(&metrics->coordinator.recoveryStartTicks);
 
     // Set up the tasks to execute the RPCs.
     std::vector<ServerId> masters =
@@ -679,14 +689,14 @@ Recovery::startRecoveryMasters()
     uint32_t started = 0;
     Tub<MasterStartTask> recoverTasks[numPartitions];
     foreach (ServerId master, masters) {
+        if (started == numPartitions)
+            break;
         Recovery* preexistingRecovery = (*tracker)[master];
         if (!preexistingRecovery) {
             auto& task = recoverTasks[started];
             task.construct(*this, master, started, replicaMap);
             ++started;
         }
-        if (started == numPartitions)
-            break;
     }
 
     // If we couldn't find enough masters that weren't already busy with

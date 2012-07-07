@@ -143,6 +143,8 @@ TEST_F(RecoveryTest, startBackups) {
         }
     } callback;
     addServersToTracker(3, {BACKUP_SERVICE});
+    TabletsBuilder{tablets}
+        (123, 10, 19, TabletsBuilder::RECOVERING, 1);
     Recovery recovery(taskQueue, &tracker, NULL, ServerId(99), tablets, 0lu);
     recovery.testingBackupStartTaskSendCallback = &callback;
     recovery.startBackups();
@@ -186,6 +188,8 @@ TEST_F(RecoveryTest, startBackups_secondariesEarlyInSomeList) {
         }
     } callback;
     addServersToTracker(3, {BACKUP_SERVICE});
+    TabletsBuilder{tablets}
+        (123, 10, 19, TabletsBuilder::RECOVERING, 1);
     Recovery recovery(taskQueue, &tracker, NULL, ServerId(99), tablets, 0lu);
     recovery.testingBackupStartTaskSendCallback = &callback;
     recovery.startBackups();
@@ -203,6 +207,8 @@ bool startBackupsFilter(string s) {
 TEST_F(RecoveryTest, startBackups_noLogDigestFound) {
     BackupStartTask::TestingCallback callback; // No-op callback.
     addServersToTracker(3, {BACKUP_SERVICE});
+    TabletsBuilder{tablets}
+        (123, 10, 19, TabletsBuilder::RECOVERING, 1);
     Recovery recovery(taskQueue, &tracker, NULL, ServerId(99), tablets, 0lu);
     recovery.testingBackupStartTaskSendCallback = &callback;
     TestLog::Enable _(startBackupsFilter);
@@ -223,6 +229,8 @@ TEST_F(RecoveryTest, startBackups_someReplicasMissing) {
         }
     } callback;
     addServersToTracker(3, {BACKUP_SERVICE});
+    TabletsBuilder{tablets}
+        (123, 10, 19, TabletsBuilder::RECOVERING, 1);
     Recovery recovery(taskQueue, &tracker, NULL, ServerId(99), tablets, 0lu);
     recovery.testingBackupStartTaskSendCallback = &callback;
     TestLog::Enable _(startBackupsFilter);

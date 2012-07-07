@@ -118,7 +118,6 @@ class ApplyTrackerChangesTask : public Task {
         : Task(mgr.taskQueue)
         , mgr(mgr)
     {
-        schedule();
     }
 
     void performTask()
@@ -138,6 +137,7 @@ class ApplyTrackerChangesTask : public Task {
                 recovery->recoveryMasterFinished(server.serverId, false);
             }
         }
+        delete this;
     }
 
     MasterRecoveryManager& mgr;

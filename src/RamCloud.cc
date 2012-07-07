@@ -17,6 +17,7 @@
 #include "CoordinatorSession.h"
 #include "MasterClient.h"
 #include "PingClient.h"
+#include "ShortMacros.h"
 
 namespace RAMCloud {
 
@@ -469,6 +470,10 @@ RamCloud::write(uint64_t tableId, const char* key, uint16_t keyLength,
             // The Tablet Map pointed to some server, but it's no longer
             // in charge of the appropriate tablet. We need to refresh.
             objectFinder.flush();
+        } catch (const TransportException& e) {
+            LOG(WARNING, "Couldn't talk to master at last known tablet "
+                "location; flushing tablet map.");
+            objectFinder.flush();
         } catch (...) {
             throw;
         }
@@ -506,6 +511,10 @@ RamCloud::write(uint64_t tableId, const char* key, uint16_t keyLength,
         } catch (UnknownTableException &e) {
             // The Tablet Map pointed to some server, but it's no longer
             // in charge of the appropriate tablet. We need to refresh.
+            objectFinder.flush();
+        } catch (const TransportException& e) {
+            LOG(WARNING, "Couldn't talk to master at last known tablet "
+                "location; flushing tablet map.");
             objectFinder.flush();
         } catch (...) {
             throw;
