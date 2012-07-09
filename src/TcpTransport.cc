@@ -72,6 +72,7 @@ TcpTransport::TcpTransport(Context& context,
 
     int r = sys->fcntl(listenSocket, F_SETFL, O_NONBLOCK);
     if (r != 0) {
+        sys->close(listenSocket);
         throw TransportException(HERE,
                 "TcpTransport couldn't set nonblocking on listen socket",
                 errno);
@@ -80,6 +81,7 @@ TcpTransport::TcpTransport(Context& context,
     int optval = 1;
     if (sys->setsockopt(listenSocket, SOL_SOCKET, SO_REUSEADDR, &optval,
                            sizeof(optval)) != 0) {
+        sys->close(listenSocket);
         throw TransportException(HERE,
                 "TcpTransport couldn't set SO_REUSEADDR on listen socket",
                 errno);
@@ -87,14 +89,14 @@ TcpTransport::TcpTransport(Context& context,
 
     if (sys->bind(listenSocket, &address.address,
             sizeof(address.address)) == -1) {
-        // destructor will close listenSocket
+        sys->close(listenSocket);
         string message = format("TcpTransport couldn't bind to '%s'",
                 serviceLocator->getOriginalString().c_str());
         throw TransportException(HERE, message, errno);
     }
 
     if (sys->listen(listenSocket, INT_MAX) == -1) {
-        // destructor will close listenSocket
+        sys->close(listenSocket);
         throw TransportException(HERE,
                 "TcpTransport couldn't listen on socket", errno);
     }
