@@ -115,7 +115,10 @@ def markLine(line):
             return
 
 def main():
-    for line in fileinput.input():
-        cleanup(line)
+   while True:
+       line = sys.stdin.readline()
+       if line == "":
+           break
+       cleanup(line)
 
 if __name__ == '__main__': main()
