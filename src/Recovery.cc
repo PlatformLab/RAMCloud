@@ -20,7 +20,6 @@
 #include "Buffer.h"
 #include "MasterClient.h"
 #include "ShortMacros.h"
-#include "TabletMap.h"
 #include "Tub.h"
 
 namespace RAMCloud {
@@ -33,6 +32,10 @@ namespace RAMCloud {
  * \param taskQueue
  *      MasterRecoveryManager TaskQueue which drives this recovery
  *      (by calling performTask() whenever this recovery is scheduled).
+ * \param tabletMap
+ *      Coordinator's authoritative information about tablets and their
+ *      mapping to servers. Used during to find out which tablets need
+ *      to be recovered for the crashed master.
  * \param tracker
  *      The MasterRecoveryManager's tracker which maintains a list of all
  *      servers in RAMCloud along with a pointer to any Recovery the server is
@@ -44,11 +47,6 @@ namespace RAMCloud {
  *      NULL for testing if the test takes care of deallocation of the Recovery.
  * \param crashedServerId
  *      The crashed master this Recovery will rebuild.
- * \param tabletsToRecover
- *      Copy of tablets from the coordinator's tabletMap for the server which
- *      crashed and that are marked as RECOVERING. This recovery may not manage
- *      to recover all of them, in which case the MasterRecoveryManager should
- *      schedule a follow up recovery.
  * \param minOpenSegmentId
  *      Used to filter out replicas of segments which may have become
  *      inconsistent. A replica with a segment id less than this is
@@ -56,15 +54,16 @@ namespace RAMCloud {
  *      object data purposes).
  */
 Recovery::Recovery(TaskQueue& taskQueue,
+                   TabletMap* tabletMap,
                    RecoveryTracker* tracker,
                    Owner* owner,
                    ServerId crashedServerId,
-                   const vector<Tablet>& tabletsToRecover,
                    uint64_t minOpenSegmentId)
     : Task(taskQueue)
     , crashedServerId(crashedServerId)
     , minOpenSegmentId(minOpenSegmentId)
-    , tablets()
+    , tabletsToRecover()
+    , tabletMap(tabletMap)
     , tracker(tracker)
     , owner(owner)
     , recoveryId(generateRandom())
@@ -79,19 +78,36 @@ Recovery::Recovery(TaskQueue& taskQueue,
     , testingBackupEndTaskSendCallback()
     , testingFailRecoveryMasters()
 {
-    // Figure out the number of partitions to be recovered and bucket tablets
-    // together for recovery on a single recovery master. Right now the
-    // bucketing is each tablet from the crashed master is recovered on a
-    // single recovery master.
-    foreach (auto& tablet, tabletsToRecover) {
-        ProtoBuf::Tablets::Tablet& entry = *tablets.add_tablet();
-        tablet.serialize(entry);
-        entry.set_user_data(numPartitions++);
-    }
 }
 
 Recovery::~Recovery()
 {
+}
+
+/**
+ * Finds out which tablets belonged to the crashed master and parititions
+ * them into groups. Each of the groups is recovered later, one to each
+ * recovery master. The result is left in #tabletsToRecover.
+ *
+ * Right now this just naively puts each tablet from the crashed master
+ * in its own group (and thus on its own recovery master). At some
+ * point we'll need smart logic to group tablets based on their
+ * expected recovery time.
+ */
+void
+Recovery::partitionTablets()
+{
+    auto tablets = tabletMap->setStatusForServer(crashedServerId,
+                                                 Tablet::RECOVERING);
+    // Figure out the number of partitions to be recovered and bucket tablets
+    // together for recovery on a single recovery master. Right now the
+    // bucketing is each tablet from the crashed master is recovered on a
+    // single recovery master.
+    foreach (auto& tablet, tablets) {
+        ProtoBuf::Tablets::Tablet& entry = *tabletsToRecover.add_tablet();
+        tablet.serialize(entry);
+        entry.set_user_data(numPartitions++);
+    }
 }
 
 /**
@@ -108,6 +124,7 @@ Recovery::performTask()
     metrics->coordinator.recoveryCount++;
     switch (status) {
     case START_RECOVERY_ON_BACKUPS:
+        partitionTablets();
         startBackups();
         break;
     case START_RECOVERY_MASTERS:
@@ -513,8 +530,9 @@ Recovery::startBackups()
         _(&metrics->coordinator.recoveryBuildReplicaMapTicks);
 
     if (numPartitions == 0) {
-        LOG(ERROR, "Somehow a recovery got scheduled for a master which "
-            "has no partitions. This should never happen.");
+        LOG(NOTICE, "Server %lu crashed, but it had no tablets",
+            crashedServerId.getId());
+        status = DONE;
         if (owner) {
             owner->recoveryFinished(this);
             owner->destroyAndFreeRecovery(this);
@@ -535,7 +553,7 @@ Recovery::startBackups()
     foreach (ServerId backup, backups) {
         backupStartTasks[i++].construct(this,
                                         backup,
-                                        crashedServerId, tablets,
+                                        crashedServerId, tabletsToRecover,
                                         minOpenSegmentId);
     }
     parallelRun(backupStartTasks.get(), backups.size(), maxActiveBackupHosts);
@@ -587,7 +605,7 @@ struct MasterStartTask {
         , serverId(serverId)
         , replicaMap(replicaMap)
         , partitionId(partitionId)
-        , tablets()
+        , tabletsToRecover()
         , masterClient()
         , rpc()
         , done(false)
@@ -607,7 +625,7 @@ struct MasterStartTask {
                               recovery.crashedServerId,
                               recovery.testingFailRecoveryMasters > 0
                                   ? ~0u : partitionId,
-                              tablets,
+                              tabletsToRecover,
                               replicaMap.data(),
                               downCast<uint32_t>(replicaMap.size()));
                 if (recovery.testingFailRecoveryMasters > 0) {
@@ -619,7 +637,7 @@ struct MasterStartTask {
                 testingCallback->masterStartTaskSend(recovery.recoveryId,
                                                      recovery.crashedServerId,
                                                      partitionId,
-                                                     tablets,
+                                                     tabletsToRecover,
                                                      replicaMap.data(),
                                                      replicaMap.size());
             }
@@ -659,7 +677,7 @@ struct MasterStartTask {
 
     const vector<RecoverRpc::Replica>& replicaMap;
     const uint32_t partitionId;
-    ProtoBuf::Tablets tablets;
+    ProtoBuf::Tablets tabletsToRecover;
     Tub<MasterClient> masterClient;
     Tub<MasterClient::Recover> rpc;
     bool done;
@@ -715,10 +733,10 @@ Recovery::startRecoveryMasters()
 
     // Hand out each tablet from the will to one of the recovery masters
     // depending on which partition it was in.
-    foreach (auto& tablet, tablets.tablet()) {
+    foreach (auto& tablet, tabletsToRecover.tablet()) {
         auto& task = recoverTasks[tablet.user_data()];
         if (task)
-            *task->tablets.add_tablet() = tablet;
+            *task->tabletsToRecover.add_tablet() = tablet;
     }
 
     // Tell the recovery masters to begin recovery.

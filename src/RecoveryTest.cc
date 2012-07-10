@@ -28,13 +28,13 @@ struct RecoveryTest : public ::testing::Test {
     Context context;
     TaskQueue taskQueue;
     RecoveryTracker tracker;
-    vector<Tablet> tablets;
+    TabletMap tabletMap;
 
     RecoveryTest()
         : context()
         , taskQueue()
         , tracker(context)
-        , tablets()
+        , tabletMap()
     {
         Logger::get().setLogLevels(SILENT_LOG_LEVEL);
     }
@@ -94,23 +94,23 @@ populateLogDigest(BackupClient::StartReadingData::Result& result,
 }
 }
 
-TEST_F(RecoveryTest, constructor) {
-    // Mostly trivial, but does compute numPartitions from the will.
+TEST_F(RecoveryTest, partitionTablets) {
     Tub<Recovery> recovery;
     Recovery::Owner* own = static_cast<Recovery::Owner*>(NULL);
 
-    recovery.construct(taskQueue, &tracker, own, ServerId(99), tablets, 0lu);
+    recovery.construct(taskQueue, &tabletMap, &tracker, own, ServerId(99), 0lu);
+    recovery->partitionTablets();
     EXPECT_EQ(0lu, recovery->numPartitions);
 
-    tablets = {
-        {123,  0,  9, {99, 0}, Tablet::RECOVERING, {}},
-        {123, 20, 29, {99, 0}, Tablet::RECOVERING, {}},
-    };
-    recovery.construct(taskQueue, &tracker, own, ServerId(99), tablets, 0lu);
+    tabletMap.addTablet({123,  0,  9, {99, 0}, Tablet::RECOVERING, {}});
+    tabletMap.addTablet({123, 20, 29, {99, 0}, Tablet::RECOVERING, {}});
+    recovery.construct(taskQueue, &tabletMap, &tracker, own, ServerId(99), 0lu);
+    recovery->partitionTablets();
     EXPECT_EQ(2lu, recovery->numPartitions);
 
-    tablets.push_back(Tablet{123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
-    recovery.construct(taskQueue, &tracker, own, ServerId(99), tablets, 0lu);
+    tabletMap.addTablet({123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
+    recovery.construct(taskQueue, &tabletMap, &tracker, own, ServerId(99), 0lu);
+    recovery->partitionTablets();
     EXPECT_EQ(3lu, recovery->numPartitions);
 }
 
@@ -144,9 +144,10 @@ TEST_F(RecoveryTest, startBackups) {
         }
     } callback;
     addServersToTracker(3, {BACKUP_SERVICE});
-    tablets = {{123, 10, 19, {99, 0}, Tablet::RECOVERING, {}}};
-    Recovery recovery(taskQueue, &tracker, NULL, ServerId(99), tablets, 0lu);
+    tabletMap.addTablet({123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
+    Recovery recovery(taskQueue, &tabletMap, &tracker, NULL, ServerId(99), 0lu);
     recovery.testingBackupStartTaskSendCallback = &callback;
+    recovery.partitionTablets();
     recovery.startBackups();
     EXPECT_EQ((vector<RecoverRpc::Replica> {
                     { 1, 88 },
@@ -157,7 +158,7 @@ TEST_F(RecoveryTest, startBackups) {
 }
 
 TEST_F(RecoveryTest, startBackups_failureContactingSomeBackup) {
-    Recovery recovery(taskQueue, &tracker, NULL, ServerId(99), tablets, 0lu);
+    Recovery recovery(taskQueue, &tabletMap, &tracker, NULL, ServerId(99), 0lu);
     ProtoBuf::Tablets partitions;
     BackupStartTask task(&recovery, {2, 0}, {1, 0}, partitions, 0);
     EXPECT_NO_THROW(task.send());
@@ -188,9 +189,10 @@ TEST_F(RecoveryTest, startBackups_secondariesEarlyInSomeList) {
         }
     } callback;
     addServersToTracker(3, {BACKUP_SERVICE});
-    tablets = {{123, 10, 19, {99, 0}, Tablet::RECOVERING, {}}};
-    Recovery recovery(taskQueue, &tracker, NULL, ServerId(99), tablets, 0lu);
+    tabletMap.addTablet({123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
+    Recovery recovery(taskQueue, &tabletMap, &tracker, NULL, ServerId(99), 0lu);
     recovery.testingBackupStartTaskSendCallback = &callback;
+    recovery.partitionTablets();
     recovery.startBackups();
     ASSERT_EQ(6U, recovery.replicaMap.size());
     // The secondary of segment 91 must be last in the list.
@@ -206,9 +208,10 @@ bool startBackupsFilter(string s) {
 TEST_F(RecoveryTest, startBackups_noLogDigestFound) {
     BackupStartTask::TestingCallback callback; // No-op callback.
     addServersToTracker(3, {BACKUP_SERVICE});
-    tablets = {{123, 10, 19, {99, 0}, Tablet::RECOVERING, {}}};
-    Recovery recovery(taskQueue, &tracker, NULL, ServerId(99), tablets, 0lu);
+    tabletMap.addTablet({123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
+    Recovery recovery(taskQueue, &tabletMap, &tracker, NULL, ServerId(99), 0lu);
     recovery.testingBackupStartTaskSendCallback = &callback;
+    recovery.partitionTablets();
     TestLog::Enable _(startBackupsFilter);
     recovery.startBackups();
     EXPECT_EQ(
@@ -227,9 +230,10 @@ TEST_F(RecoveryTest, startBackups_someReplicasMissing) {
         }
     } callback;
     addServersToTracker(3, {BACKUP_SERVICE});
-    tablets = {{123, 10, 19, {99, 0}, Tablet::RECOVERING, {}}};
-    Recovery recovery(taskQueue, &tracker, NULL, ServerId(99), tablets, 0lu);
+    tabletMap.addTablet({123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
+    Recovery recovery(taskQueue, &tabletMap, &tracker, NULL, ServerId(99), 0lu);
     recovery.testingBackupStartTaskSendCallback = &callback;
+    recovery.partitionTablets();
     TestLog::Enable _(startBackupsFilter);
     recovery.startBackups();
     EXPECT_EQ(
@@ -448,15 +452,14 @@ TEST_F(RecoveryTest, startRecoveryMasters) {
         }
     } callback;
     addServersToTracker(2, {MASTER_SERVICE});
-    tablets = {
-        {123,  0,  9, {99, 0}, Tablet::RECOVERING, {}},
-        {123, 20, 29, {99, 0}, Tablet::RECOVERING, {}},
-        {123, 10, 19, {99, 0}, Tablet::RECOVERING, {}},
-    };
-    Recovery recovery(taskQueue, &tracker, NULL, {99, 0}, tablets, 0lu);
+    tabletMap.addTablet({123,  0,  9, {99, 0}, Tablet::RECOVERING, {}});
+    tabletMap.addTablet({123, 20, 29, {99, 0}, Tablet::RECOVERING, {}});
+    tabletMap.addTablet({123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
+    Recovery recovery(taskQueue, &tabletMap, &tracker, NULL, {99, 0}, 0lu);
+    recovery.partitionTablets();
     // Hack 'tablets' to get the first two tablets on the same server.
-    recovery.tablets.mutable_tablet(1)->set_user_data(0);
-    recovery.tablets.mutable_tablet(2)->set_user_data(1);
+    recovery.tabletsToRecover.mutable_tablet(1)->set_user_data(0);
+    recovery.tabletsToRecover.mutable_tablet(2)->set_user_data(1);
     recovery.numPartitions = 2;
     recovery.testingMasterStartTaskSendCallback = &callback;
     recovery.startRecoveryMasters();
@@ -497,15 +500,14 @@ TEST_F(RecoveryTest, startRecoveryMasters_tooFewIdleMasters) {
     } callback;
     addServersToTracker(2, {MASTER_SERVICE});
     tracker[ServerId(1, 0)] = reinterpret_cast<Recovery*>(0x1);
-    tablets = {
-        {123,  0,  9, {99, 0}, Tablet::RECOVERING, {}},
-        {123, 20, 29, {99, 0}, Tablet::RECOVERING, {}},
-        {123, 10, 19, {99, 0}, Tablet::RECOVERING, {}},
-    };
-    Recovery recovery(taskQueue, &tracker, NULL, {99, 0}, tablets, 0lu);
+    tabletMap.addTablet({123,  0,  9, {99, 0}, Tablet::RECOVERING, {}});
+    tabletMap.addTablet({123, 20, 29, {99, 0}, Tablet::RECOVERING, {}});
+    tabletMap.addTablet({123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
+    Recovery recovery(taskQueue, &tabletMap, &tracker, NULL, {99, 0}, 0lu);
+    recovery.partitionTablets();
     // Hack 'tablets' to get the first two tablets on the same server.
-    recovery.tablets.mutable_tablet(1)->set_user_data(0);
-    recovery.tablets.mutable_tablet(2)->set_user_data(1);
+    recovery.tabletsToRecover.mutable_tablet(1)->set_user_data(0);
+    recovery.tabletsToRecover.mutable_tablet(2)->set_user_data(1);
     recovery.numPartitions = 2;
     recovery.testingMasterStartTaskSendCallback = &callback;
     recovery.startRecoveryMasters();
@@ -536,15 +538,14 @@ TEST_F(RecoveryTest, startRecoveryMasters_noIdleMasters) {
         }
     } owner;
     MockRandom __(1);
-    tablets = {
-        {123,  0,  9, {99, 0}, Tablet::RECOVERING, {}},
-        {123, 20, 29, {99, 0}, Tablet::RECOVERING, {}},
-        {123, 10, 19, {99, 0}, Tablet::RECOVERING, {}},
-    };
     addServersToTracker(2, {MASTER_SERVICE});
     tracker[ServerId(1, 0)] = reinterpret_cast<Recovery*>(0x1);
     tracker[ServerId(2, 0)] = reinterpret_cast<Recovery*>(0x1);
-    Recovery recovery(taskQueue, &tracker, &owner, {99, 0}, tablets, 0lu);
+    tabletMap.addTablet({123,  0,  9, {99, 0}, Tablet::RECOVERING, {}});
+    tabletMap.addTablet({123, 20, 29, {99, 0}, Tablet::RECOVERING, {}});
+    tabletMap.addTablet({123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
+    Recovery recovery(taskQueue, &tabletMap, &tracker, &owner, {99, 0}, 0lu);
+    recovery.partitionTablets();
 
     TestLog::Enable _;
     recovery.startRecoveryMasters();
@@ -568,13 +569,12 @@ TEST_F(RecoveryTest, startRecoveryMasters_noIdleMasters) {
 }
 
 TEST_F(RecoveryTest, startRecoveryMasters_allFailDuringRecoverRpc) {
-    tablets = {
-        {123,  0,  9, {99, 0}, Tablet::RECOVERING, {}},
-        {123, 20, 29, {99, 0}, Tablet::RECOVERING, {}},
-        {123, 10, 19, {99, 0}, Tablet::RECOVERING, {}},
-    };
     addServersToTracker(2, {MASTER_SERVICE});
-    Recovery recovery(taskQueue, &tracker, NULL, {99, 0}, tablets, 0lu);
+    tabletMap.addTablet({123,  0,  9, {99, 0}, Tablet::RECOVERING, {}});
+    tabletMap.addTablet({123, 20, 29, {99, 0}, Tablet::RECOVERING, {}});
+    tabletMap.addTablet({123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
+    Recovery recovery(taskQueue, &tabletMap, &tracker, NULL, {99, 0}, 0lu);
+    recovery.partitionTablets();
     recovery.startRecoveryMasters();
 
     EXPECT_EQ(3u, recovery.numPartitions);
@@ -588,7 +588,7 @@ TEST_F(RecoveryTest, startRecoveryMasters_allFailDuringRecoverRpc) {
 
 TEST_F(RecoveryTest, recoveryMasterFinished) {
     addServersToTracker(3, {MASTER_SERVICE});
-    Recovery recovery(taskQueue, &tracker, NULL, {99, 0}, tablets, 0lu);
+    Recovery recovery(taskQueue, &tabletMap, &tracker, NULL, {99, 0}, 0lu);
     tracker[ServerId(2, 0)] = &recovery;
     tracker[ServerId(3, 0)] = &recovery;
     recovery.numPartitions = 2;
@@ -621,7 +621,7 @@ TEST_F(RecoveryTest, broadcastRecoveryComplete) {
             ++callCount;
         }
     } callback;
-    Recovery recovery(taskQueue, &tracker, NULL, {99, 0}, tablets, 0lu);
+    Recovery recovery(taskQueue, &tabletMap, &tracker, NULL, {99, 0}, 0lu);
     recovery.testingBackupEndTaskSendCallback = &callback;
     recovery.broadcastRecoveryComplete();
     EXPECT_EQ(3, callback.callCount);
