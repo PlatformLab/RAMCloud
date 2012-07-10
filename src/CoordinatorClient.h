@@ -83,7 +83,6 @@ class CoordinatorClient : public Client {
                                 ServerId recoveryMasterId,
                                 const ProtoBuf::Tablets& tablets,
                                 bool successful);
-    void setWill(uint64_t masterId, const ProtoBuf::Tablets& will);
     void sendServerList(ServerId destination);
     void setRuntimeOption(const char* option, const char* value);
 

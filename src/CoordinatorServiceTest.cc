@@ -91,22 +91,6 @@ TEST_F(CoordinatorServiceTest, createTable) {
               "serverId: 1 status: NORMAL "
               "ctime: 0, 72 }",
               service->tabletMap.debugString());
-    ProtoBuf::Tablets& will1 = *service->serverList[1]->will;
-    EXPECT_EQ("tablet { table_id: 0 start_key_hash: 0 "
-              "end_key_hash: 18446744073709551615 "
-              "state: NORMAL user_data: 0 "
-              "ctime_log_head_id: 0 ctime_log_head_offset: 72 } "
-              "tablet { table_id: 2 start_key_hash: 0 "
-              "end_key_hash: 18446744073709551615 "
-              "state: NORMAL user_data: 1 "
-              "ctime_log_head_id: 0 ctime_log_head_offset: 72 }",
-              will1.ShortDebugString());
-    ProtoBuf::Tablets& will2 = *service->serverList[2]->will;
-    EXPECT_EQ("tablet { table_id: 1 start_key_hash: 0 "
-              "end_key_hash: 18446744073709551615 "
-              "state: NORMAL user_data: 0 "
-              "ctime_log_head_id: 0 ctime_log_head_offset: 0 }",
-              will2.ShortDebugString());
     EXPECT_EQ(2, master->tablets.tablet_size());
     EXPECT_EQ(1, master2.tablets.tablet_size());
 }

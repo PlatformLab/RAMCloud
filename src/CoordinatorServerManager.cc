@@ -395,35 +395,6 @@ CoordinatorServerManager::setMinOpenSegmentId(ServerId serverId,
 }
 
 /**
- * Update the will associated with a specific master ServerId.
- *
- * \param masterId
- *      ServerId of the master whose will is to be set.
- * \param buffer
- *      Buffer containing the will.
- * \param offset
- *      Byte offset of the will in the buffer.
- * \param length
- *      Length of the will in bytes.
- * \return
- *      False if masterId is not in the server list, true otherwise.
- */
-bool
-CoordinatorServerManager::setWill(ServerId masterId, Buffer& buffer,
-                                  uint32_t offset, uint32_t length)
-{
-    ProtoBuf::Tablets newWill;
-    ProtoBuf::parseFromResponse(buffer, offset, length, newWill);
-    try {
-        service.serverList.setWill(masterId, newWill);
-    } catch (const Exception& e) {
-        LOG(WARNING, "Master %lu could not be found!!", masterId.getId());
-        return false;
-    }
-    return true;
-}
-
-/**
  * Investigate \a serverId and make a verdict about its whether it is alive.
  *
  * \param serverId

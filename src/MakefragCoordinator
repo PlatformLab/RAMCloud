@@ -3,6 +3,7 @@ COORDINATOR_SRCFILES := \
 			src/CoordinatorServerManager.cc \
 			src/MasterRecoveryManager.cc \
 			src/TabletMap.cc \
+			src/Recovery.cc \
 			src/RuntimeOptions.cc \
 			$(NULL)
 

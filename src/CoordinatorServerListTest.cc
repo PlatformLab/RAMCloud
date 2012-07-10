@@ -253,76 +253,6 @@ TEST_F(CoordinatorServerListTest, incrementVersion) {
     EXPECT_EQ(1u, update.version_number());
 }
 
-TEST_F(CoordinatorServerListTest, addToWill) {
-    ProtoBuf::ServerList update;
-    auto serverId = sl.add("chondrogenetic", {MASTER_SERVICE}, 0, update);
-
-    ProtoBuf::Tablets will;
-    ProtoBuf::Tablets::Tablet& t(*will.add_tablet());
-    t.set_table_id(0);
-    t.set_start_key_hash(235);
-    t.set_end_key_hash(47234);
-    t.set_state(ProtoBuf::Tablets::Tablet::NORMAL);
-    t.set_user_data(~0ul);
-    t.set_ctime_log_head_id(0);
-    t.set_ctime_log_head_offset(0);
-    ProtoBuf::Tablets::Tablet& t2(*will.add_tablet());
-    t2.set_table_id(1);
-    t2.set_start_key_hash(236);
-    t2.set_end_key_hash(47235);
-    t2.set_state(ProtoBuf::Tablets::Tablet::NORMAL);
-    t2.set_user_data(~0ul);
-    t2.set_ctime_log_head_id(0);
-    t2.set_ctime_log_head_offset(0);
-
-    sl.addToWill(serverId, will);
-    auto entry = sl[serverId];
-    auto tablet = entry.will->tablet(0);
-    EXPECT_EQ(0u, tablet.table_id());
-    EXPECT_EQ(235lu, tablet.start_key_hash());
-    EXPECT_EQ(47234lu, tablet.end_key_hash());
-    EXPECT_EQ(0lu, tablet.user_data());
-    tablet = entry.will->tablet(1);
-    EXPECT_EQ(1u, tablet.table_id());
-    EXPECT_EQ(236lu, tablet.start_key_hash());
-    EXPECT_EQ(47235lu, tablet.end_key_hash());
-    EXPECT_EQ(1lu, tablet.user_data());
-}
-
-static bool
-setWillFilter(string s) {
-    return s == "setWill";
-}
-
-TEST_F(CoordinatorServerListTest, setWill) {
-    ProtoBuf::ServerList update;
-    auto server1 = sl.add("habitudinal coyoting", {MASTER_SERVICE}, 0, update);
-    auto server2 = sl.add("archeocyte accompany", {BACKUP_SERVICE}, 0, update);
-
-    ProtoBuf::Tablets will;
-    ProtoBuf::Tablets::Tablet& t(*will.add_tablet());
-    t.set_table_id(0);
-    t.set_start_key_hash(235);
-    t.set_end_key_hash(47234);
-    t.set_state(ProtoBuf::Tablets::Tablet::NORMAL);
-    t.set_user_data(19);
-    t.set_ctime_log_head_id(0);
-    t.set_ctime_log_head_offset(0);
-
-    TestLog::Enable _(&setWillFilter);
-    sl.setWill(server1, will);
-    EXPECT_EQ("setWill: Master 1 updated its Will (now 1 entries, was 0)",
-              TestLog::get());
-
-    TestLog::reset();
-    sl.setWill(server2, will);
-    EXPECT_EQ("setWill: Server 2 is not a master! Ignoring new will.",
-              TestLog::get());
-
-    // bad master id should fail
-    EXPECT_THROW(sl.setWill({23481234, 0}, will), Exception);
-}
-
 TEST_F(CoordinatorServerListTest, isUp) {
     ProtoBuf::ServerList update;
 
@@ -597,7 +527,6 @@ TEST_F(CoordinatorServerListTest, Entry_constructor) {
     EXPECT_EQ("You forgot your boarding pass", a.serviceLocator);
     EXPECT_TRUE(a.isMaster());
     EXPECT_FALSE(a.isBackup());
-    EXPECT_EQ(static_cast<ProtoBuf::Tablets*>(NULL), a.will);
     EXPECT_EQ(0U, a.expectedReadMBytesPerSec);
 
     CoordinatorServerList::Entry b(ServerId(27, 72),
@@ -606,7 +535,6 @@ TEST_F(CoordinatorServerListTest, Entry_constructor) {
     EXPECT_EQ("I ain't got time to bleed", b.serviceLocator);
     EXPECT_FALSE(b.isMaster());
     EXPECT_TRUE(b.isBackup());
-    EXPECT_EQ(static_cast<ProtoBuf::Tablets*>(NULL), b.will);
     EXPECT_EQ(0U, b.expectedReadMBytesPerSec);
 }
 

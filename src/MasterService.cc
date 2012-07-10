@@ -1208,8 +1208,8 @@ MasterService::detectSegmentRecoveryFailure(
  *      The id of the crashed master for which recoveryMaster will be taking
  *      over ownership of tablets.
  * \param partitionId
- *      The partition id of tablets inside the crashed master's will that
- *      this master is recovering.
+ *      The partition id of tablets of the crashed master that this master
+ *      is recovering.
  * \param replicas
  *      A list specifying for each segmentId a backup who can provide a
  *      filtered recovery data segment. A particular segment may be listed more

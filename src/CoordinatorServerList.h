@@ -86,12 +86,6 @@ class CoordinatorServerList {
         // and are not transmitted to members' ServerLists.
 
         /**
-         * The master's will (only valid if the services includes
-         * MASTER_SERVICE).
-         */
-        ProtoBuf::Tablets* will;
-
-        /**
          * Any open replicas found during recovery are considered invalid
          * if they have a segmentId less than this.  This is used by masters
          * to invalidate replicas they have lost contact with while actively
@@ -117,10 +111,6 @@ class CoordinatorServerList {
                 ProtoBuf::ServerList& update);
     void incrementVersion(ProtoBuf::ServerList& update);
 
-    void addToWill(ServerId serverId,
-                   const ProtoBuf::Tablets& willEntries);
-    void setWill(ServerId serverId,
-                 const ProtoBuf::Tablets& willEntries);
     void setMinOpenSegmentId(ServerId serverId, uint64_t segmentId);
     void setReplicationId(ServerId serverId, uint64_t segmentId);
 

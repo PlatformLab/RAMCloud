@@ -465,26 +465,6 @@ CoordinatorClient::recoveryMasterFinished(uint64_t recoveryId,
 }
 
 /**
- * Update a masterId's Will with the Coordinator.
- *
- * \param[in] masterId
- *      The masterId whose Will we're updating.
- * \param[in] will
- *      The ProtoBuf serialised representation of the Will.
- */
-void
-CoordinatorClient::setWill(uint64_t masterId, const ProtoBuf::Tablets& will)
-{
-    Buffer req, resp;
-    Transport::SessionRef session = context.coordinatorSession->getSession();
-    SetWillRpc::Request& reqHdr(allocHeader<SetWillRpc>(req));
-    reqHdr.masterId = masterId;
-    reqHdr.willLength = serializeToRequest(req, will);
-    sendRecv<SetWillRpc>(session, req, resp);
-    checkStatus(HERE);
-}
-
-/**
  * Request that the coordinator send a complete server list to the
  * given server.
  *

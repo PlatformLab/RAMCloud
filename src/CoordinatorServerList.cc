@@ -50,11 +50,6 @@ CoordinatorServerList::CoordinatorServerList(Context& context)
  */
 CoordinatorServerList::~CoordinatorServerList()
 {
-    foreach (auto& pair, serverList) {
-        Tub<Entry>& entry = pair.entry;
-        if (entry && entry->isMaster() && entry->will != NULL)
-            delete entry->will;
-    }
 }
 
 /**
@@ -100,7 +95,6 @@ CoordinatorServerList::add(string serviceLocator,
 
     if (serviceMask.has(MASTER_SERVICE)) {
         numberOfMasters++;
-        pair.entry->will = new ProtoBuf::Tablets;
     }
 
     if (serviceMask.has(BACKUP_SERVICE)) {
@@ -220,72 +214,6 @@ CoordinatorServerList::incrementVersion(ProtoBuf::ServerList& update)
     Lock _(mutex);
     versionNumber++;
     update.set_version_number(versionNumber);
-}
-
-/**
- * Add on to existing will for some server.
- *
- * \param serverId
- *      Server whose will is being changed.
- * \param willEntries
- *      Entries to append to the existing will for server \a serverId.
- *      Each entry's user_data field should either contain a
- *      partition id to group the will entries or ~0lu which indicates
- *      this method should automatically group the entries (by placing
- *      each entry into its own partition).
- * \throw
- *      Exception is thrown if the given ServerId is not in this list.
- */
-void
-CoordinatorServerList::addToWill(ServerId serverId,
-                                 const ProtoBuf::Tablets& willEntries)
-{
-    Lock _(mutex);
-    Entry& server = const_cast<Entry&>(getReferenceFromServerId(serverId));
-    uint64_t nextPartition = 0;
-    if (server.will->tablet_size() > 0) {
-        foreach (const auto& tablet, server.will->tablet()) {
-            nextPartition = std::max(nextPartition, tablet.user_data());
-        }
-        ++nextPartition;
-    }
-    // Do it the hard way because the protobuf docs aren't clear enough
-    // to safely use CopyFrom/MergeFrom.
-    foreach (const auto& tablet, willEntries.tablet()) {
-        auto& entry = *server.will->add_tablet();
-        entry = tablet;
-        // Hack: if the 'partition' field is left ~0 then put it in
-        // its own partition.
-        if (entry.user_data() == ~(0lu))
-            entry.set_user_data(nextPartition++);
-    }
-}
-
-/**
- * Replace an existing will for some server with an updated will.
- *
- * \param serverId
- *      Server whose will is being changed.
- * \param will
- *      Replaces the existing will for server \a serverId.
- * \throw
- *      Exception is thrown if the given ServerId is not in this list.
- */
-void
-CoordinatorServerList::setWill(ServerId serverId,
-                               const ProtoBuf::Tablets& will)
-{
-    Lock _(mutex);
-    Entry& server = const_cast<Entry&>(getReferenceFromServerId(serverId));
-    if (!server.isMaster()) {
-        LOG(WARNING, "Server %lu is not a master! Ignoring new will.",
-            server.serverId.getId());
-        return;
-    }
-    uint32_t oldWillSize = server.will->tablet_size();
-    *server.will = will;
-    LOG(NOTICE, "Master %lu updated its Will (now %d entries, was %d)",
-        server.serverId.getId(), will.tablet_size(), oldWillSize);
 }
 
 /**
@@ -829,7 +757,6 @@ CoordinatorServerList::serialize(const Lock& lock,
  */
 CoordinatorServerList::Entry::Entry()
     : ServerDetails()
-    , will()
     , minOpenSegmentId()
     , replicationId()
 {
@@ -858,7 +785,6 @@ CoordinatorServerList::Entry::Entry(ServerId serverId,
                     services,
                     0,
                     ServerStatus::UP)
-    , will(NULL)
     , minOpenSegmentId(0)
     , replicationId(0)
 {

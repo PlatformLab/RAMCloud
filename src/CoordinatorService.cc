@@ -86,10 +86,6 @@ CoordinatorService::dispatch(RpcOpcode opcode,
             callHandler<BackupQuiesceRpc, CoordinatorService,
                         &CoordinatorService::quiesce>(rpc);
             break;
-        case SetWillRpc::opcode:
-            callHandler<SetWillRpc, CoordinatorService,
-                        &CoordinatorService::setWill>(rpc);
-            break;
         case SendServerListRpc::opcode:
             callHandler<SendServerListRpc, CoordinatorService,
                         &CoordinatorService::sendServerList>(rpc);
@@ -168,22 +164,6 @@ CoordinatorService::createTable(const CreateTableRpc::Request& reqHdr,
         // Create tablet map entry.
         tabletMap.addTablet({tableId, startKeyHash, endKeyHash,
                              master.serverId, Tablet::NORMAL, headOfLog});
-
-        // Create will entry. The tablet is empty, so it doesn't matter where it
-        // goes or in how many partitions, initially.
-        // It just has to go somewhere.
-        ProtoBuf::Tablets will;
-        ProtoBuf::Tablets_Tablet& willEntry(*will.add_tablet());
-        willEntry.set_table_id(tableId);
-        willEntry.set_start_key_hash(startKeyHash);
-        willEntry.set_end_key_hash(endKeyHash);
-        willEntry.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
-        // Hack which hints to the server list that it should assign
-        // partition ids.
-        willEntry.set_user_data(~(0lu));
-        willEntry.set_ctime_log_head_id(headOfLog.segmentId());
-        willEntry.set_ctime_log_head_offset(headOfLog.segmentOffset());
-        serverList.addToWill(master.serverId, will);
 
         // Inform the master.
         MasterClient::takeTabletOwnership(context, master.serverId, tableId,
@@ -409,26 +389,6 @@ CoordinatorService::quiesce(const BackupQuiesceRpc::Request& reqHdr,
             BackupClient(context.transportManager->getSession(
                 serverList[i]->serviceLocator.c_str())).quiesce();
         }
-    }
-}
-
-/**
- * Update the Will associated with a specific Master. This is used
- * by Masters to keep their partitions balanced for efficient
- * recovery.
- *
- * \copydetails Service::ping
- */
-void
-CoordinatorService::setWill(const SetWillRpc::Request& reqHdr,
-                            SetWillRpc::Response& respHdr,
-                            Rpc& rpc)
-{
-    if (!serverManager.setWill(
-            ServerId(reqHdr.masterId), rpc.requestPayload, sizeof(reqHdr),
-            reqHdr.willLength)) {
-        // TODO(ongaro): should be some other error or silent
-        throw RequestFormatError(HERE);
     }
 }
 

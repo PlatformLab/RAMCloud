@@ -142,9 +142,6 @@ TEST_F(CoordinatorServerManagerTest, enlistServer) {
                 "version_number: 2",
                 masterList.ShortDebugString()));
 
-    ProtoBuf::Tablets& will = *serverManager->service.serverList[1]->will;
-    EXPECT_EQ(0, will.tablet_size());
-
     ProtoBuf::ServerList backupList;
     serverManager->service.serverList.serialize(backupList, {BACKUP_SERVICE});
     EXPECT_EQ("server { services: 2 server_id: 2 "
@@ -156,7 +153,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServer) {
 
 namespace {
 bool startMasterRecoveryFilter(string s) {
-    return s == "startMasterRecovery" || s == "restartMasterRecovery";
+    return s == "startMasterRecovery";
 }
 }
 
@@ -170,12 +167,8 @@ TEST_F(CoordinatorServerManagerTest, enlistServerReplaceAMaster) {
         CoordinatorClient::enlistServer(context, masterServerId,
                                         {BACKUP_SERVICE},
                                         "mock:host=backup"));
-    EXPECT_EQ("restartMasterRecovery: Scheduling recovery of master 1 | "
-              "restartMasterRecovery: Recovery crashedServerId: 1 | "
-              "restartMasterRecovery: Recovery will: tablet { table_id: 0 "
-                  "start_key_hash: 0 end_key_hash: 18446744073709551615 "
-                  "state: NORMAL user_data: 0 "
-                  "ctime_log_head_id: 0 ctime_log_head_offset: 0 }",
+    EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1 | "
+              "startMasterRecovery: Recovery crashedServerId: 1",
               TestLog::get());
     EXPECT_TRUE(serverManager->service.serverList.contains(masterServerId));
     EXPECT_EQ(ServerStatus::CRASHED,
@@ -269,12 +262,8 @@ TEST_F(CoordinatorServerManagerTest, hintServerDown_server) {
     serverManager->forceServerDownForTesting = true;
     TestLog::Enable _(startMasterRecoveryFilter);
     client->hintServerDown(masterServerId);
-    EXPECT_EQ("restartMasterRecovery: Scheduling recovery of master 1 | "
-              "restartMasterRecovery: Recovery crashedServerId: 1 | "
-              "restartMasterRecovery: Recovery will: tablet { table_id: 0 "
-                  "start_key_hash: 0 end_key_hash: 18446744073709551615 "
-                  "state: NORMAL user_data: 0 "
-                  "ctime_log_head_id: 0 ctime_log_head_offset: 0 }",
+    EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1 | "
+              "startMasterRecovery: Recovery crashedServerId: 1",
                TestLog::get());
     EXPECT_EQ(ServerStatus::CRASHED,
               serverManager->service.serverList[master->serverId].status);
@@ -365,35 +354,6 @@ TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentId) {
     client->setMinOpenSegmentId(masterServerId, 11);
     EXPECT_EQ(11u,
         serverManager->service.serverList[masterServerId].minOpenSegmentId);
-}
-
-static bool
-setWillFilter(string s) {
-    return s == "setWill";
-}
-
-TEST_F(CoordinatorServerManagerTest, setWill) {
-    CoordinatorClient::enlistServer(context, {}, {MASTER_SERVICE},
-                                    "mock:host=master2");
-
-    ProtoBuf::Tablets will;
-    ProtoBuf::Tablets::Tablet& t(*will.add_tablet());
-    t.set_table_id(0);
-    t.set_start_key_hash(235);
-    t.set_end_key_hash(47234);
-    t.set_state(ProtoBuf::Tablets::Tablet::NORMAL);
-    t.set_user_data(19);
-    t.set_ctime_log_head_id(0);
-    t.set_ctime_log_head_offset(0);
-
-    TestLog::Enable _(&setWillFilter);
-    client->setWill(2, will);
-
-    EXPECT_EQ("setWill: Master 2 updated its Will (now 1 entries, was 0)",
-              TestLog::get());
-
-    // bad master id should fail
-    EXPECT_THROW(client->setWill(23481234, will), InternalError);
 }
 
 TEST_F(CoordinatorServerManagerTest, verifyServerFailure) {

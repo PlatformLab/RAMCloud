@@ -76,9 +76,6 @@ class CoordinatorService : public Service {
     void quiesce(const BackupQuiesceRpc::Request& reqHdr,
                  BackupQuiesceRpc::Response& respHdr,
                  Rpc& rpc);
-    void setWill(const SetWillRpc::Request& reqHdr,
-                 SetWillRpc::Response& respHdr,
-                 Rpc& rpc);
     void reassignTabletOwnership(
             const ReassignTabletOwnershipRpc::Request& reqHdr,
             ReassignTabletOwnershipRpc::Response& respHdr,

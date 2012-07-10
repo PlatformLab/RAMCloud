@@ -59,8 +59,6 @@ class CoordinatorServerManager {
     void removeReplicationGroup(uint64_t groupId);
     void sendServerList(ServerId serverId);
     void setMinOpenSegmentId(ServerId serverId, uint64_t segmentId);
-    bool setWill(ServerId masterId, Buffer& buffer,
-                 uint32_t offset, uint32_t length);
     bool verifyServerFailure(ServerId serverId);
 
     /**
