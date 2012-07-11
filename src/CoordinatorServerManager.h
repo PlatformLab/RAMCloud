@@ -71,10 +71,10 @@ class CoordinatorServerManager {
 
   PRIVATE:
 
-  /**
-   * Defines methods and stores data to set minOpenSegmentId of server
-   * with id serverId to segmentId.
-   */
+    /**
+     * Defines methods and stores data to set minOpenSegmentId of server
+     * with id serverId to segmentId.
+     */
     class SetMinOpenSegmentId {
         public:
             SetMinOpenSegmentId(CoordinatorServerManager &manager,
