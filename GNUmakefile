@@ -225,4 +225,8 @@ tags-clean:
 print-%:
 	@echo $* = $($*)
 
-.PHONY: all always clean check doc docs docs-clean tags tags-clean test tests
+logcabin:
+	cd logcabin; \
+	scons
+
+.PHONY: all always clean check doc docs docs-clean tags tags-clean test tests logcabin
