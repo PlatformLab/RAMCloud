@@ -102,6 +102,15 @@ class RpcWrapper : public Transport::RpcNotifier {
 
     virtual bool checkStatus();
 
+    // The following declaration is a total dummy; it exists merely to
+    // provide shared documentation that can be referenced by wrapper-
+    // specific declarations of \c wait.
+
+    /**
+     * Wait for the RPC to complete, and throw exceptions for any errors.
+     */
+    void docForWait();
+
     /**
      * Assuming that isReady has returned true, this method will return
      * the header from the response. This method should not be invoked
@@ -140,6 +149,7 @@ class RpcWrapper : public Transport::RpcNotifier {
     virtual bool handleTransportError();
     void retry(uint64_t microseconds);
     virtual void send();
+    void simpleWait(Dispatch& dispatch);
     const char* stateString();
     void testSend(Transport::SessionRef session);
     void waitInternal(Dispatch& dispatch);

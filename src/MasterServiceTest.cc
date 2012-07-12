@@ -22,6 +22,8 @@
 #include "Memory.h"
 #include "MasterClient.h"
 #include "MasterService.h"
+#include "MultiRead.h"
+#include "RamCloud.h"
 #include "ReplicaManager.h"
 #include "ShortMacros.h"
 #include "StringUtil.h"
@@ -29,10 +31,30 @@
 
 namespace RAMCloud {
 
+// This class provides tablet map info to ObjectFinder, so we
+// can control which server handles which object.
+class MasterServiceRefresher : public ObjectFinder::TabletMapFetcher {
+  public:
+    MasterServiceRefresher() {}
+    void getTabletMap(ProtoBuf::Tablets& tabletMap) {
+        char buffer[100];
+        snprintf(buffer, sizeof(buffer), "mock:host=master");
+
+        tabletMap.clear_tablet();
+        ProtoBuf::Tablets_Tablet& entry(*tabletMap.add_tablet());
+        entry.set_table_id(99);
+        entry.set_start_key_hash(0);
+        entry.set_end_key_hash(~0UL);
+        entry.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
+        entry.set_service_locator(buffer);
+    }
+};
+
 class MasterServiceTest : public ::testing::Test {
   public:
     Context context;
     MockCluster cluster;
+    Tub<RamCloud> ramcloud;
     ServerConfig backup1Config;
     ServerId backup1Id;
 
@@ -49,6 +71,7 @@ class MasterServiceTest : public ::testing::Test {
     explicit MasterServiceTest(uint32_t segmentSize = 256 * 1024)
         : context()
         , cluster(context)
+        , ramcloud()
         , backup1Config(ServerConfig::forTesting())
         , backup1Id()
         , masterConfig(ServerConfig::forTesting())
@@ -76,6 +99,8 @@ class MasterServiceTest : public ::testing::Test {
         masterServer = cluster.addServer(masterConfig);
         service = masterServer->master.get();
         client = cluster.get<MasterClient>(masterServer);
+
+        ramcloud.construct(context, "mock:host=coordinator");
 
         ProtoBuf::Tablets_Tablet& tablet(*service->tablets.add_tablet());
         tablet.set_table_id(0);
@@ -294,54 +319,87 @@ TEST_F(MasterServiceTest, read_rejectRules) {
 }
 
 TEST_F(MasterServiceTest, multiRead_basics) {
-    client->write(0, "0", 1, "firstVal", 8);
-    client->write(0, "1", 1, "secondVal", 9);
-
-    std::vector<MasterClient::ReadObject*> requests;
-
-    Tub<Buffer> val1;
-    MasterClient::ReadObject request1(0, "0", 1, &val1);
-    request1.status = STATUS_RETRY;
-    requests.push_back(&request1);
-    Tub<Buffer> val2;
-    MasterClient::ReadObject request2(0, "1", 1, &val2);
-    request2.status = STATUS_RETRY;
-    requests.push_back(&request2);
-
-    client->multiRead(requests);
+    uint64_t tableId1 = ramcloud->createTable("table1");
+    ramcloud->write(tableId1, "0", 1, "firstVal", 8);
+    ramcloud->write(tableId1, "1", 1, "secondVal", 9);
+    Tub<Buffer> value1, value2;
+    MultiReadObject request1(tableId1, "0", 1, &value1);
+    MultiReadObject request2(tableId1, "1", 1, &value2);
+    MultiReadObject* requests[] = {&request1, &request2};
+    ramcloud->multiRead(requests, 2);
 
     EXPECT_STREQ("STATUS_OK", statusToSymbol(request1.status));
     EXPECT_EQ(1U, request1.version);
-    EXPECT_EQ("firstVal", TestUtil::toString(val1.get()));
+    EXPECT_EQ("firstVal", TestUtil::toString(value1.get()));
     EXPECT_STREQ("STATUS_OK", statusToSymbol(request2.status));
     EXPECT_EQ(2U, request2.version);
-    EXPECT_EQ("secondVal", TestUtil::toString(val2.get()));
+    EXPECT_EQ("secondVal", TestUtil::toString(value2.get()));
 }
 
-TEST_F(MasterServiceTest, multiRead_badTable) {
-    std::vector<MasterClient::ReadObject*> requests;
-    Tub<Buffer> valError;
-    MasterClient::ReadObject requestError(10, "0", 1, &valError);
-    requestError.status = STATUS_RETRY;
-    requests.push_back(&requestError);
+TEST_F(MasterServiceTest, multiRead_bufferSizeExceeded) {
+    uint64_t tableId1 = ramcloud->createTable("table1");
+    service->maxMultiReadResponseSize = 150;
+    ramcloud->write(tableId1, "0", 1,
+            "chunk1:12 chunk2:12 chunk3:12 chunk4:12 chunk5:12 ",
+            50);
+    ramcloud->write(tableId1, "1", 1,
+            "chunk6:12 chunk7:12 chunk8:12 chunk9:12 chunk10:12",
+            50);
+    Tub<Buffer> value1, value2;
+    MultiReadObject object1(tableId1, "0", 1, &value1);
+    MultiReadObject object2(tableId1, "1", 1, &value2);
+    MultiReadObject* requests[] = {&object1, &object2};
+    MultiRead request(*ramcloud, requests, 2);
 
-    client->multiRead(requests);
+    // The first try will return only the first object.
+    EXPECT_FALSE(request.isReady());
+    EXPECT_TRUE(value1);
+    EXPECT_STREQ("STATUS_OK", statusToSymbol(object1.status));
+    EXPECT_FALSE(value2);
 
-    EXPECT_STREQ("STATUS_UNKNOWN_TABLE",
-                 statusToSymbol(requestError.status));
+    // When we retry, the second object will be returned.
+    EXPECT_TRUE(request.isReady());
+    EXPECT_TRUE(value1);
+    EXPECT_TRUE(value2);
+    EXPECT_EQ("chunk1:12 chunk2:12 chunk3:12 chunk4:12 chunk5:12 ",
+            TestUtil::toString(value1.get()));
+    EXPECT_EQ("chunk6:12 chunk7:12 chunk8:12 chunk9:12 chunk10:12",
+        TestUtil::toString(value2.get()));
+}
+
+TEST_F(MasterServiceTest, multiRead_unknownTable) {
+    // Modify the ObjectFinder to misdirect requests.
+    ramcloud->objectFinder.tabletMapFetcher.reset(
+            new MasterServiceRefresher);
+    Tub<Buffer> value;
+    MultiReadObject request(99, "bogus", 5, &value);
+    MultiReadObject* requests[] = {&request};
+    MultiRead op(*ramcloud, requests, 1);
+
+    // Check the status in the response message.
+    Transport::SessionRef session =
+            ramcloud->clientContext.transportManager->getSession(
+            "mock:host=master");
+    BindTransport::BindSession* rawSession =
+            static_cast<BindTransport::BindSession*>(session.get());
+    const Status* status =
+            rawSession->lastResponse->getOffset<Status>(
+            sizeof(WireFormat::MultiRead::Response));
+    EXPECT_TRUE(status != NULL);
+    if (status != NULL) {
+        EXPECT_STREQ("STATUS_UNKNOWN_TABLE", statusToSymbol(*status));
+    }
 }
 
 TEST_F(MasterServiceTest, multiRead_noSuchObject) {
-    std::vector<MasterClient::ReadObject*> requests;
-    Tub<Buffer> valError;
-    MasterClient::ReadObject requestError(0, "0", 1, &valError);
-    requestError.status = STATUS_RETRY;
-    requests.push_back(&requestError);
-
-    client->multiRead(requests);
+    uint64_t tableId1 = ramcloud->createTable("table1");
+    Tub<Buffer> value;
+    MultiReadObject request(tableId1, "bogus", 5, &value);
+    MultiReadObject* requests[] = {&request};
+    ramcloud->multiRead(requests, 1);
 
     EXPECT_STREQ("STATUS_OBJECT_DOESNT_EXIST",
-                 statusToSymbol(requestError.status));
+                 statusToSymbol(request.status));
 }
 
 TEST_F(MasterServiceTest, detectSegmentRecoveryFailure_success) {
@@ -435,8 +493,8 @@ TEST_F(MasterServiceTest, recover_basics) {
 TEST_F(MasterServiceTest, removeIfFromUnknownTablet) {
     const char* key = "1";
     const uint32_t keyLength = 1;
-    coordinator->createTable("table");
-    uint64_t tableId = coordinator->getTableId("table");
+    ramcloud->createTable("table");
+    uint64_t tableId = ramcloud->getTableId("table");
     client->write(tableId, key, keyLength, NULL, 0);
     auto handle = service->objectMap.lookup(tableId, key, keyLength);
     EXPECT_TRUE(service->objectMap.lookup(tableId, key, keyLength));
@@ -915,29 +973,23 @@ TEST_F(MasterServiceTest, incrementReadAndWriteStatistics) {
     uint64_t version;
     int64_t objectValue = 16;
 
-    client->write(0, "key0", 4, &objectValue, 8, NULL, &version);
-    client->write(0, "key1", 4, &objectValue, 8, NULL, &version);
-    client->read(0, "key0", 4, &value);
-    client->increment(0, "key0", 4, 5, NULL, &version, &objectValue);
-
-    std::vector<MasterClient::ReadObject*> requests;
+    uint64_t tableId1 = ramcloud->createTable("table1");
+    ramcloud->write(tableId1, "key0", 4, &objectValue, 8, NULL, &version);
+    ramcloud->write(tableId1, "key1", 4, &objectValue, 8, NULL, &version);
+    ramcloud->read(tableId1, "key0", 4, &value);
+    objectValue = ramcloud->increment(tableId1, "key0", 4, 5, NULL, &version);
 
     Tub<Buffer> val1;
-    MasterClient::ReadObject request1(0, "key0", 4, &val1);
-    request1.status = STATUS_RETRY;
-    requests.push_back(&request1);
+    MultiReadObject request1(tableId1, "key0", 4, &val1);
     Tub<Buffer> val2;
-    MasterClient::ReadObject request2(0, "key1", 4, &val2);
-    request2.status = STATUS_RETRY;
-    requests.push_back(&request2);
-
-    client->multiRead(requests);
+    MultiReadObject request2(tableId1, "key1", 4, &val2);
+    MultiReadObject* requests[] = {&request1, &request2};
+    ramcloud->multiRead(requests, 2);
 
     Table* table = reinterpret_cast<Table*>(
                                     service->tablets.tablet(0).user_data());
     EXPECT_EQ((uint64_t)7, table->statEntry.number_read_and_writes());
 }
-
 
 TEST_F(MasterServiceTest, GetServerStatistics) {
     Buffer value;
@@ -1192,8 +1244,8 @@ TEST_F(MasterServiceTest, migrateTablet_simple) {
 }
 
 TEST_F(MasterServiceTest, migrateTablet_movingData) {
-    coordinator->createTable("migrationTable");
-    uint64_t tbl = coordinator->getTableId("migrationTable");
+    ramcloud->createTable("migrationTable");
+    uint64_t tbl = ramcloud->getTableId("migrationTable");
     client->write(tbl, "hi", 2, "abcdefg", 7);
 
     ServerConfig master2Config = masterConfig;
@@ -1483,8 +1535,8 @@ TEST_F(MasterServiceTest, objectLivenessCallback_tableDoesntExist) {
     const LogTypeInfo *cb = service->log.getTypeInfo(LOG_ENTRY_TYPE_OBJ);
     ASSERT_TRUE(cb != NULL);
 
-    coordinator->createTable("table1");
-    uint64_t tableId = coordinator->getTableId("table1");
+    ramcloud->createTable("table1");
+    uint64_t tableId = ramcloud->getTableId("table1");
     const char* key = "key0";
     uint16_t keyLength = downCast<uint16_t>(strlen(key));
     uint64_t version;
@@ -1495,7 +1547,7 @@ TEST_F(MasterServiceTest, objectLivenessCallback_tableDoesntExist) {
     // Object exists
     EXPECT_TRUE(cb->livenessCB(logObj, cb->livenessArg));
 
-    coordinator->dropTable("table1");
+    ramcloud->dropTable("table1");
     // Object is not live since table does not exist anymore
     EXPECT_FALSE(cb->livenessCB(logObj, cb->livenessArg));
 }

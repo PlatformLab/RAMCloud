@@ -64,11 +64,6 @@ class CoordinatorClient : public Client {
     // OLD: everything below here should eventually go away.
     //-------------------------------------------------------
 
-    uint64_t createTable(const char* name, uint32_t serverSpan = 1);
-    void dropTable(const char* name);
-    void splitTablet(const char* name, uint64_t startKeyHash,
-                uint64_t endKeyHash, uint64_t splitKeyHash);
-    uint64_t getTableId(const char* name);
     void getServerList(ProtoBuf::ServerList& serverList);
     void getMasterList(ProtoBuf::ServerList& serverList);
     void getBackupList(ProtoBuf::ServerList& serverList);

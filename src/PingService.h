@@ -57,6 +57,11 @@ class PingService : public Service {
     /// kept up-to-date by the MembershipService.
     ServerList* serverList;
 
+    /// If this variable is true, the kill method returns without dying.
+    /// This is used during unit tests that verify the communication path
+    /// for this call.
+    bool ignoreKill;
+
     DISALLOW_COPY_AND_ASSIGN(PingService);
 };
 

@@ -34,6 +34,7 @@ namespace RAMCloud {
 PingService::PingService(Context& context)
     : context(context)
     , serverList(NULL)
+    , ignoreKill(false)
 {
 }
 
@@ -50,6 +51,7 @@ PingService::PingService(Context& context)
 PingService::PingService(Context& context, ServerList* serverList)
     : context(context)
     , serverList(serverList)
+    , ignoreKill(false)
 {
 }
 
@@ -140,7 +142,8 @@ PingService::kill(const KillRpc::Request& reqHdr,
                   Rpc& rpc)
 {
     LOG(ERROR, "Server remotely told to kill itself.");
-    exit(0);
+    if (!ignoreKill)
+        exit(0);
 }
 
 /**

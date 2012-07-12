@@ -218,6 +218,13 @@ class MasterService : public Service {
      */
     SpinLock objectUpdateLock;
 
+    /**
+     * Determines the maximum size of the response buffer for multiRead
+     * operations. Normally MAX_RPC_LEN, but can be modified during tests
+     * to simplify testing.
+     */
+    uint32_t maxMultiReadResponseSize;
+
     /* Tombstone cleanup method used after recovery. */
     void removeTombstones();
 

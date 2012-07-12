@@ -58,64 +58,6 @@ class MasterClient : public Client {
     // OLD: everything below here should eventually go away.
     //-------------------------------------------------------
 
-    /**
-     * Format for requesting a read of an object as a part of multiRead
-     */
-    struct ReadObject {
-        /**
-         * The table containing the desired object (return value from
-         * a previous call to getTableId).
-         */
-        uint64_t tableId;
-        /**
-         * Variable length key that uniquely identifies the object within table.
-         * It does not necessarily have to be null terminated like a string.
-         * The caller is responsible for ensuring that this key remains valid
-         * until the call is reaped/canceled.
-         */
-        const char* key;
-        /**
-         * Length of key
-         */
-        uint16_t keyLength;
-        /**
-         * If the read for this object was successful, the Tub<Buffer>
-         * will hold the contents of the desired object. If not, it will
-         * not be initialized, giving "false" when the buffer is tested.
-         */
-        Tub<Buffer>* value;
-        /**
-         * The version number of the object is returned here
-         */
-        uint64_t version;
-        /**
-         * The status of read (either that the read succeeded, or the
-         * error in case it didn't) is returned here.
-         */
-        Status status;
-
-        ReadObject(uint64_t tableId, const char* key, uint16_t keyLength,
-                   Tub<Buffer>* value)
-            : tableId(tableId)
-            , key(key)
-            , keyLength(keyLength)
-            , value(value)
-            , version()
-            , status()
-        {
-        }
-
-        ReadObject()
-            : tableId()
-            , key()
-            , keyLength()
-            , value()
-            , version()
-            , status()
-        {
-        }
-    };
-
     /// An asynchronous version of #enumeration().
     class Enumeration {
       public:
@@ -136,22 +78,6 @@ class MasterClient : public Client {
         Buffer& objects;
         AsyncState state;
         DISALLOW_COPY_AND_ASSIGN(Enumeration);
-    };
-
-    /// An asynchronous version of #multiread().
-    class MultiRead {
-      public:
-        MultiRead(MasterClient& client,
-                  std::vector<ReadObject*>& requests);
-        bool isReady() { return state.isReady(); }
-        void complete();
-      private:
-        MasterClient& client;
-        Buffer requestBuffer;
-        Buffer responseBuffer;
-        AsyncState state;
-        std::vector<ReadObject*>& requests;
-        DISALLOW_COPY_AND_ASSIGN(MultiRead);
     };
 
     /// An asynchronous version of #read().
@@ -228,7 +154,6 @@ class MasterClient : public Client {
                    uint64_t* version = NULL, int64_t* newValue = NULL);
     bool isReplicaNeeded(ServerId backupServerId, uint64_t segmentId);
     LogPosition getHeadOfLog();
-    void multiRead(std::vector<ReadObject*> requests);
     void getServerStatistics(ProtoBuf::ServerStatistics& serverStats);
     void read(uint64_t tableId, const char* key, uint16_t keyLength,
               Buffer* value, const RejectRules* rejectRules = NULL,

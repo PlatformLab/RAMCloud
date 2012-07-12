@@ -104,15 +104,6 @@ try
     LOG(NOTICE, "create+open table took %lu ticks", Cycles::rdtsc() - b);
 
     b = Cycles::rdtsc();
-    client.ping(optionParser.options.getCoordinatorLocator().c_str(),
-                12345, 100000000);
-    LOG(NOTICE, "coordinator ping took %lu ticks", Cycles::rdtsc() - b);
-
-    b = Cycles::rdtsc();
-    client.ping(table, "42", 2, 12345, 100000000);
-    LOG(NOTICE, "master ping took %lu ticks", Cycles::rdtsc() - b);
-
-    b = Cycles::rdtsc();
     client.write(table, "42", 2, "Hello, World!", 14);
     LOG(NOTICE, "write took %lu ticks", Cycles::rdtsc() - b);
 

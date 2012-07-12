@@ -94,6 +94,7 @@ TransportManager::TransportManager(Context& context)
     , registeredSizes()
     , mutex()
     , timeoutMs(0)
+    , skipServerIdCheck(false)
 {
     transportFactories.push_back(&tcpTransportFactory);
     transportFactories.push_back(&fastUdpTransportFactory);
@@ -284,6 +285,8 @@ TransportManager::getSession(const char* serviceLocator, ServerId needServerId)
     Transport::SessionRef session = getSession(serviceLocator);
     ServerId actualId;
 
+    if (skipServerIdCheck)
+        return session;
     try {
         actualId = MembershipClient(context).getServerId(session);
     } catch (TransportException& e) {

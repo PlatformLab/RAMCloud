@@ -180,9 +180,7 @@ TEST_F(ReplicatedSegmentTest, free) {
 }
 
 TEST_F(ReplicatedSegmentTest, freeWriteRpcInProgress) {
-    transport.setInput("0 0 0"); // id check
     transport.setInput("0 0"); // write
-    transport.setInput("0 1 0"); // id check
     transport.setInput("0 0"); // write
     segment->write(openLen);
     segment->close(NULL);
@@ -221,9 +219,7 @@ TEST_F(ReplicatedSegmentTest, handleBackupFailureWhileOpen) {
     foreach (auto& replica, segment->replicas)
         EXPECT_FALSE(replica.replicateAtomically);
 
-    transport.setInput("0 0 0"); // server id check
     transport.setInput("0 0"); // write
-    transport.setInput("0 1 0"); // server id check
     transport.setInput("0 0"); // write
     segment->write(openLen);
     // Not active still, next performTask chooses backups and sends opens.
@@ -252,9 +248,7 @@ TEST_F(ReplicatedSegmentTest, handleBackupFailureWhileOpen) {
 }
 
 TEST_F(ReplicatedSegmentTest, handleBackupFailureWhileHandlingFailure) {
-    transport.setInput("0 0 0"); // server id check
     transport.setInput("0 0"); // open
-    transport.setInput("0 1 0"); // server id check
     transport.setInput("0 0"); // open
     segment->write(openLen);
     taskQueue.performTask(); // send opens
@@ -282,17 +276,13 @@ TEST_F(ReplicatedSegmentTest, handleBackupFailureWhileHandlingFailure) {
 }
 
 TEST_F(ReplicatedSegmentTest, sync) {
-    transport.setInput("0 0 0"); // server id check
     transport.setInput("0 0"); // write
-    transport.setInput("0 1 0"); // server id check
     transport.setInput("0 0"); // write
     transport.setInput("0 0"); // write
     transport.setInput("0 0"); // write
 
     segment->sync(segment->queued.bytes); // first sync sends the opens
-    EXPECT_EQ("clientSend: 0x40026 | "
-              "clientSend: 0x10020 999 0 888 0 0 10 5 abcedfghij | "
-              "clientSend: 0x40026 | "
+    EXPECT_EQ("clientSend: 0x10020 999 0 888 0 0 10 5 abcedfghij | "
               "clientSend: 0x10020 999 0 888 0 0 10 1 abcedfghij",
                transport.outputLog);
     transport.outputLog = "";
@@ -317,13 +307,9 @@ TEST_F(ReplicatedSegmentTest, sync) {
 }
 
 TEST_F(ReplicatedSegmentTest, syncDoubleCheckCrossSegmentOrderingConstraints) {
-    transport.setInput("0 0 0"); // server id check
     transport.setInput("0 0"); // write - newHead open
-    transport.setInput("0 1 0"); // server id check
     transport.setInput("0 0"); // write - newHead open
-    transport.setInput("0 0 0"); // server id check
     transport.setInput("0 0"); // write - segment open
-    transport.setInput("0 1 0"); // server id check
     transport.setInput("0 0"); // write - segment open
     transport.setInput("0 0"); // write
     transport.setInput("0 0"); // write
@@ -356,13 +342,9 @@ TEST_F(ReplicatedSegmentTest, syncDoubleCheckCrossSegmentOrderingConstraints) {
 
     EXPECT_EQ("", transport.outputLog);
     newHead->sync(newHead->queued.bytes);
-    EXPECT_EQ("clientSend: 0x40026 | "
-              "clientSend: 0x10020 999 0 889 0 0 10 5 abcedfghij | "
-              "clientSend: 0x40026 | "
+    EXPECT_EQ("clientSend: 0x10020 999 0 889 0 0 10 5 abcedfghij | "
               "clientSend: 0x10020 999 0 889 0 0 10 1 abcedfghij | "
-              "clientSend: 0x40026 | "
               "clientSend: 0x10020 999 0 888 0 0 10 5 abcedfghij | "
-              "clientSend: 0x40026 | "
               "clientSend: 0x10020 999 0 888 0 0 10 1 abcedfghij | "
               "clientSend: 0x10020 999 0 888 0 10 0 2 | "
               "clientSend: 0x10020 999 0 888 0 10 0 2 | "
@@ -383,11 +365,8 @@ TEST_F(ReplicatedSegmentTest, syncRecoveringFromLostOpenReplicas) {
     // that the originally synced data appears unsynced while the
     // recovery is going on and that after recovery has happened the
     // data appears synced again.
-    transport.setInput("0 0 0"); // server id check
     transport.setInput("0 0"); // write
-    transport.setInput("0 1 0"); // server id check
     transport.setInput("0 0"); // write
-    transport.setInput("0 0 0"); // server id check
     transport.setInput("0 0"); // open
     transport.setInput("0 0"); // write/close
     transport.setInput("0 0"); // setOpenMinSegmentId
@@ -445,8 +424,7 @@ TEST_F(ReplicatedSegmentTest, syncRecoveringFromLostOpenReplicas) {
     // Three rpcs are sent out to rereplicate the lost replica.
     // Notice weird "atomic" write flags two of them (high-order bits
     // glommed together with the flags field).
-    EXPECT_EQ("clientSend: 0x40026 | "
-              // Opening primary write, marked atomic.
+    EXPECT_EQ(// Opening primary write, marked atomic.
               "clientSend: 0x10020 999 0 888 0 0 10 261 abcedfghij | "
               // Closing write to non-crashed replica, no atomic marker.
               "clientSend: 0x10020 999 0 888 0 10 0 2 | "
@@ -493,9 +471,7 @@ TEST_F(ReplicatedSegmentTest, performTaskFreeOneReplicaToFree) {
 }
 
 TEST_F(ReplicatedSegmentTest, performTaskWrite) {
-    transport.setInput("0 0 0"); // server id check
     transport.setInput("0 0"); // write
-    transport.setInput("0 1 0"); // server id check
     transport.setInput("0 0"); // write
 
     taskQueue.performTask();
@@ -506,11 +482,8 @@ TEST_F(ReplicatedSegmentTest, performTaskWrite) {
 }
 
 TEST_F(ReplicatedSegmentTest, performTaskRecoveringFromLostOpenReplicas) {
-    transport.setInput("0 0 0"); // server id check
     transport.setInput("0 0"); // open/write
-    transport.setInput("0 1 0"); // server id check
     transport.setInput("0 0"); // open/write
-    transport.setInput("0 0 0"); // server id check
     transport.setInput("0 0"); // open/write for replication
     transport.setInput("0 0"); // close/write
     transport.setInput("0 0"); // close/write
@@ -523,8 +496,7 @@ TEST_F(ReplicatedSegmentTest, performTaskRecoveringFromLostOpenReplicas) {
     // Reap the remaining outstanding write, send the new atomic open on the
     // originally failed replica (original outstanding rpc should be canceled).
     taskQueue.performTask();
-    EXPECT_EQ("clientSend: 0x40026 | "
-              "clientSend: 0x10020 999 0 888 0 0 10 261 abcedfghij",
+    EXPECT_EQ("clientSend: 0x10020 999 0 888 0 0 10 261 abcedfghij",
               transport.outputLog);
     transport.outputLog = "";
 
@@ -563,7 +535,7 @@ TEST_F(ReplicatedSegmentTest, performFreeNothingToDo) {
 TEST_F(ReplicatedSegmentTest, performFreeRpcIsReady) {
     reset();
 
-    transport.setInput("0 0 0"); // server id check
+    transport.setInput("0");     // freeSegment response
 
     Transport::SessionRef session = transport.getSession();
 
@@ -612,9 +584,7 @@ TEST_F(ReplicatedSegmentTest, performFreeWriteRpcInProgress) {
     // free, but its worth keeping the code since it is more robust if
     // the code knows how to deal with queued frees while there are
     // outstanding writes in progress.
-    transport.setInput("0 0 0"); // server id check
     transport.setInput("0 0"); // write
-    transport.setInput("0 1 0"); // server id check
     transport.setInput("0 0"); // write
     transport.setInput("0 0"); // free
     transport.setInput("0 0"); // free
@@ -654,6 +624,7 @@ return;
 }
 
 TEST_F(ReplicatedSegmentTest, performWriteCannotGetSession) {
+    context.transportManager->skipServerIdCheck = false;
     transport.setInput("0 0 0"); // fail server id check
     transport.setInput("0 10 0"); // fail server id check
 
@@ -665,9 +636,7 @@ TEST_F(ReplicatedSegmentTest, performWriteCannotGetSession) {
 }
 
 TEST_F(ReplicatedSegmentTest, performWriteTooManyInFlight) {
-    transport.setInput("0 0 0"); // server id check
     transport.setInput("0 0"); // open/write
-    transport.setInput("0 1 0"); // server id check
     transport.setInput("0 0"); // open/write
     transport.setInput("0 0"); // write
     transport.setInput("0 0"); // write
@@ -718,9 +687,7 @@ TEST_F(ReplicatedSegmentTest, performWriteTooManyInFlight) {
 }
 
 TEST_F(ReplicatedSegmentTest, performWriteOpen) {
-    transport.setInput("0 0 0"); // server id check
     transport.setInput("0 0"); // write
-    transport.setInput("0 1 0"); // server id check
     transport.setInput("0 0"); // write
 
     segment->write(openLen);
@@ -741,9 +708,7 @@ TEST_F(ReplicatedSegmentTest, performWriteOpen) {
     }
 
     // "10 5" is length 10 (OPEN | PRIMARY), "10 1" is length 10 OPEN
-    EXPECT_EQ("clientSend: 0x40026 | "
-              "clientSend: 0x10020 999 0 888 0 0 10 5 abcedfghij | "
-              "clientSend: 0x40026 | "
+    EXPECT_EQ("clientSend: 0x10020 999 0 888 0 0 10 5 abcedfghij | "
               "clientSend: 0x10020 999 0 888 0 0 10 1 abcedfghij",
               transport.outputLog);
 
@@ -757,8 +722,6 @@ TEST_F(ReplicatedSegmentTest, performWriteOpen) {
 }
 
 TEST_F(ReplicatedSegmentTest, performWriteOpenTooManyInFlight) {
-    transport.setInput("0 0 0"); // server id check
-    transport.setInput("0 1 0"); // server id check
     transport.setInput("0 0"); // write
     transport.setInput("0 0"); // write
 
@@ -772,8 +735,7 @@ TEST_F(ReplicatedSegmentTest, performWriteOpenTooManyInFlight) {
 
     writeRpcsInFlight = ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT - 1;
     taskQueue.performTask(); // retry writes since a slot freed up
-    EXPECT_STREQ("clientSend: 0x40026 | clientSend: 0x40026 | "
-                 "clientSend: 0x10020 999 0 888 0 0 10 5 abcedfghij",
+    EXPECT_STREQ("clientSend: 0x10020 999 0 888 0 0 10 5 abcedfghij",
                  transport.outputLog.c_str());
     EXPECT_EQ(ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT, writeRpcsInFlight);
     ASSERT_TRUE(segment->replicas[0].isActive);
@@ -785,8 +747,7 @@ TEST_F(ReplicatedSegmentTest, performWriteOpenTooManyInFlight) {
     EXPECT_TRUE(segment->isScheduled());
 
     taskQueue.performTask(); // reap write and send the second replica's rpc
-    EXPECT_STREQ("clientSend: 0x40026 | clientSend: 0x40026 | "
-                 "clientSend: 0x10020 999 0 888 0 0 10 5 abcedfghij | "
+    EXPECT_STREQ("clientSend: 0x10020 999 0 888 0 0 10 5 abcedfghij | "
                  "clientSend: 0x10020 999 0 888 0 0 10 1 abcedfghij",
                  transport.outputLog.c_str());
     EXPECT_EQ(ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT, writeRpcsInFlight);
@@ -806,9 +767,7 @@ TEST_F(ReplicatedSegmentTest, performWriteOpenTooManyInFlight) {
 }
 
 TEST_F(ReplicatedSegmentTest, performWriteRpcIsReady) {
-    transport.setInput("0 0 0"); // server id check
     transport.setInput("0 0"); // write
-    transport.setInput("0 1 0"); // server id check
     transport.setInput("0 0"); // write
 
     segment->write(openLen);
@@ -830,9 +789,7 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcIsReady) {
 
 TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
     transport.clearInput();
-    transport.setInput("0 0 0"); // server id check
     transport.setInput("0 0"); // ok first replica open
-    transport.setInput("0 1 0"); // server id check
     transport.setInput(NULL); // error second replica open
     transport.setInput("0 0"); // ok second replica reopen
     transport.setInput(NULL); // error first replica close
@@ -849,9 +806,7 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
     EXPECT_EQ(openLen, segment->replicas[1].sent.bytes);
     ServerId backupIdForFirstOpenAttempt = segment->replicas[1].backupId;
 
-    EXPECT_STREQ("clientSend: 0x40026 | "
-                 "clientSend: 0x10020 999 0 888 0 0 10 5 abcedfghij | "
-                 "clientSend: 0x40026 | "
+    EXPECT_STREQ("clientSend: 0x10020 999 0 888 0 0 10 5 abcedfghij | "
                  "clientSend: 0x10020 999 0 888 0 0 10 1 abcedfghij",
                  transport.outputLog.c_str());
     transport.outputLog = "";
@@ -915,9 +870,7 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
 }
 
 TEST_F(ReplicatedSegmentTest, performWriteMoreToSend) {
-    transport.setInput("0 0 0"); // server id check
     transport.setInput("0 0"); // write
-    transport.setInput("0 1 0"); // server id check
     transport.setInput("0 0"); // write
     transport.setInput("0 0"); // write
     transport.setInput("0 0"); // write
@@ -944,9 +897,7 @@ TEST_F(ReplicatedSegmentTest, performWriteMoreToSend) {
 }
 
 TEST_F(ReplicatedSegmentTest, performWriteClosedButLongerThanMaxTxLimit) {
-    transport.setInput("0 0 0"); // server id check
     transport.setInput("0 0"); // write
-    transport.setInput("0 1 0"); // server id check
     transport.setInput("0 0"); // write
     transport.setInput("0 0"); // write
     transport.setInput("0 0"); // write
@@ -986,13 +937,9 @@ TEST_F(ReplicatedSegmentTest, performWriteClosedButLongerThanMaxTxLimit) {
 }
 
 TEST_F(ReplicatedSegmentTest, performWriteEnsureNewHeadOpenAckedBeforeClose) {
-    transport.setInput("0 0 0"); // id check
     transport.setInput("0 0"); // write - segment open
-    transport.setInput("0 1 0"); // id check
     transport.setInput("0 0"); // write - segment open
-    transport.setInput("0 0 0"); // id check
     transport.setInput("0 0"); // write - newHead open
-    transport.setInput("0 1 0"); // id check
     transport.setInput("0 0"); // write - newHead open
     transport.setInput("0 0"); // write - segment close
     transport.setInput("0 0"); // write - segment close
@@ -1037,13 +984,9 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureNewHeadOpenAckedBeforeClose) {
 }
 
 TEST_F(ReplicatedSegmentTest, performWriteEnsureCloseBeforeNewHeadWrittenTo) {
-    transport.setInput("0 0 0"); // id check
     transport.setInput("0 0"); // write - segment open
-    transport.setInput("0 1 0"); // id check
     transport.setInput("0 0"); // write - segment open
-    transport.setInput("0 0 0"); // id check
     transport.setInput("0 0"); // write - newHead open
-    transport.setInput("0 1 0"); // id check
     transport.setInput("0 0"); // write - newHead open
     transport.setInput("0 0"); // write - segment close replica 1
     transport.setInput(NULL); // write - fail segment close replica 2

@@ -136,10 +136,6 @@ def load_so():
     so.rc_getTableId.argtypes = [client, name, POINTER(table)]
     so.rc_getTableId.restype  = status
 
-    so.rc_ping.argtypes = [client, serviceLocator, nonce, nanoseconds,
-                           POINTER(nonce)]
-    so.rc_ping.restype  = status
-
     so.rc_read.argtypes = [client, table, key, keyLength, rejectRules, POINTER(version),
                            buf, len, POINTER(len)]
     so.rc_read.restype  = status

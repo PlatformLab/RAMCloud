@@ -107,7 +107,9 @@ enum Opcode {
     IS_REPLICA_NEEDED       = 48,
     SPLIT_TABLET            = 49,
     GET_SERVER_STATISTICS   = 50,
-    ILLEGAL_RPC_TYPE        = 51,  // 1 + the highest legitimate Opcode
+    SET_RUNTIME_OPTION      = 51,
+    ENUMERATION             = 52,
+    ILLEGAL_RPC_TYPE        = 53,  // 1 + the highest legitimate Opcode
 };
 
 /**
@@ -302,6 +304,7 @@ struct CreateTable {
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
+        uint64_t tableId;             // The id of the created table.
     } __attribute__((packed));
 };
 
@@ -334,6 +337,59 @@ struct DropTabletOwnership {
     } __attribute__((packed));
 };
 
+struct EnlistServer {
+    static const Opcode opcode = ENLIST_SERVER;
+    static const ServiceType service = COORDINATOR_SERVICE;
+    struct Request {
+        RequestCommon common;
+        /// Server id this server used to operate at; the coordinator must
+        /// make sure this server is removed from the cluster before
+        /// enlisting the calling server.
+        uint64_t replacesId;
+        SerializedServiceMask serviceMask; ///< Which services are available
+                                           ///< on the enlisting server.
+        uint32_t readSpeed;                /// MB/s read speed if a BACKUP
+        uint32_t writeSpeed;               /// MB/s write speed if a BACKUP
+        /// Number of bytes in the serviceLocator, including terminating NULL
+        /// character.  The bytes of the service locator follow immediately
+        /// after this header.
+        uint32_t serviceLocatorLength;
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+        uint64_t serverId;               /// Unique ServerId assigned to this
+                                         /// enlisting server process.
+    } __attribute__((packed));
+};
+
+struct Enumeration {
+    static const Opcode opcode = ENUMERATION;
+    static const ServiceType service = MASTER_SERVICE;
+    struct Request {
+        RequestCommon common;
+        uint64_t tableId;
+        uint64_t tabletStartHash;
+        uint32_t iteratorBytes;     // Size of iterator in bytes. The
+                                    // actual iterator follows
+                                    // immediately after this header.
+                                    // See EnumerationIterator.
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+        uint64_t tabletStartHash;
+        uint32_t payloadBytes;      // Size of payload, where each object in
+                                    // payload is a uint32_t size,
+                                    // Object metadata, and key and data
+                                    // blobs. The actual payload
+                                    // follows immediately after this
+                                    // header.
+        uint32_t iteratorBytes;     // Size of iterator in bytes. The
+                                    // actual iterator follows after
+                                    // the payload. See
+                                    // EnumerationIterator.
+    } __attribute__((packed));
+};
+
 struct FillWithTestData {
     static const Opcode opcode = FILL_WITH_TEST_DATA;
     static const ServiceType service = MASTER_SERVICE;
@@ -358,47 +414,6 @@ struct GetHeadOfLog {
         ResponseCommon common;
         uint64_t headSegmentId;     // ID of head segment in the log.
         uint32_t headSegmentOffset; // Byte offset of head within the segment.
-    } __attribute__((packed));
-};
-
-struct GetTableId {
-    static const Opcode opcode = GET_TABLE_ID;
-    static const ServiceType service = COORDINATOR_SERVICE;
-    struct Request {
-        RequestCommon common;
-        uint32_t nameLength;          // Number of bytes in the name,
-                                      // including terminating NULL
-                                      // character. The bytes of the name
-                                      // follow immediately after this header.
-    } __attribute__((packed));
-    struct Response {
-        ResponseCommon common;
-        uint64_t tableId;
-    } __attribute__((packed));
-};
-
-struct EnlistServer {
-    static const Opcode opcode = ENLIST_SERVER;
-    static const ServiceType service = COORDINATOR_SERVICE;
-    struct Request {
-        RequestCommon common;
-        /// Server id this server used to operate at; the coordinator must
-        /// make sure this server is removed from the cluster before
-        /// enlisting the calling server.
-        uint64_t replacesId;
-        SerializedServiceMask serviceMask; ///< Which services are available
-                                           ///< on the enlisting server.
-        uint32_t readSpeed;                /// MB/s read speed if a BACKUP
-        uint32_t writeSpeed;               /// MB/s write speed if a BACKUP
-        /// Number of bytes in the serviceLocator, including terminating NULL
-        /// character.  The bytes of the service locator follow immediately
-        /// after this header.
-        uint32_t serviceLocatorLength;
-    } __attribute__((packed));
-    struct Response {
-        ResponseCommon common;
-        uint64_t serverId;               /// Unique ServerId assigned to this
-                                         /// enlisting server process.
     } __attribute__((packed));
 };
 
@@ -460,6 +475,22 @@ struct GetServerStatistics {
                                    // protobuf. The bytes of the protobuf
                                    // follow immediately after this header.
                                    // See ProtoBuf::Tablets.
+    } __attribute__((packed));
+};
+
+struct GetTableId {
+    static const Opcode opcode = GET_TABLE_ID;
+    static const ServiceType service = COORDINATOR_SERVICE;
+    struct Request {
+        RequestCommon common;
+        uint32_t nameLength;          // Number of bytes in the name,
+                                      // including terminating NULL
+                                      // character. The bytes of the name
+                                      // follow immediately after this header.
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+        uint64_t tableId;
     } __attribute__((packed));
 };
 
@@ -785,6 +816,26 @@ struct SetMinOpenSegmentId {
                                    // minimum segment id for.
         uint64_t segmentId;        // Minimum segment id for replicas of open
                                    // segments during subsequent recoveries.
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+    } __attribute__((packed));
+};
+
+struct SetRuntimeOption {
+    static const Opcode opcode = SET_RUNTIME_OPTION;
+    static const ServiceType service = COORDINATOR_SERVICE;
+    struct Request {
+        RequestCommon common;
+        uint32_t optionLength; // Number of bytes in the name of the option
+                               // to set including terminating NULL character.
+                               // The actual bytes follow immediately after
+                               // this header structure.
+        uint32_t valueLength;  // Number of bytes in string representing the
+                               // value to set the option to including
+                               // terminating NULL character.  The actual
+                               // bytes follow immediately after the bytes
+                               // corresponding to optionLength.
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;

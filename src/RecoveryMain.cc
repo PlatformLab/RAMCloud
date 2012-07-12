@@ -256,7 +256,7 @@ try
     } else {
         Buffer writeVal;
 
-        Tub<RamCloud::Write> writeRpcs[8];
+        Tub<WriteRpc2> writeRpcs[8];
         uint64_t b = Cycles::rdtsc();
         int j;
         for (j = 0; j < count - 1; j++) {
@@ -266,7 +266,7 @@ try
                 auto& writeRpc = writeRpcs[(j * tableCount + t) %
                                            arrayLength(writeRpcs)];
                 if (writeRpc) {
-                    (*writeRpc)();
+                    writeRpc->wait();
                 }
 
                 if (verify) {
@@ -286,13 +286,12 @@ try
                                    writeVal.getRange(0, objectDataSize),
                                    objectDataSize,
                                    static_cast<RejectRules*>(NULL),
-                                   static_cast<uint64_t*>(NULL),
                                    /* async = */ true);
             }
         }
         foreach (auto& writeRpc, writeRpcs) {
             if (writeRpc)
-                (*writeRpc)();
+                writeRpc->wait();
         }
 
         string key = format("%d", j);

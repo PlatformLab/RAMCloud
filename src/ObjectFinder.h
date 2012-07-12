@@ -37,27 +37,16 @@ class ObjectFinder {
 
     explicit ObjectFinder(Context& context, CoordinatorClient& coordinator);
 
-    /**
-     * A partition (or bin) corresponding to the requests to be sent
-     * to one master in a multiRead / multiWrite operation.
-     */
-    struct MasterRequests {
-        MasterRequests() : sessionRef(), requests() {}
-        Transport::SessionRef sessionRef;
-        std::vector<MasterClient::ReadObject*> requests;
-    };
-
     Transport::SessionRef lookup(uint64_t table, const char* key,
                                  uint16_t keyLength);
     Transport::SessionRef lookup(uint64_t table, HashType keyHash);
-    std::vector<MasterRequests> multiLookup(MasterClient::ReadObject* input[],
-                                            uint32_t numRequests);
 
     /**
      * Jettison all tablet map entries forcing a fetch of fresh mappings
      * on subsequent lookups.
      */
     void flush() {
+        RAMCLOUD_TEST_LOG("flushing object map");
         tabletMap.Clear();
     }
 

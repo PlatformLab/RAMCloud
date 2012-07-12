@@ -91,7 +91,7 @@ ServerIdRpcWrapper::send()
                 (context.serverList != NULL)
                 ? context.serverList->getLocator(id)
                 : context.coordinatorServerList->getLocator(id);
-        session = context.transportManager->getSession(locator);
+        session = context.transportManager->getSession(locator, id);
     }
     catch (Exception& e) {
         LOG(WARNING, "ServerIdRpcWrapper couldn't get session: %s",

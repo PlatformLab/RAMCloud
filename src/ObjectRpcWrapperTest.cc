@@ -22,9 +22,9 @@ namespace RAMCloud {
 
 // This class provides tablet map info to ObjectFinder, with a
 // different locator each time it is invoked.
-class MapRefresher : public ObjectFinder::TabletMapFetcher {
+class ObjRpcWrapperRefresher : public ObjectFinder::TabletMapFetcher {
   public:
-    MapRefresher() : called(0) {}
+    ObjRpcWrapperRefresher() : called(0) {}
     void getTabletMap(ProtoBuf::Tablets& tabletMap) {
         called++;
         char buffer[100];
@@ -50,7 +50,8 @@ class ObjectRpcWrapperTest : public ::testing::Test {
         : ramcloud("mock:")
         , transport(ramcloud.clientContext)
     {
-        ramcloud.objectFinder.tabletMapFetcher.reset(new MapRefresher);
+        ramcloud.objectFinder.tabletMapFetcher.reset(
+                new ObjRpcWrapperRefresher);
         ramcloud.clientContext.transportManager->registerMock(&transport);
     }
 
@@ -74,7 +75,8 @@ TEST_F(ObjectRpcWrapperTest, checkStatus_unknownTablet) {
     EXPECT_FALSE(wrapper.isReady());
     EXPECT_STREQ("IN_PROGRESS", wrapper.stateString());
     EXPECT_EQ("checkStatus: Server mock:refresh=1 doesn't store <10, abc>; "
-            "refreshing object map", TestLog::get());
+            "refreshing object map | flush: flushing object map",
+            TestLog::get());
     EXPECT_EQ("mock:refresh=2", wrapper.session->getServiceLocator());
 }
 
@@ -101,8 +103,8 @@ TEST_F(ObjectRpcWrapperTest, handleTransportError) {
     wrapper.state = RpcWrapper::RpcState::FAILED;
     EXPECT_FALSE(wrapper.isReady());
     EXPECT_STREQ("IN_PROGRESS", wrapper.stateString());
-    EXPECT_EQ("flushSession: flushing session for mock:refresh=1",
-            TestLog::get());
+    EXPECT_EQ("flushSession: flushing session for mock:refresh=1 "
+            "| flush: flushing object map", TestLog::get());
     EXPECT_EQ("mock:refresh=2", wrapper.session->getServiceLocator());
 }
 

@@ -148,20 +148,6 @@ rc_getTableId(struct rc_client* client, const char* name,
     return STATUS_OK;
 }
 
-Status
-rc_ping(struct rc_client* client, const char* serviceLocator,
-        uint64_t nonce, uint64_t timeoutNanoseconds,
-        uint64_t* result)
-{
-    try {
-        *result = client->client->ping(serviceLocator, nonce,
-                                       timeoutNanoseconds);
-    } catch (ClientException& e) {
-        return e.status;
-    }
-    return STATUS_OK;
-}
-
 /**
  * Similar to RamCloudClient::read, except copies the return value out to a
  * fixed-length buffer rather than returning a Buffer object.

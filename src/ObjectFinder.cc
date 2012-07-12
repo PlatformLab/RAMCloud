@@ -134,52 +134,6 @@ ObjectFinder::lookup(uint64_t table, HashType keyHash) {
 }
 
 /**
- * Lookup the masters for multiple keys across tables.
- * \param requests
- *      Array listing the objects to be read/written
- * \param numRequests
- *      Length of requests array
- * \return requestBins
- *      Bins requests according to the master they correspond to.
- */
-
-std::vector<ObjectFinder::MasterRequests>
-ObjectFinder::multiLookup(MasterClient::ReadObject* requests[],
-                          uint32_t numRequests) {
-
-    std::vector<ObjectFinder::MasterRequests> requestBins;
-    for (uint32_t i = 0; i < numRequests; i++){
-        try {
-            Transport::SessionRef currentSessionRef =
-                ObjectFinder::lookup(requests[i]->tableId,
-                                     requests[i]->key, requests[i]->keyLength);
-
-            // if this master already exists in the requestBins, add request
-            // to the requestBin corresponding to that master
-            bool masterFound = false;
-            for (uint32_t j = 0; j < requestBins.size(); j++){
-                if (currentSessionRef == requestBins[j].sessionRef){
-                    requestBins[j].requests.push_back(requests[i]);
-                    masterFound = true;
-                    break;
-                }
-            }
-            // else create a new requestBin corresponding to this master
-            if (!masterFound) {
-                requestBins.push_back(ObjectFinder::MasterRequests());
-                requestBins.back().sessionRef = currentSessionRef;
-                requestBins.back().requests.push_back(requests[i]);
-            }
-        }
-        catch (TableDoesntExistException &e) {
-            requests[i]->status = STATUS_TABLE_DOESNT_EXIST;
-        }
-    }
-
-    return requestBins;
-}
-
-/**
  * Flush the tablet map and refresh it until we detect that at least one tablet
  * has a state set to something other than normal.
  *

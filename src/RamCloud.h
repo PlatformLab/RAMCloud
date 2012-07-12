@@ -24,6 +24,7 @@
 #include "ServerMetrics.h"
 
 namespace RAMCloud {
+class MultiReadObject;
 
 /**
  * The RamCloud class provides the primary interface used by applications to
@@ -37,31 +38,37 @@ namespace RAMCloud {
  */
 class RamCloud {
   public:
-
-    /**
-     * Encapsulates the state of a RamCloud::read operation,
-     * allowing it to execute asynchronously.
-     */
-    class ReadRpc : public ObjectRpcWrapper {
-      public:
-        ReadRpc(RamCloud& ramcloud, uint64_t tableId, const char* key,
-                uint16_t keyLength, Buffer* value,
-                const RejectRules* rejectRules = NULL);
-        ~ReadRpc() {}
-        void wait(uint64_t* version = NULL);
-
-      PRIVATE:
-        DISALLOW_COPY_AND_ASSIGN(ReadRpc);
-    };
+    uint64_t createTable(const char* name, uint32_t serverSpan = 1);
+    void dropTable(const char* name);
+    ServerMetrics getMetrics(uint64_t tableId, const char* key,
+            uint16_t keyLength);
+    string* getServiceLocator();
+    uint64_t getTableId(const char* name);
+    int64_t increment(uint64_t tableId, const char* key, uint16_t keyLength,
+            int64_t incrementValue, const RejectRules* rejectRules = NULL,
+            uint64_t* version = NULL);
+    void multiRead(MultiReadObject* requests[], uint32_t numRequests);
     void read(uint64_t tableId, const char* key, uint16_t keyLength,
             Buffer* value, const RejectRules* rejectRules = NULL,
             uint64_t* version = NULL);
+    void remove(uint64_t tableId, const char* key, uint16_t keyLength,
+            const RejectRules* rejectRules = NULL, uint64_t* version = NULL);
+    void splitTablet(const char* name, uint64_t startKeyHash,
+            uint64_t endKeyHash, uint64_t splitKeyHash);
+    void testingFill(uint64_t tableId, const char* key, uint16_t keyLength,
+            uint32_t numObjects, uint32_t objectSize);
+    void testingKill(uint64_t tableId, const char* key, uint16_t keyLength);
+    void testingSetRuntimeOption(const char* option, const char* value);
+    void testingWaitForAllTabletsNormal();
+    void write(uint64_t tableId, const char* key, uint16_t keyLength,
+            const void* buf, uint32_t length,
+            const RejectRules* rejectRules = NULL, uint64_t* version = NULL,
+            bool async = false);
+    void write(uint64_t tableId, const char* key, uint16_t keyLength,
+            const char* value, const RejectRules* rejectRules = NULL,
+            uint64_t* version = NULL, bool async = false);
 
-    //-------------------------------------------------------
-    // OLD: everything below here should eventually go away.
-    //-------------------------------------------------------
-
-    /// Enumerate the contents of a table.
+    /// Objects of this class are used to enumerate the contents of a table.
     class Enumeration {
       public:
         /**
@@ -120,138 +127,28 @@ class RamCloud {
         DISALLOW_COPY_AND_ASSIGN(Enumeration);
     };
 
-    /// An asynchronous version of #read().
-    class Read {
-      public:
-        /// Start a read RPC. See RamCloud::read.
-        Read(RamCloud& ramCloud,
-             uint64_t tableId, const char* key, uint16_t keyLength,
-             Buffer* value, const RejectRules* rejectRules = NULL,
-             uint64_t* version = NULL)
-             : ramCloud(ramCloud)
-             , master(ramCloud.objectFinder.lookup(tableId,
-                                                   key, keyLength))
-             , masterRead(master, tableId, key, keyLength, value,
-                          rejectRules, version)
-        {
-        }
-        void cancel() {
-            masterRead.cancel();
-        }
-        bool isReady() {
-            return masterRead.isReady();
-        }
-        /// Wait for the read RPC to complete.
-        void operator()() {
-            masterRead();
-        }
-      private:
-        RamCloud& ramCloud;
-        MasterClient master;
-        MasterClient::Read masterRead;
-        DISALLOW_COPY_AND_ASSIGN(Read);
-    };
-
-    /// An asynchronous version of #write().
-    class Write {
-      public:
-        /// Start a write RPC. See RamCloud::write.
-        Write(RamCloud& ramCloud,
-              uint64_t tableId, const char* key, uint16_t keyLength,
-              Buffer& buffer,
-              const RejectRules* rejectRules = NULL,
-              uint64_t* version = NULL, bool async = false)
-              : ramCloud(ramCloud)
-              , master(ramCloud.objectFinder.lookup(tableId,
-                       key, keyLength))
-              , masterWrite(master, tableId, key, keyLength, buffer,
-                            rejectRules, version, async)
-        {
-        }
-        /// Start a write RPC. See RamCloud::write.
-        Write(RamCloud& ramCloud,
-              uint64_t tableId, const char* key, uint16_t keyLength,
-              const void* buf, uint32_t length,
-              const RejectRules* rejectRules = NULL,
-              uint64_t* version = NULL, bool async = false)
-              : ramCloud(ramCloud)
-              , master(ramCloud.objectFinder.lookup(tableId,
-                       key, keyLength))
-              , masterWrite(master, tableId, key, keyLength, buf, length,
-                            rejectRules, version, async)
-        {
-        }
-        bool isReady() {
-            return masterWrite.isReady();
-        }
-        /// Wait for the write RPC to complete.
-        void operator()() {
-            masterWrite();
-        }
-      private:
-        RamCloud& ramCloud;
-        MasterClient master;
-        MasterClient::Write masterWrite;
-        DISALLOW_COPY_AND_ASSIGN(Write);
-    };
-
     explicit RamCloud(const char* serviceLocator);
     RamCloud(Context& context, const char* serviceLocator);
-    uint64_t createTable(const char* name, uint32_t serverSpan = 1);
-    void dropTable(const char* name);
-    void splitTablet(const char* name, uint64_t startKeyHash,
-                   uint64_t endKeyHash, uint64_t splitKeyHash);
-    uint64_t getTableId(const char* name);
-    string* getServiceLocator();
     ServerMetrics getMetrics(const char* serviceLocator);
-    ServerMetrics getMetrics(uint64_t table, const char* key,
-                             uint16_t keyLength);
-    uint64_t ping(const char* serviceLocator, uint64_t nonce,
-                  uint64_t timeoutNanoseconds);
-    uint64_t ping(uint64_t table, const char* key, uint16_t keyLength,
-                  uint64_t nonce, uint64_t timeoutNanoseconds);
-    uint64_t proxyPing(const char* serviceLocator1,
-                       const char* serviceLocator2,
-                       uint64_t timeoutNanoseconds1,
-                       uint64_t timeoutNanoseconds2);
-    void increment(uint64_t tableId, const char* key, uint16_t keyLength,
-              int64_t incrementValue, const RejectRules* rejectRules = NULL,
-              uint64_t* version = NULL, int64_t* newValue = NULL);
-    void multiRead(MasterClient::ReadObject* requests[], uint32_t numRequests);
-    void remove(uint64_t tableId, const char* key, uint16_t keyLength,
-                const RejectRules* rejectRules = NULL,
-                uint64_t* version = NULL);
-    void write(uint64_t tableId, const char* key, uint16_t keyLength,
-               const void* buf, uint32_t length,
-               const RejectRules* rejectRules = NULL,
-               uint64_t* version = NULL, bool async = false);
-    void write(uint64_t tableId, const char* key, uint16_t keyLength,
-               const char* s);
-
-    void testingKill(uint64_t tableId, const char* key, uint16_t keyLength);
-    void testingFill(uint64_t tableId, const char* key, uint16_t keyLength,
-                     uint32_t objectCount, uint32_t objectSize);
-    void testingSetRuntimeOption(const char* option, const char* value);
-    void testingWaitForAllTabletsNormal();
 
   PRIVATE:
     /**
-     * Service locator for the cluster coordinator.
-     */
+  * Service locator for the cluster coordinator.
+  */
     string coordinatorLocator;
 
     /**
-     * Usually, RamCloud objects create a new context in which to run. This is
-     * the location where that context is stored.
-     */
+  * Usually, RamCloud objects create a new context in which to run. This is
+  * the location where that context is stored.
+  */
     Tub<Context> realClientContext;
 
   public:
     /**
-     * This usually refers to realClientContext. For testing purposes and
-     * clients that want to provide their own context that they've mucked with,
-     * this refers to an externally defined context.
-     */
+  * This usually refers to realClientContext. For testing purposes and
+  * clients that want to provide their own context that they've mucked with,
+  * this refers to an externally defined context.
+  */
     Context& clientContext;
 
     /// \copydoc Client::status
@@ -263,6 +160,255 @@ class RamCloud {
 
   private:
     DISALLOW_COPY_AND_ASSIGN(RamCloud);
+};
+
+/**
+ * Objects of this class are used to pass parameters into \c multiRead
+ * and for multiRead to return result values.
+ */
+struct MultiReadObject {
+    /**
+  * The table containing the desired object (return value from
+  * a previous call to getTableId).
+  */
+    uint64_t tableId;
+    /**
+  * Variable length key that uniquely identifies the object within table.
+  * It does not necessarily have to be null terminated like a string.
+  * The caller is responsible for ensuring that this key remains valid
+  * until the call is reaped/canceled.
+  */
+    const char* key;
+    /**
+  * Length of key, in bytes.
+  */
+    uint16_t keyLength;
+    /**
+  * If the read for this object was successful, the Tub<Buffer>
+  * will hold the contents of the desired object. If not, it will
+  * not be initialized, giving "false" when the buffer is tested.
+  */
+    Tub<Buffer>* value;
+    /**
+  * The version number of the object is returned here
+  */
+    uint64_t version;
+    /**
+  * The status of read (either that the read succeeded, or the
+  * error in case it didn't) is returned here.
+  */
+    Status status;
+
+    MultiReadObject(uint64_t tableId, const char* key, uint16_t keyLength,
+            Tub<Buffer>* value)
+        : tableId(tableId)
+        , key(key)
+        , keyLength(keyLength)
+        , value(value)
+        , version()
+        , status()
+    {
+    }
+
+    MultiReadObject()
+        : tableId()
+        , key()
+        , keyLength()
+        , value()
+        , version()
+        , status()
+    {
+    }
+};
+
+/**
+ * Encapsulates the state of a RamCloud::createTable operation,
+ * allowing it to execute asynchronously.
+ */
+class CreateTableRpc2 : public CoordinatorRpcWrapper {
+    public:
+    CreateTableRpc2(RamCloud& ramcloud, const char* name,
+            uint32_t serverSpan = 1);
+    ~CreateTableRpc2() {}
+    uint64_t wait();
+
+    PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(CreateTableRpc2);
+};
+
+/**
+ * Encapsulates the state of a RamCloud::dropTable operation,
+ * allowing it to execute asynchronously.
+ */
+class DropTableRpc2 : public CoordinatorRpcWrapper {
+    public:
+    DropTableRpc2(RamCloud& ramcloud, const char* name);
+    ~DropTableRpc2() {}
+    /// \copydoc RpcWrapper::docForWait
+    void wait() {simpleWait(*context.dispatch);}
+
+    PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(DropTableRpc2);
+};
+
+/**
+ * Encapsulates the state of a RamCloud::testingFill operation,
+ * allowing it to execute asynchronously.
+ */
+class FillWithTestDataRpc2 : public ObjectRpcWrapper {
+    public:
+    FillWithTestDataRpc2(RamCloud& ramcloud, uint64_t tableId, const char* key,
+            uint16_t keyLength, uint32_t numObjects, uint32_t objectSize);
+    ~FillWithTestDataRpc2() {}
+    /// \copydoc RpcWrapper::docForWait
+    void wait() {simpleWait(*ramcloud.clientContext.dispatch);}
+
+    PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(FillWithTestDataRpc2);
+};
+
+/**
+ * Encapsulates the state of a RamCloud::getMetrics operation,
+ * allowing it to execute asynchronously.
+ */
+class GetMetricsRpc2 : public ObjectRpcWrapper {
+    public:
+    GetMetricsRpc2(RamCloud& ramcloud, uint64_t tableId,
+            const char* key, uint16_t keyLength);
+    ~GetMetricsRpc2() {}
+    ServerMetrics wait();
+
+    PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(GetMetricsRpc2);
+};
+
+/**
+ * Encapsulates the state of a RamCloud::getTableId operation,
+ * allowing it to execute asynchronously.
+ */
+class GetTableIdRpc2 : public CoordinatorRpcWrapper {
+    public:
+    GetTableIdRpc2(RamCloud& ramcloud, const char* name);
+    ~GetTableIdRpc2() {}
+    uint64_t wait();
+
+    PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(GetTableIdRpc2);
+};
+
+/**
+ * Encapsulates the state of a RamCloud::increment operation,
+ * allowing it to execute asynchronously.
+ */
+class IncrementRpc2 : public ObjectRpcWrapper {
+    public:
+    IncrementRpc2(RamCloud& ramcloud, uint64_t tableId, const char* key,
+            uint16_t keyLength, int64_t incrementValue,
+            const RejectRules* rejectRules = NULL);
+    ~IncrementRpc2() {}
+    int64_t wait(uint64_t* version = NULL);
+
+    PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(IncrementRpc2);
+};
+
+/**
+ * Encapsulates the state of a RamCloud::testingKill operation.  This
+ * RPC should never be waited for!!  If you do, it will track the object
+ * around the cluster, killing the server currently holding the object,
+ * waiting for the object to reappear on a different server, then killing
+ * that server, and so on forever.
+ */
+class KillRpc2 : public ObjectRpcWrapper {
+    public:
+    KillRpc2(RamCloud& ramcloud, uint64_t tableId, const char* key,
+            uint16_t keyLength);
+    ~KillRpc2() {}
+    /// \copydoc RpcWrapper::docForWait
+    void wait() {simpleWait(*ramcloud.clientContext.dispatch);}
+
+    PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(KillRpc2);
+};
+
+/**
+ * Encapsulates the state of a RamCloud::read operation,
+ * allowing it to execute asynchronously.
+ */
+class ReadRpc2 : public ObjectRpcWrapper {
+    public:
+    ReadRpc2(RamCloud& ramcloud, uint64_t tableId, const char* key,
+            uint16_t keyLength, Buffer* value,
+            const RejectRules* rejectRules = NULL);
+    ~ReadRpc2() {}
+    void wait(uint64_t* version = NULL);
+
+    PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(ReadRpc2);
+};
+
+/**
+ * Encapsulates the state of a RamCloud::remove operation,
+ * allowing it to execute asynchronously.
+ */
+class RemoveRpc2 : public ObjectRpcWrapper {
+    public:
+    RemoveRpc2(RamCloud& ramcloud, uint64_t tableId, const char* key,
+            uint16_t keyLength, const RejectRules* rejectRules = NULL);
+    ~RemoveRpc2() {}
+    void wait(uint64_t* version = NULL);
+
+    PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(RemoveRpc2);
+};
+
+/**
+ * Encapsulates the state of a RamCloud::testingSetRuntimeOption operation,
+ * allowing it to execute asynchronously.
+ */
+class SetRuntimeOptionRpc2 : public CoordinatorRpcWrapper {
+    public:
+    SetRuntimeOptionRpc2(RamCloud& ramcloud, const char* option,
+            const char* value);
+    ~SetRuntimeOptionRpc2() {}
+    /// \copydoc RpcWrapper::docForWait
+    void wait() {simpleWait(*context.dispatch);}
+
+    PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(SetRuntimeOptionRpc2);
+};
+
+/**
+ * Encapsulates the state of a RamCloud::splitTablet operation,
+ * allowing it to execute asynchronously.
+ */
+class SplitTabletRpc2 : public CoordinatorRpcWrapper {
+    public:
+    SplitTabletRpc2(RamCloud& ramcloud, const char* name,
+            uint64_t startKeyHash, uint64_t endKeyHash,
+            uint64_t splitKeyHash);
+    ~SplitTabletRpc2() {}
+    /// \copydoc RpcWrapper::docForWait
+    void wait() {simpleWait(*context.dispatch);}
+
+    PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(SplitTabletRpc2);
+};
+
+/**
+ * Encapsulates the state of a RamCloud::write operation,
+ * allowing it to execute asynchronously.
+ */
+class WriteRpc2 : public ObjectRpcWrapper {
+    public:
+    WriteRpc2(RamCloud& ramcloud, uint64_t tableId, const char* key,
+            uint16_t keyLength, const void* buf, uint32_t length,
+            const RejectRules* rejectRules = NULL, bool async = false);
+    ~WriteRpc2() {}
+    void wait(uint64_t* version = NULL);
+
+    PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(WriteRpc2);
 };
 } // namespace RAMCloud
 

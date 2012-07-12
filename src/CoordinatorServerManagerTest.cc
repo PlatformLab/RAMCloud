@@ -19,6 +19,7 @@
 #include "MasterService.h"
 #include "MembershipService.h"
 #include "MockCluster.h"
+#include "RamCloud.h"
 #include "Recovery.h"
 #include "ServerList.h"
 #include "TaskQueue.h"
@@ -30,6 +31,7 @@ class CoordinatorServerManagerTest : public ::testing::Test {
     Context context;
     ServerConfig masterConfig;
     MockCluster cluster;
+    Tub<RamCloud> ramcloud;
     CoordinatorClient* client;
     CoordinatorServerManager* serverManager;
     MasterService* master;
@@ -39,6 +41,7 @@ class CoordinatorServerManagerTest : public ::testing::Test {
         : context()
         , masterConfig(ServerConfig::forTesting())
         , cluster(context)
+        , ramcloud()
         , client()
         , serverManager()
         , master()
@@ -56,6 +59,7 @@ class CoordinatorServerManagerTest : public ::testing::Test {
         masterServerId = masterServer->serverId;
 
         client = cluster.getCoordinatorClient();
+        ramcloud.construct(context, "mock:host=coordinator");
     }
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorServerManagerTest);
@@ -164,7 +168,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServerReplaceAMaster) {
     TaskQueue mgr;
     serverManager->service.recoveryManager.doNotStartRecoveries = true;
 
-    client->createTable("foo");
+    ramcloud->createTable("foo");
     TestLog::Enable _(startMasterRecoveryFilter);
     EXPECT_EQ(ServerId(2, 0),
         CoordinatorClient::enlistServer(context, masterServerId,
@@ -265,7 +269,7 @@ TEST_F(CoordinatorServerManagerTest, hintServerDown_server) {
                                     "mock:host=master2");
     CoordinatorClient::enlistServer(context, {}, {BACKUP_SERVICE},
                                     "mock:host=backup");
-    client->createTable("foo");
+    ramcloud->createTable("foo");
     serverManager->forceServerDownForTesting = true;
     TestLog::Enable _(startMasterRecoveryFilter);
     client->hintServerDown(masterServerId);

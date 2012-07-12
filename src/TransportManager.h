@@ -74,6 +74,7 @@ class TransportManager {
         transportFactories.push_back(
                 new MockTransportFactory(context, transport, protocol));
         transports.push_back(NULL);
+        skipServerIdCheck = true;
     }
 
     /**
@@ -162,6 +163,13 @@ class TransportManager {
      * means that each transport gets to pick its own default.
      */
     uint32_t timeoutMs;
+
+    /**
+     * During tests this variable can be set to true to disable the
+     * getServerId call in getSession (that call makes it painful to
+     * set up test configurations).
+     */
+    bool skipServerIdCheck;
 
     DISALLOW_COPY_AND_ASSIGN(TransportManager);
 };

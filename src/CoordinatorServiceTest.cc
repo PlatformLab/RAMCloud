@@ -20,8 +20,8 @@
 #include "MasterService.h"
 #include "MembershipService.h"
 #include "MockCluster.h"
+#include "RamCloud.h"
 #include "Recovery.h"
-#include "ServerList.h"
 #include "TaskQueue.h"
 
 namespace RAMCloud {
@@ -31,6 +31,7 @@ class CoordinatorServiceTest : public ::testing::Test {
     Context context;
     ServerConfig masterConfig;
     MockCluster cluster;
+    Tub<RamCloud> ramcloud;
     CoordinatorClient* client;
     CoordinatorService* service;
     MasterService* master;
@@ -40,6 +41,7 @@ class CoordinatorServiceTest : public ::testing::Test {
         : context()
         , masterConfig(ServerConfig::forTesting())
         , cluster(context)
+        , ramcloud()
         , client()
         , service()
         , master()
@@ -57,6 +59,7 @@ class CoordinatorServiceTest : public ::testing::Test {
         masterServerId = masterServer->serverId;
 
         client = cluster.getCoordinatorClient();
+        ramcloud.construct(context, "mock:host=coordinator");
     }
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorServiceTest);
@@ -71,10 +74,10 @@ TEST_F(CoordinatorServiceTest, createTable) {
     master->log.append(LOG_ENTRY_TYPE_OBJ, "hi", 2);
 
     // master is already enlisted
-    EXPECT_EQ(0U, client->createTable("foo"));
-    EXPECT_EQ(0U, client->createTable("foo")); // should be no-op
-    EXPECT_EQ(1U, client->createTable("bar")); // should go to master2
-    EXPECT_EQ(2U, client->createTable("baz")); // and back to master1
+    EXPECT_EQ(0U, ramcloud->createTable("foo"));
+    EXPECT_EQ(0U, ramcloud->createTable("foo")); // should be no-op
+    EXPECT_EQ(1U, ramcloud->createTable("bar")); // should go to master2
+    EXPECT_EQ(2U, ramcloud->createTable("baz")); // and back to master1
 
     EXPECT_EQ(0U, get(service->tables, "foo"));
     EXPECT_EQ(1U, get(service->tables, "bar"));
@@ -120,7 +123,7 @@ TEST_F(CoordinatorServiceTest,
     master3Config.localLocator = "mock:host=master3";
     MasterService& master3 = *cluster.addServer(master3Config)->master;
     // master is already enlisted
-    client->createTable("foo", 2);
+    ramcloud->createTable("foo", 2);
     EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
               "endKeyHash: 9223372036854775807 "
               "serverId: 1 status: NORMAL "
@@ -142,7 +145,7 @@ TEST_F(CoordinatorServiceTest,
     master2Config.localLocator = "mock:host=master2";
     MasterService& master2 = *cluster.addServer(master2Config)->master;
     // master is already enlisted
-    client->createTable("foo", 3);
+    ramcloud->createTable("foo", 3);
     // ctime_log_head_offset is non-zero when master1 accepts the
     // second tablet since accepting the first forces the creation
     // of an initial head log segment.
@@ -165,8 +168,8 @@ TEST_F(CoordinatorServiceTest,
 
 TEST_F(CoordinatorServiceTest, splitTablet) {
     // master is already enlisted
-    client->createTable("foo");
-    client->splitTablet("foo", 0, ~0UL, (~0UL/2));
+    ramcloud->createTable("foo");
+    ramcloud->splitTablet("foo", 0, ~0UL, (~0UL/2));
     EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
               "endKeyHash: 9223372036854775806 "
               "serverId: 1 status: NORMAL "
@@ -178,7 +181,7 @@ TEST_F(CoordinatorServiceTest, splitTablet) {
               "ctime: 0, 0 }",
               service->tabletMap.debugString());
 
-    client->splitTablet("foo", 0, 9223372036854775806, 4611686018427387903);
+    ramcloud->splitTablet("foo", 0, 9223372036854775806, 4611686018427387903);
     EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
               "endKeyHash: 4611686018427387902 "
               "serverId: 1 status: NORMAL "
@@ -195,13 +198,13 @@ TEST_F(CoordinatorServiceTest, splitTablet) {
               "ctime: 0, 0 }",
               service->tabletMap.debugString());
 
-    EXPECT_THROW(client->splitTablet("foo", 0, 16, 8),
+    EXPECT_THROW(ramcloud->splitTablet("foo", 0, 16, 8),
                  TabletDoesntExistException);
 
-    EXPECT_THROW(client->splitTablet("foo", 0, 0, (~0UL/2)),
+    EXPECT_THROW(ramcloud->splitTablet("foo", 0, 0, (~0UL/2)),
                  RequestFormatError);
 
-    EXPECT_THROW(client->splitTablet("bar", 0, ~0UL, (~0UL/2)),
+    EXPECT_THROW(ramcloud->splitTablet("bar", 0, ~0UL, (~0UL/2)),
                  TableDoesntExistException);
 }
 
@@ -211,12 +214,12 @@ TEST_F(CoordinatorServiceTest, dropTable) {
     MasterService& master2 = *cluster.addServer(master2Config)->master;
 
     // Add a table, so the tests won't just compare against an empty tabletMap
-    client->createTable("foo");
+    ramcloud->createTable("foo");
 
     // Test dropping a table that is spread across one master
-    client->createTable("bar");
+    ramcloud->createTable("bar");
     EXPECT_EQ(1, master2.tablets.tablet_size());
-    client->dropTable("bar");
+    ramcloud->dropTable("bar");
     EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
               "endKeyHash: 18446744073709551615 "
               "serverId: 1 status: NORMAL "
@@ -225,10 +228,10 @@ TEST_F(CoordinatorServiceTest, dropTable) {
     EXPECT_EQ(0, master2.tablets.tablet_size());
 
     // Test dropping a table that is spread across two masters
-    client->createTable("bar", 2);
+    ramcloud->createTable("bar", 2);
     EXPECT_EQ(2, master->tablets.tablet_size());
     EXPECT_EQ(1, master2.tablets.tablet_size());
-    client->dropTable("bar");
+    ramcloud->dropTable("bar");
     EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
               "endKeyHash: 18446744073709551615 "
               "serverId: 1 status: NORMAL "
@@ -240,20 +243,20 @@ TEST_F(CoordinatorServiceTest, dropTable) {
 
 TEST_F(CoordinatorServiceTest, getTableId) {
     // Get the id for an existing table
-    client->createTable("foo");
-    uint64_t tableId = client->getTableId("foo");
+    ramcloud->createTable("foo");
+    uint64_t tableId = ramcloud->getTableId("foo");
     EXPECT_EQ(0lu, tableId);
 
-    client->createTable("foo2");
-    tableId = client->getTableId("foo2");
+    ramcloud->createTable("foo2");
+    tableId = ramcloud->getTableId("foo2");
     EXPECT_EQ(1lu, tableId);
 
     // Try to get the id for a non-existing table
-    EXPECT_THROW(client->getTableId("bar"), TableDoesntExistException);
+    EXPECT_THROW(ramcloud->getTableId("bar"), TableDoesntExistException);
 }
 
 TEST_F(CoordinatorServiceTest, getTabletMap) {
-    client->createTable("foo");
+    ramcloud->createTable("foo");
     ProtoBuf::Tablets tabletMap;
     client->getTabletMap(tabletMap);
     EXPECT_EQ("tablet { table_id: 0 start_key_hash: 0 "
@@ -282,7 +285,7 @@ TEST_F(CoordinatorServiceTest, reassignTabletOwnership) {
     master2->master->log.append(LOG_ENTRY_TYPE_OBJ, "hi", 2);
 
     // master is already enlisted
-    client->createTable("foo");
+    ramcloud->createTable("foo");
     EXPECT_EQ(1, master->tablets.tablet_size());
     EXPECT_EQ(0, master2->master->tablets.tablet_size());
     Tablet tablet = service->tabletMap.getTablet(0lu, 0lu, ~(0lu));

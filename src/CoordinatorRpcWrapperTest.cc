@@ -62,5 +62,4 @@ TEST_F(CoordinatorRpcWrapperTest, send) {
     EXPECT_EQ("mock:", wrapper.session->getServiceLocator());
 }
 
-
 }  // namespace RAMCloud

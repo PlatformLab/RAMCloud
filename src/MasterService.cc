@@ -114,6 +114,7 @@ MasterService::MasterService(Context& context,
     , initCalled(false)
     , anyWrites(false)
     , objectUpdateLock()
+    , maxMultiReadResponseSize(Transport::MAX_RPC_LEN)
 {
     log.registerType(LOG_ENTRY_TYPE_OBJ,
                      true,
@@ -321,9 +322,18 @@ MasterService::fillWithTestData(const FillWithTestDataRpc::Request& reqHdr,
         reqHdr.numObjects, reqHdr.objectSize, tablets.tablet_size());
 
     Table* tables[tablets.tablet_size()];
-    uint32_t i = 0;
-    foreach (const ProtoBuf::Tablets::Tablet& tablet, tablets.tablet())
-        tables[i++] = reinterpret_cast<Table*>(tablet.user_data());
+    uint32_t numTablets = 0;
+    foreach (const ProtoBuf::Tablets::Tablet& tablet, tablets.tablet()) {
+        // Only use tables where we store the entire table here.
+        // The key calculation is not safe otherwise.
+        if ((tablet.start_key_hash() == 0)
+                && (tablet.end_key_hash() == ~0LU)) {
+            tables[numTablets++] =
+                    reinterpret_cast<Table*>(tablet.user_data());
+        }
+    }
+    if (numTablets == 0)
+        throw ObjectDoesntExistException(HERE);
 
     RejectRules rejectRules;
     memset(&rejectRules, 0, sizeof(RejectRules));
@@ -332,9 +342,9 @@ MasterService::fillWithTestData(const FillWithTestDataRpc::Request& reqHdr,
     for (uint32_t objects = 0; objects < reqHdr.numObjects; objects++) {
         Buffer buffer;
 
-        int t = objects % tablets.tablet_size();
+        int t = objects % numTablets;
 
-        string keyString = format("%d", objects / tablets.tablet_size());
+        string keyString = format("%d", objects / numTablets);
         uint16_t keyLength = static_cast<uint16_t>(keyString.length());
 
         char* keyLocation = new(&buffer, APPEND) char[keyLength];
@@ -424,10 +434,30 @@ MasterService::multiRead(const MultiReadRpc::Request& reqHdr,
     uint32_t reqOffset = downCast<uint32_t>(sizeof(reqHdr));
 
     respHdr.count = numRequests;
+    uint32_t oldResponseLength = rpc.replyPayload.getTotalLength();
 
     // Each iteration extracts one request from request rpc, finds the
     // corresponding object, and appends the response to the response rpc.
-    for (uint32_t i = 0; i < numRequests; i++) {
+    for (uint32_t i = 0; ; i++) {
+        // If the RPC response has exceeded the legal limit, truncate it
+        // to the last object that fits below the limit (the client will
+        // retry the objects we don't return).
+        uint32_t newLength = rpc.replyPayload.getTotalLength();
+        if (newLength > maxMultiReadResponseSize) {
+            rpc.replyPayload.truncateEnd(newLength - oldResponseLength);
+            respHdr.count = i-1;
+            break;
+        } else {
+            oldResponseLength = newLength;
+        }
+        if (i >= numRequests) {
+            // The loop-termination check is done here rather than in the
+            // "for" statement above so that we have a chance to do the
+            // size check above even for every object inserted, including
+            // the last object and those with STATUS_OBJECT_DOESNT_EXIST.
+            break;
+        }
+
         const MultiReadRpc::Request::Part *currentReq =
             rpc.requestPayload.getOffset<MultiReadRpc::Request::Part>(
             reqOffset);
@@ -438,9 +468,9 @@ MasterService::multiRead(const MultiReadRpc::Request& reqHdr,
         reqOffset += downCast<uint32_t>(currentReq->keyLength);
 
         Status* status = new(&rpc.replyPayload, APPEND) Status(STATUS_OK);
-        // We must note the status if the table does not exist. Also, we might
-        // have an entry in the hash table that's invalid because its tablet no
-        // longer lives here.
+        // We must note the status if the table is not present here. Also,
+        // we might have an entry in the hash table that's invalid because
+        // its tablet no longer lives here.
         if (getTable(currentReq->tableId, key, currentReq->keyLength) == NULL) {
             *status = STATUS_UNKNOWN_TABLE;
             continue;
@@ -456,7 +486,6 @@ MasterService::multiRead(const MultiReadRpc::Request& reqHdr,
             reinterpret_cast<const SegmentEntry*>(handle);
         Buffer::Chunk::appendToBuffer(&rpc.replyPayload, entry,
             downCast<uint32_t>(sizeof(SegmentEntry)) + handle->length());
-
     }
 }
 
@@ -635,7 +664,7 @@ MasterService::takeTabletOwnership(
           reqHdr.lastKey == i.end_key_hash()) {
             tablet = &i;
             break;
-        }
+       }
     }
 
     if (tablet == NULL) {

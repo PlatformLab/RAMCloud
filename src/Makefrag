@@ -60,6 +60,7 @@ SHARED_SRCFILES := \
 		   src/MembershipClient.cc \
 		   src/MembershipService.cc \
 		   src/Memory.cc \
+		   src/MultiRead.cc \
 		   src/MurmurHash3.cc \
 		   src/ObjectFinder.cc \
 		   src/ObjectRpcWrapper.cc \

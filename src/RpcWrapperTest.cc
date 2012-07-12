@@ -215,6 +215,35 @@ TEST_F(RpcWrapperTest, retry) {
     Cycles::mockTscValue = 0;
 }
 
+TEST_F(RpcWrapperTest, simpleWait_success) {
+    TestLog::Enable _;
+    RpcWrapper wrapper(4);
+    wrapper.request.fillFromString("100");
+    wrapper.send();
+    (new(wrapper.response, APPEND) WireFormat::ResponseCommon)->status =
+            STATUS_OK;
+    wrapper.state = RpcWrapper::RpcState::FINISHED;
+    wrapper.simpleWait(*context.dispatch);
+}
+
+TEST_F(RpcWrapperTest, simpleWait_errorStatus) {
+    TestLog::Enable _;
+    RpcWrapper wrapper(4);
+    wrapper.request.fillFromString("100");
+    wrapper.send();
+    (new(wrapper.response, APPEND) WireFormat::ResponseCommon)->status =
+            STATUS_UNIMPLEMENTED_REQUEST;
+    wrapper.state = RpcWrapper::RpcState::FINISHED;
+    string message = "no exception";
+    try {
+        wrapper.simpleWait(*context.dispatch);
+    }
+    catch (ClientException& e) {
+        message = e.toSymbol();
+    }
+    EXPECT_EQ("STATUS_UNIMPLEMENTED_REQUEST", message);
+}
+
 // Helper function that runs in a separate thread for the following tess.
 static void waitTestThread(Dispatch* dispatch, RpcWrapper* wrapper) {
     wrapper->waitInternal(*dispatch);

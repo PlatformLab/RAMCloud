@@ -87,7 +87,10 @@ struct BindTransport : public Transport {
       public:
         explicit BindSession(BindTransport& transport, ServiceArray* services,
                              const string& locator)
-            : transport(transport), services(services), locator(locator) {}
+            : transport(transport), services(services), locator(locator),
+            lastRequest(NULL), lastResponse(NULL), lastNotifier(NULL),
+            dontNotify(false) {}
+
         void abort(const string& message) {}
         void cancelRequest(RpcNotifier* notifier) {}
         ClientRpc* clientSend(Buffer* request, Buffer* response) {
@@ -126,6 +129,9 @@ struct BindTransport : public Transport {
         void sendRequest(Buffer* request, Buffer* response,
                          RpcNotifier* notifier)
         {
+            lastRequest = request;
+            lastResponse = response;
+            lastNotifier = notifier;
             Service::Rpc rpc(NULL, *request, *response);
             if (transport.abortCounter > 0) {
                 transport.abortCounter--;
@@ -150,13 +156,33 @@ struct BindTransport : public Transport {
                 throw ServiceNotAvailableException(HERE);
             }
             service->handleRpc(rpc);
-            notifier->completed();
+            if (!dontNotify) {
+                notifier->completed();
+                lastNotifier = NULL;
+            }
         }
         BindTransport& transport;
 
         // Points to an array holding one of each of the available services.
         ServiceArray* services;
         const string locator;
+
+        // The request and response buffers from the last call to sendRequest
+        // for this session.
+        Buffer *lastRequest, *lastResponse;
+
+        // Notifier from the last call to sendRequest, if that call hasn't
+        // yet been responded to.
+        RpcNotifier *lastNotifier;
+
+        // If the following variable is set to true by testing code, then
+        // sendRequest does not immediately signal completion of the RPC.
+        // It does complete the RPC, but returns without calling the
+        // notifier, leaving it to testing code to invoke the notifier
+        // explicitly to complete the call (the testing code can also
+        // modify the response).
+        bool dontNotify;
+
         DISALLOW_COPY_AND_ASSIGN(BindSession);
     };
 

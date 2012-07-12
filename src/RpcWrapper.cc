@@ -13,12 +13,13 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "ShortMacros.h"
+#include "ClientException.h"
 #include "Cycles.h"
 #include "Exception.h"
 #include "Logger.h"
 #include "Rpc.h"
 #include "RpcWrapper.h"
+#include "ShortMacros.h"
 
 namespace RAMCloud {
 
@@ -248,6 +249,23 @@ RpcWrapper::send()
     // Dummy version, provided for ease of testing.  The real versions
     // are implemented in subclasses.
     state = IN_PROGRESS;
+}
+
+/**
+ * This method is provides a simple implementation of \c wait that
+ * doesn't do any processing of the result; it just waits for completion
+ * and checks for errors.  It is invoked by various other wrapper
+ * classes as their implementation of \c wait.
+ *
+ * \param dispatch
+ *      Dispatch to use for polling while waiting.
+ */
+void
+RpcWrapper::simpleWait(Dispatch& dispatch)
+{
+    waitInternal(dispatch);
+    if (responseHeader->status != STATUS_OK)
+        ClientException::throwException(HERE, responseHeader->status);
 }
 
 /**
