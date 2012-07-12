@@ -29,6 +29,7 @@ namespace RAMCloud {
 
 class Recovery;
 typedef ServerTracker<Recovery> RecoveryTracker;
+class Tablet;
 
 namespace RecoveryInternal {
 /**
@@ -124,7 +125,7 @@ class Recovery : public Task {
              RecoveryTracker* tracker,
              Owner* owner,
              ServerId crashedServerId,
-             const ProtoBuf::Tablets& will,
+             const vector<Tablet>& tablets,
              uint64_t minOpenSegmentId);
     ~Recovery();
 
@@ -139,13 +140,6 @@ class Recovery : public Task {
     const ServerId crashedServerId;
 
     /**
-     * A partitioning of tablets ('will') for the crashed master which
-     * describes how its contents should be divided up among recovery
-     * masters in order to balance recovery time across recovery masters.
-     */
-    const ProtoBuf::Tablets will;
-
-    /**
      * Used to filter out replicas of segments which may have become
      * inconsistent. A replica with a segment id less than this is
      * not eligible to be used for recovery (both for log digest and
@@ -157,6 +151,18 @@ class Recovery : public Task {
     void startBackups();
     void startRecoveryMasters();
     void broadcastRecoveryComplete();
+
+    /**
+     * Partitioning of tablets for the crashed master which describes how its
+     * contents should be divided up among recovery masters in order to balance
+     * recovery time across recovery masters.  It is represented as a
+     * serialized tablet map with a partition id in the user_data field.
+     * Partition ids must start at 0 and be consecutive. No partition id can
+     * have 0 entries before any other partition that has more than 0 entries.
+     * This is because the recovery recovers partitions up but excluding the
+     * first with no entries.
+     */
+    ProtoBuf::Tablets tablets;
 
      /**
       * The MasterRecoveryManager's tracker which maintains a list of all

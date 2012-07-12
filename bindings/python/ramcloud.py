@@ -117,6 +117,7 @@ def load_so():
     status              = ctypes.c_int
     table               = ctypes.c_uint64
     version             = ctypes.c_uint64
+    serverId            = ctypes.c_uint64
 
     so.rc_connect.argtypes = [address, POINTER(client)]
     so.rc_connect.restype  = status
@@ -154,6 +155,14 @@ def load_so():
     so.rc_testing_fill.argtypes = [client, table, key, keyLength,
                                    ctypes.c_uint32, ctypes.c_uint32]
     so.rc_testing_fill.restype  = status
+
+    so.rc_testing_get_server_id.argtypes = [client, table, key, keyLength,
+                                            POINTER(serverId)]
+    so.rc_testing_get_server_id.restype  = status
+
+    so.rc_testing_get_service_locator.argtypes = [client, table, key, keyLength,
+                                                  serviceLocator, ctypes.c_size_t]
+    so.rc_testing_get_service_locator.restype  = status
 
     so.rc_testing_set_runtime_option.argtypes = [client,
                                                  ctypes.c_char_p,
@@ -319,6 +328,24 @@ class RAMCloud(object):
                                get_key(id), get_keyLength(id),
                                object_count, object_size)
         self.handle_error(s)
+
+    def testing_get_server_id(self, table_id, id):
+        cserver_id = ctypes.c_uint64()
+        s = so.rc_testing_get_server_id(self.client, table_id, get_key(id),
+                                        get_keyLength(id),
+                                        ctypes.byref(cserver_id))
+        self.handle_error(s)
+        return cserver_id.value
+
+    def testing_get_service_locator(self, table_id, id):
+        max_len = 128
+        buffer = ctypes.create_string_buffer(max_len)
+        s = so.rc_testing_get_service_locator(self.client,
+                                              table_id, get_key(id),
+                                              get_keyLength(id),
+                                              buffer, max_len)
+        self.handle_error(s)
+        return buffer.value
 
     def testing_set_runtime_option(self, option, value):
         so.rc_testing_set_runtime_option(self.client, option, value)

@@ -21,6 +21,8 @@
 #ifndef RAMCLOUD_COORDINATORSERVERLIST_H
 #define RAMCLOUD_COORDINATORSERVERLIST_H
 
+#include <Client/Client.h>
+
 #include "ServerList.pb.h"
 #include "Tablets.pb.h"
 
@@ -86,12 +88,6 @@ class CoordinatorServerList {
         // and are not transmitted to members' ServerLists.
 
         /**
-         * The master's will (only valid if the services includes
-         * MASTER_SERVICE).
-         */
-        ProtoBuf::Tablets* will;
-
-        /**
          * Any open replicas found during recovery are considered invalid
          * if they have a segmentId less than this.  This is used by masters
          * to invalidate replicas they have lost contact with while actively
@@ -104,6 +100,17 @@ class CoordinatorServerList {
          * a replication group. Each group has a unique Id.
          */
         uint64_t replicationId;
+
+        /**
+         * List of entry ids corresponding to entries in LogCabin log that have
+         * state updates for this server.
+         */
+         vector<LogCabin::Client::EntryId> logCabinEntryIds;
+    };
+
+    struct NoSuchServer : public Exception {
+        explicit NoSuchServer(const CodeLocation& where, string msg)
+            : Exception(where, msg) {}
     };
 
     explicit CoordinatorServerList(Context& context);
@@ -117,10 +124,6 @@ class CoordinatorServerList {
                 ProtoBuf::ServerList& update);
     void incrementVersion(ProtoBuf::ServerList& update);
 
-    void addToWill(ServerId serverId,
-                   const ProtoBuf::Tablets& willEntries);
-    void setWill(ServerId serverId,
-                 const ProtoBuf::Tablets& willEntries);
     void setMinOpenSegmentId(ServerId serverId, uint64_t segmentId);
     void setReplicationId(ServerId serverId, uint64_t segmentId);
 
@@ -129,6 +132,8 @@ class CoordinatorServerList {
     bool isUp(ServerId id) const;
     Entry operator[](const ServerId& serverId) const;
     Tub<Entry> operator[](size_t index) const;
+    Entry at(const ServerId& serverId) const;
+    Tub<Entry> at(size_t index) const;
     bool contains(ServerId serverId) const;
     size_t size() const;
     uint32_t masterCount() const;
@@ -143,6 +148,11 @@ class CoordinatorServerList {
 
     void registerTracker(ServerTrackerInterface& tracker);
     void unregisterTracker(ServerTrackerInterface& tracker);
+
+    void addLogCabinEntryId(ServerId serverId,
+                            LogCabin::Client::EntryId entryId);
+    std::vector<LogCabin::Client::EntryId>
+            getLogCabinEntryIds(ServerId serverId);
 
   PRIVATE:
     /**

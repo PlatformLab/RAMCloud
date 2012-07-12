@@ -16,13 +16,19 @@
 #ifndef RAMCLOUD_COORDINATORSERVERMANAGER_H
 #define RAMCLOUD_COORDINATORSERVERMANAGER_H
 
+#include <Client/Client.h>
+
 #include "Common.h"
 #include "CoordinatorServerList.h"
-#include "ServerId.h"
+#include "StateSetMinOpenSegmentId.pb.h"
 
 namespace RAMCloud {
 
 class CoordinatorService;
+
+using LogCabin::Client::Entry;
+using LogCabin::Client::EntryId;
+using LogCabin::Client::NO_ID;
 
 /**
  * Handles all server configuration details on behalf of the coordinator.
@@ -30,7 +36,7 @@ class CoordinatorService;
  * server configuration.
  */
 class CoordinatorServerManager {
-  public:
+  PUBLIC:
     explicit CoordinatorServerManager(CoordinatorService& coordinatorService);
     ~CoordinatorServerManager();
 
@@ -59,9 +65,41 @@ class CoordinatorServerManager {
     void removeReplicationGroup(uint64_t groupId);
     void sendServerList(ServerId serverId);
     void setMinOpenSegmentId(ServerId serverId, uint64_t segmentId);
-    bool setWill(ServerId masterId, Buffer& buffer,
-                 uint32_t offset, uint32_t length);
+    void setMinOpenSegmentIdRecover(ProtoBuf::StateSetMinOpenSegmentId* state,
+                                    EntryId entryId);
     bool verifyServerFailure(ServerId serverId);
+
+  PRIVATE:
+
+    /**
+     * Defines methods and stores data to set minOpenSegmentId of server
+     * with id serverId to segmentId.
+     */
+    class SetMinOpenSegmentId {
+        public:
+            SetMinOpenSegmentId(CoordinatorServerManager &manager,
+                                ServerId serverId,
+                                uint64_t segmentId)
+                : manager(manager), serverId(serverId), segmentId(segmentId) {}
+            void execute();
+            void complete(EntryId entryId);
+        private:
+            /**
+             * Reference to the instance of coordinator server manager
+             * initializing this class.
+             * Used to get access to CoordinatorService& service.
+             */
+            CoordinatorServerManager &manager;
+            /**
+             * ServerId of the server whose minOpenSegmentId will be set.
+             */
+            ServerId serverId;
+            /**
+             * The minOpenSegmentId to be set.
+             */
+            uint64_t segmentId;
+            DISALLOW_COPY_AND_ASSIGN(SetMinOpenSegmentId);
+    };
 
     /**
      * Reference to the coordinator service initializing this class.
@@ -83,6 +121,15 @@ class CoordinatorServerManager {
      * assume that the server has failed (rather than checking for itself).
      */
     bool forceServerDownForTesting;
+
+    /**
+     * Provides monitor-style protection for all operations in the
+     * CoordinatorServerManger.
+     * A Lock for this mutex must be held to read or modify any server
+     * configuration.
+     */
+    mutable std::mutex mutex;
+    typedef std::lock_guard<std::mutex> Lock;
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorServerManager);
 };

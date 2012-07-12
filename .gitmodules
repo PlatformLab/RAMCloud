@@ -1,3 +1,6 @@
 [submodule "gtest"]
 	path = gtest
 	url = ../gtest.git
+[submodule "logcabin"]
+	path = logcabin
+	url = https://github.com/logcabin/logcabin.git

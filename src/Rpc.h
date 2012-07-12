@@ -77,7 +77,7 @@ enum RpcOpcode {
     RECOVER                 = 19,
     HINT_SERVER_DOWN        = 20,
     RECOVERY_MASTER_FINISHED = 21,
-    SET_WILL                = 22,
+    ENUMERATION             = 22,
     SET_MIN_OPEN_SEGMENT_ID = 23,
     FILL_WITH_TEST_DATA     = 24,
     MULTI_READ              = 25,
@@ -107,8 +107,7 @@ enum RpcOpcode {
     SPLIT_TABLET            = 49,
     GET_SERVER_STATISTICS   = 50,
     SET_RUNTIME_OPTION      = 51,
-    ENUMERATION             = 52,
-    ILLEGAL_RPC_TYPE        = 53,  // 1 + the highest legitimate RpcOpcode
+    ILLEGAL_RPC_TYPE        = 52,  // 1 + the highest legitimate RpcOpcode
 };
 
 /**
@@ -642,22 +641,6 @@ struct RecoveryMasterFinishedRpc {
         bool successful;           // Indicates whether the recovery succeeded.
         uint32_t tabletsLength;    // Number of bytes in the tablet map.
                                    // The bytes of the tablet map follow
-                                   // immediately after this header. See
-                                   // ProtoBuf::Tablets.
-    } __attribute__((packed));
-    struct Response {
-        RpcResponseCommon common;
-    } __attribute__((packed));
-};
-
-struct SetWillRpc {
-    static const RpcOpcode opcode = SET_WILL;
-    static const ServiceType service = COORDINATOR_SERVICE;
-    struct Request {
-        RpcRequestCommon common;
-        uint64_t masterId;         // Server Id from whom the request is coming.
-        uint32_t willLength;       // Number of bytes in the will.
-                                   // The bytes of the will map follow
                                    // immediately after this header. See
                                    // ProtoBuf::Tablets.
     } __attribute__((packed));

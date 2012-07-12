@@ -64,7 +64,7 @@ Rpc::opcodeSymbol(uint32_t opcode)
         case RECOVER:                    return "RECOVER";
         case HINT_SERVER_DOWN:           return "HINT_SERVER_DOWN";
         case RECOVERY_MASTER_FINISHED:   return "RECOVERY_MASTER_FINISHED";
-        case SET_WILL:                   return "SET_WILL";
+        case ENUMERATION:                return "ENUMERATION";
         case FILL_WITH_TEST_DATA:        return "FILL_WITH_TEST_DATA";
         case MULTI_READ:                 return "MULTI_READ";
         case GET_METRICS:                return "GET_METRICS";
@@ -94,7 +94,6 @@ Rpc::opcodeSymbol(uint32_t opcode)
         case SPLIT_TABLET:               return "SPLIT_TABLET";
         case GET_SERVER_STATISTICS:      return "GET_SERVER_STATISTICS";
         case SET_RUNTIME_OPTION:         return "SET_RUNTIME_OPTION";
-        case ENUMERATION:                return "ENUMERATION";
         case ILLEGAL_RPC_TYPE:           return "ILLEGAL_RPC_TYPE";
     }
 

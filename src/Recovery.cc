@@ -20,6 +20,7 @@
 #include "Buffer.h"
 #include "MasterClient.h"
 #include "ShortMacros.h"
+#include "TabletMap.h"
 #include "Tub.h"
 
 namespace RAMCloud {
@@ -39,18 +40,15 @@ namespace RAMCloud {
  *      masters and to find all backup data for the crashed master.
  * \param owner
  *      The owner is called back when recovery finishes and when it is ready
- *      to be deallocated. This is usually MasterRecoveryManager, but may be NULL
- *      for testing if the test takes care of deallocation of the Recovery.
+ *      to be deallocated. This is usually MasterRecoveryManager, but may be
+ *      NULL for testing if the test takes care of deallocation of the Recovery.
  * \param crashedServerId
  *      The crashed master this Recovery will rebuild.
- * \param will
- *      A partitioned set of tablets or "will" of the crashed Master.
- *      It is represented as a tablet map with a partition id in the
- *      user_data field.  Partition ids must start at 0 and be
- *      consecutive.  No partition id can have 0 entries before
- *      any other partition that has more than 0 entries.  This
- *      is because the recovery recovers partitions up but excluding the
- *      first with no entries.
+ * \param tabletsToRecover
+ *      Copy of tablets from the coordinator's tabletMap for the server which
+ *      crashed and that are marked as RECOVERING. This recovery may not manage
+ *      to recover all of them, in which case the MasterRecoveryManager should
+ *      schedule a follow up recovery.
  * \param minOpenSegmentId
  *      Used to filter out replicas of segments which may have become
  *      inconsistent. A replica with a segment id less than this is
@@ -61,12 +59,12 @@ Recovery::Recovery(TaskQueue& taskQueue,
                    RecoveryTracker* tracker,
                    Owner* owner,
                    ServerId crashedServerId,
-                   const ProtoBuf::Tablets& will,
+                   const vector<Tablet>& tabletsToRecover,
                    uint64_t minOpenSegmentId)
     : Task(taskQueue)
     , crashedServerId(crashedServerId)
-    , will(will)
     , minOpenSegmentId(minOpenSegmentId)
+    , tablets()
     , tracker(tracker)
     , owner(owner)
     , recoveryId(generateRandom())
@@ -81,12 +79,14 @@ Recovery::Recovery(TaskQueue& taskQueue,
     , testingBackupEndTaskSendCallback()
     , testingFailRecoveryMasters()
 {
-    metrics->coordinator.recoveryCount++;
-
-    // Figure out the number of partitions specified in the will.
-    foreach (auto& tablet, will.tablet()) {
-        if (tablet.user_data() + 1 > numPartitions)
-            numPartitions = downCast<uint32_t>(tablet.user_data()) + 1;
+    // Figure out the number of partitions to be recovered and bucket tablets
+    // together for recovery on a single recovery master. Right now the
+    // bucketing is each tablet from the crashed master is recovered on a
+    // single recovery master.
+    foreach (auto& tablet, tabletsToRecover) {
+        ProtoBuf::Tablets::Tablet& entry = *tablets.add_tablet();
+        tablet.serialize(entry);
+        entry.set_user_data(numPartitions++);
     }
 }
 
@@ -105,6 +105,7 @@ Recovery::~Recovery()
 void
 Recovery::performTask()
 {
+    metrics->coordinator.recoveryCount++;
     switch (status) {
     case START_RECOVERY_ON_BACKUPS:
         startBackups();
@@ -507,12 +508,22 @@ using namespace RecoveryInternal; // NOLINT
 void
 Recovery::startBackups()
 {
-    LOG(DEBUG, "Getting segment lists from backups and preparing "
-               "them for recovery");
-
     recoveryTicks.construct(&metrics->coordinator.recoveryTicks);
     CycleCounter<RawMetric>
         _(&metrics->coordinator.recoveryBuildReplicaMapTicks);
+
+    if (numPartitions == 0) {
+        LOG(ERROR, "Somehow a recovery got scheduled for a master which "
+            "has no partitions. This should never happen.");
+        if (owner) {
+            owner->recoveryFinished(this);
+            owner->destroyAndFreeRecovery(this);
+        }
+        return;
+    }
+
+    LOG(DEBUG, "Getting segment lists from backups and preparing "
+               "them for recovery");
 
     const uint32_t maxActiveBackupHosts = 10;
     std::vector<ServerId> backups =
@@ -524,7 +535,7 @@ Recovery::startBackups()
     foreach (ServerId backup, backups) {
         backupStartTasks[i++].construct(this,
                                         backup,
-                                        crashedServerId, will,
+                                        crashedServerId, tablets,
                                         minOpenSegmentId);
     }
     parallelRun(backupStartTasks.get(), backups.size(), maxActiveBackupHosts);
@@ -669,9 +680,9 @@ using namespace RecoveryInternal; // NOLINT
 void
 Recovery::startRecoveryMasters()
 {
+    CycleCounter<RawMetric> _(&metrics->coordinator.recoveryStartTicks);
     LOG(NOTICE, "Starting recovery %lu for crashed server %lu with %u "
         "partitions", recoveryId, crashedServerId.getId(), numPartitions);
-    CycleCounter<RawMetric> _(&metrics->coordinator.recoveryStartTicks);
 
     // Set up the tasks to execute the RPCs.
     std::vector<ServerId> masters =
@@ -679,14 +690,14 @@ Recovery::startRecoveryMasters()
     uint32_t started = 0;
     Tub<MasterStartTask> recoverTasks[numPartitions];
     foreach (ServerId master, masters) {
+        if (started == numPartitions)
+            break;
         Recovery* preexistingRecovery = (*tracker)[master];
         if (!preexistingRecovery) {
             auto& task = recoverTasks[started];
             task.construct(*this, master, started, replicaMap);
             ++started;
         }
-        if (started == numPartitions)
-            break;
     }
 
     // If we couldn't find enough masters that weren't already busy with
@@ -704,7 +715,7 @@ Recovery::startRecoveryMasters()
 
     // Hand out each tablet from the will to one of the recovery masters
     // depending on which partition it was in.
-    foreach (auto& tablet, will.tablet()) {
+    foreach (auto& tablet, tablets.tablet()) {
         auto& task = recoverTasks[tablet.user_data()];
         if (task)
             *task->tablets.add_tablet() = tablet;

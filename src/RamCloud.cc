@@ -18,6 +18,7 @@
 #include "MasterClient.h"
 #include "MultiRead.h"
 #include "PingClient.h"
+#include "ShortMacros.h"
 
 namespace RAMCloud {
 
@@ -843,6 +844,38 @@ FillWithTestDataRpc2::FillWithTestDataRpc2(RamCloud& ramcloud,
     reqHdr.numObjects = numObjects;
     reqHdr.objectSize = objectSize;
     send();
+}
+
+/**
+ * Return the server id of the server that owns the specified key.
+ * Used in testing scripts to associate particular processes with
+ * their internal RAMCloud server id.
+ *
+ * \throw TableDoesntExistException
+ *      The coordinator has no record of the table.
+ */
+uint64_t
+RamCloud::testingGetServerId(uint64_t tableId,
+                             const char* key, uint16_t keyLength)
+{
+    HashType keyHash = getKeyHash(key, keyLength);
+    return objectFinder.lookupTablet(tableId, keyHash).server_id();
+}
+
+/**
+ * Return the service locator of the server that owns the specified key.
+ * Used in testing scripts to associate particular processes with
+ * their internal RAMCloud server id.
+ *
+ * \throw TableDoesntExistException
+ *      The coordinator has no record of the table.
+ */
+string
+RamCloud::testingGetServiceLocator(uint64_t tableId,
+                                   const char* key, uint16_t keyLength)
+{
+    HashType keyHash = getKeyHash(key, keyLength);
+    return objectFinder.lookupTablet(tableId, keyHash).service_locator();
 }
 
 /**

@@ -26,7 +26,7 @@
 
 namespace RAMCloud {
 
-CoordinatorService::CoordinatorService(Context& context)
+CoordinatorService::CoordinatorService(Context& context, string LogCabinLocator)
     : context(context)
     , serverList(*context.coordinatorServerList)
     , tabletMap()
@@ -36,7 +36,22 @@ CoordinatorService::CoordinatorService(Context& context)
     , runtimeOptions()
     , recoveryManager(context, serverList, tabletMap, &runtimeOptions)
     , serverManager(*this)
+    , logCabinCluster()
+    , logCabinLog()
+    , logCabinHelper()
 {
+    if (strcmp(LogCabinLocator.c_str(), "testing") == 0) {
+        LOG(NOTICE, "Connecting to mock LogCabin cluster for testing.");
+        logCabinCluster.construct(LogCabin::Client::Cluster::FOR_TESTING);
+    } else {
+        LOG(NOTICE, "Connecting to LogCabin cluster at %s",
+                    LogCabinLocator.c_str());
+        logCabinCluster.construct(LogCabinLocator);
+    }
+    logCabinLog.construct(logCabinCluster->openLog("coordinator"));
+    logCabinHelper.construct(*logCabinLog);
+    LOG(NOTICE, "Connected to LogCabin cluster.");
+
     recoveryManager.start();
 }
 
@@ -85,10 +100,6 @@ CoordinatorService::dispatch(RpcOpcode opcode,
         case BackupQuiesceRpc::opcode:
             callHandler<BackupQuiesceRpc, CoordinatorService,
                         &CoordinatorService::quiesce>(rpc);
-            break;
-        case SetWillRpc::opcode:
-            callHandler<SetWillRpc, CoordinatorService,
-                        &CoordinatorService::setWill>(rpc);
             break;
         case SendServerListRpc::opcode:
             callHandler<SendServerListRpc, CoordinatorService,
@@ -168,22 +179,6 @@ CoordinatorService::createTable(const CreateTableRpc::Request& reqHdr,
         // Create tablet map entry.
         tabletMap.addTablet({tableId, startKeyHash, endKeyHash,
                              master.serverId, Tablet::NORMAL, headOfLog});
-
-        // Create will entry. The tablet is empty, so it doesn't matter where it
-        // goes or in how many partitions, initially.
-        // It just has to go somewhere.
-        ProtoBuf::Tablets will;
-        ProtoBuf::Tablets_Tablet& willEntry(*will.add_tablet());
-        willEntry.set_table_id(tableId);
-        willEntry.set_start_key_hash(startKeyHash);
-        willEntry.set_end_key_hash(endKeyHash);
-        willEntry.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
-        // Hack which hints to the server list that it should assign
-        // partition ids.
-        willEntry.set_user_data(~(0lu));
-        willEntry.set_ctime_log_head_id(headOfLog.segmentId());
-        willEntry.set_ctime_log_head_offset(headOfLog.segmentOffset());
-        serverList.addToWill(master.serverId, will);
 
         // Inform the master.
         MasterClient::takeTabletOwnership(context, master.serverId, tableId,
@@ -413,26 +408,6 @@ CoordinatorService::quiesce(const BackupQuiesceRpc::Request& reqHdr,
 }
 
 /**
- * Update the Will associated with a specific Master. This is used
- * by Masters to keep their partitions balanced for efficient
- * recovery.
- *
- * \copydetails Service::ping
- */
-void
-CoordinatorService::setWill(const SetWillRpc::Request& reqHdr,
-                            SetWillRpc::Response& respHdr,
-                            Rpc& rpc)
-{
-    if (!serverManager.setWill(
-            ServerId(reqHdr.masterId), rpc.requestPayload, sizeof(reqHdr),
-            reqHdr.willLength)) {
-        // TODO(ongaro): should be some other error or silent
-        throw RequestFormatError(HERE);
-    }
-}
-
-/**
  * Handle the REASSIGN_TABLET_OWNER RPC. This involves switching
  * ownership of the tablet and alerting the new owner that it may
  * begin servicing requests on that tablet.
@@ -574,7 +549,7 @@ CoordinatorService::setMinOpenSegmentId(
 
     try {
         serverManager.setMinOpenSegmentId(serverId, segmentId);
-    } catch (const Exception& e) {
+    } catch (const CoordinatorServerList::NoSuchServer& e) {
         LOG(WARNING, "setMinOpenSegmentId server doesn't exist: %lu",
             serverId.getId());
         respHdr.common.status = STATUS_SERVER_DOESNT_EXIST;

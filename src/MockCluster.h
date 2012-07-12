@@ -84,7 +84,7 @@ class MockCluster {
         , servers()
     {
         context.coordinatorServerList = new CoordinatorServerList(context);
-        coordinator.construct(context);
+        coordinator.construct(context, "testing");
         transport.addService(*coordinator, coordinatorLocator,
                              COORDINATOR_SERVICE);
         coordinatorClient.construct(context, coordinatorLocator.c_str());

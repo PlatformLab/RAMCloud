@@ -26,6 +26,7 @@ CoordinatorServerManager::CoordinatorServerManager(
     : service(coordinatorService)
     , nextReplicationId(1)
     , forceServerDownForTesting(false)
+    , mutex()
 {
 }
 
@@ -379,6 +380,36 @@ CoordinatorServerManager::sendServerList(ServerId serverId)
             serializedServerList);
 }
 
+void
+CoordinatorServerManager::SetMinOpenSegmentId::execute()
+{
+    // Logging a new record to LogCabin.
+    ProtoBuf::StateSetMinOpenSegmentId state;
+    state.set_opcode("SetMinOpenSegmentId");
+    state.set_done(true);
+    state.set_server_id(this->serverId.getId());
+    state.set_segment_id(this->segmentId);
+
+    EntryId entryId = manager.service.logCabinHelper->appendProtoBuf(state);
+
+    this->complete(entryId);
+}
+
+void
+CoordinatorServerManager::SetMinOpenSegmentId::complete(EntryId entryId)
+{
+    try {
+        // Update local state.
+        manager.service.serverList.addLogCabinEntryId(serverId, entryId);
+        manager.service.serverList.setMinOpenSegmentId(serverId, segmentId);
+    } catch (const CoordinatorServerList::NoSuchServer& e) {
+        LOG(WARNING, "setMinOpenSegmentId server doesn't exist: %lu",
+            serverId.getId());
+        manager.service.logCabinLog->invalidate(vector<EntryId>(entryId));
+        throw CoordinatorServerList::NoSuchServer(e);
+    }
+}
+
 /**
  * Set the minOpenSegmentId of the specified server to the specified segmentId.
  *
@@ -388,39 +419,31 @@ CoordinatorServerManager::sendServerList(ServerId serverId)
  *      The minOpenSegmentId to be set.
  */
 void
-CoordinatorServerManager::setMinOpenSegmentId(ServerId serverId,
-                                              uint64_t segmentId)
+CoordinatorServerManager::setMinOpenSegmentId(
+    ServerId serverId, uint64_t segmentId)
 {
-    service.serverList.setMinOpenSegmentId(serverId, segmentId);
+    Lock _(mutex);
+    SetMinOpenSegmentId(*this, serverId, segmentId).execute();
 }
 
 /**
- * Update the will associated with a specific master ServerId.
+ * Set the minOpenSegmentId of the server specified in the state Protobuf
+ * to the segmentId specified in the state Protobuf.
  *
- * \param masterId
- *      ServerId of the master whose will is to be set.
- * \param buffer
- *      Buffer containing the will.
- * \param offset
- *      Byte offset of the will in the buffer.
- * \param length
- *      Length of the will in bytes.
- * \return
- *      False if masterId is not in the server list, true otherwise.
+ * \param state
+ *      The ProtoBuf that encapsulates the state of the setMinOpenSegmentId
+ *      operation to be recovered.
+ * \param entryId
+ *      The entry id of the LogCabin entry corresponding to the state.
  */
-bool
-CoordinatorServerManager::setWill(ServerId masterId, Buffer& buffer,
-                                  uint32_t offset, uint32_t length)
+void
+CoordinatorServerManager::setMinOpenSegmentIdRecover(
+    ProtoBuf::StateSetMinOpenSegmentId* state, EntryId entryId)
 {
-    ProtoBuf::Tablets newWill;
-    ProtoBuf::parseFromResponse(buffer, offset, length, newWill);
-    try {
-        service.serverList.setWill(masterId, newWill);
-    } catch (const Exception& e) {
-        LOG(WARNING, "Master %lu could not be found!!", masterId.getId());
-        return false;
-    }
-    return true;
+    Lock _(mutex);
+    ServerId serverId = ServerId(state->server_id());
+    uint64_t segmentId = state->segment_id();
+    SetMinOpenSegmentId(*this, serverId, segmentId).complete(entryId);
 }
 
 /**

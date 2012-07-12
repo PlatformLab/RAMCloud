@@ -56,6 +56,8 @@ struct Tablet {
      * cannot contain data belonging to this tablet.
      */
     LogPosition ctime;
+
+    void serialize(ProtoBuf::Tablets::Tablet& entry) const;
 };
 
 /**

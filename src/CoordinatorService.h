@@ -16,11 +16,14 @@
 #ifndef RAMCLOUD_COORDINATORSERVICE_H
 #define RAMCLOUD_COORDINATORSERVICE_H
 
+#include <Client/Client.h>
+
 #include "ServerList.pb.h"
 #include "Tablets.pb.h"
 
 #include "Common.h"
 #include "ClientException.h"
+#include "LogCabinHelper.h"
 #include "MasterRecoveryManager.h"
 #include "RawMetrics.h"
 #include "Recovery.h"
@@ -38,7 +41,8 @@ namespace RAMCloud {
  */
 class CoordinatorService : public Service {
   public:
-    explicit CoordinatorService(Context& context);
+    explicit CoordinatorService(Context& context,
+                                string LogCabinLocator = "testing");
     ~CoordinatorService();
     void dispatch(RpcOpcode opcode,
                   Rpc& rpc);
@@ -75,9 +79,6 @@ class CoordinatorService : public Service {
             Rpc& rpc);
     void quiesce(const BackupQuiesceRpc::Request& reqHdr,
                  BackupQuiesceRpc::Response& respHdr,
-                 Rpc& rpc);
-    void setWill(const SetWillRpc::Request& reqHdr,
-                 SetWillRpc::Response& respHdr,
                  Rpc& rpc);
     void reassignTabletOwnership(
             const ReassignTabletOwnershipRpc::Request& reqHdr,
@@ -148,6 +149,23 @@ class CoordinatorService : public Service {
      * Handles all server configuration details on behalf of the coordinator.
      */
     CoordinatorServerManager serverManager;
+
+    /**
+     * Handle to the cluster of LogCabin which provides reliable, consistent
+     * storage.
+     */
+    Tub<LogCabin::Client::Cluster> logCabinCluster;
+
+    /**
+     * Handle to the log interface provided by LogCabin.
+     */
+    Tub<LogCabin::Client::Log> logCabinLog;
+
+    /**
+     * Handle to a helper class that provides higher level abstractions
+     * to interact with LogCabin.
+     */
+    Tub<LogCabinHelper> logCabinHelper;
 
     friend class CoordinatorServerManager;
     DISALLOW_COPY_AND_ASSIGN(CoordinatorService);

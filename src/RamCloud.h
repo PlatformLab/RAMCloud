@@ -57,6 +57,10 @@ class RamCloud {
             uint64_t endKeyHash, uint64_t splitKeyHash);
     void testingFill(uint64_t tableId, const char* key, uint16_t keyLength,
             uint32_t numObjects, uint32_t objectSize);
+    uint64_t testingGetServerId(uint64_t tableId, const char* key,
+            uint16_t keyLength);
+    string testingGetServiceLocator(uint64_t tableId, const char* key,
+            uint16_t keyLength);
     void testingKill(uint64_t tableId, const char* key, uint16_t keyLength);
     void testingSetRuntimeOption(const char* option, const char* value);
     void testingWaitForAllTabletsNormal();
