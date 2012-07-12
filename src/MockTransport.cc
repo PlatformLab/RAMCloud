@@ -148,6 +148,7 @@ void
 MockTransport::MockSession::sendRequest(Buffer* request, Buffer* response,
                 RpcNotifier* notifier)
 {
+    response->reset();
     if (transport->outputLog.length() != 0) {
         transport->outputLog.append(" | ");
     }

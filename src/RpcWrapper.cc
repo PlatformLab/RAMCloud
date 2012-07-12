@@ -33,7 +33,7 @@ namespace RAMCloud {
  *      once isReady has returned true.
  * \param response
  *      Optional client-supplied buffer to use for the RPC's response;
- *      if NULL then we use a built-in buffer.  Must be empty.
+ *      if NULL then we use a built-in buffer.
  */
 RpcWrapper::RpcWrapper(uint32_t responseHeaderLength, Buffer* response)
     : request()
@@ -48,8 +48,6 @@ RpcWrapper::RpcWrapper(uint32_t responseHeaderLength, Buffer* response)
     if (response == NULL) {
         defaultResponse.construct();
         this->response = defaultResponse.get();
-    } else {
-        response->reset();
     }
 }
 

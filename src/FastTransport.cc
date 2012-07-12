@@ -1520,6 +1520,7 @@ void
 FastTransport::ClientSession::sendRequest(Buffer* request, Buffer* response,
                                           RpcNotifier* notifier)
 {
+    response->reset();
     ClientRpc* rpc = new(response, MISC) ClientRpc(this, request, response,
                                                    notifier);
 

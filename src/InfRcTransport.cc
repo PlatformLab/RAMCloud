@@ -456,6 +456,7 @@ void
 InfRcTransport<Infiniband>::InfRcSession::sendRequest(Buffer* request,
         Buffer* response, RpcNotifier* notifier)
 {
+    response->reset();
     InfRcTransport *t = transport;
     if (qp == NULL) {
         throw TransportException(HERE, abortMessage);

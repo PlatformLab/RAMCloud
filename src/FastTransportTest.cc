@@ -1934,6 +1934,19 @@ TEST_F(ClientSessionTest, processInboundPacket_stalePacket) {
         TestLog::get());
 }
 
+TEST_F(ClientSessionTest, sendRequest_clearResponseBuffer) {
+    session->numChannels = 1;
+    session->allocateChannels();
+    EXPECT_TRUE(session->isConnected());
+    EXPECT_TRUE(session->channelQueue.empty());
+    Buffer response;
+    response.fillFromString("abcdef");
+    EXPECT_EQ(7U, response.getTotalLength());
+    RpcWrapper wrapper(4, &response);
+    wrapper.testSend(session);
+    EXPECT_EQ(0U, response.getTotalLength());
+}
+
 TEST_F(ClientSessionTest, sendRequest_notConnected) {
     EXPECT_FALSE(session->isConnected());
     EXPECT_TRUE(session->channelQueue.empty());

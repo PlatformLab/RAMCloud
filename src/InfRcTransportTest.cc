@@ -46,7 +46,10 @@ TEST_F(InfRcTransportTest, sanityCheck) {
     // of data.
 
     Transport::SessionRef session = client.getSession(locator);
-    RpcWrapper wrapper(4);
+    Buffer response;
+    // Put junk in the response buffer to make sure it gets cleared properly.
+    response.fillFromString("abcde");
+    RpcWrapper wrapper(4, &response);
 
     wrapper.request.fillFromString("abcdefg");
     wrapper.testSend(session);

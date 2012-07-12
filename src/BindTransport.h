@@ -94,6 +94,7 @@ struct BindTransport : public Transport {
         void abort(const string& message) {}
         void cancelRequest(RpcNotifier* notifier) {}
         ClientRpc* clientSend(Buffer* request, Buffer* response) {
+            response->reset();
             BindClientRpc* result = new(response, MISC)
                     BindClientRpc(transport.context, request, response);
             Service::Rpc rpc(NULL, *request, *response);

@@ -894,6 +894,16 @@ TEST_F(TcpTransportTest, findRpc) {
     session.abort("session closed");
 }
 
+TEST_F(TcpTransportTest, sendRequest_clearResponse) {
+    Transport::SessionRef session = client.getSession(locator);
+    Buffer response;
+    response.fillFromString("abcdef");
+    EXPECT_EQ(7U, response.getTotalLength());
+    RpcWrapper wrapper(4, &response);
+    wrapper.testSend(session);
+    EXPECT_EQ(0U, response.getTotalLength());
+}
+
 TEST_F(TcpTransportTest, sendRequest_sessionClosed) {
     Transport::SessionRef session = client.getSession(locator);
     TcpTransport::TcpSession* rawSession =

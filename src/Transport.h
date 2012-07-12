@@ -301,9 +301,10 @@ class Transport {
          *      even access \a request until notifier's completed or failed
          *      method has been invoked.
          * \param[out] response
-         *      An empty Buffer that will be filled in with the received
-         *      RPC response. The caller must not access \a response until
-         *      notifier's completed or failed method has been invoked.
+         *      A Buffer that will be filled in with the RPC response. The
+         *      transport will clear any existing contents.  The caller must
+         *      not access \a response until \a notifier's \c completed or
+         *      \c failed method has been invoked.
          * \param notifier
          *      This object will be invoked when the RPC has completed or
          *      failed. It also serves as a unique identifier for the RPC,
@@ -381,20 +382,8 @@ class Transport {
       public:
         explicit RpcNotifier() {}
         virtual ~RpcNotifier() {}
-
-        /**
-         * This method is invoked in the dispatch thread by a transport when
-         * a response message is successfully received for RPC.
-         */
-        virtual void completed() = 0;
-
-        /**
-         * This method is invoked in the dispatch thread by a transport if a
-         * transport-level error prevents an RPC from completing. In this case,
-         * the wrapper should assume that the session for the RPC is dead;
-         * it will typically open a new session and retry the operation.
-         */
-        virtual void failed() = 0;
+        virtual void completed();
+        virtual void failed();
 
         DISALLOW_COPY_AND_ASSIGN(RpcNotifier);
     };

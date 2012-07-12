@@ -21,6 +21,24 @@
 namespace RAMCloud {
 
 /**
+ * This method is invoked in the dispatch thread by a transport when
+ * a response message is successfully received for RPC.
+ */
+void
+Transport::RpcNotifier::completed() {
+}
+
+/**
+ * This method is invoked in the dispatch thread by a transport if a
+ * transport-level error prevents an RPC from completing. In this case,
+ * the wrapper should assume that the session for the RPC is dead;
+ * it will typically open a new session and retry the operation.
+ */
+void
+Transport::RpcNotifier::failed() {
+}
+
+/**
  * Wait for the RPC response to arrive (if it hasn't already) and throw
  * an exception if there were any problems. Once this method has returned
  * the caller can access the response message using the #Buffer that was
