@@ -417,7 +417,7 @@ def run(
 
     if not share_hosts:
         if (len(hosts) - num_servers) < 1:
-            raise Exception('Asked for %d servers without sharing hosts with '
+            raise Exception('Asked for %d servers without sharing hosts with %d '
                             'clients, but only %d hosts were available'
                             % (num_servers, num_clients, len(hosts)))
 
