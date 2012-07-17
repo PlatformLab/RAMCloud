@@ -376,12 +376,12 @@ CoordinatorServerManager::SetMinOpenSegmentId::execute()
     ProtoBuf::StateSetMinOpenSegmentId state;
     state.set_opcode("SetMinOpenSegmentId");
     state.set_done(true);
-    state.set_server_id(this->serverId.getId());
-    state.set_segment_id(this->segmentId);
+    state.set_server_id(serverId.getId());
+    state.set_segment_id(segmentId);
 
     EntryId entryId = manager.service.logCabinHelper->appendProtoBuf(state);
 
-    this->complete(entryId);
+    complete(entryId);
 }
 
 void
