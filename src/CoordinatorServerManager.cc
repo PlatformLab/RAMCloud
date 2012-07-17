@@ -169,7 +169,7 @@ CoordinatorServerManager::enlistServerStart(
         // will be no recovery.  That means it needs to transition to
         // removed status now (usually recoveries remove servers from the
         // list when they complete).
-        if (!replacedEntry->get()->isMaster())
+        if (!replacedEntry->get()->services.has(MASTER_SERVICE))
             service.serverList.remove(replacesId, *serverListUpdate);
     }
 
@@ -276,7 +276,7 @@ CoordinatorServerManager::hintServerDown(ServerId serverId)
     // will be no recovery.  That means it needs to transition to
     // removed status now (usually recoveries remove servers from the
     // list when they complete).
-    if (!entry.isMaster())
+    if (!entry.services.has(MASTER_SERVICE))
         service.serverList.remove(serverId, update);
     service.serverList.incrementVersion(update);
 

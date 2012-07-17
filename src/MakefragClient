@@ -1,5 +1,3 @@
-OBJDIRS += client_shared
-
 ifeq ($(INFINIBAND),yes)
 INFINIBAND_SRCFILES := \
 	   src/Infiniband.cc \
@@ -74,24 +72,12 @@ CLIENT_OBJFILES := $(CLIENT_SRCFILES)
 CLIENT_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/%.o, $(CLIENT_OBJFILES))
 CLIENT_OBJFILES := $(patsubst $(OBJDIR)/%.cc, $(OBJDIR)/%.o, $(CLIENT_OBJFILES))
 
-CLIENT_SHARED_OBJFILES := $(CLIENT_SRCFILES)
-CLIENT_SHARED_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/client_shared/%.o, $(CLIENT_SHARED_OBJFILES))
-CLIENT_SHARED_OBJFILES := $(patsubst $(OBJDIR)/%.cc, $(OBJDIR)/client_shared/%.o, $(CLIENT_SHARED_OBJFILES))
-
-$(OBJDIR)/client_shared/%.o: $(TOP)/src/%.cc $(AUTO_GEN_HEADERS)
-	@mkdir -p $(@D)
-	$(call run-cxx,$@,$<,-fPIC)
-
-$(OBJDIR)/client_shared/%.o: $(OBJDIR)/%.cc $(AUTO_GEN_HEADERS)
-	@mkdir -p $(@D)
-	$(call run-cxx,$@,$<,-fPIC)
-
 $(OBJDIR)/libramcloud.a: $(CLIENT_OBJFILES)
 	@mkdir -p $(@D)
 	$(AR) rcs $@ $^
 
 # protocol buffers seems to need -lpthread, meh
-$(OBJDIR)/libramcloud.so: $(CLIENT_SHARED_OBJFILES)
+$(OBJDIR)/libramcloud.so: $(CLIENT_OBJFILES)
 	@mkdir -p $(@D)
 	$(CXX) -shared -lpthread -o $@ $^ -Wl,--no-undefined $(LIBS)
 

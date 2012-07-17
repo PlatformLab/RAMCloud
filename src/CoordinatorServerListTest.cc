@@ -349,34 +349,46 @@ TEST_F(CoordinatorServerListTest, serialize) {
     sl.add("", {MASTER_SERVICE}, 100, update);
     sl.add("", {MASTER_SERVICE}, 100, update);
     sl.add("", {BACKUP_SERVICE}, 100, update);
+    ServerId last = sl.add("", {MASTER_SERVICE, BACKUP_SERVICE}, 100, update);
     sl.remove(first, update);       // ensure removed entries are skipped
+    sl.crashed(last, update);       // ensure crashed entries are included
 
     auto masterMask = ServiceMask{MASTER_SERVICE}.serialize();
     auto backupMask = ServiceMask{BACKUP_SERVICE}.serialize();
+    auto bothMask = ServiceMask{MASTER_SERVICE, BACKUP_SERVICE}.serialize();
     {
         ProtoBuf::ServerList serverList;
         sl.serialize(serverList, {});
         EXPECT_EQ(0, serverList.server_size());
         sl.serialize(serverList, {MASTER_SERVICE});
-        EXPECT_EQ(2, serverList.server_size());
+        EXPECT_EQ(3, serverList.server_size());
         EXPECT_EQ(masterMask, serverList.server(0).services());
         EXPECT_EQ(masterMask, serverList.server(1).services());
+        EXPECT_EQ(bothMask, serverList.server(2).services());
+        EXPECT_EQ(ServerStatus::CRASHED,
+                  ServerStatus(serverList.server(2).status()));
     }
 
     {
         ProtoBuf::ServerList serverList;
         sl.serialize(serverList, {BACKUP_SERVICE});
-        EXPECT_EQ(1, serverList.server_size());
+        EXPECT_EQ(2, serverList.server_size());
         EXPECT_EQ(backupMask, serverList.server(0).services());
+        EXPECT_EQ(bothMask, serverList.server(1).services());
+        EXPECT_EQ(ServerStatus::CRASHED,
+                  ServerStatus(serverList.server(1).status()));
     }
 
     {
         ProtoBuf::ServerList serverList;
         sl.serialize(serverList, {MASTER_SERVICE, BACKUP_SERVICE});
-        EXPECT_EQ(3, serverList.server_size());
+        EXPECT_EQ(4, serverList.server_size());
         EXPECT_EQ(masterMask, serverList.server(0).services());
         EXPECT_EQ(masterMask, serverList.server(1).services());
         EXPECT_EQ(backupMask, serverList.server(2).services());
+        EXPECT_EQ(bothMask, serverList.server(3).services());
+        EXPECT_EQ(ServerStatus::CRASHED,
+                  ServerStatus(serverList.server(3).status()));
     }
 }
 
@@ -396,7 +408,7 @@ TEST_F(CoordinatorServerListTest, sendMembershipUpdate) {
     ServerId serverId1 =
         sl.add("mock:host=server1", {MEMBERSHIP_SERVICE}, 0, update);
 
-    // Test crashed server gets skipped.
+    // Test crashed server gets skipped as a recipient.
     ServerId serverId2 = sl.add("mock:host=server2", {}, 0, update);
     sl.crashed(serverId2, update);
 

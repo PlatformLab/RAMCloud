@@ -123,13 +123,9 @@ class EnqueueMasterRecoveryTask : public Task {
         , recovery()
         , minOpenSegmentId(minOpenSegmentId)
     {
-        auto tabletsToRecover =
-            mgr.tabletMap.setStatusForServer(crashedServerId,
-                                             Tablet::RECOVERING);
         recovery = new Recovery(recoveryManager.context, mgr.taskQueue,
-                                &mgr.tracker, &mgr,
-                                crashedServerId, tabletsToRecover,
-                                minOpenSegmentId);
+                                &mgr.tabletMap, &mgr.tracker,
+                                &mgr, crashedServerId, minOpenSegmentId);
     }
 
     /**
@@ -346,16 +342,33 @@ MasterRecoveryManager::startMasterRecovery(ServerId crashedServerId)
         return;
     }
 
-    CoordinatorServerList::Entry server = serverList[crashedServerId];
-    LOG(NOTICE, "Scheduling recovery of master %lu", crashedServerId.getId());
+    try {
+        CoordinatorServerList::Entry server = serverList[crashedServerId];
+        LOG(NOTICE, "Scheduling recovery of master %lu",
+            crashedServerId.getId());
 
-    if (doNotStartRecoveries) {
-        TEST_LOG("Recovery crashedServerId: %lu", crashedServerId.getId());
-        return;
+        if (doNotStartRecoveries) {
+            TEST_LOG("Recovery crashedServerId: %lu", crashedServerId.getId());
+            return;
+        }
+
+        (new EnqueueMasterRecoveryTask(*this, crashedServerId,
+                                       server.minOpenSegmentId))->schedule();
+    } catch (const Exception& e) {
+        // Check one last time just to sanity check the correctness of the
+        // recovery mananger: make sure that if the server isn't in the
+        // server list anymore (presumably because a recovery completed on
+        // it since the time of the start of the call) that there really aren't
+        // any tablets left on it.
+        tablets =
+            tabletMap.setStatusForServer(crashedServerId, Tablet::RECOVERING);
+        if (!tablets.empty()) {
+            LOG(ERROR, "Tried to start recovery for crashed server %lu which "
+                "has tablets in the tablet map but is no longer in the "
+                "coordinator server list. Cannot recover. Kiss your data "
+                "goodbye.", crashedServerId.getId());
+        }
     }
-
-    (new EnqueueMasterRecoveryTask(*this, crashedServerId,
-                                   server.minOpenSegmentId))->schedule();
 }
 
 namespace MasterRecoveryManagerInternal {
@@ -466,10 +479,15 @@ MasterRecoveryManager::recoveryFinished(Recovery* recovery)
         // TODO(stutsman): Eventually we'll want CoordinatorServerList
         // to take care of this for us automatically. So we can just
         // do the remove.
-        ProtoBuf::ServerList update;
-        serverList.remove(recovery->crashedServerId, update);
-        serverList.incrementVersion(update);
-        serverList.sendMembershipUpdate(update, {});
+        try {
+            ProtoBuf::ServerList update;
+            serverList.remove(recovery->crashedServerId, update);
+            serverList.incrementVersion(update);
+            serverList.sendMembershipUpdate(update, {});
+        } catch (const Exception& e) {
+            // Server may have already been removed from the list
+            // because of an earlier recovery.
+        }
         (new MaybeStartRecoveryTask(*this))->schedule();
     } else {
         LOG(NOTICE,

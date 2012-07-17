@@ -797,8 +797,11 @@ CoordinatorServerList::serialize(const Lock& lock,
 
         const Entry& entry = *serverList[i].entry;
 
-        if ((entry.isMaster() && services.has(MASTER_SERVICE)) ||
-            (entry.isBackup() && services.has(BACKUP_SERVICE))) {
+        if ((entry.services.has(MASTER_SERVICE) &&
+             services.has(MASTER_SERVICE)) ||
+            (entry.services.has(BACKUP_SERVICE) &&
+             services.has(BACKUP_SERVICE)))
+        {
             ProtoBuf::ServerList_Entry& protoBufEntry(*protoBuf.add_server());
             entry.serialize(protoBufEntry);
         }

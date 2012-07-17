@@ -22,6 +22,7 @@
 #include "CycleCounter.h"
 #include "Log.h"
 #include "RawMetrics.h"
+#include "TabletMap.h"
 #include "Tablets.pb.h"
 #include "TaskQueue.h"
 
@@ -119,13 +120,12 @@ class Recovery : public Task {
         virtual void destroyAndFreeRecovery(Recovery* recovery) {}
         virtual ~Owner() {}
     };
-
     Recovery(Context& context,
              TaskQueue& taskQueue,
+             TabletMap* tabletMap,
              RecoveryTracker* tracker,
              Owner* owner,
              ServerId crashedServerId,
-             const vector<Tablet>& tablets,
              uint64_t minOpenSegmentId);
     ~Recovery();
 
@@ -151,6 +151,7 @@ class Recovery : public Task {
     const uint64_t minOpenSegmentId;
 
   PRIVATE:
+    void partitionTablets();
     void startBackups();
     void startRecoveryMasters();
     void broadcastRecoveryComplete();
@@ -165,7 +166,14 @@ class Recovery : public Task {
      * This is because the recovery recovers partitions up but excluding the
      * first with no entries.
      */
-    ProtoBuf::Tablets tablets;
+    ProtoBuf::Tablets tabletsToRecover;
+
+    /**
+     * Coordinator's authoritative information about tablets and their mapping
+     * to servers. Used during to find out which tablets need to be recovered
+     * for the crashed master.
+     */
+    TabletMap* tabletMap;
 
      /**
       * The MasterRecoveryManager's tracker which maintains a list of all
