@@ -139,17 +139,17 @@ class CoordinatorServerList : public AbstractServerList{
                    ServiceMask services) const;
     void sendMembershipUpdate(ProtoBuf::ServerList& update,
                               ServerId excludeServerId);
+    void addLogCabinEntryId(ServerId serverId,
+                            LogCabin::Client::EntryId entryId);
+    std::vector<LogCabin::Client::EntryId>
+            getLogCabinEntryIds(ServerId serverId);
+
 
   PROTECTED:
     /// Internal Use Only - Does not grab locks
     ServerDetails* iget(size_t index);
     bool icontains(ServerId id) const;
     size_t isize() const;
-
-    void addLogCabinEntryId(ServerId serverId,
-                            LogCabin::Client::EntryId entryId);
-    std::vector<LogCabin::Client::EntryId>
-            getLogCabinEntryIds(ServerId serverId);
 
   PRIVATE:
     /**
