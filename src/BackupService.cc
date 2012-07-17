@@ -1928,6 +1928,8 @@ BackupService::gc()
         ServerChangeEvent event;
         while (gcTracker.getChange(server, event));
     }
+    if (gcTracker.size() == 0)
+        return false;
 
     auto nextToTry = segments.upper_bound(gcLeftOffAt);
     if (nextToTry == segments.end())

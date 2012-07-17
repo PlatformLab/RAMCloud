@@ -1282,6 +1282,13 @@ TEST_F(BackupServiceTest, gcRestartOnFreedReplica) {
     EXPECT_EQ(10u, backup->gcLeftOffAt.segmentId);
 }
 
+TEST_F(BackupServiceTest, gcHoldOffUntilFirstServerListUpdate) {
+    backup->gcTracker.numberOfServers = 0;
+    TestLog::Enable _;
+    EXPECT_FALSE(backup->gc());
+    EXPECT_EQ("gc: Running backup replica garbage collection", TestLog::get());
+}
+
 class SegmentInfoTest : public ::testing::Test {
   public:
     typedef BackupService::SegmentInfo SegmentInfo;
