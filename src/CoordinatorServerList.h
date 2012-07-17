@@ -100,10 +100,10 @@ class CoordinatorServerList : public AbstractServerList{
         uint64_t replicationId;
 
         /**
-         * List of entry ids corresponding to entries in LogCabin log that have
-         * state updates for this server.
+         * Entry id corresponding to entry in LogCabin log that has
+         * deatils for this server.
          */
-         vector<LogCabin::Client::EntryId> logCabinEntryIds;
+         LogCabin::Client::EntryId logCabinEntryId;
     };
 
     struct NoSuchServer : public Exception {
@@ -141,8 +141,7 @@ class CoordinatorServerList : public AbstractServerList{
                               ServerId excludeServerId);
     void addLogCabinEntryId(ServerId serverId,
                             LogCabin::Client::EntryId entryId);
-    std::vector<LogCabin::Client::EntryId>
-            getLogCabinEntryIds(ServerId serverId);
+    LogCabin::Client::EntryId getLogCabinEntryId(ServerId serverId);
 
 
   PROTECTED:

@@ -380,10 +380,9 @@ TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentId_execute) {
     serverManager->setMinOpenSegmentId(masterServerId, 10);
 
     ProtoBuf::StateSetMinOpenSegmentId readState;
-    vector<EntryId> logCabinEntryIds =
-        serverList->getLogCabinEntryIds(masterServerId);
+    EntryId logCabinEntryId = serverList->getLogCabinEntryId(masterServerId);
     serverManager->service.logCabinHelper->getProtoBufFromEntryId(
-        logCabinEntryIds[0], readState);
+        logCabinEntryId, readState);
 
     EXPECT_EQ("opcode: \"SetMinOpenSegmentId\"\n"
               "done: true\nserver_id: 1\nsegment_id: 10\n",
