@@ -27,21 +27,18 @@
 
 namespace RAMCloud {
 
-//////////////////////////////////////////////////////////////////////
-// CoordinatorServerList Public Methods
-//////////////////////////////////////////////////////////////////////
-
 /**
  * Constructor for CoordinatorServerList.
+ *
+ *
+ * \param context
+ *      Overall information about the RAMCloud server
  */
 CoordinatorServerList::CoordinatorServerList(Context& context)
-    : context(context)
-    , mutex()
+    : AbstractServerList(context)
     , serverList()
     , numberOfMasters(0)
     , numberOfBackups(0)
-    , versionNumber(0)
-    , trackers()
 {
 }
 
@@ -52,6 +49,38 @@ CoordinatorServerList::~CoordinatorServerList()
 {
 }
 
+
+//////////////////////////////////////////////////////////////////////
+// CoordinatorServerList Protected Methods From AbstractServerList
+//////////////////////////////////////////////////////////////////////
+ServerDetails*
+CoordinatorServerList::iget(size_t index)
+{
+    return (serverList[index].entry) ? serverList[index].entry.get() : NULL;
+}
+
+bool
+CoordinatorServerList::icontains(ServerId id) const
+{
+    uint32_t index = id.indexNumber();
+    return index < serverList.size() &&
+            serverList[index].entry &&
+            serverList[index].entry->serverId == id;
+}
+
+/**
+ * Return the number of valid indexes in this list w/o lock. Valid does not mean
+ * that they're occupied, only that they are within the bounds of the array.
+ */
+size_t
+CoordinatorServerList::isize() const
+{
+    return serverList.size();
+}
+
+//////////////////////////////////////////////////////////////////////
+// CoordinatorServerList Public Methods
+//////////////////////////////////////////////////////////////////////
 /**
  * Add a new server to the CoordinatorServerList and generate a new, unique
  * ServerId for it.
@@ -212,8 +241,8 @@ void
 CoordinatorServerList::incrementVersion(ProtoBuf::ServerList& update)
 {
     Lock _(mutex);
-    versionNumber++;
-    update.set_version_number(versionNumber);
+    version++;
+    update.set_version_number(version);
 }
 
 /**
@@ -258,57 +287,6 @@ CoordinatorServerList::setReplicationId(ServerId serverId,
 }
 
 /**
- * Obtain the locator associated with the given ServerId.
- *
- * \param id
- *      The ServerId to look up the locator for.
- * \return
- *      The ServiceLocator string assocated with the given ServerId.
- * \throw Exception
- *      Exception is thrown if the given ServerId is not in this list.
- */
-const char*
-CoordinatorServerList::getLocator(ServerId id) const
-{
-    Lock _(mutex);
-    return getReferenceFromServerId(id).serviceLocator.c_str();
-}
-
-/**
- * Open a session to the given ServerId. This method simply calls through to
- * TransportManager::getSession. See the documentation there for exceptions
- * that may be thrown.
- *
- * \throw Exception
- *      Exception is thrown if the given ServerId is not in this list.
- */
-Transport::SessionRef
-CoordinatorServerList::getSession(ServerId id) const
-{
-    return context.transportManager->getSession(getLocator(id), id);
-}
-
-/**
- * Indicate whether a particular server is still believed to be
- * actively participating in the cluster.
- *
- * \param id
- *      Identifier for a particular server.
- * \return
- *      Returns true if the server given by #id exists in the server
- *      list and its state is "up"; returns false otherwise.
- */
-bool
-CoordinatorServerList::isUp(ServerId id) const
-{
-    Lock _(mutex);
-    uint32_t index = id.indexNumber();
-    return index < serverList.size() && serverList[index].entry
-            && serverList[index].entry->serverId == id
-            && serverList[index].entry->status == ServerStatus::UP;
-}
-
-/**
  * Returns a copy of the details associated with the given ServerId.
  *
  * \param serverId
@@ -341,6 +319,7 @@ CoordinatorServerList::operator[](size_t index) const
         throw Exception(HERE, format("Index beyond array length (%zd)", index));
     return serverList[index].entry;
 }
+
 
 /**
  * Returns a copy of the details associated with the given ServerId.
@@ -384,31 +363,9 @@ CoordinatorServerList::at(size_t index) const
 bool
 CoordinatorServerList::contains(ServerId serverId) const
 {
-    Lock _(mutex);
-    if (!serverId.isValid())
-        return false;
-
-    uint32_t index = serverId.indexNumber();
-
-    if (index >= serverList.size())
-        return false;
-
-    if (!serverList[index].entry)
-        return false;
-
-    return serverList[index].entry->serverId == serverId;
+    return serverId.isValid() && icontains(serverId);
 }
 
-/**
- * Return the number of valid indexes in this list. Valid does not mean that
- * they're occupied, only that they are within the bounds of the array.
- */
-size_t
-CoordinatorServerList::size() const
-{
-    Lock _(mutex);
-    return serverList.size();
-}
 
 /**
  * Get the number of masters in the list; does not include servers in
@@ -585,68 +542,6 @@ CoordinatorServerList::sendMembershipUpdate(ProtoBuf::ServerList& update,
 }
 
 /**
- * Register a ServerTracker with this list. Any updates to this
- * list (additions, removals, or crashes) will be propagated to the tracker.
- * The current list of hosts will be pushed to the tracker immediately so
- * that its state is synchronised with this list.
- *
- * \throw ServerListException
- *      An exception is thrown if the same tracker is registered more
- *      than once.
- */
-void
-CoordinatorServerList::registerTracker(ServerTrackerInterface& tracker)
-{
-    Lock _(mutex);
-
-    auto it = std::find(trackers.begin(), trackers.end(), &tracker);
-    if (it != trackers.end()) {
-        throw ServerListException(HERE,
-            "Cannot register the same tracker twice!");
-    }
-
-    trackers.push_back(&tracker);
-
-    // Push all known servers which are crashed first.
-    // Order is important to guarantee that if one server replaced another
-    // during enlistment that the registering tracker queue will have the
-    // crash event for the replaced server before the add event of the
-    // server which replaced it.
-    foreach (const auto& server, serverList) {
-        if (!server.entry || server.entry->status != ServerStatus::CRASHED)
-            continue;
-        const Entry& entry = *server.entry;
-        ServerDetails details = entry;
-        details.status = ServerStatus::UP;
-        tracker.enqueueChange(details, ServerChangeEvent::SERVER_ADDED);
-        tracker.enqueueChange(entry, ServerChangeEvent::SERVER_CRASHED);
-    }
-    // Push all known server which are up.
-    foreach (const auto& server, serverList) {
-        if (!server.entry || server.entry->status != ServerStatus::UP)
-            continue;
-        tracker.enqueueChange(*server.entry, ServerChangeEvent::SERVER_ADDED);
-    }
-    tracker.fireCallback();
-}
-
-/**
- * Unregister a ServerTracker that was previously registered with this
- * list. Doing so will cease all update propagation.
- */
-void
-CoordinatorServerList::unregisterTracker(ServerTrackerInterface& tracker)
-{
-    Lock _(mutex);
-    for (auto it = trackers.begin(); it != trackers.end(); ++it) {
-        if (*it == &tracker) {
-            trackers.erase(it);
-            break;
-        }
-    }
-}
-
-/**
  * Add a LogCabin entry id corresponding to a state change for
  * a particular server.
  */
@@ -807,7 +702,7 @@ CoordinatorServerList::serialize(const Lock& lock,
         }
     }
 
-    protoBuf.set_version_number(versionNumber);
+    protoBuf.set_version_number(version);
 }
 
 //////////////////////////////////////////////////////////////////////

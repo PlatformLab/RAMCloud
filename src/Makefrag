@@ -24,6 +24,7 @@ endif
 
 # these files are compiled into everything but clients
 SHARED_SRCFILES := \
+		   src/AbstractServerList.cc \
 		   src/Client.cc \
 		   src/ClientException.cc \
 		   src/Context.cc \

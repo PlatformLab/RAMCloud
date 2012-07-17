@@ -53,56 +53,6 @@ class ServerListTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(ServerListTest);
 };
 
-TEST_F(ServerListTest, getLocator) {
-    EXPECT_THROW(sl.getLocator(ServerId(1, 0)), ServerListException);
-    sl.add(ServerId(1, 0), "mock:", {}, 100);
-    EXPECT_THROW(sl.getLocator(ServerId(2, 0)), ServerListException);
-    EXPECT_STREQ("mock:", sl.getLocator(ServerId(1, 0)));
-}
-
-TEST_F(ServerListTest, isUp) {
-    EXPECT_FALSE(sl.isUp(ServerId(1, 0)));
-    sl.add(ServerId(1, 0), "mock:", {}, 100);
-    EXPECT_TRUE(sl.isUp(ServerId(1, 0)));
-    EXPECT_FALSE(sl.isUp(ServerId(1, 2)));
-    EXPECT_FALSE(sl.isUp(ServerId(2, 0)));
-    sl.crashed(ServerId(1, 0), "mock:", {}, 100);
-    EXPECT_FALSE(sl.isUp(ServerId(1, 0)));
-}
-
-TEST_F(ServerListTest, toString) {
-    EXPECT_EQ("server 1 at (locator unavailable)",
-              sl.toString(ServerId(1)));
-    sl.add(ServerId(1), "mock:service=locator", {}, 100);
-    EXPECT_EQ("server 1 at mock:service=locator",
-              sl.toString(ServerId(1)));
-}
-
-TEST_F(ServerListTest, toString_status) {
-    EXPECT_EQ("UP", ServerList::toString(ServerStatus::UP));
-    EXPECT_EQ("CRASHED", ServerList::toString(ServerStatus::CRASHED));
-    EXPECT_EQ("DOWN", ServerList::toString(ServerStatus::DOWN));
-}
-
-TEST_F(ServerListTest, toString_all) {
-    EXPECT_EQ("", sl.toString());
-    sl.add(ServerId(1), "mock:host=one", {MASTER_SERVICE}, 100);
-    EXPECT_EQ(
-        "server 1 at mock:host=one with MASTER_SERVICE is UP\n",
-        sl.toString());
-    sl.add(ServerId(2), "mock:host=two", {BACKUP_SERVICE}, 75);
-    EXPECT_EQ(
-        "server 1 at mock:host=one with MASTER_SERVICE is UP\n"
-        "server 2 at mock:host=two with BACKUP_SERVICE is UP\n",
-        sl.toString());
-}
-
-TEST_F(ServerListTest, size) {
-    EXPECT_EQ(sl.serverList.size(), sl.size());
-    sl.add(ServerId(572, 0), "mock:", {}, 100);
-    EXPECT_EQ(573U, sl.size());
-}
-
 TEST_F(ServerListTest, indexOperator) {
     EXPECT_FALSE(sl[0].isValid());
     EXPECT_FALSE(sl[183742].isValid());
@@ -110,60 +60,6 @@ TEST_F(ServerListTest, indexOperator) {
     EXPECT_EQ(ServerId(7572, 2734), sl[7572]);
     sl.remove(ServerId(7572, 2734));
     EXPECT_FALSE(sl[7572].isValid());
-}
-
-TEST_F(ServerListTest, contains) {
-    EXPECT_FALSE(sl.contains(ServerId(0, 0)));
-    EXPECT_FALSE(sl.contains(ServerId(1, 0)));
-    sl.add(ServerId(1, 0), "mock:", {}, 100);
-    EXPECT_TRUE(sl.contains(ServerId(1, 0)));
-    sl.remove(ServerId(1, 0));
-    EXPECT_FALSE(sl.contains(ServerId(1, 0)));
-}
-
-TEST_F(ServerListTest, registerTracker) {
-    sl.registerTracker(tr);
-    EXPECT_EQ(1U, sl.trackers.size());
-    EXPECT_EQ(&tr, sl.trackers[0]);
-    EXPECT_THROW(sl.registerTracker(tr), Exception);
-}
-
-TEST_F(ServerListTest, registerTracker_pushAdds) {
-    sl.add(ServerId(1, 2), "mock:", {}, 100);
-    sl.add(ServerId(2, 3), "mock:", {}, 100);
-    sl.add(ServerId(0, 1), "mock:", {}, 100);
-    sl.add(ServerId(3, 4), "mock:", {}, 100);
-    sl.crashed(ServerId(3, 4), "mock:", {}, 100);
-    sl.remove(ServerId(2, 3));
-    sl.registerTracker(tr);
-
-    // Should be in order, but missing (2, 3)
-    EXPECT_EQ(4U, changes.size());
-    EXPECT_EQ(ServerId(3, 4), changes.front().server.serverId);
-    EXPECT_EQ(ServerChangeEvent::SERVER_ADDED, changes.front().event);
-    changes.pop();
-    EXPECT_EQ(ServerId(3, 4), changes.front().server.serverId);
-    EXPECT_EQ(ServerChangeEvent::SERVER_CRASHED, changes.front().event);
-    changes.pop();
-    EXPECT_EQ(ServerId(0, 1), changes.front().server.serverId);
-    EXPECT_EQ(ServerChangeEvent::SERVER_ADDED, changes.front().event);
-    changes.pop();
-    EXPECT_EQ(ServerId(1, 2), changes.front().server.serverId);
-    EXPECT_EQ(ServerChangeEvent::SERVER_ADDED, changes.front().event);
-    changes.pop();
-}
-
-TEST_F(ServerListTest, unregisterTracker) {
-    EXPECT_EQ(0U, sl.trackers.size());
-
-    sl.unregisterTracker(tr);
-    EXPECT_EQ(0U, sl.trackers.size());
-
-    sl.registerTracker(tr);
-    EXPECT_EQ(1U, sl.trackers.size());
-
-    sl.unregisterTracker(tr);
-    EXPECT_EQ(0U, sl.trackers.size());
 }
 
 static bool

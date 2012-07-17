@@ -135,7 +135,7 @@ TEST_F(ServerIdRpcWrapperTest, send_exception) {
     wrapper.send();
     EXPECT_STREQ("FAILED", wrapper.stateString());
     EXPECT_EQ("send: ServerIdRpcWrapper couldn't get session: "
-            "ServerId 12884901908 is not in the ServerList",
+            "Invalid ServerID (12884901908)",
             TestLog::get());
 }
 
