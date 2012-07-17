@@ -1005,7 +1005,7 @@ TEST_F(BackupServiceTest, writeSegment_response) {
     const uint32_t numReplicas = 3;
     ServerId ids[numReplicas] = {ServerId(15), ServerId(16), ServerId(33)};
     BackupClient::assignGroup(context, backupId, groupId, numReplicas, ids);
-    const vector<ServerId>& group =
+    const vector<ServerId> group =
         openSegment(ServerId(99, 0), 88);
     EXPECT_EQ(3U, group.size());
     EXPECT_EQ(15U, group.at(0).getId());
@@ -1013,7 +1013,7 @@ TEST_F(BackupServiceTest, writeSegment_response) {
     EXPECT_EQ(33U, group.at(2).getId());
     ServerId newIds[1] = {ServerId(99)};
     BackupClient::assignGroup(context, backupId, 0, 1, newIds);
-    const vector<ServerId>& newGroup =
+    const vector<ServerId> newGroup =
         openSegment(ServerId(99, 0), 88);
     EXPECT_EQ(1U, newGroup.size());
     EXPECT_EQ(99U, newGroup.at(0).getId());
@@ -1157,6 +1157,22 @@ TEST_F(BackupServiceTest, writeSegment_atomic) {
     EXPECT_TRUE(info.replicateAtomically);
     EXPECT_TRUE(info.satisfiesAtomicReplicationGuarantees());
     EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
+}
+
+TEST_F(BackupServiceTest, writeSegment_disallowOnReplicasFromStorage) {
+    openSegment({99, 0}, 88);
+    BackupClient::writeSegment(context, backupId, {99, 0}, 88, 10, "test", 5,
+                               BackupWriteRpc::NONE);
+    BackupService::SegmentInfo &info = *backup->findSegmentInfo({99, 0}, 88);
+
+    openSegment({99, 0}, 88);
+    info.createdByCurrentProcess = false;
+
+    EXPECT_THROW(openSegment({99, 0}, 88),
+                 BackupOpenRejectedException);
+    EXPECT_THROW(BackupClient::writeSegment(context, backupId, {99, 0}, 88, 10,
+                                            "test", 5, BackupWriteRpc::NONE),
+                 BackupBadSegmentIdException);
 }
 
 namespace {

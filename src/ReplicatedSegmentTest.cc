@@ -1067,4 +1067,38 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureCloseBeforeNewHeadWrittenTo) {
     reset();
 }
 
+TEST_F(ReplicatedSegmentTest, performWriteBackupRejectedOpen) {
+    transport.setInput("0 0"); // write - open
+    transport.setInput("13 0"); // write - open rejected
+    transport.setInput("12 0"); // write - bad segment id exception
+
+    taskQueue.performTask(); // send
+
+    TestLog::Enable _(filter);
+    taskQueue.performTask(); // reap - second replica gets rejected
+    EXPECT_EQ(
+        "performWrite: Couldn't open replica on backup 1; server may be "
+        "overloaded or may already have a replica for this segment which "
+        "was found on disk after a crash; will choose another backup",
+        TestLog::get());
+    ASSERT_TRUE(segment->replicas[0].isActive);
+    EXPECT_EQ(openLen, segment->replicas[0].sent.bytes);
+    EXPECT_EQ(10u, segment->replicas[0].acked.bytes);
+
+    ASSERT_FALSE(segment->replicas[1].isActive);
+    EXPECT_EQ(0u, segment->replicas[1].sent.bytes);
+    EXPECT_EQ(0u, segment->replicas[1].acked.bytes);
+    EXPECT_FALSE(segment->replicas[1].writeRpc);
+    EXPECT_EQ(ServerId(), segment->replicas[1].backupId);
+
+    taskQueue.performTask(); // send
+    // Next performTask() should blow up whole server: backup can throw
+    // this if the server issues a write to a replica that wasn't created
+    // by that backup but that it found on disk instead.
+    EXPECT_THROW(taskQueue.performTask(),
+                 BackupBadSegmentIdException);
+
+    reset();
+}
+
 } // namespace RAMCloud

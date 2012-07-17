@@ -131,8 +131,8 @@ DEFINE_EXCEPTION(CouldntConnectException,
 DEFINE_EXCEPTION(BackupBadSegmentIdException,
                  STATUS_BACKUP_BAD_SEGMENT_ID,
                  ClientException)
-DEFINE_EXCEPTION(BackupSegmentAlreadyOpenException,
-                 STATUS_BACKUP_SEGMENT_ALREADY_OPEN,
+DEFINE_EXCEPTION(BackupOpenRejectedException,
+                 STATUS_BACKUP_OPEN_REJECTED,
                  ClientException)
 DEFINE_EXCEPTION(BackupSegmentOverflowException,
                  STATUS_BACKUP_SEGMENT_OVERFLOW,

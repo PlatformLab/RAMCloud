@@ -64,7 +64,9 @@ enum Status {
     STATUS_RESPONSE_FORMAT_ERROR        = 10,
     STATUS_COULDNT_CONNECT              = 11,
     STATUS_BACKUP_BAD_SEGMENT_ID        = 12,
-    STATUS_BACKUP_SEGMENT_ALREADY_OPEN  = 13,
+    /// Returned by backups when they cannot (or do not wish to) allocate
+    /// space for a segment replica.
+    STATUS_BACKUP_OPEN_REJECTED         = 13,
     STATUS_BACKUP_SEGMENT_OVERFLOW      = 14,
     STATUS_BACKUP_MALFORMED_SEGMENT     = 15,
     STATUS_SEGMENT_RECOVERY_FAILED      = 16,
@@ -80,7 +82,7 @@ enum Status {
     /// Indicates that a tablet does not exist. This status is of relevance
     /// when doing split or merge operations on tablets are executed.
     STATUS_TABLET_DOESNT_EXIST          = 23,
-    STATUS_MAX_VALUE                    = 23
+    STATUS_MAX_VALUE                    = 23,
     // Note: if you add a new status value you must make the following
     // additional updates:
     // * Modify STATUS_MAX_VALUE to have a value equal to the largest
