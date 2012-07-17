@@ -209,8 +209,8 @@ ReplicaManager::openSegment(bool isLogHead, uint64_t segmentId,
     if (p == NULL)
         DIE("Out of memory");
     auto* replicatedSegment =
-        new(p) ReplicatedSegment(taskQueue, tracker, backupSelector, *this,
-                                 writeRpcsInFlight, *minOpenSegmentId,
+        new(p) ReplicatedSegment(context, taskQueue, tracker, backupSelector,
+                                 *this, writeRpcsInFlight, *minOpenSegmentId,
                                  dataMutex,
                                  isLogHead, masterId, segmentId,
                                  data, openLen, numReplicas);

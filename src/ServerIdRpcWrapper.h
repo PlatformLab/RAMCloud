@@ -39,11 +39,10 @@ class ServerIdRpcWrapper : public RpcWrapper {
      */
     virtual ~ServerIdRpcWrapper() {}
 
-    virtual void wait();
-
   PROTECTED:
     virtual bool handleTransportError();
     virtual void send();
+    void waitAndCheckErrors();
 
     /// Shared RAMCloud information.
     Context& context;

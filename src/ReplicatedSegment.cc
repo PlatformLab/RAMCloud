@@ -23,6 +23,8 @@ namespace RAMCloud {
 /**
  * Create a ReplicatedSegment.  Only called by ReplicaManager.
  *
+ * \param context
+ *      Overall information about this RAMCloud server.
  * \param taskQueue
  *      The ReplicaManager's work queue, this is added to it when schedule()
  *      is called.
@@ -62,7 +64,8 @@ namespace RAMCloud {
  *      Maximum bytes to send in a single write rpc; can help latency of
  *      GetRecoveryDataRequests by unclogging backups a bit.
  */
-ReplicatedSegment::ReplicatedSegment(TaskQueue& taskQueue,
+ReplicatedSegment::ReplicatedSegment(Context&context,
+                                     TaskQueue& taskQueue,
                                      BackupTracker& tracker,
                                      BaseBackupSelector& backupSelector,
                                      Deleter& deleter,
@@ -77,6 +80,7 @@ ReplicatedSegment::ReplicatedSegment(TaskQueue& taskQueue,
                                      uint32_t numReplicas,
                                      uint32_t maxBytesPerWriteRpc)
     : Task(taskQueue)
+    , context(context)
     , tracker(tracker)
     , backupSelector(backupSelector)
     , deleter(deleter)
@@ -500,15 +504,10 @@ ReplicatedSegment::performFree(Replica& replica)
         if (replica.freeRpc->isReady()) {
             // Request is finished, clean up the state.
             try {
-                (*replica.freeRpc)();
-            } catch (const TransportException& e) {
-                // Retry, if it down the server list will let us know.
-                LOG(WARNING,
-                    "Failure freeing replica on backup, retrying: %s",
-                    e.what());
-                replica.freeRpc.destroy();
-                schedule();
-                return;
+                replica.freeRpc->wait();
+            }
+            catch (const ServerDoesntExistException& e) {
+                // Ryan, please add appropriate code here.
             }
             replica.reset();
             // Free completed, no need to reschedule.
@@ -529,7 +528,8 @@ ReplicatedSegment::performFree(Replica& replica)
         } else {
             // Issue a free rpc for this replica, reschedule to wait on it.
             try {
-                replica.freeRpc.construct(*replica.client, masterId, segmentId);
+                replica.freeRpc.construct(context, replica.backupId,
+                                          masterId, segmentId);
             } catch (const TransportException& e) {
                 // Ignore the exception and retry; we'll be interrupted by
                 // changes to the server list if the backup is down.
@@ -604,13 +604,15 @@ ReplicatedSegment::performWrite(Replica& replica)
         if (replica.writeRpc->isReady()) {
             // Wait for it to complete if it is ready.
             try {
-                (*replica.writeRpc)();
+                replica.writeRpc->wait();
                 replica.acked = replica.sent;
                 if (getAcked().close && followingSegment) {
                     followingSegment->precedingSegmentCloseAcked = true;
                     // Don't poke at potentially non-existent segments later.
                     followingSegment = NULL;
                 }
+            } catch (const ServerDoesntExistException& e) {
+                // Ryan, please add appropriate code here.
             } catch (const TransportException& e) {
                 // Retry, if it is down the server list will let us know.
                 replica.sent = replica.acked;
@@ -647,9 +649,10 @@ ReplicatedSegment::performWrite(Replica& replica)
 
             TEST_LOG("Sending open to backup %lu", replica.backupId.getId());
             try {
-                replica.writeRpc.construct(*replica.client, masterId, segmentId,
-                                            0, data, openLen, flags,
-                                            replica.replicateAtomically);
+                replica.writeRpc.construct(context, replica.backupId,
+                                           masterId, segmentId,
+                                           0, data, openLen, flags,
+                                           replica.replicateAtomically);
                 ++writeRpcsInFlight;
                 replica.sent.open = true;
                 replica.sent.bytes = openLen;
@@ -719,9 +722,10 @@ ReplicatedSegment::performWrite(Replica& replica)
             TEST_LOG("Sending write to backup %lu", replica.backupId.getId());
             const char* src = static_cast<const char*>(data) + offset;
             try {
-                replica.writeRpc.construct(*replica.client, masterId, segmentId,
-                                            offset, src, length, flags,
-                                            replica.replicateAtomically);
+                replica.writeRpc.construct(context, replica.backupId,
+                                           masterId, segmentId,
+                                           offset, src, length, flags,
+                                           replica.replicateAtomically);
                 ++writeRpcsInFlight;
                 replica.sent.bytes += length;
                 replica.sent.close = (flags == BackupWriteRpc::CLOSE);

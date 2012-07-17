@@ -74,15 +74,6 @@ struct FatalError : public Exception {
 };
 
 /**
- * Thrown by various RPCs if they need to abort because the target
- * server is no longer able to service requests.
- */
-struct ServerDoesntExist : public Exception {
-    explicit ServerDoesntExist(const CodeLocation& where)
-        : Exception(where) {}
-};
-
-/**
  * An exception that is thrown when someone tries to wait for an
  * RPC that has been canceled.
  */

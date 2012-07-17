@@ -1118,22 +1118,23 @@ namespace MasterServiceInternal {
  */
 class RecoveryTask {
   PUBLIC:
-    RecoveryTask(ServerList& serverList,
+    RecoveryTask(Context& context,
+                 ServerList& serverList,
                  ServerId masterId,
                  uint64_t partitionId,
                  MasterService::Replica& replica)
-        : serverList(serverList)
+        : context(context)
+        , serverList(serverList)
         , masterId(masterId)
         , partitionId(partitionId)
         , replica(replica)
         , response()
-        , client(serverList.getSession(replica.backupId))
         , startTime(Cycles::rdtsc())
         , rpc()
-        , resendTime(0)
     {
-        rpc.construct(client, masterId, replica.segmentId,
+        rpc.construct(context, replica.backupId, masterId, replica.segmentId,
                       partitionId, response);
+        serverList.getSession(replica.backupId);
     }
     ~RecoveryTask()
     {
@@ -1146,20 +1147,17 @@ class RecoveryTask {
     void resend() {
         LOG(DEBUG, "Resend %lu", replica.segmentId);
         response.reset();
-        rpc.construct(client, masterId, replica.segmentId,
+        rpc.construct(context, replica.backupId, masterId, replica.segmentId,
                       partitionId, response);
     }
+    Context& context;
     ServerList& serverList;
     ServerId masterId;
     uint64_t partitionId;
     MasterService::Replica& replica;
     Buffer response;
-    BackupClient client;
     const uint64_t startTime;
-    Tub<BackupClient::GetRecoveryData> rpc;
-    /// If we have to retry a request, this variable indicates the rdtsc time at
-    /// which we should retry.  0 means we're not waiting for a retry.
-    uint64_t resendTime;
+    Tub<GetRecoveryDataRpc2> rpc;
     DISALLOW_COPY_AND_ASSIGN(RecoveryTask);
 };
 } // namespace MasterServiceInternal
@@ -1326,7 +1324,8 @@ MasterService::recover(ServerId masterId,
                 replica.segmentId,
                 &task - &tasks[0]);
             try {
-                task.construct(serverList, masterId, partitionId, replica);
+                task.construct(context, serverList, masterId, partitionId,
+                               replica);
                 replica.state = Replica::State::WAITING;
                 runningSet.insert(replica.segmentId);
                 ++metrics->master.segmentReadCount;
@@ -1338,6 +1337,8 @@ MasterService::recover(ServerId masterId,
                     e.str().c_str());
                 replica.state = Replica::State::FAILED;
             } catch (const ServerListException& e) {
+                // Ryan, I'm not sure this exception handler is live anymore;
+                // reconsider TransportException above also?
                 LOG(WARNING, "No record of backup ID %lu, trying next backup",
                     replica.backupId.getId());
                 replica.state = Replica::State::FAILED;
@@ -1364,17 +1365,9 @@ MasterService::recover(ServerId masterId,
         if (!readStallTicks)
             readStallTicks.construct(&metrics->master.segmentReadStallTicks);
         replicaManager.proceed();
-        uint64_t currentTime = Cycles::rdtsc();
         foreach (auto& task, tasks) {
             if (!task)
                 continue;
-            if (task->resendTime != 0) {
-                if (currentTime > task->resendTime) {
-                    task->resendTime = 0;
-                    task->resend();
-                }
-                continue;
-            }
             if (!task->rpc->isReady())
                 continue;
             readStallTicks.destroy();
@@ -1382,7 +1375,7 @@ MasterService::recover(ServerId masterId,
                 task->replica.segmentId,
                 serverList.toString(task->replica.backupId).c_str());
             try {
-                (*task->rpc)();
+                task->rpc->wait();
                 uint64_t grdTime = Cycles::rdtsc() - task->startTime;
                 metrics->master.segmentReadTicks += grdTime;
 
@@ -1421,11 +1414,12 @@ MasterService::recover(ServerId masterId,
                         otherReplica.segmentId);
                     otherReplica.state = Replica::State::OK;
                 }
-            } catch (const RetryException& e) {
-                // The backup isn't ready yet, try back in 1 ms.
-                task->resendTime = currentTime +
-                    static_cast<int>(Cycles::perSecond()/1000.0);
-                continue;
+            } catch (ServerDoesntExistException& e) {
+                // Ryan, please check this code.
+                LOG(WARNING, "No record of backup ID %lu, trying next backup",
+                    task->replica.backupId.getId());
+                task->replica.state = Replica::State::FAILED;
+                runningSet.erase(task->replica.segmentId);
             } catch (const TransportException& e) {
                 LOG(WARNING, "Couldn't contact %s for segment %lu, "
                     "trying next backup; failure was: %s",
@@ -1468,7 +1462,8 @@ MasterService::recover(ServerId masterId,
                     replica.segmentId,
                     &task - &tasks[0]);
                 try {
-                    task.construct(serverList, masterId, partitionId, replica);
+                    task.construct(context, serverList, masterId, partitionId,
+                                   replica);
                     replica.state = Replica::State::WAITING;
                     runningSet.insert(replica.segmentId);
                     ++metrics->master.segmentReadCount;

@@ -126,7 +126,8 @@ class EnqueueMasterRecoveryTask : public Task {
         auto tabletsToRecover =
             mgr.tabletMap.setStatusForServer(crashedServerId,
                                              Tablet::RECOVERING);
-        recovery = new Recovery(mgr.taskQueue, &mgr.tracker, &mgr,
+        recovery = new Recovery(recoveryManager.context, mgr.taskQueue,
+                                &mgr.tracker, &mgr,
                                 crashedServerId, tabletsToRecover,
                                 minOpenSegmentId);
     }
@@ -276,7 +277,8 @@ MasterRecoveryManager::MasterRecoveryManager(Context& context,
                                              CoordinatorServerList& serverList,
                                              TabletMap& tabletMap,
                                              RuntimeOptions* runtimeOptions)
-    : serverList(serverList)
+    : context(context)
+    , serverList(serverList)
     , tabletMap(tabletMap)
     , runtimeOptions(runtimeOptions)
     , thread()

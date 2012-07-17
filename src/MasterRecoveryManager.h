@@ -73,6 +73,9 @@ class MasterRecoveryManager : public Recovery::Owner
   PRIVATE:
     void main();
 
+    /// Shared RAMCloud information.
+    Context& context;
+
     /// Authoritative list of all servers in the system and their details.
     CoordinatorServerList& serverList;
 

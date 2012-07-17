@@ -120,7 +120,7 @@ TEST_F(MasterRecoveryManagerTest, startMasterRecovery) {
 
 TEST_F(MasterRecoveryManagerTest, destroyAndFreeRecovery) {
     std::unique_ptr<Recovery> recovery{
-        new Recovery(mgr.taskQueue, &mgr.tracker, &mgr,
+        new Recovery(context, mgr.taskQueue, &mgr.tracker, &mgr,
                      {1, 0}, {}, 0lu)};
     mgr.activeRecoveries[recovery->recoveryId] = recovery.get();
     mgr.destroyAndFreeRecovery(recovery.get());
@@ -135,7 +135,7 @@ TEST_F(MasterRecoveryManagerTest, trackerChangesEnqueued) {
     // Create a recovery which has serverId as a recovery master, make
     // sure it gets informed if serverId crashes.
     std::unique_ptr<Recovery> recovery{
-        new Recovery(mgr.taskQueue, &mgr.tracker, &mgr,
+        new Recovery(context, mgr.taskQueue, &mgr.tracker, &mgr,
                      {1, 0}, {}, 0lu)};
     recovery->numPartitions = 2;
     mgr.tracker[ServerId(1, 0)] = recovery.get();
@@ -148,7 +148,8 @@ TEST_F(MasterRecoveryManagerTest, trackerChangesEnqueued) {
 
 TEST_F(MasterRecoveryManagerTest, recoveryFinished) {
     addMaster();
-    Recovery recovery(mgr.taskQueue, &mgr.tracker, NULL, {1, 0}, {}, 0lu);
+    Recovery recovery(context, mgr.taskQueue, &mgr.tracker, NULL,
+                      {1, 0}, {}, 0lu);
     recovery.status = Recovery::BROADCAST_RECOVERY_COMPLETE;
     ASSERT_EQ(0lu, mgr.taskQueue.outstandingTasks());
     EXPECT_EQ(0lu, serverList.versionNumber);
@@ -162,7 +163,8 @@ TEST_F(MasterRecoveryManagerTest, recoveryFinished) {
 
 TEST_F(MasterRecoveryManagerTest, recoveryFinishedUnsuccessful) {
     addMaster();
-    Recovery recovery(mgr.taskQueue, &mgr.tracker, NULL, {1, 0}, {}, 0lu);
+    Recovery recovery(context, mgr.taskQueue, &mgr.tracker, NULL,
+                      {1, 0}, {}, 0lu);
     ASSERT_EQ(0lu, mgr.taskQueue.outstandingTasks());
     EXPECT_EQ(0lu, serverList.versionNumber);
     mgr.recoveryFinished(&recovery);
@@ -192,7 +194,7 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
     addMaster(); // Recovery master.
 
     std::unique_ptr<Recovery> recovery{
-        new Recovery(mgr.taskQueue, &mgr.tracker, &mgr,
+        new Recovery(context, mgr.taskQueue, &mgr.tracker, &mgr,
                      crashedServerId, {}, 0lu)};
     recovery->numPartitions = 1;
     mgr.activeRecoveries[recovery->recoveryId] = recovery.get();
@@ -238,7 +240,7 @@ TEST_F(MasterRecoveryManagerTest,
     addMaster(); // Recovery master.
 
     std::unique_ptr<Recovery> recovery{
-        new Recovery(mgr.taskQueue, &mgr.tracker, &mgr,
+        new Recovery(context, mgr.taskQueue, &mgr.tracker, &mgr,
                      crashedServerId, {}, 0lu)};
     recovery->numPartitions = 1;
     mgr.activeRecoveries[recovery->recoveryId] = recovery.get();

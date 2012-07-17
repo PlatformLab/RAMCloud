@@ -446,9 +446,7 @@ TEST_F(MasterServiceTest, recover_basics) {
 
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
-    BackupClient(cluster.context.transportManager->getSession(
-                                                "mock:host=backup1"))
-        .startReadingData(ServerId(123), tablets);
+    BackupClient::startReadingData(context, backup1Id, ServerId(123), tablets);
 
     ProtoBuf::ServerList backups;
     RecoverRpc::Replica replicas[] = {
@@ -548,9 +546,7 @@ TEST_F(MasterServiceTest, recover) {
 
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
-    BackupClient(context.transportManager->getSession(
-                                                    "mock:host=backup1"))
-        .startReadingData(ServerId(123), tablets);
+    BackupClient::startReadingData(context, backup1Id, ServerId(123), tablets);
 
     vector<MasterService::Replica> replicas {
         // Started in initial round of RPCs - eventually fails
@@ -1821,14 +1817,12 @@ TEST_F(MasterRecoverTest, recover) {
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
     {
-        BackupClient(context.transportManager->getSession(
-                                                    "mock:host=backup1"))
-            .startReadingData(ServerId(99), tablets);
+        BackupClient::startReadingData(context, backup1Id, ServerId(99),
+                                       tablets);
     }
     {
-        BackupClient(context.transportManager->getSession(
-                                                    "mock:host=backup2"))
-            .startReadingData(ServerId(99), tablets);
+        BackupClient::startReadingData(context, backup2Id, ServerId(99),
+                                       tablets);
     }
 
     vector<MasterService::Replica> replicas {

@@ -67,15 +67,10 @@ TEST_F(MockClusterTest, addServer) {
     EXPECT_FALSE(server->membership);
     EXPECT_FALSE(server->ping);
     EXPECT_EQ(1u, cluster->servers.size());
-    cluster->get<BackupClient>(server)->openSegment({99, 0}, 100);
+    BackupClient::writeSegment(context, server->serverId, {99, 0},
+                               100, 0, NULL, 0, BackupWriteRpc::OPEN);
     server = cluster->addServer(config);
     EXPECT_EQ(server->config.localLocator, "mock:host=server1");
-}
-
-TEST_F(MockClusterTest, get) {
-    config.services = {BACKUP_SERVICE};
-    cluster->get<BackupClient>(
-        cluster->addServer(config))->openSegment({99, 0}, 100);
 }
 
 // Don't delete this.  Occasionally useful for checking unit test perf.

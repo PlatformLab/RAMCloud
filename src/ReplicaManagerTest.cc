@@ -146,15 +146,6 @@ TEST_F(ReplicaManagerTest, openSegment) {
     }
     EXPECT_EQ(arrayLength(data), cluster.servers[0]->backup->bytesWritten);
     EXPECT_EQ(arrayLength(data), cluster.servers[1]->backup->bytesWritten);
-
-    // make sure ReplicatedSegment::replicas point to ok service locators
-    vector<string> backupLocators;
-    foreach (auto& replica, segment->replicas) {
-        backupLocators.push_back(
-            replica.client->getSession()->getServiceLocator());
-    }
-    EXPECT_EQ((vector<string> {"mock:host=backup1", "mock:host=backup2"}),
-              backupLocators);
 }
 
 // This is a test that really belongs in SegmentTest.cc, but the setup
@@ -192,16 +183,10 @@ TEST_F(ReplicaManagerTest, writeSegment) {
         foreach (auto& replica, segment.replicas) {
             ASSERT_TRUE(replica.isActive);
             Buffer resp;
-            replica.client->startReadingData(serverId, will);
-            while (true) {
-                try {
-                    replica.client->getRecoveryData(serverId, 88, 0, resp);
-                } catch (const RetryException& e) {
-                    resp.reset();
-                    continue;
-                }
-                break;
-            }
+            BackupClient::startReadingData(context, replica.backupId,
+                                           serverId, will);
+            BackupClient::getRecoveryData(context, replica.backupId,
+                                          serverId, 88, 0, resp);
             ASSERT_NE(0U, resp.totalLength);
             auto* entry = resp.getStart<SegmentEntry>();
             EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, entry->type);

@@ -94,7 +94,6 @@ struct BindTransport : public Transport {
         void abort(const string& message) {}
         void cancelRequest(RpcNotifier* notifier) {}
         ClientRpc* clientSend(Buffer* request, Buffer* response) {
-            response->reset();
             BindClientRpc* result = new(response, MISC)
                     BindClientRpc(transport.context, request, response);
             Service::Rpc rpc(NULL, *request, *response);
@@ -130,6 +129,7 @@ struct BindTransport : public Transport {
         void sendRequest(Buffer* request, Buffer* response,
                          RpcNotifier* notifier)
         {
+            response->reset();
             lastRequest = request;
             lastResponse = response;
             lastNotifier = notifier;

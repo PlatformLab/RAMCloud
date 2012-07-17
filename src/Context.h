@@ -79,11 +79,11 @@ class Context {
     // always NULL on clients.
 
     // The following variable is available on masters and backups, but
-    // not coordinators.
+    // not coordinators. Owned elsewhere; not freed by this class.
     ServerList* serverList;
 
     // The following variable is available on coordinators, but not
-    // masters and backups.
+    // masters and backups. Owned elsewhere; not freed by this class.
     CoordinatorServerList* coordinatorServerList;
 
   PRIVATE:

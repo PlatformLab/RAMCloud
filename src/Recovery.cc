@@ -30,6 +30,8 @@ namespace RAMCloud {
  * No recovery operations are performed until performTask() is called
  * (presumably by the MasterRecoveryManager's TaskQueue).
  *
+ * \param context
+ *      Overall information about this RAMCloud server.
  * \param taskQueue
  *      MasterRecoveryManager TaskQueue which drives this recovery
  *      (by calling performTask() whenever this recovery is scheduled).
@@ -55,13 +57,15 @@ namespace RAMCloud {
  *      not eligible to be used for recovery (both for log digest and
  *      object data purposes).
  */
-Recovery::Recovery(TaskQueue& taskQueue,
+Recovery::Recovery(Context& context,
+                   TaskQueue& taskQueue,
                    RecoveryTracker* tracker,
                    Owner* owner,
                    ServerId crashedServerId,
                    const vector<Tablet>& tabletsToRecover,
                    uint64_t minOpenSegmentId)
     : Task(taskQueue)
+    , context(context)
     , crashedServerId(crashedServerId)
     , minOpenSegmentId(minOpenSegmentId)
     , tablets()
@@ -181,7 +185,6 @@ BackupStartTask::BackupStartTask(
     , crashedMasterId(crashedMasterId)
     , partitions(partitions)
     , minOpenSegmentId(minOpenSegmentId)
-    , client()
     , rpc()
     , done()
     , testingCallback(recovery ?
@@ -197,8 +200,8 @@ BackupStartTask::send()
     LOG(DEBUG, "Starting startReadingData on backup %lu", backupId.getId());
     if (!testingCallback) {
         try {
-            client.construct(recovery->tracker->getSession(backupId));
-            rpc.construct(*client, crashedMasterId, partitions);
+            rpc.construct(recovery->context, backupId, crashedMasterId,
+                          partitions);
             return;
         } catch (const TransportException& e) {
             LOG(WARNING, "Couldn't contact backup %lu to start recovery: %s",
@@ -269,7 +272,9 @@ BackupStartTask::wait()
 {
     try {
         if (!testingCallback)
-            result = (*rpc)();
+            result = rpc->wait();
+    } catch (const ServerDoesntExistException& e) {
+        // Ryan, please add appropriate code here.
     } catch (const TransportException& e) {
         LOG(WARNING, "Couldn't contact %lu, failure was: %s",
             backupId.getId(), e.str().c_str());
@@ -280,7 +285,6 @@ BackupStartTask::wait()
         // Leave empty result as if the backup has no replicas.
     }
     rpc.destroy();
-    client.destroy();
 
     filterOutInvalidReplicas();
 
@@ -813,7 +817,6 @@ struct BackupEndTask {
         : recovery(recovery)
         , serverId(serverId)
         , crashedServerId(crashedServerId)
-        , client()
         , rpc()
         , done(false)
         , testingCallback(recovery.testingBackupEndTaskSendCallback)
@@ -827,8 +830,7 @@ struct BackupEndTask {
             return;
         }
         try {
-            client.construct(recovery.tracker->getSession(serverId));
-            rpc.construct(*client, crashedServerId);
+            rpc.construct(recovery.context, serverId, crashedServerId);
             return;
         } catch (const TransportException& e) {
             LOG(DEBUG, "recoveryComplete failed on %lu, ignoring; "
@@ -837,7 +839,6 @@ struct BackupEndTask {
             LOG(DEBUG, "recoveryComplete failed on %lu, ignoring; "
                 "failure was: %s", serverId.getId(), e.what());
         }
-        client.destroy();
         rpc.destroy();
         done = true;
     }
@@ -845,7 +846,9 @@ struct BackupEndTask {
         if (!rpc)
             return;
         try {
-            (*rpc)();
+            rpc->wait();
+        } catch (const ServerDoesntExistException& e) {
+            // Ryan, please add appropriate code here.
         } catch (const TransportException& e) {
             LOG(DEBUG, "recoveryComplete failed on %lu, ignoring; "
                 "failure was: %s", serverId.getId(), e.what());
@@ -858,8 +861,7 @@ struct BackupEndTask {
     Recovery& recovery;
     const ServerId serverId;
     const ServerId crashedServerId;
-    Tub<BackupClient> client;
-    Tub<BackupClient::RecoveryComplete> rpc;
+    Tub<RecoveryCompleteRpc2> rpc;
     bool done;
     BackupEndTaskTestingCallback* testingCallback;
     DISALLOW_COPY_AND_ASSIGN(BackupEndTask);

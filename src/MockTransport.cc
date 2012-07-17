@@ -154,6 +154,16 @@ MockTransport::MockSession::sendRequest(Buffer* request, Buffer* response,
     }
     transport->outputLog.append("sendRequest: ");
     transport->outputLog.append(TestUtil::toString(request));
+    if (!transport->inputMessages.empty()) {
+        const char *resp = transport->inputMessages.front();
+        transport->inputMessages.pop();
+        if (resp == NULL) {
+            notifier->failed();
+        } else {
+            response->fillFromString(resp);
+            notifier->completed();
+        }
+    }
 }
 
 /**

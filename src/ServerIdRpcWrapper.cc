@@ -106,17 +106,19 @@ ServerIdRpcWrapper::send()
 /**
  * Wait for the RPC to complete, and throw exceptions for any errors.
  *
- * Note: this method is a generic shared version for RPCs that don't return
- * results and don't need to do any processing of the response packet
- * except checking for errors.  For other RPCs this method is overridden
- * by subclasses.
+ * \throw ServerDoesntExistException
+ *      The intended server for this RPC is not part of the cluster;
+ *      if it ever existed, it has since crashed.
  */
 void
-ServerIdRpcWrapper::wait()
+ServerIdRpcWrapper::waitAndCheckErrors()
 {
+    // Note: this method is a generic shared version for RPCs that don't
+    // return results and don't need to do any processing of the response
+    // packet except checking for errors.
     waitInternal(*context.dispatch);
     if (serverDown) {
-        throw ServerDoesntExist(HERE);
+        throw ServerDoesntExistException(HERE);
     }
     if (responseHeader->status != STATUS_OK)
         ClientException::throwException(HERE, responseHeader->status);

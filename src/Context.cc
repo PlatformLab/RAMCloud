@@ -132,10 +132,7 @@ Context::destroy()
     mockContextMember1 = NULL;
 #endif
 
-    delete serverList;
     serverList = NULL;
-
-    delete coordinatorServerList;
     coordinatorServerList = NULL;
 }
 

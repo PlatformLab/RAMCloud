@@ -47,6 +47,8 @@ class MasterClient : public Client {
         TakeTabletOwnershipRpc2(Context& context, ServerId id,
                 uint64_t tableId, uint64_t firstKey, uint64_t lastKey);
         ~TakeTabletOwnershipRpc2() {}
+        /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
+        void wait() {waitAndCheckErrors();}
 
       PRIVATE:
         DISALLOW_COPY_AND_ASSIGN(TakeTabletOwnershipRpc2);

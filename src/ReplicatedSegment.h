@@ -193,7 +193,6 @@ class ReplicatedSegment : public Task {
         Replica()
             : isActive(false)
             , backupId()
-            , client()
             , acked()
             , sent()
             , freeRpc()
@@ -221,7 +220,6 @@ class ReplicatedSegment : public Task {
         void start(ServerId backupId, Transport::SessionRef session) {
             isActive = true;
             this->backupId = backupId;
-            client.construct(session);
         }
 
         /**
@@ -262,9 +260,6 @@ class ReplicatedSegment : public Task {
         /// Id of remote backup server where this replica is (to be) stored.
         ServerId backupId;
 
-        /// Client to remote backup server where this replica is (to be) stored.
-        Tub<BackupClient> client;
-
         /**
          * Tracks how much of a segment has been acknowledged as buffered
          * durably on a backup.
@@ -279,10 +274,10 @@ class ReplicatedSegment : public Task {
         Progress sent;
 
         /// The outstanding free operation to this backup, if any.
-        Tub<BackupClient::FreeSegment> freeRpc;
+        Tub<FreeSegmentRpc2> freeRpc;
 
         /// The outstanding write operation to this backup, if any.
-        Tub<BackupClient::WriteSegment> writeRpc;
+        Tub<WriteSegmentRpc2> writeRpc;
 
         // Fields below survive across failed()/start() calls.
 
@@ -321,7 +316,8 @@ class ReplicatedSegment : public Task {
      */
     enum { MAX_WRITE_RPCS_IN_FLIGHT = 4 };
 
-    ReplicatedSegment(TaskQueue& taskQueue,
+    ReplicatedSegment(Context& context,
+                      TaskQueue& taskQueue,
                       BackupTracker& tracker,
                       BaseBackupSelector& backupSelector,
                       Deleter& deleter,
@@ -365,6 +361,9 @@ class ReplicatedSegment : public Task {
     }
 
 // - member variables -
+    /// Shared RAMCloud information.
+    Context& context;
+
     /**
      * A ServerTracker used to find backups and track replica distribution
      * stats.  Each entry in the tracker contains a pointer to a BackupStats

@@ -401,8 +401,7 @@ CoordinatorService::quiesce(const BackupQuiesceRpc::Request& reqHdr,
 {
     for (size_t i = 0; i < serverList.size(); i++) {
         if (serverList[i] && serverList[i]->isBackup()) {
-            BackupClient(context.transportManager->getSession(
-                serverList[i]->serviceLocator.c_str())).quiesce();
+            BackupClient::quiesce(context, serverList[i]->serverId);
         }
     }
 }

@@ -94,7 +94,8 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
     }
 
     coordinator.construct(context, config.coordinatorLocator.c_str());
-    if (context.serverList !=  NULL) {
+    if ((context.serverList == NULL)
+            && (context.coordinatorServerList == NULL)) {
         context.serverList = &serverList;
     }
 

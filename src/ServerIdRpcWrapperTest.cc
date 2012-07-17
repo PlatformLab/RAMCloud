@@ -28,17 +28,21 @@ class ServerIdRpcWrapperTest : public ::testing::Test {
     MockTransport transport;
     ServerId id;
     ServerId coordId;
+    ServerList serverList;
+    CoordinatorServerList coordinatorServerList;
 
     ServerIdRpcWrapperTest()
         : context()
         , transport(context)
         , id(1, 0)
         , coordId()
+        , serverList(context)
+        , coordinatorServerList(context)
     {
         context.transportManager->registerMock(&transport);
-        context.serverList = new ServerList(context);
+        context.serverList = &serverList;
         context.serverList->add(ServerId(1, 0), "mock:", {}, 100);
-        context.coordinatorServerList = new CoordinatorServerList(context);
+        context.coordinatorServerList = &coordinatorServerList;
         ProtoBuf::ServerList update;
         coordId = context.coordinatorServerList->add("mock:coord=1",
                 {MASTER_SERVICE}, 100, update);
@@ -81,7 +85,6 @@ TEST_F(ServerIdRpcWrapperTest, handleTransportError_serverCrashed) {
 
 TEST_F(ServerIdRpcWrapperTest, handleTransportError_coordinatorServerList) {
     TestLog::Enable _;
-    delete context.serverList;
     context.serverList = NULL;
     ServerIdRpcWrapper wrapper(context, id, 4);
     wrapper.request.fillFromString("100");
@@ -116,7 +119,6 @@ TEST_F(ServerIdRpcWrapperTest, send) {
 }
 
 TEST_F(ServerIdRpcWrapperTest, send_coordinatorServerList) {
-    delete context.serverList;
     context.serverList = NULL;
     ServerIdRpcWrapper wrapper(context, coordId, 4);
     wrapper.request.fillFromString("100");
@@ -137,7 +139,7 @@ TEST_F(ServerIdRpcWrapperTest, send_exception) {
             TestLog::get());
 }
 
-TEST_F(ServerIdRpcWrapperTest, wait_success) {
+TEST_F(ServerIdRpcWrapperTest, waitAndCheckErrors_success) {
     TestLog::Enable _;
     ServerIdRpcWrapper wrapper(context, ServerId(4, 0), 4);
     wrapper.request.fillFromString("100");
@@ -145,25 +147,25 @@ TEST_F(ServerIdRpcWrapperTest, wait_success) {
     (new(wrapper.response, APPEND) WireFormat::ResponseCommon)->status =
             STATUS_OK;
     wrapper.state = RpcWrapper::RpcState::FINISHED;
-    wrapper.wait();
+    wrapper.waitAndCheckErrors();
 }
 
-TEST_F(ServerIdRpcWrapperTest, wait_serverDoesntExist) {
+TEST_F(ServerIdRpcWrapperTest, waitAndCheckErrors_serverDoesntExist) {
     TestLog::Enable _;
     ServerIdRpcWrapper wrapper(context, ServerId(4, 0), 4);
     wrapper.request.fillFromString("100");
     wrapper.send();
     string message = "no exception";
     try {
-        wrapper.wait();
+        wrapper.waitAndCheckErrors();
     }
-    catch (ServerDoesntExist& e) {
-        message = "ServerDoesntExist";
+    catch (ServerDoesntExistException& e) {
+        message = "ServerDoesntExistException";
     }
-    EXPECT_EQ("ServerDoesntExist", message);
+    EXPECT_EQ("ServerDoesntExistException", message);
 }
 
-TEST_F(ServerIdRpcWrapperTest, wait_errorStatus) {
+TEST_F(ServerIdRpcWrapperTest, waitAndCheckErrors_errorStatus) {
     TestLog::Enable _;
     ServerIdRpcWrapper wrapper(context, ServerId(4, 0), 4);
     wrapper.request.fillFromString("100");
@@ -173,7 +175,7 @@ TEST_F(ServerIdRpcWrapperTest, wait_errorStatus) {
     wrapper.state = RpcWrapper::RpcState::FINISHED;
     string message = "no exception";
     try {
-        wrapper.wait();
+        wrapper.waitAndCheckErrors();
     }
     catch (ClientException& e) {
         message = e.toSymbol();

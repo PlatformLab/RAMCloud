@@ -52,21 +52,20 @@ class BackupStartTask {
     void filterOutInvalidReplicas();
     void wait();
     const ServerId backupId;
-    BackupClient::StartReadingData::Result result;
+    StartReadingDataRpc2::Result result;
 
   PRIVATE:
     Recovery* recovery;
     const ServerId crashedMasterId;
     const ProtoBuf::Tablets& partitions;
     const uint64_t minOpenSegmentId;
-    Tub<BackupClient> client;
-    Tub<BackupClient::StartReadingData> rpc;
+    Tub<StartReadingDataRpc2> rpc;
     bool done;
 
   PUBLIC:
     struct TestingCallback {
         virtual void backupStartTaskSend(
-                        BackupClient::StartReadingData::Result& result) {}
+                        StartReadingDataRpc2::Result& result) {}
         virtual ~TestingCallback() {}
     };
     TestingCallback* testingCallback;
@@ -121,7 +120,8 @@ class Recovery : public Task {
         virtual ~Owner() {}
     };
 
-    Recovery(TaskQueue& taskQueue,
+    Recovery(Context& context,
+             TaskQueue& taskQueue,
              RecoveryTracker* tracker,
              Owner* owner,
              ServerId crashedServerId,
@@ -135,6 +135,9 @@ class Recovery : public Task {
     bool isDone() const;
     bool wasCompletelySuccessful() const;
     uint64_t getRecoveryId() const;
+
+    /// Shared RAMCloud information.
+    Context& context;
 
     /// The id of the crashed master which is being recovered.
     const ServerId crashedServerId;
