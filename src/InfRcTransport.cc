@@ -399,6 +399,7 @@ InfRcTransport<Infiniband>::InfRcSession::cancelRequest(
         if (rpc.notifier == notifier) {
             rpc.state = ClientRpc::RESPONSE_RECEIVED;
             erase(transport->outstandingRpcs, rpc);
+            --transport->numUsedClientSrqBuffers;
             alarm.rpcFinished();
             if (transport->outstandingRpcs.empty()) {
                 transport->clientRpcsActiveTime.destroy();
@@ -1065,9 +1066,12 @@ void
 InfRcTransport<Infiniband>::ClientRpc::cancelCleanup()
 {
     if (state == PENDING) {
-        erase(transport->clientSendQueue, *this);
+        transport->clientSendQueue.erase(
+            transport->clientSendQueue.iterator_to(*this));
     } else {
-        erase(transport->outstandingRpcs, *this);
+        transport->outstandingRpcs.erase(
+            transport->outstandingRpcs.iterator_to(*this));
+        --transport->numUsedClientSrqBuffers;
         session->alarm.rpcFinished();
     }
     state = RESPONSE_RECEIVED;
