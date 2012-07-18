@@ -122,109 +122,109 @@ CoordinatorServerManager::createReplicationGroup()
     }
 }
 
-/**
- * Implements the first part to handle enlistServer.
- *
- * \param replacesId
- *      Server id of the server that the enlisting server is replacing.
- * \param replacedEntry
- *      Keeps track of the details of the server id that is being forced out
- *      of the cluster by the enlister so we can start recovery.
- * \param serviceMask
- *      Services supported by the enlisting server.
- * \param readSpeed
- *      Read speed of the enlisting server.
- * \param writeSpeed
- *      Write speed of the enlisting server.
- * \param serviceLocator
- *      Service Locator of the enlisting server.
- * \param serverListUpdate
- *      Keeps track of the server list updates to be sent to the cluster.
- *
- * \return
- *      Server id assigned to the enlisting server.
- */
 ServerId
-CoordinatorServerManager::enlistServerStart(
-    ServerId replacesId, Tub<CoordinatorServerList::Entry>* replacedEntry,
-    ServiceMask serviceMask,
-    const uint32_t readSpeed, const uint32_t writeSpeed,
-    const char* serviceLocator, ProtoBuf::ServerList* serverListUpdate)
+CoordinatorServerManager::EnlistServer::beforeReply()
 {
     // The order of the updates in serverListUpdate is important: the remove
     // must be ordered before the add to ensure that as members apply the
     // update they will see the removal of the old server id before the
     // addition of the new, replacing server id.
-    if (service.serverList.contains(replacesId)) {
+    if (manager.service.serverList.contains(replacesId)) {
         LOG(NOTICE, "%s is enlisting claiming to replace server id "
             "%lu, which is still in the server list, taking its word "
             "for it and assuming the old server has failed",
             serviceLocator, replacesId.getId());
-        replacedEntry->construct(service.serverList[replacesId]);
+        replacedEntry.construct(manager.service.serverList[replacesId]);
         // Don't increment server list yet; done after the add below.
         // Note, if the server being replaced is already crashed this may
         // not append an update at all.
-        service.serverList.crashed(replacesId, *serverListUpdate);
+        manager.service.serverList.crashed(replacesId, serverListUpdate);
         // If the server being replaced did not have a master then there
         // will be no recovery.  That means it needs to transition to
         // removed status now (usually recoveries remove servers from the
         // list when they complete).
-        if (!replacedEntry->get()->services.has(MASTER_SERVICE))
-            service.serverList.remove(replacesId, *serverListUpdate);
+        if (!replacedEntry->services.has(MASTER_SERVICE))
+            manager.service.serverList.remove(replacesId, serverListUpdate);
     }
 
-    ServerId newServerId = service.serverList.add(serviceLocator,
-                                                   serviceMask,
-                                                   readSpeed,
-                                                   *serverListUpdate);
-    service.serverList.incrementVersion(*serverListUpdate);
-    CoordinatorServerList::Entry entry = service.serverList[newServerId];
+    newServerId = manager.service.serverList.add(serviceLocator,
+                                                 serviceMask,
+                                                 readSpeed,
+                                                 serverListUpdate);
+    manager.service.serverList.incrementVersion(serverListUpdate);
 
-    LOG(NOTICE, "Enlisting new server at %s (server id %lu) supporting "
-        "services: %s",
-        serviceLocator, newServerId.getId(),
-        entry.services.toString().c_str());
+    CoordinatorServerList::Entry entry =
+        manager.service.serverList[newServerId];
+
+    LOG(NOTICE,
+        "Enlisting new server at %s (server id %lu) supporting services: %s",
+        serviceLocator, newServerId.getId(), entry.services.toString().c_str());
     if (replacesId.isValid()) {
         LOG(NOTICE, "Newly enlisted server %lu replaces server %lu",
             newServerId.getId(), replacesId.getId());
     }
-
     if (entry.isBackup()) {
         LOG(DEBUG, "Backup at id %lu has %u MB/s read %u MB/s write",
             newServerId.getId(), readSpeed, writeSpeed);
-        createReplicationGroup();
+        manager.createReplicationGroup();
     }
 
     return newServerId;
 }
 
-/**
- * Implements the second part to handle enlistServer.
- *
- * \param replacedEntry
- *      Details of the server id that is being forced out
- *      of the cluster by the enlister so we can start recovery.
- * \param newServerId
- *      Server id of the enlisting server.
- * \param serverListUpdate
- *      The server list updates to be sent to the cluster.
- */
 void
-CoordinatorServerManager::enlistServerComplete(
-    Tub<CoordinatorServerList::Entry>* replacedEntry,
-    ServerId newServerId, ProtoBuf::ServerList* serverListUpdate)
+CoordinatorServerManager::EnlistServer::afterReply()
 {
-    CoordinatorServerList::Entry entry = service.serverList[newServerId];
+    CoordinatorServerList::Entry entry =
+        manager.service.serverList[newServerId];
 
     if (entry.services.has(MEMBERSHIP_SERVICE))
-        sendServerList(newServerId);
-    service.serverList.sendMembershipUpdate(*serverListUpdate, newServerId);
+        manager.sendServerList(newServerId);
+    manager.service.serverList.sendMembershipUpdate(
+        serverListUpdate, newServerId);
 
     // Recovery on the replaced host is deferred until the replacing host
     // has been enlisted.
-    if (*replacedEntry)
-        service.recoveryManager.startMasterRecovery(
-            replacedEntry->get()->serverId);
+    if (replacedEntry)
+        manager.service.recoveryManager.startMasterRecovery(
+            replacedEntry.get()->serverId);
+}
+
+/**
+ * Implements the part to handle enlistServer before responding to the
+ * enlisting server with the serverId assigned to it.
+ *
+ * TODO(ankitak): This code will become much simpler after
+ * RAM-431 is resolved.
+ *
+ * \param ref
+ *      Reference to the EnlistServer object that stores all the data
+ *      required to complete this operation.
+ *
+ * \return
+ *      Server id assigned to the enlisting server.
+ */
+ServerId
+CoordinatorServerManager::enlistServerBeforeReply(EnlistServer& ref)
+{
+    return ref.beforeReply();
+}
+
+/**
+ * Implements the part to handle enlistServer after responding to the
+ * enlisting server with the serverId assigned to it.
+ *
+ * TODO(ankitak): This code will become much simpler after
+ * RAM-431 is resolved.
+ *
+ * \param ref
+ *      Reference to the EnlistServer object that stores all the data
+ *      required to complete this operation.
+ */
+void
+CoordinatorServerManager::enlistServerAfterReply(EnlistServer& ref)
+{
+    ref.afterReply();
 }
 
 /**

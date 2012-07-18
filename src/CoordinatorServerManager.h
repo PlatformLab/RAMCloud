@@ -41,6 +41,71 @@ class CoordinatorServerManager {
     ~CoordinatorServerManager();
 
     /**
+     * Defines methods and stores data to enlist a server.
+     */
+    // TODO(ankitak): This code will become much simpler after
+    // RAM-431 is resolved.
+    class EnlistServer {
+        public:
+            EnlistServer(CoordinatorServerManager &manager,
+                         ServerId replacesId,
+                         ServiceMask serviceMask,
+                         const uint32_t readSpeed,
+                         const uint32_t writeSpeed,
+                         const char* serviceLocator)
+                : manager(manager),
+                  replacesId(replacesId), replacedEntry(),
+                  newServerId(), serviceMask(serviceMask),
+                  readSpeed(readSpeed), writeSpeed(writeSpeed),
+                  serviceLocator(serviceLocator),
+                  serverListUpdate() {}
+            ServerId beforeReply();
+            void afterReply();
+        private:
+            /**
+             * Reference to the instance of coordinator server manager
+             * initializing this class.
+             * Used to get access to CoordinatorService& service.
+             */
+            CoordinatorServerManager &manager;
+			/**
+			 * Server id of the server that the enlisting server is replacing.
+			 */
+            ServerId replacesId;
+			/**
+			 * Keeps track of the details of the server that is being forced
+			 * out of the cluster by the enlister so we can start recovery.
+			 */
+            Tub<CoordinatorServerList::Entry> replacedEntry;
+			/**
+			 * The id assigned to the enlisting server.
+			 */
+            ServerId newServerId;
+			/**
+			 * Services supported by the enlisting server.
+			 */
+            ServiceMask serviceMask;
+			/**
+			 * Read speed of the enlisting server.
+			 */
+            const uint32_t readSpeed;
+			/**
+			 * Write speed of the enlisting server.
+			 */
+            const uint32_t writeSpeed;
+			/**
+			 * Service Locator of the enlisting server.
+			 */
+            const char* serviceLocator;
+			/**
+			 * Keeps track of the server list updates to be sent
+			 * to the cluster.
+			 */
+            ProtoBuf::ServerList serverListUpdate;
+            DISALLOW_COPY_AND_ASSIGN(EnlistServer);
+    };
+
+    /**
      * The ping timeout used when the Coordinator verifies an incoming
      * hint server down message. Until we resolve the scheduler issues that we
      * have been seeing this timeout should be at least 250ms.
@@ -50,16 +115,8 @@ class CoordinatorServerManager {
     bool assignReplicationGroup(uint64_t replicationId,
                                 const vector<ServerId>& replicationGroupIds);
     void createReplicationGroup();
-    ServerId enlistServerStart(ServerId replacesId,
-                               Tub<CoordinatorServerList::Entry>* replacedEntry,
-                               ServiceMask serviceMask,
-                               const uint32_t readSpeed,
-                               const uint32_t writeSpeed,
-                               const char* serviceLocator,
-                               ProtoBuf::ServerList* serverListUpdate);
-    void enlistServerComplete(Tub<CoordinatorServerList::Entry>* replacedEntry,
-                              ServerId newServerId,
-                              ProtoBuf::ServerList* serverListUpdate);
+    ServerId enlistServerBeforeReply(EnlistServer& ref);
+    void enlistServerAfterReply(EnlistServer& ref);
     ProtoBuf::ServerList getServerList(ServiceMask serviceMask);
     bool hintServerDown(ServerId serverId);
     void removeReplicationGroup(uint64_t groupId);

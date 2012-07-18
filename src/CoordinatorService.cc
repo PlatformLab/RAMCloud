@@ -295,24 +295,25 @@ CoordinatorService::enlistServer(const EnlistServerRpc::Request& reqHdr,
                                  Rpc& rpc)
 {
     ServerId replacesId = ServerId(reqHdr.replacesId);
-    Tub<CoordinatorServerList::Entry> replacedEntry;
     ServiceMask serviceMask = ServiceMask::deserialize(reqHdr.serviceMask);
     const uint32_t readSpeed = reqHdr.readSpeed;
     const uint32_t writeSpeed = reqHdr.writeSpeed;
     const char* serviceLocator = getString(rpc.requestPayload, sizeof(reqHdr),
                                            reqHdr.serviceLocatorLength);
-    ProtoBuf::ServerList serverListUpdate;
 
-    ServerId newServerId = serverManager.enlistServerStart(
-        replacesId, &replacedEntry, serviceMask, readSpeed, writeSpeed,
-        serviceLocator, &serverListUpdate);
+    // TODO(ankitak): This code will become much simpler after
+    // RAM-431 is resolved.
+
+    CoordinatorServerManager::EnlistServer ref(
+        serverManager, replacesId, serviceMask, readSpeed, writeSpeed,
+        serviceLocator);
+
+    ServerId newServerId = serverManager.enlistServerBeforeReply(ref);
 
     respHdr.serverId = newServerId.getId();
     rpc.sendReply();
 
-    serverManager.enlistServerComplete(&replacedEntry,
-                                       newServerId,
-                                       &serverListUpdate);
+    serverManager.enlistServerAfterReply(ref);
 }
 
 /**
