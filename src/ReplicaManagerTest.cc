@@ -55,8 +55,7 @@ struct ReplicaManagerTest : public ::testing::Test {
         config.localLocator = "mock:host=backup2";
         backup2Id = addToServerList(cluster.addServer(config));
 
-        mgr.construct(context, serverList, serverId, 2,
-                      &cluster.coordinatorLocator);
+        mgr.construct(context, serverList, serverId, 2);
         serverId = CoordinatorClient::enlistServer(context, {},
                                                    {MASTER_SERVICE},
                                                    "", 0 , 0);

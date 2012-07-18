@@ -70,7 +70,7 @@ class ObjectFinderTest : public ::testing::Test {
         , objectFinder()
         , refresher()
     {
-        objectFinder.construct(context, *cluster.getCoordinatorClient());
+        objectFinder.construct(context);
 
         ServerConfig config = ServerConfig::forTesting();
         config.services = {MASTER_SERVICE};

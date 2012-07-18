@@ -580,9 +580,6 @@ class BackupService : public Service {
     /// Settings passed to the constructor
     const ServerConfig& config;
 
-    /// Handle to cluster coordinator
-    CoordinatorClient coordinator;
-
     /**
      * If the backup was formerly part of a cluster this was its server id.
      * This is extracted from a superblock that is part of BackupStorage.

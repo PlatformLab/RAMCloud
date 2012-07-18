@@ -48,6 +48,7 @@ class RamCloud {
             int64_t incrementValue, const RejectRules* rejectRules = NULL,
             uint64_t* version = NULL);
     void multiRead(MultiReadObject* requests[], uint32_t numRequests);
+    void quiesce();
     void read(uint64_t tableId, const char* key, uint16_t keyLength,
             Buffer* value, const RejectRules* rejectRules = NULL,
             uint64_t* version = NULL);
@@ -159,7 +160,6 @@ class RamCloud {
     Status status;
 
   public: // public for now to make administrative calls from clients
-    CoordinatorClient coordinator;
     ObjectFinder objectFinder;
 
   private:
@@ -333,6 +333,21 @@ class KillRpc2 : public ObjectRpcWrapper {
 
     PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(KillRpc2);
+};
+
+/**
+ * Encapsulates the state of a RamCloud::quiesce operation
+ * allowing it to execute asynchronously.
+ */
+class QuiesceRpc2 : public CoordinatorRpcWrapper {
+    public:
+    explicit QuiesceRpc2(RamCloud& ramcloud);
+    ~QuiesceRpc2() {}
+    /// \copydoc RpcWrapper::docForWait
+    void wait() {simpleWait(*context.dispatch);}
+
+    PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(QuiesceRpc2);
 };
 
 /**

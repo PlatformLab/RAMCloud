@@ -36,7 +36,6 @@ class CoordinatorServerManagerTest : public ::testing::Test {
     ServerConfig masterConfig;
     MockCluster cluster;
     Tub<RamCloud> ramcloud;
-    CoordinatorClient* client;
     CoordinatorServerManager* serverManager;
     MasterService* master;
     ServerId masterServerId;
@@ -47,7 +46,6 @@ class CoordinatorServerManagerTest : public ::testing::Test {
         , masterConfig(ServerConfig::forTesting())
         , cluster(context)
         , ramcloud()
-        , client()
         , serverManager()
         , master()
         , masterServerId()
@@ -64,9 +62,24 @@ class CoordinatorServerManagerTest : public ::testing::Test {
         master = masterServer->master.get();
         masterServerId = masterServer->serverId;
 
-        client = cluster.getCoordinatorClient();
         ramcloud.construct(context, "mock:host=coordinator");
         serverList = &(serverManager->service.serverList);
+    }
+
+    // Generate a string containing all of the service locators in a
+    // list of servers.
+    string
+    getLocators(ProtoBuf::ServerList& serverList)
+    {
+        string result;
+        foreach (const ProtoBuf::ServerList::Entry& server,
+                serverList.server()) {
+            if (result.size() != 0) {
+                result += " ";
+            }
+            result += server.service_locator();
+        }
+        return result;
     }
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorServerManagerTest);
@@ -191,48 +204,49 @@ TEST_F(CoordinatorServerManagerTest, enlistServerReplaceANonMaster) {
     EXPECT_FALSE(serverList->contains(replacesId));
 }
 
-TEST_F(CoordinatorServerManagerTest, getMasterList) {
-    // master is already enlisted
-    ProtoBuf::ServerList masterList;
-    client->getMasterList(masterList);
-    // need to avoid non-deterministic mbytes_per_sec field.
-    EXPECT_EQ(0U, masterList.ShortDebugString().find(
-              "server { services: 25 server_id: 1 "
-              "service_locator: \"mock:host=master\" "
-              "expected_read_mbytes_per_sec: "));
-}
-
-TEST_F(CoordinatorServerManagerTest, getBackupList) {
-    // master is already enlisted
-    CoordinatorClient::enlistServer(context, {}, {BACKUP_SERVICE},
-                                    "mock:host=backup1");
-    CoordinatorClient::enlistServer(context, {}, {BACKUP_SERVICE},
-                                    "mock:host=backup2");
-    ProtoBuf::ServerList backupList;
-    client->getBackupList(backupList);
-    EXPECT_EQ("server { services: 2 server_id: 2 "
-              "service_locator: \"mock:host=backup1\" "
-              "expected_read_mbytes_per_sec: 0 "
-              "status: 0 } "
-              "server { services: 2 server_id: 3 "
-              "service_locator: \"mock:host=backup2\" "
-              "expected_read_mbytes_per_sec: 0 "
-              "status: 0 } version_number: 3",
-              backupList.ShortDebugString());
-}
-
 TEST_F(CoordinatorServerManagerTest, getServerList) {
-    // master is already enlisted
-    CoordinatorClient::enlistServer(context, {}, {BACKUP_SERVICE},
-                                    "mock:host=backup1");
-    ProtoBuf::ServerList serverList;
-    client->getServerList(serverList);
-    EXPECT_EQ(2, serverList.server_size());
-    auto masterMask = ServiceMask{MASTER_SERVICE, PING_SERVICE,
-                                  MEMBERSHIP_SERVICE}.serialize();
-    EXPECT_EQ(masterMask, serverList.server(0).services());
-    auto backupMask = ServiceMask{BACKUP_SERVICE}.serialize();
-    EXPECT_EQ(backupMask, serverList.server(1).services());
+    ServerConfig master2Config = masterConfig;
+    master2Config.localLocator = "mock:host=master2";
+    master2Config.services = {MASTER_SERVICE, BACKUP_SERVICE, PING_SERVICE};
+    cluster.addServer(master2Config);
+    ServerConfig backupConfig = masterConfig;
+    backupConfig.localLocator = "mock:host=backup1";
+    backupConfig.services = {BACKUP_SERVICE, PING_SERVICE};
+    cluster.addServer(backupConfig);
+    ProtoBuf::ServerList list;
+    CoordinatorClient::getServerList(context, list);
+    EXPECT_EQ("mock:host=master mock:host=master2 mock:host=backup1",
+            getLocators(list));
+}
+
+TEST_F(CoordinatorServerManagerTest, getServerList_backups) {
+    ServerConfig master2Config = masterConfig;
+    master2Config.localLocator = "mock:host=master2";
+    master2Config.services = {MASTER_SERVICE, BACKUP_SERVICE, PING_SERVICE};
+    cluster.addServer(master2Config);
+    ServerConfig backupConfig = masterConfig;
+    backupConfig.localLocator = "mock:host=backup1";
+    backupConfig.services = {BACKUP_SERVICE, PING_SERVICE};
+    cluster.addServer(backupConfig);
+    ProtoBuf::ServerList list;
+    CoordinatorClient::getBackupList(context, list);
+    EXPECT_EQ("mock:host=master2 mock:host=backup1",
+            getLocators(list));
+}
+
+TEST_F(CoordinatorServerManagerTest, getServerList_masters) {
+    ServerConfig master2Config = masterConfig;
+    master2Config.localLocator = "mock:host=master2";
+    master2Config.services = {MASTER_SERVICE, BACKUP_SERVICE, PING_SERVICE};
+    cluster.addServer(master2Config);
+    ServerConfig backupConfig = masterConfig;
+    backupConfig.localLocator = "mock:host=backup1";
+    backupConfig.services = {BACKUP_SERVICE, PING_SERVICE};
+    cluster.addServer(backupConfig);
+    ProtoBuf::ServerList list;
+    CoordinatorClient::getMasterList(context, list);
+    EXPECT_EQ("mock:host=master mock:host=master2",
+            getLocators(list));
 }
 
 TEST_F(CoordinatorServerManagerTest, hintServerDown_backup) {
@@ -241,7 +255,7 @@ TEST_F(CoordinatorServerManagerTest, hintServerDown_backup) {
                                         "mock:host=backup");
     EXPECT_EQ(1U, serverManager->service.serverList.backupCount());
     serverManager->forceServerDownForTesting = true;
-    client->hintServerDown(id);
+    CoordinatorClient::hintServerDown(context, id);
     EXPECT_EQ(0U, serverList->backupCount());
     EXPECT_FALSE(serverList->contains(id));
 }
@@ -258,7 +272,7 @@ TEST_F(CoordinatorServerManagerTest, hintServerDown_server) {
     ramcloud->createTable("foo");
     serverManager->forceServerDownForTesting = true;
     TestLog::Enable _(startMasterRecoveryFilter);
-    client->hintServerDown(masterServerId);
+    CoordinatorClient::hintServerDown(context, masterServerId);
     EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1 | "
               "startMasterRecovery: Recovery crashedServerId: 1",
                TestLog::get());
@@ -289,7 +303,7 @@ bool statusFilter(string s) {
 TEST_F(CoordinatorServerManagerTest, sendServerList_checkLogs) {
     TestLog::Enable _(statusFilter);
 
-    client->sendServerList(ServerId(52, 0));
+    CoordinatorClient::sendServerList(context, ServerId(52, 0));
     EXPECT_EQ(0U, TestLog::get().find(
         "sendServerList: Could not send list to unknown server 52"));
 
@@ -298,7 +312,7 @@ TEST_F(CoordinatorServerManagerTest, sendServerList_checkLogs) {
     ServerId id = cluster.addServer(config)->serverId;
 
     TestLog::reset();
-    client->sendServerList(id);
+    CoordinatorClient::sendServerList(context, id);
     EXPECT_EQ(0U, TestLog::get().find(
         "sendServerList: Could not send list to server without "
         "membership service: 2"));
@@ -308,7 +322,7 @@ TEST_F(CoordinatorServerManagerTest, sendServerList_checkLogs) {
     id = cluster.addServer(config)->serverId;
 
     TestLog::reset();
-    client->sendServerList(id);
+    CoordinatorClient::sendServerList(context, id);
     EXPECT_EQ(0U, TestLog::get().find(
         "sendServerList: Sending server list to server id"));
     EXPECT_NE(string::npos, TestLog::get().find(
@@ -317,7 +331,7 @@ TEST_F(CoordinatorServerManagerTest, sendServerList_checkLogs) {
     ProtoBuf::ServerList update;
     serverList->crashed(id, update);
     TestLog::reset();
-    client->sendServerList(id);
+    CoordinatorClient::sendServerList(context, id);
     EXPECT_EQ(
         "sendServerList: Could not send list to crashed server 3",
         TestLog::get());
@@ -378,8 +392,6 @@ TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentId_execute) {
 
 TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentId_complete_noSuchServer)
 {
-    EXPECT_THROW(client->setMinOpenSegmentId(ServerId(2, 2), 100),
-                 ClientException);
     EXPECT_THROW(serverManager->setMinOpenSegmentId(ServerId(2, 2), 100),
                  CoordinatorServerList::NoSuchServer);
 }

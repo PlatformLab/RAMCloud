@@ -395,8 +395,8 @@ TEST_F(MultiReadTest, PartRpc_unknownTable) {
     EXPECT_FALSE(request.isReady());
     EXPECT_EQ("finish: Server mock:host=master1 doesn't store "
             "<0, object1-1>; refreshing object map | "
-            "flush: flushing object map | flush: flushing object map | "
-            "checkStatus: status: 0", TestLog::get());
+            "flush: flushing object map | flush: flushing object map",
+            TestLog::get());
     EXPECT_EQ("mock:host=master1(2) -", rpcStatus(request));
 
     // Let the retry succeed.

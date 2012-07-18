@@ -61,7 +61,6 @@ class MasterServiceTest : public ::testing::Test {
     ServerConfig masterConfig;
     MasterService* service;
     std::unique_ptr<MasterClient> client;
-    CoordinatorClient* coordinator;
     Server* masterServer;
 
     // To make tests that don't need big segments faster, set a smaller default
@@ -77,12 +76,9 @@ class MasterServiceTest : public ::testing::Test {
         , masterConfig(ServerConfig::forTesting())
         , service()
         , client()
-        , coordinator()
         , masterServer()
     {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
-
-        coordinator = cluster.getCoordinatorClient();
 
         backup1Config.localLocator = "mock:host=backup1";
         backup1Config.services = {BACKUP_SERVICE, MEMBERSHIP_SERVICE};
@@ -440,7 +436,7 @@ TEST_F(MasterServiceTest, recover_basics) {
     foreach (auto* server, cluster.servers)
         serverList.add(server->serverId, server->config.localLocator,
                        server->config.services, 100);
-    ReplicaManager mgr(context, serverList, serverId, 1, NULL);
+    ReplicaManager mgr(context, serverList, serverId, 1);
     Segment segment(123, 87, segMem, segmentSize, &mgr);
     segment.sync();
 
@@ -536,7 +532,7 @@ TEST_F(MasterServiceTest, recover) {
     foreach (auto* server, cluster.servers)
         serverList.add(server->serverId, server->config.localLocator,
                        server->config.services, 100);
-    ReplicaManager mgr(context, serverList, serverId, 1, NULL);
+    ReplicaManager mgr(context, serverList, serverId, 1);
     Segment __(123, 88, segMem, segmentSize, &mgr);
     __.sync();
 
@@ -1712,7 +1708,6 @@ class MasterRecoverTest : public ::testing::Test {
   public:
     Context context;
     Tub<MockCluster> cluster;
-    CoordinatorClient* coordinator;
     const uint32_t segmentSize;
     const uint32_t segmentFrames;
     ServerId backup1Id;
@@ -1722,7 +1717,6 @@ class MasterRecoverTest : public ::testing::Test {
     MasterRecoverTest()
         : context()
         , cluster()
-        , coordinator()
         , segmentSize(1 << 16) // Smaller than usual to make tests faster.
         , segmentFrames(2)
         , backup1Id()
@@ -1731,7 +1725,6 @@ class MasterRecoverTest : public ::testing::Test {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
 
         cluster.construct(context);
-        coordinator = cluster->getCoordinatorClient();
 
         ServerConfig config = ServerConfig::forTesting();
         config.localLocator = "mock:host=backup1";
@@ -1806,7 +1799,7 @@ TEST_F(MasterRecoverTest, recover) {
     ServerList serverList(context);
     serverList.add(backup1Id, "mock:host=backup1", {BACKUP_SERVICE,
                                                     MEMBERSHIP_SERVICE}, 100);
-    ReplicaManager mgr(context, serverList, serverId, 1, NULL);
+    ReplicaManager mgr(context, serverList, serverId, 1);
     Segment s1(99, 87, segMem1, segmentSize, &mgr);
     s1.close(NULL);
     char* segMem2 = static_cast<char*>(Memory::xmemalign(HERE, segmentSize,

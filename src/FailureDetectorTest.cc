@@ -51,8 +51,7 @@ class FailureDetectorTest : public ::testing::Test {
         serverList = new ServerList(context);
         context.transportManager->registerMock(&mockTransport, "mock");
         context.coordinatorSession->setLocation("mock:");
-        fd = new FailureDetector(context, "mock:", ServerId(57, 27342),
-                *serverList);
+        fd = new FailureDetector(context, ServerId(57, 27342), *serverList);
     }
 
     ~FailureDetectorTest()
@@ -113,24 +112,7 @@ TEST_F(FailureDetectorTest, pingRandomServer_pingFailure) {
     EXPECT_EQ("pingRandomServer: Sending ping with nonce 2 to "
                    "server 1 (mock:) | "
                "alertCoordinator: Ping timeout to server id 1 "
-                   "(locator \"mock:\") | "
-               "checkStatus: status: 0", TestLog::get());
-}
-
-TEST_F(FailureDetectorTest, pingRandomServer_pingFailureAndCoordFailure) {
-    MockRandom _(1);
-    addServer(ServerId(1, 0), "mock:");
-    mockTransport.setInput(NULL); // ping timeout
-    mockTransport.setInput(NULL); // coordinator timeout
-    fd->pingRandomServer();
-    EXPECT_TRUE(StringUtil::startsWith(TestLog::get(),
-                "pingRandomServer: Sending ping with nonce 2 "
-                    "to server 1 (mock:) | "
-                "alertCoordinator: Ping timeout to server id 1 "
-                    "(locator \"mock:\") | "
-                "alertCoordinator: Hint server down failed. Maybe the network "
-                    "is disconnected: RAMCloud::TransportException: "
-                "testing thrown"));
+                   "(locator \"mock:\")", TestLog::get());
 }
 
 TEST_F(FailureDetectorTest, checkServerListVersion) {
@@ -178,17 +160,6 @@ TEST_F(FailureDetectorTest, checkForStaleServerList) {
         "list detected (have 1, saw 2). Requesting new list push! "
         "Timeout after"));
     EXPECT_FALSE(fd->staleServerListSuspected);
-
-    // Timed out, failed to contact coordinator
-    TestLog::reset();
-    fd->staleServerListSuspected = true;
-    fd->staleServerListTimestamp = 0;       // way stale
-    fd->staleServerListVersion = 2;
-    mockTransport.setInput(NULL);
-    fd->checkForStaleServerList();
-    EXPECT_NE(string::npos, TestLog::get().find(
-        "checkForStaleServerList: Request to coordinator failed:"));
-    EXPECT_TRUE(fd->staleServerListSuspected);
 }
 
 } // namespace RAMCloud

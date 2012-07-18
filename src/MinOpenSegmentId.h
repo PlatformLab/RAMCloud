@@ -18,6 +18,7 @@
 
 #include "Common.h"
 #include "CoordinatorClient.h"
+#include "CoordinatorSession.h"
 #include "ServerId.h"
 #include "TaskQueue.h"
 #include "Tub.h"
@@ -41,23 +42,21 @@ class MinOpenSegmentId : public Task {
      * Construct an instance to track and update the minOpenSegmentId
      * stored on the coordinator.
      *
+     * \param context
+     *      Overall information about this RAMCloud server.
      * \param taskQueue
      *      The TaskQueue which this Task will schedule itself with in
      *      the case the minOpenSegmentId stored on the coordinator
      *      needs to be updated.
-     * \param coordinator
-     *      A client which is used to communicate with the coordinator
-     *      in the case the minOpenSegmentId stored on the coordinator needs
-     *      to be updated.
      * \param serverId
      *      The ServerId of the master whose minOpenSegmentId is to be updated
      *      on the coordinator.
      */
-    MinOpenSegmentId(TaskQueue* taskQueue,
-                     CoordinatorClient* coordinator,
+    MinOpenSegmentId(Context& context,
+                     TaskQueue* taskQueue,
                      const ServerId* serverId)
         : Task(*taskQueue)
-        , coordinator(coordinator)
+        , context(context)
         , serverId(serverId)
         , current(0)
         , sent(0)
@@ -109,35 +108,25 @@ class MinOpenSegmentId : public Task {
      * by its #taskQueue.
      */
     virtual void performTask() {
-        if (!coordinator) {
-            // For unit testing to prevent the need for a coordinator (that is,
-            // other unit tests, not the tests for MinOpenSegmentId).
+#ifdef TESTING
+        // When running tests, if there does not seem to be a coordinator
+        // present, then just skip the call.
+        if (context.coordinatorSession->getLocation().empty()) {
             current = requested;
             return;
         }
+#endif
         if (!rpc) {
             if (current != requested) {
-                try {
-                    rpc.construct(*coordinator, *serverId, requested);
-                    sent = requested;
-                } catch (const TransportException& e) {
-                    RAMCLOUD_LOG(WARNING, "Problem communicating with the "
-                                 "coordinator during setMinOpenSegmentId call, "
-                                 "retrying");
-                }
+                rpc.construct(context, *serverId, requested);
+                sent = requested;
             }
         } else {
             if (rpc->isReady()) {
-                try {
-                    (*rpc)();
-                    current = sent;
-                    RAMCLOUD_LOG(DEBUG, "coordinator minOpenSegmentId for %lu "
-                                 "updated to %lu", serverId->getId(), current);
-                } catch (const TransportException& e) {
-                    RAMCLOUD_LOG(WARNING, "Problem communicating with the "
-                                 "coordinator during setMinOpenSegmentId call, "
-                                 "retrying");
-                }
+                rpc->wait();
+                current = sent;
+                RAMCLOUD_LOG(DEBUG, "coordinator minOpenSegmentId for %lu "
+                             "updated to %lu", serverId->getId(), current);
                 rpc.destroy();
             }
         }
@@ -147,12 +136,9 @@ class MinOpenSegmentId : public Task {
 
   PROTECTED:
     /**
-     * The coordinator whose value of minOpenSegmentId should be kept in sync.
-     * Can be NULL for testing in which case the local, cached value of
-     * minOpenSegmentId is used to emulate updates to the coordinator-stored
-     * value.
+     * Shared RAMCloud information.
      */
-    CoordinatorClient* coordinator;
+    Context& context;
 
     /**
      * Complete unholy garbage.  This has to be a pointer because the reference
@@ -188,7 +174,7 @@ class MinOpenSegmentId : public Task {
      * Holds an ongoing rpc to the coordinator to update the minOpenSegmentId
      * for this #serverId, if any rpc is outstanding.
      */
-    Tub<CoordinatorClient::SetMinOpenSegmentId> rpc;
+    Tub<SetMinOpenSegmentIdRpc2> rpc;
 
     DISALLOW_COPY_AND_ASSIGN(MinOpenSegmentId);
 };

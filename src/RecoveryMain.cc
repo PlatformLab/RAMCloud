@@ -335,7 +335,7 @@ try
     // client.ping();
 
     LOG(NOTICE, "- quiescing writes");
-    client.coordinator.quiesce();
+    client.quiesce();
 
     // Take an initial snapshot of performance metrics.
     ClusterMetrics metricsBefore(&client);

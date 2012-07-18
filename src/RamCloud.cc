@@ -127,8 +127,7 @@ RamCloud::RamCloud(const char* serviceLocator)
     , realClientContext()
     , clientContext(*realClientContext.construct(false))
     , status(STATUS_OK)
-    , coordinator(clientContext, serviceLocator)
-    , objectFinder(clientContext, coordinator)
+    , objectFinder(clientContext)
 {
     clientContext.coordinatorSession->setLocation(serviceLocator);
 }
@@ -143,8 +142,7 @@ RamCloud::RamCloud(Context& context, const char* serviceLocator)
     , realClientContext()
     , clientContext(context)
     , status(STATUS_OK)
-    , coordinator(context, serviceLocator)
-    , objectFinder(clientContext, coordinator)
+    , objectFinder(clientContext)
 {
     clientContext.coordinatorSession->setLocation(serviceLocator);
 }
@@ -529,6 +527,40 @@ RamCloud::multiRead(MultiReadObject* requests[], uint32_t numRequests)
 {
     MultiRead request(*this, requests, numRequests);
     request.wait();
+}
+
+/**
+ * Ask the coordinator to broadcast a quiesce request to all backups.  When
+ * this method returns, all backups will have flushed active segment replicas
+ * to disk.  This is used primarily during recovery testing: it allows more
+ * accurate performance measurements.
+ */
+void
+RamCloud::quiesce()
+{
+    QuiesceRpc2 rpc(*this);
+    rpc.wait();
+}
+
+/**
+ * Constructor for HintServerDownRpc2: initiates an RPC in the same way as
+ * #CoordinatorClient::hintServerDown, but returns once the RPC has been
+ * initiated, without waiting for it to complete.
+ *
+ * \param ramcloud
+ *      The RAMCloud object that governs this RPC.
+ */
+QuiesceRpc2::QuiesceRpc2(RamCloud& ramcloud)
+    : CoordinatorRpcWrapper(ramcloud.clientContext,
+            sizeof(WireFormat::BackupQuiesce::Response))
+{
+    WireFormat::BackupQuiesce::Request& reqHdr(
+            allocHeader<WireFormat::BackupQuiesce>());
+    // By default this RPC is sent to the backup service; retarget it
+    // for the coordinator service (which will forward it on to all
+    // backups).
+    reqHdr.common.service = COORDINATOR_SERVICE;
+    send();
 }
 
 /**

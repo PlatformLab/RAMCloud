@@ -35,9 +35,7 @@ namespace RAMCloud {
  * to date. Without it, we'd not know of new servers to ping.
  *
  * \param context
- *      Overall information about the RAMCloud server.
- * \param[in] coordinatorLocatorString
- *      The ServiceLocator string of the coordinator. 
+ *      Overall information about the RAMCloud server. 
  * \param[in] ourServerId
  *      The ServerId of this server, as returned by enlistment with the
  *      coordinator. Used only to avoid pinging ourself.
@@ -48,7 +46,6 @@ namespace RAMCloud {
  *      sent to the coordinator to fix any discrepancy.
  */
 FailureDetector::FailureDetector(Context& context,
-                                 const string &coordinatorLocatorString,
                                  const ServerId ourServerId,
                                  ServerList& serverList)
     : context(context),
@@ -57,7 +54,6 @@ FailureDetector::FailureDetector(Context& context,
       thread(),
       threadShouldExit(false),
       pingClient(context),
-      coordinatorClient(context, coordinatorLocatorString.c_str()),
       serverList(serverList),
       staleServerListSuspected(false),
       staleServerListVersion(0),
@@ -200,12 +196,7 @@ FailureDetector::alertCoordinator(ServerId serverId, string locator)
 {
     LOG(WARNING, "Ping timeout to server id %lu (locator \"%s\")",
         *serverId, locator.c_str());
-    try {
-        coordinatorClient.hintServerDown(serverId);
-    } catch (TransportException &te) {
-        LOG(WARNING, "Hint server down failed. "
-                     "Maybe the network is disconnected: %s", te.what());
-    }
+    CoordinatorClient::hintServerDown(context, serverId);
 }
 
 /**
@@ -271,7 +262,7 @@ FailureDetector::checkForStaleServerList()
             currentVersion, staleServerListVersion,
             Cycles::toNanoseconds(deltaTicks) / 1000);
         try {
-            coordinatorClient.sendServerList(ourServerId);
+            CoordinatorClient::sendServerList(context, ourServerId);
             staleServerListSuspected = false;
         } catch (TransportException &te) {
             LOG(WARNING, "Request to coordinator failed: %s", te.what());

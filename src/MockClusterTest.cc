@@ -40,7 +40,7 @@ class MockClusterTest : public ::testing::Test {
 
 TEST_F(MockClusterTest, constructor) {
     ProtoBuf::ServerList serverList;
-    cluster->getCoordinatorClient()->getServerList(serverList);
+    CoordinatorClient::getServerList(context, serverList);
     EXPECT_EQ(0, serverList.server_size());
 }
 

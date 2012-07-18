@@ -699,7 +699,7 @@ struct ReassignTabletOwnership {
         uint64_t tableId;           // Id of the table whose tablet was moved.
         uint64_t firstKeyHash;      // First key of the migrated tablet.
         uint64_t lastKeyHash;       // Last key of the migrated tablet.
-        uint64_t newOwnerMasterId;  // ServerId of the new master.
+        uint64_t newOwnerId;        // ServerId of the new master.
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
@@ -794,7 +794,7 @@ struct Remove {
     } __attribute__((packed));
 };
 
-struct SendServerListc {
+struct SendServerList {
     static const Opcode opcode = SEND_SERVER_LIST;
     static const ServiceType service = COORDINATOR_SERVICE;
     struct Request {

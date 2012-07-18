@@ -82,17 +82,19 @@ class GetRecoveryDataRpc2 : public ServerIdRpcWrapper {
 
 /**
  * Encapsulates the state of a BackupClient::quiesce operation,
- * allowing it to execute asynchronously.
+ * allowing it to execute asynchronously (it has the "Backup" prefix
+ * to distinguish it from the CoordinatorClient version of the
+ * same call).
  */
-class QuiesceRpc2 : public ServerIdRpcWrapper {
+class BackupQuiesceRpc2 : public ServerIdRpcWrapper {
   public:
-    QuiesceRpc2(Context& context, ServerId backupId);
-    ~QuiesceRpc2() {}
+    BackupQuiesceRpc2(Context& context, ServerId backupId);
+    ~BackupQuiesceRpc2() {}
     /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
     void wait() {waitAndCheckErrors();}
 
   PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(QuiesceRpc2);
+    DISALLOW_COPY_AND_ASSIGN(BackupQuiesceRpc2);
 };
 
 /**

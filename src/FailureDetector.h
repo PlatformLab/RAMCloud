@@ -44,7 +44,6 @@ namespace RAMCloud {
 class FailureDetector {
   public:
     FailureDetector(Context& context,
-                    const string &coordinatorLocatorString,
                     ServerId ourServerId,
                     ServerList& serverList);
     ~FailureDetector();
@@ -97,9 +96,6 @@ class FailureDetector {
     // Service Clients
     /// PingClient instance
     PingClient           pingClient;
-
-    /// CoordinatorClient instance
-    CoordinatorClient    coordinatorClient;
 
     /// ServerList whose consistency we will check against random nodes that
     /// we ping.

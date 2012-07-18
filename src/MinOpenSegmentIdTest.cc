@@ -24,7 +24,6 @@ class MinOpenSegmentIdTest : public ::testing::Test {
   public:
     Context context;
     MockCluster cluster;
-    CoordinatorClient* client;
     CoordinatorService* service;
     ServerId serverId;
     TaskQueue taskQueue;
@@ -33,11 +32,10 @@ class MinOpenSegmentIdTest : public ::testing::Test {
     MinOpenSegmentIdTest()
         : context()
         , cluster(context)
-        , client(cluster.getCoordinatorClient())
         , service(cluster.coordinator.get())
         , serverId()
         , taskQueue()
-        , min(&taskQueue, client, &serverId)
+        , min(context, &taskQueue, &serverId)
     {
         ServerConfig config = ServerConfig::forTesting();
         config.services = {MASTER_SERVICE};
@@ -96,54 +94,6 @@ TEST_F(MinOpenSegmentIdTest, updateToAtLeast) {
     EXPECT_EQ(2lu, coordMin);
     EXPECT_FALSE(min.rpc);
     EXPECT_FALSE(min.isScheduled());
-}
-
-namespace {
-bool filter(string s) {
-    return s == "performTask";
-}
-}
-
-TEST_F(MinOpenSegmentIdTest, performTaskCantTalkToCoordinator) {
-    TestLog::Enable _(filter);
-    uint64_t coordMin = service->serverList[serverId].minOpenSegmentId;
-    min.updateToAtLeast(1lu);
-    EXPECT_EQ(1lu, min.requested);
-    EXPECT_EQ(0lu, min.sent);
-    EXPECT_EQ(0lu, min.current);
-    EXPECT_EQ(0lu, coordMin);
-    EXPECT_FALSE(min.rpc);
-    EXPECT_EQ("", TestLog::get());
-    cluster.transport.errorMessage = "testing";
-    taskQueue.performTask(); // send rpc
-    coordMin = service->serverList[serverId].minOpenSegmentId;
-    EXPECT_EQ("", TestLog::get());
-    EXPECT_EQ(1lu, min.requested);
-    EXPECT_EQ(1lu, min.sent);
-    EXPECT_EQ(0lu, min.current);
-    EXPECT_EQ(0lu, coordMin);
-    EXPECT_TRUE(min.rpc);
-    min.updateToAtLeast(2lu);
-    taskQueue.performTask(); // fail to reap rpc
-    coordMin = service->serverList[serverId].minOpenSegmentId;
-    EXPECT_EQ("performTask: Problem communicating with the coordinator during "
-              "setMinOpenSegmentId call, retrying", TestLog::get());
-    EXPECT_EQ(2lu, min.requested);
-    EXPECT_EQ(1lu, min.sent);
-    EXPECT_EQ(0lu, min.current);
-    EXPECT_EQ(0lu, coordMin);
-    EXPECT_FALSE(min.rpc);
-    taskQueue.performTask(); // retry send rpc, but with higher request.
-    coordMin = service->serverList[serverId].minOpenSegmentId;
-    EXPECT_TRUE(min.rpc);
-    EXPECT_EQ(2lu, min.requested);
-    EXPECT_EQ(2lu, min.sent);
-    EXPECT_EQ(0lu, min.current);
-    EXPECT_EQ(2lu, coordMin);
-    EXPECT_TRUE(min.rpc);
-    taskQueue.performTask(); // success
-    EXPECT_EQ(2lu, min.current);
-    EXPECT_FALSE(min.rpc);
 }
 
 }  // namespace RAMCloud

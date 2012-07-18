@@ -1064,7 +1064,6 @@ BackupService::BackupService(Context& context,
     : context(context)
     , mutex()
     , config(config)
-    , coordinator(context, config.coordinatorLocator.c_str())
     , formerServerId()
     , serverId(0)
     , recoveryTicks()
@@ -1467,6 +1466,7 @@ BackupService::quiesce(const BackupQuiesceRpc::Request& reqHdr,
                        BackupQuiesceRpc::Response& respHdr,
                        Rpc& rpc)
 {
+    TEST_LOG("Backup at %s quiescing", config.localLocator.c_str());
     ioScheduler.quiesce();
 }
 

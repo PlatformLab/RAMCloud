@@ -104,7 +104,7 @@ struct ReplicatedSegmentTest : public ::testing::Test {
         , dataMutex()
         , masterId(999, 0)
         , segmentId(888)
-        , minOpenSegmentId(&taskQueue, NULL, &masterId)
+        , minOpenSegmentId(context, &taskQueue, &masterId)
         , data()
         , openLen(10)
         , numReplicas(2)

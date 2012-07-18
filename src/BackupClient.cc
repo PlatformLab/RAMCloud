@@ -227,7 +227,7 @@ GetRecoveryDataRpc2::wait()
 void
 BackupClient::quiesce(Context& context, ServerId backupId)
 {
-    QuiesceRpc2 rpc(context, backupId);
+    BackupQuiesceRpc2 rpc(context, backupId);
     rpc.wait();
 }
 
@@ -241,7 +241,7 @@ BackupClient::quiesce(Context& context, ServerId backupId)
  * \param backupId
  *      Backup whose data should be flushed.
  */
-QuiesceRpc2::QuiesceRpc2(Context& context, ServerId backupId)
+BackupQuiesceRpc2::BackupQuiesceRpc2(Context& context, ServerId backupId)
     : ServerIdRpcWrapper(context, backupId,
             sizeof(WireFormat::BackupQuiesce::Response))
 {

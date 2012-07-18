@@ -49,7 +49,6 @@ class MasterService : public Service {
   public:
     MasterService(Context& context,
                   const ServerConfig& config,
-                  CoordinatorClient* coordinator,
                   ServerList& serverList);
     virtual ~MasterService();
     void init(ServerId id);
@@ -152,7 +151,6 @@ class MasterService : public Service {
     Context& context;
 
     const ServerConfig& config;
-    CoordinatorClient* coordinator;
 
     ServerId serverId;
 

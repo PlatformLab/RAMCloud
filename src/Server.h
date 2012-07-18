@@ -59,7 +59,6 @@ class Server {
         , backupWriteSpeed()
         , serverId()
         , serverList(context)
-        , coordinator()
         , failureDetector()
         , master()
         , backup()
@@ -124,13 +123,6 @@ class Server {
      * of changes to the list.
      */
     ServerList serverList;
-
-    /**
-     * TODO(stutsman): This can be eliminated as soon as the MasterService
-     * no longer takes a CoordinatorClient (it will be replaced by the
-     * server list).  For enlisting it can just be on the stack.
-     */
-    Tub<CoordinatorClient> coordinator;
 
     /// If enabled detects other Server in the cluster, else empty.
     Tub<FailureDetector> failureDetector;

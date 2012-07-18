@@ -37,22 +37,15 @@ namespace RAMCloud {
  *      serves as the log id).
  * \param numReplicas
  *      Number replicas to keep of each segment.
- * \param coordinatorLocator
- *      Locator of the coordinator where the minOpenSegmentId will be
- *      updated for this server in the case of some failures.  May be
- *      NULL for testing in which case updates will not be sent to the
- *      coordinator.
  */
 ReplicaManager::ReplicaManager(Context& context,
                                ServerList& serverList,
                                const ServerId& masterId,
-                               uint32_t numReplicas,
-                               const string* coordinatorLocator)
+                               uint32_t numReplicas)
     : context(context)
     , numReplicas(numReplicas)
     , tracker(context, serverList)
     , backupSelector(tracker)
-    , coordinator()
     , dataMutex()
     , masterId(masterId)
     , replicatedSegmentPool(ReplicatedSegment::sizeOf(numReplicas))
@@ -62,11 +55,7 @@ ReplicaManager::ReplicaManager(Context& context,
     , minOpenSegmentId()
     , failureMonitor(context, serverList, this)
 {
-    if (coordinatorLocator)
-        coordinator.construct(context, coordinatorLocator->c_str());
-    minOpenSegmentId.construct(&taskQueue,
-                               coordinator ? coordinator.get() : NULL,
-                               &masterId);
+    minOpenSegmentId.construct(context, &taskQueue, &masterId);
 }
 
 /**

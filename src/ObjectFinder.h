@@ -35,7 +35,7 @@ class ObjectFinder {
   public:
     class TabletMapFetcher; // forward declaration, see full declaration below
 
-    explicit ObjectFinder(Context& context, CoordinatorClient& coordinator);
+    explicit ObjectFinder(Context& context);
 
     Transport::SessionRef lookup(uint64_t table, const char* key,
                                  uint16_t keyLength);

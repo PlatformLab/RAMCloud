@@ -45,7 +45,7 @@ class RamCloudTest : public ::testing::Test {
         config.services = {MASTER_SERVICE, PING_SERVICE};
         config.localLocator = "mock:host=master1";
         cluster.addServer(config);
-        config.services = {MASTER_SERVICE, PING_SERVICE};
+        config.services = {MASTER_SERVICE, BACKUP_SERVICE, PING_SERVICE};
         config.localLocator = "mock:host=master2";
         cluster.addServer(config);
         config.services = {PING_SERVICE};
@@ -134,6 +134,19 @@ TEST_F(RamCloudTest, multiRead) {
     EXPECT_EQ("second", TestUtil::toString(value2.get()));
 }
 
+TEST_F(RamCloudTest, quiesce) {
+    TestLog::Enable _;
+    ServerConfig config = ServerConfig::forTesting();
+    config.services = {BACKUP_SERVICE, PING_SERVICE};
+    config.localLocator = "mock:host=backup1";
+    cluster.addServer(config);
+    TestLog::reset();
+    ramcloud->quiesce();
+    EXPECT_EQ("quiesce: Backup at mock:host=master2 quiescing | "
+            "quiesce: Backup at mock:host=backup1 quiescing",
+            TestLog::get());
+}
+
 TEST_F(RamCloudTest, read) {
     ramcloud->write(tableId1, "0", 1, "abcdef", 6);
     Buffer value;
@@ -187,8 +200,7 @@ TEST_F(RamCloudTest, testingKill) {
     // Create the RPC object directly rather than calling testingKill
     // (testingKill would hang in objectFinder.waitForTabletDown).
     KillRpc2 rpc(*ramcloud, tableId1, "0", 1);
-    EXPECT_EQ("checkStatus: status: 0 | kill: Server remotely told "
-            "to kill itself.", TestLog::get());
+    EXPECT_EQ("kill: Server remotely told to kill itself.", TestLog::get());
 }
 
 TEST_F(RamCloudTest, testingSetRuntimeOption) {

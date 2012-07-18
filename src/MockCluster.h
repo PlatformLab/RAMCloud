@@ -80,14 +80,12 @@ class MockCluster {
         , mockRegistrar(context, transport)
         , coordinatorLocator(coordinatorLocator)
         , coordinator()
-        , coordinatorClient()
         , servers()
     {
         context.coordinatorServerList = new CoordinatorServerList(context);
         coordinator.construct(context, "testing");
         transport.addService(*coordinator, coordinatorLocator,
                              COORDINATOR_SERVICE);
-        coordinatorClient.construct(context, coordinatorLocator.c_str());
         context.coordinatorSession->setLocation(coordinatorLocator.c_str());
     }
 
@@ -172,16 +170,6 @@ class MockCluster {
     }
 
     /**
-     * Return a client to this cluster's coordinator; important, the caller
-     * is NOT responsible for freeing returned the client.  Also, the client is
-     * shared among all callers of this method (i.e. it always returns a pointer
-     * to the same client).
-     */
-    CoordinatorClient* getCoordinatorClient() {
-        return coordinatorClient.get();
-    }
-
-    /**
      * Shared RAMCloud information.
      */
     Context& context;
@@ -205,9 +193,6 @@ class MockCluster {
 
     /// The coordinator of the MockCluster.
     Tub<CoordinatorService> coordinator;
-
-    /// A client to the coordinator of the MockCluster.
-    Tub<CoordinatorClient> coordinatorClient;
 
     /// Servers in the cluster; used to delete them when the cluster goes away.
     vector<Server*> servers;

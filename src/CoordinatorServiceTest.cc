@@ -32,7 +32,6 @@ class CoordinatorServiceTest : public ::testing::Test {
     ServerConfig masterConfig;
     MockCluster cluster;
     Tub<RamCloud> ramcloud;
-    CoordinatorClient* client;
     CoordinatorService* service;
     MasterService* master;
     ServerId masterServerId;
@@ -42,7 +41,6 @@ class CoordinatorServiceTest : public ::testing::Test {
         , masterConfig(ServerConfig::forTesting())
         , cluster(context)
         , ramcloud()
-        , client()
         , service()
         , master()
         , masterServerId()
@@ -58,8 +56,23 @@ class CoordinatorServiceTest : public ::testing::Test {
         master = masterServer->master.get();
         masterServerId = masterServer->serverId;
 
-        client = cluster.getCoordinatorClient();
         ramcloud.construct(context, "mock:host=coordinator");
+    }
+
+    // Generate a string containing all of the service locators in a
+    // list of servers.
+    string
+    getLocators(ProtoBuf::ServerList& serverList)
+    {
+        string result;
+        foreach (const ProtoBuf::ServerList::Entry& server,
+                serverList.server()) {
+            if (result.size() != 0) {
+                result += " ";
+            }
+            result += server.service_locator();
+        }
+        return result;
     }
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorServiceTest);
@@ -239,10 +252,55 @@ TEST_F(CoordinatorServiceTest, getTableId) {
     EXPECT_THROW(ramcloud->getTableId("bar"), TableDoesntExistException);
 }
 
+TEST_F(CoordinatorServiceTest, getServerList) {
+    ServerConfig master2Config = masterConfig;
+    master2Config.localLocator = "mock:host=master2";
+    master2Config.services = {MASTER_SERVICE, BACKUP_SERVICE, PING_SERVICE};
+    cluster.addServer(master2Config);
+    ServerConfig backupConfig = masterConfig;
+    backupConfig.localLocator = "mock:host=backup1";
+    backupConfig.services = {BACKUP_SERVICE, PING_SERVICE};
+    cluster.addServer(backupConfig);
+    ProtoBuf::ServerList list;
+    CoordinatorClient::getServerList(context, list);
+    EXPECT_EQ("mock:host=master mock:host=master2 mock:host=backup1",
+            getLocators(list));
+}
+
+TEST_F(CoordinatorServiceTest, getServerList_backups) {
+    ServerConfig master2Config = masterConfig;
+    master2Config.localLocator = "mock:host=master2";
+    master2Config.services = {MASTER_SERVICE, BACKUP_SERVICE, PING_SERVICE};
+    cluster.addServer(master2Config);
+    ServerConfig backupConfig = masterConfig;
+    backupConfig.localLocator = "mock:host=backup1";
+    backupConfig.services = {BACKUP_SERVICE, PING_SERVICE};
+    cluster.addServer(backupConfig);
+    ProtoBuf::ServerList list;
+    CoordinatorClient::getBackupList(context, list);
+    EXPECT_EQ("mock:host=master2 mock:host=backup1",
+            getLocators(list));
+}
+
+TEST_F(CoordinatorServiceTest, getServerList_masters) {
+    ServerConfig master2Config = masterConfig;
+    master2Config.localLocator = "mock:host=master2";
+    master2Config.services = {MASTER_SERVICE, BACKUP_SERVICE, PING_SERVICE};
+    cluster.addServer(master2Config);
+    ServerConfig backupConfig = masterConfig;
+    backupConfig.localLocator = "mock:host=backup1";
+    backupConfig.services = {BACKUP_SERVICE, PING_SERVICE};
+    cluster.addServer(backupConfig);
+    ProtoBuf::ServerList list;
+    CoordinatorClient::getMasterList(context, list);
+    EXPECT_EQ("mock:host=master mock:host=master2",
+            getLocators(list));
+}
+
 TEST_F(CoordinatorServiceTest, getTabletMap) {
     ramcloud->createTable("foo");
     ProtoBuf::Tablets tabletMap;
-    client->getTabletMap(tabletMap);
+    CoordinatorClient::getTabletMap(context, tabletMap);
     EXPECT_EQ("tablet { table_id: 0 start_key_hash: 0 "
               "end_key_hash: 18446744073709551615 "
               "state: NORMAL server_id: 1 "
@@ -279,8 +337,8 @@ TEST_F(CoordinatorServiceTest, reassignTabletOwnership) {
 
     TestLog::Enable _(reassignTabletOwnershipFilter);
 
-    EXPECT_THROW(client->reassignTabletOwnership(0, 0, -1, ServerId(472, 2)),
-        ServerDoesntExistException);
+    EXPECT_THROW(CoordinatorClient::reassignTabletOwnership(context,
+        0, 0, -1, ServerId(472, 2)), ServerDoesntExistException);
     EXPECT_EQ("reassignTabletOwnership: Server id 8589935064 does not exist! "
         "Cannot reassign ownership of tablet 0, range "
         "[0, 18446744073709551615]!", TestLog::get());
@@ -288,15 +346,16 @@ TEST_F(CoordinatorServiceTest, reassignTabletOwnership) {
     EXPECT_EQ(0, master2->master->tablets.tablet_size());
 
     TestLog::reset();
-    EXPECT_THROW(client->reassignTabletOwnership(0, 0, 57, master2->serverId),
-        TableDoesntExistException);
+    EXPECT_THROW(CoordinatorClient::reassignTabletOwnership(context,
+        0, 0, 57, master2->serverId), TableDoesntExistException);
     EXPECT_EQ("reassignTabletOwnership: Could not reassign tablet 0, "
         "range [0, 57]: not found!", TestLog::get());
     EXPECT_EQ(1, master->tablets.tablet_size());
     EXPECT_EQ(0, master2->master->tablets.tablet_size());
 
     TestLog::reset();
-    client->reassignTabletOwnership(0, 0, -1, master2->serverId);
+    CoordinatorClient::reassignTabletOwnership(context, 0, 0, -1,
+        master2->serverId);
     EXPECT_EQ("reassignTabletOwnership: Reassigning tablet 0, range "
         "[0, 18446744073709551615] from server id 1 to server id 2.",
         TestLog::get());
@@ -309,14 +368,44 @@ TEST_F(CoordinatorServiceTest, reassignTabletOwnership) {
     EXPECT_EQ(72U, tablet.ctime.segmentOffset());
 }
 
+TEST_F(CoordinatorServiceTest, sendServerList) {
+    ServerConfig config = ServerConfig::forTesting();
+    config.services = {MEMBERSHIP_SERVICE};
+    ServerId id = cluster.addServer(config)->serverId;
+
+    TestLog::Enable _;
+    CoordinatorClient::sendServerList(context, id);
+    EXPECT_TRUE(TestUtil::matchesPosixRegex(
+            "Sending server list to server id 2", TestLog::get()));
+}
+
 TEST_F(CoordinatorServiceTest, setRuntimeOption) {
-    client->setRuntimeOption("failRecoveryMasters", "1 2 3");
+    ramcloud->testingSetRuntimeOption("failRecoveryMasters", "1 2 3");
     ASSERT_EQ(3u, service->runtimeOptions.failRecoveryMasters.size());
     EXPECT_EQ(1u, service->runtimeOptions.popFailRecoveryMasters());
     EXPECT_EQ(2u, service->runtimeOptions.popFailRecoveryMasters());
     EXPECT_EQ(3u, service->runtimeOptions.popFailRecoveryMasters());
     EXPECT_EQ(0u, service->runtimeOptions.popFailRecoveryMasters());
-    EXPECT_THROW(client->setRuntimeOption("BAD", "1 2 3"),
+    EXPECT_THROW(ramcloud->testingSetRuntimeOption("BAD", "1 2 3"),
                  ObjectDoesntExistException);
 }
+
+TEST_F(CoordinatorServiceTest, setMinOpenSegmentId) {
+    CoordinatorClient::setMinOpenSegmentId(context, masterServerId, 10);
+    EXPECT_EQ(10u, context.coordinatorServerList->at(
+            masterServerId).minOpenSegmentId);
+}
+
+TEST_F(CoordinatorServiceTest, setMinOpenSegmentId_noSuchServer) {
+    string message = "no exception";
+    try {
+        CoordinatorClient::setMinOpenSegmentId(context, ServerId{999, 999},
+                                               10);
+    }
+    catch (const ServerDoesntExistException& e) {
+        message = e.toSymbol();
+    }
+    EXPECT_EQ("STATUS_SERVER_DOESNT_EXIST", message);
+}
+
 }  // namespace RAMCloud

@@ -26,15 +26,15 @@ namespace {
  */
 class RealTabletMapFetcher : public ObjectFinder::TabletMapFetcher {
   public:
-    explicit RealTabletMapFetcher(CoordinatorClient& coordinator)
-        : coordinator(coordinator)
+    explicit RealTabletMapFetcher(Context& context)
+        : context(context)
     {
     }
     void getTabletMap(ProtoBuf::Tablets& tabletMap) {
-        coordinator.getTabletMap(tabletMap);
+        CoordinatorClient::getTabletMap(context, tabletMap);
     }
   private:
-    CoordinatorClient& coordinator;
+    Context& context;
 };
 
 } // anonymous namespace
@@ -42,14 +42,12 @@ class RealTabletMapFetcher : public ObjectFinder::TabletMapFetcher {
 /**
  * Constructor.
  * \param context
- *      Overall information about the RAMCloud server.
- * \param coordinator
- *      This object keeps a reference to \a coordinator
+ *      Overall information about this client.
  */
-ObjectFinder::ObjectFinder(Context& context, CoordinatorClient& coordinator)
+ObjectFinder::ObjectFinder(Context& context)
     : context(context)
     , tabletMap()
-    , tabletMapFetcher(new RealTabletMapFetcher(coordinator))
+    , tabletMapFetcher(new RealTabletMapFetcher(context))
 {
 }
 

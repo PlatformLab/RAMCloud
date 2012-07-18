@@ -81,22 +81,17 @@ uint32_t tombstoneTimestampCallback(LogEntryHandle handle);
  * \param config
  *      Contains various parameters that configure the operation of
  *      this server.
- * \param coordinator
- *      A client to the coordinator for the RAMCloud this Master is in.
  * \param serverList
  *      A reference to the global ServerList.
  */
 MasterService::MasterService(Context& context,
                              const ServerConfig& config,
-                             CoordinatorClient* coordinator,
                              ServerList& serverList)
     : context(context)
     , config(config)
-    , coordinator(coordinator)
     , serverId()
     , serverList(serverList)
-    , replicaManager(context, serverList, serverId,
-                     config.master.numReplicas, &config.coordinatorLocator)
+    , replicaManager(context, serverList, serverId, config.master.numReplicas)
     , bytesWritten(0)
     , log(context,
           serverId,
@@ -932,7 +927,7 @@ MasterService::migrateTablet(const MigrateTabletRpc::Request& reqHdr,
     // the tablet. If this succeeds, we are free to drop the tablet. The
     // data is all on the other machine and the coordinator knows to use it
     // for any recoveries.
-    coordinator->reassignTabletOwnership(
+    CoordinatorClient::reassignTabletOwnership(context,
         tableId, firstKey, lastKey, newOwnerMasterId);
 
     LOG(NOTICE, "Tablet migration succeeded. Sent %lu objects and %lu "
@@ -1642,9 +1637,9 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
         tablet.set_ctime_log_head_offset(headOfLog.segmentOffset());
     }
     LOG(NOTICE, "Reporting completion of recovery %lu", reqHdr.recoveryId);
-    coordinator->recoveryMasterFinished(recoveryId,
-                                        serverId, recoveryTablets,
-                                        successful);
+    CoordinatorClient::recoveryMasterFinished(context, recoveryId,
+                                              serverId, recoveryTablets,
+                                              successful);
 
     // TODO(stutsman) Delete tablets if recoveryMasterFinished returns
     // failure by setting successful to false. Rest is handled below.
@@ -2450,10 +2445,10 @@ MasterService::storeData(uint64_t tableId,
         // approach to updating cluster configuration information.
         anyWrites = true;
 
-        // NULL coordinator means we're in test mode, so skip this.
-        if (coordinator) {
+        // Empty coordinator locator means we're in test mode, so skip this.
+        if (!context.coordinatorSession->getLocation().empty()) {
             ProtoBuf::ServerList backups;
-            coordinator->getBackupList(backups);
+            CoordinatorClient::getBackupList(context, backups);
             TransportManager& transportManager =
                 *context.transportManager;
             foreach(auto& backup, backups.server())

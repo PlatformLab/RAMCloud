@@ -63,8 +63,7 @@ class ReplicaManager
     ReplicaManager(Context& context,
                    ServerList& serverList,
                    const ServerId& masterId,
-                   uint32_t numReplicas,
-                   const string* coordinatorLocator);
+                   uint32_t numReplicas);
     ~ReplicaManager();
 
     bool isIdle();
@@ -96,9 +95,6 @@ class ReplicaManager
 
     /// Selects backups to store replicas while obeying placement constraints.
     BackupSelector backupSelector;
-
-    /// Used by minOpenSegmentId to update the value on the coordinator.
-    Tub<CoordinatorClient> coordinator;
 
     /**
      * Protects all internal data structures during concurrent calls to the

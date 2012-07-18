@@ -261,6 +261,8 @@ CoordinatorServerManager::hintServerDown(ServerId serverId)
         return true;
     }
 
+    LOG(NOTICE, "Checking server id %lu (%s)", serverId.getId(),
+            service.serverList.getLocator(serverId));
     if (!verifyServerFailure(serverId))
         return false;
     LOG(NOTICE, "Server id %lu has crashed, notifying the cluster and "

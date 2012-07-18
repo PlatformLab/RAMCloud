@@ -93,7 +93,6 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
             "(yet).");
     }
 
-    coordinator.construct(context, config.coordinatorLocator.c_str());
     if ((context.serverList == NULL)
             && (context.coordinatorServerList == NULL)) {
         context.serverList = &serverList;
@@ -101,7 +100,7 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
 
     if (config.services.has(MASTER_SERVICE)) {
         LOG(NOTICE, "Master is using %u backups", config.master.numReplicas);
-        master.construct(context, config, coordinator.get(), serverList);
+        master.construct(context, config, serverList);
         if (bindTransport) {
             bindTransport->addService(*master,
                                       config.localLocator,
@@ -185,7 +184,6 @@ Server::enlist(ServerId replacingId)
     if (config.detectFailures) {
         failureDetector.construct(
             context,
-            config.coordinatorLocator,
             serverId,
             serverList);
         failureDetector->start();

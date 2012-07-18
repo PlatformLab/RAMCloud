@@ -65,7 +65,6 @@ TEST_F(ServerTest, createAndRegisterServices) {
     // Use testing config, but register with the real ServiceManager instead
     // of the BindTransport and see if things get set up properly.
     server->createAndRegisterServices(NULL);
-    EXPECT_TRUE(server->coordinator);
     EXPECT_TRUE(server->master);
     EXPECT_TRUE(server->backup);
     EXPECT_TRUE(server->membership);
@@ -102,7 +101,7 @@ TEST_F(ServerTest, enlist) {
     EXPECT_TRUE(server->backup->serverId.isValid());
 
     ProtoBuf::ServerList serverList;
-    server->coordinator->getServerList(serverList);
+    CoordinatorClient::getServerList(context, serverList);
     EXPECT_EQ(1, serverList.server_size());
     auto mask = config.services.serialize();
     EXPECT_EQ(config.localLocator, serverList.server(0).service_locator());
