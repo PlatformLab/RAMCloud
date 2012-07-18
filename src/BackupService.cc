@@ -1800,7 +1800,27 @@ BackupService::writeSegment(const BackupWriteRpc::Request& reqHdr,
     respHdr.numReplicas = 0;
 
     SegmentInfo* info = findSegmentInfo(masterId, segmentId);
-    // peform open, if any
+    if (info && !info->createdByCurrentProcess) {
+        if ((reqHdr.flags & BackupWriteRpc::OPEN)) {
+            // This can happen if a backup crashes, restarts, reloads a
+            // replica from disk, and then the master detects the crash and
+            // tries to re-replicate the segment which lost a replica on
+            // the restarted backup.
+            LOG(NOTICE, "Master tried to open replica for <%lu,%lu> but "
+                "another replica was recovered from storage with the same id; "
+                "rejecting open request", masterId.getId(), segmentId);
+            throw BackupOpenRejectedException(HERE);
+        } else {
+            // This should never happen.
+            LOG(ERROR, "Master tried to write replica for <%lu,%lu> but "
+                "another replica was recovered from storage with the same id; "
+                "rejecting write request", masterId.getId(), segmentId);
+            // This exception will crash the calling master.
+            throw BackupBadSegmentIdException(HERE);
+        }
+    }
+
+    // Perform open, if any.
     if ((reqHdr.flags & BackupWriteRpc::OPEN)) {
 #ifdef SINGLE_THREADED_BACKUP
         bool primary = false;
@@ -1842,8 +1862,11 @@ BackupService::writeSegment(const BackupWriteRpc::Request& reqHdr,
         }
     }
 
-    // peform write
+    // Perform write.
     if (!info) {
+        LOG(WARNING, "Tried write to a replica of segment <%lu,%lu> but "
+            "no such replica was open on this backup (server id %lu)",
+            masterId.getId(), segmentId, serverId.getId());
         throw BackupBadSegmentIdException(HERE);
     } else if (info->isOpen()) {
         // Need to check all three conditions because overflow is possible
@@ -1861,13 +1884,17 @@ BackupService::writeSegment(const BackupWriteRpc::Request& reqHdr,
         metrics->backup.writeCopyBytes += reqHdr.length;
         bytesWritten += reqHdr.length;
     } else {
-        if (!(reqHdr.flags & BackupWriteRpc::CLOSE))
+        if (!(reqHdr.flags & BackupWriteRpc::CLOSE)) {
+            LOG(WARNING, "Tried write to a replica of segment <%lu,%lu> but "
+                "the replica was already closed on this backup (server id %lu)",
+                masterId.getId(), segmentId, serverId.getId());
             throw BackupBadSegmentIdException(HERE);
+        }
         LOG(WARNING, "Closing segment write after close, may have been "
             "a redundant closing write, ignoring");
     }
 
-    // peform close, if any
+    // Perform close, if any.
     if (reqHdr.flags & BackupWriteRpc::CLOSE)
         info->close();
 }
@@ -1901,6 +1928,8 @@ BackupService::gc()
         ServerChangeEvent event;
         while (gcTracker.getChange(server, event));
     }
+    if (gcTracker.size() == 0)
+        return false;
 
     auto nextToTry = segments.upper_bound(gcLeftOffAt);
     if (nextToTry == segments.end())

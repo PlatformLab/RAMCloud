@@ -152,13 +152,13 @@ TEST_F(MasterRecoveryManagerTest, recoveryFinished) {
                       NULL, {1, 0}, 0lu);
     recovery.status = Recovery::BROADCAST_RECOVERY_COMPLETE;
     ASSERT_EQ(0lu, mgr.taskQueue.outstandingTasks());
-    EXPECT_EQ(0lu, serverList.versionNumber);
+    EXPECT_EQ(0lu, serverList.version);
     mgr.recoveryFinished(&recovery);
 
     // ApplyTrackerChangesTask for crashed, one for remove, and the
     // MaybeStartRecoveryTask.
     EXPECT_EQ(3lu, mgr.taskQueue.outstandingTasks());
-    EXPECT_EQ(1lu, serverList.versionNumber);
+    EXPECT_EQ(1lu, serverList.version);
 }
 
 TEST_F(MasterRecoveryManagerTest, recoveryFinishedUnsuccessful) {
@@ -166,12 +166,12 @@ TEST_F(MasterRecoveryManagerTest, recoveryFinishedUnsuccessful) {
     Recovery recovery(context, mgr.taskQueue, &tabletMap, &mgr.tracker,
                       NULL, {1, 0},  0lu);
     ASSERT_EQ(0lu, mgr.taskQueue.outstandingTasks());
-    EXPECT_EQ(0lu, serverList.versionNumber);
+    EXPECT_EQ(0lu, serverList.version);
     mgr.recoveryFinished(&recovery);
 
     // EnqueueRecoveryTask.
     EXPECT_EQ(1lu, mgr.taskQueue.outstandingTasks());
-    EXPECT_EQ(0lu, serverList.versionNumber);
+    EXPECT_EQ(0lu, serverList.version);
 }
 
 TEST_F(MasterRecoveryManagerTest, recoveryMasterFinishedNoSuchRecovery) {
@@ -208,7 +208,7 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
 
     mgr.recoveryMasterFinished(recovery->recoveryId,
                                {2, 0}, recoveredTablets, true);
-    EXPECT_EQ(0lu, serverList.versionNumber);
+    EXPECT_EQ(0lu, serverList.version);
     EXPECT_EQ(1lu, mgr.taskQueue.outstandingTasks());
     TestLog::Enable _;
     mgr.taskQueue.performTask(); // Do RecoveryMasterFinishedTask.
@@ -226,7 +226,7 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
     EXPECT_EQ(3lu, mgr.taskQueue.outstandingTasks());
 
     // Ensure server list broadcast happened.
-    EXPECT_EQ(1lu, serverList.versionNumber);
+    EXPECT_EQ(1lu, serverList.version);
 }
 
 TEST_F(MasterRecoveryManagerTest,

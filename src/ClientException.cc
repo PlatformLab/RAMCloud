@@ -95,8 +95,8 @@ ClientException::throwException(const CodeLocation& where, Status status)
             throw CouldntConnectException(where);
         case STATUS_BACKUP_BAD_SEGMENT_ID:
             throw BackupBadSegmentIdException(where);
-        case STATUS_BACKUP_SEGMENT_ALREADY_OPEN:
-            throw BackupSegmentAlreadyOpenException(where);
+        case STATUS_BACKUP_OPEN_REJECTED:
+            throw BackupOpenRejectedException(where);
         case STATUS_BACKUP_SEGMENT_OVERFLOW:
             throw BackupSegmentOverflowException(where);
         case STATUS_BACKUP_MALFORMED_SEGMENT:

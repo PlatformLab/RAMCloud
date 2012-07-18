@@ -154,9 +154,11 @@ TEST_F(InfRcTransportTest, InfRcSession_cancelRequest_rpcSent) {
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_FALSE(wrapper.isReady());
     EXPECT_EQ(1U, client.outstandingRpcs.size());
+    EXPECT_EQ(1u, client.numUsedClientSrqBuffers);
     EXPECT_EQ(1, rawSession->alarm.outstandingRpcs);
     wrapper.cancel();
     EXPECT_EQ(0U, client.outstandingRpcs.size());
+    EXPECT_EQ(0u, client.numUsedClientSrqBuffers);
     EXPECT_EQ(0, rawSession->alarm.outstandingRpcs);
     EXPECT_STREQ("CANCELED", wrapper.stateString());
 

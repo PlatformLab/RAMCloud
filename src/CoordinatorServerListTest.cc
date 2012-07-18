@@ -80,7 +80,7 @@ protoBufMatchesEntry(const ProtoBuf::ServerList_Entry& protoBufEntry,
 TEST_F(CoordinatorServerListTest, constructor) {
     EXPECT_EQ(0U, sl.numberOfMasters);
     EXPECT_EQ(0U, sl.numberOfBackups);
-    EXPECT_EQ(0U, sl.versionNumber);
+    EXPECT_EQ(0U, sl.version);
 }
 
 TEST_F(CoordinatorServerListTest, add) {
@@ -102,9 +102,9 @@ TEST_F(CoordinatorServerListTest, add) {
         EXPECT_FALSE(sl.serverList[1].entry->isBackup());
         EXPECT_EQ(0u, sl.serverList[1].entry->expectedReadMBytesPerSec);
         EXPECT_EQ(1U, sl.serverList[1].nextGenerationNumber);
-        EXPECT_EQ(0U, sl.versionNumber);
+        EXPECT_EQ(0U, sl.version);
         sl.incrementVersion(update1);
-        EXPECT_EQ(1U, sl.versionNumber);
+        EXPECT_EQ(1U, sl.version);
         EXPECT_EQ(1U, update1.version_number());
         EXPECT_EQ(1, update1.server_size());
         EXPECT_TRUE(protoBufMatchesEntry(update1.server(0),
@@ -124,9 +124,9 @@ TEST_F(CoordinatorServerListTest, add) {
         EXPECT_EQ(1U, sl.serverList[2].nextGenerationNumber);
         EXPECT_EQ(1U, sl.numberOfMasters);
         EXPECT_EQ(1U, sl.numberOfBackups);
-        EXPECT_EQ(1U, sl.versionNumber);
+        EXPECT_EQ(1U, sl.version);
         sl.incrementVersion(update2);
-        EXPECT_EQ(2U, sl.versionNumber);
+        EXPECT_EQ(2U, sl.version);
         EXPECT_EQ(2U, update2.version_number());
         EXPECT_TRUE(protoBufMatchesEntry(update2.server(0),
             *sl.serverList[2].entry, ServerStatus::UP));
@@ -249,20 +249,8 @@ TEST_F(CoordinatorServerListTest, remove_trackerUpdated) {
 TEST_F(CoordinatorServerListTest, incrementVersion) {
     ProtoBuf::ServerList update;
     sl.incrementVersion(update);
-    EXPECT_EQ(1u, sl.versionNumber);
+    EXPECT_EQ(1u, sl.version);
     EXPECT_EQ(1u, update.version_number());
-}
-
-TEST_F(CoordinatorServerListTest, isUp) {
-    ProtoBuf::ServerList update;
-
-    EXPECT_FALSE(sl.isUp(ServerId(1, 0)));
-    sl.add("", {MASTER_SERVICE}, 100, update);
-    EXPECT_TRUE(sl.isUp(ServerId(1, 0)));
-    EXPECT_FALSE(sl.isUp(ServerId(2, 0)));
-    EXPECT_FALSE(sl.isUp(ServerId(1, 2)));
-    sl.crashed(ServerId(1, 0), update);
-    EXPECT_FALSE(sl.isUp(ServerId(1, 0)));
 }
 
 TEST_F(CoordinatorServerListTest, indexOperator) {
@@ -274,34 +262,6 @@ TEST_F(CoordinatorServerListTest, indexOperator) {
     sl.crashed(ServerId(1, 0), update);
     sl.remove(ServerId(1, 0), update);
     EXPECT_THROW(sl[ServerId(1, 0)], Exception);
-}
-
-TEST_F(CoordinatorServerListTest, contains) {
-    ProtoBuf::ServerList update;
-
-    EXPECT_FALSE(sl.contains(ServerId(0, 0)));
-    EXPECT_FALSE(sl.contains(ServerId(1, 0)));
-
-    sl.add("I love it when a plan comes together",
-           {BACKUP_SERVICE}, 100, update);
-    EXPECT_TRUE(sl.contains(ServerId(1, 0)));
-
-    sl.add("Come with me if you want to live",
-           {MASTER_SERVICE}, 100, update);
-    EXPECT_TRUE(sl.contains(ServerId(2, 0)));
-
-    sl.crashed(ServerId(1, 0), update);
-    EXPECT_TRUE(sl.contains(ServerId(1, 0)));
-    sl.remove(ServerId(1, 0), update);
-    EXPECT_FALSE(sl.contains(ServerId(1, 0)));
-
-    sl.crashed(ServerId(2, 0), update);
-    sl.remove(ServerId(2, 0), update);
-    EXPECT_FALSE(sl.contains(ServerId(2, 0)));
-
-    sl.add("I'm running out 80s shows and action movie quotes",
-           {BACKUP_SERVICE}, 100, update);
-    EXPECT_TRUE(sl.contains(ServerId(1, 1)));
 }
 
 TEST_F(CoordinatorServerListTest, nextMasterIndex) {
@@ -470,53 +430,6 @@ TEST_F(CoordinatorServerListTest, firstFreeIndex) {
     EXPECT_EQ(2U, sl.firstFreeIndex());
     sl.remove(ServerId(1, 0), update);
     EXPECT_EQ(1U, sl.firstFreeIndex());
-}
-
-TEST_F(CoordinatorServerListTest, registerTracker) {
-    sl.registerTracker(tr);
-    EXPECT_EQ(1U, sl.trackers.size());
-    EXPECT_EQ(&tr, sl.trackers[0]);
-    EXPECT_THROW(sl.registerTracker(tr), Exception);
-}
-
-TEST_F(CoordinatorServerListTest, registerTracker_pushAdds) {
-    ProtoBuf::ServerList update;
-    auto serverId1 = sl.add("mock:", {}, 100, update);
-    auto serverId2 = sl.add("mock:", {}, 100, update);
-    auto serverId3 = sl.add("mock:", {}, 100, update);
-    auto serverId4 = sl.add("mock:", {}, 100, update);
-    sl.crashed(serverId4, update);
-    sl.remove(serverId2, update);
-    sl.registerTracker(tr);
-
-    // Should be serverId4 up/crashed first, then in order,
-    // but missing serverId2
-    EXPECT_EQ(4U, tr.changes.size());
-    EXPECT_EQ(serverId4, tr.changes.front().server.serverId);
-    EXPECT_EQ(ServerChangeEvent::SERVER_ADDED, tr.changes.front().event);
-    tr.changes.pop();
-    EXPECT_EQ(serverId4, tr.changes.front().server.serverId);
-    EXPECT_EQ(ServerChangeEvent::SERVER_CRASHED, tr.changes.front().event);
-    tr.changes.pop();
-    EXPECT_EQ(serverId1, tr.changes.front().server.serverId);
-    EXPECT_EQ(ServerChangeEvent::SERVER_ADDED, tr.changes.front().event);
-    tr.changes.pop();
-    EXPECT_EQ(serverId3, tr.changes.front().server.serverId);
-    EXPECT_EQ(ServerChangeEvent::SERVER_ADDED, tr.changes.front().event);
-    tr.changes.pop();
-}
-
-TEST_F(CoordinatorServerListTest, unregisterTracker) {
-    EXPECT_EQ(0U, sl.trackers.size());
-
-    sl.unregisterTracker(tr);
-    EXPECT_EQ(0U, sl.trackers.size());
-
-    sl.registerTracker(tr);
-    EXPECT_EQ(1U, sl.trackers.size());
-
-    sl.unregisterTracker(tr);
-    EXPECT_EQ(0U, sl.trackers.size());
 }
 
 TEST_F(CoordinatorServerListTest, getReferenceFromServerId) {

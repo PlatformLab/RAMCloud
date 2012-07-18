@@ -624,6 +624,13 @@ ReplicatedSegment::performWrite(Replica& replica)
                 // issues due to potentially lost open replicas.  Instead,
                 // hang tight and keep retrying.  Let the failure handler
                 // clean up and interrupt retries on future iterations.
+            } catch (const BackupOpenRejectedException& e) {
+                LOG(NOTICE,
+                    "Couldn't open replica on backup %lu; server may be "
+                    "overloaded or may already have a replica for this segment "
+                    "which was found on disk after a crash; will choose "
+                    "another backup", replica.backupId.getId());
+                replica.reset();
             }
             replica.writeRpc.destroy();
             --writeRpcsInFlight;
