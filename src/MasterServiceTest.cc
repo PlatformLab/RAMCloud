@@ -519,9 +519,7 @@ TEST_F(MasterServiceTest, removeIfFromUnknownTablet) {
   *    if the earlier RPC fails.
   * 4) Ensures that if an RPC succeeds for one copy of a segment other
   *    RPCs for that segment don't occur.
-  * 5) A transport exception at construction time caused that entry
-  *    to be skipped and a new entry to be tried immediate, both
-  *    during initial RPC starts and following ones.
+  * 5) ServerDoesntExistExceptions are deferred until the RPC is waited on.
   */
 TEST_F(MasterServiceTest, recover) {
     const uint32_t segmentSize = backup1Config.segmentSize;
@@ -556,11 +554,11 @@ TEST_F(MasterServiceTest, recover) {
         {backup2Id.getId(), 88},
         // Started in initial round of RPCs - eventually fails
         {backup1Id.getId(), 89},
-        // Fails to start in initial round of RPCs - bad locator
+        // Started in initial round of RPCs - eventually fails (bad server id)
         {1003, 90},
         // Started in initial round of RPCs - eventually fails
         {backup1Id.getId(), 91},
-        // Fails to start in later rounds of RPCs - bad locator
+        // Started in later rounds of RPCs - eventually fails (bad server id)
         {1004, 92},
         // Started in later rounds of RPCs - eventually fails
         {backup1Id.getId(), 93},
@@ -616,12 +614,12 @@ TEST_F(MasterServiceTest, recover) {
         TestLog::get()));
     // 5) Checks bad locators for initial RPCs are handled
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "recover: No record of backup ID 1003, trying next backup",
+        "recover: No record of backup 1003, trying next backup",
         TestLog::get()));
     EXPECT_EQ(State::FAILED, replicas.at(5).state);
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
         "recover: Starting getRecoveryData from server . at mock:host=backup1 "
-        "for segment 91 on channel . (initial round of RPCs)",
+        "for segment 91 on channel . (after RPC completion)",
         TestLog::get()));
     EXPECT_EQ(State::FAILED, replicas.at(6).state);
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
@@ -631,7 +629,7 @@ TEST_F(MasterServiceTest, recover) {
         TestLog::get()));
     // 5) Checks bad locators for non-initial RPCs are handled
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "recover: No record of backup ID 1004, trying next backup",
+        "recover: No record of backup 1004, trying next backup",
         TestLog::get()));
     EXPECT_EQ(State::FAILED, replicas.at(7).state);
     EXPECT_TRUE(TestUtil::matchesPosixRegex(

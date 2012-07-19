@@ -291,10 +291,8 @@ BackupStartTask::wait()
         if (!testingCallback)
             result = rpc->wait();
     } catch (const ServerDoesntExistException& e) {
-        // Ryan, please add appropriate code here.
-    } catch (const TransportException& e) {
-        LOG(WARNING, "Couldn't contact %lu, failure was: %s",
-            backupId.getId(), e.str().c_str());
+        LOG(WARNING, "Couldn't contact %lu; server no longer in server list",
+            backupId.getId());
         // Leave empty result as if the backup has no replicas.
     } catch (const ClientException& e) {
         LOG(WARNING, "startReadingData failed on %lu, failure was: %s",
@@ -866,10 +864,8 @@ struct BackupEndTask {
         try {
             rpc->wait();
         } catch (const ServerDoesntExistException& e) {
-            // Ryan, please add appropriate code here.
-        } catch (const TransportException& e) {
             LOG(DEBUG, "recoveryComplete failed on %lu, ignoring; "
-                "failure was: %s", serverId.getId(), e.what());
+                "server no longer in the servers list", serverId.getId());
         } catch (const ClientException& e) {
             LOG(DEBUG, "recoveryComplete failed on %lu, ignoring; "
                 "failure was: %s", serverId.getId(), e.what());
