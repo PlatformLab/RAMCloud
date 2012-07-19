@@ -370,7 +370,12 @@ CoordinatorServerManager::sendServerList(ServerId serverId)
 void
 CoordinatorServerManager::SetMinOpenSegmentId::execute()
 {
-    // Logging a new record to LogCabin.
+    // TODO(ankitak): After enlistServer starts saving state to LogCabin,
+    // there will be an entry corresponding to the server information.
+    // At this point, that entry will be read from LogCabin, the information
+    // updated with this setMinOpenSegmentId, and then appended to the log.
+    // We will no longer need a state entry for SetMinOpenSegmentId.
+
     ProtoBuf::StateSetMinOpenSegmentId state;
     state.set_opcode("SetMinOpenSegmentId");
     state.set_done(true);
@@ -378,6 +383,7 @@ CoordinatorServerManager::SetMinOpenSegmentId::execute()
     state.set_segment_id(segmentId);
 
     EntryId entryId = manager.service.logCabinHelper->appendProtoBuf(state);
+    LOG(DEBUG, "LogCabin entryId: %lu", entryId);
 
     complete(entryId);
 }

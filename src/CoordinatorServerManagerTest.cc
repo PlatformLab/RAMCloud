@@ -362,11 +362,8 @@ TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentIdRecover) {
     state.set_server_id(masterServerId.getId());
     state.set_segment_id(10);
 
-    string data;
-    state.SerializeToString(&data);
-
-    Entry stateEntry(data.c_str(), uint32_t(data.length() + 1));
-    EntryId entryId = serverManager->service.logCabinLog->append(stateEntry);
+    EntryId entryId =
+        serverManager->service.logCabinHelper->appendProtoBuf(state);
 
     serverManager->setMinOpenSegmentIdRecover(&state, entryId);
 
@@ -374,12 +371,18 @@ TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentIdRecover) {
 }
 
 TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentId_execute) {
+    TestLog::Enable _;
     serverManager->setMinOpenSegmentId(masterServerId, 10);
 
+    string searchString = "execute: LogCabin entryId: ";
+    ASSERT_NE(string::npos, TestLog::get().find(searchString));
+    string entryIdString = TestLog::get().substr(
+        TestLog::get().find(searchString) + searchString.length(), 1);
+    EntryId entryId = strtoul(entryIdString.c_str(), NULL, 0);
+
     ProtoBuf::StateSetMinOpenSegmentId readState;
-    EntryId logCabinEntryId = serverList->getLogCabinEntryId(masterServerId);
     serverManager->service.logCabinHelper->getProtoBufFromEntryId(
-        logCabinEntryId, readState);
+        entryId, readState);
 
     EXPECT_EQ("opcode: \"SetMinOpenSegmentId\"\n"
               "done: true\nserver_id: 1\nsegment_id: 10\n",
