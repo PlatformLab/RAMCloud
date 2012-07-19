@@ -243,6 +243,60 @@ CoordinatorServerManager::getServerList(ServiceMask serviceMask)
     return serialServerList;
 }
 
+bool
+CoordinatorServerManager::HintServerDown::execute()
+{
+     if (!manager.service.serverList.contains(serverId) ||
+         manager.service.serverList[serverId].status != ServerStatus::UP) {
+         LOG(NOTICE, "Spurious crash report on unknown server id %lu",
+             serverId.getId());
+         return true;
+     }
+
+     LOG(NOTICE, "Checking server id %lu (%s)",
+         serverId.getId(), manager.service.serverList.getLocator(serverId));
+     if (!manager.verifyServerFailure(serverId))
+         return false;
+
+     LOG(NOTICE, "Server id %lu has crashed, notifying the cluster and "
+         "starting recovery", serverId.getId());
+
+     return complete();
+}
+
+bool
+CoordinatorServerManager::HintServerDown::complete()
+{
+     // If this machine has a backup and master on the same server it is best
+     // to remove the dead backup before initiating recovery. Otherwise, other
+     // servers may try to backup onto a dead machine which will cause delays.
+     CoordinatorServerList::Entry entry = manager.service.serverList[serverId];
+     ProtoBuf::ServerList update;
+     manager.service.serverList.crashed(serverId, update);
+     // If the server being replaced did not have a master then there
+     // will be no recovery.  That means it needs to transition to
+     // removed status now (usually recoveries remove servers from the
+     // list when they complete).
+     if (!entry.services.has(MASTER_SERVICE))
+         manager.service.serverList.remove(serverId, update);
+     manager.service.serverList.incrementVersion(update);
+
+     // Update cluster membership information.
+     // Backup recovery is kicked off via this update.
+     // Deciding whether to place this before or after the start of master
+     // recovery is difficult.
+     manager.service.serverList.sendMembershipUpdate(
+             update, ServerId(/* invalid id */));
+
+     manager.service.recoveryManager.startMasterRecovery(entry.serverId);
+
+     manager.removeReplicationGroup(entry.replicationId);
+     manager.createReplicationGroup();
+
+     return true;
+}
+
+
 /**
  * Returns true if server is down, false otherwise.
  *
@@ -254,47 +308,8 @@ CoordinatorServerManager::getServerList(ServiceMask serviceMask)
 bool
 CoordinatorServerManager::hintServerDown(ServerId serverId)
 {
-    if (!service.serverList.contains(serverId) ||
-        service.serverList[serverId].status != ServerStatus::UP) {
-        LOG(NOTICE, "Spurious crash report on unknown server id %lu",
-            serverId.getId());
-        return true;
-    }
-
-    LOG(NOTICE, "Checking server id %lu (%s)", serverId.getId(),
-            service.serverList.getLocator(serverId));
-    if (!verifyServerFailure(serverId))
-        return false;
-    LOG(NOTICE, "Server id %lu has crashed, notifying the cluster and "
-        "starting recovery", serverId.getId());
-
-    // If this machine has a backup and master on the same server it is best
-    // to remove the dead backup before initiating recovery. Otherwise, other
-    // servers may try to backup onto a dead machine which will cause delays.
-    CoordinatorServerList::Entry entry = service.serverList[serverId];
-    ProtoBuf::ServerList update;
-    service.serverList.crashed(serverId, update);
-    // If the server being replaced did not have a master then there
-    // will be no recovery.  That means it needs to transition to
-    // removed status now (usually recoveries remove servers from the
-    // list when they complete).
-    if (!entry.services.has(MASTER_SERVICE))
-        service.serverList.remove(serverId, update);
-    service.serverList.incrementVersion(update);
-
-    // Update cluster membership information.
-    // Backup recovery is kicked off via this update.
-    // Deciding whether to place this before or after the start of master
-    // recovery is difficult.
-    service.serverList.sendMembershipUpdate(
-            update, ServerId(/* invalid id */));
-
-    service.recoveryManager.startMasterRecovery(entry.serverId);
-
-    removeReplicationGroup(entry.replicationId);
-    createReplicationGroup();
-
-    return true;
+    Lock _(mutex);
+    return HintServerDown(*this, serverId).execute();
 }
 
 /**

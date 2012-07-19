@@ -129,6 +129,30 @@ class CoordinatorServerManager {
   PRIVATE:
 
     /**
+     * Defines methods and stores data to hintServerDown.
+     */
+    class HintServerDown {
+        public:
+            HintServerDown(CoordinatorServerManager &manager,
+                           ServerId serverId)
+                : manager(manager), serverId(serverId) {}
+            bool execute();
+            bool complete();
+        private:
+            /**
+             * Reference to the instance of coordinator server manager
+             * initializing this class.
+             * Used to get access to CoordinatorService& service.
+             */
+            CoordinatorServerManager &manager;
+            /**
+             * ServerId of the server that is suspected to be down.
+             */
+            ServerId serverId;
+            DISALLOW_COPY_AND_ASSIGN(HintServerDown);
+    };
+
+    /**
      * Defines methods and stores data to set minOpenSegmentId of server
      * with id serverId to segmentId.
      */
