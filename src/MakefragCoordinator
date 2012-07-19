@@ -5,6 +5,7 @@ COORDINATOR_SRCFILES := \
 			src/TabletMap.cc \
 			src/Recovery.cc \
 			src/RuntimeOptions.cc \
+			src/StateHintServerDown.pb.cc \
 			src/StateSetMinOpenSegmentId.pb.cc \
 			$(NULL)
 

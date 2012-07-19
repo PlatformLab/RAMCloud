@@ -261,12 +261,22 @@ CoordinatorServerManager::HintServerDown::execute()
      LOG(NOTICE, "Server id %lu has crashed, notifying the cluster and "
          "starting recovery", serverId.getId());
 
-     return complete();
+     ProtoBuf::StateHintServerDown state;
+     state.set_opcode("HintServerDown");
+     state.set_done(false);
+     state.set_server_id(this->serverId.getId());
+
+     EntryId entryId = manager.service.logCabinHelper->appendProtoBuf(state);
+     LOG(DEBUG, "LogCabin entryId: %lu", entryId);
+
+     return complete(entryId);
 }
 
 bool
-CoordinatorServerManager::HintServerDown::complete()
+CoordinatorServerManager::HintServerDown::complete(EntryId entryId)
 {
+     manager.service.serverList.addLogCabinEntryId(serverId, entryId);
+
      // If this machine has a backup and master on the same server it is best
      // to remove the dead backup before initiating recovery. Otherwise, other
      // servers may try to backup onto a dead machine which will cause delays.
@@ -293,9 +303,22 @@ CoordinatorServerManager::HintServerDown::complete()
      manager.removeReplicationGroup(entry.replicationId);
      manager.createReplicationGroup();
 
+     // TODO(ankitak): After enlistServer starts saving state to LogCabin,
+     // there will be an entry corresponding to the server information.
+     // At this point, that entry will be invalidated from LogCabin,
+     // along with invalidating the StateHintServerDown entry appended in the
+     // execute() function call. The following state append will not be needed.
+     ProtoBuf::StateHintServerDown state;
+     state.set_opcode("HintServerDown");
+     state.set_done(true);
+     state.set_server_id(this->serverId.getId());
+
+     entryId = manager.service.logCabinHelper->appendProtoBuf(
+                    state, vector<EntryId>(entryId));
+     LOG(DEBUG, "LogCabin entryId: %lu", entryId);
+
      return true;
 }
-
 
 /**
  * Returns true if server is down, false otherwise.
@@ -310,6 +333,24 @@ CoordinatorServerManager::hintServerDown(ServerId serverId)
 {
     Lock _(mutex);
     return HintServerDown(*this, serverId).execute();
+}
+
+/**
+ * Complete a hintServerDown during coordinator recovery.
+ *
+ * \param state
+ *      The ProtoBuf that encapsulates the state of the hintServerDown
+ *      operation to be recovered.
+ * \param entryId
+ *      The entry id of the LogCabin entry corresponding to the state.
+ */
+void
+CoordinatorServerManager::hintServerDownRecover(
+    ProtoBuf::StateHintServerDown* state, EntryId entryId)
+{
+    Lock _(mutex);
+    ServerId serverId = ServerId(state->server_id());
+    HintServerDown(*this, serverId).complete(entryId);
 }
 
 /**

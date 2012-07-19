@@ -277,6 +277,57 @@ TEST_F(CoordinatorServerManagerTest, hintServerDown_server) {
               serverList->at(master->serverId).status);
 }
 
+TEST_F(CoordinatorServerManagerTest, hintServerDownRecover) {
+    TaskQueue mgr;
+    serverManager->service.recoveryManager.doNotStartRecoveries = true;
+    // master is already enlisted
+
+    ramcloud->createTable("foo");
+    serverManager->forceServerDownForTesting = true;
+    TestLog::Enable _(startMasterRecoveryFilter);
+
+    ProtoBuf::StateHintServerDown state;
+    state.set_opcode("HintServerDown");
+    state.set_done(false);
+    state.set_server_id(masterServerId.getId());
+
+    EntryId entryId =
+        serverManager->service.logCabinHelper->appendProtoBuf(state);
+
+    serverManager->hintServerDownRecover(&state, entryId);
+
+    EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1 | "
+              "startMasterRecovery: Recovery crashedServerId: 1",
+               TestLog::get());
+    EXPECT_EQ(ServerStatus::CRASHED,
+              serverList->at(master->serverId).status);
+}
+
+TEST_F(CoordinatorServerManagerTest, hintServerDown_execute) {
+    TaskQueue mgr;
+    serverManager->service.recoveryManager.doNotStartRecoveries = true;
+    // master is already enlisted
+
+    ramcloud->createTable("foo");
+    serverManager->forceServerDownForTesting = true;
+
+    TestLog::Enable _;
+    serverManager->hintServerDown(masterServerId);
+
+    string searchString = "execute: LogCabin entryId: ";
+    ASSERT_NE(string::npos, TestLog::get().find(searchString));
+    string entryIdString = TestLog::get().substr(
+        TestLog::get().find(searchString) + searchString.length(), 1);
+    EntryId entryId = strtoul(entryIdString.c_str(), NULL, 0);
+
+    ProtoBuf::StateHintServerDown readState;
+    serverManager->service.logCabinHelper->getProtoBufFromEntryId(
+        entryId, readState);
+
+    EXPECT_EQ("opcode: \"HintServerDown\"\ndone: false\nserver_id: 1\n",
+              readState.DebugString());
+}
+
 TEST_F(CoordinatorServerManagerTest, removeReplicationGroup) {
     ServerId serverIds[3];
     ServerConfig config = ServerConfig::forTesting();

@@ -20,6 +20,7 @@
 
 #include "Common.h"
 #include "CoordinatorServerList.h"
+#include "StateHintServerDown.pb.h"
 #include "StateSetMinOpenSegmentId.pb.h"
 
 namespace RAMCloud {
@@ -119,6 +120,8 @@ class CoordinatorServerManager {
     void enlistServerAfterReply(EnlistServer& ref);
     ProtoBuf::ServerList getServerList(ServiceMask serviceMask);
     bool hintServerDown(ServerId serverId);
+    void hintServerDownRecover(ProtoBuf::StateHintServerDown* state,
+                               EntryId entryId);
     void removeReplicationGroup(uint64_t groupId);
     void sendServerList(ServerId serverId);
     void setMinOpenSegmentId(ServerId serverId, uint64_t segmentId);
@@ -137,7 +140,7 @@ class CoordinatorServerManager {
                            ServerId serverId)
                 : manager(manager), serverId(serverId) {}
             bool execute();
-            bool complete();
+            bool complete(EntryId entryId);
         private:
             /**
              * Reference to the instance of coordinator server manager
