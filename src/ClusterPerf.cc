@@ -289,7 +289,7 @@ timeMultiRead(MasterClient::ReadObject** requests, int numObjects)
  *      The average time to read the object, in seconds.
  */
 double
-timeRead(uint64_t tableId, const char* key, uint16_t keyLength,
+timeRead(uint64_t tableId, const void* key, uint16_t keyLength,
          double ms, Buffer& value)
 {
     uint64_t runCycles = Cycles::fromSeconds(ms/1e03);
@@ -333,7 +333,7 @@ timeRead(uint64_t tableId, const char* key, uint16_t keyLength,
  *      The average time to write the object, in seconds.
  */
 double
-timeWrite(uint64_t tableId, const char* key, uint16_t keyLength,
+timeWrite(uint64_t tableId, const void* key, uint16_t keyLength,
           const void* value, uint32_t length, double ms)
 {
     uint64_t runCycles = Cycles::fromSeconds(ms/1e03);
@@ -377,7 +377,7 @@ timeWrite(uint64_t tableId, const char* key, uint16_t keyLength,
  */
 void
 fillBuffer(Buffer& buffer, uint32_t size, uint64_t tableId,
-           const char* key, uint16_t keyLength)
+           const void* key, uint16_t keyLength)
 {
     char chunk[51];
     buffer.reset();
@@ -389,8 +389,8 @@ fillBuffer(Buffer& buffer, uint32_t size, uint64_t tableId,
         // the end.
         snprintf(chunk, sizeof(chunk),
             "| %d: tableId 0x%lx, key %.*s, keyLength 0x%x %s",
-            position, tableId, keyLength, key, keyLength,
-            "0123456789");
+            position, tableId, keyLength, reinterpret_cast<const char*>(key),
+            keyLength, "0123456789");
         uint32_t chunkLength = sizeof(chunk) - 1;
         if (chunkLength > bytesLeft) {
             chunkLength = bytesLeft;
@@ -423,7 +423,7 @@ fillBuffer(Buffer& buffer, uint32_t size, uint64_t tableId,
  */
 bool
 checkBuffer(Buffer& buffer, uint32_t expectedLength, uint64_t tableId,
-            const char* key, uint16_t keyLength)
+            const void* key, uint16_t keyLength)
 {
     uint32_t length = buffer.getTotalLength();
     if (length != expectedLength) {
@@ -510,7 +510,7 @@ setSlaveState(const char* state)
  *      make it fit in the buffer.
  */
 char*
-readObject(uint64_t tableId, const char* key, uint16_t keyLength,
+readObject(uint64_t tableId, const void* key, uint16_t keyLength,
            char* value, uint32_t size)
 {
     Buffer buffer;
@@ -579,7 +579,7 @@ getCommand(char* buffer, uint32_t size)
  *      Seconds to wait before giving up and throwing an Exception.
  */
 void
-waitForObject(uint64_t tableId, const char* key, uint16_t keyLength,
+waitForObject(uint64_t tableId, const void* key, uint16_t keyLength,
               const char* desired, Buffer& value, double timeout = 1.0)
 {
     uint64_t start = Cycles::rdtsc();
@@ -601,8 +601,8 @@ waitForObject(uint64_t tableId, const char* key, uint16_t keyLength,
                 throw Exception(HERE, format(
                         "Object <%lu, %.*s> didn't reach desired state '%s' "
                         "(actual: '%.*s')",
-                        tableId, keyLength, key, desired,
-                        downCast<int>(length), actual));
+                        tableId, keyLength, reinterpret_cast<const char*>(key),
+                        desired, downCast<int>(length), actual));
                 exit(1);
             }
         }
@@ -682,7 +682,7 @@ sendCommand(const char* command, const char* state, int firstSlave,
  *
  */
 uint64_t*
-createTables(int numTables, int objectSize, const char* key, uint16_t keyLength)
+createTables(int numTables, int objectSize, const void* key, uint16_t keyLength)
 {
     uint64_t* tableIds = new uint64_t[numTables];
 

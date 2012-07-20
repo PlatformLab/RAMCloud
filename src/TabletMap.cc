@@ -132,7 +132,7 @@ TabletMap::getTabletsForTable(uint64_t tableId) const
  * \param status
  *      Tablet is updated with this status (NORMAL or RECOVERING).
  * \param ctime
- *      Tablet is updated with this LogPosition indicating any object earlier
+ *      Tablet is updated with this Log::Position indicating any object earlier
  *      than \a ctime in its log cannot contain objects belonging to it.
  * \throw NoSuchTablet
  *      If the arguments do not identify a tablet currently in the tablet map.
@@ -143,7 +143,7 @@ TabletMap::modifyTablet(uint64_t tableId,
                         uint64_t endKeyHash,
                         ServerId serverId,
                         Tablet::Status status,
-                        LogPosition ctime)
+                        Log::Position ctime)
 {
     Lock _(mutex);
     Tablet& tablet = find(tableId, startKeyHash, endKeyHash);

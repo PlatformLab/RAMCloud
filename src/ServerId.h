@@ -179,7 +179,7 @@ class ServerId {
 
   PRIVATE:
     // Used only to avoid cyclical dependency between #isValid and
-    // #generationNumber() when asserting #isValid is #generationNumber.
+    // #generationNumber() when asserting #isValid in #generationNumber.
     uint32_t
     _generationNumber() const
     {

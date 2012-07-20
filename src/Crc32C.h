@@ -174,7 +174,18 @@ class Crc32C {
     Crc32C(bool forceSoftware=false)
         : useHardware(!forceSoftware && haveHardware)
         , result(-1)
-    {}
+    {
+    }
+
+    /**
+     * Assignment simply copies the accumulated result thus far.
+     */
+    Crc32C&
+    operator=(const Crc32C& other)
+    {
+        result = other.result;
+        return *this;
+    }
 
     /**
      * Update the accumulated checksum.
@@ -198,7 +209,7 @@ class Crc32C {
         return ~result;
     }
 
-  private:
+  PROTECTED:
     /// Whether this machine has Intel's CRC32C instruction.
     static bool haveHardware;
     /// Whether this checksum instance should use Intel's CRC32C instruction.

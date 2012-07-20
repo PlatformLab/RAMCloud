@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -21,8 +21,11 @@
 #include <boost/pool/pool.hpp>
 #include <boost/dynamic_bitset.hpp>
 
+#include "CycleCounter.h"
 #include "Memory.h"
 #include "Segment.h"
+#include "ServerId.h"
+#include "Tub.h"
 
 namespace RAMCloud {
 
@@ -56,9 +59,8 @@ struct SegmentAllocator
     static char*
     malloc(const size_type bytes)
     {
-        return reinterpret_cast<char *>(Memory::xmemalign(HERE,
-                                                          Segment::SEGMENT_SIZE,
-                                                          bytes));
+        return reinterpret_cast<char *>(
+            Memory::xmemalign(HERE, Segment::DEFAULT_SEGMENT_SIZE, bytes));
     }
 
     static void

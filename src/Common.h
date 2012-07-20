@@ -225,6 +225,12 @@ get(const Map& map, const typename Map::key_type& key)
         - 100)
 
 /**
+ * Convenience to avoid having downcasts everywhere we take sizeof and
+ * are using uint32_ts. Prior to this there were 52 such instances!
+ */
+#define sizeof32(type) downCast<uint32_t>(sizeof(type))
+
+/**
  * The length of a cache line in bytes (or upper-bound estimate). Used to
  * insert padding into structures in order to ensure that some fields are
  * on different cache lines than others.

@@ -34,7 +34,7 @@ BackupStats::getExpectedReadMs() {
     //                 it doesn't affect correctness.
     return downCast<uint32_t>(
            uint64_t(primaryReplicaCount + 1) * 1000 *
-           Segment::SEGMENT_SIZE /
+           Segment::DEFAULT_SEGMENT_SIZE /
            1024 / 1024 / expectedReadMBytesPerSec);
 }
 

@@ -1,4 +1,4 @@
-/* Copyright (c) 2009, 2010 Stanford University
+/* Copyright (c) 2009-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -20,94 +20,45 @@
 #include <vector>
 #include "Crc32C.h"
 #include "Log.h"
+#include "Segment.h"
 
 using std::vector;
 
 namespace RAMCloud {
 
 /**
- * An exception that is thrown when the SegmentIterator class is provided
- * invalid method arguments.
+ * An exception that is thrown when the SegmentIterator class cannot iterate
+ * over a segment due to corruption.
  */
 struct SegmentIteratorException : public Exception {
-    explicit SegmentIteratorException(const CodeLocation& where)
-        : Exception(where) {}
     SegmentIteratorException(const CodeLocation& where, std::string msg)
         : Exception(where, msg) {}
-    SegmentIteratorException(const CodeLocation& where, int errNo)
-        : Exception(where, errNo) {}
-    SegmentIteratorException(const CodeLocation& where, string msg, int errNo)
-        : Exception(where, msg, errNo) {}
 };
 
 class SegmentIterator {
   public:
     SegmentIterator();
-    explicit SegmentIterator(const Segment *segment);
-    SegmentIterator(const void *buffer, uint64_t capacity,
-                    bool ignoreCapacityMismatch = false);
+    explicit SegmentIterator(Segment& segment);
+    SegmentIterator(const void *buffer, uint32_t length);
     VIRTUAL_FOR_TESTING ~SegmentIterator();
-
-    VIRTUAL_FOR_TESTING bool         isDone() const;
-    VIRTUAL_FOR_TESTING void         next();
-    VIRTUAL_FOR_TESTING LogEntryType getType() const;
-    VIRTUAL_FOR_TESTING uint32_t     getLength() const;
-    VIRTUAL_FOR_TESTING uint32_t     getLengthInLog() const;
-    VIRTUAL_FOR_TESTING LogPosition  getLogPosition() const;
-
-    /**
-     * Obtain a const T* to the data associated with the current SegmentEntry.
-     * \tparam T
-     *      The type to cast the pointer as for the return.
-     * \return
-     *      A const T* to the current data.
-     * \throw SegmentIteratorException
-     *      An exception is thrown if the iterator has no more entries.
-     */
-    template <typename T>
-    const T*
-    get() const
-    {
-        if (currentEntry == NULL)
-            throw SegmentIteratorException(HERE, "getPointer while isDone");
-        return reinterpret_cast<const T*>(blobPtr);
-    }
-
-    VIRTUAL_FOR_TESTING SegmentEntryHandle          getHandle() const;
-    VIRTUAL_FOR_TESTING const SegmentHeader&        getHeader() const;
-    VIRTUAL_FOR_TESTING const void                 *getPointer() const;
-    VIRTUAL_FOR_TESTING uint64_t                    getOffset() const;
-    VIRTUAL_FOR_TESTING SegmentChecksum::ResultType generateChecksum() const;
-    VIRTUAL_FOR_TESTING bool                        isCleanerSegment() const;
-    VIRTUAL_FOR_TESTING bool                        isChecksumValid() const;
-    VIRTUAL_FOR_TESTING bool                        isSegmentChecksumValid()
-                                                                        const;
+    VIRTUAL_FOR_TESTING bool isDone();
+    VIRTUAL_FOR_TESTING void next();
+    VIRTUAL_FOR_TESTING LogEntryType getType();
+    VIRTUAL_FOR_TESTING uint32_t getLength();
+    VIRTUAL_FOR_TESTING Buffer& appendToBuffer(Buffer& buffer);
+    VIRTUAL_FOR_TESTING Buffer& setBufferTo(Buffer& buffer);
 
   PRIVATE:
-    void            commonConstructor(bool ignoreCapacityMismatch);
-    bool            isEntryValid(const SegmentEntry *entry) const;
-
-    /// Base address for the segment being iterated over.
-    const void     *baseAddress;
-
-    /// Maximum length of the segment in bytes.
-    uint64_t        segmentCapacity;
-
-    /// Number of bytes actually used in the segment. This is used to tell
-    /// when we're done iterating on an open segment.
-    uint64_t        segmentBytesUsed;
-
-    /// Segment identification number.
-    uint64_t        id;
-
-    // current iteration state
-    LogEntryType     type;
-    uint32_t         length;
-    const void      *blobPtr;
-    bool             sawFooter;
-
-    const SegmentEntry    *firstEntry;
-    const SegmentEntry    *currentEntry;
+    Tub<Segment*> segment;
+    Tub<const void*> segmentBuffer;
+    Tub<uint32_t> segmentLength;
+    uint32_t currentOffset;
+ 
+    const void* getAddressAt(uint32_t offset);
+    uint32_t getContiguousBytesAt(uint32_t offset);
+    void copyOut(uint32_t offset, void* destination, uint32_t length);
+    const Segment::EntryHeader* getEntryHeader(uint32_t offset);
+    void checkIntegrity();
 
     DISALLOW_COPY_AND_ASSIGN(SegmentIterator);
 };

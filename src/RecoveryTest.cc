@@ -265,7 +265,7 @@ TEST_F(RecoveryTest, BackupStartTask_filterOutInvalidReplicas) {
 
 TEST_F(RecoveryTest, verifyLogComplete) {
     const size_t segmentCount = 3;
-    const size_t bufferSize = LogDigest::getBytesFromCount(segmentCount);
+    const uint32_t bufferSize = LogDigest::getBytesFromCount(segmentCount);
     char buffer[bufferSize];
     LogDigest digest(segmentCount, buffer, bufferSize);
     digest.addSegment(10);

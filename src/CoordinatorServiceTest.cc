@@ -68,7 +68,9 @@ TEST_F(CoordinatorServiceTest, createTable) {
     MasterService& master2 = *cluster.addServer(master2Config)->master;
 
     // Advance the log head slightly so creation time offset is non-zero.
-    master->log.append(LOG_ENTRY_TYPE_OBJ, "hi", 2);
+    Buffer empty;
+    HashTable::Reference reference;
+    master->log.append(LOG_ENTRY_TYPE_OBJ, empty, true, reference);
 
     // master is already enlisted
     EXPECT_EQ(0U, client->createTable("foo"));
@@ -424,7 +426,9 @@ TEST_F(CoordinatorServiceTest, reassignTabletOwnership) {
 
     // Advance the log head slightly so creation time offset is non-zero
     // on host being migrated to.
-    master2->master->log.append(LOG_ENTRY_TYPE_OBJ, "hi", 2);
+    Buffer empty;
+    HashTable::Reference reference;
+    master2->master->log.append(LOG_ENTRY_TYPE_OBJ, empty, true, reference); 
 
     // master is already enlisted
     client->createTable("foo");

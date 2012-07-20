@@ -41,7 +41,7 @@
 #include "CoordinatorClient.h"
 #include "CycleCounter.h"
 #include "Fence.h"
-#include "LogTypes.h"
+#include "LogEntryTypes.h"
 #include "RawMetrics.h"
 #include "Rpc.h"
 #include "Service.h"
@@ -51,9 +51,11 @@
 namespace RAMCloud {
 
 #if TESTING
-bool isEntryAlive(const SegmentIterator& it,
+bool isEntryAlive(LogEntryType type,
+                  Buffer& buffer,
                   const ProtoBuf::Tablets::Tablet& tablet);
-Tub<uint64_t> whichPartition(const SegmentIterator& it,
+Tub<uint64_t> whichPartition(LogEntryType type,
+                             Buffer& buffer,
                              const ProtoBuf::Tablets& partitions);
 #endif
 

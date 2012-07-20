@@ -43,7 +43,7 @@ class MockReceived : public Driver::Received {
         : Received()
         , stealCount(0)
     {
-        this->len = len + downCast<uint32_t>(sizeof(FastTransport::Header));
+        this->len = len + sizeof32(FastTransport::Header);
         construct(fragNumber, totalFrags,
                   static_cast<const char*>(msg), this->len);
         getHeader()->payloadType = FastTransport::Header::ACK;

@@ -16,6 +16,7 @@
 #ifndef RAMCLOUD_TABLETSBUILDER_H
 #define RAMCLOUD_TABLETSBUILDER_H
 
+#include "Log.h"
 #include "Tablets.pb.h"
 
 namespace RAMCloud {
@@ -60,7 +61,7 @@ struct TabletsBuilder {
                State state = NORMAL,
                uint64_t userData = 0lu,
                ServerId serverId = ServerId(0, 0),
-               LogPosition ctime = LogPosition(0, 0))
+               Log::Position ctime = Log::Position(0, 0))
     {
         ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
         tablet.set_table_id(tableId);

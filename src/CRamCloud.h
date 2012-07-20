@@ -47,24 +47,24 @@ RAMCloud::Status    rc_ping(struct rc_client* client,
                             uint64_t* result);
 
 RAMCloud::Status    rc_read(struct rc_client* client, uint64_t tableId,
-                            const char* key, uint16_t keyLength,
+                            const void* key, uint16_t keyLength,
                             const struct RAMCloud::RejectRules* rejectRules,
                             uint64_t* version, void* buf, uint32_t maxLength,
                             uint32_t* actualLength);
 RAMCloud::Status    rc_remove(struct rc_client* client, uint64_t tableId,
-                              const char* key, uint16_t keyLength,
+                              const void* key, uint16_t keyLength,
                               const struct RAMCloud::RejectRules* rejectRules,
                               uint64_t* version);
 RAMCloud::Status    rc_write(struct rc_client* client, uint64_t tableId,
-                             const char* key, uint16_t keyLength,
+                             const void* key, uint16_t keyLength,
                              const void* buf, uint32_t length,
                              const struct RAMCloud::RejectRules* rejectRules,
                              uint64_t* version);
 
 RAMCloud::Status    rc_testing_kill(struct rc_client* client, uint64_t tableId,
-                                    const char* key, uint16_t keyLength);
+                                    const void* key, uint16_t keyLength);
 RAMCloud::Status    rc_testing_fill(struct rc_client* client, uint64_t tableId,
-                                    const char* key, uint16_t keyLength,
+                                    const void* key, uint16_t keyLength,
                                     uint32_t objectCount, uint32_t objectSize);
 RAMCloud::Status    rc_testing_set_runtime_option(struct rc_client* client,
                                                   const char* option,

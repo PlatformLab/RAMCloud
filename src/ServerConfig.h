@@ -19,6 +19,7 @@
 #include "Log.h"
 #include "Segment.h"
 #include "ServiceMask.h"
+#include "HashTable.h"
 
 namespace RAMCloud {
 
@@ -51,6 +52,7 @@ struct ServerConfig {
         , detectFailures(false)
         , pinMemory(false)
         , segmentSize(128 * 1024)
+        , segletSize(128 * 1024)
         , maxObjectDataSize(segmentSize / 4)
         , maxObjectKeySize((64 * 1024) - 1)
         , master(testing)
@@ -71,7 +73,8 @@ struct ServerConfig {
                    PING_SERVICE, MEMBERSHIP_SERVICE}
         , detectFailures(true)
         , pinMemory(true)
-        , segmentSize(Segment::SEGMENT_SIZE)
+        , segmentSize(Segment::DEFAULT_SEGMENT_SIZE)
+        , segletSize(Segment::DEFAULT_SEGLET_SIZE)
         , maxObjectDataSize(segmentSize / 8)
         , maxObjectKeySize((64 * 1024) - 1)
         , master()
@@ -143,6 +146,13 @@ struct ServerConfig {
      * time substantially.
      */
     uint32_t segmentSize;
+
+    /**
+     * Size of each virtually contiguous chunk of a segment. segmentSize must be
+     * an integer multiple of this value. Smaller seglets decrease fragmentation,
+     * but cause more objects to be stored discontiguously.
+     */
+    uint32_t segletSize;
 
     /**
      * Largest allowable RAMCloud object, in bytes.  It's not clear whether
@@ -340,7 +350,7 @@ struct ServerConfig {
         }
 
         uint64_t logBytes = masterBytes - hashTableBytes;
-        uint64_t numSegments = logBytes / Segment::SEGMENT_SIZE;
+        uint64_t numSegments = logBytes / Segment::DEFAULT_SEGMENT_SIZE;
         if (numSegments < 1) {
             throw Exception(HERE,
                             "invalid `MasterTotalMemory' and/or "
@@ -349,7 +359,7 @@ struct ServerConfig {
         }
 
         uint64_t numHashTableLines =
-            hashTableBytes / HashTable<LogEntryHandle>::bytesPerCacheLine();
+            hashTableBytes / HashTable::bytesPerCacheLine();
         if (numHashTableLines < 1) {
             throw Exception(HERE,
                             "invalid `MasterTotalMemory' and/or "

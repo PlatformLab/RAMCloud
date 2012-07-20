@@ -56,7 +56,7 @@ TEST_F(TabletMapTest, addTablet) {
     EXPECT_EQ(3lu, tablet.endKeyHash);
     EXPECT_EQ(ServerId(4, 5), tablet.serverId);
     EXPECT_EQ(Tablet::RECOVERING, tablet.status);
-    EXPECT_EQ(LogPosition(6, 7), tablet.ctime);
+    EXPECT_EQ(Log::Position(6, 7), tablet.ctime);
 }
 
 TEST_F(TabletMapTest, getTablet) {
@@ -69,7 +69,7 @@ TEST_F(TabletMapTest, getTablet) {
         EXPECT_EQ(b + 3, tablet.endKeyHash);
         EXPECT_EQ(ServerId(b + 4, b + 5), tablet.serverId);
         EXPECT_EQ(Tablet::RECOVERING, tablet.status);
-        EXPECT_EQ(LogPosition(b + 6, b + 7), tablet.ctime);
+        EXPECT_EQ(Log::Position(b + 6, b + 7), tablet.ctime);
     }
     EXPECT_THROW(map.getTablet(0, 0, 0), TabletMap::NoSuchTablet);
 }
@@ -104,7 +104,7 @@ TEST_F(TabletMapTest, modifyTablet) {
     Tablet tablet = map.getTablet(0, 1, 6);
     EXPECT_EQ(ServerId(1, 2), tablet.serverId);
     EXPECT_EQ(Tablet::RECOVERING, tablet.status);
-    EXPECT_EQ(LogPosition(3, 9), tablet.ctime);
+    EXPECT_EQ(Log::Position(3, 9), tablet.ctime);
     EXPECT_THROW(map.modifyTablet(0, 0, 0, {0, 0}, Tablet::NORMAL, {0, 0}),
                  TabletMap::NoSuchTablet);
 }

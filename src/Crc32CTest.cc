@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -106,6 +106,13 @@ TEST_P(Crc32CTest, accumulatedVaried) {
             EXPECT_EQ(crcByLength[offset], crc.getResult());
         }
     }
+}
+
+TEST_P(Crc32CTest, assignmentOperator) {
+    Crc32C a;
+    a.update(&a, sizeof(a));
+    Crc32C b = a;
+    EXPECT_EQ(a.result, b.result);
 }
 
 } // namespace RAMCloud

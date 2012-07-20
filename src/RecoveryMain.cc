@@ -44,6 +44,8 @@ bool verify = false;
 bool fillWithTestData = false;
 
 /**
+ * TODO(Anyone): This method is duplicated wholesale in ClusterPerf.cc.
+ *
  * Fill a buffer with an ASCII value that can be checked later to ensure
  * that no data has been lost or corrupted.  A particular tableId, key and
  * keyLength are incorporated into the value (under the assumption that
@@ -64,7 +66,7 @@ bool fillWithTestData = false;
  */
 void
 fillBuffer(Buffer& buffer, uint32_t size, uint64_t tableId,
-           const char* key, uint16_t keyLength)
+           const void* key, uint16_t keyLength)
 {
     char chunk[51];
     buffer.reset();
@@ -76,8 +78,8 @@ fillBuffer(Buffer& buffer, uint32_t size, uint64_t tableId,
         // the end.
         snprintf(chunk, sizeof(chunk),
             "| %d: tableId 0x%lx, key %.*s, keyLength 0x%x %s",
-            position, tableId, keyLength, key, keyLength,
-            "0123456789");
+            position, tableId, keyLength, reinterpret_cast<const char*>(key),
+            keyLength, "0123456789");
         uint32_t chunkLength = sizeof(chunk) - 1;
         if (chunkLength > bytesLeft) {
             chunkLength = bytesLeft;
@@ -89,6 +91,8 @@ fillBuffer(Buffer& buffer, uint32_t size, uint64_t tableId,
 }
 
 /**
+ * TODO(Anyone): This method is duplicated wholesale in ClusterPerf.cc. 
+ *
  * Check the contents of a buffer to ensure that it contains the same data
  * generated previously by fillBuffer.  Generate a log message if a
  * problem is found.
@@ -110,7 +114,7 @@ fillBuffer(Buffer& buffer, uint32_t size, uint64_t tableId,
  */
 bool
 checkBuffer(Buffer& buffer, uint32_t expectedLength, uint64_t tableId,
-            const char* key, uint16_t keyLength)
+            const void* key, uint16_t keyLength)
 {
     uint32_t length = buffer.getTotalLength();
     if (length != expectedLength) {

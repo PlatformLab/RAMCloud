@@ -1044,7 +1044,7 @@ InfRcTransport<Infiniband>::Poller::poll()
                     continue;
                 t->outstandingRpcs.erase(t->outstandingRpcs.iterator_to(rpc));
                 rpc.session->alarm.rpcFinished();
-                uint32_t len = wc.byte_len - downCast<uint32_t>(sizeof(header));
+                uint32_t len = wc.byte_len - sizeof32(header);
                 if (t->numUsedClientSrqBuffers >=
                         MAX_SHARED_RX_QUEUE_DEPTH / 2) {
                     // clientSrq is low on buffers, better return this one
@@ -1105,7 +1105,7 @@ InfRcTransport<Infiniband>::Poller::poll()
             Header& header(*reinterpret_cast<Header*>(bd->buffer));
             ServerRpc *r = t->serverRpcPool.construct(t, qp, header.nonce);
 
-            uint32_t len = wc.byte_len - downCast<uint32_t>(sizeof(header));
+            uint32_t len = wc.byte_len - sizeof32(header);
             if (t->numFreeServerSrqBuffers < 2) {
                 // Running low on buffers; copy the data so we can return
                 // the buffer immediately.
@@ -1118,7 +1118,7 @@ InfRcTransport<Infiniband>::Poller::poll()
                 // to avoid copying; it will be returned when the request
                 // buffer is destroyed.
                 PayloadChunk::appendToBuffer(&r->requestPayload,
-                    bd->buffer + downCast<uint32_t>(sizeof(header)),
+                    bd->buffer + sizeof32(header),
                     len, t, t->serverSrq, bd);
             }
             LOG(DEBUG, "Received %s request from %s",

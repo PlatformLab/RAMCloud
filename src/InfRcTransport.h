@@ -35,6 +35,8 @@
 #include "SessionAlarm.h"
 #include "Transport.h"
 #include "Infiniband.h"
+#include "CycleCounter.h"
+#include "RawMetrics.h"
 
 #ifndef RAMCLOUD_INFRCTRANSPORT_H
 #define RAMCLOUD_INFRCTRANSPORT_H
@@ -145,7 +147,7 @@ class InfRcTransport : public Transport {
 
     // maximum RPC size we'll permit. we'll use the segment size plus a
     // little extra for header overhead, etc.
-    static const uint32_t MAX_RPC_SIZE = Segment::SEGMENT_SIZE + 4096;
+    static const uint32_t MAX_RPC_SIZE = Segment::DEFAULT_SEGMENT_SIZE + 4096;
     static const uint32_t MAX_SHARED_RX_QUEUE_DEPTH = 32;
     static const uint32_t MAX_SHARED_RX_SGE_COUNT = 8;
     static const uint32_t MAX_TX_QUEUE_DEPTH = 16;

@@ -165,7 +165,7 @@ CoordinatorService::createTable(const CreateTableRpc::Request& reqHdr,
         MasterClient masterClient(
             context.transportManager->getSession(locator));
         // Get current log head. Only entries >= this can be part of the tablet.
-        LogPosition headOfLog = masterClient.getHeadOfLog();
+        Log::Position headOfLog = masterClient.getHeadOfLog();
 
         // Create tablet map entry.
         tabletMap.addTablet({tableId, startKeyHash, endKeyHash,
@@ -479,7 +479,7 @@ CoordinatorService::recoveryMasterFinished(
 {
     ProtoBuf::Tablets recoveredTablets;
     ProtoBuf::parseFromResponse(rpc.requestPayload,
-                                downCast<uint32_t>(sizeof(reqHdr)),
+                                sizeof32(reqHdr),
                                 reqHdr.tabletsLength, recoveredTablets);
 
     ServerId serverId = ServerId(reqHdr.recoveryMasterId);
@@ -574,7 +574,7 @@ CoordinatorService::reassignTabletOwnership(
     MasterClient masterClient(session);
     // Get current head of log to preclude all previous data in the log
     // from being considered part of this tablet.
-    LogPosition headOfLog = masterClient.getHeadOfLog();
+    Log::Position headOfLog = masterClient.getHeadOfLog();
 
     try {
         tabletMap.modifyTablet(reqHdr.tableId, reqHdr.firstKey, reqHdr.lastKey,
@@ -654,8 +654,7 @@ CoordinatorService::setRuntimeOption(const SetRuntimeOptionRpc::Request& reqHdr,
     const char* option = getString(rpc.requestPayload, sizeof(reqHdr),
                                    reqHdr.optionLength);
     const char* value = getString(rpc.requestPayload,
-                                  downCast<uint32_t>(sizeof(reqHdr) +
-                                                     reqHdr.optionLength),
+                                  sizeof32(reqHdr) + reqHdr.optionLength,
                                   reqHdr.valueLength);
     try {
         runtimeOptions.set(option, value);

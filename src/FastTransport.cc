@@ -98,7 +98,7 @@ uint64_t FastTransport::sessionExpireCyclesOverride = 0;
 uint32_t
 FastTransport::dataPerFragment()
 {
-    return driver->getMaxPacketSize() - downCast<uint32_t>(sizeof(Header));
+    return driver->getMaxPacketSize() - sizeof32(Header);
 }
 
 /**
@@ -491,8 +491,8 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
         char *payload = received->steal(&length);
         // Give that responsibility to dataBuffer's destructor.
         Driver::PayloadChunk::appendToBuffer(dataBuffer,
-                                 payload + downCast<uint32_t>(sizeof(Header)),
-                                 length - downCast<uint32_t>(sizeof(Header)),
+                                 payload + sizeof32(Header),
+                                 length - sizeof32(Header),
                                  transport->driver,
                                  payload);
 
@@ -515,8 +515,8 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
             // this responsibility was stolen on a prior method invocation
             // in the else block below.
             Driver::PayloadChunk::appendToBuffer(dataBuffer,
-                                 payload + downCast<uint32_t>(sizeof(Header)),
-                                 length - downCast<uint32_t>(sizeof(Header)),
+                                 payload + sizeof32(Header),
+                                 length - sizeof32(Header),
                                  transport->driver,
                                  payload);
         }

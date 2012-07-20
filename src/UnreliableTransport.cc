@@ -56,8 +56,8 @@ UnreliableTransport::UnreliableTransport(Context& context, Driver* driver)
                 uint32_t len;
                 char* data = received->steal(&len);
                 Driver::PayloadChunk::appendToBuffer(&rpc->requestPayload,
-                                 data + sizeof(Header),
-                                 len - downCast<uint32_t>(sizeof(Header)),
+                                 data + sizeof32(Header),
+                                 len - sizeof32(Header),
                                  t.driver.get(),
                                  data);
                 if (!header->getMoreWillFollow()) {
@@ -70,8 +70,8 @@ UnreliableTransport::UnreliableTransport(Context& context, Driver* driver)
                         uint32_t len;
                         char* data = received->steal(&len);
                         Driver::PayloadChunk::appendToBuffer(rpc.response,
-                             data + sizeof(Header),
-                             len - downCast<uint32_t>(sizeof(Header)),
+                             data + sizeof32(Header),
+                             len - sizeof32(Header),
                              t.driver.get(),
                              data);
                         if (!header->getMoreWillFollow()) {

@@ -60,18 +60,18 @@ namespace RAMCloud {
 LogIterator::LogIterator(Log& log)
     : log(log),
       segmentList(),
+      currentSegment(NULL),
       currentIterator(),
-      currentSegmentId(Segment::INVALID_SEGMENT_ID),
       headLocked(false)
 {
+    log.segmentManager.logIteratorCreated();
+
     // If there's no log head yet we need to preclude any appends.
-    log.listLock.lock();
-    if (log.head == NULL) {
-        log.appendLock.lock();
+    log.appendLock.lock();
+    if (log.head == NULL)
         headLocked = true;
-    }
-    log.iteratorCreated();
-    log.listLock.unlock();
+    else
+        log.appendLock.unlock();
 
     next();
 }
@@ -80,8 +80,7 @@ LogIterator::~LogIterator()
 {
     if (headLocked)
         log.appendLock.unlock();
-    std::lock_guard<SpinLock> lock(log.listLock);
-    log.iteratorDestroyed();
+    log.segmentManager.logIteratorDestroyed();
 }
 
 /**
@@ -93,7 +92,7 @@ LogIterator::~LogIterator()
  *      more.
  */
 bool
-LogIterator::isDone() const
+LogIterator::isDone()
 {
     if (currentIterator && !currentIterator->isDone())
         return false;
@@ -118,10 +117,12 @@ LogIterator::next()
     // We've exhausted the current segment. Now try the next one, if there
     // is one.
 
-    if (currentIterator)
+    uint64_t currentSegmentId = -1;
+    if (currentSegment != NULL) {
+        currentSegmentId = currentSegment->id;
+        currentSegment = NULL;
         currentIterator.destroy();
-
-    std::lock_guard<SpinLock> lock(log.listLock);
+    }
 
     if (segmentList.size() == 0)
         populateSegmentList(currentSegmentId + 1);
@@ -129,13 +130,14 @@ LogIterator::next()
     if (segmentList.size() == 0)
         return;
 
-    if (segmentList.back() == log.head) {
-        log.appendLock.lock();
+    log.appendLock.lock();
+    if (segmentList.back() == log.head)
         headLocked = true;
-    }
+    else
+        log.appendLock.unlock();
 
-    currentIterator.construct(segmentList.back());
-    currentSegmentId = segmentList.back()->getId();
+    currentSegment = segmentList.back();
+    currentIterator.construct(*currentSegment);
 
     // If we've just iterated over the head, then the only segments
     // that can exist in the log with higher IDs must have been generated
@@ -144,7 +146,7 @@ LogIterator::next()
     // TODO(rumble): It's a bummer that we're holding the head locked. Should
     // we not iterate over these segments before the head?
     if (headLocked && log.head != segmentList.back())
-        assert(currentIterator->isCleanerSegment());
+        {} // XXX assert(currentIterator->isCleanerSegment());
 
     segmentList.pop_back();
 }
@@ -156,56 +158,43 @@ LogIterator::next()
  * impacting system performance.
  */
 bool
-LogIterator::onHead() const
+LogIterator::onHead()
 {
     return headLocked;
 }
 
 /**
- * Obtain a handle to the entry currently being iterated over.
+ * Get the entry currently being iterated over.
  */
-SegmentEntryHandle
-LogIterator::getHandle() const
+LogEntryType
+LogIterator::getType()
 {
-    return currentIterator->getHandle();
+    return currentIterator->getType();
 }
 
-//
-// PRIVATE METHODS
-//
+uint32_t
+LogIterator::getLength()
+{
+    return currentIterator->getLength();
+}
 
-/**
- * Populate our list of segments from the log. Only segments newer than or
- * equal to the specified Segment ID are added. This method should only be
- * called when the current list of segments is empty.
- *
- * This method must be called with the log's listLock held.
- */
+Buffer&
+LogIterator::appendToBuffer(Buffer& buffer)
+{
+    return currentIterator->appendToBuffer(buffer);
+}
+
+Buffer&
+LogIterator::setBufferTo(Buffer& buffer)
+{
+    buffer.reset();
+    return appendToBuffer(buffer);
+}
+
 void
 LogIterator::populateSegmentList(uint64_t nextSegmentId)
 {
-    assert(segmentList.size() == 0);
-
-    // Walk the lists to collect the closed Segments. Since the cleaner
-    // is locked out of inserting survivor segments and freeing cleaned
-    // ones so long as any iterators still exist, we need only consider
-    // what is presently part of the log.
-    Log::SegmentList *lists[] = {
-        &log.cleanableNewList,
-        &log.cleanableList,
-        &log.freePendingDigestAndReferenceList,
-        NULL
-    };
-
-    for (int i = 0; lists[i] != NULL; i++) {
-        foreach (Segment &s, *lists[i]) {
-            if (s.getId() >= nextSegmentId)
-                segmentList.push_back(&s);
-        }
-    }
-
-    if (log.head != NULL && log.head->getId() >= nextSegmentId)
-        segmentList.push_back(log.head);
+    log.segmentManager.getActiveSegments(nextSegmentId, segmentList);
 
     // Sort in descending order (so we can pop oldest ones off the back).
     std::sort(segmentList.begin(),

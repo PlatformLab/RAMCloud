@@ -15,7 +15,7 @@
 
 #include "ObjectFinder.h"
 #include "ShortMacros.h"
-#include "KeyHash.h"
+#include "Key.h"
 
 namespace RAMCloud {
 
@@ -70,8 +70,8 @@ ObjectFinder::ObjectFinder(Context& context, CoordinatorClient& coordinator)
  *      The coordinator has no record of the table.
  */
 Transport::SessionRef
-ObjectFinder::lookup(uint64_t table, const char* key, uint16_t keyLength) {
-    HashType keyHash = getKeyHash(key, keyLength);
+ObjectFinder::lookup(uint64_t table, const void* key, uint16_t keyLength) {
+    HashType keyHash = Key::getHash(table, key, keyLength);
 
     /*
     * The control flow in here is a bit tricky:

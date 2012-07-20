@@ -13,38 +13,27 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <assert.h>
-#include <stdint.h>
+#include "TestUtil.h"
 
-#include "Common.h"
-#include "Fence.h"
-#include "Log.h"
-#include "LogCleaner.h"
-#include "ShortMacros.h"
-#include "Segment.h"
-#include "SegmentIterator.h"
-#include "WallTime.h"
+#include "SegmentManager.h"
 
 namespace RAMCloud {
 
 /**
- * Construct a new LogCleaner object.
- *
- * \param[in] log
- *      Pointer to the Log we'll be cleaning.
- * \param[in] replicaManager
- *      The ReplicaManager to use for Segments written out by
- *      the cleaner.
+ * Unit tests for SegmentManager.
  */
-LogCleaner::LogCleaner(Context& context,
-                       SegmentManager& segmentManager,
-                       ReplicaManager& replicaManager,
-                       uint32_t writeCostThreshold)
+class SegmentManagerTest : public ::testing::Test {
+  public:
+    SegmentManagerTest()
+    {
+    }
+
+  private:
+    DISALLOW_COPY_AND_ASSIGN(SegmentManagerTest);
+};
+
+TEST_F(SegmentManagerTest, constructor)
 {
 }
 
-LogCleaner::~LogCleaner()
-{
-}
-
-} // namespace
+} // namespace RAMCloud

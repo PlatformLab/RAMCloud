@@ -103,7 +103,7 @@ RamCloud::getMetrics(const char* serviceLocator)
  *      Size in bytes of the key.
  */
 ServerMetrics
-RamCloud::getMetrics(uint64_t table, const char* key, uint16_t keyLength)
+RamCloud::getMetrics(uint64_t table, const void* key, uint16_t keyLength)
 {
     PingClient client(clientContext);
     const char *serviceLocator = objectFinder.lookup(table, key, keyLength)->
@@ -173,7 +173,7 @@ RamCloud::ping(const char* serviceLocator, uint64_t nonce,
  *      The server did not respond within \c timeoutNanoseconds.
  */
 uint64_t
-RamCloud::ping(uint64_t table, const char* key, uint16_t keyLength,
+RamCloud::ping(uint64_t table, const void* key, uint16_t keyLength,
                uint64_t nonce, uint64_t timeoutNanoseconds)
 {
     PingClient client(clientContext);
@@ -196,7 +196,7 @@ RamCloud::proxyPing(const char* serviceLocator1,
 
 /// \copydoc MasterClient::read
 void
-RamCloud::read(uint64_t tableId, const char* key, uint16_t keyLength,
+RamCloud::read(uint64_t tableId, const void* key, uint16_t keyLength,
                Buffer* value, const RejectRules* rejectRules,
                uint64_t* version)
 {
@@ -219,7 +219,7 @@ RamCloud::read(uint64_t tableId, const char* key, uint16_t keyLength,
 
 /// \copydoc MasterClient::increment
 void
-RamCloud::increment(uint64_t tableId, const char* key, uint16_t keyLength,
+RamCloud::increment(uint64_t tableId, const void* key, uint16_t keyLength,
                     int64_t incrementValue, const RejectRules* rejectRules,
                     uint64_t* version, int64_t* newValue)
 {
@@ -260,7 +260,7 @@ RamCloud::multiRead(MasterClient::ReadObject* requests[], uint32_t numRequests)
 
 /// \copydoc MasterClient::remove
 void
-RamCloud::remove(uint64_t tableId, const char* key, uint16_t keyLength,
+RamCloud::remove(uint64_t tableId, const void* key, uint16_t keyLength,
                  const RejectRules* rejectRules, uint64_t* version)
 {
     MasterClient master(objectFinder.lookup(tableId, key, keyLength));
@@ -283,7 +283,7 @@ RamCloud::remove(uint64_t tableId, const char* key, uint16_t keyLength,
 
 /// \copydoc MasterClient::write
 void
-RamCloud::write(uint64_t tableId, const char* key, uint16_t keyLength,
+RamCloud::write(uint64_t tableId, const void* key, uint16_t keyLength,
                 const void* buf, uint32_t length,
                 const RejectRules* rejectRules, uint64_t* version,
                 bool async)
@@ -323,7 +323,7 @@ RamCloud::write(uint64_t tableId, const char* key, uint16_t keyLength,
  *      terminating NULL character) are stored in the object.
  */
 void
-RamCloud::write(uint64_t tableId, const char* key, uint16_t keyLength,
+RamCloud::write(uint64_t tableId, const void* key, uint16_t keyLength,
                 const char* s)
 {
     while (1) {
@@ -359,7 +359,7 @@ RamCloud::write(uint64_t tableId, const char* key, uint16_t keyLength,
  *      Size in bytes of the key.
  */
 void
-RamCloud::testingKill(uint64_t tableId, const char* key, uint16_t keyLength)
+RamCloud::testingKill(uint64_t tableId, const void* key, uint16_t keyLength)
 {
     Transport::SessionRef session =
         objectFinder.lookup(tableId, key, keyLength);
@@ -398,7 +398,7 @@ RamCloud::testingKill(uint64_t tableId, const char* key, uint16_t keyLength)
  *      numerically in each table).
  */
 void
-RamCloud::testingFill(uint64_t tableId, const char* key, uint16_t keyLength,
+RamCloud::testingFill(uint64_t tableId, const void* key, uint16_t keyLength,
                       uint32_t objectCount, uint32_t objectSize)
 {
     MasterClient master(objectFinder.lookup(tableId, key, keyLength));

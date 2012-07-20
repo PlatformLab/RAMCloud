@@ -61,29 +61,19 @@ class RecoverSegmentBenchmark {
         uint64_t nextKeyVal = 0;
         Segment *segments[numSegments];
         for (int i = 0; i < numSegments; i++) {
-            void *p = Memory::xmalloc(HERE, Segment::SEGMENT_SIZE);
-            segments[i] = new Segment((uint64_t)0, i, p,
-                Segment::SEGMENT_SIZE, NULL);
+            segments[i] = new Segment();
             while (1) {
-                string key = format("%lu", nextKeyVal);
-                uint16_t keyLength = downCast<uint16_t>(key.length());
+                Key key(0, &nextKeyVal, sizeof(nextKeyVal));
 
-                DECLARE_OBJECT(o, keyLength, dataBytes);
-                o->tableId = 0;
-                o->version = 0;
-                o->keyLength = keyLength;
-                memcpy(o->getKeyLocation(), key.c_str(), keyLength);
-
-                SegmentEntryHandle seh =
-                    segments[i]->append(LOG_ENTRY_TYPE_OBJ,
-                                        o, o->objectLength(dataBytes));
-
-                nextKeyVal++;
-                if (seh == NULL)
+                Object object(key, NULL, 0, 0);
+                Buffer buffer;
+                object.serializeToBuffer(buffer);
+                if (!segments[i]->append(LOG_ENTRY_TYPE_OBJ, buffer))
                     break;
+                nextKeyVal++;
                 numObjects++;
             }
-            segments[i]->close(NULL);
+            segments[i]->close();
         }
 
         /* Update the list of Tablets */
@@ -100,16 +90,18 @@ class RecoverSegmentBenchmark {
          */
         uint64_t before = Cycles::rdtsc();
         for (int i = 0; i < numSegments; i++) {
-            Segment *s = segments[i];
-            service->recoverSegment(s->getId(), s->getBaseAddress(),
-                s->getCapacity());
+            Segment* s = segments[i];
+            Buffer buffer;
+            s->appendToBuffer(buffer);
+            const void* contigSeg = buffer.getRange(0, buffer.getTotalLength());
+            service->recoverSegment(i, contigSeg, buffer.getTotalLength());
         }
         uint64_t ticks = Cycles::rdtsc() - before;
 
         uint64_t totalObjectBytes = numObjects * dataBytes;
-        uint64_t totalSegmentBytes = numSegments * Segment::SEGMENT_SIZE;
+        uint64_t totalSegmentBytes = numSegments * Segment::DEFAULT_SEGMENT_SIZE;
         printf("Recovery of %d %dKB Segments with %d byte Objects took %lu "
-            "milliseconds\n", numSegments, Segment::SEGMENT_SIZE / 1024,
+            "milliseconds\n", numSegments, Segment::DEFAULT_SEGMENT_SIZE / 1024,
             dataBytes, RAMCloud::Cycles::toNanoseconds(ticks) / 1000 / 1000);
         printf("Actual total object count: %lu (%lu bytes in Objects, %.2f%% "
             "overhead)\n", numObjects, totalObjectBytes,
@@ -119,8 +111,6 @@ class RecoverSegmentBenchmark {
 
         // clean up
         for (int i = 0; i < numSegments; i++) {
-            free(const_cast<void *>(segments[i]->getBaseAddress()));
-            segments[i]->freeReplicas();
             delete segments[i];
         }
     }

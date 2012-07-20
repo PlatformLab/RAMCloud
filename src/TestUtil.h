@@ -57,7 +57,8 @@ class TestUtil {
     static ::testing::AssertionResult matchesPosixRegex(
             const string& pattern, const string& subject);
     static string readFile(const char* fileName);
-    static string toString(const char *buf, uint32_t length);
+    static string toString(const void* buf, uint32_t length);
+    static string toString(Buffer* buffer, uint32_t offset, uint32_t length);
     static string toString(Buffer* buffer);
     static bool waitForRpc(Context& context, Transport::ClientRpc& rpc,
             int ms = 1000);

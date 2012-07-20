@@ -24,7 +24,7 @@
 #include "ServerId.h"
 #include "ServerStatistics.pb.h"
 #include "Tub.h"
-#include "LogTypes.h"
+#include "Log.h"
 
 namespace RAMCloud {
 
@@ -40,34 +40,39 @@ class MasterClient : public Client {
          * a previous call to getTableId).
          */
         uint64_t tableId;
+
         /**
          * Variable length key that uniquely identifies the object within table.
          * It does not necessarily have to be null terminated like a string.
          * The caller is responsible for ensuring that this key remains valid
          * until the call is reaped/canceled.
          */
-        const char* key;
+        const void* key;
+
         /**
          * Length of key
          */
         uint16_t keyLength;
+
         /**
          * If the read for this object was successful, the Tub<Buffer>
          * will hold the contents of the desired object. If not, it will
          * not be initialized, giving "false" when the buffer is tested.
          */
         Tub<Buffer>* value;
+
         /**
          * The version number of the object is returned here
          */
         uint64_t version;
+
         /**
          * The status of read (either that the read succeeded, or the
          * error in case it didn't) is returned here.
          */
         Status status;
 
-        ReadObject(uint64_t tableId, const char* key, uint16_t keyLength,
+        ReadObject(uint64_t tableId, const void* key, uint16_t keyLength,
                    Tub<Buffer>* value)
             : tableId(tableId)
             , key(key)
@@ -109,7 +114,7 @@ class MasterClient : public Client {
     class Read {
       public:
         Read(MasterClient& client,
-             uint64_t tableId, const char* key, uint16_t keyLength,
+             uint64_t tableId, const void* key, uint16_t keyLength,
              Buffer* value, const RejectRules* rejectRules,
              uint64_t* version);
         void cancel() { state.cancel(); }
@@ -147,12 +152,12 @@ class MasterClient : public Client {
     class Write {
       public:
         Write(MasterClient& client,
-              uint64_t tableId, const char* key, uint16_t keyLength,
+              uint64_t tableId, const void* key, uint16_t keyLength,
               Buffer& buffer,
               const RejectRules* rejectRules = NULL,
               uint64_t* version = NULL, bool async = false);
         Write(MasterClient& client,
-              uint64_t tableId, const char* key, uint16_t keyLength,
+              uint64_t tableId, const void* key, uint16_t keyLength,
               const void* buf, uint32_t length,
               const RejectRules* rejectRules = NULL,
               uint64_t* version = NULL, bool async = false);
@@ -169,15 +174,15 @@ class MasterClient : public Client {
 
     explicit MasterClient(Transport::SessionRef session) : session(session) {}
     void fillWithTestData(uint32_t numObjects, uint32_t objectSize);
-    void increment(uint64_t tableId, const char* key, uint16_t keyLength,
+    void increment(uint64_t tableId, const void* key, uint16_t keyLength,
                    int64_t incrementValue,
                    const RejectRules* rejectRules = NULL,
                    uint64_t* version = NULL, int64_t* newValue = NULL);
     bool isReplicaNeeded(ServerId backupServerId, uint64_t segmentId);
-    LogPosition getHeadOfLog();
+    Log::Position getHeadOfLog();
     void multiRead(std::vector<ReadObject*> requests);
     void getServerStatistics(ProtoBuf::ServerStatistics& serverStats);
-    void read(uint64_t tableId, const char* key, uint16_t keyLength,
+    void read(uint64_t tableId, const void* key, uint16_t keyLength,
               Buffer* value, const RejectRules* rejectRules = NULL,
               uint64_t* version = NULL);
     void prepForMigration(uint64_t tableId,
@@ -187,8 +192,7 @@ class MasterClient : public Client {
                           uint64_t expectedBytes);
     void receiveMigrationData(uint64_t tableId,
                               uint64_t firstKey,
-                              const void* segment,
-                              uint32_t segmentBytes);
+                              Segment& segment);
     void migrateTablet(uint64_t tableId,
                        uint64_t firstKey,
                        uint64_t lastKey,
@@ -197,7 +201,7 @@ class MasterClient : public Client {
                  ServerId crashedServerId, uint64_t partitionId,
                  const ProtoBuf::Tablets& tablets,
                  const RecoverRpc::Replica* replicas, uint32_t numReplicas);
-    void remove(uint64_t tableId, const char* key, uint16_t keyLength,
+    void remove(uint64_t tableId, const void* key, uint16_t keyLength,
                 const RejectRules* rejectRules = NULL,
                 uint64_t* version = NULL);
     void dropTabletOwnership(uint64_t tabletId,
@@ -210,7 +214,7 @@ class MasterClient : public Client {
     void takeTabletOwnership(uint64_t tableId,
                              uint64_t firstKey,
                              uint64_t lastKey);
-    void write(uint64_t tableId, const char* key, uint16_t keyLength,
+    void write(uint64_t tableId, const void* key, uint16_t keyLength,
                const void* buf, uint32_t length,
                const RejectRules* rejectRules = NULL, uint64_t* version = NULL,
                bool async = false);

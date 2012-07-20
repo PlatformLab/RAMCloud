@@ -197,7 +197,7 @@ rc_ping(struct rc_client* client, const char* serviceLocator,
  */
 Status
 rc_read(struct rc_client* client, uint64_t tableId,
-        const char* key, uint16_t keyLength,
+        const void* key, uint16_t keyLength,
         const struct RejectRules* rejectRules, uint64_t* version,
         void* buf, uint32_t maxLength, uint32_t* actualLength)
 {
@@ -220,7 +220,7 @@ rc_read(struct rc_client* client, uint64_t tableId,
 
 Status
 rc_remove(struct rc_client* client, uint64_t tableId,
-          const char* key, uint16_t keyLength,
+          const void* key, uint16_t keyLength,
           const struct RejectRules* rejectRules, uint64_t* version)
 {
     try {
@@ -233,7 +233,7 @@ rc_remove(struct rc_client* client, uint64_t tableId,
 
 Status
 rc_write(struct rc_client* client, uint64_t tableId,
-         const char* key, uint16_t keyLength,
+         const void* key, uint16_t keyLength,
          const void* buf, uint32_t length,
          const struct RejectRules* rejectRules,
          uint64_t* version)
@@ -249,7 +249,7 @@ rc_write(struct rc_client* client, uint64_t tableId,
 
 Status
 rc_testing_kill(struct rc_client* client, uint64_t tableId,
-                const char* key, uint16_t keyLength)
+                const void* key, uint16_t keyLength)
 {
     try {
         client->client->testingKill(tableId, key, keyLength);
@@ -261,7 +261,7 @@ rc_testing_kill(struct rc_client* client, uint64_t tableId,
 
 Status
 rc_testing_fill(struct rc_client* client, uint64_t tableId,
-                const char* key, uint16_t keyLength,
+                const void* key, uint16_t keyLength,
                 uint32_t objectCount, uint32_t objectSize)
 {
     try {

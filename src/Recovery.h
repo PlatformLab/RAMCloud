@@ -18,10 +18,12 @@
 #define RAMCLOUD_RECOVERY_H
 
 #include "Common.h"
+#include "BackupClient.h"
 #include "CoordinatorServerList.h"
 #include "CycleCounter.h"
-#include "Log.h"
+#include "LogMetadata.h"
 #include "RawMetrics.h"
+#include "ServerTracker.h"
 #include "Tablets.pb.h"
 #include "TaskQueue.h"
 

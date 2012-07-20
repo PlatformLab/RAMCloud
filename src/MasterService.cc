@@ -57,20 +57,6 @@ MasterService::Replica::Replica(uint64_t backupId, uint64_t segmentId,
 
 // --- MasterService ---
 
-bool objectLivenessCallback(LogEntryHandle handle,
-                            void* cookie);
-bool objectRelocationCallback(LogEntryHandle oldHandle,
-                              LogEntryHandle newHandle,
-                              void* cookie);
-uint32_t objectTimestampCallback(LogEntryHandle handle);
-
-bool tombstoneLivenessCallback(LogEntryHandle handle,
-                               void* cookie);
-bool tombstoneRelocationCallback(LogEntryHandle oldHandle,
-                                 LogEntryHandle newHandle,
-                                 void* cookie);
-uint32_t tombstoneTimestampCallback(LogEntryHandle handle);
-
 /**
  * Construct a MasterService.
  *
@@ -93,41 +79,21 @@ MasterService::MasterService(Context& context,
     , coordinator(coordinator)
     , serverId()
     , serverList(serverList)
+    , bytesWritten(0)
     , replicaManager(context, serverList, serverId,
                      config.master.numReplicas, &config.coordinatorLocator)
-    , bytesWritten(0)
-    , log(context,
-          serverId,
-          config.master.logBytes,
-          config.segmentSize,
-          downCast<uint32_t>(sizeof(Object)) +
-                config.maxObjectKeySize +
-                config.maxObjectDataSize,
-          &replicaManager,
-          config.master.disableLogCleaner ? Log::CLEANER_DISABLED :
-                                            Log::CONCURRENT_CLEANER)
-    , objectMap(config.master.hashTableBytes /
-        HashTable<LogEntryHandle>::bytesPerCacheLine())
+    , allocator(config.master.logBytes, config.segmentSize, config.segletSize)
+    , segmentManager(context, serverId, allocator, replicaManager, 2.0) 
+    , log(context, *this, segmentManager,
+          replicaManager, config.master.disableLogCleaner)
+    , keyComparer(log)
+    , objectMap(config.master.hashTableBytes / HashTable::bytesPerCacheLine(),
+                keyComparer)
     , tablets()
     , initCalled(false)
     , anyWrites(false)
     , objectUpdateLock()
 {
-    log.registerType(LOG_ENTRY_TYPE_OBJ,
-                     true,
-                     objectLivenessCallback,
-                     this,
-                     objectRelocationCallback,
-                     this,
-                     objectTimestampCallback);
-    log.registerType(LOG_ENTRY_TYPE_OBJTOMB,
-                     false,
-                     tombstoneLivenessCallback,
-                     this,
-                     tombstoneRelocationCallback,
-                     this,
-                     tombstoneTimestampCallback);
-
     replicaManager.startFailureMonitor(&log);
 }
 
@@ -282,10 +248,14 @@ MasterService::fillWithTestData(const FillWithTestDataRpc::Request& reqHdr,
         memset(data, 0xcc, reqHdr.objectSize);
         Buffer::Chunk::appendToBuffer(&buffer, data, reqHdr.objectSize);
 
+        Key key(tables[t]->getId(), keyLocation, keyLength);
+
         uint64_t newVersion;
-        Status status = storeData(tables[t]->getId(), &rejectRules, &buffer,
-                                  0, keyLength, reqHdr.objectSize,
-                                  &newVersion, true);
+        Status status = storeObject(key,
+                                    &rejectRules,
+                                    buffer,
+                                    &newVersion,
+                                    false);
         if (status != STATUS_OK) {
             respHdr.common.status = status;
             return;
@@ -308,7 +278,7 @@ MasterService::getHeadOfLog(const GetHeadOfLogRpc::Request& reqHdr,
                             GetHeadOfLogRpc::Response& respHdr,
                             Rpc& rpc)
 {
-    LogPosition head = log.headOfLog();
+    Log::Position head = log.headOfLog();
     respHdr.headSegmentId = head.segmentId();
     respHdr.headSegmentOffset = head.segmentOffset();
 }
@@ -358,42 +328,47 @@ MasterService::multiRead(const MultiReadRpc::Request& reqHdr,
                          Rpc& rpc)
 {
     uint32_t numRequests = reqHdr.count;
-    uint32_t reqOffset = downCast<uint32_t>(sizeof(reqHdr));
+    uint32_t reqOffset = sizeof32(reqHdr);
 
     respHdr.count = numRequests;
 
     // Each iteration extracts one request from request rpc, finds the
     // corresponding object, and appends the response to the response rpc.
     for (uint32_t i = 0; i < numRequests; i++) {
-        const MultiReadRpc::Request::Part *currentReq =
+        const MultiReadRpc::Request::Part* currentReq =
             rpc.requestPayload.getOffset<MultiReadRpc::Request::Part>(
             reqOffset);
-        reqOffset += downCast<uint32_t>(sizeof(MultiReadRpc::Request::Part));
-        const char* key =
-            static_cast<const char*>(rpc.requestPayload.getRange(
-            reqOffset, currentReq->keyLength));
-        reqOffset += downCast<uint32_t>(currentReq->keyLength);
+        reqOffset += sizeof32(MultiReadRpc::Request::Part);
+        const void* stringKey =
+            rpc.requestPayload.getRange(reqOffset, currentReq->keyLength);
+        reqOffset += currentReq->keyLength;
+        Key key(currentReq->tableId, stringKey, currentReq->keyLength);
 
         Status* status = new(&rpc.replyPayload, APPEND) Status(STATUS_OK);
         // We must note the status if the table does not exist. Also, we might
         // have an entry in the hash table that's invalid because its tablet no
         // longer lives here.
-        if (getTable(currentReq->tableId, key, currentReq->keyLength) == NULL) {
+        if (getTable(key) == NULL) {
             *status = STATUS_UNKNOWN_TABLE;
             continue;
         }
-        LogEntryHandle handle = objectMap.lookup(currentReq->tableId,
-                                                 key, currentReq->keyLength);
-        if (handle == NULL || handle->type() != LOG_ENTRY_TYPE_OBJ) {
+
+        LogEntryType type;
+        Buffer buffer;
+
+        bool found = lookup(key, type, buffer);
+        if (!found || type != LOG_ENTRY_TYPE_OBJ) {
              *status = STATUS_OBJECT_DOESNT_EXIST;
              continue;
         }
 
-        const SegmentEntry* entry =
-            reinterpret_cast<const SegmentEntry*>(handle);
-        Buffer::Chunk::appendToBuffer(&rpc.replyPayload, entry,
-            downCast<uint32_t>(sizeof(SegmentEntry)) + handle->length());
+        MultiReadRpc::Response::Part* currentResp =
+            new(&rpc.replyPayload, APPEND) MultiReadRpc::Response::Part();
 
+        Object object(buffer);
+        currentResp->version = object.getVersion();
+        currentResp->length = object.getDataLength();
+        object.appendDataToBuffer(rpc.replyPayload);
     }
 }
 
@@ -419,40 +394,44 @@ MasterService::read(const ReadRpc::Request& reqHdr,
                     ReadRpc::Response& respHdr,
                     Rpc& rpc)
 {
-    uint32_t reqOffset = downCast<uint32_t>(sizeof(reqHdr));
-    const char* key = static_cast<const char*>(rpc.requestPayload.getRange(
-                                               reqOffset, reqHdr.keyLength));
+    uint32_t reqOffset = sizeof32(reqHdr);
+    const void* stringKey = rpc.requestPayload.getRange(reqOffset,
+                                                        reqHdr.keyLength);
+    Key key(reqHdr.tableId, stringKey, reqHdr.keyLength);
 
     // We must return table doesn't exist if the table does not exist. Also, we
     // might have an entry in the hash table that's invalid because its tablet
     // no longer lives here.
 
-    if (getTable(reqHdr.tableId, key, reqHdr.keyLength) == NULL) {
+    if (getTable(key) == NULL) {
         respHdr.common.status = STATUS_UNKNOWN_TABLE;
         return;
     }
 
-    LogEntryHandle handle = objectMap.lookup(reqHdr.tableId,
-                                             key, reqHdr.keyLength);
+    LogEntryType type;
+    Buffer buffer;
 
-    if (handle == NULL || handle->type() != LOG_ENTRY_TYPE_OBJ) {
+    bool found = lookup(key, type, buffer);
+    if (!found || type != LOG_ENTRY_TYPE_OBJ) {
         respHdr.common.status = STATUS_OBJECT_DOESNT_EXIST;
         return;
     }
 
-    const Object* obj = handle->userData<Object>();
-    respHdr.version = obj->version;
-    Status status = rejectOperation(reqHdr.rejectRules, obj->version);
+    Object object(buffer);
+    respHdr.version = object.getVersion();
+    Status status = rejectOperation(reqHdr.rejectRules, object.getVersion());
     if (status != STATUS_OK) {
         respHdr.common.status = status;
         return;
     }
 
-    Buffer::Chunk::appendToBuffer(&rpc.replyPayload,
-        obj->getData(), obj->dataLength(handle->length()));
+    respHdr.length = object.getDataLength();
+    object.appendDataToBuffer(rpc.replyPayload);
+
     // TODO(ongaro): We'll need a new type of Chunk to block the cleaner
-    // from scribbling over obj->data.
-    respHdr.length = obj->dataLength(handle->length());
+    //               from scribbling over obj->data.
+    //
+    // TODO(steve): Does the above comment make any sense?
 }
 
 /**
@@ -555,13 +534,15 @@ MasterService::takeTabletOwnership(
     TakeTabletOwnershipRpc::Response& respHdr,
     Rpc& rpc)
 {
-    if (log.headOfLog() == LogPosition()) {
+    if (log.headOfLog() == Log::Position()) {
         // Before any tablets can be assigned to this master it must have at
         // least one segment on backups, otherwise it is impossible to
         // distinguish between the loss of its entire log and the case where no
         // data was ever written to it.
         LOG(DEBUG, "Allocating log head before accepting tablet assignment");
-        log.allocateHead();
+// XXX- this is nonsense. The log should just open the head in the constructor.
+//      Be sure to include this comment in the constructor when that happens.
+        //log.allocateHead();
         log.sync();
     }
 
@@ -715,9 +696,8 @@ MasterService::migrateTablet(const MigrateTabletRpc::Request& reqHdr,
 
     // TODO(rumble/slaughter) what if we end up splitting?!?
 
-    // TODO(rumble/slaughter) add method to query TabletProfiler for # objs,
-    // # bytes in a range in order for this to really work, we'll need to
-    // split on a bucket
+    // TODO(rumble/slaughter) add method to query for # objs, # bytes in a
+    // range in order for this to really work, we'll need to split on a bucket
     // boundary. Otherwise we can't tell where bytes are in the chosen range.
     recipient.prepForMigration(tableId, firstKey, lastKey, 0, 0);
 
@@ -727,7 +707,6 @@ MasterService::migrateTablet(const MigrateTabletRpc::Request& reqHdr,
 
     // We'll send over objects in Segment containers for better network
     // efficiency and convenience.
-    void* transferBuf = Memory::xmemalign(HERE, 8*1024*1024, 8*1024*1024);
     Tub<Segment> transferSeg;
 
     // TODO(rumble/slaughter): These should probably be metrics.
@@ -735,49 +714,43 @@ MasterService::migrateTablet(const MigrateTabletRpc::Request& reqHdr,
     uint64_t totalTombstones = 0;
     uint64_t totalBytes = 0;
 
-    // Hold on the the iterator since it locks the head Segment, avoiding any
+    // Hold on to the iterator since it locks the head Segment, avoiding any
     // additional appends once we've finished iterating.
     LogIterator it(log);
     for (; !it.isDone(); it.next()) {
-        LogEntryHandle h = it.getHandle();
-        if (h->type() == LOG_ENTRY_TYPE_OBJ) {
-            const Object* logObj = h->userData<Object>();
+        LogEntryType type = it.getType();
+        if (type != LOG_ENTRY_TYPE_OBJ && type != LOG_ENTRY_TYPE_OBJTOMB) {
+            // We aren't interested in any other types.
+            continue;
+        }
 
-            // Skip if not applicable.
-            if (logObj->tableId != tableId)
-                continue;
+        Buffer buffer;
+        it.appendToBuffer(buffer);
+        Key key(type, buffer);
 
-            if (logObj->keyHash() < firstKey || logObj->keyHash() > lastKey)
-                continue;
+        // Skip if not applicable.
+        if (key.getTableId() != tableId)
+            continue;
 
-            // Only send objects when they're currently in the hash table (
-            // otherwise they're dead).
-            LogEntryHandle curHandle = objectMap.lookup(logObj->tableId,
-                                                        logObj->getKey(),
-                                                        logObj->keyLength);
-            if (curHandle == NULL)
-                continue;
+        if (key.getHash() < firstKey || key.getHash() > lastKey)
+            continue;
 
-            if (curHandle->type() != LOG_ENTRY_TYPE_OBJ)
+        if (type == LOG_ENTRY_TYPE_OBJ) {
+            // Only send objects when they're currently in the hash table.
+            // Otherwise they're dead.
+            LogEntryType currentType;
+            Buffer currentBuffer;
+            if (lookup(key, currentType, currentBuffer) == false) 
                 continue;
 
             // NB: The cleaner is currently locked out due to the global
             //     objectUpdateLock. In the future this may not be the
             //     case and objects may be moved forward during iteration.
-            if (curHandle->userData<Object>() != logObj)
+            if (buffer.getStart<uint8_t>() != currentBuffer.getStart<uint8_t>())
                 continue;
 
             totalObjects++;
-        } else if (h->type() == LOG_ENTRY_TYPE_OBJTOMB) {
-            const ObjectTombstone* logTomb = h->userData<ObjectTombstone>();
-
-            // Skip if not applicable.
-            if (logTomb->tableId != tableId)
-                continue;
-
-            if (logTomb->keyHash() < firstKey || logTomb->keyHash() > lastKey)
-                continue;
-
+        } else {
             // We must always send tombstones, since an object we may have sent
             // could have been deleted more recently. We could be smarter and
             // more selective here, but that'd require keeping extra state to
@@ -785,56 +758,43 @@ MasterService::migrateTablet(const MigrateTabletRpc::Request& reqHdr,
             //
             // TODO(rumble/slaughter) Actually, we can do better. The stupid way
             //      is to track each object or tombstone we've sent. The smarter
-            //      way is to just record the LogPosition when we started
+            //      way is to just record the Log::Position when we started
             //      iterating and only send newer tombstones.
 
             totalTombstones++;
-        } else {
-            // We're not interested in any other types.
-            continue;
         }
 
-        totalBytes += h->totalLength();
+        totalBytes += buffer.getTotalLength();
 
         if (!transferSeg)
-            transferSeg.construct(-1, -1, transferBuf, 8*1024*1024);
+            transferSeg.construct();
 
         // If we can't fit it, send the current buffer and retry.
-        if (transferSeg->append(it.getHandle(), false) == NULL) {
-            transferSeg->close(NULL, false);
-            recipient.receiveMigrationData(tableId,
-                                          firstKey,
-                                          transferSeg->getBaseAddress(),
-                                          transferSeg->getTotalBytesAppended());
+        if (!transferSeg->append(type, buffer)) {
+            transferSeg->close();
+            recipient.receiveMigrationData(tableId, firstKey, *transferSeg);
             LOG(DEBUG, "Sending migration segment");
 
             transferSeg.destroy();
-            transferSeg.construct(-1, -1, transferBuf, 8*1024*1024);
+            transferSeg.construct();
 
             // If it doesn't fit this time, we're in trouble.
-            if (transferSeg->append(it.getHandle(), false) == NULL) {
+            if (!transferSeg->append(type, buffer)) {
                 LOG(ERROR, "Tablet migration failed: could not fit object "
                     "into empty segment (obj bytes %u)",
-                    it.getHandle()->length());
+                    buffer.getTotalLength());
                 respHdr.common.status = STATUS_INTERNAL_ERROR;
-                transferSeg.destroy();
-                free(transferBuf);
                 return;
             }
         }
     }
 
     if (transferSeg) {
-        transferSeg->close(NULL, false);
-        recipient.receiveMigrationData(tableId,
-                                        firstKey,
-                                        transferSeg->getBaseAddress(),
-                                        transferSeg->getTotalBytesAppended());
+        transferSeg->close();
+        recipient.receiveMigrationData(tableId, firstKey, *transferSeg);
         LOG(DEBUG, "Sending last migration segment");
         transferSeg.destroy();
     }
-
-    free(transferBuf);
 
     // Now that all data has been transferred, we can reassign ownership of
     // the tablet. If this succeeds, we are free to drop the tablet. The
@@ -926,16 +886,19 @@ MasterService::receiveMigrationData(
  * HashTable::forEach.
  */
 void
-recoveryCleanup(LogEntryHandle maybeTomb, void *cookie)
+recoveryCleanup(HashTable::Reference maybeTomb, void *cookie)
 {
-    if (maybeTomb->type() == LOG_ENTRY_TYPE_OBJTOMB) {
-        const ObjectTombstone *tomb =
-                            maybeTomb->userData<ObjectTombstone>();
-        MasterService *server = reinterpret_cast<MasterService*>(cookie);
-        bool r = server->objectMap.remove(tomb->tableId,
-                                          tomb->getKey(),
-                                          tomb->keyLength);
+    MasterService *server = reinterpret_cast<MasterService*>(cookie);
+    LogEntryType type;
+    Buffer buffer;
+
+    server->log.lookup(maybeTomb, type, buffer);
+    if (type == LOG_ENTRY_TYPE_OBJTOMB) {
+        Key key(type, buffer);
+
+        bool r = server->objectMap.remove(key);
         assert(r);
+
         // Tombstones are not explicitly freed in the log. The cleaner will
         // figure out that they're dead.
     }
@@ -958,8 +921,7 @@ class RemoveTombstonePoller : public Dispatch::Poller {
      * \param objectMap
      *      The HashTable which will be purged of tombstones.
      */
-    RemoveTombstonePoller(MasterService& masterService,
-                          HashTable<LogEntryHandle>& objectMap)
+    RemoveTombstonePoller(MasterService& masterService, HashTable& objectMap)
         : Dispatch::Poller(*masterService.context.dispatch)
         , currentBucket(0)
         , masterService(masterService)
@@ -997,7 +959,7 @@ class RemoveTombstonePoller : public Dispatch::Poller {
     MasterService& masterService;
 
     /// The hash table to be purged of tombstones.
-    HashTable<LogEntryHandle>& objectMap;
+    HashTable& objectMap;
 
     DISALLOW_COPY_AND_ASSIGN(RemoveTombstonePoller);
 };
@@ -1438,18 +1400,21 @@ MasterService::recover(ServerId masterId,
  *      stored.
  */
 void
-removeObjectIfFromUnknownTablet(LogEntryHandle entry, void *cookie)
+removeObjectIfFromUnknownTablet(HashTable::Reference reference, void *cookie)
 {
-    if (entry->type() != LOG_ENTRY_TYPE_OBJ)
-        return;
-    const Object* obj = entry->userData<Object>();
     MasterService* master = reinterpret_cast<MasterService*>(cookie);
-    if (!master->getTable(obj->tableId, obj->getKey(), obj->keyLength)) {
-        bool r = master->objectMap.remove(obj->tableId,
-                                          obj->getKey(),
-                                          obj->keyLength);
+    LogEntryType type;
+    Buffer buffer;
+
+    master->log.lookup(reference, type, buffer);
+    if (type != LOG_ENTRY_TYPE_OBJ)
+        return;
+
+    Key key(type, buffer);
+    if (!master->getTable(key)) {
+        bool r = master->objectMap.remove(key);
         assert(r);
-        master->log.free(entry);
+        master->log.free(reference);
     }
 }
 
@@ -1486,14 +1451,13 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
     ProtoBuf::parseFromResponse(rpc.requestPayload, sizeof(reqHdr),
                                 reqHdr.tabletsLength, recoveryTablets);
 
-    uint32_t offset = (downCast<uint32_t>(sizeof(reqHdr)) +
-                       reqHdr.tabletsLength);
+    uint32_t offset = sizeof32(reqHdr) + reqHdr.tabletsLength;
     vector<Replica> replicas;
     replicas.reserve(reqHdr.numReplicas);
     for (uint32_t i = 0; i < reqHdr.numReplicas; ++i) {
         const RecoverRpc::Replica* replicaLocation =
             rpc.requestPayload.getOffset<RecoverRpc::Replica>(offset);
-        offset += downCast<uint32_t>(sizeof(RecoverRpc::Replica));
+        offset += sizeof32(RecoverRpc::Replica);
         Replica replica(replicaLocation->backupId,
                         replicaLocation->segmentId);
         replicas.push_back(replica);
@@ -1520,7 +1484,7 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
     }
 
     // Record the log position before recovery started.
-    LogPosition headOfLog = log.headOfLog();
+    Log::Position headOfLog = log.headOfLog();
 
     // Recover Segments, firing MasterService::recoverSegment for each one.
     bool successful = false;
@@ -1597,40 +1561,27 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
  * recovering, advance it and issue prefetches on the hash tables.
  * This is used exclusively by recoverSegment().
  *
- * \param[in] i
+ * \param[in] it
  *      A RecoverySegmentIterator to use for prefetching. Note that this
  *      method modifies the iterator, so the caller should not use
  *      it for its own iteration.
  */
 void
-MasterService::recoverSegmentPrefetcher(RecoverySegmentIterator& i)
+MasterService::recoverSegmentPrefetcher(SegmentIterator& it)
 {
-    i.next();
+    it.next();
 
-    if (i.isDone())
+    if (it.isDone())
         return;
 
-    LogEntryType type = i.getType();
+    LogEntryType type = it.getType();
+    if (type != LOG_ENTRY_TYPE_OBJ && type != LOG_ENTRY_TYPE_OBJTOMB)
+        return;
 
-    uint64_t tblId = ~0UL;
-    const char* key = "";
-    uint16_t keyLength = 0;
-
-    if (type == LOG_ENTRY_TYPE_OBJ) {
-        const Object *recoverObj =
-            reinterpret_cast<const Object *>(i.getPointer());
-        tblId = recoverObj->tableId;
-        key = recoverObj->getKey();
-        keyLength = recoverObj->keyLength;
-    } else if (type == LOG_ENTRY_TYPE_OBJTOMB) {
-        const ObjectTombstone *recoverTomb =
-            reinterpret_cast<const ObjectTombstone *>(i.getPointer());
-        tblId = recoverTomb->tableId;
-        key = recoverTomb->getKey();
-        keyLength = recoverTomb->keyLength;
-    }
-
-    objectMap.prefetchBucket(tblId, key, keyLength);
+    Buffer buffer;
+    it.appendToBuffer(buffer);
+    Key key(type, buffer);
+    objectMap.prefetchBucket(key);
 }
 
 /**
@@ -1654,67 +1605,72 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
     LOG(DEBUG, "recoverSegment %lu, ...", segmentId);
     CycleCounter<RawMetric> _(&metrics->master.recoverSegmentTicks);
 
-    RecoverySegmentIterator i(buffer, bufferLength);
-    RecoverySegmentIterator prefetch(buffer, bufferLength);
+    SegmentIterator it(buffer, bufferLength);
+    SegmentIterator prefetch(buffer, bufferLength);
 
-    uint64_t lastOffsetBackupProgress = 0;
-    while (!i.isDone()) {
-        LogEntryType type = i.getType();
+    uint64_t bytesIterated = 0;
+    while (!it.isDone()) {
+        LogEntryType type = it.getType();
 
-        if (i.getOffset() > lastOffsetBackupProgress + 50000) {
-            lastOffsetBackupProgress = i.getOffset();
+        if (bytesIterated > 50000) {
+            bytesIterated = 0;
             replicaManager.proceed();
         }
+        bytesIterated += it.getLength();
 
         recoverSegmentPrefetcher(prefetch);
 
         metrics->master.recoverySegmentEntryCount++;
-        metrics->master.recoverySegmentEntryBytes += i.getLength();
+        metrics->master.recoverySegmentEntryBytes += it.getLength();
 
         if (type == LOG_ENTRY_TYPE_OBJ) {
-            const Object *recoverObj =
-                  reinterpret_cast<const Object *>(i.getPointer());
-            uint64_t tblId = recoverObj->tableId;
-            const char* key = recoverObj->getKey();
-            uint16_t keyLength = recoverObj->keyLength;
+            Buffer buffer;
+            it.appendToBuffer(buffer);
+            Key key(type, buffer);
 
-            const Object *localObj = NULL;
-            const ObjectTombstone *tomb = NULL;
-            LogEntryHandle handle = objectMap.lookup(tblId, key, keyLength);
-            if (handle != NULL) {
-                if (handle->type() == LOG_ENTRY_TYPE_OBJTOMB)
-                    tomb = handle->userData<ObjectTombstone>();
-                else
-                    localObj = handle->userData<Object>();
+            Object recoverObj(buffer);
+            uint64_t minSuccessor = 0;
+            bool freeCurrentEntry = false;
+
+            LogEntryType currentType;
+            Buffer currentBuffer;
+            HashTable::Reference currentReference;
+            if (lookup(key, currentType, currentBuffer, currentReference)) {
+                uint64_t currentVersion;
+
+                if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
+                    ObjectTombstone currentTombstone(currentBuffer);
+                    currentVersion = currentTombstone.getObjectVersion();
+                } else {
+                    Object currentObject(currentBuffer);
+                    currentVersion = currentObject.getVersion();
+                    freeCurrentEntry = true;
+                }
+
+                minSuccessor = currentVersion + 1;
             }
 
-            // can't have both a tombstone and an object in the hash tables
-            assert(tomb == NULL || localObj == NULL);
+            // XXX- objects don't contain checksums anymore!
 
-            uint64_t minSuccessor = 0;
-            if (localObj != NULL)
-                minSuccessor = localObj->version + 1;
-            else if (tomb != NULL)
-                minSuccessor = tomb->objectVersion + 1;
-
-            if (recoverObj->version >= minSuccessor) {
+            if (recoverObj.getVersion() >= minSuccessor) {
                 // write to log (with lazy backup flush) & update hash table
-                LogEntryHandle newObjHandle = log.append(LOG_ENTRY_TYPE_OBJ,
-                    recoverObj, i.getLength(), false, i.checksum());
+                HashTable::Reference newObjReference;
+                log.append(LOG_ENTRY_TYPE_OBJ, buffer, false, newObjReference);
+
+                // XXX- what happens if the log is full? won't an exception here
+                //      just cause the master to try another backup?
+
                 ++metrics->master.objectAppendCount;
-                metrics->master.liveObjectBytes +=
-                    recoverObj->dataLength(i.getLength());
+                metrics->master.liveObjectBytes += buffer.getTotalLength();
 
-                // The TabletProfiler is updated asynchronously.
-                objectMap.replace(newObjHandle);
-
-                // The cleaner will figure out that the tombstone is dead.
+                objectMap.replace(key, newObjReference);
 
                 // nuke the old object, if it existed
-                if (localObj != NULL) {
-                    metrics->master.liveObjectBytes -=
-                        localObj->dataLength(handle->length());
-                    log.free(handle);
+                // XXX-- need to put tombstones in the HT and have this free
+                //       them as well 
+                if (freeCurrentEntry) {
+                    metrics->master.liveObjectBytes -= currentBuffer.getTotalLength();
+                    log.free(currentReference);
                 } else {
                     ++metrics->master.liveObjectCount;
                 }
@@ -1722,64 +1678,64 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
                 ++metrics->master.objectDiscardCount;
             }
         } else if (type == LOG_ENTRY_TYPE_OBJTOMB) {
-            const ObjectTombstone *recoverTomb =
-                  reinterpret_cast<const ObjectTombstone *>(i.getPointer());
-            uint64_t tblId = recoverTomb->tableId;
-            const char* key = recoverTomb->getKey();
-            uint16_t keyLength = recoverTomb->keyLength;
+            Buffer buffer;
+            it.appendToBuffer(buffer);
+            Key key(type, buffer);
+
+#if 0
+            /// XXX- tombstones don't contain checksums anymore!
 
             bool checksumIsValid = ({
                 CycleCounter<RawMetric> c(&metrics->master.verifyChecksumTicks);
-                i.isChecksumValid();
+                it.isChecksumValid();
             });
             if (!checksumIsValid) {
-                LOG(WARNING, "invalid tombstone checksum! tbl: %lu, obj: %.*s, "
-                    "ver: %lu", tblId, keyLength, key,
-                    recoverTomb->objectVersion);
+                LOG(WARNING, "invalid tombstone checksum! key: %s, "
+                    "version: %lu", key.toString(), recoverTomb->objectVersion);
             }
+#endif
 
-            const Object *localObj = NULL;
-            const ObjectTombstone *tomb = NULL;
-            LogEntryHandle handle = objectMap.lookup(tblId, key, keyLength);
-            if (handle != NULL) {
-                if (handle->type() == LOG_ENTRY_TYPE_OBJTOMB)
-                    tomb = handle->userData<ObjectTombstone>();
-                else
-                    localObj = handle->userData<Object>();
-            }
-
-            // can't have both a tombstone and an object in the hash tables
-            assert(tomb == NULL || localObj == NULL);
-
+            ObjectTombstone recoverTomb(buffer);
             uint64_t minSuccessor = 0;
-            if (localObj != NULL)
-                minSuccessor = localObj->version;
-            else if (tomb != NULL)
-                minSuccessor = tomb->objectVersion + 1;
+            bool freeCurrentEntry = false;
 
-            if (recoverTomb->objectVersion >= minSuccessor) {
+            LogEntryType currentType;
+            Buffer currentBuffer;
+            HashTable::Reference currentReference;
+            if (lookup(key, currentType, currentBuffer, currentReference)) {
+                if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
+                    ObjectTombstone currentTombstone(currentBuffer);
+                    minSuccessor = currentTombstone.getObjectVersion() + 1;
+                } else {
+                    Object currentObject(currentBuffer);
+                    minSuccessor = currentObject.getVersion();
+                    freeCurrentEntry = true;
+                }
+            }
+
+            if (recoverTomb.getObjectVersion() >= minSuccessor) {
                 ++metrics->master.tombstoneAppendCount;
-                LogEntryHandle newTomb =
-                    log.append(LOG_ENTRY_TYPE_OBJTOMB, recoverTomb,
-                               recoverTomb->tombLength(), false, i.checksum());
-                objectMap.replace(newTomb);
+                HashTable::Reference newTombReference;
+                log.append(LOG_ENTRY_TYPE_OBJTOMB, buffer, false, newTombReference);
 
-                // The cleaner will figure out that the tombstone is dead.
+                // XXX- append could fail here!
+
+                objectMap.replace(key, newTombReference);
 
                 // nuke the object, if it existed
-                if (localObj != NULL) {
+                if (freeCurrentEntry) {
                     --metrics->master.liveObjectCount;
-                    metrics->master.liveObjectBytes -=
-                        localObj->dataLength(handle->length());
-                    log.free(handle);
+                    metrics->master.liveObjectBytes -= currentBuffer.getTotalLength();
+                    log.free(currentReference);
                 }
             } else {
                 ++metrics->master.tombstoneDiscardCount;
             }
         }
 
-        i.next();
+        it.next();
     }
+
     LOG(DEBUG, "Segment %lu replay complete", segmentId);
     metrics->master.backupInRecoverTicks +=
         metrics->master.replicaManagerTicks - startReplicationTicks;
@@ -1795,18 +1751,20 @@ MasterService::remove(const RemoveRpc::Request& reqHdr,
                       RemoveRpc::Response& respHdr,
                       Rpc& rpc)
 {
-    const char* key = static_cast<const char*>(rpc.requestPayload.getRange(
-                      downCast<uint32_t>(sizeof(reqHdr)), reqHdr.keyLength));
+    const void* stringKey = rpc.requestPayload.getRange(sizeof32(reqHdr),
+                                                        reqHdr.keyLength);
+    Key key(reqHdr.tableId, stringKey, reqHdr.keyLength);
 
-    Table* table = getTable(reqHdr.tableId, key, reqHdr.keyLength);
+    Table* table = getTable(key);
     if (table == NULL) {
         respHdr.common.status = STATUS_UNKNOWN_TABLE;
         return;
     }
 
-    LogEntryHandle handle = objectMap.lookup(reqHdr.tableId,
-                                             key, reqHdr.keyLength);
-    if (handle == NULL || handle->type() != LOG_ENTRY_TYPE_OBJ) {
+    LogEntryType type;
+    Buffer buffer;
+    HashTable::Reference reference;
+    if (!lookup(key, type, buffer, reference) || type != LOG_ENTRY_TYPE_OBJ) {
         Status status = rejectOperation(reqHdr.rejectRules,
                                         VERSION_NONEXISTENT);
         if (status != STATUS_OK)
@@ -1814,8 +1772,8 @@ MasterService::remove(const RemoveRpc::Request& reqHdr,
         return;
     }
 
-    const Object *obj = handle->userData<Object>();
-    respHdr.version = obj->version;
+    Object object(buffer);
+    respHdr.version = object.getVersion();
 
     // Abort if we're trying to delete the wrong version.
     Status status = rejectOperation(reqHdr.rejectRules, respHdr.version);
@@ -1824,14 +1782,14 @@ MasterService::remove(const RemoveRpc::Request& reqHdr,
         return;
     }
 
-    DECLARE_OBJECTTOMBSTONE(tomb, obj->keyLength,
-                                  log.getSegmentId(obj), obj);
+    ObjectTombstone tombstone(object, log.getSegmentId(reference));
+    Buffer tombstoneBuffer;
+    tombstone.serializeToBuffer(tombstoneBuffer);
 
     // Write the tombstone into the Log, increment the tablet version
     // number, and remove from the hash table.
-    try {
-        log.append(LOG_ENTRY_TYPE_OBJTOMB, &tomb, tomb->tombLength());
-    } catch (LogException& e) {
+    HashTable::Reference dummy;
+    if (!log.append(LOG_ENTRY_TYPE_OBJTOMB, tombstoneBuffer, false, dummy)) {
         // The log is out of space. Tell the client to retry and hope
         // that either the cleaner makes space soon or we shift load
         // off of this server.
@@ -1839,9 +1797,9 @@ MasterService::remove(const RemoveRpc::Request& reqHdr,
         return;
     }
 
-    table->RaiseVersion(obj->version + 1);
-    log.free(handle);
-    objectMap.remove(reqHdr.tableId, key, reqHdr.keyLength);
+    table->RaiseVersion(object.getVersion() + 1);
+    log.free(reference);
+    objectMap.remove(key);
 }
 
 /**
@@ -1854,62 +1812,55 @@ MasterService::increment(const IncrementRpc::Request& reqHdr,
                      IncrementRpc::Response& respHdr,
                      Rpc& rpc)
 {
-    //Read the current value of the object and add the increment value
-    uint32_t reqOffset = downCast<uint32_t>(sizeof(reqHdr));
-    const char* key = static_cast<const char*>(rpc.requestPayload.getRange(
-                                               reqOffset, reqHdr.keyLength));
+    // Read the current value of the object and add the increment value
+    Key key(reqHdr.tableId, rpc.requestPayload, sizeof32(reqHdr),
+            reqHdr.keyLength);
 
-    if (getTable(reqHdr.tableId, key, reqHdr.keyLength) == NULL) {
+    if (getTable(key) == NULL) {
         respHdr.common.status = STATUS_TABLE_DOESNT_EXIST;
         return;
     }
 
-    LogEntryHandle handle = objectMap.lookup(reqHdr.tableId,
-                                             key, reqHdr.keyLength);
-
-    if (handle == NULL || handle->type() != LOG_ENTRY_TYPE_OBJ) {
+    LogEntryType type;
+    Buffer buffer;
+    if (!lookup(key, type, buffer) || type != LOG_ENTRY_TYPE_OBJ) {
         respHdr.common.status = STATUS_OBJECT_DOESNT_EXIST;
         return;
     }
 
-    const Object* obj = handle->userData<Object>();
-    Status status = rejectOperation(reqHdr.rejectRules, obj->version);
+    Object object(buffer);
+    Status status = rejectOperation(reqHdr.rejectRules, object.getVersion());
     if (status != STATUS_OK) {
         respHdr.common.status = status;
         return;
     }
 
-    if (obj->dataLength(handle->length()) != 8) {
+    if (object.getDataLength() != sizeof(int64_t)) {
         respHdr.common.status = STATUS_INVALID_OBJECT;
         return;
     }
 
-    int64_t oldValue;
-    int64_t newValue;
-    memcpy(&oldValue, obj->getData(), obj->dataLength(handle->length()));
-    newValue = oldValue + reqHdr.incrementValue;
+    const int64_t oldValue = *reinterpret_cast<const int64_t*>(object.getData());
+    int64_t newValue = oldValue + reqHdr.incrementValue;
 
-    //Write the new value back
+    // Write the new value back
     Buffer newValueBuffer;
-    Buffer::Chunk::appendToBuffer(&newValueBuffer, rpc.requestPayload.getRange(
-                                  reqOffset, reqHdr.keyLength),
-                                  reqHdr.keyLength);
-    Buffer::Chunk::appendToBuffer(&newValueBuffer, &newValue,
+    Buffer::Chunk::appendToBuffer(&newValueBuffer,
+                                  &newValue,
                                   sizeof(int64_t));
 
-    status = storeData(reqHdr.tableId, &reqHdr.rejectRules,
-                              &newValueBuffer,
-                              static_cast<uint32_t>(0),
-                              reqHdr.keyLength,
-                              static_cast<uint32_t>(sizeof(int64_t)),
-                              &respHdr.version, false);
+    status = storeObject(key,
+                         &reqHdr.rejectRules,
+                         newValueBuffer,
+                         &respHdr.version,
+                         true);
 
     if (status != STATUS_OK) {
         respHdr.common.status = status;
         return;
     }
 
-    //return new value
+    // Return new value
     respHdr.newValue = newValue;
 }
 
@@ -1938,12 +1889,22 @@ MasterService::write(const WriteRpc::Request& reqHdr,
                      WriteRpc::Response& respHdr,
                      Rpc& rpc)
 {
-    Status status = storeData(reqHdr.tableId, &reqHdr.rejectRules,
-                              &rpc.requestPayload,
-                              static_cast<uint32_t>(sizeof(reqHdr)),
-                              reqHdr.keyLength,
-                              static_cast<uint32_t>(reqHdr.length),
-                              &respHdr.version, reqHdr.async);
+    // TODO(anyone): Make Buffers do virtual copying so we don't need to copy
+    //               into contiguous space in getRange().
+    Buffer buffer;
+    const void* objectData = rpc.requestPayload.getRange(
+        sizeof32(reqHdr) + reqHdr.keyLength, reqHdr.length);
+    Buffer::Chunk::appendToBuffer(&buffer, objectData, reqHdr.length);
+
+    Key key(reqHdr.tableId,
+            rpc.requestPayload,
+            sizeof32(reqHdr),
+            reqHdr.keyLength);
+    Status status = storeObject(key,
+                                &reqHdr.rejectRules,
+                                buffer,
+                                &respHdr.version,
+                                !reqHdr.async);
 
     if (status != STATUS_OK) {
         respHdr.common.status = status;
@@ -1967,12 +1928,10 @@ MasterService::write(const WriteRpc::Request& reqHdr,
  *      or NULL if this master does not own the tablet.
  */
 Table*
-MasterService::getTable(uint64_t tableId, const char* key, uint16_t keyLength)
+MasterService::getTable(Key& key)
 {
-
-    ProtoBuf::Tablets::Tablet const* tablet = getTabletForHash(tableId,
-                                                        getKeyHash(key,
-                                                                   keyLength));
+    ProtoBuf::Tablets::Tablet const* tablet = getTabletForHash(key.getTableId(),
+                                                               key.getHash());
     if (tablet == NULL)
         return NULL;
 
@@ -2066,6 +2025,39 @@ MasterService::rejectOperation(const RejectRules& rejectRules, uint64_t version)
     return STATUS_OK;
 }
 
+uint32_t
+MasterService::getTimestamp(LogEntryType type, Buffer& buffer)
+{
+    if (type == LOG_ENTRY_TYPE_OBJ)
+        return objectTimestamp(buffer);
+    else if (type == LOG_ENTRY_TYPE_OBJTOMB)
+        return tombstoneTimestamp(buffer);
+    else
+        return 0;
+}
+
+bool
+MasterService::isAlive(LogEntryType type, Buffer& buffer)
+{
+    if (type == LOG_ENTRY_TYPE_OBJ)
+        return objectLiveness(buffer);
+    else if (type == LOG_ENTRY_TYPE_OBJTOMB)
+        return tombstoneLiveness(buffer);
+    else
+        return false;
+}
+
+bool
+MasterService::relocating(LogEntryType type, Buffer& oldBuffer, HashTable::Reference newReference)
+{
+    if (type == LOG_ENTRY_TYPE_OBJ)
+        return objectRelocation(oldBuffer, newReference);
+    else if (type == LOG_ENTRY_TYPE_OBJTOMB)
+        return tombstoneRelocation(oldBuffer, newReference);
+    else
+        return false;
+}
+
 /**
  * Determine whether or not an object is still alive (i.e. is referenced
  * by the hash table). If so, the cleaner must perpetuate it. If not, it
@@ -2079,35 +2071,24 @@ MasterService::rejectOperation(const RejectRules& rejectRules, uint64_t version)
  *      True if the object is still alive, else false.
  */
 bool
-objectLivenessCallback(LogEntryHandle handle, void* cookie)
+MasterService::objectLiveness(Buffer& objectBuffer)
 {
-    assert(handle->type() == LOG_ENTRY_TYPE_OBJ);
+    Key key(LOG_ENTRY_TYPE_OBJ, objectBuffer);
 
-    MasterService* svr = static_cast<MasterService *>(cookie);
-    assert(svr != NULL);
+    std::lock_guard<SpinLock> lock(objectUpdateLock);
 
-    const Object* evictObj = handle->userData<Object>();
-    assert(evictObj != NULL);
-
-    std::lock_guard<SpinLock> lock(svr->objectUpdateLock);
-
-    Table* t = svr->getTable(evictObj->tableId,
-                             evictObj->getKey(),
-                             evictObj->keyLength);
+    Table* t = getTable(key);
     if (t == NULL)
         return false;
 
-    LogEntryHandle hashTblHandle =
-        svr->objectMap.lookup(evictObj->tableId,
-                              evictObj->getKey(), evictObj->keyLength);
-    if (hashTblHandle == NULL)
+    LogEntryType currentType;
+    Buffer currentBuffer;
+    if (!lookup(key, currentType, currentBuffer))
         return false;
 
-    assert(hashTblHandle->type() == LOG_ENTRY_TYPE_OBJ);
-    const Object *hashTblObj = hashTblHandle->userData<Object>();
-
-    // simple pointer comparison suffices
-    return (hashTblObj == evictObj);
+    assert(currentType == LOG_ENTRY_TYPE_OBJ);
+    return (currentBuffer.getStart<uint8_t>() ==
+            objectBuffer.getStart<uint8_t>());
 }
 
 /**
@@ -2135,51 +2116,38 @@ objectLivenessCallback(LogEntryHandle handle, void* cookie)
  *      deleted.
  */
 bool
-objectRelocationCallback(LogEntryHandle oldHandle,
-                         LogEntryHandle newHandle,
-                         void* cookie)
+MasterService::objectRelocation(Buffer& oldBuffer,
+                                HashTable::Reference newReference)
 {
-    assert(oldHandle->type() == LOG_ENTRY_TYPE_OBJ);
+    Key key(LOG_ENTRY_TYPE_OBJ, oldBuffer);
 
-    MasterService* svr = static_cast<MasterService *>(cookie);
-    assert(svr != NULL);
+    std::lock_guard<SpinLock> lock(objectUpdateLock);
 
-    const Object* evictObj = oldHandle->userData<Object>();
-    assert(evictObj != NULL);
-
-    std::lock_guard<SpinLock> lock(svr->objectUpdateLock);
-
-    Table* table = svr->getTable(evictObj->tableId,
-                                 evictObj->getKey(),
-                                 evictObj->keyLength);
+    Table* table = getTable(key);
     if (table == NULL) {
         // That tablet doesn't exist on this server anymore.
         // Just remove the hash table entry, if it exists.
-        svr->objectMap.remove(evictObj->tableId,
-                              evictObj->getKey(), evictObj->keyLength);
+        objectMap.remove(key);
         return false;
     }
 
-    LogEntryHandle hashTblHandle =
-        svr->objectMap.lookup(evictObj->tableId,
-                              evictObj->getKey(), evictObj->keyLength);
-
     bool keepNewObject = false;
-    if (hashTblHandle != NULL) {
-        assert(hashTblHandle->type() == LOG_ENTRY_TYPE_OBJ);
-        const Object *hashTblObj = hashTblHandle->userData<Object>();
 
-        // simple pointer comparison suffices
-        keepNewObject = (hashTblObj == evictObj);
-        if (keepNewObject) {
-            svr->objectMap.replace(newHandle);
-        }
+    LogEntryType currentType;
+    Buffer currentBuffer;
+    if (lookup(key, currentType, currentBuffer)) {
+        assert(currentType == LOG_ENTRY_TYPE_OBJ);
+
+        keepNewObject = (currentBuffer.getStart<uint8_t>() ==
+                         oldBuffer.getStart<uint8_t>());
+        if (keepNewObject)
+            objectMap.replace(key, newReference);
     }
 
     // Update table statistics.
     if (!keepNewObject) {
         table->objectCount--;
-        table->objectBytes -= oldHandle->length();
+        table->objectBytes -= oldBuffer.getTotalLength();
     }
 
     return keepNewObject;
@@ -2197,10 +2165,10 @@ objectRelocationCallback(LogEntryHandle oldHandle,
  *      The Object's modification timestamp.
  */
 uint32_t
-objectTimestampCallback(LogEntryHandle handle)
+MasterService::objectTimestamp(Buffer& buffer)
 {
-    assert(handle->type() == LOG_ENTRY_TYPE_OBJ);
-    return handle->userData<Object>()->timestamp;
+    Object object(buffer);
+    return object.getTimestamp();
 }
 
 /**
@@ -2216,17 +2184,10 @@ objectTimestampCallback(LogEntryHandle handle)
  *      True if the object is still alive, else false.
  */
 bool
-tombstoneLivenessCallback(LogEntryHandle handle, void* cookie)
+MasterService::tombstoneLiveness(Buffer& buffer)
 {
-    assert(handle->type() == LOG_ENTRY_TYPE_OBJTOMB);
-
-    MasterService* svr = static_cast<MasterService *>(cookie);
-    assert(svr != NULL);
-
-    const ObjectTombstone* tomb = handle->userData<ObjectTombstone>();
-    assert(tomb != NULL);
-
-    return svr->log.isSegmentLive(tomb->segmentId);
+    ObjectTombstone tomb(buffer);
+    return log.isSegmentLive(tomb.getSegmentId());
 }
 
 /**
@@ -2254,27 +2215,21 @@ tombstoneLivenessCallback(LogEntryHandle handle, void* cookie)
  *      deleted.
  */
 bool
-tombstoneRelocationCallback(LogEntryHandle oldHandle,
-                            LogEntryHandle newHandle,
-                            void* cookie)
+MasterService::tombstoneRelocation(Buffer& oldBuffer,
+                                   HashTable::Reference newReference)
 {
-    assert(oldHandle->type() == LOG_ENTRY_TYPE_OBJTOMB);
+    ObjectTombstone tomb(oldBuffer);
 
-    MasterService* svr = static_cast<MasterService *>(cookie);
-    assert(svr != NULL);
+    // See if the object this tombstone refers to is still in the log.
+    bool keepNewTomb = log.isSegmentLive(tomb.getSegmentId());
 
-    const ObjectTombstone* tomb = oldHandle->userData<ObjectTombstone>();
-    assert(tomb != NULL);
-
-    // see if the referent is still there
-    bool keepNewTomb = svr->log.isSegmentLive(tomb->segmentId);
-
-    Table* table = svr->getTable(tomb->tableId,
-                                 tomb->getKey(),
-                                 tomb->keyLength);
-    if (table != NULL && !keepNewTomb) {
-        table->tombstoneCount--;
-        table->tombstoneBytes -= oldHandle->length();
+    if (!keepNewTomb) {
+        Key key(LOG_ENTRY_TYPE_OBJTOMB, oldBuffer);
+        Table* table = getTable(key);
+        if (table != NULL) {
+            table->tombstoneCount--;
+            table->tombstoneBytes -= oldBuffer.getTotalLength();
+        }
     }
 
     return keepNewTomb;
@@ -2291,67 +2246,57 @@ tombstoneRelocationCallback(LogEntryHandle oldHandle,
  *      The tombstone's creation timestamp.
  */
 uint32_t
-tombstoneTimestampCallback(LogEntryHandle handle)
+MasterService::tombstoneTimestamp(Buffer& buffer)
 {
-    assert(handle->type() == LOG_ENTRY_TYPE_OBJTOMB);
-    return handle->userData<ObjectTombstone>()->timestamp;
+    ObjectTombstone tomb(buffer);
+    return tomb.getTimestamp();
 }
 
 /**
- * \param tableId
- *      The table in which to store the object.
+ * This method will does everything needed to store an object associated with
+ * a particular key. This includes allocating or incrementing version numbers,
+ * writing a tombstone if a previous version exists, storing to the log,
+ * and adding or replacing an entry in the hash table.
+ *
+ * \param Key
+ *      Key that will refer to the object being stored. 
  * \param rejectRules
  *      Specifies conditions under which the write should be aborted with an
- *      error. May not be NULL.
- * \param keyAndData
- *      Contains the binary blob that includes the key and the
- *      data to store at (tableId, key).
- *      May not be NULL.
- * \param keyOffset
- *      The offset into \a keyAndData where the key begins.
- * \param keyLength
- *      The size in bytes of the key in the blob.
- * \param dataLength
- *      The size in bytes of the data in the blob. The data follows the key in
- *      the keyAndData blob.
+ *      error.
+ *
+ *      Must not be NULL. The reason this is a pointer and not a reference is
+ *      to (dubiously?) work around an issue where we pass in from a packed
+ *      Rpc wire format struct.
+ * \param data
+ *      Constitutes the binary blob that will be value of this object. That is,
+ *      everything following the Object header and the string key. Everything
+ *      from the buffer will be copied into the log.
  * \param newVersion
- *      The version number of the object is returned here. May not be NULL. If
- *      the operation was successful this will be the new version for the
- *      object; if this object has ever existed previously the new version is
- *      guaranteed to be greater than any previous version of the object. If
- *      the operation failed then the version number returned is the current
- *      version of the object, or VERSION_NONEXISTENT if the object does not
- *      exist.
- * \param async
- *      If true, the replication may happen sometime later.
- *      If false, this write will be replicated to backups before return.
+ *      The version number of the new object is returned here. If the operation
+ *      was successful this will be the new version for the object; if this
+ *      object has ever existed previously the new version is guaranteed to be
+ *      greater than any previous version of the object. If the operation failed
+ *      then the version number returned is the current version of the object,
+ *      or VERSION_NONEXISTENT if the object does not exist.
+ *
+ *      Must not be NULL. The reason this is a pointer and not a reference is
+ *      to (dubiously?) work around an issue where we pass out to a packed
+ *      Rpc wire format struct.
+ * \param sync
+ *      If true, this write will be replicated to backups before return.
+ *      If false, the replication may happen sometime later.
  * \return
  *      STATUS_OK if the object was written. Otherwise, for example,
  *      STATUS_UKNOWN_TABLE may be returned.
  */
 Status
-MasterService::storeData(uint64_t tableId,
-                         const RejectRules* rejectRules,
-                         Buffer* keyAndData,
-                         uint32_t keyOffset,
-                         uint16_t keyLength,
-                         uint32_t dataLength,
-                         uint64_t* newVersion,
-                         bool async)
+MasterService::storeObject(Key& key,
+                           const RejectRules* rejectRules,
+                           Buffer& data,
+                           uint64_t* newVersion,
+                           bool sync)
 {
-    DECLARE_OBJECT(newObject, keyLength, dataLength);
-
-    newObject->keyLength = keyLength;
-    newObject->tableId = tableId;
-
-    // Copy both the key and the data from keyAndData blob into keyAndData
-    // field in newObject.
-    // In this field, the data should immediately follow the key, like in
-    // the keyAndData blob. Hence, we can copy both of them together.
-    keyAndData->copy(keyOffset, keyLength + dataLength,
-                     newObject->getKeyLocation());
-
-    Table* table = getTable(tableId, newObject->getKey(), keyLength);
+    Table* table = getTable(key);
     if (table == NULL)
         return STATUS_UNKNOWN_TABLE;
 
@@ -2374,68 +2319,88 @@ MasterService::storeData(uint64_t tableId,
         }
     }
 
-    const Object *obj = NULL;
-    LogEntryHandle handle = objectMap.lookup(tableId,
-                                             newObject->getKey(),
-                                             keyLength);
-    if (handle != NULL) {
-        if (handle->type() == LOG_ENTRY_TYPE_OBJTOMB) {
-            recoveryCleanup(handle,
-                            this);
-            handle = NULL;
+    LogEntryType currentType;
+    Buffer currentBuffer;
+    HashTable::Reference currentReference;
+    uint64_t currentVersion = VERSION_NONEXISTENT;
+
+    if (lookup(key, currentType, currentBuffer, currentReference)) {
+        if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
+            recoveryCleanup(currentReference, this);
         } else {
-            assert(handle->type() == LOG_ENTRY_TYPE_OBJ);
-            obj = handle->userData<Object>();
+            Object currentObject(currentBuffer);
+            currentVersion = currentObject.getVersion(); 
         }
     }
 
-    uint64_t version = (obj != NULL) ? obj->version : VERSION_NONEXISTENT;
-
-    Status status = rejectOperation(*rejectRules, version);
+    Status status = rejectOperation(*rejectRules, currentVersion);
     if (status != STATUS_OK) {
-        *newVersion = version;
+        *newVersion = currentVersion;
         return status;
     }
 
-    if (obj != NULL)
-        newObject->version = obj->version + 1;
-    else
-        newObject->version = table->AllocateVersion();
+    // Existing objects get a bump in version, new objects start from
+    // the next version allocated in the table.
+    uint64_t newObjectVersion = (currentVersion == VERSION_NONEXISTENT) ?
+        table->AllocateVersion() : currentVersion + 1;
 
-    assert(obj == NULL || newObject->version > obj->version);
+    Object newObject(key, data, newObjectVersion);
 
-    // Perform a multi-append to atomically add the tombstone and
-    // new object (if we need a tombstone for the prior one).
-    LogMultiAppendVector appends;
+    assert(currentVersion == VERSION_NONEXISTENT ||
+           newObject.getVersion() > currentVersion);
 
-    if (obj != NULL) {
-        DECLARE_OBJECTTOMBSTONE(tomb, keyLength,
-                                log.getSegmentId(obj), obj);
-        appends.push_back({ LOG_ENTRY_TYPE_OBJTOMB,
-                            tomb,
-                            tomb->tombLength() });
+    if (currentVersion != VERSION_NONEXISTENT &&
+      currentType == LOG_ENTRY_TYPE_OBJ) {
+        Object object(currentBuffer);
+        ObjectTombstone tombstone(object, log.getSegmentId(currentReference));
+
+        Buffer tombstoneBuffer;
+        tombstone.serializeToBuffer(tombstoneBuffer);
+
+        HashTable::Reference dummy;
+        if (!log.append(LOG_ENTRY_TYPE_OBJTOMB, tombstoneBuffer, sync, dummy))
+            return STATUS_RETRY;
+
+        // TODO(anyone): The above isn't safe. If we crash before writing the
+        //               new entry (because of timing, or we run out of space),
+        //               we'll have lost the old object. One solution is to
+        //               introduce the combined Object+Tombstone type.
+        
+        log.free(currentReference);
     }
 
-    try {
-        appends.push_back({ LOG_ENTRY_TYPE_OBJ,
-                            newObject,
-                            newObject->objectLength(dataLength) });
-        LogEntryHandleVector objHandles = log.multiAppend(appends, !async);
-        if (obj == NULL) {
-            objectMap.replace(objHandles[0]);
-        } else {
-            objectMap.replace(objHandles[1]);
-            log.free(handle);
-        }
-        *newVersion = newObject->version;
-        bytesWritten += keyLength + dataLength;
-        return STATUS_OK;
-    } catch (LogOutOfMemoryException& e) {
+    Buffer buffer;
+    newObject.serializeToBuffer(buffer);
+
+    HashTable::Reference newObjectReference;
+    if (!log.append(LOG_ENTRY_TYPE_OBJ, buffer, sync, newObjectReference)) {
         // The log is out of space. Tell the client to retry and hope
         // that either the cleaner makes space soon or we shift load
         // off of this server.
         return STATUS_RETRY;
     }
+
+    objectMap.replace(key, newObjectReference);
+    *newVersion = newObject.getVersion();
+    bytesWritten += key.getStringKeyLength() + data.getTotalLength();
+    return STATUS_OK;
+}
+
+bool
+MasterService::lookup(Key& key, LogEntryType& type, Buffer& buffer)
+{
+    HashTable::Reference reference;
+    return lookup(key, type, buffer, reference);
+}
+
+bool
+MasterService::lookup(Key& key, LogEntryType& type, Buffer& buffer, HashTable::Reference& reference)
+{
+    bool success = objectMap.lookup(key, reference);
+    if (!success)
+        return false;
+    log.lookup(reference, type, buffer);
+    return true;
 }
 
 } // namespace RAMCloud

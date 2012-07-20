@@ -44,6 +44,7 @@ SHARED_SRCFILES := \
 		   src/FastTransport.cc \
 		   src/FailureDetector.cc \
 		   src/IpAddress.cc \
+		   src/Key.cc \
 		   src/LargeBlockOfMemory.cc \
 		   src/Log.cc \
 		   src/LogCleaner.cc \
@@ -64,12 +65,12 @@ SHARED_SRCFILES := \
 		   src/RamCloud.cc \
 		   src/RawMetrics.cc \
 		   src/Recovery.cc \
-		   src/RecoverySegmentIterator.cc \
 		   src/ReplicaManager.cc \
 		   src/ReplicatedSegment.cc \
 		   src/Rpc.cc \
 		   src/Segment.cc \
 		   src/SegmentIterator.cc \
+		   src/SegmentManager.cc \
 		   src/ServerList.cc \
 		   src/ServerMetrics.cc \
 		   src/ServerRpcPool.cc \

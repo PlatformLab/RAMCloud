@@ -1,0 +1,54 @@
+/* Copyright (c) 2009-2012 Stanford University
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR(S) DISCLAIM ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL AUTHORS BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+
+#ifndef RAMCLOUD_LOGENTRYTYPES_H
+#define RAMCLOUD_LOGENTRYTYPES_H
+
+namespace RAMCloud {
+
+/**
+ * Each entry in the log has an 8-bit type field. When adding types, be
+ * sure to update the LogEntryGroker implementation in LogEntryGroker.h
+ * as well.
+ */
+enum LogEntryType {
+    /// Invalid log entry. This type should never be used.
+    LOG_ENTRY_TYPE_INVALID = 0,
+
+    /// See LogMetadata.h::SegmentHeader
+    LOG_ENTRY_TYPE_SEGHEADER,
+
+    /// See Segment.h::Footer
+    LOG_ENTRY_TYPE_SEGFOOTER,
+
+    /// See Object.h::Object
+    LOG_ENTRY_TYPE_OBJ,
+
+    /// See Object.h::ObjectTombstone
+    LOG_ENTRY_TYPE_OBJTOMB,
+
+    /// See LogMetadata.h::LogDigest
+    LOG_ENTRY_TYPE_LOGDIGEST,
+
+    /// Not a type, but rather the total number of types we have defined.
+    /// This is currently restricted by the lower 6 bits in a uint8_t field
+    /// in Segment.h's Segment::EntryHeader. RAMCloud will probably collapse
+    /// under it's own complexity before we exceed 64 types.
+    TOTAL_LOG_ENTRY_TYPES
+};
+
+} // namespace RAMCloud
+
+#endif // !RAMCLOUD_LOGENTRYTYPES_H

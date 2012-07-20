@@ -41,7 +41,7 @@ class RamCloud {
       public:
         /// Start a read RPC. See RamCloud::read.
         Read(RamCloud& ramCloud,
-             uint64_t tableId, const char* key, uint16_t keyLength,
+             uint64_t tableId, const void* key, uint16_t keyLength,
              Buffer* value, const RejectRules* rejectRules = NULL,
              uint64_t* version = NULL)
              : ramCloud(ramCloud)
@@ -73,7 +73,7 @@ class RamCloud {
       public:
         /// Start a write RPC. See RamCloud::write.
         Write(RamCloud& ramCloud,
-              uint64_t tableId, const char* key, uint16_t keyLength,
+              uint64_t tableId, const void* key, uint16_t keyLength,
               Buffer& buffer,
               const RejectRules* rejectRules = NULL,
               uint64_t* version = NULL, bool async = false)
@@ -86,7 +86,7 @@ class RamCloud {
         }
         /// Start a write RPC. See RamCloud::write.
         Write(RamCloud& ramCloud,
-              uint64_t tableId, const char* key, uint16_t keyLength,
+              uint64_t tableId, const void* key, uint16_t keyLength,
               const void* buf, uint32_t length,
               const RejectRules* rejectRules = NULL,
               uint64_t* version = NULL, bool async = false)
@@ -120,35 +120,35 @@ class RamCloud {
     uint64_t getTableId(const char* name);
     string* getServiceLocator();
     ServerMetrics getMetrics(const char* serviceLocator);
-    ServerMetrics getMetrics(uint64_t table, const char* key,
+    ServerMetrics getMetrics(uint64_t table, const void* key,
                              uint16_t keyLength);
     uint64_t ping(const char* serviceLocator, uint64_t nonce,
                   uint64_t timeoutNanoseconds);
-    uint64_t ping(uint64_t table, const char* key, uint16_t keyLength,
+    uint64_t ping(uint64_t table, const void* key, uint16_t keyLength,
                   uint64_t nonce, uint64_t timeoutNanoseconds);
     uint64_t proxyPing(const char* serviceLocator1,
                        const char* serviceLocator2,
                        uint64_t timeoutNanoseconds1,
                        uint64_t timeoutNanoseconds2);
-    void read(uint64_t tableId, const char* key, uint16_t keyLength,
+    void read(uint64_t tableId, const void* key, uint16_t keyLength,
               Buffer* value, const RejectRules* rejectRules = NULL,
               uint64_t* version = NULL);
-    void increment(uint64_t tableId, const char* key, uint16_t keyLength,
+    void increment(uint64_t tableId, const void* key, uint16_t keyLength,
               int64_t incrementValue, const RejectRules* rejectRules = NULL,
               uint64_t* version = NULL, int64_t* newValue = NULL);
     void multiRead(MasterClient::ReadObject* requests[], uint32_t numRequests);
-    void remove(uint64_t tableId, const char* key, uint16_t keyLength,
+    void remove(uint64_t tableId, const void* key, uint16_t keyLength,
                 const RejectRules* rejectRules = NULL,
                 uint64_t* version = NULL);
-    void write(uint64_t tableId, const char* key, uint16_t keyLength,
+    void write(uint64_t tableId, const void* key, uint16_t keyLength,
                const void* buf, uint32_t length,
                const RejectRules* rejectRules = NULL,
                uint64_t* version = NULL, bool async = false);
-    void write(uint64_t tableId, const char* key, uint16_t keyLength,
+    void write(uint64_t tableId, const void* key, uint16_t keyLength,
                const char* s);
 
-    void testingKill(uint64_t tableId, const char* key, uint16_t keyLength);
-    void testingFill(uint64_t tableId, const char* key, uint16_t keyLength,
+    void testingKill(uint64_t tableId, const void* key, uint16_t keyLength);
+    void testingFill(uint64_t tableId, const void* key, uint16_t keyLength,
                      uint32_t objectCount, uint32_t objectSize);
     void testingSetRuntimeOption(const char* option, const char* value);
     void testingWaitForAllTabletsNormal();

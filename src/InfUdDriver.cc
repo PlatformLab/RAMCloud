@@ -108,8 +108,7 @@ InfUdDriver<Infiniband>::InfUdDriver(Context& context,
 
     // allocate rx and tx buffers
     uint32_t bufSize = (getMaxPacketSize() +
-        (localMac ? downCast<uint32_t>(sizeof(EthernetHeader))
-                  : GRH_SIZE));
+        (localMac ? sizeof32(EthernetHeader) : GRH_SIZE));
     bufSize = BitOps::powerOfTwoGreaterOrEqual(bufSize);
     rxBuffers.construct(realInfiniband->pd, bufSize,
                         uint32_t(MAX_RX_QUEUE_DEPTH));

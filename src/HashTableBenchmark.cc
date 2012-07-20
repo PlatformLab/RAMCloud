@@ -33,18 +33,31 @@ namespace {
 
 class TestObject {
   public:
-    TestObject(uint64_t key1, uint64_t key2)
-        : _key1(key1), _key2(key2)
+    // We don't care about tables or string keys, so we'll assume table 0
+    // and let our keys be 64-bit integers.
+    TestObject(uint64_t key)
+        : key(key)
     {
     }
-    uint64_t key1() { return _key1; }
-    const char* key2() const { return _key2.get(); }
-    uint16_t key2Length() const { return _key2.length(); }
-    uint64_t _key1;
-    MakeKey _key2;
+
+    uint64_t key;
+
+    DISALLOW_COPY_AND_ASSIGN(TestObject);
 } __attribute__((aligned(64)));
 
-typedef HashTable<TestObject*> TestObjectMap;
+class TestObjectKeyComparer : public HashTable::KeyComparer {
+  public:
+    bool
+    doesMatch(Key& key, HashTable::Reference candidate)
+    {
+        // A pointer to a TestObject has been squished into each
+        // HashTable::Reference.
+        TestObject* candidateObject =
+            reinterpret_cast<TestObject*>(candidate.get());
+        Key candidateKey(0, &candidateObject->key, sizeof(candidateObject->key));
+        return (key == candidateKey);
+    }
+};
 
 } // anonymous namespace
 
@@ -52,9 +65,9 @@ void
 hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
 {
     uint64_t i;
-    TestObjectMap ht(nlines);
-    TestObject **values = static_cast<TestObject**>(
-          Memory::xmalloc(HERE, nkeys * sizeof(values[0])));
+    TestObjectKeyComparer keyComparer;
+    HashTable ht(nlines, keyComparer);
+    TestObject** values = new TestObject*[nkeys];
 
     printf("hash table keys: %lu\n", nkeys);
     printf("hash table lines: %lu\n", nlines);
@@ -65,14 +78,17 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
     printf("populating table...");
     fflush(stdout);
     for (i = 0; i < nkeys; i++) {
-        values[i] = new TestObject(0, i);
-        ht.replace(values[i]);
+        Key key(0, &i, sizeof(i));
+        values[i] = new TestObject(i);
+        HashTable::Reference reference(reinterpret_cast<uint64_t>(values[i]));
+        ht.replace(key, reference);
 
         // Here just in case.
         //   NB: This alters our PerfDistribution bin counts,
         //       so be sure to reset them below!
-        MakeKey key(i);
-        assert(ht.lookup(0, key.get(), key.length()) == values[i]);
+        HashTable::Reference outReference;
+        assert(ht.lookup(key, outReference));
+        assert(outReference == reference);
     }
     printf("done!\n");
 
@@ -85,15 +101,18 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
 
     // don't use a CycleCounter, as we may want to run without PERF_COUNTERS
     uint64_t replaceCycles = Cycles::rdtsc();
-    for (i = 0; i < nkeys; i++)
-        ht.replace(values[i]);
+    for (i = 0; i < nkeys; i++) {
+        Key key(0, &i, sizeof(i));
+        HashTable::Reference reference(reinterpret_cast<uint64_t>(values[i]));
+        ht.replace(key, reference);
+    }
     i = Cycles::rdtsc() - replaceCycles;
     printf("done!\n");
 
-    free(values);
+    delete[] values;
     values = NULL;
 
-    const TestObjectMap::PerfCounters & pc = ht.getPerfCounters();
+    const HashTable::PerfCounters & pc = ht.getPerfCounters();
 
     printf("== replace() ==\n");
 
@@ -116,9 +135,11 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
     // don't use a CycleCounter, as we may want to run without PERF_COUNTERS
     uint64_t lookupCycles = Cycles::rdtsc();
     for (i = 0; i < nkeys; i++) {
-        MakeKey key(i);
-        TestObject *p = ht.lookup(0, key.get(), key.length());
-        assert(p != NULL);
+        Key key(0, &i, sizeof(i));
+        HashTable::Reference reference;
+        bool success = ht.lookup(key, reference);
+        assert(success);
+        assert(reinterpret_cast<TestObject*>(reference.get())->key == i);
     }
     i = Cycles::rdtsc() - lookupCycles;
     printf("done!\n");
@@ -150,8 +171,8 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
     memset(histogram, 0, sizeof(nlines * sizeof(histogram[0])));
 
     for (i = 0; i < nlines; i++) {
-        TestObjectMap::CacheLine *cl;
-        TestObjectMap::Entry *entry;
+        HashTable::CacheLine *cl;
+        HashTable::Entry *entry;
 
         int depth = 1;
         cl = &ht.buckets.get()[i];
@@ -177,7 +198,7 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
     free(histogram);
     histogram = NULL;
 
-    const TestObjectMap::PerfDistribution & lcd = pc.lookupEntryDist;
+    const HashTable::PerfDistribution & lcd = pc.lookupEntryDist;
 
     printf("lookup cycle histogram:\n");
     for (i = 0; i < lcd.NBINS; i++) {
@@ -244,13 +265,13 @@ main(int argc, char **argv)
     OptionParser optionParser(benchmarkOptions, argc, argv);
 
     uint64_t numberOfCachelines = (hashTableMegs * 1024 * 1024) /
-        TestObjectMap::bytesPerCacheLine();
+        HashTable::bytesPerCacheLine();
 
     // If the user specified a load factor, auto-calculate the number of
     // keys based on the number of cachelines.
     if (numberOfKeys == 0) {
         uint64_t totalEntries = numberOfCachelines *
-            TestObjectMap::entriesPerCacheLine();
+            HashTable::entriesPerCacheLine();
         numberOfKeys = static_cast<uint64_t>(loadFactor *
                           static_cast<double>(totalEntries));
     }

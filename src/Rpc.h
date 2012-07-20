@@ -260,6 +260,24 @@ struct MultiReadRpc {
         // In buffer: Status, SegmentEntry and Object go here
         // Object has variable number of bytes (depending on data size.)
         // In case of an error, only Status goes here
+
+        // Each Response::Part contains the minimum object metadata we need
+        // returned, followed by the object data itself.
+        //
+        // TODO(Ankita): This was a quick way to get multiRead working such
+        // that it doesn't depend on unrelated Segment internals. A nicer
+        // solution might be to construct segments on the master and send
+        // those in the response. However, that'd currently incur an extra
+        // copy. I doubt the copy would have much impact, but it's worth
+        // considering. Not sending the whole object also means we lose the
+        // checksum, but we weren't using it anyway.
+        struct Part {
+            /// Version of the object.
+            uint64_t version;
+
+            /// Length of the object data following this struct.
+            uint32_t length;
+        } __attribute__((packed));
     } __attribute__((packed));
 };
 

@@ -22,7 +22,8 @@
 #include "LogCleaner.h"
 #include "HashTable.h"
 #include "Object.h"
-#include "RecoverySegmentIterator.h"
+#include "SegmentIterator.h"
+#include "SegmentManager.h"
 #include "ReplicaManager.h"
 #include "SegmentIterator.h"
 #include "ServerList.h"
@@ -44,7 +45,7 @@ class RecoveryTask;
  * respond to client RPC requests to manipulate objects stored on the
  * server.
  */
-class MasterService : public Service {
+class MasterService : public Service, Log::EntryHandlers {
   public:
     MasterService(Context& context,
                   const ServerConfig& config,
@@ -55,7 +56,36 @@ class MasterService : public Service {
     void dispatch(RpcOpcode opcode,
                   Rpc& rpc);
 
+    uint32_t getTimestamp(LogEntryType type, Buffer& buffer);
+    bool isAlive(LogEntryType type, Buffer& buffer);
+    bool relocating(LogEntryType type, Buffer& oldBuffer,
+                    HashTable::Reference newReference);
+
   PRIVATE:
+    /**
+     * Comparison functor used by the HashTable to compare a key
+     * we're querying with a potential match.
+     */
+    class LogKeyComparer : public HashTable::KeyComparer {
+      public:
+        LogKeyComparer(Log& log)
+            : log(log)
+        {
+        }
+
+        bool
+        doesMatch(Key& key, HashTable::Reference reference)
+        {
+            LogEntryType type;
+            Buffer buffer;
+            log.lookup(reference, type, buffer);
+            Key candidateKey(type, buffer);
+            return key == candidateKey;
+        }
+
+      private:
+        Log& log;
+    };
 
     /**
      * Represents a known segment replica during recovery and the state
@@ -75,10 +105,12 @@ class MasterService : public Service {
          * The backup containing the replica.
          */
         ServerId backupId;
+
         /**
          * The segment ID for this replica.
          */
         uint64_t segmentId;
+
         /**
          * Used in recovery routines to keep track of the status of requesting
          * the data from this replica.
@@ -126,7 +158,7 @@ class MasterService : public Service {
     void recover(const RecoverRpc::Request& reqHdr,
                  RecoverRpc::Response& respHdr,
                  Rpc& rpc);
-    void recoverSegmentPrefetcher(RecoverySegmentIterator& i);
+    void recoverSegmentPrefetcher(SegmentIterator& i);
     void recoverSegment(uint64_t segmentId, const void *buffer,
                         uint32_t bufferLength);
     void recover(ServerId masterId,
@@ -155,6 +187,9 @@ class MasterService : public Service {
     /// A reference to the global ServerList.
     ServerList& serverList;
 
+    /// Track total bytes of object data written (not including log overhead).
+    uint64_t bytesWritten;
+
     /**
      * Creates and tracks replicas of in-memory log segments on remote backups.
      * Its BackupFailureMonitor must be started after the log is created
@@ -162,20 +197,29 @@ class MasterService : public Service {
      */
     ReplicaManager replicaManager;
 
-    /// Maximum number of bytes per partition. For Will calculation.
-    static const uint64_t maxBytesPerPartition = 640UL * 1024 * 1024;
-
-    /// Maximum number of referents (objs) per partition. For Will calculation.
-    static const uint64_t maxReferentsPerPartition = 10UL * 1000 * 1000;
-
-    /// Track total bytes of object data written (not including log overhead).
-    uint64_t bytesWritten;
+    /**
+     * Allocator used by the SegmentManager to obtain main memory for the log.
+     */
+    SegmentManager::Allocator allocator;
 
     /**
-     * The main in-memory data structure holding all of the data stored
-     * on this server.
+     * The SegmentManager manages all segments in the log and interfaces
+     * between the log and the cleaner modules.
+     */
+    SegmentManager segmentManager;
+
+    /**
+     * The log stores all of our objects and tombstones. It is used to append
+     * new data is notified of dead data. Garbage collection ("cleaning") takes
+     * place concurrently with server execution and may cause live data to be
+     * reshuffled to new locations in memory.
      */
     Log log;
+
+    /**
+     * Comparison functor used by the hash table to compare keys for equality.
+     */
+    LogKeyComparer keyComparer;
 
     /**
      * The (table ID, key, keyLength) to #RAMCloud::Object pointer map for all
@@ -184,7 +228,7 @@ class MasterService : public Service {
      * server; objects from deleted tablets are not immediately purged from the
      * hash table.
      */
-    HashTable<LogEntryHandle> objectMap;
+    HashTable objectMap;
 
     /**
      * Tablets this master owns.
@@ -225,22 +269,11 @@ class MasterService : public Service {
                         const uint64_t partitionId,
                         const vector<MasterService::Replica>& replicas);
 
-    friend void recoveryCleanup(LogEntryHandle maybeTomb, void *cookie);
-    friend void removeObjectIfFromUnknownTablet(LogEntryHandle entry,
+    friend void recoveryCleanup(HashTable::Reference maybeTomb, void *cookie);
+    friend void removeObjectIfFromUnknownTablet(HashTable::Reference reference,
                                                 void *cookie);
-    friend bool objectLivenessCallback(LogEntryHandle handle, void* cookie);
-    friend bool objectRelocationCallback(LogEntryHandle oldHandle,
-                                         LogEntryHandle newHandle,
-                                         void* cookie);
-    friend void objectScanCallback(LogEntryHandle handle, void* cookie);
-    friend bool tombstoneLivenessCallback(LogEntryHandle handle, void* cookie);
-    friend bool tombstoneRelocationCallback(LogEntryHandle oldHandle,
-                                            LogEntryHandle newHandle,
-                                            void* cookie);
-    friend void tombstoneScanCallback(LogEntryHandle handle, void* cookie);
-    friend void segmentReplayCallback(Segment* seg, void* cookie);
-    Table* getTable(uint64_t tableId, const char* key, uint16_t keyLength)
-        __attribute__((warn_unused_result));
+
+    Table* getTable(Key& key) __attribute__((warn_unused_result));
     Table* getTableForHash(uint64_t tableId, HashType keyHash)
         __attribute__((warn_unused_result));
     ProtoBuf::Tablets::Tablet const* getTabletForHash(uint64_t tableId,
@@ -248,14 +281,25 @@ class MasterService : public Service {
         __attribute__((warn_unused_result));
     Status rejectOperation(const RejectRules& rejectRules, uint64_t version)
         __attribute__((warn_unused_result));
-    Status storeData(uint64_t table,
-                     const RejectRules* rejectRules, Buffer* data,
-                     uint32_t keyOffset, uint16_t keyLength,
-                     uint32_t dataLength,
-                     uint64_t* newVersion, bool async)
-        __attribute__((warn_unused_result));
+    bool objectLiveness(Buffer& buffer);
+    bool objectRelocation(Buffer& oldBuffer,
+                          HashTable::Reference newReference);
+    uint32_t objectTimestamp(Buffer& buffer);
+    bool tombstoneLiveness(Buffer& buffer);
+    bool tombstoneRelocation(Buffer& oldBuffer,
+                             HashTable::Reference newReference);
+    uint32_t tombstoneTimestamp(Buffer& buffer);
+    Status storeObject(Key& key,
+                       const RejectRules* rejectRules,
+                       Buffer& data,
+                       uint64_t* newVersion,
+                       bool sync) __attribute__((warn_unused_result));
+    bool lookup(Key& key, LogEntryType& type, Buffer& buffer);
+    bool lookup(Key& key, LogEntryType& type, Buffer& buffer, HashTable::Reference& reference);
+
     friend class RecoverSegmentBenchmark;
     friend class MasterServiceInternal::RecoveryTask;
+
     DISALLOW_COPY_AND_ASSIGN(MasterService);
 };
 

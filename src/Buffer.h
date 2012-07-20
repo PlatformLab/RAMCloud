@@ -414,6 +414,26 @@ class Buffer {
     Buffer();
     ~Buffer();
 
+    /**
+     * Convenience function that invokes Buffer::Chunk::appendToBuffer
+     * on this Buffer object.
+     */
+    Chunk*
+    appendTo(const void* data, uint32_t length)
+    {
+        return Buffer::Chunk::appendToBuffer(this, data, length);
+    }
+
+    /**
+     * Convenience method that invokes Buffer::Chunk::prependToBuffer
+     * on this Buffer object.
+     */
+    Chunk*
+    prependTo(const void* data, uint32_t length)
+    {
+        return Buffer::Chunk::prependToBuffer(this, data, length);
+    }
+
     uint32_t peek(uint32_t offset, const void** returnPtr);
     const void* getRange(uint32_t offset, uint32_t length);
 

@@ -16,6 +16,7 @@
  */
 
 #include "Common.h"
+#include "Cycles.h"
 #include "ShortMacros.h"
 #include "RawMetrics.h"
 #include "MetricList.pb.h"
@@ -46,7 +47,7 @@ RawMetrics::init()
     Cycles::init();
     clockFrequency = (uint64_t) Cycles::perSecond();
     pid = getpid();
-    segmentSize = Segment::SEGMENT_SIZE;
+    segmentSize = Segment::DEFAULT_SEGMENT_SIZE;
 }
 
 /**

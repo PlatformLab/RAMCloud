@@ -28,10 +28,13 @@ class LogIterator {
     explicit LogIterator(Log& log);
     ~LogIterator();
 
-    bool                isDone() const;
-    void                next();
-    bool                onHead() const;
-    SegmentEntryHandle  getHandle() const;
+    bool isDone();
+    void next();
+    bool onHead();
+    LogEntryType getType();
+    uint32_t getLength();
+    Buffer& appendToBuffer(Buffer& buffer);
+    Buffer& setBufferTo(Buffer& buffer);
 
   PRIVATE:
     /**
@@ -40,9 +43,9 @@ class LogIterator {
     struct SegmentIdLessThan {
       public:
         bool
-        operator()(const Segment* a, const Segment* b)
+        operator()(const LogSegment* a, const LogSegment* b)
         {
-            return a->getId() > b->getId();
+            return a->id > b->id;
         }
     };
 
@@ -53,13 +56,13 @@ class LogIterator {
 
     /// Current list of segments to iterate over. Once exhausted, the list may
     /// need to be updated (since the log could have advanced forward).
-    SegmentVector segmentList;
+    LogSegmentVector segmentList;
+
+    /// Pointer to the current LogSegment we're interating over.
+    LogSegment* currentSegment;
 
     /// SegmentIterator for the Segment we're currently iterating over.
     Tub<SegmentIterator> currentIterator;
-
-    /// Identifier of the Segment currently being iterated over.
-    uint64_t currentSegmentId;
 
     /// Indication that the head is locked and must be unlocked on destruction.
     bool headLocked;

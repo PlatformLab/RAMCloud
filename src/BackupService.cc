@@ -21,9 +21,8 @@
 #include "ClientException.h"
 #include "Cycles.h"
 #include "Log.h"
-#include "LogTypes.h"
+#include "LogEntryTypes.h"
 #include "MasterClient.h"
-#include "RecoverySegmentIterator.h"
 #include "Rpc.h"
 #include "ServerConfig.h"
 #include "SegmentIterator.h"
@@ -162,8 +161,11 @@ BackupService::SegmentInfo::SegmentInfo(BackupStorage& storage,
             segment = static_cast<char*>(pool.malloc());
             {
                 CycleCounter<RawMetric> q(&metrics->backup.writeClearTicks);
+// XXX- why was the below ever necessary?
+#if 0
                 memset(segment, 0, segmentSize < sizeof(SegmentEntry) ?
                                     segmentSize : sizeof(SegmentEntry));
+#endif
             }
             storage.getSegment(storageHandle, segment);
         } catch (...) {
@@ -349,15 +351,18 @@ BackupService::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
  *      a previous instance of the tablet and should be dropped.
  */
 bool
-isEntryAlive(const SegmentIterator& it,
+isEntryAlive(LogEntryType type,
+             Buffer& buffer,
              const ProtoBuf::Tablets::Tablet& tablet)
 {
+// XXX- need to rethink where we pull these bits of information from... 
+#if 0
     if (it.isCleanerSegment()) {
         uint64_t headId = it.getHeader().headSegmentIdDuringCleaning;
         if (headId <= tablet.ctime_log_head_id())
             return false;
     } else {
-        LogPosition position = it.getLogPosition();
+        Log::Position position = it.getLogPosition();
         if (position.segmentId() < tablet.ctime_log_head_id())
             return false;
         if (position.segmentId() == tablet.ctime_log_head_id() &&
@@ -365,7 +370,7 @@ isEntryAlive(const SegmentIterator& it,
             return false;
         }
     }
-
+#endif
     return true;
 }
 
@@ -384,19 +389,27 @@ isEntryAlive(const SegmentIterator& it,
  *      If the object or tombstone doesn't belong to any of the partitions.
  */
 Tub<uint64_t>
-whichPartition(const SegmentIterator& it,
+whichPartition(LogEntryType type,
+               Buffer& buffer,
                const ProtoBuf::Tablets& partitions)
 {
-    uint64_t tableId;
-    HashType keyHash;
-    if (it.getType() == LOG_ENTRY_TYPE_OBJ) {
+    uint64_t tableId = -1;
+    HashType keyHash = -1;
+
+    if (type == LOG_ENTRY_TYPE_OBJ) {
+// XXX- need to figure out what to do given that keyHash expect contiguity.
+#if 0
         const Object* object = it.get<Object>();
         tableId = object->tableId;
         keyHash = object->keyHash();
+#endif
     } else { // LOG_ENTRY_TYPE_OBJTOMB:
+// XXX- same here!
+#if 0
         const ObjectTombstone* tombstone = it.get<ObjectTombstone>();
         tableId = tombstone->tableId;
         keyHash = tombstone->keyHash();
+#endif
     }
 
     Tub<uint64_t> ret;
@@ -407,7 +420,7 @@ whichPartition(const SegmentIterator& it,
             (tablet.start_key_hash() <= keyHash &&
             tablet.end_key_hash() >= keyHash)) {
 
-            if (!isEntryAlive(it, tablet)) {
+            if (!isEntryAlive(type, buffer, tablet)) {
                 LOG(NOTICE, "Skipping object with <tableId, keyHash> of "
                     "<%lu,%lu> because it appears to have existed prior "
                     "to this tablet's creation.", tableId, keyHash);
@@ -467,23 +480,32 @@ BackupService::SegmentInfo::buildRecoverySegments(
              !it.isDone();
              it.next())
         {
-            if (it.getType() == LOG_ENTRY_TYPE_UNINIT)
-                break;
-            if (it.getType() != LOG_ENTRY_TYPE_OBJ &&
-                it.getType() != LOG_ENTRY_TYPE_OBJTOMB)
+            LogEntryType type = it.getType();
+            if (type != LOG_ENTRY_TYPE_OBJ && type != LOG_ENTRY_TYPE_OBJTOMB)
                 continue;
 
+            Buffer buffer;
+            it.appendToBuffer(buffer);
+        
             // find out which partition this entry belongs in
-            Tub<uint64_t> partitionId = whichPartition(it, partitions);
+            Tub<uint64_t> partitionId = whichPartition(type,
+                                                       buffer,
+                                                       partitions);
             if (!partitionId)
                 continue;
+// XXX This is fucked up. There should be a way to create contiguous segments
+//     and just write the entries in as usual. Perhaps have a Segment::Allocator
+//     that is 1 chunk of 8MB and have recoverySegments[] consist of virgin
+//     segments. We can then segment->alloc() and entry->copyIn(Entry& other),
+//     perhaps? Or, maybe make a segment->append() function that does just that?
+#if 0
             const SegmentEntry* entry = reinterpret_cast<const SegmentEntry*>(
                     reinterpret_cast<const char*>(it.getPointer()) -
                     sizeof(*entry));
-            const uint32_t len = (downCast<uint32_t>(sizeof(*entry)) +
-                                  it.getLength());
+            const uint32_t len = (sizeof32(*entry)) + it.getLength());
             void *out = new(&recoverySegments[*partitionId], APPEND) char[len];
             memcpy(out, entry, len);
+#endif
         }
 #if TESTING
         for (uint64_t i = 0; i < recoverySegmentsLength; ++i) {
@@ -590,8 +612,11 @@ BackupService::SegmentInfo::open()
     char* segment = static_cast<char*>(pool.malloc());
     {
         CycleCounter<RawMetric> q(&metrics->backup.writeClearTicks);
+// XXX- same as around line 166... why duplicated?
+#if 0
         memset(segment, 0, segmentSize < sizeof(SegmentEntry) ?
                             segmentSize : sizeof(SegmentEntry));
+#endif
     }
     BackupStorage::Handle* handle;
     try {
@@ -686,14 +711,18 @@ BackupService::SegmentInfo::getLogDigest(uint32_t* byteLength)
     // If the Segment is malformed somehow, just ignore it. The
     // coordinator will have to deal.
     try {
-        SegmentIterator si(segment, segmentSize, true);
-        while (!si.isDone()) {
-            if (si.getType() == LOG_ENTRY_TYPE_LOGDIGEST) {
+        SegmentIterator it(segment, segmentSize);
+        while (!it.isDone()) {
+            if (it.getType() == LOG_ENTRY_TYPE_LOGDIGEST) {
                 if (byteLength != NULL)
-                    *byteLength = si.getLength();
-                return si.getPointer();
+                    *byteLength = it.getLength();
+// XXXX- can't just return a pointer to it. should we return the Segment::Entry,
+//       or copy out, or pass a Buffer& into this method? What to do?
+#if 0
+                return it.getPointer();
+#endif
             }
-            si.next();
+            it.next();
         }
     } catch (SegmentIteratorException& e) {
         LOG(WARNING, "SegmentIterator constructor failed: %s", e.str().c_str());
@@ -1250,13 +1279,13 @@ BackupService::assignGroup(
         Rpc& rpc)
 {
     replicationId = reqHdr.replicationId;
-    uint32_t reqOffset = downCast<uint32_t>(sizeof(reqHdr));
+    uint32_t reqOffset = sizeof32(reqHdr);
     replicationGroup.clear();
     for (uint32_t i = 0; i < reqHdr.numReplicas; i++) {
         const uint64_t *backupId =
             rpc.requestPayload.getOffset<uint64_t>(reqOffset);
         replicationGroup.push_back(ServerId(*backupId));
-        reqOffset += downCast<uint32_t>(sizeof(*backupId));
+        reqOffset += sizeof32(*backupId);
     }
 }
 
@@ -1490,6 +1519,10 @@ BackupService::restartFromStorage()
     CycleCounter<> restartTime;
     LOG(NOTICE, "Scanning storage to find replicas from former backups");
 
+//XXX- this is all buggered up. Why does BackupService dig so deeply into
+//     the segment internals?
+    return;
+#if 0
     struct HeaderAndFooter {
         SegmentEntry headerEntry;
         SegmentHeader header;
@@ -1523,8 +1556,7 @@ BackupService::restartFromStorage()
                      frame);
             continue;
         }
-        if (entry.headerEntry.length !=
-            downCast<uint32_t>(sizeof(SegmentHeader))) {
+        if (entry.headerEntry.length != sizeof32(SegmentHeader)) {
             LOG(WARNING, "Unexpected log entry length while reading segment "
                 "replica header from backup storage, discarding replica, "
                 "(expected length %lu, stored length %u)",
@@ -1563,6 +1595,7 @@ BackupService::restartFromStorage()
 
     LOG(NOTICE, "Replica information retreived from storage: %f ms",
         1000. * Cycles::toSeconds(restartTime.stop()));
+#endif
 }
 
 namespace {

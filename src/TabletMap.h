@@ -18,7 +18,8 @@
 
 #include "Common.h"
 #include "CoordinatorServerList.h"
-#include "LogTypes.h"
+#include "Log.h"
+#include "LogEntryTypes.h"
 #include "ServerId.h"
 
 namespace RAMCloud {
@@ -51,11 +52,11 @@ struct Tablet {
     Status status;
 
     /**
-     * The LogPosition of the log belonging to the master that owns this
+     * The Log::Position of the log belonging to the master that owns this
      * tablet when it was assigned to the server. Any earlier position
      * cannot contain data belonging to this tablet.
      */
-    LogPosition ctime;
+    Log::Position ctime;
 };
 
 /**
@@ -93,7 +94,7 @@ class TabletMap {
                       uint64_t endKeyHash,
                       ServerId serverId,
                       Tablet::Status status,
-                      LogPosition ctime);
+                      Log::Position ctime);
     vector<Tablet> removeTabletsForTable(uint64_t tableId);
     void serialize(const CoordinatorServerList& serverList,
                    ProtoBuf::Tablets& tablets) const;

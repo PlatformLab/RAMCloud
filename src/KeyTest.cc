@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Stanford University
+/* Copyright (c) 2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,36 +13,42 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_KEYHASH_H
-#define RAMCLOUD_KEYHASH_H
+#include "TestUtil.h"
 
-#include "MurmurHash3.h"
+#include "Key.h"
 
 namespace RAMCloud {
 
 /**
- * The type of the hash for the key of an object.
+ * Unit tests for Key.
  */
-typedef uint64_t HashType;
+class KeyTest : public ::testing::Test {
+  public:
+    KeyTest()
+    {
+    }
 
-/**
- * Given a key, returns its hash value.
- *
- * \param key
- *      Variable length key that uniquely identifies the object within tableId.
- *      It does not necessarily have to be null terminated like a string.
- * \param keyLength
- *      Size in bytes of the key.
- * \return
- *      Hash value of the given key.
- */
-static inline HashType
-getKeyHash(const char* key, uint16_t keyLength)
+  private:
+    DISALLOW_COPY_AND_ASSIGN(KeyTest);
+};
+
+TEST_F(KeyTest, constructor)
 {
-    uint64_t keyHash[2];
-    MurmurHash3_x64_128(key, keyLength, 0, keyHash);
-    return keyHash[0];
 }
-} // end RAMCloud
 
-#endif // RAMCLOUD_KEYHASH_H
+/*
+ * Ensure that #RAMCloud::HashTable::hash() generates hashes using the full
+ * range of bits.
+ */
+TEST_F(KeyTest, getHash_UsesAllBits) {
+    uint64_t observedBits = 0UL;
+    srand(1);
+    for (uint32_t i = 0; i < 50; i++) {
+        uint64_t input1 = generateRandom();
+        uint64_t input2 = generateRandom();
+        observedBits |= Key::getHash(input1, &input2, sizeof(input2));
+    }
+    EXPECT_EQ(~0UL, observedBits);
+}
+
+} // namespace RAMCloud

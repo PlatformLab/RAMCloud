@@ -141,11 +141,12 @@ TestUtil::fillRandom(void* buf, uint32_t size)
  *      The length of the data in buf.
  */
 string
-TestUtil::toString(const char *buf, uint32_t length)
+TestUtil::toString(const void* buf, uint32_t length)
 {
     string s;
     uint32_t i = 0;
     const char* separator = "";
+    const char* charBuf = reinterpret_cast<const char*>(buf);
 
     // Each iteration through the following loop processes a piece
     // of the buffer consisting of either:
@@ -155,7 +156,7 @@ TestUtil::toString(const char *buf, uint32_t length)
         s.append(separator);
         separator = " ";
         if ((i+4) <= length) {
-            const char *p = &buf[i];
+            const char *p = &charBuf[i];
             if ((p[0] < ' ') || (p[1] < ' ')) {
                 int value = *reinterpret_cast<const int*>(p);
                 s.append(format(
@@ -168,7 +169,7 @@ TestUtil::toString(const char *buf, uint32_t length)
 
         // This chunk of data looks like a string, so output it out as one.
         while (i < length) {
-            char c = buf[i];
+            char c = charBuf[i];
             i++;
             convertChar(c, &s);
             if (c == '\0') {
@@ -178,6 +179,21 @@ TestUtil::toString(const char *buf, uint32_t length)
     }
 
     return s;
+}
+
+/**
+ * \copydoc TestUtil::toString
+ *
+ * \param offset
+ *      Offset of the first byte in the buffer to be stringified.
+ * \param length
+ *      Total number of bytes in the buffer to be stringified, starting
+ *      at the given offset.
+ */
+string
+TestUtil::toString(Buffer* buffer, uint32_t offset, uint32_t length)
+{
+    return toString(buffer->getRange(offset, length), length);
 }
 
 /**
@@ -201,9 +217,7 @@ TestUtil::toString(const char *buf, uint32_t length)
 string
 TestUtil::toString(Buffer* buffer)
 {
-    uint32_t length = buffer->getTotalLength();
-    const char* buf = static_cast<const char*>(buffer->getRange(0, length));
-    return toString(buf, length);
+    return toString(buffer, 0, buffer->getTotalLength());
 }
 
 /**

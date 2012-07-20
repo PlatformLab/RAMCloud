@@ -61,7 +61,7 @@ MasterClient::fillWithTestData(uint32_t numObjects, uint32_t objectSize)
  * the minimum position at which data belonging to newly assigned tablet
  * may exist at. Any prior data can be ignored.
  */
-LogPosition
+Log::Position
 MasterClient::getHeadOfLog()
 {
     Buffer req, resp;
@@ -162,7 +162,7 @@ MasterClient::recover(uint64_t recoveryId,
 
 /// Start a read RPC for an object. See MasterClient::read.
 MasterClient::Read::Read(MasterClient& client,
-                         uint64_t tableId, const char* key,
+                         uint64_t tableId, const void* key,
                          uint16_t keyLength, Buffer* value,
                          const RejectRules* rejectRules,
                          uint64_t* version)
@@ -226,7 +226,7 @@ MasterClient::Read::operator()()
  * \exception InternalError
  */
 void
-MasterClient::read(uint64_t tableId, const char* key, uint16_t keyLength,
+MasterClient::read(uint64_t tableId, const void* key, uint16_t keyLength,
                    Buffer* value, const RejectRules* rejectRules,
                    uint64_t* version)
 {
@@ -319,15 +319,11 @@ MasterClient::migrateTablet(uint64_t tableId,
  *
  * \param segment
  *      Segment containing the data to be migrated.
- *
- * \param segmentBytes
- *      Number of bytes in the segment to be migrated.
  */
 void
 MasterClient::receiveMigrationData(uint64_t tableId,
                                    uint64_t firstKey,
-                                   const void* segment,
-                                   uint32_t segmentBytes)
+                                   Segment& segment)
 {
     Buffer req, resp;
 
@@ -335,10 +331,7 @@ MasterClient::receiveMigrationData(uint64_t tableId,
         allocHeader<ReceiveMigrationDataRpc>(req));
     reqHdr.tableId = tableId;
     reqHdr.firstKey = firstKey;
-    reqHdr.segmentBytes = segmentBytes;
-    memcpy(new(&req, APPEND) char[segmentBytes],
-           segment,
-           segmentBytes);
+    reqHdr.segmentBytes = segment.appendToBuffer(req);
 
     sendRecv<ReceiveMigrationDataRpc>(session, req, resp);
     checkStatus(HERE);
@@ -375,41 +368,35 @@ MasterClient::MultiRead::complete()
     const MultiReadRpc::Response& respHdr(client.recv<MultiReadRpc>(state));
     client.checkStatus(HERE);
 
-    uint32_t respOffset = downCast<uint32_t>(sizeof(respHdr));
+    uint32_t respOffset = sizeof32(respHdr);
 
     // Each iteration extracts one object from the response
-    foreach (ReadObject *request, requests) {
-        const Status *status = responseBuffer.getOffset<Status>(respOffset);
-        respOffset += downCast<uint32_t>(sizeof(Status));
+    foreach (ReadObject* request, requests) {
+        const Status* status = responseBuffer.getOffset<Status>(respOffset);
+        respOffset += sizeof32(Status);
         request->status = *status;
 
         if (*status == STATUS_OK) {
-
-            const SegmentEntry* entry = responseBuffer.getOffset<SegmentEntry>(
-                                                                    respOffset);
-            respOffset += downCast<uint32_t>(sizeof(SegmentEntry));
+            const MultiReadRpc::Response::Part* part = responseBuffer.getOffset<
+                MultiReadRpc::Response::Part>(respOffset);
+            respOffset += sizeof32(*part);
 
             /*
-            * Need to check checksum
-            * If computed checksum does not match stored checksum for a segment:
-            * Retry getting the data from server.
-            * If it is still bad, ensure (in some way) that data on the server
-            * is corrupted. Then crash that server.
-            * Wait for recovery and then return the data
-            */
+             * TODO(Ankita):
+             *
+             * Need to check checksum
+             * If computed checksum does not match stored checksum for a segment:
+             * Retry getting the data from server.
+             * If it is still bad, ensure (in some way) that data on the server
+             * is corrupted. Then crash that server.
+             * Wait for recovery and then return the data
+             */
 
-            const Object* obj = responseBuffer.getOffset<Object>(respOffset);
-            respOffset += downCast<uint32_t>(sizeof(Object));
-            respOffset += obj->keyLength;
-
-            request->version = obj->version;
-
-            uint32_t dataLength = obj->dataLength(entry->length);
             request->value->construct();
-            responseBuffer.copy(respOffset, dataLength,
-                                new(request->value->get(), APPEND)
-                                char[dataLength]);
-            respOffset += dataLength;
+            void* data = new(request->value->get(), APPEND) char[part->length];
+            responseBuffer.copy(respOffset, part->length, data);
+            request->version = part->version;
+            respOffset += part->length;
         }
     }
 }
@@ -459,7 +446,7 @@ MasterClient::multiRead(std::vector<ReadObject*> requests)
  *      May not be NULL. The new value of the object after incrementing.
  */
 void
-MasterClient::increment(uint64_t tableId, const char* key, uint16_t keyLength,
+MasterClient::increment(uint64_t tableId, const void* key, uint16_t keyLength,
                int64_t incrementValue, const RejectRules* rejectRules,
                uint64_t* version, int64_t* newValue)
 {
@@ -550,7 +537,7 @@ MasterClient::isReplicaNeeded(ServerId backupServerId, uint64_t segmentId)
  * \exception InternalError
  */
 void
-MasterClient::remove(uint64_t tableId, const char* key, uint16_t keyLength,
+MasterClient::remove(uint64_t tableId, const void* key, uint16_t keyLength,
                      const RejectRules* rejectRules, uint64_t* version)
 {
     Buffer req, resp;
@@ -653,7 +640,7 @@ MasterClient::takeTabletOwnership(uint64_t tableId,
 /// Start a write RPC for an object. See MasterClient::write.
 MasterClient::Write::Write(MasterClient& client,
                            uint64_t tableId,
-                           const char* key, uint16_t keyLength,
+                           const void* key, uint16_t keyLength,
                            const void* buf, uint32_t length,
                            const RejectRules* rejectRules,
                            uint64_t* version, bool async)
@@ -679,7 +666,7 @@ MasterClient::Write::Write(MasterClient& client,
 /// Start a write RPC. See MasterClient::write.
 MasterClient::Write::Write(MasterClient& client,
                            uint64_t tableId,
-                           const char* key, uint16_t keyLength,
+                           const void* key, uint16_t keyLength,
                            Buffer& buffer,
                            const RejectRules* rejectRules,
                            uint64_t* version, bool async)
@@ -753,7 +740,7 @@ MasterClient::Write::operator()()
  * \exception InternalError
  */
 void
-MasterClient::write(uint64_t tableId, const char* key, uint16_t keyLength,
+MasterClient::write(uint64_t tableId, const void* key, uint16_t keyLength,
                     const void* buf, uint32_t length,
                     const RejectRules* rejectRules, uint64_t* version,
                     bool async)
