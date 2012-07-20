@@ -102,19 +102,44 @@ main(int argc, char *argv[])
     namespace po = boost::program_options;
     po::options_description configOptions("TestRunner");
     configOptions.add_options()
-        ("help,h", "Produce help message")
+        ("help,h", "Produce this help message")
         ("verbose,v", "Show test progress");
     po::variables_map vm;
-    po::store(po::parse_command_line(argc, argv, configOptions), vm);
+    po::parsed_options parsed = po::command_line_parser(argc, argv).options(
+        configOptions).allow_unregistered().run();
+    po::store(parsed, vm);
     po::notify(vm);
+    std::vector<std::string> unrecognizedOptions = po::collect_unrecognized(
+        parsed.options, po::include_positional);
     if (vm.count("help")) {
         std::cerr << configOptions << std::endl;
+
+        std::cerr << "-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-" << std::endl;
+        std::cerr << "The following arguments are passed to gtest" << std::endl;
+        std::cerr << "-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-" << std::endl;
+
+        int googleArgc = 2;
+        char* googleArgv[] = {
+            strdup(argv[0]),    // Expects an executable name in argv[0] to skip
+            strdup("--help"),
+            NULL
+        };
+        ::testing::InitGoogleTest(&googleArgc, googleArgv);
+
         exit(1);
     }
     progress = vm.count("verbose");
 
-    int googleArgc = 0;
-    char* googleArgv[] = {NULL};
+    int googleArgc = 1 + static_cast<int>(unrecognizedOptions.size());
+    char** googleArgv = new char*[googleArgc + 1];
+    googleArgv[0] = strdup(argv[0]);
+
+    char** nextArgv = &googleArgv[1];
+    foreach (std::string& gtestOption, unrecognizedOptions) {
+        *nextArgv++ = strdup(gtestOption.c_str());
+    }
+    googleArgv[googleArgc] = NULL;
+
     ::testing::InitGoogleTest(&googleArgc, googleArgv);
 
     auto unitTest = ::testing::UnitTest::GetInstance();
