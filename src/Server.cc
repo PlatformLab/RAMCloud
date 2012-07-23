@@ -100,7 +100,7 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
 
     if (config.services.has(MASTER_SERVICE)) {
         LOG(NOTICE, "Master is using %u backups", config.master.numReplicas);
-        master.construct(context, config, serverList);
+        master.construct(context, config, *context.serverList);
         if (bindTransport) {
             bindTransport->addService(*master,
                                       config.localLocator,
@@ -111,7 +111,7 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
     }
 
     if (config.services.has(BACKUP_SERVICE)) {
-        backup.construct(context, config, serverList);
+        backup.construct(context, config, *context.serverList);
         formerServerId = backup->getFormerServerId();
         if (config.backup.mockSpeed == 0) {
             backup->benchmark(backupReadSpeed, backupWriteSpeed);
@@ -128,7 +128,7 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
     }
 
     if (config.services.has(MEMBERSHIP_SERVICE)) {
-        membership.construct(serverId, serverList);
+        membership.construct(serverId, *context.serverList);
         if (bindTransport) {
             bindTransport->addService(*membership,
                                       config.localLocator,
@@ -140,7 +140,7 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
     }
 
     if (config.services.has(PING_SERVICE)) {
-        ping.construct(context, &serverList);
+        ping.construct(context, context.serverList);
         if (bindTransport) {
             bindTransport->addService(*ping,
                                       config.localLocator,

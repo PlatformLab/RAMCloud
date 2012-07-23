@@ -392,7 +392,7 @@ TEST_F(CoordinatorServiceTest, setRuntimeOption) {
 
 TEST_F(CoordinatorServiceTest, setMinOpenSegmentId) {
     CoordinatorClient::setMinOpenSegmentId(context, masterServerId, 10);
-    EXPECT_EQ(10u, context.coordinatorServerList->at(
+    EXPECT_EQ(10u, service->context.coordinatorServerList->at(
             masterServerId).minOpenSegmentId);
 }
 

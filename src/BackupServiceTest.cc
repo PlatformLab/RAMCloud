@@ -38,7 +38,6 @@ class BackupServiceTest : public ::testing::Test {
     Server* server;
     BackupService* backup;
     mode_t oldUmask;
-    ServerList serverList;
     ServerId backupId;
 
     BackupServiceTest()
@@ -48,11 +47,9 @@ class BackupServiceTest : public ::testing::Test {
         , server()
         , backup()
         , oldUmask(umask(0))
-        , serverList(context)
         , backupId(5, 0)
     {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
-        context.serverList = &serverList;
 
         cluster.construct(context);
         config.services = {BACKUP_SERVICE};
@@ -1229,7 +1226,7 @@ TEST_F(BackupServiceTest, gc) {
 
     // Server 10 is up and has a replica written by the current backup process:
     // it should be retained waiting for explicit free from server
-    server->serverList.add({10, 0}, "mock:", {}, 100);
+    server->context.serverList->add({10, 0}, "mock:", {}, 100);
     BackupClient::writeSegment(context, backupId, {10, 0}, 10, 0, NULL, 0,
                                BackupWriteRpc::OPENCLOSE);
 
@@ -1238,13 +1235,13 @@ TEST_F(BackupServiceTest, gc) {
                                BackupWriteRpc::OPENCLOSE);
 
     // Server 12 is crashed and had a replica: should be retained
-    server->serverList.crashed({12, 0}, "mock:", {}, 100);
+    server->context.serverList->crashed({12, 0}, "mock:", {}, 100);
     BackupClient::writeSegment(context, backupId, {12, 0}, 12, 0, NULL, 0,
                                BackupWriteRpc::OPENCLOSE);
 
     // Server 13 is up and has two replica writtens by *a former* backup
     // process: the master is contacted to see whether replicas should be freed.
-    server->serverList.add({13, 0}, "mock:host=m", {}, 100);
+    server->context.serverList->add({13, 0}, "mock:host=m", {}, 100);
     BackupClient::writeSegment(context, backupId, {13, 0}, 13, 0, NULL, 0,
                                BackupWriteRpc::OPENCLOSE);
     backup->findSegmentInfo({13, 0}, 13)->createdByCurrentProcess = false;
@@ -1264,10 +1261,10 @@ TEST_F(BackupServiceTest, gc) {
 }
 
 TEST_F(BackupServiceTest, gcRestartOnFreedReplica) {
-    server->serverList.add({10, 0}, "mock:", {}, 100);
+    server->context.serverList->add({10, 0}, "mock:", {}, 100);
     BackupClient::writeSegment(context, backupId, {10, 0}, 10, 0, NULL, 0,
                                BackupWriteRpc::OPENCLOSE);
-    server->serverList.add({11, 0}, "mock:", {}, 100);
+    server->context.serverList->add({11, 0}, "mock:", {}, 100);
     BackupClient::writeSegment(context, backupId, {11, 0}, 11, 0, NULL, 0,
                                BackupWriteRpc::OPENCLOSE);
 

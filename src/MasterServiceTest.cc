@@ -432,11 +432,10 @@ TEST_F(MasterServiceTest, recover_basics) {
     char* segMem =
         static_cast<char*>(Memory::xmemalign(HERE, segmentSize, segmentSize));
     ServerId serverId(123, 0);
-    ServerList serverList(context);
     foreach (auto* server, cluster.servers)
-        serverList.add(server->serverId, server->config.localLocator,
+        context.serverList->add(server->serverId, server->config.localLocator,
                        server->config.services, 100);
-    ReplicaManager mgr(context, serverList, serverId, 1);
+    ReplicaManager mgr(context, *context.serverList, serverId, 1);
     Segment segment(123, 87, segMem, segmentSize, &mgr);
     segment.sync();
 
@@ -528,11 +527,10 @@ TEST_F(MasterServiceTest, recover) {
     char* segMem =
         static_cast<char*>(Memory::xmemalign(HERE, segmentSize, segmentSize));
     ServerId serverId(123, 0);
-    ServerList serverList(context);
     foreach (auto* server, cluster.servers)
-        serverList.add(server->serverId, server->config.localLocator,
+        context.serverList->add(server->serverId, server->config.localLocator,
                        server->config.services, 100);
-    ReplicaManager mgr(context, serverList, serverId, 1);
+    ReplicaManager mgr(context, *context.serverList, serverId, 1);
     Segment __(123, 88, segMem, segmentSize, &mgr);
     __.sync();
 
@@ -1707,7 +1705,7 @@ TEST_F(MasterServiceFullSegmentSizeTest, write_maximumObjectSize) {
 class MasterRecoverTest : public ::testing::Test {
   public:
     Context context;
-    Tub<MockCluster> cluster;
+    MockCluster cluster;
     const uint32_t segmentSize;
     const uint32_t segmentFrames;
     ServerId backup1Id;
@@ -1716,7 +1714,7 @@ class MasterRecoverTest : public ::testing::Test {
     public:
     MasterRecoverTest()
         : context()
-        , cluster()
+        , cluster(context)
         , segmentSize(1 << 16) // Smaller than usual to make tests faster.
         , segmentFrames(2)
         , backup1Id()
@@ -1724,25 +1722,19 @@ class MasterRecoverTest : public ::testing::Test {
     {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
 
-        cluster.construct(context);
-
         ServerConfig config = ServerConfig::forTesting();
         config.localLocator = "mock:host=backup1";
         config.services = {BACKUP_SERVICE, MEMBERSHIP_SERVICE};
         config.segmentSize = segmentSize;
         config.backup.numSegmentFrames = segmentFrames;
-        backup1Id = cluster->addServer(config)->serverId;
+        backup1Id = cluster.addServer(config)->serverId;
 
         config.localLocator = "mock:host=backup2";
-        backup2Id = cluster->addServer(config)->serverId;
+        backup2Id = cluster.addServer(config)->serverId;
     }
 
     ~MasterRecoverTest()
-    {
-        cluster.destroy();
-        EXPECT_EQ(0,
-            BackupStorage::Handle::resetAllocatedHandlesCount());
-    }
+    { }
 
     static bool
     recoverSegmentFilter(string s)
@@ -1757,7 +1749,7 @@ class MasterRecoverTest : public ::testing::Test {
         config.localLocator = "mock:host=master";
         config.services = {MASTER_SERVICE, MEMBERSHIP_SERVICE};
         config.master.numReplicas = 2;
-        return cluster->addServer(config)->master.get();
+        return cluster.addServer(config)->master.get();
     }
 
     void

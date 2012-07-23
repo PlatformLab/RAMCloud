@@ -31,7 +31,6 @@ struct ReplicaManagerTest : public ::testing::Test {
     ServerId serverId;
     ServerId backup1Id;
     ServerId backup2Id;
-    ServerList serverList;
 
     ReplicaManagerTest()
         : context()
@@ -41,7 +40,6 @@ struct ReplicaManagerTest : public ::testing::Test {
         , serverId(99, 0)
         , backup1Id()
         , backup2Id()
-        , serverList(context)
     {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
 
@@ -55,7 +53,7 @@ struct ReplicaManagerTest : public ::testing::Test {
         config.localLocator = "mock:host=backup2";
         backup2Id = addToServerList(cluster.addServer(config));
 
-        mgr.construct(context, serverList, serverId, 2);
+        mgr.construct(context, *context.serverList, serverId, 2);
         serverId = CoordinatorClient::enlistServer(context, {},
                                                    {MASTER_SERVICE},
                                                    "", 0 , 0);
@@ -63,7 +61,7 @@ struct ReplicaManagerTest : public ::testing::Test {
 
     ServerId addToServerList(Server* server)
     {
-        serverList.add(server->serverId,
+        context.serverList->add(server->serverId,
                        server->config.localLocator,
                        server->config.services,
                        server->config.backup.mockSpeed);
@@ -109,13 +107,14 @@ TEST_F(ReplicaManagerTest, isReplicaNeeded) {
 
     // Is not needed if we know about the backup (and hence the crashes of any
     // of its predecessors and we have no record of this segment.
-    serverList.add({2, 0}, "mock:host=backup1", {BACKUP_SERVICE}, 100);
+    context.serverList->add({2, 0}, "mock:host=backup1", {BACKUP_SERVICE}, 100);
     while (mgr->failureMonitor.tracker.getChange(server, event));
     EXPECT_FALSE(mgr->isReplicaNeeded({2, 0}, 99));
 
     // Is needed if we know the calling backup has crashed; the successor
     // backup will take care of garbage collection.
-    serverList.crashed({2, 0}, "mock:host=backup1", {BACKUP_SERVICE}, 100);
+    context.serverList->crashed({2, 0}, "mock:host=backup1",
+                                {BACKUP_SERVICE}, 100);
     while (mgr->failureMonitor.tracker.getChange(server, event));
     EXPECT_TRUE(mgr->isReplicaNeeded({2, 0}, 99));
 }
@@ -269,7 +268,6 @@ bool filter(string s) {
 TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
     MockRandom __(1);
     const uint64_t logSegs = 4;
-    Context context;
     Log log(context, serverId, logSegs * 8192, 8192, 4298,
             mgr.get(), Log::CLEANER_DISABLED);
     log.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
@@ -301,9 +299,10 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
     EXPECT_FALSE(mgr->isIdle());
 
     TestLog::Enable _(filter);
-    BackupFailureMonitor failureMonitor(context, serverList, mgr.get());
+    BackupFailureMonitor failureMonitor(context, *context.serverList,
+                                        mgr.get());
     failureMonitor.start(&log);
-    serverList.remove(backup1Id);
+    context.serverList->remove(backup1Id);
 
     // Wait for backup recovery to finish.
     while (!mgr->isIdle());
@@ -397,7 +396,9 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
     // Make sure it rolled over to a new log head.
     EXPECT_EQ(2u, log.head->getId());
     // Make sure the minOpenSegmentId was updated.
-    EXPECT_EQ(2u, cluster.coordinator->serverList[serverId].minOpenSegmentId);
+    EXPECT_EQ(2u,
+        cluster.coordinator->context.coordinatorServerList->at(
+        serverId).minOpenSegmentId);
 }
 
 } // namespace RAMCloud

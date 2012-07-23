@@ -34,8 +34,7 @@ TEST_F(ClusterMetricsTest, load) {
     Context context;
     MockCluster cluster(context);
 
-    ServerList serverList(context);
-    PingService pingforCoordinator(context, &serverList);
+    PingService pingforCoordinator(context, context.serverList);
     cluster.transport.addService(pingforCoordinator, "mock:host=coordinator",
             PING_SERVICE);
 
