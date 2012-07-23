@@ -860,17 +860,12 @@ struct PingRpc {
     static const ServiceType service = PING_SERVICE;
     struct Request {
         RpcRequestCommon common;
-        uint64_t nonce;             // The nonce may be used to identify
-                                    // replies to previously transmitted
-                                    // pings.
         uint64_t callerId;          // ServerId of the server issuing the
                                     // ping. May be invalid if coming
                                     // from a client.
     } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;
-        uint64_t nonce;             // This should be identical to what was
-                                    // sent in the request being answered.
         uint64_t serverListVersion; // Version of the server list this server
                                     // has. Used to determine if the issuer of
                                     // the ping request is out of date.
@@ -882,13 +877,10 @@ struct ProxyPingRpc {
     static const ServiceType service = PING_SERVICE;
     struct Request {
         RpcRequestCommon common;
+        uint64_t serverId;             // ServerId of the server to ping.
         uint64_t timeoutNanoseconds;   // Number of nanoseconds to wait for a
                                        // reply before responding negatively to
                                        // this RPC.
-        uint32_t serviceLocatorLength; // Number of bytes in the serviceLocator,
-                                       // including terminating NULL character.
-                                       // The bytes of the service locator
-                                       // follow immediately after this header.
     } __attribute__((packed));
     struct Response {
         RpcResponseCommon common;

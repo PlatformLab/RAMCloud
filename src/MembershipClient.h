@@ -23,10 +23,42 @@
 
 #include "Client.h"
 #include "ServerId.h"
+#include "ServerIdRpcWrapper.h"
 #include "ServerList.pb.h"
 #include "Transport.h"
 
 namespace RAMCloud {
+
+/**
+ * Encapsulates the state of a MembershipClient::setServerList
+ * request, allowing it to execute asynchronously.
+ */
+class SetServerListRpc2 : public ServerIdRpcWrapper {
+    public:
+    SetServerListRpc2(Context& context, ServerId serverId,
+            ProtoBuf::ServerList& list);
+    ~SetServerListRpc2() {}
+    /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
+    void wait() {waitAndCheckErrors();}
+
+    PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(SetServerListRpc2);
+};
+
+/**
+ * Encapsulates the state of a MembershipClient::updateServerList
+ * request, allowing it to execute asynchronously.
+ */
+class UpdateServerListRpc2 : public ServerIdRpcWrapper {
+    public:
+    UpdateServerListRpc2(Context& context, ServerId serverId,
+            ProtoBuf::ServerList& update);
+    ~UpdateServerListRpc2() {}
+    bool wait();
+
+    PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(UpdateServerListRpc2);
+};
 
 /**
  * This class implements the client-side interface to the membership service,
@@ -44,12 +76,13 @@ namespace RAMCloud {
  */
 class MembershipClient : public Client {
   public:
+    static void setServerList(Context& context, ServerId serverId,
+            ProtoBuf::ServerList& list);
+    static bool updateServerList(Context& context, ServerId serverId,
+            ProtoBuf::ServerList& changes);
+
     explicit MembershipClient(Context& context) : context(context) {}
     ServerId getServerId(Transport::SessionRef session);
-    void setServerList(const char* serviceLocator,
-                       ProtoBuf::ServerList& list);
-    bool updateServerList(const char* serviceLocator,
-                          ProtoBuf::ServerList& update);
 
   private:
     /// Shared RAMCloud information.

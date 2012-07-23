@@ -307,20 +307,26 @@ RpcWrapper::testSend(Transport::SessionRef session)
 }
 
 /**
- * This method is typically invoked by wrapper subclasses. It waits for a
- * valid response to arrive, and may attempt to retry the RPC after certain
- * failures. Once this method returns there is valid response data in
- * #response for the wrapper to process.
+ * This method is typically invoked by wrapper subclasses. It waits for the
+ * RPC to complete (either with a response, an unrecoverable failure, or a
+ * timeout) and may attempt to retry the RPC after certain failures.
  *
  * \param dispatch
  *      Dispatch to use for polling while waiting.
+ * \param abortTime
+ *      If Cycles::rdtsc() exceeds this time then return even if the
+ *      RPC has not completed. All ones means wait forever.
+ *
+ * \return
+ *      The return value is true if the RPC completed or failed, and false if
+ *      abortTime passed with no response yet.
  *
  * \throw RpcCanceledException
  *      The RPC has previously been canceled, so it doesn't make sense
  *      to wait for it.
  */
-void
-RpcWrapper::waitInternal(Dispatch& dispatch)
+bool
+RpcWrapper::waitInternal(Dispatch& dispatch, uint64_t abortTime)
 {
     // When invoked in RAMCloud servers there is a separate dispatch thread,
     // so we just busy-wait here. When invoked on RAMCloud clients we're in
@@ -330,9 +336,12 @@ RpcWrapper::waitInternal(Dispatch& dispatch)
     while (!isReady()) {
         if (isDispatchThread)
             dispatch.poll();
+        if (dispatch.currentTime > abortTime)
+            return false;
     }
     if (getState() == CANCELED)
         throw RpcCanceledException(HERE);
+    return true;
 }
 
 } // namespace RAMCloud

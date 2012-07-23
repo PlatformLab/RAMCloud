@@ -492,7 +492,6 @@ CoordinatorServerList::sendMembershipUpdate(ProtoBuf::ServerList& update,
 
     Tub<ProtoBuf::ServerList> serializedServerList;
 
-    MembershipClient client(context);
     for (size_t i = 0; i < serverList.size(); i++) {
         Tub<Entry>& entry = serverList[i].entry;
         if (!entry ||
@@ -505,7 +504,8 @@ CoordinatorServerList::sendMembershipUpdate(ProtoBuf::ServerList& update,
         bool succeeded = false;
         try {
             succeeded =
-                client.updateServerList(entry->serviceLocator.c_str(), update);
+                MembershipClient::updateServerList(context, entry->serverId,
+                                                   update);
         } catch (const TransportException& e) {
             // It's suspicious that pushing the update failed, but
             // perhaps it's best to wait to try the full list push
@@ -524,7 +524,7 @@ CoordinatorServerList::sendMembershipUpdate(ProtoBuf::ServerList& update,
                 serialize(lock, *serializedServerList);
             }
             try {
-                client.setServerList(entry->serviceLocator.c_str(),
+                MembershipClient::setServerList(context, entry->serverId,
                                      *serializedServerList);
             } catch (const TransportException& e) {
                 // TODO(stutsman): Things aren't looking good for this

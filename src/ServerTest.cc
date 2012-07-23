@@ -31,14 +31,12 @@ class ServerTest: public ::testing::Test {
     MockCluster cluster;
     ServerConfig config;
     Tub<Server> server;
-    PingClient ping;
 
     ServerTest()
         : context()
         , cluster(context)
         , config(ServerConfig::forTesting())
         , server()
-        , ping(context)
     {
         config.services = {MASTER_SERVICE, BACKUP_SERVICE, MEMBERSHIP_SERVICE,
                            PING_SERVICE};
@@ -52,11 +50,8 @@ class ServerTest: public ::testing::Test {
 
 TEST_F(ServerTest, startForTesting) {
     TestLog::Enable _;
-    EXPECT_THROW(ping.ping(config.localLocator.c_str(), ServerId(),
-                           0, 100 * 1000),
-                 TransportException);
     server->startForTesting(cluster.transport);
-    ping.ping(config.localLocator.c_str(), ServerId(), 0, 100 * 1000);
+    PingClient::ping(context, server->serverId, ServerId());
 }
 
 // run is too much of a pain to and not that interesting.

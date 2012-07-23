@@ -363,10 +363,8 @@ CoordinatorServerManager::sendServerList(ServerId serverId)
     ProtoBuf::ServerList serializedServerList;
     service.serverList.serialize(serializedServerList);
 
-    MembershipClient client(service.context);
-    client.setServerList(
-            service.serverList[serverId].serviceLocator.c_str(),
-            serializedServerList);
+    MembershipClient::setServerList(service.context, serverId,
+        serializedServerList);
 }
 
 void
@@ -452,20 +450,14 @@ CoordinatorServerManager::verifyServerFailure(ServerId serverId) {
         return true;
 
     const string& serviceLocator = service.serverList[serverId].serviceLocator;
-    try {
-        uint64_t nonce = generateRandom();
-        PingClient pingClient(service.context);
-        pingClient.ping(serviceLocator.c_str(), ServerId(),
-                        nonce, TIMEOUT_USECS * 1000);
+    PingRpc2 pingRpc(service.context, serverId, ServerId());
+    if (pingRpc.wait(TIMEOUT_USECS * 1000) != ~0UL) {
         LOG(NOTICE, "False positive for server id %lu (\"%s\")",
                     *serverId, serviceLocator.c_str());
         return false;
-    } catch (TransportException& e) {
-    } catch (TimeoutException& e) {
     }
     LOG(NOTICE, "Verified host failure: id %lu (\"%s\")",
         *serverId, serviceLocator.c_str());
-
     return true;
 }
 

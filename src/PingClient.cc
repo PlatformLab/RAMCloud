@@ -17,40 +17,198 @@
 #include "Cycles.h"
 #include "Dispatch.h"
 #include "PingClient.h"
+#include "ShortMacros.h"
 #include "TransportManager.h"
 
 namespace RAMCloud {
 
 /**
- * Tells the host to print an error message and exit with a status of zero.
- * The host will not respond to this RPC, so the caller needs to cancel the RPC
- * to reclaim its resources. However, the caller should not cancel the RPC
- * until it is sure that the host has exited, by querying the coordinator.
- * Otherwise, there could be a race where the RPC is still in the client's
- * queue when it is canceled.
+ * Issue a trivial RPC to test that a server exists and is responsive.
  *
- * \warning This should only be used for testing!
+ * \param context
+ *      Overall information about this RAMCloud server.
+ * \param targetId
+ *      Identifies the server to which the RPC should be sent.
+ * \param callerId
+ *      Used to inform the pinged server of which server is sending the ping.
+ *      Used on the pingee side for debug logging.
+ *      Clients and coordinators should use an invalid ServerId (ServerID()).
  *
- * \param client 
- *      The PingClient instance over which the RPC should be issued.
- * \param serviceLocator
- *      The service locator of the host you wish to kill.
+ * \return
+ *      If \a serverId had a server list, then its version number is returned;
+ *      otherwise zero is returned.
  *
- * \exception InternalError
- */
-PingClient::Kill::Kill(PingClient& client, const char *serviceLocator)
-    : client(client)
-    , requestBuffer()
-    , responseBuffer()
-    , state()
+ * \throw ServerDoesntExistException
+ *      The intended server for this RPC is not part of the cluster;
+ *      if it ever existed, it has since crashed.
+ */ 
+uint64_t
+PingClient::ping(Context& context, ServerId targetId, ServerId callerId)
 {
-    responseBuffer.reset();
-    client.allocHeader<KillRpc>(requestBuffer);
-    Transport::SessionRef session =
-            client.context.transportManager->getSession(serviceLocator);
-    state = client.send<KillRpc>(session,
-                                 requestBuffer,
-                                 responseBuffer);
+    PingRpc2 rpc(context, targetId, callerId);
+    return rpc.wait();
+}
+
+/**
+ * Constructor for PingRpc2: initiates an RPC in the same way as
+ * #PingClient::ping, but returns once the RPC has been initiated,
+ * without waiting for it to complete.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server.
+ * \param targetId
+ *      Identifies the server to which the RPC should be sent.
+ * \param callerId
+ *      Used to inform the pinged server of which server is sending the ping.
+ *      Used on the pingee side for debug logging.
+ *      Clients and coordinators should use an invalid ServerId (ServerID()).
+ */
+PingRpc2::PingRpc2(Context& context, ServerId targetId, ServerId callerId)
+    : ServerIdRpcWrapper(context, targetId,
+            sizeof(WireFormat::Ping::Response))
+{
+    WireFormat::Ping::Request& reqHdr(
+            allocHeader<WireFormat::Ping>());
+    reqHdr.callerId = callerId.getId();
+    send();
+}
+
+/**
+ * Wait for a ping RPC to complete.
+ *
+ * \return
+ *      If the target server had a server list, then its version number
+ *      is returned; otherwise zero is returned.
+ *
+ * \throw ServerDoesntExistException
+ *      The target server for this RPC is not part of the cluster;
+ *      if it ever existed, it has since crashed.
+ */
+uint64_t
+PingRpc2::wait()
+{
+    waitAndCheckErrors();
+    const WireFormat::Ping::Response& respHdr(
+            getResponseHeader<WireFormat::Ping>());
+    return respHdr.serverListVersion;
+}
+
+/**
+ * Wait for a ping RPC to complete, but only wait for a given amount of
+ * time, and return if no response is received by then.
+ *
+ * \param timeoutNanoseconds
+ *      If no response is received within this many nanoseconds, then
+ *      give up.
+ *
+ * \return
+ *      If no response was received within \c timeoutNanoseconds, or if
+ *      we reach a point where the target server is no longer part of the
+ *      cluster, then all ones is returned (note: this method will not
+ *      throw ServerDoesntExistsException). If the target server responds
+ *      and it has a server list, then the version number for its server
+ *      list is returned. If the server responded but has no server list,
+ *      then zero is returned.
+ */
+uint64_t
+PingRpc2::wait(uint64_t timeoutNanoseconds)
+{
+    uint64_t abortTime = Cycles::rdtsc() +
+            Cycles::fromNanoseconds(timeoutNanoseconds);
+    if (!waitInternal(*context.dispatch, abortTime)) {
+        TEST_LOG("timeout");
+        return ~0UL;
+    }
+    if (serverDown) {
+        TEST_LOG("server doesn't exist");
+        return ~0UL;
+    }
+    if (responseHeader->status != STATUS_OK)
+        ClientException::throwException(HERE, responseHeader->status);
+    const WireFormat::Ping::Response& respHdr(
+            getResponseHeader<WireFormat::Ping>());
+    return respHdr.serverListVersion;
+}
+
+/**
+ * Ask one service to ping another service (useful for checking possible
+ * connectivity issues).
+ *
+ * \param context
+ *      Overall information about this RAMCloud server.
+ * \param proxyId
+ *      Identifies the server to which the RPC should be sent; this server
+ *      will ping \a targetId.
+ * \param targetId
+ *      Identifies the server that \a proxyId will ping.
+ * \param timeoutNanoseconds
+ *      The maximum amount of time (in nanoseconds) that \a proxyId
+ *      will wait for \a targetId to respond.
+ *
+ * \result
+ *      The amount of time it took \a targetId to respond to the ping
+ *      request from \a proxyId.  If no response was received within
+ *      \a timeoutNanoseconds, then all ones is returned.
+ *
+ * \throw ServerDoesntExistException
+ *      Generated if \a proxyId is not part of the cluster; if it ever
+ *      existed, it has since crashed.
+ */ 
+uint64_t
+PingClient::proxyPing(Context& context, ServerId proxyId, ServerId targetId,
+        uint64_t timeoutNanoseconds)
+{
+    ProxyPingRpc2 rpc(context, proxyId, targetId, timeoutNanoseconds);
+    return rpc.wait();
+}
+
+/**
+ * Constructor for ProxyPingRpc2: initiates an RPC in the same way as
+ * #PingClient::proxyPing, but returns once the RPC has been initiated,
+ * without waiting for it to complete.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server.
+ * \param proxyId
+ *      Identifies the server to which the RPC should be sent; this server
+ *      will ping \a targetId.
+ * \param targetId
+ *      Identifies the server that \a proxyId will ping.
+ * \param timeoutNanoseconds
+ *      The maximum amount of time (in nanoseconds) that \a proxyId
+ *      will wait for \a targetId to respond.
+ */
+ProxyPingRpc2::ProxyPingRpc2(Context& context, ServerId proxyId,
+        ServerId targetId, uint64_t timeoutNanoseconds)
+    : ServerIdRpcWrapper(context, proxyId,
+            sizeof(WireFormat::ProxyPing::Response))
+{
+    WireFormat::ProxyPing::Request& reqHdr(
+            allocHeader<WireFormat::ProxyPing>());
+    reqHdr.serverId = targetId.getId();
+    reqHdr.timeoutNanoseconds = timeoutNanoseconds;
+    send();
+}
+
+/**
+ * Wait for a proxyPing RPC to complete.
+ *
+ * \return
+ *      The amount of time it took the target server to respond to the ping
+ *      request.  If the proxy didn't receive a response within the timeout
+ *      period, then all ones is returned.
+ *
+ * \throw ServerDoesntExistException
+ *      The target server for this RPC is not part of the cluster;
+ *      if it ever existed, it has since crashed.
+ */
+uint64_t
+ProxyPingRpc2::wait()
+{
+    waitAndCheckErrors();
+    const WireFormat::ProxyPing::Response& respHdr(
+            getResponseHeader<WireFormat::ProxyPing>());
+    return respHdr.replyNanoseconds;
 }
 
 /**
@@ -78,132 +236,6 @@ PingClient::getMetrics(const char* serviceLocator)
     ServerMetrics metrics;
     metrics.load(resp);
     return metrics;
-}
-
-/**
- * Issues a trivial RPC to test that a server exists and is responsive.
- *
- * \param serviceLocator
- *      Identifies the server to ping.
- * \param callerId
- *      Used to inform the pinged server of which server is sending the ping.
- *      Used on the pingee side for debug logging.
- *      Clients and coordinators should use an invalid ServerId (ServerID()).
- * \param nonce
- *      Arbitrary 64-bit value to pass to the server; the server will return
- *      this value in its response.
- * \param timeoutNanoseconds
- *      The maximum amount of time to wait for a response (in nanoseconds).
- * \param[out] serverListVersion
- *      If a ServerList was associated with the pinged server's PingService,
- *      then its version will be returned here. Otherwise, the remote
- *      PingService will return 0.
- * \return
- *      The value returned by the server, which should be the same as \a nonce
- *      (this method does not verify that the value does in fact match).
- *
- * \throw TimeoutException
- *      The server did not respond within \a timeoutNanoseconds.
- */
-uint64_t
-PingClient::ping(const char* serviceLocator,
-                 ServerId callerId,
-                 uint64_t nonce,
-                 uint64_t timeoutNanoseconds,
-                 uint64_t* serverListVersion)
-{
-    // Fill in the request.
-    Buffer req, resp;
-    PingRpc::Request& reqHdr(allocHeader<PingRpc>(req));
-    reqHdr.callerId = callerId.getId();
-    reqHdr.nonce = nonce;
-
-    // Send the request and wait for a response.
-    Transport::SessionRef session =
-            context.transportManager->getSession(serviceLocator);
-    AsyncState state = send<PingRpc>(session, req, resp);
-    uint64_t abortTime = Cycles::rdtsc() + Cycles::fromNanoseconds(
-            timeoutNanoseconds);
-    while (true) {
-        if (context.dispatch->isDispatchThread())
-            context.dispatch->poll();
-        if (state.isReady())
-            break;
-        if (Cycles::rdtsc() >= abortTime) {
-            state.cancel();
-            throw TimeoutException(HERE);
-        }
-    }
-    const PingRpc::Response& respHdr(recv<PingRpc>(state));
-
-    // Process the response.
-    checkStatus(HERE);
-
-    if (serverListVersion != NULL)
-        *serverListVersion = respHdr.serverListVersion;
-    return respHdr.nonce;
-}
-
-/**
- * Ask one service to ping another service (useful for checking possible
- * connectivity issues).
- *
- * \param serviceLocator1
- *      The proxy ping request will be sent to this server.
- * \param serviceLocator2
- *      When \a serviceLocator1 receives the proxy ping request, it will
- *      attempt to ping this server.
- * \param timeoutNanoseconds1
- *      The maximum amount of time (in nanoseconds) that we will wait
- *      for \a serviceLocator1 to respond (should be greater than
- *      \a timeoutNanoseconds2)
- * \param timeoutNanoseconds2
- *      The maximum amount of time (in nanoseconds) that \a serviceLocator1
- *      will wait for \a serviceLocator2 to respond.
- * \result
- *      The amount of time it took \a serviceLocator2 to respond to the ping
- *      request from \a serviceLocator1.  If no response was received within
- *      \a timeoutNanoseconds2, or if the ping response doesn't contain the
- *      expected nonce, then -1 is returned.
- *
- * \throw TimeoutException
- *      \a serviceLocator1 did not respond within \a timeoutNanoseconds1.
- */
-uint64_t
-PingClient::proxyPing(const char* serviceLocator1,
-                      const char* serviceLocator2,
-                      uint64_t timeoutNanoseconds1,
-                      uint64_t timeoutNanoseconds2)
-{
-    // Fill in the request.
-    Buffer req, resp;
-    ProxyPingRpc::Request& reqHdr(allocHeader<ProxyPingRpc>(req));
-    reqHdr.timeoutNanoseconds = timeoutNanoseconds2;
-    uint32_t length = downCast<uint32_t>(strlen(serviceLocator2) + 1);
-    reqHdr.serviceLocatorLength = length;
-    memcpy(new(&req, APPEND) char[length], serviceLocator2, length);
-
-    // Send the request and wait for a response.
-    Transport::SessionRef session =
-            context.transportManager->getSession(serviceLocator1);
-    AsyncState state = send<ProxyPingRpc>(session, req, resp);
-    uint64_t abortTime = Cycles::rdtsc() + Cycles::fromNanoseconds(
-            timeoutNanoseconds1);
-    while (true) {
-        if (context.dispatch->isDispatchThread())
-            context.dispatch->poll();
-        if (state.isReady())
-            break;
-        if (Cycles::rdtsc() >= abortTime) {
-            state.cancel();
-            throw TimeoutException(HERE);
-        }
-    }
-    const ProxyPingRpc::Response& respHdr(recv<ProxyPingRpc>(state));
-
-    // Process the response.
-    checkStatus(HERE);
-    return respHdr.replyNanoseconds;
 }
 
 }  // namespace RAMCloud

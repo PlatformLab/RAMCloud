@@ -204,9 +204,9 @@ class AbstractServerList {
     /// are being handled. Provides monitor-style protection for all operations
     /// on the ServerId map. A Lock for this mutex MUST be held to read or
     /// modify any state in the server list.
-    mutable std::mutex mutex;
+    mutable std::recursive_mutex mutex;
 
-    typedef std::lock_guard<std::mutex> Lock;
+    typedef std::lock_guard<std::recursive_mutex> Lock;
 };
 
 } //namespace RAMCloud

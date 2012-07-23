@@ -33,6 +33,7 @@ MockTransport::MockTransport(Context& context,
             , outputLog()
             , status(Status(STATUS_MAX_VALUE+1))
             , inputMessages()
+            , lastNotifier(NULL)
             , serverSendCount(0)
             , clientSendCount(0)
             , clientRecvCount(0)
@@ -164,6 +165,7 @@ MockTransport::MockSession::sendRequest(Buffer* request, Buffer* response,
             notifier->completed();
         }
     }
+    transport->lastNotifier = notifier;
 }
 
 /**

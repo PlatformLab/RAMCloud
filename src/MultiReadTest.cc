@@ -264,7 +264,7 @@ TEST_F(MultiReadTest, startRpcs_tooManyObjectsForOneRpc) {
     EXPECT_STREQ("STATUS_OBJECT_DOESNT_EXIST", statusToSymbol(object5.status));
 }
 
-// Helper function that runs in a separate thread for the following tess.
+// Helper function that runs in a separate thread for the following test.
 static void multiReadWaitThread(MultiRead* request) {
     request->wait();
     TEST_LOG("request finished");

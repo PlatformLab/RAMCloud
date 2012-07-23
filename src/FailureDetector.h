@@ -93,10 +93,6 @@ class FailureDetector {
     /// Set by halt() to ask the failure detector thread to exit.
     bool threadShouldExit;
 
-    // Service Clients
-    /// PingClient instance
-    PingClient           pingClient;
-
     /// ServerList whose consistency we will check against random nodes that
     /// we ping.
     ServerList&          serverList;

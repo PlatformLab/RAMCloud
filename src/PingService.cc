@@ -84,13 +84,11 @@ PingService::ping(const PingRpc::Request& reqHdr,
 {
     if (ServerId(reqHdr.callerId) == ServerId()) {
         LOG(DEBUG, "Received ping request from unknown endpoint "
-            "(perhaps the coordinator or a client) with nonce %lx",
-            reqHdr.nonce);
+            "(perhaps the coordinator or a client)");
     } else {
-        LOG(DEBUG, "Received ping request from server %lu with nonce %lx",
-            reqHdr.callerId, reqHdr.nonce);
+        LOG(DEBUG, "Received ping request from server %lu",
+            reqHdr.callerId);
     }
-    respHdr.nonce = reqHdr.nonce;
     respHdr.serverListVersion = 0;
     if (serverList != NULL)
         respHdr.serverListVersion = serverList->getVersion();
@@ -106,27 +104,13 @@ PingService::proxyPing(const ProxyPingRpc::Request& reqHdr,
              ProxyPingRpc::Response& respHdr,
              Rpc& rpc)
 {
-    PingClient client(context);
-    const char* serviceLocator = getString(rpc.requestPayload,
-                                           sizeof(ProxyPingRpc::Request),
-                                           reqHdr.serviceLocatorLength);
     uint64_t start = Cycles::rdtsc();
-    try {
-        uint64_t result = client.ping(serviceLocator, ServerId(), 99999,
-                                      reqHdr.timeoutNanoseconds);
-        if (result == 99999U) {
-            // We got an incorrect response; treat this as if there were
-            // no response.
-            respHdr.replyNanoseconds = Cycles::toNanoseconds(Cycles::rdtsc() -
-                    start);
-        } else {
-            respHdr.replyNanoseconds = -1;
-        }
+    PingRpc2 pingRpc(context, ServerId(reqHdr.serverId), ServerId());
+    respHdr.replyNanoseconds = ~0UL;
+    if (pingRpc.wait(reqHdr.timeoutNanoseconds) != ~0UL) {
+        respHdr.replyNanoseconds = Cycles::toNanoseconds(
+                Cycles::rdtsc() - start);
     }
-    catch (TimeoutException& e) {
-        respHdr.replyNanoseconds = -1;
-    }
-
 }
 
 /**

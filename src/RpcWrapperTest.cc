@@ -244,13 +244,26 @@ TEST_F(RpcWrapperTest, simpleWait_errorStatus) {
     EXPECT_EQ("STATUS_UNIMPLEMENTED_REQUEST", message);
 }
 
+TEST_F(RpcWrapperTest, waitInternal_timeout) {
+    TestLog::Enable _;
+    RpcWrapper wrapper(4);
+    wrapper.session = session;
+    wrapper.send();
+    uint64_t start = Cycles::rdtsc();
+    EXPECT_FALSE(wrapper.waitInternal(*context.dispatch,
+            start + Cycles::fromSeconds(100e-06)));
+    double elapsed = 1e06 * Cycles::toSeconds(Cycles::rdtsc() - start);
+    EXPECT_LE(100.0, elapsed);
+    EXPECT_GE(2000.0, elapsed);
+}
+
 // Helper function that runs in a separate thread for the following tess.
 static void waitTestThread(Dispatch* dispatch, RpcWrapper* wrapper) {
     wrapper->waitInternal(*dispatch);
     TEST_LOG("wrapper finished");
 }
 
-TEST_F(RpcWrapperTest, waitInternal_normalCompletion) {
+TEST_F(RpcWrapperTest, waitInternal_delayedCompletion) {
     TestLog::Enable _;
     RpcWrapper wrapper(4);
     wrapper.session = session;
@@ -277,12 +290,22 @@ TEST_F(RpcWrapperTest, waitInternal_canceled) {
     wrapper.state = RpcWrapper::RpcState::CANCELED;
     string message = "no exception";
     try {
-        wrapper.waitInternal(*context.dispatch);
+        EXPECT_TRUE(wrapper.waitInternal(*context.dispatch));
     }
     catch (RpcCanceledException& e) {
         message = "RpcCanceledException";
     }
     EXPECT_EQ("RpcCanceledException", message);
+}
+
+TEST_F(RpcWrapperTest, waitInternal_simpleSuccess) {
+    TestLog::Enable _;
+    RpcWrapper wrapper(4);
+    wrapper.session = session;
+    wrapper.send();
+    setStatus(wrapper.response, Status::STATUS_OK);
+    wrapper.completed();
+    EXPECT_TRUE(wrapper.waitInternal(*context.dispatch));
 }
 
 }  // namespace RAMCloud

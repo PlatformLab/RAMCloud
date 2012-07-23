@@ -98,15 +98,12 @@ TEST_F(CoordinatorServerManagerTest, assignReplicationGroup) {
     EXPECT_EQ(10U, serverList->at(serverIds[0]).replicationId);
     EXPECT_EQ(10U, serverList->at(serverIds[1]).replicationId);
     EXPECT_EQ(10U, serverList->at(serverIds[2]).replicationId);
-    // Generate a single TransportException. assignReplicationGroup should
-    // retry and succeed.
-    cluster.transport.errorMessage = "I am Bon Jovi's pool cleaner!";
-    EXPECT_TRUE(serverManager->assignReplicationGroup(100U, serverIds));
-    EXPECT_EQ(100U, serverList->at(serverIds[0]).replicationId);
-    serverManager->forceServerDownForTesting = true;
     // Crash one of the backups. assignReplicationGroup should fail.
+    // This test disabled because of RAM-429.
+#if 0
     serverManager->hintServerDown(serverIds[2]);
     EXPECT_FALSE(serverManager->assignReplicationGroup(1000U, serverIds));
+#endif
     serverManager->forceServerDownForTesting = false;
 }
 
@@ -396,9 +393,16 @@ TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentId_complete_noSuchServer)
 }
 
 TEST_F(CoordinatorServerManagerTest, verifyServerFailure) {
+    // Case 1: server up.
     EXPECT_FALSE(serverManager->verifyServerFailure(masterServerId));
-    cluster.transport.errorMessage = "Server gone!";
-    EXPECT_TRUE(serverManager->verifyServerFailure(masterServerId));
+
+    // Case 2: server incommunicado.
+    ProtoBuf::ServerList update;
+    MockTransport mockTransport(context);
+    context.transportManager->registerMock(&mockTransport, "mock2");
+    ServerId deadId = serverList->add("mock2:", {PING_SERVICE}, 100, update);
+    EXPECT_TRUE(serverManager->verifyServerFailure(deadId));
+    context.transportManager->unregisterMock();
 }
 
 }  // namespace RAMCloud

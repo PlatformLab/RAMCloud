@@ -53,7 +53,6 @@ FailureDetector::FailureDetector(Context& context,
       serverTracker(context, serverList),
       thread(),
       threadShouldExit(false),
-      pingClient(context),
       serverList(serverList),
       staleServerListSuspected(false),
       staleServerListVersion(0),
@@ -152,51 +151,33 @@ FailureDetector::pingRandomServer()
         return;
     }
 
-    uint64_t nonce = generateRandom();
-
     string locator;
     try {
         locator = serverList.getLocator(pingee);
         uint64_t serverListVersion;
-        LOG(DEBUG, "Sending ping with nonce %lx to server %lu (%s)",
-                    nonce, pingee.getId(), locator.c_str());
-        CycleCounter<> cycleCounter;
-        pingClient.ping(locator.c_str(), ourServerId,
-                        nonce, TIMEOUT_USECS * 1000, &serverListVersion);
-        LOG(DEBUG, "Ping with nonce %lx succeeded to server %lu (%s) in %lu ns",
-            nonce, pingee.getId(), locator.c_str(),
-            Cycles::toNanoseconds(cycleCounter.stop()));
-
+        LOG(DEBUG, "Sending ping to server %lu (%s)", pingee.getId(),
+            locator.c_str());
+        uint64_t start = Cycles::rdtsc();
+        PingRpc2 rpc(context, pingee, ourServerId);
+        serverListVersion = rpc.wait(TIMEOUT_USECS *1000);
+        if (serverListVersion == ~0LU) {
+            // Server appears to have crashed; notify the coordinator.
+            LOG(WARNING, "Ping timeout to server id %lu (locator \"%s\")",
+                pingee.getId(), locator.c_str());
+            CoordinatorClient::hintServerDown(context, pingee);
+            return;
+        }
+        LOG(DEBUG, "Ping succeeded to server %lu (%s) in %.1f us",
+            pingee.getId(), locator.c_str(),
+            1e06*Cycles::toSeconds(Cycles::rdtsc() - start));
         checkServerListVersion(serverListVersion);
-    } catch (ServerListException &sle) {
+    } catch (const ServerListException &sle) {
         // This isn't an error. It's just a race between this thread and
         // the membership service. It should be quite uncommon, so just
         // bail on this round and ping again next time.
         LOG(NOTICE, "Tried to ping locator \"%s\", but id %lu was stale",
             locator.c_str(), *pingee);
-    } catch (TimeoutException &te) {
-        alertCoordinator(pingee, locator);
-    } catch (TransportException &te) {
-        alertCoordinator(pingee, locator);
     }
-}
-
-/**
- * Tell the coordinator that we failed to get a timely ping response.
- *
- * \param serverId
- *      ServerId of the server that is believed to have failed.
- *
- * \param locator
- *      Locator string of the server that is believed to have failed.
- *      Used only for logging purposes.
- */
-void
-FailureDetector::alertCoordinator(ServerId serverId, string locator)
-{
-    LOG(WARNING, "Ping timeout to server id %lu (locator \"%s\")",
-        *serverId, locator.c_str());
-    CoordinatorClient::hintServerDown(context, serverId);
 }
 
 /**

@@ -113,6 +113,9 @@ class MockTransport : public Transport {
      */
     std::queue<const char*> inputMessages;
 
+    // Notifier from the last call to sendRequest.
+    RpcNotifier *lastNotifier;
+
     // The following variables count calls to various methods, for use
     // by tests.
     uint32_t serverSendCount;

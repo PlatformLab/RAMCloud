@@ -152,7 +152,7 @@ class RpcWrapper : public Transport::RpcNotifier {
     void simpleWait(Dispatch& dispatch);
     const char* stateString();
     void testSend(Transport::SessionRef session);
-    void waitInternal(Dispatch& dispatch);
+    bool waitInternal(Dispatch& dispatch, uint64_t abortTime = ~0UL);
 
     /// Request and response messages.  In some cases the response buffer
     /// is provided by the wrapper (e.g., for reads); if not, response refers

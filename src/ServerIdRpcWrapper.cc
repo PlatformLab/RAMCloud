@@ -62,6 +62,14 @@ ServerIdRpcWrapper::handleTransportError()
 
     // There was a transport-level failure. The transport should already
     // have logged this. Retry unless the server is down.
+
+    if (serverDown) {
+        // We've already done everything we can; no need to repeat the
+        // work (returning now eliminates some duplicate log messages that
+        // would occur during testing otherwise).
+        return true;
+    }
+
     bool up;
     try {
         if (context.serverList != NULL) {

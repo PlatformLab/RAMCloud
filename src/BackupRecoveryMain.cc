@@ -110,9 +110,7 @@ try
     LOG(NOTICE, "Killing %s", session->getServiceLocator().c_str());
 
     CycleCounter<> backupRecoveryCycles;
-    PingClient pingClient(context);
-    PingClient::Kill killOp(pingClient, session->getServiceLocator().c_str());
-    killOp.cancel();
+    KillRpc2 killOp(client, lastBackupTable, "0", 1);
 
     // Ensure recovery of the master portion completed.
     client.objectFinder.waitForTabletDown();

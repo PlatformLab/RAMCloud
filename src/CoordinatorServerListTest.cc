@@ -48,6 +48,7 @@ class CoordinatorServerListTest : public ::testing::Test {
         , sl(context)
         , tr()
     {
+        context.coordinatorServerList = &sl;
     }
     DISALLOW_COPY_AND_ASSIGN(CoordinatorServerListTest);
 };
@@ -404,9 +405,9 @@ TEST_F(CoordinatorServerListTest, sendMembershipUpdate) {
     transport.outputLog = "";
     sl.sendMembershipUpdate(update, {});
 
-    EXPECT_EQ("clientSend: 0x40024 9 273 0 /0 | " // Update to server 5.
-              "clientSend: 0x40023 9 17 0 /0 | "  // Set list to server 5.
-              "clientSend: 0x40024 9 273 0 /0",   // Update to server 4.
+    EXPECT_EQ("sendRequest: 0x40024 9 273 0 /0 | " // Update to server 5.
+              "sendRequest: 0x40023 9 17 0 /0 | "  // Set list to server 5.
+              "sendRequest: 0x40024 9 273 0 /0",   // Update to server 4.
               transport.outputLog);
     EXPECT_EQ("sendMembershipUpdate: Server 4294967297 had lost an update. "
                   "Sending whole list. | "

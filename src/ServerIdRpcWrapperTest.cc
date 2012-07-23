@@ -56,6 +56,18 @@ class ServerIdRpcWrapperTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(ServerIdRpcWrapperTest);
 };
 
+TEST_F(ServerIdRpcWrapperTest, handleTransportError_serverAlreadyDown) {
+    TestLog::Enable _;
+    ServerIdRpcWrapper wrapper(context, id, 4);
+    wrapper.request.fillFromString("100");
+    wrapper.send();
+    wrapper.state = RpcWrapper::RpcState::FAILED;
+    wrapper.serverDown = true;
+    EXPECT_TRUE(wrapper.isReady());
+    EXPECT_STREQ("FAILED", wrapper.stateString());
+    EXPECT_EQ("", TestLog::get());
+}
+
 TEST_F(ServerIdRpcWrapperTest, handleTransportError_serverUp) {
     TestLog::Enable _;
     ServerIdRpcWrapper wrapper(context, id, 4);
