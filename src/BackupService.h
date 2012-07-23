@@ -42,11 +42,13 @@
 #include "CycleCounter.h"
 #include "Fence.h"
 #include "LogTypes.h"
+#include "MasterClient.h"
 #include "RawMetrics.h"
 #include "Rpc.h"
 #include "Service.h"
 #include "ServerConfig.h"
 #include "SegmentIterator.h"
+#include "TaskQueue.h"
 
 namespace RAMCloud {
 
@@ -61,7 +63,8 @@ Tub<uint64_t> whichPartition(const SegmentIterator& it,
  * Handles Rpc requests from Masters and the Coordinator to persistently store
  * Segments and to facilitate the recovery of object data when Masters crash.
  */
-class BackupService : public Service {
+class BackupService : public Service
+                    , ServerTracker<void>::Callback {
   PRIVATE:
 
     /**
@@ -562,8 +565,8 @@ class BackupService : public Service {
     void writeSegment(const BackupWriteRpc::Request& req,
                       BackupWriteRpc::Response& resp,
                       Rpc& rpc);
-    bool gc();
     void gcMain();
+    void trackerChangesEnqueued();
 
     /**
      * Shared RAMCloud information.
@@ -575,7 +578,8 @@ class BackupService : public Service {
      * Locked once for all RPCs in dispatch().
      */
     std::mutex mutex;
-    typedef std::unique_lock<std::mutex> Lock;
+    typedef std::mutex Mutex;
+    typedef std::unique_lock<Mutex> Lock;
 
     /// Settings passed to the constructor
     const ServerConfig& config;
@@ -667,39 +671,79 @@ class BackupService : public Service {
     /// needs to notify the masters who the other members in its group are.
     vector<ServerId> replicationGroup;
 
-    /// Milliseconds to wait in between garbage collection runs.
-    enum { GC_MSECS = 1000 };
-
-    /**
-     * Replicas to attempt garbage collection on per round. Because the
-     * garbage collector can make RPCs for some replicas (those which
-     * persisted across failures, but whose creating masters are still up) this
-     * is used to throttle the garbage collector.
-     */
-    enum { GC_REPLICAS_TO_TRY = 10 };
-
-    /**
-     * If a garbage collection round frees at least this many replicas then
-     * immediately perform another round. This boosts the garbage
-     * collection rate when there seems to be a fair amount of garbage.
-     */
-    enum { GC_CONTINUE_COUNT = 1 };
-
     /// Used to determine server status of masters for garbage collection.
     ServerTracker<void> gcTracker;
 
-    /**
-     * Replica in #segments where garbage collection left off after the last
-     * round.  Used instead of an iterator because an iterator could be
-     * invalidated by freeSegment() operations between rounds.
-     */
-    SegmentsMap::key_type gcLeftOffAt;
-
-    /// Used to signal to the garbage collection thread that it should exit.
-    std::atomic<bool> gcRunning;
-
-    /// Runs garbage collection periodically.
+    /// Runs garbage collection tasks.
     Tub<std::thread> gcThread;
+
+    /// For testing; don't start gcThread when tracker changes are enqueued.
+    bool testingDoNotStartGcThread;
+
+    /**
+     * Enqueues requests to garbage collect replicas and tries to make
+     * progress on each of them.
+     */
+    TaskQueue gcTaskQueue;
+
+    /**
+     * Try to garbage collect a replica found on disk until it is finally
+     * removed. Usually replicas are freed explicitly by masters, but this
+     * doesn't work for cases where the replica was found on disk as part
+     * of an old master.
+     *
+     * This task may generate RPCs to the master to determine the
+     * status of the replica which survived on-storage across backup
+     * failures.
+     */
+    class GarbageCollectReplicaFoundOnStorageTask : public Task {
+      PUBLIC:
+        GarbageCollectReplicaFoundOnStorageTask(BackupService& service,
+                                                ServerId masterId,
+                                                uint64_t segmentId);
+        ~GarbageCollectReplicaFoundOnStorageTask();
+        void performTask();
+
+      PRIVATE:
+        void deleteReplica();
+
+        /// Backup which is trying to garbage collect the replica.
+        BackupService& service;
+
+        /// Id of the master which originally created the replica.
+        ServerId masterId;
+
+        /// Segment id of the replica which is a candidate for removal.
+        uint64_t segmentId;
+
+        /**
+         * Space for a rpc to the master to ask it explicitly if it would
+         * like this replica to be retain as it makes more replica elsewhere.
+         */
+        Tub<MasterClient::IsReplicaNeededRpc2> rpc;
+    };
+    friend class GarbageCollectReplicaFoundOnStorageTask;
+
+    /**
+     * Try to garbage collect all replicas stored by a master which is now
+     * known to have been completely recovered and removed from the cluster.
+     * Usually replicas are freed explicitly by masters, but this
+     * doesn't work for cases where the replica was created by a master which
+     * has crashed.
+     */
+    class GarbageCollectDownServerTask : public Task {
+      PUBLIC:
+        GarbageCollectDownServerTask(BackupService& service, ServerId masterId);
+        void performTask();
+
+      PRIVATE:
+        /// Backup trying to garbage collect replicas from some removed master.
+        BackupService& service;
+
+        /// Id of the master now known to have been removed from the cluster.
+        ServerId masterId;
+    };
+    friend class GarbageCollectDownServerTask;
 
     DISALLOW_COPY_AND_ASSIGN(BackupService);
 };

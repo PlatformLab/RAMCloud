@@ -23,6 +23,7 @@
 #include "Rpc.h"
 #include "Server.h"
 #include "ShortMacros.h"
+#include "StringUtil.h"
 #include "KeyHash.h"
 
 namespace RAMCloud {
@@ -38,6 +39,7 @@ class BackupServiceTest : public ::testing::Test {
     Server* server;
     BackupService* backup;
     mode_t oldUmask;
+    ServerList serverList;
     ServerId backupId;
 
     BackupServiceTest()
@@ -47,6 +49,7 @@ class BackupServiceTest : public ::testing::Test {
         , server()
         , backup()
         , oldUmask(umask(0))
+        , serverList(context)
         , backupId(5, 0)
     {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
@@ -1172,6 +1175,38 @@ TEST_F(BackupServiceTest, writeSegment_disallowOnReplicasFromStorage) {
                  BackupBadSegmentIdException);
 }
 
+TEST_F(BackupServiceTest, GarbageCollectDownServerTask) {
+    openSegment({99, 0}, 88);
+    openSegment({99, 0}, 89);
+    openSegment({99, 1}, 88);
+
+    EXPECT_TRUE(backup->findSegmentInfo({99, 0}, 88));
+    EXPECT_TRUE(backup->findSegmentInfo({99, 0}, 89));
+    EXPECT_TRUE(backup->findSegmentInfo({99, 1}, 88));
+
+    typedef BackupService::GarbageCollectDownServerTask Task;
+    std::unique_ptr<Task> task(new Task(*backup, {99, 0}));
+    task->schedule();
+    const_cast<ServerConfig&>(backup->config).backup.gc = true;
+
+    backup->gcTaskQueue.performTask();
+    EXPECT_FALSE(backup->findSegmentInfo({99, 0}, 88));
+    EXPECT_TRUE(backup->findSegmentInfo({99, 0}, 89));
+    EXPECT_TRUE(backup->findSegmentInfo({99, 1}, 88));
+
+    backup->gcTaskQueue.performTask();
+    EXPECT_FALSE(backup->findSegmentInfo({99, 0}, 88));
+    EXPECT_FALSE(backup->findSegmentInfo({99, 0}, 89));
+    EXPECT_TRUE(backup->findSegmentInfo({99, 1}, 88));
+
+    backup->gcTaskQueue.performTask();
+    EXPECT_FALSE(backup->findSegmentInfo({99, 0}, 88));
+    EXPECT_FALSE(backup->findSegmentInfo({99, 0}, 89));
+    EXPECT_TRUE(backup->findSegmentInfo({99, 1}, 88));
+
+    task.release();
+}
+
 namespace {
 class GcMockMasterService : public Service {
     void dispatch(RpcOpcode opcode, Rpc& rpc) {
@@ -1219,71 +1254,106 @@ class GcMockMasterService : public Service {
 };
 };
 
-TEST_F(BackupServiceTest, gc) {
+TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask) {
     GcMockMasterService master;
     cluster->transport.addService(master, "mock:host=m", MEMBERSHIP_SERVICE);
     cluster->transport.addService(master, "mock:host=m", MASTER_SERVICE);
+    backup->context.serverList->add({13, 0}, "mock:host=m", {}, 100);
+    context.serverList->add({13, 0}, "mock:host=m", {}, 100);
 
-    // Server 10 is up and has a replica written by the current backup process:
-    // it should be retained waiting for explicit free from server
-    server->context.serverList->add({10, 0}, "mock:", {}, 100);
-    BackupClient::writeSegment(context, backupId, {10, 0}, 10, 0, NULL, 0,
+    BackupClient::writeSegment(context, backupId, {13, 0}, 10, 0, NULL, 0,
                                BackupWriteRpc::OPENCLOSE);
-
-    // Server 11 is down and had a replica: should be gc'ed
-    BackupClient::writeSegment(context, backupId, {11, 0}, 11, 0, NULL, 0,
+    backup->findSegmentInfo({13, 0}, 10)->createdByCurrentProcess = false;
+    BackupClient::writeSegment(context, backupId, {13, 0}, 11, 0, NULL, 0,
                                BackupWriteRpc::OPENCLOSE);
+    backup->findSegmentInfo({13, 0}, 11)->createdByCurrentProcess = false;
 
-    // Server 12 is crashed and had a replica: should be retained
-    server->context.serverList->crashed({12, 0}, "mock:", {}, 100);
-    BackupClient::writeSegment(context, backupId, {12, 0}, 12, 0, NULL, 0,
-                               BackupWriteRpc::OPENCLOSE);
+    typedef BackupService::GarbageCollectReplicaFoundOnStorageTask Task;
+    std::unique_ptr<Task> task(new Task(*backup, {13, 0}, 10));
+    task->schedule();
+    const_cast<ServerConfig&>(backup->config).backup.gc = true;
 
-    // Server 13 is up and has two replica writtens by *a former* backup
-    // process: the master is contacted to see whether replicas should be freed.
-    server->context.serverList->add({13, 0}, "mock:host=m", {}, 100);
-    BackupClient::writeSegment(context, backupId, {13, 0}, 13, 0, NULL, 0,
-                               BackupWriteRpc::OPENCLOSE);
-    backup->findSegmentInfo({13, 0}, 13)->createdByCurrentProcess = false;
-    BackupClient::writeSegment(context, backupId, {13, 0}, 14, 0, NULL, 0,
-                               BackupWriteRpc::OPENCLOSE);
-    backup->findSegmentInfo({13, 0}, 14)->createdByCurrentProcess = false;
+    EXPECT_FALSE(task->rpc);
+    backup->gcTaskQueue.performTask(); // send rpc
+    ASSERT_TRUE(task->rpc);
 
-    EXPECT_EQ(5u, backup->segments.size());
-
-    EXPECT_TRUE(backup->gc());
-    EXPECT_EQ(3u, backup->segments.size());
-    EXPECT_TRUE(backup->findSegmentInfo({10, 0}, 10));
-    EXPECT_FALSE(backup->findSegmentInfo({11, 0}, 11));
-    EXPECT_TRUE(backup->findSegmentInfo({12, 0}, 12));
-    EXPECT_TRUE(backup->findSegmentInfo({13, 0}, 13));
-    EXPECT_FALSE(backup->findSegmentInfo({13, 0}, 14));
-}
-
-TEST_F(BackupServiceTest, gcRestartOnFreedReplica) {
-    server->context.serverList->add({10, 0}, "mock:", {}, 100);
-    BackupClient::writeSegment(context, backupId, {10, 0}, 10, 0, NULL, 0,
-                               BackupWriteRpc::OPENCLOSE);
-    server->context.serverList->add({11, 0}, "mock:", {}, 100);
-    BackupClient::writeSegment(context, backupId, {11, 0}, 11, 0, NULL, 0,
-                               BackupWriteRpc::OPENCLOSE);
-
-    EXPECT_FALSE(backup->gc());
-    EXPECT_EQ(ServerId(11, 0), backup->gcLeftOffAt.masterId);
-    EXPECT_EQ(11u, backup->gcLeftOffAt.segmentId);
-
-    BackupClient::freeSegment(context, backupId, ServerId(11, 0), 11lu);
-
-    EXPECT_FALSE(backup->gc());
-    EXPECT_EQ(ServerId(10, 0), backup->gcLeftOffAt.masterId);
-    EXPECT_EQ(10u, backup->gcLeftOffAt.segmentId);
-}
-
-TEST_F(BackupServiceTest, gcHoldOffUntilFirstServerListUpdate) {
-    backup->gcTracker.numberOfServers = 0;
     TestLog::Enable _;
-    EXPECT_FALSE(backup->gc());
-    EXPECT_EQ("gc: Running backup replica garbage collection", TestLog::get());
+    backup->gcTaskQueue.performTask(); // get response - false for 10
+    EXPECT_FALSE(task->rpc);
+    EXPECT_TRUE(StringUtil::contains(TestLog::get(),
+        "performTask: Server has recovered from lost replica; "
+        "freeing replica for <13,10>"));
+    EXPECT_EQ(0lu, backup->gcTaskQueue.outstandingTasks());
+    EXPECT_FALSE(backup->findSegmentInfo({13, 0}, 10));
+    EXPECT_TRUE(backup->findSegmentInfo({13, 0}, 11));
+    task.release();
+
+    task.reset(new Task(*backup, {13, 0}, 11));
+    task->schedule();
+    EXPECT_FALSE(task->rpc);
+    backup->gcTaskQueue.performTask(); // send rpc
+    ASSERT_TRUE(task->rpc);
+
+    TestLog::reset();
+    backup->gcTaskQueue.performTask(); // get response - true for 11
+    EXPECT_TRUE(StringUtil::contains(TestLog::get(),
+        "performTask: Server has not recovered from lost replica; "
+        "retaining replica for <13,11>; "
+        "will probe replica status again later"));
+    EXPECT_EQ(1lu, backup->gcTaskQueue.outstandingTasks());
+
+    backup->context.serverList->remove({13, 0});
+
+    TestLog::reset();
+    EXPECT_FALSE(task->rpc);
+    backup->gcTaskQueue.performTask(); // send rpc
+    EXPECT_TRUE(task->rpc);
+    backup->gcTaskQueue.performTask(); // get response - server doesn't exist
+    EXPECT_TRUE(StringUtil::contains(TestLog::get(),
+        "performTask: Server 13 marked down; cluster has recovered from its "
+            "failure | "
+        "performTask: Server has recovered from lost replica; "
+            "freeing replica for <13,11>"));
+    EXPECT_EQ(0lu, backup->gcTaskQueue.outstandingTasks());
+    task.release();
+}
+
+TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask_freedFirst) {
+    typedef BackupService::GarbageCollectReplicaFoundOnStorageTask Task;
+    std::unique_ptr<Task> task(new Task(*backup, {99, 0}, 88));
+    task->schedule();
+    const_cast<ServerConfig&>(backup->config).backup.gc = true;
+
+    TestLog::Enable _;
+    backup->gcTaskQueue.performTask();
+    EXPECT_EQ("", TestLog::get());
+
+    task.release();
+}
+
+TEST_F(BackupServiceTest, trackerChangesEnqueued) {
+    backup->testingDoNotStartGcThread = true;
+    backup->gcTracker.enqueueChange({{99, 0}, "", {}, 0, ServerStatus::UP},
+                                    SERVER_ADDED);
+    backup->trackerChangesEnqueued();
+    EXPECT_EQ(0lu, backup->gcTaskQueue.outstandingTasks());
+
+    backup->gcTracker.enqueueChange({{99, 0}, "", {}, 0, ServerStatus::CRASHED},
+                                    SERVER_CRASHED);
+    backup->trackerChangesEnqueued();
+    EXPECT_EQ(0lu, backup->gcTaskQueue.outstandingTasks());
+
+    backup->gcTracker.enqueueChange({{99, 0}, "", {}, 0, ServerStatus::DOWN},
+                                    SERVER_REMOVED);
+    backup->gcTracker.enqueueChange({{98, 0}, "", {}, 0, ServerStatus::UP},
+                                    SERVER_ADDED);
+    backup->gcTracker.enqueueChange({{98, 0}, "", {}, 0, ServerStatus::DOWN},
+                                    SERVER_REMOVED);
+    backup->trackerChangesEnqueued();
+    EXPECT_EQ(2lu, backup->gcTaskQueue.outstandingTasks());
+    backup->gcTaskQueue.performTask();
+    backup->gcTaskQueue.performTask();
+    EXPECT_EQ(0lu, backup->gcTaskQueue.outstandingTasks());
 }
 
 class SegmentInfoTest : public ::testing::Test {

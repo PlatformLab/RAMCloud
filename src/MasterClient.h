@@ -37,6 +37,18 @@ namespace RAMCloud {
  */
 class MasterClient : public Client {
   public:
+    class IsReplicaNeededRpc2 : public ServerIdRpcWrapper {
+      public:
+        IsReplicaNeededRpc2(Context& context,
+                            ServerId id,
+                            ServerId backupServerId,
+                            uint64_t segmentId);
+        ~IsReplicaNeededRpc2() {}
+        bool wait();
+
+      PRIVATE:
+        DISALLOW_COPY_AND_ASSIGN(IsReplicaNeededRpc2);
+    };
 
     /**
      * Encapsulates the state of a CoordinatorClient::enlistServer

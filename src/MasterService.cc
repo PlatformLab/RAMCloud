@@ -1467,6 +1467,7 @@ MasterService::recover(ServerId masterId,
             0 - metrics->transport.transmit.byteCount;
         log.sync();
         metrics->master.logSyncBytes += metrics->transport.transmit.byteCount;
+        LOG(NOTICE, "Syncing the log done");
     }
 
     metrics->master.replicationBytes += metrics->transport.transmit.byteCount;

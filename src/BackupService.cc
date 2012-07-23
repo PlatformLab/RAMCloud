@@ -22,7 +22,6 @@
 #include "Cycles.h"
 #include "Log.h"
 #include "LogTypes.h"
-#include "MasterClient.h"
 #include "RecoverySegmentIterator.h"
 #include "Rpc.h"
 #include "ServerConfig.h"
@@ -1044,6 +1043,159 @@ try {
     throw;
 }
 
+// --- BackupService::GarbageCollectReplicaFoundOnStorageTask ---
+
+/**
+ * Try to garbage collect a replica found on disk until it is finally
+ * removed. Usually replicas are freed explicitly by masters, but this
+ * doesn't work for cases where the replica was found on disk as part
+ * of an old master.
+ *
+ * This task may generate RPCs to the master to determine the
+ * status of the replica which survived on-storage across backup
+ * failures.
+ *
+ * \param service
+ *      Backup which is trying to garbage collect the replica.
+ * \param masterId
+ *      Id of the master which originally created the replica.
+ * \param segmentId
+ *      Segment id of the replica which is a candidate for removal.
+ */
+BackupService::
+    GarbageCollectReplicaFoundOnStorageTask::
+    GarbageCollectReplicaFoundOnStorageTask(BackupService& service,
+                                            ServerId masterId,
+                                            uint64_t segmentId)
+    : Task(service.gcTaskQueue)
+    , service(service)
+    , masterId(masterId)
+    , segmentId(segmentId)
+    , rpc()
+{
+}
+
+BackupService::
+    GarbageCollectReplicaFoundOnStorageTask::
+    ~GarbageCollectReplicaFoundOnStorageTask()
+{
+    if (rpc)
+        rpc->cancel();
+}
+
+/**
+ * Try to make progress in garbage collecting the replica without blocking.
+ */
+void
+BackupService::GarbageCollectReplicaFoundOnStorageTask::performTask()
+{
+    if (!service.config.backup.gc) {
+        delete this;
+        return;
+    }
+    {
+        BackupService::Lock _(service.mutex);
+        auto* replica = service.findSegmentInfo(masterId, segmentId);
+        if (!replica) {
+            delete this;
+            return;
+        }
+    }
+
+    if (rpc) {
+        if (rpc->isReady()) {
+            bool needed = true;
+            try {
+                needed = rpc->wait();
+            } catch (const ServerDoesntExistException& e) {
+                needed = false;
+                LOG(DEBUG, "Server %lu marked down; cluster has recovered "
+                    "from its failure", masterId.getId());
+            }
+            rpc.destroy();
+            if (!needed) {
+                LOG(DEBUG, "Server has recovered from lost replica; "
+                    "freeing replica for <%lu,%lu>",
+                    masterId.getId(), segmentId);
+                deleteReplica();
+                delete this;
+                return;
+            } else {
+                LOG(DEBUG, "Server has not recovered from lost "
+                    "replica; retaining replica for <%lu,%lu>; will "
+                    "probe replica status again later",
+                    masterId.getId(), segmentId);
+            }
+        }
+    } else {
+        rpc.construct(service.context, masterId, service.serverId, segmentId);
+    }
+    schedule();
+    return;
+}
+
+/**
+ * Only used internally; safely frees a replica and removes metadata about
+ * it from the backup's segments map.
+ */
+void
+BackupService::GarbageCollectReplicaFoundOnStorageTask::deleteReplica()
+{
+    BackupService::Lock _(service.mutex);
+    auto* replica = service.findSegmentInfo(masterId, segmentId);
+    replica->free();
+    service.segments.erase({masterId, segmentId});
+    delete replica;
+}
+
+// --- BackupService::GarbageCollectDownServerTask ---
+
+/**
+ * Try to garbage collect all replicas stored by a master which is now
+ * known to have been completely recovered and removed from the cluster.
+ * Usually replicas are freed explicitly by masters, but this
+ * doesn't work for cases where the replica was created by a master which
+ * has crashed.
+ *
+ * \param service
+ *      Backup trying to garbage collect replicas from some removed master.
+ * \param masterId
+ *      Id of the master now known to have been removed from the cluster.
+ */
+BackupService::
+    GarbageCollectDownServerTask::
+    GarbageCollectDownServerTask(BackupService& service,
+                                 ServerId masterId)
+    : Task(service.gcTaskQueue)
+    , service(service)
+    , masterId(masterId)
+{}
+
+/**
+ * Try to make progress in garbage collecting replicas without blocking.
+ */
+void
+BackupService::GarbageCollectDownServerTask::performTask()
+{
+    if (!service.config.backup.gc) {
+        delete this;
+        return;
+    }
+    BackupService::Lock _(service.mutex);
+    auto key = MasterSegmentIdPair(masterId, 0lu);
+    auto it = service.segments.upper_bound(key);
+    if (it != service.segments.end() && it->second->masterId == masterId) {
+        LOG(DEBUG, "Server %lu marked down; cluster has recovered "
+                "from its failure; freeing replica <%lu,%lu>",
+            masterId.getId(), masterId.getId(), it->first.segmentId);
+        it->second->free();
+        service.segments.erase(it->first);
+        delete it->second;
+        schedule();
+    } else {
+        delete this;
+    }
+}
 
 // --- BackupService ---
 
@@ -1083,10 +1235,10 @@ BackupService::BackupService(Context& context,
     , initCalled(false)
     , replicationId(0)
     , replicationGroup()
-    , gcTracker(context, serverList)
-    , gcLeftOffAt(ServerId(), 0)
-    , gcRunning(false)
+    , gcTracker(context, serverList, this)
     , gcThread()
+    , testingDoNotStartGcThread(false)
+    , gcTaskQueue()
 {
     if (config.backup.inMemory)
         storage.reset(new InMemoryStorage(config.segmentSize,
@@ -1147,11 +1299,10 @@ BackupService::BackupService(Context& context,
 BackupService::~BackupService()
 {
     // Stop the garbage collector.
-    if (gcRunning) {
-        gcRunning = false;
+    gcTaskQueue.halt();
+    if (gcThread)
         gcThread->join();
-        gcThread.destroy();
-    }
+    gcThread.destroy();
 
     int lastThreadCount = 0;
     while (recoveryThreadCount > 0) {
@@ -1419,13 +1570,6 @@ BackupService::init(ServerId id)
     LOG(NOTICE, "Backup %lu will store replicas under cluster name '%s'",
         serverId.getId(), config.clusterName.c_str());
     initCalled = true;
-
-    // Start the replica garbage collector.
-    if (config.backup.gc) {
-        LOG(NOTICE, "Starting backup replica garbage collector thread");
-        gcRunning = true;
-        gcThread.construct(&BackupService::gcMain, this);
-    }
 }
 
 /**
@@ -1592,6 +1736,9 @@ BackupService::restartFromStorage()
                                masterId, segmentId, segmentSize,
                                frame, wasClosedOnStorage);
         segments[MasterSegmentIdPair(masterId, segmentId)] = info;
+        (new GarbageCollectReplicaFoundOnStorageTask(*this,
+                                                     masterId,
+                                                     segmentId))->schedule();
     }
 
     LOG(NOTICE, "Replica information retreived from storage: %f ms",
@@ -1900,151 +2047,45 @@ BackupService::writeSegment(const BackupWriteRpc::Request& reqHdr,
 }
 
 /**
- * Perform a garbage collection round to free up replicas from storage that
- * may have become disassociated from their master.
- * Usually replicas are freed explicitly by masters, but this doesn't work
- * in all cases due to failures; gc() makes progress in handling these edge
- * cases.
- *
- * Be aware, this method may generate RPCs to some masters to determine
- * the status of some replicas which survived on-storage across backup
- * failures.
- *
- * \return
- *      True if #GC_CONTINUE_COUNT replicas were freed indicating that
- *      it makes sense for the caller to attempt another garbage collection
- *      round immediately.
- */
-bool
-BackupService::gc()
-{
-    Lock _(mutex); // Lock out RPCS while GC is ongoing.
-    CycleCounter<> cycles;
-    LOG(DEBUG, "Running backup replica garbage collection");
-
-    // Apply all updates to #gcTracker since last round.
-    {
-        ServerDetails server;
-        ServerChangeEvent event;
-        while (gcTracker.getChange(server, event));
-    }
-    if (gcTracker.size() == 0)
-        return false;
-
-    auto nextToTry = segments.upper_bound(gcLeftOffAt);
-    if (nextToTry == segments.end())
-        nextToTry = segments.begin();
-
-    uint32_t isNeededRpcsSent = 0;
-    const size_t replicaCount = segments.size();
-    size_t tries = GC_REPLICAS_TO_TRY;
-    tries = std::min(tries, replicaCount);
-    for (size_t i = 0; i < tries; ++i) {
-        SegmentInfo* replica = nextToTry->second;
-        gcLeftOffAt = nextToTry->first;
-        ++nextToTry; // iterator may be invalid later due to potential erase
-        if (nextToTry == segments.end())
-            nextToTry = segments.begin();
-
-        ServerDetails* server = NULL;
-        try {
-            server = gcTracker.getServerDetails(replica->masterId);
-        } catch (const Exception& e) {}
-
-        if (!server) {
-            LOG(DEBUG, "Server down; freeing replica for <%lu,%lu>",
-                replica->masterId.getId(), replica->segmentId);
-            replica->free();
-            segments.erase({replica->masterId, replica->segmentId});
-            delete replica;
-            continue;
-        }
-
-        // ServerStatus::DOWN already handled above.
-        switch (server->status) {
-        case ServerStatus::UP:
-            if (!replica->createdByCurrentProcess) {
-                LOG(DEBUG, "Server up; probing server for status of <%lu,%lu>",
-                    replica->masterId.getId(), replica->segmentId);
-                bool needed = true;
-                try {
-                    ++isNeededRpcsSent;
-                    MasterClient m(gcTracker.getSession(replica->masterId));
-                    needed = m.isReplicaNeeded(serverId, replica->segmentId);
-                } catch (const TransportException& e) {
-                    // No problem, just assume we should retain it for now.
-                }
-                if (!needed) {
-                    LOG(DEBUG, "Server has recovered from loss replica; "
-                        "freeing replica for <%lu,%lu>",
-                        replica->masterId.getId(), replica->segmentId);
-                    replica->free();
-                    segments.erase({replica->masterId, replica->segmentId});
-                    delete replica;
-                } else {
-                    LOG(DEBUG, "Server has not recovered from lost "
-                        "replica; retaining replica for <%lu,%lu>; will "
-                        "probe replica status again later",
-                        replica->masterId.getId(), replica->segmentId);
-                }
-            } else {
-                // Noisy but occasionally useful for debugging gc.
-                if (false)
-                    LOG(DEBUG, "Server up; holding replica for <%lu,%lu> (it "
-                        "was created by the current backup process)",
-                        replica->masterId.getId(), replica->segmentId);
-            }
-            break;
-        case ServerStatus::CRASHED:
-            LOG(DEBUG, "Server crashed; retaining replica for <%lu,%lu>",
-                replica->masterId.getId(), replica->segmentId);
-            break;
-        default:
-            LOG(ERROR, "Found server in tracker with DOWN status; this "
-                "should never happen; it is a software bug.");
-            break;
-        }
-    }
-
-    LOG(DEBUG, "-- Backup Garbage Collection Summary --");
-    LOG(DEBUG, "Replicas stored before GC: %lu", replicaCount);
-    LOG(DEBUG, "Replicas stored after GC : %lu", segments.size());
-    LOG(DEBUG, "isReplicaNeeded RPC sent : %u", isNeededRpcsSent);
-    LOG(DEBUG, "Round run time: %.2f us",
-        Cycles::toSeconds(cycles.stop()) * 1000 * 1000);
-
-    bool keepGoing = (segments.size() - replicaCount) >= GC_CONTINUE_COUNT;
-    if (keepGoing)
-        LOG(DEBUG, "Backup Garbage Collection continuing since sufficient "
-            "progress is being made.");
-    LOG(DEBUG, " ");
-
-    return keepGoing;
-}
-
-/**
- * Runs garbage collection periodically.
- * Sleeps GC_MSECS and then calls gc() until gc() returns false.
+ * Runs garbage collection tasks.
  */
 void
 BackupService::gcMain()
 try {
-    while (true) {
-        while (gc());
-        uint32_t waited = 0;
-        while (waited < GC_MSECS) {
-            if (!gcRunning)
-                return;
-            usleep(10 * 1000);
-            waited += 10;
-        }
-    }
+    gcTaskQueue.performTasksUntilHalt();
 } catch (const std::exception& e) {
     LOG(ERROR, "Fatal error in BackupService::gcThread: %s", e.what());
     throw;
 } catch (...) {
     LOG(ERROR, "Unknown fatal error in BackupService::gcThread.");
     throw;
+}
+
+/**
+ * Start garbage collection of replicas for any server that gets removed
+ * from the cluster. Called when changes to the server wide server list
+ * are enqueued.
+ */
+void
+BackupService::trackerChangesEnqueued()
+{
+    // Start the replica garbage collector if it hasn't been started yet.
+    // Starting late ensures that garbage collection tasks don't get
+    // processed before the first push to the server list from the coordinator.
+    if (!initCalled)
+        return;
+    if (!gcThread && !testingDoNotStartGcThread) {
+        LOG(NOTICE, "Starting backup replica garbage collector thread");
+        gcThread.construct(&BackupService::gcMain, this);
+    }
+    ServerDetails server;
+    ServerChangeEvent event;
+    while (gcTracker.getChange(server, event)) {
+        if (event == SERVER_REMOVED) {
+            (new GarbageCollectDownServerTask(*this,
+                                              server.serverId))->schedule();
+        }
+    }
 }
 
 } // namespace RAMCloud

@@ -68,23 +68,31 @@ BackupFailureMonitor::~BackupFailureMonitor()
 void
 BackupFailureMonitor::main()
 try {
-    Lock lock(mutex);
+    ServerDetails server;
+    ServerChangeEvent event;
     while (true) {
-        // If the replicaManager isn't working and there aren't any
-        // cluster membership notifications, then go to sleep.
-        while ((!replicaManager || replicaManager->isIdle()) &&
-               !tracker.hasChanges()) {
-            if (!running)
-                return;
-            changesOrExit.wait(lock);
+        {
+            Lock lock(mutex);
+            // If the replicaManager isn't working and there aren't any
+            // cluster membership notifications, then go to sleep.
+            while ((!replicaManager || replicaManager->isIdle()) &&
+                   !tracker.hasChanges()) {
+                if (!running)
+                    return;
+                changesOrExit.wait(lock);
+            }
         }
-        // Careful: on remove events, for some less than clear reason only
-        // the serverId field is valid.  The on SERVER_CRASHED other fields
-        // remain in the tracker until the next call to getChange, so they
-        // can be accessed that way.
-        ServerDetails server;
-        ServerChangeEvent event;
-        while (tracker.getChange(server, event)) {
+
+        while (true) {
+            bool change;
+            {
+                Lock lock(mutex);
+                change = tracker.getChange(server, event);
+            }
+            if (!change)
+                break;
+            // Careful: on remove events, for some less than clear reason
+            // only the serverId field is valid.
             ServerId id = server.serverId;
             if (event != SERVER_CRASHED)
                 continue;
@@ -156,18 +164,24 @@ BackupFailureMonitor::halt()
 
 /**
  * Return whether the server \a serverId is up as far as the
- * local ReplicaManager is aware.
+ * local ReplicaManager is aware. May spuriously return false in cases
+ * where it would otherwise have to block to return the accurate answer.
  *
  * \param serverId
  *      A coordinator-assigned server id whose status is to be checked.
  * \return
  *      True if \a serverId is up according to the server list updates
  *      that the local ReplicaManager has been informed of, false otherwise.
+ *      May spuriously return false in cases where it would otherwise have
+ *      to block to return the accurate answer.
  */
 bool
 BackupFailureMonitor::serverIsUp(ServerId serverId)
 {
-    Lock lock(mutex);
+    Lock lock(mutex, std::try_to_lock_t());
+    if (!lock.owns_lock()) {
+        return false;
+    }
     ServerDetails* backup = NULL;
     try {
         backup = tracker.getServerDetails(serverId);

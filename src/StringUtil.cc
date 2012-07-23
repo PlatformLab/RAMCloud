@@ -35,5 +35,14 @@ endsWith(const string& haystack, const string& needle)
                              needle.length(), needle) == 0);
 }
 
+/// Return true if haystack exists somewhere in needle.
+bool
+contains(const string& haystack, const string& needle)
+{
+    if (haystack.length() < needle.length())
+        return false;
+    return haystack.find(needle) != string::npos;
+}
+
 } // namespace StringUtil
 } // namespace RAMCloud

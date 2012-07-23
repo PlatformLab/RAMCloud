@@ -28,6 +28,69 @@ namespace RAMCloud {
 RejectRules defaultRejectRules;
 
 /**
+ * Return whether a replica for a segment created by this master may still
+ * be needed for recovery. Backups use this after restarting after a failure
+ * to determine if replicas found in persistent storage must be retained.
+ *
+ * The cluster membership protocol must guarantee that if the master "knows
+ * about" the calling backup server that it must already know about the crash
+ * of the backup which created the on-storage replicas the calling backup
+ * has rediscovered. This guarantees that when the master responds to this
+ * call that it must have already recovered from crash mentioned above if
+ * it returns false.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param id
+ *      Identifier for the target server.
+ * \param backupServerId
+ *      The server id which is requesting information about a replica.
+ *      This is used to ensure the master is aware of the backup via
+ *      the cluster membership protocol, which ensures that it is
+ *      aware of any crash of the backup that created the replica
+ *      being inquired about.
+ * \param segmentId
+ *      The segmentId of the replica which a backup server is considering
+ *      freeing.
+ */
+MasterClient::IsReplicaNeededRpc2::IsReplicaNeededRpc2(Context& context,
+                                                       ServerId id,
+                                                       ServerId backupServerId,
+                                                       uint64_t segmentId)
+    : ServerIdRpcWrapper(context, id,
+                         sizeof(WireFormat::IsReplicaNeeded::Response))
+{
+    WireFormat::IsReplicaNeeded::Request& reqHdr(
+        allocHeader<WireFormat::IsReplicaNeeded>());
+    reqHdr.backupServerId = backupServerId.getId();
+    reqHdr.segmentId = segmentId;
+    send();
+}
+
+/**
+ * Wait for a IsReplicaNeeded RPC to complete.
+ *
+ * \return
+ *      True if the segment is not currently known to be adequately replicated.
+ *      This means if the master knows of any replicas which haven't been fully
+ *      synced or that haven't been fully recreated in response to a crash it
+ *      returns true. Otherwise, if the master believes the segment is
+ *      adequately replicated then it returns false.
+ *
+ * \throw ServerDoesntExistException
+ *      The intended server for this RPC is not part of the cluster;
+ *      if it ever existed, it has since crashed.
+ */
+bool
+MasterClient::IsReplicaNeededRpc2::wait()
+{
+    waitAndCheckErrors();
+    const WireFormat::IsReplicaNeeded::Response& respHdr(
+            getResponseHeader<WireFormat::IsReplicaNeeded>());
+    return respHdr.needed;
+}
+
+/**
  * Instruct a master that it should begin serving requests for a particular
  * tablet. If the master does not already store this tablet, then it will
  * create a new tablet. If the master already has information for the tablet,
@@ -565,48 +628,6 @@ MasterClient::increment(uint64_t tableId, const char* key, uint16_t keyLength,
         *newValue = respHdr.newValue;
 
     checkStatus(HERE);
-}
-
-/**
- * Return whether a replica for a segment created by this master may still
- * be needed for recovery. Backups use this after restarting after a failure
- * to determine if replicas found in persistent storage must be retained.
- *
- * The cluster membership protocol must guarantee that if the master "knows
- * about" the calling backup server that it must already know about the crash
- * of the backup which created the on-storage replicas the calling backup
- * has rediscovered.  This guarantees that when the master responds to this
- * call that it must have already recovered from crash mentioned above if
- * it returns false.
- *
- * \param backupServerId
- *      The server id which is requesting information about a replica.
- *      This is used to ensure the master is aware of the backup via
- *      the cluster membership protocol, which ensures that it is
- *      aware of any crash of the backup that created the replica
- *      being inquired about.
- * \param segmentId
- *      The segmentId of the replica which a backup server is considering
- *      freeing.
- * \return
- *      Master returns true if the segment is not currently known to be
- *      adequately replicated. This means if the master knows of any
- *      replicas which haven't been fully synced or that haven't been
- *      fully recreated in response to a crash it returns true.  Otherwise,
- *      if the master believes the segment is adequately replicated then
- *      it returns false.
- */
-bool
-MasterClient::isReplicaNeeded(ServerId backupServerId, uint64_t segmentId)
-{
-    Buffer req, resp;
-    IsReplicaNeededRpc::Request& reqHdr(allocHeader<IsReplicaNeededRpc>(req));
-    reqHdr.backupServerId = backupServerId.getId();
-    reqHdr.segmentId = segmentId;
-    const IsReplicaNeededRpc::Response& respHdr(sendRecv<IsReplicaNeededRpc>(
-                                                        session, req, resp));
-    checkStatus(HERE);
-    return respHdr.needed;
 }
 
 /**
