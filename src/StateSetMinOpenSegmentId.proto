@@ -16,14 +16,14 @@
 package RAMCloud.ProtoBuf;
 
 // The information appended to LogCabin by the Coordinator
-// to store its state during various operations.
+// to store its state during the setMinOpenSegmentId operation.
 message StateSetMinOpenSegmentId {
     /// Opcode for this function.
     required string opcode = 1;
     /// Whether the operation had completed doing the external state changes.
     required bool done = 2;
-    /// TODO(ankitak)
+    /// ServerId of the server whose minOpenSegmentId will be set.
     required uint64 server_id = 3;
-    /// TODO(ankitak)
+    /// The minOpenSegmentId to be set.
     required uint64 segment_id = 4;
 }

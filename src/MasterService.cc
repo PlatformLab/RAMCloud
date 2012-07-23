@@ -1129,7 +1129,6 @@ class RecoveryTask {
     {
         rpc.construct(context, replica.backupId, masterId, replica.segmentId,
                       partitionId, response);
-        serverList.getSession(replica.backupId);
     }
     ~RecoveryTask()
     {
@@ -1318,26 +1317,12 @@ MasterService::recover(ServerId masterId,
                 serverList.toString(replica.backupId).c_str(),
                 replica.segmentId,
                 &task - &tasks[0]);
-            try {
-                task.construct(context, serverList, masterId, partitionId,
-                               replica);
-                replica.state = Replica::State::WAITING;
-                runningSet.insert(replica.segmentId);
-                ++metrics->master.segmentReadCount;
-                ++activeRequests;
-            } catch (const TransportException& e) {
-                LOG(WARNING, "Couldn't contact %s, trying next backup; "
-                    "failure was: %s",
-                    serverList.toString(replica.backupId).c_str(),
-                    e.str().c_str());
-                replica.state = Replica::State::FAILED;
-            } catch (const ServerListException& e) {
-                // Ryan, I'm not sure this exception handler is live anymore;
-                // reconsider TransportException above also?
-                LOG(WARNING, "No record of backup ID %lu, trying next backup",
-                    replica.backupId.getId());
-                replica.state = Replica::State::FAILED;
-            }
+            task.construct(context, serverList, masterId, partitionId,
+                           replica);
+            replica.state = Replica::State::WAITING;
+            runningSet.insert(replica.segmentId);
+            ++metrics->master.segmentReadCount;
+            ++activeRequests;
             ++replicaIt;
             while (replicaIt != replicasEnd &&
                    contains(runningSet, replicaIt->segmentId)) {
@@ -1409,18 +1394,9 @@ MasterService::recover(ServerId masterId,
                         otherReplica.segmentId);
                     otherReplica.state = Replica::State::OK;
                 }
-            } catch (ServerDoesntExistException& e) {
-                // Ryan, please check this code.
-                LOG(WARNING, "No record of backup ID %lu, trying next backup",
+            } catch (const ServerDoesntExistException& e) {
+                LOG(WARNING, "No record of backup %lu, trying next backup",
                     task->replica.backupId.getId());
-                task->replica.state = Replica::State::FAILED;
-                runningSet.erase(task->replica.segmentId);
-            } catch (const TransportException& e) {
-                LOG(WARNING, "Couldn't contact %s for segment %lu, "
-                    "trying next backup; failure was: %s",
-                    serverList.toString(task->replica.backupId).c_str(),
-                    task->replica.segmentId,
-                    e.str().c_str());
                 task->replica.state = Replica::State::FAILED;
                 runningSet.erase(task->replica.segmentId);
             } catch (const ClientException& e) {
@@ -1469,7 +1445,7 @@ MasterService::recover(ServerId masterId,
                         e.str().c_str());
                     replica.state = Replica::State::FAILED;
                 } catch (const ServerListException& e) {
-                    LOG(WARNING, "No record of backup ID %lu, "
+                    LOG(WARNING, "No record of backup %lu, "
                         "trying next backup",
                         replica.backupId.getId());
                     replica.state = Replica::State::FAILED;

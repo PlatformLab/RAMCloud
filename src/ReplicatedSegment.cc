@@ -505,9 +505,12 @@ ReplicatedSegment::performFree(Replica& replica)
             // Request is finished, clean up the state.
             try {
                 replica.freeRpc->wait();
-            }
-            catch (const ServerDoesntExistException& e) {
-                // Ryan, please add appropriate code here.
+            } catch (const ServerDoesntExistException& e) {
+                // If the backup is already out of the cluster the master's
+                // job is done. If the replica is found on storage when the
+                // process restarts on that server it will be the job of the
+                // backup's replica garbage collector to free it.
+                TEST_LOG("ServerDoesntExistException thrown");
             }
             replica.reset();
             // Free completed, no need to reschedule.
@@ -612,18 +615,12 @@ ReplicatedSegment::performWrite(Replica& replica)
                     followingSegment = NULL;
                 }
             } catch (const ServerDoesntExistException& e) {
-                // Ryan, please add appropriate code here.
-            } catch (const TransportException& e) {
-                // Retry, if it is down the server list will let us know.
+                // Retry; wait for BackupFailureMonitor to call
+                // handleBackupFailure to reset the replica and break this
+                // loop.
                 replica.sent = replica.acked;
-                LOG(WARNING,
-                    "Failure writing replica on backup, retrying: %s",
-                    e.what());
-                // Note: it is important that we stick to retrying here.
-                // Trying to reopen a new replica causes log integrity
-                // issues due to potentially lost open replicas.  Instead,
-                // hang tight and keep retrying.  Let the failure handler
-                // clean up and interrupt retries on future iterations.
+                LOG(WARNING, "Couldn't write to backup %lu; server is down",
+                    replica.backupId.getId());
             } catch (const BackupOpenRejectedException& e) {
                 LOG(NOTICE,
                     "Couldn't open replica on backup %lu; server may be "

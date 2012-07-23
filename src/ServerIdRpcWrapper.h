@@ -55,6 +55,30 @@ class ServerIdRpcWrapper : public RpcWrapper {
     /// an error.
     bool serverDown;
 
+  PRIVATE:
+    /// For testing; prefer using ConvertExceptionsToDoesntExist where possible.
+    /// When set instead of retrying the rpc on a TransportException all
+    /// instances of this wrapper will internally flag the server as down
+    /// instead. This causes waiting on the rpc throw a
+    /// ServerDoesntExistException. Useful with MockTransport to convert
+    /// responses set with transport.setInput(NULL) to
+    /// ServerDoesntExistExceptions.
+    static bool convertExceptionsToDoesntExist;
+
+    /**
+     * Sets and restores #convertExcpetionsToDoesntExist safely in unit tests.
+     * Instantating this class converts all TransportExceptions into deferred
+     * ServerDoesntExistExceptions for the lifetime of the instance.
+     */
+    struct ConvertExceptionsToDoesntExist {
+        ConvertExceptionsToDoesntExist()
+            : priorValue(ServerIdRpcWrapper::convertExceptionsToDoesntExist)
+        { ServerIdRpcWrapper::convertExceptionsToDoesntExist = true; }
+        ~ConvertExceptionsToDoesntExist()
+        { ServerIdRpcWrapper::convertExceptionsToDoesntExist = priorValue; }
+        bool priorValue;
+    };
+
     DISALLOW_COPY_AND_ASSIGN(ServerIdRpcWrapper);
 };
 

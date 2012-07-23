@@ -82,7 +82,7 @@ TEST_F(ServerTest, createAndRegisterServices) {
 
 namespace {
 bool enlistServerFilter(string s) {
-    return s == "enlistServerStart";
+    return s == "beforeReply";
 }
 }
 
@@ -91,11 +91,11 @@ TEST_F(ServerTest, enlist) {
     TestLog::Enable _(enlistServerFilter);
     server->enlist({128, 0});
     EXPECT_EQ(
-        "enlistServerStart: Enlisting new server at mock:host=server0 "
+        "beforeReply: Enlisting new server at mock:host=server0 "
         "(server id 1) supporting services: MASTER_SERVICE, "
         "BACKUP_SERVICE, PING_SERVICE, MEMBERSHIP_SERVICE | "
-        "enlistServerStart: Newly enlisted server 1 replaces server 128 | "
-        "enlistServerStart: Backup at id 1 has 100 MB/s read 100 MB/s write",
+        "beforeReply: Newly enlisted server 1 replaces server 128 | "
+        "beforeReply: Backup at id 1 has 100 MB/s read 100 MB/s write",
          TestLog::get());
     ASSERT_TRUE(server->master->serverId.isValid());
     EXPECT_TRUE(server->backup->serverId.isValid());

@@ -551,18 +551,18 @@ CoordinatorServerList::addLogCabinEntryId(ServerId serverId,
 {
     Lock _(mutex);
     Entry& entry = const_cast<Entry&>(getReferenceFromServerId(serverId));
-    entry.logCabinEntryIds.push_back(entryId);
+    entry.logCabinEntryId = entryId;
 }
 
 /**
- * Return the list of entry ids corresponding to entries in LogCabin log
- * that have state updates for a particular server.
+ * Return the entry id corresponding to entry in LogCabin log
+ * that has details for the server with id serverId.
  */
-std::vector<LogCabin::Client::EntryId>
-CoordinatorServerList::getLogCabinEntryIds(ServerId serverId)
+LogCabin::Client::EntryId
+CoordinatorServerList::getLogCabinEntryId(ServerId serverId)
 {
     Entry& entry = const_cast<Entry&>(getReferenceFromServerId(serverId));
-    return entry.logCabinEntryIds;
+    return entry.logCabinEntryId;
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -716,7 +716,7 @@ CoordinatorServerList::Entry::Entry()
     : ServerDetails()
     , minOpenSegmentId()
     , replicationId()
-    , logCabinEntryIds()
+    , logCabinEntryId()
 {
 }
 
@@ -745,7 +745,7 @@ CoordinatorServerList::Entry::Entry(ServerId serverId,
                     ServerStatus::UP)
     , minOpenSegmentId(0)
     , replicationId(0)
-    , logCabinEntryIds(vector<LogCabin::Client::EntryId>())
+    , logCabinEntryId(LogCabin::Client::EntryId())
 {
 }
 

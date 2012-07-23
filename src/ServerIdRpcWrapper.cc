@@ -23,6 +23,8 @@
 
 namespace RAMCloud {
 
+bool ServerIdRpcWrapper::convertExceptionsToDoesntExist = false;
+
 /**
  * Constructor for ServerIdRpcWrapper objects.
  * \param context
@@ -53,6 +55,11 @@ ServerIdRpcWrapper::ServerIdRpcWrapper(Context& context, ServerId id,
 bool
 ServerIdRpcWrapper::handleTransportError()
 {
+    if (convertExceptionsToDoesntExist) {
+        serverDown = true;
+        return true;
+    }
+
     // There was a transport-level failure. The transport should already
     // have logged this. Retry unless the server is down.
     bool up;

@@ -555,37 +555,27 @@ TEST_F(ReplicatedSegmentTest, performFreeRpcIsReady) {
     EXPECT_FALSE(segment->replicas[0].isActive);
 }
 
-#if 0
-// Ryan: either fix or delete this test.
 TEST_F(ReplicatedSegmentTest, performFreeRpcFailed) {
     transport.clearInput();
-    transport.setInput(NULL); // error response to replica free
 
     reset();
     Transport::SessionRef session = transport.getSession();
 
     segment->freeQueued = true;
-    segment->replicas[0].start(backupId1, session);
-    segment->replicas[0].freeRpc.construct(context, backupId1,
+    segment->replicas[0].start({99, 99}, session);
+    segment->replicas[0].freeRpc.construct(context, ServerId(99, 99),
                                            masterId, segmentId);
-    EXPECT_STREQ("sendRequest: 0x1001c 999 0 888 0",
-                 transport.outputLog.c_str());
-    {
-        TestLog::Enable _;
-        segment->performFree(segment->replicas[0]);
-        EXPECT_TRUE(TestUtil::matchesPosixRegex(
-            "performFree: Failure freeing replica on backup, retrying: "
-            "RAMCloud::TransportException: testing thrown", TestLog::get()));
-    }
+    TestLog::Enable _;
+    segment->performFree(segment->replicas[0]);
+    EXPECT_EQ("performFree: ServerDoesntExistException thrown", TestLog::get());
     EXPECT_TRUE(segment->freeQueued);
-    EXPECT_TRUE(segment->isScheduled());
-    ASSERT_TRUE(segment->replicas[0].isActive);
+    EXPECT_FALSE(segment->isScheduled());
+    ASSERT_FALSE(segment->replicas[0].isActive);
     EXPECT_FALSE(segment->replicas[0].freeRpc);
 
     EXPECT_EQ(0u, deleter.count);
     reset();
 }
-#endif
 
 TEST_F(ReplicatedSegmentTest, performFreeWriteRpcInProgress) {
     // It should be impossible to get into this situation now that free()
@@ -597,8 +587,6 @@ TEST_F(ReplicatedSegmentTest, performFreeWriteRpcInProgress) {
     transport.setInput("0 0"); // write
     transport.setInput("0 0"); // free
     transport.setInput("0 0"); // free
-
-return;
 
     segment->write(openLen);
     segment->close(NULL);
@@ -796,9 +784,8 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcIsReady) {
     reset();
 }
 
-// Ryan: either fix or delete this test.
-#if 0
 TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
+    ServerIdRpcWrapper::ConvertExceptionsToDoesntExist _;
     transport.clearInput();
     transport.setInput("0 0"); // ok first replica open
     transport.setInput(NULL); // error second replica open
@@ -825,8 +812,8 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
         TestLog::Enable _;
         taskQueue.performTask();  // reap rpcs, second replica got error
         EXPECT_TRUE(TestUtil::matchesPosixRegex(
-            "performWrite: Failure writing replica on backup, retrying: "
-            "RAMCloud::TransportException: testing thrown", TestLog::get()));
+            "performWrite: Couldn't write to backup 1; server is down",
+            TestLog::get()));
     }
     EXPECT_TRUE(segment->isScheduled());
     ASSERT_TRUE(segment->replicas[0].isActive);
@@ -854,8 +841,8 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
         TestLog::Enable _;
         taskQueue.performTask();  // reap rpcs, first replica got error
         EXPECT_TRUE(TestUtil::matchesPosixRegex(
-            "performWrite: Failure writing replica on backup, retrying: "
-            "RAMCloud::TransportException: testing thrown", TestLog::get()));
+            "performWrite: Couldn't write to backup 0; server is down",
+            TestLog::get()));
     }
     EXPECT_TRUE(segment->isScheduled());
     ASSERT_TRUE(segment->replicas[0].isActive);
@@ -879,7 +866,6 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
     EXPECT_EQ(0u, deleter.count);
     reset();
 }
-#endif
 
 TEST_F(ReplicatedSegmentTest, performWriteMoreToSend) {
     transport.setInput("0 0"); // write
