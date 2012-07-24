@@ -300,8 +300,7 @@ CoordinatorService::enlistServer(const EnlistServerRpc::Request& reqHdr,
     const char* serviceLocator = getString(rpc.requestPayload, sizeof(reqHdr),
                                            reqHdr.serviceLocatorLength);
 
-    // TODO(ankitak): This code will become much simpler after
-    // RAM-431 is resolved.
+    // TODO(ankitak): Re-work after RAM-431.
 
     CoordinatorServerManager::EnlistServer ref(
         serverManager, replacesId, serviceMask, readSpeed, writeSpeed,

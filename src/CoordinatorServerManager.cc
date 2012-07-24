@@ -130,6 +130,8 @@ CoordinatorServerManager::EnlistServer::beforeReply()
     // update they will see the removal of the old server id before the
     // addition of the new, replacing server id.
     if (manager.service.serverList.contains(replacesId)) {
+        replacesEntryId =
+            manager.service.serverList.getLogCabinEntryId(replacesId);
         LOG(NOTICE, "%s is enlisting claiming to replace server id "
             "%lu, which is still in the server list, taking its word "
             "for it and assuming the old server has failed",
@@ -147,11 +149,20 @@ CoordinatorServerManager::EnlistServer::beforeReply()
             manager.service.serverList.remove(replacesId, serverListUpdate);
     }
 
-    newServerId = manager.service.serverList.add(serviceLocator,
-                                                 serviceMask,
-                                                 readSpeed,
-                                                 serverListUpdate);
+    newServerId = manager.service.serverList.add(
+        serviceLocator, serviceMask, readSpeed, serverListUpdate);
     manager.service.serverList.incrementVersion(serverListUpdate);
+
+    ProtoBuf::StateEnlistServer state;
+    state.set_entry_type("StateEnlistServer");
+    state.set_replaces_id(replacesId.getId());
+    state.set_new_server_id(newServerId.getId());
+    state.set_service_mask(serviceMask.serialize());
+    state.set_read_speed(readSpeed);
+    state.set_write_speed(writeSpeed);
+    state.set_service_locator(string(serviceLocator));
+
+    stateEntryId = manager.service.logCabinHelper->appendProtoBuf(state);
 
     CoordinatorServerList::Entry entry =
         manager.service.serverList[newServerId];
@@ -188,14 +199,30 @@ CoordinatorServerManager::EnlistServer::afterReply()
     if (replacedEntry)
         manager.service.recoveryManager.startMasterRecovery(
             replacedEntry.get()->serverId);
+
+    ProtoBuf::ServerInformation info;
+    info.set_entry_type("ServerInformation");
+    info.set_server_id(newServerId.getId());
+    info.set_service_mask(serviceMask.serialize());
+    info.set_read_speed(readSpeed);
+    info.set_write_speed(writeSpeed);
+    info.set_service_locator(string(serviceLocator));
+
+    vector<EntryId> invalidates;
+    invalidates.push_back(stateEntryId);
+    if (replacesEntryId)
+        invalidates.push_back(replacesEntryId);
+
+    EntryId infoEntryId =
+        manager.service.logCabinHelper->appendProtoBuf(info, invalidates);
+    manager.service.serverList.addLogCabinEntryId(newServerId, infoEntryId);
 }
 
 /**
  * Implements the part to handle enlistServer before responding to the
  * enlisting server with the serverId assigned to it.
  *
- * TODO(ankitak): This code will become much simpler after
- * RAM-431 is resolved.
+ * TODO(ankitak): Re-work after RAM-431 is resolved.
  *
  * \param ref
  *      Reference to the EnlistServer object that stores all the data
@@ -214,8 +241,7 @@ CoordinatorServerManager::enlistServerBeforeReply(EnlistServer& ref)
  * Implements the part to handle enlistServer after responding to the
  * enlisting server with the serverId assigned to it.
  *
- * TODO(ankitak): This code will become much simpler after
- * RAM-431 is resolved.
+ * TODO(ankitak): Re-work after RAM-431 is resolved.
  *
  * \param ref
  *      Reference to the EnlistServer object that stores all the data

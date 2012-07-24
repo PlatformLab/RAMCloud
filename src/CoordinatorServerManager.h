@@ -20,6 +20,8 @@
 
 #include "Common.h"
 #include "CoordinatorServerList.h"
+#include "ServerInformation.pb.h"
+#include "StateEnlistServer.pb.h"
 #include "StateHintServerDown.pb.h"
 #include "StateSetMinOpenSegmentId.pb.h"
 
@@ -37,15 +39,42 @@ using LogCabin::Client::NO_ID;
  * server configuration.
  */
 class CoordinatorServerManager {
+
   PUBLIC:
+    // Forward declaration of class EnlistServer defined below.
+    // TODO(ankitak): Remove after RAM-431.
+    class EnlistServer;
+
     explicit CoordinatorServerManager(CoordinatorService& coordinatorService);
     ~CoordinatorServerManager();
 
     /**
+     * The ping timeout used when the Coordinator verifies an incoming
+     * hint server down message. Until we resolve the scheduler issues that we
+     * have been seeing this timeout should be at least 250ms.
+     */
+    static const int TIMEOUT_USECS = 250 * 1000;
+
+    bool assignReplicationGroup(uint64_t replicationId,
+                                const vector<ServerId>& replicationGroupIds);
+    void createReplicationGroup();
+    ServerId enlistServerBeforeReply(EnlistServer& ref);
+    void enlistServerAfterReply(EnlistServer& ref);
+    ProtoBuf::ServerList getServerList(ServiceMask serviceMask);
+    bool hintServerDown(ServerId serverId);
+    void hintServerDownRecover(ProtoBuf::StateHintServerDown* state,
+                               EntryId entryId);
+    void removeReplicationGroup(uint64_t groupId);
+    void sendServerList(ServerId serverId);
+    void setMinOpenSegmentId(ServerId serverId, uint64_t segmentId);
+    void setMinOpenSegmentIdRecover(ProtoBuf::StateSetMinOpenSegmentId* state,
+                                    EntryId entryId);
+    bool verifyServerFailure(ServerId serverId);
+
+    /**
      * Defines methods and stores data to enlist a server.
      */
-    // TODO(ankitak): This code will become much simpler after
-    // RAM-431 is resolved.
+    // TODO(ankitak): Re-work and move under PRIVATE after RAM-431.
     class EnlistServer {
         public:
             EnlistServer(CoordinatorServerManager &manager,
@@ -59,7 +88,8 @@ class CoordinatorServerManager {
                   newServerId(), serviceMask(serviceMask),
                   readSpeed(readSpeed), writeSpeed(writeSpeed),
                   serviceLocator(serviceLocator),
-                  serverListUpdate() {}
+                  serverListUpdate(),
+                  replacesEntryId(), stateEntryId() {}
             ServerId beforeReply();
             void afterReply();
         private:
@@ -103,31 +133,18 @@ class CoordinatorServerManager {
 			 * to the cluster.
 			 */
             ProtoBuf::ServerList serverListUpdate;
+            /**
+             * LogCabin entry id for the entry corresponding to the
+             * server that is being forced out of the cluster.
+             */
+            EntryId replacesEntryId;
+            /**
+             * LogCabin entry id for the entry corresponding to the
+             * state for this operation.
+             */
+            EntryId stateEntryId;
             DISALLOW_COPY_AND_ASSIGN(EnlistServer);
     };
-
-    /**
-     * The ping timeout used when the Coordinator verifies an incoming
-     * hint server down message. Until we resolve the scheduler issues that we
-     * have been seeing this timeout should be at least 250ms.
-     */
-    static const int TIMEOUT_USECS = 250 * 1000;
-
-    bool assignReplicationGroup(uint64_t replicationId,
-                                const vector<ServerId>& replicationGroupIds);
-    void createReplicationGroup();
-    ServerId enlistServerBeforeReply(EnlistServer& ref);
-    void enlistServerAfterReply(EnlistServer& ref);
-    ProtoBuf::ServerList getServerList(ServiceMask serviceMask);
-    bool hintServerDown(ServerId serverId);
-    void hintServerDownRecover(ProtoBuf::StateHintServerDown* state,
-                               EntryId entryId);
-    void removeReplicationGroup(uint64_t groupId);
-    void sendServerList(ServerId serverId);
-    void setMinOpenSegmentId(ServerId serverId, uint64_t segmentId);
-    void setMinOpenSegmentIdRecover(ProtoBuf::StateSetMinOpenSegmentId* state,
-                                    EntryId entryId);
-    bool verifyServerFailure(ServerId serverId);
 
   PRIVATE:
 
