@@ -109,7 +109,7 @@ ServerIdRpcWrapper::send()
         session = context.transportManager->getSession(locator, id);
     }
     catch (Exception& e) {
-        LOG(WARNING, "ServerIdRpcWrapper couldn't get session: %s",
+        LOG(DEBUG, "ServerIdRpcWrapper couldn't get session: %s",
                 e.message.c_str());
         state = FAILED;
         return;

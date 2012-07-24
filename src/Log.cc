@@ -735,7 +735,7 @@ Log::allocateHeadInternal(Lock& lock, Tub<uint64_t> segmentId)
             digest.addSegment(downCast<LogDigest::SegmentId>(s.getId()));
     }
 
-    Segment* nextHead = new Segment(this, true, newHeadId, baseAddress,
+    Segment* nextHead = new Segment(this, true, head, newHeadId, baseAddress,
         segmentCapacity, replicaManager, LOG_ENTRY_TYPE_LOGDIGEST, temp,
         downCast<uint32_t>(digestBytes));
 
@@ -744,7 +744,7 @@ Log::allocateHeadInternal(Lock& lock, Tub<uint64_t> segmentId)
 
     // only close the old head _after_ we've opened up the new head!
     if (head) {
-        head->close(nextHead, false); // an exception here would be problematic.
+        head->close(false); // an exception here would be problematic.
     }
 
     head = nextHead;

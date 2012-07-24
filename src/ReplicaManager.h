@@ -60,6 +60,8 @@ class ReplicaManager
     : public ReplicatedSegment::Deleter
 {
   PUBLIC:
+    typedef std::lock_guard<std::mutex> Lock;
+
     ReplicaManager(Context& context,
                    ServerList& serverList,
                    const ServerId& masterId,
@@ -68,14 +70,23 @@ class ReplicaManager
 
     bool isIdle();
     bool isReplicaNeeded(ServerId backupServerId, uint64_t segmentId);
-    ReplicatedSegment* openSegment(bool isLogHead, uint64_t segmentId,
-                                   const void* data, uint32_t openLen)
+    ReplicatedSegment* allocateHead(ReplicatedSegment* precedingSegment,
+                                    uint64_t segmentId,
+                                    const void* data, uint32_t openLen)
+        __attribute__((warn_unused_result));
+    ReplicatedSegment* allocateNonHead(uint64_t segmentId,
+                                       const void* data, uint32_t openLen)
         __attribute__((warn_unused_result));
     void startFailureMonitor(Log* log);
     void haltFailureMonitor();
     void proceed();
 
   PRIVATE:
+    ReplicatedSegment* allocateSegment(const Lock& lock, bool isLogHead,
+                                       uint64_t segmentId,
+                                       const void* data, uint32_t openLen)
+        __attribute__((warn_unused_result));
+
     /// Shared RAMCloud information.
     Context& context;
 
@@ -105,7 +116,6 @@ class ReplicaManager
      * or modify any state in the ReplicaManager.
      */
     std::mutex dataMutex;
-    typedef std::lock_guard<std::mutex> Lock;
 
     /// Id of master that this will be managing replicas for.
     const ServerId& masterId;

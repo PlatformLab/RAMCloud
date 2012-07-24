@@ -119,11 +119,24 @@ TEST_F(ReplicaManagerTest, isReplicaNeeded) {
     EXPECT_TRUE(mgr->isReplicaNeeded({2, 0}, 99));
 }
 
-TEST_F(ReplicaManagerTest, openSegment) {
+TEST_F(ReplicaManagerTest, allocateHead) {
     MockRandom _(1);
     const char data[] = "Hello world!";
 
-    auto segment = mgr->openSegment(true, 88, data, arrayLength(data));
+    auto prior = mgr->allocateHead(NULL, 87, data, arrayLength(data));
+    auto segment = mgr->allocateHead(prior, 88, data, arrayLength(data));
+
+    ASSERT_FALSE(mgr->taskQueue.isIdle());
+    EXPECT_EQ(2u, mgr->replicatedSegmentList.size());
+    EXPECT_EQ(segment, &mgr->replicatedSegmentList.back());
+    EXPECT_EQ(segment, prior->followingSegment);
+}
+
+TEST_F(ReplicaManagerTest, allocateNonHead) {
+    MockRandom _(1);
+    const char data[] = "Hello world!";
+
+    auto segment = mgr->allocateHead(NULL, 88, data, arrayLength(data));
 
     ASSERT_FALSE(mgr->taskQueue.isIdle());
     EXPECT_EQ(segment, mgr->taskQueue.tasks.front());
@@ -199,7 +212,7 @@ TEST_F(ReplicaManagerTest, writeSegment) {
 }
 
 TEST_F(ReplicaManagerTest, proceed) {
-    mgr->openSegment(true, 89, NULL, 0)->close(NULL);
+    mgr->allocateHead(NULL, 89, NULL, 0)->close();
     auto& segment = mgr->replicatedSegmentList.front();
     EXPECT_FALSE(segment.replicas[0].isActive);
     mgr->proceed();
@@ -208,25 +221,25 @@ TEST_F(ReplicaManagerTest, proceed) {
 }
 
 TEST_F(ReplicaManagerTest, handleBackupFailure) {
-    auto s1 = mgr->openSegment(true, 89, NULL, 0);
-    auto s2 = mgr->openSegment(true, 90, NULL, 0);
-    auto s3 = mgr->openSegment(true, 91, NULL, 0);
+    auto s1 = mgr->allocateHead(NULL, 89, NULL, 0);
+    auto s2 = mgr->allocateHead(s1, 90, NULL, 0);
+    auto s3 = mgr->allocateHead(s2, 91, NULL, 0);
     mgr->proceed();
     mgr->proceed();
     mgr->proceed();
     Tub<uint64_t> segmentId = mgr->handleBackupFailure(backup1Id);
     ASSERT_TRUE(segmentId);
     EXPECT_EQ(91u, *segmentId);
-    auto s4 = mgr->openSegment(true, 92, NULL, 0);
+    IGNORE_RESULT(mgr->allocateHead(s3, 92, NULL, 0));
     // If we don't meet the dependencies the backup will refuse
     // to tear-down as it tries to make sure there is no data loss.
-    s1->close(s2);
-    s2->close(s3);
-    s3->close(s4);
+    s1->close();
+    s2->close();
+    s3->close();
 }
 
 TEST_F(ReplicaManagerTest, destroyAndFreeReplicatedSegment) {
-    auto* segment = mgr->openSegment(true, 89, NULL, 0);
+    auto* segment = mgr->allocateHead(NULL, 89, NULL, 0);
     segment->sync(0);
     while (!mgr->taskQueue.isIdle())
         mgr->proceed(); // Make sure the close gets pushed out as well.
@@ -241,7 +254,7 @@ bool filter(string s) {
     // Mostly to filter out non-deterministic storage stuff on the backup.
     const char* ok[] = { "main"
                        , "handleBackupFailure"
-                       , "openSegment"
+                       , "allocateSegment"
                        , "write"
                        , "close"
                        , "selectPrimary"
@@ -331,7 +344,8 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
         // Ensure a new log head is allocated.
         "main: Allocating a new log head | "
         // Which provides the required new log digest via open.
-        "openSegment: openSegment 3, 2, ..., 76 | "
+        "allocateSegment: Allocating new replicated segment for <3,2> "
+            "initial open length 76 | "
         "write: 3, 1, 8192 | "
         "close: 3, 1, 2 | "
         // And which also provides the needed close on the log segment
@@ -358,14 +372,26 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
             "disk bandwidth (expected time to read on recovery is 160 ms) | "
         "performWrite: Starting replication of segment 2 replica slot 0 "
             "on backup 2 | "
-        "performWrite: Sending open to backup 2 | "
-        "writeSegment: Opening <3,2> | "
+        // But replication cannot start right away because preceding segments
+        // haven't been durably opened.
+        "performWrite: Cannot open segment 2 until preceding segment is "
+            "durably open | "
         "performWrite: Starting replication of segment 2 replica slot 1 "
             "on backup 4 | "
+        "performWrite: Cannot open segment 2 until preceding segment is "
+            "durably open | "
+        "performWrite: Cannot close segment 1 until following segment is "
+            "durably open | "
+        "performWrite: Sending open to backup 2 | "
+        "writeSegment: Opening <3,2> | "
         "performWrite: Sending open to backup 4 | "
         "writeSegment: Opening <3,2> | "
         // Segment 1 is still waiting for the RPC for the open for Segment 2
-        // to be reaped to ensure that it is durably open.
+        // to be reaped to ensure that it is durably open. Repeats twice
+        // because segment 2 was delayed in sending its open due to the open
+        // from its preceding segment.
+        "performWrite: Cannot close segment 1 until following segment is "
+            "durably open | "
         "performWrite: Cannot close segment 1 until following segment is "
             "durably open | "
         // This part is a bit ambiguous:
@@ -373,8 +399,8 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
         // That frees Segment 1 to finally send it's closing write which
         // accounts for 2 rpcs, one to each of its replicas.  The other
         // write is to finish the replication of segment 0.
-        "performWrite: Sending write to backup 2 | "
         "performWrite: Sending write to backup 4 | "
+        "performWrite: Sending write to backup 2 | "
         "performWrite: Sending write to backup 4 | "
         // Update minOpenSegmentId on the coordinator to complete the lost
         // open segment recovery protocol.

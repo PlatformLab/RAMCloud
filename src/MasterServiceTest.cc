@@ -1833,8 +1833,6 @@ class MasterRecoverTest : public ::testing::Test {
 TEST_F(MasterRecoverTest, recover) {
     MasterService* master = createMasterService();
 
-    // Give them a name so that freeSegment doesn't get called on
-    // destructor until after the test.
     char* segMem1 = static_cast<char*>(Memory::xmemalign(HERE, segmentSize,
                                                          segmentSize));
     ServerId serverId(99, 0);
@@ -1843,11 +1841,11 @@ TEST_F(MasterRecoverTest, recover) {
                                                     MEMBERSHIP_SERVICE}, 100);
     ReplicaManager mgr(context, serverList, serverId, 1);
     Segment s1(99, 87, segMem1, segmentSize, &mgr);
-    s1.close(NULL);
+    s1.close();
     char* segMem2 = static_cast<char*>(Memory::xmemalign(HERE, segmentSize,
                                                          segmentSize));
     Segment s2(99, 88, segMem2, segmentSize, &mgr);
-    s2.close(NULL);
+    s2.close();
 
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);

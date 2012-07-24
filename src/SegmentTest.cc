@@ -40,9 +40,9 @@ class SegmentTest : public ::testing::Test {
     }
 
     static bool
-    openSegmentFilter(string s)
+    allocateSegmentFilter(string s)
     {
-        return s == "openSegment";
+        return s == "allocateSegment";
     }
 
     static bool
@@ -92,12 +92,11 @@ TEST_F(SegmentTest, constructor) {
 
     ServerId serverId(1020304050, 0);
     ReplicaManager replicaManager(context, serverList, serverId, 0);
-    TestLog::Enable _(&openSegmentFilter);
+    TestLog::Enable _(&allocateSegmentFilter);
     Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf),
               &replicaManager);
-    EXPECT_EQ("openSegment: "
-                            "openSegment 1020304050, 98765, ..., 38",
-                            TestLog::get());
+    EXPECT_EQ("allocateSegment: Allocating new replicated segment for "
+              "<1020304050,98765> initial open length 38", TestLog::get());
     EXPECT_EQ(s.baseAddress,
                             reinterpret_cast<void *>(alignedBuf));
     EXPECT_EQ(98765U, s.id);
@@ -125,21 +124,21 @@ TEST_F(SegmentTest, constructor) {
     ServerId serverId2(42, 0);
     Log l(context, serverId2, 8192, 8192, 4298, NULL,
         Log::CLEANER_DISABLED);
-    Segment s2(&l, true, 0, alignedBuf, sizeof(alignedBuf), NULL,
+    Segment s2(&l, true, &s, 0, alignedBuf, sizeof(alignedBuf), NULL,
                 LOG_ENTRY_TYPE_INVALID, NULL, 0);
     EXPECT_EQ(s2.getLiveBytes(), s2.tail);
 
     // Segments must be power-of-two sized <= 2GB and be
     // aligned to their capacity.
 
-    EXPECT_THROW(Segment(&l, true, 0, alignedBuf, sizeof(alignedBuf) + 1,
+    EXPECT_THROW(Segment(&l, true, NULL, 0, alignedBuf, sizeof(alignedBuf) + 1,
         NULL, LOG_ENTRY_TYPE_INVALID, NULL, 0), SegmentException);
-    EXPECT_THROW(Segment(&l, true, 0, alignedBuf, 0x80000001,
+    EXPECT_THROW(Segment(&l, true, NULL, 0, alignedBuf, 0x80000001,
         NULL, LOG_ENTRY_TYPE_INVALID, NULL, 0), SegmentException);
 
-    EXPECT_THROW(Segment(&l, true, 0, &alignedBuf[1], sizeof(alignedBuf),
+    EXPECT_THROW(Segment(&l, true, NULL, 0, &alignedBuf[1], sizeof(alignedBuf),
         NULL, LOG_ENTRY_TYPE_INVALID, NULL, 0), SegmentException);
-    EXPECT_THROW(Segment(&l, true, 0, &alignedBuf[8], sizeof(alignedBuf),
+    EXPECT_THROW(Segment(&l, true, NULL, 0, &alignedBuf[8], sizeof(alignedBuf),
         NULL, LOG_ENTRY_TYPE_INVALID, NULL, 0), SegmentException);
 }
 
@@ -163,9 +162,8 @@ TEST_F(SegmentTest, append) {
                     s.appendableBytes() + 1);
     EXPECT_TRUE(NULL == seh);
 
-    EXPECT_EQ(
-        "openSegment: openSegment 1, 2, ..., 38",
-        TestLog::get());
+    EXPECT_EQ("allocateSegment: Allocating new replicated segment for <1,2> "
+              "initial open length 38", TestLog::get());
 
     char c = '!';
     seh = s.append(LOG_ENTRY_TYPE_OBJ, &c, sizeof(c));
@@ -329,7 +327,7 @@ TEST_F(SegmentTest, close) {
     ReplicaManager replicaManager(context, serverList, serverId, 0);
     Segment s(1, 2, alignedBuf, sizeof(alignedBuf), &replicaManager);
     TestLog::Enable _;
-    s.close(NULL, false);
+    s.close(false);
     EXPECT_EQ("write: 1, 2, 8192 | close: 1, 2, 0 | "
               "close: Segment 2 closed (length 8192)",
               TestLog::get());
@@ -389,7 +387,7 @@ TEST_F(SegmentTest, forceAppendBlob) {
         buf[i] = static_cast<char>(i);
 
     Log l(context, serverId, 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
-    Segment s(&l, true, 445566, alignedBuf, sizeof(alignedBuf), NULL,
+    Segment s(&l, true, NULL, 445566, alignedBuf, sizeof(alignedBuf), NULL,
                 LOG_ENTRY_TYPE_INVALID, NULL, 0);
     uint64_t bytesBeforeAppend = s.getLiveBytes();
     s.forceAppendBlob(buf, sizeof(buf));
@@ -406,7 +404,7 @@ TEST_F(SegmentTest, forceAppendRepeatedByte) {
     char alignedBuf[8192] __attribute__((aligned(8192)));
 
     Log l(context, serverId, 8192, 8192, 4298, NULL, Log::CLEANER_DISABLED);
-    Segment s(&l, true, 445566, alignedBuf, sizeof(alignedBuf), NULL,
+    Segment s(&l, true, NULL, 445566, alignedBuf, sizeof(alignedBuf), NULL,
                 LOG_ENTRY_TYPE_INVALID, NULL, 0);
     uint64_t bytesBeforeAppend = s.getLiveBytes();
 

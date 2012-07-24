@@ -301,7 +301,7 @@ class ReplicatedSegment : public Task {
   PUBLIC:
     void free();
     bool isSynced() const;
-    void close(ReplicatedSegment* followingSegment);
+    void close();
     bool handleBackupFailure(ServerId failedId)
         __attribute__((warn_unused_result));
     void sync(uint32_t offset);
@@ -463,6 +463,20 @@ class ReplicatedSegment : public Task {
      * undetectably lost in the case that all replicas of it are lost.
      */
     bool precedingSegmentCloseAcked;
+
+    /**
+     * An open rpc for a replica cannot be issued until the open for the
+     * prior segment in the log has been acknowledged. This constraint is
+     * only enfoced for segments which have a followingSegment (see close(),
+     * other segments created as part of the log cleaner and unit tests skip
+     * this check. This segment waits until the preceding segment sets this
+     * to true which happens immediately after the preceding segment receives
+     * acknowledgment back from its replicas for its opening write. The goal
+     * is to prevent log digests which occur later in the log from being
+     * written before the replicas which it mentions have been made durable.
+     * Otherwise, data loss could be detected on recovery.
+     */
+    bool precedingSegmentOpenAcked;
 
     /**
      * Set to true if this segment lost a replica while it was open and hasn't

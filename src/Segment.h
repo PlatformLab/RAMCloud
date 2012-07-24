@@ -188,7 +188,8 @@ class Segment {
     /// The class used to calculate segment checksums.
     typedef SegmentChecksum Checksum;
 
-    Segment(Log *log, bool isLogHead, uint64_t segmentId, void *baseAddress,
+    Segment(Log *log, bool isLogHead, Segment* precedingSegment,
+            uint64_t segmentId, void *baseAddress,
             uint32_t capacity, ReplicaManager* replicaManager,
             LogEntryType type, const void *buffer, uint32_t length,
             uint64_t headSegmentIdDuringCleaning = INVALID_SEGMENT_ID);
@@ -212,7 +213,7 @@ class Segment {
     void               free(SegmentEntryHandle entry);
     void               setImplicitlyFreedCounts(uint32_t freeByteSum,
                                                 uint64_t freeSpaceTimeSum);
-    void               close(Segment* nextHead, bool sync = true);
+    void               close(bool sync = true);
     void               sync();
     void               freeReplicas();
     const void        *getBaseAddress() const;
@@ -304,7 +305,9 @@ class Segment {
     static const uint64_t  INVALID_SEGMENT_ID = ~(0ull);
 
   PRIVATE:
-    void               commonConstructor(bool isLogHead, LogEntryType type,
+    void               commonConstructor(bool isLogHead,
+                                         Segment* precedingSegment,
+                                         LogEntryType type,
                                          const void *buffer, uint32_t length,
                                          uint64_t headSegmentIdDuringCleaning);
     SegmentEntryHandle locklessAppend(LogEntryType type,

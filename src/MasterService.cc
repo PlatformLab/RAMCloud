@@ -886,7 +886,7 @@ MasterService::migrateTablet(const MigrateTabletRpc::Request& reqHdr,
 
         // If we can't fit it, send the current buffer and retry.
         if (transferSeg->append(it.getHandle(), false) == NULL) {
-            transferSeg->close(NULL, false);
+            transferSeg->close(false);
             MasterClient::receiveMigrationData(context, newOwnerMasterId,
                 tableId, firstKey, transferSeg->getBaseAddress(),
                 transferSeg->getTotalBytesAppended());
@@ -909,7 +909,7 @@ MasterService::migrateTablet(const MigrateTabletRpc::Request& reqHdr,
     }
 
     if (transferSeg) {
-        transferSeg->close(NULL, false);
+        transferSeg->close(false);
         MasterClient::receiveMigrationData(context, newOwnerMasterId, tableId,
             firstKey, transferSeg->getBaseAddress(),
             transferSeg->getTotalBytesAppended());
