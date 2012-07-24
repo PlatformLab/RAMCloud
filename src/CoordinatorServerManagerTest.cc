@@ -439,16 +439,16 @@ TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentId) {
 }
 
 TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentIdRecover) {
-    ProtoBuf::StateSetMinOpenSegmentId state;
-    state.set_opcode("SetMinOpenSegmentId");
-    state.set_done(true);
-    state.set_server_id(masterServerId.getId());
-    state.set_segment_id(10);
+    EntryId oldEntryId = serverList->getLogCabinEntryId(masterServerId);
+    ProtoBuf::ServerInformation serverInfo;
+    serverManager->service.logCabinHelper->getProtoBufFromEntryId(
+        oldEntryId, serverInfo);
 
-    EntryId entryId =
-        serverManager->service.logCabinHelper->appendProtoBuf(state);
+    serverInfo.set_min_open_segment_id(10);
+    EntryId newEntryId =
+        serverManager->service.logCabinHelper->appendProtoBuf(serverInfo);
 
-    serverManager->setMinOpenSegmentIdRecover(&state, entryId);
+    serverManager->setMinOpenSegmentIdRecover(&serverInfo, newEntryId);
 
     EXPECT_EQ(10u, serverList->at(masterServerId).minOpenSegmentId);
 }
@@ -457,19 +457,12 @@ TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentId_execute) {
     TestLog::Enable _;
     serverManager->setMinOpenSegmentId(masterServerId, 10);
 
-    string searchString = "execute: LogCabin entryId: ";
-    ASSERT_NE(string::npos, TestLog::get().find(searchString));
-    string entryIdString = TestLog::get().substr(
-        TestLog::get().find(searchString) + searchString.length(), 1);
-    EntryId entryId = strtoul(entryIdString.c_str(), NULL, 0);
-
-    ProtoBuf::StateSetMinOpenSegmentId readState;
+    EntryId entryId = serverList->getLogCabinEntryId(masterServerId);
+    ProtoBuf::ServerInformation readInfo;
     serverManager->service.logCabinHelper->getProtoBufFromEntryId(
-        entryId, readState);
+        entryId, readInfo);
 
-    EXPECT_EQ("opcode: \"SetMinOpenSegmentId\"\n"
-              "done: true\nserver_id: 1\nsegment_id: 10\n",
-              readState.DebugString());
+    EXPECT_EQ(10u, readInfo.min_open_segment_id());
 }
 
 TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentId_complete_noSuchServer)

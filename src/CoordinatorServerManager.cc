@@ -452,22 +452,19 @@ CoordinatorServerManager::sendServerList(ServerId serverId)
 void
 CoordinatorServerManager::SetMinOpenSegmentId::execute()
 {
-    // TODO(ankitak): After enlistServer starts saving state to LogCabin,
-    // there will be an entry corresponding to the server information.
-    // At this point, that entry will be read from LogCabin, the information
-    // updated with this setMinOpenSegmentId, and then appended to the log.
-    // We will no longer need a state entry for SetMinOpenSegmentId.
+    EntryId oldEntryId =
+        manager.service.serverList.getLogCabinEntryId(serverId);
+    ProtoBuf::ServerInformation serverInfo;
+    manager.service.logCabinHelper->getProtoBufFromEntryId(
+        oldEntryId, serverInfo);
 
-    ProtoBuf::StateSetMinOpenSegmentId state;
-    state.set_opcode("SetMinOpenSegmentId");
-    state.set_done(true);
-    state.set_server_id(serverId.getId());
-    state.set_segment_id(segmentId);
+    serverInfo.set_min_open_segment_id(segmentId);
 
-    EntryId entryId = manager.service.logCabinHelper->appendProtoBuf(state);
-    LOG(DEBUG, "LogCabin entryId: %lu", entryId);
+    EntryId newEntryId =
+        manager.service.logCabinHelper->appendProtoBuf(
+            serverInfo, vector<EntryId>(oldEntryId));
 
-    complete(entryId);
+    complete(newEntryId);
 }
 
 void
@@ -502,22 +499,22 @@ CoordinatorServerManager::setMinOpenSegmentId(
 }
 
 /**
- * Set the minOpenSegmentId of the server specified in the state Protobuf
- * to the segmentId specified in the state Protobuf.
+ * Set the minOpenSegmentId of the server specified in the serverInfo Protobuf
+ * to the segmentId specified in the Protobuf.
  *
- * \param state
- *      The ProtoBuf that encapsulates the state of the setMinOpenSegmentId
- *      operation to be recovered.
+ * \param serverInfo
+ *      The ProtoBuf that has the information about the server whose
+ *      minOpenSegmentId is to be set.
  * \param entryId
- *      The entry id of the LogCabin entry corresponding to the state.
+ *      The entry id of the LogCabin entry corresponding to the serverInfo.
  */
 void
 CoordinatorServerManager::setMinOpenSegmentIdRecover(
-    ProtoBuf::StateSetMinOpenSegmentId* state, EntryId entryId)
+    ProtoBuf::ServerInformation* serverInfo, EntryId entryId)
 {
     Lock _(mutex);
-    ServerId serverId = ServerId(state->server_id());
-    uint64_t segmentId = state->segment_id();
+    ServerId serverId = ServerId(serverInfo->server_id());
+    uint64_t segmentId = serverInfo->min_open_segment_id();
     SetMinOpenSegmentId(*this, serverId, segmentId).complete(entryId);
 }
 

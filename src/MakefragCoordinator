@@ -8,7 +8,6 @@ COORDINATOR_SRCFILES := \
 			src/ServerInformation.pb.cc \
 			src/StateEnlistServer.pb.cc \
 			src/StateHintServerDown.pb.cc \
-			src/StateSetMinOpenSegmentId.pb.cc \
 			$(NULL)
 
 COORDINATOR_OBJFILES := $(COORDINATOR_SRCFILES)

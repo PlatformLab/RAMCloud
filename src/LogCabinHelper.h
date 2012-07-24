@@ -19,7 +19,6 @@
 #include <Client/Client.h>
 
 #include "Common.h"
-#include "StateSetMinOpenSegmentId.pb.h"
 
 namespace RAMCloud {
 

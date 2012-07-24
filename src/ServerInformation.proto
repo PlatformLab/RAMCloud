@@ -23,17 +23,20 @@ message ServerInformation {
     required string entry_type = 1;
 
 	/// The server id of the server.
-    required fixed64 server_id = 4;
+    required fixed64 server_id = 2;
 
 	/// Services supported by the server.
-    required uint32 service_mask = 5;
+    required uint32 service_mask = 3;
 
     /// Read speed of the server.
-    required uint32 read_speed = 6;
+    required uint32 read_speed = 4;
 
 	/// Write speed of the server.
-    required uint32 write_speed = 7;
+    required uint32 write_speed = 5;
 
 	/// Service Locator of the server.
-    required string service_locator = 8;
+    required string service_locator = 6;
+
+    /// The minimum open segment id of this server.
+    optional uint64 min_open_segment_id = 7;
 }

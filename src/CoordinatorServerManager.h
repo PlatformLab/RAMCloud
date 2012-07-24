@@ -23,7 +23,6 @@
 #include "ServerInformation.pb.h"
 #include "StateEnlistServer.pb.h"
 #include "StateHintServerDown.pb.h"
-#include "StateSetMinOpenSegmentId.pb.h"
 
 namespace RAMCloud {
 
@@ -67,7 +66,7 @@ class CoordinatorServerManager {
     void removeReplicationGroup(uint64_t groupId);
     void sendServerList(ServerId serverId);
     void setMinOpenSegmentId(ServerId serverId, uint64_t segmentId);
-    void setMinOpenSegmentIdRecover(ProtoBuf::StateSetMinOpenSegmentId* state,
+    void setMinOpenSegmentIdRecover(ProtoBuf::ServerInformation* state,
                                     EntryId entryId);
     bool verifyServerFailure(ServerId serverId);
 
