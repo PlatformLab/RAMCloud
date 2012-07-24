@@ -170,11 +170,9 @@ CoordinatorService::createTable(const CreateTableRpc::Request& reqHdr,
                 break;
             }
         }
-        const char* locator = master.serviceLocator.c_str();
-        MasterClient masterClient(
-            context.transportManager->getSession(locator));
         // Get current log head. Only entries >= this can be part of the tablet.
-        LogPosition headOfLog = masterClient.getHeadOfLog();
+        LogPosition headOfLog = MasterClient::getHeadOfLog(context,
+                                                           master.serverId);
 
         // Create tablet map entry.
         tabletMap.addTablet({tableId, startKeyHash, endKeyHash,
@@ -210,10 +208,11 @@ CoordinatorService::dropTable(const DropTableRpc::Request& reqHdr,
     tables.erase(it);
     vector<Tablet> removed = tabletMap.removeTabletsForTable(tableId);
     foreach (const auto& tablet, removed) {
-            MasterClient master(serverList.getSession(tablet.serverId));
-            master.dropTabletOwnership(tableId,
-                                       tablet.startKeyHash,
-                                       tablet.endKeyHash);
+            MasterClient::dropTabletOwnership(context,
+                                              tablet.serverId,
+                                              tableId,
+                                              tablet.startKeyHash,
+                                              tablet.endKeyHash);
     }
 
     LOG(NOTICE, "Dropped table '%s' with id %lu", name, tableId);
@@ -257,9 +256,9 @@ CoordinatorService::splitTablet(const SplitTabletRpc::Request& reqHdr,
     }
 
     // Tell the master to split the tablet
-    MasterClient master(serverList.getSession(serverId));
-    master.splitMasterTablet(tableId, reqHdr.startKeyHash, reqHdr.endKeyHash,
-                             reqHdr.splitKeyHash);
+    MasterClient::splitMasterTablet(context, serverId, tableId,
+                                    reqHdr.startKeyHash, reqHdr.endKeyHash,
+                                    reqHdr.splitKeyHash);
 
     LOG(NOTICE, "In table '%s' I split the tablet that started at key %lu and "
                 "ended at key %lu", name, reqHdr.startKeyHash,
@@ -445,11 +444,9 @@ CoordinatorService::reassignTabletOwnership(
         return;
     }
 
-    Transport::SessionRef session = serverList.getSession(newOwner);
-    MasterClient masterClient(session);
     // Get current head of log to preclude all previous data in the log
     // from being considered part of this tablet.
-    LogPosition headOfLog = masterClient.getHeadOfLog();
+    LogPosition headOfLog = MasterClient::getHeadOfLog(context, newOwner);
 
     try {
         tabletMap.modifyTablet(reqHdr.tableId, reqHdr.firstKey, reqHdr.lastKey,

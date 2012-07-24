@@ -795,9 +795,6 @@ MasterService::migrateTablet(const MigrateTabletRpc::Request& reqHdr,
         return;
     }
 
-    Transport::SessionRef session = serverList.getSession(newOwnerMasterId);
-    MasterClient recipient(session);
-
     Table* table = reinterpret_cast<Table*>(tablet->user_data());
 
     // TODO(rumble/slaughter) what if we end up splitting?!?
@@ -806,11 +803,12 @@ MasterService::migrateTablet(const MigrateTabletRpc::Request& reqHdr,
     // # bytes in a range in order for this to really work, we'll need to
     // split on a bucket
     // boundary. Otherwise we can't tell where bytes are in the chosen range.
-    recipient.prepForMigration(tableId, firstKey, lastKey, 0, 0);
+    MasterClient::prepForMigration(context, newOwnerMasterId, tableId,
+                                   firstKey, lastKey, 0, 0);
 
     LOG(NOTICE, "Migrating tablet (id %lu, first %lu, last %lu) to "
         "ServerId %lu (\"%s\")", tableId, firstKey, lastKey,
-        *newOwnerMasterId, session->getServiceLocator().c_str());
+        *newOwnerMasterId, serverList.getLocator(newOwnerMasterId));
 
     // We'll send over objects in Segment containers for better network
     // efficiency and convenience.
@@ -889,10 +887,9 @@ MasterService::migrateTablet(const MigrateTabletRpc::Request& reqHdr,
         // If we can't fit it, send the current buffer and retry.
         if (transferSeg->append(it.getHandle(), false) == NULL) {
             transferSeg->close(NULL, false);
-            recipient.receiveMigrationData(tableId,
-                                          firstKey,
-                                          transferSeg->getBaseAddress(),
-                                          transferSeg->getTotalBytesAppended());
+            MasterClient::receiveMigrationData(context, newOwnerMasterId,
+                tableId, firstKey, transferSeg->getBaseAddress(),
+                transferSeg->getTotalBytesAppended());
             LOG(DEBUG, "Sending migration segment");
 
             transferSeg.destroy();
@@ -913,10 +910,9 @@ MasterService::migrateTablet(const MigrateTabletRpc::Request& reqHdr,
 
     if (transferSeg) {
         transferSeg->close(NULL, false);
-        recipient.receiveMigrationData(tableId,
-                                        firstKey,
-                                        transferSeg->getBaseAddress(),
-                                        transferSeg->getTotalBytesAppended());
+        MasterClient::receiveMigrationData(context, newOwnerMasterId, tableId,
+            firstKey, transferSeg->getBaseAddress(),
+            transferSeg->getTotalBytesAppended());
         LOG(DEBUG, "Sending last migration segment");
         transferSeg.destroy();
     }

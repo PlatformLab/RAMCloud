@@ -692,8 +692,8 @@ struct ReassignTabletOwnership {
     struct Request {
         RequestCommon common;
         uint64_t tableId;           // Id of the table whose tablet was moved.
-        uint64_t firstKeyHash;      // First key of the migrated tablet.
-        uint64_t lastKeyHash;       // Last key of the migrated tablet.
+        uint64_t firstKeyHash;      // First key hash of the migrated tablet.
+        uint64_t lastKeyHash;       // Last key hash of the migrated tablet.
         uint64_t newOwnerId;        // ServerId of the new master.
     } __attribute__((packed));
     struct Response {
@@ -707,7 +707,7 @@ struct ReceiveMigrationData {
     struct Request {
         RequestCommon common;
         uint64_t tableId;           // Id of the table this data belongs to.
-        uint64_t firstKey;          // 1st key of the tablet range for the data.
+        uint64_t firstKeyHash;      // Start of the tablet range for the data.
         uint32_t segmentBytes;      // Length of the Segment containing migrated
                                     // data immediately following this header.
     } __attribute__((packed));
@@ -875,9 +875,9 @@ struct SplitMasterTablet {
         RequestCommon common;
         uint64_t tableId;             // Id of the table that contains the to
                                       // be split tablet.
-        uint64_t startKeyHash;        // Identify the to be split tablet by
+        uint64_t firstKeyHash;        // Identify the to be split tablet by
                                       // providing its current start key hash.
-        uint64_t endKeyHash;          // Identify the to be split tablet by
+        uint64_t lastKeyHash;         // Identify the to be split tablet by
                                       // providing its current end key hash.
         uint64_t splitKeyHash;        // Indicate where to split the tablet.
                                       // This will be the first key of the
@@ -897,9 +897,9 @@ struct SplitTablet {
                                       // including terminating NULL
                                       // character. The bytes of the name
                                       // follow immediately after this header.
-        uint64_t startKeyHash;        // Identify the to be split tablet by
+        uint64_t firstKeyHash;        // Identify the to be split tablet by
                                       // providing its current start key hash.
-        uint64_t endKeyHash;          // Identify the to be split tablet by
+        uint64_t lastKeyHash;         // Identify the to be split tablet by
                                       // providing its current end key hash.
         uint64_t splitKeyHash;        // Indicate where to split the tablet.
                                       // This will be the first key of the

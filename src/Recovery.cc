@@ -608,7 +608,6 @@ struct MasterStartTask {
         , replicaMap(replicaMap)
         , partitionId(partitionId)
         , tabletsToRecover()
-        , masterClient()
         , rpc()
         , done(false)
         , testingCallback(recovery.testingMasterStartTaskSendCallback)
@@ -621,8 +620,8 @@ struct MasterStartTask {
         (*recovery.tracker)[serverId] = &recovery;
         try {
             if (!testingCallback) {
-                masterClient.construct(recovery.tracker->getSession(serverId));
-                rpc.construct(*masterClient,
+                rpc.construct(recovery.context,
+                              serverId,
                               recovery.recoveryId,
                               recovery.crashedServerId,
                               recovery.testingFailRecoveryMasters > 0
@@ -657,10 +656,10 @@ struct MasterStartTask {
     void wait() {
         try {
             if (!testingCallback)
-                (*rpc)();
+                rpc->wait();
             done = true;
             return;
-        } catch (const TransportException& e) {
+        } catch (const ServerDoesntExistException& e) {
             LOG(WARNING, "Couldn't contact server %lu to start recovery: %s",
                 serverId.getId(), e.what());
         } catch (const ClientException& e) {
@@ -680,8 +679,7 @@ struct MasterStartTask {
     const vector<RecoverRpc::Replica>& replicaMap;
     const uint32_t partitionId;
     ProtoBuf::Tablets tabletsToRecover;
-    Tub<MasterClient> masterClient;
-    Tub<MasterClient::Recover> rpc;
+    Tub<RecoverRpc2> rpc;
     bool done;
     MasterStartTaskTestingCallback* testingCallback;
     DISALLOW_COPY_AND_ASSIGN(MasterStartTask);

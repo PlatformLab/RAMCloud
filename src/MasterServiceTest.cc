@@ -32,22 +32,36 @@
 namespace RAMCloud {
 
 // This class provides tablet map info to ObjectFinder, so we
-// can control which server handles which object.
+// can control which server handles which object.  It maps tables
+// 0 and 99 to "mock:host=master".
 class MasterServiceRefresher : public ObjectFinder::TabletMapFetcher {
   public:
-    MasterServiceRefresher() {}
+    MasterServiceRefresher() : refreshCount(1) {}
     void getTabletMap(ProtoBuf::Tablets& tabletMap) {
         char buffer[100];
         snprintf(buffer, sizeof(buffer), "mock:host=master");
 
         tabletMap.clear_tablet();
         ProtoBuf::Tablets_Tablet& entry(*tabletMap.add_tablet());
-        entry.set_table_id(99);
+        entry.set_table_id(0);
         entry.set_start_key_hash(0);
         entry.set_end_key_hash(~0UL);
         entry.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
         entry.set_service_locator(buffer);
+        if (refreshCount > 0) {
+            ProtoBuf::Tablets_Tablet& entry2(*tabletMap.add_tablet());
+            entry2.set_table_id(99);
+            entry2.set_start_key_hash(0);
+            entry2.set_end_key_hash(~0UL);
+            entry2.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
+            entry2.set_service_locator(buffer);
+        }
+        refreshCount--;
     }
+    // After this many refreshes we stop including table 99 in the
+    // map; used to detect that misdirected requests are rejected by
+    // the target server.
+    int refreshCount;
 };
 
 class MasterServiceTest : public ::testing::Test {
@@ -97,6 +111,8 @@ class MasterServiceTest : public ::testing::Test {
         client = cluster.get<MasterClient>(masterServer);
 
         ramcloud.construct(context, "mock:host=coordinator");
+        ramcloud->objectFinder.tabletMapFetcher.reset(
+                new MasterServiceRefresher);
 
         ProtoBuf::Tablets_Tablet& tablet(*service->tablets.add_tablet());
         tablet.set_table_id(0);
@@ -148,7 +164,7 @@ class MasterServiceTest : public ::testing::Test {
                          string contents)
     {
         Buffer value;
-        client->read(downCast<uint32_t>(tblId), key, keyLength, &value);
+        ramcloud->read(tblId, key, keyLength, &value);
         const char *s = reinterpret_cast<const char *>(
             value.getRange(0, value.getTotalLength()));
         EXPECT_EQ(0, strcmp(s, contents.c_str()));
@@ -192,8 +208,8 @@ class MasterServiceTest : public ::testing::Test {
 
 TEST_F(MasterServiceTest, enumeration_basics) {
     uint64_t version0, version1;
-    client->write(0, "0", 1, "abcdef", 6, NULL, &version0, false);
-    client->write(0, "1", 1, "ghijkl", 6, NULL, &version1, false);
+    ramcloud->write(0, "0", 1, "abcdef", 6, NULL, &version0, false);
+    ramcloud->write(0, "1", 1, "ghijkl", 6, NULL, &version1, false);
     Buffer iter, nextIter, finalIter, objects;
     uint64_t nextTabletStartHash;
     client->enumeration(0, 0, &nextTabletStartHash, &iter, &nextIter, &objects);
@@ -236,8 +252,8 @@ TEST_F(MasterServiceTest, enumeration_badTable) {
 
 TEST_F(MasterServiceTest, enumeration_mergeTablet) {
     uint64_t version0, version1;
-    client->write(0, "012345", 6, "abcdef", 6, NULL, &version0, false);
-    client->write(0, "678910", 6, "ghijkl", 6, NULL, &version1, false);
+    ramcloud->write(0, "012345", 6, "abcdef", 6, NULL, &version0, false);
+    ramcloud->write(0, "678910", 6, "ghijkl", 6, NULL, &version1, false);
 
     Buffer iter, nextIter, finalIter, objects;
     uint64_t nextTabletStartHash;
@@ -280,28 +296,32 @@ TEST_F(MasterServiceTest, enumeration_mergeTablet) {
 }
 
 TEST_F(MasterServiceTest, read_basics) {
-    client->write(0, "0", 1, "abcdef", 6);
+    ramcloud->write(0, "0", 1, "abcdef", 6);
     Buffer value;
     uint64_t version;
-    client->read(0, "0", 1, &value, NULL, &version);
+    ramcloud->read(0, "0", 1, &value, NULL, &version);
     EXPECT_EQ(1U, version);
     EXPECT_EQ("abcdef", TestUtil::toString(&value));
 }
 
-TEST_F(MasterServiceTest, read_badTable) {
+TEST_F(MasterServiceTest, read_tableNotOnServer) {
+    TestLog::Enable _;
     Buffer value;
-    EXPECT_THROW(client->read(4, "0", 1, &value),
-                 UnknownTableException);
+    EXPECT_THROW(ramcloud->read(99, "0", 1, &value),
+                 TableDoesntExistException);
+    EXPECT_EQ("checkStatus: Server mock:host=master doesn't store <99, 0>; "
+              "refreshing object map | flush: flushing object map",
+              TestLog::get());
 }
 
 TEST_F(MasterServiceTest, read_noSuchObject) {
     Buffer value;
-    EXPECT_THROW(client->read(0, "5", 1, &value),
+    EXPECT_THROW(ramcloud->read(0, "5", 1, &value),
                  ObjectDoesntExistException);
 }
 
 TEST_F(MasterServiceTest, read_rejectRules) {
-    client->write(0, "0", 1, "abcdef", 6);
+    ramcloud->write(0, "0", 1, "abcdef", 6);
 
     Buffer value;
     RejectRules rules;
@@ -309,7 +329,7 @@ TEST_F(MasterServiceTest, read_rejectRules) {
     rules.versionNeGiven = true;
     rules.givenVersion = 2;
     uint64_t version;
-    EXPECT_THROW(client->read(0, "0", 1, &value, &rules, &version),
+    EXPECT_THROW(ramcloud->read(0, "0", 1, &value, &rules, &version),
                  WrongVersionException);
     EXPECT_EQ(1U, version);
 }
@@ -364,9 +384,8 @@ TEST_F(MasterServiceTest, multiRead_bufferSizeExceeded) {
 }
 
 TEST_F(MasterServiceTest, multiRead_unknownTable) {
-    // Modify the ObjectFinder to misdirect requests.
-    ramcloud->objectFinder.tabletMapFetcher.reset(
-            new MasterServiceRefresher);
+    // Table 99 will be directed to the server, but the server
+    // doesn't know about it.
     Tub<Buffer> value;
     MultiReadObject request(99, "bogus", 5, &value);
     MultiReadObject* requests[] = {&request};
@@ -422,9 +441,11 @@ TEST_F(MasterServiceTest, detectSegmentRecoveryFailure_failure) {
 }
 
 TEST_F(MasterServiceTest, getHeadOfLog) {
-    EXPECT_EQ(LogPosition(0, 0), client->getHeadOfLog());
-    client->write(0, "0", 1, "abcdef", 6);
-    EXPECT_EQ(LogPosition(0, 99), client->getHeadOfLog());
+    EXPECT_EQ(LogPosition(0, 0),
+              MasterClient::getHeadOfLog(context, masterServer->serverId));
+    ramcloud->write(0, "0", 1, "abcdef", 6);
+    EXPECT_EQ(LogPosition(0, 99),
+              MasterClient::getHeadOfLog(context, masterServer->serverId));
 }
 
 TEST_F(MasterServiceTest, recover_basics) {
@@ -449,8 +470,9 @@ TEST_F(MasterServiceTest, recover_basics) {
     };
 
     TestLog::Enable __(&recoverSegmentFilter);
-    client->recover(10lu, ServerId(123), 0, tablets,
-                    replicas, arrayLength(replicas));
+    MasterClient::recover(context, masterServer->serverId, 10lu,
+                          ServerId(123), 0, tablets, replicas,
+                          arrayLength(replicas));
 
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
         "recover: Starting recovery of 4 tablets on masterId 2 | "
@@ -488,7 +510,7 @@ TEST_F(MasterServiceTest, removeIfFromUnknownTablet) {
     const uint32_t keyLength = 1;
     ramcloud->createTable("table");
     uint64_t tableId = ramcloud->getTableId("table");
-    client->write(tableId, key, keyLength, NULL, 0);
+    ramcloud->write(tableId, key, keyLength, "");
     auto handle = service->objectMap.lookup(tableId, key, keyLength);
     EXPECT_TRUE(service->objectMap.lookup(tableId, key, keyLength));
 
@@ -647,11 +669,12 @@ recoveryMasterFinishedFilter(string s)
 
 TEST_F(MasterServiceTest, recover_ctimeUpdateIssued) {
     TestLog::Enable _(recoveryMasterFinishedFilter);
-    client->write(0, "0", 1, "abcdef", 6);
+    ramcloud->write(0, "0", 1, "abcdef", 6);
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
     RecoverRpc::Replica replicas[] = {};
-    client->recover(10lu, ServerId(123), 0, tablets, replicas, 0);
+    MasterClient::recover(context, masterServer->serverId, 10lu,
+                          ServerId(123), 0, tablets, replicas, 0);
 
     EXPECT_TRUE(StringUtil::startsWith(TestLog::get(),
         "recoveryMasterFinished: called by masterId 2 with 4 tablets | "
@@ -675,14 +698,15 @@ bool recoverFilter(string s) {
 
 TEST_F(MasterServiceTest, recover_unsuccessful) {
     TestLog::Enable _(recoverFilter);
-    client->write(0, "0", 1, "abcdef", 6);
+    ramcloud->write(0, "0", 1, "abcdef", 6);
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
     RecoverRpc::Replica replicas[] = {
         // Bad ServerId, should cause recovery to fail.
         {1004, 92},
     };
-    client->recover(10lu, {123, 0}, 0, tablets, replicas, 1);
+    MasterClient::recover(context, masterServer->serverId, 10lu, {123, 0},
+                          0, tablets, replicas, 1);
 
     string log = TestLog::get();
     log = log.substr(log.rfind("recover:"));
@@ -755,7 +779,7 @@ TEST_F(MasterServiceTest, recoverSegment) {
     service->recoverSegment(0, seg, len);
     EXPECT_EQ(logTomb1, service->objectMap.lookup(0, "key2", 4));
     service->removeTombstones();
-    EXPECT_THROW(client->read(0, "key2", 4, &value),
+    EXPECT_THROW(ramcloud->read(0, "key2", 4, &value),
                  ObjectDoesntExistException);
 
     // Case 2b: Lesser tombstone already there; add object, remove tomb.
@@ -825,7 +849,7 @@ TEST_F(MasterServiceTest, recoverSegment) {
     service->recoverSegment(0, seg, len);
     service->removeTombstones();
     EXPECT_TRUE(NULL == service->objectMap.lookup(0, "key6", 4));
-    EXPECT_THROW(client->read(0, "key6", 4, &value),
+    EXPECT_THROW(ramcloud->read(0, "key6", 4, &value),
                  ObjectDoesntExistException);
 
     len = buildRecoverySegment(seg, segLen, 0, "key7", 4, 0, "older guy");
@@ -841,7 +865,7 @@ TEST_F(MasterServiceTest, recoverSegment) {
     service->recoverSegment(0, seg, len);
     service->removeTombstones();
     EXPECT_TRUE(NULL == service->objectMap.lookup(0, "key7", 4));
-    EXPECT_THROW(client->read(0, "key7", 4, &value),
+    EXPECT_THROW(ramcloud->read(0, "key7", 4, &value),
                  ObjectDoesntExistException);
 
     // Case 2a: Newer tombstone already there; ignore.
@@ -907,30 +931,34 @@ TEST_F(MasterServiceTest, recoverSegment) {
 }
 
 TEST_F(MasterServiceTest, remove_basics) {
-    client->write(0, "key0", 4, "item0", 5);
+    ramcloud->write(0, "key0", 4, "item0", 5);
 
     uint64_t version;
-    client->remove(0, "key0", 4, NULL, &version);
+    ramcloud->remove(0, "key0", 4, NULL, &version);
     EXPECT_EQ(1U, version);
 
     Buffer value;
-    EXPECT_THROW(client->read(0, "key0", 4, &value),
+    EXPECT_THROW(ramcloud->read(0, "key0", 4, &value),
                  ObjectDoesntExistException);
 }
 
-TEST_F(MasterServiceTest, remove_badTable) {
-    EXPECT_THROW(client->remove(4, "key0", 4), UnknownTableException);
+TEST_F(MasterServiceTest, remove_tableNotOnServer) {
+    TestLog::Enable _;
+    EXPECT_THROW(ramcloud->remove(99, "key0", 4), TableDoesntExistException);
+    EXPECT_EQ("checkStatus: Server mock:host=master doesn't store <99, key0>; "
+              "refreshing object map | flush: flushing object map",
+              TestLog::get());
 }
 
 TEST_F(MasterServiceTest, remove_rejectRules) {
-    client->write(0, "key0", 4, "item0", 5);
+    ramcloud->write(0, "key0", 4, "item0", 5);
 
     RejectRules rules;
     memset(&rules, 0, sizeof(rules));
     rules.versionNeGiven = true;
     rules.givenVersion = 2;
     uint64_t version;
-    EXPECT_THROW(client->remove(0, "key0", 4, &rules, &version),
+    EXPECT_THROW(ramcloud->remove(0, "key0", 4, &rules, &version),
                  WrongVersionException);
     EXPECT_EQ(1U, version);
 }
@@ -940,19 +968,19 @@ TEST_F(MasterServiceTest, remove_objectAlreadyDeletedRejectRules) {
     memset(&rules, 0, sizeof(rules));
     rules.doesntExist = true;
     uint64_t version;
-    EXPECT_THROW(client->remove(0, "key0", 4, &rules, &version),
+    EXPECT_THROW(ramcloud->remove(0, "key0", 4, &rules, &version),
                  ObjectDoesntExistException);
     EXPECT_EQ(VERSION_NONEXISTENT, version);
 }
 
 TEST_F(MasterServiceTest, remove_objectAlreadyDeleted) {
     uint64_t version;
-    client->remove(0, "key1", 4, NULL, &version);
+    ramcloud->remove(0, "key1", 4, NULL, &version);
     EXPECT_EQ(VERSION_NONEXISTENT, version);
 
-    client->write(0, "key0", 4, "item0", 5);
-    client->remove(0, "key0", 4);
-    client->remove(0, "key0", 4, NULL, &version);
+    ramcloud->write(0, "key0", 4, "item0", 5);
+    ramcloud->remove(0, "key0", 4);
+    ramcloud->remove(0, "key0", 4, NULL, &version);
     EXPECT_EQ(VERSION_NONEXISTENT, version);
 }
 
@@ -984,10 +1012,10 @@ TEST_F(MasterServiceTest, GetServerStatistics) {
     uint64_t version;
     int64_t objectValue = 16;
 
-    client->write(0, "key0", 4, &objectValue, 8, NULL, &version);
-    client->read(0, "key0", 4, &value);
-    client->read(0, "key0", 4, &value);
-    client->read(0, "key0", 4, &value);
+    ramcloud->write(0, "key0", 4, &objectValue, 8, NULL, &version);
+    ramcloud->read(0, "key0", 4, &value);
+    ramcloud->read(0, "key0", 4, &value);
+    ramcloud->read(0, "key0", 4, &value);
 
     ProtoBuf::ServerStatistics serverStats;
     client->getServerStatistics(serverStats);
@@ -995,7 +1023,8 @@ TEST_F(MasterServiceTest, GetServerStatistics) {
               "end_key_hash: 18446744073709551615 number_read_and_writes: 4 }",
               serverStats.ShortDebugString());
 
-    client->splitMasterTablet(0, 0, ~0UL, (~0UL/2));
+    MasterClient::splitMasterTablet(context, masterServer->serverId, 0,
+                                    0, ~0UL, (~0UL/2));
     client->getServerStatistics(serverStats);
     EXPECT_EQ("tabletentry { table_id: 0 "
               "start_key_hash: 0 "
@@ -1008,7 +1037,8 @@ TEST_F(MasterServiceTest, GetServerStatistics) {
 
 TEST_F(MasterServiceTest, splitMasterTablet) {
 
-    client->splitMasterTablet(0, 0, ~0UL, (~0UL/2));
+    MasterClient::splitMasterTablet(context, masterServer->serverId, 0,
+                                    0, ~0UL, (~0UL/2));
     EXPECT_TRUE(TestUtil::matchesPosixRegex("tablet { table_id: 0 "
               "start_key_hash: 0 "
               "end_key_hash: 9223372036854775806 user_data: [0-9]* } "
@@ -1026,7 +1056,8 @@ dropTabletOwnership_filter(string s)
 TEST_F(MasterServiceTest, dropTabletOwnership) {
     TestLog::Enable _(dropTabletOwnership_filter);
 
-    EXPECT_THROW(client->dropTabletOwnership(1, 1, 1), ClientException);
+    EXPECT_THROW(MasterClient::dropTabletOwnership(context,
+        masterServer-> serverId, 1, 1, 1), ClientException);
     EXPECT_EQ("dropTabletOwnership: Could not drop ownership on unknown "
         "tablet (1, range [1,1])!", TestLog::get());
 
@@ -1034,7 +1065,8 @@ TEST_F(MasterServiceTest, dropTabletOwnership) {
 
     MasterClient::takeTabletOwnership(context, masterServer->serverId,
         1, 1, 1);
-    client->dropTabletOwnership(1, 1, 1);
+    MasterClient::dropTabletOwnership(context, masterServer-> serverId,
+        1, 1, 1);
     EXPECT_EQ("dropTabletOwnership: Dropping ownership of tablet "
         "(1, range [1,1])", TestLog::get());
 }
@@ -1177,17 +1209,24 @@ TEST_F(MasterServiceTest, prepForMigration) {
     TestLog::Enable _(prepForMigrationFilter);
 
     // Overlap
-    EXPECT_THROW(client->prepForMigration(5, 27, 873, 0, 0),
+    EXPECT_THROW(MasterClient::prepForMigration(context,
+                                                masterServer->serverId,
+                                                5, 27, 873, 0, 0),
         ObjectExistsException);
     EXPECT_EQ("prepForMigration: already have tablet in range "
         "[27, 873] for tableId 5", TestLog::get());
-    EXPECT_THROW(client->prepForMigration(5, 0, 27, 0, 0),
+    EXPECT_THROW(MasterClient::prepForMigration(context,
+                                                masterServer->serverId,
+                                                5, 0, 27, 0, 0),
         ObjectExistsException);
-    EXPECT_THROW(client->prepForMigration(5, 873, 82743, 0, 0),
+    EXPECT_THROW(MasterClient::prepForMigration(context,
+                                                masterServer->serverId,
+                                                5, 873, 82743, 0, 0),
         ObjectExistsException);
 
     TestLog::reset();
-    client->prepForMigration(5, 1000, 2000, 0, 0);
+    MasterClient::prepForMigration(context, masterServer->serverId,
+                                   5, 1000, 2000, 0, 0);
     int i = service->tablets.tablet_size() - 1;
     EXPECT_EQ(5U, service->tablets.tablet(i).table_id());
     EXPECT_EQ(1000U, service->tablets.tablet(i).start_key_hash());
@@ -1214,18 +1253,23 @@ TEST_F(MasterServiceTest, migrateTablet_simple) {
     TestLog::Enable _(migrateTabletFilter);
 
     // Wrong table
-    EXPECT_THROW(client->migrateTablet(4, 0, -1, ServerId(0, 0)),
+    EXPECT_THROW(MasterClient::migrateTablet(context, masterServer->serverId,
+                                             4, 0, -1, ServerId(0, 0)),
         UnknownTableException);
     EXPECT_EQ("migrateTablet: Migration request for range this master does "
         "not own. TableId 4, range [0,18446744073709551615]", TestLog::get());
-    EXPECT_THROW(client->migrateTablet(5, 0, 26, ServerId(0, 0)),
+    EXPECT_THROW(MasterClient::migrateTablet(context, masterServer->serverId,
+                                             5, 0, 26, ServerId(0, 0)),
         UnknownTableException);
-    EXPECT_THROW(client->migrateTablet(5, 874, -1, ServerId(0, 0)),
+    EXPECT_THROW(MasterClient::migrateTablet(context, masterServer->serverId,
+                                             5, 874, -1, ServerId(0, 0)),
         UnknownTableException);
 
     // Migrating to self!?
     TestLog::reset();
-    EXPECT_THROW(client->migrateTablet(5, 27, 873, masterServer->serverId),
+    EXPECT_THROW(MasterClient::migrateTablet(context, masterServer->serverId,
+                                             5, 27, 873,
+                                             masterServer->serverId),
         RequestFormatError);
     EXPECT_EQ("migrateTablet: Migrating to myself doesn't make much sense",
         TestLog::get());
@@ -1234,7 +1278,7 @@ TEST_F(MasterServiceTest, migrateTablet_simple) {
 TEST_F(MasterServiceTest, migrateTablet_movingData) {
     ramcloud->createTable("migrationTable");
     uint64_t tbl = ramcloud->getTableId("migrationTable");
-    client->write(tbl, "hi", 2, "abcdefg", 7);
+    ramcloud->write(tbl, "hi", 2, "abcdefg", 7);
 
     ServerConfig master2Config = masterConfig;
     master2Config.master.numReplicas = 0;
@@ -1243,7 +1287,8 @@ TEST_F(MasterServiceTest, migrateTablet_movingData) {
 
     TestLog::Enable _(migrateTabletFilter);
 
-    client->migrateTablet(tbl, 0, -1, master2->serverId);
+    MasterClient::migrateTablet(context, masterServer->serverId, tbl,
+                                0, -1, master2->serverId);
     EXPECT_EQ("migrateTablet: Migrating tablet (id 0, first 0, last "
         "18446744073709551615) to ServerId 3 (\"mock:host=master2\") "
         "| migrateTablet: Sending last migration segment | "
@@ -1258,19 +1303,26 @@ receiveMigrationDataFilter(string s)
 }
 
 TEST_F(MasterServiceTest, receiveMigrationData) {
-    client->prepForMigration(5, 1000, 2000, 0, 0);
+    MasterClient::prepForMigration(context, masterServer->serverId,
+                                   5, 1000, 2000, 0, 0);
 
     TestLog::Enable _(receiveMigrationDataFilter);
 
-    EXPECT_THROW(client->receiveMigrationData(6, 0, NULL, 0),
+    EXPECT_THROW(MasterClient::receiveMigrationData(context,
+                                                    masterServer->serverId,
+                                                    6, 0, NULL, 0),
         UnknownTableException);
     EXPECT_EQ("receiveMigrationData: migration data received for "
         "unknown tablet 6, firstKey 0", TestLog::get());
-    EXPECT_THROW(client->receiveMigrationData(5, 0, NULL, 0),
+    EXPECT_THROW(MasterClient::receiveMigrationData(context,
+                                                    masterServer->serverId,
+                                                    5, 0, NULL, 0),
         UnknownTableException);
 
     TestLog::reset();
-    EXPECT_THROW(client->receiveMigrationData(0, 0, NULL, 0),
+    EXPECT_THROW(MasterClient::receiveMigrationData(context,
+                                                    masterServer->serverId,
+                                                    0, 0, NULL, 0),
         InternalError);
     EXPECT_EQ("receiveMigrationData: migration data received for tablet "
         "not in the RECOVERING state (state = NORMAL)!", TestLog::get());
@@ -1279,7 +1331,9 @@ TEST_F(MasterServiceTest, receiveMigrationData) {
     buildRecoverySegment(alignedBuf, sizeof(alignedBuf),
         5, "wee!", 4, 57, "watch out for the migrant object");
 
-    client->receiveMigrationData(5, 1000, alignedBuf, sizeof(alignedBuf));
+    MasterClient::receiveMigrationData(context, masterServer->serverId,
+                                       5, 1000, alignedBuf,
+                                       sizeof(alignedBuf));
     LogEntryHandle h = service->objectMap.lookup(5, "wee!", 4);
     EXPECT_TRUE(h != NULL);
     EXPECT_EQ(0, strcmp(h->userData<Object>()->getData(),
@@ -1290,21 +1344,21 @@ TEST_F(MasterServiceTest, write_basics) {
     Buffer value;
     uint64_t version;
 
-    client->write(0, "key0", 4, "item0", 5, NULL, &version);
+    ramcloud->write(0, "key0", 4, "item0", 5, NULL, &version);
     EXPECT_EQ(1U, version);
-    client->read(0, "key0", 4, &value);
+    ramcloud->read(0, "key0", 4, &value);
     EXPECT_EQ("item0", TestUtil::toString(&value));
     EXPECT_EQ(1U, version);
 
-    client->write(0, "key0", 4, "item0-v2", 8, NULL, &version);
+    ramcloud->write(0, "key0", 4, "item0-v2", 8, NULL, &version);
     EXPECT_EQ(2U, version);
-    client->read(0, "key0", 4, &value);
+    ramcloud->read(0, "key0", 4, &value);
     EXPECT_EQ("item0-v2", TestUtil::toString(&value));
     EXPECT_EQ(2U, version);
 
-    client->write(0, "key0", 4, "item0-v3", 8, NULL, &version);
+    ramcloud->write(0, "key0", 4, "item0-v3", 8, NULL, &version);
     EXPECT_EQ(3U, version);
-    client->read(0, "key0", 4, &value);
+    ramcloud->read(0, "key0", 4, &value);
     EXPECT_EQ("item0-v3", TestUtil::toString(&value));
     EXPECT_EQ(3U, version);
 }
@@ -1314,7 +1368,7 @@ TEST_F(MasterServiceTest, write_rejectRules) {
     memset(&rules, 0, sizeof(rules));
     rules.doesntExist = true;
     uint64_t version;
-    EXPECT_THROW(client->write(0, "key0", 4, "item0", 5, &rules, &version),
+    EXPECT_THROW(ramcloud->write(0, "key0", 4, "item0", 5, &rules, &version),
                  ObjectDoesntExistException);
     EXPECT_EQ(VERSION_NONEXISTENT, version);
 }
@@ -1327,26 +1381,26 @@ TEST_F(MasterServiceTest, increment) {
     int64_t newValue;
     int64_t readResult;
 
-    client->write(0, "key0", 4, &oldValue, 8, NULL, &version);
-    client->increment(0, "key0", 4, 5, NULL, &version, &newValue);
-    client->increment(0, "key0", 4, 0, NULL, NULL, NULL);
+    ramcloud->write(0, "key0", 4, &oldValue, 8, NULL, &version);
+    newValue = ramcloud->increment(0, "key0", 4, 5, NULL, &version);
+    ramcloud->increment(0, "key0", 4, 0, NULL, NULL);
     EXPECT_EQ(2U, version);
     EXPECT_EQ(21, newValue);
 
-    client->read(0, "key0", 4, &buffer);
+    ramcloud->read(0, "key0", 4, &buffer);
     buffer.copy(0, sizeof(int64_t), &readResult);
     EXPECT_EQ(newValue, readResult);
 
-    client->write(0, "key1", 4, &oldValue, 8, NULL, &version);
-    client->increment(0, "key1", 4, -32, NULL, &version, &newValue);
+    ramcloud->write(0, "key1", 4, &oldValue, 8, NULL, &version);
+    newValue = ramcloud->increment(0, "key1", 4, -32, NULL, &version);
     EXPECT_EQ(-16, newValue);
 
-    client->read(0, "key1", 4, &buffer);
+    ramcloud->read(0, "key1", 4, &buffer);
     buffer.copy(0, sizeof(int64_t), &readResult);
     EXPECT_EQ(newValue, readResult);
 
-    client->write(0, "key2", 4, &oldValue32, 4, NULL, &version);
-    EXPECT_THROW(client->increment(0, "key2", 4, 4, NULL, &version, &newValue),
+    ramcloud->write(0, "key2", 4, &oldValue32, 4, NULL, &version);
+    EXPECT_THROW(ramcloud->increment(0, "key2", 4, 4, NULL, &version),
                  InvalidObjectException);
 }
 
@@ -1357,11 +1411,9 @@ TEST_F(MasterServiceTest, increment_rejectRules) {
     rules.exists = true;
     uint64_t version;
     int64_t oldValue = 16;
-    int64_t newValue;
 
-    client->write(0, "key0", 4, &oldValue, 8, NULL, &version);
-    EXPECT_THROW(client->increment(0, "key0", 4, 5, &rules, &version,
-                 &newValue),
+    ramcloud->write(0, "key0", 4, &oldValue, 8, NULL, &version);
+    EXPECT_THROW(ramcloud->increment(0, "key0", 4, 5, &rules, &version),
         ObjectExistsException);
 }
 
@@ -1401,10 +1453,10 @@ TEST_F(MasterServiceTest, write_varyingKeyLength) {
         Buffer value;
         uint64_t version;
 
-        client->write(0, key, keyLength, writeVal.c_str(),
+        ramcloud->write(0, key, keyLength, writeVal.c_str(),
                       downCast<uint16_t>(writeVal.length()),
                       NULL, &version);
-        client->read(0, key, keyLength, &value);
+        ramcloud->read(0, key, keyLength, &value);
 
         EXPECT_EQ(writeVal, TestUtil::toString(&value));
     }
@@ -1472,7 +1524,7 @@ TEST_F(MasterServiceTest, objectLivenessCallback_objectAlive) {
     uint16_t keyLength = downCast<uint16_t>(strlen(key));
     uint64_t version;
 
-    client->write(tableId, key, keyLength, "item0", 5, NULL, &version);
+    ramcloud->write(tableId, key, keyLength, "item0", 5, NULL, &version);
     LogEntryHandle logObj = service->objectMap.lookup(tableId, key, keyLength);
     // Object exists
     EXPECT_TRUE(cb->livenessCB(logObj, cb->livenessArg));
@@ -1487,10 +1539,10 @@ TEST_F(MasterServiceTest, objectLivenessCallback_objectDeleted) {
     uint16_t keyLength = downCast<uint16_t>(strlen(key));
     uint64_t version;
 
-    client->write(tableId, key, keyLength, "item0", 5, NULL, &version);
+    ramcloud->write(tableId, key, keyLength, "item0", 5, NULL, &version);
     LogEntryHandle logObj = service->objectMap.lookup(tableId, key, keyLength);
 
-    client->remove(tableId, key, keyLength);
+    ramcloud->remove(tableId, key, keyLength);
     // Object does not exist
     EXPECT_FALSE(cb->livenessCB(logObj, cb->livenessArg));
 }
@@ -1504,13 +1556,13 @@ TEST_F(MasterServiceTest, objectLivenessCallback_objectModified) {
     uint16_t keyLength = downCast<uint16_t>(strlen(key));
     uint64_t version;
 
-    client->write(tableId, key, keyLength, "item0", 5, NULL, &version);
+    ramcloud->write(tableId, key, keyLength, "item0", 5, NULL, &version);
     LogEntryHandle logObj1 = service->objectMap.lookup(tableId, key, keyLength);
 
     // Object referenced by logObj1 exists
     EXPECT_TRUE(cb->livenessCB(logObj1, cb->livenessArg));
 
-    client->write(tableId, key, keyLength, "item0-v2", 8, NULL, &version);
+    ramcloud->write(tableId, key, keyLength, "item0-v2", 8, NULL, &version);
     LogEntryHandle logObj2 = service->objectMap.lookup(tableId, key, keyLength);
 
     // Object referenced by logObj1 does not exist any more
@@ -1529,7 +1581,7 @@ TEST_F(MasterServiceTest, objectLivenessCallback_tableDoesntExist) {
     uint16_t keyLength = downCast<uint16_t>(strlen(key));
     uint64_t version;
 
-    client->write(tableId, key, keyLength, "item0", 5, NULL, &version);
+    ramcloud->write(tableId, key, keyLength, "item0", 5, NULL, &version);
     LogEntryHandle logObj = service->objectMap.lookup(tableId, key, keyLength);
 
     // Object exists
@@ -1551,7 +1603,7 @@ TEST_F(MasterServiceTest, objectRelocationCallback_objectAlive) {
     const char* data = "item0";
     uint32_t dataLength = downCast<uint32_t>(strlen(data));
 
-    client->write(tableId, key, keyLength, data, dataLength, NULL, &version);
+    ramcloud->write(tableId, key, keyLength, data, dataLength, NULL, &version);
     LogEntryHandle logObj1 = service->objectMap.lookup(tableId, key, keyLength);
 
     Table* table = service->getTable(tableId, key, keyLength);
@@ -1583,14 +1635,14 @@ TEST_F(MasterServiceTest, objectRelocationCallback_objectDeleted) {
     uint16_t keyLength = downCast<uint16_t>(strlen(key));
     uint64_t version;
 
-    client->write(tableId, key, keyLength, "item0", 5, NULL, &version);
+    ramcloud->write(tableId, key, keyLength, "item0", 5, NULL, &version);
     LogEntryHandle logObj = service->objectMap.lookup(tableId, key, keyLength);
 
     Table* table = service->getTable(tableId, key, keyLength);
     table->objectCount++;
     table->objectBytes += logObj->length();
 
-    client->remove(tableId, key, keyLength);
+    ramcloud->remove(tableId, key, keyLength);
 
     LogEntryHandle dummyHandle = NULL;
     uint64_t initialTotalTrackedBytes = table->objectBytes;
@@ -1609,14 +1661,14 @@ TEST_F(MasterServiceTest, objectRelocationCallback_objectModified) {
     uint16_t keyLength = downCast<uint16_t>(strlen(key));
     uint64_t version;
 
-    client->write(tableId, key, keyLength, "item0", 5, NULL, &version);
+    ramcloud->write(tableId, key, keyLength, "item0", 5, NULL, &version);
     LogEntryHandle logObj1 = service->objectMap.lookup(tableId, key, keyLength);
 
     Table* table = service->getTable(tableId, key, keyLength);
     table->objectCount++;
     table->objectBytes += logObj1->length();
 
-    client->write(tableId, key, keyLength, "item0-v2", 8, NULL, &version);
+    ramcloud->write(tableId, key, keyLength, "item0-v2", 8, NULL, &version);
 
     LogEntryHandle dummyHandle = NULL;
     uint64_t initialTotalTrackedBytes = table->objectBytes;
@@ -1643,7 +1695,7 @@ TEST_F(MasterServiceTest, tombstoneRelocationCallback_basics) {
     uint16_t keyLength = downCast<uint16_t>(strlen(key));
     uint64_t version;
 
-    client->write(tableId, key, keyLength, "item0", 5, NULL, &version);
+    ramcloud->write(tableId, key, keyLength, "item0", 5, NULL, &version);
     LogEntryHandle logObj = service->objectMap.lookup(tableId, key, keyLength);
     const Object *obj = logObj->userData<Object>();
 
@@ -1684,16 +1736,16 @@ TEST_F(MasterServiceFullSegmentSizeTest, write_maximumObjectSize) {
     char* buf = new char[masterConfig.maxObjectDataSize + 1];
 
     // should fail
-    EXPECT_THROW(client->write(0, key, masterConfig.maxObjectKeySize,
+    EXPECT_THROW(ramcloud->write(0, key, masterConfig.maxObjectKeySize,
                                buf, masterConfig.maxObjectDataSize + 1),
                  LogException);
 
     // should succeed
-    EXPECT_NO_THROW(client->write(0, key, masterConfig.maxObjectKeySize,
+    EXPECT_NO_THROW(ramcloud->write(0, key, masterConfig.maxObjectKeySize,
                                   buf, masterConfig.maxObjectDataSize));
 
     // overwrite should also succeed
-    EXPECT_NO_THROW(client->write(0, key, masterConfig.maxObjectKeySize,
+    EXPECT_NO_THROW(ramcloud->write(0, key, masterConfig.maxObjectKeySize,
                                   buf, masterConfig.maxObjectDataSize));
 
     delete[] buf;

@@ -1969,8 +1969,8 @@ BackupService::gc()
                 bool needed = true;
                 try {
                     ++isNeededRpcsSent;
-                    MasterClient m(gcTracker.getSession(replica->masterId));
-                    needed = m.isReplicaNeeded(serverId, replica->segmentId);
+                    needed = MasterClient::isReplicaNeeded(context,
+                        replica->masterId, serverId, replica->segmentId);
                 } catch (const TransportException& e) {
                     // No problem, just assume we should retain it for now.
                 }

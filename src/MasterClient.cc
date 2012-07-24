@@ -28,15 +28,13 @@ namespace RAMCloud {
 RejectRules defaultRejectRules;
 
 /**
- * Instruct a master that it should begin serving requests for a particular
- * tablet. If the master does not already store this tablet, then it will
- * create a new tablet. If the master already has information for the tablet,
- * but the tablet was frozen (e.g. because data migration was underway),
- * then the tablet will be unfrozen.
+ * Instruct the master that it must no longer serve requests for the tablet
+ * specified. The server may reclaim all memory previously allocated to that
+ * tablet.
  *
  * \param context
  *      Overall information about this RAMCloud server or client.
- * \param id
+ * \param serverId
  *      Identifier for the target server.
  * \param tableId
  *      Identifier for the table containing the tablet.
@@ -48,10 +46,561 @@ RejectRules defaultRejectRules;
  *      to the tablet.
  */
 void
-MasterClient::takeTabletOwnership(Context& context, ServerId id,
+MasterClient::dropTabletOwnership(Context& context, ServerId serverId,
         uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash)
 {
-    TakeTabletOwnershipRpc2 rpc(context, id, tableId, firstKeyHash,
+    DropTabletOwnershipRpc2 rpc(context, serverId, tableId, firstKeyHash,
+            lastKeyHash);
+    rpc.wait();
+}
+
+/**
+ * Constructor for DropTabletOwnershipRpc2: initiates an RPC in the same way as
+ * #MasterClient::dropTabletOwnership, but returns once the RPC has been
+ * initiated, without waiting for it to complete.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param serverId
+ *      Identifier for the target server.
+ * \param tableId
+ *      Identifier for the table containing the tablet.
+ * \param firstKeyHash
+ *      Smallest value in the 64-bit key hash space for this table that belongs
+ *      to the tablet.
+ * \param lastKeyHash
+ *      Largest value in the 64-bit key hash space for this table that belongs
+ *      to the tablet.
+ */
+DropTabletOwnershipRpc2::DropTabletOwnershipRpc2(Context& context,
+        ServerId serverId, uint64_t tableId, uint64_t firstKeyHash,
+        uint64_t lastKeyHash)
+    : ServerIdRpcWrapper(context, serverId,
+            sizeof(WireFormat::DropTabletOwnership::Response))
+{
+    WireFormat::DropTabletOwnership::Request& reqHdr(
+            allocHeader<WireFormat::DropTabletOwnership>());
+    reqHdr.tableId = tableId;
+    reqHdr.firstKeyHash = firstKeyHash;
+    reqHdr.lastKeyHash = lastKeyHash;
+    send();
+}
+
+/**
+ * Obtain a master's log head position.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param serverId
+ *      Identifier for the target server.
+ *
+ * \return
+ *      The return value is the first (lowest) position in \a serverId's log
+ *      that does not yet contain data (i.e., any future data accepted by
+ *      \a serverId will have a log position at least this high).
+ *
+ * \throw ServerDoesntExistException
+ *      The intended server for this RPC is not part of the cluster;
+ *      if it ever existed, it has since crashed.
+ */
+LogPosition
+MasterClient::getHeadOfLog(Context& context, ServerId serverId)
+{
+    GetHeadOfLogRpc2 rpc(context, serverId);
+    return rpc.wait();
+}
+
+/**
+ * Constructor for GetHeadOfLogRpc2: initiates an RPC in the same way as
+ * #MasterClient::getHeadOfLog, but returns once the RPC has been
+ * initiated, without waiting for it to complete.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param serverId
+ *      Identifier for the target server.
+ */
+GetHeadOfLogRpc2::GetHeadOfLogRpc2(Context& context, ServerId serverId)
+    : ServerIdRpcWrapper(context, serverId,
+            sizeof(WireFormat::GetHeadOfLog::Response))
+{
+    allocHeader<WireFormat::GetHeadOfLog>();
+    send();
+}
+
+/**
+ * Wait for a getHeadOfLog RPC to complete.
+ *
+ * \return
+ *      The return value is the first (lowest) position in the respondent's
+ *      log that does not yet contain data (i.e., any future data accepted by
+ *      the respondent will have a log position at least this high).
+ *
+ * \throw ServerDoesntExistException
+ *      The intended server for this RPC is not part of the cluster;
+ *      if it ever existed, it has since crashed.
+ */
+LogPosition
+GetHeadOfLogRpc2::wait()
+{
+    waitAndCheckErrors();
+    const WireFormat::GetHeadOfLog::Response& respHdr(
+            getResponseHeader<WireFormat::GetHeadOfLog>());
+    return { respHdr.headSegmentId, respHdr.headSegmentOffset };
+}
+
+/**
+ * Return whether a replica for a segment created by a given master may still
+ * be needed for recovery. Backups use this when restarting after a failure
+ * to determine if replicas found in persistent storage must be retained.
+ *
+ * The cluster membership protocol must guarantee that if the master "knows
+ * about" the calling backup server then it must already know about the crash
+ * of the backup which created the on-storage replicas the calling backup
+ * has rediscovered.  This guarantees that when the master responds to this
+ * call that it must have already recovered from crash mentioned above if
+ * it returns false.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param serverId
+ *      Identifier for the target server.
+ * \param backupServerId
+ *      The server id which is requesting information about a replica.
+ *      This is used to ensure the master is aware of the backup via
+ *      the cluster membership protocol, which ensures that it is
+ *      aware of any crash of the backup that created the replica
+ *      being inquired about.
+ * \param segmentId
+ *      The segmentId of the replica which a backup server is considering
+ *      freeing.
+ *
+ * \return
+ *      True means that the calling backup must continue to retain the given
+ *      replica (it could be needed for crash recovery in the future). False means
+ *      the replica is no longer needed, so the backup can reclaim its space.
+ */
+bool
+MasterClient::isReplicaNeeded(Context& context, ServerId serverId,
+        ServerId backupServerId, uint64_t segmentId)
+{
+    IsReplicaNeededRpc2 rpc(context, serverId, backupServerId, segmentId);
+    return rpc.wait();
+}
+
+/**
+ * Constructor for IsReplicaNeededRpc2: initiates an RPC in the same way as
+ * #MasterClient::isReplicaNeeded, but returns once the RPC has been
+ * initiated, without waiting for it to complete.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param serverId
+ *      Identifier for the target server.
+ * \param backupServerId
+ *      The server id which is requesting information about a replica.
+ *      This is used to ensure the master is aware of the backup via
+ *      the cluster membership protocol, which ensures that it is
+ *      aware of any crash of the backup that created the replica
+ *      being inquired about.
+ * \param segmentId
+ *      The segmentId of the replica which a backup server is considering
+ *      freeing.
+ */
+IsReplicaNeededRpc2::IsReplicaNeededRpc2(Context& context, ServerId serverId,
+        ServerId backupServerId, uint64_t segmentId)
+    : ServerIdRpcWrapper(context, serverId,
+            sizeof(WireFormat::IsReplicaNeeded::Response))
+{
+    WireFormat::IsReplicaNeeded::Request& reqHdr(
+            allocHeader<WireFormat::IsReplicaNeeded>());
+    reqHdr.backupServerId = backupServerId.getId();
+    reqHdr.segmentId = segmentId;
+    send();
+}
+
+/**
+ * Wait for an isReplicaNeeded RPC to complete.
+ *
+ * \return
+ *      True means that the calling backup must continue to retain the given
+ *      replica (it could be needed for crash recovery in the future). False means
+ *      the replica is no longer needed, so the backup can reclaim its space.
+ *
+ * \throw ServerDoesntExistException
+ *      The target server for this RPC is not part of the cluster;
+ *      if it ever existed, it has since crashed.
+ */
+bool
+IsReplicaNeededRpc2::wait()
+{
+    waitAndCheckErrors();
+    const WireFormat::IsReplicaNeeded::Response& respHdr(
+            getResponseHeader<WireFormat::IsReplicaNeeded>());
+    return respHdr.needed;
+}
+
+/**
+ * Request that the master owning a particular tablet migrate it
+ * to another master.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param serverId
+ *      Identifier for the master to receive this RPC; it must
+ *      currently own the tablet described by the arguments below.
+ * \param tableId
+ *      Identifier for the table containing the tablet to be migrated.
+ * \param firstKeyHash
+ *      Lowest key hash in the tablet range to be migrated.
+ * \param lastKeyHash
+ *      Highest key hash in the tablet range to be migrated.
+ * \param newOwnerId
+ *      Identifies the server to which the tablet should be migrated.
+ */
+void
+MasterClient::migrateTablet(Context& context, ServerId serverId,
+        uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash,
+        ServerId newOwnerId)
+{
+    MigrateTabletRpc2 rpc(context, serverId, tableId, firstKeyHash,
+            lastKeyHash, newOwnerId);
+    rpc.wait();
+}
+
+/**
+ * Constructor for MigrateTabletRpc2: initiates an RPC in the same way as
+ * #MasterClient::migrateTablet, but returns once the RPC has been
+ * initiated, without waiting for it to complete.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param serverId
+ *      Identifier for the master to receive this RPC; it must
+ *      currently own the tablet described by the arguments below.
+ * \param tableId
+ *      Identifier for the table containing the tablet to be migrated.
+ * \param firstKeyHash
+ *      Lowest key hash in the tablet range to be migrated.
+ * \param lastKeyHash
+ *      Highest key hash in the tablet range to be migrated.
+ * \param newOwnerId
+ *      Identifies the server to which the tablet should be migrated.
+ */
+MigrateTabletRpc2::MigrateTabletRpc2(Context& context, ServerId serverId,
+        uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash,
+        ServerId newOwnerId)
+    : ServerIdRpcWrapper(context, serverId,
+            sizeof(WireFormat::MigrateTablet::Response))
+{
+    WireFormat::MigrateTablet::Request& reqHdr(
+            allocHeader<WireFormat::MigrateTablet>());
+    reqHdr.tableId = tableId;
+    reqHdr.firstKeyHash = firstKeyHash;
+    reqHdr.lastKeyHash = lastKeyHash;
+    reqHdr.newOwnerMasterId = newOwnerId.getId();
+    send();
+}
+
+/**
+ * Request that a master decide whether it will accept a migrated tablet
+ * and set up any necessary state to begin receiving tablet data from the
+ * original master.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param serverId
+ *      Identifier for a master that will (hopefully) accept a
+ *      migrated tablet.
+ * \param tableId
+ *      Identifier for the table.
+ * \param firstKeyHash
+ *      Lowest key hash in the tablet range to be migrated.
+ * \param lastKeyHash
+ *      Highest key hash in the tablet range to be migrated.
+ * \param expectedObjects
+ *      Estimate of the total number of objects that will be migrated.
+ * \param expectedBytes
+ *      Estimate of the total number of bytes that will be migrated.
+ */
+void
+MasterClient::prepForMigration(Context& context, ServerId serverId,
+        uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash,
+        uint64_t expectedObjects, uint64_t expectedBytes)
+{
+    PrepForMigrationRpc2 rpc(context, serverId, tableId, firstKeyHash,
+            lastKeyHash, expectedObjects, expectedBytes);
+    rpc.wait();
+}
+
+/**
+ * Constructor for PrepForMigrationRpc2: initiates an RPC in the same way as
+ * #MasterClient::prepForMigration, but returns once the RPC has been
+ * initiated, without waiting for it to complete.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param serverId
+ *      Identifier for a master that will (hopefully) accept a
+ *      migrated tablet.
+ * \param tableId
+ *      Identifier for the table.
+ * \param firstKeyHash
+ *      Lowest key hash in the tablet range to be migrated.
+ * \param lastKeyHash
+ *      Highest key hash in the tablet range to be migrated.
+ * \param expectedObjects
+ *      Estimate of the total number of objects that will be migrated.
+ * \param expectedBytes
+ *      Estimate of the total number of bytes that will be migrated.
+ */
+PrepForMigrationRpc2::PrepForMigrationRpc2(Context& context, ServerId serverId,
+        uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash,
+        uint64_t expectedObjects, uint64_t expectedBytes)
+    : ServerIdRpcWrapper(context, serverId,
+            sizeof(WireFormat::PrepForMigration::Response))
+{
+    WireFormat::PrepForMigration::Request& reqHdr(
+            allocHeader<WireFormat::PrepForMigration>());
+    reqHdr.tableId = tableId;
+    reqHdr.firstKeyHash = firstKeyHash;
+    reqHdr.lastKeyHash = lastKeyHash;
+    reqHdr.expectedObjects = expectedObjects;
+    reqHdr.expectedBytes = expectedBytes;
+    send();
+}
+
+/**
+ * Request that a master add some migrated data to its storage.
+ * The receiving master will not service requests on the data,
+ * but will add it to its log and hash table.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param serverId
+ *      Identifier for a master that has previously agreed to accept
+ *      migrated data for this tablet.
+ * \param tableId
+ *      Identifier for the table.
+ * \param firstKeyHash
+ *      Lowest key hash in the tablet range to be migrated.
+ * \param segment
+ *      A block of data, formatted like a segment, containing objects
+ *      and tombstones to be migrated.
+ * \param segmentBytes
+ *      Number of bytes in \a segment.
+ */
+void
+MasterClient::receiveMigrationData(Context& context, ServerId serverId,
+        uint64_t tableId, uint64_t firstKeyHash, const void* segment,
+        uint32_t segmentBytes)
+{
+    ReceiveMigrationDataRpc2 rpc(context, serverId, tableId, firstKeyHash,
+            segment, segmentBytes);
+    rpc.wait();
+}
+
+/**
+ * Constructor for ReceiveMigrationDataRpc2: initiates an RPC in the same way as
+ * #MasterClient::receiveMigrationData, but returns once the RPC has been
+ * initiated, without waiting for it to complete.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param serverId
+ *      Identifier for a master that has previously agreed to accept
+ *      migrated data for this tablet.
+ * \param tableId
+ *      Identifier for the table.
+ * \param firstKeyHash
+ *      Lowest key hash in the tablet range to be migrated.
+ * \param segment
+ *      A block of data, formatted like a segment, containing objects
+ *      and tombstones to be migrated.
+ * \param segmentBytes
+ *      Number of bytes in \a segment.
+ */
+ReceiveMigrationDataRpc2::ReceiveMigrationDataRpc2(Context& context,
+        ServerId serverId, uint64_t tableId, uint64_t firstKeyHash,
+        const void* segment, uint32_t segmentBytes)
+    : ServerIdRpcWrapper(context, serverId,
+            sizeof(WireFormat::ReceiveMigrationData::Response))
+{
+    WireFormat::ReceiveMigrationData::Request& reqHdr(
+            allocHeader<WireFormat::ReceiveMigrationData>());
+    reqHdr.tableId = tableId;
+    reqHdr.firstKeyHash = firstKeyHash;
+    reqHdr.segmentBytes = segmentBytes;
+    Buffer::Chunk::appendToBuffer(&request, segment, segmentBytes);
+    send();
+}
+
+/**
+ * This RPC is sent to a recovery master to request that it begin recovering
+ * a collection of tablets previously stored on a master that has crashed.
+ * The RPC completes once the recipient has begun recovery; it does not wait
+ * for recovery to complete.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param serverId
+ *      Identifier for the recovery master.
+ * \param recoveryId
+ *      Identifies the recovery that \a serverId is part of.  Must be returned to
+ *      the coordinator in a future recoveryMasterFinished() call.
+ * \param crashedServerId
+ *      The ServerId of the crashed master whose data is to be recovered.
+ * \param partitionId
+ *      The partition id of #tablets inside the crashed master's will.
+ * \param tablets
+ *      A set of tables with key ranges describing which poritions of which
+ *      tables the recovery Master should take over for.
+ * \param replicas
+ *      An array describing where to find replicas of each segment.
+ * \param numReplicas
+ *      The number of replicas in the 'replicas' list.
+ */
+void
+MasterClient::recover(Context& context, ServerId serverId, uint64_t recoveryId,
+        ServerId crashedServerId, uint64_t partitionId,
+        const ProtoBuf::Tablets& tablets, const RecoverRpc::Replica* replicas,
+        uint32_t numReplicas)
+{
+    RecoverRpc2 rpc(context, serverId, recoveryId, crashedServerId,
+            partitionId, tablets, replicas, numReplicas);
+    rpc.wait();
+}
+
+/**
+ * Constructor for RecoverRpc2: initiates an RPC in the same way as
+ * #MasterClient::recover, but returns once the RPC has been
+ * initiated, without waiting for it to complete.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param serverId
+ *      Identifier for the recovery master.
+ * \param recoveryId
+ *      Identifies the recovery that \a serverId is part of.  Must be returned to
+ *      the coordinator in a future recoveryMasterFinished() call.
+ * \param crashedServerId
+ *      The ServerId of the crashed master whose data is to be recovered.
+ * \param partitionId
+ *      The partition id of #tablets inside the crashed master's will.
+ * \param tablets
+ *      A set of tables with key ranges describing which poritions of which
+ *      tables the recovery Master should take over for.
+ * \param replicas
+ *      An array describing where to find replicas of each segment.
+ * \param numReplicas
+ *      The number of replicas in the 'replicas' list.
+ */
+RecoverRpc2::RecoverRpc2(Context& context, ServerId serverId,
+        uint64_t recoveryId, ServerId crashedServerId, uint64_t partitionId,
+        const ProtoBuf::Tablets& tablets, const RecoverRpc::Replica* replicas,
+        uint32_t numReplicas)
+    : ServerIdRpcWrapper(context, serverId,
+            sizeof(WireFormat::Recover::Response))
+{
+    WireFormat::Recover::Request& reqHdr(
+            allocHeader<WireFormat::Recover>());
+    reqHdr.recoveryId = recoveryId;
+    reqHdr.crashedServerId = crashedServerId.getId();
+    reqHdr.partitionId = partitionId;
+    reqHdr.tabletsLength = serializeToRequest(request, tablets);
+    reqHdr.numReplicas = numReplicas;
+    Buffer::Chunk::appendToBuffer(&request, replicas,
+            downCast<uint32_t>(sizeof(replicas[0])) * numReplicas);
+    send();
+}
+
+/**
+ * This method is invoked by the coordinator to split a tablet inside a
+ * master into two separate tablets.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param serverId
+ *      Identifier for the master containing the tablet.
+ * \param tableId
+ *      Id of the table that contains the tablet to be split.
+ * \param firstKeyHash
+ *      Lowest key hash in the range of the tablet to be split.
+ * \param lastKeyHash
+ *      Highest key hash in the range of the tablet to be split.
+ * \param splitKeyHash
+ *      The key hash where the split occurs. This will become the
+ *      lowest key hash of the second tablet after the split.
+ */
+void
+MasterClient::splitMasterTablet(Context& context, ServerId serverId,
+        uint64_t tableId, uint64_t firstKeyHash,
+        uint64_t lastKeyHash, uint64_t splitKeyHash)
+{
+    SplitMasterTabletRpc2 rpc(context, serverId, tableId, firstKeyHash,
+        lastKeyHash, splitKeyHash);
+    rpc.wait();
+}
+
+/**
+ * Constructor for SplitMasterTabletRpc2: initiates an RPC in the same way as
+ * #MasterClient::splitMasterTablet, but returns once the RPC has been
+ * initiated, without waiting for it to complete.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param serverId
+ *      Identifier for the master containing the tablet.
+ * \param tableId
+ *      Id of the table that contains the tablet to be split.
+ * \param firstKeyHash
+ *      Lowest key hash in the range of the tablet to be split.
+ * \param lastKeyHash
+ *      Highest key hash in the range of the tablet to be split.
+ * \param splitKeyHash
+ *      The key hash where the split occurs. This will become the
+ *      lowest key hash of the second tablet after the split.
+ */
+SplitMasterTabletRpc2::SplitMasterTabletRpc2(Context& context,
+        ServerId serverId, uint64_t tableId, uint64_t firstKeyHash,
+        uint64_t lastKeyHash, uint64_t splitKeyHash)
+    : ServerIdRpcWrapper(context, serverId,
+            sizeof(WireFormat::SplitMasterTablet::Response))
+{
+    WireFormat::SplitMasterTablet::Request& reqHdr(
+            allocHeader<WireFormat::SplitMasterTablet>());
+    reqHdr.tableId = tableId;
+    reqHdr.firstKeyHash = firstKeyHash;
+    reqHdr.lastKeyHash = lastKeyHash;
+    reqHdr.splitKeyHash = splitKeyHash;
+    send();
+}
+
+/**
+ * Instruct a master that it should begin serving requests for a particular
+ * tablet. If the master does not already store this tablet, then it will
+ * create a new tablet. If the master already has information for the tablet,
+ * but the tablet was frozen (e.g. because data migration was underway),
+ * then the tablet will be unfrozen.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param serverId
+ *      Identifier for the target server.
+ * \param tableId
+ *      Identifier for the table containing the tablet.
+ * \param firstKeyHash
+ *      Smallest value in the 64-bit key hash space for this table that belongs
+ *      to the tablet.
+ * \param lastKeyHash
+ *      Largest value in the 64-bit key hash space for this table that belongs
+ *      to the tablet.
+ */
+void
+MasterClient::takeTabletOwnership(Context& context, ServerId serverId,
+        uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash)
+{
+    TakeTabletOwnershipRpc2 rpc(context, serverId, tableId, firstKeyHash,
             lastKeyHash);
     rpc.wait();
 }
@@ -63,7 +612,7 @@ MasterClient::takeTabletOwnership(Context& context, ServerId id,
  *
  * \param context
  *      Overall information about this RAMCloud server or client.
- * \param id
+ * \param serverId
  *      Identifier for the target server.
  * \param tableId
  *      Identifier for the table containing the tablet.
@@ -74,14 +623,14 @@ MasterClient::takeTabletOwnership(Context& context, ServerId id,
  *      Largest value in the 64-bit key hash space for this table that belongs
  *      to the tablet.
  */
-MasterClient::TakeTabletOwnershipRpc2::TakeTabletOwnershipRpc2(
-        Context& context, ServerId id, uint64_t tableId,
+TakeTabletOwnershipRpc2::TakeTabletOwnershipRpc2(
+        Context& context, ServerId serverId, uint64_t tableId,
         uint64_t firstKeyHash, uint64_t lastKeyHash)
-        : ServerIdRpcWrapper(context, id,
-                sizeof(WireFormat::TakeTabletOwnership::Response))
+    : ServerIdRpcWrapper(context, serverId,
+            sizeof(WireFormat::TakeTabletOwnership::Response))
 {
     WireFormat::TakeTabletOwnership::Request& reqHdr(
-        allocHeader<WireFormat::TakeTabletOwnership>());
+            allocHeader<WireFormat::TakeTabletOwnership>());
     reqHdr.tableId = tableId;
     reqHdr.firstKeyHash = firstKeyHash;
     reqHdr.lastKeyHash = lastKeyHash;
@@ -91,52 +640,6 @@ MasterClient::TakeTabletOwnershipRpc2::TakeTabletOwnershipRpc2(
 //-------------------------------------------------------
 // OLD: everything below here should eventually go away.
 //-------------------------------------------------------
-
-/**
- * Fill a master server with the given number of objects, each of the
- * same given size. Objects are added to all tables in the master in
- * a round-robin fashion. This method exists simply to quickly fill a
- * master for experiments.
- *
- * See MasterClient::fillWithTestData() for more information.
- *
- * \bug Will return an error if the master only owns part of a table
- * (because the hash of the fabricated keys may land in a region it
- * doesn't own).
- *
- * \param numObjects
- *      Total number of objects to add to the server.
- * \param objectSize
- *      Bytes of garbage data to place in each object not including the
- *      key (the keys are ASCII strings starting with "0" and increasing
- *      numerically in each table).
- */
-void
-MasterClient::fillWithTestData(uint32_t numObjects, uint32_t objectSize)
-{
-    Buffer req, resp;
-    FillWithTestDataRpc::Request& reqHdr(allocHeader<FillWithTestDataRpc>(req));
-    reqHdr.numObjects = numObjects;
-    reqHdr.objectSize = objectSize;
-    sendRecv<FillWithTestDataRpc>(session, req, resp);
-    checkStatus(HERE);
-}
-
-/**
- * Obtain a master's log head position. This is currently used to determine
- * the minimum position at which data belonging to newly assigned tablet
- * may exist at. Any prior data can be ignored.
- */
-LogPosition
-MasterClient::getHeadOfLog()
-{
-    Buffer req, resp;
-    allocHeader<GetHeadOfLogRpc>(req);
-    const GetHeadOfLogRpc::Response& respHdr(
-        sendRecv<GetHeadOfLogRpc>(session, req, resp));
-    checkStatus(HERE);
-    return { respHdr.headSegmentId, respHdr.headSegmentOffset };
-}
 
 /**
  * Returns the ServerStatistics protobuf to a client. This protobuf
@@ -159,144 +662,6 @@ MasterClient::getServerStatistics(ProtoBuf::ServerStatistics& serverStats)
     checkStatus(HERE);
     ProtoBuf::parseFromResponse(resp, sizeof(respHdr),
         respHdr.serverStatsLength, serverStats);
-}
-
-/**
- * Recover a set of tablets on behalf of a crashed master.
- *
- * \param client
- *      The MasterClient instance over which the RPC should be issued.
- * \param recoveryId
- *      Identifies the recovery this master is a part of.
- *      Should be returned to this coordinator in future recoveryMasterFinished()
- *      calls.
- * \param crashedServerId
- *      The ServerId of the crashed master whose data is to be recovered.
- * \param partitionId
- *      The partition id of #tablets inside the crashed master's will.
- * \param tablets
- *      A set of tables with key ranges describing which poritions of which
- *      tables the recovery Master should take over for.
- * \param replicas
- *      An array describing where to find replicas of each segment.
- * \param numReplicas
- *      The number of replicas in the 'replicas' list.
- */
-MasterClient::Recover::Recover(MasterClient& client,
-                               uint64_t recoveryId,
-                               ServerId crashedServerId,
-                               uint64_t partitionId,
-                               const ProtoBuf::Tablets& tablets,
-                               const RecoverRpc::Replica* replicas,
-                               uint32_t numReplicas)
-    : client(client)
-    , requestBuffer()
-    , responseBuffer()
-    , state()
-{
-    RecoverRpc::Request& reqHdr(client.allocHeader<RecoverRpc>(requestBuffer));
-    reqHdr.recoveryId = recoveryId;
-    reqHdr.crashedServerId = crashedServerId.getId();
-    reqHdr.partitionId = partitionId;
-    reqHdr.tabletsLength = serializeToResponse(requestBuffer, tablets);
-    reqHdr.numReplicas = numReplicas;
-    Buffer::Chunk::appendToBuffer(&requestBuffer, replicas,
-                  downCast<uint32_t>(sizeof(replicas[0])) * numReplicas);
-    state = client.send<RecoverRpc>(client.session,
-                                    requestBuffer,
-                                    responseBuffer);
-}
-
-void
-MasterClient::Recover::operator()()
-{
-    client.recv<RecoverRpc>(state);
-    client.checkStatus(HERE);
-}
-
-void
-MasterClient::recover(uint64_t recoveryId,
-                      ServerId crashedServerId,
-                      uint64_t partitionId,
-                      const ProtoBuf::Tablets& tablets,
-                      const RecoverRpc::Replica* replicas,
-                      uint32_t numReplicas)
-{
-    Recover(*this, recoveryId, crashedServerId,
-            partitionId, tablets, replicas, numReplicas)();
-}
-
-/// Start a read RPC for an object. See MasterClient::read.
-MasterClient::Read::Read(MasterClient& client,
-                         uint64_t tableId, const char* key,
-                         uint16_t keyLength, Buffer* value,
-                         const RejectRules* rejectRules,
-                         uint64_t* version)
-    : client(client)
-    , version(version)
-    , requestBuffer()
-    , responseBuffer(*value)
-    , state()
-{
-    responseBuffer.reset();
-    ReadRpc::Request& reqHdr(client.allocHeader<ReadRpc>(requestBuffer));
-    reqHdr.tableId = tableId;
-    reqHdr.keyLength = keyLength;
-    reqHdr.rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
-    Buffer::Chunk::appendToBuffer(&requestBuffer, key, keyLength);
-
-    state = client.send<ReadRpc>(client.session,
-                                 requestBuffer,
-                                 responseBuffer);
-}
-
-/// Wait for the read RPC to complete.
-void
-MasterClient::Read::operator()()
-{
-    const ReadRpc::Response& respHdr(client.recv<ReadRpc>(state));
-    if (version != NULL)
-        *version = respHdr.version;
-
-    // Truncate the response Buffer so that it consists of nothing
-    // but the object data.
-    responseBuffer.truncateFront(sizeof(respHdr));
-    assert(respHdr.length == responseBuffer.getTotalLength());
-    client.checkStatus(HERE);
-}
-
-/**
- * Read the current contents of an object.
- *
- * \param tableId
- *      The table containing the desired object (return value from
- *      a previous call to getTableId).
- * \param key
- *      Variable length key that uniquely identifies the object within tableId.
- *      It does not necessarily have to be null terminated like a string.
- *      The caller is responsible for ensuring that this key remains valid
- *      until the call is reaped/canceled.
- * \param keyLength
- *      Size in bytes of the key.
- * \param[out] value
- *      After a successful return, this Buffer will hold the
- *      contents of the desired object.
- * \param rejectRules
- *      If non-NULL, specifies conditions under which the read
- *      should be aborted with an error.
- * \param[out] version
- *      If non-NULL, the version number of the object is returned
- *      here.
- *
- * \exception RejectRulesException
- * \exception InternalError
- */
-void
-MasterClient::read(uint64_t tableId, const char* key, uint16_t keyLength,
-                   Buffer* value, const RejectRules* rejectRules,
-                   uint64_t* version)
-{
-    Read(*this, tableId, key, keyLength, value, rejectRules, version)();
 }
 
 /// Start an enumeration RPC for an object. See MasterClient::enumeration.
@@ -406,46 +771,6 @@ MasterClient::enumeration(uint64_t tableId,
 }
 
 /**
- * Request that a master decide whether it will accept a migrated tablet
- * and set up any necessary state to begin receiving its data from the
- * original master.
- *
- * \param tableId
- *      Identifier for the table.
- *
- * \param firstKey
- *      First key of the tablet range to be migrated.
- *
- * \param lastKey
- *      Last key of the tablet range to be migrated.
- *
- * \param expectedObjects
- *      Estimate of the total number of objects that will be migrated.
- *
- * \param expectedBytes
- *      Estimate of the total number of bytes that will be migrated.
- */
-void
-MasterClient::prepForMigration(uint64_t tableId,
-                               uint64_t firstKey,
-                               uint64_t lastKey,
-                               uint64_t expectedObjects,
-                               uint64_t expectedBytes)
-{
-    Buffer req, resp;
-
-    PrepForMigrationRpc::Request& reqHdr(allocHeader<PrepForMigrationRpc>(req));
-    reqHdr.tableId = tableId;
-    reqHdr.firstKey = firstKey;
-    reqHdr.lastKey = lastKey;
-    reqHdr.expectedObjects = expectedObjects;
-    reqHdr.expectedBytes = expectedBytes;
-
-    sendRecv<PrepForMigrationRpc>(session, req, resp);
-    checkStatus(HERE);
-}
-
-/**
  * Request that the master owning a particular tablet migrate it
  * to another designated master.
  *
@@ -476,351 +801,6 @@ MasterClient::migrateTablet(uint64_t tableId,
     reqHdr.newOwnerMasterId = *newOwnerMasterId;
     sendRecv<MigrateTabletRpc>(session, req, resp);
     checkStatus(HERE);
-}
-
-/**
- * Request that a master add some migrated data to its storage.
- * The receiving master will not service requests on the data,
- * but will add it to its log and hash table.
- *
- * \param tableId
- *      Identifier for the table.
- *
- * \param firstKey
- *      First key of the tablet range to be migrated.
- *
- * \param segment
- *      Segment containing the data to be migrated.
- *
- * \param segmentBytes
- *      Number of bytes in the segment to be migrated.
- */
-void
-MasterClient::receiveMigrationData(uint64_t tableId,
-                                   uint64_t firstKey,
-                                   const void* segment,
-                                   uint32_t segmentBytes)
-{
-    Buffer req, resp;
-
-    ReceiveMigrationDataRpc::Request& reqHdr(
-        allocHeader<ReceiveMigrationDataRpc>(req));
-    reqHdr.tableId = tableId;
-    reqHdr.firstKey = firstKey;
-    reqHdr.segmentBytes = segmentBytes;
-    memcpy(new(&req, APPEND) char[segmentBytes],
-           segment,
-           segmentBytes);
-
-    sendRecv<ReceiveMigrationDataRpc>(session, req, resp);
-    checkStatus(HERE);
-}
-
-/**
- * Increments a numeric object by a specifiable value. The
- * object should be an 8-byte, two's complement, little-endian integer.
- * If the object has a different size than 8bytes,
- * the method throws a STATUS_INVALID_OBJECT exception.
- * The increment value can be negative in order to decrease the value of the
- * object.
- *
- * \param tableId
- *      The table containing the to be incremented object (return value from
- *      a previous call to getTableId).
- * \param key
- *      Variable length key that uniquely identifies the object within tableId.
- *      It does not necessarily have to be null terminated like a string.
- *      The caller is responsible for ensuring that this key remains valid
- *      until the call is reaped/canceled.
- * \param keyLength
- *      Size in bytes of the key.
- * \param incrementValue
- *      The value that the object should be incremented by (can be negative).
- * \param rejectRules
- *      If non-NULL, specifies conditions under which the read
- *      should be aborted with an error.
- * \param[out] version
- *      May not be NULL. The version number of the object is returned here.
- * \param[out] newValue
- *      May not be NULL. The new value of the object after incrementing.
- */
-void
-MasterClient::increment(uint64_t tableId, const char* key, uint16_t keyLength,
-               int64_t incrementValue, const RejectRules* rejectRules,
-               uint64_t* version, int64_t* newValue)
-{
-    Buffer req, resp;
-    IncrementRpc::Request& reqHdr(allocHeader<IncrementRpc>(req));
-    reqHdr.tableId = tableId;
-    reqHdr.keyLength = keyLength;
-    reqHdr.incrementValue = incrementValue;
-    reqHdr.rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
-    Buffer::Chunk::appendToBuffer(&req, key, keyLength);
-
-    const IncrementRpc::Response& respHdr(sendRecv<IncrementRpc>(
-                                                        session, req, resp));
-    if (version != NULL)
-        *version = respHdr.version;
-    if (newValue != NULL)
-        *newValue = respHdr.newValue;
-
-    checkStatus(HERE);
-}
-
-/**
- * Return whether a replica for a segment created by this master may still
- * be needed for recovery. Backups use this after restarting after a failure
- * to determine if replicas found in persistent storage must be retained.
- *
- * The cluster membership protocol must guarantee that if the master "knows
- * about" the calling backup server that it must already know about the crash
- * of the backup which created the on-storage replicas the calling backup
- * has rediscovered.  This guarantees that when the master responds to this
- * call that it must have already recovered from crash mentioned above if
- * it returns false.
- *
- * \param backupServerId
- *      The server id which is requesting information about a replica.
- *      This is used to ensure the master is aware of the backup via
- *      the cluster membership protocol, which ensures that it is
- *      aware of any crash of the backup that created the replica
- *      being inquired about.
- * \param segmentId
- *      The segmentId of the replica which a backup server is considering
- *      freeing.
- * \return
- *      Master returns true if the segment is not currently known to be
- *      adequately replicated. This means if the master knows of any
- *      replicas which haven't been fully synced or that haven't been
- *      fully recreated in response to a crash it returns true.  Otherwise,
- *      if the master believes the segment is adequately replicated then
- *      it returns false.
- */
-bool
-MasterClient::isReplicaNeeded(ServerId backupServerId, uint64_t segmentId)
-{
-    Buffer req, resp;
-    IsReplicaNeededRpc::Request& reqHdr(allocHeader<IsReplicaNeededRpc>(req));
-    reqHdr.backupServerId = backupServerId.getId();
-    reqHdr.segmentId = segmentId;
-    const IsReplicaNeededRpc::Response& respHdr(sendRecv<IsReplicaNeededRpc>(
-                                                        session, req, resp));
-    checkStatus(HERE);
-    return respHdr.needed;
-}
-
-/**
- * Delete an object from a table. If the object does not currently exist and
- * no rejectRules match, then the operation succeeds without doing anything.
- *
- * \param tableId
- *      The table containing the object to be deleted (return value from
- *      a previous call to getTableId).
- * \param key
- *      Variable length key that uniquely identifies the object within tableId.
- *      It does not necessarily have to be null terminated like a string.
- *      The caller is responsible for ensuring that this key remains valid
- *      until the call is reaped/canceled.
- * \param keyLength
- *      Size in bytes of the key.
- * \param rejectRules
- *      If non-NULL, specifies conditions under which the delete
- *      should be aborted with an error. If NULL, the object is
- *      deleted unconditionally.
- * \param[out] version
- *      If non-NULL, the version number of the object (prior to
- *      deletion) is returned here. If the object didn't exist
- *      then 0 will be returned.
- *
- * \exception RejectRulesException
- * \exception InternalError
- */
-void
-MasterClient::remove(uint64_t tableId, const char* key, uint16_t keyLength,
-                     const RejectRules* rejectRules, uint64_t* version)
-{
-    Buffer req, resp;
-    RemoveRpc::Request& reqHdr(allocHeader<RemoveRpc>(req));
-    reqHdr.tableId = tableId;
-    reqHdr.keyLength = keyLength;
-    reqHdr.rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
-    Buffer::Chunk::appendToBuffer(&req, key, keyLength);
-
-    const RemoveRpc::Response& respHdr(sendRecv<RemoveRpc>(session, req, resp));
-    if (version != NULL)
-        *version = respHdr.version;
-    checkStatus(HERE);
-}
-
-/**
- * Instruct the master that it must no longer serve requests for the tablet
- * specified. The server may reclaim all memory previously allocated to that
- * tablet.
- * \warning
- *      Adding a tablet, removing it, and then adding it back is not currently
- *      supported.
- */
-void
-MasterClient::dropTabletOwnership(uint64_t tableId,
-                                  uint64_t firstKey,
-                                  uint64_t lastKey)
-{
-    Buffer req, resp;
-    DropTabletOwnershipRpc::Request& reqHdr(
-        allocHeader<DropTabletOwnershipRpc>(req));
-    reqHdr.tableId = tableId;
-    reqHdr.firstKey = firstKey;
-    reqHdr.lastKey = lastKey;
-    sendRecv<DropTabletOwnershipRpc>(session, req, resp);
-    checkStatus(HERE);
-}
-
-/**
- * Split a tablet in a master.
- *
- * This function splits a tablet inside a master and is issued by the
- * coordinator. The tablet is identified by the table it belongs to and its
- * start- and endKeyHash. Additionally, a splitKeyHash has
- * to be provided that indicates where the tablet should be split. This key
- * will be the first key of the second part after the split.
- *
- * \param tableId
- *      Id of the table that contains the to be split tablet
- * \param startKeyHash
- *      First key of the key range of the to be split tablet.
- * \param endKeyHash
- *      Last key of the key range of the to be split tablet.
- * \param splitKeyHash
- *      The key where the split occurs.
- *
- */
-void
-MasterClient::splitMasterTablet(uint64_t tableId,
-                                uint64_t startKeyHash,
-                                uint64_t endKeyHash,
-                                uint64_t splitKeyHash)
-{
-    Buffer req, resp;
-    SplitMasterTabletRpc::Request& reqHdr(
-        allocHeader<SplitMasterTabletRpc>(req));
-    reqHdr.tableId = tableId;
-    reqHdr.startKeyHash = startKeyHash;
-    reqHdr.endKeyHash = endKeyHash;
-    reqHdr.splitKeyHash = splitKeyHash;
-    sendRecv<SplitMasterTabletRpc>(session, req, resp);
-    checkStatus(HERE);
-}
-
-/// Start a write RPC for an object. See MasterClient::write.
-MasterClient::Write::Write(MasterClient& client,
-                           uint64_t tableId,
-                           const char* key, uint16_t keyLength,
-                           const void* buf, uint32_t length,
-                           const RejectRules* rejectRules,
-                           uint64_t* version, bool async)
-    : client(client)
-    , version(version)
-    , requestBuffer()
-    , responseBuffer()
-    , state()
-{
-    WriteRpc::Request& reqHdr(client.allocHeader<WriteRpc>(requestBuffer));
-    reqHdr.tableId = tableId;
-    reqHdr.keyLength = keyLength;
-    reqHdr.length = length;
-    reqHdr.rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
-    reqHdr.async = async;
-    Buffer::Chunk::appendToBuffer(&requestBuffer, key, keyLength);
-    Buffer::Chunk::appendToBuffer(&requestBuffer, buf, length);
-    state = client.send<WriteRpc>(client.session,
-                                  requestBuffer,
-                                  responseBuffer);
-}
-
-/// Start a write RPC. See MasterClient::write.
-MasterClient::Write::Write(MasterClient& client,
-                           uint64_t tableId,
-                           const char* key, uint16_t keyLength,
-                           Buffer& buffer,
-                           const RejectRules* rejectRules,
-                           uint64_t* version, bool async)
-    : client(client)
-    , version(version)
-    , requestBuffer()
-    , responseBuffer()
-    , state()
-{
-    WriteRpc::Request& reqHdr(client.allocHeader<WriteRpc>(requestBuffer));
-    reqHdr.tableId = tableId;
-    reqHdr.keyLength = keyLength;
-    reqHdr.length = buffer.getTotalLength();
-    reqHdr.rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
-    reqHdr.async = async;
-    Buffer::Chunk::appendToBuffer(&requestBuffer, key, keyLength);
-    for (Buffer::Iterator it(buffer); !it.isDone(); it.next())
-        Buffer::Chunk::appendToBuffer(&requestBuffer,
-                                      it.getData(), it.getLength());
-    state = client.send<WriteRpc>(client.session,
-                                  requestBuffer,
-                                  responseBuffer);
-}
-
-/// Wait for the write RPC to complete
-void
-MasterClient::Write::operator()()
-{
-    const WriteRpc::Response& respHdr(client.recv<WriteRpc>(state));
-    if (version != NULL)
-        *version = respHdr.version;
-    client.checkStatus(HERE);
-}
-
-/**
- * Write a specific object in a table; overwrite any existing object,
- * or create a new object if none existed.
- *
- * \param tableId
- *      The table containing the desired object (return value from a
- *      previous call to getTableId).
- * \param key
- *      Variable length key that uniquely identifies the object within tableId.
- *      It does not necessarily have to be null terminated like a string.
- *      The caller is responsible for ensuring that this key remains valid
- *      until the call is reaped/canceled.
- * \param keyLength
- *      Size in bytes of the key.
- * \param buf
- *      Address of the first byte of the new contents for the object;
- *      must contain at least length bytes.
- * \param length
- *      Size in bytes of the new contents for the object.
- * \param rejectRules
- *      If non-NULL, specifies conditions under which the write
- *      should be aborted with an error. NULL means the object should
- *      be written unconditionally.
- * \param[out] version
- *      If non-NULL, the version number of the object is returned
- *      here. If the operation was successful this will be the new
- *      version for the object; if this object has ever existed
- *      previously the new version is guaranteed to be greater than
- *      any previous version of the object. If the operation failed
- *      then the version number returned is the current version of
- *      the object, or 0 if the object does not exist.
- * \param async
- *      If true, the new object will not be immediately replicated to backups.
- *      Data loss may occur!
- *
- * \exception RejectRulesException
- * \exception InternalError
- */
-void
-MasterClient::write(uint64_t tableId, const char* key, uint16_t keyLength,
-                    const void* buf, uint32_t length,
-                    const RejectRules* rejectRules, uint64_t* version,
-                    bool async)
-{
-    Write(*this, tableId, key, keyLength, buf, length, rejectRules,
-          version, async)();
 }
 
 }  // namespace RAMCloud

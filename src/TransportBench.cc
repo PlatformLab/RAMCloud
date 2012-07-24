@@ -45,8 +45,7 @@ bench(RamCloud& client,
              << " objects to store of " << size << " bytes"
              << endl;
         if (uncached) {
-            MasterClient master(client.objectFinder.lookup(0, 0));
-            master.fillWithTestData(downCast<uint32_t>(insCount),
+            master.fillWithTestData(0, "abc", 3, downCast<uint32_t>(insCount),
                                     downCast<uint32_t>(size));
         }
         // make sure to write 0 last to trigger master metrics

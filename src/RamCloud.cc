@@ -754,9 +754,9 @@ RemoveRpc2::wait(uint64_t* version)
  * \param name
  *      Name of the table containing the tablet to be split.
  *     (NULL-terminated string).
- * \param startKeyHash
+ * \param firstKeyHash
  *      First key of the key range of the tablet to be split.
- * \param endKeyHash
+ * \param lastKeyHash
  *      Last key of the key range of the tablet to be split.
  * \param splitKeyHash
  *      Dividing point for the new tablets. All key hashes less than
@@ -764,10 +764,10 @@ RemoveRpc2::wait(uint64_t* version)
  *      will belong to the other.
  */
 void
-RamCloud::splitTablet(const char* name, uint64_t startKeyHash,
-        uint64_t endKeyHash, uint64_t splitKeyHash)
+RamCloud::splitTablet(const char* name, uint64_t firstKeyHash,
+        uint64_t lastKeyHash, uint64_t splitKeyHash)
 {
-    SplitTabletRpc2 rpc(*this, name, startKeyHash, endKeyHash, splitKeyHash);
+    SplitTabletRpc2 rpc(*this, name, firstKeyHash, lastKeyHash, splitKeyHash);
     rpc.wait();
 }
 
@@ -781,9 +781,9 @@ RamCloud::splitTablet(const char* name, uint64_t startKeyHash,
  * \param name
  *      Name of the table containing the tablet to be split.
  *     (NULL-terminated string).
- * \param startKeyHash
+ * \param firstKeyHash
  *      First key of the key range of the tablet to be split.
- * \param endKeyHash
+ * \param lastKeyHash
  *      Last key of the key range of the tablet to be split.
  * \param splitKeyHash
  *      Dividing point for the new tablets. All key hashes less than
@@ -791,8 +791,8 @@ RamCloud::splitTablet(const char* name, uint64_t startKeyHash,
  *      will belong to the other.
  */
 SplitTabletRpc2::SplitTabletRpc2(RamCloud& ramcloud,
-        const char* name, uint64_t startKeyHash,
-        uint64_t endKeyHash, uint64_t splitKeyHash)
+        const char* name, uint64_t firstKeyHash,
+        uint64_t lastKeyHash, uint64_t splitKeyHash)
     : CoordinatorRpcWrapper(ramcloud.clientContext,
             sizeof(WireFormat::SplitTablet::Response))
 {
@@ -800,8 +800,8 @@ SplitTabletRpc2::SplitTabletRpc2(RamCloud& ramcloud,
     WireFormat::SplitTablet::Request& reqHdr(
             allocHeader<WireFormat::SplitTablet>());
     reqHdr.nameLength = length;
-    reqHdr.startKeyHash = startKeyHash;
-    reqHdr.endKeyHash = endKeyHash;
+    reqHdr.firstKeyHash = firstKeyHash;
+    reqHdr.lastKeyHash = lastKeyHash;
     reqHdr.splitKeyHash = splitKeyHash;
     memcpy(new(&request, APPEND) char[length], name, length);
     send();
