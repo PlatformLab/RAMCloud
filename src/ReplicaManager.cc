@@ -125,6 +125,11 @@ ReplicaManager::isReplicaNeeded(ServerId backupServerId, uint64_t segmentId)
     //    now dead.
     // In either of these cases the only safe thing to do is to tell
     // the backup to hold on to the replica.
+    // serverIsUp() can return false even when backupServerId is up according
+    // to this server if it would have to wait on a lock to determine for
+    // sure. This code does 'the right thing' in that case and just tells
+    // the backup to hold on to the replica and come back later when the
+    // lock isn't contended.
     if (!failureMonitor.serverIsUp(backupServerId))
         return true;
 

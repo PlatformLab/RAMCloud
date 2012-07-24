@@ -88,6 +88,52 @@ class ServerDetails {
         , status(status)
     {}
 
+    /*
+     * Explicit string copies for the service locators in the following copy/move
+     * constructors/assignments get rid of some kind of internal race in the
+     * g++ 4.4.6's libstdc++ ref counting string implementation.
+     */
+
+    ServerDetails(const ServerDetails& other)
+        : serverId(other.serverId)
+        , serviceLocator(other.serviceLocator.c_str())
+        , services(other.services)
+        , expectedReadMBytesPerSec(other.expectedReadMBytesPerSec)
+        , status(other.status)
+    {
+    }
+
+    ServerDetails& operator=(const ServerDetails& other) {
+        if (this == &other)
+            return *this;
+        serverId = other.serverId;
+        serviceLocator = other.serviceLocator.c_str();
+        services = other.services;
+        expectedReadMBytesPerSec = other.expectedReadMBytesPerSec;
+        status = other.status;
+        return *this;
+    }
+
+    ServerDetails(ServerDetails&& other)
+        : serverId(other.serverId)
+        , serviceLocator(other.serviceLocator.c_str())
+        , services(other.services)
+        , expectedReadMBytesPerSec(other.expectedReadMBytesPerSec)
+        , status(other.status)
+    {
+    }
+
+    ServerDetails& operator=(ServerDetails&& other) {
+        if (this == &other)
+            return *this;
+        serverId = other.serverId;
+        serviceLocator = other.serviceLocator.c_str();
+        services = other.services;
+        expectedReadMBytesPerSec = other.expectedReadMBytesPerSec;
+        status = other.status;
+        return *this;
+    }
+
     virtual ~ServerDetails() {}
 
     /// ServerId associated with this index in the serverList (never reused).

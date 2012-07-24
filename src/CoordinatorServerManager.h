@@ -20,6 +20,7 @@
 
 #include "Common.h"
 #include "CoordinatorServerList.h"
+#include "StateHintServerDown.pb.h"
 #include "StateSetMinOpenSegmentId.pb.h"
 
 namespace RAMCloud {
@@ -119,6 +120,8 @@ class CoordinatorServerManager {
     void enlistServerAfterReply(EnlistServer& ref);
     ProtoBuf::ServerList getServerList(ServiceMask serviceMask);
     bool hintServerDown(ServerId serverId);
+    void hintServerDownRecover(ProtoBuf::StateHintServerDown* state,
+                               EntryId entryId);
     void removeReplicationGroup(uint64_t groupId);
     void sendServerList(ServerId serverId);
     void setMinOpenSegmentId(ServerId serverId, uint64_t segmentId);
@@ -127,6 +130,30 @@ class CoordinatorServerManager {
     bool verifyServerFailure(ServerId serverId);
 
   PRIVATE:
+
+    /**
+     * Defines methods and stores data to hintServerDown.
+     */
+    class HintServerDown {
+        public:
+            HintServerDown(CoordinatorServerManager &manager,
+                           ServerId serverId)
+                : manager(manager), serverId(serverId) {}
+            bool execute();
+            bool complete(EntryId entryId);
+        private:
+            /**
+             * Reference to the instance of coordinator server manager
+             * initializing this class.
+             * Used to get access to CoordinatorService& service.
+             */
+            CoordinatorServerManager &manager;
+            /**
+             * ServerId of the server that is suspected to be down.
+             */
+            ServerId serverId;
+            DISALLOW_COPY_AND_ASSIGN(HintServerDown);
+    };
 
     /**
      * Defines methods and stores data to set minOpenSegmentId of server

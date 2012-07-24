@@ -243,6 +243,83 @@ CoordinatorServerManager::getServerList(ServiceMask serviceMask)
     return serialServerList;
 }
 
+bool
+CoordinatorServerManager::HintServerDown::execute()
+{
+     if (!manager.service.serverList.contains(serverId) ||
+         manager.service.serverList[serverId].status != ServerStatus::UP) {
+         LOG(NOTICE, "Spurious crash report on unknown server id %lu",
+             serverId.getId());
+         return true;
+     }
+
+     LOG(NOTICE, "Checking server id %lu (%s)",
+         serverId.getId(), manager.service.serverList.getLocator(serverId));
+     if (!manager.verifyServerFailure(serverId))
+         return false;
+
+     LOG(NOTICE, "Server id %lu has crashed, notifying the cluster and "
+         "starting recovery", serverId.getId());
+
+     ProtoBuf::StateHintServerDown state;
+     state.set_opcode("HintServerDown");
+     state.set_done(false);
+     state.set_server_id(this->serverId.getId());
+
+     EntryId entryId = manager.service.logCabinHelper->appendProtoBuf(state);
+     LOG(DEBUG, "LogCabin entryId: %lu", entryId);
+
+     return complete(entryId);
+}
+
+bool
+CoordinatorServerManager::HintServerDown::complete(EntryId entryId)
+{
+     manager.service.serverList.addLogCabinEntryId(serverId, entryId);
+
+     // If this machine has a backup and master on the same server it is best
+     // to remove the dead backup before initiating recovery. Otherwise, other
+     // servers may try to backup onto a dead machine which will cause delays.
+     CoordinatorServerList::Entry entry = manager.service.serverList[serverId];
+     ProtoBuf::ServerList update;
+     manager.service.serverList.crashed(serverId, update);
+     // If the server being replaced did not have a master then there
+     // will be no recovery.  That means it needs to transition to
+     // removed status now (usually recoveries remove servers from the
+     // list when they complete).
+     if (!entry.services.has(MASTER_SERVICE))
+         manager.service.serverList.remove(serverId, update);
+     manager.service.serverList.incrementVersion(update);
+
+     // Update cluster membership information.
+     // Backup recovery is kicked off via this update.
+     // Deciding whether to place this before or after the start of master
+     // recovery is difficult.
+     manager.service.serverList.sendMembershipUpdate(
+             update, ServerId(/* invalid id */));
+
+     manager.service.recoveryManager.startMasterRecovery(entry.serverId);
+
+     manager.removeReplicationGroup(entry.replicationId);
+     manager.createReplicationGroup();
+
+     // TODO(ankitak): After enlistServer starts saving state to LogCabin,
+     // there will be an entry corresponding to the server information.
+     // At this point, that entry will be invalidated from LogCabin,
+     // along with invalidating the StateHintServerDown entry appended in the
+     // execute() function call. The following state append will not be needed.
+     ProtoBuf::StateHintServerDown state;
+     state.set_opcode("HintServerDown");
+     state.set_done(true);
+     state.set_server_id(this->serverId.getId());
+
+     entryId = manager.service.logCabinHelper->appendProtoBuf(
+                    state, vector<EntryId>(entryId));
+     LOG(DEBUG, "LogCabin entryId: %lu", entryId);
+
+     return true;
+}
+
 /**
  * Returns true if server is down, false otherwise.
  *
@@ -254,47 +331,26 @@ CoordinatorServerManager::getServerList(ServiceMask serviceMask)
 bool
 CoordinatorServerManager::hintServerDown(ServerId serverId)
 {
-    if (!service.serverList.contains(serverId) ||
-        service.serverList[serverId].status != ServerStatus::UP) {
-        LOG(NOTICE, "Spurious crash report on unknown server id %lu",
-            serverId.getId());
-        return true;
-    }
+    Lock _(mutex);
+    return HintServerDown(*this, serverId).execute();
+}
 
-    LOG(NOTICE, "Checking server id %lu (%s)", serverId.getId(),
-            service.serverList.getLocator(serverId));
-    if (!verifyServerFailure(serverId))
-        return false;
-    LOG(NOTICE, "Server id %lu has crashed, notifying the cluster and "
-        "starting recovery", serverId.getId());
-
-    // If this machine has a backup and master on the same server it is best
-    // to remove the dead backup before initiating recovery. Otherwise, other
-    // servers may try to backup onto a dead machine which will cause delays.
-    CoordinatorServerList::Entry entry = service.serverList[serverId];
-    ProtoBuf::ServerList update;
-    service.serverList.crashed(serverId, update);
-    // If the server being replaced did not have a master then there
-    // will be no recovery.  That means it needs to transition to
-    // removed status now (usually recoveries remove servers from the
-    // list when they complete).
-    if (!entry.services.has(MASTER_SERVICE))
-        service.serverList.remove(serverId, update);
-    service.serverList.incrementVersion(update);
-
-    // Update cluster membership information.
-    // Backup recovery is kicked off via this update.
-    // Deciding whether to place this before or after the start of master
-    // recovery is difficult.
-    service.serverList.sendMembershipUpdate(
-            update, ServerId(/* invalid id */));
-
-    service.recoveryManager.startMasterRecovery(entry.serverId);
-
-    removeReplicationGroup(entry.replicationId);
-    createReplicationGroup();
-
-    return true;
+/**
+ * Complete a hintServerDown during coordinator recovery.
+ *
+ * \param state
+ *      The ProtoBuf that encapsulates the state of the hintServerDown
+ *      operation to be recovered.
+ * \param entryId
+ *      The entry id of the LogCabin entry corresponding to the state.
+ */
+void
+CoordinatorServerManager::hintServerDownRecover(
+    ProtoBuf::StateHintServerDown* state, EntryId entryId)
+{
+    Lock _(mutex);
+    ServerId serverId = ServerId(state->server_id());
+    HintServerDown(*this, serverId).complete(entryId);
 }
 
 /**
@@ -370,7 +426,12 @@ CoordinatorServerManager::sendServerList(ServerId serverId)
 void
 CoordinatorServerManager::SetMinOpenSegmentId::execute()
 {
-    // Logging a new record to LogCabin.
+    // TODO(ankitak): After enlistServer starts saving state to LogCabin,
+    // there will be an entry corresponding to the server information.
+    // At this point, that entry will be read from LogCabin, the information
+    // updated with this setMinOpenSegmentId, and then appended to the log.
+    // We will no longer need a state entry for SetMinOpenSegmentId.
+
     ProtoBuf::StateSetMinOpenSegmentId state;
     state.set_opcode("SetMinOpenSegmentId");
     state.set_done(true);
@@ -378,6 +439,7 @@ CoordinatorServerManager::SetMinOpenSegmentId::execute()
     state.set_segment_id(segmentId);
 
     EntryId entryId = manager.service.logCabinHelper->appendProtoBuf(state);
+    LOG(DEBUG, "LogCabin entryId: %lu", entryId);
 
     complete(entryId);
 }

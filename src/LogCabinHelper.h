@@ -38,11 +38,15 @@ class LogCabinHelper {
         : logCabinLog(logCabinLog) {}
 
     template<typename M>
-    EntryId appendProtoBuf(M& message) {
+    EntryId
+    appendProtoBuf(M& message,
+                   const vector<EntryId>& invalidates = vector<EntryId>()) {
         string data;
         message.SerializeToString(&data);
 
-        Entry stateEntry(data.c_str(), uint32_t(data.length() + 1));
+        Entry stateEntry(data.c_str(),
+                         uint32_t(data.length() + 1),
+                         invalidates);
         EntryId entryId = logCabinLog.append(stateEntry);
 
         return entryId;
