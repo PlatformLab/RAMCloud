@@ -288,8 +288,7 @@ CoordinatorServerManager::HintServerDown::execute()
          "starting recovery", serverId.getId());
 
      ProtoBuf::StateHintServerDown state;
-     state.set_opcode("HintServerDown");
-     state.set_done(false);
+     state.set_entry_type("StateHintServerDown");
      state.set_server_id(this->serverId.getId());
 
      EntryId entryId = manager.service.logCabinHelper->appendProtoBuf(state);
@@ -301,7 +300,11 @@ CoordinatorServerManager::HintServerDown::execute()
 bool
 CoordinatorServerManager::HintServerDown::complete(EntryId entryId)
 {
-     manager.service.serverList.addLogCabinEntryId(serverId, entryId);
+     // Get the entry id for the LogCabin entry corresponding to this
+     // server before the server information is removed from serverList,
+     // so that the LogCabin entry can be invalidated later.
+     EntryId serverInfoEntryId =
+         manager.service.serverList.getLogCabinEntryId(serverId);
 
      // If this machine has a backup and master on the same server it is best
      // to remove the dead backup before initiating recovery. Otherwise, other
@@ -329,19 +332,8 @@ CoordinatorServerManager::HintServerDown::complete(EntryId entryId)
      manager.removeReplicationGroup(entry.replicationId);
      manager.createReplicationGroup();
 
-     // TODO(ankitak): After enlistServer starts saving state to LogCabin,
-     // there will be an entry corresponding to the server information.
-     // At this point, that entry will be invalidated from LogCabin,
-     // along with invalidating the StateHintServerDown entry appended in the
-     // execute() function call. The following state append will not be needed.
-     ProtoBuf::StateHintServerDown state;
-     state.set_opcode("HintServerDown");
-     state.set_done(true);
-     state.set_server_id(this->serverId.getId());
-
-     entryId = manager.service.logCabinHelper->appendProtoBuf(
-                    state, vector<EntryId>(entryId));
-     LOG(DEBUG, "LogCabin entryId: %lu", entryId);
+     manager.service.logCabinLog->invalidate(
+         vector<EntryId>(serverInfoEntryId, entryId));
 
      return true;
 }

@@ -319,8 +319,7 @@ TEST_F(CoordinatorServerManagerTest, hintServerDownRecover) {
     TestLog::Enable _(startMasterRecoveryFilter);
 
     ProtoBuf::StateHintServerDown state;
-    state.set_opcode("HintServerDown");
-    state.set_done(false);
+    state.set_entry_type("StateHintServerDown");
     state.set_server_id(masterServerId.getId());
 
     EntryId entryId =
@@ -356,7 +355,7 @@ TEST_F(CoordinatorServerManagerTest, hintServerDown_execute) {
     serverManager->service.logCabinHelper->getProtoBufFromEntryId(
         entryId, readState);
 
-    EXPECT_EQ("opcode: \"HintServerDown\"\ndone: false\nserver_id: 1\n",
+    EXPECT_EQ("entry_type: \"StateHintServerDown\"\nserver_id: 1\n",
               readState.DebugString());
 }
 
