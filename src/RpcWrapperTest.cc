@@ -112,6 +112,17 @@ TEST_F(RpcWrapperTest, isReady_finished) {
     EXPECT_TRUE(wrapper.isReady());
 }
 
+TEST_F(RpcWrapperTest, isReady_shortResponseWithErrorStatus) {
+    TestLog::Enable _;
+    RpcWrapper wrapper(8);
+    wrapper.state = RpcWrapper::RpcState::FINISHED;
+    wrapper.session = session;
+    setStatus(wrapper.response, Status::STATUS_UNIMPLEMENTED_REQUEST);
+    EXPECT_TRUE(wrapper.isReady());
+    EXPECT_EQ("", TestLog::get());
+    EXPECT_STREQ("FINISHED", wrapper.stateString());
+}
+
 TEST_F(RpcWrapperTest, isReady_responseTooShort) {
     TestLog::Enable _;
     RpcWrapper wrapper(5);

@@ -78,7 +78,7 @@ enum Opcode {
     RECOVER                 = 19,
     HINT_SERVER_DOWN        = 20,
     RECOVERY_MASTER_FINISHED = 21,
-    SET_WILL                = 22,
+    ENUMERATION             = 22,
     SET_MIN_OPEN_SEGMENT_ID = 23,
     FILL_WITH_TEST_DATA     = 24,
     MULTI_READ              = 25,
@@ -108,8 +108,7 @@ enum Opcode {
     SPLIT_TABLET            = 49,
     GET_SERVER_STATISTICS   = 50,
     SET_RUNTIME_OPTION      = 51,
-    ENUMERATION             = 52,
-    ILLEGAL_RPC_TYPE        = 53,  // 1 + the highest legitimate Opcode
+    ILLEGAL_RPC_TYPE        = 52,  // 1 + the highest legitimate Opcode
 };
 
 /**
@@ -362,13 +361,13 @@ struct EnlistServer {
     } __attribute__((packed));
 };
 
-struct Enumeration {
+struct Enumerate {
     static const Opcode opcode = ENUMERATION;
     static const ServiceType service = MASTER_SERVICE;
     struct Request {
         RequestCommon common;
         uint64_t tableId;
-        uint64_t tabletStartHash;
+        uint64_t tabletFirstHash;
         uint32_t iteratorBytes;     // Size of iterator in bytes. The
                                     // actual iterator follows
                                     // immediately after this header.
@@ -846,22 +845,6 @@ struct SetServerList {
                                    // The bytes of the server list follow
                                    // immediately after this header. See
                                    // ProtoBuf::ServerList.
-    } __attribute__((packed));
-    struct Response {
-        ResponseCommon common;
-    } __attribute__((packed));
-};
-
-struct SetWill {
-    static const Opcode opcode = SET_WILL;
-    static const ServiceType service = COORDINATOR_SERVICE;
-    struct Request {
-        RequestCommon common;
-        uint64_t masterId;         // Server Id from whom the request is coming.
-        uint32_t willLength;       // Number of bytes in the will.
-                                   // The bytes of the will map follow
-                                   // immediately after this header. See
-                                   // ProtoBuf::Tablets.
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;

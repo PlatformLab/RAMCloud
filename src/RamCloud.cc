@@ -27,94 +27,7 @@ namespace RAMCloud {
 static RejectRules defaultRejectRules;
 
 /**
- * Test if any objects remain in the table.
- *
- * \result
- *      True if any objects remain, or false otherwise.
- */
-bool
-RamCloud::Enumeration::hasNext()
-{
-    requestMoreObjects();
-    return !done;
-}
-
-/**
- * Return the next object in the table.
- *
- * \param[out] size
- *      After a successful return, this field will hold the size of
- *      the object in bytes.
- * \param[out] object
- *      After a successful return, this will point to contiguous
- *      memory containing an instance of Object immediately followed
- *      by its key and data payloads.
- */
-void
-RamCloud::Enumeration::next(uint32_t* size, const void** object)
-{
-    *size = 0;
-    *object = NULL;
-
-    requestMoreObjects();
-    if (done) return;
-
-    uint32_t objectSize = *objects.getOffset<uint32_t>(nextOffset);
-    nextOffset += downCast<uint32_t>(sizeof(uint32_t));
-
-    const void* blob = objects.getRange(nextOffset, objectSize);
-    nextOffset += objectSize;
-
-    // Store result in out params.
-    *size = objectSize;
-    *object = blob;
-}
-
-/**
- * Used internally by #hasNext() and #next() to retrieve objects. Will
- * set the #done field if enumeration is complete. Otherwise the
- * #objects Buffer will contain at least one object.
- */
-void
-RamCloud::Enumeration::requestMoreObjects()
-{
-    if (done || nextOffset < objects.getTotalLength()) return;
-
-    uint64_t nextTabletStartHash;
-    objects.reset();
-    nextOffset = 0;
-
-    while (objects.getTotalLength() == 0) {
-        try {
-            MasterClient master(
-                ramCloud.objectFinder.lookup(tableId, tabletStartHash));
-            master.enumeration(tableId, tabletStartHash, &nextTabletStartHash,
-                               &iter[currentIter], &iter[!currentIter],
-                               &objects);
-        } catch (RetryException& e) {
-            continue;
-        } catch (UnknownTableException& e) {
-            // The Tablet Map pointed to some server, but it's no longer
-            // in charge of the appropriate tablet. We need to refresh.
-            ramCloud.objectFinder.flush();
-            continue;
-        }
-
-        // End of table?
-        if (objects.getTotalLength() == 0 &&
-            nextTabletStartHash <= tabletStartHash) {
-            done = true;
-            return;
-        }
-
-        currentIter = !currentIter;
-        tabletStartHash = nextTabletStartHash;
-    }
-}
-
-/**
- * Construct a RamCloud for a particular service: opens a connection with the
- * service.
+ * Construct a RamCloud for a particular cluster.
  *
  * \param serviceLocator
  *      The service locator for the coordinator.
@@ -255,6 +168,148 @@ DropTableRpc2::DropTableRpc2(RamCloud& ramcloud,
     reqHdr.nameLength = length;
     memcpy(new(&request, APPEND) char[length], name, length);
     send();
+}
+
+/**
+ * This method provides the core of table enumeration. It is invoked
+ * repeatedly to enumerate a table; each invocation returns the next
+ * set of objects (from a particular tablet stored on a particular server)
+ * and also provides information about where we are in the overall
+ * enumeration, which is used in future invocations of this method.
+ *
+ * \param tableId
+ *      The table being enumerated (return value from a previous call
+ *      to getTableId) .
+ * \param tabletFirstHash
+ *      Where to continue enumeration. The caller should provide zero
+ *       the initial call. On subsequent calls, the caller should pass
+ *       the return value from the previous call.
+ * \param[in,out] state
+ *      Holds the state of enumeration; opaque to the caller.  On the
+ *      initial call this Buffer should be empty. At the end of each
+ *      call the contents are modified to hold the current state of
+ *      the enumeration. The caller must return the new value each
+ *      time this method is invoked.
+ * \param[out] objects
+ *      After a successful return, this buffer will contain zero or
+ *      more objects from the requested tablet. If zero objects are
+ *      returned, then there are no more objects remaining in the
+ *      tablet. When this happens, the return value will be set to
+ *      point to the next tablet, or will be set to zero if this is
+ *      the end of the entire table.
+ *
+ * \return
+ *       The return value is a key hash indicating where to continue
+ *       enumeration (the starting key hash for the tablet where
+ *       enumeration should continue); it must be passed to the next call
+ *       to this method as the \a tabletFirstHash argument.  A zero
+ *       return value, combined with no objects returned in \a objects,
+ *       means that enumeration has finished.
+ */
+uint64_t
+RamCloud::enumerateTable(uint64_t tableId, uint64_t tabletFirstHash,
+        Buffer& state, Buffer& objects)
+{
+    EnumerateTableRpc2 rpc(*this, tableId, tabletFirstHash, state, objects);
+    return rpc.wait(state);
+}
+
+/**
+ * Constructor for EnumerateTableRpc2: initiates an RPC in the same way as
+ * #RamCloud::enumerateTable, but returns once the RPC has been initiated, without
+ * waiting for it to complete.
+ *
+ * \param ramcloud
+ *      The RAMCloud object that governs this RPC.
+ * \param tableId
+ *      The table being enumerated (return value from a previous call
+ *      to getTableId) .
+ * \param tabletFirstHash
+ *      Where to continue enumeration. The caller should provide zero
+*       the initial call. On subsequent calls, the caller should pass
+*       the return value from the previous call.
+ * \param state
+ *      Holds the state of enumeration; opaque to the caller.  On the
+ *      initial call this Buffer should be empty. In subsequent calls
+ *      this must contain the information returned by \c wait from
+ *      the previous call.
+ * \param[out] objects
+ *      After a successful return, this buffer will contain zero or
+ *      more objects from the requested tablet.
+ */
+EnumerateTableRpc2::EnumerateTableRpc2(RamCloud& ramcloud, uint64_t tableId,
+        uint64_t tabletFirstHash, Buffer& state, Buffer& objects)
+    : ObjectRpcWrapper(ramcloud, tableId, key, keyLength,
+            sizeof(WireFormat::Enumerate::Response), &objects)
+    , tabletFirstHash(tabletFirstHash)
+{
+    WireFormat::Enumerate::Request& reqHdr(
+            allocHeader<WireFormat::Enumerate>());
+    reqHdr.tableId = tableId;
+    reqHdr.tabletFirstHash = tabletFirstHash;
+    reqHdr.iteratorBytes = state.getTotalLength();
+    for (Buffer::Iterator it(state); !it.isDone(); it.next())
+        Buffer::Chunk::appendToBuffer(&request, it.getData(),
+                it.getLength());
+    send();
+}
+
+/**
+ * Wait for an enumerate RPC to complete, and return the same results as
+ * #RamCloud::enumerate.
+ *
+ * \param[out] state
+ *      Will be filled in with the current state of the enumeration as of
+ *      this method's return.  Must be passed back to this class as the
+ *      \a iter parameter to the constructor when retrieving the next
+ *      objects.
+ * \return
+ *       The return value is a key hash indicating where to continue
+ *       enumeration (the starting key hash for the tablet where
+ *       enumeration should continue); it must be passed to the constructor
+ *       as the \a tabletFirstHash argument when retrieving the next
+ *       objects.  In addition, zero or more objects from the enumeration
+ *       will be returned in the \a objects Buffer specified to the
+ *       constructor.  A zero return value, combined with no objects
+ *       returned in \a objects, means that all objects in the table have
+ *       been enumerated.
+ *       
+ */
+uint64_t
+EnumerateTableRpc2::wait(Buffer& state)
+{
+    simpleWait(*ramcloud.clientContext.dispatch);
+    const WireFormat::Enumerate::Response& respHdr(
+            getResponseHeader<WireFormat::Enumerate>());
+    uint64_t result = respHdr.tabletStartHash;
+
+    // Copy iterator from response into nextIter buffer.
+    uint32_t iteratorBytes = respHdr.iteratorBytes;
+    state.reset();
+    response->copy(downCast<uint32_t>(sizeof(respHdr) + respHdr.payloadBytes),
+            iteratorBytes, new(&state, APPEND) char[iteratorBytes]);
+
+    // Truncate the front and back of the response buffer, leaving just the
+    // objects (the response buffer is the \c objects argument from
+    // the constructor).
+    assert(response->getTotalLength() == sizeof(respHdr) +
+            respHdr.iteratorBytes + respHdr.payloadBytes);
+    response->truncateFront(sizeof(respHdr));
+    response->truncateEnd(respHdr.iteratorBytes);
+
+    return result;
+}
+
+/**
+ * This method overrides the default send method for ObjectRpcWrapper, because
+ * we need to find a session based on key hash, rather than key value.
+ */
+void
+EnumerateTableRpc2::send()
+{
+    session = ramcloud.objectFinder.lookup(tableId, tabletFirstHash);
+    state = IN_PROGRESS;
+    session->sendRequest(&request, response, this);
 }
 
 /**

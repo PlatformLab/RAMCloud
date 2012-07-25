@@ -40,6 +40,8 @@ class RamCloud {
   public:
     uint64_t createTable(const char* name, uint32_t serverSpan = 1);
     void dropTable(const char* name);
+    uint64_t enumerateTable(uint64_t tableId, uint64_t tabletFirstHash,
+         Buffer& state, Buffer& objects);
     ServerMetrics getMetrics(uint64_t tableId, const char* key,
             uint16_t keyLength);
     string* getServiceLocator();
@@ -72,65 +74,6 @@ class RamCloud {
     void write(uint64_t tableId, const char* key, uint16_t keyLength,
             const char* value, const RejectRules* rejectRules = NULL,
             uint64_t* version = NULL, bool async = false);
-
-    /// Objects of this class are used to enumerate the contents of a table.
-    class Enumeration {
-      public:
-        /**
-         * Start an enumeration. The resulting object can be used to
-         * incrementally retrieve the contents of the table.
-         *
-         * \param ramCloud
-         *      The RAMCloud context.
-         * \param tableId
-         *      The table to enumerate.
-         */
-        Enumeration(RamCloud& ramCloud, uint64_t tableId)
-                    : ramCloud(ramCloud)
-                    , tableId(tableId)
-                    , tabletStartHash(0)
-                    , done(false)
-                    , currentIter(0)
-                    , objects()
-                    , nextOffset(0)
-        {
-        }
-
-        bool hasNext();
-        void next(uint32_t* size, const void** object);
-      private:
-        void requestMoreObjects();
-
-        /// The RamCloud master object.
-        RamCloud& ramCloud;
-
-        /// The table containing the tablet being enumerated.
-        uint64_t tableId;
-
-        /// The start hash of the tablet being enumerated.
-        uint64_t tabletStartHash;
-
-        /// Flag to be set when the entire enumeration has completed.
-        bool done;
-
-        /// A double buffer containing the opaque iterator values to
-        /// replay back to the server. See EnumerationIterator.
-        Buffer iter[2];
-
-        /// The toggle between the two buffers in the iterator double
-        /// buffer. Points to the iterator value currently being read;
-        /// !iterator points to the iterator currently being written.
-        bool currentIter;
-
-        /// A buffer to hold the payload of object last received from
-        /// the server, and currently being read out by the client.
-        Buffer objects;
-
-        /// The next offset to read within the objects buffer.
-        uint32_t nextOffset;
-
-        DISALLOW_COPY_AND_ASSIGN(Enumeration);
-    };
 
     explicit RamCloud(const char* serviceLocator);
     RamCloud(Context& context, const char* serviceLocator);
@@ -230,13 +173,13 @@ struct MultiReadObject {
  * allowing it to execute asynchronously.
  */
 class CreateTableRpc2 : public CoordinatorRpcWrapper {
-    public:
+  public:
     CreateTableRpc2(RamCloud& ramcloud, const char* name,
             uint32_t serverSpan = 1);
     ~CreateTableRpc2() {}
     uint64_t wait();
 
-    PRIVATE:
+  PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(CreateTableRpc2);
 };
 
@@ -245,14 +188,34 @@ class CreateTableRpc2 : public CoordinatorRpcWrapper {
  * allowing it to execute asynchronously.
  */
 class DropTableRpc2 : public CoordinatorRpcWrapper {
-    public:
+  public:
     DropTableRpc2(RamCloud& ramcloud, const char* name);
     ~DropTableRpc2() {}
     /// \copydoc RpcWrapper::docForWait
     void wait() {simpleWait(*context.dispatch);}
 
-    PRIVATE:
+  PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(DropTableRpc2);
+};
+
+/**
+ * Encapsulates the state of a RamCloud::enumerateTable
+ * request, allowing it to execute asynchronously.
+ */
+class EnumerateTableRpc2 : public ObjectRpcWrapper {
+  public:
+    EnumerateTableRpc2(RamCloud& ramcloud, uint64_t tableId,
+            uint64_t tabletFirstHash, Buffer& iter, Buffer& objects);
+    ~EnumerateTableRpc2() {}
+    uint64_t wait(Buffer& nextIter);
+
+  PRIVATE:
+    virtual void send();
+
+    // Copies of the constructor parameter with the same name.
+    uint64_t tabletFirstHash;
+
+    DISALLOW_COPY_AND_ASSIGN(EnumerateTableRpc2);
 };
 
 /**
@@ -260,14 +223,14 @@ class DropTableRpc2 : public CoordinatorRpcWrapper {
  * allowing it to execute asynchronously.
  */
 class FillWithTestDataRpc2 : public ObjectRpcWrapper {
-    public:
+  public:
     FillWithTestDataRpc2(RamCloud& ramcloud, uint64_t tableId, const char* key,
             uint16_t keyLength, uint32_t numObjects, uint32_t objectSize);
     ~FillWithTestDataRpc2() {}
     /// \copydoc RpcWrapper::docForWait
     void wait() {simpleWait(*ramcloud.clientContext.dispatch);}
 
-    PRIVATE:
+  PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(FillWithTestDataRpc2);
 };
 
@@ -276,13 +239,13 @@ class FillWithTestDataRpc2 : public ObjectRpcWrapper {
  * allowing it to execute asynchronously.
  */
 class GetMetricsRpc2 : public ObjectRpcWrapper {
-    public:
+  public:
     GetMetricsRpc2(RamCloud& ramcloud, uint64_t tableId,
             const char* key, uint16_t keyLength);
     ~GetMetricsRpc2() {}
     ServerMetrics wait();
 
-    PRIVATE:
+  PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(GetMetricsRpc2);
 };
 
@@ -291,12 +254,12 @@ class GetMetricsRpc2 : public ObjectRpcWrapper {
  * allowing it to execute asynchronously.
  */
 class GetTableIdRpc2 : public CoordinatorRpcWrapper {
-    public:
+  public:
     GetTableIdRpc2(RamCloud& ramcloud, const char* name);
     ~GetTableIdRpc2() {}
     uint64_t wait();
 
-    PRIVATE:
+  PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(GetTableIdRpc2);
 };
 
@@ -305,14 +268,14 @@ class GetTableIdRpc2 : public CoordinatorRpcWrapper {
  * allowing it to execute asynchronously.
  */
 class IncrementRpc2 : public ObjectRpcWrapper {
-    public:
+  public:
     IncrementRpc2(RamCloud& ramcloud, uint64_t tableId, const char* key,
             uint16_t keyLength, int64_t incrementValue,
             const RejectRules* rejectRules = NULL);
     ~IncrementRpc2() {}
     int64_t wait(uint64_t* version = NULL);
 
-    PRIVATE:
+  PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(IncrementRpc2);
 };
 
@@ -324,14 +287,14 @@ class IncrementRpc2 : public ObjectRpcWrapper {
  * that server, and so on forever.
  */
 class KillRpc2 : public ObjectRpcWrapper {
-    public:
+  public:
     KillRpc2(RamCloud& ramcloud, uint64_t tableId, const char* key,
             uint16_t keyLength);
     ~KillRpc2() {}
     /// \copydoc RpcWrapper::docForWait
     void wait() {simpleWait(*ramcloud.clientContext.dispatch);}
 
-    PRIVATE:
+  PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(KillRpc2);
 };
 
@@ -340,13 +303,13 @@ class KillRpc2 : public ObjectRpcWrapper {
  * allowing it to execute asynchronously.
  */
 class QuiesceRpc2 : public CoordinatorRpcWrapper {
-    public:
+  public:
     explicit QuiesceRpc2(RamCloud& ramcloud);
     ~QuiesceRpc2() {}
     /// \copydoc RpcWrapper::docForWait
     void wait() {simpleWait(*context.dispatch);}
 
-    PRIVATE:
+  PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(QuiesceRpc2);
 };
 
@@ -355,14 +318,14 @@ class QuiesceRpc2 : public CoordinatorRpcWrapper {
  * allowing it to execute asynchronously.
  */
 class ReadRpc2 : public ObjectRpcWrapper {
-    public:
+  public:
     ReadRpc2(RamCloud& ramcloud, uint64_t tableId, const char* key,
             uint16_t keyLength, Buffer* value,
             const RejectRules* rejectRules = NULL);
     ~ReadRpc2() {}
     void wait(uint64_t* version = NULL);
 
-    PRIVATE:
+  PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(ReadRpc2);
 };
 
@@ -371,13 +334,13 @@ class ReadRpc2 : public ObjectRpcWrapper {
  * allowing it to execute asynchronously.
  */
 class RemoveRpc2 : public ObjectRpcWrapper {
-    public:
+  public:
     RemoveRpc2(RamCloud& ramcloud, uint64_t tableId, const char* key,
             uint16_t keyLength, const RejectRules* rejectRules = NULL);
     ~RemoveRpc2() {}
     void wait(uint64_t* version = NULL);
 
-    PRIVATE:
+  PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(RemoveRpc2);
 };
 
@@ -386,14 +349,14 @@ class RemoveRpc2 : public ObjectRpcWrapper {
  * allowing it to execute asynchronously.
  */
 class SetRuntimeOptionRpc2 : public CoordinatorRpcWrapper {
-    public:
+  public:
     SetRuntimeOptionRpc2(RamCloud& ramcloud, const char* option,
             const char* value);
     ~SetRuntimeOptionRpc2() {}
     /// \copydoc RpcWrapper::docForWait
     void wait() {simpleWait(*context.dispatch);}
 
-    PRIVATE:
+  PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(SetRuntimeOptionRpc2);
 };
 
@@ -402,7 +365,7 @@ class SetRuntimeOptionRpc2 : public CoordinatorRpcWrapper {
  * allowing it to execute asynchronously.
  */
 class SplitTabletRpc2 : public CoordinatorRpcWrapper {
-    public:
+  public:
     SplitTabletRpc2(RamCloud& ramcloud, const char* name,
             uint64_t startKeyHash, uint64_t endKeyHash,
             uint64_t splitKeyHash);
@@ -410,7 +373,7 @@ class SplitTabletRpc2 : public CoordinatorRpcWrapper {
     /// \copydoc RpcWrapper::docForWait
     void wait() {simpleWait(*context.dispatch);}
 
-    PRIVATE:
+  PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(SplitTabletRpc2);
 };
 
@@ -419,14 +382,14 @@ class SplitTabletRpc2 : public CoordinatorRpcWrapper {
  * allowing it to execute asynchronously.
  */
 class WriteRpc2 : public ObjectRpcWrapper {
-    public:
+  public:
     WriteRpc2(RamCloud& ramcloud, uint64_t tableId, const char* key,
             uint16_t keyLength, const void* buf, uint32_t length,
             const RejectRules* rejectRules = NULL, bool async = false);
     ~WriteRpc2() {}
     void wait(uint64_t* version = NULL);
 
-    PRIVATE:
+  PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(WriteRpc2);
 };
 } // namespace RAMCloud

@@ -222,6 +222,7 @@ Enumeration::complete()
     uint64_t bucketIndex = iter.top().bucketIndex;
     uint64_t numBuckets = objectMap.getNumBuckets();
     uint32_t bucketStart;
+    uint32_t initialPayloadLength = payload.getTotalLength();
     bool payloadFull = false;
     std::vector<LogEntryHandle> objects;
     EnumerateBucketArgs args;
@@ -266,7 +267,8 @@ Enumeration::complete()
 
     // Check end of tablet.
     *nextTabletStartHash = requestedTabletStartHash;
-    if (bucketIndex >= numBuckets && payload.getTotalLength() == 0) {
+    if (bucketIndex >= numBuckets &&
+            payload.getTotalLength() == initialPayloadLength) {
         while (iter.size() > 0 &&
                iter.top().tabletEndHash <= actualTabletEndHash) {
             iter.pop();

@@ -280,16 +280,13 @@ MasterService::enumeration(const EnumerationRpc::Request& reqHdr,
                                - reqHdr.iteratorBytes);
     Enumeration enumeration(reqHdr.tableId, reqHdr.tabletStartHash,
                             actualTabletStartHash, actualTabletEndHash,
-                            &respHdr.tabletStartHash, iter, objectMap, payload,
-                            maxPayloadBytes);
+                            &respHdr.tabletStartHash, iter, objectMap,
+                            rpc.replyPayload, maxPayloadBytes);
     enumeration.complete();
+    respHdr.payloadBytes = rpc.replyPayload.getTotalLength()
+            - downCast<uint32_t>(sizeof(respHdr));
 
-    // Fill response from payload buffer and iterator.
-    for (Buffer::Iterator it(payload); !it.isDone(); it.next())
-        Buffer::Chunk::appendToBuffer(&rpc.replyPayload,
-                                      it.getData(), it.getLength());
-    respHdr.payloadBytes = payload.getTotalLength();
-
+    // Add new iterator to the end of the response.
     uint32_t iteratorBytes = iter.serialize(rpc.replyPayload);
     respHdr.iteratorBytes = iteratorBytes;
 }

@@ -18,6 +18,7 @@
 #include "RawMetrics.h"
 #include "ServerMetrics.h"
 #include "RamCloud.h"
+#include "TableEnumerator.h"
 
 namespace RAMCloud {
 
@@ -86,6 +87,90 @@ TEST_F(RamCloudTest, dropTable) {
         message = e.toSymbol();
     }
     EXPECT_EQ("STATUS_TABLE_DOESNT_EXIST", message);
+}
+
+TEST_F(RamCloudTest, enumeration_basics) {
+    uint64_t version0, version1, version2, version3, version4;
+    ramcloud->write(tableId3, "0", 1, "abcdef", 6, NULL, &version0);
+    ramcloud->write(tableId3, "1", 1, "ghijkl", 6, NULL, &version1);
+    ramcloud->write(tableId3, "2", 1, "mnopqr", 6, NULL, &version2);
+    ramcloud->write(tableId3, "3", 1, "stuvwx", 6, NULL, &version3);
+    ramcloud->write(tableId3, "4", 1, "yzabcd", 6, NULL, &version4);
+    // Write some objects into other tables to make sure they are not returned.
+    ramcloud->write(tableId1, "5", 1, "efghij", 6);
+    ramcloud->write(tableId2, "6", 1, "klmnop", 6);
+
+    TableEnumerator iter(*ramcloud, tableId3);
+    uint32_t size = 0;
+    const void* buffer = 0;
+
+    EXPECT_TRUE(iter.hasNext());
+    iter.next(&size, &buffer);
+    const Object* object = static_cast<const Object*>(buffer);
+
+    // First object.
+    EXPECT_EQ(29U, size);                                   // size
+    EXPECT_EQ(tableId3, object->tableId);                   // table ID
+    EXPECT_EQ(1U, object->keyLength);                       // key length
+    EXPECT_EQ(version0, object->version);                   // version
+    EXPECT_EQ('0', object->keyAndData[0]);                  // key
+    EXPECT_EQ("abcdef", string(&object->keyAndData[1], 6)); // value
+
+    EXPECT_TRUE(iter.hasNext());
+    iter.next(&size, &buffer);
+    object = static_cast<const Object*>(buffer);
+
+    // Second object.
+    EXPECT_EQ(29U, size);                                   // size
+    EXPECT_EQ(tableId3, object->tableId);                   // table ID
+    EXPECT_EQ(1U, object->keyLength);                       // key length
+    EXPECT_EQ(version1, object->version);                   // version
+    EXPECT_EQ('1', object->keyAndData[0]);                  // key
+    EXPECT_EQ("ghijkl", string(&object->keyAndData[1], 6)); // value
+
+    EXPECT_TRUE(iter.hasNext());
+    iter.next(&size, &buffer);
+    object = static_cast<const Object*>(buffer);
+
+    // Third object.
+    EXPECT_EQ(29U, size);                                   // size
+    EXPECT_EQ(tableId3, object->tableId);                   // table ID
+    EXPECT_EQ(1U, object->keyLength);                       // key length
+    EXPECT_EQ(version2, object->version);                   // version
+    EXPECT_EQ('2', object->keyAndData[0]);                  // key
+    EXPECT_EQ("mnopqr", string(&object->keyAndData[1], 6)); // value
+
+    EXPECT_TRUE(iter.hasNext());
+    iter.next(&size, &buffer);
+    object = static_cast<const Object*>(buffer);
+
+    // Fourth object.
+    EXPECT_EQ(29U, size);                                   // size
+    EXPECT_EQ(tableId3, object->tableId);                   // table ID
+    EXPECT_EQ(1U, object->keyLength);                       // key length
+    EXPECT_EQ(version4, object->version);                   // version
+    EXPECT_EQ('4', object->keyAndData[0]);                  // key
+    EXPECT_EQ("yzabcd", string(&object->keyAndData[1], 6)); // value
+
+
+    EXPECT_TRUE(iter.hasNext());
+    iter.next(&size, &buffer);
+    object = static_cast<const Object*>(buffer);
+
+    // Fifth object.
+    EXPECT_EQ(29U, size);                                   // size
+    EXPECT_EQ(tableId3, object->tableId);                   // table ID
+    EXPECT_EQ(1U, object->keyLength);                       // key length
+    EXPECT_EQ(version3, object->version);                   // version
+    EXPECT_EQ('3', object->keyAndData[0]);                  // key
+    EXPECT_EQ("stuvwx", string(&object->keyAndData[1], 6)); // value
+
+    EXPECT_FALSE(iter.hasNext());
+}
+
+TEST_F(RamCloudTest, enumeration_badTable) {
+    TableEnumerator iter(*ramcloud, -1);
+    EXPECT_THROW(iter.hasNext(), TableDoesntExistException);
 }
 
 TEST_F(RamCloudTest, getTableId) {
@@ -226,90 +311,6 @@ TEST_F(RamCloudTest, write) {
 //-------------------------------------------------------
 // OLD: everything below here should eventually go away.
 //-------------------------------------------------------
-
-TEST_F(RamCloudTest, enumeration_basics) {
-    uint64_t version0, version1, version2, version3, version4;
-    ramcloud->write(tableId3, "0", 1, "abcdef", 6, NULL, &version0);
-    ramcloud->write(tableId3, "1", 1, "ghijkl", 6, NULL, &version1);
-    ramcloud->write(tableId3, "2", 1, "mnopqr", 6, NULL, &version2);
-    ramcloud->write(tableId3, "3", 1, "stuvwx", 6, NULL, &version3);
-    ramcloud->write(tableId3, "4", 1, "yzabcd", 6, NULL, &version4);
-    // Write some objects into other tables to make sure they are not returned.
-    ramcloud->write(tableId1, "5", 1, "efghij", 6);
-    ramcloud->write(tableId2, "6", 1, "klmnop", 6);
-
-    RamCloud::Enumeration iter(*ramcloud, tableId3);
-    uint32_t size = 0;
-    const void* buffer = 0;
-
-    EXPECT_TRUE(iter.hasNext());
-    iter.next(&size, &buffer);
-    const Object* object = static_cast<const Object*>(buffer);
-
-    // First object.
-    EXPECT_EQ(29U, size);                                   // size
-    EXPECT_EQ(tableId3, object->tableId);                   // table ID
-    EXPECT_EQ(1U, object->keyLength);                       // key length
-    EXPECT_EQ(version0, object->version);                   // version
-    EXPECT_EQ('0', object->keyAndData[0]);                  // key
-    EXPECT_EQ("abcdef", string(&object->keyAndData[1], 6)); // value
-
-    EXPECT_TRUE(iter.hasNext());
-    iter.next(&size, &buffer);
-    object = static_cast<const Object*>(buffer);
-
-    // Second object.
-    EXPECT_EQ(29U, size);                                   // size
-    EXPECT_EQ(tableId3, object->tableId);                   // table ID
-    EXPECT_EQ(1U, object->keyLength);                       // key length
-    EXPECT_EQ(version1, object->version);                   // version
-    EXPECT_EQ('1', object->keyAndData[0]);                  // key
-    EXPECT_EQ("ghijkl", string(&object->keyAndData[1], 6)); // value
-
-    EXPECT_TRUE(iter.hasNext());
-    iter.next(&size, &buffer);
-    object = static_cast<const Object*>(buffer);
-
-    // Third object.
-    EXPECT_EQ(29U, size);                                   // size
-    EXPECT_EQ(tableId3, object->tableId);                   // table ID
-    EXPECT_EQ(1U, object->keyLength);                       // key length
-    EXPECT_EQ(version2, object->version);                   // version
-    EXPECT_EQ('2', object->keyAndData[0]);                  // key
-    EXPECT_EQ("mnopqr", string(&object->keyAndData[1], 6)); // value
-
-    EXPECT_TRUE(iter.hasNext());
-    iter.next(&size, &buffer);
-    object = static_cast<const Object*>(buffer);
-
-    // Fourth object.
-    EXPECT_EQ(29U, size);                                   // size
-    EXPECT_EQ(tableId3, object->tableId);                   // table ID
-    EXPECT_EQ(1U, object->keyLength);                       // key length
-    EXPECT_EQ(version4, object->version);                   // version
-    EXPECT_EQ('4', object->keyAndData[0]);                  // key
-    EXPECT_EQ("yzabcd", string(&object->keyAndData[1], 6)); // value
-
-
-    EXPECT_TRUE(iter.hasNext());
-    iter.next(&size, &buffer);
-    object = static_cast<const Object*>(buffer);
-
-    // Fifth object.
-    EXPECT_EQ(29U, size);                                   // size
-    EXPECT_EQ(tableId3, object->tableId);                   // table ID
-    EXPECT_EQ(1U, object->keyLength);                       // key length
-    EXPECT_EQ(version3, object->version);                   // version
-    EXPECT_EQ('3', object->keyAndData[0]);                  // key
-    EXPECT_EQ("stuvwx", string(&object->keyAndData[1], 6)); // value
-
-    EXPECT_FALSE(iter.hasNext());
-}
-
-TEST_F(RamCloudTest, enumeration_badTable) {
-    RamCloud::Enumeration iter(*ramcloud, -1);
-    EXPECT_THROW(iter.hasNext(), TableDoesntExistException);
-}
 
 TEST_F(RamCloudTest, getMetrics) {
     metrics->temp.count3 = 10101;

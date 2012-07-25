@@ -86,6 +86,7 @@ TESTS_SRCFILES := \
 		  src/SpinLockTest.cc \
 		  src/StatusTest.cc \
 		  src/StringUtilTest.cc \
+		  src/TableEnumeratorTest.cc \
 		  src/TabletMapTest.cc \
 		  src/TaskQueueTest.cc \
 		  src/TcpTransportTest.cc \

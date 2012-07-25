@@ -168,13 +168,20 @@ RpcWrapper::isReady() {
         // We only get to here if something unusual happened. Work through
         // all of the special cases one at a time.
         if (responseHeader == NULL) {
-            LOG(WARNING, "Response from %s for %s RPC is too short "
-                    "(needed at least %d bytes, got %d)",
-                    session->getServiceLocator().c_str(),
-                    Rpc::opcodeSymbol(request), responseHeaderLength,
-                    downCast<int>(response->getTotalLength()));
-            retry(1000000);
-            return false;
+            // Not enough bytes in the response for a full; check to see
+            // if there is at least a status value.
+            responseHeader = static_cast<const WireFormat::ResponseCommon*>(
+                    response->getRange(0, sizeof(WireFormat::ResponseCommon)));
+            if ((responseHeader == NULL)
+                    || (responseHeader->status == STATUS_OK)) {
+                LOG(WARNING, "Response from %s for %s RPC is too short "
+                        "(needed at least %d bytes, got %d)",
+                        session->getServiceLocator().c_str(),
+                        Rpc::opcodeSymbol(request), responseHeaderLength,
+                        downCast<int>(response->getTotalLength()));
+                retry(1000000);
+                return false;
+            }
         }
         if (responseHeader->status == STATUS_RETRY) {
             LOG(NOTICE, "Server %s returned STATUS_RETRY from %s request",

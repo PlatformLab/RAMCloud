@@ -89,6 +89,7 @@ SHARED_SRCFILES := \
 		   src/SpinLock.cc \
 		   src/Status.cc \
 		   src/StringUtil.cc \
+		   src/TableEnumerator.cc \
 		   src/TaskQueue.cc \
 		   src/TcpTransport.cc \
 		   src/TestLog.cc \
