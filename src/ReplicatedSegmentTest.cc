@@ -633,8 +633,9 @@ TEST_F(ReplicatedSegmentTest, performFreeWriteRpcInProgress) {
 
 TEST_F(ReplicatedSegmentTest, performWriteCannotGetSession) {
     context.transportManager->skipServerIdCheck = false;
-    transport.setInput("0 0 0"); // fail server id check
+    transport.setInput("0 0 0");  // succeed server id check
     transport.setInput("0 10 0"); // fail server id check
+    transport.setInput("0 99 0"); // fail server id check
 
     segment->write(openLen);
     taskQueue.performTask(); // fail to send writes

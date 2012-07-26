@@ -35,7 +35,6 @@ class MembershipServiceTest : public ::testing::Test {
     MembershipService service;
     BindTransport transport;
     TransportManager::MockRegistrar mockRegistrar;
-    MembershipClient client;
 
     MembershipServiceTest()
         : context()
@@ -44,7 +43,6 @@ class MembershipServiceTest : public ::testing::Test {
         , service(serverId, serverList)
         , transport(context)
         , mockRegistrar(context, transport)
-        , client(context)
     {
         transport.addService(service, "mock:host=member", MEMBERSHIP_SERVICE);
         context.serverList = &serverList;
@@ -56,7 +54,7 @@ class MembershipServiceTest : public ::testing::Test {
 
 TEST_F(MembershipServiceTest, getServerId) {
     serverId = ServerId(523, 234);
-    EXPECT_EQ(ServerId(523, 234), client.getServerId(
+    EXPECT_EQ(ServerId(523, 234), MembershipClient::getServerId(context,
         context.transportManager->getSession("mock:host=member")));
 }
 

@@ -288,7 +288,7 @@ TransportManager::getSession(const char* serviceLocator, ServerId needServerId)
     if (skipServerIdCheck)
         return session;
     try {
-        actualId = MembershipClient(context).getServerId(session);
+        actualId = MembershipClient::getServerId(context, session);
     } catch (TransportException& e) {
         LOG(DEBUG, "Failed to obtain ServerId from \"%s\": %s",
             serviceLocator, e.what());

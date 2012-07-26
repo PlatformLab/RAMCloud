@@ -173,6 +173,18 @@ TEST_F(RamCloudTest, enumeration_badTable) {
     EXPECT_THROW(iter.hasNext(), TableDoesntExistException);
 }
 
+TEST_F(RamCloudTest, getMetrics_byObject) {
+    metrics->temp.count3 = 20202;
+    ServerMetrics metrics = ramcloud->getMetrics(tableId1, "0", 1);
+    EXPECT_EQ(20202U, metrics["temp.count3"]);
+}
+
+TEST_F(RamCloudTest, getMetrics_byLocator) {
+    metrics->temp.count3 = 10101;
+    ServerMetrics metrics = ramcloud->getMetrics("mock:host=master1");
+    EXPECT_EQ(10101U, metrics["temp.count3"]);
+}
+
 TEST_F(RamCloudTest, getTableId) {
     string message("no exception");
     try {
@@ -306,22 +318,6 @@ TEST_F(RamCloudTest, write) {
     ramcloud->write(tableId1, "0", 1, "new value");
     ramcloud->read(tableId1, "0", 1, &value);
     EXPECT_EQ("new value", TestUtil::toString(&value));
-}
-
-//-------------------------------------------------------
-// OLD: everything below here should eventually go away.
-//-------------------------------------------------------
-
-TEST_F(RamCloudTest, getMetrics) {
-    metrics->temp.count3 = 10101;
-    ServerMetrics metrics = ramcloud->getMetrics("mock:host=master1");
-    EXPECT_EQ(10101U, metrics["temp.count3"]);
-}
-
-TEST_F(RamCloudTest, getMetrics_byTableId) {
-    metrics->temp.count3 = 20202;
-    ServerMetrics metrics = ramcloud->getMetrics(tableId1, "0", 1);
-    EXPECT_EQ(20202U, metrics["temp.count3"]);
 }
 
 }  // namespace RAMCloud

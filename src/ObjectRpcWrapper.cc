@@ -48,8 +48,36 @@ ObjectRpcWrapper::ObjectRpcWrapper(RamCloud& ramcloud, uint64_t tableId,
     : RpcWrapper(responseHeaderLength, response)
     , ramcloud(ramcloud)
     , tableId(tableId)
-    , key(key)
-    , keyLength(keyLength)
+    , keyHash(getKeyHash(key, keyLength))
+{
+}
+
+/**
+ * Alternate constructor for ObjectRpcWrapper objects, in which the desired
+ * server is specified with a key hash, rather than a key value.
+ * \param ramcloud
+ *      The RAMCloud object that governs this RPC.
+ * \param tableId
+ *      The table containing the desired object.
+ * \param keyHash
+ *      Key hash that identifies a particular tablet (and, hence, the
+ *      server storing that tablet).
+ * \param responseHeaderLength
+ *      The size of header expected in the response for this RPC;
+ *      incoming responses will be checked here to ensure that they
+ *      contain at least this much data, and a pointer to the header
+ *      will be stored in the responseHeader for the use of wrapper
+ *      subclasses.
+ * \param response
+ *      Optional client-supplied buffer to use for the RPC's response;
+ *      if NULL then we use a built-in buffer.
+ */
+ObjectRpcWrapper::ObjectRpcWrapper(RamCloud& ramcloud, uint64_t tableId,
+        uint64_t keyHash, uint32_t responseHeaderLength, Buffer* response)
+    : RpcWrapper(responseHeaderLength, response)
+    , ramcloud(ramcloud)
+    , tableId(tableId)
+    , keyHash(keyHash)
 {
 }
 
@@ -60,10 +88,10 @@ ObjectRpcWrapper::checkStatus()
     if (responseHeader->status == STATUS_UNKNOWN_TABLE) {
         // The object isn't where we thought it should be. Refresh our
         // configuration cache and try again.
-        LOG(NOTICE, "Server %s doesn't store <%lu, %*s>; "
+        LOG(NOTICE, "Server %s doesn't store <%lu, 0x%lx>; "
                 "refreshing object map",
                 session->getServiceLocator().c_str(),
-                tableId, (keyLength > 100) ? 100 : keyLength, key);
+                tableId, keyHash);
         ramcloud.objectFinder.flush();
         send();
         return false;
@@ -92,7 +120,7 @@ ObjectRpcWrapper::handleTransportError()
 void
 ObjectRpcWrapper::send()
 {
-    session = ramcloud.objectFinder.lookup(tableId, key, keyLength);
+    session = ramcloud.objectFinder.lookup(tableId, keyHash);
     state = IN_PROGRESS;
     session->sendRequest(&request, response, this);
 }

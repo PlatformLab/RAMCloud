@@ -13,6 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "CycleCounter.h"
 #include "ReplicatedSegment.h"
 #include "ShortMacros.h"
 
@@ -569,9 +570,10 @@ ReplicatedSegment::performWrite(Replica& replica)
                 return;
             }
 
-            BackupWriteRpc::Flags flags = BackupWriteRpc::OPEN;
+            WireFormat::BackupWrite::Flags flags =
+                WireFormat::BackupWrite::OPEN;
             if (replicaIsPrimary(replica))
-                flags = BackupWriteRpc::OPENPRIMARY;
+                flags = WireFormat::BackupWrite::OPENPRIMARY;
 
             TEST_LOG("Sending open to backup %lu", replica.backupId.getId());
             try {
@@ -612,18 +614,18 @@ ReplicatedSegment::performWrite(Replica& replica)
 
             uint32_t offset = replica.sent.bytes;
             uint32_t length = queued.bytes - replica.sent.bytes;
-            BackupWriteRpc::Flags flags = queued.close ?
-                                            BackupWriteRpc::CLOSE :
-                                            BackupWriteRpc::NONE;
+            WireFormat::BackupWrite::Flags flags = queued.close ?
+                                            WireFormat::BackupWrite::CLOSE :
+                                            WireFormat::BackupWrite::NONE;
 
             // Breaks atomicity of log entries, but it could happen anyway
             // if a segment gets partially written to disk.
             if (length > maxBytesPerWriteRpc) {
                 length = maxBytesPerWriteRpc;
-                flags = BackupWriteRpc::NONE;
+                flags = WireFormat::BackupWrite::NONE;
             }
 
-            if (flags == BackupWriteRpc::CLOSE &&
+            if (flags == WireFormat::BackupWrite::CLOSE &&
                 followingSegment &&
                 !followingSegment->getAcked().open) {
                 TEST_LOG("Cannot close segment %lu until following segment "
@@ -654,7 +656,7 @@ ReplicatedSegment::performWrite(Replica& replica)
                                            replica.replicateAtomically);
                 ++writeRpcsInFlight;
                 replica.sent.bytes += length;
-                replica.sent.close = (flags == BackupWriteRpc::CLOSE);
+                replica.sent.close = (flags == WireFormat::BackupWrite::CLOSE);
             } catch (const TransportException& e) {
                 // Ignore the exception and retry; we'll be interrupted by
                 // changes to the server list if the backup is down.

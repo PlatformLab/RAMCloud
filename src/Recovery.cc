@@ -15,6 +15,7 @@
 
 #include <unordered_set>
 
+#include "Client.h"
 #include "Recovery.h"
 #include "BackupClient.h"
 #include "Buffer.h"

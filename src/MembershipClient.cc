@@ -27,6 +27,74 @@
 namespace RAMCloud {
 
 /**
+ * Given a Session, obtain the ServerId for the server behind that session.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param session
+ *      Connection to a RAMCloud server.
+ *
+ * \return
+ *       The RAMCloud identifier for the server  associated with #session.
+ *
+ * \throw TransportException
+ *       Thrown if an unrecoverable error occurred while communicating with
+ *       the target server.
+ */
+ServerId
+MembershipClient::getServerId(Context& context, Transport::SessionRef session)
+{
+    GetServerIdRpc2 rpc(context, session);
+    return rpc.wait();
+}
+
+/**
+ * Constructor for GetServerIdRpc2: initiates an RPC in the same way as
+ * #MembershipClient::getServerId, but returns once the RPC has been initiated,
+ * without waiting for it to complete.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param session
+ *      Connection to a RAMCloud server.
+ */
+GetServerIdRpc2::GetServerIdRpc2(Context& context,
+        Transport::SessionRef session)
+    : RpcWrapper(sizeof(WireFormat::GetServerId::Response))
+    , context(context)
+{
+    this->session = session;
+    allocHeader<WireFormat::GetServerId>();
+    send();
+}
+
+/**
+ * Wait for a getServerId RPC to complete, and return the same
+ * results as #MembershipClient::getServerId.
+ *
+ * \return
+ *       The RAMCloud identifier for the server associated with the
+ *       session specified in the constructor.
+ *
+ * \throw TransportException
+ *       Thrown if an unrecoverable error occurred while communicating with
+ *       the target server.
+ */
+ServerId
+GetServerIdRpc2::wait()
+{
+    waitInternal(*context.dispatch);
+    if (getState() != RpcState::FINISHED) {
+        throw TransportException(HERE);
+    }
+    const WireFormat::GetServerId::Response& respHdr(
+            getResponseHeader<WireFormat::GetServerId>());
+    if (respHdr.common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr.common.status);
+    return ServerId(respHdr.serverId);
+}
+
+/**
  * Instruct the cluster membership service for the specified server to replace
  * its idea of cluster membership with the complete list given.
  *
@@ -51,7 +119,7 @@ MembershipClient::setServerList(Context& context, ServerId serverId,
 
 /**
  * Constructor for SetServerListRpc2: initiates an RPC in the same way as
- * #PingClient::setServerList, but returns once the RPC has been initiated,
+ * #MembershipClient::setServerList, but returns once the RPC has been initiated,
  * without waiting for it to complete.
  *
  * \param context
@@ -102,7 +170,7 @@ MembershipClient::updateServerList(Context& context, ServerId serverId,
 
 /**
  * Constructor for UpdateServerListRpc2: initiates an RPC in the same way as
- * #PingClient::updateServerList, but returns once the RPC has been initiated,
+ * #MembershipClient::updateServerList, but returns once the RPC has been initiated,
  * without waiting for it to complete.
  *
  * \param context
@@ -144,22 +212,6 @@ UpdateServerListRpc2::wait()
     const WireFormat::UpdateServerList::Response& respHdr(
             getResponseHeader<WireFormat::UpdateServerList>());
     return respHdr.lostUpdates == 0;
-}
-
-/**
- * Obtain the ServerId associated with the server connected to by the given
- * Session.
- */ 
-ServerId
-MembershipClient::getServerId(Transport::SessionRef session)
-{
-    // Fill in the request.
-    Buffer req, resp;
-    allocHeader<GetServerIdRpc>(req);
-    const GetServerIdRpc::Response& respHdr(
-        sendRecv<GetServerIdRpc>(session, req, resp));
-    checkStatus(HERE);
-    return ServerId(respHdr.serverId);
 }
 
 }  // namespace RAMCloud

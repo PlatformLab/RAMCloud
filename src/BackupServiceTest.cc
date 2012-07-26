@@ -76,7 +76,7 @@ class BackupServiceTest : public ::testing::Test {
     closeSegment(ServerId masterId, uint64_t segmentId) {
         BackupClient::writeSegment(context, backupId, masterId, segmentId,
                                    0, static_cast<const void*>(NULL), 0,
-                                   BackupWriteRpc::CLOSE, false);
+                                   WireFormat::BackupWrite::CLOSE, false);
     }
 
     vector<ServerId>
@@ -84,11 +84,9 @@ class BackupServiceTest : public ::testing::Test {
                 bool atomic = false)
     {
         return BackupClient::writeSegment(context, backupId, masterId,
-                                          segmentId, 0,
-                                          static_cast<const void*>(NULL), 0,
-                                          primary
-                                          ? BackupWriteRpc::OPENPRIMARY
-                                          : BackupWriteRpc::OPEN, atomic);
+            segmentId, 0, static_cast<const void*>(NULL), 0,
+            primary ? WireFormat::BackupWrite::OPENPRIMARY
+            : WireFormat::BackupWrite::OPEN, atomic);
     }
 
     uint32_t
@@ -236,7 +234,7 @@ class BackupServiceTest : public ::testing::Test {
                                  seh->totalLength();
         BackupClient::writeSegment(context, backupId, masterId, segmentId,
                                    0, s.getBaseAddress(), segmentLength,
-                                   BackupWriteRpc::NONE, atomic);
+                                   WireFormat::BackupWrite::NONE, atomic);
 
         free(segBuf);
     }
@@ -1040,7 +1038,8 @@ TEST_F(BackupServiceTest, writeSegment_segmentClosedRedundantClosingWrite) {
     openSegment(ServerId(99, 0), 88);
     closeSegment(ServerId(99, 0), 88);
     BackupClient::writeSegment(context, backupId, ServerId(99, 0),
-                               88, 0, "test", 4, BackupWriteRpc::CLOSE);
+                               88, 0, "test", 4,
+                               WireFormat::BackupWrite::CLOSE);
     EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
 }
 
@@ -1148,12 +1147,12 @@ TEST_F(BackupServiceTest, writeSegment_atomic) {
     EXPECT_TRUE(info.satisfiesAtomicReplicationGuarantees());
     BackupClient::writeSegment(context, backupId, ServerId(99, 0),
                                88, 10, "test", 5,
-                               BackupWriteRpc::NONE, true);
+                               WireFormat::BackupWrite::NONE, true);
     EXPECT_TRUE(info.replicateAtomically);
     EXPECT_FALSE(info.satisfiesAtomicReplicationGuarantees());
     BackupClient::writeSegment(context, backupId, ServerId(99, 0),
                                88, 15, "test", 5,
-                               BackupWriteRpc::CLOSE, true);
+                               WireFormat::BackupWrite::CLOSE, true);
     EXPECT_TRUE(info.replicateAtomically);
     EXPECT_TRUE(info.satisfiesAtomicReplicationGuarantees());
     EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
@@ -1162,7 +1161,7 @@ TEST_F(BackupServiceTest, writeSegment_atomic) {
 TEST_F(BackupServiceTest, writeSegment_disallowOnReplicasFromStorage) {
     openSegment({99, 0}, 88);
     BackupClient::writeSegment(context, backupId, {99, 0}, 88, 10, "test", 5,
-                               BackupWriteRpc::NONE);
+                               WireFormat::BackupWrite::NONE);
     BackupService::SegmentInfo &info = *backup->findSegmentInfo({99, 0}, 88);
 
     openSegment({99, 0}, 88);
@@ -1171,7 +1170,8 @@ TEST_F(BackupServiceTest, writeSegment_disallowOnReplicasFromStorage) {
     EXPECT_THROW(openSegment({99, 0}, 88),
                  BackupOpenRejectedException);
     EXPECT_THROW(BackupClient::writeSegment(context, backupId, {99, 0}, 88, 10,
-                                            "test", 5, BackupWriteRpc::NONE),
+                                            "test", 5,
+                                            WireFormat::BackupWrite::NONE),
                  BackupBadSegmentIdException);
 }
 
@@ -1262,10 +1262,10 @@ TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask) {
     context.serverList->add({13, 0}, "mock:host=m", {}, 100);
 
     BackupClient::writeSegment(context, backupId, {13, 0}, 10, 0, NULL, 0,
-                               BackupWriteRpc::OPENCLOSE);
+                               WireFormat::BackupWrite::OPENCLOSE);
     backup->findSegmentInfo({13, 0}, 10)->createdByCurrentProcess = false;
     BackupClient::writeSegment(context, backupId, {13, 0}, 11, 0, NULL, 0,
-                               BackupWriteRpc::OPENCLOSE);
+                               WireFormat::BackupWrite::OPENCLOSE);
     backup->findSegmentInfo({13, 0}, 11)->createdByCurrentProcess = false;
 
     typedef BackupService::GarbageCollectReplicaFoundOnStorageTask Task;

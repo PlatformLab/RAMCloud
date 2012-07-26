@@ -479,8 +479,8 @@ StartReadingDataRpc2::Result::operator=(Result&& other)
 vector<ServerId>
 BackupClient::writeSegment(Context& context, ServerId backupId,
         ServerId masterId, uint64_t segmentId, uint32_t offset,
-        const void* buf, uint32_t length, BackupWriteRpc::Flags flags,
-        bool atomic)
+        const void* buf, uint32_t length,
+        WireFormat::BackupWrite::Flags flags, bool atomic)
 {
     WriteSegmentRpc2 rpc(context, backupId, masterId, segmentId, offset,
         buf, length, flags, atomic);
@@ -525,8 +525,8 @@ BackupClient::writeSegment(Context& context, ServerId backupId,
  */
 WriteSegmentRpc2::WriteSegmentRpc2(Context& context, ServerId backupId,
         ServerId masterId, uint64_t segmentId, uint32_t offset,
-        const void* buf, uint32_t length, BackupWriteRpc::Flags flags,
-        bool atomic)
+        const void* buf, uint32_t length,
+        WireFormat::BackupWrite::Flags flags, bool atomic)
     : ServerIdRpcWrapper(context, backupId,
             sizeof(WireFormat::BackupWrite::Response))
 {

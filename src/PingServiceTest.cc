@@ -34,7 +34,6 @@ class PingServiceTest : public ::testing::Test {
     TransportManager::MockRegistrar mockRegistrar;
     ServerList serverList;
     PingService pingService;
-    PingClient client;
     ServerId serverId;
 
     PingServiceTest()
@@ -43,7 +42,6 @@ class PingServiceTest : public ::testing::Test {
         , mockRegistrar(context, transport)
         , serverList(context)
         , pingService(context, &serverList)
-        , client(context)
         , serverId(1, 3)
     {
         transport.addService(pingService, "mock:host=ping", PING_SERVICE);
@@ -137,14 +135,6 @@ TEST_F(PingServiceTest, proxyPing_timeout) {
     EXPECT_GE(elapsedMicros, 1000.0);
     EXPECT_LE(elapsedMicros, 2000.0);
     context.transportManager->unregisterMock();
-}
-
-TEST_F(PingServiceTest, getMetrics) {
-    metrics->master.replicas = 99;
-    metrics->temp.count3 = 33;
-    ServerMetrics metrics = client.getMetrics("mock:host=ping");
-    EXPECT_EQ(99U, metrics["master.replicas"]);
-    EXPECT_EQ(33U, metrics["temp.count3"]);
 }
 
 } // namespace RAMCloud

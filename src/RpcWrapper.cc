@@ -251,9 +251,15 @@ RpcWrapper::retry(uint64_t microseconds)
 void
 RpcWrapper::send()
 {
-    // Dummy version, provided for ease of testing.  The real versions
-    // are implemented in subclasses.
+    // Most subclasses override this method.  There are two reasons for
+    // using this default method:
+    // - For testing
+    // - For a few RPCs that compute their own sessions using unusual
+    //   approaches (such as using service locators): they must set the
+    //   session member before invoking this method.
     state = IN_PROGRESS;
+    if (session)
+        session->sendRequest(&request, response, this);
 }
 
 /**

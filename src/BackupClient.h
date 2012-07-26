@@ -18,15 +18,12 @@
 
 #include <list>
 
-#include "Client.h"
 #include "Common.h"
-#include "CoordinatorClient.h"
-#include "Memory.h"
-#include "Object.h"
 #include "ProtoBuf.h"
 #include "ServerId.h"
 #include "ServerIdRpcWrapper.h"
 #include "ServerList.pb.h"
+#include "Tablets.pb.h"
 #include "Transport.h"
 
 namespace RAMCloud {
@@ -183,7 +180,7 @@ class WriteSegmentRpc2 : public ServerIdRpcWrapper {
     WriteSegmentRpc2(Context& context, ServerId backupId,
             ServerId masterId, uint64_t segmentId, uint32_t offset,
             const void* buf, uint32_t length,
-            BackupWriteRpc::Flags flags, bool atomic);
+            WireFormat::BackupWrite::Flags flags, bool atomic);
     ~WriteSegmentRpc2() {}
     vector<ServerId> wait();
 
@@ -196,7 +193,7 @@ class WriteSegmentRpc2 : public ServerIdRpcWrapper {
  * to manage segment replicas. The class contains only static methods,
  * so you shouldn't ever need to instantiate an object.
  */
-class BackupClient : public Client {
+class BackupClient {
   public:
     static void assignGroup(Context& context, ServerId backupId,
             uint64_t replicationId, uint32_t numReplicas,
@@ -215,7 +212,8 @@ class BackupClient : public Client {
     static vector<ServerId> writeSegment(Context& context, ServerId backupId,
             ServerId masterId, uint64_t segmentId, uint32_t offset,
             const void* buf, uint32_t length,
-            BackupWriteRpc::Flags flags = BackupWriteRpc::NONE,
+            WireFormat::BackupWrite::Flags flags =
+                WireFormat::BackupWrite::NONE,
             bool atomic = false);
 
   private:

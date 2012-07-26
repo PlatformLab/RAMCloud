@@ -74,7 +74,6 @@ class MasterServiceTest : public ::testing::Test {
 
     ServerConfig masterConfig;
     MasterService* service;
-    std::unique_ptr<MasterClient> client;
     Server* masterServer;
 
     // To make tests that don't need big segments faster, set a smaller default
@@ -89,7 +88,6 @@ class MasterServiceTest : public ::testing::Test {
         , backup1Id()
         , masterConfig(ServerConfig::forTesting())
         , service()
-        , client()
         , masterServer()
     {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
@@ -108,7 +106,6 @@ class MasterServiceTest : public ::testing::Test {
         masterConfig.master.numReplicas = 1;
         masterServer = cluster.addServer(masterConfig);
         service = masterServer->master.get();
-        client = cluster.get<MasterClient>(masterServer);
 
         ramcloud.construct(context, "mock:host=coordinator");
         ramcloud->objectFinder.tabletMapFetcher.reset(
@@ -212,7 +209,8 @@ TEST_F(MasterServiceTest, enumeration_basics) {
     ramcloud->write(0, "1", 1, "ghijkl", 6, NULL, &version1, false);
     Buffer iter, nextIter, finalIter, objects;
     uint64_t nextTabletStartHash;
-    client->enumeration(0, 0, &nextTabletStartHash, &iter, &nextIter, &objects);
+    EnumerateTableRpc2 rpc(*ramcloud, 0, 0, iter, objects);
+    nextTabletStartHash = rpc.wait(nextIter);
     EXPECT_EQ(0U, nextTabletStartHash);
     EXPECT_EQ(66U, objects.getTotalLength());
 
@@ -236,18 +234,22 @@ TEST_F(MasterServiceTest, enumeration_basics) {
 
     // We don't actually care about the contents of the iterator as
     // long as we get back 0 objects on the second call.
-    client->enumeration(0, 0, &nextTabletStartHash,
-                        &nextIter, &finalIter, &objects);
+    EnumerateTableRpc2 rpc2(*ramcloud, 0, nextTabletStartHash, nextIter,
+                            objects);
+    nextTabletStartHash = rpc2.wait(finalIter);
     EXPECT_EQ(0U, nextTabletStartHash);
     EXPECT_EQ(0U, objects.getTotalLength());
 }
 
-TEST_F(MasterServiceTest, enumeration_badTable) {
-    Buffer iter, nextIter, finalIter, objects;
-    uint64_t nextTabletStartHash = 0;
-    EXPECT_THROW(client->enumeration(4, 0, &nextTabletStartHash,
-                                     &iter, &nextIter, &objects),
-                 UnknownTableException);
+TEST_F(MasterServiceTest, enumeration_tabletNotOnServer) {
+    TestLog::Enable _;
+    Buffer iter, nextIter, objects;
+    EnumerateTableRpc2 rpc(*ramcloud, 99, 0, iter, objects);
+    EXPECT_THROW(rpc.wait(nextIter), TableDoesntExistException);
+    EXPECT_EQ("checkStatus: Server mock:host=master doesn't store "
+              "<99, 0x0>; refreshing object map | "
+              "flush: flushing object map",
+              TestLog::get());
 }
 
 TEST_F(MasterServiceTest, enumeration_mergeTablet) {
@@ -270,7 +272,8 @@ TEST_F(MasterServiceTest, enumeration_mergeTablet) {
         service->objectMap.getNumBuckets()*3/4, 0U);
     initialIter.push(preMergeConfiguration);
     initialIter.serialize(iter);
-    client->enumeration(0, 0, &nextTabletStartHash, &iter, &nextIter, &objects);
+    EnumerateTableRpc2 rpc(*ramcloud, 0, 0, iter, objects);
+    nextTabletStartHash = rpc.wait(nextIter);
     EXPECT_EQ(0U, nextTabletStartHash);
     EXPECT_EQ(38U, objects.getTotalLength());
 
@@ -289,8 +292,8 @@ TEST_F(MasterServiceTest, enumeration_mergeTablet) {
 
     // We don't actually care about the contents of the iterator as
     // long as we get back 0 objects on the second call.
-    client->enumeration(0, 0, &nextTabletStartHash,
-                        &nextIter, &finalIter, &objects);
+    EnumerateTableRpc2 rpc2(*ramcloud, 0, 0, nextIter, objects);
+    rpc2.wait(finalIter);
     EXPECT_EQ(0U, nextTabletStartHash);
     EXPECT_EQ(0U, objects.getTotalLength());
 }
@@ -309,8 +312,9 @@ TEST_F(MasterServiceTest, read_tableNotOnServer) {
     Buffer value;
     EXPECT_THROW(ramcloud->read(99, "0", 1, &value),
                  TableDoesntExistException);
-    EXPECT_EQ("checkStatus: Server mock:host=master doesn't store <99, 0>; "
-              "refreshing object map | flush: flushing object map",
+    EXPECT_EQ("checkStatus: Server mock:host=master doesn't store "
+              "<99, 0x2ac9debed546a380>; refreshing object map | "
+              "flush: flushing object map",
               TestLog::get());
 }
 
@@ -945,8 +949,9 @@ TEST_F(MasterServiceTest, remove_basics) {
 TEST_F(MasterServiceTest, remove_tableNotOnServer) {
     TestLog::Enable _;
     EXPECT_THROW(ramcloud->remove(99, "key0", 4), TableDoesntExistException);
-    EXPECT_EQ("checkStatus: Server mock:host=master doesn't store <99, key0>; "
-              "refreshing object map | flush: flushing object map",
+    EXPECT_EQ("checkStatus: Server mock:host=master doesn't store "
+              "<99, 0xf97fb2f45d80df48>; refreshing object map | "
+              "flush: flushing object map",
               TestLog::get());
 }
 
@@ -1018,14 +1023,14 @@ TEST_F(MasterServiceTest, GetServerStatistics) {
     ramcloud->read(0, "key0", 4, &value);
 
     ProtoBuf::ServerStatistics serverStats;
-    client->getServerStatistics(serverStats);
+    ramcloud->getServerStatistics("mock:host=master", serverStats);
     EXPECT_EQ("tabletentry { table_id: 0 start_key_hash: 0 "
               "end_key_hash: 18446744073709551615 number_read_and_writes: 4 }",
               serverStats.ShortDebugString());
 
     MasterClient::splitMasterTablet(context, masterServer->serverId, 0,
                                     0, ~0UL, (~0UL/2));
-    client->getServerStatistics(serverStats);
+    ramcloud->getServerStatistics("mock:host=master", serverStats);
     EXPECT_EQ("tabletentry { table_id: 0 "
               "start_key_hash: 0 "
               "end_key_hash: 9223372036854775806 } "
@@ -1243,33 +1248,59 @@ migrateTabletFilter(string s)
     return s == "migrateTablet";
 }
 
-TEST_F(MasterServiceTest, migrateTablet_simple) {
+TEST_F(MasterServiceTest, migrateTablet_tabletNotOnServer) {
+    TestLog::Enable _;
+    EXPECT_THROW(ramcloud->migrateTablet(99, 0, -1, ServerId(0, 0)),
+        TableDoesntExistException);
+    EXPECT_EQ("migrateTablet: Migration request for range this master "
+              "does not own. TableId 99, range [0,18446744073709551615] | "
+              "checkStatus: Server mock:host=master doesn't store "
+              "<99, 0x0>; refreshing object map | flush: flushing object map",
+              TestLog::get());
+}
+
+TEST_F(MasterServiceTest, migrateTablet_firstKeyHashTooLow) {
     ProtoBuf::Tablets_Tablet& tablet(*service->tablets.add_tablet());
-    tablet.set_table_id(5);
+    tablet.set_table_id(99);
     tablet.set_start_key_hash(27);
     tablet.set_end_key_hash(873);
     tablet.set_user_data(reinterpret_cast<uint64_t>(new Table(0 , 27 , 873)));
 
     TestLog::Enable _(migrateTabletFilter);
 
-    // Wrong table
-    EXPECT_THROW(MasterClient::migrateTablet(context, masterServer->serverId,
-                                             4, 0, -1, ServerId(0, 0)),
-        UnknownTableException);
-    EXPECT_EQ("migrateTablet: Migration request for range this master does "
-        "not own. TableId 4, range [0,18446744073709551615]", TestLog::get());
-    EXPECT_THROW(MasterClient::migrateTablet(context, masterServer->serverId,
-                                             5, 0, 26, ServerId(0, 0)),
-        UnknownTableException);
-    EXPECT_THROW(MasterClient::migrateTablet(context, masterServer->serverId,
-                                             5, 874, -1, ServerId(0, 0)),
-        UnknownTableException);
+    EXPECT_THROW(ramcloud->migrateTablet(99, 0, 26, ServerId(0, 0)),
+        TableDoesntExistException);
+    EXPECT_EQ("migrateTablet: Migration request for range this master "
+              "does not own. TableId 99, range [0,26]",
+              TestLog::get());
+}
 
-    // Migrating to self!?
-    TestLog::reset();
-    EXPECT_THROW(MasterClient::migrateTablet(context, masterServer->serverId,
-                                             5, 27, 873,
-                                             masterServer->serverId),
+TEST_F(MasterServiceTest, migrateTablet_lastKeyHashTooHigh) {
+    ProtoBuf::Tablets_Tablet& tablet(*service->tablets.add_tablet());
+    tablet.set_table_id(99);
+    tablet.set_start_key_hash(27);
+    tablet.set_end_key_hash(873);
+    tablet.set_user_data(reinterpret_cast<uint64_t>(new Table(0 , 27 , 873)));
+
+    TestLog::Enable _(migrateTabletFilter);
+
+    EXPECT_THROW(ramcloud->migrateTablet(99, 874, -1, ServerId(0, 0)),
+        TableDoesntExistException);
+    EXPECT_EQ("migrateTablet: Migration request for range this master "
+              "does not own. TableId 99, range [874,18446744073709551615]",
+              TestLog::get());
+}
+
+TEST_F(MasterServiceTest, migrateTablet_migrateToSelf) {
+    ProtoBuf::Tablets_Tablet& tablet(*service->tablets.add_tablet());
+    tablet.set_table_id(99);
+    tablet.set_start_key_hash(27);
+    tablet.set_end_key_hash(873);
+    tablet.set_user_data(reinterpret_cast<uint64_t>(new Table(0 , 27 , 873)));
+
+    TestLog::Enable _(migrateTabletFilter);
+
+    EXPECT_THROW(ramcloud->migrateTablet(99, 27, 873, masterServer->serverId),
         RequestFormatError);
     EXPECT_EQ("migrateTablet: Migrating to myself doesn't make much sense",
         TestLog::get());
@@ -1287,8 +1318,7 @@ TEST_F(MasterServiceTest, migrateTablet_movingData) {
 
     TestLog::Enable _(migrateTabletFilter);
 
-    MasterClient::migrateTablet(context, masterServer->serverId, tbl,
-                                0, -1, master2->serverId);
+    ramcloud->migrateTablet(tbl, 0, -1, master2->serverId);
     EXPECT_EQ("migrateTablet: Migrating tablet (id 0, first 0, last "
         "18446744073709551615) to ServerId 3 (\"mock:host=master2\") "
         "| migrateTablet: Sending last migration segment | "

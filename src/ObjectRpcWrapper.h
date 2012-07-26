@@ -24,16 +24,20 @@ class RamCloud;
 
 /**
  * ObjectRpcWrapper manages the client side of RPCs that must be sent to the
- * server that stores a particular object. If that server becomes unavailable,
- * or if it doesn't actually store the desired object, then this class will
+ * server that stores a particular object (more specifically, a particular
+ * key hash within a particular table). If that server becomes unavailable,
+ * or if it doesn't actually store the desired key hash, then this class will
  * retry the RPC with a different server until it eventually succeeds.  RPCs
- * using this rapper will never fail to complete, though they may loop
+ * using this wrapper will never fail to complete, though they may loop
  * forever. This wrapper is used for many of the RPCs in RamCloud.
  */
 class ObjectRpcWrapper : public RpcWrapper {
   public:
     explicit ObjectRpcWrapper(RamCloud& ramcloud, uint64_t tableId,
             const char* key, uint16_t keyLength, uint32_t responseHeaderLength,
+            Buffer* response = NULL);
+    explicit ObjectRpcWrapper(RamCloud& ramcloud, uint64_t tableId,
+            uint64_t keyHash, uint32_t responseHeaderLength,
             Buffer* response = NULL);
 
     /**
@@ -52,8 +56,7 @@ class ObjectRpcWrapper : public RpcWrapper {
     /// Information about an object that determines which server the request
     /// is sent to; we must save this information for use in retries.
     uint64_t tableId;
-    const char* key;
-    uint16_t keyLength;
+    uint64_t keyHash;
 
     DISALLOW_COPY_AND_ASSIGN(ObjectRpcWrapper);
 };

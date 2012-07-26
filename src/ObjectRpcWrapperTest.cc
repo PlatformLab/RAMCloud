@@ -74,8 +74,9 @@ TEST_F(ObjectRpcWrapperTest, checkStatus_unknownTablet) {
     wrapper.state = RpcWrapper::RpcState::FINISHED;
     EXPECT_FALSE(wrapper.isReady());
     EXPECT_STREQ("IN_PROGRESS", wrapper.stateString());
-    EXPECT_EQ("checkStatus: Server mock:refresh=1 doesn't store <10, abc>; "
-            "refreshing object map | flush: flushing object map",
+    EXPECT_EQ("checkStatus: Server mock:refresh=1 doesn't store "
+            "<10, 0xb4963f3f3fad7867>; refreshing object map | "
+            "flush: flushing object map",
             TestLog::get());
     EXPECT_EQ("mock:refresh=2", wrapper.session->getServiceLocator());
 }

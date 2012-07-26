@@ -16,7 +16,6 @@
 #ifndef RAMCLOUD_MASTERCLIENT_H
 #define RAMCLOUD_MASTERCLIENT_H
 
-#include "Client.h"
 #include "Common.h"
 #include "CoordinatorClient.h"
 #include "Transport.h"
@@ -28,6 +27,40 @@
 #include "LogTypes.h"
 
 namespace RAMCloud {
+
+/**
+ * Provides methods for invoking RPCs to RAMCloud masters.  The invoking
+ * machine is typically another RAMCloud server (either master or backup)
+ * or the cluster coordinator; these methods are not normally used by
+ * RAMCloud applications. The class contains only static methods, so you
+ * shouldn't ever need to instantiate an object.
+ */
+class MasterClient {
+  public:
+    static void dropTabletOwnership(Context& context, ServerId serverId,
+            uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash);
+    static LogPosition getHeadOfLog(Context& context, ServerId serverId);
+    static bool isReplicaNeeded(Context& context, ServerId serverId,
+            ServerId backupServerId, uint64_t segmentId);
+    static void prepForMigration(Context& context, ServerId serverId,
+            uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash,
+            uint64_t expectedObjects, uint64_t expectedBytes);
+    static void recover(Context& context, ServerId serverId,
+            uint64_t recoveryId, ServerId crashedServerId,
+            uint64_t partitionId, const ProtoBuf::Tablets& tablets,
+            const RecoverRpc::Replica* replicas, uint32_t numReplicas);
+    static void receiveMigrationData(Context& context, ServerId serverId,
+            uint64_t tableId, uint64_t firstKeyHash, const void* segment,
+            uint32_t segmentBytes);
+    static void splitMasterTablet(Context& context, ServerId serverId,
+            uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash,
+            uint64_t splitKeyHash);
+    static void takeTabletOwnership(Context& context, ServerId id,
+            uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash);
+
+  private:
+    MasterClient();
+};
 
 /**
  * Encapsulates the state of a MasterClient::dropTabletOwnership
@@ -72,23 +105,6 @@ class IsReplicaNeededRpc2 : public ServerIdRpcWrapper {
 
     PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(IsReplicaNeededRpc2);
-};
-
-/**
- * Encapsulates the state of a MasterClient::migrateTablet
- * request, allowing it to execute asynchronously.
- */
-class MigrateTabletRpc2 : public ServerIdRpcWrapper {
-    public:
-    MigrateTabletRpc2(Context& context, ServerId serverId,
-            uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash,
-            ServerId newMasterOwnerId);
-    ~MigrateTabletRpc2() {}
-    /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
-    void wait() {waitAndCheckErrors();}
-
-    PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(MigrateTabletRpc2);
 };
 
 /**
@@ -176,79 +192,6 @@ class TakeTabletOwnershipRpc2 : public ServerIdRpcWrapper {
     DISALLOW_COPY_AND_ASSIGN(TakeTabletOwnershipRpc2);
 };
 
-/**
- * Provides methods for invoking RPCs to RAMCloud masters.  The invoking
- * machine is typically another RAMCloud server (either master or backup)
- * or the cluster coordinator; these methods are not as frequently used
- * by RAMCloud applications.
- */
-class MasterClient : public Client {
-  public:
-    static void dropTabletOwnership(Context& context, ServerId serverId,
-            uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash);
-    static LogPosition getHeadOfLog(Context& context, ServerId serverId);
-    static bool isReplicaNeeded(Context& context, ServerId serverId,
-            ServerId backupServerId, uint64_t segmentId);
-    static void migrateTablet(Context& context, ServerId serverId,
-            uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash,
-            ServerId newOwnerId);
-    static void prepForMigration(Context& context, ServerId serverId,
-            uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash,
-            uint64_t expectedObjects, uint64_t expectedBytes);
-    static void recover(Context& context, ServerId serverId,
-            uint64_t recoveryId, ServerId crashedServerId,
-            uint64_t partitionId, const ProtoBuf::Tablets& tablets,
-            const RecoverRpc::Replica* replicas, uint32_t numReplicas);
-    static void receiveMigrationData(Context& context, ServerId serverId,
-            uint64_t tableId, uint64_t firstKeyHash, const void* segment,
-            uint32_t segmentBytes);
-    static void splitMasterTablet(Context& context, ServerId serverId,
-            uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash,
-            uint64_t splitKeyHash);
-    static void takeTabletOwnership(Context& context, ServerId id,
-            uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash);
-
-    //-------------------------------------------------------
-    // OLD: everything below here should eventually go away.
-    //-------------------------------------------------------
-
-    /// An asynchronous version of #enumeration().
-    class Enumeration {
-      public:
-        Enumeration(MasterClient& client,
-                    uint64_t tableId,
-                    uint64_t tabletStartHash, uint64_t* nextTabletStartHash,
-                    Buffer* iter, Buffer* nextIter,
-                    Buffer* objects);
-        void cancel() { state.cancel(); }
-        bool isReady() { return state.isReady(); }
-        void operator()();
-      private:
-        MasterClient& client;
-        Buffer requestBuffer;
-        Buffer responseBuffer;
-        uint64_t* nextTabletStartHash;
-        Buffer& nextIter;
-        Buffer& objects;
-        AsyncState state;
-        DISALLOW_COPY_AND_ASSIGN(Enumeration);
-    };
-
-    explicit MasterClient(Transport::SessionRef session) : session(session) {}
-    void enumeration(uint64_t tableId,
-                     uint64_t tabletStartHash, uint64_t* nextTabletStartHash,
-                     Buffer* iter, Buffer* nextIter,
-                     Buffer* objects);
-    void getServerStatistics(ProtoBuf::ServerStatistics& serverStats);
-    void migrateTablet(uint64_t tableId,
-                       uint64_t firstKey,
-                       uint64_t lastKey,
-                       ServerId newMasterOwnerId);
-
-  protected:
-    Transport::SessionRef session;
-    DISALLOW_COPY_AND_ASSIGN(MasterClient);
-};
 } // namespace RAMCloud
 
 #endif // RAMCLOUD_MASTERCLIENT_H

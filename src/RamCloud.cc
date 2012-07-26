@@ -15,9 +15,10 @@
 
 #include "RamCloud.h"
 #include "CoordinatorSession.h"
+#include "FailSession.h"
 #include "MasterClient.h"
 #include "MultiRead.h"
-#include "PingClient.h"
+#include "ProtoBuf.h"
 #include "ShortMacros.h"
 
 namespace RAMCloud {
@@ -239,9 +240,8 @@ RamCloud::enumerateTable(uint64_t tableId, uint64_t tabletFirstHash,
  */
 EnumerateTableRpc2::EnumerateTableRpc2(RamCloud& ramcloud, uint64_t tableId,
         uint64_t tabletFirstHash, Buffer& state, Buffer& objects)
-    : ObjectRpcWrapper(ramcloud, tableId, key, keyLength,
+    : ObjectRpcWrapper(ramcloud, tableId, tabletFirstHash,
             sizeof(WireFormat::Enumerate::Response), &objects)
-    , tabletFirstHash(tabletFirstHash)
 {
     WireFormat::Enumerate::Request& reqHdr(
             allocHeader<WireFormat::Enumerate>());
@@ -298,18 +298,6 @@ EnumerateTableRpc2::wait(Buffer& state)
     response->truncateEnd(respHdr.iteratorBytes);
 
     return result;
-}
-
-/**
- * This method overrides the default send method for ObjectRpcWrapper, because
- * we need to find a session based on key hash, rather than key value.
- */
-void
-EnumerateTableRpc2::send()
-{
-    session = ramcloud.objectFinder.lookup(tableId, tabletFirstHash);
-    state = IN_PROGRESS;
-    session->sendRequest(&request, response, this);
 }
 
 /**
@@ -386,6 +374,158 @@ GetMetricsRpc2::wait()
     ServerMetrics metrics;
     metrics.load(*response);
     return metrics;
+}
+
+/**
+ * Retrieve performance counters from a server identified by a service locator.
+ *
+ * \param serviceLocator
+ *      Selects the server from which metrics should be retrieved.
+ *
+ * \return
+ *       The performance metrics retrieved from the given server.
+ *
+ * \throw TransportException
+ *       Thrown if an unrecoverable error occurred while communicating with
+ *       the target server.
+ */
+ServerMetrics
+RamCloud::getMetrics(const char* serviceLocator)
+{
+    GetMetricsLocatorRpc rpc(*this, serviceLocator);
+    return rpc.wait();
+}
+
+/**
+ * Constructor for GetMetricsLocatorRpc: initiates an RPC in the same way as
+ * #RamCloud::getMetrics, but returns once the RPC has been initiated, without
+ * waiting for it to complete.
+ *
+ * \param ramcloud
+ *      The RAMCloud object that governs this RPC.
+ * \param serviceLocator
+ *      Selects the server from which metrics should be retrieved.
+ */
+GetMetricsLocatorRpc::GetMetricsLocatorRpc(RamCloud& ramcloud,
+        const char* serviceLocator)
+    : RpcWrapper(sizeof(WireFormat::GetMetrics::Response))
+    , ramcloud(ramcloud)
+{
+    try {
+        session = ramcloud.clientContext.transportManager->getSession(
+                serviceLocator);
+    } catch (const TransportException& e) {
+        session = FailSession::get();
+    }
+    allocHeader<WireFormat::GetMetrics>();
+    send();
+}
+
+/**
+ * Wait for a getMetrics RPC to complete, and return the same results as
+ * #RamCloud::getMetrics.
+ *
+ * \return
+ *       The performance metrics retrieved from the target server.
+ *
+ * \throw TransportException
+ *       Thrown if an unrecoverable error occurred while communicating with
+ *       the target server.
+ */
+ServerMetrics
+GetMetricsLocatorRpc::wait()
+{
+    waitInternal(*ramcloud.clientContext.dispatch);
+    if (getState() != RpcState::FINISHED) {
+        throw TransportException(HERE);
+    }
+    const WireFormat::GetMetrics::Response& respHdr(
+            getResponseHeader<WireFormat::GetMetrics>());
+
+    if (respHdr.common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr.common.status);
+
+    response->truncateFront(sizeof(respHdr));
+    assert(respHdr.messageLength == response->getTotalLength());
+    ServerMetrics metrics;
+    metrics.load(*response);
+    return metrics;
+}
+
+/**
+ * Retrieve server statistics from a given server.
+ *
+ * \param serviceLocator
+ *      Selects the server from which statistics should be retrieved.
+ * \param[out] serverStats
+ *      This protocol buffer is filled in with statistics about the server.
+ *
+ * \return
+ *       The performance metrics retrieved from the given server.
+ *
+ * \throw TransportException
+ *       Thrown if an unrecoverable error occurred while communicating with
+ *       the target server.
+ */
+void
+RamCloud::getServerStatistics(const char* serviceLocator,
+        ProtoBuf::ServerStatistics& serverStats)
+{
+    GetServerStatisticsRpc2 rpc(*this, serviceLocator);
+    rpc.wait(serverStats);
+}
+
+/**
+ * Constructor for GetServerStatisticsRpc2: initiates an RPC in the same way as
+ * #RamCloud::getServerStatistics, but returns once the RPC has been initiated,
+ * without waiting for it to complete.
+ *
+ * \param ramcloud
+ *      The RAMCloud object that governs this RPC.
+ * \param serviceLocator
+ *      Selects the server from which server statistics should be retrieved.
+ */
+GetServerStatisticsRpc2::GetServerStatisticsRpc2(RamCloud& ramcloud,
+        const char* serviceLocator)
+    : RpcWrapper(sizeof(WireFormat::GetServerStatistics::Response))
+    , ramcloud(ramcloud)
+{
+    try {
+        session = ramcloud.clientContext.transportManager->getSession(
+                serviceLocator);
+    } catch (const TransportException& e) {
+        session = FailSession::get();
+    }
+    allocHeader<WireFormat::GetServerStatistics>();
+    send();
+}
+
+/**
+ * Wait for a getServerStatistics RPC to complete, and return the same
+ * results as #RamCloud::getServerStatistics.
+ *
+ * \param[out] serverStats
+ *      This protocol buffer is filled in with statistics about the server.
+ *
+ * \throw TransportException
+ *       Thrown if an unrecoverable error occurred while communicating with
+ *       the target server.
+ */
+void
+GetServerStatisticsRpc2::wait(ProtoBuf::ServerStatistics& serverStats)
+{
+    waitInternal(*ramcloud.clientContext.dispatch);
+    if (getState() != RpcState::FINISHED) {
+        throw TransportException(HERE);
+    }
+    const WireFormat::GetServerStatistics::Response& respHdr(
+            getResponseHeader<WireFormat::GetServerStatistics>());
+
+    if (respHdr.common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr.common.status);
+
+    ProtoBuf::parseFromResponse(*response, sizeof(respHdr),
+        respHdr.serverStatsLength, serverStats);
 }
 
 /**
@@ -563,6 +703,59 @@ IncrementRpc2::wait(uint64_t* version)
 }
 
 /**
+ * Request that the master owning a particular tablet migrate it
+ * to another designated master.
+ *
+ * \param tableId
+ *      Identifier for the table to be migrated.
+ * \param firstKeyHash
+ *      First key hash of the tablet range to be migrated.
+ * \param lastKeyHash
+ *      Last key hash of the tablet range to be migrated.
+ * \param newOwnerMasterId
+ *      ServerId of the node to which the tablet should be migrated.
+ */
+void
+RamCloud::migrateTablet(uint64_t tableId, uint64_t firstKeyHash,
+        uint64_t lastKeyHash, ServerId newOwnerMasterId)
+{
+    MigrateTabletRpc2 rpc(*this, tableId, firstKeyHash, lastKeyHash,
+            newOwnerMasterId);
+    rpc.wait();
+}
+
+/**
+ * Constructor for MigrateTabletRpc2: initiates an RPC in the same way as
+ * #RamCloud::migrateTablet, but returns once the RPC has been initiated, without
+ * waiting for it to complete.
+ *
+ * \param ramcloud
+ *      The RAMCloud object that governs this RPC.
+ * \param tableId
+ *      Identifier for the table to be migrated.
+ * \param firstKeyHash
+ *      First key hash of the tablet range to be migrated.
+ * \param lastKeyHash
+ *      Last key hash of the tablet range to be migrated.
+ * \param newOwnerMasterId
+ *      ServerId of the node to which the tablet should be migrated.
+ */
+MigrateTabletRpc2::MigrateTabletRpc2(RamCloud& ramcloud, uint64_t tableId,
+        uint64_t firstKeyHash, uint64_t lastKeyHash,
+        ServerId newOwnerMasterId)
+    : ObjectRpcWrapper(ramcloud, tableId, firstKeyHash,
+            sizeof(WireFormat::MigrateTablet::Response))
+{
+    WireFormat::MigrateTablet::Request& reqHdr(
+            allocHeader<WireFormat::MigrateTablet>());
+    reqHdr.tableId = tableId;
+    reqHdr.firstKeyHash = firstKeyHash;
+    reqHdr.lastKeyHash = lastKeyHash;
+    reqHdr.newOwnerMasterId = newOwnerMasterId.getId();
+    send();
+}
+
+/**
  * Read the current contents of multiple objects. This method has two
  * performance advantages over calling RamCloud::read separately for
  * each object:
@@ -599,7 +792,7 @@ RamCloud::quiesce()
 
 /**
  * Constructor for HintServerDownRpc2: initiates an RPC in the same way as
- * #CoordinatorClient::hintServerDown, but returns once the RPC has been
+ * #RamCloud::hintServerDown, but returns once the RPC has been
  * initiated, without waiting for it to complete.
  *
  * \param ramcloud
@@ -1227,18 +1420,6 @@ WriteRpc2::wait(uint64_t* version)
 
     if (respHdr.common.status != STATUS_OK)
         ClientException::throwException(HERE, respHdr.common.status);
-}
-
-//-------------------------------------------------------
-// OLD: everything below here should eventually go away.
-//-------------------------------------------------------
-
-/// \copydoc PingClient::getMetrics
-ServerMetrics
-RamCloud::getMetrics(const char* serviceLocator)
-{
-    PingClient client(clientContext);
-    return client.getMetrics(serviceLocator);
 }
 
 }  // namespace RAMCloud

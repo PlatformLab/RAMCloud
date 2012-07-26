@@ -16,13 +16,28 @@
 #ifndef RAMCLOUD_PINGCLIENT_H
 #define RAMCLOUD_PINGCLIENT_H
 
-#include "Client.h"
 #include "ServerId.h"
 #include "ServerIdRpcWrapper.h"
 #include "ServerMetrics.h"
 #include "Transport.h"
 
 namespace RAMCloud {
+
+/**
+ * This class implements the client-side interface to the ping service.
+ * The class contains only static methods, so you shouldn't ever need
+ * to instantiate an object.
+ */
+class PingClient {
+  public:
+    static uint64_t ping(Context& context, ServerId targetId,
+            ServerId callerId = ServerId());
+    static uint64_t proxyPing(Context& context, ServerId proxyId,
+            ServerId targetId, uint64_t timeoutNanoseconds);
+
+  private:
+    PingClient();
+};
 
 /**
  * Encapsulates the state of a PingClient::ping
@@ -55,27 +70,6 @@ class ProxyPingRpc2 : public ServerIdRpcWrapper {
     DISALLOW_COPY_AND_ASSIGN(ProxyPingRpc2);
 };
 
-/**
- * This class implements the client-side interface to the ping service.
- * The class contains only static methods, so you shouldn't ever need
- * to instantiate an object.
- */
-class PingClient : public Client {
-  public:
-    static uint64_t ping(Context& context, ServerId targetId,
-            ServerId callerId = ServerId());
-    static uint64_t proxyPing(Context& context, ServerId proxyId,
-            ServerId targetId, uint64_t timeoutNanoseconds);
-
-    explicit PingClient(Context& context) : context(context) {}
-    ServerMetrics getMetrics(const char* serviceLocator);
-
-    /// Shared RAMCloud information.
-    Context& context;
-
-  private:
-    DISALLOW_COPY_AND_ASSIGN(PingClient);
-};
 } // namespace RAMCloud
 
 #endif // RAMCLOUD_PINGCLIENT_H

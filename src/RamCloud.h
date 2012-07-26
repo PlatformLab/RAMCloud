@@ -44,11 +44,16 @@ class RamCloud {
          Buffer& state, Buffer& objects);
     ServerMetrics getMetrics(uint64_t tableId, const char* key,
             uint16_t keyLength);
+    ServerMetrics getMetrics(const char* serviceLocator);
+    void getServerStatistics(const char* serviceLocator,
+            ProtoBuf::ServerStatistics& serverStats);
     string* getServiceLocator();
     uint64_t getTableId(const char* name);
     int64_t increment(uint64_t tableId, const char* key, uint16_t keyLength,
             int64_t incrementValue, const RejectRules* rejectRules = NULL,
             uint64_t* version = NULL);
+    void migrateTablet(uint64_t tableId, uint64_t firstKeyHash,
+            uint64_t lastKeyHash, ServerId newOwnerMasterId);
     void multiRead(MultiReadObject* requests[], uint32_t numRequests);
     void quiesce();
     void read(uint64_t tableId, const char* key, uint16_t keyLength,
@@ -77,29 +82,31 @@ class RamCloud {
 
     explicit RamCloud(const char* serviceLocator);
     RamCloud(Context& context, const char* serviceLocator);
-    ServerMetrics getMetrics(const char* serviceLocator);
 
   PRIVATE:
     /**
-  * Service locator for the cluster coordinator.
-  */
+     * Service locator for the cluster coordinator.
+     */
     string coordinatorLocator;
 
     /**
-  * Usually, RamCloud objects create a new context in which to run. This is
-  * the location where that context is stored.
-  */
+     * Usually, RamCloud objects create a new context in which to run. This is
+     * the location where that context is stored.
+     */
     Tub<Context> realClientContext;
 
   public:
     /**
-  * This usually refers to realClientContext. For testing purposes and
-  * clients that want to provide their own context that they've mucked with,
-  * this refers to an externally defined context.
-  */
+     * This usually refers to realClientContext. For testing purposes and
+     * clients that want to provide their own context that they've mucked with,
+     * this refers to an externally defined context.
+     */
     Context& clientContext;
 
-    /// \copydoc Client::status
+    /**
+     * Status returned from the most recent RPC.  Warning: as of 7/2012 this
+     * field is not properly set.
+     */
     Status status;
 
   public: // public for now to make administrative calls from clients
@@ -210,11 +217,6 @@ class EnumerateTableRpc2 : public ObjectRpcWrapper {
     uint64_t wait(Buffer& nextIter);
 
   PRIVATE:
-    virtual void send();
-
-    // Copies of the constructor parameter with the same name.
-    uint64_t tabletFirstHash;
-
     DISALLOW_COPY_AND_ASSIGN(EnumerateTableRpc2);
 };
 
@@ -247,6 +249,36 @@ class GetMetricsRpc2 : public ObjectRpcWrapper {
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(GetMetricsRpc2);
+};
+
+/**
+ * Encapsulates the state of a RamCloud::getMetrics operation that
+ * uses a service locator to identify the server rather than an object.
+ */
+class GetMetricsLocatorRpc : public RpcWrapper {
+  public:
+    GetMetricsLocatorRpc(RamCloud& ramcloud, const char* serviceLocator);
+    ~GetMetricsLocatorRpc() {}
+    ServerMetrics wait();
+
+  PRIVATE:
+    RamCloud& ramcloud;
+    DISALLOW_COPY_AND_ASSIGN(GetMetricsLocatorRpc);
+};
+
+/**
+ * Encapsulates the state of a RamCloud::getServerStatistics operation,
+ * allowing it to execute asynchronously.
+ */
+class GetServerStatisticsRpc2 : public RpcWrapper {
+  public:
+    GetServerStatisticsRpc2(RamCloud& ramcloud, const char* serviceLocator);
+    ~GetServerStatisticsRpc2() {}
+    void wait(ProtoBuf::ServerStatistics& serverStats);
+
+  PRIVATE:
+    RamCloud& ramcloud;
+    DISALLOW_COPY_AND_ASSIGN(GetServerStatisticsRpc2);
 };
 
 /**
@@ -299,7 +331,24 @@ class KillRpc2 : public ObjectRpcWrapper {
 };
 
 /**
- * Encapsulates the state of a RamCloud::quiesce operation
+ * Encapsulates the state of a RamCloud::migrateTablet operation,
+ * allowing it to execute asynchronously.
+ */
+class MigrateTabletRpc2 : public ObjectRpcWrapper {
+  public:
+    MigrateTabletRpc2(RamCloud& ramcloud, uint64_t tableId,
+            uint64_t firstKeyHash, uint64_t lastKeyHash,
+            ServerId newMasterOwnerId);
+    ~MigrateTabletRpc2() {}
+    /// \copydoc RpcWrapper::docForWait
+    void wait() {simpleWait(*ramcloud.clientContext.dispatch);}
+
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(MigrateTabletRpc2);
+};
+
+/**
+ * Encapsulates the state of a RamCloud::quiesce operation,
  * allowing it to execute asynchronously.
  */
 class QuiesceRpc2 : public CoordinatorRpcWrapper {

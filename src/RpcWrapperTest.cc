@@ -73,21 +73,21 @@ TEST_F(RpcWrapperTest, destructor_cancel) {
     Tub<RpcWrapper> wrapper1, wrapper2;
     wrapper1.construct(100);
     wrapper2.construct(100);
-    wrapper2->session = session;
     wrapper2->send();
     wrapper1.destroy();
     EXPECT_EQ("", transport.outputLog);
+    wrapper2->session = session;
     wrapper2.destroy();
     EXPECT_EQ("cancel", transport.outputLog);
 }
 
 TEST_F(RpcWrapperTest, cancel) {
     RpcWrapper wrapper(100);
-    wrapper.session = session;
     wrapper.cancel();
     EXPECT_EQ("", transport.outputLog);
     EXPECT_STREQ("CANCELED", wrapper.stateString());
     wrapper.send();
+    wrapper.session = session;
     wrapper.cancel();
     EXPECT_EQ("cancel", transport.outputLog);
 }
@@ -224,6 +224,18 @@ TEST_F(RpcWrapperTest, retry) {
     EXPECT_EQ(100, int(1e06*Cycles::toSeconds(wrapper.retryTime - 1000)
             + 0.5));
     Cycles::mockTscValue = 0;
+}
+
+TEST_F(RpcWrapperTest, send) {
+    RpcWrapper wrapper(100);
+    wrapper.send();
+    EXPECT_STREQ("IN_PROGRESS", wrapper.stateString());
+    EXPECT_EQ("", transport.outputLog);
+    wrapper.state = RpcWrapper::RpcState::FAILED;
+    wrapper.session = session;
+    wrapper.send();
+    EXPECT_STREQ("IN_PROGRESS", wrapper.stateString());
+    EXPECT_EQ("sendRequest: ", transport.outputLog);
 }
 
 TEST_F(RpcWrapperTest, simpleWait_success) {

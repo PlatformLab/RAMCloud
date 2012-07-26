@@ -14,6 +14,7 @@
  */
 
 #include "Common.h"
+#include "ClientException.h"
 #include "Cycles.h"
 #include "Dispatch.h"
 #include "PingClient.h"
@@ -209,33 +210,6 @@ ProxyPingRpc2::wait()
     const WireFormat::ProxyPing::Response& respHdr(
             getResponseHeader<WireFormat::ProxyPing>());
     return respHdr.replyNanoseconds;
-}
-
-/**
- * Retrieve performance counters from a given server.
- *
- * \param serviceLocator
- *      Identifies the server whose metrics should be retrieved.
- *
- * \return
- *       The performance metrics retrieved from \c serviceLocator.
- */
-ServerMetrics
-PingClient::getMetrics(const char* serviceLocator)
-{
-    // Fill in the request.
-    Buffer req, resp;
-    allocHeader<GetMetricsRpc>(req);
-    Transport::SessionRef session =
-            context.transportManager->getSession(serviceLocator);
-    const GetMetricsRpc::Response& respHdr(
-            sendRecv<GetMetricsRpc>(session, req, resp));
-    checkStatus(HERE);
-    resp.truncateFront(sizeof(respHdr));
-    assert(respHdr.messageLength == resp.getTotalLength());
-    ServerMetrics metrics;
-    metrics.load(resp);
-    return metrics;
 }
 
 }  // namespace RAMCloud

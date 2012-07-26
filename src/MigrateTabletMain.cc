@@ -87,21 +87,13 @@ try
 
     tableId = client.getTableId(tableName.c_str());
 
-    Transport::SessionRef session = client.objectFinder.lookup(
-        downCast<uint32_t>(tableId), reinterpret_cast<char*>(&firstKey),
-        sizeof(firstKey));
-
-    MasterClient master(session);
-
     printf("Issuing migration request:\n");
     printf("  table \"%s\" (%lu)\n", tableName.c_str(), tableId);
     printf("  first key %lu\n", firstKey);
     printf("  last key  %lu\n", lastKey);
-    printf("  current master locator \"%s\"",
-        session->getServiceLocator().c_str());
     printf("  recipient master id %lu\n", newOwnerMasterId);
 
-    master.migrateTablet(tableId,
+    client.migrateTablet(tableId,
                          firstKey,
                          lastKey,
                          ServerId(newOwnerMasterId));
@@ -116,11 +108,8 @@ try
     printf("read obj 0: \"%10s\"\n",
         (const char*)buf.getRange(0, buf.getTotalLength()));
 
-    session = client.objectFinder.lookup(downCast<uint32_t>(tableId),
-        reinterpret_cast<char*>(&firstKey), sizeof(firstKey));
     printf("Migrating back again!");
-    MasterClient newMaster(session);
-    newMaster.migrateTablet(tableId, firstKey, lastKey, ServerId(1, 0));
+    client.migrateTablet(tableId, firstKey, lastKey, ServerId(1, 0));
     client.read(0, reinterpret_cast<char*>(&firstKey), sizeof(firstKey), &buf);
     printf("read obj 0: \"%10s\"\n",
         (const char*)buf.getRange(0, buf.getTotalLength()));
