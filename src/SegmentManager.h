@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "BoostIntrusive.h"
+#include "LargeBlockOfMemory.h"
 #include "LogSegment.h"
 #include "ReplicaManager.h"
 #include "ServerId.h"

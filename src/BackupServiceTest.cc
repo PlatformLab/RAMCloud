@@ -86,7 +86,7 @@ class BackupServiceTest : public ::testing::Test {
                 uint64_t tableId, const char* stringKey, uint16_t stringKeyLength)
     {
         Key key(tableId, stringKey, stringKeyLength);
-        Object object(key, data, bytes, 0);
+        Object object(key, data, bytes, 0, 0);
         Buffer buffer;
         object.serializeToBuffer(buffer);
         const void* contiguous = buffer.getRange(0, buffer.getTotalLength());
@@ -100,8 +100,8 @@ class BackupServiceTest : public ::testing::Test {
                    const char* stringKey, uint16_t stringKeyLength)
     {
         Key key(tableId, stringKey, stringKeyLength);
-        Object object(key, NULL, 0, 0);
-        ObjectTombstone tombstone(object, segmentId);
+        Object object(key, NULL, 0, 0, 0);
+        ObjectTombstone tombstone(object, segmentId, 0);
         Buffer buffer;
         tombstone.serializeToBuffer(buffer);
         const void* contiguous = buffer.getRange(0, buffer.getTotalLength());
@@ -371,7 +371,8 @@ TEST_F(BackupServiceTest, getRecoveryData) {
         Buffer b;
         EXPECT_FALSE(it.isDone());
         EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, it.getType());
-        Object object(it.setBufferTo(b));
+        it.setBufferTo(b);
+        Object object(b);
         EXPECT_EQ(123U, object.getTableId());
         EXPECT_EQ("29", TestUtil::toString(
             object.getKey(), object.getKeyLength()));
@@ -382,7 +383,8 @@ TEST_F(BackupServiceTest, getRecoveryData) {
         Buffer b;
         EXPECT_FALSE(it.isDone());
         EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, it.getType());
-        Object object(it.setBufferTo(b));
+        it.setBufferTo(b);
+        Object object(b);
         EXPECT_EQ(124U, object.getTableId());
         EXPECT_EQ("20", TestUtil::toString(
             object.getKey(), object.getKeyLength()));
@@ -393,7 +395,8 @@ TEST_F(BackupServiceTest, getRecoveryData) {
         Buffer b;
         EXPECT_FALSE(it.isDone());
         EXPECT_EQ(LOG_ENTRY_TYPE_OBJTOMB, it.getType());
-        ObjectTombstone tomb(it.setBufferTo(b));
+        it.setBufferTo(b);
+        ObjectTombstone tomb(b);
         EXPECT_EQ(123U, tomb.getTableId());
         EXPECT_EQ("29", TestUtil::toString(tomb.getKey(), tomb.getKeyLength()));
         it.next();
@@ -403,7 +406,8 @@ TEST_F(BackupServiceTest, getRecoveryData) {
         Buffer b;
         EXPECT_FALSE(it.isDone());
         EXPECT_EQ(LOG_ENTRY_TYPE_OBJTOMB, it.getType());
-        Object object(it.setBufferTo(b));
+        it.setBufferTo(b);
+        Object object(b);
         EXPECT_EQ(124U, object.getTableId());
         EXPECT_EQ("20", TestUtil::toString(
             object.getKey(), object.getKeyLength()));
@@ -605,7 +609,8 @@ TEST_F(BackupServiceTest, recoverySegmentBuilder) {
 
     {
         Buffer b;
-        Object object(it.setBufferTo(b));
+        it.setBufferTo(b);
+        Object object(b);
         EXPECT_EQ("test1", TestUtil::toString(
             object.getData(), object.getDataLength()));
         it.next();
@@ -623,7 +628,8 @@ TEST_F(BackupServiceTest, recoverySegmentBuilder) {
 
     {
         Buffer b;
-        Object object(it.setBufferTo(b));
+        it.setBufferTo(b);
+        Object object(b);
         EXPECT_EQ("test2", TestUtil::toString(
             object.getData(), object.getDataLength()));
         it2.next();

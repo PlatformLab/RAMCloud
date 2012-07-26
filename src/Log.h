@@ -42,7 +42,21 @@ struct LogException : public Exception {
 };
 
 /**
- * XXX... 
+ * The log provides an replicated store for immutable and relocatable data.
+ * Data is stored by appending typed "entries" to the log. Entries are simply
+ * <type, length> tuples and associated opaque data blobs. Once written, they
+ * may not be later modified. However, they may be freed and the space later
+ * reclaimed by a special garbage collection mechanism called the "cleaner".
+ *
+ * The cleaner requires that entries be relocatable to deal with fragmentation.
+ * A set of callbacks are used by the cleaner to test is entries are still alive
+ * and notify the user of the log when an entry has been moved to another log
+ * location. See the Log::EntryHandlers interface for more details.
+ *
+ * This particular class provides a simple, thin interface for users of logs.
+ * Much of the internals, most of which have to deal with replication and
+ * cleaning, are handled by a suite of related classes, such as Segment,
+ * SegmentManager, LogCleaner, ReplicaManager, and BackupFailureMonitor.
  */
 class Log {
   public:
@@ -70,7 +84,7 @@ class Log {
          *
          * After returning false, the entry may disappear at any future time.
          */
-        virtual bool isAlive(LogEntryType type, Buffer& buffer) = 0;
+        virtual bool checkLiveness(LogEntryType type, Buffer& buffer) = 0;
 
         /**
          * This method is called after an entry has been copied to a new
@@ -80,9 +94,9 @@ class Log {
          *
          * After returning false, the entry may disappear at any future time.
          */
-        virtual bool relocating(LogEntryType type,
-                                Buffer& oldBuffer,
-                                HashTable::Reference newReference) = 0;
+        virtual bool relocate(LogEntryType type,
+                              Buffer& oldBuffer,
+                              HashTable::Reference newReference) = 0;
     };
 
     /**
@@ -93,11 +107,19 @@ class Log {
      */
     class Position {
       public:
+        /**
+         * Default constructor that creates a zeroed position. This refers to
+         * the very beginning of a log.
+         */
         Position()
             : pos(0, 0)
         {
         }
 
+        /**
+         * Construct a position given a segment identifier and offset within
+         * the segment.
+         */
         Position(uint64_t segmentId, uint64_t segmentOffset)
             : pos(segmentId, downCast<uint32_t>(segmentOffset))
         {
@@ -109,7 +131,15 @@ class Log {
         bool operator<=(const Position& other) const { return pos <= other.pos; }
         bool operator> (const Position& other) const { return pos >  other.pos; }
         bool operator>=(const Position& other) const { return pos >= other.pos; }
+
+        /**
+         * Return the segment identifier component of this position object.
+         */
         uint64_t segmentId() const { return pos.first; }
+
+        /**
+         * Return the offset component of this position object.
+         */
         uint32_t segmentOffset() const { return pos.second; }
 
       private:
@@ -138,10 +168,10 @@ class Log {
                 LogEntryType& outType,
                 Buffer& outBuffer);
     void sync();
-    Position headOfLog();
+    Position getHeadPosition();
     uint64_t getSegmentId(HashTable::Reference reference);
     void allocateHeadIfStillOn(uint64_t segmentId);
-    bool isSegmentLive(uint64_t segmentId);
+    bool containsSegment(uint64_t segmentId);
 
   PRIVATE:
     INTRUSIVE_LIST_TYPEDEF(LogSegment, listEntries) SegmentList;
@@ -176,6 +206,7 @@ class Log {
 
     /// Current head of the log. Whatever this points to is owned by
     /// SegmentManager, which is responsible for its eventual deallocation.
+    /// This pointer should never be NULL.
     LogSegment* head;
 
     /// Lock taken around log append operations. This is currently only used

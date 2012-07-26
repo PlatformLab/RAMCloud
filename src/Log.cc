@@ -18,13 +18,16 @@
 
 #include "Log.h"
 #include "ShortMacros.h"
-#include "TransportManager.h" // for Log memory 0-copy registration hack
 
 namespace RAMCloud {
 
 
 /**
- * Constructor for Log.
+ * Constructor for Log. Upon returning, the first segment of the log will be
+ * opened and synced to any backup replicas. Doing so avoids ambiguity if no
+ * log segments are found after a crash. So long as the log is opened before
+ * any tablets are assigned, failure to find segments can only mean data loss.
+ *
  *
  * \param context
  *      Overall information about the RAMCloud server.
@@ -48,11 +51,16 @@ Log::Log(Context& context,
       segmentManager(segmentManager),
       replicaManager(replicaManager),
       cleaner(),
-      head(NULL),
+      head(segmentManager.allocHead()),
       appendLock()
 {
+    if (head == NULL)
+        throw LogException(HERE, "Could not allocate initial head segment");
+
     if (!disableCleaner)
         cleaner.construct(context, segmentManager, replicaManager, 4);
+
+    sync();
 }
 
 /**
@@ -62,6 +70,30 @@ Log::~Log()
 {
 }
 
+/**
+ * Append a typed entry to the log. Entries are binary blobs described by a
+ * simple <type, length> tuple.
+ *
+ * \param type
+ *      Type of the entry. See LogEntryTypes.h.
+ * \param buffer
+ *      Buffer object describing the entry to be appended.
+ * \param offset
+ *      Byte offset within the buffer object to begin appending from.
+ * \param length
+ *      Number of bytes to append starting from the given offset in the buffer.
+ * \param sync
+ *      If true, do not return until the append has been replicated to backups.
+ *      If false, may return before any replication has been done.
+ * \param[out] outReference
+ *      If the append succeeds, a reference to the created entry is returned
+ *      here. This reference may be used to access the appended entry via the
+ *      lookup method. It may also be inserted into a HashTable.
+ * \return
+ *      True if the append succeeded, false if there was either insufficient
+ *      space to complete the operation or the requested append was larger
+ *      than the system supports.
+ */
 bool
 Log::append(LogEntryType type,
             Buffer& buffer,
@@ -72,25 +104,20 @@ Log::append(LogEntryType type,
 {
     Lock lock(appendLock);
 
-    // If no head, try to allocate one
-    if (head == NULL)
-        head = segmentManager.allocHead();
-
-    // If allocation failed, out of space - return error
-    if (head == NULL)
-        return false;
-
-    // Try to append. If we can't, try to allocate a new head to get more space
+    // Try to append. If we can't, try to allocate a new head to get more space.
     uint32_t segmentOffset;
     bool success = head->append(type, buffer, offset, length, segmentOffset);
     if (!success) {
-        head = segmentManager.allocHead();
-        if (head == NULL)
+        LogSegment* newHead = segmentManager.allocHead();
+        if (newHead == NULL)
             return false;
+
+        head = newHead;
 
         if (!head->append(type, buffer, offset, length, segmentOffset)) {
             // If we still can't append it, the caller must appending more
             // than we can fit in a segment.
+            LOG(WARNING, "Entry too big to append to log: %u bytes", length);
             return false;
         }
     }
@@ -99,6 +126,10 @@ Log::append(LogEntryType type,
     return true;
 }
 
+/**
+ * Abbreviated append method for convenience. See the above append method for
+ * documentation.
+ */
 bool
 Log::append(LogEntryType type,
             Buffer& buffer,
@@ -109,12 +140,9 @@ Log::append(LogEntryType type,
 }
 
 /**
- * Mark bytes in Log as freed. This simply maintains a per-Segment tally that
- * can be used to compute utilisation of individual Log Segments.
- * \param[in] entry
- *      A LogEntryHandle as returned by an #append call.
- * \throw LogException
- *      An exception is thrown if the pointer provided is not valid.
+ * Mark bytes in log as freed. When a previously-appended entry is no longer
+ * needed, this method may be used to notify the log that it may garbage
+ * collect it.
  */
 void
 Log::free(HashTable::Reference reference)
@@ -124,6 +152,20 @@ Log::free(HashTable::Reference reference)
     segmentManager[slot].free(offset);
 }
 
+/**
+ * Given a reference to an entry previously appended to the log, return the
+ * entry's type and fill in a buffer that points to the entry's contents.
+ * This is the method to use to access something after it is appended to the
+ * log.
+ *
+ * \param reference
+ *      Reference to the entry requested. This value is returned in the append
+ *      method.
+ * \param outType
+ *      The type of the entry being looked up is returned here.
+ * \param outBuffer
+ *      Buffer to append the entry being looked up to.
+ */
 void
 Log::lookup(HashTable::Reference reference, LogEntryType& outType, Buffer& outBuffer)
 {
@@ -140,7 +182,7 @@ Log::lookup(HashTable::Reference reference, LogEntryType& outType, Buffer& outBu
 void
 Log::sync()
 {
-    // ---XXXXX---
+    // ---XXXXX sync (teehee!) with Ryan---
 #if 0
     if (head)
         head->sync();
@@ -155,18 +197,21 @@ Log::sync()
  * don't want recovery to resurrect old objects.
  */
 Log::Position
-Log::headOfLog()
+Log::getHeadPosition()
 {
-// XXX- this will interact poorly with iteration (i.e. not return until iteration done),
-//      since callers to append() will block holding this lock!
+    // TODO(Steve): This will interact poorly with iteration - it will not
+    // return until iteration is done, since callers to append() will block
+    // holding this lock!
     Lock lock(appendLock);
-
-    if (head == NULL)
-        return { 0, 0 };
-
     return { head->id, head->getTailOffset() };
 }
 
+/**
+ * Given a reference to an appended entry, return the identifier of the segment
+ * that contains the entry. An example use of this is tombstones, which mark
+ * themselves with the segment id of the object they're deleting. When that
+ * segment leaves the system, the tombstone may be garbage collected.
+ */
 uint64_t
 Log::getSegmentId(HashTable::Reference reference)
 {
@@ -186,8 +231,6 @@ Log::getSegmentId(HashTable::Reference reference)
  *      specified.  This is used to prevent useless allocations in the
  *      case that multiple callers try to allocate new log heads at the
  *      same time.
- * \throw LogOutOfMemoryException
- *      If no Segments are free.
  */
 void
 Log::allocateHeadIfStillOn(uint64_t segmentId)
@@ -195,41 +238,67 @@ Log::allocateHeadIfStillOn(uint64_t segmentId)
     Lock lock(appendLock);
     if (head && head->id == segmentId)
         head = segmentManager.allocHead();
+
+    // XXX What if we're out of space? The above could return NULL, in which
+    //     case we haven't actually closed it. Could we return false to replica
+    //     manager and rely on it retrying? The previous code could have thrown
+    //     an exception, but we never caught it...
 }
 
 /**
- * Determine whether or not the provided Segment identifier is currently
- * live. A live Segment is one that is still being used by the Log for
- * storage. This method can be used to determine if data once written to the
- * Log is no longer present in the RAMCloud system and hence will not appear
- * again during either normal operation or recovery.
- * \param[in] segmentId
+ * Check if a segment is still in the system. This method can be used to
+ * determine if data once written to the log is no longer present in the
+ * RAMCloud system and hence will not appear again during either normal
+ * operation or recovery. Tombstones use this to determine when they are
+ * eligible for garbage collection.
+ *
+ * \param segmentId
  *      The Segment identifier to check for liveness.
+ * \return
+ *      True if the given segment is present in the log, otherwise false.
  */
 bool
-Log::isSegmentLive(uint64_t segmentId)
+Log::containsSegment(uint64_t segmentId)
 {
     TEST_LOG("%lu", segmentId);
     return segmentManager.doesIdExist(segmentId);
 }
 
-
 /******************************************************************************
  * PRIVATE METHODS
  ******************************************************************************/
 
+/**
+ * Build a HashTable::Reference pointing to an entry in the log.
+ *
+ * \param slot
+ *      Slot of the segment containing the entry. This it the temporary,
+ *      reusable identifier that SegmentManager allocates.
+ * \param offset
+ *      Byte offset of the entry in the segment referred to by 'slot'.
+ */
 HashTable::Reference
 Log::buildReference(uint32_t slot, uint32_t offset)
 {
+    // TODO(Steve): Just calculate how many bits we need for the offset, rather
+    // than statically allocate.
     return HashTable::Reference((static_cast<uint64_t>(slot) << 24) | offset);
 }
 
+/**
+ * Given a HashTable::Reference pointing to a log entry, extract the segment
+ * slot number.
+ */
 uint32_t
 Log::referenceToSlot(HashTable::Reference reference)
 {
     return downCast<uint32_t>(reference.get() >> 24);
 }
 
+/**
+ * Given a HashTable::Reference pointing to a log entry, extract the entry's
+ * segment byte offset.
+ */
 uint32_t
 Log::referenceToOffset(HashTable::Reference reference)
 {

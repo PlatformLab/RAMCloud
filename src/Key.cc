@@ -19,6 +19,21 @@
 
 namespace RAMCloud {
 
+/**
+ * Construct a new key object by extracting the appropriate fields from a
+ * log entry. Use this method when obtaining the key from a serialized
+ * object or tombstone in the log.
+ *
+ * \param type
+ *      The log entry type of this entry, as indicated by the log or segment
+ *      code.
+ * \param buffer
+ *      Buffer pointing to the entire object or object tombstone in a log or
+ *      segment.
+ * \throw KeyException
+ *      An exception is thrown if this class does not recognize the type
+ *      argument provided.
+ */
 Key::Key(LogEntryType type, Buffer& buffer)
     : tableId(-1),
       stringKey(NULL),
@@ -42,6 +57,22 @@ Key::Key(LogEntryType type, Buffer& buffer)
     }
 }
 
+/**
+ * Construct a new key object where the binary string key is contained in a
+ * buffer (for example, in an RPC request).
+ *
+ * Note that this method will copy the binary string key into contiguous memory
+ * if necessary.
+ *
+ * \param tableId
+ *      64-bit table identifier portion of this key.
+ * \param buffer
+ *      Buffer containing the binary string key somewhere inside.
+ * \param stringKeyOffset
+ *      Byte offset of the binary string key in the buffer.
+ * \param stringKeyLength
+ *      Length of the binary string key in bytes.
+ */
 Key::Key(uint64_t tableId, Buffer& buffer, uint32_t stringKeyOffset, uint16_t stringKeyLength)
     : tableId(tableId),
       stringKey(buffer.getRange(stringKeyOffset, stringKeyLength)),
@@ -50,6 +81,17 @@ Key::Key(uint64_t tableId, Buffer& buffer, uint32_t stringKeyOffset, uint16_t st
 {
 }
 
+/**
+ * Construct a new key object where the binary string key is contained in some
+ * contiguous memory buffer.
+ *
+ * \param tableId
+ *      64-bit table identifier portion of this key.
+ * \param stringKey
+ *      Pointer to the binary string key.
+ * \param stringKeyLength
+ *      Length of the binary string key in bytes.
+ */
 Key::Key(uint64_t tableId, const void* stringKey, uint16_t stringKeyLength)
     : tableId(tableId),
       stringKey(stringKey),
@@ -58,6 +100,11 @@ Key::Key(uint64_t tableId, const void* stringKey, uint16_t stringKeyLength)
 {
 }
 
+/**
+ * Return the 64-bit hash of this key, which covers the table identifier and the
+ * binary string key. The first invocation will compute the key and cache it for
+ * all subsequent invocations.
+ */
 uint64_t
 Key::getHash()
 {
@@ -67,8 +114,16 @@ Key::getHash()
     return *hash;
 }
 
+/**
+ * Compare two keys for equality. This method tries to avoid full binary string
+ * key comparison by first checking hashes (if available), table identifiers,
+ * and binary string key lengths.
+ *
+ * \return
+ *      True if the keys are equal, otherwise false.
+ */
 bool
-Key::operator==(const Key& other)
+Key::operator==(const Key& other) const
 {
     if (hash && other.hash && *hash != *other.hash)
         return false;
@@ -79,56 +134,60 @@ Key::operator==(const Key& other)
     return (memcmp(stringKey, other.stringKey, stringKeyLength) == 0);
 }
 
+/**
+ * Compare two keys for inequality. See operator==(), which this simply
+ * negates.
+ */
+bool
+Key::operator!=(const Key& other) const
+{
+    return !operator==(other);
+}
+
+/**
+ * Return the 64-bit table identifier.
+ */
 uint64_t
 Key::getTableId()
 {
     return tableId;
 }
 
+/**
+ * Return a pointer to the binary string key. 
+ */
 const void*
 Key::getStringKey()
 {
     return stringKey;
 }
 
+/**
+ * Return the binary string key's length in bytes.
+ */
 uint16_t
 Key::getStringKeyLength()
 {
     return stringKeyLength;
 }
 
+/**
+ * Return a string representation of this key, which describes the entire
+ * 3-tuple of table identifier, binary string key, and the string key's
+ * length.
+ *
+ * Since string keys need not be printable ASCII strings, this function
+ * will escape all non-printable characters, as well as all non-space
+ * whitespace characters in C-style form (for example, "\x0a" for the
+ * newline character).
+ */
 string
 Key::toString()
 {
-    string s = format("<tableId: %lu, stringKey: %s, stringKeyLength: %hu, "
-        "hash: %lu>", tableId, printableStringKey().c_str(), stringKeyLength,
+    string printable = printableBinaryString(stringKey, stringKeyLength);
+    string s = format("<tableId: %lu, stringKey: \"%s\", stringKeyLength: %hu, "
+        "hash: 0x%lx>", tableId, printable.c_str(), stringKeyLength,
         getHash());
-    return s;
-}
-
-/******************************************************************************
- * PRIVATE METHODS
- ******************************************************************************/
-
-/**
- * Take the binary string key and convert it into a printable string.
- * Any printable ASCII characters (including space, but not other
- * whitespace), will be unchanged. Any non-printable characters will
- * be represented in escaped hexadecimal form, for example '\xf8\x07'.
- */
-string
-Key::printableStringKey()
-{
-    string s = "";
-    const unsigned char* c = reinterpret_cast<const unsigned char*>(stringKey);
-
-    for (uint16_t i = 0; i < stringKeyLength; i++) {
-        if (isprint(c[i]))
-            s += c[i];
-        else
-            s += format("\\x%02x", static_cast<uint32_t>(c[i]));
-    }
-
     return s;
 }
 

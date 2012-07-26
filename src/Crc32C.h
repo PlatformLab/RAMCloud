@@ -19,6 +19,7 @@
 #define RAMCLOUD_CRC32C_H
 
 #include "Common.h"
+#include "Buffer.h"
 
 /// Lookup tables for software CRC32C implementation.
 namespace Crc32CSlicingBy8 {
@@ -196,10 +197,48 @@ class Crc32C {
      * \return
      *      A reference to this instance for chaining calls.
      */
-    Crc32C& update(const void* buffer, uint32_t bytes) {
+    Crc32C&
+    update(const void* buffer, uint32_t bytes)
+    {
         result = useHardware ? intelCrc32C(result, buffer, bytes)
                              : softwareCrc32C(result, buffer, bytes);
         return *this;
+    }
+
+    /**
+     * Update the accumulated checksum.
+     * \param[in] buffer
+     *      Buffer describing the data to be checksummed.
+     * \param[in] offset 
+     *      Offset within the buffer to begin checksumming at.
+     * \param[in] bytes
+     *      The number of bytes in the buffer to checksum.
+     * \return
+     *      A reference to this instance for chaining calls.
+     */
+    Crc32C&
+    update(Buffer& buffer, uint32_t offset, uint32_t bytes)
+    {
+        Buffer::Iterator it(buffer, offset, bytes);
+        while (!it.isDone()) {
+            update(it.getData(), it.getLength());
+            it.next();
+        }
+        return *this;
+    }
+
+    /**
+     * Update the accumulated checksum.
+     * \param[in] buffer
+     *      Buffer describing the data to be checksummed. All bytes within the
+     *      buffer will be checksummed.
+     * \return
+     *      A reference to this instance for chaining calls.
+     */
+    Crc32C&
+    update(Buffer& buffer)
+    {
+        return update(buffer, 0, buffer.getTotalLength());
     }
 
     /**
@@ -212,8 +251,10 @@ class Crc32C {
   PROTECTED:
     /// Whether this machine has Intel's CRC32C instruction.
     static bool haveHardware;
+
     /// Whether this checksum instance should use Intel's CRC32C instruction.
     bool useHardware;
+
     /// The accumulated checksum before inversion.
     uint32_t result;
 };

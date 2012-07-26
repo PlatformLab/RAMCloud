@@ -178,13 +178,13 @@ LogIterator::getLength()
     return currentIterator->getLength();
 }
 
-Buffer&
+uint32_t
 LogIterator::appendToBuffer(Buffer& buffer)
 {
     return currentIterator->appendToBuffer(buffer);
 }
 
-Buffer&
+uint32_t
 LogIterator::setBufferTo(Buffer& buffer)
 {
     buffer.reset();

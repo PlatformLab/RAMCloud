@@ -51,6 +51,7 @@ TESTS_SRCFILES := \
 		  src/ObjectFinderTest.cc \
 		  src/OptionParserTest.cc \
 		  src/ObjectPoolTest.cc \
+		  src/ObjectTest.cc \
 		  src/PingServiceTest.cc \
 		  src/ProtoBufTest.cc \
 		  src/RawMetricsTest.cc \

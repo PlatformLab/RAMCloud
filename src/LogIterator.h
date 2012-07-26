@@ -33,8 +33,8 @@ class LogIterator {
     bool onHead();
     LogEntryType getType();
     uint32_t getLength();
-    Buffer& appendToBuffer(Buffer& buffer);
-    Buffer& setBufferTo(Buffer& buffer);
+    uint32_t appendToBuffer(Buffer& buffer);
+    uint32_t setBufferTo(Buffer& buffer);
 
   PRIVATE:
     /**

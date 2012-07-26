@@ -22,7 +22,7 @@
 #include "Buffer.h"
 #include "Crc32C.h"
 #include "LogEntryTypes.h"
-#include "LargeBlockOfMemory.h"
+#include "Tub.h"
 
 namespace RAMCloud {
 
@@ -36,15 +36,28 @@ struct SegmentException : public Exception {
 };
 
 /**
- * Methods and metadata for a segment stored in memory. Segments objects
- * wrap a contiguous region of memory that hold entries that were appended
- * there. This chunk of memory is self-describing, so the Segment object
- * is really just a series of operations on that memory and cached state
- * about it. The cached state could be recomputed if necessary and this
- * is effectively what happens during recovery and cold start.
+ * Segments are simple, append-only containers for typed data blobs. Data can
+ * be added to the end of a container and later retrieved, but not mutated.
+ * Segments are easily iterated and they contain internal consistency checks to
+ * help ensure metadata integrity.
+ *
+ * The log ties many segments together to form a large logical log. By using
+ * many smaller segments it can achieve more efficient garbage collection and
+ * high backup bandwidth.
+ *
+ * Segments are also a useful way of transferring RAMCloud objects over the
+ * network. Simply add objects to a segment, then append the segment's
+ * contents to an outgoing RPC buffer.
+ *
+ * Internally, segments make use of discontiguous pieces of memory, called
+ * "seglets". Seglets only exist to make log cleaning more efficient and are
+ * almost entirely hidden by the segment API. The exception is that custom
+ * allocators may be used when constructing segments in order to control the
+ * size of seglets and segments.
  */
 class Segment {
   public:
+    // TODO(Steve): This doesn't belong here, but rather in SegmentManager.
     enum { INVALID_SEGMENT_ID = ~(0ull) };
 
     enum { DEFAULT_SEGLET_SIZE = 128 * 1024 };
@@ -56,6 +69,12 @@ class Segment {
     enum { DEFAULT_SEGMENT_SIZE = 8 * 1024 * 1024 };
 #endif
 
+    /**
+     * Segments obtain their backing memory from an Allocator subclass instance.
+     * This class defines how large segments are, how many seglets they will
+     * consist of, how large seglets are, and provides means of allocating and
+     * freeing individual seglets.
+     */
     class Allocator {
       public:
         virtual ~Allocator() { }
@@ -71,6 +90,10 @@ class Segment {
         }
     };
 
+    /**
+     * A default allocator that uses the standard heap allocator to allocate
+     * seglets of length the default size of an entire segment.
+     */
     class DefaultHeapAllocator : public Allocator {
       public:
         uint32_t getSegletsPerSegment() { return 1; }
@@ -82,9 +105,9 @@ class Segment {
   PRIVATE:
     /**
      * Every piece of data appended to a segment is described by one of these
-     * structures. All this does is identify the type of data that follows
-     * each header and how many bytes are needed to store the length of the
-     * entry (not including the header itself).
+     * structures. All this does is identify the type of data that follows an
+     * instance of this header and how many bytes are needed to store the length
+     * of the entry (not including the header itself).
      *
      * The Segment code allocates an entry by writing this single byte header,
      * and then appends the entry's length using between 1 and 4 bytes. The
@@ -93,6 +116,10 @@ class Segment {
      * The rest is up to the Segment class.
      */
     struct EntryHeader {
+        /**
+         * Construct a new header, initializing it with the given log entry type
+         * and length of the data this entry will contain.
+         */
         EntryHeader(LogEntryType type, uint32_t length)
             : lengthBytesAndType(downCast<uint8_t>(type))
         {
@@ -108,11 +135,6 @@ class Segment {
                 lengthBytesAndType |= (3 << 6);
         }
 
-        EntryHeader()
-            : lengthBytesAndType(0)
-        {
-        }
-
         // Number of bytes needed to describe the entry's length and the type of
         // the entry (downcasted from the LogEntryType enum).
         //
@@ -121,12 +143,21 @@ class Segment {
         // types.
         uint8_t lengthBytesAndType;
 
+        /**
+         * Obtain the type of log entry this header describes. Useful for
+         * deciding how to interface the data in an entry.
+         */
         LogEntryType
         getType() const
         {
             return static_cast<LogEntryType>(lengthBytesAndType & 0x3f);
         }
 
+        /**
+         * Obtain the number of bytes this entry's length requires to be
+         * stored. For example, small entries (< 256 bytes) can have the
+         * length fit in a single byte.
+         */
         uint8_t
         getLengthBytes() const
         {
@@ -137,23 +168,32 @@ class Segment {
                   "Unexpected padding in Segment::EntryHeader");
 
   public:
-    Segment(Allocator& allocator);
     Segment();
+    Segment(Allocator& allocator);
+    Segment(const void* buffer, uint32_t length);
     virtual ~Segment();
-    bool append(LogEntryType type, Buffer& buffer, uint32_t offset, uint32_t length, uint32_t& outOffset);
+    bool append(LogEntryType type,
+                Buffer& buffer,
+                uint32_t offset,
+                uint32_t length,
+                uint32_t& outOffset);
     bool append(LogEntryType type, Buffer& buffer, uint32_t& outOffset);
     bool append(LogEntryType type, Buffer& buffer);
-    bool append(LogEntryType type, const void* data, uint32_t length, uint32_t& outOffset);
+    bool append(LogEntryType type,
+                const void* data,
+                uint32_t length,
+                uint32_t& outOffset);
     bool append(LogEntryType type, const void* data, uint32_t length);
     void free(uint32_t entryOffset);
     void close();
-    uint32_t appendToBuffer(Buffer& buffer, uint32_t offset, uint32_t length);
     uint32_t appendToBuffer(Buffer& buffer);
     uint32_t appendEntryToBuffer(uint32_t offset, Buffer& buffer);
     LogEntryType getEntryTypeAt(uint32_t offset);
+    uint32_t getEntryLengthAt(uint32_t offset);
     uint32_t getTailOffset();
     uint32_t getSegletsAllocated();
     uint32_t getSegletsNeeded();
+    bool checkMetadataIntegrity();
 
   PRIVATE:
     /**
@@ -181,9 +221,36 @@ class Segment {
     } __attribute__((__packed__));
     static_assert(sizeof(Footer) == 5, "Unexpected padding in Segment::Footer");
 
+    /**
+     * This allocator is used when constructing a segment that wraps another
+     * serialized segment. When constructing such a segment we neither allocate,
+     * nor free, but do query the allocator for segment and seglet information.
+     *
+     * The alternative is adding a boolean to the class and a bunch of special
+     * if statements in various methods. This seems a cleaner solution, if
+     * perhaps a little more oblique.
+     */
+    class FakeAllocator : public Allocator {
+      public:
+        FakeAllocator(uint32_t length)
+            : length(length)
+        {
+        }
+        uint32_t getSegletsPerSegment() { return 1; }
+        uint32_t getSegletSize() { return length; }
+        void* alloc() { throw SegmentException(HERE, "don't call me!"); }
+        void free(void* seglet) { };
+
+      PRIVATE:
+        /// Length of the serialized segment we've "allocated".
+        uint32_t length;
+    };
+
     typedef std::vector<void*> SegletVector;
 
+    uint32_t appendToBuffer(Buffer& buffer, uint32_t offset, uint32_t length);
     void appendFooter();
+    const EntryHeader* getEntryHeader(uint32_t offset);
     uint32_t getEntryDataOffset(uint32_t offset);
     uint32_t getEntryDataLength(uint32_t offset);
     void* getAddressAt(uint32_t offset);
@@ -191,9 +258,19 @@ class Segment {
     void* offsetToSeglet(uint32_t offset);
     uint32_t bytesLeft();
     uint32_t bytesNeeded(uint32_t length);
-    void copyOut(uint32_t offset, void* buffer, uint32_t length);
-    void copyIn(uint32_t offset, const void* buffer, uint32_t length);
-    void copyInFromBuffer(uint32_t segmentOffset, Buffer& buffer, uint32_t bufferOffset, uint32_t length);
+    uint32_t copyOut(uint32_t offset, void* buffer, uint32_t length);
+    uint32_t copyIn(uint32_t offset, const void* buffer, uint32_t length);
+    uint32_t copyInFromBuffer(uint32_t segmentOffset,
+                              Buffer& buffer,
+                              uint32_t bufferOffset,
+                              uint32_t length);
+
+    /// When constructing a segment object that wraps a previously serialized
+    /// segment (for instance, when iterating over a segment from a backup),
+    /// this will contain a fake allocator that neither allocates nor frees
+    /// memory, and claims to have a single seglet per segment of exactly
+    /// the length of what is passed to the constructor.
+    Tub<FakeAllocator> fakeAllocator;
 
     /// The allocator our seglets are obtained from during construction and
     /// returned to during destruction.
@@ -214,21 +291,11 @@ class Segment {
     /// particular entry handle.
     uint32_t bytesFreed;
 
-    /// Sum of live datas' space-time products. I.e., for each entry multiply
-    /// its timestamp by its size in bytes and add to this counter. This is
-    /// used to compute an average age per byte in the Segment, which in turn
-    /// is used for the cleaner's cost-benefit analysis.
-    uint64_t spaceTimeSum;
-
     /// Latest Segment checksum (crc32c). This is a checksum of all metadata
     /// in the Segment (that is, every Segment::Entry, ::Header, and ::Footer).
     /// Any user data that is stored in the Segment is unprotected. Integrity
     /// is their responsibility.
     Crc32C checksum;
-
-    /// The number of each type of entry present in the Segment. Note that this
-    /// counts all entries, both dead and live.
-    uint32_t entryCountsByType[TOTAL_LOG_ENTRY_TYPES];
 
     friend class SegmentIterator;
 

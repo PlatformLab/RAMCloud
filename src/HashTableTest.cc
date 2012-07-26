@@ -67,6 +67,27 @@ class TestObject {
     DISALLOW_COPY_AND_ASSIGN(TestObject);
 } __attribute__((aligned(64)));
 
+/**
+ * Unit tests for HashTable::Reference.
+ */
+class HashTableReferenceTest : public ::testing::Test {
+  public:
+    HashTableReferenceTest() {}
+
+    DISALLOW_COPY_AND_ASSIGN(HashTableReferenceTest);
+};
+
+TEST_F(HashTableReferenceTest, everything) {
+    EXPECT_THROW(HashTable::Reference(0x0001000000000000lu), FatalError);
+    EXPECT_THROW(HashTable::Reference(0x8000000000000000lu), FatalError);
+    EXPECT_NO_THROW(HashTable::Reference(0x0000800000000000lu));
+    EXPECT_EQ(12UL, HashTable::Reference(12).get());
+    EXPECT_TRUE(HashTable::Reference(12) == HashTable::Reference(12));
+    EXPECT_FALSE(HashTable::Reference(12) == HashTable::Reference(13));
+    EXPECT_FALSE(HashTable::Reference(12) != HashTable::Reference(12));
+    EXPECT_TRUE(HashTable::Reference(12) != HashTable::Reference(13));
+}
+
 class TestObjectKeyComparer : public HashTable::KeyComparer {
   public:
     bool

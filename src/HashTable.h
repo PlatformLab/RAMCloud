@@ -103,7 +103,7 @@ class HashTable {
         bool
         operator!=(const Reference& other) const
         {
-            return operator==(other);
+            return !operator==(other);
         }
 
       PRIVATE:

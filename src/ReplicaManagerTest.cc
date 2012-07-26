@@ -171,7 +171,7 @@ TEST_F(ReplicaManagerTest, writeSegment) {
     s.append(LOG_ENTRY_TYPE_SEGHEADER, buffer);
 
     Key key(123, "10", 2);
-    Object object(key, NULL, 0, 0);
+    Object object(key, NULL, 0, 0, 0);
     buffer.reset();
     object.serializeToBuffer(buffer);
     s.append(LOG_ENTRY_TYPE_OBJ, buffer);
@@ -214,7 +214,8 @@ TEST_F(ReplicaManagerTest, writeSegment) {
             EXPECT_EQ(Object::getSerializedLength(2, 0), it.getLength());
 
             Buffer buffer;
-            Object object(it.appendToBuffer(buffer));
+            it.appendToBuffer(buffer);
+            Object object(buffer);
             EXPECT_EQ("10", TestUtil::toString(object.getKey(), object.getKeyLength()));
             EXPECT_EQ(123U, object.getTableId());
         }

@@ -39,27 +39,29 @@ class SegmentIterator {
   public:
     SegmentIterator();
     explicit SegmentIterator(Segment& segment);
-    SegmentIterator(const void *buffer, uint32_t length);
+    SegmentIterator(const void* buffer, uint32_t length);
     VIRTUAL_FOR_TESTING ~SegmentIterator();
     VIRTUAL_FOR_TESTING bool isDone();
     VIRTUAL_FOR_TESTING void next();
     VIRTUAL_FOR_TESTING LogEntryType getType();
     VIRTUAL_FOR_TESTING uint32_t getLength();
-    VIRTUAL_FOR_TESTING Buffer& appendToBuffer(Buffer& buffer);
-    VIRTUAL_FOR_TESTING Buffer& setBufferTo(Buffer& buffer);
+    VIRTUAL_FOR_TESTING uint32_t appendToBuffer(Buffer& buffer);
+    VIRTUAL_FOR_TESTING uint32_t setBufferTo(Buffer& buffer);
 
   PRIVATE:
-    Tub<Segment*> segment;
-    Tub<const void*> segmentBuffer;
-    Tub<uint32_t> segmentLength;
+    /// If the constructor was called on a void pointer, we'll create a wrapper
+    /// segment to access the data in a common way using segment object calls.
+    Tub<Segment> wrapperSegment;
+
+    /// Pointer to the segment we're iterating on. This points either to the
+    /// segment object passed in to the constructor, or wrapperSegment above if
+    /// we're iterating over a void buffer.
+    Segment* segment;
+
+    /// Current offset into the segment. This points to the entry we're on and
+    /// will use in the getType, getLength, appendToBuffer, etc. calls.
     uint32_t currentOffset;
  
-    const void* getAddressAt(uint32_t offset);
-    uint32_t getContiguousBytesAt(uint32_t offset);
-    void copyOut(uint32_t offset, void* destination, uint32_t length);
-    const Segment::EntryHeader* getEntryHeader(uint32_t offset);
-    void checkIntegrity();
-
     DISALLOW_COPY_AND_ASSIGN(SegmentIterator);
 };
 

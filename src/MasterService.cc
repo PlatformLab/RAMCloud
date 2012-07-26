@@ -278,7 +278,7 @@ MasterService::getHeadOfLog(const GetHeadOfLogRpc::Request& reqHdr,
                             GetHeadOfLogRpc::Response& respHdr,
                             Rpc& rpc)
 {
-    Log::Position head = log.headOfLog();
+    Log::Position head = log.getHeadPosition();
     respHdr.headSegmentId = head.segmentId();
     respHdr.headSegmentOffset = head.segmentOffset();
 }
@@ -534,17 +534,10 @@ MasterService::takeTabletOwnership(
     TakeTabletOwnershipRpc::Response& respHdr,
     Rpc& rpc)
 {
-    if (log.headOfLog() == Log::Position()) {
-        // Before any tablets can be assigned to this master it must have at
-        // least one segment on backups, otherwise it is impossible to
-        // distinguish between the loss of its entire log and the case where no
-        // data was ever written to it.
-        LOG(DEBUG, "Allocating log head before accepting tablet assignment");
-// XXX- this is nonsense. The log should just open the head in the constructor.
-//      Be sure to include this comment in the constructor when that happens.
-        //log.allocateHead();
-        log.sync();
-    }
+    // Before any tablets can be assigned to this master it must have at
+    // least one segment on backups, otherwise it is impossible to
+    // distinguish between the loss of its entire log and the case where no
+    // data was ever written to it. The log's constructor made this guarantee.
 
     ProtoBuf::Tablets::Tablet* tablet = NULL;
     foreach (ProtoBuf::Tablets::Tablet& i, *tablets.mutable_tablet()) {
@@ -1484,7 +1477,7 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
     }
 
     // Record the log position before recovery started.
-    Log::Position headOfLog = log.headOfLog();
+    Log::Position headOfLog = log.getHeadPosition();
 
     // Recover Segments, firing MasterService::recoverSegment for each one.
     bool successful = false;
@@ -1629,6 +1622,16 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
             Key key(type, buffer);
 
             Object recoverObj(buffer);
+            bool checksumIsValid = ({
+                CycleCounter<RawMetric> c(&metrics->master.verifyChecksumTicks);
+                recoverObj.checkIntegrity();
+            });
+            if (!checksumIsValid) {
+                LOG(WARNING, "bad object checksum! key: %s, version: %lu",
+                    key.toString().c_str(), recoverObj.getVersion());
+                // TODO(Stutsman): Should throw and try another segment replica?
+            }
+
             uint64_t minSuccessor = 0;
             bool freeCurrentEntry = false;
 
@@ -1682,20 +1685,17 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
             it.appendToBuffer(buffer);
             Key key(type, buffer);
 
-#if 0
-            /// XXX- tombstones don't contain checksums anymore!
-
+            ObjectTombstone recoverTomb(buffer);
             bool checksumIsValid = ({
                 CycleCounter<RawMetric> c(&metrics->master.verifyChecksumTicks);
-                it.isChecksumValid();
+                recoverTomb.checkIntegrity();
             });
             if (!checksumIsValid) {
-                LOG(WARNING, "invalid tombstone checksum! key: %s, "
-                    "version: %lu", key.toString(), recoverTomb->objectVersion);
+                LOG(WARNING, "bad tombstone checksum! key: %s, version: %lu",
+                    key.toString().c_str(), recoverTomb.getObjectVersion());
+                // TODO(Stutsman): Should throw and try another segment replica?
             }
-#endif
 
-            ObjectTombstone recoverTomb(buffer);
             uint64_t minSuccessor = 0;
             bool freeCurrentEntry = false;
 
@@ -1782,7 +1782,9 @@ MasterService::remove(const RemoveRpc::Request& reqHdr,
         return;
     }
 
-    ObjectTombstone tombstone(object, log.getSegmentId(reference));
+    ObjectTombstone tombstone(object,
+                              log.getSegmentId(reference),
+                              secondsTimestamp());
     Buffer tombstoneBuffer;
     tombstone.serializeToBuffer(tombstoneBuffer);
 
@@ -2029,31 +2031,33 @@ uint32_t
 MasterService::getTimestamp(LogEntryType type, Buffer& buffer)
 {
     if (type == LOG_ENTRY_TYPE_OBJ)
-        return objectTimestamp(buffer);
+        return getObjectTimestamp(buffer);
     else if (type == LOG_ENTRY_TYPE_OBJTOMB)
-        return tombstoneTimestamp(buffer);
+        return getTombstoneTimestamp(buffer);
     else
         return 0;
 }
 
 bool
-MasterService::isAlive(LogEntryType type, Buffer& buffer)
+MasterService::checkLiveness(LogEntryType type, Buffer& buffer)
 {
     if (type == LOG_ENTRY_TYPE_OBJ)
-        return objectLiveness(buffer);
+        return checkObjectLiveness(buffer);
     else if (type == LOG_ENTRY_TYPE_OBJTOMB)
-        return tombstoneLiveness(buffer);
+        return checkTombstoneLiveness(buffer);
     else
         return false;
 }
 
 bool
-MasterService::relocating(LogEntryType type, Buffer& oldBuffer, HashTable::Reference newReference)
+MasterService::relocate(LogEntryType type,
+                        Buffer& oldBuffer,
+                        HashTable::Reference newReference)
 {
     if (type == LOG_ENTRY_TYPE_OBJ)
-        return objectRelocation(oldBuffer, newReference);
+        return relocateObject(oldBuffer, newReference);
     else if (type == LOG_ENTRY_TYPE_OBJTOMB)
-        return tombstoneRelocation(oldBuffer, newReference);
+        return relocateTombstone(oldBuffer, newReference);
     else
         return false;
 }
@@ -2071,7 +2075,7 @@ MasterService::relocating(LogEntryType type, Buffer& oldBuffer, HashTable::Refer
  *      True if the object is still alive, else false.
  */
 bool
-MasterService::objectLiveness(Buffer& objectBuffer)
+MasterService::checkObjectLiveness(Buffer& objectBuffer)
 {
     Key key(LOG_ENTRY_TYPE_OBJ, objectBuffer);
 
@@ -2116,8 +2120,8 @@ MasterService::objectLiveness(Buffer& objectBuffer)
  *      deleted.
  */
 bool
-MasterService::objectRelocation(Buffer& oldBuffer,
-                                HashTable::Reference newReference)
+MasterService::relocateObject(Buffer& oldBuffer,
+                              HashTable::Reference newReference)
 {
     Key key(LOG_ENTRY_TYPE_OBJ, oldBuffer);
 
@@ -2165,7 +2169,7 @@ MasterService::objectRelocation(Buffer& oldBuffer,
  *      The Object's modification timestamp.
  */
 uint32_t
-MasterService::objectTimestamp(Buffer& buffer)
+MasterService::getObjectTimestamp(Buffer& buffer)
 {
     Object object(buffer);
     return object.getTimestamp();
@@ -2184,10 +2188,10 @@ MasterService::objectTimestamp(Buffer& buffer)
  *      True if the object is still alive, else false.
  */
 bool
-MasterService::tombstoneLiveness(Buffer& buffer)
+MasterService::checkTombstoneLiveness(Buffer& buffer)
 {
     ObjectTombstone tomb(buffer);
-    return log.isSegmentLive(tomb.getSegmentId());
+    return log.containsSegment(tomb.getSegmentId());
 }
 
 /**
@@ -2215,13 +2219,13 @@ MasterService::tombstoneLiveness(Buffer& buffer)
  *      deleted.
  */
 bool
-MasterService::tombstoneRelocation(Buffer& oldBuffer,
-                                   HashTable::Reference newReference)
+MasterService::relocateTombstone(Buffer& oldBuffer,
+                                 HashTable::Reference newReference)
 {
     ObjectTombstone tomb(oldBuffer);
 
     // See if the object this tombstone refers to is still in the log.
-    bool keepNewTomb = log.isSegmentLive(tomb.getSegmentId());
+    bool keepNewTomb = log.containsSegment(tomb.getSegmentId());
 
     if (!keepNewTomb) {
         Key key(LOG_ENTRY_TYPE_OBJTOMB, oldBuffer);
@@ -2246,7 +2250,7 @@ MasterService::tombstoneRelocation(Buffer& oldBuffer,
  *      The tombstone's creation timestamp.
  */
 uint32_t
-MasterService::tombstoneTimestamp(Buffer& buffer)
+MasterService::getTombstoneTimestamp(Buffer& buffer)
 {
     ObjectTombstone tomb(buffer);
     return tomb.getTimestamp();
@@ -2344,7 +2348,7 @@ MasterService::storeObject(Key& key,
     uint64_t newObjectVersion = (currentVersion == VERSION_NONEXISTENT) ?
         table->AllocateVersion() : currentVersion + 1;
 
-    Object newObject(key, data, newObjectVersion);
+    Object newObject(key, data, newObjectVersion, secondsTimestamp());
 
     assert(currentVersion == VERSION_NONEXISTENT ||
            newObject.getVersion() > currentVersion);
@@ -2352,7 +2356,9 @@ MasterService::storeObject(Key& key,
     if (currentVersion != VERSION_NONEXISTENT &&
       currentType == LOG_ENTRY_TYPE_OBJ) {
         Object object(currentBuffer);
-        ObjectTombstone tombstone(object, log.getSegmentId(currentReference));
+        ObjectTombstone tombstone(object,
+                                  log.getSegmentId(currentReference),
+                                  secondsTimestamp());
 
         Buffer tombstoneBuffer;
         tombstone.serializeToBuffer(tombstoneBuffer);

@@ -89,7 +89,7 @@ class MasterServiceTest : public ::testing::Test {
     {
         Segment s;
         uint32_t dataLength = downCast<uint32_t>(objContents.length()) + 1;
-        Object newObject(key, objContents.c_str(), dataLength, version);
+        Object newObject(key, objContents.c_str(), dataLength, version, 0);
 
         Buffer newObjectBuffer;
         newObject.serializeToBuffer(newObjectBuffer);
@@ -282,9 +282,9 @@ TEST_F(MasterServiceTest, detectSegmentRecoveryFailure_failure) {
 }
 
 TEST_F(MasterServiceTest, getHeadOfLog) {
-    EXPECT_EQ(Log::Position(0, 0), client->getHeadOfLog());
+    EXPECT_EQ(Log::Position(0, 44), client->getHeadOfLog());
     client->write(0, "0", 1, "abcdef", 6);
-    EXPECT_EQ(Log::Position(0, 99), client->getHeadOfLog());
+    EXPECT_EQ(Log::Position(0, 79), client->getHeadOfLog());
 }
 
 TEST_F(MasterServiceTest, recover_basics) {
@@ -533,10 +533,10 @@ TEST_F(MasterServiceTest, recover_ctimeUpdateIssued) {
         "recoveryMasterFinished: tablet { "
         "table_id: 123 start_key_hash: 0 end_key_hash: 9 state: RECOVERING "
         "server_id: 2 service_locator: \"mock:host=master\" user_data: 0 "
-        "ctime_log_head_id: 0 ctime_log_head_offset: 99 } tablet { table_id: "
+        "ctime_log_head_id: 0 ctime_log_head_offset: 79 } tablet { table_id: "
         "123 start_key_hash: 10 end_key_hash: 19 state: RECOVERING server_id: "
         "2 service_locator: \"mock:host=master\" user_data: 0 "
-        "ctime_log_head_id: 0 ctime_log_head_offset: 99 } tablet { table_id: "
+        "ctime_log_head_id: 0 ctime_log_head_offset: 79 } tablet { table_id: "
         "123 start_key_hash: 20 end_key_hash: 29 state: RECOVERING server_id: "
         "2 service_locator: \"mock:host=master\" user_data: "));
 }
@@ -619,8 +619,8 @@ TEST_F(MasterServiceTest, recoverSegment) {
 
     // Case 2a: Equal/newer tombstone already there; ignore object.
     Key key2(0, "key2", 4);
-    Object o1(key2, NULL, 0, 1);
-    ObjectTombstone t1(o1, 0);
+    Object o1(key2, NULL, 0, 1, 0);
+    ObjectTombstone t1(o1, 0, 0);
     buffer.reset();
     t1.serializeToBuffer(buffer);
     service->log.append(LOG_ENTRY_TYPE_OBJTOMB, buffer, true, logTomb1Ref);
@@ -638,8 +638,8 @@ TEST_F(MasterServiceTest, recoverSegment) {
 
     // Case 2b: Lesser tombstone already there; add object, remove tomb.
     Key key3(0, "key3", 4);
-    Object o2(key3, NULL, 0, 10);
-    ObjectTombstone t2(o2, 0);
+    Object o2(key3, NULL, 0, 10, 0);
+    ObjectTombstone t2(o2, 0, 0);
     buffer.reset();
     t2.serializeToBuffer(buffer);
     ret = service->log.append(LOG_ENTRY_TYPE_OBJTOMB, buffer, true, logTomb2Ref);
@@ -680,8 +680,8 @@ TEST_F(MasterServiceTest, recoverSegment) {
     Key key5(0, "key5", 4);
     len = buildRecoverySegment(seg, segLen, key5, 1, "newer guy");
     service->recoverSegment(0, seg, len);
-    Object o3(key5, NULL, 0, 4);
-    ObjectTombstone t3(o3, 0);
+    Object o3(key5, NULL, 0, 4, 0);
+    ObjectTombstone t3(o3, 0, 0);
     len = buildRecoverySegment(seg, segLen, t3);
     service->recoverSegment(0, seg, len);
     verifyRecoveryObject(key5, "newer guy");
@@ -691,8 +691,8 @@ TEST_F(MasterServiceTest, recoverSegment) {
     len = buildRecoverySegment(seg, segLen, key6, 0, "equal guy");
     service->recoverSegment(0, seg, len);
     verifyRecoveryObject(key6, "equal guy");
-    Object o4(key6, NULL, 0, 0);
-    ObjectTombstone t4(o4, 0);
+    Object o4(key6, NULL, 0, 0, 0);
+    ObjectTombstone t4(o4, 0, 0);
     len = buildRecoverySegment(seg, segLen, t4);
     service->recoverSegment(0, seg, len);
     service->removeTombstones();
@@ -704,8 +704,8 @@ TEST_F(MasterServiceTest, recoverSegment) {
     len = buildRecoverySegment(seg, segLen, key7, 0, "older guy");
     service->recoverSegment(0, seg, len);
     verifyRecoveryObject(key7, "older guy");
-    Object o5(key7, NULL, 0, 1);
-    ObjectTombstone t5(o5, 0);
+    Object o5(key7, NULL, 0, 1, 0);
+    ObjectTombstone t5(o5, 0, 0);
     len = buildRecoverySegment(seg, segLen, t5);
     service->recoverSegment(0, seg, len);
     service->removeTombstones();
@@ -715,8 +715,8 @@ TEST_F(MasterServiceTest, recoverSegment) {
 
     // Case 2a: Newer tombstone already there; ignore.
     Key key8(0, "key8", 4);
-    Object o6(key8, NULL, 0, 1);
-    ObjectTombstone t6(o6, 0);
+    Object o6(key8, NULL, 0, 1, 0);
+    ObjectTombstone t6(o6, 0, 0);
     len = buildRecoverySegment(seg, segLen, t6);
     service->recoverSegment(0, seg, len);
     buffer.reset();
@@ -725,7 +725,7 @@ TEST_F(MasterServiceTest, recoverSegment) {
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJTOMB, type);
     ObjectTombstone t6InLog(buffer);
     EXPECT_EQ(1U, t6InLog.getObjectVersion());
-    ObjectTombstone t7(o6, 0);
+    ObjectTombstone t7(o6, 0, 0);
     t7.serializedForm.objectVersion = 0;
     len = buildRecoverySegment(seg, segLen, t7);
     service->recoverSegment(0, seg, len);
@@ -737,8 +737,8 @@ TEST_F(MasterServiceTest, recoverSegment) {
 
     // Case 2b: Older tombstone already there; replace.
     Key key9(0, "key9", 4);
-    Object o8(key9, NULL, 0, 0);
-    ObjectTombstone t8(o8, 0);
+    Object o8(key9, NULL, 0, 0, 0);
+    ObjectTombstone t8(o8, 0, 0);
     len = buildRecoverySegment(seg, segLen, t8);
     service->recoverSegment(0, seg, len);
     buffer.reset();
@@ -747,8 +747,8 @@ TEST_F(MasterServiceTest, recoverSegment) {
     ObjectTombstone t8InLog(buffer);
     EXPECT_EQ(0U, t8InLog.getObjectVersion());
 
-    Object o9(key9, NULL, 0, 1);
-    ObjectTombstone t9(o8, 0);
+    Object o9(key9, NULL, 0, 1, 0);
+    ObjectTombstone t9(o8, 0, 0);
     len = buildRecoverySegment(seg, segLen, t9);
     service->recoverSegment(0, seg, len);
     buffer.reset();
@@ -761,8 +761,8 @@ TEST_F(MasterServiceTest, recoverSegment) {
     // Case 3: No tombstone, no object. Recovered tombstone always added.
     Key key10(0, "key10", 5);
     EXPECT_FALSE(service->objectMap.lookup(key10, reference));
-    Object o10(key10, NULL, 0, 0);
-    ObjectTombstone t10(o10, 0);
+    Object o10(key10, NULL, 0, 0, 0);
+    ObjectTombstone t10(o10, 0, 0);
     len = buildRecoverySegment(seg, segLen, t10);
     service->recoverSegment(0, seg, len);
     buffer.reset();
@@ -978,8 +978,6 @@ TEST_F(MasterServiceTest, takeTabletOwnership_newTablet) {
                                 service->tablets.ShortDebugString());
 
         EXPECT_EQ(
-            "takeTabletOwnership: Allocating log head before accepting "
-                "tablet assignment | "
             "takeTabletOwnership: Taking ownership of new tablet "
                 "(2, range [2,3]) | "
             "takeTabletOwnership: Taking ownership of new tablet "
@@ -1024,8 +1022,6 @@ TEST_F(MasterServiceTest, takeTabletOwnership_migratingTablet) {
     client->takeTabletOwnership(1, 0, 5);
 
     EXPECT_EQ(
-        "takeTabletOwnership: Allocating log head before accepting tablet "
-            "assignment | "
         "takeTabletOwnership: Taking ownership of existing tablet "
             "(1, range [0,5]) in state 1", TestLog::get());
 }
@@ -1117,7 +1113,7 @@ TEST_F(MasterServiceTest, migrateTablet_movingData) {
         "18446744073709551615) to ServerId 3 (\"mock:host=master2\") "
         "| migrateTablet: Sending last migration segment | "
         "migrateTablet: Tablet migration succeeded. Sent 1 objects "
-        "and 0 tombstones. 41 bytes in total.", TestLog::get());
+        "and 0 tombstones. 35 bytes in total.", TestLog::get());
 }
 
 static bool
@@ -1147,7 +1143,7 @@ TEST_F(MasterServiceTest, receiveMigrationData) {
         "not in the RECOVERING state (state = NORMAL)!", TestLog::get());
 
     Key key(5, "wee!", 4);
-    Object o(key, "watch out for the migrant object", 32, 0);
+    Object o(key, "watch out for the migrant object", 32, 0, 0);
 
     Buffer buffer;
     o.serializeToBuffer(buffer);
@@ -1363,7 +1359,7 @@ TEST_F(MasterServiceTest, objectLivenessCallback_objectAlive) {
 
     // Object exists
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, type);
-    EXPECT_TRUE(service->isAlive(type, buffer));
+    EXPECT_TRUE(service->checkLiveness(type, buffer));
 }
 
 TEST_F(MasterServiceTest, objectLivenessCallback_objectDeleted) {
@@ -1386,7 +1382,7 @@ TEST_F(MasterServiceTest, objectLivenessCallback_objectDeleted) {
 
     // Object does not exist
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, type);
-    EXPECT_FALSE(service->isAlive(type, buffer));
+    EXPECT_FALSE(service->checkLiveness(type, buffer));
 }
 
 TEST_F(MasterServiceTest, objectLivenessCallback_objectModified) {
@@ -1405,7 +1401,7 @@ TEST_F(MasterServiceTest, objectLivenessCallback_objectModified) {
 
     // Object referenced by logObj1 exists
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, type);
-    EXPECT_TRUE(service->isAlive(type, buffer));
+    EXPECT_TRUE(service->checkLiveness(type, buffer));
 
     client->write(key.getTableId(),
                   key.getStringKey(),
@@ -1416,11 +1412,11 @@ TEST_F(MasterServiceTest, objectLivenessCallback_objectModified) {
     success = service->lookup(key, type2, buffer2);
 
     // Object referenced by logObj1 does not exist anymore
-    EXPECT_FALSE(service->isAlive(type, buffer));
+    EXPECT_FALSE(service->checkLiveness(type, buffer));
 
     // Object referenced by logObj2 exists
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, type2);
-    EXPECT_TRUE(service->isAlive(type2, buffer2));
+    EXPECT_TRUE(service->checkLiveness(type2, buffer2));
 }
 
 TEST_F(MasterServiceTest, objectLivenessCallback_tableDoesntExist) {
@@ -1441,12 +1437,12 @@ TEST_F(MasterServiceTest, objectLivenessCallback_tableDoesntExist) {
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, type);
 
     // Object exists
-    EXPECT_TRUE(service->isAlive(type, buffer));
+    EXPECT_TRUE(service->checkLiveness(type, buffer));
 
     coordinator->dropTable("table1");
 
     // Object is not live since table does not exist anymore
-    EXPECT_FALSE(service->isAlive(type, buffer));
+    EXPECT_FALSE(service->checkLiveness(type, buffer));
 }
 
 TEST_F(MasterServiceTest, objectRelocationCallback_objectAlive) {
@@ -1458,39 +1454,49 @@ TEST_F(MasterServiceTest, objectRelocationCallback_objectAlive) {
                   key.getStringKeyLength(),
                   "item0", 5, NULL, &version);
 
-    LogEntryType type;
-    Buffer buffer; 
-    bool success = service->lookup(key, type, buffer);
+    LogEntryType oldType;
+    Buffer oldBuffer; 
+    bool success = service->lookup(key, oldType, oldBuffer);
     EXPECT_TRUE(success);
 
     Table* table = service->getTable(key);
     table->objectCount++;
-    table->objectBytes += buffer.getTotalLength();
+    table->objectBytes += oldBuffer.getTotalLength();
 
-    HashTable::Reference reference;
-    success = service->log.append(LOG_ENTRY_TYPE_OBJ, buffer, true, reference);
+    HashTable::Reference newReference;
+    success = service->log.append(LOG_ENTRY_TYPE_OBJ,
+                                  oldBuffer,
+                                  true,
+                                  newReference);
     EXPECT_TRUE(success);
 
-    LogEntryType type2;
-    Buffer buffer2;
-    HashTable::Reference reference2;
-    success = service->lookup(key, type2, buffer2, reference2);
+    LogEntryType newType;
+    Buffer newBuffer;
+    service->log.lookup(newReference, newType, newBuffer);
+
+    LogEntryType oldType2;
+    Buffer oldBuffer2;
+    HashTable::Reference oldReference;
+    success = service->lookup(key, oldType2, oldBuffer2, oldReference);
     EXPECT_TRUE(success);
+    EXPECT_EQ(oldType, oldType2);
+    EXPECT_EQ(oldBuffer.getStart<uint8_t>(), oldBuffer2.getStart<uint8_t>());
 
     uint64_t initialTotalTrackedBytes = table->objectBytes;
 
-    EXPECT_TRUE(service->relocating(LOG_ENTRY_TYPE_OBJ, buffer, reference2));
+    EXPECT_TRUE(service->relocate(LOG_ENTRY_TYPE_OBJ, oldBuffer, newReference));
     EXPECT_EQ(initialTotalTrackedBytes, table->objectBytes);
 
-    LogEntryType type3;
-    Buffer buffer3;
-    HashTable::Reference reference3;
-    success = service->lookup(key, type3, buffer3, reference3);
+    LogEntryType newType2;
+    Buffer newBuffer2;
+    HashTable::Reference newReference2;
+    success = service->lookup(key, newType2, newBuffer2, newReference2);
     EXPECT_TRUE(success);
-    EXPECT_NE(reference, reference3);
-    EXPECT_NE(buffer.getStart<uint8_t>(), buffer3.getStart<uint8_t>());
-    EXPECT_EQ(reference2, reference3);
-    EXPECT_EQ(buffer2.getStart<uint8_t>(), buffer3.getStart<uint8_t>());
+    EXPECT_EQ(newType, newType2);
+    EXPECT_EQ(newReference, newReference2);
+    EXPECT_NE(oldReference, newReference);
+    EXPECT_NE(newBuffer.getStart<uint8_t>(), oldBuffer.getStart<uint8_t>());
+    EXPECT_EQ(newBuffer.getStart<uint8_t>(), newBuffer2.getStart<uint8_t>());
 }
 
 TEST_F(MasterServiceTest, objectRelocationCallback_objectDeleted) {
@@ -1518,7 +1524,7 @@ TEST_F(MasterServiceTest, objectRelocationCallback_objectDeleted) {
     HashTable::Reference dummyReference;
     uint64_t initialTotalTrackedBytes = table->objectBytes;
 
-    success = service->relocating(LOG_ENTRY_TYPE_OBJ, buffer, dummyReference);
+    success = service->relocate(LOG_ENTRY_TYPE_OBJ, buffer, dummyReference);
     EXPECT_FALSE(success);
     EXPECT_EQ(initialTotalTrackedBytes - buffer.getTotalLength(),
               table->objectBytes);
@@ -1549,20 +1555,20 @@ TEST_F(MasterServiceTest, objectRelocationCallback_objectModified) {
     HashTable::Reference dummyReference;
     uint64_t initialTotalTrackedBytes = table->objectBytes;
 
-    success = service->relocating(LOG_ENTRY_TYPE_OBJ, buffer, dummyReference);
+    success = service->relocate(LOG_ENTRY_TYPE_OBJ, buffer, dummyReference);
     EXPECT_FALSE(success);
     EXPECT_EQ(initialTotalTrackedBytes - buffer.getTotalLength(),
               table->objectBytes);
 }
 
 static bool
-isSegmentLive(string s)
+containsSegment(string s)
 {
-    return s == "isSegmentLive";
+    return s == "containsSegment";
 }
 
 TEST_F(MasterServiceTest, tombstoneRelocationCallback_basics) {
-    TestLog::Enable _(&isSegmentLive);
+    TestLog::Enable _(&containsSegment);
     Key key(0, "key0", 4);
     uint64_t version;
 
@@ -1579,7 +1585,9 @@ TEST_F(MasterServiceTest, tombstoneRelocationCallback_basics) {
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, type);
 
     Object object(buffer);
-    ObjectTombstone tombstone(object, service->log.getSegmentId(reference));
+    ObjectTombstone tombstone(object,
+                              service->log.getSegmentId(reference),
+                              0);
 
     Buffer tombstoneBuffer;
     tombstone.serializeToBuffer(tombstoneBuffer);
@@ -1598,14 +1606,14 @@ TEST_F(MasterServiceTest, tombstoneRelocationCallback_basics) {
     Buffer oldBufferInLog; 
     service->log.lookup(oldTombstoneReference, oldTypeInLog, oldBufferInLog);
 
-    success = service->relocating(LOG_ENTRY_TYPE_OBJTOMB,
+    success = service->relocate(LOG_ENTRY_TYPE_OBJTOMB,
                                   oldBufferInLog,
                                   newTombstoneReference);
     EXPECT_TRUE(success);
 
     // Check that tombstoneRelocationCallback() is checking the liveness
-    // of the right segment (in log.isSegmentLive() function call).
-    string comparisonString = "isSegmentLive: " +
+    // of the right segment (in log.containsSegment() function call).
+    string comparisonString = "containsSegment: " +
             format("%lu", service->log.getSegmentId(oldTombstoneReference));
     EXPECT_EQ(comparisonString, TestLog::get());
 }

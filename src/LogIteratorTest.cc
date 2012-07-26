@@ -15,12 +15,23 @@
 
 #include "TestUtil.h"
 
+#include "Log.h"
 #include "LogIterator.h"
+#include "ReplicaManager.h"
 #include "Segment.h"
+#include "SegmentManager.h"
+#include "ServerList.h"
 
 namespace RAMCloud {
 
-#if 0
+class DoNothingHandlers : public Log::EntryHandlers {
+  public:
+    uint32_t getTimestamp(LogEntryType type, Buffer& buffer) { return 0; }
+    bool checkLiveness(LogEntryType type, Buffer& buffer) { return true; }
+    bool relocate(LogEntryType type, Buffer& oldBuffer,
+        HashTable::Reference newReference) { return true; }
+};
+
 /**
  * Unit tests for LogIterator.
  */
@@ -28,24 +39,28 @@ class LogIteratorTest : public ::testing::Test {
   public:
     Context context;
     ServerId serverId;
+    ServerList serverList;
+    ReplicaManager replicaManager;
+    SegmentManager::Allocator allocator;
+    SegmentManager segmentManager;
+    DoNothingHandlers entryHandlers;
     Log l;
 
     LogIteratorTest()
         : context(),
+          entryHandlers(),
+          replicaManager(context, serverList, serverId, 0, "mock:coordinator"),
+          allocator(10 * 8192, 8192, 8192),
+          segmentManager(context, serverId, allocator, replicaManager, 1.0),
           serverId(ServerId(57, 0)),
-          l(context, serverId, 10 * 8192, 8192, 4298, NULL,
-              Log::CLEANER_DISABLED)
+          l(context, entryHandlers, segmentManager, replicaManager, true),
     {
-        l.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
-            NULL, NULL, NULL);
-        l.registerType(LOG_ENTRY_TYPE_OBJTOMB, true, NULL, NULL,
-            NULL, NULL, NULL);
     }
 
   private:
     DISALLOW_COPY_AND_ASSIGN(LogIteratorTest);
 };
-
+#if 0
 TEST_F(LogIteratorTest, constructor_emptyLog) {
     LogIterator i(l);
     EXPECT_EQ(&l, &i.log);
@@ -306,7 +321,5 @@ TEST_F(LogIteratorTest, cleanerInteraction) {
     EXPECT_EQ(1U, l.cleanablePendingDigestList.size());
     l.cleanablePendingDigestList.pop_back();
 }
-
 #endif
-
 } // namespace RAMCloud

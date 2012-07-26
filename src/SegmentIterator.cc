@@ -29,9 +29,8 @@ namespace RAMCloud {
  * so that mock subclasses can be written.
  */
 SegmentIterator::SegmentIterator()
-    : segment(),
-      segmentBuffer(),
-      segmentLength(),
+    : wrapperSegment(),
+      segment(NULL),
       currentOffset(0)
 {
 }
@@ -47,12 +46,12 @@ SegmentIterator::SegmentIterator()
  *      The newly constructed SegmentIterator object.
  */
 SegmentIterator::SegmentIterator(Segment& segment)
-    : segment(&segment),
-      segmentBuffer(),
-      segmentLength(),
+    : wrapperSegment(),
+      segment(&segment),
       currentOffset(0)
 {
-    checkIntegrity();
+    if (!segment.checkMetadataIntegrity())
+        throw SegmentIteratorException(HERE, "cannot iterate: corrupt segment");
 }
 
 /**
@@ -67,12 +66,15 @@ SegmentIterator::SegmentIterator(Segment& segment)
  *      The total length of the buffer.
  */
 SegmentIterator::SegmentIterator(const void *buffer, uint32_t length)
-    : segment(),
-      segmentBuffer(buffer),
-      segmentLength(length),
+    : wrapperSegment(),
+      segment(NULL),
       currentOffset(0)
 {
-    checkIntegrity();
+    wrapperSegment.construct(buffer, length);
+    segment = &*wrapperSegment;
+
+    if (!segment->checkMetadataIntegrity())
+        throw SegmentIteratorException(HERE, "cannot iterate: corrupt segment");
 }
 
 /**
@@ -90,67 +92,69 @@ SegmentIterator::~SegmentIterator()
 bool
 SegmentIterator::isDone()
 {
-    return getEntryHeader(currentOffset)->getType() == LOG_ENTRY_TYPE_SEGFOOTER;
+    const Segment::EntryHeader* header = segment->getEntryHeader(currentOffset);
+    return header->getType() == LOG_ENTRY_TYPE_SEGFOOTER;
 }
 
 /**
- * Progress the iterator to the next entry in the Segment, if there is one.
- * Future calls to #getType, #getLength, #getPointer, and #getOffset will
- * reflect the next SegmentEntry's parameters.
+ * Progress the iterator to the next entry in the segment, if there is one.
+ * If there is another entry, then after this method returns any future calls
+ * to getType, getLength, appendToBuffer, etc. will use the next in the log.
+ * If there are no more entries, the iterator will stay at the last one (the
+ * footer).
  */
 void
 SegmentIterator::next()
 {
-    const Segment::EntryHeader* header = getEntryHeader(currentOffset);
+    const Segment::EntryHeader* header = segment->getEntryHeader(currentOffset);
+
     if (header->getType() == LOG_ENTRY_TYPE_SEGFOOTER)
         return;
 
     uint32_t length = 0;
-    copyOut(currentOffset + sizeof32(*header), &length, header->getLengthBytes());
+    segment->copyOut(currentOffset + sizeof32(*header),
+                     &length,
+                     header->getLengthBytes());
     currentOffset += (sizeof32(*header) + header->getLengthBytes() + length);
 }
 
+/**
+ * Return the type of the entry currently pointed to by the iterator.
+ */
 LogEntryType
 SegmentIterator::getType()
 {
-    const Segment::EntryHeader* header = getEntryHeader(currentOffset);
-    return header->getType();
+    return segment->getEntryTypeAt(currentOffset);
 }
 
+/**
+ * Return the length of the entry currently pointed to by the iterator.
+ */
 uint32_t
 SegmentIterator::getLength()
 {
-    const Segment::EntryHeader* header = getEntryHeader(currentOffset);
+    const Segment::EntryHeader* header = segment->getEntryHeader(currentOffset);
     uint32_t length = 0;
-    copyOut(currentOffset + sizeof32(*header), &length, header->getLengthBytes());
+    segment->copyOut(currentOffset + sizeof32(*header),
+                     &length,
+                     header->getLengthBytes());
     return length;
 }
 
-Buffer&
+/**
+ * Append the current entry to the provided buffer.
+ */
+uint32_t
 SegmentIterator::appendToBuffer(Buffer& buffer)
 {
-    const Segment::EntryHeader* header = getEntryHeader(currentOffset);
-    uint32_t offset = currentOffset + sizeof32(*header) + header->getLengthBytes();
-    uint32_t length = getLength();
-
-    // TODO(Steve): This is nearly identical to Segment::appendToBuffer.
-    while (length > 0) {
-        uint32_t contigBytes = std::min(length, getContiguousBytesAt(offset));
-        if (contigBytes == 0)
-            break;
-
-        Buffer::Chunk::appendToBuffer(&buffer,
-                                      getAddressAt(offset),
-                                      contigBytes);
-
-        offset += contigBytes;
-        length -= contigBytes;
-    }
-
-    return buffer;
+    return segment->appendEntryToBuffer(currentOffset, buffer);
 }
 
-Buffer&
+/**
+ * Append the current entry to the provided buffer after first resetting the
+ * buffer, removing any previous contents.
+ */
+uint32_t
 SegmentIterator::setBufferTo(Buffer& buffer)
 {
     buffer.reset();
@@ -160,98 +164,5 @@ SegmentIterator::setBufferTo(Buffer& buffer)
 /******************************************************************************
  * PRIVATE METHODS
  ******************************************************************************/
-
-const void*
-SegmentIterator::getAddressAt(uint32_t offset)
-{
-    if (segment)
-        return (*segment)->getAddressAt(offset);
-
-    if (offset >= *segmentLength)
-        return NULL;
-
-    return reinterpret_cast<const void*>(
-        reinterpret_cast<const uint8_t*>(*segmentBuffer) + offset);
-}
-
-uint32_t
-SegmentIterator::getContiguousBytesAt(uint32_t offset)
-{
-    if (segment)
-        return (*segment)->getContiguousBytesAt(offset);
-
-    if (offset <= *segmentLength)
-        return *segmentLength - offset;
-
-    return 0;
-}
-
-void
-SegmentIterator::copyOut(uint32_t offset, void* buffer, uint32_t length)
-{
-    if (segment) {
-        (*segment)->copyOut(offset, buffer, length);
-        return;
-    }
-    
-    if (offset >= *segmentLength || (offset + length) > *segmentLength)
-        throw SegmentIteratorException(HERE, "offset and/or length overflow");
-
-    memcpy(buffer,
-           reinterpret_cast<const uint8_t*>(*segmentBuffer) + offset,
-           length);
-}
-
-const Segment::EntryHeader*
-SegmentIterator::getEntryHeader(uint32_t offset)
-{
-    assert(sizeof(Segment::EntryHeader) == 1);
-    return reinterpret_cast<const Segment::EntryHeader*>(getAddressAt(offset));
-}
-
-/**
- * Check the integrity of a segment by iterating over all entries and
- * ensuring that:
- *
- *  1) All entry lengths are within bounds.
- *  2) A footer is present.
- *  3) The metadata checksum matches what's in the footer.
- *
- *  Any violation results in an exception.
- */
-void
-SegmentIterator::checkIntegrity()
-{
-    uint32_t offset = 0;
-    Crc32C checksum;
-
-    const Segment::EntryHeader* header = NULL;
-    while (getContiguousBytesAt(offset) > 0) {
-        header = getEntryHeader(offset); 
-        checksum.update(header, sizeof(*header));
-
-        uint32_t length = 0;
-        copyOut(offset + sizeof32(*header), &length, header->getLengthBytes());
-        checksum.update(&length, header->getLengthBytes());
-
-        if (header->getType() == LOG_ENTRY_TYPE_SEGFOOTER)
-            break;
-
-        offset += (sizeof32(*header) + header->getLengthBytes() + length);
-    }
-
-    if (header == NULL || header->getType() != LOG_ENTRY_TYPE_SEGFOOTER)
-        throw SegmentIteratorException(HERE, "segment corrupt: no footer");
-
-    Segment::Footer footerInSegment(false, checksum);
-    copyOut(offset + sizeof32(*header) + header->getLengthBytes(),
-            &footerInSegment, sizeof32(footerInSegment));
-    
-    Segment::Footer expectedFooter(footerInSegment.closed,
-                                   checksum);
-
-    if (footerInSegment.checksum != expectedFooter.checksum)
-        throw SegmentIteratorException(HERE, "segment corrupt: bad checksum");
-}
 
 } // namespace

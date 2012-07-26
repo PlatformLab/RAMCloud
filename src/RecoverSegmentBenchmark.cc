@@ -65,7 +65,7 @@ class RecoverSegmentBenchmark {
             while (1) {
                 Key key(0, &nextKeyVal, sizeof(nextKeyVal));
 
-                Object object(key, NULL, 0, 0);
+                Object object(key, NULL, 0, 0, 0);
                 Buffer buffer;
                 object.serializeToBuffer(buffer);
                 if (!segments[i]->append(LOG_ENTRY_TYPE_OBJ, buffer))

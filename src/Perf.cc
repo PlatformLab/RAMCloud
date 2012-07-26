@@ -232,26 +232,35 @@ double getThreadId()
     // printf("Result: %d\n", downCast<int>(result));
     return Cycles::toSeconds(stop - start)/count;
 }
-
 // Measure hash table lookup performance. Prefetching can
 // be enabled to measure its effect. This test is a lot
 // slower than the others (takes several seconds) due to the
 // set up cost, but we really need a large hash table to
 // avoid caching.
-template<int prefetchBucketAhead = 0, int prefetchReferentAhead = 0>
+class PerfKeyComparer : public HashTable::KeyComparer {
+  public:
+    bool doesMatch(Key& key, HashTable::Reference candidate)
+    {
+        uint64_t* object = reinterpret_cast<uint64_t*>(candidate.get());
+        Key candidateKey(0, object, downCast<uint16_t>(sizeof(*object)));
+        return (key == candidateKey); 
+    }
+};
+
+template<int prefetchBucketAhead = 0>
 double hashTableLookup()
 {
-    /// XXX- HT is no longer templated. Need to instantiate a whole log here
-    //       to do this test. Its overheads will include jumping through the
-    //       log code and maybe grabbing locks. Should this just be nuked?!
-#ifdef XXX 
     uint64_t numBuckets = 16777216;       // 16M * 64 = 1GB
     int numLookups = 1000000;
-    HashTable<TestObject*> hashTable(numBuckets);
+    PerfKeyComparer keyComparer;
+    HashTable hashTable(numBuckets, keyComparer);
 
     // fill with some objects to look up (enough to blow caches)
     for (int i = 0; i < numLookups; i++) {
-        hashTable.replace(new TestObject(0, i));
+        uint64_t* object = new uint64_t(i);
+        HashTable::Reference reference(reinterpret_cast<uint64_t>(object));
+        Key key(0, object, downCast<uint16_t>(sizeof(*object)));
+        hashTable.replace(key, reference);
     }
 
     PerfHelper::flushCache();
@@ -261,31 +270,28 @@ double hashTableLookup()
     for (int i = 0; i < numLookups; i++) {
         if (prefetchBucketAhead) {
             if (i + prefetchBucketAhead < numLookups) {
-                MakeKey key(i + prefetchBucketAhead);
-                hashTable.prefetchBucket(0, key.get(), key.length());
-            }
-        }
-        if (prefetchReferentAhead) {
-            if (i + prefetchReferentAhead < numLookups) {
-                MakeKey key(i + prefetchReferentAhead);
-                hashTable.prefetchReferent(0, key.get(), key.length());
+                uint64_t object = i + prefetchBucketAhead;
+                Key key(0, &object, downCast<uint16_t>(sizeof(object)));
+                hashTable.prefetchBucket(key);
             }
         }
 
-        MakeKey key(i);
-        hashTable.lookup(0, key.get(), key.length());
+        Key key(0, &i, downCast<uint16_t>(sizeof(i)));
+        HashTable::Reference outReference;
+        hashTable.lookup(key, outReference);
     }
     uint64_t stop = Cycles::rdtsc();
 
     // clean up
     for (int i = 0; i < numLookups; i++) {
-        MakeKey key(i);
-        delete hashTable.lookup(0, key.get(), key.length());
+        uint64_t object = i;
+        Key key(0, &object, downCast<uint16_t>(sizeof(object)));
+        HashTable::Reference outReference;
+        hashTable.lookup(key, outReference);
+        delete reinterpret_cast<uint64_t*>(outReference.get());
     }
 
     return Cycles::toSeconds((stop - start) / numLookups);
-#endif
-    return 0;
 }
 
 // Measure the cost of an lfence instruction.
@@ -490,37 +496,37 @@ double sfence()
     return Cycles::toSeconds(stop - start)/count;
 }
 
-#ifdef XXX
 // Sorting functor for #segmentEntrySort.
 struct SegmentEntryLessThan {
   public:
     bool
-    operator()(const std::pair<SegmentEntryHandle, uint32_t> a,
-               const std::pair<SegmentEntryHandle, uint32_t> b)
+    operator()(const std::pair<uint64_t, uint32_t> a,
+               const std::pair<uint64_t, uint32_t> b)
     {
         return a.second < b.second;
     }
 };
-#endif
 
 // Measure the time it takes to walk a Segment full of small objects,
 // populate a vector with their entries, and sort it by age.
 double segmentEntrySort()
 {
-#ifdef XXXX
-    void *block = Memory::xmemalign(HERE, Segment::SEGMENT_SIZE,
-                                    Segment::SEGMENT_SIZE);
-    Segment s(0, 0, block, Segment::SEGMENT_SIZE, NULL);
+    Segment s;
     const int avgObjectSize = 100;
 
-    DECLARE_OBJECT(obj, 0, 2 * avgObjectSize);
-    vector<std::pair<SegmentEntryHandle, uint32_t>> entries;
+    char data[2 * avgObjectSize];
+    vector<std::pair<uint64_t, uint32_t>> entries;
 
     int count;
     for (count = 0; ; count++) {
-        obj->timestamp = static_cast<uint32_t>(generateRandom());
-        uint32_t size = obj->timestamp % (2 * avgObjectSize);
-        if (s.append(LOG_ENTRY_TYPE_OBJ, obj, obj->objectLength(size)) == NULL)
+        uint32_t timestamp = static_cast<uint32_t>(generateRandom());
+        uint32_t size = timestamp % (2 * avgObjectSize);
+
+        Key key(0, &count, sizeof(count));
+        Object object(key, data, size, 0, timestamp);
+        Buffer buffer;
+        object.serializeToBuffer(buffer);
+        if (!s.append(LOG_ENTRY_TYPE_OBJ, buffer))
             break;
     }
 
@@ -530,10 +536,16 @@ double segmentEntrySort()
     uint64_t start = Cycles::rdtsc();
 
     // appears to take about 1/8th the time
-    for (SegmentIterator i(&s); !i.isDone(); i.next()) {
-        if (i.getType() == LOG_ENTRY_TYPE_OBJ)
-            entries.push_back(std::pair<SegmentEntryHandle, uint32_t>(
-                i.getHandle(), i.getHandle()->userData<Object>()->timestamp));
+    for (SegmentIterator i(s); !i.isDone(); i.next()) {
+        if (i.getType() == LOG_ENTRY_TYPE_OBJ) {
+            uint64_t handle = 0;    // fake pointer to object
+            
+            Buffer buffer;
+            i.appendToBuffer(buffer);
+            Object object(buffer);
+            uint32_t timestamp = object.getTimestamp();
+            entries.push_back(std::pair<uint64_t, uint32_t>(handle, timestamp));
+        }
     }
 
     // the rest is, unsurprisingly, here
@@ -541,11 +553,7 @@ double segmentEntrySort()
 
     uint64_t stop = Cycles::rdtsc();
 
-    free(block);
-
     return Cycles::toSeconds(stop - start);
-#endif
-    return 0;
 }
 
 // Measure the time it takes to iterate over the entries in
@@ -553,36 +561,28 @@ double segmentEntrySort()
 template<uint32_t minObjectBytes, uint32_t maxObjectBytes>
 double segmentIterator()
 {
-#ifdef XXX
     uint64_t numObjects = 0;
     uint64_t nextKeyVal = 0;
-    Segment *segment;
 
     // build a segment
-    void *p = Memory::xmemalign(HERE,
-        Segment::SEGMENT_SIZE, Segment::SEGMENT_SIZE);
-    segment = new Segment(0, 0, p, Segment::SEGMENT_SIZE, NULL);
+    Segment segment;
     while (1) {
         uint32_t size = minObjectBytes;
         if (minObjectBytes != maxObjectBytes) {
             uint64_t rnd = generateRandom();
             size += downCast<uint32_t>(rnd % (maxObjectBytes - minObjectBytes));
         }
-        string key = format("%lu", nextKeyVal++);
-        DECLARE_OBJECT(o, downCast<uint16_t>(key.length()), size);
-        o->tableId = 0;
-        o->version = 0;
-        o->keyLength = downCast<uint16_t>(key.length());
-        memcpy(o->getKeyLocation(), key.c_str(),
-                downCast<uint16_t>(key.length()));
-        const void *so = segment->append(LOG_ENTRY_TYPE_OBJ,
-                                         o,
-                                         o->objectLength(size));
-        if (so == NULL)
+        string stringKey = format("%lu", nextKeyVal++);
+        Key key(0, stringKey.c_str(), downCast<uint16_t>(stringKey.length()));
+        char data[size];
+        Object object(key, data, size, 0, 0);
+        Buffer buffer;
+        object.serializeToBuffer(buffer);
+        if (!segment.append(LOG_ENTRY_TYPE_OBJ, buffer))
             break;
         numObjects++;
     }
-    segment->close(NULL);
+    segment.close();
 
     // scan through the segment
     uint64_t totalBytes = 0;
@@ -596,13 +596,7 @@ double segmentIterator()
     }
     double time = Cycles::toSeconds(counter.stop());
 
-    // clean up
-    free(const_cast<void *>(segment->getBaseAddress()));
-    delete segment;
-
     return time;
-#endif
-    return 0;
 }
 
 // Measure the cost of acquiring and releasing a SpinLock (assuming the
@@ -785,7 +779,7 @@ TestInfo tests[] = {
      "Retrieve thread id via ThreadId::get"},
     {"hashTableLookup", hashTableLookup,
      "Key lookup in a 1GB HashTable"},
-    {"hashTableLookupPf", hashTableLookup<20, 10>,
+    {"hashTableLookupPf", hashTableLookup<20>,
      "Key lookup in a 1GB HashTable with prefetching"},
     {"lfence", lfence,
      "Lfence instruction"},

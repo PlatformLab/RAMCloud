@@ -57,9 +57,10 @@ class MasterService : public Service, Log::EntryHandlers {
                   Rpc& rpc);
 
     uint32_t getTimestamp(LogEntryType type, Buffer& buffer);
-    bool isAlive(LogEntryType type, Buffer& buffer);
-    bool relocating(LogEntryType type, Buffer& oldBuffer,
-                    HashTable::Reference newReference);
+    bool checkLiveness(LogEntryType type, Buffer& buffer);
+    bool relocate(LogEntryType type,
+                  Buffer& oldBuffer,
+                  HashTable::Reference newReference);
 
   PRIVATE:
     /**
@@ -281,14 +282,14 @@ class MasterService : public Service, Log::EntryHandlers {
         __attribute__((warn_unused_result));
     Status rejectOperation(const RejectRules& rejectRules, uint64_t version)
         __attribute__((warn_unused_result));
-    bool objectLiveness(Buffer& buffer);
-    bool objectRelocation(Buffer& oldBuffer,
+    bool checkObjectLiveness(Buffer& buffer);
+    bool relocateObject(Buffer& oldBuffer,
                           HashTable::Reference newReference);
-    uint32_t objectTimestamp(Buffer& buffer);
-    bool tombstoneLiveness(Buffer& buffer);
-    bool tombstoneRelocation(Buffer& oldBuffer,
-                             HashTable::Reference newReference);
-    uint32_t tombstoneTimestamp(Buffer& buffer);
+    uint32_t getObjectTimestamp(Buffer& buffer);
+    bool checkTombstoneLiveness(Buffer& buffer);
+    bool relocateTombstone(Buffer& oldBuffer,
+                           HashTable::Reference newReference);
+    uint32_t getTombstoneTimestamp(Buffer& buffer);
     Status storeObject(Key& key,
                        const RejectRules* rejectRules,
                        Buffer& data,
