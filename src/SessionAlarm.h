@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -27,6 +27,7 @@
 
 #include <unordered_map>
 #include "Dispatch.h"
+#include "RpcWrapper.h"
 #include "Transport.h"
 
 namespace RAMCloud {
@@ -90,11 +91,28 @@ class SessionAlarm {
  */
 class SessionAlarmTimer: public Dispatch::Timer {
   public:
-    explicit SessionAlarmTimer(Dispatch& dispatch);
+    explicit SessionAlarmTimer(Context& context);
     ~SessionAlarmTimer();
     void handleTimerEvent();
 
   PRIVATE:
+    /// This class implements the ping RPCs that keep track of whether servers
+    /// are alive. We can't use "normal" ping RPCs because we don't know the
+    /// server id; all we have is an open session.
+    class PingRpc : public RpcWrapper {
+      public:
+        PingRpc(Context& context, Transport::SessionRef session);
+        ~PingRpc() {}
+        bool succeeded();
+
+      PRIVATE:
+        Context& context;
+        DISALLOW_COPY_AND_ASSIGN(PingRpc);
+    };
+
+    /// Shared RAMCloud information.
+    Context& context;
+
     /// Holds all of the SessionAlarms with nonzero \c outstandingRpcs.
     /// The order of entries is irrelevant.
     std::vector<SessionAlarm*> activeAlarms;
@@ -107,14 +125,7 @@ class SessionAlarmTimer: public Dispatch::Timer {
 
     /// Keeps track of all outstanding ping RPCs and the alarms for which
     /// they were sent.
-    struct Ping {
-        Transport::ClientRpc* rpc;     /// Handle for ping RPC.
-        Buffer* request;               /// Request buffer for RPC
-                                       /// (dynamically allocated).
-        Buffer* response;              /// Response buffer for RPC
-                                       /// (dynamically allocated).
-    };
-    typedef std::unordered_map<SessionAlarm*, Ping> PingMap;
+    typedef std::unordered_map<SessionAlarm*, PingRpc*> PingMap;
     PingMap pings;
 
     friend class SessionAlarm;

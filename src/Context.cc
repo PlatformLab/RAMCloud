@@ -80,7 +80,7 @@ Context::Context(bool hasDedicatedDispatchThread)
 #endif
         transportManager = new TransportManager(*this);
         serviceManager = new ServiceManager(*this);
-        sessionAlarmTimer = new SessionAlarmTimer(*dispatch);
+        sessionAlarmTimer = new SessionAlarmTimer(*this);
         coordinatorSession = new CoordinatorSession(*this);
     } catch (...) {
         destroy();

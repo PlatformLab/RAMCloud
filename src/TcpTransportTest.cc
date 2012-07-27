@@ -1212,13 +1212,16 @@ TEST_F(TcpTransportTest, TcpClientRpc_cancelCleanup_rpcsWaitingToSend) {
 }
 
 TEST_F(TcpTransportTest, sessionAlarm) {
-    TcpTransport::TcpSession session(client, locator, 30);
+    TcpTransport::TcpSession* session = new TcpTransport::TcpSession(
+            client, locator, 30);
+    Transport::SessionRef ref = session;
+
     Buffer request1;
     Buffer reply1;
 
     // First, let a request complete successfully, and make sure that
     // things get cleaned up well enough that a timeout doesn't occur.
-    Transport::ClientRpc* clientRpc = session.clientSend(&request1,
+    Transport::ClientRpc* clientRpc = session->clientSend(&request1,
             &reply1);
     Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
     serverRpc->replyPayload.fillFromString("response1");
@@ -1227,19 +1230,19 @@ TEST_F(TcpTransportTest, sessionAlarm) {
     for (int i = 0; i < 20; i++) {
         context.sessionAlarmTimer->handleTimerEvent();
     }
-    EXPECT_NE(-1, session.fd);
-    EXPECT_EQ("", session.errorInfo);
+    EXPECT_NE(-1, session->fd);
+    EXPECT_EQ("", session->errorInfo);
 
     // Issue a second request, don't respond to it, and make sure it
     // times out.
     request1.reset();
-    clientRpc = session.clientSend(&request1, &reply1);
+    clientRpc = session->clientSend(&request1, &reply1);
     for (int i = 0; i < 20; i++) {
         context.sessionAlarmTimer->handleTimerEvent();
     }
-    EXPECT_EQ(-1, session.fd);
+    EXPECT_EQ(-1, session->fd);
     EXPECT_EQ("server at tcp+ip:host=localhost,port=11000 is not responding",
-            session.errorInfo);
+            session->errorInfo);
 }
 
 TEST_F(TcpTransportTest, TcpServerRpc_getClientServiceLocator) {
