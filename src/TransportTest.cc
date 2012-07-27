@@ -14,7 +14,6 @@
  */
 
 #include "TestUtil.h"
-#include "Client.h"
 #include "Transport.h"
 
 namespace RAMCloud {
@@ -142,41 +141,6 @@ TEST_F(TransportTest, cancel_alreadyFinished) {
     rpc.markFinished();
     rpc.cancel();
     EXPECT_NO_THROW(rpc.wait());
-}
-TEST_F(TransportTest, cancel_stringArgument) {
-    Client::allocHeader<PingRpc>(request);
-    Transport::ClientRpc rpc(context, &request, &response);
-    string s("test message");
-    rpc.cancel(s);
-    string message("no exception");
-    try {
-        rpc.wait();
-    } catch (TransportException& e) {
-        message = e.message;
-    }
-    EXPECT_EQ("PING RPC cancelled: test message", message);
-}
-TEST_F(TransportTest, cancel_charArgument) {
-    Transport::ClientRpc rpc(context, &request, &response);
-    rpc.cancel("message2");
-    string message("no exception");
-    try {
-        rpc.wait();
-    } catch (TransportException& e) {
-        message = e.message;
-    }
-    EXPECT_EQ("null RPC cancelled: message2", message);
-}
-TEST_F(TransportTest, cancel_defaultMessage) {
-    Transport::ClientRpc rpc(context, &request, &response);
-    rpc.cancel();
-    string message("no exception");
-    try {
-        rpc.wait();
-    } catch (TransportException& e) {
-        message = e.message;
-    }
-    EXPECT_EQ("null RPC cancelled", message);
 }
 
 } // namespace RAMCloud

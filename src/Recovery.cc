@@ -15,11 +15,11 @@
 
 #include <unordered_set>
 
-#include "Client.h"
 #include "Recovery.h"
 #include "BackupClient.h"
 #include "Buffer.h"
 #include "MasterClient.h"
+#include "ParallelRun.h"
 #include "ShortMacros.h"
 #include "Tub.h"
 

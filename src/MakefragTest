@@ -22,7 +22,6 @@ TESTS_SRCFILES := \
 		  src/BoostIntrusiveTest.cc \
 		  src/BufferTest.cc \
 		  src/ClientExceptionTest.cc \
-		  src/ClientTest.cc \
 		  src/ClusterMetricsTest.cc \
 		  src/CommonTest.cc \
 		  src/ContextTest.cc \
@@ -143,8 +142,7 @@ test: $(OBJDIR)/test \
       $(OBJDIR)/LogCleanerBenchmark \
       $(OBJDIR)/Perf \
       $(OBJDIR)/RecoverSegmentBenchmark \
-      $(OBJDIR)/Telnet \
-      $(OBJDIR)/TransportSmack
+      $(OBJDIR)/Telnet
 	$(OBJDIR)/test
 
 all: $(OBJDIR)/Perf $(OBJDIR)/ClusterPerf
@@ -177,10 +175,6 @@ $(OBJDIR)/ClusterPerf: $(OBJDIR)/ClusterPerf.o $(OBJDIR)/libramcloud.a
 	$(CXX) -o $@ $^ $(LIBS)
 
 $(OBJDIR)/TransportBench: $(OBJDIR)/TransportBench.o $(OBJDIR)/RawMetrics.o $(OBJDIR)/libramcloud.a
-	@mkdir -p $(@D)
-	$(CXX) -o $@ $^ $(TESTS_LIB)
-
-$(OBJDIR)/TransportSmack: $(OBJDIR)/TransportSmack.o $(OBJDIR)/Service.o $(OBJDIR)/RawMetrics.o $(OBJDIR)/OptionParser.o $(OBJDIR)/TestUtil.o $(OBJDIR)/gtest.a $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
 	$(CXX) -o $@ $^ $(TESTS_LIB)
 

@@ -12,7 +12,6 @@ CLIENT_SRCFILES := \
 		   src/AbstractServerList.cc \
 		   src/Buffer.cc \
 		   src/CRamCloud.cc \
-		   src/Client.cc \
 		   src/ClientException.cc \
 		   src/ClusterMetrics.cc \
 		   src/CodeLocation.cc \
