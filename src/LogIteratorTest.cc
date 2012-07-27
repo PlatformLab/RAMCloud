@@ -108,6 +108,7 @@ TEST_F(LogIteratorTest, isDone_simple) {
     EXPECT_EQ(3, cnt);
 }
 
+#if 0
 TEST_F(LogIteratorTest, isDone_multiSegment) {
     int origObjCnt = 0;
 
@@ -137,6 +138,7 @@ TEST_F(LogIteratorTest, isDone_multiSegment) {
     EXPECT_EQ(7, otherCnt);
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJTOMB, lastType);
 }
+#endif
 
 TEST_F(LogIteratorTest, next) {
     {

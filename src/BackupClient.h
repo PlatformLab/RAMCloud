@@ -29,6 +29,7 @@
 namespace RAMCloud {
 
 class Segment;
+class SegmentFooterEntry;
 
 /**
  * Encapsulates the state of a BackupClient::assignGroup operation,
@@ -182,6 +183,7 @@ class WriteSegmentRpc : public ServerIdRpcWrapper {
     WriteSegmentRpc(Context& context, ServerId backupId,
                      ServerId masterId, const Segment* segment,
                      uint32_t offset, uint32_t length,
+                     const SegmentFooterEntry* footerEntry,
                      WireFormat::BackupWrite::Flags flags, bool atomic);
     ~WriteSegmentRpc() {}
     vector<ServerId> wait();
@@ -213,7 +215,7 @@ class BackupClient {
             const ProtoBuf::Tablets& partitions);
     static vector<ServerId> writeSegment(Context& context, ServerId backupId,
             ServerId masterId, const Segment* segment, uint32_t offset,
-            uint32_t length,
+            uint32_t length, const SegmentFooterEntry* footerEntry,
             WireFormat::BackupWrite::Flags flags =
                                         WireFormat::BackupWrite::NONE,
             bool atomic = false);

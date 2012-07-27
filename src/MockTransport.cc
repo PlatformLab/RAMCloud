@@ -30,6 +30,7 @@ MockTransport::MockTransport(Context& context,
                              const ServiceLocator *serviceLocator)
             : context(context)
             , outputLog()
+            , output()
             , status(Status(STATUS_MAX_VALUE+1))
             , inputMessages()
             , lastNotifier(NULL)
@@ -94,21 +95,14 @@ MockTransport::MockSession::~MockSession()
 void
 MockTransport::MockSession::abort(const string& message)
 {
-    if (transport->outputLog.length() != 0) {
-        transport->outputLog.append(" | ");
-    }
-    transport->outputLog.append("abort: ");
-    transport->outputLog.append(message);
+    transport->appendToOutput(ABORT, message);
 }
 
 // See Transport::Session::cancelRequest for documentation.
 void
 MockTransport::MockSession::cancelRequest(RpcNotifier* notifier)
 {
-    if (transport->outputLog.length() != 0) {
-        transport->outputLog.append(" | ");
-    }
-    transport->outputLog.append("cancel");
+    transport->appendToOutput(CANCEL, "");
 }
 
 /**
@@ -128,11 +122,7 @@ MockTransport::MockSession::cancelRequest(RpcNotifier* notifier)
 Transport::ClientRpc*
 MockTransport::MockSession::clientSend(Buffer* payload, Buffer* response)
 {
-    if (transport->outputLog.length() != 0) {
-        transport->outputLog.append(" | ");
-    }
-    transport->outputLog.append("clientSend: ");
-    transport->outputLog.append(TestUtil::toString(payload));
+    transport->appendToOutput(CLIENT_SEND, *payload);
     return new(response, MISC) MockClientRpc(transport, payload, response);
 }
 
@@ -149,11 +139,7 @@ MockTransport::MockSession::sendRequest(Buffer* request, Buffer* response,
                 RpcNotifier* notifier)
 {
     response->reset();
-    if (transport->outputLog.length() != 0) {
-        transport->outputLog.append(" | ");
-    }
-    transport->outputLog.append("sendRequest: ");
-    transport->outputLog.append(TestUtil::toString(request));
+    transport->appendToOutput(SEND_REQUEST, *request);
     if (!transport->inputMessages.empty()) {
         const char *resp = transport->inputMessages.front();
         transport->inputMessages.pop();
@@ -193,6 +179,17 @@ MockTransport::setInput(const char* s)
     inputMessages.push(s);
 }
 
+/**
+ * Clear #outputLog and #output so that newly enqueued messages are appended
+ * to the start of those structures.
+ */
+void
+MockTransport::clearOutput()
+{
+    outputLog = "";
+    output.clear();
+}
+
 //-------------------------------------
 // MockTransport::MockServerRpc class
 //-------------------------------------
@@ -224,11 +221,7 @@ MockTransport::MockServerRpc::MockServerRpc(MockTransport* transport,
 void
 MockTransport::MockServerRpc::sendReply()
 {
-    if (transport->outputLog.length() != 0) {
-        transport->outputLog.append(" | ");
-    }
-    transport->outputLog.append("serverReply: ");
-    transport->outputLog.append(TestUtil::toString(&replyPayload));
+    transport->appendToOutput(SERVER_REPLY, replyPayload);
     const WireFormat::ResponseCommon* responseHeader =
         replyPayload.getStart<WireFormat::ResponseCommon>();
     transport->status = (responseHeader != NULL) ? responseHeader->status :
@@ -278,6 +271,95 @@ MockTransport::MockClientRpc::MockClientRpc(MockTransport* transport,
     }
     response->fillFromString(resp);
     markFinished();
+}
+
+// - private -
+
+namespace {
+/**
+ * Returns string form of \a event.
+ */
+const char*
+eventToStr(MockTransport::Event event)
+{
+    const char* eventStr = "unknown";
+    switch (event) {
+    case MockTransport::CLIENT_SEND:
+        eventStr = "clientSend";
+        break;
+    case MockTransport::ABORT:
+        eventStr = "abort";
+        break;
+    case MockTransport::CANCEL:
+        eventStr = "cancel";
+        break;
+    case MockTransport::SEND_REQUEST:
+        eventStr = "sendRequest";
+        break;
+    case MockTransport::SERVER_REPLY:
+        eventStr = "serverReply";
+        break;
+    default:
+        break;
+    }
+    return eventStr;
+}
+}
+
+/**
+ * Append an event and string message to the both output logs. One, in string
+ * form, is to #outputLog; the other is appended to #output. The Buffer
+ * appended to #output simply contains \a message.
+ * Used for ABORT and CANCEL;
+ */
+void
+MockTransport::appendToOutput(Event event, const string& message)
+{
+    if (outputLog.length() != 0) {
+        outputLog.append(" | ");
+    }
+    outputLog.append(format("%s: %s", eventToStr(event),
+                            message.c_str()));
+
+    output.emplace_back();
+    auto& pair = output.back();
+    pair.first = event;
+    char* dst = new(&pair.second, APPEND) char[message.length() + 1];
+    memcpy(dst, message.c_str(), message.length() + 1);
+}
+
+/**
+ * Append an event and buffer to the both output logs. One, in string
+ * form, is to #outputLog; the other, which retains a copy of the Buffer,
+ * is to #output.
+ * Used for CLIEND_SEND, SEND_REQUEST, and SERVER_REPLY.
+ */
+void
+MockTransport::appendToOutput(Event event, Buffer& payload)
+{
+    if (outputLog.length() != 0) {
+        outputLog.append(" | ");
+    }
+    outputLog.append(format("%s: %s", eventToStr(event),
+                            TestUtil::toString(&payload).c_str()));
+
+    output.emplace_back();
+    auto& pair = output.back();
+    pair.first = event;
+    void* chunk = new(&pair.second, APPEND) char[payload.getTotalLength()];
+    payload.copy(0, payload.getTotalLength(), chunk);
+}
+
+/**
+ * Completely stupid hack to work around C++; outputMatches() must be in the
+ * h file since it is a template method, but TestUtil.h cannot be included
+ * in MockTransport.h since it must be included first (MockTransport.h is
+ * included by TransportManager which includes Common.h first).
+ */
+string
+MockTransport::toStringHack(const char* buf, uint32_t length)
+{
+    return TestUtil::toString(buf, length);
 }
 
 }  // namespace RAMCloud

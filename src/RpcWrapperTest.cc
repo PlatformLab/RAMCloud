@@ -78,7 +78,7 @@ TEST_F(RpcWrapperTest, destructor_cancel) {
     EXPECT_EQ("", transport.outputLog);
     wrapper2->session = session;
     wrapper2.destroy();
-    EXPECT_EQ("cancel", transport.outputLog);
+    EXPECT_EQ("cancel: ", transport.outputLog);
 }
 
 TEST_F(RpcWrapperTest, cancel) {
@@ -89,7 +89,7 @@ TEST_F(RpcWrapperTest, cancel) {
     wrapper.send();
     wrapper.session = session;
     wrapper.cancel();
-    EXPECT_EQ("cancel", transport.outputLog);
+    EXPECT_EQ("cancel: ", transport.outputLog);
 }
 
 TEST_F(RpcWrapperTest, completed) {

@@ -514,32 +514,11 @@ Segment::close(bool sync)
     if (closed)
         throw SegmentException(HERE, "Segment has already been closed");
 
-    // TODO(rumble/stutsman): Adding this fake entry is inefficient. We
-    // may end up sending up to 1MB over the network needlessly.
-
-    // Insert padding entry to align the footer to the end of the segment.
-    // Don't include the padding or its entry in the checksum.  It doesn't
-    // matter if it has integrity.  If we can't find the footer as a result
-    // then its okay to consider the segment corrupted, but if we manage
-    // to checksum all the non-padding entries and still find the checksum
-    // in the footer and it matches it is no problem.
-    uint32_t remainingSpace = locklessAppendableBytes();
-    // remainingSpace doesn't include the extra space set aside for the
-    // padding log entry header and the footer log entry + header.
-    SegmentEntryHandle seh =
-        forceAppendWithEntry(LOG_ENTRY_TYPE_INVALID, NULL,
-                             remainingSpace, false);
-    // Tweak to make sure this padding entry is still claimed as free space
-    // from the perspective of the log cleaner.
-    bytesExplicitlyFreed += seh->totalLength();
-    assert(seh != NULL);
-
-    // With above padding insert the footer which should be aligned at the
-    // end of the segment.
-    SegmentFooter footer = { checksum.getResult() };
-    seh = forceAppendWithEntry(LOG_ENTRY_TYPE_SEGFOOTER, &footer,
-                             sizeof(SegmentFooter), false);
-    assert(seh != NULL);
+    // TODO(stutsman): We used to append the footer to the segment here,
+    // which we will still want to do. Unfortunately, it doesn't work
+    // well with the old log module code. At the very least it would
+    // triplicate footers on the backups. This should be fixed up
+    // shortly with rumble's new log module.
 
     // ensure that any future append() will fail
     closed = true;
@@ -713,7 +692,7 @@ pair<uint32_t, SegmentFooterEntry>
 Segment::getCommittedLength() const
 {
     Lock lock(mutex);
-    return {tail, SegmentFooterEntry(0)};
+    return {tail, SegmentFooterEntry(checksum.getResult())};
 }
 
 /**
@@ -795,12 +774,10 @@ Segment::locklessAppendableBytes() const
     if (closed)
         return 0;
 
-    // Reserve space in the segment for a segment footer and an entry to
-    // insert for padding up to that footer.  This allows us to put the
-    // segment footer in the same place (at the end) in each segment which
-    // allows backups to find it without IO.
-    uint32_t headRoom = downCast<uint32_t>(2 * sizeof(SegmentEntry) +
-                                           sizeof(SegmentFooter));
+    // Reserve space in the segment for the backup to place the footer
+    // segment entry. Currently the backup writes the entry in two locations,
+    // so space for two of them is reserved.
+    uint32_t headRoom = downCast<uint32_t>(2 * sizeof(SegmentFooterEntry));
     uint32_t freeBytes = capacity - tail;
 
     assert(freeBytes >= headRoom);

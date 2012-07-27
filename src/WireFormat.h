@@ -24,6 +24,7 @@
 #define RAMCLOUD_WIREFORMAT_H
 
 #include "Common.h"
+#include "LogTypes.h"
 #include "RejectRules.h"
 #include "Status.h"
 
@@ -267,6 +268,36 @@ struct BackupWrite {
         OPENCLOSEPRIMARY = OPEN | CLOSE | PRIMARY,
     };
     struct Request {
+        Request()
+            : common()
+            , masterId()
+            , segmentId()
+            , offset()
+            , length()
+            , flags()
+            , atomic()
+            , footerIncluded()
+            , footerEntry()
+        {}
+        Request(RequestCommon common,
+                uint64_t masterId,
+                uint64_t segmentId,
+                uint32_t offset,
+                uint32_t length,
+                uint8_t flags,
+                bool atomic,
+                bool footerIncluded,
+                SegmentFooterEntry footerEntry)
+            : common(common)
+            , masterId(masterId)
+            , segmentId(segmentId)
+            , offset(offset)
+            , length(length)
+            , flags(flags)
+            , atomic(atomic)
+            , footerIncluded(footerIncluded)
+            , footerEntry(footerEntry)
+        {}
         RequestCommon common;
         uint64_t masterId;        ///< Server from whom the request is coming.
         uint64_t segmentId;       ///< Target segment to update.
@@ -274,9 +305,13 @@ struct BackupWrite {
         uint32_t length;          ///< Number of bytes to write.
         uint8_t flags;            ///< If open or close request.
         bool atomic;              ///< If true replica isn't valid until close.
-        uint16_t pad;             ///< Makes request "square up" so that John's
-                                  ///< weird string format distinguishes
-                                  ///< beweeen the header and payload in tests.
+        bool footerIncluded;      ///< If false #footer is undefined, if true
+                                  ///< then it includes a valid footer that
+                                  ///< should be placed in the segment after
+                                  ///< the data from this write.
+        SegmentFooterEntry footerEntry; ///< Footer which should be written to
+                                        ///< storage following the data included
+                                        ///< in this rpc.
         // Opaque byte string follows with data to write.
     } __attribute__((packed));
     struct Response {

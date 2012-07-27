@@ -415,8 +415,7 @@ ReplicaManager::allocateSegment(const Lock& lock, const Segment* segment,
         new(p) ReplicatedSegment(context, taskQueue, tracker, backupSelector,
                                  *this, writeRpcsInFlight, *minOpenSegmentId,
                                  dataMutex, segment,
-                                 isLogHead, masterId,
-                                 openLen, numReplicas);
+                                 isLogHead, masterId, numReplicas);
     replicatedSegmentList.push_back(*replicatedSegment);
     replicatedSegment->schedule();
 

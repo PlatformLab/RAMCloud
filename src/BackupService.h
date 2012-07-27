@@ -254,43 +254,13 @@ class BackupService : public Service
         }
 
         void open();
-
-        /**
-         * Set the state to #RECOVERING from #OPEN or #CLOSED.
-         * This can only be called on a primary segment.
-         * Returns true if the segment was already #RECOVERING.
-         */
-        bool
-        setRecovering()
-        {
-            Lock lock(mutex);
-            assert(primary);
-            bool wasRecovering = state == RECOVERING;
-            state = RECOVERING;
-            return wasRecovering;
-        }
-
-        /**
-         * Set the state to #RECOVERING from #OPEN or #CLOSED and store
-         * a copy of the supplied tablet information in case construction
-         * of recovery segments is needed later for this secondary
-         * segment. Returns true if the segment was already #RECOVERING.
-         */
-        bool
-        setRecovering(const ProtoBuf::Tablets& partitions)
-        {
-            Lock lock(mutex);
-            assert(!primary);
-            bool wasRecovering = state == RECOVERING;
-            state = RECOVERING;
-            // Make a copy of the partition list for deferred filtering.
-            recoveryPartitions.construct(partitions);
-            return wasRecovering;
-        }
-
+        bool setRecovering();
+        bool setRecovering(const ProtoBuf::Tablets& partitions);
         void startLoading();
         void write(Buffer& src, uint32_t srcOffset,
-                   uint32_t length, uint32_t destOffset, bool atomic);
+                   uint32_t length, uint32_t destOffset,
+                   const SegmentFooterEntry* footerEntry,
+                   bool atomic);
         const void* getLogDigest(uint32_t* byteLength = NULL);
 
         /**
@@ -327,12 +297,13 @@ class BackupService : public Service
 #endif
 
       PRIVATE:
+        void applyFooterEntry();
+
         /// Return true if this segment is fully in memory.
         bool inMemory() { return segment; }
 
         /// Return true if this segment has storage allocated.
         bool inStorage() const { return storageHandle; }
-
 
         /// Return true if this segment's recovery segments have been built.
         bool isRecovered() const { return recoverySegments; }
@@ -390,6 +361,33 @@ class BackupService : public Service
 
         /// The number of Buffers in #recoverySegments.
         uint32_t recoverySegmentsLength;
+
+        /**
+         * Where in #segment the most-recently-queued footer should be
+         * plunked down when the segment is closed or recovered (see
+         * #footerEntry).
+         */
+        uint32_t footerOffset;
+
+        /**
+         * Footer log entry provided on write by the master which is creating
+         * the replica. The footer must be stamped on the end of the replicas
+         * before the replica is sent to storage or used for recovery.  During
+         * recovery this footer is used to detect corruption and so must be in
+         * place for updates to replicas to be considered durable. If replica
+         * manager cannot send all the data ready to be replicated in one rpc
+         * it will not send a footer with the write. When this happens the
+         * backup ensures the most recently transmitted footer is used if the
+         * replica is closed or recovered in a way such that all non-footered
+         * writes sent since the last footered write will be atomically undone.
+         * This footer is stored in two locations in each replica: once at the
+         * end of the data (which is the authoritative footer, and again
+         * aligned at the end of the replica. The second copy is an
+         * optimization which allows the backup to find the footer quickly from
+         * disk in a single IO. applyFooterEntry() is a helper function that
+         * will plunk the most-recently-queued footers into place.
+         */
+        SegmentFooterEntry footerEntry;
 
         /**
          * Indicate to callers of startReadingData() that particular

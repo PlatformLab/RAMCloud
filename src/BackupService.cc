@@ -80,6 +80,8 @@ BackupService::SegmentInfo::SegmentInfo(BackupStorage& storage,
     , recoveryPartitions()
     , recoverySegments(NULL)
     , recoverySegmentsLength()
+    , footerOffset(0)
+    , footerEntry()
     , rightmostWrittenOffset(0)
     , segment()
     , segmentSize(segmentSize)
@@ -138,6 +140,8 @@ BackupService::SegmentInfo::SegmentInfo(BackupStorage& storage,
     , recoveryPartitions()
     , recoverySegments(NULL)
     , recoverySegmentsLength()
+    , footerOffset(0)
+    , footerEntry()
     , rightmostWrittenOffset(0)
     , segment()
     , segmentSize(segmentSize)
@@ -543,6 +547,8 @@ BackupService::SegmentInfo::close()
     else if (state != OPEN)
         throw BackupBadSegmentIdException(HERE);
 
+    applyFooterEntry();
+
     state = CLOSED;
     rightmostWrittenOffset = BYTES_WRITTEN_CLOSED;
 
@@ -615,6 +621,41 @@ BackupService::SegmentInfo::open()
 }
 
 /**
+ * Set the state to #RECOVERING from #OPEN or #CLOSED.  This can only be called
+ * on a primary segment.  Returns true if the segment was already #RECOVERING.
+ */
+bool
+BackupService::SegmentInfo::setRecovering()
+{
+    Lock lock(mutex);
+    assert(primary);
+    applyFooterEntry();
+    bool wasRecovering = state == RECOVERING;
+    state = RECOVERING;
+    return wasRecovering;
+}
+
+/**
+ * Set the state to #RECOVERING from #OPEN or #CLOSED and store a copy of the
+ * supplied tablet information in case construction of recovery segments is
+ * needed later for this secondary segment. Returns true if the segment was
+ * already #RECOVERING.
+ */
+bool
+BackupService::SegmentInfo::setRecovering(const ProtoBuf::Tablets& partitions)
+{
+    Lock lock(mutex);
+    assert(!primary);
+    applyFooterEntry();
+    bool wasRecovering = state == RECOVERING;
+    state = RECOVERING;
+    // Make a copy of the partition list for deferred filtering.
+    recoveryPartitions.construct(partitions);
+    return wasRecovering;
+}
+
+
+/**
  * Begin reading of segment from disk to memory. Marks the segment
  * CLOSED (immutable) as well.  Once the segment is in memory
  * #segment will be set and waiting threads will be notified via
@@ -645,6 +686,12 @@ BackupService::SegmentInfo::startLoading()
  * \param destOffset
  *      Offset into the backup segment in bytes of where the data is to
  *      be copied.
+ * \param footerEntry
+ *      New footer which should be written at #destOffset + #length and
+ *      at the end of the segment frame if the replica is closed or used
+ *      for recovery. NULL if the master provided no footer for this write.
+ *      Note this means this write isn't committed on the backup until the
+ *      next footered write. See #footerEntry.
  * \param atomic
  *      If true then this replica is considered invalid until a closing
  *      write (or subsequent call to write with \a atomic set to false).
@@ -664,6 +711,7 @@ BackupService::SegmentInfo::write(Buffer& src,
                                   uint32_t srcOffset,
                                   uint32_t length,
                                   uint32_t destOffset,
+                                  const SegmentFooterEntry* footerEntry,
                                   bool atomic)
 {
     Lock lock(mutex);
@@ -672,6 +720,28 @@ BackupService::SegmentInfo::write(Buffer& src,
     replicateAtomically = atomic;
     rightmostWrittenOffset = std::max(rightmostWrittenOffset,
                                       destOffset + length);
+    if (footerEntry) {
+        const uint32_t targetFooterOffset = destOffset + length;
+        if (targetFooterOffset < footerOffset) {
+            LOG(ERROR, "Write to <%lu,%lu> included a footer which was "
+                "requested to be written at offset %u but a prior write "
+                "placed a footer later in the segment at %u",
+                masterId.getId(), segmentId, targetFooterOffset, footerOffset);
+            throw BackupSegmentOverflowException(HERE);
+        }
+        if (targetFooterOffset + 2 * sizeof(*footerEntry) > segmentSize) {
+            // Need room for two copies of the footer. One at the end of the
+            // data and the other aligned to the end of the segment which
+            // can be found during restart without reading the whole segment.
+            LOG(ERROR, "Write to <%lu,%lu> included a footer which was "
+                "requested to be written at offset %u but there isn't "
+                "enough room in the segment for the footer", masterId.getId(),
+                segmentId, targetFooterOffset);
+            throw BackupSegmentOverflowException(HERE);
+        }
+        this->footerEntry = *footerEntry;
+        footerOffset = targetFooterOffset;
+    }
 }
 
 /**
@@ -705,6 +775,25 @@ BackupService::SegmentInfo::getLogDigest(uint32_t* byteLength)
         LOG(WARNING, "SegmentIterator constructor failed: %s", e.str().c_str());
     }
     return NULL;
+}
+
+// - private -
+
+/**
+ * Flatten #footerEntry into two locations in the in-memory buffer (#segment).
+ * The first goes where the master asked (#footerOffset), the second goes at
+ * the end of the footer, which makes it efficient to find on restart.
+ * This has the effect of truncating any non-footered writes since the last
+ * footered-write. See #footerEntry for details.
+ */
+void
+BackupService::SegmentInfo::applyFooterEntry()
+{
+    if (state != OPEN)
+        return;
+    memcpy(segment + footerOffset, &footerEntry, sizeof(footerEntry));
+    memcpy(segment + segmentSize - sizeof(footerEntry),
+           &footerEntry, sizeof(footerEntry));
 }
 
 // --- BackupService::IoScheduler ---
@@ -2025,8 +2114,11 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request& reqHdr,
 
         {
             CycleCounter<RawMetric> __(&metrics->backup.writeCopyTicks);
+            auto* footerEntry = reqHdr.footerIncluded ?
+                                                &reqHdr.footerEntry : NULL;
             info->write(rpc.requestPayload, sizeof(reqHdr),
-                        reqHdr.length, reqHdr.offset, reqHdr.atomic);
+                        reqHdr.length, reqHdr.offset,
+                        footerEntry, reqHdr.atomic);
         }
         metrics->backup.writeCopyBytes += reqHdr.length;
         bytesWritten += reqHdr.length;

@@ -57,8 +57,6 @@ namespace RAMCloud {
  *      as a log head).
  * \param masterId
  *      The server id of the master whose log this segment belongs to.
- * \param openLen
- *      Bytes to send atomically to backups with the open segment rpc.
  * \param numReplicas
  *      Number of replicas of this segment that must be maintained.
  * \param maxBytesPerWriteRpc
@@ -76,7 +74,6 @@ ReplicatedSegment::ReplicatedSegment(Context& context,
                                      const Segment* segment,
                                      bool normalLogSegment,
                                      ServerId masterId,
-                                     uint32_t openLen,
                                      uint32_t numReplicas,
                                      uint32_t maxBytesPerWriteRpc)
     : Task(taskQueue)
@@ -91,9 +88,11 @@ ReplicatedSegment::ReplicatedSegment(Context& context,
     , normalLogSegment(normalLogSegment)
     , masterId(masterId)
     , segmentId(segment->getId())
-    , openLen(openLen)
     , maxBytesPerWriteRpc(maxBytesPerWriteRpc)
-    , queued(true, openLen, false)
+    , queued(true, 0, false)
+    , queuedFooterEntry()
+    , openLen(0)
+    , openingWriteFooterEntry()
     , freeQueued(false)
     , followingSegment(NULL)
     , precedingSegmentCloseAcked(true)
@@ -102,6 +101,12 @@ ReplicatedSegment::ReplicatedSegment(Context& context,
     , listEntries()
     , replicas(numReplicas)
 {
+    pair<uint32_t, SegmentFooterEntry> committed =
+                                        segment->getCommittedLength();
+    openLen = committed.first;
+    queued.bytes = openLen;
+    openingWriteFooterEntry = committed.second;
+    queuedFooterEntry = openingWriteFooterEntry;
     schedule(); // schedule to replicate the opening data
 }
 
@@ -165,6 +170,10 @@ ReplicatedSegment::free()
 bool
 ReplicatedSegment::isSynced() const
 {
+    pair<uint32_t, SegmentFooterEntry> committed =
+                                        segment->getCommittedLength();
+    if (queued.bytes != committed.first)
+        return false;
     return !recoveringFromLostOpenReplicas && (getAcked() == queued);
 }
 
@@ -189,11 +198,12 @@ ReplicatedSegment::close()
     // It is necessary to update queued.bytes here because the segment believes
     // it has fully replicated all data when queued.close and
     // getAcked().bytes == queued.bytes.
-    // TODO(stutsman): Implement handling of the footer.
     pair<uint32_t, SegmentFooterEntry> committed =
                                         segment->getCommittedLength();
-    if (committed.first > queued.bytes)
+    if (committed.first > queued.bytes) {
         queued.bytes = committed.first;
+        queuedFooterEntry = committed.second;
+    }
     schedule();
 
     LOG(DEBUG, "Segment %lu closed (length %d)", segmentId, queued.bytes);
@@ -284,29 +294,29 @@ ReplicatedSegment::sync(uint32_t offset)
     CycleCounter<RawMetric> _(&metrics->master.replicaManagerTicks);
     TEST_LOG("syncing");
 
-    while (true) {
-        Lock lock(dataMutex);
-        // Definition of synced changes if this segment isn't durably closed
-        // and is recovering from a lost replica.  In that case the data
-        // the data isn't durable until it has been replicated *along with*
-        // a durable close on the replicas as well *and* any lost, open
-        // replicas have been shot down by setting the minOpenSegmentId.
-        // Once this flag is cleared those conditions have been met and
-        // it is safe to use the usual definition.
-        if (!recoveringFromLostOpenReplicas && getAcked().bytes >= offset)
-            break;
+    Lock lock(dataMutex);
+    // Definition of synced changes if this segment isn't durably closed
+    // and is recovering from a lost replica.  In that case the data
+    // the data isn't durable until it has been replicated *along with*
+    // a durable close on the replicas as well *and* any lost, open
+    // replicas have been shot down by setting the minOpenSegmentId.
+    // Once this flag is cleared those conditions have been met and
+    // it is safe to use the usual definition.
+    if (!recoveringFromLostOpenReplicas && getAcked().bytes >= offset)
+        return;
 
-        // TODO(stutsman): Having the getCommittedLength()
-        // call here can delay the shipment of footers to backups leave
-        // data on the backup without a valid segment footer indefinitely.
-        // TODO(stutsman): Implement handling of the footer.
-        pair<uint32_t, SegmentFooterEntry> committed =
-                                            segment->getCommittedLength();
-        if (committed.first > queued.bytes) {
-            queued.bytes = committed.first;
-            schedule();
-        }
+    pair<uint32_t, SegmentFooterEntry> committed =
+                                        segment->getCommittedLength();
+    if (committed.first > queued.bytes) {
+        queued.bytes = committed.first;
+        queuedFooterEntry = committed.second;
+        schedule();
+    }
+
+    while (true) {
         taskQueue.performTask();
+        if (!recoveringFromLostOpenReplicas && getAcked().bytes >= offset)
+            return;
     }
 }
 
@@ -375,7 +385,6 @@ ReplicatedSegment::performTask()
                 schedule();
             }
         }
-        assert(isSynced() || isScheduled());
     }
 }
 
@@ -568,6 +577,7 @@ ReplicatedSegment::performWrite(Replica& replica)
             try {
                 replica.writeRpc.construct(context, replica.backupId,
                                            masterId, segment, 0, openLen,
+                                           &openingWriteFooterEntry,
                                            flags, replica.replicateAtomically);
                 ++writeRpcsInFlight;
                 replica.sent.open = true;
@@ -602,6 +612,8 @@ ReplicatedSegment::performWrite(Replica& replica)
 
             uint32_t offset = replica.sent.bytes;
             uint32_t length = queued.bytes - offset;
+            SegmentFooterEntry* footerEntryToSend = &queuedFooterEntry;
+
             bool sendClose = queued.close && (offset + length) == queued.bytes;
             WireFormat::BackupWrite::Flags flags =
                 sendClose ?  WireFormat::BackupWrite::CLOSE :
@@ -612,6 +624,7 @@ ReplicatedSegment::performWrite(Replica& replica)
             if (length > maxBytesPerWriteRpc) {
                 length = maxBytesPerWriteRpc;
                 flags = WireFormat::BackupWrite::NONE;
+                footerEntryToSend = NULL;
             }
 
             if (flags == WireFormat::BackupWrite::CLOSE &&
@@ -639,8 +652,9 @@ ReplicatedSegment::performWrite(Replica& replica)
             TEST_LOG("Sending write to backup %lu", replica.backupId.getId());
             try {
                 replica.writeRpc.construct(context, replica.backupId, masterId,
-                                           segment, offset, length, flags,
-                                           replica.replicateAtomically);
+                                           segment, offset, length,
+                                           footerEntryToSend,
+                                           flags, replica.replicateAtomically);
                 ++writeRpcsInFlight;
                 replica.sent.bytes += length;
                 replica.sent.close = (flags == WireFormat::BackupWrite::CLOSE);

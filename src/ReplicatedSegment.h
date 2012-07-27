@@ -326,7 +326,6 @@ class ReplicatedSegment : public Task {
                       const Segment* segment,
                       bool normalLogSegment,
                       ServerId masterId,
-                      uint32_t openLen,
                       uint32_t numReplicas,
                       uint32_t maxBytesPerWriteRpc = 1024 * 1024);
     ~ReplicatedSegment();
@@ -421,9 +420,6 @@ class ReplicatedSegment : public Task {
     /// Id for the segment, must match the segmentId given by the log module.
     const uint64_t segmentId;
 
-    /// Bytes to send atomically to backups with the open segment rpc.
-    const uint32_t openLen;
-
     /**
      * Maximum number of bytes to send in any single write rpc
      * to backups. The idea is to avoid starving other rpcs to the
@@ -437,6 +433,37 @@ class ReplicatedSegment : public Task {
      * replication.
      */
     Progress queued;
+
+    /**
+     * Footer log entry provided by the #segment which is being replicated that
+     * must be stamped on the end (at #queued.bytes) of the replicas in
+     * storage. During recovery this footer is used to detect corruption and so
+     * must be in place for updates to replicas to be considered durable. If
+     * replica manager cannot send all the data ready to be replicated in the
+     * next rpc (that is, when #queued.bytes - #acked.bytes >
+     * maxBytesPerWriteRpc) it will not send a footer with the write. When
+     * this happens the backup ensures the most recently transmitted footer is
+     * used if the replica is closed or recovered in a way such that all
+     * non-footered writes sent since the last footered write will be
+     * atomically undone.
+     */
+    SegmentFooterEntry queuedFooterEntry;
+
+    /**
+     * Bytes to send atomically to backups with the opening backup write rpc.
+     * Queried from #segment when this ReplicatedSegment is constructed.
+     */
+    uint32_t openLen;
+
+    /**
+     * Similar to #queuedFooterEntry, except it is the footer just for the
+     * data sent to the backup with the opening write. Must be kept separately
+     * because new data with new footers can be queued for replication before
+     * the opening write has been sent but the opening write must be sent
+     * without any object data (due to the no-write-before-preceding-close
+     * rule).
+     */
+    SegmentFooterEntry openingWriteFooterEntry;
 
     /// True if all known replicas of this segment should be freed on backups.
     bool freeQueued;

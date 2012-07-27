@@ -61,6 +61,8 @@ class BackupServiceTest : public ::testing::Test {
     {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
 
+        memset(scratchSegBuf.get(), 0, scratchSegBufSize);
+
         cluster.construct(context);
         config.services = {WireFormat::BACKUP_SERVICE};
         config.backup.numSegmentFrames = 5;
@@ -84,7 +86,7 @@ class BackupServiceTest : public ::testing::Test {
         Segment segment(masterId.getId(), segmentId,
                         scratchSegBuf.get(), scratchSegBufSize);
         BackupClient::writeSegment(context, backupId, masterId,
-                                   &segment, 0, 0,
+                                   &segment, 0, 0, {},
                                    WireFormat::BackupWrite::CLOSE, false);
     }
 
@@ -97,7 +99,7 @@ class BackupServiceTest : public ::testing::Test {
         auto flags = primary ? WireFormat::BackupWrite::OPENPRIMARY
                              : WireFormat::BackupWrite::OPEN;
         return BackupClient::writeSegment(context, backupId, masterId,
-                                          &segment, 0, 0, flags, atomic);
+                                          &segment, 0, 0, {}, flags, atomic);
     }
 
     uint32_t
@@ -112,7 +114,8 @@ class BackupServiceTest : public ::testing::Test {
         char* buf = static_cast<char*>(scratchSegBuf.get());
         memcpy(buf + offset, s.c_str(), s.length());
         BackupClient::writeSegment(context, backupId, masterId, &segment,
-                                   offset, uint32_t(s.length()), flags, atomic);
+                                   offset, uint32_t(s.length()), {},
+                                   flags, atomic);
         return uint32_t(s.length());
     }
 
@@ -127,7 +130,8 @@ class BackupServiceTest : public ::testing::Test {
         memcpy(buf + offset, &entry, sizeof(entry));
         memcpy(buf + offset + sizeof(entry), data, bytes);
         BackupClient::writeSegment(context, backupId, masterId, &segment,
-                                   offset, uint32_t(sizeof(entry) + bytes));
+                                   offset, uint32_t(sizeof(entry) + bytes),
+                                   {});
         return uint32_t(sizeof(entry) + bytes);
     }
 
@@ -179,11 +183,12 @@ class BackupServiceTest : public ::testing::Test {
     uint32_t
     writeFooter(ServerId masterId, uint64_t segmentId, uint32_t offset)
     {
-        SegmentFooter footer;
-        footer.checksum =
-            static_cast<Segment::Checksum::ResultType>(0xff00ff00ff00);
-        return writeEntry(masterId, segmentId, LOG_ENTRY_TYPE_SEGFOOTER,
-                          offset, &footer, sizeof(footer));
+        Segment segment(masterId.getId(), segmentId,
+                        scratchSegBuf.get(), scratchSegBufSize);
+        SegmentFooterEntry footerEntry(0x1234abcdu);
+        BackupClient::writeSegment(context, backupId, masterId, &segment,
+                                   offset, 0, &footerEntry);
+        return offset + downCast<uint32_t>(sizeof(footerEntry));
     }
 
     void
@@ -258,10 +263,10 @@ class BackupServiceTest : public ::testing::Test {
 
         SegmentEntryHandle seh = s.append(LOG_ENTRY_TYPE_LOGDIGEST,
             digestBuf, downCast<uint32_t>(sizeof(digestBuf)));
-        uint32_t segmentLength = seh->logPosition().segmentOffset() +
-                                 seh->totalLength();
+        ASSERT_TRUE(seh);
+        auto committed = s.getCommittedLength();
         BackupClient::writeSegment(context, backupId, masterId,
-                                   &s, 0, segmentLength,
+                                   &s, 0, committed.first, &committed.second,
                                    WireFormat::BackupWrite::NONE, atomic);
 
         free(segBuf);
@@ -645,8 +650,9 @@ TEST_F(BackupServiceTest, recoverySegmentBuilder) {
 
     EXPECT_EQ(BackupService::SegmentInfo::RECOVERING,
                             toBuild[0]->state);
-    EXPECT_TRUE(NULL != toBuild[0]->recoverySegments);
+    ASSERT_TRUE(toBuild[0]->recoverySegments);
     Buffer* buf = &toBuild[0]->recoverySegments[0];
+    ASSERT_TRUE(buf);
     RecoverySegmentIterator it(buf->getRange(0, buf->getTotalLength()),
                                 buf->getTotalLength());
     EXPECT_FALSE(it.isDone());
@@ -1079,7 +1085,7 @@ TEST_F(BackupServiceTest, writeSegment_badLength) {
                     scratchSegBuf.get(), scratchSegBufSize);
     EXPECT_THROW(
         BackupClient::writeSegment(context, backupId, ServerId(99, 0),
-                                   &segment, 0, length),
+                                   &segment, 0, length, {}),
         BackupSegmentOverflowException);
     EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
 }
@@ -1092,7 +1098,7 @@ TEST_F(BackupServiceTest, writeSegment_badOffsetPlusLength) {
                     scratchSegBuf.get(), scratchSegBufSize);
     EXPECT_THROW(
         BackupClient::writeSegment(context, backupId, ServerId(99, 0),
-                                   &segment, 1, length),
+                                   &segment, 1, length, {}),
         BackupSegmentOverflowException);
     EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
 }
@@ -1386,7 +1392,13 @@ class SegmentInfoTest : public ::testing::Test {
         , ioThread(std::ref(ioScheduler))
         , info{storage, pool, ioScheduler,
             ServerId(99, 0), 88, segmentSize, true}
+        , scratchSegBuf(Memory::unique_ptr_free(
+                            Memory::xmemalign(HERE,
+                                              segmentSize,
+                                              segmentSize),
+                          std::free))
     {
+        memset(scratchSegBuf.get(), 0, segmentSize);
     }
 
     ~SegmentInfoTest()
@@ -1400,6 +1412,7 @@ class SegmentInfoTest : public ::testing::Test {
     BackupService::IoScheduler ioScheduler;
     std::thread ioThread;
     SegmentInfo info;
+    Memory::unique_ptr_free scratchSegBuf;
 };
 
 TEST_F(SegmentInfoTest, destructor) {
@@ -1420,7 +1433,7 @@ TEST_F(SegmentInfoTest, destructor) {
             ServerId(99, 0), 89, segmentSize, true};
         info2.open();
         Buffer src;
-        info2.write(src, 0, 0, 0, true);
+        info2.write(src, 0, 0, 0, NULL, true);
         EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
     }
     EXPECT_EQ("~SegmentInfo: Backup shutting down with open segment <99,89>, "
@@ -1474,7 +1487,7 @@ createTabletList(ProtoBuf::Tablets& tablets)
 
 TEST_F(SegmentInfoTest, appendRecoverySegment) {
     info.open();
-    Segment segment(123, 88, info.segment, segmentSize);
+    Segment segment(123, 88, scratchSegBuf.get(), segmentSize);
 
     SegmentHeader header = { 99, 88, segmentSize, Segment::INVALID_SEGMENT_ID };
     segment.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
@@ -1486,7 +1499,11 @@ TEST_F(SegmentInfoTest, appendRecoverySegment) {
     memcpy(object->getKeyLocation(), "10", 2);
     segment.append(LOG_ENTRY_TYPE_OBJ, object, object->objectLength(0));
 
-    segment.close(NULL);
+    segment.close(true);
+    Buffer src;
+    auto committed = segment.getCommittedLength();
+    segment.appendRangeToBuffer(src, 0, committed.first);
+    info.write(src, 0, committed.first, 0, &committed.second, true);
     info.close();
     info.setRecovering();
     info.startLoading();
@@ -1512,7 +1529,7 @@ TEST_F(SegmentInfoTest, appendRecoverySegmentSecondarySegment) {
     SegmentInfo info{storage, pool, ioScheduler,
         ServerId(99, 0), 88, segmentSize, false};
     info.open();
-    Segment segment(123, 88, info.segment, segmentSize);
+    Segment segment(123, 88, scratchSegBuf.get(), segmentSize);
 
     SegmentHeader header = { 99, 88, segmentSize, Segment::INVALID_SEGMENT_ID };
     segment.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
@@ -1524,7 +1541,11 @@ TEST_F(SegmentInfoTest, appendRecoverySegmentSecondarySegment) {
     memcpy(object->getKeyLocation(), "10", 2);
     segment.append(LOG_ENTRY_TYPE_OBJ, object, object->objectLength(0));
 
-    segment.close(NULL);
+    segment.close(true);
+    Buffer src;
+    auto committed = segment.getCommittedLength();
+    segment.appendRangeToBuffer(src, 0, committed.first);
+    info.write(src, 0, committed.first, 0, &committed.second, true);
     info.close();
 
     ProtoBuf::Tablets partitions;
@@ -1591,8 +1612,12 @@ TEST_F(SegmentInfoTest, appendRecoverySegmentNotYetRecovered) {
 
 TEST_F(SegmentInfoTest, appendRecoverySegmentPartitionOutOfBounds) {
     info.open();
-    Segment segment(123, 88, info.segment, segmentSize);
-    segment.close(NULL);
+    Segment segment(123, 88, scratchSegBuf.get(), segmentSize);
+    segment.close(true);
+    Buffer src;
+    auto committed = segment.getCommittedLength();
+    segment.appendRangeToBuffer(src, 0, committed.first);
+    info.write(src, 0, committed.first, 0, &committed.second, true);
     info.close();
     info.setRecovering();
     info.startLoading();
@@ -1753,7 +1778,7 @@ TEST_F(SegmentInfoTest, whichPartition) {
 
 TEST_F(SegmentInfoTest, buildRecoverySegment) {
     info.open();
-    Segment segment(123, 88, info.segment, segmentSize);
+    Segment segment(123, 88, scratchSegBuf.get(), segmentSize);
 
     SegmentHeader header = { 99, 88, segmentSize, Segment::INVALID_SEGMENT_ID };
     segment.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
@@ -1766,7 +1791,11 @@ TEST_F(SegmentInfoTest, buildRecoverySegment) {
     segment.append(LOG_ENTRY_TYPE_OBJ, object,
                    object->objectLength(0));
 
-    segment.close(NULL);
+    segment.close(true);
+    Buffer src;
+    auto committed = segment.getCommittedLength();
+    segment.appendRangeToBuffer(src, 0, committed.first);
+    info.write(src, 0, committed.first, 0, &committed.second, true);
     info.close();
     info.setRecovering();
     info.startLoading();
@@ -1808,8 +1837,12 @@ TEST_F(SegmentInfoTest, buildRecoverySegmentMalformedSegment) {
 
 TEST_F(SegmentInfoTest, buildRecoverySegmentNoTablets) {
     info.open();
-    Segment segment(123, 88, info.segment, segmentSize);
-    segment.close(NULL);
+    Segment segment(123, 88, scratchSegBuf.get(), segmentSize);
+    segment.close(true);
+    Buffer src;
+    auto committed = segment.getCommittedLength();
+    segment.appendRangeToBuffer(src, 0, committed.first);
+    info.write(src, 0, committed.first, 0, &committed.second, true);
     info.setRecovering();
     info.startLoading();
     info.buildRecoverySegments(ProtoBuf::Tablets());
@@ -1822,8 +1855,13 @@ TEST_F(SegmentInfoTest, close) {
     info.open();
     EXPECT_EQ(SegmentInfo::OPEN, info.state);
     ASSERT_TRUE(pool.is_from(info.segment));
-    const char* magic = "kitties!";
-    snprintf(info.segment, segmentSize, "%s", magic);
+    // The F gets tacked on by close() from the header given during write().
+    const char* magic = "kitties!F";
+    uint32_t bytesToCopy = downCast<uint32_t>(strlen(magic)) - 1;
+    Buffer src;
+    Buffer::Chunk::appendToBuffer(&src, magic, bytesToCopy);
+    SegmentFooterEntry footerEntry;
+    info.write(src, 0, bytesToCopy, 0, &footerEntry, false);
 
     info.close();
     EXPECT_EQ(SegmentInfo::CLOSED, info.state);
@@ -1839,6 +1877,26 @@ TEST_F(SegmentInfoTest, close) {
     EXPECT_STREQ(magic, seg);
 
     EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
+}
+
+TEST_F(SegmentInfoTest, closeWriteFooterEntry) {
+    info.open();
+    Buffer src;
+    const char message[] = "this is a test";
+    Buffer::Chunk::appendToBuffer(&src, message, arrayLength(message));
+    SegmentFooterEntry footerEntry(0x1234abcdu);
+    info.write(src, 10, 4, 1, &footerEntry, true);
+    // Footer isn't there yet, stored off to the side.
+    EXPECT_NE(0, memcmp(info.segment + info.footerOffset,
+                        &footerEntry, sizeof(footerEntry)));
+    info.close();
+    // Footer plopped down correctly.
+    EXPECT_EQ(0, memcmp(info.segment, "\0test", 5));
+    EXPECT_EQ(0, memcmp(info.segment + info.footerOffset,
+                        &footerEntry, sizeof(footerEntry)));
+    // Ensure the segment-end-aligned footer is also written out.
+    EXPECT_EQ(0, memcmp(info.segment + segmentSize - sizeof(footerEntry),
+                        &footerEntry, sizeof(footerEntry)));
 }
 
 TEST_F(SegmentInfoTest, closeWhileNotOpen) {
@@ -1891,10 +1949,116 @@ TEST_F(SegmentInfoTest, openStorageAllocationFailure) {
     EXPECT_EQ(SegmentInfo::UNINIT, info.state);
 }
 
+TEST_F(SegmentInfoTest, setRecoveringNoArgsWriteFooterEntry) {
+    info.open();
+    Buffer src;
+    const char message[] = "this is a test";
+    Buffer::Chunk::appendToBuffer(&src, message, arrayLength(message));
+    SegmentFooterEntry footerEntry(0x1234abcdu);
+    info.write(src, 10, 4, 1, &footerEntry, true);
+    // Footer isn't there yet, stored off to the side.
+    EXPECT_NE(0, memcmp(info.segment + info.footerOffset,
+                        &footerEntry, sizeof(footerEntry)));
+
+    EXPECT_FALSE(info.setRecovering());
+    EXPECT_EQ(SegmentInfo::RECOVERING, info.state);
+    // Footer plopped down correctly.
+    EXPECT_EQ(0, memcmp(info.segment, "\0test", 5));
+    EXPECT_EQ(0, memcmp(info.segment + info.footerOffset,
+                        &footerEntry, sizeof(footerEntry)));
+    // Ensure the segment-end-aligned footer is also written out.
+    EXPECT_EQ(0, memcmp(info.segment + segmentSize - sizeof(footerEntry),
+                        &footerEntry, sizeof(footerEntry)));
+    EXPECT_TRUE(info.setRecovering());
+}
+
+TEST_F(SegmentInfoTest, setRecoveringArgsWriteFooterEntry) {
+    SegmentInfo info{storage, pool, ioScheduler,
+        ServerId(99, 0), 88, segmentSize, false};
+    info.open();
+    Buffer src;
+    const char message[] = "this is a test";
+    Buffer::Chunk::appendToBuffer(&src, message, arrayLength(message));
+    SegmentFooterEntry footerEntry(0x1234abcdu);
+    info.write(src, 10, 4, 1, &footerEntry, true);
+    // Footer isn't there yet, stored off to the side.
+    EXPECT_NE(0, memcmp(info.segment + info.footerOffset,
+                        &footerEntry, sizeof(footerEntry)));
+
+    ProtoBuf::Tablets tablets;
+    EXPECT_FALSE(info.setRecovering(tablets));
+    EXPECT_EQ(SegmentInfo::RECOVERING, info.state);
+    // Footer plopped down correctly.
+    EXPECT_EQ(0, memcmp(info.segment, "\0test", 5));
+    EXPECT_EQ(0, memcmp(info.segment + info.footerOffset,
+                        &footerEntry, sizeof(footerEntry)));
+    // Ensure the segment-end-aligned footer is also written out.
+    EXPECT_EQ(0, memcmp(info.segment + segmentSize - sizeof(footerEntry),
+                        &footerEntry, sizeof(footerEntry)));
+    ASSERT_TRUE(info.recoveryPartitions);
+    EXPECT_EQ(0, info.recoveryPartitions->tablet_size());
+
+    appendTablet(tablets, 0, 123,
+        getKeyHash("9", 1), getKeyHash("9", 1), 0, 0);
+    EXPECT_TRUE(info.setRecovering(tablets));
+    ASSERT_TRUE(info.recoveryPartitions);
+    EXPECT_EQ(1, info.recoveryPartitions->tablet_size());
+}
+
 TEST_F(SegmentInfoTest, startLoading) {
     info.open();
     info.close();
     info.startLoading();
     EXPECT_EQ(SegmentInfo::CLOSED, info.state);
 }
+
+TEST_F(SegmentInfoTest, write) {
+    info.open();
+    Buffer src;
+    const char message[] = "this is a test";
+    Buffer::Chunk::appendToBuffer(&src, message, arrayLength(message));
+    SegmentFooterEntry footerEntry(0x1234abcdu);
+    info.write(src, 10, 4, 1, &footerEntry, true);
+    EXPECT_EQ(0, memcmp(info.segment, "\0test", 5));
+    EXPECT_EQ(5lu, info.footerOffset);
+    // Footer isn't there yet, stored off to the side.
+    EXPECT_NE(0, memcmp(info.segment + info.footerOffset,
+                        &footerEntry, sizeof(footerEntry)));
+}
+
+TEST_F(SegmentInfoTest, writeNonMonotonicFooterOffset) {
+    info.open();
+    Buffer src;
+    const char message[] = "this is a test";
+    Buffer::Chunk::appendToBuffer(&src, message, arrayLength(message));
+    SegmentFooterEntry footerEntry(0x1234abcdu);
+    info.write(src, 10, 4, 0, &footerEntry, true);
+    info.write(src, 10, 4, 0, &footerEntry, true);
+    info.write(src, 10, 4, 1, &footerEntry, true);
+    TestLog::Enable _;
+    EXPECT_THROW(info.write(src, 10, 4, 0, &footerEntry, true),
+                 BackupSegmentOverflowException);
+    EXPECT_EQ(
+        "write: Write to <99,88> included a footer which was requested "
+        "to be written at offset 4 but a prior write placed a footer later "
+        "in the segment at 5", TestLog::get());
+}
+
+TEST_F(SegmentInfoTest, writeInsufficientSpaceForFooters) {
+    info.open();
+    Buffer src;
+    SegmentFooterEntry footerEntry(0x1234abcdu);
+    uint32_t offset = downCast<uint32_t>(info.segmentSize -
+                                         2 * sizeof(footerEntry));
+    TestLog::Enable _;
+    info.write(src, 0, 0, offset, &footerEntry, true);
+    EXPECT_THROW(info.write(src, 0, 0, offset + 1, &footerEntry, true),
+                 BackupSegmentOverflowException);
+    EXPECT_EQ(
+        "write: Write to <99,88> included a footer which was requested to be "
+        "written at offset 65509 but there isn't enough room in the segment "
+        "for the footer",
+        TestLog::get());
+}
+
 } // namespace RAMCloud

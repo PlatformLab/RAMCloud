@@ -454,6 +454,19 @@ StartReadingDataRpc::Result::operator=(Result&& other)
  * \param flags
  *      Whether the write should open or close the segment or both or
  *      neither.  Defaults to neither.
+ * \param footerEntry
+ *      Footer which should follow the data included in this write. Should
+ *      contain a valid footer for the segment as written up through this
+ *      write. Backups write this footer following the data and at the end
+ *      of the segment. This may be NULL which has two ramifications. First,
+ *      the data included in this write will not be recovered (or, is not
+ *      durable) until the after the next write which includes a footer.
+ *      Second, the most recently transmitted footer will be written
+ *      to storage if the segment is closed or recovered precisely where
+ *      it would have been regardless of subsequent footerless writes. That
+ *      is, the backup will plop a footer right on top of any footerless
+ *      writes which hadn't yet been followed by a footered write,
+ *      which effectively strikes them from storage during recovery.
  * \param atomic
  *      If true then this replica is considered invalid until a closing
  *      write (or subsequent call to write with \a atomic set to false).
@@ -481,11 +494,12 @@ BackupClient::writeSegment(Context& context,
                            const Segment* segment,
                            uint32_t offset,
                            uint32_t length,
+                           const SegmentFooterEntry* footerEntry,
                            WireFormat::BackupWrite::Flags flags,
                            bool atomic)
 {
     WriteSegmentRpc rpc(context, backupId, masterId, segment, offset,
-                         length, flags, atomic);
+                        length, footerEntry, flags, atomic);
     return rpc.wait();
 }
 
@@ -511,6 +525,19 @@ BackupClient::writeSegment(Context& context,
  * \param flags
  *      Whether the write should open or close the segment or both or
  *      neither.  Defaults to neither.
+ * \param footerEntry
+ *      Footer which should follow the data included in this write. Should
+ *      contain a valid footer for the segment as written up through this
+ *      write. Backups write this footer following the data and at the end
+ *      of the segment. This may be NULL which has two ramifications. First,
+ *      the data included in this write will not be recovered (or, is not
+ *      durable) until the after the next write which includes a footer.
+ *      Second, the most recently transmitted footer will be written
+ *      to storage if the segment is closed or recovered precisely where
+ *      it would have been regardless of subsequent footerless writes. That
+ *      is, the backup will plop a footer right on top of any footerless
+ *      writes which hadn't yet been followed by a footered write,
+ *      which effectively strikes them from storage during recovery.
  * \param atomic
  *      If true then this replica is considered invalid until a closing
  *      write (or subsequent call to write with \a atomic set to false).
@@ -531,6 +558,7 @@ WriteSegmentRpc::WriteSegmentRpc(Context& context,
                                    const Segment* segment,
                                    uint32_t offset,
                                    uint32_t length,
+                                   const SegmentFooterEntry* footerEntry,
                                    WireFormat::BackupWrite::Flags flags,
                                    bool atomic)
     : ServerIdRpcWrapper(context, backupId,
@@ -542,6 +570,11 @@ WriteSegmentRpc::WriteSegmentRpc(Context& context,
     reqHdr.segmentId = segment->getId();
     reqHdr.offset = offset;
     reqHdr.length = length;
+    reqHdr.footerIncluded = footerEntry;
+    if (footerEntry)
+        reqHdr.footerEntry = *footerEntry;
+    else
+        reqHdr.footerEntry = SegmentFooterEntry();
     reqHdr.flags = flags;
     reqHdr.atomic = atomic;
     segment->appendRangeToBuffer(request, offset, length);

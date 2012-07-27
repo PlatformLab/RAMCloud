@@ -472,7 +472,7 @@ TEST_F(ServiceManagerTest, WorkerSession_cancelRequest) {
     MockTransport::sessionDeleteCount = 0;
     wrapper.testSend(transport.getSession());
     wrapper.cancel();
-    EXPECT_STREQ("sendRequest: abcdefg/0 | cancel",
+    EXPECT_STREQ("sendRequest: abcdefg/0 | cancel: ",
             transport.outputLog.c_str());
 }
 

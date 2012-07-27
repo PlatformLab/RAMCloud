@@ -329,32 +329,8 @@ TEST_F(SegmentTest, close) {
     TestLog::Enable _;
     s.close(false);
     EXPECT_EQ("close: 1, 2, 0 | "
-              "close: Segment 2 closed (length 8192)",
+              "close: Segment 2 closed (length 38)",
               TestLog::get());
-
-    // Check the padding.
-    SegmentEntry *se = reinterpret_cast<SegmentEntry *>(
-                        reinterpret_cast<char *>(s.baseAddress) +
-                        sizeof(SegmentEntry) + sizeof(SegmentHeader));
-    EXPECT_EQ(LOG_ENTRY_TYPE_INVALID, se->type);
-    EXPECT_EQ(sizeof(alignedBuf) -
-              3 * sizeof(SegmentEntry) -
-              sizeof(SegmentHeader) -
-              sizeof(SegmentFooter), se->length);
-
-    // Check the footer.
-    se = reinterpret_cast<SegmentEntry *>(
-                        reinterpret_cast<char *>(s.baseAddress) +
-                        sizeof(alignedBuf) -
-                        sizeof(SegmentEntry) - sizeof(SegmentFooter));
-    EXPECT_EQ(LOG_ENTRY_TYPE_SEGFOOTER, se->type);
-    EXPECT_EQ(sizeof(SegmentFooter), se->length);
-
-    SegmentFooter *sf = reinterpret_cast<SegmentFooter *>(
-                        reinterpret_cast<char *>(se) + sizeof(*se));
-    EXPECT_EQ(s.checksum.getResult(), sf->checksum);
-
-    EXPECT_EQ(0U, s.appendableBytes());
     EXPECT_TRUE(s.closed);
 }
 
@@ -366,14 +342,14 @@ TEST_F(SegmentTest, appendableBytes) {
 
     Segment s(1, 2, alignedBuf, sizeof(alignedBuf));
     EXPECT_EQ(sizeof(alignedBuf) - 3 * sizeof(SegmentEntry) -
-        sizeof(SegmentHeader) - sizeof(SegmentFooter), s.appendableBytes());
+        sizeof(SegmentHeader) - 2 * sizeof(SegmentFooter), s.appendableBytes());
 
     static char buf[83];
     int i = 0;
     while (s.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf)))
         i++;
     EXPECT_EQ(87, i);
-    EXPECT_EQ(39U, s.appendableBytes());
+    EXPECT_EQ(35U, s.appendableBytes());
 
     s.close(NULL);
     EXPECT_EQ(0U, s.appendableBytes());
