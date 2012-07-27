@@ -36,6 +36,7 @@ def color(*args, **kwargs):
     return lambda s: termcolor.colored(s, *args, **kwargs)
 
 markup = [ ('g++',              color('yellow'))
+         , ('ccache',           color('yellow'))
          , ('ar',               color('yellow'))
          , ('perl',             color('yellow'))
          , ('mock.py',          color('yellow'))
@@ -70,7 +71,7 @@ prefixesToStrip.sort(key=len, reverse=True) # sort prefixes by length desc
 
 def cleanup(line):
     line = line.strip()
-    line = elideCompiles(['g++', 'ar'], line)
+    line = elideCompiles(['ccache', 'g++', 'ar'], line)
     line = stripPaths(line)
     line = applySubsts(line)
     markLine(line)
