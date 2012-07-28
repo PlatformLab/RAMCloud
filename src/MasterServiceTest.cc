@@ -1472,7 +1472,7 @@ TEST_F(MasterServiceTest, objectRelocationCallback_objectAlive) {
 
     LogEntryType newType;
     Buffer newBuffer;
-    service->log.lookup(newReference, newType, newBuffer);
+    newType = service->log.getEntry(newReference, newBuffer);
 
     LogEntryType oldType2;
     Buffer oldBuffer2;
@@ -1604,7 +1604,7 @@ TEST_F(MasterServiceTest, tombstoneRelocationCallback_basics) {
 
     LogEntryType oldTypeInLog;
     Buffer oldBufferInLog; 
-    service->log.lookup(oldTombstoneReference, oldTypeInLog, oldBufferInLog);
+    oldTypeInLog = service->log.getEntry(oldTombstoneReference, oldBufferInLog);
 
     success = service->relocate(LOG_ENTRY_TYPE_OBJTOMB,
                                   oldBufferInLog,

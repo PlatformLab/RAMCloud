@@ -61,6 +61,14 @@ class SegmentIterator {
     /// Current offset into the segment. This points to the entry we're on and
     /// will use in the getType, getLength, appendToBuffer, etc. calls.
     uint32_t currentOffset;
+
+    /// Cache of the type of the entry at currentOffset. Set the first time
+    /// getType() is called and destroyed when next() is called.
+    Tub<LogEntryType> currentType;
+
+    /// Cache of the length of the entry at currentOffset. Set the first time
+    /// getType() is called and destroyed when next() is called.
+    Tub<uint32_t> currentLength;
  
     DISALLOW_COPY_AND_ASSIGN(SegmentIterator);
 };

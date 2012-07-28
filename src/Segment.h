@@ -187,9 +187,7 @@ class Segment {
     void free(uint32_t entryOffset);
     void close();
     uint32_t appendToBuffer(Buffer& buffer);
-    uint32_t appendEntryToBuffer(uint32_t offset, Buffer& buffer);
-    LogEntryType getEntryTypeAt(uint32_t offset);
-    uint32_t getEntryLengthAt(uint32_t offset);
+    LogEntryType getEntry(uint32_t offset, Buffer& buffer);
     uint32_t getTailOffset();
     uint32_t getSegletsAllocated();
     uint32_t getSegletsNeeded();
@@ -251,11 +249,11 @@ class Segment {
     uint32_t appendToBuffer(Buffer& buffer, uint32_t offset, uint32_t length);
     void appendFooter();
     const EntryHeader* getEntryHeader(uint32_t offset);
-    uint32_t getEntryDataOffset(uint32_t offset);
-    uint32_t getEntryDataLength(uint32_t offset);
-    void* getAddressAt(uint32_t offset);
-    uint32_t getContiguousBytesAt(uint32_t offset); 
-    void* offsetToSeglet(uint32_t offset);
+    void getEntryInfo(uint32_t offset,
+                      LogEntryType& outType,
+                      uint32_t &outDataOffset,
+                      uint32_t &outDataLength);
+    uint32_t peek(uint32_t offset, const void** outAddress);
     uint32_t bytesLeft();
     uint32_t bytesNeeded(uint32_t length);
     uint32_t copyOut(uint32_t offset, void* buffer, uint32_t length);

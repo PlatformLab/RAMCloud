@@ -69,20 +69,8 @@ class MasterService : public Service, Log::EntryHandlers {
      */
     class LogKeyComparer : public HashTable::KeyComparer {
       public:
-        LogKeyComparer(Log& log)
-            : log(log)
-        {
-        }
-
-        bool
-        doesMatch(Key& key, HashTable::Reference reference)
-        {
-            LogEntryType type;
-            Buffer buffer;
-            log.lookup(reference, type, buffer);
-            Key candidateKey(type, buffer);
-            return key == candidateKey;
-        }
+        LogKeyComparer(Log& log);
+        bool doesMatch(Key& key, HashTable::Reference reference);
 
       private:
         Log& log;

@@ -37,6 +37,7 @@ class DoNothingHandlers : public Log::EntryHandlers {
  */
 class LogIteratorTest : public ::testing::Test {
   public:
+#if 0
     Context context;
     ServerId serverId;
     ServerList serverList;
@@ -47,6 +48,7 @@ class LogIteratorTest : public ::testing::Test {
     Log l;
 
     LogIteratorTest()
+
         : context(),
           entryHandlers(),
           replicaManager(context, serverList, serverId, 0, "mock:coordinator"),
@@ -59,6 +61,9 @@ class LogIteratorTest : public ::testing::Test {
 
   private:
     DISALLOW_COPY_AND_ASSIGN(LogIteratorTest);
+#else
+    LogIteratorTest() {}
+#endif
 };
 #if 0
 TEST_F(LogIteratorTest, constructor_emptyLog) {

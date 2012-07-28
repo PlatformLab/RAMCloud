@@ -160,20 +160,20 @@ Log::free(HashTable::Reference reference)
  *
  * \param reference
  *      Reference to the entry requested. This value is returned in the append
- *      method.
- * \param outType
- *      The type of the entry being looked up is returned here.
+ *      method. If this reference is invalid behaviour is undefined. The log
+ *      will indicate when references become invalid via the EntryHandlers
+ *      class.
  * \param outBuffer
  *      Buffer to append the entry being looked up to.
+ * \return
+ *      The type of the entry being looked up is returned here.
  */
-void
-Log::lookup(HashTable::Reference reference, LogEntryType& outType, Buffer& outBuffer)
+LogEntryType
+Log::getEntry(HashTable::Reference reference, Buffer& outBuffer)
 {
     uint32_t slot = referenceToSlot(reference);
     uint32_t offset = referenceToOffset(reference);
-    LogSegment& segment = segmentManager[slot];
-    outType = segment.getEntryTypeAt(offset);
-    segment.appendEntryToBuffer(offset, outBuffer);
+    return segmentManager[slot].getEntry(offset, outBuffer);
 }
 
 /**

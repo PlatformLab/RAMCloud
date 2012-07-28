@@ -245,8 +245,7 @@ Segment::appendToBuffer(Buffer& buffer)
 }
 
 /**
- * Append a specific entry in the segment to the provided buffer. This is the
- * primary means of accessing an entry after it has been appended.
+ * Get access to an entry stored in this segment after it has been appended.
  *
  * \param offset
  *      Offset of the entry in the segment. This value is typically the result
@@ -254,46 +253,16 @@ Segment::appendToBuffer(Buffer& buffer)
  * \param buffer
  *      Buffer to append the entry to.
  * \return
- *      The number of bytes appended to the buffer is returned. In other words,
- *      the length of the entry.
- */
-uint32_t
-Segment::appendEntryToBuffer(uint32_t offset, Buffer& buffer)
-{
-    uint32_t entryDataOffset = getEntryDataOffset(offset);
-    uint32_t entryDataLength = getEntryDataLength(offset);
-    return appendToBuffer(buffer, entryDataOffset, entryDataLength);
-}
-
-/**
- * Return the type of entry present at a given offset in the segment.
- *
- * \param offset
- *      Offset of the entry in the segment. This value is typically the result
- *      of an append call on this segment.
- * \return
- *      The LogEntryType enum corresponding to the requested entry.
+ *      The entry's type as specified when it was appended (LogEntryType).
  */
 LogEntryType
-Segment::getEntryTypeAt(uint32_t offset)
+Segment::getEntry(uint32_t offset, Buffer& buffer)
 {
-    const EntryHeader* header = getEntryHeader(offset);
-    return header->getType();
-}
-
-/**
- * Return the length of the entry present at a given offset in the segment.
- *
- * \param offset
- *      Offset of the entry in the segment. This value is typically the result
- *      of an append call on this segment.
- * \return
- *      The length of the entry in bytes.
- */
-uint32_t
-Segment::getEntryLengthAt(uint32_t offset)
-{
-    return getEntryDataLength(offset);
+    LogEntryType type;
+    uint32_t entryDataOffset, entryDataLength;
+    getEntryInfo(offset, type, entryDataOffset, entryDataLength);
+    appendToBuffer(buffer, entryDataOffset, entryDataLength);
+    return type;
 }
 
 /**
@@ -351,7 +320,8 @@ Segment::checkMetadataIntegrity()
     Crc32C currentChecksum;
 
     const EntryHeader* header = NULL;
-    while (getContiguousBytesAt(offset) > 0) {
+    const void* unused = NULL;
+    while (peek(offset, &unused) > 0) {
         header = getEntryHeader(offset); 
         currentChecksum.update(header, sizeof(*header));
 
@@ -408,13 +378,13 @@ Segment::appendToBuffer(Buffer& buffer, uint32_t offset, uint32_t length)
     uint32_t initialLength = length;
 
     while (length > 0) {
-        uint32_t contigBytes = std::min(length, getContiguousBytesAt(offset));
+        const void* contigPointer = NULL;
+        uint32_t contigBytes = std::min(length, peek(offset, &contigPointer));
         if (contigBytes == 0)
             break;
 
-        Buffer::Chunk::appendToBuffer(&buffer,
-                                      getAddressAt(offset),
-                                      contigBytes);
+        Buffer::Chunk::appendToBuffer(&buffer, contigPointer, contigBytes);
+
         offset += contigBytes;
         length -= contigBytes;
     }
@@ -463,27 +433,11 @@ Segment::appendFooter()
 const Segment::EntryHeader*
 Segment::getEntryHeader(uint32_t offset)
 {
-    static_assert(sizeof(Segment::EntryHeader) == 1,
+    static_assert(sizeof(EntryHeader) == 1,
                   "Contiguity in segments not guaranteed!");
-    return reinterpret_cast<const Segment::EntryHeader*>(getAddressAt(offset));
-}
-
-/**
- * Given the offset of an entry in the segment, return the offset of that
- * entry's data blob.
- *
- * \param offset
- *      Offset of the entry in the segment. This should point to the entry
- *      header structure. Normally this value is obtained as the result of
- *      an append call.
- * \return
- *      Offset of the specified entry's data blob in the segment.
- */
-uint32_t
-Segment::getEntryDataOffset(uint32_t offset)
-{
-    const EntryHeader* header = getEntryHeader(offset);
-    return offset + sizeof32(*header) + header->getLengthBytes();
+    const EntryHeader* header;
+    peek(offset, reinterpret_cast<const void**>(&header));
+    return header;
 }
 
 /**
@@ -494,78 +448,52 @@ Segment::getEntryDataOffset(uint32_t offset)
  *      Offset of the entry in the segment. This should point to the entry
  *      header structure. Normally this value is obtained as the result of
  *      an append call.
- * \return
- *      Length of the specified entry's data blob in the segment.
  */
-uint32_t
-Segment::getEntryDataLength(uint32_t offset)
+void
+Segment::getEntryInfo(uint32_t offset,
+                      LogEntryType& outType,
+                      uint32_t& outDataOffset,
+                      uint32_t& outDataLength)
 {
     const EntryHeader* header = getEntryHeader(offset);
-    uint32_t dataLength = 0;
-    copyOut(offset + sizeof32(*header), &dataLength, header->getLengthBytes());
-    return dataLength;
+    outType = header->getType();
+    outDataOffset = offset + sizeof32(*header) + header->getLengthBytes();
+
+    outDataLength = 0;
+    copyOut(offset + sizeof32(*header), &outDataLength, header->getLengthBytes());
 }
 
 /**
- * Given a logical offset into the segment, obtain a pointer to the
- * corresponding memory. To obtain the number of contiguous bytes at that
- * location, call getContiguousBytes on the same offset.
+ * 'Peek' into the segment by specifying a logical byte offset and getting
+ * back a pointer to some contiguous space underlying the start and the number
+ * of contiguous bytes at that location. In other words, resolve the offset
+ * to a pointer and learn how far from the end of the seglet that offset is.
  *
  * \param offset
- *      Logical offset in the segment.
+ *      Logical segment offset to being peeking into.
+ * \param[out] outAddress
+ *      Pointer to contiguous memory corresponding to the given offset.
  * \return
- *      NULL if offset is invalid, else a pointer to the memory at that offset.
- */
-void*
-Segment::getAddressAt(uint32_t offset)
-{
-    if (getContiguousBytesAt(offset) == 0)
-        return NULL;
-
-    uint32_t segletOffset = offset % allocator.getSegletSize();
-    uint8_t* segletPtr = reinterpret_cast<uint8_t*>(offsetToSeglet(offset));
-    assert(segletPtr != NULL);
-    return static_cast<void*>(segletPtr + segletOffset);
-}
-
-/**
- * Given a logical offset into the segment, obtain the number of contiguous
- * bytes that back the segment starting from that position. This is typically
- * used in conjunction with getAddressAt.
- *
- * \param offset
- *      Logical offset in the segment.
- * \return
- *      0 if offset is invalid, else the number of contiguous bytes mapped at
- *      that logical offset.
+ *      The number of contiguous bytes accessible from the returned pointer
+ *      (outAddress). 
  */
 uint32_t
-Segment::getContiguousBytesAt(uint32_t offset)
+Segment::peek(uint32_t offset, const void** outAddress)
 {
-    if (offset >= (allocator.getSegletSize() * seglets.size()))
+    uint32_t segletSize = allocator.getSegletSize();
+
+    if (offset >= (segletSize * seglets.size()))
         return 0;
 
-    uint32_t segletOffset = offset % allocator.getSegletSize();
-    return allocator.getSegletSize() - segletOffset;
-}
+    uint32_t segletOffset = offset % segletSize;
+    uint32_t contiguousBytes = segletSize - segletOffset;
 
-/**
- * Given a logical offset in a segment, return the first byte of the seglet
- * that is mapped to that location.
- *
- * \param offset
- *      Logical offset in the segment.
- * \return
- *      NULL if offset is invalid, else the a pointer to the beginning of the
- *      requested seglet.
- */
-void*
-Segment::offsetToSeglet(uint32_t offset)
-{
-    uint32_t index = offset / allocator.getSegletSize();
-    if (index >= seglets.size())
-        return NULL;
-    return seglets[index];
+    uint32_t segletIndex = offset / segletSize;
+    uint8_t* segletPtr = reinterpret_cast<uint8_t*>(seglets[segletIndex]);
+    assert(segletPtr != NULL);
+    *outAddress = static_cast<void*>(segletPtr + segletOffset);
+
+    return contiguousBytes;
 }
 
 /**
@@ -621,11 +549,32 @@ Segment::copyOut(uint32_t offset, void* buffer, uint32_t length)
     uint8_t* bufferBytes = static_cast<uint8_t*>(buffer);
 
     while (length > 0) {
-        uint32_t contigBytes = std::min(length, getContiguousBytesAt(offset));
+        const void* contigPointer = NULL;
+        uint32_t contigBytes = std::min(length, peek(offset, &contigPointer));
         if (contigBytes == 0)
             break;
 
-        memcpy(bufferBytes, getAddressAt(offset), contigBytes);
+        // Yes, this ugliness actually provides a small improvement...
+        switch (contigBytes) {
+        case sizeof(uint8_t):
+            *bufferBytes = *reinterpret_cast<const uint8_t*>(contigPointer);
+            break;
+        case sizeof(uint16_t):
+            *reinterpret_cast<uint16_t*>(bufferBytes) =
+                *reinterpret_cast<const uint16_t*>(contigPointer);
+            break;
+        case sizeof(uint32_t):
+            *reinterpret_cast<uint32_t*>(bufferBytes) =
+                 *reinterpret_cast<const uint32_t*>(contigPointer);
+            break;
+        case sizeof(uint64_t):
+            *reinterpret_cast<uint64_t*>(bufferBytes) =
+                 *reinterpret_cast<const uint64_t*>(contigPointer);
+            break;
+        default:
+            memcpy(bufferBytes, contigPointer, contigBytes);
+        }
+
         bufferBytes += contigBytes;
         offset += contigBytes;
         length -= contigBytes;
@@ -654,11 +603,12 @@ Segment::copyIn(uint32_t offset, const void* buffer, uint32_t length)
     const uint8_t* bufferBytes = static_cast<const uint8_t*>(buffer);
 
     while (length > 0) {
-        uint32_t contigBytes = std::min(length, getContiguousBytesAt(offset));
+        const void* contigPointer = NULL;
+        uint32_t contigBytes = std::min(length, peek(offset, &contigPointer));
         if (contigBytes == 0)
             break;
 
-        memcpy(getAddressAt(offset), bufferBytes, contigBytes);
+        memcpy(const_cast<void*>(contigPointer), bufferBytes, contigBytes);
         bufferBytes += contigBytes;
         offset += contigBytes;
         length -= contigBytes;

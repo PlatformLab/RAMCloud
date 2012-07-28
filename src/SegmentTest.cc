@@ -145,7 +145,8 @@ TEST_P(SegmentTest, append_blackBox) {
         EXPECT_TRUE(s.append(LOG_ENTRY_TYPE_OBJ, buf, i, offset));
         
         Buffer buffer;
-        EXPECT_EQ(i, s.appendEntryToBuffer(offset, buffer));
+        s.getEntry(offset, buffer);
+        EXPECT_EQ(i, buffer.getTotalLength()); 
         EXPECT_EQ(0, memcmp(buf, buffer.getRange(0, i), i));
     }
 }
@@ -272,29 +273,16 @@ TEST_P(SegmentTest, appendToBuffer_all) {
     EXPECT_EQ(7U + 5U, buffer.getTotalLength());
 }
 
-TEST_P(SegmentTest, appendEntryToBuffer) {
+TEST_P(SegmentTest, getEntry) {
     Segment s(*GetParam());
     uint32_t offset;
     s.append(LOG_ENTRY_TYPE_OBJ, "this is only a test!", 21, offset);
 
     Buffer buffer;
-    s.appendEntryToBuffer(offset, buffer);
+    EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, s.getEntry(offset, buffer));
     EXPECT_EQ(21U, buffer.getTotalLength());
     EXPECT_STREQ("this is only a test!",
         reinterpret_cast<const char*>(buffer.getRange(0, 21)));
-}
-
-TEST_P(SegmentTest, getEntryTypeAt_and_getEntryLengthAt) {
-    Segment s(*GetParam());
-
-    for (int i = 0; i < 50; i++) {
-        uint32_t length = downCast<uint32_t>(generateRandom() % 100);
-        char data[length];
-        uint32_t offset;
-        s.append(LOG_ENTRY_TYPE_OBJTOMB, data, length, offset);
-        EXPECT_EQ(LOG_ENTRY_TYPE_OBJTOMB, s.getEntryTypeAt(offset));
-        EXPECT_EQ(length, s.getEntryLengthAt(offset));
-    }
 }
 
 TEST_P(SegmentTest, getSegletsAllocated) {
@@ -333,23 +321,33 @@ TEST_P(SegmentTest, appendFooter) {
     EXPECT_EQ(checksum.getResult(), s.checksum.getResult());
 }
 
-TEST_P(SegmentTest, getEntryDataOffset_and_getEntryDataLength) {
+TEST_P(SegmentTest, getEntryInfo) {
+    LogEntryType type;
+    uint32_t dataOffset;
+    uint32_t dataLength;
+
     {
         Segment s(*GetParam());
-        EXPECT_EQ(2U, s.getEntryDataOffset(0));
+        s.getEntryInfo(0, type, dataOffset, dataLength);
+        EXPECT_EQ(2U, dataOffset);
         char buf[200];
         s.append(LOG_ENTRY_TYPE_OBJ, buf, 200);
-        EXPECT_EQ(2U, s.getEntryDataOffset(0));
-        EXPECT_EQ(200U, s.getEntryDataLength(0));
+
+        s.getEntryInfo(0, type, dataOffset, dataLength);
+        EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, type);
+        EXPECT_EQ(2U, dataOffset);
+        EXPECT_EQ(200U, dataLength);
     }
 
     {
         Segment s(*GetParam());
-        EXPECT_EQ(2U, s.getEntryDataOffset(0));
+        s.getEntryInfo(0, type, dataOffset, dataLength);
+        EXPECT_EQ(2U, dataOffset);
         char buf[2000];
         s.append(LOG_ENTRY_TYPE_OBJ, buf, 2000);
-        EXPECT_EQ(3U, s.getEntryDataOffset(0));
-        EXPECT_EQ(2000U, s.getEntryDataLength(0));
+        s.getEntryInfo(0, type, dataOffset, dataLength);
+        EXPECT_EQ(3U, dataOffset);
+        EXPECT_EQ(2000U, dataLength);
     }
 
     {
@@ -359,46 +357,62 @@ TEST_P(SegmentTest, getEntryDataOffset_and_getEntryDataLength) {
         s.append(LOG_ENTRY_TYPE_OBJ, "hi", 2);  // EntryHeader at 4
         s.append(LOG_ENTRY_TYPE_OBJ, NULL, 0);  // EntryHeader at 8
 
-        EXPECT_EQ(2U, s.getEntryDataOffset(0));
-        EXPECT_EQ(4U, s.getEntryDataOffset(2));
-        EXPECT_EQ(6U, s.getEntryDataOffset(4));
-        EXPECT_EQ(10U, s.getEntryDataOffset(8));
+        s.getEntryInfo(0, type, dataOffset, dataLength);
+        EXPECT_EQ(2U, dataOffset);
 
-        EXPECT_EQ(0U, s.getEntryDataLength(0));
-        EXPECT_EQ(0U, s.getEntryDataLength(2));
-        EXPECT_EQ(2U, s.getEntryDataLength(4));
-        EXPECT_EQ(0U, s.getEntryDataLength(8));
+        s.getEntryInfo(2, type, dataOffset, dataLength);
+        EXPECT_EQ(4U, dataOffset);
+
+        s.getEntryInfo(4, type, dataOffset, dataLength);
+        EXPECT_EQ(6U, dataOffset);
+
+        s.getEntryInfo(8, type, dataOffset, dataLength);
+        EXPECT_EQ(10U, dataOffset);
+
+        s.getEntryInfo(0, type, dataOffset, dataLength);
+        EXPECT_EQ(0U, dataLength); 
+
+        s.getEntryInfo(2, type, dataOffset, dataLength);
+        EXPECT_EQ(0U, dataLength);
+
+        s.getEntryInfo(4, type, dataOffset, dataLength);
+        EXPECT_EQ(2U, dataLength);
+
+        s.getEntryInfo(8, type, dataOffset, dataLength);
+        EXPECT_EQ(0U, dataLength);
     }
 }
 
 TEST_P(SegmentTest, getAddressAt) {
     Segment s(*GetParam());
-    void* nullPtr = NULL;
-    EXPECT_NE(nullPtr, s.getAddressAt(s.allocator.getSegmentSize() - 1));
-    EXPECT_EQ(nullPtr, s.getAddressAt(s.allocator.getSegmentSize()));
-    EXPECT_EQ(nullPtr, s.getAddressAt(s.allocator.getSegmentSize() + 1));
-    EXPECT_EQ(s.seglets[0], s.getAddressAt(0));
 }
 
-TEST_P(SegmentTest, getContiguousBytesAt) {
+TEST_P(SegmentTest, peek) {
     Segment s(*GetParam());
-    EXPECT_EQ(1U, s.getContiguousBytesAt(s.allocator.getSegmentSize() - 1));
-    EXPECT_EQ(0U, s.getContiguousBytesAt(s.allocator.getSegmentSize()));
-    EXPECT_EQ(0U, s.getContiguousBytesAt(s.allocator.getSegmentSize() + 1));
-    EXPECT_EQ(s.allocator.getSegletSize(), s.getContiguousBytesAt(0));
-    EXPECT_EQ(s.allocator.getSegletSize() - 1, s.getContiguousBytesAt(1));
-}
+    const void* pointer = NULL;
+    void* const nullPtr = NULL;
 
-TEST_P(SegmentTest, offsetToSeglet) {
-    Segment s(*GetParam());
-    EXPECT_EQ(s.seglets[0], s.offsetToSeglet(0));
-    EXPECT_EQ(s.seglets[0], s.offsetToSeglet(1));
-    EXPECT_EQ(s.seglets[0], s.offsetToSeglet(s.allocator.getSegletSize() - 1));
-    if (s.seglets.size() > 1)
-        EXPECT_EQ(s.seglets[1], s.offsetToSeglet(s.allocator.getSegletSize()));
-    void* nullPtr = NULL;
-    EXPECT_EQ(nullPtr, s.offsetToSeglet(downCast<uint32_t>(s.seglets.size()) *
-                       s.allocator.getSegletSize()));
+    EXPECT_EQ(1U, s.peek(s.allocator.getSegmentSize() - 1, &pointer));
+    EXPECT_EQ(0U, s.peek(s.allocator.getSegmentSize(), &pointer));
+    EXPECT_EQ(0U, s.peek(s.allocator.getSegmentSize() + 1, &pointer));
+    EXPECT_EQ(s.allocator.getSegletSize(), s.peek(0, &pointer));
+    EXPECT_EQ(s.allocator.getSegletSize() - 1, s.peek(1, &pointer));
+
+    pointer = NULL;
+    EXPECT_NE(0U, s.peek(s.allocator.getSegmentSize() - 1, &pointer));
+    EXPECT_NE(nullPtr, pointer);
+
+    pointer = NULL;
+    EXPECT_EQ(0U, s.peek(s.allocator.getSegmentSize(), &pointer));
+    EXPECT_EQ(nullPtr, pointer);
+
+    pointer = NULL;
+    EXPECT_EQ(0U, s.peek(s.allocator.getSegmentSize() + 1, &pointer));
+    EXPECT_EQ(nullPtr, pointer);
+
+    pointer = NULL;
+    EXPECT_EQ(s.allocator.getSegletSize(), s.peek(0, &pointer));
+    EXPECT_EQ(s.seglets[0], pointer);
 }
 
 TEST_P(SegmentTest, bytesLeft) {

@@ -218,7 +218,10 @@ SegmentManager::setSurvivorSegmentReserve(uint32_t numSegments)
 LogSegment&
 SegmentManager::operator[](uint32_t slot)
 {
-    Lock guard(lock);
+    // There's no need to lock here. The 'segments' array is static and
+    // we assume that callers are well-behaved and won't use an old
+    // slot number. Even if we did take a lock, it still wouldn't prevent
+    // them from doing what I just said.
     if (slot >= maxSegments || !segments[slot])
         throw SegmentManagerException(HERE, "invalid segment slot");
     return *segments[slot];

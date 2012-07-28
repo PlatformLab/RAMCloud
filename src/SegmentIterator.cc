@@ -31,13 +31,18 @@ namespace RAMCloud {
 SegmentIterator::SegmentIterator()
     : wrapperSegment(),
       segment(NULL),
-      currentOffset(0)
+      currentOffset(0),
+      currentType(),
+      currentLength()
 {
 }
 
 /**
  * Construct a new SegmentIterator for the given Segment object. This
  * is typically used to iterate a segment still in master server memory.
+ *
+ * Note that behaviour is undefined if the segment is modified after the
+ * iterator has been constructed.
  *
  * \param segment
  *      The Segment object to be iterated over.
@@ -48,7 +53,9 @@ SegmentIterator::SegmentIterator()
 SegmentIterator::SegmentIterator(Segment& segment)
     : wrapperSegment(),
       segment(&segment),
-      currentOffset(0)
+      currentOffset(0),
+      currentType(),
+      currentLength()
 {
     if (!segment.checkMetadataIntegrity())
         throw SegmentIteratorException(HERE, "cannot iterate: corrupt segment");
@@ -58,6 +65,9 @@ SegmentIterator::SegmentIterator(Segment& segment)
  * Construct a new SegmentIterator given a contiguous piece of memory that
  * contains the serialized contents of a segment. This is typically used
  * to iterate a segment after it was written to a backup.
+ *
+ * Note that behaviour is undefined if the segment is modified after the
+ * iterator has been constructed.
  * 
  * \param buffer
  *      A pointer to the first byte of the segment.
@@ -68,7 +78,9 @@ SegmentIterator::SegmentIterator(Segment& segment)
 SegmentIterator::SegmentIterator(const void *buffer, uint32_t length)
     : wrapperSegment(),
       segment(NULL),
-      currentOffset(0)
+      currentOffset(0),
+      currentType(),
+      currentLength()
 {
     wrapperSegment.construct(buffer, length);
     segment = &*wrapperSegment;
@@ -92,8 +104,7 @@ SegmentIterator::~SegmentIterator()
 bool
 SegmentIterator::isDone()
 {
-    const Segment::EntryHeader* header = segment->getEntryHeader(currentOffset);
-    return header->getType() == LOG_ENTRY_TYPE_SEGFOOTER;
+    return getType() == LOG_ENTRY_TYPE_SEGFOOTER;
 }
 
 /**
@@ -106,16 +117,14 @@ SegmentIterator::isDone()
 void
 SegmentIterator::next()
 {
-    const Segment::EntryHeader* header = segment->getEntryHeader(currentOffset);
-
-    if (header->getType() == LOG_ENTRY_TYPE_SEGFOOTER)
+    if (getType() == LOG_ENTRY_TYPE_SEGFOOTER)
         return;
 
-    uint32_t length = 0;
-    segment->copyOut(currentOffset + sizeof32(*header),
-                     &length,
-                     header->getLengthBytes());
-    currentOffset += (sizeof32(*header) + header->getLengthBytes() + length);
+    const Segment::EntryHeader* header = segment->getEntryHeader(currentOffset);
+    currentOffset += sizeof32(*header) + header->getLengthBytes() + getLength();
+
+    currentType.destroy();
+    currentLength.destroy();
 }
 
 /**
@@ -124,7 +133,11 @@ SegmentIterator::next()
 LogEntryType
 SegmentIterator::getType()
 {
-    return segment->getEntryTypeAt(currentOffset);
+    if (!currentType) {
+        currentType.construct(
+            segment->getEntryHeader(currentOffset)->getType());
+    }
+    return *currentType;
 }
 
 /**
@@ -133,12 +146,17 @@ SegmentIterator::getType()
 uint32_t
 SegmentIterator::getLength()
 {
-    const Segment::EntryHeader* header = segment->getEntryHeader(currentOffset);
-    uint32_t length = 0;
-    segment->copyOut(currentOffset + sizeof32(*header),
-                     &length,
-                     header->getLengthBytes());
-    return length;
+    // We may be iterating a segment that has been appended to again,
+    // so evict the cache if we last saw a footer.
+    if (!currentLength) {
+        const Segment::EntryHeader* header = segment->getEntryHeader(currentOffset);
+        uint32_t length = 0;
+        segment->copyOut(currentOffset + sizeof32(*header),
+                         &length,
+                         header->getLengthBytes());
+        currentLength.construct(length);
+    }
+    return *currentLength;
 }
 
 /**
@@ -147,7 +165,8 @@ SegmentIterator::getLength()
 uint32_t
 SegmentIterator::appendToBuffer(Buffer& buffer)
 {
-    return segment->appendEntryToBuffer(currentOffset, buffer);
+    segment->getEntry(currentOffset, buffer);
+    return buffer.getTotalLength();
 }
 
 /**

@@ -164,9 +164,8 @@ class Log {
                 bool sync,
                 HashTable::Reference& outReference);
     void free(HashTable::Reference reference);
-    void lookup(HashTable::Reference reference,
-                LogEntryType& outType,
-                Buffer& outBuffer);
+    LogEntryType getEntry(HashTable::Reference reference,
+                          Buffer& outBuffer);
     void sync();
     Position getHeadPosition();
     uint64_t getSegmentId(HashTable::Reference reference);

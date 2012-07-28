@@ -35,6 +35,41 @@
 
 namespace RAMCloud {
 
+// class MasterService::KeyComparer -
+//      Compares keys of objects stored in the hash table.
+
+/**
+ * Constructor.
+ *
+ * \param log
+ *      Log this comparator should get entrys from when comparing.
+ */
+MasterService::LogKeyComparer::LogKeyComparer(Log& log)
+    : log(log)
+{
+}
+
+/**
+ * Compare a given key for equality with an entry stored in the log.
+ *
+ * \param key
+ *      Key to match again the log entry.
+ * \param reference
+ *      Reference to an entry in the log, whose key we're comparing 'key' with.
+ * \return
+ *      True if the keys are equal, otherwise false.
+ */
+bool
+MasterService::LogKeyComparer::doesMatch(Key& key,
+                                         HashTable::Reference reference)
+{
+    LogEntryType type;
+    Buffer buffer;
+    type = log.getEntry(reference, buffer);
+    Key candidateKey(type, buffer);
+    return key == candidateKey;
+}
+
 // struct MasterService::Replica
 
 /**
@@ -885,7 +920,7 @@ recoveryCleanup(HashTable::Reference maybeTomb, void *cookie)
     LogEntryType type;
     Buffer buffer;
 
-    server->log.lookup(maybeTomb, type, buffer);
+    type = server->log.getEntry(maybeTomb, buffer);
     if (type == LOG_ENTRY_TYPE_OBJTOMB) {
         Key key(type, buffer);
 
@@ -1399,7 +1434,7 @@ removeObjectIfFromUnknownTablet(HashTable::Reference reference, void *cookie)
     LogEntryType type;
     Buffer buffer;
 
-    master->log.lookup(reference, type, buffer);
+    type = master->log.getEntry(reference, buffer);
     if (type != LOG_ENTRY_TYPE_OBJ)
         return;
 
@@ -2400,12 +2435,15 @@ MasterService::lookup(Key& key, LogEntryType& type, Buffer& buffer)
 }
 
 bool
-MasterService::lookup(Key& key, LogEntryType& type, Buffer& buffer, HashTable::Reference& reference)
+MasterService::lookup(Key& key,
+                      LogEntryType& type,
+                      Buffer& buffer,
+                      HashTable::Reference& reference)
 {
     bool success = objectMap.lookup(key, reference);
     if (!success)
         return false;
-    log.lookup(reference, type, buffer);
+    type = log.getEntry(reference, buffer);
     return true;
 }
 

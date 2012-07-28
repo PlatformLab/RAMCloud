@@ -105,31 +105,42 @@ TEST_F(SegmentIteratorTest, next) {
     EXPECT_EQ(0U, it.currentOffset);
 
     s.append(LOG_ENTRY_TYPE_OBJ, "blam", 5);
-    it.next();
-    EXPECT_EQ(7U, it.currentOffset);
+    // first iterator is no longer valid
 
-    it.next();
-    EXPECT_EQ(7U, it.currentOffset);
-    it.next();
-    EXPECT_EQ(7U, it.currentOffset);
+    SegmentIterator it2(s);
+    it2.next();
+    EXPECT_EQ(7U, it2.currentOffset);
+
+    it2.next();
+    EXPECT_EQ(7U, it2.currentOffset);
+    it2.next();
+    EXPECT_EQ(7U, it2.currentOffset);
 }
 
 TEST_F(SegmentIteratorTest, getType) {
     SegmentIterator it(s);
     EXPECT_EQ(LOG_ENTRY_TYPE_SEGFOOTER, it.getType());
+
     s.append(LOG_ENTRY_TYPE_OBJ, "hi", 3);
-    EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, it.getType());
-    it.next();
-    EXPECT_EQ(LOG_ENTRY_TYPE_SEGFOOTER, it.getType());
+    // first iterator is no longer valid
+
+    SegmentIterator it2(s);
+    EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, it2.getType());
+    it2.next();
+    EXPECT_EQ(LOG_ENTRY_TYPE_SEGFOOTER, it2.getType());
 }
 
 TEST_F(SegmentIteratorTest, getLength) {
     SegmentIterator it(s);
     EXPECT_EQ(5U, it.getLength());
+
     s.append(LOG_ENTRY_TYPE_OBJ, "hi", 3);
-    EXPECT_EQ(3U, it.getLength());
-    it.next();
-    EXPECT_EQ(5U, it.getLength());
+    // first iterator is no longer valid
+
+    SegmentIterator it2(s);
+    EXPECT_EQ(3U, it2.getLength());
+    it2.next();
+    EXPECT_EQ(5U, it2.getLength());
 }
 
 TEST_F(SegmentIteratorTest, appendToBuffer) {
