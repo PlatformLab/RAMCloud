@@ -93,7 +93,8 @@ class MasterServiceTest : public ::testing::Test {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
 
         backup1Config.localLocator = "mock:host=backup1";
-        backup1Config.services = {BACKUP_SERVICE, MEMBERSHIP_SERVICE};
+        backup1Config.services = {WireFormat::BACKUP_SERVICE,
+                                  WireFormat::MEMBERSHIP_SERVICE};
         backup1Config.segmentSize = segmentSize;
         backup1Config.backup.numSegmentFrames = 2;
         backup1Id = cluster.addServer(backup1Config)->serverId;
@@ -102,7 +103,8 @@ class MasterServiceTest : public ::testing::Test {
         masterConfig.segmentSize = segmentSize;
         masterConfig.maxObjectDataSize = segmentSize / 4;
         masterConfig.localLocator = "mock:host=master";
-        masterConfig.services = {MASTER_SERVICE, MEMBERSHIP_SERVICE};
+        masterConfig.services = {WireFormat::MASTER_SERVICE,
+                                 WireFormat::MEMBERSHIP_SERVICE};
         masterConfig.master.numReplicas = 1;
         masterServer = cluster.addServer(masterConfig);
         service = masterServer->master.get();
@@ -469,7 +471,7 @@ TEST_F(MasterServiceTest, recover_basics) {
     BackupClient::startReadingData(context, backup1Id, ServerId(123), tablets);
 
     ProtoBuf::ServerList backups;
-    RecoverRpc::Replica replicas[] = {
+    WireFormat::Recover::Replica replicas[] = {
         {backup1Id.getId(), 87},
     };
 
@@ -676,7 +678,7 @@ TEST_F(MasterServiceTest, recover_ctimeUpdateIssued) {
     ramcloud->write(0, "0", 1, "abcdef", 6);
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
-    RecoverRpc::Replica replicas[] = {};
+    WireFormat::Recover::Replica replicas[] = {};
     MasterClient::recover(context, masterServer->serverId, 10lu,
                           ServerId(123), 0, tablets, replicas, 0);
 
@@ -705,7 +707,7 @@ TEST_F(MasterServiceTest, recover_unsuccessful) {
     ramcloud->write(0, "0", 1, "abcdef", 6);
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
-    RecoverRpc::Replica replicas[] = {
+    WireFormat::Recover::Replica replicas[] = {
         // Bad ServerId, should cause recovery to fail.
         {1004, 92},
     };
@@ -1343,7 +1345,7 @@ TEST_F(MasterServiceTest, receiveMigrationData) {
                                                     6, 0, NULL, 0),
         UnknownTableException);
     EXPECT_EQ("receiveMigrationData: migration data received for "
-        "unknown tablet 6, firstKey 0", TestLog::get());
+        "unknown tablet 6, firstKeyHash 0", TestLog::get());
     EXPECT_THROW(MasterClient::receiveMigrationData(context,
                                                     masterServer->serverId,
                                                     5, 0, NULL, 0),
@@ -1804,7 +1806,8 @@ class MasterRecoverTest : public ::testing::Test {
 
         ServerConfig config = ServerConfig::forTesting();
         config.localLocator = "mock:host=backup1";
-        config.services = {BACKUP_SERVICE, MEMBERSHIP_SERVICE};
+        config.services = {WireFormat::BACKUP_SERVICE,
+                           WireFormat::MEMBERSHIP_SERVICE};
         config.segmentSize = segmentSize;
         config.backup.numSegmentFrames = segmentFrames;
         backup1Id = cluster.addServer(config)->serverId;
@@ -1827,7 +1830,8 @@ class MasterRecoverTest : public ::testing::Test {
     {
         ServerConfig config = ServerConfig::forTesting();
         config.localLocator = "mock:host=master";
-        config.services = {MASTER_SERVICE, MEMBERSHIP_SERVICE};
+        config.services = {WireFormat::MASTER_SERVICE,
+                           WireFormat::MEMBERSHIP_SERVICE};
         config.master.numReplicas = 2;
         return cluster.addServer(config)->master.get();
     }
@@ -1867,8 +1871,10 @@ TEST_F(MasterRecoverTest, recover) {
                                                          segmentSize));
     ServerId serverId(99, 0);
     ServerList serverList(context);
-    serverList.add(backup1Id, "mock:host=backup1", {BACKUP_SERVICE,
-                                                    MEMBERSHIP_SERVICE}, 100);
+    serverList.add(backup1Id, "mock:host=backup1",
+                   {WireFormat::BACKUP_SERVICE,
+                    WireFormat::MEMBERSHIP_SERVICE},
+                   100);
     ReplicaManager mgr(context, serverList, serverId, 1);
     Segment s1(99, 87, segMem1, segmentSize, &mgr);
     s1.close();

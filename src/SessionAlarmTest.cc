@@ -15,7 +15,6 @@
 
 #include "TestUtil.h"
 #include "MembershipClient.h"
-#include "Rpc.h"
 #include "RpcWrapper.h"
 #include "SessionAlarm.h"
 #include "Transport.h"
@@ -58,7 +57,7 @@ class AlarmSession : public Transport::Session {
         if (alarm != NULL)
             alarm->rpcStarted();
         appendLog(format("sendRequest: opcode %s",
-                Rpc::opcodeSymbol(*request)));
+                WireFormat::opcodeSymbol(*request)));
     }
 
     void finishRpcs()

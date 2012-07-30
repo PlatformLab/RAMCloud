@@ -41,7 +41,6 @@ CLIENT_SRCFILES := \
 		   src/PingClient.cc \
 		   src/RamCloud.cc \
 		   src/RawMetrics.cc \
-		   src/Rpc.cc \
 		   src/RpcWrapper.cc \
 		   src/ServerIdRpcWrapper.cc \
 		   src/ServerList.cc \
@@ -62,6 +61,7 @@ CLIENT_SRCFILES := \
 		   src/Transport.cc \
 		   src/TransportManager.cc \
 		   src/UdpDriver.cc \
+		   src/WireFormat.cc \
 		   $(INFINIBAND_SRCFILES) \
 		   $(OBJDIR)/MetricList.pb.cc \
 		   $(OBJDIR)/ServerList.pb.cc \

@@ -33,14 +33,14 @@ struct BindTransport : public Transport {
     // services all associated with the same service locator (e.g.
     // the services that would be contained in a single server).
     struct ServiceArray {
-        Service* services[INVALID_SERVICE];
+        Service* services[WireFormat::INVALID_SERVICE];
     };
 
     explicit BindTransport(Context& context, Service* service = NULL)
         : context(context), services(), abortCounter(0), errorMessage()
     {
         if (service)
-            addService(*service, "mock:", MASTER_SERVICE);
+            addService(*service, "mock:", WireFormat::MASTER_SERVICE);
     }
 
     string
@@ -49,7 +49,8 @@ struct BindTransport : public Transport {
     }
 
     void
-    addService(Service& service, const string locator, ServiceType type) {
+    addService(Service& service, const string locator,
+            WireFormat::ServiceType type) {
         services[locator].services[type] = &service;
     }
 
@@ -110,9 +111,10 @@ struct BindTransport : public Transport {
                 return result;
             }
 
-            const RpcRequestCommon* header;
-            header = request->getStart<RpcRequestCommon>();
-            if ((header == NULL) || (header->service >= INVALID_SERVICE)) {
+            const WireFormat::RequestCommon* header;
+            header = request->getStart<WireFormat::RequestCommon>();
+            if ((header == NULL) ||
+                    (header->service >= WireFormat::INVALID_SERVICE)) {
                 throw ServiceNotAvailableException(HERE);
             }
             Service* service = services->services[header->service];
@@ -147,9 +149,10 @@ struct BindTransport : public Transport {
                 transport.errorMessage = "";
                 return;
             }
-            const RpcRequestCommon* header;
-            header = request->getStart<RpcRequestCommon>();
-            if ((header == NULL) || (header->service >= INVALID_SERVICE)) {
+            const WireFormat::RequestCommon* header;
+            header = request->getStart<WireFormat::RequestCommon>();
+            if ((header == NULL) ||
+                    (header->service >= WireFormat::INVALID_SERVICE)) {
                 throw ServiceNotAvailableException(HERE);
             }
             Service* service = services->services[header->service];

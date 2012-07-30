@@ -43,13 +43,16 @@ class RamCloudTest : public ::testing::Test {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
 
         ServerConfig config = ServerConfig::forTesting();
-        config.services = {MASTER_SERVICE, PING_SERVICE};
+        config.services = {WireFormat::MASTER_SERVICE,
+                           WireFormat::PING_SERVICE};
         config.localLocator = "mock:host=master1";
         cluster.addServer(config);
-        config.services = {MASTER_SERVICE, BACKUP_SERVICE, PING_SERVICE};
+        config.services = {WireFormat::MASTER_SERVICE,
+                           WireFormat::BACKUP_SERVICE,
+                           WireFormat::PING_SERVICE};
         config.localLocator = "mock:host=master2";
         cluster.addServer(config);
-        config.services = {PING_SERVICE};
+        config.services = {WireFormat::PING_SERVICE};
         config.localLocator = "mock:host=ping1";
         cluster.addServer(config);
 
@@ -234,7 +237,7 @@ TEST_F(RamCloudTest, multiRead) {
 TEST_F(RamCloudTest, quiesce) {
     TestLog::Enable _;
     ServerConfig config = ServerConfig::forTesting();
-    config.services = {BACKUP_SERVICE, PING_SERVICE};
+    config.services = {WireFormat::BACKUP_SERVICE, WireFormat::PING_SERVICE};
     config.localLocator = "mock:host=backup1";
     cluster.addServer(config);
     TestLog::reset();

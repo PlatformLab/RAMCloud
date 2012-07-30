@@ -21,6 +21,7 @@
 #include "Dispatch.h"
 #include "Service.h"
 #include "Transport.h"
+#include "WireFormat.h"
 
 namespace RAMCloud {
 
@@ -35,7 +36,7 @@ class ServiceManager : Dispatch::Poller {
     explicit ServiceManager(Context &context);
     ~ServiceManager();
 
-    void addService(Service& service, ServiceType type);
+    void addService(Service& service, WireFormat::ServiceType type);
     void exitWorker();
     void handleRpc(Transport::ServerRpc* rpc);
     bool idle();
@@ -83,7 +84,7 @@ class ServiceManager : Dispatch::Poller {
         friend class Worker;
         DISALLOW_COPY_AND_ASSIGN(ServiceInfo);
     };
-    Tub<ServiceInfo> services[INVALID_SERVICE];
+    Tub<ServiceInfo> services[WireFormat::INVALID_SERVICE];
 
     // Worker threads that are currently executing RPCs (no particular order).
     std::vector<Worker*> busyThreads;

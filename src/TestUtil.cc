@@ -16,7 +16,6 @@
 #include <string.h>
 #include "TestUtil.h"
 #include "Dispatch.h"
-#include "Rpc.h"
 
 using namespace RAMCloud;
 
@@ -413,8 +412,8 @@ TestUtil::checkLargeBuffer(Buffer* buffer, int expectedLength)
  */
 const char *TestUtil::getStatus(Buffer* buffer)
 {
-    const RpcResponseCommon* responseCommon =
-            buffer->getStart<RpcResponseCommon>();
+    const WireFormat::ResponseCommon* responseCommon =
+            buffer->getStart<WireFormat::ResponseCommon>();
     if (responseCommon == NULL) {
         return "empty reply message";
     }

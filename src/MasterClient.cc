@@ -401,8 +401,8 @@ ReceiveMigrationDataRpc2::ReceiveMigrationDataRpc2(Context& context,
 void
 MasterClient::recover(Context& context, ServerId serverId, uint64_t recoveryId,
         ServerId crashedServerId, uint64_t partitionId,
-        const ProtoBuf::Tablets& tablets, const RecoverRpc::Replica* replicas,
-        uint32_t numReplicas)
+        const ProtoBuf::Tablets& tablets,
+        const WireFormat::Recover::Replica* replicas, uint32_t numReplicas)
 {
     RecoverRpc2 rpc(context, serverId, recoveryId, crashedServerId,
             partitionId, tablets, replicas, numReplicas);
@@ -435,7 +435,8 @@ MasterClient::recover(Context& context, ServerId serverId, uint64_t recoveryId,
  */
 RecoverRpc2::RecoverRpc2(Context& context, ServerId serverId,
         uint64_t recoveryId, ServerId crashedServerId, uint64_t partitionId,
-        const ProtoBuf::Tablets& tablets, const RecoverRpc::Replica* replicas,
+        const ProtoBuf::Tablets& tablets,
+        const WireFormat::Recover::Replica* replicas,
         uint32_t numReplicas)
     : ServerIdRpcWrapper(context, serverId,
             sizeof(WireFormat::Recover::Response))

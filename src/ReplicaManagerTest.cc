@@ -44,7 +44,8 @@ struct ReplicaManagerTest : public ::testing::Test {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
 
         ServerConfig config = ServerConfig::forTesting();
-        config.services = {BACKUP_SERVICE, MEMBERSHIP_SERVICE};
+        config.services = {WireFormat::BACKUP_SERVICE,
+                           WireFormat::MEMBERSHIP_SERVICE};
         config.segmentSize = segmentSize;
         config.backup.numSegmentFrames = 4;
         config.localLocator = "mock:host=backup1";
@@ -55,8 +56,7 @@ struct ReplicaManagerTest : public ::testing::Test {
 
         mgr.construct(context, *context.serverList, serverId, 2);
         serverId = CoordinatorClient::enlistServer(context, {},
-                                                   {MASTER_SERVICE},
-                                                   "", 0 , 0);
+            {WireFormat::MASTER_SERVICE}, "", 0 , 0);
     }
 
     ServerId addToServerList(Server* server)
@@ -81,14 +81,15 @@ TEST_F(ReplicaManagerTest, isReplicaNeeded) {
 
     // Is not needed if we know about the backup (and hence the crashes of any
     // of its predecessors and we have no record of this segment.
-    context.serverList->add({2, 0}, "mock:host=backup1", {BACKUP_SERVICE}, 100);
+    context.serverList->add({2, 0}, "mock:host=backup1",
+                            {WireFormat::BACKUP_SERVICE}, 100);
     while (mgr->failureMonitor.tracker.getChange(server, event));
     EXPECT_FALSE(mgr->isReplicaNeeded({2, 0}, 99));
 
     // Is needed if we know the calling backup has crashed; the successor
     // backup will take care of garbage collection.
     context.serverList->crashed({2, 0}, "mock:host=backup1",
-                                {BACKUP_SERVICE}, 100);
+                                {WireFormat::BACKUP_SERVICE}, 100);
     while (mgr->failureMonitor.tracker.getChange(server, event));
     EXPECT_TRUE(mgr->isReplicaNeeded({2, 0}, 99));
 }
@@ -287,7 +288,8 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
     ASSERT_EQ(1u, log.head->getId());
 
     ServerConfig config = ServerConfig::forTesting();
-    config.services = {BACKUP_SERVICE, MEMBERSHIP_SERVICE};
+    config.services = {WireFormat::BACKUP_SERVICE,
+                       WireFormat::MEMBERSHIP_SERVICE};
     config.segmentSize = segmentSize;
     config.backup.numSegmentFrames = 4;
     config.localLocator = "mock:host=backup3";

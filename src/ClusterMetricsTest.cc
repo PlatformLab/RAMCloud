@@ -36,19 +36,21 @@ TEST_F(ClusterMetricsTest, load) {
 
     PingService pingforCoordinator(context, context.serverList);
     cluster.transport.addService(pingforCoordinator, "mock:host=coordinator",
-            PING_SERVICE);
+            WireFormat::PING_SERVICE);
 
     RamCloud ramcloud(context, "mock:host=coordinator");
 
     // Create two servers (faked with ping).
     ServerConfig ping1Config = ServerConfig::forTesting();
     ping1Config.localLocator = "mock:host=ping1";
-    ping1Config.services = {BACKUP_SERVICE, PING_SERVICE};
+    ping1Config.services = {WireFormat::BACKUP_SERVICE,
+                            WireFormat::PING_SERVICE};
     cluster.addServer(ping1Config);
 
     ServerConfig ping2Config = ping1Config;
     ping2Config.localLocator = "mock:host=ping2";
-    ping2Config.services = {MASTER_SERVICE, PING_SERVICE};
+    ping2Config.services = {WireFormat::MASTER_SERVICE,
+                            WireFormat::PING_SERVICE};
     cluster.addServer(ping2Config);
 
     ClusterMetrics clusterMetrics;

@@ -55,8 +55,9 @@ class CoordinatorServerManagerTest : public ::testing::Test {
 
         serverManager = &cluster.coordinator.get()->serverManager;
 
-        masterConfig.services = {MASTER_SERVICE, PING_SERVICE,
-                                 MEMBERSHIP_SERVICE};
+        masterConfig.services = {WireFormat::MASTER_SERVICE,
+                                 WireFormat::PING_SERVICE,
+                                 WireFormat::MEMBERSHIP_SERVICE};
         masterConfig.localLocator = "mock:host=master";
         Server* masterServer = cluster.addServer(masterConfig);
         master = masterServer->master.get();
@@ -88,7 +89,8 @@ class CoordinatorServerManagerTest : public ::testing::Test {
 TEST_F(CoordinatorServerManagerTest, assignReplicationGroup) {
     vector<ServerId> serverIds;
     ServerConfig config = ServerConfig::forTesting();
-    config.services = {BACKUP_SERVICE, MEMBERSHIP_SERVICE, PING_SERVICE};
+    config.services = {WireFormat::BACKUP_SERVICE,
+        WireFormat::MEMBERSHIP_SERVICE, WireFormat::PING_SERVICE};
     for (uint32_t i = 0; i < 3; i++) {
         config.localLocator = format("mock:host=backup%u", i);
         serverIds.push_back(cluster.addServer(config)->serverId);
@@ -110,7 +112,8 @@ TEST_F(CoordinatorServerManagerTest, assignReplicationGroup) {
 TEST_F(CoordinatorServerManagerTest, createReplicationGroup) {
     ServerId serverIds[9];
     ServerConfig config = ServerConfig::forTesting();
-    config.services = {BACKUP_SERVICE, MEMBERSHIP_SERVICE, PING_SERVICE};
+    config.services = {WireFormat::BACKUP_SERVICE,
+        WireFormat::MEMBERSHIP_SERVICE, WireFormat::PING_SERVICE};
     for (uint32_t i = 0; i < 8; i++) {
         config.localLocator = format("mock:host=backup%u", i);
         serverIds[i] = cluster.addServer(config)->serverId;
@@ -137,11 +140,12 @@ TEST_F(CoordinatorServerManagerTest, createReplicationGroup) {
 TEST_F(CoordinatorServerManagerTest, enlistServer) {
     EXPECT_EQ(1U, master->serverId.getId());
     EXPECT_EQ(ServerId(2, 0),
-        CoordinatorClient::enlistServer(context, {}, {BACKUP_SERVICE},
+        CoordinatorClient::enlistServer(context, {},
+                                        {WireFormat::BACKUP_SERVICE},
                                         "mock:host=backup"));
 
     ProtoBuf::ServerList masterList;
-    serverList->serialize(masterList, {MASTER_SERVICE});
+    serverList->serialize(masterList, {WireFormat::MASTER_SERVICE});
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
                 "server { services: 25 server_id: 1 "
                 "service_locator: \"mock:host=master\" "
@@ -150,7 +154,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServer) {
                 masterList.ShortDebugString()));
 
     ProtoBuf::ServerList backupList;
-    serverList->serialize(backupList, {BACKUP_SERVICE});
+    serverList->serialize(backupList, {WireFormat::BACKUP_SERVICE});
     EXPECT_EQ("server { services: 2 server_id: 2 "
               "service_locator: \"mock:host=backup\" "
               "expected_read_mbytes_per_sec: 0 status: 0 } "
@@ -172,7 +176,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServerReplaceAMaster) {
     TestLog::Enable _(startMasterRecoveryFilter);
     EXPECT_EQ(ServerId(2, 0),
         CoordinatorClient::enlistServer(context, masterServerId,
-                                        {BACKUP_SERVICE},
+                                        {WireFormat::BACKUP_SERVICE},
                                         "mock:host=backup"));
     EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1 | "
               "startMasterRecovery: Recovery crashedServerId: 1",
@@ -188,13 +192,13 @@ TEST_F(CoordinatorServerManagerTest, enlistServerReplaceANonMaster) {
 
     ServerConfig config = ServerConfig::forTesting();
     config.localLocator = "mock:host=backup1";
-    config.services = {BACKUP_SERVICE};
+    config.services = {WireFormat::BACKUP_SERVICE};
     ServerId replacesId = cluster.addServer(config)->serverId;
 
     TestLog::Enable _(startMasterRecoveryFilter);
     EXPECT_EQ(ServerId(2, 1),
         CoordinatorClient::enlistServer(context, replacesId,
-                                        {BACKUP_SERVICE},
+                                        {WireFormat::BACKUP_SERVICE},
                                         "mock:host=backup2"));
     EXPECT_EQ("startMasterRecovery: Server 2 crashed, but it had no tablets",
               TestLog::get());
@@ -210,7 +214,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServerLogCabin) {
 
     EXPECT_EQ(ServerId(2, 0),
         CoordinatorClient::enlistServer(context, masterServerId,
-                                        {BACKUP_SERVICE},
+                                        {WireFormat::BACKUP_SERVICE},
                                         "mock:host=backup"));
 
     ProtoBuf::StateEnlistServer readState;
@@ -236,11 +240,13 @@ TEST_F(CoordinatorServerManagerTest, enlistServerLogCabin) {
 TEST_F(CoordinatorServerManagerTest, getServerList) {
     ServerConfig master2Config = masterConfig;
     master2Config.localLocator = "mock:host=master2";
-    master2Config.services = {MASTER_SERVICE, BACKUP_SERVICE, PING_SERVICE};
+    master2Config.services = {WireFormat::MASTER_SERVICE,
+        WireFormat::BACKUP_SERVICE, WireFormat::PING_SERVICE};
     cluster.addServer(master2Config);
     ServerConfig backupConfig = masterConfig;
     backupConfig.localLocator = "mock:host=backup1";
-    backupConfig.services = {BACKUP_SERVICE, PING_SERVICE};
+    backupConfig.services = {WireFormat::BACKUP_SERVICE,
+        WireFormat::PING_SERVICE};
     cluster.addServer(backupConfig);
     ProtoBuf::ServerList list;
     CoordinatorClient::getServerList(context, list);
@@ -251,11 +257,13 @@ TEST_F(CoordinatorServerManagerTest, getServerList) {
 TEST_F(CoordinatorServerManagerTest, getServerList_backups) {
     ServerConfig master2Config = masterConfig;
     master2Config.localLocator = "mock:host=master2";
-    master2Config.services = {MASTER_SERVICE, BACKUP_SERVICE, PING_SERVICE};
+    master2Config.services = {WireFormat::MASTER_SERVICE,
+        WireFormat::BACKUP_SERVICE, WireFormat::PING_SERVICE};
     cluster.addServer(master2Config);
     ServerConfig backupConfig = masterConfig;
     backupConfig.localLocator = "mock:host=backup1";
-    backupConfig.services = {BACKUP_SERVICE, PING_SERVICE};
+    backupConfig.services = {WireFormat::BACKUP_SERVICE,
+        WireFormat::PING_SERVICE};
     cluster.addServer(backupConfig);
     ProtoBuf::ServerList list;
     CoordinatorClient::getBackupList(context, list);
@@ -266,11 +274,13 @@ TEST_F(CoordinatorServerManagerTest, getServerList_backups) {
 TEST_F(CoordinatorServerManagerTest, getServerList_masters) {
     ServerConfig master2Config = masterConfig;
     master2Config.localLocator = "mock:host=master2";
-    master2Config.services = {MASTER_SERVICE, BACKUP_SERVICE, PING_SERVICE};
+    master2Config.services = {WireFormat::MASTER_SERVICE,
+        WireFormat::BACKUP_SERVICE, WireFormat::PING_SERVICE};
     cluster.addServer(master2Config);
     ServerConfig backupConfig = masterConfig;
     backupConfig.localLocator = "mock:host=backup1";
-    backupConfig.services = {BACKUP_SERVICE, PING_SERVICE};
+    backupConfig.services = {WireFormat::BACKUP_SERVICE,
+        WireFormat::PING_SERVICE};
     cluster.addServer(backupConfig);
     ProtoBuf::ServerList list;
     CoordinatorClient::getMasterList(context, list);
@@ -280,7 +290,8 @@ TEST_F(CoordinatorServerManagerTest, getServerList_masters) {
 
 TEST_F(CoordinatorServerManagerTest, hintServerDown_backup) {
     ServerId id =
-        CoordinatorClient::enlistServer(context, {}, {BACKUP_SERVICE},
+        CoordinatorClient::enlistServer(context, {},
+                                        {WireFormat::BACKUP_SERVICE},
                                         "mock:host=backup");
     EXPECT_EQ(1U, serverManager->service.serverList.backupCount());
     serverManager->forceServerDownForTesting = true;
@@ -294,9 +305,10 @@ TEST_F(CoordinatorServerManagerTest, hintServerDown_server) {
     serverManager->service.recoveryManager.doNotStartRecoveries = true;
     // master is already enlisted
     CoordinatorClient::enlistServer(context, {},
-                                    {MASTER_SERVICE, PING_SERVICE},
+                                    {WireFormat::MASTER_SERVICE,
+                                    WireFormat::PING_SERVICE},
                                     "mock:host=master2");
-    CoordinatorClient::enlistServer(context, {}, {BACKUP_SERVICE},
+    CoordinatorClient::enlistServer(context, {}, {WireFormat::BACKUP_SERVICE},
                                     "mock:host=backup");
     ramcloud->createTable("foo");
     serverManager->forceServerDownForTesting = true;
@@ -362,7 +374,8 @@ TEST_F(CoordinatorServerManagerTest, hintServerDown_execute) {
 TEST_F(CoordinatorServerManagerTest, removeReplicationGroup) {
     ServerId serverIds[3];
     ServerConfig config = ServerConfig::forTesting();
-    config.services = {BACKUP_SERVICE, MEMBERSHIP_SERVICE, PING_SERVICE};
+    config.services = {WireFormat::BACKUP_SERVICE,
+            WireFormat::MEMBERSHIP_SERVICE, WireFormat::PING_SERVICE};
     for (uint32_t i = 0; i < 3; i++) {
         config.localLocator = format("mock:host=backup%u", i);
         serverIds[i] = cluster.addServer(config)->serverId;
@@ -387,7 +400,7 @@ TEST_F(CoordinatorServerManagerTest, sendServerList_checkLogs) {
         "sendServerList: Could not send list to unknown server 52"));
 
     ServerConfig config = ServerConfig::forTesting();
-    config.services = {MASTER_SERVICE, PING_SERVICE};
+    config.services = {WireFormat::MASTER_SERVICE, WireFormat::PING_SERVICE};
     ServerId id = cluster.addServer(config)->serverId;
 
     TestLog::reset();
@@ -397,7 +410,7 @@ TEST_F(CoordinatorServerManagerTest, sendServerList_checkLogs) {
         "membership service: 2"));
 
     config = ServerConfig::forTesting();
-    config.services = {MEMBERSHIP_SERVICE};
+    config.services = {WireFormat::MEMBERSHIP_SERVICE};
     id = cluster.addServer(config)->serverId;
 
     TestLog::reset();
@@ -418,7 +431,7 @@ TEST_F(CoordinatorServerManagerTest, sendServerList_checkLogs) {
 
 TEST_F(CoordinatorServerManagerTest, sendServerList_main) {
     ServerConfig config = ServerConfig::forTesting();
-    config.services = {MEMBERSHIP_SERVICE};
+    config.services = {WireFormat::MEMBERSHIP_SERVICE};
     ServerId id = cluster.addServer(config)->serverId;
 
     TestLog::Enable _;
@@ -478,7 +491,8 @@ TEST_F(CoordinatorServerManagerTest, verifyServerFailure) {
     ProtoBuf::ServerList update;
     MockTransport mockTransport(context);
     context.transportManager->registerMock(&mockTransport, "mock2");
-    ServerId deadId = serverList->add("mock2:", {PING_SERVICE}, 100, update);
+    ServerId deadId = serverList->add("mock2:", {WireFormat::PING_SERVICE},
+                                      100, update);
     EXPECT_TRUE(serverManager->verifyServerFailure(deadId));
     context.transportManager->unregisterMock();
 }

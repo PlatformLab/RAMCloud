@@ -16,7 +16,6 @@
 #include "BackupClient.h"
 #include "Buffer.h"
 #include "ClientException.h"
-#include "Rpc.h"
 #include "Segment.h"
 #include "ShortMacros.h"
 #include "TransportManager.h"
@@ -377,7 +376,7 @@ StartReadingDataRpc2::wait()
     response->truncateFront(sizeof(respHdr));
 
     // segmentIdAndLength
-    typedef BackupStartReadingDataRpc::Replica Replica;
+    typedef WireFormat::BackupStartReadingData::Replica Replica;
     const Replica* replicaArray = response->getStart<Replica>();
     for (uint64_t i = 0; i < segmentIdCount; ++i) {
         const Replica& replica = replicaArray[i];

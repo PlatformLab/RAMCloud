@@ -281,7 +281,7 @@ EnumerateTableRpc2::wait(Buffer& state)
     simpleWait(*ramcloud.clientContext.dispatch);
     const WireFormat::Enumerate::Response& respHdr(
             getResponseHeader<WireFormat::Enumerate>());
-    uint64_t result = respHdr.tabletStartHash;
+    uint64_t result = respHdr.tabletFirstHash;
 
     // Copy iterator from response into nextIter buffer.
     uint32_t iteratorBytes = respHdr.iteratorBytes;
@@ -807,7 +807,7 @@ QuiesceRpc2::QuiesceRpc2(RamCloud& ramcloud)
     // By default this RPC is sent to the backup service; retarget it
     // for the coordinator service (which will forward it on to all
     // backups).
-    reqHdr.common.service = COORDINATOR_SERVICE;
+    reqHdr.common.service = WireFormat::COORDINATOR_SERVICE;
     send();
 }
 

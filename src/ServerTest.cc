@@ -38,8 +38,10 @@ class ServerTest: public ::testing::Test {
         , config(ServerConfig::forTesting())
         , server()
     {
-        config.services = {MASTER_SERVICE, BACKUP_SERVICE, MEMBERSHIP_SERVICE,
-                           PING_SERVICE};
+        config.services = {WireFormat::MASTER_SERVICE,
+                           WireFormat::BACKUP_SERVICE,
+                           WireFormat::MEMBERSHIP_SERVICE,
+                           WireFormat::PING_SERVICE};
         config.coordinatorLocator = cluster.coordinatorLocator;
         config.localLocator = "mock:host=server0";
         server.construct(context, config);
@@ -65,14 +67,18 @@ TEST_F(ServerTest, createAndRegisterServices) {
     EXPECT_TRUE(server->membership);
     EXPECT_TRUE(server->ping);
     const auto& services = context.serviceManager->services;
-    ASSERT_TRUE(services[MASTER_SERVICE]);
-    EXPECT_EQ(server->master.get(), &services[MASTER_SERVICE]->service);
-    ASSERT_TRUE(services[BACKUP_SERVICE]);
-    EXPECT_EQ(server->backup.get(), &services[BACKUP_SERVICE]->service);
-    ASSERT_TRUE(services[MEMBERSHIP_SERVICE]);
-    EXPECT_EQ(server->membership.get(), &services[MEMBERSHIP_SERVICE]->service);
-    ASSERT_TRUE(services[PING_SERVICE]);
-    EXPECT_EQ(server->ping.get(), &services[PING_SERVICE]->service);
+    ASSERT_TRUE(services[WireFormat::MASTER_SERVICE]);
+    EXPECT_EQ(server->master.get(),
+        &services[WireFormat::MASTER_SERVICE]->service);
+    ASSERT_TRUE(services[WireFormat::BACKUP_SERVICE]);
+    EXPECT_EQ(server->backup.get(),
+        &services[WireFormat::BACKUP_SERVICE]->service);
+    ASSERT_TRUE(services[WireFormat::MEMBERSHIP_SERVICE]);
+    EXPECT_EQ(server->membership.get(),
+        &services[WireFormat::MEMBERSHIP_SERVICE]->service);
+    ASSERT_TRUE(services[WireFormat::PING_SERVICE]);
+    EXPECT_EQ(server->ping.get(),
+        &services[WireFormat::PING_SERVICE]->service);
 }
 
 namespace {

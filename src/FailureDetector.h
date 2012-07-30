@@ -21,7 +21,6 @@
 
 #include "Common.h"
 #include "PingClient.h"
-#include "Rpc.h"
 #include "ServiceLocator.h"
 #include "ServerId.h"
 #include "ServerList.h"

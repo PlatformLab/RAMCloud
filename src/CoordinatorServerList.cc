@@ -122,11 +122,11 @@ CoordinatorServerList::add(string serviceLocator,
     pair.nextGenerationNumber++;
     pair.entry.construct(id, serviceLocator, serviceMask);
 
-    if (serviceMask.has(MASTER_SERVICE)) {
+    if (serviceMask.has(WireFormat::MASTER_SERVICE)) {
         numberOfMasters++;
     }
 
-    if (serviceMask.has(BACKUP_SERVICE)) {
+    if (serviceMask.has(WireFormat::BACKUP_SERVICE)) {
         numberOfBackups++;
         pair.entry->expectedReadMBytesPerSec = readSpeed;
     }
@@ -444,7 +444,8 @@ CoordinatorServerList::nextBackupIndex(uint32_t startIndex) const
 void
 CoordinatorServerList::serialize(ProtoBuf::ServerList& protoBuf) const
 {
-    serialize(protoBuf, {MASTER_SERVICE, BACKUP_SERVICE});
+    serialize(protoBuf, {WireFormat::MASTER_SERVICE,
+        WireFormat::BACKUP_SERVICE});
 }
 
 /**
@@ -496,7 +497,7 @@ CoordinatorServerList::sendMembershipUpdate(ProtoBuf::ServerList& update,
         Tub<Entry>& entry = serverList[i].entry;
         if (!entry ||
             entry->status != ServerStatus::UP ||
-            !entry->services.has(MEMBERSHIP_SERVICE))
+            !entry->services.has(WireFormat::MEMBERSHIP_SERVICE))
             continue;
         if (entry->serverId == excludeServerId)
             continue;
@@ -662,7 +663,8 @@ void
 CoordinatorServerList::serialize(const Lock& lock,
                                  ProtoBuf::ServerList& protoBuf) const
 {
-    serialize(lock, protoBuf, {MASTER_SERVICE, BACKUP_SERVICE});
+    serialize(lock, protoBuf, {WireFormat::MASTER_SERVICE,
+        WireFormat::BACKUP_SERVICE});
 }
 
 /**
@@ -692,10 +694,10 @@ CoordinatorServerList::serialize(const Lock& lock,
 
         const Entry& entry = *serverList[i].entry;
 
-        if ((entry.services.has(MASTER_SERVICE) &&
-             services.has(MASTER_SERVICE)) ||
-            (entry.services.has(BACKUP_SERVICE) &&
-             services.has(BACKUP_SERVICE)))
+        if ((entry.services.has(WireFormat::MASTER_SERVICE) &&
+             services.has(WireFormat::MASTER_SERVICE)) ||
+            (entry.services.has(WireFormat::BACKUP_SERVICE) &&
+             services.has(WireFormat::BACKUP_SERVICE)))
         {
             ProtoBuf::ServerList_Entry& protoBufEntry(*protoBuf.add_server());
             entry.serialize(protoBufEntry);

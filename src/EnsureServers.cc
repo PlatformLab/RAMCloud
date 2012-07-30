@@ -41,9 +41,9 @@ countServices(ProtoBuf::ServerList& serverList, int& masters, int &backups)
             continue;
         ServiceMask mask =
             ServiceMask::deserialize(serverList.server(i).services());
-        if (mask.has(MASTER_SERVICE))
+        if (mask.has(WireFormat::MASTER_SERVICE))
             masters++;
-        if (mask.has(BACKUP_SERVICE))
+        if (mask.has(WireFormat::BACKUP_SERVICE))
             backups++;
     }
 }

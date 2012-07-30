@@ -26,7 +26,6 @@
 #include "ServerList.pb.h"
 #include "Tablets.pb.h"
 
-#include "Rpc.h"
 #include "ServiceMask.h"
 #include "ServerId.h"
 #include "ServerList.h"
@@ -75,11 +74,11 @@ class CoordinatorServerList : public AbstractServerList{
 
         bool isMaster() const {
             return (status == ServerStatus::UP) &&
-                   services.has(MASTER_SERVICE);
+                   services.has(WireFormat::MASTER_SERVICE);
         }
         bool isBackup() const {
             return (status == ServerStatus::UP) &&
-                   services.has(BACKUP_SERVICE);
+                   services.has(WireFormat::BACKUP_SERVICE);
         }
 
         // Fields below this point are maintained on the coordinator only

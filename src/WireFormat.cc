@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,17 +13,18 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "Rpc.h"
+#include "WireFormat.h"
 #include "Buffer.h"
 
 namespace RAMCloud {
+namespace WireFormat {
 
 /**
  * Returns a string representation of a ServiceType.  Useful for error
  * messages and logging.
  */
 const char*
-Rpc::serviceTypeSymbol(ServiceType type) {
+serviceTypeSymbol(ServiceType type) {
     switch (type) {
         case MASTER_SERVICE:        return "MASTER_SERVICE";
         case BACKUP_SERVICE:        return "BACKUP_SERVICE";
@@ -35,18 +36,18 @@ Rpc::serviceTypeSymbol(ServiceType type) {
 }
 
 /**
- * Given an RpcOpcode, return a human-readable string containing
+ * Given an Opcode, return a human-readable string containing
  * the symbolic name for the opcode, such as "PING"
  *
  * \param opcode
  *      Identifies the operation requested in an RPC; must be one
- *      of the values defined for RpcOpcode
+ *      of the values defined for Opcode
  *
  * \return
  *      See above.
  */
 const char*
-Rpc::opcodeSymbol(uint32_t opcode)
+opcodeSymbol(uint32_t opcode)
 {
     switch (opcode) {
         case PING:                       return "PING";
@@ -119,19 +120,18 @@ Rpc::opcodeSymbol(uint32_t opcode)
  *      A symbolic name for the request's opcode.
  */
 const char*
-Rpc::opcodeSymbol(Buffer& buffer)
+opcodeSymbol(Buffer& buffer)
 {
-    const RpcRequestCommon* header = buffer.getStart<RpcRequestCommon>();
+    const RequestCommon* header = buffer.getStart<RequestCommon>();
     if (header == NULL)
         return "null";
     return opcodeSymbol(header->opcode);
 }
-
 /**
  * Equality for RecoverRpc::Replica, useful for unit tests.
  */
 bool
-operator==(const RecoverRpc::Replica& a, const RecoverRpc::Replica& b)
+operator==(const Recover::Replica& a, const Recover::Replica& b)
 {
     return (a.backupId == b.backupId &&
             a.segmentId == b.segmentId);
@@ -141,20 +141,21 @@ operator==(const RecoverRpc::Replica& a, const RecoverRpc::Replica& b)
  * Inequality for RecoverRpc::Replica, useful for unit tests.
  */
 bool
-operator!=(const RecoverRpc::Replica& a, const RecoverRpc::Replica& b)
+operator!=(const Recover::Replica& a, const Recover::Replica& b)
 {
     return !(a == b);
 }
 
 /**
- * String representation of RecoverRpc::Replica, useful for unit tests.
+ * String representation of Recover::Replica, useful for unit tests.
  */
 std::ostream&
-operator<<(std::ostream& stream, const RecoverRpc::Replica& replica) {
+operator<<(std::ostream& stream, const Recover::Replica& replica) {
     stream << "Replica(backupId=" << replica.backupId
            << ", segmentId=" << replica.segmentId
            << ")";
     return stream;
 }
 
+}  // namespace WireFormat
 }  // namespace RAMCloud

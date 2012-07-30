@@ -95,7 +95,7 @@ ServiceManager::~ServiceManager()
  */
 
 void
-ServiceManager::addService(Service& service, ServiceType type) {
+ServiceManager::addService(Service& service, WireFormat::ServiceType type) {
     assert(!services[type]);
     services[type].construct(service);
     serviceCount++;
@@ -129,9 +129,9 @@ ServiceManager::handleRpc(Transport::ServerRpc* rpc)
     assert(rpc->epochIsSet());
 
     // Find the service for this RPC.
-    const RpcRequestCommon* header;
-    header = rpc->requestPayload.getStart<RpcRequestCommon>();
-    if ((header == NULL) || (header->service >= INVALID_SERVICE) ||
+    const WireFormat::RequestCommon* header;
+    header = rpc->requestPayload.getStart<WireFormat::RequestCommon>();
+    if ((header == NULL) || (header->service >= WireFormat::INVALID_SERVICE) ||
             !services[header->service]) {
 #if TESTING
         if (serviceCount == 0) {

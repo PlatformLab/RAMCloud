@@ -73,7 +73,6 @@ SHARED_SRCFILES := \
 		   src/RecoverySegmentIterator.cc \
 		   src/ReplicaManager.cc \
 		   src/ReplicatedSegment.cc \
-		   src/Rpc.cc \
 		   src/RpcWrapper.cc \
 		   src/Segment.cc \
 		   src/SegmentIterator.cc \
@@ -98,6 +97,7 @@ SHARED_SRCFILES := \
 		   src/TransportManager.cc \
 		   src/UdpDriver.cc \
 		   src/WallTime.cc \
+		   src/WireFormat.cc \
 		   $(INFINIBAND_SRCFILES) \
 		   $(OBJDIR)/EnumerationIterator.pb.cc \
 		   $(OBJDIR)/MetricList.pb.cc \

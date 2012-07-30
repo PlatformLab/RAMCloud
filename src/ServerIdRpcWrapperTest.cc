@@ -45,7 +45,7 @@ class ServerIdRpcWrapperTest : public ::testing::Test {
         context.coordinatorServerList = &coordinatorServerList;
         ProtoBuf::ServerList update;
         coordId = context.coordinatorServerList->add("mock:coord=1",
-                {MASTER_SERVICE}, 100, update);
+                {WireFormat::MASTER_SERVICE}, 100, update);
     }
 
     ~ServerIdRpcWrapperTest()

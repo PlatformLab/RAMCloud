@@ -23,7 +23,6 @@
 #include "CoordinatorSession.h"
 #include "PingClient.h"
 #include "FailureDetector.h"
-#include "Rpc.h"
 #include "ServerList.pb.h"
 #include "ServerList.h"
 #include "ShortMacros.h"
@@ -78,7 +77,7 @@ class FailureDetectorTest : public ::testing::Test {
     {
         ServerDetails dummy1;
         ServerChangeEvent dummy2;
-        serverList->add(id, locator, {PING_SERVICE}, 100);
+        serverList->add(id, locator, {WireFormat::PING_SERVICE}, 100);
         fd->serverTracker.getChange(dummy1, dummy2);
     }
 

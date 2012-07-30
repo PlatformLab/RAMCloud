@@ -15,8 +15,8 @@
 
 #include "Dispatch.h"
 #include "Fence.h"
-#include "Rpc.h"
 #include "Transport.h"
+#include "WireFormat.h"
 
 namespace RAMCloud {
 
@@ -121,7 +121,7 @@ Transport::ClientRpc::cancel(const string& message)
         return;
     cancelCleanup();
     string fullMessage = format("%s RPC cancelled",
-            Rpc::opcodeSymbol(*request));
+            WireFormat::opcodeSymbol(*request));
     if (message.size() > 0) {
         fullMessage.append(": ");
         fullMessage.append(message);

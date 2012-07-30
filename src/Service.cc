@@ -84,8 +84,8 @@ Service::getString(Buffer& buffer, uint32_t offset, uint32_t length) {
  *      and/or append additional information to the response buffer.
  */
 void
-Service::ping(const PingRpc::Request& reqHdr,
-             PingRpc::Response& respHdr,
+Service::ping(const WireFormat::Ping::Request& reqHdr,
+             WireFormat::Ping::Response& respHdr,
              Rpc& rpc)
 {
     // This method no longer serves any useful purpose (as of 6/2011) and
@@ -98,11 +98,11 @@ Service::ping(const PingRpc::Request& reqHdr,
  * Dispatch an RPC to the right handler based on its opcode.
  */
 void
-Service::dispatch(RpcOpcode opcode, Rpc& rpc)
+Service::dispatch(WireFormat::Opcode opcode, Rpc& rpc)
 {
     switch (opcode) {
-        case PingRpc::opcode:
-            callHandler<PingRpc, Service, &Service::ping>(rpc);
+        case WireFormat::Ping::opcode:
+            callHandler<WireFormat::Ping, Service, &Service::ping>(rpc);
             break;
         default:
             throw UnimplementedRequestError(HERE);
@@ -124,8 +124,8 @@ Service::handleRpc(Rpc& rpc) {
     // This method takes care of things that are the same in all services,
     // such as keeping statistics. It then calls a service-specific dispatch
     // method to handle the details of performing the RPC.
-    const RpcRequestCommon* header;
-    header = rpc.requestPayload.getStart<RpcRequestCommon>();
+    const WireFormat::RequestCommon* header;
+    header = rpc.requestPayload.getStart<WireFormat::RequestCommon>();
     if (header == NULL) {
         prepareErrorResponse(rpc.replyPayload, STATUS_MESSAGE_TOO_SHORT);
         return;
@@ -134,12 +134,12 @@ Service::handleRpc(Rpc& rpc) {
     // The check below is needed to avoid out-of-range accesses to
     // rpcsHandled etc.
     uint32_t opcode = header->opcode;
-    if (opcode >= ILLEGAL_RPC_TYPE)
-        opcode = ILLEGAL_RPC_TYPE;
+    if (opcode >= WireFormat::ILLEGAL_RPC_TYPE)
+        opcode = WireFormat::ILLEGAL_RPC_TYPE;
     (&metrics->rpc.rpc0Count)[opcode]++;
     uint64_t start = Cycles::rdtsc();
     try {
-        dispatch(RpcOpcode(header->opcode), rpc);
+        dispatch(WireFormat::Opcode(header->opcode), rpc);
     } catch (ClientException& e) {
         prepareErrorResponse(rpc.replyPayload, e.status);
     }
@@ -162,12 +162,13 @@ Service::handleRpc(Rpc& rpc) {
 void
 Service::prepareErrorResponse(Buffer& replyPayload, Status status)
 {
-    RpcResponseCommon* responseCommon = const_cast<RpcResponseCommon*>(
-        replyPayload.getStart<RpcResponseCommon>());
+    WireFormat::ResponseCommon* responseCommon =
+        const_cast<WireFormat::ResponseCommon*>(
+        replyPayload.getStart<WireFormat::ResponseCommon>());
     if (responseCommon == NULL) {
         // Response is currently empty; add a header to it.
         responseCommon =
-            new(&replyPayload, APPEND) RpcResponseCommon;
+            new(&replyPayload, APPEND) WireFormat::ResponseCommon;
     }
     responseCommon->status = status;
 }

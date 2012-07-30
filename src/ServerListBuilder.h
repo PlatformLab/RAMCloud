@@ -48,7 +48,7 @@ struct ServerListBuilder {
      *      ({BACKUP_SERVICE}, 123, "mock:host=two");
      */
     ServerListBuilder&
-    operator()(std::initializer_list<ServiceType> services,
+    operator()(std::initializer_list<WireFormat::ServiceType> services,
                uint64_t id,
                const char* locator,
                uint32_t backupReadMBytesPerSec = 0,

@@ -20,7 +20,6 @@
 #include "Log.h"
 #include "MockCluster.h"
 #include "RecoverySegmentIterator.h"
-#include "Rpc.h"
 #include "Server.h"
 #include "ShortMacros.h"
 #include "StringUtil.h"
@@ -63,13 +62,13 @@ class BackupServiceTest : public ::testing::Test {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
 
         cluster.construct(context);
-        config.services = {BACKUP_SERVICE};
+        config.services = {WireFormat::BACKUP_SERVICE};
         config.backup.numSegmentFrames = 5;
         server = cluster->addServer(config);
         backup = server->backup.get();
 
         context.serverList->add(backupId, server->config.localLocator,
-                                {BACKUP_SERVICE}, 100);
+                                {WireFormat::BACKUP_SERVICE}, 100);
     }
 
     ~BackupServiceTest()
@@ -587,7 +586,7 @@ TEST_F(BackupServiceTest, killAllStorage)
     config.segmentSize = 4096;
     config.backup.numSegmentFrames = 6;
     config.backup.file = path;
-    config.services = {BACKUP_SERVICE};
+    config.services = {WireFormat::BACKUP_SERVICE};
 
     config.clusterName = "old";
     cluster->addServer(config);
@@ -685,7 +684,7 @@ TEST_F(BackupServiceTest, restartFromStorage)
     config.segmentSize = 4096;
     config.backup.numSegmentFrames = 6;
     config.backup.file = path;
-    config.services = {BACKUP_SERVICE};
+    config.services = {WireFormat::BACKUP_SERVICE};
     config.clusterName = "testing";
     // Space for superblock images and then segment frames.
     const size_t superblockSize = 2 * SingleFileStorage::BLOCK_SIZE;
@@ -1225,16 +1224,16 @@ TEST_F(BackupServiceTest, GarbageCollectDownServerTask) {
 
 namespace {
 class GcMockMasterService : public Service {
-    void dispatch(RpcOpcode opcode, Rpc& rpc) {
-        const RpcRequestCommon* hdr =
-            rpc.requestPayload.getStart<RpcRequestCommon>();
+    void dispatch(WireFormat::Opcode opcode, Rpc& rpc) {
+        const WireFormat::RequestCommon* hdr =
+            rpc.requestPayload.getStart<WireFormat::RequestCommon>();
         switch (hdr->service) {
-        case MEMBERSHIP_SERVICE:
+        case WireFormat::MEMBERSHIP_SERVICE:
             switch (opcode) {
-            case GET_SERVER_ID:
+            case WireFormat::Opcode::GET_SERVER_ID:
             {
-                auto* resp =
-                    new(&rpc.replyPayload, APPEND) GetServerIdRpc::Response();
+                auto* resp = new(&rpc.replyPayload, APPEND)
+                    WireFormat::GetServerId::Response();
                 resp->serverId = ServerId(13, 0).getId();
                 resp->common.status = STATUS_OK;
                 break;
@@ -1244,15 +1243,16 @@ class GcMockMasterService : public Service {
                 break;
             }
             break;
-        case MASTER_SERVICE:
+        case WireFormat::MASTER_SERVICE:
             switch (hdr->opcode) {
-            case IS_REPLICA_NEEDED:
+            case WireFormat::Opcode::IS_REPLICA_NEEDED:
             {
-                const IsReplicaNeededRpc::Request* req =
-                    rpc.requestPayload.getStart<IsReplicaNeededRpc::Request>();
+                const WireFormat::IsReplicaNeeded::Request* req =
+                    rpc.requestPayload.getStart<
+                    WireFormat::IsReplicaNeeded::Request>();
                 auto* resp =
                     new(&rpc.replyPayload, APPEND)
-                        IsReplicaNeededRpc::Response();
+                        WireFormat::IsReplicaNeeded::Response();
                 resp->needed = req->segmentId % 2;
                 resp->common.status = STATUS_OK;
                 break;
@@ -1272,8 +1272,10 @@ class GcMockMasterService : public Service {
 
 TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask) {
     GcMockMasterService master;
-    cluster->transport.addService(master, "mock:host=m", MEMBERSHIP_SERVICE);
-    cluster->transport.addService(master, "mock:host=m", MASTER_SERVICE);
+    cluster->transport.addService(master, "mock:host=m",
+                                  WireFormat::MEMBERSHIP_SERVICE);
+    cluster->transport.addService(master, "mock:host=m",
+                                  WireFormat::MASTER_SERVICE);
     backup->context.serverList->add({13, 0}, "mock:host=m", {}, 100);
     context.serverList->add({13, 0}, "mock:host=m", {}, 100);
 

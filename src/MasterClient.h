@@ -48,7 +48,8 @@ class MasterClient {
     static void recover(Context& context, ServerId serverId,
             uint64_t recoveryId, ServerId crashedServerId,
             uint64_t partitionId, const ProtoBuf::Tablets& tablets,
-            const RecoverRpc::Replica* replicas, uint32_t numReplicas);
+            const WireFormat::Recover::Replica* replicas,
+            uint32_t numReplicas);
     static void receiveMigrationData(Context& context, ServerId serverId,
             uint64_t tableId, uint64_t firstKeyHash, const void* segment,
             uint32_t segmentBytes);
@@ -150,7 +151,8 @@ class RecoverRpc2 : public ServerIdRpcWrapper {
     RecoverRpc2(Context& context, ServerId serverId, uint64_t recoveryId,
             ServerId crashedServerId, uint64_t partitionId,
             const ProtoBuf::Tablets& tablets,
-            const RecoverRpc::Replica* replicas, uint32_t numReplicas);
+            const WireFormat::Recover::Replica* replicas,
+            uint32_t numReplicas);
     ~RecoverRpc2() {}
     /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
     void wait() {waitAndCheckErrors();}

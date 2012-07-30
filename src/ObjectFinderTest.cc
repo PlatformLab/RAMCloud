@@ -73,7 +73,7 @@ class ObjectFinderTest : public ::testing::Test {
         objectFinder.construct(context);
 
         ServerConfig config = ServerConfig::forTesting();
-        config.services = {MASTER_SERVICE};
+        config.services = {WireFormat::MASTER_SERVICE};
         cluster.addServer(config);
         cluster.addServer(config);
 

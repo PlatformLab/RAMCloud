@@ -38,7 +38,8 @@ struct BackupSelectorTest : public ::testing::Test {
         Logger::get().setLogLevels(SILENT_LOG_LEVEL);
 
         ServerConfig config = ServerConfig::forTesting();
-        config.services = {MASTER_SERVICE, MEMBERSHIP_SERVICE};
+        config.services = {WireFormat::MASTER_SERVICE,
+                           WireFormat::MEMBERSHIP_SERVICE};
         Server* server = cluster.addServer(config);
         selector = &server->master->replicaManager.backupSelector;
     }
@@ -49,7 +50,8 @@ struct BackupSelectorTest : public ::testing::Test {
 
     void addEqualHosts(std::vector<ServerId>& ids) {
         ServerConfig config = ServerConfig::forTesting();
-        config.services = {BACKUP_SERVICE, MEMBERSHIP_SERVICE};
+        config.services = {WireFormat::BACKUP_SERVICE,
+                           WireFormat::MEMBERSHIP_SERVICE};
         config.backup.mockSpeed = 100;
         for (uint32_t i = 1; i < 10; i++) {
             config.localLocator = format("mock:host=backup%u", i);
@@ -59,7 +61,8 @@ struct BackupSelectorTest : public ::testing::Test {
 
     void addDifferentHosts(std::vector<ServerId>& ids) {
         ServerConfig config = ServerConfig::forTesting();
-        config.services = {BACKUP_SERVICE, MEMBERSHIP_SERVICE};
+        config.services = {WireFormat::BACKUP_SERVICE,
+                           WireFormat::MEMBERSHIP_SERVICE};
         for (uint32_t i = 1; i < 10; i++) {
             config.backup.mockSpeed = i * 10;
             config.localLocator = format("mock:host=backup%u", i);
@@ -89,7 +92,8 @@ struct BackgroundEnlistBackup {
         std::this_thread::yield();
         usleep(1 * 1000);
         // See if enlisting a server unblocks the call.
-        CoordinatorClient::enlistServer(*context, {}, {BACKUP_SERVICE},
+        CoordinatorClient::enlistServer(*context, {},
+                                        {WireFormat::BACKUP_SERVICE},
                                         "mock:host=backup10", 10);
     }
 

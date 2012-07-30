@@ -191,7 +191,8 @@ TEST_F(TransportManagerTest, getSession_matchServerId) {
     context.transportManager->registerMock(&transport);
     context.transportManager->skipServerIdCheck = false;
     MembershipService membership(id, list);
-    transport.addService(membership, "mock:host=member", MEMBERSHIP_SERVICE);
+    transport.addService(membership, "mock:host=member",
+                         WireFormat::MEMBERSHIP_SERVICE);
 
     EXPECT_NO_THROW(context.transportManager->getSession(
         "mock:host=member", id));

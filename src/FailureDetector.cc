@@ -25,7 +25,7 @@
 #include "FailureDetector.h"
 #include "IpAddress.h"
 #include "ShortMacros.h"
-#include "Rpc.h"
+#include "WireFormat.h"
 
 namespace RAMCloud {
 
@@ -143,7 +143,8 @@ FailureDetector::detectorThreadEntry(FailureDetector* detector,
 void
 FailureDetector::pingRandomServer()
 {
-    ServerId pingee = serverTracker.getRandomServerIdWithService(PING_SERVICE);
+    ServerId pingee = serverTracker.getRandomServerIdWithService(
+        WireFormat::PING_SERVICE);
     if (!pingee.isValid() || pingee == ourServerId) {
         // If there isn't anyone to talk to, or the host selected
         // is ourself, then just skip this round and try again

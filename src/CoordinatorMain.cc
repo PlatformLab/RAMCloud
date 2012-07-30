@@ -57,9 +57,10 @@ main(int argc, char *argv[])
         context.coordinatorServerList = new CoordinatorServerList(context);
         CoordinatorService coordinatorService(context);
         context.serviceManager->addService(coordinatorService,
-                                                COORDINATOR_SERVICE);
+                                           WireFormat::COORDINATOR_SERVICE);
         PingService pingService(context);
-        context.serviceManager->addService(pingService, PING_SERVICE);
+        context.serviceManager->addService(pingService,
+                                           WireFormat::PING_SERVICE);
         Dispatch& dispatch = *context.dispatch;
         while (true) {
             dispatch.poll();

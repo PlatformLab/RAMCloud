@@ -49,8 +49,9 @@ class CoordinatorServiceTest : public ::testing::Test {
 
         service = cluster.coordinator.get();
 
-        masterConfig.services = {MASTER_SERVICE, PING_SERVICE,
-                                 MEMBERSHIP_SERVICE};
+        masterConfig.services = {WireFormat::MASTER_SERVICE,
+                                 WireFormat::PING_SERVICE,
+                                 WireFormat::MEMBERSHIP_SERVICE};
         masterConfig.localLocator = "mock:host=master";
         Server* masterServer = cluster.addServer(masterConfig);
         master = masterServer->master.get();
@@ -255,11 +256,14 @@ TEST_F(CoordinatorServiceTest, getTableId) {
 TEST_F(CoordinatorServiceTest, getServerList) {
     ServerConfig master2Config = masterConfig;
     master2Config.localLocator = "mock:host=master2";
-    master2Config.services = {MASTER_SERVICE, BACKUP_SERVICE, PING_SERVICE};
+    master2Config.services = {WireFormat::MASTER_SERVICE,
+                              WireFormat::BACKUP_SERVICE,
+                              WireFormat::PING_SERVICE};
     cluster.addServer(master2Config);
     ServerConfig backupConfig = masterConfig;
     backupConfig.localLocator = "mock:host=backup1";
-    backupConfig.services = {BACKUP_SERVICE, PING_SERVICE};
+    backupConfig.services = {WireFormat::BACKUP_SERVICE,
+                             WireFormat::PING_SERVICE};
     cluster.addServer(backupConfig);
     ProtoBuf::ServerList list;
     CoordinatorClient::getServerList(context, list);
@@ -270,11 +274,14 @@ TEST_F(CoordinatorServiceTest, getServerList) {
 TEST_F(CoordinatorServiceTest, getServerList_backups) {
     ServerConfig master2Config = masterConfig;
     master2Config.localLocator = "mock:host=master2";
-    master2Config.services = {MASTER_SERVICE, BACKUP_SERVICE, PING_SERVICE};
+    master2Config.services = {WireFormat::MASTER_SERVICE,
+                              WireFormat::BACKUP_SERVICE,
+                              WireFormat::PING_SERVICE};
     cluster.addServer(master2Config);
     ServerConfig backupConfig = masterConfig;
     backupConfig.localLocator = "mock:host=backup1";
-    backupConfig.services = {BACKUP_SERVICE, PING_SERVICE};
+    backupConfig.services = {WireFormat::BACKUP_SERVICE,
+                             WireFormat::PING_SERVICE};
     cluster.addServer(backupConfig);
     ProtoBuf::ServerList list;
     CoordinatorClient::getBackupList(context, list);
@@ -285,11 +292,14 @@ TEST_F(CoordinatorServiceTest, getServerList_backups) {
 TEST_F(CoordinatorServiceTest, getServerList_masters) {
     ServerConfig master2Config = masterConfig;
     master2Config.localLocator = "mock:host=master2";
-    master2Config.services = {MASTER_SERVICE, BACKUP_SERVICE, PING_SERVICE};
+    master2Config.services = {WireFormat::MASTER_SERVICE,
+                              WireFormat::BACKUP_SERVICE,
+                              WireFormat::PING_SERVICE};
     cluster.addServer(master2Config);
     ServerConfig backupConfig = masterConfig;
     backupConfig.localLocator = "mock:host=backup1";
-    backupConfig.services = {BACKUP_SERVICE, PING_SERVICE};
+    backupConfig.services = {WireFormat::BACKUP_SERVICE,
+                             WireFormat::PING_SERVICE};
     cluster.addServer(backupConfig);
     ProtoBuf::ServerList list;
     CoordinatorClient::getMasterList(context, list);
@@ -316,9 +326,9 @@ reassignTabletOwnershipFilter(string s)
 
 TEST_F(CoordinatorServiceTest, reassignTabletOwnership) {
     ServerConfig master2Config = masterConfig;
-    master2Config.services = { MASTER_SERVICE,
-                               PING_SERVICE,
-                               MEMBERSHIP_SERVICE };
+    master2Config.services = { WireFormat::MASTER_SERVICE,
+                               WireFormat::PING_SERVICE,
+                               WireFormat::MEMBERSHIP_SERVICE };
     master2Config.localLocator = "mock:host=master2";
     auto* master2 = cluster.addServer(master2Config);
 
@@ -370,7 +380,7 @@ TEST_F(CoordinatorServiceTest, reassignTabletOwnership) {
 
 TEST_F(CoordinatorServiceTest, sendServerList) {
     ServerConfig config = ServerConfig::forTesting();
-    config.services = {MEMBERSHIP_SERVICE};
+    config.services = {WireFormat::MEMBERSHIP_SERVICE};
     ServerId id = cluster.addServer(config)->serverId;
 
     TestLog::Enable _;

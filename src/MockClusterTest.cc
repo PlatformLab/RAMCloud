@@ -47,9 +47,9 @@ TEST_F(MockClusterTest, constructor) {
 static bool destructorFilter(string s) { return s == "~MockCluster"; }
 
 TEST_F(MockClusterTest, destructor) {
-    config.services = {BACKUP_SERVICE};
+    config.services = {WireFormat::BACKUP_SERVICE};
     cluster->addServer(config);
-    config.services = {MASTER_SERVICE};
+    config.services = {WireFormat::MASTER_SERVICE};
     cluster->addServer(config);
     TestLog::Enable _(&destructorFilter);
     cluster.destroy();
@@ -59,7 +59,7 @@ TEST_F(MockClusterTest, destructor) {
 }
 
 TEST_F(MockClusterTest, addServer) {
-    config.services = {BACKUP_SERVICE};
+    config.services = {WireFormat::BACKUP_SERVICE};
     Server* server = cluster->addServer(config);
     EXPECT_EQ(server->config.localLocator, "mock:host=server0");
     EXPECT_FALSE(server->master);
@@ -86,13 +86,13 @@ TEST_F(MockClusterTest, benchCoordinatorOnly) {
 }
 
 TEST_F(MockClusterTest, benchBackupCreate) {
-    config.services = {BACKUP_SERVICE};
+    config.services = {WireFormat::BACKUP_SERVICE};
     for (int i = 0; i < its; ++i)
         cluster->addServer(config);
 }
 
 TEST_F(MockClusterTest, benchMasterCreate) {
-    config.services = {MASTER_SERVICE};
+    config.services = {WireFormat::MASTER_SERVICE};
     for (int i = 0; i < its; ++i)
         cluster->addServer(config);
 }
@@ -106,20 +106,22 @@ TEST_F(MockClusterTest, benchTinyMasterCreate) {
 }
 
 TEST_F(MockClusterTest, benchMembershipCreate) {
-    config.services = {MEMBERSHIP_SERVICE};
+    config.services = {WireFormat::MEMBERSHIP_SERVICE};
     for (int i = 0; i < its; ++i)
         cluster->addServer(config);
 }
 
 TEST_F(MockClusterTest, benchPingCreate) {
-    config.services = {PING_SERVICE};
+    config.services = {WireFormat::PING_SERVICE};
     for (int i = 0; i < its; ++i)
         cluster->addServer(config);
 }
 
 TEST_F(MockClusterTest, benchFullCreate) {
-    config.services = {MASTER_SERVICE, BACKUP_SERVICE,
-                       MEMBERSHIP_SERVICE, PING_SERVICE};
+    config.services = {WireFormat::MASTER_SERVICE,
+                       WireFormat::BACKUP_SERVICE,
+                       WireFormat::MEMBERSHIP_SERVICE,
+                       WireFormat::PING_SERVICE};
     for (int i = 0; i < its; ++i)
         cluster->addServer(config);
 }

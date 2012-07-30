@@ -44,8 +44,10 @@ class PingServiceTest : public ::testing::Test {
         , pingService(context, &serverList)
         , serverId(1, 3)
     {
-        transport.addService(pingService, "mock:host=ping", PING_SERVICE);
-        serverList.add(serverId, "mock:host=ping", {PING_SERVICE}, 100);
+        transport.addService(pingService, "mock:host=ping",
+                             WireFormat::PING_SERVICE);
+        serverList.add(serverId, "mock:host=ping",
+                       {WireFormat::PING_SERVICE}, 100);
         context.serverList = &serverList;
     }
 
@@ -71,7 +73,7 @@ TEST_F(PingServiceTest, ping_wait_timeout) {
     ServerId serverId2(2, 3);
     MockTransport mockTransport(context);
     context.transportManager->registerMock(&mockTransport, "mock2");
-    serverList.add(serverId2, "mock2:", {PING_SERVICE}, 100);
+    serverList.add(serverId2, "mock2:", {WireFormat::PING_SERVICE}, 100);
     PingRpc2 rpc(context, serverId2, ServerId());
     uint64_t start = Cycles::rdtsc();
     EXPECT_EQ(~0LU, rpc.wait(1000000));
@@ -92,7 +94,7 @@ TEST_F(PingServiceTest, ping_wait_serverGoesAway) {
     ServerId serverId2(2, 3);
     MockTransport mockTransport(context);
     context.transportManager->registerMock(&mockTransport, "mock2");
-    serverList.add(serverId2, "mock2:", {PING_SERVICE}, 100);
+    serverList.add(serverId2, "mock2:", {WireFormat::PING_SERVICE}, 100);
 
     uint64_t result = 0;
     PingRpc2 rpc(context, serverId2, ServerId());
@@ -127,7 +129,7 @@ TEST_F(PingServiceTest, proxyPing_timeout) {
     ServerId targetId(2, 3);
     MockTransport mockTransport(context);
     context.transportManager->registerMock(&mockTransport, "mock2");
-    serverList.add(targetId, "mock2:", {PING_SERVICE}, 100);
+    serverList.add(targetId, "mock2:", {WireFormat::PING_SERVICE}, 100);
     uint64_t start = Cycles::rdtsc();
     EXPECT_EQ(0xffffffffffffffffU,
               PingClient::proxyPing(context, serverId, targetId, 1000000));

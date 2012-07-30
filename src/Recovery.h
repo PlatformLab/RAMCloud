@@ -78,20 +78,17 @@ bool verifyLogComplete(Tub<BackupStartTask> tasks[],
                        const LogDigest& digest);
 Tub<std::tuple<uint64_t, uint32_t, LogDigest>>
 findLogDigest(Tub<BackupStartTask> tasks[], size_t taskCount);
-vector<RecoverRpc::Replica> buildReplicaMap(Tub<BackupStartTask> tasks[],
-                                            size_t taskCount,
-                                            RecoveryTracker* tracker,
-                                            uint64_t headId,
-                                            uint32_t headLength);
+vector<WireFormat::Recover::Replica> buildReplicaMap(
+    Tub<BackupStartTask> tasks[], size_t taskCount,
+    RecoveryTracker* tracker, uint64_t headId, uint32_t headLength);
 
 struct MasterStartTask;
 struct MasterStartTaskTestingCallback {
     virtual void masterStartTaskSend(uint64_t recoveryId,
-                                     ServerId crashedServerId,
-                                     uint32_t partitionId,
-                                     const ProtoBuf::Tablets& tablets,
-                                     const RecoverRpc::Replica replicaMap[],
-                                     size_t replicaMapSize) {}
+        ServerId crashedServerId, uint32_t partitionId,
+        const ProtoBuf::Tablets& tablets,
+        const WireFormat::Recover::Replica replicaMap[],
+        size_t replicaMapSize) {}
     virtual ~MasterStartTaskTestingCallback() {}
 };
 
@@ -218,7 +215,7 @@ class Recovery : public Task {
      * A mapping of segmentIds to backup host service locators.
      * Populated by buildReplicaMap().
      */
-    vector<RecoverRpc::Replica> replicaMap;
+    vector<WireFormat::Recover::Replica> replicaMap;
 
     /**
      * Number of partitions in will; determines the number of recovery

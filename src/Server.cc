@@ -88,7 +88,7 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
 {
     ServerId formerServerId;
 
-    if (config.services.has(COORDINATOR_SERVICE)) {
+    if (config.services.has(WireFormat::COORDINATOR_SERVICE)) {
         DIE("Server class is not capable of running the CoordinatorService "
             "(yet).");
     }
@@ -98,19 +98,20 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
         context.serverList = &serverList;
     }
 
-    if (config.services.has(MASTER_SERVICE)) {
+    if (config.services.has(WireFormat::MASTER_SERVICE)) {
         LOG(NOTICE, "Master is using %u backups", config.master.numReplicas);
         master.construct(context, config, *context.serverList);
         if (bindTransport) {
             bindTransport->addService(*master,
                                       config.localLocator,
-                                      MASTER_SERVICE);
+                                      WireFormat::MASTER_SERVICE);
         } else {
-            context.serviceManager->addService(*master, MASTER_SERVICE);
+            context.serviceManager->addService(*master,
+                                               WireFormat::MASTER_SERVICE);
         }
     }
 
-    if (config.services.has(BACKUP_SERVICE)) {
+    if (config.services.has(WireFormat::BACKUP_SERVICE)) {
         backup.construct(context, config, *context.serverList);
         formerServerId = backup->getFormerServerId();
         if (config.backup.mockSpeed == 0) {
@@ -121,32 +122,34 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
         if (bindTransport) {
             bindTransport->addService(*backup,
                                       config.localLocator,
-                                      BACKUP_SERVICE);
+                                      WireFormat::BACKUP_SERVICE);
         } else {
-            context.serviceManager->addService(*backup, BACKUP_SERVICE);
+            context.serviceManager->addService(*backup,
+                                               WireFormat::BACKUP_SERVICE);
         }
     }
 
-    if (config.services.has(MEMBERSHIP_SERVICE)) {
+    if (config.services.has(WireFormat::MEMBERSHIP_SERVICE)) {
         membership.construct(serverId, *context.serverList);
         if (bindTransport) {
             bindTransport->addService(*membership,
                                       config.localLocator,
-                                      MEMBERSHIP_SERVICE);
+                                      WireFormat::MEMBERSHIP_SERVICE);
         } else {
             context.serviceManager->addService(*membership,
-                                                      MEMBERSHIP_SERVICE);
+                                               WireFormat::MEMBERSHIP_SERVICE);
         }
     }
 
-    if (config.services.has(PING_SERVICE)) {
+    if (config.services.has(WireFormat::PING_SERVICE)) {
         ping.construct(context, context.serverList);
         if (bindTransport) {
             bindTransport->addService(*ping,
                                       config.localLocator,
-                                      PING_SERVICE);
+                                      WireFormat::PING_SERVICE);
         } else {
-            context.serviceManager->addService(*ping, PING_SERVICE);
+            context.serviceManager->addService(*ping,
+                                               WireFormat::PING_SERVICE);
         }
     }
 

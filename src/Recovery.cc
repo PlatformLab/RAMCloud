@@ -416,7 +416,7 @@ findLogDigest(Tub<BackupStartTask> tasks[], size_t taskCount)
 
 /// Used in buildReplicaMap().
 struct ReplicaAndLoadTime {
-    RecoverRpc::Replica replica;
+    WireFormat::Recover::Replica replica;
     uint64_t expectedLoadTimeMs;
     bool operator<(const ReplicaAndLoadTime& r) const {
         return expectedLoadTimeMs < r.expectedLoadTimeMs;
@@ -448,7 +448,7 @@ struct ReplicaAndLoadTime {
  *      backups and (approximately) what order segments should be replayed in.
  *      Sent to all recovery masters verbatim.
  */
-vector<RecoverRpc::Replica>
+vector<WireFormat::Recover::Replica>
 buildReplicaMap(Tub<BackupStartTask> tasks[],
                 size_t taskCount,
                 RecoveryTracker* tracker,
@@ -505,7 +505,7 @@ buildReplicaMap(Tub<BackupStartTask> tasks[],
         }
     }
     std::sort(replicasToSort.begin(), replicasToSort.end());
-    vector<RecoverRpc::Replica> replicaMap;
+    vector<WireFormat::Recover::Replica> replicaMap;
     foreach(const auto& sortedReplica, replicasToSort) {
         LOG(DEBUG, "Load segment %lu replica from backup %lu "
             "with expected load time of %lu ms",
@@ -548,7 +548,7 @@ Recovery::startBackups()
 
     const uint32_t maxActiveBackupHosts = 10;
     std::vector<ServerId> backups =
-        tracker->getServersWithService(BACKUP_SERVICE);
+        tracker->getServersWithService(WireFormat::BACKUP_SERVICE);
     /// List of asynchronous startReadingData tasks and their replies
     auto backupStartTasks = std::unique_ptr<Tub<BackupStartTask>[]>(
             new Tub<BackupStartTask>[backups.size()]);
@@ -603,7 +603,7 @@ struct MasterStartTask {
     MasterStartTask(Recovery& recovery,
                     ServerId serverId,
                     uint32_t partitionId,
-                    const vector<RecoverRpc::Replica>& replicaMap)
+                    const vector<WireFormat::Recover::Replica>& replicaMap)
         : recovery(recovery)
         , serverId(serverId)
         , replicaMap(replicaMap)
@@ -677,7 +677,7 @@ struct MasterStartTask {
     /// Id of master server to kick off this partition's recovery on.
     ServerId serverId;
 
-    const vector<RecoverRpc::Replica>& replicaMap;
+    const vector<WireFormat::Recover::Replica>& replicaMap;
     const uint32_t partitionId;
     ProtoBuf::Tablets tabletsToRecover;
     Tub<RecoverRpc2> rpc;
@@ -705,7 +705,7 @@ Recovery::startRecoveryMasters()
 
     // Set up the tasks to execute the RPCs.
     std::vector<ServerId> masters =
-        tracker->getServersWithService(MASTER_SERVICE);
+        tracker->getServersWithService(WireFormat::MASTER_SERVICE);
     uint32_t started = 0;
     Tub<MasterStartTask> recoverTasks[numPartitions];
     foreach (ServerId master, masters) {
@@ -892,7 +892,7 @@ Recovery::broadcastRecoveryComplete()
         recoveryId, crashedServerId.getId());
     CycleCounter<RawMetric> ticks(&metrics->coordinator.recoveryCompleteTicks);
     std::vector<ServerId> backups =
-        tracker->getServersWithService(BACKUP_SERVICE);
+        tracker->getServersWithService(WireFormat::BACKUP_SERVICE);
     Tub<BackupEndTask> tasks[backups.size()];
     size_t taskNum = 0;
     foreach (ServerId backup, backups)

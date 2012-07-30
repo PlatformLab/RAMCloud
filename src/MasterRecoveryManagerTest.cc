@@ -52,7 +52,8 @@ struct MasterRecoveryManagerTest : public ::testing::Test {
     ServerId addMaster() {
         ProtoBuf::ServerList update;
         ServerId serverId =
-            serverList.add("fake-locator", {MASTER_SERVICE}, 0, update);
+            serverList.add("fake-locator", {WireFormat::MASTER_SERVICE},
+                           0, update);
         while (!mgr.taskQueue.isIdle())
             mgr.taskQueue.performTask();
         return serverId;

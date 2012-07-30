@@ -145,7 +145,7 @@ CoordinatorServerManager::EnlistServer::beforeReply()
         // will be no recovery.  That means it needs to transition to
         // removed status now (usually recoveries remove servers from the
         // list when they complete).
-        if (!replacedEntry->services.has(MASTER_SERVICE))
+        if (!replacedEntry->services.has(WireFormat::MASTER_SERVICE))
             manager.service.serverList.remove(replacesId, serverListUpdate);
     }
 
@@ -189,7 +189,7 @@ CoordinatorServerManager::EnlistServer::afterReply()
     CoordinatorServerList::Entry entry =
         manager.service.serverList[newServerId];
 
-    if (entry.services.has(MEMBERSHIP_SERVICE))
+    if (entry.services.has(WireFormat::MEMBERSHIP_SERVICE))
         manager.sendServerList(newServerId);
     manager.service.serverList.sendMembershipUpdate(
         serverListUpdate, newServerId);
@@ -316,7 +316,7 @@ CoordinatorServerManager::HintServerDown::complete(EntryId entryId)
      // will be no recovery.  That means it needs to transition to
      // removed status now (usually recoveries remove servers from the
      // list when they complete).
-     if (!entry.services.has(MASTER_SERVICE))
+     if (!entry.services.has(WireFormat::MASTER_SERVICE))
          manager.service.serverList.remove(serverId, update);
      manager.service.serverList.incrementVersion(update);
 
@@ -426,7 +426,8 @@ CoordinatorServerManager::sendServerList(ServerId serverId)
         return;
     }
 
-    if (!service.serverList[serverId].services.has(MEMBERSHIP_SERVICE)) {
+    if (!service.serverList[serverId].services.has(
+            WireFormat::MEMBERSHIP_SERVICE)) {
         LOG(WARNING, "Could not send list to server without membership "
             "service: %lu", *serverId);
         return;

@@ -128,7 +128,7 @@ void
 CoordinatorClient::getBackupList(Context& context,
         ProtoBuf::ServerList& serverList)
 {
-    GetServerListRpc2 rpc(context, {BACKUP_SERVICE});
+    GetServerListRpc2 rpc(context, {WireFormat::BACKUP_SERVICE});
     rpc.wait(serverList);
 }
 
@@ -144,7 +144,7 @@ void
 CoordinatorClient::getMasterList(Context& context,
         ProtoBuf::ServerList& serverList)
 {
-    GetServerListRpc2 rpc(context, {MASTER_SERVICE});
+    GetServerListRpc2 rpc(context, {WireFormat::MASTER_SERVICE});
     rpc.wait(serverList);
 }
 
@@ -160,7 +160,8 @@ void
 CoordinatorClient::getServerList(Context& context,
         ProtoBuf::ServerList& serverList)
 {
-    GetServerListRpc2 rpc(context, {MASTER_SERVICE, BACKUP_SERVICE});
+    GetServerListRpc2 rpc(context, {WireFormat::MASTER_SERVICE,
+            WireFormat::BACKUP_SERVICE});
     rpc.wait(serverList);
 }
 

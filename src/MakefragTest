@@ -65,7 +65,6 @@ TESTS_SRCFILES := \
 		  src/RecoveryTest.cc \
 		  src/ReplicaManagerTest.cc \
 		  src/ReplicatedSegmentTest.cc \
-		  src/RpcTest.cc \
 		  src/RpcWrapperTest.cc \
 		  src/RuntimeOptionsTest.cc \
 		  src/SegmentTest.cc \
@@ -99,6 +98,7 @@ TESTS_SRCFILES := \
 		  src/UdpDriverTest.cc \
 		  src/VarLenArrayTest.cc \
 		  src/WindowTest.cc \
+		  src/WireFormatTest.cc \
 		  src/RamCloudTest.cc \
 		  $(INFINIBAND_SRCFILES) \
 		  $(OBJDIR)/ProtoBufTest.pb.cc

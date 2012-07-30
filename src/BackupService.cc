@@ -23,7 +23,6 @@
 #include "Log.h"
 #include "LogTypes.h"
 #include "RecoverySegmentIterator.h"
-#include "Rpc.h"
 #include "ServerConfig.h"
 #include "SegmentIterator.h"
 #include "ShortMacros.h"
@@ -1372,42 +1371,42 @@ BackupService::benchmark(uint32_t& readSpeed, uint32_t& writeSpeed) {
 
 // See Server::dispatch.
 void
-BackupService::dispatch(RpcOpcode opcode, Rpc& rpc)
+BackupService::dispatch(WireFormat::Opcode opcode, Rpc& rpc)
 {
     Lock _(mutex); // Lock out GC while any RPC is being processed.
 
     // This is a hack. We allow the AssignGroup Rpc to be processed before
     // initCalled is set to true, since it is sent during initialization.
-    assert(initCalled || opcode == BackupAssignGroupRpc::opcode);
+    assert(initCalled || opcode == WireFormat::BackupAssignGroup::opcode);
     CycleCounter<RawMetric> serviceTicks(&metrics->backup.serviceTicks);
 
     switch (opcode) {
-        case BackupAssignGroupRpc::opcode:
-            callHandler<BackupAssignGroupRpc, BackupService,
+        case WireFormat::BackupAssignGroup::opcode:
+            callHandler<WireFormat::BackupAssignGroup, BackupService,
                         &BackupService::assignGroup>(rpc);
             break;
-        case BackupFreeRpc::opcode:
-            callHandler<BackupFreeRpc, BackupService,
+        case WireFormat::BackupFree::opcode:
+            callHandler<WireFormat::BackupFree, BackupService,
                         &BackupService::freeSegment>(rpc);
             break;
-        case BackupGetRecoveryDataRpc::opcode:
-            callHandler<BackupGetRecoveryDataRpc, BackupService,
+        case WireFormat::BackupGetRecoveryData::opcode:
+            callHandler<WireFormat::BackupGetRecoveryData, BackupService,
                         &BackupService::getRecoveryData>(rpc);
             break;
-        case BackupQuiesceRpc::opcode:
-            callHandler<BackupQuiesceRpc, BackupService,
+        case WireFormat::BackupQuiesce::opcode:
+            callHandler<WireFormat::BackupQuiesce, BackupService,
                         &BackupService::quiesce>(rpc);
             break;
-        case BackupRecoveryCompleteRpc::opcode:
-            callHandler<BackupRecoveryCompleteRpc, BackupService,
+        case WireFormat::BackupRecoveryComplete::opcode:
+            callHandler<WireFormat::BackupRecoveryComplete, BackupService,
                         &BackupService::recoveryComplete>(rpc);
             break;
-        case BackupStartReadingDataRpc::opcode:
-            callHandler<BackupStartReadingDataRpc, BackupService,
+        case WireFormat::BackupStartReadingData::opcode:
+            callHandler<WireFormat::BackupStartReadingData, BackupService,
                         &BackupService::startReadingData>(rpc);
             break;
-        case BackupWriteRpc::opcode:
-            callHandler<BackupWriteRpc, BackupService,
+        case WireFormat::BackupWrite::opcode:
+            callHandler<WireFormat::BackupWrite, BackupService,
                         &BackupService::writeSegment>(rpc);
             break;
         default:
@@ -1431,8 +1430,8 @@ BackupService::dispatch(RpcOpcode opcode, Rpc& rpc)
  */
 void
 BackupService::assignGroup(
-        const BackupAssignGroupRpc::Request& reqHdr,
-        BackupAssignGroupRpc::Response& respHdr,
+        const WireFormat::BackupAssignGroup::Request& reqHdr,
+        WireFormat::BackupAssignGroup::Response& respHdr,
         Rpc& rpc)
 {
     replicationId = reqHdr.replicationId;
@@ -1463,8 +1462,8 @@ BackupService::assignGroup(
  *      The Rpc being serviced.
  */
 void
-BackupService::freeSegment(const BackupFreeRpc::Request& reqHdr,
-                           BackupFreeRpc::Response& respHdr,
+BackupService::freeSegment(const WireFormat::BackupFree::Request& reqHdr,
+                           WireFormat::BackupFree::Response& respHdr,
                            Rpc& rpc)
 {
     LOG(DEBUG, "Freeing replica for master %lu segment %lu",
@@ -1525,9 +1524,10 @@ BackupService::findSegmentInfo(ServerId masterId, uint64_t segmentId)
  *      must have been called for its corresponding master id).
  */
 void
-BackupService::getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
-                               BackupGetRecoveryDataRpc::Response& respHdr,
-                               Rpc& rpc)
+BackupService::getRecoveryData(
+    const WireFormat::BackupGetRecoveryData::Request& reqHdr,
+    WireFormat::BackupGetRecoveryData::Response& respHdr,
+    Rpc& rpc)
 {
     LOG(DEBUG, "getRecoveryData masterId %lu, segmentId %lu, partitionId %lu",
         reqHdr.masterId, reqHdr.segmentId, reqHdr.partitionId);
@@ -1606,8 +1606,8 @@ BackupService::killAllStorage()
  *      The Rpc being serviced.
  */
 void
-BackupService::quiesce(const BackupQuiesceRpc::Request& reqHdr,
-                       BackupQuiesceRpc::Response& respHdr,
+BackupService::quiesce(const WireFormat::BackupQuiesce::Request& reqHdr,
+                       WireFormat::BackupQuiesce::Response& respHdr,
                        Rpc& rpc)
 {
     TEST_LOG("Backup at %s quiescing", config.localLocator.c_str());
@@ -1625,8 +1625,8 @@ BackupService::quiesce(const BackupQuiesceRpc::Request& reqHdr,
  */
 void
 BackupService::recoveryComplete(
-        const BackupRecoveryCompleteRpc::Request& reqHdr,
-        BackupRecoveryCompleteRpc::Response& respHdr,
+        const WireFormat::BackupRecoveryComplete::Request& reqHdr,
+        WireFormat::BackupRecoveryComplete::Response& respHdr,
         Rpc& rpc)
 {
     LOG(DEBUG, "masterID: %lu", reqHdr.masterId);
@@ -1778,8 +1778,8 @@ randomNumberGenerator(uint32_t n)
  */
 void
 BackupService::startReadingData(
-        const BackupStartReadingDataRpc::Request& reqHdr,
-        BackupStartReadingDataRpc::Response& respHdr,
+        const WireFormat::BackupStartReadingData::Request& reqHdr,
+        WireFormat::BackupStartReadingData::Response& respHdr,
         Rpc& rpc)
 {
     LOG(DEBUG, "Backup preparing for recovery of crashed server %lu",
@@ -1845,7 +1845,7 @@ BackupService::startReadingData(
                         primarySegments.end(),
                         randomNumberGenerator);
 
-    typedef BackupStartReadingDataRpc::Replica Replica;
+    typedef WireFormat::BackupStartReadingData::Replica Replica;
 
     bool allRecovered = true;
     foreach (auto info, primarySegments) {
@@ -1936,8 +1936,8 @@ BackupService::startReadingData(
  *      If the segment is not open.
  */
 void
-BackupService::writeSegment(const BackupWriteRpc::Request& reqHdr,
-                            BackupWriteRpc::Response& respHdr,
+BackupService::writeSegment(const WireFormat::BackupWrite::Request& reqHdr,
+                            WireFormat::BackupWrite::Response& respHdr,
                             Rpc& rpc)
 {
     ServerId masterId(reqHdr.masterId);
@@ -1948,7 +1948,7 @@ BackupService::writeSegment(const BackupWriteRpc::Request& reqHdr,
 
     SegmentInfo* info = findSegmentInfo(masterId, segmentId);
     if (info && !info->createdByCurrentProcess) {
-        if ((reqHdr.flags & BackupWriteRpc::OPEN)) {
+        if ((reqHdr.flags & WireFormat::BackupWrite::OPEN)) {
             // This can happen if a backup crashes, restarts, reloads a
             // replica from disk, and then the master detects the crash and
             // tries to re-replicate the segment which lost a replica on
@@ -1968,11 +1968,11 @@ BackupService::writeSegment(const BackupWriteRpc::Request& reqHdr,
     }
 
     // Perform open, if any.
-    if ((reqHdr.flags & BackupWriteRpc::OPEN)) {
+    if ((reqHdr.flags & WireFormat::BackupWrite::OPEN)) {
 #ifdef SINGLE_THREADED_BACKUP
         bool primary = false;
 #else
-        bool primary = reqHdr.flags & BackupWriteRpc::PRIMARY;
+        bool primary = reqHdr.flags & WireFormat::BackupWrite::PRIMARY;
 #endif
         if (primary) {
             uint32_t numReplicas = downCast<uint32_t>(
@@ -2031,7 +2031,7 @@ BackupService::writeSegment(const BackupWriteRpc::Request& reqHdr,
         metrics->backup.writeCopyBytes += reqHdr.length;
         bytesWritten += reqHdr.length;
     } else {
-        if (!(reqHdr.flags & BackupWriteRpc::CLOSE)) {
+        if (!(reqHdr.flags & WireFormat::BackupWrite::CLOSE)) {
             LOG(WARNING, "Tried write to a replica of segment <%lu,%lu> but "
                 "the replica was already closed on this backup (server id %lu)",
                 masterId.getId(), segmentId, serverId.getId());
@@ -2042,7 +2042,7 @@ BackupService::writeSegment(const BackupWriteRpc::Request& reqHdr,
     }
 
     // Perform close, if any.
-    if (reqHdr.flags & BackupWriteRpc::CLOSE)
+    if (reqHdr.flags & WireFormat::BackupWrite::CLOSE)
         info->close();
 }
 

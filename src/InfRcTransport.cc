@@ -353,7 +353,7 @@ InfRcTransport<Infiniband>::InfRcSession::abort(const string& message)
         it++;
         if (current->session == this) {
             LOG(NOTICE, "Infiniband aborting %s request to %s",
-                    Rpc::opcodeSymbol(*current->request),
+                    WireFormat::opcodeSymbol(*current->request),
                     getServiceLocator().c_str());
             if (current->notifier != NULL) {
                  current->notifier->failed();
@@ -368,7 +368,7 @@ InfRcTransport<Infiniband>::InfRcSession::abort(const string& message)
         it++;
         if (current->session == this) {
             LOG(NOTICE, "Infiniband aborting %s request to %s",
-                    Rpc::opcodeSymbol(*current->request),
+                    WireFormat::opcodeSymbol(*current->request),
                     getServiceLocator().c_str());
             if (current->notifier != NULL) {
                  current->notifier->failed();
@@ -464,7 +464,7 @@ InfRcTransport<Infiniband>::InfRcSession::sendRequest(Buffer* request,
     }
 
     LOG(DEBUG, "Sending %s request to %s with %u bytes",
-            Rpc::opcodeSymbol(*request), getServiceLocator().c_str(),
+            WireFormat::opcodeSymbol(*request), getServiceLocator().c_str(),
             request->getTotalLength());
     if (request->getTotalLength() > t->getMaxRpcSize()) {
         throw TransportException(HERE,

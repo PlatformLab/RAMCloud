@@ -36,7 +36,8 @@ class TableEnumeratorTest : public ::testing::Test {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
 
         ServerConfig config = ServerConfig::forTesting();
-        config.services = {MASTER_SERVICE, PING_SERVICE};
+        config.services = {WireFormat::MASTER_SERVICE,
+                           WireFormat::PING_SERVICE};
         config.localLocator = "mock:host=master1";
         cluster.addServer(config);
         config.localLocator = "mock:host=master2";

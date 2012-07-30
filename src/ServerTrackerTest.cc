@@ -110,8 +110,8 @@ TEST_F(ServerTrackerTest, fireCallback) {
     callback.callbacksFired = 0;
     ProtoBuf::ServerList wholeList;
     ServerListBuilder{wholeList}
-        ({MASTER_SERVICE}, *ServerId(1, 0), "mock:host=one", 101)
-        ({BACKUP_SERVICE}, *ServerId(2, 0), "mock:host=two", 102,
+        ({WireFormat::MASTER_SERVICE}, *ServerId(1, 0), "mock:host=one", 101)
+        ({WireFormat::BACKUP_SERVICE}, *ServerId(2, 0), "mock:host=two", 102,
             ServerStatus::CRASHED);
     wholeList.set_version_number(1u);
     sl.applyFullList(wholeList);
@@ -119,7 +119,8 @@ TEST_F(ServerTrackerTest, fireCallback) {
 
     ProtoBuf::ServerList update;
     ServerListBuilder{update}
-        ({MASTER_SERVICE}, *ServerId(1, 5), "mock:host=oneBeta", 101);
+        ({WireFormat::MASTER_SERVICE}, *ServerId(1, 5),
+         "mock:host=oneBeta", 101);
     update.set_version_number(2);
     TestLog::Enable _;
     sl.applyUpdate(update);
@@ -141,7 +142,8 @@ TEST_F(ServerTrackerTest, fireCallback) {
     countCb.callbacksFired = 0;
     ProtoBuf::ServerList update2;
     ServerListBuilder{update2}
-        ({MASTER_SERVICE}, *ServerId(1, 6), "mock:host=oneBeta", 101);
+        ({WireFormat::MASTER_SERVICE}, *ServerId(1, 6),
+         "mock:host=oneBeta", 101);
     update2.set_version_number(3);
     sl.applyUpdate(update2);
     // Make sure the normal cb got called.
@@ -174,7 +176,8 @@ TEST_F(ServerTrackerTest, getChange) {
     EXPECT_FALSE(tr.getChange(server, event));
     EXPECT_EQ(0U, tr.serverList.size());
     tr.enqueueChange(ServerDetails(ServerId(2, 0), "Prophylaxis",
-                                   {BACKUP_SERVICE}, 100, ServerStatus::UP),
+                                   {WireFormat::BACKUP_SERVICE}, 100,
+                                   ServerStatus::UP),
                      ServerChangeEvent::SERVER_ADDED);
     EXPECT_EQ(3U, tr.serverList.size());
     EXPECT_FALSE(tr.serverList[2].server.serverId.isValid());
@@ -182,8 +185,8 @@ TEST_F(ServerTrackerTest, getChange) {
     EXPECT_TRUE(tr.getChange(server, event));
     EXPECT_EQ(ServerId(2, 0), server.serverId);
     EXPECT_EQ("Prophylaxis", server.serviceLocator);
-    EXPECT_TRUE(server.services.has(BACKUP_SERVICE));
-    EXPECT_FALSE(server.services.has(MASTER_SERVICE));
+    EXPECT_TRUE(server.services.has(WireFormat::BACKUP_SERVICE));
+    EXPECT_FALSE(server.services.has(WireFormat::MASTER_SERVICE));
     EXPECT_EQ(ServerChangeEvent::SERVER_ADDED, event);
     EXPECT_FALSE(tr.getChange(server, event));
     EXPECT_EQ(ServerId(2, 0), tr.serverList[2].server.serverId);
@@ -224,24 +227,28 @@ TEST_F(ServerTrackerTest, getRandomServerIdWithService) {
     ServerDetails server;
     ServerChangeEvent event;
 
-    EXPECT_FALSE(tr.getRandomServerIdWithService(MASTER_SERVICE).isValid());
-    tr.enqueueChange(ServerDetails(ServerId(0, 1), "", {MASTER_SERVICE}, 100,
+    EXPECT_FALSE(tr.getRandomServerIdWithService(
+        WireFormat::MASTER_SERVICE).isValid());
+    tr.enqueueChange(ServerDetails(ServerId(0, 1), "",
+                                   {WireFormat::MASTER_SERVICE}, 100,
                                    ServerStatus::UP),
                      ServerChangeEvent::SERVER_ADDED);
-    EXPECT_FALSE(tr.getRandomServerIdWithService(MASTER_SERVICE).isValid());
+    EXPECT_FALSE(tr.getRandomServerIdWithService(
+        WireFormat::MASTER_SERVICE).isValid());
 
     EXPECT_TRUE(tr.getChange(server, event));
     for (int i = 0; i < 10; i++) {
         // Ensure asking for a specific service filters properly.
         // Should find one with low order bit set.
         EXPECT_EQ(ServerId(0, 1),
-                  tr.getRandomServerIdWithService(MASTER_SERVICE));
+                  tr.getRandomServerIdWithService(WireFormat::MASTER_SERVICE));
         // No host available with this service bit set.
         EXPECT_EQ(ServerId(),
-                  tr.getRandomServerIdWithService(BACKUP_SERVICE));
+                  tr.getRandomServerIdWithService(WireFormat::BACKUP_SERVICE));
     }
 
-    tr.enqueueChange(ServerDetails(ServerId(1, 1), "", {MASTER_SERVICE}, 100,
+    tr.enqueueChange(ServerDetails(ServerId(1, 1), "",
+                                   {WireFormat::MASTER_SERVICE}, 100,
                                    ServerStatus::UP),
                      ServerChangeEvent::SERVER_ADDED);
 
@@ -249,7 +256,8 @@ TEST_F(ServerTrackerTest, getRandomServerIdWithService) {
     bool firstSeen = false;
     bool secondSeen = false;
     for (int i = 0; i < 100; i++) {
-        ServerId id = tr.getRandomServerIdWithService(MASTER_SERVICE);
+        ServerId id = tr.getRandomServerIdWithService(
+            WireFormat::MASTER_SERVICE);
         EXPECT_TRUE(id == ServerId(0, 1) ||
                     id == ServerId(1, 1));
         if (id == ServerId(0, 1)) firstSeen = true;
@@ -265,7 +273,8 @@ TEST_F(ServerTrackerTest, getRandomServerIdWithService) {
                      ServerChangeEvent::SERVER_REMOVED);
     EXPECT_TRUE(tr.getChange(server, event));
     EXPECT_TRUE(tr.getChange(server, event));
-    EXPECT_FALSE(tr.getRandomServerIdWithService({MASTER_SERVICE}).isValid());
+    EXPECT_FALSE(tr.getRandomServerIdWithService(
+        {WireFormat::MASTER_SERVICE}).isValid());
 }
 
 TEST_F(ServerTrackerTest, getRandomServerIdWithService_evenDistribution) {
@@ -273,13 +282,16 @@ TEST_F(ServerTrackerTest, getRandomServerIdWithService_evenDistribution) {
 
     ServerDetails server;
     ServerChangeEvent event;
-    tr.enqueueChange(ServerDetails(ServerId(1, 0), "", {BACKUP_SERVICE}, 100,
+    tr.enqueueChange(ServerDetails(ServerId(1, 0), "",
+                                   {WireFormat::BACKUP_SERVICE}, 100,
                                    ServerStatus::UP),
                      ServerChangeEvent::SERVER_ADDED);
-    tr.enqueueChange(ServerDetails(ServerId(2, 0), "", {BACKUP_SERVICE}, 100,
+    tr.enqueueChange(ServerDetails(ServerId(2, 0), "",
+                                   {WireFormat::BACKUP_SERVICE}, 100,
                                    ServerStatus::UP),
                      ServerChangeEvent::SERVER_ADDED);
-    tr.enqueueChange(ServerDetails(ServerId(3, 0), "", {BACKUP_SERVICE}, 100,
+    tr.enqueueChange(ServerDetails(ServerId(3, 0), "",
+                                   {WireFormat::BACKUP_SERVICE}, 100,
                                    ServerStatus::UP),
                      ServerChangeEvent::SERVER_ADDED);
     EXPECT_TRUE(tr.getChange(server, event));
@@ -291,7 +303,7 @@ TEST_F(ServerTrackerTest, getRandomServerIdWithService_evenDistribution) {
     std::vector<uint32_t> counts(tr.size(), 0);
     for (int i = 0; i < 10000; ++i) {
         ServerId id =
-            tr.getRandomServerIdWithService(BACKUP_SERVICE);
+            tr.getRandomServerIdWithService(WireFormat::BACKUP_SERVICE);
         counts[id.indexNumber() - 1]++;
     }
 
@@ -306,7 +318,7 @@ TEST_F(ServerTrackerTest, getRandomServerIdWithService_evenDistribution) {
 TEST_F(ServerTrackerTest, getLocator) {
     EXPECT_THROW(tr.getLocator(ServerId(1, 0)), Exception);
     tr.enqueueChange(ServerDetails(ServerId(1, 1), "mock:",
-                                   {MASTER_SERVICE}, 100,
+                                   {WireFormat::MASTER_SERVICE}, 100,
                                    ServerStatus::UP),
                      ServerChangeEvent::SERVER_ADDED);
     ServerDetails server;
@@ -318,7 +330,8 @@ TEST_F(ServerTrackerTest, getLocator) {
 
 TEST_F(ServerTrackerTest, getServerDetails) {
     EXPECT_THROW(tr.getLocator(ServerId(1, 0)), Exception);
-    ServerDetails details(ServerId(1, 1), "mock:", {MASTER_SERVICE}, 100,
+    ServerDetails details(ServerId(1, 1), "mock:",
+                          {WireFormat::MASTER_SERVICE}, 100,
                           ServerStatus::UP);
     tr.enqueueChange(details, ServerChangeEvent::SERVER_ADDED);
     ServerDetails server;
@@ -341,7 +354,8 @@ TEST_F(ServerTrackerTest, getSession) {
     TestLog::Enable _;
     EXPECT_THROW(tr.getSession(ServerId(1, 0)), TransportException);
 
-    ServerDetails details(ServerId(1, 1), "mock:", {MASTER_SERVICE},
+    ServerDetails details(ServerId(1, 1), "mock:",
+                          {WireFormat::MASTER_SERVICE},
                           100, ServerStatus::UP);
     tr.enqueueChange(details, ServerChangeEvent::SERVER_ADDED);
     ServerDetails server;
@@ -400,7 +414,7 @@ TEST_F(ServerTrackerTest, size) {
 TEST_F(ServerTrackerTest, toString) {
     EXPECT_EQ("", tr.toString());
     tr.enqueueChange(ServerDetails(ServerId(1, 0), "mock:",
-                                   {MASTER_SERVICE}, 100,
+                                   {WireFormat::MASTER_SERVICE}, 100,
                                    ServerStatus::UP),
                      ServerChangeEvent::SERVER_ADDED);
     ServerDetails server;
@@ -413,25 +427,26 @@ TEST_F(ServerTrackerTest, toString) {
 }
 
 TEST_F(ServerTrackerTest, getServersWithService) {
-    tr.enqueueChange({{1, 0}, "", {MASTER_SERVICE}, 100, ServerStatus::UP},
-                      ServerChangeEvent::SERVER_ADDED);
-    tr.enqueueChange({{2, 0}, "", {BACKUP_SERVICE}, 100, ServerStatus::UP},
-                      ServerChangeEvent::SERVER_ADDED);
-    tr.enqueueChange({{3, 0}, "", {BACKUP_SERVICE}, 100, ServerStatus::UP},
-                      ServerChangeEvent::SERVER_ADDED);
-    tr.enqueueChange({{3, 0}, "", {BACKUP_SERVICE}, 100, ServerStatus::CRASHED},
+    tr.enqueueChange({{1, 0}, "", {WireFormat::MASTER_SERVICE}, 100,
+                      ServerStatus::UP}, ServerChangeEvent::SERVER_ADDED);
+    tr.enqueueChange({{2, 0}, "", {WireFormat::BACKUP_SERVICE}, 100,
+                      ServerStatus::UP}, ServerChangeEvent::SERVER_ADDED);
+    tr.enqueueChange({{3, 0}, "", {WireFormat::BACKUP_SERVICE}, 100,
+                      ServerStatus::UP}, ServerChangeEvent::SERVER_ADDED);
+    tr.enqueueChange({{3, 0}, "", {WireFormat::BACKUP_SERVICE}, 100,
+                      ServerStatus::CRASHED},
                       ServerChangeEvent::SERVER_CRASHED);
-    tr.enqueueChange({{4, 0}, "", {BACKUP_SERVICE}, 100, ServerStatus::UP},
-                      ServerChangeEvent::SERVER_ADDED);
-    tr.enqueueChange({{4, 0}, "", {BACKUP_SERVICE}, 100, ServerStatus::DOWN},
-                      ServerChangeEvent::SERVER_REMOVED);
+    tr.enqueueChange({{4, 0}, "", {WireFormat::BACKUP_SERVICE}, 100,
+                      ServerStatus::UP}, ServerChangeEvent::SERVER_ADDED);
+    tr.enqueueChange({{4, 0}, "", {WireFormat::BACKUP_SERVICE}, 100,
+                      ServerStatus::DOWN}, ServerChangeEvent::SERVER_REMOVED);
     ServerDetails server;
     ServerChangeEvent event;
     while (tr.getChange(server, event));
-    auto servers = tr.getServersWithService(MASTER_SERVICE);
+    auto servers = tr.getServersWithService(WireFormat::MASTER_SERVICE);
     ASSERT_EQ(1lu, servers.size());
     EXPECT_EQ(ServerId(1, 0), servers[0]);
-    servers = tr.getServersWithService(BACKUP_SERVICE);
+    servers = tr.getServersWithService(WireFormat::BACKUP_SERVICE);
     ASSERT_EQ(1lu, servers.size());
     EXPECT_EQ(ServerId(2, 0), servers[0]);
 }

@@ -38,7 +38,7 @@ class MinOpenSegmentIdTest : public ::testing::Test {
         , min(context, &taskQueue, &serverId)
     {
         ServerConfig config = ServerConfig::forTesting();
-        config.services = {MASTER_SERVICE};
+        config.services = {WireFormat::MASTER_SERVICE};
         serverId = cluster.addServer(config)->serverId;
     }
 

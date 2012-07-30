@@ -44,9 +44,11 @@ class MembershipServiceTest : public ::testing::Test {
         , transport(context)
         , mockRegistrar(context, transport)
     {
-        transport.addService(service, "mock:host=member", MEMBERSHIP_SERVICE);
+        transport.addService(service, "mock:host=member",
+                             WireFormat::MEMBERSHIP_SERVICE);
         context.serverList = &serverList;
-        serverList.add(serverId, "mock:host=member", {PING_SERVICE}, 100);
+        serverList.add(serverId, "mock:host=member",
+                       {WireFormat::PING_SERVICE}, 100);
     }
 
     DISALLOW_COPY_AND_ASSIGN(MembershipServiceTest);
@@ -61,12 +63,12 @@ TEST_F(MembershipServiceTest, getServerId) {
 TEST_F(MembershipServiceTest, setServerList) {
     CoordinatorServerList source(context);
     ProtoBuf::ServerList update;
-    ServerId id1 = source.add("mock:host=55", {MASTER_SERVICE, PING_SERVICE},
-            100, update);
-    ServerId id2 = source.add("mock:host=56", {MASTER_SERVICE, PING_SERVICE},
-            100, update);
-    ServerId id3 = source.add("mock:host=57", {MASTER_SERVICE, PING_SERVICE},
-            100, update);
+    ServerId id1 = source.add("mock:host=55", {WireFormat::MASTER_SERVICE,
+            WireFormat::PING_SERVICE}, 100, update);
+    ServerId id2 = source.add("mock:host=56", {WireFormat::MASTER_SERVICE,
+            WireFormat::PING_SERVICE}, 100, update);
+    ServerId id3 = source.add("mock:host=57", {WireFormat::MASTER_SERVICE,
+            WireFormat::PING_SERVICE}, 100, update);
     ProtoBuf::ServerList fullList;
     source.serialize(fullList);
     MembershipClient::setServerList(context, serverId, fullList);
@@ -79,10 +81,10 @@ TEST_F(MembershipServiceTest, setServerList) {
 TEST_F(MembershipServiceTest, updateServerList) {
     CoordinatorServerList source(context);
     ProtoBuf::ServerList update;
-    ServerId id1 = source.add("mock:host=55", {MASTER_SERVICE, PING_SERVICE},
-            100, update);
-    ServerId id2 = source.add("mock:host=56", {MASTER_SERVICE, PING_SERVICE},
-            100, update);
+    ServerId id1 = source.add("mock:host=55", {WireFormat::MASTER_SERVICE,
+            WireFormat::PING_SERVICE}, 100, update);
+    ServerId id2 = source.add("mock:host=56", {WireFormat::MASTER_SERVICE,
+            WireFormat::PING_SERVICE}, 100, update);
     source.incrementVersion(update);
     MembershipClient::updateServerList(context, serverId, update);
     EXPECT_STREQ("mock:host=55", serverList.getLocator(id1));

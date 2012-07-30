@@ -375,7 +375,7 @@ struct Enumerate {
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
-        uint64_t tabletStartHash;
+        uint64_t tabletFirstHash;
         uint32_t payloadBytes;      // Size of payload, where each object in
                                     // payload is a uint32_t size,
                                     // Object metadata, and key and data

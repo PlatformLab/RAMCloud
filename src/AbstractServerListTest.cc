@@ -242,12 +242,12 @@ TEST_F(AbstractServerListTest, toString_status) {
 TEST_F(AbstractServerListTest, toString_all) {
     EXPECT_EQ("", sl.toString());
     sl.add("locator 1", ServerStatus::CRASHED);
-    sl.servers.back().services = {MASTER_SERVICE};
+    sl.servers.back().services = {WireFormat::MASTER_SERVICE};
     EXPECT_EQ(
         "server 0 at locator 1 with MASTER_SERVICE is CRASHED\n",
         sl.toString());
     sl.add("locatez twoz", ServerStatus::UP);
-    sl.servers.back().services = {BACKUP_SERVICE};
+    sl.servers.back().services = {WireFormat::BACKUP_SERVICE};
     EXPECT_EQ(
         "server 0 at locator 1 with MASTER_SERVICE is CRASHED\n"
         "server 1 at locatez twoz with BACKUP_SERVICE is UP\n",

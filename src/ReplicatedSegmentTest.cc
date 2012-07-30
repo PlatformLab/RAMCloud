@@ -164,9 +164,9 @@ struct ReplicatedSegmentTest : public ::testing::Test {
         context.serverList = &serverList;
 
         serverList.add(backupId1, "mock:host=backup1",
-                       {BACKUP_SERVICE}, 100);
+                       {WireFormat::BACKUP_SERVICE}, 100);
         serverList.add(backupId2, "mock:host=backup2",
-                       {BACKUP_SERVICE}, 100);
+                       {WireFormat::BACKUP_SERVICE}, 100);
         ServerDetails server;
         ServerChangeEvent event;
         tracker.getChange(server, event);

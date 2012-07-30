@@ -44,7 +44,6 @@
 #include "LogTypes.h"
 #include "MasterClient.h"
 #include "RawMetrics.h"
-#include "Rpc.h"
 #include "Service.h"
 #include "ServerConfig.h"
 #include "SegmentIterator.h"
@@ -533,37 +532,40 @@ class BackupService : public Service
                   ServerList& serverList);
     virtual ~BackupService();
     void benchmark(uint32_t& readSpeed, uint32_t& writeSpeed);
-    void dispatch(RpcOpcode opcode, Rpc& rpc);
+    void dispatch(WireFormat::Opcode opcode, Rpc& rpc);
     ServerId getFormerServerId() const;
     ServerId getServerId() const;
     void init(ServerId id);
 
   PRIVATE:
-    void assignGroup(const BackupAssignGroupRpc::Request& reqHdr,
-                     BackupAssignGroupRpc::Response& respHdr,
+    void assignGroup(const WireFormat::BackupAssignGroup::Request& reqHdr,
+                     WireFormat::BackupAssignGroup::Response& respHdr,
                      Rpc& rpc);
-    void freeSegment(const BackupFreeRpc::Request& reqHdr,
-                     BackupFreeRpc::Response& respHdr,
+    void freeSegment(const WireFormat::BackupFree::Request& reqHdr,
+                     WireFormat::BackupFree::Response& respHdr,
                      Rpc& rpc);
     SegmentInfo* findSegmentInfo(ServerId masterId, uint64_t segmentId);
-    void getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
-                         BackupGetRecoveryDataRpc::Response& respHdr,
-                         Rpc& rpc);
+    void getRecoveryData(
+        const WireFormat::BackupGetRecoveryData::Request& reqHdr,
+        WireFormat::BackupGetRecoveryData::Response& respHdr,
+        Rpc& rpc);
     void killAllStorage();
-    void quiesce(const BackupQuiesceRpc::Request& reqHdr,
-                 BackupQuiesceRpc::Response& respHdr,
+    void quiesce(const WireFormat::BackupQuiesce::Request& reqHdr,
+                 WireFormat::BackupQuiesce::Response& respHdr,
                  Rpc& rpc);
-    void recoveryComplete(const BackupRecoveryCompleteRpc::Request& reqHdr,
-                         BackupRecoveryCompleteRpc::Response& respHdr,
-                         Rpc& rpc);
+    void recoveryComplete(
+        const WireFormat::BackupRecoveryComplete::Request& reqHdr,
+        WireFormat::BackupRecoveryComplete::Response& respHdr,
+        Rpc& rpc);
     void restartFromStorage();
     static bool segmentInfoLessThan(SegmentInfo* left,
                                     SegmentInfo* right);
-    void startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
-                          BackupStartReadingDataRpc::Response& respHdr,
-                          Rpc& rpc);
-    void writeSegment(const BackupWriteRpc::Request& req,
-                      BackupWriteRpc::Response& resp,
+    void startReadingData(
+        const WireFormat::BackupStartReadingData::Request& reqHdr,
+        WireFormat::BackupStartReadingData::Response& respHdr,
+        Rpc& rpc);
+    void writeSegment(const WireFormat::BackupWrite::Request& req,
+                      WireFormat::BackupWrite::Response& resp,
                       Rpc& rpc);
     void gcMain();
     void trackerChangesEnqueued();

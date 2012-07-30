@@ -17,9 +17,9 @@
 #include "Cycles.h"
 #include "Exception.h"
 #include "Logger.h"
-#include "Rpc.h"
 #include "RpcWrapper.h"
 #include "ShortMacros.h"
+#include "WireFormat.h"
 
 namespace RAMCloud {
 
@@ -177,7 +177,8 @@ RpcWrapper::isReady() {
                 LOG(WARNING, "Response from %s for %s RPC is too short "
                         "(needed at least %d bytes, got %d)",
                         session->getServiceLocator().c_str(),
-                        Rpc::opcodeSymbol(request), responseHeaderLength,
+                        WireFormat::opcodeSymbol(request),
+                        responseHeaderLength,
                         downCast<int>(response->getTotalLength()));
                 retry(1000000);
                 return false;
@@ -186,7 +187,7 @@ RpcWrapper::isReady() {
         if (responseHeader->status == STATUS_RETRY) {
             LOG(DEBUG, "Server %s returned STATUS_RETRY from %s request",
                     session->getServiceLocator().c_str(),
-                    Rpc::opcodeSymbol(request));
+                    WireFormat::opcodeSymbol(request));
             retry(100);
             return false;
         }
@@ -219,7 +220,7 @@ RpcWrapper::isReady() {
     }
 
     LOG(WARNING, "RpcWrapper::isReady found unknown state %d for "
-            "%s request", copyOfState, Rpc::opcodeSymbol(request));
+            "%s request", copyOfState, WireFormat::opcodeSymbol(request));
     retry(1000000);
     return false;
 }

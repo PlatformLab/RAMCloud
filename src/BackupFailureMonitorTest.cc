@@ -45,10 +45,10 @@ TEST_F(BackupFailureMonitorTest, main) {
     TestLog::Enable _(&mainFilter);
     monitor.start(NULL);
     serverList.add(ServerId(2, 0), "mock:host=backup1",
-                   {BACKUP_SERVICE}, 100);
+                   {WireFormat::BACKUP_SERVICE}, 100);
     serverList.remove(ServerId(2, 0));
     serverList.add(ServerId(3, 0), "mock:host=master",
-                   {MASTER_SERVICE}, 100);
+                   {WireFormat::MASTER_SERVICE}, 100);
     serverList.remove(ServerId(3, 0));
     monitor.trackerChangesEnqueued();
     while (true) {
@@ -101,7 +101,8 @@ TEST_F(BackupFailureMonitorTest, serverIsUp) {
 
     EXPECT_FALSE(monitor.serverIsUp({2, 0}));
 
-    serverList.add({2, 0}, "mock:host=backup1", {BACKUP_SERVICE}, 100);
+    serverList.add({2, 0}, "mock:host=backup1",
+        {WireFormat::BACKUP_SERVICE}, 100);
     while (monitor.tracker.getChange(server, event));
     EXPECT_TRUE(monitor.serverIsUp({2, 0}));
 
@@ -111,7 +112,8 @@ TEST_F(BackupFailureMonitorTest, serverIsUp) {
         EXPECT_FALSE(monitor.serverIsUp({2, 0}));
     }
 
-    serverList.crashed({2, 0}, "mock:host=backup1", {BACKUP_SERVICE}, 100);
+    serverList.crashed({2, 0}, "mock:host=backup1",
+        {WireFormat::BACKUP_SERVICE}, 100);
     while (monitor.tracker.getChange(server, event));
     EXPECT_FALSE(monitor.serverIsUp({2, 0}));
 }
