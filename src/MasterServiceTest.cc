@@ -211,7 +211,7 @@ TEST_F(MasterServiceTest, enumeration_basics) {
     ramcloud->write(0, "1", 1, "ghijkl", 6, NULL, &version1, false);
     Buffer iter, nextIter, finalIter, objects;
     uint64_t nextTabletStartHash;
-    EnumerateTableRpc2 rpc(*ramcloud, 0, 0, iter, objects);
+    EnumerateTableRpc rpc(*ramcloud, 0, 0, iter, objects);
     nextTabletStartHash = rpc.wait(nextIter);
     EXPECT_EQ(0U, nextTabletStartHash);
     EXPECT_EQ(66U, objects.getTotalLength());
@@ -236,7 +236,7 @@ TEST_F(MasterServiceTest, enumeration_basics) {
 
     // We don't actually care about the contents of the iterator as
     // long as we get back 0 objects on the second call.
-    EnumerateTableRpc2 rpc2(*ramcloud, 0, nextTabletStartHash, nextIter,
+    EnumerateTableRpc rpc2(*ramcloud, 0, nextTabletStartHash, nextIter,
                             objects);
     nextTabletStartHash = rpc2.wait(finalIter);
     EXPECT_EQ(0U, nextTabletStartHash);
@@ -246,7 +246,7 @@ TEST_F(MasterServiceTest, enumeration_basics) {
 TEST_F(MasterServiceTest, enumeration_tabletNotOnServer) {
     TestLog::Enable _;
     Buffer iter, nextIter, objects;
-    EnumerateTableRpc2 rpc(*ramcloud, 99, 0, iter, objects);
+    EnumerateTableRpc rpc(*ramcloud, 99, 0, iter, objects);
     EXPECT_THROW(rpc.wait(nextIter), TableDoesntExistException);
     EXPECT_EQ("checkStatus: Server mock:host=master doesn't store "
               "<99, 0x0>; refreshing object map | "
@@ -274,7 +274,7 @@ TEST_F(MasterServiceTest, enumeration_mergeTablet) {
         service->objectMap.getNumBuckets()*3/4, 0U);
     initialIter.push(preMergeConfiguration);
     initialIter.serialize(iter);
-    EnumerateTableRpc2 rpc(*ramcloud, 0, 0, iter, objects);
+    EnumerateTableRpc rpc(*ramcloud, 0, 0, iter, objects);
     nextTabletStartHash = rpc.wait(nextIter);
     EXPECT_EQ(0U, nextTabletStartHash);
     EXPECT_EQ(38U, objects.getTotalLength());
@@ -294,7 +294,7 @@ TEST_F(MasterServiceTest, enumeration_mergeTablet) {
 
     // We don't actually care about the contents of the iterator as
     // long as we get back 0 objects on the second call.
-    EnumerateTableRpc2 rpc2(*ramcloud, 0, 0, nextIter, objects);
+    EnumerateTableRpc rpc2(*ramcloud, 0, 0, nextIter, objects);
     rpc2.wait(finalIter);
     EXPECT_EQ(0U, nextTabletStartHash);
     EXPECT_EQ(0U, objects.getTotalLength());

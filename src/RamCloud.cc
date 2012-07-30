@@ -81,12 +81,12 @@ RamCloud::RamCloud(Context& context, const char* serviceLocator)
 uint64_t
 RamCloud::createTable(const char* name, uint32_t serverSpan)
 {
-    CreateTableRpc2 rpc(*this, name, serverSpan);
+    CreateTableRpc rpc(*this, name, serverSpan);
     return rpc.wait();
 }
 
 /**
- * Constructor for CreateTableRpc2: initiates an RPC in the same way as
+ * Constructor for CreateTableRpc: initiates an RPC in the same way as
  * #RamCloud::createTable, but returns once the RPC has been initiated,
  * without waiting for it to complete.
  *
@@ -98,7 +98,7 @@ RamCloud::createTable(const char* name, uint32_t serverSpan)
  *      The number of servers across which this table will be divided
  *      (defaults to 1).
  */
-CreateTableRpc2::CreateTableRpc2(RamCloud& ramcloud,
+CreateTableRpc::CreateTableRpc(RamCloud& ramcloud,
         const char* name, uint32_t serverSpan)
     : CoordinatorRpcWrapper(ramcloud.clientContext,
             sizeof(WireFormat::CreateTable::Response))
@@ -120,7 +120,7 @@ CreateTableRpc2::CreateTableRpc2(RamCloud& ramcloud,
  *      The return value is an identifier for the created table.
  */
 uint64_t
-CreateTableRpc2::wait()
+CreateTableRpc::wait()
 {
     waitInternal(*context.dispatch);
     const WireFormat::CreateTable::Response& respHdr(
@@ -144,12 +144,12 @@ CreateTableRpc2::wait()
 void
 RamCloud::dropTable(const char* name)
 {
-    DropTableRpc2 rpc(*this, name);
+    DropTableRpc rpc(*this, name);
     rpc.wait();
 }
 
 /**
- * Constructor for DropTableRpc2: initiates an RPC in the same way as
+ * Constructor for DropTableRpc: initiates an RPC in the same way as
  * #RamCloud::dropTable, but returns once the RPC has been initiated,
  * without waiting for it to complete.
  *
@@ -158,7 +158,7 @@ RamCloud::dropTable(const char* name)
  * \param name
  *      Name of the table to delete (NULL-terminated string).
  */
-DropTableRpc2::DropTableRpc2(RamCloud& ramcloud,
+DropTableRpc::DropTableRpc(RamCloud& ramcloud,
         const char* name)
     : CoordinatorRpcWrapper(ramcloud.clientContext,
             sizeof(WireFormat::DropTable::Response))
@@ -211,12 +211,12 @@ uint64_t
 RamCloud::enumerateTable(uint64_t tableId, uint64_t tabletFirstHash,
         Buffer& state, Buffer& objects)
 {
-    EnumerateTableRpc2 rpc(*this, tableId, tabletFirstHash, state, objects);
+    EnumerateTableRpc rpc(*this, tableId, tabletFirstHash, state, objects);
     return rpc.wait(state);
 }
 
 /**
- * Constructor for EnumerateTableRpc2: initiates an RPC in the same way as
+ * Constructor for EnumerateTableRpc: initiates an RPC in the same way as
  * #RamCloud::enumerateTable, but returns once the RPC has been initiated, without
  * waiting for it to complete.
  *
@@ -238,7 +238,7 @@ RamCloud::enumerateTable(uint64_t tableId, uint64_t tabletFirstHash,
  *      After a successful return, this buffer will contain zero or
  *      more objects from the requested tablet.
  */
-EnumerateTableRpc2::EnumerateTableRpc2(RamCloud& ramcloud, uint64_t tableId,
+EnumerateTableRpc::EnumerateTableRpc(RamCloud& ramcloud, uint64_t tableId,
         uint64_t tabletFirstHash, Buffer& state, Buffer& objects)
     : ObjectRpcWrapper(ramcloud, tableId, tabletFirstHash,
             sizeof(WireFormat::Enumerate::Response), &objects)
@@ -276,7 +276,7 @@ EnumerateTableRpc2::EnumerateTableRpc2(RamCloud& ramcloud, uint64_t tableId,
  *       
  */
 uint64_t
-EnumerateTableRpc2::wait(Buffer& state)
+EnumerateTableRpc::wait(Buffer& state)
 {
     simpleWait(*ramcloud.clientContext.dispatch);
     const WireFormat::Enumerate::Response& respHdr(
@@ -321,12 +321,12 @@ EnumerateTableRpc2::wait(Buffer& state)
 ServerMetrics
 RamCloud::getMetrics(uint64_t tableId, const char* key, uint16_t keyLength)
 {
-    GetMetricsRpc2 rpc(*this, tableId, key, keyLength);
+    GetMetricsRpc rpc(*this, tableId, key, keyLength);
     return rpc.wait();
 }
 
 /**
- * Constructor for GetMetricsRpc2: initiates an RPC in the same way as
+ * Constructor for GetMetricsRpc: initiates an RPC in the same way as
  * #RamCloud::getMetrics, but returns once the RPC has been initiated, without
  * waiting for it to complete.
  *
@@ -342,7 +342,7 @@ RamCloud::getMetrics(uint64_t tableId, const char* key, uint16_t keyLength)
  * \param keyLength
  *      Size in bytes of the key.
  */
-GetMetricsRpc2::GetMetricsRpc2(RamCloud& ramcloud, uint64_t tableId,
+GetMetricsRpc::GetMetricsRpc(RamCloud& ramcloud, uint64_t tableId,
         const char* key, uint16_t keyLength)
     : ObjectRpcWrapper(ramcloud, tableId, key, keyLength,
             sizeof(WireFormat::GetMetrics::Response))
@@ -360,7 +360,7 @@ GetMetricsRpc2::GetMetricsRpc2(RamCloud& ramcloud, uint64_t tableId,
  *       object indicated by the arguments to the constructor.
  */
 ServerMetrics
-GetMetricsRpc2::wait()
+GetMetricsRpc::wait()
 {
     waitInternal(*ramcloud.clientContext.dispatch);
     const WireFormat::GetMetrics::Response& respHdr(
@@ -471,12 +471,12 @@ void
 RamCloud::getServerStatistics(const char* serviceLocator,
         ProtoBuf::ServerStatistics& serverStats)
 {
-    GetServerStatisticsRpc2 rpc(*this, serviceLocator);
+    GetServerStatisticsRpc rpc(*this, serviceLocator);
     rpc.wait(serverStats);
 }
 
 /**
- * Constructor for GetServerStatisticsRpc2: initiates an RPC in the same way as
+ * Constructor for GetServerStatisticsRpc: initiates an RPC in the same way as
  * #RamCloud::getServerStatistics, but returns once the RPC has been initiated,
  * without waiting for it to complete.
  *
@@ -485,7 +485,7 @@ RamCloud::getServerStatistics(const char* serviceLocator,
  * \param serviceLocator
  *      Selects the server from which server statistics should be retrieved.
  */
-GetServerStatisticsRpc2::GetServerStatisticsRpc2(RamCloud& ramcloud,
+GetServerStatisticsRpc::GetServerStatisticsRpc(RamCloud& ramcloud,
         const char* serviceLocator)
     : RpcWrapper(sizeof(WireFormat::GetServerStatistics::Response))
     , ramcloud(ramcloud)
@@ -512,7 +512,7 @@ GetServerStatisticsRpc2::GetServerStatisticsRpc2(RamCloud& ramcloud,
  *       the target server.
  */
 void
-GetServerStatisticsRpc2::wait(ProtoBuf::ServerStatistics& serverStats)
+GetServerStatisticsRpc::wait(ProtoBuf::ServerStatistics& serverStats)
 {
     waitInternal(*ramcloud.clientContext.dispatch);
     if (getState() != RpcState::FINISHED) {
@@ -554,12 +554,12 @@ RamCloud::getServiceLocator()
 uint64_t
 RamCloud::getTableId(const char* name)
 {
-    GetTableIdRpc2 rpc(*this, name);
+    GetTableIdRpc rpc(*this, name);
     return rpc.wait();
 }
 
 /**
- * Constructor for GetTableIdRpc2: initiates an RPC in the same way as
+ * Constructor for GetTableIdRpc: initiates an RPC in the same way as
  * #RamCloud::getTableId, but returns once the RPC has been initiated,
  * without waiting for it to complete.
  *
@@ -568,7 +568,7 @@ RamCloud::getTableId(const char* name)
  * \param name
  *      Name of the desired table (NULL-terminated string).
  */
-GetTableIdRpc2::GetTableIdRpc2(RamCloud& ramcloud,
+GetTableIdRpc::GetTableIdRpc(RamCloud& ramcloud,
         const char* name)
     : CoordinatorRpcWrapper(ramcloud.clientContext,
             sizeof(WireFormat::CreateTable::Response))
@@ -591,7 +591,7 @@ GetTableIdRpc2::GetTableIdRpc2(RamCloud& ramcloud,
  * \exception TableDoesntExistException
  */
 uint64_t
-GetTableIdRpc2::wait()
+GetTableIdRpc::wait()
 {
     waitInternal(*context.dispatch);
     const WireFormat::GetTableId::Response& respHdr(
@@ -635,13 +635,13 @@ RamCloud::increment(uint64_t tableId, const char* key, uint16_t keyLength,
         int64_t incrementValue, const RejectRules* rejectRules,
         uint64_t* version)
 {
-    IncrementRpc2 rpc(*this, tableId, key, keyLength, incrementValue,
+    IncrementRpc rpc(*this, tableId, key, keyLength, incrementValue,
             rejectRules);
     return rpc.wait(version);
 }
 
 /**
- * Constructor for IncrementRpc2: initiates an RPC in the same way as
+ * Constructor for IncrementRpc: initiates an RPC in the same way as
  * #RamCloud::increment, but returns once the RPC has been initiated, without
  * waiting for it to complete.
  *
@@ -664,7 +664,7 @@ RamCloud::increment(uint64_t tableId, const char* key, uint16_t keyLength,
  *      If non-NULL, specifies conditions under which the increment
  *      should be aborted with an error.
  */
-IncrementRpc2::IncrementRpc2(RamCloud& ramcloud, uint64_t tableId,
+IncrementRpc::IncrementRpc(RamCloud& ramcloud, uint64_t tableId,
         const char* key, uint16_t keyLength, int64_t incrementValue,
         const RejectRules* rejectRules)
     : ObjectRpcWrapper(ramcloud, tableId, key, keyLength,
@@ -689,7 +689,7 @@ IncrementRpc2::IncrementRpc2(RamCloud& ramcloud, uint64_t tableId,
  *      returned here.
  */
 int64_t
-IncrementRpc2::wait(uint64_t* version)
+IncrementRpc::wait(uint64_t* version)
 {
     waitInternal(*ramcloud.clientContext.dispatch);
     const WireFormat::Increment::Response& respHdr(
@@ -719,13 +719,13 @@ void
 RamCloud::migrateTablet(uint64_t tableId, uint64_t firstKeyHash,
         uint64_t lastKeyHash, ServerId newOwnerMasterId)
 {
-    MigrateTabletRpc2 rpc(*this, tableId, firstKeyHash, lastKeyHash,
+    MigrateTabletRpc rpc(*this, tableId, firstKeyHash, lastKeyHash,
             newOwnerMasterId);
     rpc.wait();
 }
 
 /**
- * Constructor for MigrateTabletRpc2: initiates an RPC in the same way as
+ * Constructor for MigrateTabletRpc: initiates an RPC in the same way as
  * #RamCloud::migrateTablet, but returns once the RPC has been initiated, without
  * waiting for it to complete.
  *
@@ -740,7 +740,7 @@ RamCloud::migrateTablet(uint64_t tableId, uint64_t firstKeyHash,
  * \param newOwnerMasterId
  *      ServerId of the node to which the tablet should be migrated.
  */
-MigrateTabletRpc2::MigrateTabletRpc2(RamCloud& ramcloud, uint64_t tableId,
+MigrateTabletRpc::MigrateTabletRpc(RamCloud& ramcloud, uint64_t tableId,
         uint64_t firstKeyHash, uint64_t lastKeyHash,
         ServerId newOwnerMasterId)
     : ObjectRpcWrapper(ramcloud, tableId, firstKeyHash,
@@ -786,19 +786,19 @@ RamCloud::multiRead(MultiReadObject* requests[], uint32_t numRequests)
 void
 RamCloud::quiesce()
 {
-    QuiesceRpc2 rpc(*this);
+    QuiesceRpc rpc(*this);
     rpc.wait();
 }
 
 /**
- * Constructor for HintServerDownRpc2: initiates an RPC in the same way as
+ * Constructor for HintServerDownRpc: initiates an RPC in the same way as
  * #RamCloud::hintServerDown, but returns once the RPC has been
  * initiated, without waiting for it to complete.
  *
  * \param ramcloud
  *      The RAMCloud object that governs this RPC.
  */
-QuiesceRpc2::QuiesceRpc2(RamCloud& ramcloud)
+QuiesceRpc::QuiesceRpc(RamCloud& ramcloud)
     : CoordinatorRpcWrapper(ramcloud.clientContext,
             sizeof(WireFormat::BackupQuiesce::Response))
 {
@@ -838,7 +838,7 @@ RamCloud::read(uint64_t tableId, const char* key, uint16_t keyLength,
                    Buffer* value, const RejectRules* rejectRules,
                    uint64_t* version)
 {
-    ReadRpc2 rpc(*this, tableId, key, keyLength, value, rejectRules);
+    ReadRpc rpc(*this, tableId, key, keyLength, value, rejectRules);
     rpc.wait(version);
 }
 
@@ -866,7 +866,7 @@ RamCloud::read(uint64_t tableId, const char* key, uint16_t keyLength,
  *      If non-NULL, specifies conditions under which the read
  *      should be aborted with an error.
  */
-ReadRpc2::ReadRpc2(RamCloud& ramcloud, uint64_t tableId,
+ReadRpc::ReadRpc(RamCloud& ramcloud, uint64_t tableId,
         const char* key, uint16_t keyLength, Buffer* value,
         const RejectRules* rejectRules)
     : ObjectRpcWrapper(ramcloud, tableId, key, keyLength,
@@ -889,7 +889,7 @@ ReadRpc2::ReadRpc2(RamCloud& ramcloud, uint64_t tableId,
  *      If non-NULL, the version number of the object is returned here.
  */
 void
-ReadRpc2::wait(uint64_t* version)
+ReadRpc::wait(uint64_t* version)
 {
     waitInternal(*ramcloud.clientContext.dispatch);
     const WireFormat::Read::Response& respHdr(
@@ -932,12 +932,12 @@ void
 RamCloud::remove(uint64_t tableId, const char* key, uint16_t keyLength,
         const RejectRules* rejectRules, uint64_t* version)
 {
-    RemoveRpc2 rpc(*this, tableId, key, keyLength, rejectRules);
+    RemoveRpc rpc(*this, tableId, key, keyLength, rejectRules);
     rpc.wait(version);
 }
 
 /**
- * Constructor for RemoveRpc2: initiates an RPC in the same way as
+ * Constructor for RemoveRpc: initiates an RPC in the same way as
  * #RamCloud::remove, but returns once the RPC has been initiated, without
  * waiting for it to complete.
  *
@@ -957,7 +957,7 @@ RamCloud::remove(uint64_t tableId, const char* key, uint16_t keyLength,
  *      If non-NULL, specifies conditions under which the delete
  *      should be aborted with an error.
  */
-RemoveRpc2::RemoveRpc2(RamCloud& ramcloud, uint64_t tableId,
+RemoveRpc::RemoveRpc(RamCloud& ramcloud, uint64_t tableId,
         const char* key, uint16_t keyLength, const RejectRules* rejectRules)
     : ObjectRpcWrapper(ramcloud, tableId, key, keyLength,
             sizeof(WireFormat::Remove::Response))
@@ -979,7 +979,7 @@ RemoveRpc2::RemoveRpc2(RamCloud& ramcloud, uint64_t tableId,
  *      deletion) is returned here.
  */
 void
-RemoveRpc2::wait(uint64_t* version)
+RemoveRpc::wait(uint64_t* version)
 {
     waitInternal(*ramcloud.clientContext.dispatch);
     const WireFormat::Remove::Response& respHdr(
@@ -1015,12 +1015,12 @@ void
 RamCloud::splitTablet(const char* name, uint64_t firstKeyHash,
         uint64_t lastKeyHash, uint64_t splitKeyHash)
 {
-    SplitTabletRpc2 rpc(*this, name, firstKeyHash, lastKeyHash, splitKeyHash);
+    SplitTabletRpc rpc(*this, name, firstKeyHash, lastKeyHash, splitKeyHash);
     rpc.wait();
 }
 
 /**
- * Constructor for SplitTabletRpc2: initiates an RPC in the same way as
+ * Constructor for SplitTabletRpc: initiates an RPC in the same way as
  * #RamCloud::splitTablet, but returns once the RPC has been initiated,
  * without waiting for it to complete.
  *
@@ -1038,7 +1038,7 @@ RamCloud::splitTablet(const char* name, uint64_t firstKeyHash,
  *      this will belong to one tablet, and all key hashes >= this
  *      will belong to the other.
  */
-SplitTabletRpc2::SplitTabletRpc2(RamCloud& ramcloud,
+SplitTabletRpc::SplitTabletRpc(RamCloud& ramcloud,
         const char* name, uint64_t firstKeyHash,
         uint64_t lastKeyHash, uint64_t splitKeyHash)
     : CoordinatorRpcWrapper(ramcloud.clientContext,
@@ -1085,13 +1085,13 @@ void
 RamCloud::testingFill(uint64_t tableId, const char* key, uint16_t keyLength,
                       uint32_t numObjects, uint32_t objectSize)
 {
-    FillWithTestDataRpc2 rpc(*this, tableId, key, keyLength, numObjects,
+    FillWithTestDataRpc rpc(*this, tableId, key, keyLength, numObjects,
             objectSize);
     rpc.wait();
 }
 
 /**
- * Constructor for FillWithTestDataRpc2: initiates an RPC in the same way as
+ * Constructor for FillWithTestDataRpc: initiates an RPC in the same way as
  * #RamCloud::testingFill, but returns once the RPC has been initiated,
  * without waiting for it to complete.
  *
@@ -1113,7 +1113,7 @@ RamCloud::testingFill(uint64_t tableId, const char* key, uint16_t keyLength,
  *      key (the keys are ASCII strings starting with "0" and increasing
  *      numerically in each table).
  */
-FillWithTestDataRpc2::FillWithTestDataRpc2(RamCloud& ramcloud,
+FillWithTestDataRpc::FillWithTestDataRpc(RamCloud& ramcloud,
         uint64_t tableId, const char* key, uint16_t keyLength,
         uint32_t numObjects, uint32_t objectSize)
     : ObjectRpcWrapper(ramcloud, tableId, key, keyLength,
@@ -1175,12 +1175,12 @@ RamCloud::testingGetServiceLocator(uint64_t tableId,
 void
 RamCloud::testingKill(uint64_t tableId, const char* key, uint16_t keyLength)
 {
-    KillRpc2 rpc(*this, tableId, key, keyLength);
+    KillRpc rpc(*this, tableId, key, keyLength);
     objectFinder.waitForTabletDown();
 }
 
 /**
- * Constructor for KillRpc2: initiates an RPC in the same way as
+ * Constructor for KillRpc: initiates an RPC in the same way as
  * #RamCloud::testingKill, but returns once the RPC has been initiated, without
  * waiting for it to complete.
  *
@@ -1197,7 +1197,7 @@ RamCloud::testingKill(uint64_t tableId, const char* key, uint16_t keyLength)
  * \param keyLength
  *      Size in bytes of the key.
  */
-KillRpc2::KillRpc2(RamCloud& ramcloud, uint64_t tableId,
+KillRpc::KillRpc(RamCloud& ramcloud, uint64_t tableId,
         const char* key, uint16_t keyLength)
     : ObjectRpcWrapper(ramcloud, tableId, key, keyLength,
             sizeof(WireFormat::Kill::Response))
@@ -1223,12 +1223,12 @@ KillRpc2::KillRpc2(RamCloud& ramcloud, uint64_t tableId,
 void
 RamCloud::testingSetRuntimeOption(const char* option, const char* value)
 {
-    SetRuntimeOptionRpc2 rpc(*this, option, value);
+    SetRuntimeOptionRpc rpc(*this, option, value);
     rpc.wait();
 }
 
 /**
- * Constructor for SetRuntimeOptionRpc2: initiates an RPC in the same way as
+ * Constructor for SetRuntimeOptionRpc: initiates an RPC in the same way as
  * #RamCloud::dropTable, but returns once the RPC has been initiated,
  * without waiting for it to complete.
  *
@@ -1245,7 +1245,7 @@ RamCloud::testingSetRuntimeOption(const char* option, const char* value)
  *      separated by spaces (e.g. "1 2 3", "first second"). See RuntimeOptions
  *      for more information.
  */
-SetRuntimeOptionRpc2::SetRuntimeOptionRpc2(RamCloud& ramcloud,
+SetRuntimeOptionRpc::SetRuntimeOptionRpc(RamCloud& ramcloud,
         const char* option, const char* value)
     : CoordinatorRpcWrapper(ramcloud.clientContext,
             sizeof(WireFormat::SetRuntimeOption::Response))
@@ -1308,7 +1308,7 @@ RamCloud::write(uint64_t tableId, const char* key, uint16_t keyLength,
         const void* buf, uint32_t length, const RejectRules* rejectRules,
         uint64_t* version, bool async)
 {
-    WriteRpc2 rpc(*this, tableId, key, keyLength, buf, length, rejectRules,
+    WriteRpc rpc(*this, tableId, key, keyLength, buf, length, rejectRules,
             async);
     rpc.wait(version);
 }
@@ -1350,13 +1350,13 @@ RamCloud::write(uint64_t tableId, const char* key, uint16_t keyLength,
         const char* value, const RejectRules* rejectRules, uint64_t* version,
         bool async)
 {
-    WriteRpc2 rpc(*this, tableId, key, keyLength, value,
+    WriteRpc rpc(*this, tableId, key, keyLength, value,
             downCast<uint32_t>(strlen(value)), rejectRules, async);
     rpc.wait(version);
 }
 
 /**
- * Constructor for WriteRpc2: initiates an RPC in the same way as
+ * Constructor for WriteRpc: initiates an RPC in the same way as
  * #RamCloud::write, but returns once the RPC has been initiated, without
  * waiting for it to complete.
  *
@@ -1384,7 +1384,7 @@ RamCloud::write(uint64_t tableId, const char* key, uint16_t keyLength,
  *      If true, the new object will not be immediately replicated to backups.
  *      Data loss may occur!
  */
-WriteRpc2::WriteRpc2(RamCloud& ramcloud, uint64_t tableId,
+WriteRpc::WriteRpc(RamCloud& ramcloud, uint64_t tableId,
         const char* key, uint16_t keyLength, const void* buf, uint32_t length,
         const RejectRules* rejectRules, bool async)
     : ObjectRpcWrapper(ramcloud, tableId, key, keyLength,
@@ -1410,7 +1410,7 @@ WriteRpc2::WriteRpc2(RamCloud& ramcloud, uint64_t tableId,
  *      returned here.
  */
 void
-WriteRpc2::wait(uint64_t* version)
+WriteRpc::wait(uint64_t* version)
 {
     waitInternal(*ramcloud.clientContext.dispatch);
     const WireFormat::Write::Response& respHdr(

@@ -274,10 +274,10 @@ class ReplicatedSegment : public Task {
         Progress sent;
 
         /// The outstanding free operation to this backup, if any.
-        Tub<FreeSegmentRpc2> freeRpc;
+        Tub<FreeSegmentRpc> freeRpc;
 
         /// The outstanding write operation to this backup, if any.
-        Tub<WriteSegmentRpc2> writeRpc;
+        Tub<WriteSegmentRpc> writeRpc;
 
         // Fields below survive across failed()/start() calls.
 

@@ -828,7 +828,7 @@ TEST_F(BackupServiceTest, startReadingData) {
     openSegment(ServerId(99, 0), 98, false);
     openSegment(ServerId(99, 0), 99, false);
 
-    StartReadingDataRpc2::Result result =
+    StartReadingDataRpc::Result result =
         BackupClient::startReadingData(context, backupId, ServerId(99, 0),
                                        ProtoBuf::Tablets());
     EXPECT_EQ(4u, result.segmentIdAndLength.size());
@@ -877,7 +877,7 @@ TEST_F(BackupServiceTest, startReadingData) {
 }
 
 TEST_F(BackupServiceTest, startReadingData_empty) {
-    StartReadingDataRpc2::Result result =
+    StartReadingDataRpc::Result result =
         BackupClient::startReadingData(context, backupId, ServerId(99, 0),
                                        ProtoBuf::Tablets());
     EXPECT_EQ(0U, result.segmentIdAndLength.size());
@@ -890,7 +890,7 @@ TEST_F(BackupServiceTest, startReadingData_logDigest_simple) {
     openSegment(ServerId(99, 0), 88);
     writeDigestedSegment(ServerId(99, 0), 88, { 0x3f17c2451f0cafUL });
 
-    StartReadingDataRpc2::Result result =
+    StartReadingDataRpc::Result result =
         BackupClient::startReadingData(context, backupId, ServerId(99, 0),
                                        ProtoBuf::Tablets());
     EXPECT_EQ(LogDigest::getBytesFromCount(1),
@@ -946,7 +946,7 @@ TEST_F(BackupServiceTest, startReadingData_logDigest_latest) {
     // close the new one. we should get the old one now.
     closeSegment(ServerId(99, 0), 89);
     {
-        StartReadingDataRpc2::Result result =
+        StartReadingDataRpc::Result result =
             BackupClient::startReadingData(context, backupId, ServerId(99, 0),
                                            ProtoBuf::Tablets());
         EXPECT_EQ(88U, result.logDigestSegmentId);
@@ -966,7 +966,7 @@ TEST_F(BackupServiceTest, startReadingData_logDigest_none) {
 
     closeSegment(ServerId(99, 0), 88);
     {
-        StartReadingDataRpc2::Result result =
+        StartReadingDataRpc::Result result =
             BackupClient::startReadingData(context, backupId, ServerId(99, 0),
                                            ProtoBuf::Tablets());
         EXPECT_EQ(1U, result.segmentIdAndLength.size());
@@ -982,7 +982,7 @@ TEST_F(BackupServiceTest, startReadingData_atomic) {
     writeDigestedSegment(ServerId(99, 0), 88, { 0xe966e17be4aUL }, true);
 
     {
-        StartReadingDataRpc2::Result result =
+        StartReadingDataRpc::Result result =
             BackupClient::startReadingData(context, backupId, ServerId(99, 0),
                                            ProtoBuf::Tablets());
         BackupService::SegmentInfo &info =
@@ -997,7 +997,7 @@ TEST_F(BackupServiceTest, startReadingData_atomic) {
     // recoveries.
     closeSegment(ServerId(99, 0), 88);
     {
-        StartReadingDataRpc2::Result result =
+        StartReadingDataRpc::Result result =
             BackupClient::startReadingData(context, backupId, ServerId(99, 0),
                                            ProtoBuf::Tablets());
         BackupService::SegmentInfo &info =

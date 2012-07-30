@@ -680,7 +680,7 @@ struct MasterStartTask {
     const vector<WireFormat::Recover::Replica>& replicaMap;
     const uint32_t partitionId;
     ProtoBuf::Tablets tabletsToRecover;
-    Tub<RecoverRpc2> rpc;
+    Tub<RecoverRpc> rpc;
     bool done;
     MasterStartTaskTestingCallback* testingCallback;
     DISALLOW_COPY_AND_ASSIGN(MasterStartTask);
@@ -874,7 +874,7 @@ struct BackupEndTask {
     Recovery& recovery;
     const ServerId serverId;
     const ServerId crashedServerId;
-    Tub<RecoveryCompleteRpc2> rpc;
+    Tub<RecoveryCompleteRpc> rpc;
     bool done;
     BackupEndTaskTestingCallback* testingCallback;
     DISALLOW_COPY_AND_ASSIGN(BackupEndTask);

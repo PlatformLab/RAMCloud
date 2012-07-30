@@ -159,7 +159,7 @@ FailureDetector::pingRandomServer()
         LOG(DEBUG, "Sending ping to server %lu (%s)", pingee.getId(),
             locator.c_str());
         uint64_t start = Cycles::rdtsc();
-        PingRpc2 rpc(context, pingee, ourServerId);
+        PingRpc rpc(context, pingee, ourServerId);
         serverListVersion = rpc.wait(TIMEOUT_USECS *1000);
         if (serverListVersion == ~0LU) {
             // Server appears to have crashed; notify the coordinator.

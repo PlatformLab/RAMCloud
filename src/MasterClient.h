@@ -67,131 +67,131 @@ class MasterClient {
  * Encapsulates the state of a MasterClient::dropTabletOwnership
  * request, allowing it to execute asynchronously.
  */
-class DropTabletOwnershipRpc2 : public ServerIdRpcWrapper {
+class DropTabletOwnershipRpc : public ServerIdRpcWrapper {
     public:
-    DropTabletOwnershipRpc2(Context& context, ServerId serverId,
+    DropTabletOwnershipRpc(Context& context, ServerId serverId,
             uint64_t tableId, uint64_t firstKey, uint64_t lastKey);
-    ~DropTabletOwnershipRpc2() {}
+    ~DropTabletOwnershipRpc() {}
     /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
     void wait() {waitAndCheckErrors();}
 
     PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(DropTabletOwnershipRpc2);
+    DISALLOW_COPY_AND_ASSIGN(DropTabletOwnershipRpc);
 };
 
 /**
  * Encapsulates the state of a MasterClient::getHeadOfLog
  * request, allowing it to execute asynchronously.
  */
-class GetHeadOfLogRpc2 : public ServerIdRpcWrapper {
+class GetHeadOfLogRpc : public ServerIdRpcWrapper {
     public:
-    GetHeadOfLogRpc2(Context& context, ServerId serverId);
-    ~GetHeadOfLogRpc2() {}
+    GetHeadOfLogRpc(Context& context, ServerId serverId);
+    ~GetHeadOfLogRpc() {}
     LogPosition wait();
 
     PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(GetHeadOfLogRpc2);
+    DISALLOW_COPY_AND_ASSIGN(GetHeadOfLogRpc);
 };
 
 /**
  * Encapsulates the state of a MasterClient::isReplicaNeeded
  * request, allowing it to execute asynchronously.
  */
-class IsReplicaNeededRpc2 : public ServerIdRpcWrapper {
+class IsReplicaNeededRpc : public ServerIdRpcWrapper {
     public:
-    IsReplicaNeededRpc2(Context& context, ServerId serverId,
+    IsReplicaNeededRpc(Context& context, ServerId serverId,
             ServerId backupServerId, uint64_t segmentId);
-    ~IsReplicaNeededRpc2() {}
+    ~IsReplicaNeededRpc() {}
     bool wait();
 
     PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(IsReplicaNeededRpc2);
+    DISALLOW_COPY_AND_ASSIGN(IsReplicaNeededRpc);
 };
 
 /**
  * Encapsulates the state of a MasterClient::prepForMigration
  * request, allowing it to execute asynchronously.
  */
-class PrepForMigrationRpc2 : public ServerIdRpcWrapper {
+class PrepForMigrationRpc : public ServerIdRpcWrapper {
     public:
-    PrepForMigrationRpc2(Context& context, ServerId serverId,
+    PrepForMigrationRpc(Context& context, ServerId serverId,
             uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash,
             uint64_t expectedObjects, uint64_t expectedBytes);
-    ~PrepForMigrationRpc2() {}
+    ~PrepForMigrationRpc() {}
     /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
     void wait() {waitAndCheckErrors();}
 
     PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(PrepForMigrationRpc2);
+    DISALLOW_COPY_AND_ASSIGN(PrepForMigrationRpc);
 };
 
 /**
  * Encapsulates the state of a MasterClient::receiveMigrationData
  * request, allowing it to execute asynchronously.
  */
-class ReceiveMigrationDataRpc2 : public ServerIdRpcWrapper {
+class ReceiveMigrationDataRpc : public ServerIdRpcWrapper {
     public:
-    ReceiveMigrationDataRpc2(Context& context, ServerId serverId,
+    ReceiveMigrationDataRpc(Context& context, ServerId serverId,
             uint64_t tableId, uint64_t firstKey, const void* segment,
             uint32_t segmentBytes);
-    ~ReceiveMigrationDataRpc2() {}
+    ~ReceiveMigrationDataRpc() {}
     /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
     void wait() {waitAndCheckErrors();}
 
     PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(ReceiveMigrationDataRpc2);
+    DISALLOW_COPY_AND_ASSIGN(ReceiveMigrationDataRpc);
 };
 
 /**
  * Encapsulates the state of a MasterClient::recover
  * request, allowing it to execute asynchronously.
  */
-class RecoverRpc2 : public ServerIdRpcWrapper {
+class RecoverRpc : public ServerIdRpcWrapper {
     public:
-    RecoverRpc2(Context& context, ServerId serverId, uint64_t recoveryId,
+    RecoverRpc(Context& context, ServerId serverId, uint64_t recoveryId,
             ServerId crashedServerId, uint64_t partitionId,
             const ProtoBuf::Tablets& tablets,
             const WireFormat::Recover::Replica* replicas,
             uint32_t numReplicas);
-    ~RecoverRpc2() {}
+    ~RecoverRpc() {}
     /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
     void wait() {waitAndCheckErrors();}
 
     PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(RecoverRpc2);
+    DISALLOW_COPY_AND_ASSIGN(RecoverRpc);
 };
 
 /**
  * Encapsulates the state of a MasterClient::splitMasterTablet
  * request, allowing it to execute asynchronously.
  */
-class SplitMasterTabletRpc2 : public ServerIdRpcWrapper {
+class SplitMasterTabletRpc : public ServerIdRpcWrapper {
     public:
-    SplitMasterTabletRpc2(Context& context, ServerId serverId,
+    SplitMasterTabletRpc(Context& context, ServerId serverId,
             uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash,
             uint64_t splitKeyHash);
-    ~SplitMasterTabletRpc2() {}
+    ~SplitMasterTabletRpc() {}
     /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
     void wait() {waitAndCheckErrors();}
 
     PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(SplitMasterTabletRpc2);
+    DISALLOW_COPY_AND_ASSIGN(SplitMasterTabletRpc);
 };
 
 /**
  * Encapsulates the state of a MasterClient::takeTabletOwnership
  * request, allowing it to execute asynchronously.
  */
-class TakeTabletOwnershipRpc2 : public ServerIdRpcWrapper {
+class TakeTabletOwnershipRpc : public ServerIdRpcWrapper {
     public:
-    TakeTabletOwnershipRpc2(Context& context, ServerId id,
+    TakeTabletOwnershipRpc(Context& context, ServerId id,
             uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash);
-    ~TakeTabletOwnershipRpc2() {}
+    ~TakeTabletOwnershipRpc() {}
     /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
     void wait() {waitAndCheckErrors();}
 
     PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(TakeTabletOwnershipRpc2);
+    DISALLOW_COPY_AND_ASSIGN(TakeTabletOwnershipRpc);
 };
 
 } // namespace RAMCloud

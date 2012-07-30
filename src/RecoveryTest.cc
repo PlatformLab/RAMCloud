@@ -79,7 +79,7 @@ namespace {
  *      List of segment ids which should be in the log digest.
  */
 void
-populateLogDigest(StartReadingDataRpc2::Result& result,
+populateLogDigest(StartReadingDataRpc::Result& result,
                   uint64_t segmentId,
                   std::vector<uint64_t> segmentIds)
 {
@@ -129,7 +129,7 @@ TEST_F(RecoveryTest, startBackups) {
     struct Cb : public BackupStartTask::TestingCallback {
         int callCount;
         Cb() : callCount() {}
-        void backupStartTaskSend(StartReadingDataRpc2::Result& result)
+        void backupStartTaskSend(StartReadingDataRpc::Result& result)
         {
             if (callCount == 0) {
                 // Two segments on backup1, one that overlaps with backup2
@@ -176,7 +176,7 @@ TEST_F(RecoveryTest, startBackups_secondariesEarlyInSomeList) {
     struct Cb : public BackupStartTask::TestingCallback {
         int callCount;
         Cb() : callCount() {}
-        void backupStartTaskSend(StartReadingDataRpc2::Result& result)
+        void backupStartTaskSend(StartReadingDataRpc::Result& result)
         {
             if (callCount == 0) {
                 result.segmentIdAndLength.push_back({88lu, 100u});
@@ -233,7 +233,7 @@ TEST_F(RecoveryTest, startBackups_noLogDigestFound) {
 TEST_F(RecoveryTest, startBackups_someReplicasMissing) {
     // See buildReplicaMap test for info about how the callback is used.
     struct Cb : public BackupStartTask::TestingCallback {
-        void backupStartTaskSend(StartReadingDataRpc2::Result& result)
+        void backupStartTaskSend(StartReadingDataRpc::Result& result)
         {
             populateLogDigest(result, 91, {91});
         }

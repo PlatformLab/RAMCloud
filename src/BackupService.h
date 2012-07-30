@@ -722,7 +722,7 @@ class BackupService : public Service
          * Space for a rpc to the master to ask it explicitly if it would
          * like this replica to be retain as it makes more replica elsewhere.
          */
-        Tub<IsReplicaNeededRpc2> rpc;
+        Tub<IsReplicaNeededRpc> rpc;
     };
     friend class GarbageCollectReplicaFoundOnStorageTask;
 

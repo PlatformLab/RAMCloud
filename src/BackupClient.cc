@@ -45,13 +45,13 @@ BackupClient::assignGroup(Context& context, ServerId backupId,
         uint64_t replicationId, uint32_t numReplicas,
         const ServerId* replicationGroupIds)
 {
-    AssignGroupRpc2 rpc(context, backupId, replicationId, numReplicas,
+    AssignGroupRpc rpc(context, backupId, replicationId, numReplicas,
             replicationGroupIds);
     rpc.wait();
 }
 
 /**
- * Constructor for AssignGroupRpc2: initiates an RPC in the same way as
+ * Constructor for AssignGroupRpc: initiates an RPC in the same way as
  * #BackupClient::assignGroup, but returns once the RPC has been initiated,
  * without waiting for it to complete.
  *
@@ -69,7 +69,7 @@ BackupClient::assignGroup(Context& context, ServerId backupId,
  * \param replicationGroupIds
  *      The ServerId's of all the backups in the replication group.
  */
-AssignGroupRpc2::AssignGroupRpc2(Context& context, ServerId backupId,
+AssignGroupRpc::AssignGroupRpc(Context& context, ServerId backupId,
         uint64_t replicationId, uint32_t numReplicas,
         const ServerId* replicationGroupIds)
     : ServerIdRpcWrapper(context, backupId,
@@ -102,12 +102,12 @@ void
 BackupClient::freeSegment(Context& context, ServerId backupId,
         ServerId masterId, uint64_t segmentId)
 {
-    FreeSegmentRpc2 rpc(context, backupId, masterId, segmentId);
+    FreeSegmentRpc rpc(context, backupId, masterId, segmentId);
     rpc.wait();
 }
 
 /**
- * Constructor for FreeSegmentRpc2: initiates an RPC in the same way as
+ * Constructor for FreeSegmentRpc: initiates an RPC in the same way as
  * #BackupClient::freeSegment, but returns once the RPC has been initiated,
  * without waiting for it to complete.
  *
@@ -120,7 +120,7 @@ BackupClient::freeSegment(Context& context, ServerId backupId,
  * \param segmentId
  *      The id of the segment to be freed.
  */
-FreeSegmentRpc2::FreeSegmentRpc2(Context& context, ServerId backupId,
+FreeSegmentRpc::FreeSegmentRpc(Context& context, ServerId backupId,
         ServerId masterId, uint64_t segmentId)
     : ServerIdRpcWrapper(context, backupId,
             sizeof(WireFormat::BackupFree::Response))
@@ -158,13 +158,13 @@ BackupClient::getRecoveryData(Context& context, ServerId backupId,
         ServerId masterId, uint64_t segmentId, uint64_t partitionId,
         Buffer& response)
 {
-    GetRecoveryDataRpc2 rpc(context, backupId, masterId, segmentId,
+    GetRecoveryDataRpc rpc(context, backupId, masterId, segmentId,
             partitionId, response);
     rpc.wait();
 }
 
 /**
- * Constructor for GetRecoveryDataRpc2: initiates an RPC in the same way as
+ * Constructor for GetRecoveryDataRpc: initiates an RPC in the same way as
  * #BackupClient::getRecoveryData, but returns once the RPC has been initiated,
  * without waiting for it to complete.
  *
@@ -184,7 +184,7 @@ BackupClient::getRecoveryData(Context& context, ServerId backupId,
  *      The objects matching the above parameters will be returned in this
  *      buffer, organized as a Segment.
  */
-GetRecoveryDataRpc2::GetRecoveryDataRpc2(Context& context, ServerId backupId,
+GetRecoveryDataRpc::GetRecoveryDataRpc(Context& context, ServerId backupId,
         ServerId masterId, uint64_t segmentId, uint64_t partitionId,
         Buffer& response)
     : ServerIdRpcWrapper(context, backupId,
@@ -207,7 +207,7 @@ GetRecoveryDataRpc2::GetRecoveryDataRpc2(Context& context, ServerId backupId,
  *      if it ever existed, it has since crashed.
  */
 void
-GetRecoveryDataRpc2::wait()
+GetRecoveryDataRpc::wait()
 {
     waitAndCheckErrors();
     response->truncateFront(sizeof(
@@ -227,12 +227,12 @@ GetRecoveryDataRpc2::wait()
 void
 BackupClient::quiesce(Context& context, ServerId backupId)
 {
-    BackupQuiesceRpc2 rpc(context, backupId);
+    BackupQuiesceRpc rpc(context, backupId);
     rpc.wait();
 }
 
 /**
- * Constructor for QuiesceRpc2: initiates an RPC in the same way as
+ * Constructor for QuiesceRpc: initiates an RPC in the same way as
  * #BackupClient::quiesce, but returns once the RPC has been initiated,
  * without waiting for it to complete.
  *
@@ -241,7 +241,7 @@ BackupClient::quiesce(Context& context, ServerId backupId)
  * \param backupId
  *      Backup whose data should be flushed.
  */
-BackupQuiesceRpc2::BackupQuiesceRpc2(Context& context, ServerId backupId)
+BackupQuiesceRpc::BackupQuiesceRpc(Context& context, ServerId backupId)
     : ServerIdRpcWrapper(context, backupId,
             sizeof(WireFormat::BackupQuiesce::Response))
 {
@@ -265,12 +265,12 @@ void
 BackupClient::recoveryComplete(Context& context, ServerId backupId,
         ServerId masterId)
 {
-    RecoveryCompleteRpc2 rpc(context, backupId, masterId);
+    RecoveryCompleteRpc rpc(context, backupId, masterId);
     rpc.wait();
 }
 
 /**
- * Constructor for RecoveryCompleteRpc2: initiates an RPC in the same way as
+ * Constructor for RecoveryCompleteRpc: initiates an RPC in the same way as
  * #BackupClient::recoveryComplete, but returns once the RPC has been initiated,
  * without waiting for it to complete.
  *
@@ -281,7 +281,7 @@ BackupClient::recoveryComplete(Context& context, ServerId backupId,
  * \param masterId
  *      The id of a crashed master whose recovery is now complete.
  */
-RecoveryCompleteRpc2::RecoveryCompleteRpc2(Context& context, ServerId backupId,
+RecoveryCompleteRpc::RecoveryCompleteRpc(Context& context, ServerId backupId,
         ServerId masterId)
     : ServerIdRpcWrapper(context, backupId,
             sizeof(WireFormat::BackupRecoveryComplete::Response))
@@ -312,16 +312,16 @@ RecoveryCompleteRpc2::RecoveryCompleteRpc2(Context& context, ServerId backupId,
  *      The return value is an object that describes all of the segment
  *      replicas stored on \a backupId for \a masterId.
  */
-StartReadingDataRpc2::Result
+StartReadingDataRpc::Result
 BackupClient::startReadingData(Context& context, ServerId backupId,
         ServerId masterId, const ProtoBuf::Tablets& partitions)
 {
-    StartReadingDataRpc2 rpc(context, backupId, masterId, partitions);
+    StartReadingDataRpc rpc(context, backupId, masterId, partitions);
     return rpc.wait();
 }
 
 /**
- * Constructor for StartReadingDataRpc2: initiates an RPC in the same way as
+ * Constructor for StartReadingDataRpc: initiates an RPC in the same way as
  * #BackupClient::startReadingData, but returns once the RPC has been initiated,
  * without waiting for it to complete.
  *
@@ -335,7 +335,7 @@ BackupClient::startReadingData(Context& context, ServerId backupId,
  *      Describes how the objects belonging to \a masterId are to be divided
  *      into groups for recovery.
  */
-StartReadingDataRpc2::StartReadingDataRpc2(Context& context, ServerId backupId,
+StartReadingDataRpc::StartReadingDataRpc(Context& context, ServerId backupId,
         ServerId masterId, const ProtoBuf::Tablets& partitions)
     : ServerIdRpcWrapper(context, backupId,
             sizeof(WireFormat::BackupStartReadingData::Response))
@@ -359,8 +359,8 @@ StartReadingDataRpc2::StartReadingDataRpc2(Context& context, ServerId backupId,
  *      The intended server for this RPC is not part of the cluster;
  *      if it ever existed, it has since crashed.
  */
-StartReadingDataRpc2::Result
-StartReadingDataRpc2::wait()
+StartReadingDataRpc::Result
+StartReadingDataRpc::wait()
 {
     waitAndCheckErrors();
     const WireFormat::BackupStartReadingData::Response& respHdr(
@@ -401,7 +401,7 @@ StartReadingDataRpc2::wait()
     return result;
 }
 
-StartReadingDataRpc2::Result::Result()
+StartReadingDataRpc::Result::Result()
     : segmentIdAndLength()
     , primarySegmentCount(0)
     , logDigestBuffer()
@@ -411,7 +411,7 @@ StartReadingDataRpc2::Result::Result()
 {
 }
 
-StartReadingDataRpc2::Result::Result(Result&& other)
+StartReadingDataRpc::Result::Result(Result&& other)
     : segmentIdAndLength(std::move(other.segmentIdAndLength))
     , primarySegmentCount(other.primarySegmentCount)
     , logDigestBuffer(std::move(other.logDigestBuffer))
@@ -421,8 +421,8 @@ StartReadingDataRpc2::Result::Result(Result&& other)
 {
 }
 
-StartReadingDataRpc2::Result&
-StartReadingDataRpc2::Result::operator=(Result&& other)
+StartReadingDataRpc::Result&
+StartReadingDataRpc::Result::operator=(Result&& other)
 {
     segmentIdAndLength = std::move(other.segmentIdAndLength);
     primarySegmentCount = other.primarySegmentCount;
@@ -484,13 +484,13 @@ BackupClient::writeSegment(Context& context,
                            WireFormat::BackupWrite::Flags flags,
                            bool atomic)
 {
-    WriteSegmentRpc2 rpc(context, backupId, masterId, segment, offset,
+    WriteSegmentRpc rpc(context, backupId, masterId, segment, offset,
                          length, flags, atomic);
     return rpc.wait();
 }
 
 /**
- * Constructor for WriteSegmentRpc2: initiates an RPC in the same way as
+ * Constructor for WriteSegmentRpc: initiates an RPC in the same way as
  * #BackupClient::writeSegment, but returns once the RPC has been initiated,
  * without waiting for it to complete.
  *
@@ -525,7 +525,7 @@ BackupClient::writeSegment(Context& context,
  *      set to false will make that replica available for normal
  *      treatment as an open segment.
  */
-WriteSegmentRpc2::WriteSegmentRpc2(Context& context,
+WriteSegmentRpc::WriteSegmentRpc(Context& context,
                                    ServerId backupId,
                                    ServerId masterId,
                                    const Segment* segment,
@@ -562,7 +562,7 @@ WriteSegmentRpc2::WriteSegmentRpc2(Context& context,
  *      if it ever existed, it has since crashed.
  */
 vector<ServerId>
-WriteSegmentRpc2::wait()
+WriteSegmentRpc::wait()
 {
     waitAndCheckErrors();
     const WireFormat::BackupWrite::Response& respHdr(

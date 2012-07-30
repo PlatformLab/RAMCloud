@@ -174,7 +174,7 @@ class MinOpenSegmentId : public Task {
      * Holds an ongoing rpc to the coordinator to update the minOpenSegmentId
      * for this #serverId, if any rpc is outstanding.
      */
-    Tub<SetMinOpenSegmentIdRpc2> rpc;
+    Tub<SetMinOpenSegmentIdRpc> rpc;
 
     DISALLOW_COPY_AND_ASSIGN(MinOpenSegmentId);
 };

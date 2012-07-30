@@ -53,20 +53,20 @@ class BackupStartTask {
     void filterOutInvalidReplicas();
     void wait();
     const ServerId backupId;
-    StartReadingDataRpc2::Result result;
+    StartReadingDataRpc::Result result;
 
   PRIVATE:
     Recovery* recovery;
     const ServerId crashedMasterId;
     const ProtoBuf::Tablets& partitions;
     const uint64_t minOpenSegmentId;
-    Tub<StartReadingDataRpc2> rpc;
+    Tub<StartReadingDataRpc> rpc;
     bool done;
 
   PUBLIC:
     struct TestingCallback {
         virtual void backupStartTaskSend(
-                        StartReadingDataRpc2::Result& result) {}
+                        StartReadingDataRpc::Result& result) {}
         virtual ~TestingCallback() {}
     };
     TestingCallback* testingCallback;

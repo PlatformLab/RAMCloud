@@ -66,123 +66,123 @@ class CoordinatorClient {
  * Encapsulates the state of a CoordinatorClient::enlistServer
  * request, allowing it to execute asynchronously.
  */
-class EnlistServerRpc2 : public CoordinatorRpcWrapper {
+class EnlistServerRpc : public CoordinatorRpcWrapper {
     public:
-    EnlistServerRpc2(Context& context, ServerId replacesId,
+    EnlistServerRpc(Context& context, ServerId replacesId,
             ServiceMask serviceMask, string localServiceLocator,
             uint32_t readSpeed = 0, uint32_t writeSpeed = 0);
-    ~EnlistServerRpc2() {}
+    ~EnlistServerRpc() {}
     ServerId wait();
 
     PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(EnlistServerRpc2);
+    DISALLOW_COPY_AND_ASSIGN(EnlistServerRpc);
 };
 
 /**
  * Encapsulates the state of a CoordinatorClient::getServerList
  * request, allowing it to execute asynchronously.
  */
-class GetServerListRpc2 : public CoordinatorRpcWrapper {
+class GetServerListRpc : public CoordinatorRpcWrapper {
     public:
-    GetServerListRpc2(Context& context, ServiceMask services);
-    ~GetServerListRpc2() {}
+    GetServerListRpc(Context& context, ServiceMask services);
+    ~GetServerListRpc() {}
     void wait(ProtoBuf::ServerList& serverList);
 
     PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(GetServerListRpc2);
+    DISALLOW_COPY_AND_ASSIGN(GetServerListRpc);
 };
 
 /**
  * Encapsulates the state of a CoordinatorClient::getTabletMap
  * request, allowing it to execute asynchronously.
  */
-class GetTabletMapRpc2 : public CoordinatorRpcWrapper {
+class GetTabletMapRpc : public CoordinatorRpcWrapper {
     public:
-    explicit GetTabletMapRpc2(Context& context);
-    ~GetTabletMapRpc2() {}
+    explicit GetTabletMapRpc(Context& context);
+    ~GetTabletMapRpc() {}
     void wait(ProtoBuf::Tablets& tabletMap);
 
     PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(GetTabletMapRpc2);
+    DISALLOW_COPY_AND_ASSIGN(GetTabletMapRpc);
 };
 
 /**
  * Encapsulates the state of a CoordinatorClient::hintServerDown
  * request, allowing it to execute asynchronously.
  */
-class HintServerDownRpc2 : public CoordinatorRpcWrapper {
+class HintServerDownRpc : public CoordinatorRpcWrapper {
     public:
-    HintServerDownRpc2(Context& context, ServerId serverId);
-    ~HintServerDownRpc2() {}
+    HintServerDownRpc(Context& context, ServerId serverId);
+    ~HintServerDownRpc() {}
     /// \copydoc RpcWrapper::docForWait
     void wait() {simpleWait(*context.dispatch);}
 
     PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(HintServerDownRpc2);
+    DISALLOW_COPY_AND_ASSIGN(HintServerDownRpc);
 };
 
 /**
  * Encapsulates the state of a CoordinatorClient::reassignTabletOwnership
  * request, allowing it to execute asynchronously.
  */
-class ReassignTabletOwnershipRpc2 : public CoordinatorRpcWrapper {
+class ReassignTabletOwnershipRpc : public CoordinatorRpcWrapper {
     public:
-    ReassignTabletOwnershipRpc2(Context& context, uint64_t tableId,
+    ReassignTabletOwnershipRpc(Context& context, uint64_t tableId,
             uint64_t firstKey, uint64_t lastKey, ServerId newOwnerMasterId);
-    ~ReassignTabletOwnershipRpc2() {}
+    ~ReassignTabletOwnershipRpc() {}
     /// \copydoc RpcWrapper::docForWait
     void wait() {simpleWait(*context.dispatch);}
 
     PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(ReassignTabletOwnershipRpc2);
+    DISALLOW_COPY_AND_ASSIGN(ReassignTabletOwnershipRpc);
 };
 
 /**
  * Encapsulates the state of a CoordinatorClient::recoveryMasterFinished
  * request, allowing it to execute asynchronously.
  */
-class RecoveryMasterFinishedRpc2 : public CoordinatorRpcWrapper {
+class RecoveryMasterFinishedRpc : public CoordinatorRpcWrapper {
     public:
-    RecoveryMasterFinishedRpc2(Context& context, uint64_t recoveryId,
+    RecoveryMasterFinishedRpc(Context& context, uint64_t recoveryId,
             ServerId recoveryMasterId, const ProtoBuf::Tablets& tablets,
             bool successful);
-    ~RecoveryMasterFinishedRpc2() {}
+    ~RecoveryMasterFinishedRpc() {}
     /// \copydoc RpcWrapper::docForWait
     void wait() {simpleWait(*context.dispatch);}
 
     PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(RecoveryMasterFinishedRpc2);
+    DISALLOW_COPY_AND_ASSIGN(RecoveryMasterFinishedRpc);
 };
 
 /**
  * Encapsulates the state of a CoordinatorClient::sendServerList
  * request, allowing it to execute asynchronously.
  */
-class SendServerListRpc2 : public CoordinatorRpcWrapper {
+class SendServerListRpc : public CoordinatorRpcWrapper {
     public:
-    SendServerListRpc2(Context& context, ServerId destination);
-    ~SendServerListRpc2() {}
+    SendServerListRpc(Context& context, ServerId destination);
+    ~SendServerListRpc() {}
     /// \copydoc RpcWrapper::docForWait
     void wait() {simpleWait(*context.dispatch);}
 
     PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(SendServerListRpc2);
+    DISALLOW_COPY_AND_ASSIGN(SendServerListRpc);
 };
 
 /**
  * Encapsulates the state of a CoordinatorClient::setMinOpenSegmentId
  * request, allowing it to execute asynchronously.
  */
-class SetMinOpenSegmentIdRpc2 : public CoordinatorRpcWrapper {
+class SetMinOpenSegmentIdRpc : public CoordinatorRpcWrapper {
     public:
-    SetMinOpenSegmentIdRpc2(Context& context, ServerId serverId,
+    SetMinOpenSegmentIdRpc(Context& context, ServerId serverId,
             uint64_t segmentId);
-    ~SetMinOpenSegmentIdRpc2() {}
+    ~SetMinOpenSegmentIdRpc() {}
     /// \copydoc RpcWrapper::docForWait
     void wait() {simpleWait(*context.dispatch);}
 
     PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(SetMinOpenSegmentIdRpc2);
+    DISALLOW_COPY_AND_ASSIGN(SetMinOpenSegmentIdRpc);
 };
 
 } // end RAMCloud

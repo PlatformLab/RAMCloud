@@ -1152,7 +1152,7 @@ class RecoveryTask {
     MasterService::Replica& replica;
     Buffer response;
     const uint64_t startTime;
-    Tub<GetRecoveryDataRpc2> rpc;
+    Tub<GetRecoveryDataRpc> rpc;
     DISALLOW_COPY_AND_ASSIGN(RecoveryTask);
 };
 } // namespace MasterServiceInternal

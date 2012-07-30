@@ -256,7 +256,7 @@ try
     } else {
         Buffer writeVal;
 
-        Tub<WriteRpc2> writeRpcs[8];
+        Tub<WriteRpc> writeRpcs[8];
         uint64_t b = Cycles::rdtsc();
         int j;
         for (j = 0; j < count - 1; j++) {

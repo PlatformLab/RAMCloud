@@ -74,7 +74,7 @@ TEST_F(PingServiceTest, ping_wait_timeout) {
     MockTransport mockTransport(context);
     context.transportManager->registerMock(&mockTransport, "mock2");
     serverList.add(serverId2, "mock2:", {WireFormat::PING_SERVICE}, 100);
-    PingRpc2 rpc(context, serverId2, ServerId());
+    PingRpc rpc(context, serverId2, ServerId());
     uint64_t start = Cycles::rdtsc();
     EXPECT_EQ(~0LU, rpc.wait(1000000));
     EXPECT_EQ("wait: timeout", TestLog::get());
@@ -85,7 +85,7 @@ TEST_F(PingServiceTest, ping_wait_timeout) {
 }
 
 // Helper function that runs in a separate thread for the following test.
-static void pingThread(PingRpc2* rpc, uint64_t* result) {
+static void pingThread(PingRpc* rpc, uint64_t* result) {
     *result = rpc->wait(100000000);
 }
 
@@ -97,7 +97,7 @@ TEST_F(PingServiceTest, ping_wait_serverGoesAway) {
     serverList.add(serverId2, "mock2:", {WireFormat::PING_SERVICE}, 100);
 
     uint64_t result = 0;
-    PingRpc2 rpc(context, serverId2, ServerId());
+    PingRpc rpc(context, serverId2, ServerId());
     std::thread thread(pingThread, &rpc, &result);
     usleep(100);
     EXPECT_EQ(0LU, result);

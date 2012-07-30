@@ -46,12 +46,12 @@ namespace RAMCloud {
 uint64_t
 PingClient::ping(Context& context, ServerId targetId, ServerId callerId)
 {
-    PingRpc2 rpc(context, targetId, callerId);
+    PingRpc rpc(context, targetId, callerId);
     return rpc.wait();
 }
 
 /**
- * Constructor for PingRpc2: initiates an RPC in the same way as
+ * Constructor for PingRpc: initiates an RPC in the same way as
  * #PingClient::ping, but returns once the RPC has been initiated,
  * without waiting for it to complete.
  *
@@ -64,7 +64,7 @@ PingClient::ping(Context& context, ServerId targetId, ServerId callerId)
  *      Used on the pingee side for debug logging.
  *      Clients and coordinators should use an invalid ServerId (ServerID()).
  */
-PingRpc2::PingRpc2(Context& context, ServerId targetId, ServerId callerId)
+PingRpc::PingRpc(Context& context, ServerId targetId, ServerId callerId)
     : ServerIdRpcWrapper(context, targetId,
             sizeof(WireFormat::Ping::Response))
 {
@@ -86,7 +86,7 @@ PingRpc2::PingRpc2(Context& context, ServerId targetId, ServerId callerId)
  *      if it ever existed, it has since crashed.
  */
 uint64_t
-PingRpc2::wait()
+PingRpc::wait()
 {
     waitAndCheckErrors();
     const WireFormat::Ping::Response& respHdr(
@@ -112,7 +112,7 @@ PingRpc2::wait()
  *      then zero is returned.
  */
 uint64_t
-PingRpc2::wait(uint64_t timeoutNanoseconds)
+PingRpc::wait(uint64_t timeoutNanoseconds)
 {
     uint64_t abortTime = Cycles::rdtsc() +
             Cycles::fromNanoseconds(timeoutNanoseconds);
@@ -159,12 +159,12 @@ uint64_t
 PingClient::proxyPing(Context& context, ServerId proxyId, ServerId targetId,
         uint64_t timeoutNanoseconds)
 {
-    ProxyPingRpc2 rpc(context, proxyId, targetId, timeoutNanoseconds);
+    ProxyPingRpc rpc(context, proxyId, targetId, timeoutNanoseconds);
     return rpc.wait();
 }
 
 /**
- * Constructor for ProxyPingRpc2: initiates an RPC in the same way as
+ * Constructor for ProxyPingRpc: initiates an RPC in the same way as
  * #PingClient::proxyPing, but returns once the RPC has been initiated,
  * without waiting for it to complete.
  *
@@ -179,7 +179,7 @@ PingClient::proxyPing(Context& context, ServerId proxyId, ServerId targetId,
  *      The maximum amount of time (in nanoseconds) that \a proxyId
  *      will wait for \a targetId to respond.
  */
-ProxyPingRpc2::ProxyPingRpc2(Context& context, ServerId proxyId,
+ProxyPingRpc::ProxyPingRpc(Context& context, ServerId proxyId,
         ServerId targetId, uint64_t timeoutNanoseconds)
     : ServerIdRpcWrapper(context, proxyId,
             sizeof(WireFormat::ProxyPing::Response))
@@ -204,7 +204,7 @@ ProxyPingRpc2::ProxyPingRpc2(Context& context, ServerId proxyId,
  *      if it ever existed, it has since crashed.
  */
 uint64_t
-ProxyPingRpc2::wait()
+ProxyPingRpc::wait()
 {
     waitAndCheckErrors();
     const WireFormat::ProxyPing::Response& respHdr(

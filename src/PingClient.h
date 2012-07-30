@@ -43,31 +43,31 @@ class PingClient {
  * Encapsulates the state of a PingClient::ping
  * request, allowing it to execute asynchronously.
  */
-class PingRpc2 : public ServerIdRpcWrapper {
+class PingRpc : public ServerIdRpcWrapper {
     public:
-    PingRpc2(Context& context, ServerId targetId,
+    PingRpc(Context& context, ServerId targetId,
             ServerId callerId = ServerId());
-    ~PingRpc2() {}
+    ~PingRpc() {}
     uint64_t wait();
     uint64_t wait(uint64_t timeoutNanoseconds);
 
     PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(PingRpc2);
+    DISALLOW_COPY_AND_ASSIGN(PingRpc);
 };
 
 /**
  * Encapsulates the state of a PingClient::proxyPing
  * request, allowing it to execute asynchronously.
  */
-class ProxyPingRpc2 : public ServerIdRpcWrapper {
+class ProxyPingRpc : public ServerIdRpcWrapper {
     public:
-    ProxyPingRpc2(Context& context, ServerId proxyId, ServerId targetId,
+    ProxyPingRpc(Context& context, ServerId proxyId, ServerId targetId,
             uint64_t timeoutNanoseconds);
-    ~ProxyPingRpc2() {}
+    ~ProxyPingRpc() {}
     uint64_t wait();
 
     PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(ProxyPingRpc2);
+    DISALLOW_COPY_AND_ASSIGN(ProxyPingRpc);
 };
 
 } // namespace RAMCloud

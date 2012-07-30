@@ -49,13 +49,13 @@ void
 MasterClient::dropTabletOwnership(Context& context, ServerId serverId,
         uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash)
 {
-    DropTabletOwnershipRpc2 rpc(context, serverId, tableId, firstKeyHash,
+    DropTabletOwnershipRpc rpc(context, serverId, tableId, firstKeyHash,
             lastKeyHash);
     rpc.wait();
 }
 
 /**
- * Constructor for DropTabletOwnershipRpc2: initiates an RPC in the same way as
+ * Constructor for DropTabletOwnershipRpc: initiates an RPC in the same way as
  * #MasterClient::dropTabletOwnership, but returns once the RPC has been
  * initiated, without waiting for it to complete.
  *
@@ -72,7 +72,7 @@ MasterClient::dropTabletOwnership(Context& context, ServerId serverId,
  *      Largest value in the 64-bit key hash space for this table that belongs
  *      to the tablet.
  */
-DropTabletOwnershipRpc2::DropTabletOwnershipRpc2(Context& context,
+DropTabletOwnershipRpc::DropTabletOwnershipRpc(Context& context,
         ServerId serverId, uint64_t tableId, uint64_t firstKeyHash,
         uint64_t lastKeyHash)
     : ServerIdRpcWrapper(context, serverId,
@@ -106,12 +106,12 @@ DropTabletOwnershipRpc2::DropTabletOwnershipRpc2(Context& context,
 LogPosition
 MasterClient::getHeadOfLog(Context& context, ServerId serverId)
 {
-    GetHeadOfLogRpc2 rpc(context, serverId);
+    GetHeadOfLogRpc rpc(context, serverId);
     return rpc.wait();
 }
 
 /**
- * Constructor for GetHeadOfLogRpc2: initiates an RPC in the same way as
+ * Constructor for GetHeadOfLogRpc: initiates an RPC in the same way as
  * #MasterClient::getHeadOfLog, but returns once the RPC has been
  * initiated, without waiting for it to complete.
  *
@@ -120,7 +120,7 @@ MasterClient::getHeadOfLog(Context& context, ServerId serverId)
  * \param serverId
  *      Identifier for the target server.
  */
-GetHeadOfLogRpc2::GetHeadOfLogRpc2(Context& context, ServerId serverId)
+GetHeadOfLogRpc::GetHeadOfLogRpc(Context& context, ServerId serverId)
     : ServerIdRpcWrapper(context, serverId,
             sizeof(WireFormat::GetHeadOfLog::Response))
 {
@@ -141,7 +141,7 @@ GetHeadOfLogRpc2::GetHeadOfLogRpc2(Context& context, ServerId serverId)
  *      if it ever existed, it has since crashed.
  */
 LogPosition
-GetHeadOfLogRpc2::wait()
+GetHeadOfLogRpc::wait()
 {
     waitAndCheckErrors();
     const WireFormat::GetHeadOfLog::Response& respHdr(
@@ -184,12 +184,12 @@ bool
 MasterClient::isReplicaNeeded(Context& context, ServerId serverId,
         ServerId backupServerId, uint64_t segmentId)
 {
-    IsReplicaNeededRpc2 rpc(context, serverId, backupServerId, segmentId);
+    IsReplicaNeededRpc rpc(context, serverId, backupServerId, segmentId);
     return rpc.wait();
 }
 
 /**
- * Constructor for IsReplicaNeededRpc2: initiates an RPC in the same way as
+ * Constructor for IsReplicaNeededRpc: initiates an RPC in the same way as
  * #MasterClient::isReplicaNeeded, but returns once the RPC has been
  * initiated, without waiting for it to complete.
  *
@@ -207,7 +207,7 @@ MasterClient::isReplicaNeeded(Context& context, ServerId serverId,
  *      The segmentId of the replica which a backup server is considering
  *      freeing.
  */
-IsReplicaNeededRpc2::IsReplicaNeededRpc2(Context& context, ServerId serverId,
+IsReplicaNeededRpc::IsReplicaNeededRpc(Context& context, ServerId serverId,
         ServerId backupServerId, uint64_t segmentId)
     : ServerIdRpcWrapper(context, serverId,
             sizeof(WireFormat::IsReplicaNeeded::Response))
@@ -232,7 +232,7 @@ IsReplicaNeededRpc2::IsReplicaNeededRpc2(Context& context, ServerId serverId,
  *      if it ever existed, it has since crashed.
  */
 bool
-IsReplicaNeededRpc2::wait()
+IsReplicaNeededRpc::wait()
 {
     waitAndCheckErrors();
     const WireFormat::IsReplicaNeeded::Response& respHdr(
@@ -266,13 +266,13 @@ MasterClient::prepForMigration(Context& context, ServerId serverId,
         uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash,
         uint64_t expectedObjects, uint64_t expectedBytes)
 {
-    PrepForMigrationRpc2 rpc(context, serverId, tableId, firstKeyHash,
+    PrepForMigrationRpc rpc(context, serverId, tableId, firstKeyHash,
             lastKeyHash, expectedObjects, expectedBytes);
     rpc.wait();
 }
 
 /**
- * Constructor for PrepForMigrationRpc2: initiates an RPC in the same way as
+ * Constructor for PrepForMigrationRpc: initiates an RPC in the same way as
  * #MasterClient::prepForMigration, but returns once the RPC has been
  * initiated, without waiting for it to complete.
  *
@@ -292,7 +292,7 @@ MasterClient::prepForMigration(Context& context, ServerId serverId,
  * \param expectedBytes
  *      Estimate of the total number of bytes that will be migrated.
  */
-PrepForMigrationRpc2::PrepForMigrationRpc2(Context& context, ServerId serverId,
+PrepForMigrationRpc::PrepForMigrationRpc(Context& context, ServerId serverId,
         uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash,
         uint64_t expectedObjects, uint64_t expectedBytes)
     : ServerIdRpcWrapper(context, serverId,
@@ -333,13 +333,13 @@ MasterClient::receiveMigrationData(Context& context, ServerId serverId,
         uint64_t tableId, uint64_t firstKeyHash, const void* segment,
         uint32_t segmentBytes)
 {
-    ReceiveMigrationDataRpc2 rpc(context, serverId, tableId, firstKeyHash,
+    ReceiveMigrationDataRpc rpc(context, serverId, tableId, firstKeyHash,
             segment, segmentBytes);
     rpc.wait();
 }
 
 /**
- * Constructor for ReceiveMigrationDataRpc2: initiates an RPC in the same way as
+ * Constructor for ReceiveMigrationDataRpc: initiates an RPC in the same way as
  * #MasterClient::receiveMigrationData, but returns once the RPC has been
  * initiated, without waiting for it to complete.
  *
@@ -358,7 +358,7 @@ MasterClient::receiveMigrationData(Context& context, ServerId serverId,
  * \param segmentBytes
  *      Number of bytes in \a segment.
  */
-ReceiveMigrationDataRpc2::ReceiveMigrationDataRpc2(Context& context,
+ReceiveMigrationDataRpc::ReceiveMigrationDataRpc(Context& context,
         ServerId serverId, uint64_t tableId, uint64_t firstKeyHash,
         const void* segment, uint32_t segmentBytes)
     : ServerIdRpcWrapper(context, serverId,
@@ -404,13 +404,13 @@ MasterClient::recover(Context& context, ServerId serverId, uint64_t recoveryId,
         const ProtoBuf::Tablets& tablets,
         const WireFormat::Recover::Replica* replicas, uint32_t numReplicas)
 {
-    RecoverRpc2 rpc(context, serverId, recoveryId, crashedServerId,
+    RecoverRpc rpc(context, serverId, recoveryId, crashedServerId,
             partitionId, tablets, replicas, numReplicas);
     rpc.wait();
 }
 
 /**
- * Constructor for RecoverRpc2: initiates an RPC in the same way as
+ * Constructor for RecoverRpc: initiates an RPC in the same way as
  * #MasterClient::recover, but returns once the RPC has been
  * initiated, without waiting for it to complete.
  *
@@ -433,7 +433,7 @@ MasterClient::recover(Context& context, ServerId serverId, uint64_t recoveryId,
  * \param numReplicas
  *      The number of replicas in the 'replicas' list.
  */
-RecoverRpc2::RecoverRpc2(Context& context, ServerId serverId,
+RecoverRpc::RecoverRpc(Context& context, ServerId serverId,
         uint64_t recoveryId, ServerId crashedServerId, uint64_t partitionId,
         const ProtoBuf::Tablets& tablets,
         const WireFormat::Recover::Replica* replicas,
@@ -476,13 +476,13 @@ MasterClient::splitMasterTablet(Context& context, ServerId serverId,
         uint64_t tableId, uint64_t firstKeyHash,
         uint64_t lastKeyHash, uint64_t splitKeyHash)
 {
-    SplitMasterTabletRpc2 rpc(context, serverId, tableId, firstKeyHash,
+    SplitMasterTabletRpc rpc(context, serverId, tableId, firstKeyHash,
         lastKeyHash, splitKeyHash);
     rpc.wait();
 }
 
 /**
- * Constructor for SplitMasterTabletRpc2: initiates an RPC in the same way as
+ * Constructor for SplitMasterTabletRpc: initiates an RPC in the same way as
  * #MasterClient::splitMasterTablet, but returns once the RPC has been
  * initiated, without waiting for it to complete.
  *
@@ -500,7 +500,7 @@ MasterClient::splitMasterTablet(Context& context, ServerId serverId,
  *      The key hash where the split occurs. This will become the
  *      lowest key hash of the second tablet after the split.
  */
-SplitMasterTabletRpc2::SplitMasterTabletRpc2(Context& context,
+SplitMasterTabletRpc::SplitMasterTabletRpc(Context& context,
         ServerId serverId, uint64_t tableId, uint64_t firstKeyHash,
         uint64_t lastKeyHash, uint64_t splitKeyHash)
     : ServerIdRpcWrapper(context, serverId,
@@ -539,7 +539,7 @@ void
 MasterClient::takeTabletOwnership(Context& context, ServerId serverId,
         uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash)
 {
-    TakeTabletOwnershipRpc2 rpc(context, serverId, tableId, firstKeyHash,
+    TakeTabletOwnershipRpc rpc(context, serverId, tableId, firstKeyHash,
             lastKeyHash);
     rpc.wait();
 }
@@ -562,7 +562,7 @@ MasterClient::takeTabletOwnership(Context& context, ServerId serverId,
  *      Largest value in the 64-bit key hash space for this table that belongs
  *      to the tablet.
  */
-TakeTabletOwnershipRpc2::TakeTabletOwnershipRpc2(
+TakeTabletOwnershipRpc::TakeTabletOwnershipRpc(
         Context& context, ServerId serverId, uint64_t tableId,
         uint64_t firstKeyHash, uint64_t lastKeyHash)
     : ServerIdRpcWrapper(context, serverId,

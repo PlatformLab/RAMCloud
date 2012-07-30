@@ -34,49 +34,49 @@ class Segment;
  * Encapsulates the state of a BackupClient::assignGroup operation,
  * allowing it to execute asynchronously.
  */
-class AssignGroupRpc2 : public ServerIdRpcWrapper {
+class AssignGroupRpc : public ServerIdRpcWrapper {
   public:
-    AssignGroupRpc2(Context& context, ServerId backupId,
+    AssignGroupRpc(Context& context, ServerId backupId,
             uint64_t replicationId, uint32_t numReplicas,
             const ServerId* replicationGroupIds);
-    ~AssignGroupRpc2() {}
+    ~AssignGroupRpc() {}
     /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
     void wait() {waitAndCheckErrors();}
 
   PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(AssignGroupRpc2);
+    DISALLOW_COPY_AND_ASSIGN(AssignGroupRpc);
 };
 
 /**
  * Encapsulates the state of a BackupClient::freeSegment operation,
  * allowing it to execute asynchronously.
  */
-class FreeSegmentRpc2 : public ServerIdRpcWrapper {
+class FreeSegmentRpc : public ServerIdRpcWrapper {
   public:
-    FreeSegmentRpc2(Context& context, ServerId backupId, ServerId masterId,
+    FreeSegmentRpc(Context& context, ServerId backupId, ServerId masterId,
             uint64_t segmentId);
-    ~FreeSegmentRpc2() {}
+    ~FreeSegmentRpc() {}
     /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
     void wait() {waitAndCheckErrors();}
 
   PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(FreeSegmentRpc2);
+    DISALLOW_COPY_AND_ASSIGN(FreeSegmentRpc);
 };
 
 /**
  * Encapsulates the state of a BackupClient::getRecoveryData operation,
  * allowing it to execute asynchronously.
  */
-class GetRecoveryDataRpc2 : public ServerIdRpcWrapper {
+class GetRecoveryDataRpc : public ServerIdRpcWrapper {
   public:
-    GetRecoveryDataRpc2(Context& context, ServerId backupId,
+    GetRecoveryDataRpc(Context& context, ServerId backupId,
             ServerId masterId, uint64_t segmentId, uint64_t partitionId,
             Buffer& responseBuffer);
-    ~GetRecoveryDataRpc2() {}
+    ~GetRecoveryDataRpc() {}
     void wait();
 
   PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(GetRecoveryDataRpc2);
+    DISALLOW_COPY_AND_ASSIGN(GetRecoveryDataRpc);
 };
 
 /**
@@ -85,38 +85,38 @@ class GetRecoveryDataRpc2 : public ServerIdRpcWrapper {
  * to distinguish it from the CoordinatorClient version of the
  * same call).
  */
-class BackupQuiesceRpc2 : public ServerIdRpcWrapper {
+class BackupQuiesceRpc : public ServerIdRpcWrapper {
   public:
-    BackupQuiesceRpc2(Context& context, ServerId backupId);
-    ~BackupQuiesceRpc2() {}
+    BackupQuiesceRpc(Context& context, ServerId backupId);
+    ~BackupQuiesceRpc() {}
     /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
     void wait() {waitAndCheckErrors();}
 
   PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(BackupQuiesceRpc2);
+    DISALLOW_COPY_AND_ASSIGN(BackupQuiesceRpc);
 };
 
 /**
  * Encapsulates the state of a BackupClient::recoveryComplete operation,
  * allowing it to execute asynchronously.
  */
-class RecoveryCompleteRpc2 : public ServerIdRpcWrapper {
+class RecoveryCompleteRpc : public ServerIdRpcWrapper {
   public:
-    RecoveryCompleteRpc2(Context& context, ServerId backupId,
+    RecoveryCompleteRpc(Context& context, ServerId backupId,
             ServerId masterId);
-    ~RecoveryCompleteRpc2() {}
+    ~RecoveryCompleteRpc() {}
     /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
     void wait() {waitAndCheckErrors();}
 
   PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(RecoveryCompleteRpc2);
+    DISALLOW_COPY_AND_ASSIGN(RecoveryCompleteRpc);
 };
 
 /**
  * Encapsulates the state of a BackupClient::startReadingData operation,
  * allowing it to execute asynchronously.
  */
-class StartReadingDataRpc2 : public ServerIdRpcWrapper {
+class StartReadingDataRpc : public ServerIdRpcWrapper {
   public:
     /**
      * The result of a startReadingData RPC, as returned by the backup.
@@ -164,30 +164,30 @@ class StartReadingDataRpc2 : public ServerIdRpcWrapper {
         DISALLOW_COPY_AND_ASSIGN(Result);
     };
 
-    StartReadingDataRpc2(Context& context, ServerId backupId,
+    StartReadingDataRpc(Context& context, ServerId backupId,
             ServerId masterId, const ProtoBuf::Tablets& partitions);
-    ~StartReadingDataRpc2() {}
+    ~StartReadingDataRpc() {}
     Result wait();
 
   PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(StartReadingDataRpc2);
+    DISALLOW_COPY_AND_ASSIGN(StartReadingDataRpc);
 };
 
 /**
  * Encapsulates the state of a BackupClient::writeSegment operation,
  * allowing it to execute asynchronously.
  */
-class WriteSegmentRpc2 : public ServerIdRpcWrapper {
+class WriteSegmentRpc : public ServerIdRpcWrapper {
   public:
-    WriteSegmentRpc2(Context& context, ServerId backupId,
+    WriteSegmentRpc(Context& context, ServerId backupId,
                      ServerId masterId, const Segment* segment,
                      uint32_t offset, uint32_t length,
                      WireFormat::BackupWrite::Flags flags, bool atomic);
-    ~WriteSegmentRpc2() {}
+    ~WriteSegmentRpc() {}
     vector<ServerId> wait();
 
   PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(WriteSegmentRpc2);
+    DISALLOW_COPY_AND_ASSIGN(WriteSegmentRpc);
 };
 
 /**
@@ -208,7 +208,7 @@ class BackupClient {
     static void quiesce(Context& context, ServerId backupId);
     static void recoveryComplete(Context& context, ServerId backupId,
             ServerId masterId);
-    static StartReadingDataRpc2::Result startReadingData(Context& context,
+    static StartReadingDataRpc::Result startReadingData(Context& context,
             ServerId backupId, ServerId masterId,
             const ProtoBuf::Tablets& partitions);
     static vector<ServerId> writeSegment(Context& context, ServerId backupId,

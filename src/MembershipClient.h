@@ -62,46 +62,46 @@ class MembershipClient {
  * Encapsulates the state of a MembershipClient::getServerId
  * request, allowing it to execute asynchronously.
  */
-class GetServerIdRpc2 : public RpcWrapper {
+class GetServerIdRpc : public RpcWrapper {
   public:
-    GetServerIdRpc2(Context& context, Transport::SessionRef session);
-    ~GetServerIdRpc2() {}
+    GetServerIdRpc(Context& context, Transport::SessionRef session);
+    ~GetServerIdRpc() {}
     ServerId wait();
 
   PRIVATE:
     Context& context;
-    DISALLOW_COPY_AND_ASSIGN(GetServerIdRpc2);
+    DISALLOW_COPY_AND_ASSIGN(GetServerIdRpc);
 };
 
 /**
  * Encapsulates the state of a MembershipClient::setServerList
  * request, allowing it to execute asynchronously.
  */
-class SetServerListRpc2 : public ServerIdRpcWrapper {
+class SetServerListRpc : public ServerIdRpcWrapper {
   public:
-    SetServerListRpc2(Context& context, ServerId serverId,
+    SetServerListRpc(Context& context, ServerId serverId,
             ProtoBuf::ServerList& list);
-    ~SetServerListRpc2() {}
+    ~SetServerListRpc() {}
     /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
     void wait() {waitAndCheckErrors();}
 
   PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(SetServerListRpc2);
+    DISALLOW_COPY_AND_ASSIGN(SetServerListRpc);
 };
 
 /**
  * Encapsulates the state of a MembershipClient::updateServerList
  * request, allowing it to execute asynchronously.
  */
-class UpdateServerListRpc2 : public ServerIdRpcWrapper {
+class UpdateServerListRpc : public ServerIdRpcWrapper {
   public:
-    UpdateServerListRpc2(Context& context, ServerId serverId,
+    UpdateServerListRpc(Context& context, ServerId serverId,
             ProtoBuf::ServerList& update);
-    ~UpdateServerListRpc2() {}
+    ~UpdateServerListRpc() {}
     bool wait();
 
   PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(UpdateServerListRpc2);
+    DISALLOW_COPY_AND_ASSIGN(UpdateServerListRpc);
 };
 
 } // namespace RAMCloud

@@ -44,12 +44,12 @@ namespace RAMCloud {
 ServerId
 MembershipClient::getServerId(Context& context, Transport::SessionRef session)
 {
-    GetServerIdRpc2 rpc(context, session);
+    GetServerIdRpc rpc(context, session);
     return rpc.wait();
 }
 
 /**
- * Constructor for GetServerIdRpc2: initiates an RPC in the same way as
+ * Constructor for GetServerIdRpc: initiates an RPC in the same way as
  * #MembershipClient::getServerId, but returns once the RPC has been initiated,
  * without waiting for it to complete.
  *
@@ -58,7 +58,7 @@ MembershipClient::getServerId(Context& context, Transport::SessionRef session)
  * \param session
  *      Connection to a RAMCloud server.
  */
-GetServerIdRpc2::GetServerIdRpc2(Context& context,
+GetServerIdRpc::GetServerIdRpc(Context& context,
         Transport::SessionRef session)
     : RpcWrapper(sizeof(WireFormat::GetServerId::Response))
     , context(context)
@@ -81,7 +81,7 @@ GetServerIdRpc2::GetServerIdRpc2(Context& context,
  *       the target server.
  */
 ServerId
-GetServerIdRpc2::wait()
+GetServerIdRpc::wait()
 {
     waitInternal(*context.dispatch);
     if (getState() != RpcState::FINISHED) {
@@ -113,12 +113,12 @@ void
 MembershipClient::setServerList(Context& context, ServerId serverId,
         ProtoBuf::ServerList& list)
 {
-    SetServerListRpc2 rpc(context, serverId, list);
+    SetServerListRpc rpc(context, serverId, list);
     return rpc.wait();
 }
 
 /**
- * Constructor for SetServerListRpc2: initiates an RPC in the same way as
+ * Constructor for SetServerListRpc: initiates an RPC in the same way as
  * #MembershipClient::setServerList, but returns once the RPC has been initiated,
  * without waiting for it to complete.
  *
@@ -129,7 +129,7 @@ MembershipClient::setServerList(Context& context, ServerId serverId,
  * \param list
  *      The complete server list representing all cluster membership.
  */
-SetServerListRpc2::SetServerListRpc2(Context& context, ServerId serverId,
+SetServerListRpc::SetServerListRpc(Context& context, ServerId serverId,
         ProtoBuf::ServerList& list)
     : ServerIdRpcWrapper(context, serverId,
             sizeof(WireFormat::SetServerList::Response))
@@ -164,12 +164,12 @@ bool
 MembershipClient::updateServerList(Context& context, ServerId serverId,
         ProtoBuf::ServerList& changes)
 {
-    UpdateServerListRpc2 rpc(context, serverId, changes);
+    UpdateServerListRpc rpc(context, serverId, changes);
     return rpc.wait();
 }
 
 /**
- * Constructor for UpdateServerListRpc2: initiates an RPC in the same way as
+ * Constructor for UpdateServerListRpc: initiates an RPC in the same way as
  * #MembershipClient::updateServerList, but returns once the RPC has been initiated,
  * without waiting for it to complete.
  *
@@ -180,7 +180,7 @@ MembershipClient::updateServerList(Context& context, ServerId serverId,
  * \param changes
  *      Information about changes to the list of servers in the cluster.
  */
-UpdateServerListRpc2::UpdateServerListRpc2(Context& context, ServerId serverId,
+UpdateServerListRpc::UpdateServerListRpc(Context& context, ServerId serverId,
         ProtoBuf::ServerList& changes)
     : ServerIdRpcWrapper(context, serverId,
             sizeof(WireFormat::UpdateServerList::Response))
@@ -206,7 +206,7 @@ UpdateServerListRpc2::UpdateServerListRpc2(Context& context, ServerId serverId,
  *      if it ever existed, it has since crashed.
  */
 bool
-UpdateServerListRpc2::wait()
+UpdateServerListRpc::wait()
 {
     waitAndCheckErrors();
     const WireFormat::UpdateServerList::Response& respHdr(

@@ -50,7 +50,7 @@ CoordinatorClient::enlistServer(Context& context, ServerId replacesId,
         ServiceMask serviceMask, string localServiceLocator,
         uint32_t readSpeed, uint32_t writeSpeed)
 {
-    EnlistServerRpc2 rpc(context, replacesId, serviceMask, localServiceLocator,
+    EnlistServerRpc rpc(context, replacesId, serviceMask, localServiceLocator,
             readSpeed, writeSpeed);
     return rpc.wait();
 }
@@ -81,7 +81,7 @@ CoordinatorClient::enlistServer(Context& context, ServerId replacesId,
  * \return
  *      A ServerId guaranteed never to have been used before.
  */
-EnlistServerRpc2::EnlistServerRpc2(Context& context,
+EnlistServerRpc::EnlistServerRpc(Context& context,
         ServerId replacesId, ServiceMask serviceMask,
         string localServiceLocator, uint32_t readSpeed, uint32_t writeSpeed)
     : CoordinatorRpcWrapper(context,
@@ -106,7 +106,7 @@ EnlistServerRpc2::EnlistServerRpc2(Context& context,
  * #CoordinatorClient::enlistServer.
  */
 ServerId
-EnlistServerRpc2::wait()
+EnlistServerRpc::wait()
 {
     waitInternal(*context.dispatch);
     const WireFormat::EnlistServer::Response& respHdr(
@@ -128,7 +128,7 @@ void
 CoordinatorClient::getBackupList(Context& context,
         ProtoBuf::ServerList& serverList)
 {
-    GetServerListRpc2 rpc(context, {WireFormat::BACKUP_SERVICE});
+    GetServerListRpc rpc(context, {WireFormat::BACKUP_SERVICE});
     rpc.wait(serverList);
 }
 
@@ -144,7 +144,7 @@ void
 CoordinatorClient::getMasterList(Context& context,
         ProtoBuf::ServerList& serverList)
 {
-    GetServerListRpc2 rpc(context, {WireFormat::MASTER_SERVICE});
+    GetServerListRpc rpc(context, {WireFormat::MASTER_SERVICE});
     rpc.wait(serverList);
 }
 
@@ -160,13 +160,13 @@ void
 CoordinatorClient::getServerList(Context& context,
         ProtoBuf::ServerList& serverList)
 {
-    GetServerListRpc2 rpc(context, {WireFormat::MASTER_SERVICE,
+    GetServerListRpc rpc(context, {WireFormat::MASTER_SERVICE,
             WireFormat::BACKUP_SERVICE});
     rpc.wait(serverList);
 }
 
 /**
- * Constructor for GetServerListRpc2: initiates an RPC in the same way as
+ * Constructor for GetServerListRpc: initiates an RPC in the same way as
  * #CoordinatorClient::getServerList, but returns once the RPC has been
  * initiated, without waiting for it to complete.
  *
@@ -177,7 +177,7 @@ CoordinatorClient::getServerList(Context& context,
  *      BACKUP_SERVICE): the results will contain only servers that offer
  *      at least one of the specified services.
  */
-GetServerListRpc2::GetServerListRpc2(Context& context,
+GetServerListRpc::GetServerListRpc(Context& context,
             ServiceMask services)
     : CoordinatorRpcWrapper(context,
             sizeof(WireFormat::GetServerList::Response))
@@ -197,7 +197,7 @@ GetServerListRpc2::GetServerListRpc2(Context& context,
  *      coordinator.
  */
 void
-GetServerListRpc2::wait(ProtoBuf::ServerList& serverList)
+GetServerListRpc::wait(ProtoBuf::ServerList& serverList)
 {
     waitInternal(*context.dispatch);
     const WireFormat::GetServerList::Response& respHdr(
@@ -223,19 +223,19 @@ void
 CoordinatorClient::getTabletMap(Context& context,
         ProtoBuf::Tablets& tabletMap)
 {
-    GetTabletMapRpc2 rpc(context);
+    GetTabletMapRpc rpc(context);
     rpc.wait(tabletMap);
 }
 
 /**
- * Constructor for GetTabletMapRpc2: initiates an RPC in the same way as
+ * Constructor for GetTabletMapRpc: initiates an RPC in the same way as
  * #CoordinatorClient::getTabletMap, but returns once the RPC has been
  * initiated, without waiting for it to complete.
  *
  * \param context
  *      Overall information about this RAMCloud server or client.
  */
-GetTabletMapRpc2::GetTabletMapRpc2(Context& context)
+GetTabletMapRpc::GetTabletMapRpc(Context& context)
     : CoordinatorRpcWrapper(context,
             sizeof(WireFormat::GetTabletMap::Response))
 {
@@ -252,7 +252,7 @@ GetTabletMapRpc2::GetTabletMapRpc2(Context& context)
  *      exist.
  */
 void
-GetTabletMapRpc2::wait(ProtoBuf::Tablets& tabletMap)
+GetTabletMapRpc::wait(ProtoBuf::Tablets& tabletMap)
 {
     waitInternal(*context.dispatch);
     const WireFormat::GetTabletMap::Response& respHdr(
@@ -277,12 +277,12 @@ GetTabletMapRpc2::wait(ProtoBuf::Tablets& tabletMap)
 void
 CoordinatorClient::hintServerDown(Context& context, ServerId serverId)
 {
-    HintServerDownRpc2 rpc(context, serverId);
+    HintServerDownRpc rpc(context, serverId);
     rpc.wait();
 }
 
 /**
- * Constructor for HintServerDownRpc2: initiates an RPC in the same way as
+ * Constructor for HintServerDownRpc: initiates an RPC in the same way as
  * #CoordinatorClient::hintServerDown, but returns once the RPC has been
  * initiated, without waiting for it to complete.
  *
@@ -291,7 +291,7 @@ CoordinatorClient::hintServerDown(Context& context, ServerId serverId)
  * \param serverId
  *      Identifies a server that appears to have crashed.
  */
-HintServerDownRpc2::HintServerDownRpc2(Context& context,
+HintServerDownRpc::HintServerDownRpc(Context& context,
         ServerId serverId)
     : CoordinatorRpcWrapper(context,
             sizeof(WireFormat::HintServerDown::Response))
@@ -324,13 +324,13 @@ void
 CoordinatorClient::reassignTabletOwnership(Context& context, uint64_t tableId,
         uint64_t firstKeyHash, uint64_t lastKeyHash, ServerId newOwnerId)
 {
-    ReassignTabletOwnershipRpc2 rpc(context, tableId, firstKeyHash,
+    ReassignTabletOwnershipRpc rpc(context, tableId, firstKeyHash,
             lastKeyHash, newOwnerId);
     rpc.wait();
 }
 
 /**
- * Constructor for ReassignTabletOwnershipRpc2: initiates an RPC in the same
+ * Constructor for ReassignTabletOwnershipRpc: initiates an RPC in the same
  * way as #CoordinatorClient::reassignTabletOwnership, but returns once the
  * RPC has been initiated, without waiting for it to complete.
  *
@@ -346,7 +346,7 @@ CoordinatorClient::reassignTabletOwnership(Context& context, uint64_t tableId,
  *      ServerId of the master that we want ownership of the tablet
  *      to be transferred to.
  */
-ReassignTabletOwnershipRpc2::ReassignTabletOwnershipRpc2(Context& context,
+ReassignTabletOwnershipRpc::ReassignTabletOwnershipRpc(Context& context,
         uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash,
         ServerId newOwnerId)
     : CoordinatorRpcWrapper(context,
@@ -387,13 +387,13 @@ CoordinatorClient::recoveryMasterFinished(Context& context, uint64_t recoveryId,
         ServerId recoveryMasterId, const ProtoBuf::Tablets& tablets,
         bool successful)
 {
-    RecoveryMasterFinishedRpc2 rpc(context, recoveryId, recoveryMasterId,
+    RecoveryMasterFinishedRpc rpc(context, recoveryId, recoveryMasterId,
             tablets, successful);
     rpc.wait();
 }
 
 /**
- * Constructor for RecoveryMasterFinishedRpc2: initiates an RPC in the same
+ * Constructor for RecoveryMasterFinishedRpc: initiates an RPC in the same
  * way as #CoordinatorClient::recoveryMasterFinished, but returns once the
  * RPC has been initiated, without waiting for it to complete.
  *
@@ -413,7 +413,7 @@ CoordinatorClient::recoveryMasterFinished(Context& context, uint64_t recoveryId,
  *      coordinator will not assign ownership to this master and this master
  *      can clean up any state resulting attempting recovery.
  */
-RecoveryMasterFinishedRpc2::RecoveryMasterFinishedRpc2(Context& context,
+RecoveryMasterFinishedRpc::RecoveryMasterFinishedRpc(Context& context,
         uint64_t recoveryId, ServerId recoveryMasterId,
         const ProtoBuf::Tablets& tablets, bool successful)
     : CoordinatorRpcWrapper(context,
@@ -439,12 +439,12 @@ RecoveryMasterFinishedRpc2::RecoveryMasterFinishedRpc2(Context& context,
 void
 CoordinatorClient::sendServerList(Context& context, ServerId destination)
 {
-    SendServerListRpc2 rpc(context, destination);
+    SendServerListRpc rpc(context, destination);
     rpc.wait();
 }
 
 /**
- * Constructor for SendServerListRpc2: initiates an RPC in the same
+ * Constructor for SendServerListRpc: initiates an RPC in the same
  * way as #CoordinatorClient::sendServerList, but returns once the
  * RPC has been initiated, without waiting for it to complete.
  *
@@ -453,7 +453,7 @@ CoordinatorClient::sendServerList(Context& context, ServerId destination)
  * \param destination
  *      ServerId of the server the coordinator should send the list to.
  */
-SendServerListRpc2::SendServerListRpc2(Context& context,
+SendServerListRpc::SendServerListRpc(Context& context,
         ServerId destination)
     : CoordinatorRpcWrapper(context,
             sizeof(WireFormat::SendServerList::Response))
@@ -483,12 +483,12 @@ void
 CoordinatorClient::setMinOpenSegmentId(Context& context, ServerId serverId,
         uint64_t segmentId)
 {
-    SetMinOpenSegmentIdRpc2 rpc(context, serverId, segmentId);
+    SetMinOpenSegmentIdRpc rpc(context, serverId, segmentId);
     rpc.wait();
 }
 
 /**
- * Constructor for SetMinOpenSegmentIdRpc2: initiates an RPC in the same way as
+ * Constructor for SetMinOpenSegmentIdRpc: initiates an RPC in the same way as
  * #CoordinatorClient::setMinOpenSegmentId, but returns once the RPC has been
  * initiated, without waiting for it to complete.
  *
@@ -500,7 +500,7 @@ CoordinatorClient::setMinOpenSegmentId(Context& context, ServerId serverId,
  *      Open segments for \a serverId with ids less than this should be
  *      considered invalid and thus ignored.
  */
-SetMinOpenSegmentIdRpc2::SetMinOpenSegmentIdRpc2(Context& context,
+SetMinOpenSegmentIdRpc::SetMinOpenSegmentIdRpc(Context& context,
         ServerId serverId, uint64_t segmentId)
     : CoordinatorRpcWrapper(context,
             sizeof(WireFormat::SetMinOpenSegmentId::Response))
