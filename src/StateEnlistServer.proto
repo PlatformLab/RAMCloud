@@ -26,7 +26,7 @@ message StateEnlistServer {
     required fixed64 replaces_id = 2;
 
 	/// The id assigned to the enlisting server.
-    required fixed64 new_server_id = 3;
+    optional fixed64 new_server_id = 3;
 
 	/// Services supported by the enlisting server.
     required uint32 service_mask = 4;

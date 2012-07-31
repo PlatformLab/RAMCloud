@@ -162,6 +162,40 @@ TEST_F(CoordinatorServerManagerTest, enlistServer) {
               backupList.ShortDebugString());
 }
 
+TEST_F(CoordinatorServerManagerTest, enlistServerRecover) {
+    EXPECT_EQ(1U, master->serverId.getId());
+
+    ProtoBuf::StateEnlistServer state;
+    state.set_entry_type("StateEnlistServer");
+    state.set_replaces_id(0);
+    state.set_service_mask(ServiceMask({BACKUP_SERVICE}).serialize());
+    state.set_read_speed(0);
+    state.set_write_speed(0);
+    state.set_service_locator("mock:host=backup");
+
+    EntryId entryId =
+        serverManager->service.logCabinHelper->appendProtoBuf(state);
+
+    serverManager->enlistServerRecover(&state, entryId);
+
+    ProtoBuf::ServerList masterList;
+    serverList->serialize(masterList, {MASTER_SERVICE});
+    EXPECT_TRUE(TestUtil::matchesPosixRegex(
+                "server { services: 25 server_id: 1 "
+                "service_locator: \"mock:host=master\" "
+                "expected_read_mbytes_per_sec: [0-9]\\+ status: 0 } "
+                "version_number: 2",
+                masterList.ShortDebugString()));
+
+    ProtoBuf::ServerList backupList;
+    serverList->serialize(backupList, {BACKUP_SERVICE});
+    EXPECT_EQ("server { services: 2 server_id: 2 "
+              "service_locator: \"mock:host=backup\" "
+              "expected_read_mbytes_per_sec: 0 status: 0 } "
+              "version_number: 2",
+              backupList.ShortDebugString());
+}
+
 namespace {
 bool startMasterRecoveryFilter(string s) {
     return s == "startMasterRecovery";
@@ -219,7 +253,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServerLogCabin) {
 
     ProtoBuf::StateEnlistServer readState;
     serverManager->service.logCabinHelper->getProtoBufFromEntryId(
-        2, readState);
+        4, readState);
     EXPECT_EQ("entry_type: \"StateEnlistServer\"\n"
               "replaces_id: 1\n"
               "new_server_id: 2\nservice_mask: 2\n"
@@ -229,7 +263,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServerLogCabin) {
 
     ProtoBuf::ServerInformation readInfo;
     serverManager->service.logCabinHelper->getProtoBufFromEntryId(
-        3, readInfo);
+        5, readInfo);
     EXPECT_EQ("entry_type: \"ServerInformation\"\n"
               "server_id: 2\nservice_mask: 2\n"
               "read_speed: 0\nwrite_speed: 0\n"

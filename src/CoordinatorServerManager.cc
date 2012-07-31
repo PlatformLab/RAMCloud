@@ -123,7 +123,24 @@ CoordinatorServerManager::createReplicationGroup()
 }
 
 ServerId
-CoordinatorServerManager::EnlistServer::beforeReply()
+CoordinatorServerManager::EnlistServer::beforeReplyExecute()
+{
+    ProtoBuf::StateEnlistServer state;
+    state.set_entry_type("StateEnlistServer");
+    state.set_replaces_id(replacesId.getId());
+    state.set_service_mask(serviceMask.serialize());
+    state.set_read_speed(readSpeed);
+    state.set_write_speed(writeSpeed);
+    state.set_service_locator(string(serviceLocator));
+
+    stateEntryId = manager.service.logCabinHelper->appendProtoBuf(state);
+
+    return beforeReplyComplete(stateEntryId);
+}
+
+
+ServerId
+CoordinatorServerManager::EnlistServer::beforeReplyComplete(EntryId entryId)
 {
     // The order of the updates in serverListUpdate is important: the remove
     // must be ordered before the add to ensure that as members apply the
@@ -153,17 +170,6 @@ CoordinatorServerManager::EnlistServer::beforeReply()
         serviceLocator, serviceMask, readSpeed, serverListUpdate);
     manager.service.serverList.incrementVersion(serverListUpdate);
 
-    ProtoBuf::StateEnlistServer state;
-    state.set_entry_type("StateEnlistServer");
-    state.set_replaces_id(replacesId.getId());
-    state.set_new_server_id(newServerId.getId());
-    state.set_service_mask(serviceMask.serialize());
-    state.set_read_speed(readSpeed);
-    state.set_write_speed(writeSpeed);
-    state.set_service_locator(string(serviceLocator));
-
-    stateEntryId = manager.service.logCabinHelper->appendProtoBuf(state);
-
     CoordinatorServerList::Entry entry =
         manager.service.serverList[newServerId];
 
@@ -179,6 +185,13 @@ CoordinatorServerManager::EnlistServer::beforeReply()
             newServerId.getId(), readSpeed, writeSpeed);
         manager.createReplicationGroup();
     }
+
+    stateEntryId = entryId;
+    ProtoBuf::StateEnlistServer state;
+    manager.service.logCabinHelper->getProtoBufFromEntryId(stateEntryId, state);
+    state.set_new_server_id(newServerId.getId());
+    stateEntryId = manager.service.logCabinHelper->appendProtoBuf(
+        state, vector<EntryId>(stateEntryId));
 
     return newServerId;
 }
@@ -234,7 +247,8 @@ CoordinatorServerManager::EnlistServer::afterReply()
 ServerId
 CoordinatorServerManager::enlistServerBeforeReply(EnlistServer& ref)
 {
-    return ref.beforeReply();
+    Lock _(mutex);
+    return ref.beforeReplyExecute();
 }
 
 /**
@@ -250,6 +264,30 @@ CoordinatorServerManager::enlistServerBeforeReply(EnlistServer& ref)
 void
 CoordinatorServerManager::enlistServerAfterReply(EnlistServer& ref)
 {
+    Lock _(mutex);
+    ref.afterReply();
+}
+
+/**
+ * Complete an enlistServer during coordinator recovery.
+ *
+ * \param state
+ *      The ProtoBuf that encapsulates the state of the enlistServer
+ *      operation to be recovered.
+ * \param entryId
+ *      The entry id of the LogCabin entry corresponding to the state.
+ */
+void
+CoordinatorServerManager::enlistServerRecover(
+    ProtoBuf::StateEnlistServer* state, EntryId entryId)
+{
+    Lock _(mutex);
+    EnlistServer ref(
+        *this, ServerId(state->replaces_id()),
+        ServiceMask::deserialize(state->service_mask()),
+        state->read_speed(), state->write_speed(),
+        state->service_locator().c_str());
+    ref.beforeReplyComplete(entryId);
     ref.afterReply();
 }
 

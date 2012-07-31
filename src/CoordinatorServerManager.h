@@ -59,6 +59,8 @@ class CoordinatorServerManager {
     void createReplicationGroup();
     ServerId enlistServerBeforeReply(EnlistServer& ref);
     void enlistServerAfterReply(EnlistServer& ref);
+    void enlistServerRecover(ProtoBuf::StateEnlistServer* state,
+                             EntryId entryId);
     ProtoBuf::ServerList getServerList(ServiceMask serviceMask);
     bool hintServerDown(ServerId serverId);
     void hintServerDownRecover(ProtoBuf::StateHintServerDown* state,
@@ -89,7 +91,8 @@ class CoordinatorServerManager {
                   serviceLocator(serviceLocator),
                   serverListUpdate(),
                   replacesEntryId(), stateEntryId() {}
-            ServerId beforeReply();
+            ServerId beforeReplyExecute();
+            ServerId beforeReplyComplete(EntryId entryId);
             void afterReply();
         private:
             /**
