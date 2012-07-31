@@ -35,6 +35,13 @@ struct SegmentIteratorException : public Exception {
         : Exception(where, msg) {}
 };
 
+/**
+ * A SegmentIterator provides the necessary state and methods to step through
+ * each entry in a segment in order.
+ *
+ * Note that the segments being iterated over must not change while the iterator
+ * exists, otherwise behaviour is undefined.
+ */
 class SegmentIterator {
   public:
     SegmentIterator();

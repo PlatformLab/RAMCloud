@@ -62,8 +62,8 @@ TabletMap::debugString() const
                << " endKeyHash: " << tablet.endKeyHash
                << " serverId: " << tablet.serverId.getId()
                << " status: " << status
-               << " ctime: " << tablet.ctime.segmentId()
-                             << ", " << tablet.ctime.segmentOffset() <<  " }";
+               << " ctime: " << tablet.ctime.getSegmentId()
+               << ", " << tablet.ctime.getSegmentOffset() <<  " }";
     }
     return result.str();
 }
@@ -218,8 +218,8 @@ TabletMap::serialize(const CoordinatorServerList& serverList,
                 tablet.serverId.getId());
             entry.set_service_locator("");
         }
-        entry.set_ctime_log_head_id(tablet.ctime.segmentId());
-        entry.set_ctime_log_head_offset(tablet.ctime.segmentOffset());
+        entry.set_ctime_log_head_id(tablet.ctime.getSegmentId());
+        entry.set_ctime_log_head_offset(tablet.ctime.getSegmentOffset());
     }
 }
 

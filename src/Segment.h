@@ -37,23 +37,31 @@ struct SegmentException : public Exception {
 
 /**
  * Segments are simple, append-only containers for typed data blobs. Data can
- * be added to the end of a container and later retrieved, but not mutated.
+ * be added to the end of a segment and later retrieved, but not mutated.
  * Segments are easily iterated and they contain internal consistency checks to
  * help ensure metadata integrity.
  *
- * The log ties many segments together to form a large logical log. By using
+ * Although similar, Segments differ from buffers in several ways. First, any
+ * append data is always copied. Second, they understand some of the data that
+ * is stored within them. For example, they maintain internal metadata that
+ * differentiates entries and allows for iteration. Third, they protect metadata
+ * integrity with checksums. Finally, although segments may consist of many
+ * discontiguous pieces of memory called "seglets", each seglet in a given
+ * segment is always the same size.
+ *
+ * Seglets only exist to make log cleaning more efficient and are almost
+ * entirely hidden by the segment API. The exception is that custom allocators
+ * may be used when constructing segments in order to control the size of
+ * seglets and segments.
+ *
+ * The log ties many segments together to form a larger logical log. By using
  * many smaller segments it can achieve more efficient garbage collection and
  * high backup bandwidth.
  *
  * Segments are also a useful way of transferring RAMCloud objects over the
  * network. Simply add objects to a segment, then append the segment's
- * contents to an outgoing RPC buffer.
- *
- * Internally, segments make use of discontiguous pieces of memory, called
- * "seglets". Seglets only exist to make log cleaning more efficient and are
- * almost entirely hidden by the segment API. The exception is that custom
- * allocators may be used when constructing segments in order to control the
- * size of seglets and segments.
+ * contents to an outgoing RPC buffer. The receiver can construct an iterator
+ * to extract the individual objects.
  */
 class Segment {
   public:
@@ -236,7 +244,7 @@ class Segment {
         }
         uint32_t getSegletsPerSegment() { return 1; }
         uint32_t getSegletSize() { return length; }
-        void* alloc() { throw SegmentException(HERE, "don't call me!"); }
+        void* alloc() { throw FatalError(HERE, "don't call me!"); }
         void free(void* seglet) { };
 
       PRIVATE:

@@ -22,9 +22,9 @@
 namespace RAMCloud {
 
 /**
- * LogSegment is a subclass of Segment. This class exists to associate
- * data the Log and LogCleaner care about with a particular Segment
- * (which shouldn't have to know about these things).
+ * LogSegment is a simple subclass of Segment. It exists to associate data the
+ * Log and LogCleaner care about with a particular Segment (which shouldn't
+ * have to know about these things).
  */
 class LogSegment : public Segment {
   public:
@@ -54,7 +54,7 @@ class LogSegment : public Segment {
     IntrusiveListHook listEntries;
 
     /// Hook used for linking this LogSegment into a global instrusive list
-    /// of all LogSegments.
+    /// of all LogSegments in SegmentManager.
     IntrusiveListHook allListEntries;
 
     DISALLOW_COPY_AND_ASSIGN(LogSegment);

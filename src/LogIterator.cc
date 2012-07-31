@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -76,6 +76,11 @@ LogIterator::LogIterator(Log& log)
     next();
 }
 
+/**
+ * Destroy the iterator. Once the last iterator on a log has been destroyed,
+ * it may resume completing garbage collection. If the head segment was locked
+ * for iteration, appends will also be re-enabled.
+ */
 LogIterator::~LogIterator()
 {
     if (headLocked)
@@ -85,7 +90,8 @@ LogIterator::~LogIterator()
 
 /**
  * Test whether or not the iterator has finished stepping through the entire
- * log.
+ * log. More concretely, if the current entry is valid, this will return false.
+ * After next() has been called on the last valid entry, this will return true.
  *
  * \return
  *      True if all entries have been iterated over, else false if there are
@@ -109,9 +115,10 @@ LogIterator::isDone()
 void
 LogIterator::next()
 {
-    if (currentIterator && !currentIterator->isDone()) {
+    if (currentIterator) {
         currentIterator->next();
-        return;
+        if (!currentIterator->isDone())
+            return;
     }
 
     // We've exhausted the current segment. Now try the next one, if there
@@ -127,14 +134,19 @@ LogIterator::next()
     if (segmentList.size() == 0)
         populateSegmentList(currentSegmentId + 1);
 
-    if (segmentList.size() == 0)
+    if (segmentList.size() == 0) {
+        assert(headLocked);
         return;
+    }
 
-    log.appendLock.lock();
-    if (segmentList.back() == log.head)
-        headLocked = true;
-    else
-        log.appendLock.unlock();
+    if (!headLocked) {
+        log.appendLock.lock();
+
+        if (segmentList.back() == log.head)
+            headLocked = true;
+        else
+            log.appendLock.unlock();
+    }
 
     currentSegment = segmentList.back();
     currentIterator.construct(*currentSegment);
@@ -172,18 +184,32 @@ LogIterator::getType()
     return currentIterator->getType();
 }
 
+/**
+ * Get the length of the entry currently being iterated over.
+ */
 uint32_t
 LogIterator::getLength()
 {
     return currentIterator->getLength();
 }
 
+/**
+ * Append the contents of the current entry being iterated over to the given
+ * buffer.
+ *
+ * \param buffer
+ *      Buffer to append the entry's contents to.
+ */
 uint32_t
 LogIterator::appendToBuffer(Buffer& buffer)
 {
     return currentIterator->appendToBuffer(buffer);
 }
 
+/**
+ * Convenience method that resets the given buffer and appends the current
+ * entry's contents to it. See appendToBuffer for more documentation.
+ */
 uint32_t
 LogIterator::setBufferTo(Buffer& buffer)
 {
@@ -191,6 +217,21 @@ LogIterator::setBufferTo(Buffer& buffer)
     return appendToBuffer(buffer);
 }
 
+/******************************************************************************
+ * PRIVATE METHODS
+ ******************************************************************************/
+
+/**
+ * (Re-)Populate our internal list of active segments by querying the
+ * SegmentManager for any active segments with IDs greater than or equal to the
+ * given value. Our list will then be sorted such that the next ID to iterator
+ * over (the lowest ID) is at the back of the list.
+ *
+ * \param nextSegmentId
+ *      Add active segments to our list whose identifiers are greater than or
+ *      equal to this value. This parameter avoids iterating over the same
+ *      segment multiple times.
+ */
 void
 LogIterator::populateSegmentList(uint64_t nextSegmentId)
 {

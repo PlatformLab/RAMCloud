@@ -314,8 +314,8 @@ MasterService::getHeadOfLog(const GetHeadOfLogRpc::Request& reqHdr,
                             Rpc& rpc)
 {
     Log::Position head = log.getHeadPosition();
-    respHdr.headSegmentId = head.segmentId();
-    respHdr.headSegmentOffset = head.segmentOffset();
+    respHdr.headSegmentId = head.getSegmentId();
+    respHdr.headSegmentOffset = head.getSegmentOffset();
 }
 
 /**
@@ -1543,8 +1543,8 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
                  serverId.getId());
         tablet.set_service_locator(config.localLocator);
         tablet.set_server_id(serverId.getId());
-        tablet.set_ctime_log_head_id(headOfLog.segmentId());
-        tablet.set_ctime_log_head_offset(headOfLog.segmentOffset());
+        tablet.set_ctime_log_head_id(headOfLog.getSegmentId());
+        tablet.set_ctime_log_head_offset(headOfLog.getSegmentOffset());
     }
     LOG(NOTICE, "Reporting completion of recovery %lu", reqHdr.recoveryId);
     coordinator->recoveryMasterFinished(recoveryId,

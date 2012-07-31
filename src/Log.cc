@@ -26,8 +26,8 @@ namespace RAMCloud {
  * Constructor for Log. Upon returning, the first segment of the log will be
  * opened and synced to any backup replicas. Doing so avoids ambiguity if no
  * log segments are found after a crash. So long as the log is opened before
- * any tablets are assigned, failure to find segments can only mean data loss.
- *
+ * any tablets are assigned, failure to find segments can only mean loss of
+ * the log.
  *
  * \param context
  *      Overall information about the RAMCloud server.
@@ -71,8 +71,8 @@ Log::~Log()
 }
 
 /**
- * Append a typed entry to the log. Entries are binary blobs described by a
- * simple <type, length> tuple.
+ * Append a typed entry to the log by coping in the data. Entries are binary
+ * blobs described by a simple <type, length> tuple.
  *
  * \param type
  *      Type of the entry. See LogEntryTypes.h.
@@ -115,11 +115,16 @@ Log::append(LogEntryType type,
         head = newHead;
 
         if (!head->append(type, buffer, offset, length, segmentOffset)) {
-            // If we still can't append it, the caller must appending more
-            // than we can fit in a segment.
+            // If we still can't append it, the caller must be appending more
+            // than we can fit in a segment. This is something that just
+            // shouldn't happen. Should we throw FatalError instead?
             LOG(WARNING, "Entry too big to append to log: %u bytes", length);
             return false;
         }
+    }
+
+    if (sync) {
+        // XXX ...
     }
 
     outReference = buildReference(head->slot, segmentOffset);
@@ -137,6 +142,30 @@ Log::append(LogEntryType type,
             HashTable::Reference& outReference)
 {
     return append(type, buffer, 0, buffer.getTotalLength(), sync, outReference);
+}
+
+/**
+ * Abbreviated append method primarily for convenience in tests.
+ *
+ * \param type
+ *      Type of the entry. See LogEntryTypes.h.
+ * \param data
+ *      Pointer to data to be appended.
+ * \param length
+ *      Number of bytes to append from the given pointer.
+ * \return
+ *      True if the append succeeded, false if there was either insufficient
+ *      space to complete the operation or the requested append was larger
+ *      than the system supports.
+ *  
+ */
+bool
+Log::append(LogEntryType type, const void* data, uint32_t length)
+{
+    Buffer buffer;
+    buffer.appendTo(data, length);
+    HashTable::Reference dummy;
+    return append(type, buffer, true, dummy);
 }
 
 /**
@@ -187,6 +216,8 @@ Log::sync()
     if (head)
         head->sync();
 #endif
+
+    TEST_LOG("synced");
 }
 
 /**
@@ -236,7 +267,7 @@ void
 Log::allocateHeadIfStillOn(uint64_t segmentId)
 {
     Lock lock(appendLock);
-    if (head && head->id == segmentId)
+    if (head->id == segmentId)
         head = segmentManager.allocHead();
 
     // XXX What if we're out of space? The above could return NULL, in which

@@ -183,8 +183,8 @@ CoordinatorService::createTable(const CreateTableRpc::Request& reqHdr,
         // Hack which hints to the server list that it should assign
         // partition ids.
         willEntry.set_user_data(~(0lu));
-        willEntry.set_ctime_log_head_id(headOfLog.segmentId());
-        willEntry.set_ctime_log_head_offset(headOfLog.segmentOffset());
+        willEntry.set_ctime_log_head_id(headOfLog.getSegmentId());
+        willEntry.set_ctime_log_head_offset(headOfLog.getSegmentOffset());
         serverList.addToWill(master.serverId, will);
 
         // Inform the master.

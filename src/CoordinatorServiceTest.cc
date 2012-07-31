@@ -433,8 +433,8 @@ TEST_F(CoordinatorServiceTest, reassignTabletOwnership) {
     EXPECT_EQ(0, master2->master->tablets.tablet_size());
     Tablet tablet = service->tabletMap.getTablet(0lu, 0lu, ~(0lu));
     EXPECT_EQ(masterServerId, tablet.serverId);
-    EXPECT_EQ(0U, tablet.ctime.segmentId());
-    EXPECT_EQ(44U, tablet.ctime.segmentOffset());
+    EXPECT_EQ(0U, tablet.ctime.getSegmentId());
+    EXPECT_EQ(44U, tablet.ctime.getSegmentOffset());
 
     TestLog::Enable _(reassignTabletOwnershipFilter);
 
@@ -464,8 +464,8 @@ TEST_F(CoordinatorServiceTest, reassignTabletOwnership) {
     EXPECT_EQ(1, master2->master->tablets.tablet_size());
     tablet = service->tabletMap.getTablet(0lu, 0lu, ~(0lu));
     EXPECT_EQ(master2->serverId, tablet.serverId);
-    EXPECT_EQ(0U, tablet.ctime.segmentId());
-    EXPECT_EQ(46U, tablet.ctime.segmentOffset());
+    EXPECT_EQ(0U, tablet.ctime.getSegmentId());
+    EXPECT_EQ(46U, tablet.ctime.getSegmentOffset());
 }
 
 static bool

@@ -26,7 +26,8 @@ namespace RAMCloud {
 /**
  * This class describes the format of an object stored in the log and provides
  * various methods to construct and serialize a new object, as well as to take
- * a buffer referring to a serialized object and deserialize it. Different
+ * a buffer referring to a serialized object and deserialize it. In other words,
+ * this code centralizes the format and parsing of objects. Different
  * constructors serve these two purposes.
  *
  * Objects are basically a key, some additional metadata, and an associated
@@ -433,10 +434,11 @@ class Object {
  * This class describes the format of an object tombstone as it is stored in
  * the log. Tombstones serve as records indicating that specific versions of
  * objects have been removed from the system (explicitly due to deletions, or
- * implicitly due to overwrites). This class also provides various methods to
- * construct and serialize new tombstones, as well as to take a buffer referring
- * to a serialized tombstone and deserialize it. Different constructors serve
- * these two purposes.
+ * implicitly due to overwrites). They are necessary to avoid resurrecting
+ * previously-deleted objects that are still in the log during failure
+ * recovery. This class provides various methods to construct and serialize new
+ * tombstones, as well as to take a buffer referring to a serialized tombstone
+ * and deserialize it. Different constructors serve these two purposes.
  *
  * Tombstones are basically a binary string key and some additional metadata.
  * When serialized in the log, tombstones simply consist of a common header,

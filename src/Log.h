@@ -42,20 +42,24 @@ struct LogException : public Exception {
 };
 
 /**
- * The log provides an replicated store for immutable and relocatable data.
- * Data is stored by appending typed "entries" to the log. Entries are simply
- * <type, length> tuples and associated opaque data blobs. Once written, they
- * may not be later modified. However, they may be freed and the space later
- * reclaimed by a special garbage collection mechanism called the "cleaner".
+ * The log provides a replicated store for immutable and relocatable data in
+ * a master server's memory. Data is stored by appending typed "entries" to the
+ * log. Entries are simply <type, length> tuples and associated opaque data
+ * blobs. Once written, they may not be later modified. However, they may be
+ * freed and the space later reclaimed by a special garbage collection mechanism
+ * called the "cleaner".
  *
  * The cleaner requires that entries be relocatable to deal with fragmentation.
- * A set of callbacks are used by the cleaner to test is entries are still alive
- * and notify the user of the log when an entry has been moved to another log
- * location. See the Log::EntryHandlers interface for more details.
+ * That is, it may decide to copy an entry to another location in memory and
+ * tell the module that appended it to update any references and stop using the
+ * old location. A set of callbacks are invoked by the cleaner to test if
+ * entries are still alive to and notify the user of the log when an entry has
+ * been moved to another log location. See the Log::EntryHandlers interface for
+ * more details.
  *
  * This particular class provides a simple, thin interface for users of logs.
  * Much of the internals, most of which have to deal with replication and
- * cleaning, are handled by a suite of related classes, such as Segment,
+ * cleaning, are handled by a suite of related classes such as Segment,
  * SegmentManager, LogCleaner, ReplicaManager, and BackupFailureMonitor.
  */
 class Log {
@@ -135,12 +139,12 @@ class Log {
         /**
          * Return the segment identifier component of this position object.
          */
-        uint64_t segmentId() const { return pos.first; }
+        uint64_t getSegmentId() const { return pos.first; }
 
         /**
          * Return the offset component of this position object.
          */
-        uint32_t segmentOffset() const { return pos.second; }
+        uint32_t getSegmentOffset() const { return pos.second; }
 
       private:
         std::pair<uint64_t, uint32_t> pos;
@@ -163,6 +167,7 @@ class Log {
                 Buffer& buffer,
                 bool sync,
                 HashTable::Reference& outReference);
+    bool append(LogEntryType type, const void* data, uint32_t length);
     void free(HashTable::Reference reference);
     LogEntryType getEntry(HashTable::Reference reference,
                           Buffer& outBuffer);

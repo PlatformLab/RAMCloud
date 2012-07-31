@@ -23,6 +23,22 @@
 
 namespace RAMCloud {
 
+/**
+ * The LogIterator provides the necessary state and methods to step through an
+ * entire log, entry by entry. In conjunction with the SegmentManager class, it
+ * hides the complexities of dealing with a log that is in constant flux due to
+ * new appends and log cleaning. This class is primarily used by the tablet
+ * migration mechanism, though it could be used for many other purposes, such as
+ * scrubbing memory for bit errors.
+ *
+ * It is important to understand that in order to deal with concurrent appends
+ * and cleaning, the instantation of a LogIterator object essentially stops the
+ * log from reclaiming memory due to cleaning. Furthermore, once the head log
+ * segment is reached, further appends to it are paused until the iterator is
+ * destroyed. It is important, therefore, that log iterators are not longer
+ * lived than they need to be and especially that iteration of the head segment
+ * completes quickly.
+ */
 class LogIterator {
   PUBLIC:
     explicit LogIterator(Log& log);

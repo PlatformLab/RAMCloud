@@ -68,8 +68,8 @@ struct TabletsBuilder {
         tablet.set_start_key_hash(startKeyHash);
         tablet.set_end_key_hash(endKeyHash);
         tablet.set_state(static_cast<Tablet::State>(state));
-        tablet.set_ctime_log_head_id(ctime.segmentId());
-        tablet.set_ctime_log_head_offset(ctime.segmentOffset());
+        tablet.set_ctime_log_head_id(ctime.getSegmentId());
+        tablet.set_ctime_log_head_offset(ctime.getSegmentOffset());
         tablet.set_user_data(userData);
         tablet.set_server_id(serverId.getId());
         return *this;

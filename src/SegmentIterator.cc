@@ -97,7 +97,10 @@ SegmentIterator::~SegmentIterator()
 }
 
 /**
- * Test if the SegmentIterator has exhausted all entries.
+ * Test if the SegmentIterator has exhausted all entries. More concretely, if
+ * the current entry is valid, this will return false. After next() has been
+ * called on the last valid entry, this will return true.
+ *
  * \return
  *      true if there are no more entries left to iterate, else false.
  */

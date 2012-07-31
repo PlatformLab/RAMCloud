@@ -363,10 +363,10 @@ isEntryAlive(LogEntryType type,
             return false;
     } else {
         Log::Position position = it.getLogPosition();
-        if (position.segmentId() < tablet.ctime_log_head_id())
+        if (position.getSegmentId() < tablet.ctime_log_head_id())
             return false;
-        if (position.segmentId() == tablet.ctime_log_head_id() &&
-          position.segmentOffset() < tablet.ctime_log_head_offset()) {
+        if (position.getSegmentId() == tablet.ctime_log_head_id() &&
+          position.getSegmentOffset() < tablet.ctime_log_head_offset()) {
             return false;
         }
     }

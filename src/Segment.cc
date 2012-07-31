@@ -188,7 +188,7 @@ bool
 Segment::append(LogEntryType type, const void* data, uint32_t length, uint32_t& outOffset)
 {
     Buffer buffer;
-    Buffer::Chunk::appendToBuffer(&buffer, data, length);
+    buffer.appendTo(data, length);
     return append(type, buffer, 0, length, outOffset);
 }
 
@@ -383,7 +383,7 @@ Segment::appendToBuffer(Buffer& buffer, uint32_t offset, uint32_t length)
         if (contigBytes == 0)
             break;
 
-        Buffer::Chunk::appendToBuffer(&buffer, contigPointer, contigBytes);
+        buffer.appendTo(contigPointer, contigBytes);
 
         offset += contigBytes;
         length -= contigBytes;
