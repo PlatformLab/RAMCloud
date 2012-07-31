@@ -168,7 +168,8 @@ TEST_F(CoordinatorServerManagerTest, enlistServerRecover) {
     ProtoBuf::StateEnlistServer state;
     state.set_entry_type("StateEnlistServer");
     state.set_replaces_id(0);
-    state.set_service_mask(ServiceMask({BACKUP_SERVICE}).serialize());
+    state.set_service_mask(
+        ServiceMask({WireFormat::BACKUP_SERVICE}).serialize());
     state.set_read_speed(0);
     state.set_write_speed(0);
     state.set_service_locator("mock:host=backup");
@@ -179,7 +180,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServerRecover) {
     serverManager->enlistServerRecover(&state, entryId);
 
     ProtoBuf::ServerList masterList;
-    serverList->serialize(masterList, {MASTER_SERVICE});
+    serverList->serialize(masterList, {WireFormat::MASTER_SERVICE});
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
                 "server { services: 25 server_id: 1 "
                 "service_locator: \"mock:host=master\" "
@@ -188,7 +189,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServerRecover) {
                 masterList.ShortDebugString()));
 
     ProtoBuf::ServerList backupList;
-    serverList->serialize(backupList, {BACKUP_SERVICE});
+    serverList->serialize(backupList, {WireFormat::BACKUP_SERVICE});
     EXPECT_EQ("server { services: 2 server_id: 2 "
               "service_locator: \"mock:host=backup\" "
               "expected_read_mbytes_per_sec: 0 status: 0 } "
