@@ -160,6 +160,62 @@ double bMutexNoBlock()
     return Cycles::toSeconds(stop - start)/count;
 }
 
+// Implements the condPingPong test.
+class CondPingPong {
+  public:
+    CondPingPong()
+        : mutex()
+        , cond()
+        , prod(0)
+        , cons(0)
+        , count(10000)
+    {
+    }
+
+    double run() {
+        std::thread thread(&CondPingPong::consumer, this);
+        uint64_t start = Cycles::rdtsc();
+        producer();
+        uint64_t stop = Cycles::rdtsc();
+        thread.join();
+        return Cycles::toSeconds(stop - start)/count;
+    }
+
+    void producer() {
+        std::unique_lock<std::mutex> lockGuard(mutex);
+        while (cons < count) {
+            while (cons < prod)
+                cond.wait(lockGuard);
+            ++prod;
+            cond.notify_all();
+        }
+    }
+
+    void consumer() {
+        std::unique_lock<std::mutex> lockGuard(mutex);
+        while (cons < count) {
+            while (cons == prod)
+                cond.wait(lockGuard);
+            ++cons;
+            cond.notify_all();
+        }
+    }
+
+  private:
+    std::mutex mutex;
+    std::condition_variable cond;
+    int prod;
+    int cons;
+    const int count;
+    DISALLOW_COPY_AND_ASSIGN(CondPingPong);
+};
+
+// Measure the cost of coordinating between threads using a condition variable.
+double condPingPong()
+{
+    return CondPingPong().run();
+}
+
 // Measure the cost of the exchange method on a C++ atomic_int.
 double cppAtomicExchange()
 {
@@ -621,6 +677,25 @@ double spinLock()
     return Cycles::toSeconds(stop - start)/count;
 }
 
+// Helper for spawnThread. This is the main function that the thread executes
+// (intentionally empty).
+void spawnThreadHelper()
+{
+}
+
+// Measure the cost of start and joining with a thread.
+double spawnThread()
+{
+    int count = 10000;
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        std::thread thread(&spawnThreadHelper);
+        thread.join();
+    }
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
+}
+
 // Measure the cost of starting and stopping a Dispatch::Timer.
 double startStopTimer()
 {
@@ -770,6 +845,8 @@ TestInfo tests[] = {
      "Atomic<int>::exchange"},
     {"bMutexNoBlock", bMutexNoBlock,
      "std::mutex lock/unlock (no blocking)"},
+    {"condPingPong", condPingPong,
+     "std::condition_variable round-trip"},
     {"cppAtomicExchg", cppAtomicExchange,
      "Exchange method on a C++ atomic_int"},
     {"cppAtomicLoad", cppAtomicLoad,
@@ -816,6 +893,8 @@ TestInfo tests[] = {
      "Acquire/release SpinLock"},
     {"startStopTimer", startStopTimer,
      "Start and stop a Dispatch::Timer"},
+    {"spawnThread", spawnThread,
+     "Start and stop a thread"},
     {"throwInt", throwInt,
      "Throw an int"},
     {"throwIntNL", throwIntNL,
