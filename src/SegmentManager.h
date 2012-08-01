@@ -75,7 +75,7 @@ class SegmentManager {
                    double diskExpansionFactor);
     ~SegmentManager();
     LogSegment* allocHead();
-    LogSegment* allocSurvivor();
+    LogSegment* allocSurvivor(uint64_t headSegmentIdDuringCleaning);
     void cleaningComplete(LogSegmentVector& clean);
     void cleanableSegments(LogSegmentVector& out);
     void logIteratorCreated();

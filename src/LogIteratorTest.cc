@@ -238,7 +238,7 @@ TEST_F(LogIteratorTest, next) {
     {
         // Inject a "cleaner" segment into the log
         segmentManager.setSurvivorSegmentReserve(1);
-        LogSegment* cleanerSeg = segmentManager.allocSurvivor();
+        LogSegment* cleanerSeg = segmentManager.allocSurvivor(5);
         EXPECT_EQ(2U, cleanerSeg->id);
         segmentManager.changeState(*cleanerSeg,
                                    SegmentManager::NEWLY_CLEANABLE);

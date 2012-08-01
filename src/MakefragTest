@@ -63,6 +63,7 @@ TESTS_SRCFILES := \
 		  src/RuntimeOptionsTest.cc \
 		  src/SegmentTest.cc \
 		  src/SegmentIteratorTest.cc \
+		  src/SegmentManagerTest.cc \
 		  src/ServerTest.cc \
 		  src/ServerIdTest.cc \
 		  src/ServerListTest.cc \

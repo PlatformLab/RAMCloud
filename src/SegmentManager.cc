@@ -140,16 +140,24 @@ SegmentManager::allocHead()
 /**
  * Allocate a new segment for the cleaner to write survivor data into.
  *
+ * \param headSegmentIdDuringCleaning
+ *      Identifier of the head segment when the current cleaning pass began. Any
+ *      data written into this survivor segment must have pre-existed this head
+ *      segment.
+ *
  * \return
  *      NULL if out of memory, otherwise a pointer to the segment.
  */
 LogSegment*
-SegmentManager::allocSurvivor()
+SegmentManager::allocSurvivor(uint64_t headSegmentIdDuringCleaning)
 {
     Lock guard(lock);
 
-// XXX- writeHeader(...)
-    return alloc(true);
+    LogSegment* s = alloc(true);
+    if (s != NULL)
+        writeHeader(s, headSegmentIdDuringCleaning);
+
+    return s;
 }
 
 /**
@@ -407,9 +415,7 @@ SegmentManager::writeHeader(LogSegment* segment, uint64_t headSegmentIdDuringCle
                          segment->id,
                          allocator.getSegmentSize(),
                          headSegmentIdDuringCleaning);
-    Buffer buffer;
-    Buffer::Chunk::appendToBuffer(&buffer, &header, sizeof(header));
-    bool success = segment->append(LOG_ENTRY_TYPE_SEGHEADER, buffer);
+    bool success = segment->append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
     if (!success)
         throw FatalError(HERE, "Could not append segment header");
 }
@@ -543,6 +549,8 @@ SegmentManager::mayAlloc(bool forCleaner)
 LogSegment*
 SegmentManager::alloc(bool forCleaner)
 {
+    TEST_LOG((forCleaner) ? "for cleaner" : "for head of log");
+
     if (!mayAlloc(forCleaner))
         return NULL;
 
@@ -573,7 +581,8 @@ SegmentManager::alloc(bool forCleaner)
  * it may still exist.
  * 
  * \param s
- *      The segment to be freed.
+ *      The segment to be freed. The segment should almost certainly be in the
+ *      FREEABLE_PENDING_REFERENCES state at the time this is called.
  */
 void
 SegmentManager::free(LogSegment* s)
@@ -581,7 +590,6 @@ SegmentManager::free(LogSegment* s)
     uint32_t slot = s->slot;
     uint64_t id = segments[slot]->id;
 
-    assert(*states[slot] == FREEABLE_PENDING_REFERENCES);
     freeSlots.push_back(slot);
     idToSlotMap.erase(id);
 
