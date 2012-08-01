@@ -76,9 +76,14 @@ MembershipService::getServerId(const WireFormat::GetServerId::Request& reqHdr,
                               WireFormat::GetServerId::Response& respHdr,
                               Rpc& rpc)
 {
-    // The serverId should be set by enlisting before any RPCs are dispatched
-    // to this handler.
-    assert(serverId.isValid());
+    // serverId may not be set by enlisting before RPCs are dispatched to
+    // this handler. The coordinator may try to open a session to send a
+    // server list to this server before the enlistment response has been
+    // received and processed.
+    if (!serverId.isValid()) {
+        respHdr.common.status = STATUS_RETRY;
+        return;
+    }
 
     respHdr.serverId = *serverId;
 }
