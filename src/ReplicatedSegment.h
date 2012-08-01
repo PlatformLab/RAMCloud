@@ -193,6 +193,7 @@ class ReplicatedSegment : public Task {
         Replica()
             : isActive(false)
             , backupId()
+            , committed()
             , acked()
             , sent()
             , freeRpc()
@@ -261,15 +262,29 @@ class ReplicatedSegment : public Task {
         ServerId backupId;
 
         /**
-         * Tracks how much of a segment has been acknowledged as buffered
-         * durably on a backup.
+         * Tracks how much of a replica is durably stored on a backup and
+         * will be available during master recovery if the backup is
+         * available at the time of recovery. Not all data acked as
+         * received by a backup is committed. Some backup rpcs may
+         * be sent without a footer (if the data is too large to send in a
+         * single rpc). In such a case the data in that rpc will not be
+         * part of a recovery even if it is acknowledged by the backup.
+         * It only becomes committed when some subsequent provides a
+         * new footer for the segment.
+         */
+        Progress committed;
+
+        /**
+         * Tracks how much of a replica has been acknowledged as received
+         * by a backup. (Note: acked data will *not* necessarily be
+         * recovered by a backup; see #committed).
          */
         Progress acked;
 
         /**
-         * Tracks how much of a segment has been sent to be buffered
-         * durably on a backup.
-         * (Note: but not necessarily acknowledged, see #acked).
+         * Tracks how much of a replica has been sent to be stored on a
+         * backup. (Note: but not necessarily acknowledged or committed,
+         * see #acked and #committed).
          */
         Progress sent;
 
@@ -334,15 +349,17 @@ class ReplicatedSegment : public Task {
     void performFree(Replica& replica);
     void performWrite(Replica& replica);
 
+    void dumpProgress();
+
     /**
-     * Return the minimum Progress made in syncing this replica to Backups
-     * for any of the replicas.
+     * Returns the minimum progress any Replica has made in durably
+     * committing data to its chosen backup.
      */
-    Progress getAcked() const {
+    Progress getCommitted() const {
         Progress p = queued;
         foreach (auto& replica, replicas) {
             if (replica.isActive)
-                p.min(replica.acked);
+                p.min(replica.committed);
             else
                 return Progress();
         }
@@ -472,18 +489,18 @@ class ReplicatedSegment : public Task {
      * The segment that logically follows this one in the log; set by close().
      * Needed to make two guarantees.
      * 1) A new head segment is durably open before closes can be sent for
-     *    this segment (by checking followingSegment.getAcked().open).
+     *    this segment (by checking followingSegment.getCommitted().open).
      * 2) followingSegment receives no writes (beyond its opening write) before
      *    this segment is durably closed (by setting
-     *    followingSegment.precedingSegmentCloseAcked) when
-     *    this->getAcked().close is set).
+     *    followingSegment.precedingSegmentCloseCommitted) when
+     *    this->getCommitted().close is set).
      * See close() for more details about these guarantees.
      */
     ReplicatedSegment* followingSegment;
 
     /**
      * No write rpcs (beyond the opening write rpc) for this segment are
-     * allowed until precedingSegmentCloseAcked becomes true.  This constraint
+     * allowed until precedingSegmentCloseCommitted becomes true.  This constraint
      * is only enforced for segments which have a followingSegment (see
      * close(), other segments created as part of the log cleaner and unit
      * tests skip this check).  This segment must wait to send write rpcs until
@@ -493,7 +510,7 @@ class ReplicatedSegment : public Task {
      * backups.  The goal is to prevent data written in this segment from being
      * undetectably lost in the case that all replicas of it are lost.
      */
-    bool precedingSegmentCloseAcked;
+    bool precedingSegmentCloseCommitted;
 
     /**
      * An open rpc for a replica cannot be issued until the open for the
@@ -507,7 +524,7 @@ class ReplicatedSegment : public Task {
      * written before the replicas which it mentions have been made durable.
      * Otherwise, data loss could be detected on recovery.
      */
-    bool precedingSegmentOpenAcked;
+    bool precedingSegmentOpenCommitted;
 
     /**
      * Set to true if this segment lost a replica while it was open and hasn't

@@ -277,10 +277,10 @@ ReplicaManager::allocateHead(const Segment* segment,
     // one in the log.
     if (precedingSegment) {
         precedingSegment->followingSegment = replicatedSegment;
-        replicatedSegment->precedingSegmentCloseAcked =
-            precedingSegment->getAcked().close;
-        replicatedSegment->precedingSegmentOpenAcked =
-            precedingSegment->getAcked().open;
+        replicatedSegment->precedingSegmentCloseCommitted =
+            precedingSegment->getCommitted().close;
+        replicatedSegment->precedingSegmentOpenCommitted =
+            precedingSegment->getCommitted().open;
     }
 
     return replicatedSegment;
