@@ -313,10 +313,17 @@ ReplicatedSegment::sync(uint32_t offset)
         schedule();
     }
 
+    uint64_t syncStartTicks = Cycles::rdtsc();
     while (true) {
         taskQueue.performTask();
         if (!recoveringFromLostOpenReplicas && getCommitted().bytes >= offset)
             return;
+        auto waited = Cycles::toNanoseconds(Cycles::rdtsc() - syncStartTicks);
+        if (waited > 1000000000lu) {
+            LOG(WARNING, "Log write sync has taken over 1s; seems to be stuck");
+            dumpProgress();
+            syncStartTicks = Cycles::rdtsc();
+        }
     }
 }
 
@@ -502,9 +509,11 @@ ReplicatedSegment::performWrite(Replica& replica)
             Transport::SessionRef session = tracker.getSession(backupId);
             replica.start(backupId, session);
         } catch (const TransportException& e) {
-            LOG(NOTICE, "Cannot create a session to backup %lu, perhaps the "
-                "backup has crashed; will choose another backup",
-                backupId.getId());
+            static uint64_t count = 0;
+            if (BitOps::isPowerOfTwo(++count))
+                LOG(NOTICE, "Cannot create a session to backup %lu, perhaps "
+                    "the backup has crashed; will choose another backup",
+                    backupId.getId());
             replica.reset();
             schedule();
             return;
@@ -592,10 +601,12 @@ ReplicatedSegment::performWrite(Replica& replica)
             } catch (const TransportException& e) {
                 // Ignore the exception and retry; we'll be interrupted by
                 // changes to the server list if the backup is down.
-                LOG(DEBUG, "Cannot create session for write to backup %lu, "
-                    "perhaps the backup has crashed; retrying until "
-                    "coordinator tells us it is gone.",
-                    replica.backupId.getId());
+                static uint64_t count = 0;
+                if (BitOps::isPowerOfTwo(++count))
+                    LOG(DEBUG, "Cannot create session for write to backup %lu, "
+                        "perhaps the backup has crashed; retrying until "
+                        "coordinator tells us it is gone.",
+                        replica.backupId.getId());
             }
             schedule();
             return;
@@ -669,10 +680,12 @@ ReplicatedSegment::performWrite(Replica& replica)
             } catch (const TransportException& e) {
                 // Ignore the exception and retry; we'll be interrupted by
                 // changes to the server list if the backup is down.
-                LOG(DEBUG, "Cannot create session for write to backup %lu, "
-                    "perhaps the backup has crashed; retrying until "
-                    "coordinator tells us it is gone.",
-                    replica.backupId.getId());
+                static uint64_t count = 0;
+                if (BitOps::isPowerOfTwo(++count))
+                    LOG(DEBUG, "Cannot create session for write to backup %lu, "
+                        "perhaps the backup has crashed; retrying until "
+                        "coordinator tells us it is gone. [%lu]",
+                        replica.backupId.getId(), count);
             }
             schedule();
             return;
