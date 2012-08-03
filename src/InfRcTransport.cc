@@ -148,6 +148,7 @@ InfRcTransport<Infiniband>::InfRcTransport(Context& context,
     , logMemoryRegion(0)
     , transmitCycleCounter()
     , serverRpcPool()
+    , deadQueuePairs()
 {
     const char *ibDeviceName = NULL;
 
@@ -376,7 +377,8 @@ InfRcTransport<Infiniband>::InfRcSession::abort(const string& message)
             current->cancel(message);
         }
     }
-    delete qp;
+    if (qp)
+        transport->deadQueuePairs.push_back(qp);
     qp = NULL;
 }
 
@@ -818,6 +820,13 @@ InfRcTransport<Infiniband>::reapTxBuffers()
         metrics->transport.infiniband.transmitActiveTicks +=
             transmitCycleCounter->stop();
         transmitCycleCounter.destroy();
+
+        // It's now safe to delete queue pairs (see comment by declaration
+        // for deadQueuePairs).
+        while (!deadQueuePairs.empty()) {
+            delete deadQueuePairs.back();
+            deadQueuePairs.pop_back();
+        }
     }
 
     return n;
