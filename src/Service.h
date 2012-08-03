@@ -21,7 +21,7 @@
 #include "Common.h"
 #include "ClientException.h"
 #include "Buffer.h"
-#include "Rpc.h"
+#include "WireFormat.h"
 
 namespace RAMCloud {
 // There are cross-dependencies between this header file and ServiceManager.h;
@@ -81,7 +81,7 @@ class Service {
 
     Service() {}
     virtual ~Service() {}
-    virtual void dispatch(RpcOpcode opcode,
+    virtual void dispatch(WireFormat::Opcode opcode,
                           Rpc& rpc);
     static void prepareErrorResponse(Buffer& buffer, Status status);
 
@@ -98,8 +98,8 @@ class Service {
         return 1;
     }
 
-    void ping(const PingRpc::Request& reqHdr,
-              PingRpc::Response& respHdr,
+    void ping(const WireFormat::Ping::Request& reqHdr,
+              WireFormat::Ping::Response& respHdr,
               Rpc& rpc);
 
   PROTECTED:
@@ -108,7 +108,7 @@ class Service {
      * Extracts the request from the RPC, allocates and zeros space for the
      * response, and calls the handler.
      * \tparam Op
-     *      Class associated with a particular operation (e.g. PingRpc).
+     *      Class associated with a particular operation (e.g. WireFormat::Ping).
      * \tparam S
      *      The class that defines \a handler and is a subclass of Service.
      * \tparam handler

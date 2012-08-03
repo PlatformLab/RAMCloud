@@ -17,6 +17,7 @@
 #include <fcntl.h>
 
 #include "Common.h"
+#include "CycleCounter.h"
 #include "Cycles.h"
 #include "Fence.h"
 #include "PingClient.h"
@@ -24,7 +25,7 @@
 #include "FailureDetector.h"
 #include "IpAddress.h"
 #include "ShortMacros.h"
-#include "Rpc.h"
+#include "WireFormat.h"
 
 namespace RAMCloud {
 
@@ -34,9 +35,7 @@ namespace RAMCloud {
  * to date. Without it, we'd not know of new servers to ping.
  *
  * \param context
- *      Overall information about the RAMCloud server.
- * \param[in] coordinatorLocatorString
- *      The ServiceLocator string of the coordinator. 
+ *      Overall information about the RAMCloud server. 
  * \param[in] ourServerId
  *      The ServerId of this server, as returned by enlistment with the
  *      coordinator. Used only to avoid pinging ourself.
@@ -47,7 +46,6 @@ namespace RAMCloud {
  *      sent to the coordinator to fix any discrepancy.
  */
 FailureDetector::FailureDetector(Context& context,
-                                 const string &coordinatorLocatorString,
                                  const ServerId ourServerId,
                                  ServerList& serverList)
     : context(context),
@@ -55,8 +53,6 @@ FailureDetector::FailureDetector(Context& context,
       serverTracker(context, serverList),
       thread(),
       threadShouldExit(false),
-      pingClient(context),
-      coordinatorClient(context, coordinatorLocatorString.c_str()),
       serverList(serverList),
       staleServerListSuspected(false),
       staleServerListVersion(0),
@@ -147,7 +143,8 @@ FailureDetector::detectorThreadEntry(FailureDetector* detector,
 void
 FailureDetector::pingRandomServer()
 {
-    ServerId pingee = serverTracker.getRandomServerIdWithService(PING_SERVICE);
+    ServerId pingee = serverTracker.getRandomServerIdWithService(
+        WireFormat::PING_SERVICE);
     if (!pingee.isValid() || pingee == ourServerId) {
         // If there isn't anyone to talk to, or the host selected
         // is ourself, then just skip this round and try again
@@ -155,50 +152,32 @@ FailureDetector::pingRandomServer()
         return;
     }
 
-    uint64_t nonce = generateRandom();
-
     string locator;
     try {
         locator = serverList.getLocator(pingee);
         uint64_t serverListVersion;
-        pingClient.ping(locator.c_str(), nonce, TIMEOUT_USECS * 1000,
-            &serverListVersion);
-        TEST_LOG("Ping succeeded to server %s", locator.c_str());
-
+        LOG(DEBUG, "Sending ping to server %lu (%s)", pingee.getId(),
+            locator.c_str());
+        uint64_t start = Cycles::rdtsc();
+        PingRpc rpc(context, pingee, ourServerId);
+        serverListVersion = rpc.wait(TIMEOUT_USECS *1000);
+        if (serverListVersion == ~0LU) {
+            // Server appears to have crashed; notify the coordinator.
+            LOG(WARNING, "Ping timeout to server id %lu (locator \"%s\")",
+                pingee.getId(), locator.c_str());
+            CoordinatorClient::hintServerDown(context, pingee);
+            return;
+        }
+        LOG(DEBUG, "Ping succeeded to server %lu (%s) in %.1f us",
+            pingee.getId(), locator.c_str(),
+            1e06*Cycles::toSeconds(Cycles::rdtsc() - start));
         checkServerListVersion(serverListVersion);
-    } catch (ServerListException &sle) {
+    } catch (const ServerListException &sle) {
         // This isn't an error. It's just a race between this thread and
         // the membership service. It should be quite uncommon, so just
         // bail on this round and ping again next time.
         LOG(NOTICE, "Tried to ping locator \"%s\", but id %lu was stale",
             locator.c_str(), *pingee);
-    } catch (TimeoutException &te) {
-        alertCoordinator(pingee, locator);
-    } catch (TransportException &te) {
-        alertCoordinator(pingee, locator);
-    }
-}
-
-/**
- * Tell the coordinator that we failed to get a timely ping response.
- *
- * \param serverId
- *      ServerId of the server that is believed to have failed.
- *
- * \param locator
- *      Locator string of the server that is believed to have failed.
- *      Used only for logging purposes.
- */
-void
-FailureDetector::alertCoordinator(ServerId serverId, string locator)
-{
-    LOG(WARNING, "Ping timeout to server id %lu (locator \"%s\")",
-        *serverId, locator.c_str());
-    try {
-        coordinatorClient.hintServerDown(serverId);
-    } catch (TransportException &te) {
-        LOG(WARNING, "Hint server down failed. "
-                     "Maybe the network is disconnected: %s", te.what());
     }
 }
 
@@ -265,7 +244,7 @@ FailureDetector::checkForStaleServerList()
             currentVersion, staleServerListVersion,
             Cycles::toNanoseconds(deltaTicks) / 1000);
         try {
-            coordinatorClient.sendServerList(ourServerId);
+            CoordinatorClient::sendServerList(context, ourServerId);
             staleServerListSuspected = false;
         } catch (TransportException &te) {
             LOG(WARNING, "Request to coordinator failed: %s", te.what());

@@ -32,6 +32,7 @@ class ObjectTest : public ::testing::Test {
           objectFromVoidPointer(),
           objectDataFromBuffer(),
           objectFromBuffer(),
+          objectFromContiguousVoidPointer(),
           objects()
     {
         strcpy(stringKey, "hi");
@@ -49,9 +50,14 @@ class ObjectTest : public ::testing::Test {
         objectFromVoidPointer->serializeToBuffer(_buffer2);
         objectFromBuffer.construct(_buffer2);
 
+        objectFromContiguousVoidPointer.construct(
+            _buffer2.getRange(0, _buffer2.getTotalLength()),
+            _buffer2.getTotalLength());
+
         objects[0] = &*objectFromVoidPointer;
         objects[1] = &*objectDataFromBuffer;
         objects[2] = &*objectFromBuffer;
+        objects[3] = &*objectFromContiguousVoidPointer;
     }
 
     ~ObjectTest()
@@ -69,8 +75,9 @@ class ObjectTest : public ::testing::Test {
     Tub<Object> objectFromVoidPointer;
     Tub<Object> objectDataFromBuffer;
     Tub<Object> objectFromBuffer;
+    Tub<Object> objectFromContiguousVoidPointer;
 
-    Object* objects[3];
+    Object* objects[4];
 
     DISALLOW_COPY_AND_ASSIGN(ObjectTest);
 };
@@ -127,6 +134,24 @@ TEST_F(ObjectTest, constructor_entirelyFromBuffer)
     EXPECT_FALSE(object.data);
     EXPECT_FALSE(object.dataBuffer);
     EXPECT_TRUE(object.objectBuffer); 
+    EXPECT_EQ(0, memcmp("YO!", object.getData(), 4));
+}
+
+TEST_F(ObjectTest, constructor_fromContiguousVoidPointer)
+{
+    Object& object = *objectFromContiguousVoidPointer;
+
+    EXPECT_EQ(57U, object.serializedForm.tableId);
+    EXPECT_EQ(3U, object.serializedForm.keyLength);
+    EXPECT_EQ(75U, object.serializedForm.version);
+    EXPECT_EQ(723U, object.serializedForm.timestamp);
+    EXPECT_EQ(0x618b50b0U, object.serializedForm.checksum);
+
+    EXPECT_EQ(0, memcmp("hi", object.key, 3));
+    EXPECT_EQ(4U, object.dataLength);
+    EXPECT_TRUE(object.data);
+    EXPECT_FALSE(object.dataBuffer);
+    EXPECT_FALSE(object.objectBuffer); 
     EXPECT_EQ(0, memcmp("YO!", object.getData(), 4));
 }
 

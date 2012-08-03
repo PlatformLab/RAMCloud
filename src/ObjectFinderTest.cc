@@ -70,10 +70,10 @@ class ObjectFinderTest : public ::testing::Test {
         , objectFinder()
         , refresher()
     {
-        objectFinder.construct(context, *cluster.getCoordinatorClient());
+        objectFinder.construct(context);
 
         ServerConfig config = ServerConfig::forTesting();
-        config.services = {MASTER_SERVICE};
+        config.services = {WireFormat::MASTER_SERVICE};
         cluster.addServer(config);
         cluster.addServer(config);
 
@@ -88,7 +88,7 @@ class ObjectFinderTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(ObjectFinderTest);
 };
 
-TEST_F(ObjectFinderTest, lookup) {
+TEST_F(ObjectFinderTest, lookup_key) {
     Transport::SessionRef session(objectFinder->lookup(1, "testKey", 7));
     // first tablet map is empty, throws TableDoesntExistException
     // get a new tablet map
@@ -102,60 +102,19 @@ TEST_F(ObjectFinderTest, lookup) {
         static_cast<BindTransport::BindSession*>(session.get())->locator);
 }
 
-TEST_F(ObjectFinderTest, multiLookup_basics) {
-    MasterClient::ReadObject* requests[3];
-
-    Tub<Buffer> readValue1;
-    MasterClient::ReadObject request1(1, "0", 1, &readValue1);
-    request1.status = STATUS_RETRY;
-    requests[0] = &request1;
-
-    Tub<Buffer> readValue2;
-    MasterClient::ReadObject request2(1, "1", 1, &readValue2);
-    request2.status = STATUS_RETRY;
-    requests[1] = &request2;
-
-    Tub<Buffer> readValue3;
-    MasterClient::ReadObject request3(2, "0", 1, &readValue3);
-    request3.status = STATUS_RETRY;
-    requests[2] = &request3;
-
-    std::vector<ObjectFinder::MasterRequests> requestBins =
-                                    objectFinder->multiLookup(requests, 3);
-
+TEST_F(ObjectFinderTest, lookup_hash) {
+    HashType keyHash = Key::getHash(1, "testKey", 7);
+    Transport::SessionRef session(objectFinder->lookup(1, keyHash));
+    // first tablet map is empty, throws TableDoesntExistException
+    // get a new tablet map
+    // find tablet in recovery
+    // get a new tablet map
+    // find tablet in recovery
+    // get a new tablet map
+    // find tablet in operation
+    EXPECT_EQ(3U, refresher->called);
     EXPECT_EQ("mock:host=server0",
-        static_cast<BindTransport::BindSession*>(
-        requestBins[0].sessionRef.get())->locator);
-    EXPECT_EQ(1U, requestBins[0].requests[0]->tableId);
-    EXPECT_EQ("0", requestBins[0].requests[0]->key);
-    EXPECT_STREQ("STATUS_RETRY", statusToSymbol(request1.status));
-    EXPECT_EQ(1U, requestBins[0].requests[1]->tableId);
-    EXPECT_EQ("1", requestBins[0].requests[1]->key);
-    EXPECT_STREQ("STATUS_RETRY", statusToSymbol(request2.status));
-
-    EXPECT_EQ("mock:host=server1",
-        static_cast<BindTransport::BindSession*>(
-        requestBins[1].sessionRef.get())->locator);
-    EXPECT_EQ(2U, requestBins[1].requests[0]->tableId);
-    EXPECT_EQ("0", requestBins[1].requests[0]->key);
-    EXPECT_STREQ("STATUS_RETRY", statusToSymbol(request3.status));
-}
-
-TEST_F(ObjectFinderTest, multiLookup_badTable) {
-    TestLog::Enable _;
-
-    MasterClient::ReadObject* requests[1];
-
-    Tub<Buffer> readValueError;
-    MasterClient::ReadObject requestError(3, "0", 1, &readValueError);
-    requestError.status = STATUS_RETRY;
-    requests[0] = &requestError;
-
-    std::vector<ObjectFinder::MasterRequests> requestBins =
-                                    objectFinder->multiLookup(requests, 1);
-
-    EXPECT_STREQ("STATUS_TABLE_DOESNT_EXIST",
-                            statusToSymbol(requestError.status));
+        static_cast<BindTransport::BindSession*>(session.get())->locator);
 }
 
 }  // namespace RAMCloud

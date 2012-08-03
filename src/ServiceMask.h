@@ -19,7 +19,7 @@
 #include <initializer_list>
 #include <sstream>
 
-#include "Rpc.h"
+#include "WireFormat.h"
 
 namespace RAMCloud {
 
@@ -46,11 +46,12 @@ class ServiceMask {
      *      Which services should be marked as available on this server.
      *      INVALID_SERVICE is ignored if it is pass as an element of services.
      */
-    ServiceMask(std::initializer_list<ServiceType> services) // NOLINT
+    ServiceMask(std::initializer_list<WireFormat::ServiceType>
+            services) // NOLINT
         : mask(0)
     {
         for (auto it = services.begin(); it != services.end(); ++it) {
-            if (*it == INVALID_SERVICE)
+            if (*it == WireFormat::INVALID_SERVICE)
                 continue;
             mask |= (1 << *it);
         }
@@ -61,7 +62,7 @@ class ServiceMask {
      * described by this ServiceMask, false otherwise. has(INVALID_SERVICE)
      * should always be false by construction.
      */
-    bool has(ServiceType service) const
+    bool has(WireFormat::ServiceType service) const
     {
         return mask & (1 << service);
     }
@@ -76,11 +77,12 @@ class ServiceMask {
         std::stringstream s;
         bool first = true;
         for (size_t bit = 0; bit < sizeof(mask) * 8; ++bit) {
-            ServiceType service = static_cast<ServiceType>(bit);
+            WireFormat::ServiceType service =
+                    static_cast<WireFormat::ServiceType>(bit);
             if (has(service)) {
                 if (!first)
                     s << ", ";
-                s << Rpc::serviceTypeSymbol(service);
+                s << WireFormat::serviceTypeSymbol(service);
                 first = false;
             }
         }
@@ -92,7 +94,8 @@ class ServiceMask {
      * than to call serialize/deserialize on this class should be avoided like
      * the plague.
      */
-    SerializedServiceMask serialize() const
+    WireFormat::SerializedServiceMask
+    serialize() const
     {
         return mask;
     }
@@ -103,10 +106,11 @@ class ServiceMask {
      * SerializedServiceMask other than to call serialize/deserialize on this class
      * should be avoided like the plague.
      */
-    static ServiceMask deserialize(SerializedServiceMask mask)
+    static ServiceMask deserialize(WireFormat::SerializedServiceMask mask)
     {
         // Check to make sure all bits correspond to valid ServiceTypes.
-        const SerializedServiceMask validBits = (1 << INVALID_SERVICE) - 1;
+        const WireFormat::SerializedServiceMask validBits =
+                (1 << WireFormat::INVALID_SERVICE) - 1;
         if ((mask & ~validBits) != 0) {
             RAMCLOUD_LOG(WARNING,
                 "Unexpected high-order bits set in SerializedServiceMask "
@@ -126,7 +130,7 @@ class ServiceMask {
      * simply as a bitfield. The bit at offset n represents the availabilty of
      * the ServiceType whose integer conversion is n.
      */
-    SerializedServiceMask mask;
+    WireFormat::SerializedServiceMask mask;
 };
 
 } // namespace RAMCloud

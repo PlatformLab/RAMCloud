@@ -23,7 +23,6 @@
 #include "Common.h"
 #include "MembershipService.h"
 #include "ProtoBuf.h"
-#include "Rpc.h"
 #include "ServerId.h"
 #include "ServerList.pb.h"
 #include "ShortMacros.h"
@@ -47,19 +46,19 @@ MembershipService::MembershipService(ServerId& ourServerId,
  * Dispatch an RPC to the right handler based on its opcode.
  */
 void
-MembershipService::dispatch(RpcOpcode opcode, Rpc& rpc)
+MembershipService::dispatch(WireFormat::Opcode opcode, Rpc& rpc)
 {
     switch (opcode) {
-    case GetServerIdRpc::opcode:
-        callHandler<GetServerIdRpc, MembershipService,
+    case WireFormat::GetServerId::opcode:
+        callHandler<WireFormat::GetServerId, MembershipService,
             &MembershipService::getServerId>(rpc);
         break;
-    case SetServerListRpc::opcode:
-        callHandler<SetServerListRpc, MembershipService,
+    case WireFormat::SetServerList::opcode:
+        callHandler<WireFormat::SetServerList, MembershipService,
             &MembershipService::setServerList>(rpc);
         break;
-    case UpdateServerListRpc::opcode:
-        callHandler<UpdateServerListRpc, MembershipService,
+    case WireFormat::UpdateServerList::opcode:
+        callHandler<WireFormat::UpdateServerList, MembershipService,
             &MembershipService::updateServerList>(rpc);
         break;
     default:
@@ -73,8 +72,8 @@ MembershipService::dispatch(RpcOpcode opcode, Rpc& rpc)
  * \copydetails Service::ping
  */
 void
-MembershipService::getServerId(const GetServerIdRpc::Request& reqHdr,
-                              GetServerIdRpc::Response& respHdr,
+MembershipService::getServerId(const WireFormat::GetServerId::Request& reqHdr,
+                              WireFormat::GetServerId::Response& respHdr,
                               Rpc& rpc)
 {
     // The serverId should be set by enlisting before any RPCs are dispatched
@@ -90,9 +89,10 @@ MembershipService::getServerId(const GetServerIdRpc::Request& reqHdr,
  * \copydetails Service::ping
  */
 void
-MembershipService::setServerList(const SetServerListRpc::Request& reqHdr,
-                                 SetServerListRpc::Response& respHdr,
-                                 Rpc& rpc)
+MembershipService::setServerList(
+    const WireFormat::SetServerList::Request& reqHdr,
+    WireFormat::SetServerList::Response& respHdr,
+    Rpc& rpc)
 {
     ProtoBuf::ServerList list;
     ProtoBuf::parseFromRequest(rpc.requestPayload, sizeof(reqHdr),
@@ -107,9 +107,10 @@ MembershipService::setServerList(const SetServerListRpc::Request& reqHdr,
  * \copydetails Service::ping
  */
 void
-MembershipService::updateServerList(const UpdateServerListRpc::Request& reqHdr,
-                                    UpdateServerListRpc::Response& respHdr,
-                                    Rpc& rpc)
+MembershipService::updateServerList(
+        const WireFormat::UpdateServerList::Request& reqHdr,
+        WireFormat::UpdateServerList::Response& respHdr,
+        Rpc& rpc)
 {
     ProtoBuf::ServerList update;
     ProtoBuf::parseFromRequest(rpc.requestPayload, sizeof(reqHdr),

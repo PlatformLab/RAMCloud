@@ -31,7 +31,6 @@ struct ReplicaManagerTest : public ::testing::Test {
     ServerId serverId;
     ServerId backup1Id;
     ServerId backup2Id;
-    ServerList serverList;
 
     ReplicaManagerTest()
         : context()
@@ -41,12 +40,12 @@ struct ReplicaManagerTest : public ::testing::Test {
         , serverId(99, 0)
         , backup1Id()
         , backup2Id()
-        , serverList(context)
     {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
 
         ServerConfig config = ServerConfig::forTesting();
-        config.services = {BACKUP_SERVICE, MEMBERSHIP_SERVICE};
+        config.services = {WireFormat::BACKUP_SERVICE,
+                           WireFormat::MEMBERSHIP_SERVICE};
         config.segmentSize = segmentSize;
         config.backup.numSegmentFrames = 4;
         config.localLocator = "mock:host=backup1";
@@ -55,45 +54,18 @@ struct ReplicaManagerTest : public ::testing::Test {
         config.localLocator = "mock:host=backup2";
         backup2Id = addToServerList(cluster.addServer(config));
 
-        mgr.construct(context, serverList, serverId, 2,
-                      &cluster.coordinatorLocator);
-        serverId = cluster.getCoordinatorClient()->
-                            enlistServer({}, {MASTER_SERVICE}, "", 0 , 0);
+        mgr.construct(context, *context.serverList, serverId, 2);
+        serverId = CoordinatorClient::enlistServer(context, {},
+            {WireFormat::MASTER_SERVICE}, "", 0 , 0);
     }
 
     ServerId addToServerList(Server* server)
     {
-        serverList.add(server->serverId,
+        context.serverList->add(server->serverId,
                        server->config.localLocator,
                        server->config.services,
                        server->config.backup.mockSpeed);
         return server->serverId;
-    }
-
-    void dumpReplicatedSegments()
-    {
-        LOG(ERROR, "%lu open segments:", mgr->replicatedSegmentList.size());
-        foreach (auto& segment, mgr->replicatedSegmentList) {
-            LOG(ERROR, "Segment %lu", segment.segmentId);
-            LOG(ERROR, "  data: %p", segment.data);
-            LOG(ERROR, "  openLen: %u", segment.openLen);
-            LOG(ERROR, "  queued.bytes: %u", segment.queued.bytes);
-            LOG(ERROR, "  queued.close: %u", segment.queued.close);
-            foreach (auto& replica, segment.replicas) {
-                LOG(ERROR, "  Replica:%s",
-                    replica.isActive ? "" : " non-existent");
-                if (!replica.isActive)
-                    continue;
-                LOG(ERROR, "    acked.open: %u", replica.acked.open);
-                LOG(ERROR, "    sent.bytes: %u", replica.sent.bytes);
-                LOG(ERROR, "    sent.close: %u", replica.sent.close);
-                LOG(ERROR, "    Write RPC: %s", replica.writeRpc ?
-                                                    "active" : "inactive");
-                LOG(ERROR, "    Free RPC: %s", replica.freeRpc ?
-                                                    "active" : "inactive");
-            }
-            LOG(ERROR, " ");
-        }
     }
 };
 
@@ -109,22 +81,40 @@ TEST_F(ReplicaManagerTest, isReplicaNeeded) {
 
     // Is not needed if we know about the backup (and hence the crashes of any
     // of its predecessors and we have no record of this segment.
-    serverList.add({2, 0}, "mock:host=backup1", {BACKUP_SERVICE}, 100);
+    context.serverList->add({2, 0}, "mock:host=backup1",
+                            {WireFormat::BACKUP_SERVICE}, 100);
     while (mgr->failureMonitor.tracker.getChange(server, event));
     EXPECT_FALSE(mgr->isReplicaNeeded({2, 0}, 99));
 
     // Is needed if we know the calling backup has crashed; the successor
     // backup will take care of garbage collection.
-    serverList.crashed({2, 0}, "mock:host=backup1", {BACKUP_SERVICE}, 100);
+    context.serverList->crashed({2, 0}, "mock:host=backup1",
+                                {WireFormat::BACKUP_SERVICE}, 100);
     while (mgr->failureMonitor.tracker.getChange(server, event));
     EXPECT_TRUE(mgr->isReplicaNeeded({2, 0}, 99));
 }
 
-TEST_F(ReplicaManagerTest, openSegment) {
+TEST_F(ReplicaManagerTest, allocateHead) {
     MockRandom _(1);
-    const char data[] = "Hello world!";
+    char data[] = "Hello world!";
 
-    auto segment = mgr->openSegment(true, 88, data, arrayLength(data));
+    Segment priorSeg(data, arrayLength(data));
+    auto prior = mgr->allocateHead(87, &priorSeg, NULL, arrayLength(data));
+    Segment seg(data, arrayLength(data));
+    auto segment = mgr->allocateHead(88, &seg, prior, arrayLength(data));
+
+    ASSERT_FALSE(mgr->taskQueue.isIdle());
+    EXPECT_EQ(2u, mgr->replicatedSegmentList.size());
+    EXPECT_EQ(segment, &mgr->replicatedSegmentList.back());
+    EXPECT_EQ(segment, prior->followingSegment);
+}
+
+TEST_F(ReplicaManagerTest, allocateNonHead) {
+    MockRandom _(1);
+    char data[] = "Hello world!";
+
+    Segment seg(data, arrayLength(data));
+    auto segment = mgr->allocateHead(88, &seg, NULL, arrayLength(data));
 
     ASSERT_FALSE(mgr->taskQueue.isIdle());
     EXPECT_EQ(segment, mgr->taskQueue.tasks.front());
@@ -134,7 +124,7 @@ TEST_F(ReplicaManagerTest, openSegment) {
     segment->sync(segment->queued.bytes);
 
     // make sure we think data was written
-    EXPECT_EQ(data, segment->data);
+    EXPECT_EQ(&seg, segment->segment);
     EXPECT_EQ(arrayLength(data), segment->queued.bytes);
     EXPECT_FALSE(segment->queued.close);
     foreach (auto& replica, segment->replicas) {
@@ -145,15 +135,6 @@ TEST_F(ReplicaManagerTest, openSegment) {
     }
     EXPECT_EQ(arrayLength(data), cluster.servers[0]->backup->bytesWritten);
     EXPECT_EQ(arrayLength(data), cluster.servers[1]->backup->bytesWritten);
-
-    // make sure ReplicatedSegment::replicas point to ok service locators
-    vector<string> backupLocators;
-    foreach (auto& replica, segment->replicas) {
-        backupLocators.push_back(
-            replica.client->getSession()->getServiceLocator());
-    }
-    EXPECT_EQ((vector<string> {"mock:host=backup1", "mock:host=backup2"}),
-              backupLocators);
 }
 
 // This is a test that really belongs in SegmentTest.cc, but the setup
@@ -195,16 +176,10 @@ TEST_F(ReplicaManagerTest, writeSegment) {
         foreach (auto& replica, segment.replicas) {
             ASSERT_TRUE(replica.isActive);
             Buffer resp;
-            replica.client->startReadingData(serverId, will);
-            while (true) {
-                try {
-                    replica.client->getRecoveryData(serverId, 88, 0, resp);
-                } catch (const RetryException& e) {
-                    resp.reset();
-                    continue;
-                }
-                break;
-            }
+            BackupClient::startReadingData(context, replica.backupId,
+                                           serverId, will);
+            BackupClient::getRecoveryData(context, replica.backupId,
+                                          serverId, 88, 0, resp);
             ASSERT_NE(0U, resp.totalLength);
 
             SegmentIterator it(resp.getRange(0, resp.getTotalLength()),
@@ -223,7 +198,8 @@ TEST_F(ReplicaManagerTest, writeSegment) {
 }
 
 TEST_F(ReplicaManagerTest, proceed) {
-    mgr->openSegment(true, 89, NULL, 0)->close(NULL);
+    Segment seg;
+    mgr->allocateHead(89, &seg, NULL, 0)->close();
     auto& segment = mgr->replicatedSegmentList.front();
     EXPECT_FALSE(segment.replicas[0].isActive);
     mgr->proceed();
@@ -232,25 +208,30 @@ TEST_F(ReplicaManagerTest, proceed) {
 }
 
 TEST_F(ReplicaManagerTest, handleBackupFailure) {
-    auto s1 = mgr->openSegment(true, 89, NULL, 0);
-    auto s2 = mgr->openSegment(true, 90, NULL, 0);
-    auto s3 = mgr->openSegment(true, 91, NULL, 0);
+    Segment seg1;
+    Segment seg2;
+    Segment seg3;
+    auto s1 = mgr->allocateHead(89, &seg1, NULL, 0);
+    auto s2 = mgr->allocateHead(90, &seg2, s1, 0);
+    auto s3 = mgr->allocateHead(91, &seg3, s2, 0);
     mgr->proceed();
     mgr->proceed();
     mgr->proceed();
     Tub<uint64_t> segmentId = mgr->handleBackupFailure(backup1Id);
     ASSERT_TRUE(segmentId);
     EXPECT_EQ(91u, *segmentId);
-    auto s4 = mgr->openSegment(true, 92, NULL, 0);
+    Segment seg4;
+    IGNORE_RESULT(mgr->allocateHead(92, &seg4, s3, 0));
     // If we don't meet the dependencies the backup will refuse
     // to tear-down as it tries to make sure there is no data loss.
-    s1->close(s2);
-    s2->close(s3);
-    s3->close(s4);
+    s1->close();
+    s2->close();
+    s3->close();
 }
 
 TEST_F(ReplicaManagerTest, destroyAndFreeReplicatedSegment) {
-    auto* segment = mgr->openSegment(true, 89, NULL, 0);
+    Segment seg;
+    auto* segment = mgr->allocateHead(89, &seg, NULL, 0);
     segment->sync(0);
     while (!mgr->taskQueue.isIdle())
         mgr->proceed(); // Make sure the close gets pushed out as well.
@@ -265,7 +246,7 @@ bool filter(string s) {
     // Mostly to filter out non-deterministic storage stuff on the backup.
     const char* ok[] = { "main"
                        , "handleBackupFailure"
-                       , "openSegment"
+                       , "allocateSegment"
                        , "write"
                        , "close"
                        , "selectPrimary"
@@ -294,7 +275,6 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
     MockRandom __(1);
 #if 0
     const uint64_t logSegs = 4;
-    Context context;
     Log log(context, serverId, logSegs * 8192, 8192, 4298,
             mgr.get(), true);
     log.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
@@ -313,11 +293,13 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
     // if the wait occurs before the failure notification gets processed this
     // will be trivially true.
     log.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf), false);
+    log.head->replicatedSegment->schedule();
     ASSERT_FALSE(mgr->isIdle());
     ASSERT_EQ(1u, log.head->getId());
 
     ServerConfig config = ServerConfig::forTesting();
-    config.services = {BACKUP_SERVICE, MEMBERSHIP_SERVICE};
+    config.services = {WireFormat::BACKUP_SERVICE,
+                       WireFormat::MEMBERSHIP_SERVICE};
     config.segmentSize = segmentSize;
     config.backup.numSegmentFrames = 4;
     config.localLocator = "mock:host=backup3";
@@ -326,9 +308,10 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
     EXPECT_FALSE(mgr->isIdle());
 
     TestLog::Enable _(filter);
-    BackupFailureMonitor failureMonitor(context, serverList, mgr.get());
+    BackupFailureMonitor failureMonitor(context, *context.serverList,
+                                        mgr.get());
     failureMonitor.start(&log);
-    serverList.remove(backup1Id);
+    context.serverList->remove(backup1Id);
 
     // Wait for backup recovery to finish.
     while (!mgr->isIdle());
@@ -358,37 +341,53 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
         // Ensure a new log head is allocated.
         "main: Allocating a new log head | "
         // Which provides the required new log digest via open.
-        "openSegment: openSegment 3, 2, ..., 76 | "
-        "write: 3, 1, 8192 | "
+        "allocateSegment: Allocating new replicated segment for <3,2> "
+            "initial open length 76 | "
         "close: 3, 1, 2 | "
         // And which also provides the needed close on the log segment
         // with the lost open replica.
-        "close: Segment 1 closed (length 8192) | "
+        "close: Segment 1 closed (length 216) | "
         // Notice the actual close to the backup is delayed because it
         // must wait on a durable open to the new log head.
         "performWrite: Cannot close segment 1 until following segment is "
             "durably open | "
         // Re-replication of Segment 1's lost replica.
-        "performWrite: Starting replication on backup 4 | "
+        "performWrite: Starting replication of segment 1 replica slot 1 "
+            "on backup 4 | "
         "performWrite: Sending open to backup 4 | "
         "writeSegment: Opening <3,1> | "
         // Re-replication of Segment 0's lost replica.
         "selectPrimary: Chose server 4 with 0 primary replicas and 100 MB/s "
             "disk bandwidth (expected time to read on recovery is 80 ms) | "
-        "performWrite: Starting replication on backup 4 | "
+        "performWrite: Starting replication of segment 0 replica slot 0 "
+            "on backup 4 | "
         "performWrite: Sending open to backup 4 | "
         "writeSegment: Opening <3,0> | "
         // Starting replication of new log head Segment 2.
         "selectPrimary: Chose server 2 with 1 primary replicas and 100 MB/s "
             "disk bandwidth (expected time to read on recovery is 160 ms) | "
-        "performWrite: Starting replication on backup 2 | "
+        "performWrite: Starting replication of segment 2 replica slot 0 "
+            "on backup 2 | "
+        // But replication cannot start right away because preceding segments
+        // haven't been durably opened.
+        "performWrite: Cannot open segment 2 until preceding segment is "
+            "durably open | "
+        "performWrite: Starting replication of segment 2 replica slot 1 "
+            "on backup 4 | "
+        "performWrite: Cannot open segment 2 until preceding segment is "
+            "durably open | "
+        "performWrite: Cannot close segment 1 until following segment is "
+            "durably open | "
         "performWrite: Sending open to backup 2 | "
         "writeSegment: Opening <3,2> | "
-        "performWrite: Starting replication on backup 4 | "
         "performWrite: Sending open to backup 4 | "
         "writeSegment: Opening <3,2> | "
         // Segment 1 is still waiting for the RPC for the open for Segment 2
-        // to be reaped to ensure that it is durably open.
+        // to be reaped to ensure that it is durably open. Repeats twice
+        // because segment 2 was delayed in sending its open due to the open
+        // from its preceding segment.
+        "performWrite: Cannot close segment 1 until following segment is "
+            "durably open | "
         "performWrite: Cannot close segment 1 until following segment is "
             "durably open | "
         // This part is a bit ambiguous:
@@ -396,8 +395,8 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
         // That frees Segment 1 to finally send it's closing write which
         // accounts for 2 rpcs, one to each of its replicas.  The other
         // write is to finish the replication of segment 0.
-        "performWrite: Sending write to backup 2 | "
         "performWrite: Sending write to backup 4 | "
+        "performWrite: Sending write to backup 2 | "
         "performWrite: Sending write to backup 4 | "
         // Update minOpenSegmentId on the coordinator to complete the lost
         // open segment recovery protocol.
@@ -421,7 +420,9 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
     EXPECT_EQ(2u, log.head->getId());
 #endif
     // Make sure the minOpenSegmentId was updated.
-    EXPECT_EQ(2u, cluster.coordinator->serverList[serverId].minOpenSegmentId);
+    EXPECT_EQ(2u,
+        cluster.coordinator->context.coordinatorServerList->at(
+        serverId).minOpenSegmentId);
 }
 
 } // namespace RAMCloud

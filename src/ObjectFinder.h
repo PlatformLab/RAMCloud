@@ -20,6 +20,7 @@
 
 #include "Common.h"
 #include "CoordinatorClient.h"
+#include "Key.h"
 #include "Transport.h"
 #include "MasterClient.h"
 
@@ -34,28 +35,20 @@ class ObjectFinder {
   public:
     class TabletMapFetcher; // forward declaration, see full declaration below
 
-    explicit ObjectFinder(Context& context, CoordinatorClient& coordinator);
-
-    /**
-     * A partition (or bin) corresponding to the requests to be sent
-     * to one master in a multiRead / multiWrite operation.
-     */
-    struct MasterRequests {
-        MasterRequests() : sessionRef(), requests() {}
-        Transport::SessionRef sessionRef;
-        std::vector<MasterClient::ReadObject*> requests;
-    };
+    explicit ObjectFinder(Context& context);
 
     Transport::SessionRef lookup(uint64_t table, const void* key,
                                  uint16_t keyLength);
-    std::vector<MasterRequests> multiLookup(MasterClient::ReadObject* input[],
-                                            uint32_t numRequests);
+    Transport::SessionRef lookup(uint64_t table, HashType keyHash);
+    const ProtoBuf::Tablets::Tablet& lookupTablet(uint64_t table,
+                                                  HashType keyHash);
 
     /**
      * Jettison all tablet map entries forcing a fetch of fresh mappings
      * on subsequent lookups.
      */
     void flush() {
+        RAMCLOUD_TEST_LOG("flushing object map");
         tabletMap.Clear();
     }
 

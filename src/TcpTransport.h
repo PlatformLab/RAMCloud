@@ -159,11 +159,12 @@ class TcpTransport : public Transport {
       public:
         friend class TcpTransport;
         friend class TcpSession;
-        explicit TcpClientRpc(TcpSession& session, Buffer*request,
-                Buffer* response, uint64_t nonce)
+        explicit TcpClientRpc(TcpSession& session, Buffer* request,
+                Buffer* response, uint64_t nonce, RpcNotifier* notifier)
             : Transport::ClientRpc(session.transport.context,
                     request, response),
-              nonce(nonce), session(session), sent(false), queueEntries()
+              nonce(nonce), session(session), sent(false), queueEntries(),
+              notifier(notifier)
                { }
       PROTECTED:
         virtual void cancelCleanup();
@@ -179,6 +180,7 @@ class TcpTransport : public Transport {
                                   /// Used to link this RPC onto the
                                   /// rpcsWaitingToSend and
                                   /// rpcsWaitingForResponse lists of session.
+        RpcNotifier* notifier;    /// Use this object to report completion.
         DISALLOW_COPY_AND_ASSIGN(TcpClientRpc);
     };
 
@@ -254,12 +256,15 @@ class TcpTransport : public Transport {
                 uint32_t timeoutMs = 0);
         ~TcpSession();
         virtual void abort(const string& message);
+        virtual void cancelRequest(RpcNotifier* notifier);
         ClientRpc* clientSend(Buffer* request, Buffer* reply)
             __attribute__((warn_unused_result));
         Buffer* findRpc(Header& header);
         void release() {
             delete this;
         }
+        virtual void sendRequest(Buffer* request, Buffer* response,
+                RpcNotifier* notifier);
       PRIVATE:
 #if TESTING
         explicit TcpSession(TcpTransport& transport) : transport(transport),

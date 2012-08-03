@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-20121 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -353,8 +353,11 @@ InfRcTransport<Infiniband>::InfRcSession::abort(const string& message)
         it++;
         if (current->session == this) {
             LOG(NOTICE, "Infiniband aborting %s request to %s",
-                    Rpc::opcodeSymbol(*current->request),
+                    WireFormat::opcodeSymbol(*current->request),
                     getServiceLocator().c_str());
+            if (current->notifier != NULL) {
+                 current->notifier->failed();
+            }
             current->cancel(message);
         }
     }
@@ -365,13 +368,45 @@ InfRcTransport<Infiniband>::InfRcSession::abort(const string& message)
         it++;
         if (current->session == this) {
             LOG(NOTICE, "Infiniband aborting %s request to %s",
-                    Rpc::opcodeSymbol(*current->request),
+                    WireFormat::opcodeSymbol(*current->request),
                     getServiceLocator().c_str());
+            if (current->notifier != NULL) {
+                 current->notifier->failed();
+            }
             current->cancel(message);
         }
     }
     delete qp;
     qp = NULL;
+}
+
+// See Transport::Session::cancelRequest for documentation.
+template<typename Infiniband>
+void
+InfRcTransport<Infiniband>::InfRcSession::cancelRequest(
+    RpcNotifier* notifier)
+{
+    // Search for an RPC that refers to this notifier; if one is
+    // found then remove all state relating to it.
+    foreach (ClientRpc& rpc, transport->clientSendQueue) {
+        if (rpc.notifier == notifier) {
+            rpc.state = ClientRpc::RESPONSE_RECEIVED;
+            erase(transport->clientSendQueue, rpc);
+            return;
+        }
+    }
+    foreach (ClientRpc& rpc, transport->outstandingRpcs) {
+        if (rpc.notifier == notifier) {
+            rpc.state = ClientRpc::RESPONSE_RECEIVED;
+            erase(transport->outstandingRpcs, rpc);
+            --transport->numUsedClientSrqBuffers;
+            alarm.rpcFinished();
+            if (transport->outstandingRpcs.empty()) {
+                transport->clientRpcsActiveTime.destroy();
+            }
+            return;
+        }
+    }
 }
 
 /**
@@ -396,8 +431,40 @@ InfRcTransport<Infiniband>::InfRcSession::clientSend(Buffer* request,
         throw TransportException(HERE, abortMessage);
     }
 
+    if (request->getTotalLength() > t->getMaxRpcSize()) {
+        throw TransportException(HERE,
+             format("client request exceeds maximum rpc size "
+                    "(attempted %u bytes, maximum %u bytes)",
+                    request->getTotalLength(),
+                    t->getMaxRpcSize()));
+    }
+
+    // Construct our ClientRpc in the response Buffer.
+    //
+    // We do this because we're loaning one of our registered receive buffers
+    // to the caller of wait() and need to issue it back to the HCA when
+    // they're done with it.
+    ClientRpc *rpc = new(response, MISC) ClientRpc(transport, this,
+                                                   request, response,
+                                                   generateRandom(), NULL);
+    rpc->sendOrQueue();
+    return rpc;
+}
+
+// See Transport::Session::sendRequest for documentation.
+template<typename Infiniband>
+void
+InfRcTransport<Infiniband>::InfRcSession::sendRequest(Buffer* request,
+        Buffer* response, RpcNotifier* notifier)
+{
+    response->reset();
+    InfRcTransport *t = transport;
+    if (qp == NULL) {
+        throw TransportException(HERE, abortMessage);
+    }
+
     LOG(DEBUG, "Sending %s request to %s with %u bytes",
-            Rpc::opcodeSymbol(*request), getServiceLocator().c_str(),
+            WireFormat::opcodeSymbol(*request), getServiceLocator().c_str(),
             request->getTotalLength());
     if (request->getTotalLength() > t->getMaxRpcSize()) {
         throw TransportException(HERE,
@@ -414,9 +481,9 @@ InfRcTransport<Infiniband>::InfRcSession::clientSend(Buffer* request,
     // they're done with it.
     ClientRpc *rpc = new(response, MISC) ClientRpc(transport, this,
                                                    request, response,
-                                                   generateRandom());
+                                                   generateRandom(),
+                                                   notifier);
     rpc->sendOrQueue();
-    return rpc;
 }
 
 /**
@@ -846,10 +913,6 @@ InfRcTransport<Infiniband>::ServerRpc::sendReply()
     }
 
     BufferDescriptor* bd = t->getTransmitBuffer();
-    LOG(DEBUG, "Replying to %s RPC from %s at %lu with transmit buffer %lu",
-        Rpc::opcodeSymbol(requestPayload), qp->getPeerName(),
-        reinterpret_cast<uint64_t>(this),
-        reinterpret_cast<uint64_t>(bd));
     new(&replyPayload, PREPEND) Header(nonce);
     {
         CycleCounter<RawMetric> copyTicks(
@@ -890,18 +953,22 @@ InfRcTransport<Infiniband>::ServerRpc::getClientServiceLocator()
  *      Buffer in which the response message should be placed.
  * \param nonce
  *      Uniquely identifies this RPC.
+ * \param notifier
+ *      Used to notify wrappers when the RPC is finished.
  */
 template<typename Infiniband>
 InfRcTransport<Infiniband>::ClientRpc::ClientRpc(InfRcTransport* transport,
                                      InfRcSession* session,
                                      Buffer* request,
                                      Buffer* response,
-                                     uint64_t nonce)
+                                     uint64_t nonce,
+                                     RpcNotifier* notifier)
     : Transport::ClientRpc(transport->context, request, response),
       transport(transport),
       session(session),
       nonce(nonce),
       state(PENDING),
+      notifier(notifier),
       queueEntries()
 {
 
@@ -925,7 +992,6 @@ InfRcTransport<Infiniband>::ClientRpc::tryZeroCopy(Buffer* request)
         if (addr >= t->logMemoryBase &&
           (addr + it.getLength()) < (t->logMemoryBase + t->logMemoryBytes)) {
             uint32_t hdrBytes = it.getTotalLength() - it.getLength();
-//LOG(NOTICE, "ZERO COPYING WRITE FROM LOG: total: %u bytes, hdr: %lu bytes, 0copy: %u bytes\n", request->getTotalLength(), hdrBytes, it.getLength()); //NOLINT 
             BufferDescriptor* bd = t->getTransmitBuffer();
             {
                 CycleCounter<RawMetric>
@@ -1000,9 +1066,12 @@ void
 InfRcTransport<Infiniband>::ClientRpc::cancelCleanup()
 {
     if (state == PENDING) {
-        erase(transport->clientSendQueue, *this);
+        transport->clientSendQueue.erase(
+            transport->clientSendQueue.iterator_to(*this));
     } else {
-        erase(transport->outstandingRpcs, *this);
+        transport->outstandingRpcs.erase(
+            transport->outstandingRpcs.iterator_to(*this));
+        --transport->numUsedClientSrqBuffers;
         session->alarm.rpcFinished();
     }
     state = RESPONSE_RECEIVED;
@@ -1067,10 +1136,10 @@ InfRcTransport<Infiniband>::Poller::poll()
                 metrics->transport.receive.byteCount +=
                     rpc.response->getTotalLength();
                 metrics->transport.receive.ticks += receiveTicks.stop();
-                LOG(DEBUG, "Received reply for %s request to %s",
-                        Rpc::opcodeSymbol(*rpc.request),
-                        rpc.session->getServiceLocator().c_str());
                 rpc.markFinished();
+                if (rpc.notifier != NULL) {
+                    rpc.notifier->completed();
+                }
                 if (t->outstandingRpcs.empty())
                     t->clientRpcsActiveTime.destroy();
                 goto next;
@@ -1121,9 +1190,6 @@ InfRcTransport<Infiniband>::Poller::poll()
                     bd->buffer + sizeof32(header),
                     len, t, t->serverSrq, bd);
             }
-            LOG(DEBUG, "Received %s request from %s",
-                    Rpc::opcodeSymbol(r->requestPayload),
-                    qp->getPeerName());
             t->context.serviceManager->handleRpc(r);
             ++metrics->transport.receive.messageCount;
             ++metrics->transport.receive.packetCount;

@@ -37,7 +37,7 @@ class ServiceManagerTest : public ::testing::Test {
             service(), logEnabler(), savedSyscall(NULL), sys()
     {
         manager.construct(context);
-        manager->addService(service, BACKUP_SERVICE);
+        manager->addService(service, WireFormat::BACKUP_SERVICE);
         savedSyscall = ServiceManager::sys;
         ServiceManager::sys = &sys;
     }
@@ -94,7 +94,7 @@ TEST_F(ServiceManagerTest, constructor) {
     MockService mock;
     ServiceManager manager1(context);
     ServiceManager manager2(context);
-    manager2.addService(mock, BACKUP_SERVICE);
+    manager2.addService(mock, WireFormat::BACKUP_SERVICE);
     EXPECT_EQ(0, manager1.serviceCount);
     EXPECT_EQ(1, manager2.serviceCount);
     EXPECT_TRUE(manager2.services[1]);
@@ -129,7 +129,7 @@ TEST_F(ServiceManagerTest, addService) {
     EXPECT_EQ(0, manager1.serviceCount);
     EXPECT_FALSE(manager1.services[1]);
     EXPECT_EQ(0U, manager1.idleThreads.size());
-    manager1.addService(mock, BACKUP_SERVICE);
+    manager1.addService(mock, WireFormat::BACKUP_SERVICE);
     EXPECT_EQ(1, manager1.serviceCount);
     EXPECT_TRUE(manager1.services[1]);
     EXPECT_EQ(3U, manager1.idleThreads.size());
@@ -317,7 +317,7 @@ TEST_F(ServiceManagerTest, workerMain_futexError) {
     // Create a new manager, whose service has only 1 thread.
     ServiceManager manager2(context);
     MockService service2(1);
-    manager2.addService(service2, BACKUP_SERVICE);
+    manager2.addService(service2, WireFormat::BACKUP_SERVICE);
     Worker* worker = manager2.idleThreads[0];
 
     sys.futexWaitErrno = EPERM;
@@ -464,5 +464,26 @@ TEST_F(ServiceManagerTest, WorkerSession_abort) {
     wrappedSession->abort("test message");
     EXPECT_STREQ("abort: test message", transport.outputLog.c_str());
 }
+
+TEST_F(ServiceManagerTest, WorkerSession_cancelRequest) {
+    MockTransport transport(context);
+    RpcWrapper wrapper(4);
+    wrapper.request.fillFromString("abcdefg");
+    MockTransport::sessionDeleteCount = 0;
+    wrapper.testSend(transport.getSession());
+    wrapper.cancel();
+    EXPECT_STREQ("sendRequest: abcdefg/0 | cancel: ",
+            transport.outputLog.c_str());
+}
+
+TEST_F(ServiceManagerTest, WorkerSession_sendRequest) {
+    MockTransport transport(context);
+    RpcWrapper wrapper(4);
+    wrapper.request.fillFromString("abcdefg");
+    MockTransport::sessionDeleteCount = 0;
+    wrapper.testSend(transport.getSession());
+    EXPECT_STREQ("sendRequest: abcdefg/0", transport.outputLog.c_str());
+}
+
 
 } // namespace RAMCloud

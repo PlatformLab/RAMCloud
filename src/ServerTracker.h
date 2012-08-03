@@ -436,7 +436,7 @@ class ServerTracker : public ServerTrackerInterface {
      *      running an instance of the requested service type.
      */
     ServerId
-    getRandomServerIdWithService(ServiceType service)
+    getRandomServerIdWithService(WireFormat::ServiceType service)
     {
         // This could get a little slow if the list isn't dense, but the
         // coordinator should aggressively reuse slots to maintain density
@@ -618,7 +618,7 @@ class ServerTracker : public ServerTrackerInterface {
      *      #service.
      */
     std::vector<ServerId>
-    getServersWithService(ServiceType service)
+    getServersWithService(WireFormat::ServiceType service)
     {
         std::vector<ServerId> result;
         result.reserve(serverList.size());

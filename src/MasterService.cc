@@ -20,6 +20,8 @@
 #include "ClientException.h"
 #include "Cycles.h"
 #include "Dispatch.h"
+#include "Enumeration.h"
+#include "EnumerationIterator.h"
 #include "LogIterator.h"
 #include "ShortMacros.h"
 #include "MasterClient.h"
@@ -27,7 +29,6 @@
 #include "RawMetrics.h"
 #include "Tub.h"
 #include "ProtoBuf.h"
-#include "Rpc.h"
 #include "Segment.h"
 #include "ServiceManager.h"
 #include "Transport.h"
@@ -100,23 +101,18 @@ MasterService::Replica::Replica(uint64_t backupId, uint64_t segmentId,
  * \param config
  *      Contains various parameters that configure the operation of
  *      this server.
- * \param coordinator
- *      A client to the coordinator for the RAMCloud this Master is in.
  * \param serverList
  *      A reference to the global ServerList.
  */
 MasterService::MasterService(Context& context,
                              const ServerConfig& config,
-                             CoordinatorClient* coordinator,
                              ServerList& serverList)
     : context(context)
     , config(config)
-    , coordinator(coordinator)
     , serverId()
     , serverList(serverList)
     , bytesWritten(0)
-    , replicaManager(context, serverList, serverId,
-                     config.master.numReplicas, &config.coordinatorLocator)
+    , replicaManager(context, serverList, serverId, config.master.numReplicas)
     , allocator(config.master.logBytes, config.segmentSize, config.segletSize)
     , segmentManager(context, serverId, allocator, replicaManager, 2.0) 
     , log(context, *this, segmentManager,
@@ -128,6 +124,7 @@ MasterService::MasterService(Context& context,
     , initCalled(false)
     , anyWrites(false)
     , objectUpdateLock()
+    , maxMultiReadResponseSize(Transport::MAX_RPC_LEN)
 {
     replicaManager.startFailureMonitor(&log);
 }
@@ -143,75 +140,79 @@ MasterService::~MasterService()
 }
 
 void
-MasterService::dispatch(RpcOpcode opcode, Rpc& rpc)
+MasterService::dispatch(WireFormat::Opcode opcode, Rpc& rpc)
 {
     assert(initCalled);
 
     std::lock_guard<SpinLock> lock(objectUpdateLock);
 
     switch (opcode) {
-        case DropTabletOwnershipRpc::opcode:
-            callHandler<DropTabletOwnershipRpc, MasterService,
+        case WireFormat::DropTabletOwnership::opcode:
+            callHandler<WireFormat::DropTabletOwnership, MasterService,
                         &MasterService::dropTabletOwnership>(rpc);
             break;
-        case FillWithTestDataRpc::opcode:
-            callHandler<FillWithTestDataRpc, MasterService,
+        case WireFormat::Enumerate::opcode:
+            callHandler<WireFormat::Enumerate, MasterService,
+                        &MasterService::enumeration>(rpc);
+            break;
+        case WireFormat::FillWithTestData::opcode:
+            callHandler<WireFormat::FillWithTestData, MasterService,
                         &MasterService::fillWithTestData>(rpc);
             break;
-        case IncrementRpc::opcode:
-            callHandler<IncrementRpc, MasterService,
+        case WireFormat::Increment::opcode:
+            callHandler<WireFormat::Increment, MasterService,
                         &MasterService::increment>(rpc);
             break;
-        case IsReplicaNeededRpc::opcode:
-            callHandler<IsReplicaNeededRpc, MasterService,
+        case WireFormat::IsReplicaNeeded::opcode:
+            callHandler<WireFormat::IsReplicaNeeded, MasterService,
                         &MasterService::isReplicaNeeded>(rpc);
             break;
-        case GetServerStatisticsRpc::opcode:
-            callHandler<GetServerStatisticsRpc, MasterService,
+        case WireFormat::GetServerStatistics::opcode:
+            callHandler<WireFormat::GetServerStatistics, MasterService,
                         &MasterService::getServerStatistics>(rpc);
             break;
-        case GetHeadOfLogRpc::opcode:
-            callHandler<GetHeadOfLogRpc, MasterService,
+        case WireFormat::GetHeadOfLog::opcode:
+            callHandler<WireFormat::GetHeadOfLog, MasterService,
                         &MasterService::getHeadOfLog>(rpc);
             break;
-        case MigrateTabletRpc::opcode:
-            callHandler<MigrateTabletRpc, MasterService,
+        case WireFormat::MigrateTablet::opcode:
+            callHandler<WireFormat::MigrateTablet, MasterService,
                         &MasterService::migrateTablet>(rpc);
             break;
-        case MultiReadRpc::opcode:
-            callHandler<MultiReadRpc, MasterService,
+        case WireFormat::MultiRead::opcode:
+            callHandler<WireFormat::MultiRead, MasterService,
                         &MasterService::multiRead>(rpc);
             break;
-        case PrepForMigrationRpc::opcode:
-            callHandler<PrepForMigrationRpc, MasterService,
+        case WireFormat::PrepForMigration::opcode:
+            callHandler<WireFormat::PrepForMigration, MasterService,
                         &MasterService::prepForMigration>(rpc);
             break;
-        case ReadRpc::opcode:
-            callHandler<ReadRpc, MasterService,
+        case WireFormat::Read::opcode:
+            callHandler<WireFormat::Read, MasterService,
                         &MasterService::read>(rpc);
             break;
-        case ReceiveMigrationDataRpc::opcode:
-            callHandler<ReceiveMigrationDataRpc, MasterService,
+        case WireFormat::ReceiveMigrationData::opcode:
+            callHandler<WireFormat::ReceiveMigrationData, MasterService,
                         &MasterService::receiveMigrationData>(rpc);
             break;
-        case RecoverRpc::opcode:
-            callHandler<RecoverRpc, MasterService,
+        case WireFormat::Recover::opcode:
+            callHandler<WireFormat::Recover, MasterService,
                         &MasterService::recover>(rpc);
             break;
-        case RemoveRpc::opcode:
-            callHandler<RemoveRpc, MasterService,
+        case WireFormat::Remove::opcode:
+            callHandler<WireFormat::Remove, MasterService,
                         &MasterService::remove>(rpc);
             break;
-        case SplitMasterTabletRpc::opcode:
-            callHandler<SplitMasterTabletRpc, MasterService,
+        case WireFormat::SplitMasterTablet::opcode:
+            callHandler<WireFormat::SplitMasterTablet, MasterService,
                         &MasterService::splitMasterTablet>(rpc);
             break;
-        case TakeTabletOwnershipRpc::opcode:
-            callHandler<TakeTabletOwnershipRpc, MasterService,
+        case WireFormat::TakeTabletOwnership::opcode:
+            callHandler<WireFormat::TakeTabletOwnership, MasterService,
                         &MasterService::takeTabletOwnership>(rpc);
             break;
-        case WriteRpc::opcode:
-            callHandler<WriteRpc, MasterService,
+        case WireFormat::Write::opcode:
+            callHandler<WireFormat::Write, MasterService,
                         &MasterService::write>(rpc);
             break;
         default:
@@ -237,6 +238,60 @@ MasterService::init(ServerId id)
 }
 
 /**
+ * Top-level server method to handle the ENUMERATION request.
+ *
+ * \copydetails Service::ping
+ */
+void
+MasterService::enumeration(const WireFormat::Enumerate::Request& reqHdr,
+                           WireFormat::Enumerate::Response& respHdr,
+                           Rpc& rpc)
+{
+    bool validTablet = false;
+    // In some cases, actualTabletStartHash may differ from
+    // reqHdr.tabletFirstHash, e.g. when a tablet is merged in between
+    // RPCs made to enumerate that tablet. If that happens, we must
+    // filter by reqHdr.tabletFirstHash, NOT the actualTabletStartHash
+    // for the tablet we own.
+    uint64_t actualTabletStartHash = 0, actualTabletEndHash = 0;
+    foreach (auto& tablet, tablets.tablet()) {
+        if (tablet.table_id() == reqHdr.tableId &&
+            tablet.start_key_hash() <= reqHdr.tabletFirstHash &&
+            reqHdr.tabletFirstHash <= tablet.end_key_hash()) {
+            validTablet = true;
+            actualTabletStartHash = tablet.start_key_hash();
+            actualTabletEndHash = tablet.end_key_hash();
+            break;
+        }
+    }
+    if (!validTablet) {
+        respHdr.common.status = STATUS_UNKNOWN_TABLE;
+        return;
+    }
+
+    EnumerationIterator iter(
+        rpc.requestPayload,
+        downCast<uint32_t>(sizeof(reqHdr)), reqHdr.iteratorBytes);
+
+    Buffer payload;
+    // A rough upper bound on how much space will be available in the response.
+    uint32_t maxPayloadBytes =
+            downCast<uint32_t>(Transport::MAX_RPC_LEN - sizeof(respHdr)
+                               - reqHdr.iteratorBytes);
+    Enumeration enumeration(reqHdr.tableId, reqHdr.tabletFirstHash,
+                            actualTabletStartHash, actualTabletEndHash,
+                            &respHdr.tabletFirstHash, iter, log, objectMap,
+                            rpc.replyPayload, maxPayloadBytes);
+    enumeration.complete();
+    respHdr.payloadBytes = rpc.replyPayload.getTotalLength()
+            - downCast<uint32_t>(sizeof(respHdr));
+
+    // Add new iterator to the end of the response.
+    uint32_t iteratorBytes = iter.serialize(rpc.replyPayload);
+    respHdr.iteratorBytes = iteratorBytes;
+}
+
+/**
  * Fill a master server with the given number of objects, each of the
  * same given size. Objects are added to all tables in the master in
  * a round-robin fashion. This method exists simply to quickly fill a
@@ -251,17 +306,27 @@ MasterService::init(ServerId id)
  * \copydetails Service::ping
  */
 void
-MasterService::fillWithTestData(const FillWithTestDataRpc::Request& reqHdr,
-                                FillWithTestDataRpc::Response& respHdr,
-                                Rpc& rpc)
+MasterService::fillWithTestData(
+    const WireFormat::FillWithTestData::Request& reqHdr,
+    WireFormat::FillWithTestData::Response& respHdr,
+    Rpc& rpc)
 {
     LOG(NOTICE, "Filling with %u objects of %u bytes each in %u tablets",
         reqHdr.numObjects, reqHdr.objectSize, tablets.tablet_size());
 
     Table* tables[tablets.tablet_size()];
-    uint32_t i = 0;
-    foreach (const ProtoBuf::Tablets::Tablet& tablet, tablets.tablet())
-        tables[i++] = reinterpret_cast<Table*>(tablet.user_data());
+    uint32_t numTablets = 0;
+    foreach (const ProtoBuf::Tablets::Tablet& tablet, tablets.tablet()) {
+        // Only use tables where we store the entire table here.
+        // The key calculation is not safe otherwise.
+        if ((tablet.start_key_hash() == 0)
+                && (tablet.end_key_hash() == ~0LU)) {
+            tables[numTablets++] =
+                    reinterpret_cast<Table*>(tablet.user_data());
+        }
+    }
+    if (numTablets == 0)
+        throw ObjectDoesntExistException(HERE);
 
     RejectRules rejectRules;
     memset(&rejectRules, 0, sizeof(RejectRules));
@@ -270,9 +335,9 @@ MasterService::fillWithTestData(const FillWithTestDataRpc::Request& reqHdr,
     for (uint32_t objects = 0; objects < reqHdr.numObjects; objects++) {
         Buffer buffer;
 
-        int t = objects % tablets.tablet_size();
+        int t = objects % numTablets;
 
-        string keyString = format("%d", objects / tablets.tablet_size());
+        string keyString = format("%d", objects / numTablets);
         uint16_t keyLength = static_cast<uint16_t>(keyString.length());
 
         char* keyLocation = new(&buffer, APPEND) char[keyLength];
@@ -309,8 +374,8 @@ MasterService::fillWithTestData(const FillWithTestDataRpc::Request& reqHdr,
  * Top-level server method to handle the GET_HEAD_OF_LOG request.
  */
 void
-MasterService::getHeadOfLog(const GetHeadOfLogRpc::Request& reqHdr,
-                            GetHeadOfLogRpc::Response& respHdr,
+MasterService::getHeadOfLog(const WireFormat::GetHeadOfLog::Request& reqHdr,
+                            WireFormat::GetHeadOfLog::Response& respHdr,
                             Rpc& rpc)
 {
     Log::Position head = log.getHeadPosition();
@@ -323,9 +388,9 @@ MasterService::getHeadOfLog(const GetHeadOfLogRpc::Request& reqHdr,
  */
 void
 MasterService::getServerStatistics(
-                            const GetServerStatisticsRpc::Request& reqHdr,
-                            GetServerStatisticsRpc::Response& respHdr,
-                            Rpc& rpc)
+    const WireFormat::GetServerStatistics::Request& reqHdr,
+    WireFormat::GetServerStatistics::Response& respHdr,
+    Rpc& rpc)
 {
     ProtoBuf::ServerStatistics serverStats;
 
@@ -358,31 +423,53 @@ MasterService::getServerStatistics(
  *      information to the response buffer.
  */
 void
-MasterService::multiRead(const MultiReadRpc::Request& reqHdr,
-                         MultiReadRpc::Response& respHdr,
+MasterService::multiRead(const WireFormat::MultiRead::Request& reqHdr,
+                         WireFormat::MultiRead::Response& respHdr,
                          Rpc& rpc)
 {
     uint32_t numRequests = reqHdr.count;
     uint32_t reqOffset = sizeof32(reqHdr);
 
     respHdr.count = numRequests;
+    uint32_t oldResponseLength = rpc.replyPayload.getTotalLength();
 
     // Each iteration extracts one request from request rpc, finds the
     // corresponding object, and appends the response to the response rpc.
-    for (uint32_t i = 0; i < numRequests; i++) {
-        const MultiReadRpc::Request::Part* currentReq =
-            rpc.requestPayload.getOffset<MultiReadRpc::Request::Part>(
+    for (uint32_t i = 0; ; i++) {
+        // If the RPC response has exceeded the legal limit, truncate it
+        // to the last object that fits below the limit (the client will
+        // retry the objects we don't return).
+        uint32_t newLength = rpc.replyPayload.getTotalLength();
+        if (newLength > maxMultiReadResponseSize) {
+            rpc.replyPayload.truncateEnd(newLength - oldResponseLength);
+            respHdr.count = i-1;
+            break;
+        } else {
+            oldResponseLength = newLength;
+        }
+        if (i >= numRequests) {
+            // The loop-termination check is done here rather than in the
+            // "for" statement above so that we have a chance to do the
+            // size check above even for every object inserted, including
+            // the last object and those with STATUS_OBJECT_DOESNT_EXIST.
+            break;
+        }
+
+        const WireFormat::MultiRead::Request::Part *currentReq =
+            rpc.requestPayload.getOffset<WireFormat::MultiRead::Request::Part>(
             reqOffset);
-        reqOffset += sizeof32(MultiReadRpc::Request::Part);
+        reqOffset += downCast<uint32_t>(
+            sizeof(WireFormat::MultiRead::Request::Part));
         const void* stringKey =
-            rpc.requestPayload.getRange(reqOffset, currentReq->keyLength);
-        reqOffset += currentReq->keyLength;
+            static_cast<const void*>(rpc.requestPayload.getRange(
+            reqOffset, currentReq->keyLength));
+        reqOffset += downCast<uint32_t>(currentReq->keyLength);
         Key key(currentReq->tableId, stringKey, currentReq->keyLength);
 
         Status* status = new(&rpc.replyPayload, APPEND) Status(STATUS_OK);
-        // We must note the status if the table does not exist. Also, we might
-        // have an entry in the hash table that's invalid because its tablet no
-        // longer lives here.
+        // We must note the status if the table is not present here. Also,
+        // we might have an entry in the hash table that's invalid because
+        // its tablet no longer lives here.
         if (getTable(key) == NULL) {
             *status = STATUS_UNKNOWN_TABLE;
             continue;
@@ -397,8 +484,9 @@ MasterService::multiRead(const MultiReadRpc::Request& reqHdr,
              continue;
         }
 
-        MultiReadRpc::Response::Part* currentResp =
-            new(&rpc.replyPayload, APPEND) MultiReadRpc::Response::Part();
+        WireFormat::MultiRead::Response::Part* currentResp =
+            new(&rpc.replyPayload, APPEND)
+                WireFormat::MultiRead::Response::Part();
 
         Object object(buffer);
         currentResp->version = object.getVersion();
@@ -425,8 +513,8 @@ MasterService::multiRead(const MultiReadRpc::Request& reqHdr,
  *      append additional information to the response buffer.
  */
 void
-MasterService::read(const ReadRpc::Request& reqHdr,
-                    ReadRpc::Response& respHdr,
+MasterService::read(const WireFormat::Read::Request& reqHdr,
+                    WireFormat::Read::Response& respHdr,
                     Rpc& rpc)
 {
     uint32_t reqOffset = sizeof32(reqHdr);
@@ -481,17 +569,17 @@ MasterService::read(const ReadRpc::Request& reqHdr,
  */
 void
 MasterService::dropTabletOwnership(
-    const DropTabletOwnershipRpc::Request& reqHdr,
-    DropTabletOwnershipRpc::Response& respHdr,
+    const WireFormat::DropTabletOwnership::Request& reqHdr,
+    WireFormat::DropTabletOwnership::Response& respHdr,
     Rpc& rpc)
 {
     int index = 0;
     foreach (ProtoBuf::Tablets::Tablet& i, *tablets.mutable_tablet()) {
         if (reqHdr.tableId == i.table_id() &&
-          reqHdr.firstKey == i.start_key_hash() &&
-          reqHdr.lastKey == i.end_key_hash()) {
+          reqHdr.firstKeyHash == i.start_key_hash() &&
+          reqHdr.lastKeyHash == i.end_key_hash()) {
             LOG(NOTICE, "Dropping ownership of tablet (%lu, range [%lu,%lu])",
-                reqHdr.tableId, reqHdr.firstKey, reqHdr.lastKey);
+                reqHdr.tableId, reqHdr.firstKeyHash, reqHdr.lastKeyHash);
             Table* table = reinterpret_cast<Table*>(i.user_data());
             delete table;
             tablets.mutable_tablet()->SwapElements(
@@ -504,7 +592,7 @@ MasterService::dropTabletOwnership(
     }
 
     LOG(WARNING, "Could not drop ownership on unknown tablet (%lu, range "
-        "[%lu,%lu])!", reqHdr.tableId, reqHdr.firstKey, reqHdr.lastKey);
+        "[%lu,%lu])!", reqHdr.tableId, reqHdr.firstKeyHash, reqHdr.lastKeyHash);
     respHdr.common.status = STATUS_UNKNOWN_TABLE;
 }
 
@@ -519,20 +607,20 @@ MasterService::dropTabletOwnership(
  */
 void
 MasterService::splitMasterTablet(
-    const SplitMasterTabletRpc::Request& reqHdr,
-    SplitMasterTabletRpc::Response& respHdr,
+    const WireFormat::SplitMasterTablet::Request& reqHdr,
+    WireFormat::SplitMasterTablet::Response& respHdr,
     Rpc& rpc)
 {
     ProtoBuf::Tablets_Tablet newTablet;
 
     foreach (ProtoBuf::Tablets::Tablet& i, *tablets.mutable_tablet()) {
         if (reqHdr.tableId == i.table_id() &&
-          reqHdr.startKeyHash == i.start_key_hash() &&
-          reqHdr.endKeyHash == i.end_key_hash()) {
+          reqHdr.firstKeyHash == i.start_key_hash() &&
+          reqHdr.lastKeyHash == i.end_key_hash()) {
 
             newTablet = i;
 
-            Table* newTable = new Table(reqHdr.tableId, reqHdr.startKeyHash,
+            Table* newTable = new Table(reqHdr.tableId, reqHdr.firstKeyHash,
                                  reqHdr.splitKeyHash - 1);
             i.set_user_data(reinterpret_cast<uint64_t>(newTable));
             i.set_end_key_hash(reqHdr.splitKeyHash - 1);
@@ -542,14 +630,14 @@ MasterService::splitMasterTablet(
 
     newTablet.set_start_key_hash(reqHdr.splitKeyHash);
     Table* newTable = new Table(reqHdr.tableId, reqHdr.splitKeyHash,
-                                 reqHdr.endKeyHash);
+                                 reqHdr.lastKeyHash);
     newTablet.set_user_data(reinterpret_cast<uint64_t>(newTable));
 
     *tablets.add_tablet() = newTablet;
 
     LOG(NOTICE, "In table '%lu' I split the tablet that started at key %lu and "
-                "ended at key %lu", reqHdr.tableId, reqHdr.startKeyHash,
-                reqHdr.endKeyHash);
+                "ended at key %lu", reqHdr.tableId, reqHdr.firstKeyHash,
+                reqHdr.lastKeyHash);
 }
 
 /**
@@ -565,8 +653,8 @@ MasterService::splitMasterTablet(
  */
 void
 MasterService::takeTabletOwnership(
-    const TakeTabletOwnershipRpc::Request& reqHdr,
-    TakeTabletOwnershipRpc::Response& respHdr,
+    const WireFormat::TakeTabletOwnership::Request& reqHdr,
+    WireFormat::TakeTabletOwnership::Response& respHdr,
     Rpc& rpc)
 {
     // Before any tablets can be assigned to this master it must have at
@@ -577,42 +665,43 @@ MasterService::takeTabletOwnership(
     ProtoBuf::Tablets::Tablet* tablet = NULL;
     foreach (ProtoBuf::Tablets::Tablet& i, *tablets.mutable_tablet()) {
         if (reqHdr.tableId == i.table_id() &&
-          reqHdr.firstKey == i.start_key_hash() &&
-          reqHdr.lastKey == i.end_key_hash()) {
+          reqHdr.firstKeyHash == i.start_key_hash() &&
+          reqHdr.lastKeyHash == i.end_key_hash()) {
             tablet = &i;
             break;
-        }
+       }
     }
 
     if (tablet == NULL) {
         // Sanity check that this tablet doesn't overlap with an existing one.
-        if (getTableForHash(reqHdr.tableId, reqHdr.firstKey) != NULL ||
-          getTableForHash(reqHdr.tableId, reqHdr.lastKey) != NULL) {
+        if (getTableForHash(reqHdr.tableId, reqHdr.firstKeyHash) != NULL ||
+          getTableForHash(reqHdr.tableId, reqHdr.lastKeyHash) != NULL) {
             LOG(WARNING, "Tablet being assigned (%lu, range [%lu,%lu]) "
                 "partially overlaps an existing tablet!", reqHdr.tableId,
-                reqHdr.firstKey, reqHdr.lastKey);
+                reqHdr.firstKeyHash, reqHdr.lastKeyHash);
             // TODO(anybody): Do we want a more meaningful error code?
             respHdr.common.status = STATUS_INTERNAL_ERROR;
             return;
         }
 
         LOG(NOTICE, "Taking ownership of new tablet (%lu, range "
-            "[%lu,%lu])", reqHdr.tableId, reqHdr.firstKey, reqHdr.lastKey);
+            "[%lu,%lu])", reqHdr.tableId, reqHdr.firstKeyHash,
+            reqHdr.lastKeyHash);
 
 
         ProtoBuf::Tablets_Tablet& newTablet(*tablets.add_tablet());
         newTablet.set_table_id(reqHdr.tableId);
-        newTablet.set_start_key_hash(reqHdr.firstKey);
-        newTablet.set_end_key_hash(reqHdr.lastKey);
+        newTablet.set_start_key_hash(reqHdr.firstKeyHash);
+        newTablet.set_end_key_hash(reqHdr.lastKeyHash);
         newTablet.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
 
-        Table* table = new Table(reqHdr.tableId, reqHdr.firstKey,
-                                 reqHdr.lastKey);
+        Table* table = new Table(reqHdr.tableId, reqHdr.firstKeyHash,
+                                 reqHdr.lastKeyHash);
         newTablet.set_user_data(reinterpret_cast<uint64_t>(table));
     } else {
         LOG(NOTICE, "Taking ownership of existing tablet (%lu, range "
-            "[%lu,%lu]) in state %d", reqHdr.tableId, reqHdr.firstKey,
-            reqHdr.lastKey, tablet->state());
+            "[%lu,%lu]) in state %d", reqHdr.tableId, reqHdr.firstKeyHash,
+            reqHdr.lastKeyHash, tablet->state());
 
         if (tablet->state() != ProtoBuf::Tablets_Tablet_State_RECOVERING) {
             LOG(WARNING, "Taking ownership when existing tablet is in "
@@ -637,18 +726,20 @@ MasterService::takeTabletOwnership(
  * \copydetails Service::ping
  */
 void
-MasterService::prepForMigration(const PrepForMigrationRpc::Request& reqHdr,
-                                PrepForMigrationRpc::Response& respHdr,
-                                Rpc& rpc)
+MasterService::prepForMigration(
+    const WireFormat::PrepForMigration::Request& reqHdr,
+    WireFormat::PrepForMigration::Response& respHdr,
+    Rpc& rpc)
 {
     // Decide if we want to decline this request.
 
     // Ensure that there's no tablet overlap, just in case.
-    bool overlap = (getTableForHash(reqHdr.tableId, reqHdr.firstKey) != NULL ||
-                    getTableForHash(reqHdr.tableId, reqHdr.lastKey) != NULL);
+    bool overlap =
+        (getTableForHash(reqHdr.tableId, reqHdr.firstKeyHash) != NULL ||
+         getTableForHash(reqHdr.tableId, reqHdr.lastKeyHash) != NULL);
     if (overlap) {
         LOG(WARNING, "already have tablet in range [%lu, %lu] for tableId %lu",
-            reqHdr.firstKey, reqHdr.lastKey, reqHdr.tableId);
+            reqHdr.firstKeyHash, reqHdr.lastKeyHash, reqHdr.tableId);
         respHdr.common.status = STATUS_OBJECT_EXISTS;
         return;
     }
@@ -657,18 +748,19 @@ MasterService::prepForMigration(const PrepForMigrationRpc::Request& reqHdr,
     // are served on it.
     ProtoBuf::Tablets_Tablet& tablet(*tablets.add_tablet());
     tablet.set_table_id(reqHdr.tableId);
-    tablet.set_start_key_hash(reqHdr.firstKey);
-    tablet.set_end_key_hash(reqHdr.lastKey);
+    tablet.set_start_key_hash(reqHdr.firstKeyHash);
+    tablet.set_end_key_hash(reqHdr.lastKeyHash);
     tablet.set_state(ProtoBuf::Tablets_Tablet_State_RECOVERING);
 
-    Table* table = new Table(reqHdr.tableId, reqHdr.firstKey,
-                             reqHdr.lastKey);
+    Table* table = new Table(reqHdr.tableId, reqHdr.firstKeyHash,
+                             reqHdr.lastKeyHash);
     tablet.set_user_data(reinterpret_cast<uint64_t>(table));
 
     // TODO(rumble) would be nice to have a method to get a SL from an Rpc
     // object.
     LOG(NOTICE, "Ready to receive tablet from \"??\". Table %lu, "
-        "range [%lu,%lu]", reqHdr.tableId, reqHdr.firstKey, reqHdr.lastKey);
+        "range [%lu,%lu]", reqHdr.tableId, reqHdr.firstKeyHash,
+        reqHdr.lastKeyHash);
 }
 
 /**
@@ -680,13 +772,13 @@ MasterService::prepForMigration(const PrepForMigrationRpc::Request& reqHdr,
  * \copydetails Service::ping
  */
 void
-MasterService::migrateTablet(const MigrateTabletRpc::Request& reqHdr,
-                             MigrateTabletRpc::Response& respHdr,
+MasterService::migrateTablet(const WireFormat::MigrateTablet::Request& reqHdr,
+                             WireFormat::MigrateTablet::Response& respHdr,
                              Rpc& rpc)
 {
     uint64_t tableId = reqHdr.tableId;
-    uint64_t firstKey = reqHdr.firstKey;
-    uint64_t lastKey = reqHdr.lastKey;
+    uint64_t firstKeyHash = reqHdr.firstKeyHash;
+    uint64_t lastKeyHash = reqHdr.lastKeyHash;
     ServerId newOwnerMasterId(reqHdr.newOwnerMasterId);
 
     // Find the tablet we're trying to move. We only support migration
@@ -696,8 +788,8 @@ MasterService::migrateTablet(const MigrateTabletRpc::Request& reqHdr,
     int tabletIndex = 0;
     foreach (const ProtoBuf::Tablets::Tablet& i, tablets.tablet()) {
         if (tableId == i.table_id() &&
-          firstKey >= i.start_key_hash() &&
-          lastKey <= i.end_key_hash()) {
+          firstKeyHash >= i.start_key_hash() &&
+          lastKeyHash <= i.end_key_hash()) {
             tablet = &i;
             break;
         }
@@ -706,7 +798,8 @@ MasterService::migrateTablet(const MigrateTabletRpc::Request& reqHdr,
 
     if (tablet == NULL) {
         LOG(WARNING, "Migration request for range this master does not "
-            "own. TableId %lu, range [%lu,%lu]", tableId, firstKey, lastKey);
+            "own. TableId %lu, range [%lu,%lu]",
+            tableId, firstKeyHash, lastKeyHash);
         respHdr.common.status = STATUS_UNKNOWN_TABLE;
         return;
     }
@@ -717,9 +810,6 @@ MasterService::migrateTablet(const MigrateTabletRpc::Request& reqHdr,
         return;
     }
 
-    Transport::SessionRef session = serverList.getSession(newOwnerMasterId);
-    MasterClient recipient(session);
-
     Table* table = reinterpret_cast<Table*>(tablet->user_data());
 
     // TODO(rumble/slaughter) what if we end up splitting?!?
@@ -727,11 +817,12 @@ MasterService::migrateTablet(const MigrateTabletRpc::Request& reqHdr,
     // TODO(rumble/slaughter) add method to query for # objs, # bytes in a
     // range in order for this to really work, we'll need to split on a bucket
     // boundary. Otherwise we can't tell where bytes are in the chosen range.
-    recipient.prepForMigration(tableId, firstKey, lastKey, 0, 0);
+    MasterClient::prepForMigration(context, newOwnerMasterId, tableId,
+                                   firstKeyHash, lastKeyHash, 0, 0);
 
     LOG(NOTICE, "Migrating tablet (id %lu, first %lu, last %lu) to "
-        "ServerId %lu (\"%s\")", tableId, firstKey, lastKey,
-        *newOwnerMasterId, session->getServiceLocator().c_str());
+        "ServerId %lu (\"%s\")", tableId, firstKeyHash, lastKeyHash,
+        *newOwnerMasterId, serverList.getLocator(newOwnerMasterId));
 
     // We'll send over objects in Segment containers for better network
     // efficiency and convenience.
@@ -760,7 +851,7 @@ MasterService::migrateTablet(const MigrateTabletRpc::Request& reqHdr,
         if (key.getTableId() != tableId)
             continue;
 
-        if (key.getHash() < firstKey || key.getHash() > lastKey)
+        if (key.getHash() < firstKeyHash || key.getHash() > lastKeyHash)
             continue;
 
         if (type == LOG_ENTRY_TYPE_OBJ) {
@@ -800,8 +891,9 @@ MasterService::migrateTablet(const MigrateTabletRpc::Request& reqHdr,
         // If we can't fit it, send the current buffer and retry.
         if (!transferSeg->append(type, buffer)) {
             transferSeg->close();
-            recipient.receiveMigrationData(tableId, firstKey, *transferSeg);
             LOG(DEBUG, "Sending migration segment");
+            MasterClient::receiveMigrationData(context, newOwnerMasterId,
+                tableId, firstKeyHash, *transferSeg);
 
             transferSeg.destroy();
             transferSeg.construct();
@@ -819,8 +911,9 @@ MasterService::migrateTablet(const MigrateTabletRpc::Request& reqHdr,
 
     if (transferSeg) {
         transferSeg->close();
-        recipient.receiveMigrationData(tableId, firstKey, *transferSeg);
         LOG(DEBUG, "Sending last migration segment");
+        MasterClient::receiveMigrationData(context, newOwnerMasterId,
+            tableId, firstKeyHash, *transferSeg);
         transferSeg.destroy();
     }
 
@@ -828,8 +921,8 @@ MasterService::migrateTablet(const MigrateTabletRpc::Request& reqHdr,
     // the tablet. If this succeeds, we are free to drop the tablet. The
     // data is all on the other machine and the coordinator knows to use it
     // for any recoveries.
-    coordinator->reassignTabletOwnership(
-        tableId, firstKey, lastKey, newOwnerMasterId);
+    CoordinatorClient::reassignTabletOwnership(context,
+        tableId, firstKeyHash, lastKeyHash, newOwnerMasterId);
 
     LOG(NOTICE, "Tablet migration succeeded. Sent %lu objects and %lu "
         "tombstones. %lu bytes in total.", totalObjects, totalTombstones,
@@ -851,19 +944,19 @@ MasterService::migrateTablet(const MigrateTabletRpc::Request& reqHdr,
  */
 void
 MasterService::receiveMigrationData(
-    const ReceiveMigrationDataRpc::Request& reqHdr,
-    ReceiveMigrationDataRpc::Response& respHdr,
+    const WireFormat::ReceiveMigrationData::Request& reqHdr,
+    WireFormat::ReceiveMigrationData::Response& respHdr,
     Rpc& rpc)
 {
     uint64_t tableId = reqHdr.tableId;
-    uint64_t firstKey = reqHdr.firstKey;
+    uint64_t firstKeyHash = reqHdr.firstKeyHash;
     uint32_t segmentBytes = reqHdr.segmentBytes;
 
     // TODO(rumble/slaughter) need to make sure we already have a table
     // created that was previously prepped for migration.
     const ProtoBuf::Tablets::Tablet* tablet = NULL;
     foreach (const ProtoBuf::Tablets::Tablet& i, tablets.tablet()) {
-        if (tableId == i.table_id() && firstKey == i.start_key_hash()) {
+        if (tableId == i.table_id() && firstKeyHash == i.start_key_hash()) {
             tablet = &i;
             break;
         }
@@ -871,7 +964,7 @@ MasterService::receiveMigrationData(
 
     if (tablet == NULL) {
         LOG(WARNING, "migration data received for unknown tablet %lu, "
-            "firstKey %lu", tableId, firstKey);
+            "firstKeyHash %lu", tableId, firstKeyHash);
         respHdr.common.status = STATUS_UNKNOWN_TABLE;
         return;
     }
@@ -886,7 +979,7 @@ MasterService::receiveMigrationData(
     }
 
     LOG(NOTICE, "RECEIVED MIGRATION DATA (tbl %lu, fk %lu, bytes %u)!\n",
-        tableId, firstKey, segmentBytes);
+        tableId, firstKeyHash, segmentBytes);
 
     rpc.requestPayload.truncateFront(sizeof(reqHdr));
     if (rpc.requestPayload.getTotalLength() != segmentBytes) {
@@ -1016,21 +1109,21 @@ namespace MasterServiceInternal {
  */
 class RecoveryTask {
   PUBLIC:
-    RecoveryTask(ServerList& serverList,
+    RecoveryTask(Context& context,
+                 ServerList& serverList,
                  ServerId masterId,
                  uint64_t partitionId,
                  MasterService::Replica& replica)
-        : serverList(serverList)
+        : context(context)
+        , serverList(serverList)
         , masterId(masterId)
         , partitionId(partitionId)
         , replica(replica)
         , response()
-        , client(serverList.getSession(replica.backupId))
         , startTime(Cycles::rdtsc())
         , rpc()
-        , resendTime(0)
     {
-        rpc.construct(client, masterId, replica.segmentId,
+        rpc.construct(context, replica.backupId, masterId, replica.segmentId,
                       partitionId, response);
     }
     ~RecoveryTask()
@@ -1044,20 +1137,17 @@ class RecoveryTask {
     void resend() {
         LOG(DEBUG, "Resend %lu", replica.segmentId);
         response.reset();
-        rpc.construct(client, masterId, replica.segmentId,
+        rpc.construct(context, replica.backupId, masterId, replica.segmentId,
                       partitionId, response);
     }
+    Context& context;
     ServerList& serverList;
     ServerId masterId;
     uint64_t partitionId;
     MasterService::Replica& replica;
     Buffer response;
-    BackupClient client;
     const uint64_t startTime;
-    Tub<BackupClient::GetRecoveryData> rpc;
-    /// If we have to retry a request, this variable indicates the rdtsc time at
-    /// which we should retry.  0 means we're not waiting for a retry.
-    uint64_t resendTime;
+    Tub<GetRecoveryDataRpc> rpc;
     DISALLOW_COPY_AND_ASSIGN(RecoveryTask);
 };
 } // namespace MasterServiceInternal
@@ -1135,8 +1225,8 @@ MasterService::detectSegmentRecoveryFailure(
  *      The id of the crashed master for which recoveryMaster will be taking
  *      over ownership of tablets.
  * \param partitionId
- *      The partition id of tablets inside the crashed master's will that
- *      this master is recovering.
+ *      The partition id of tablets of the crashed master that this master
+ *      is recovering.
  * \param replicas
  *      A list specifying for each segmentId a backup who can provide a
  *      filtered recovery data segment. A particular segment may be listed more
@@ -1223,23 +1313,12 @@ MasterService::recover(ServerId masterId,
                 serverList.toString(replica.backupId).c_str(),
                 replica.segmentId,
                 &task - &tasks[0]);
-            try {
-                task.construct(serverList, masterId, partitionId, replica);
-                replica.state = Replica::State::WAITING;
-                runningSet.insert(replica.segmentId);
-                ++metrics->master.segmentReadCount;
-                ++activeRequests;
-            } catch (const TransportException& e) {
-                LOG(WARNING, "Couldn't contact %s, trying next backup; "
-                    "failure was: %s",
-                    serverList.toString(replica.backupId).c_str(),
-                    e.str().c_str());
-                replica.state = Replica::State::FAILED;
-            } catch (const ServerListException& e) {
-                LOG(WARNING, "No record of backup ID %lu, trying next backup",
-                    replica.backupId.getId());
-                replica.state = Replica::State::FAILED;
-            }
+            task.construct(context, serverList, masterId, partitionId,
+                           replica);
+            replica.state = Replica::State::WAITING;
+            runningSet.insert(replica.segmentId);
+            ++metrics->master.segmentReadCount;
+            ++activeRequests;
             ++replicaIt;
             while (replicaIt != replicasEnd &&
                    contains(runningSet, replicaIt->segmentId)) {
@@ -1262,17 +1341,9 @@ MasterService::recover(ServerId masterId,
         if (!readStallTicks)
             readStallTicks.construct(&metrics->master.segmentReadStallTicks);
         replicaManager.proceed();
-        uint64_t currentTime = Cycles::rdtsc();
         foreach (auto& task, tasks) {
             if (!task)
                 continue;
-            if (task->resendTime != 0) {
-                if (currentTime > task->resendTime) {
-                    task->resendTime = 0;
-                    task->resend();
-                }
-                continue;
-            }
             if (!task->rpc->isReady())
                 continue;
             readStallTicks.destroy();
@@ -1280,7 +1351,7 @@ MasterService::recover(ServerId masterId,
                 task->replica.segmentId,
                 serverList.toString(task->replica.backupId).c_str());
             try {
-                (*task->rpc)();
+                task->rpc->wait();
                 uint64_t grdTime = Cycles::rdtsc() - task->startTime;
                 metrics->master.segmentReadTicks += grdTime;
 
@@ -1319,17 +1390,9 @@ MasterService::recover(ServerId masterId,
                         otherReplica.segmentId);
                     otherReplica.state = Replica::State::OK;
                 }
-            } catch (const RetryException& e) {
-                // The backup isn't ready yet, try back in 1 ms.
-                task->resendTime = currentTime +
-                    static_cast<int>(Cycles::perSecond()/1000.0);
-                continue;
-            } catch (const TransportException& e) {
-                LOG(WARNING, "Couldn't contact %s for segment %lu, "
-                    "trying next backup; failure was: %s",
-                    serverList.toString(task->replica.backupId).c_str(),
-                    task->replica.segmentId,
-                    e.str().c_str());
+            } catch (const ServerDoesntExistException& e) {
+                LOG(WARNING, "No record of backup %lu, trying next backup",
+                    task->replica.backupId.getId());
                 task->replica.state = Replica::State::FAILED;
                 runningSet.erase(task->replica.segmentId);
             } catch (const ClientException& e) {
@@ -1366,7 +1429,8 @@ MasterService::recover(ServerId masterId,
                     replica.segmentId,
                     &task - &tasks[0]);
                 try {
-                    task.construct(serverList, masterId, partitionId, replica);
+                    task.construct(context, serverList, masterId, partitionId,
+                                   replica);
                     replica.state = Replica::State::WAITING;
                     runningSet.insert(replica.segmentId);
                     ++metrics->master.segmentReadCount;
@@ -1377,7 +1441,7 @@ MasterService::recover(ServerId masterId,
                         e.str().c_str());
                     replica.state = Replica::State::FAILED;
                 } catch (const ServerListException& e) {
-                    LOG(WARNING, "No record of backup ID %lu, "
+                    LOG(WARNING, "No record of backup %lu, "
                         "trying next backup",
                         replica.backupId.getId());
                     replica.state = Replica::State::FAILED;
@@ -1399,6 +1463,7 @@ MasterService::recover(ServerId masterId,
             0 - metrics->transport.transmit.byteCount;
         log.sync();
         metrics->master.logSyncBytes += metrics->transport.transmit.byteCount;
+        LOG(NOTICE, "Syncing the log done");
     }
 
     metrics->master.replicationBytes += metrics->transport.transmit.byteCount;
@@ -1462,8 +1527,8 @@ MasterService::purgeObjectsFromUnknownTablets()
  * \copydetails Service::ping
  */
 void
-MasterService::recover(const RecoverRpc::Request& reqHdr,
-                       RecoverRpc::Response& respHdr,
+MasterService::recover(const WireFormat::Recover::Request& reqHdr,
+                       WireFormat::Recover::Response& respHdr,
                        Rpc& rpc)
 {
     CycleCounter<RawMetric> recoveryTicks(&metrics->master.recoveryTicks);
@@ -1483,9 +1548,9 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
     vector<Replica> replicas;
     replicas.reserve(reqHdr.numReplicas);
     for (uint32_t i = 0; i < reqHdr.numReplicas; ++i) {
-        const RecoverRpc::Replica* replicaLocation =
-            rpc.requestPayload.getOffset<RecoverRpc::Replica>(offset);
-        offset += sizeof32(RecoverRpc::Replica);
+        const WireFormat::Recover::Replica* replicaLocation =
+            rpc.requestPayload.getOffset<WireFormat::Recover::Replica>(offset);
+        offset += sizeof32(WireFormat::Recover::Replica);
         Replica replica(replicaLocation->backupId,
                         replicaLocation->segmentId);
         replicas.push_back(replica);
@@ -1547,9 +1612,9 @@ MasterService::recover(const RecoverRpc::Request& reqHdr,
         tablet.set_ctime_log_head_offset(headOfLog.getSegmentOffset());
     }
     LOG(NOTICE, "Reporting completion of recovery %lu", reqHdr.recoveryId);
-    coordinator->recoveryMasterFinished(recoveryId,
-                                        serverId, recoveryTablets,
-                                        successful);
+    CoordinatorClient::recoveryMasterFinished(context, recoveryId,
+                                              serverId, recoveryTablets,
+                                              successful);
 
     // TODO(stutsman) Delete tablets if recoveryMasterFinished returns
     // failure by setting successful to false. Rest is handled below.
@@ -1782,8 +1847,8 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
  * \copydetails MasterService::read
  */
 void
-MasterService::remove(const RemoveRpc::Request& reqHdr,
-                      RemoveRpc::Response& respHdr,
+MasterService::remove(const WireFormat::Remove::Request& reqHdr,
+                      WireFormat::Remove::Response& respHdr,
                       Rpc& rpc)
 {
     const void* stringKey = rpc.requestPayload.getRange(sizeof32(reqHdr),
@@ -1845,8 +1910,8 @@ MasterService::remove(const RemoveRpc::Request& reqHdr,
  * \copydetails MasterService::read
  */
 void
-MasterService::increment(const IncrementRpc::Request& reqHdr,
-                     IncrementRpc::Response& respHdr,
+MasterService::increment(const WireFormat::Increment::Request& reqHdr,
+                     WireFormat::Increment::Response& respHdr,
                      Rpc& rpc)
 {
     // Read the current value of the object and add the increment value
@@ -1907,9 +1972,10 @@ MasterService::increment(const IncrementRpc::Request& reqHdr,
  * for durability or that it can be safely discarded.
  */
 void
-MasterService::isReplicaNeeded(const IsReplicaNeededRpc::Request& reqHdr,
-                               IsReplicaNeededRpc::Response& respHdr,
-                               Rpc& rpc)
+MasterService::isReplicaNeeded(
+    const WireFormat::IsReplicaNeeded::Request& reqHdr,
+    WireFormat::IsReplicaNeeded::Response& respHdr,
+    Rpc& rpc)
 {
     ServerId backupServerId = ServerId(reqHdr.backupServerId);
     respHdr.needed = replicaManager.isReplicaNeeded(backupServerId,
@@ -1922,8 +1988,8 @@ MasterService::isReplicaNeeded(const IsReplicaNeededRpc::Request& reqHdr,
  * \copydetails MasterService::read
  */
 void
-MasterService::write(const WriteRpc::Request& reqHdr,
-                     WriteRpc::Response& respHdr,
+MasterService::write(const WireFormat::Write::Request& reqHdr,
+                     WireFormat::Write::Response& respHdr,
                      Rpc& rpc)
 {
     // TODO(anyone): Make Buffers do virtual copying so we don't need to copy
@@ -2347,10 +2413,10 @@ MasterService::storeObject(Key& key,
         // approach to updating cluster configuration information.
         anyWrites = true;
 
-        // NULL coordinator means we're in test mode, so skip this.
-        if (coordinator) {
+        // Empty coordinator locator means we're in test mode, so skip this.
+        if (!context.coordinatorSession->getLocation().empty()) {
             ProtoBuf::ServerList backups;
-            coordinator->getBackupList(backups);
+            CoordinatorClient::getBackupList(context, backups);
             TransportManager& transportManager =
                 *context.transportManager;
             foreach(auto& backup, backups.server())

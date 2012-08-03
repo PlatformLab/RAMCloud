@@ -102,14 +102,17 @@ class FastTransport : public Transport {
       PROTECTED:
         virtual void cancelCleanup();
       PRIVATE:
-        ClientRpc(ClientSession* session,
-                  Buffer* request, Buffer* response);
+        ClientRpc(ClientSession* session, Buffer* request,
+                  Buffer* response, RpcNotifier* notifier);
 
         /// The ClientSession on which to send/receive the RPC.
         ClientSession* const session;
 
         /// Entries to allow this RPC to be placed in a channel queue.
         IntrusiveListHook channelQueueEntries;
+
+        /// Use this object to report completion.
+        RpcNotifier* notifier;
 
       PRIVATE:
         friend class FastTransport;
@@ -765,12 +768,15 @@ class FastTransport : public Transport {
         ~ServerSession();
         void beginSending(uint8_t channelId);
         virtual void abort(const string& message);
+        virtual void cancelRequest(RpcNotifier* notifier);
         virtual ClientRpc* clientSend(Buffer* request, Buffer* response);
         virtual bool expire(bool expectIdle = false);
         virtual void fillHeader(Header* const header, uint8_t channelId) const;
         virtual const Driver::Address* getAddress();
         void processInboundPacket(Driver::Received* received);
         virtual void release();
+        virtual void sendRequest(Buffer* request, Buffer* response,
+                                 RpcNotifier* notifier);
         void startSession(const Driver::Address* clientAddress,
                           uint32_t clientSessionHint);
 
@@ -904,6 +910,7 @@ class FastTransport : public Transport {
         void cancelRpc(ClientRpc* rpc);
         ClientRpc* clientSend(Buffer* request, Buffer* response);
         virtual void abort(const string& message);
+        virtual void cancelRequest(RpcNotifier* notifier);
         void connect();
         bool expire(bool expectIdle = false);
         void fillHeader(Header* const header, uint8_t channelId) const;
@@ -912,6 +919,8 @@ class FastTransport : public Transport {
         bool isConnected();
         void processInboundPacket(Driver::Received* received);
         void release() { expire(); }
+        virtual void sendRequest(Buffer* request, Buffer* response,
+                                 RpcNotifier* notifier);
         void sendSessionOpenRequest();
 
         /// Used to trash the hint field; shouldn't be seen on the wire.

@@ -19,16 +19,27 @@ from ramcloudtest import *
 import ramcloud
 import cluster
 
+def extractLocatorFromCommand(command):
+    tokens = command.split()
+    dashL = tokens.index('-L')
+    locator = tokens[dashL + 1]
+    return locator
+
+
 class RecoveryTestCase(ContextManagerTestCase):
     def __enter__(self):
-        require_hosts(7)
+        num_hosts = 8
+        require_hosts(num_hosts)
+        self.servers = []
         self.cluster = cluster.Cluster()
+        self.cluster.log_level = 'DEBUG'
+        self.cluster.transport = 'infrc'
         self.cluster.__enter__()
 
         try:
             self.cluster.start_coordinator(hosts[0])
-            for host in hosts[:7]:
-                self.cluster.start_server(host)
+            for host in hosts[:num_hosts]:
+                self.servers.append(self.cluster.start_server(host))
             self.cluster.ensure_servers()
 
             self.rc = ramcloud.RAMCloud()
@@ -51,26 +62,39 @@ class RecoveryTestCase(ContextManagerTestCase):
         """Store a value on a master, crash that master, wait for recovery,
         then read a value from the recovery master.
         """
-        rc = self.rc
-        value = rc.read(self.table, 'testKey')
+        value = self.rc.read(self.table, 'testKey')
         self.assertEqual(('testValue', 1), value)
-        rc.testing_kill(0, '0')
-        rc.testing_wait_for_all_tablets_normal()
-        value = rc.read(self.table, 'testKey')
+        self.rc.testing_kill(0, '0')
+        self.rc.testing_wait_for_all_tablets_normal()
+        value = self.rc.read(self.table, 'testKey')
         self.assertEqual(('testValue', 1), value)
+
+    @timeout()
+    def test_600M_recovery(self):
+        """Store 600 MB of objects on a master, crash that master,
+        wait for recovery, then read a value from the recovery master.
+        """
+        self.assertEqual(0, self.table)
+        self.rc.testing_fill(self.table, '0', 592415, 1024)
+        expectedValue = (chr(0xcc) * 1024, 2)
+        value = self.rc.read(self.table, '0')
+        self.assertEqual(expectedValue, value)
+        self.rc.testing_kill(0, '0')
+        self.rc.testing_wait_for_all_tablets_normal()
+        value = self.rc.read(self.table, '0')
+        self.assertEqual(expectedValue, value)
 
     @timeout()
     def test_recovery_master_failure(self):
         """Cause a recovery where one of the recovery masters fails which
         is remedied by a follow up recovery.
         """
-        rc = self.rc
-        value = rc.read(self.table, 'testKey')
+        value = self.rc.read(self.table, 'testKey')
         self.assertEqual(('testValue', 1), value)
-        rc.testing_set_runtime_option('failRecoveryMasters', '1')
-        rc.testing_kill(0, '0')
-        rc.testing_wait_for_all_tablets_normal()
-        value = rc.read(self.table, 'testKey')
+        self.rc.testing_set_runtime_option('failRecoveryMasters', '1')
+        self.rc.testing_kill(0, '0')
+        self.rc.testing_wait_for_all_tablets_normal()
+        value = self.rc.read(self.table, 'testKey')
         self.assertEqual(('testValue', 1), value)
 
     @timeout()
@@ -79,34 +103,121 @@ class RecoveryTestCase(ContextManagerTestCase):
         the followup recovery has its recovery master fail as well, then
         on the third recovery things work out.
         """
-        rc = self.rc
-        value = rc.read(self.table, 'testKey')
+        value = self.rc.read(self.table, 'testKey')
         self.assertEqual(('testValue', 1), value)
-        rc.testing_set_runtime_option('failRecoveryMasters', '1 1')
-        rc.testing_kill(0, '0')
-        rc.testing_wait_for_all_tablets_normal()
-        value = rc.read(self.table, 'testKey')
+        self.rc.testing_set_runtime_option('failRecoveryMasters', '1 1')
+        self.rc.testing_kill(0, '0')
+        self.rc.testing_wait_for_all_tablets_normal()
+        value = self.rc.read(self.table, 'testKey')
         self.assertEqual(('testValue', 1), value)
 
     @timeout()
-    def test_multiple_recovery_master_failures(self):
+    def test_multiple_recovery_master_failures_in_one_recovery(self):
         """Cause a recovery where two of the recovery masters fail which
         is remedied by a follow up recovery.
-        TODO(stutsman): This test doesn't work right yet because the
-        original master currently only has one table on it.
         """
-        rc = self.rc
-        value = rc.read(self.table, 'testKey')
+        # One table already created.
+        # Stroke the round-robin table creation until we get back to the
+        # server we care about.
+        for t in range(len(self.servers) - 1):
+            self.rc.create_table('junk%d' % t)
+        self.rc.create_table('test2')
+        table2 = self.rc.get_table_id('test2')
+        self.rc.write(table2, 'testKey', 'testValue2')
+
+        value = self.rc.read(self.table, 'testKey')
         self.assertEqual(('testValue', 1), value)
-        rc.testing_set_runtime_option('failRecoveryMasters', '2')
-        rc.testing_kill(0, '0')
-        rc.testing_fill(0, '0', 1000, 1000)
-        rc.testing_wait_for_all_tablets_normal()
-        value = rc.read(self.table, 'testKey')
+        value = self.rc.read(table2, 'testKey')
+        self.assertEqual(('testValue2', 1), value)
+
+        self.rc.testing_set_runtime_option('failRecoveryMasters', '2')
+        self.rc.testing_kill(0, '0')
+        self.rc.testing_wait_for_all_tablets_normal()
+
+        value = self.rc.read(self.table, 'testKey')
         self.assertEqual(('testValue', 1), value)
+        value = self.rc.read(table2, 'testKey')
+        self.assertEqual(('testValue2', 1), value)
+
+    @timeout()
+    def test_only_one_recovery_master_for_many_partitions(self):
+        """Cause a recovery when there is only one recovery master available
+        and make sure that eventually all of the partitions of the will are
+        recovered on that recovery master.
+        """
+        pass
+
+    @timeout()
+    def test_one_backup_fails_during_recovery(self):
+        # Create a second table, due to round robin this will be on a different
+        # server than the first.
+        self.rc.create_table('elsewhere')
+        self.elsewhereTable = self.rc.get_table_id('elsewhere')
+
+        # Ensure the key was stored ok.
+        value = self.rc.read(self.table, 'testKey')
+        self.assertEqual(('testValue', 1), value)
+
+        # Kill a backup.
+        self.rc.testing_kill(self.elsewhereTable, '0')
+
+        # Crash the master
+        self.rc.testing_kill(self.table, '0')
+        self.rc.testing_wait_for_all_tablets_normal()
+
+        # Ensure the key was recovered.
+        value = self.rc.read(self.table, 'testKey')
+        self.assertEqual(('testValue', 1), value)
+
+    def addServerInfo(self, tables):
+        server_ids = {}
+        for table in tables:
+            server_id = self.rc.testing_get_server_id(table, '0')
+            locator = self.rc.testing_get_service_locator(table, '0')
+            server_ids[locator] = server_id
+        for server in self.servers:
+            locator = self.extractLocatorFromCommand(server.command)
+            server.service_locator = locator
+            if locator in server_ids:
+                server.server_id = server_ids[locator]
+
+    @timeout()
+    def test_restart(self):
+        self.addServerInfo([self.table])
+        for server in self.servers:
+            print(repr(server))
+        return
+        # We'll want two flavors of this test, I think. One with re-enlistement
+        # and one as it is now (__unnamed__ means backups don't enlist as
+        # replacements).  Both should be stable as long as they don't
+        # lose too many backups at once, the named one should tolerate replica
+        # unavailbility.
+
+        #def terminated(servers):
+        #    return [p for p in servers if p.proc.poll()]
+        #self.rc.testing_kill(self.table, '0')
+        #self.rc.testing_wait_for_all_tablets_normal()
+        #dead = terminated(self.servers)
+        #self.assertEqual(1, len(dead))
+        #self.cluster.wait(dead[0])
+        self.cluster.sandbox.restart(self.servers[0])
+        import time
+        time.sleep(3)
+
+        self.rc.write(self.table, 'testKey', 'otherValue')
+
+def removeAllTestsExcept(klass, name):
+    for k in dir(klass):
+        if k.startswith('test') and not k == name:
+            delattr(klass, k)
 
 import unittest
 suite = unittest.TestLoader().loadTestsFromTestCase(RecoveryTestCase)
 
 if __name__ == '__main__':
+    import sys
+    if len(sys.argv) > 0:
+        removeAllTestsExcept(RecoveryTestCase, sys.argv[1])
+        suite = unittest.TestLoader().loadTestsFromTestCase(RecoveryTestCase)
     unittest.TextTestRunner(verbosity=2).run(suite)
+

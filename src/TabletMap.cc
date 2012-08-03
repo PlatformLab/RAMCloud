@@ -20,6 +20,31 @@
 namespace RAMCloud {
 
 /**
+ * Populate a protocol buffer entry with the details of this tablet.
+ * Note, this does not provide the service_locator field (which isn't
+ * known by the tablet).
+ *
+ * \param entry
+ *      Entry in the protocol buffer to populate.
+ */
+void
+Tablet::serialize(ProtoBuf::Tablets::Tablet& entry) const
+{
+    entry.set_table_id(tableId);
+    entry.set_start_key_hash(startKeyHash);
+    entry.set_end_key_hash(endKeyHash);
+    entry.set_server_id(serverId.getId());
+    if (status == NORMAL)
+        entry.set_state(ProtoBuf::Tablets::Tablet::NORMAL);
+    else if (status == RECOVERING)
+        entry.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
+    else
+        DIE("Unknown status stored in tablet map");
+    entry.set_ctime_log_head_id(ctime.getSegmentId());
+    entry.set_ctime_log_head_offset(ctime.getSegmentOffset());
+}
+
+/**
  * Construct a TabletMap.
  */
 TabletMap::TabletMap()
@@ -198,28 +223,16 @@ TabletMap::serialize(const CoordinatorServerList& serverList,
 {
     Lock _(mutex);
     foreach (const auto& tablet, map) {
-        ProtoBuf::Tablets_Tablet& entry(*tablets.add_tablet());
-        entry.set_table_id(tablet.tableId);
-        entry.set_start_key_hash(tablet.startKeyHash);
-        entry.set_end_key_hash(tablet.endKeyHash);
-        entry.set_server_id(tablet.serverId.getId());
-        if (tablet.status == Tablet::NORMAL)
-            entry.set_state(ProtoBuf::Tablets::Tablet::NORMAL);
-        else if (tablet.status == Tablet::RECOVERING)
-            entry.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
-        else
-            DIE("Unknown status stored in tablet map");
+        ProtoBuf::Tablets::Tablet& entry(*tablets.add_tablet());
+        tablet.serialize(entry);
         try {
             const string& locator = serverList[tablet.serverId].serviceLocator;
-            entry.set_service_locator(locator);
+            entry.set_service_locator(locator.c_str());
         } catch (const Exception& e) {
             LOG(NOTICE, "Server id (%lu) in tablet map no longer in server "
                 "list; sending empty locator for entry",
                 tablet.serverId.getId());
-            entry.set_service_locator("");
         }
-        entry.set_ctime_log_head_id(tablet.ctime.getSegmentId());
-        entry.set_ctime_log_head_offset(tablet.ctime.getSegmentOffset());
     }
 }
 

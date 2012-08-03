@@ -18,6 +18,7 @@
 
 #include "BackupService.h"
 #include "CoordinatorClient.h"
+#include "CoordinatorSession.h"
 #include "FailureDetector.h"
 #include "MasterService.h"
 #include "MembershipService.h"
@@ -58,13 +59,14 @@ class Server {
         , backupWriteSpeed()
         , serverId()
         , serverList(context)
-        , coordinator()
         , failureDetector()
         , master()
         , backup()
         , membership()
         , ping()
     {
+        context.coordinatorSession->setLocation(
+                config.coordinatorLocator.c_str());
     }
 
     void startForTesting(BindTransport& bindTransport);
@@ -121,13 +123,6 @@ class Server {
      * of changes to the list.
      */
     ServerList serverList;
-
-    /**
-     * TODO(stutsman): This can be eliminated as soon as the MasterService
-     * no longer takes a CoordinatorClient (it will be replaced by the
-     * server list).  For enlisting it can just be on the stack.
-     */
-    Tub<CoordinatorClient> coordinator;
 
     /// If enabled detects other Server in the cluster, else empty.
     Tub<FailureDetector> failureDetector;

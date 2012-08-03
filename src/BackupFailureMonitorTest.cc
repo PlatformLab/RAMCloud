@@ -17,6 +17,7 @@
 #include "BackupFailureMonitor.h"
 #include "ServerList.h"
 #include "ShortMacros.h"
+#include "StringUtil.h"
 
 namespace RAMCloud {
 
@@ -44,10 +45,10 @@ TEST_F(BackupFailureMonitorTest, main) {
     TestLog::Enable _(&mainFilter);
     monitor.start(NULL);
     serverList.add(ServerId(2, 0), "mock:host=backup1",
-                   {BACKUP_SERVICE}, 100);
+                   {WireFormat::BACKUP_SERVICE}, 100);
     serverList.remove(ServerId(2, 0));
     serverList.add(ServerId(3, 0), "mock:host=master",
-                   {MASTER_SERVICE}, 100);
+                   {WireFormat::MASTER_SERVICE}, 100);
     serverList.remove(ServerId(3, 0));
     monitor.trackerChangesEnqueued();
     while (true) {
@@ -56,10 +57,9 @@ TEST_F(BackupFailureMonitorTest, main) {
         if (!monitor.tracker.hasChanges())
             break;
     }
-    BackupFailureMonitor::Lock lock(monitor.mutex); // processing is done.
-    EXPECT_EQ("main: Notifying log of failure of serverId 2 | "
-              "main: Notifying log of failure of serverId 3",
-              TestLog::get());
+    while (TestLog::get() == "");
+    EXPECT_TRUE(StringUtil::contains(TestLog::get(),
+        "main: Notifying log of failure of serverId 2"));
 }
 
 TEST_F(BackupFailureMonitorTest, startAndHalt) {
@@ -101,53 +101,21 @@ TEST_F(BackupFailureMonitorTest, serverIsUp) {
 
     EXPECT_FALSE(monitor.serverIsUp({2, 0}));
 
-    serverList.add({2, 0}, "mock:host=backup1", {BACKUP_SERVICE}, 100);
+    serverList.add({2, 0}, "mock:host=backup1",
+        {WireFormat::BACKUP_SERVICE}, 100);
     while (monitor.tracker.getChange(server, event));
     EXPECT_TRUE(monitor.serverIsUp({2, 0}));
 
-    serverList.crashed({2, 0}, "mock:host=backup1", {BACKUP_SERVICE}, 100);
+    // Ensure it is non-blocking.
+    {
+        BackupFailureMonitor::Lock lock(monitor.mutex);
+        EXPECT_FALSE(monitor.serverIsUp({2, 0}));
+    }
+
+    serverList.crashed({2, 0}, "mock:host=backup1",
+        {WireFormat::BACKUP_SERVICE}, 100);
     while (monitor.tracker.getChange(server, event));
     EXPECT_FALSE(monitor.serverIsUp({2, 0}));
-}
-
-TEST_F(BackupFailureMonitorTest, trackerChangesEnqueued) {
-    // First two entries are racy: either the first iteration
-    // during the start up of main() will process them or the
-    // callback from the serverList.  There is no good way to
-    // tell which caused the processing, so run through these
-    // entries and set up the real test once this race is over.
-    monitor.start(NULL);
-    serverList.add(ServerId(2, 0), "mock:host=backup1",
-                   {BACKUP_SERVICE}, 100);
-    serverList.remove(ServerId(2, 0));
-    monitor.trackerChangesEnqueued();
-    while (true) { // getChanges drained
-        BackupFailureMonitor::Lock _(monitor.mutex);
-        if (!monitor.tracker.hasChanges())
-            break;
-    }
-    BackupFailureMonitor::Lock lock(monitor.mutex); // processing is done.
-
-    // Ok - now set up the real test: make sure changes are processed in
-    // response to trackerChangesEnqueued().
-
-    lock.unlock();
-    serverList.add(ServerId(3, 0), "mock:host=backup2",
-                   {BACKUP_SERVICE}, 100);
-    serverList.remove(ServerId(3, 0));
-
-    TestLog::Enable _(&mainFilter);
-    monitor.trackerChangesEnqueued();     // Notify the monitor thread.
-    while (true) { // getChanges drained
-        BackupFailureMonitor::Lock _(monitor.mutex);
-        if (!monitor.tracker.hasChanges())
-            break;
-    }
-    lock.lock(); // processing changes is done.
-    lock.unlock();
-    // Make sure it processed the new event.
-    EXPECT_EQ("main: Notifying log of failure of serverId 3",
-              TestLog::get());
 }
 
 } // namespace RAMCloud

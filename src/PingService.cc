@@ -34,6 +34,7 @@ namespace RAMCloud {
 PingService::PingService(Context& context)
     : context(context)
     , serverList(NULL)
+    , ignoreKill(false)
 {
 }
 
@@ -50,6 +51,7 @@ PingService::PingService(Context& context)
 PingService::PingService(Context& context, ServerList* serverList)
     : context(context)
     , serverList(serverList)
+    , ignoreKill(false)
 {
 }
 
@@ -59,8 +61,8 @@ PingService::PingService(Context& context, ServerList* serverList)
  * \copydetails Service::ping
  */
 void
-PingService::getMetrics(const GetMetricsRpc::Request& reqHdr,
-             GetMetricsRpc::Response& respHdr,
+PingService::getMetrics(const WireFormat::GetMetrics::Request& reqHdr,
+             WireFormat::GetMetrics::Response& respHdr,
              Rpc& rpc)
 {
     string serialized;
@@ -76,12 +78,17 @@ PingService::getMetrics(const GetMetricsRpc::Request& reqHdr,
  * \copydetails Service::ping
  */
 void
-PingService::ping(const PingRpc::Request& reqHdr,
-             PingRpc::Response& respHdr,
+PingService::ping(const WireFormat::Ping::Request& reqHdr,
+             WireFormat::Ping::Response& respHdr,
              Rpc& rpc)
 {
-    LOG(DEBUG, "received ping request with nonce %ld", reqHdr.nonce);
-    respHdr.nonce = reqHdr.nonce;
+    if (ServerId(reqHdr.callerId) == ServerId()) {
+        LOG(DEBUG, "Received ping request from unknown endpoint "
+            "(perhaps the coordinator or a client)");
+    } else {
+        LOG(DEBUG, "Received ping request from server %lu",
+            reqHdr.callerId);
+    }
     respHdr.serverListVersion = 0;
     if (serverList != NULL)
         respHdr.serverListVersion = serverList->getVersion();
@@ -93,31 +100,17 @@ PingService::ping(const PingRpc::Request& reqHdr,
  * \copydetails Service::ping
  */
 void
-PingService::proxyPing(const ProxyPingRpc::Request& reqHdr,
-             ProxyPingRpc::Response& respHdr,
+PingService::proxyPing(const WireFormat::ProxyPing::Request& reqHdr,
+             WireFormat::ProxyPing::Response& respHdr,
              Rpc& rpc)
 {
-    PingClient client(context);
-    const char* serviceLocator = getString(rpc.requestPayload,
-                                           sizeof(ProxyPingRpc::Request),
-                                           reqHdr.serviceLocatorLength);
     uint64_t start = Cycles::rdtsc();
-    try {
-        uint64_t result = client.ping(serviceLocator, 99999,
-                                      reqHdr.timeoutNanoseconds);
-        if (result == 99999U) {
-            // We got an incorrect response; treat this as if there were
-            // no response.
-            respHdr.replyNanoseconds = Cycles::toNanoseconds(Cycles::rdtsc() -
-                    start);
-        } else {
-            respHdr.replyNanoseconds = -1;
-        }
+    PingRpc pingRpc(context, ServerId(reqHdr.serverId), ServerId());
+    respHdr.replyNanoseconds = ~0UL;
+    if (pingRpc.wait(reqHdr.timeoutNanoseconds) != ~0UL) {
+        respHdr.replyNanoseconds = Cycles::toNanoseconds(
+                Cycles::rdtsc() - start);
     }
-    catch (TimeoutException& e) {
-        respHdr.replyNanoseconds = -1;
-    }
-
 }
 
 /**
@@ -128,34 +121,35 @@ PingService::proxyPing(const ProxyPingRpc::Request& reqHdr,
  * TODO(Rumble): Should be only for debugging and performance testing.
  */
 void
-PingService::kill(const KillRpc::Request& reqHdr,
-                  KillRpc::Response& respHdr,
+PingService::kill(const WireFormat::Kill::Request& reqHdr,
+                  WireFormat::Kill::Response& respHdr,
                   Rpc& rpc)
 {
     LOG(ERROR, "Server remotely told to kill itself.");
-    exit(0);
+    if (!ignoreKill)
+        exit(0);
 }
 
 /**
  * Dispatch an RPC to the right handler based on its opcode.
  */
 void
-PingService::dispatch(RpcOpcode opcode, Rpc& rpc)
+PingService::dispatch(WireFormat::Opcode opcode, Rpc& rpc)
 {
     switch (opcode) {
-        case GetMetricsRpc::opcode:
-            callHandler<GetMetricsRpc, PingService,
+        case WireFormat::GetMetrics::opcode:
+            callHandler<WireFormat::GetMetrics, PingService,
                         &PingService::getMetrics>(rpc);
             break;
-        case PingRpc::opcode:
-            callHandler<PingRpc, PingService, &PingService::ping>(rpc);
+        case WireFormat::Ping::opcode:
+            callHandler<WireFormat::Ping, PingService, &PingService::ping>(rpc);
             break;
-        case ProxyPingRpc::opcode:
-            callHandler<ProxyPingRpc, PingService,
+        case WireFormat::ProxyPing::opcode:
+            callHandler<WireFormat::ProxyPing, PingService,
                         &PingService::proxyPing>(rpc);
             break;
-        case KillRpc::opcode:
-            callHandler<KillRpc, PingService,
+        case WireFormat::Kill::opcode:
+            callHandler<WireFormat::Kill, PingService,
                         &PingService::kill>(rpc);
             break;
         default:

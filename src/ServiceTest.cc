@@ -87,15 +87,15 @@ TEST_F(ServiceTest, getString_stringNotTerminated) {
 }
 
 TEST_F(ServiceTest, dispatch_ping) {
-    request.fillFromString("7 0 0 0");
-    service.dispatch(PingRpc::opcode, rpc);
+    request.fillFromString("7 0 0 0 0 0");
+    service.dispatch(WireFormat::Ping::opcode, rpc);
     EXPECT_TRUE(TestUtil::matchesPosixRegex("Service::ping invoked",
             TestLog::get()));
 }
 TEST_F(ServiceTest, dispatch_unknown) {
     request.fillFromString("0 0");
     union {
-        RpcOpcode x;
+        WireFormat::Opcode x;
         int y;
     } t;
     t.y = 12345;
@@ -111,8 +111,8 @@ TEST_F(ServiceTest, handleRpc_messageTooShortForCommon) {
 }
 TEST_F(ServiceTest, handleRpc_undefinedType) {
     metrics->rpc.illegalRpcCount = 0;
-    auto* header = new(&request, APPEND) RpcRequestCommon;
-    header->opcode = ILLEGAL_RPC_TYPE;
+    auto* header = new(&request, APPEND) WireFormat::RequestCommon;
+    header->opcode = WireFormat::ILLEGAL_RPC_TYPE;
     service.handleRpc(rpc);
     EXPECT_STREQ("STATUS_UNIMPLEMENTED_REQUEST",
             TestUtil::getStatus(&response));
@@ -134,19 +134,19 @@ TEST_F(ServiceTest, prepareErrorResponse_bufferNotEmpty) {
 }
 TEST_F(ServiceTest, prepareErrorResponse_bufferEmpty) {
     Service::prepareErrorResponse(response, STATUS_WRONG_VERSION);
-    EXPECT_EQ(sizeof(RpcResponseCommon), response.getTotalLength());
+    EXPECT_EQ(sizeof(WireFormat::ResponseCommon), response.getTotalLength());
     EXPECT_STREQ("STATUS_WRONG_VERSION", TestUtil::getStatus(&response));
 }
 
 TEST_F(ServiceTest, callHandler_messageTooShort) {
     request.fillFromString("");
     EXPECT_THROW(
-        (service.callHandler<PingRpc, Service, &Service::ping>(rpc)),
+        (service.callHandler<WireFormat::Ping, Service, &Service::ping>(rpc)),
         MessageTooShortError);
 }
 TEST_F(ServiceTest, callHandler_normal) {
-    request.fillFromString("7 0 0 0");
-    service.callHandler<PingRpc, Service, &Service::ping>(rpc);
+    request.fillFromString("7 0 0 0 0 0");
+    service.callHandler<WireFormat::Ping, Service, &Service::ping>(rpc);
     EXPECT_TRUE(TestUtil::matchesPosixRegex("ping", TestLog::get()));
 }
 
@@ -157,7 +157,7 @@ TEST_F(ServiceTest, sendReply) {
     Context context;
     MockTransport transport(context);
     ServiceManager* manager = context.serviceManager;
-    manager->addService(service, BACKUP_SERVICE);
+    manager->addService(service, WireFormat::BACKUP_SERVICE);
     MockTransport::MockServerRpc* rpc = new MockTransport::MockServerRpc(
             &transport, "0x10000 3 4");
     manager->handleRpc(rpc);

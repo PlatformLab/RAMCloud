@@ -42,11 +42,12 @@
 #include "CycleCounter.h"
 #include "Fence.h"
 #include "LogEntryTypes.h"
+#include "MasterClient.h"
 #include "RawMetrics.h"
-#include "Rpc.h"
 #include "Service.h"
 #include "ServerConfig.h"
 #include "SegmentIterator.h"
+#include "TaskQueue.h"
 
 namespace RAMCloud {
 
@@ -63,7 +64,8 @@ Tub<uint64_t> whichPartition(LogEntryType type,
  * Handles Rpc requests from Masters and the Coordinator to persistently store
  * Segments and to facilitate the recovery of object data when Masters crash.
  */
-class BackupService : public Service {
+class BackupService : public Service
+                    , ServerTracker<void>::Callback {
   PRIVATE:
 
     /**
@@ -254,38 +256,13 @@ class BackupService : public Service {
         }
 
         void open();
-
-        /**
-         * Set the state to #RECOVERING from #OPEN or #CLOSED.
-         * This can only be called on a primary segment.
-         */
-        void
-        setRecovering()
-        {
-            Lock lock(mutex);
-            assert(primary);
-            state = RECOVERING;
-        }
-
-        /**
-         * Set the state to #RECOVERING from #OPEN or #CLOSED and store
-         * a copy of the supplied tablet information in case construction
-         * of recovery segments is needed later for this secondary
-         * segment.
-         */
-        void
-        setRecovering(const ProtoBuf::Tablets& partitions)
-        {
-            Lock lock(mutex);
-            assert(!primary);
-            state = RECOVERING;
-            // Make a copy of the partition list for deferred filtering.
-            recoveryPartitions.construct(partitions);
-        }
-
+        bool setRecovering();
+        bool setRecovering(const ProtoBuf::Tablets& partitions);
         void startLoading();
         void write(Buffer& src, uint32_t srcOffset,
-                   uint32_t length, uint32_t destOffset, bool atomic);
+                   uint32_t length, uint32_t destOffset,
+                   const Segment::OpaqueFooterEntry* footerEntry,
+                   bool atomic);
         const void* getLogDigest(uint32_t* byteLength = NULL);
 
         /**
@@ -322,12 +299,13 @@ class BackupService : public Service {
 #endif
 
       PRIVATE:
+        void applyFooterEntry();
+
         /// Return true if this segment is fully in memory.
         bool inMemory() { return segment; }
 
         /// Return true if this segment has storage allocated.
         bool inStorage() const { return storageHandle; }
-
 
         /// Return true if this segment's recovery segments have been built.
         bool isRecovered() const { return recoverySegments; }
@@ -385,6 +363,33 @@ class BackupService : public Service {
 
         /// The number of Buffers in #recoverySegments.
         uint32_t recoverySegmentsLength;
+
+        /**
+         * Where in #segment the most-recently-queued footer should be
+         * plunked down when the segment is closed or recovered (see
+         * #footerEntry).
+         */
+        uint32_t footerOffset;
+
+        /**
+         * Footer log entry provided on write by the master which is creating
+         * the replica. The footer must be stamped on the end of the replicas
+         * before the replica is sent to storage or used for recovery.  During
+         * recovery this footer is used to detect corruption and so must be in
+         * place for updates to replicas to be considered durable. If replica
+         * manager cannot send all the data ready to be replicated in one rpc
+         * it will not send a footer with the write. When this happens the
+         * backup ensures the most recently transmitted footer is used if the
+         * replica is closed or recovered in a way such that all non-footered
+         * writes sent since the last footered write will be atomically undone.
+         * This footer is stored in two locations in each replica: once at the
+         * end of the data (which is the authoritative footer, and again
+         * aligned at the end of the replica. The second copy is an
+         * optimization which allows the backup to find the footer quickly from
+         * disk in a single IO. applyFooterEntry() is a helper function that
+         * will plunk the most-recently-queued footers into place.
+         */
+        Segment::OpaqueFooterEntry footerEntry;
 
         /**
          * Indicate to callers of startReadingData() that particular
@@ -527,40 +532,43 @@ class BackupService : public Service {
                   ServerList& serverList);
     virtual ~BackupService();
     void benchmark(uint32_t& readSpeed, uint32_t& writeSpeed);
-    void dispatch(RpcOpcode opcode, Rpc& rpc);
+    void dispatch(WireFormat::Opcode opcode, Rpc& rpc);
     ServerId getFormerServerId() const;
     ServerId getServerId() const;
     void init(ServerId id);
 
   PRIVATE:
-    void assignGroup(const BackupAssignGroupRpc::Request& reqHdr,
-                     BackupAssignGroupRpc::Response& respHdr,
+    void assignGroup(const WireFormat::BackupAssignGroup::Request& reqHdr,
+                     WireFormat::BackupAssignGroup::Response& respHdr,
                      Rpc& rpc);
-    void freeSegment(const BackupFreeRpc::Request& reqHdr,
-                     BackupFreeRpc::Response& respHdr,
+    void freeSegment(const WireFormat::BackupFree::Request& reqHdr,
+                     WireFormat::BackupFree::Response& respHdr,
                      Rpc& rpc);
     SegmentInfo* findSegmentInfo(ServerId masterId, uint64_t segmentId);
-    void getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
-                         BackupGetRecoveryDataRpc::Response& respHdr,
-                         Rpc& rpc);
+    void getRecoveryData(
+        const WireFormat::BackupGetRecoveryData::Request& reqHdr,
+        WireFormat::BackupGetRecoveryData::Response& respHdr,
+        Rpc& rpc);
     void killAllStorage();
-    void quiesce(const BackupQuiesceRpc::Request& reqHdr,
-                 BackupQuiesceRpc::Response& respHdr,
+    void quiesce(const WireFormat::BackupQuiesce::Request& reqHdr,
+                 WireFormat::BackupQuiesce::Response& respHdr,
                  Rpc& rpc);
-    void recoveryComplete(const BackupRecoveryCompleteRpc::Request& reqHdr,
-                         BackupRecoveryCompleteRpc::Response& respHdr,
-                         Rpc& rpc);
+    void recoveryComplete(
+        const WireFormat::BackupRecoveryComplete::Request& reqHdr,
+        WireFormat::BackupRecoveryComplete::Response& respHdr,
+        Rpc& rpc);
     void restartFromStorage();
     static bool segmentInfoLessThan(SegmentInfo* left,
                                     SegmentInfo* right);
-    void startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
-                          BackupStartReadingDataRpc::Response& respHdr,
-                          Rpc& rpc);
-    void writeSegment(const BackupWriteRpc::Request& req,
-                      BackupWriteRpc::Response& resp,
+    void startReadingData(
+        const WireFormat::BackupStartReadingData::Request& reqHdr,
+        WireFormat::BackupStartReadingData::Response& respHdr,
+        Rpc& rpc);
+    void writeSegment(const WireFormat::BackupWrite::Request& req,
+                      WireFormat::BackupWrite::Response& resp,
                       Rpc& rpc);
-    bool gc();
     void gcMain();
+    void trackerChangesEnqueued();
 
     /**
      * Shared RAMCloud information.
@@ -572,13 +580,11 @@ class BackupService : public Service {
      * Locked once for all RPCs in dispatch().
      */
     std::mutex mutex;
-    typedef std::unique_lock<std::mutex> Lock;
+    typedef std::mutex Mutex;
+    typedef std::unique_lock<Mutex> Lock;
 
     /// Settings passed to the constructor
     const ServerConfig& config;
-
-    /// Handle to cluster coordinator
-    CoordinatorClient coordinator;
 
     /**
      * If the backup was formerly part of a cluster this was its server id.
@@ -667,39 +673,79 @@ class BackupService : public Service {
     /// needs to notify the masters who the other members in its group are.
     vector<ServerId> replicationGroup;
 
-    /// Milliseconds to wait in between garbage collection runs.
-    enum { GC_MSECS = 1000 };
-
-    /**
-     * Replicas to attempt garbage collection on per round. Because the
-     * garbage collector can make RPCs for some replicas (those which
-     * persisted across failures, but whose creating masters are still up) this
-     * is used to throttle the garbage collector.
-     */
-    enum { GC_REPLICAS_TO_TRY = 10 };
-
-    /**
-     * If a garbage collection round frees at least this many replicas then
-     * immediately perform another round. This boosts the garbage
-     * collection rate when there seems to be a fair amount of garbage.
-     */
-    enum { GC_CONTINUE_COUNT = 1 };
-
     /// Used to determine server status of masters for garbage collection.
     ServerTracker<void> gcTracker;
 
-    /**
-     * Replica in #segments where garbage collection left off after the last
-     * round.  Used instead of an iterator because an iterator could be
-     * invalidated by freeSegment() operations between rounds.
-     */
-    SegmentsMap::key_type gcLeftOffAt;
-
-    /// Used to signal to the garbage collection thread that it should exit.
-    std::atomic<bool> gcRunning;
-
-    /// Runs garbage collection periodically.
+    /// Runs garbage collection tasks.
     Tub<std::thread> gcThread;
+
+    /// For testing; don't start gcThread when tracker changes are enqueued.
+    bool testingDoNotStartGcThread;
+
+    /**
+     * Enqueues requests to garbage collect replicas and tries to make
+     * progress on each of them.
+     */
+    TaskQueue gcTaskQueue;
+
+    /**
+     * Try to garbage collect a replica found on disk until it is finally
+     * removed. Usually replicas are freed explicitly by masters, but this
+     * doesn't work for cases where the replica was found on disk as part
+     * of an old master.
+     *
+     * This task may generate RPCs to the master to determine the
+     * status of the replica which survived on-storage across backup
+     * failures.
+     */
+    class GarbageCollectReplicaFoundOnStorageTask : public Task {
+      PUBLIC:
+        GarbageCollectReplicaFoundOnStorageTask(BackupService& service,
+                                                ServerId masterId,
+                                                uint64_t segmentId);
+        ~GarbageCollectReplicaFoundOnStorageTask();
+        void performTask();
+
+      PRIVATE:
+        void deleteReplica();
+
+        /// Backup which is trying to garbage collect the replica.
+        BackupService& service;
+
+        /// Id of the master which originally created the replica.
+        ServerId masterId;
+
+        /// Segment id of the replica which is a candidate for removal.
+        uint64_t segmentId;
+
+        /**
+         * Space for a rpc to the master to ask it explicitly if it would
+         * like this replica to be retain as it makes more replica elsewhere.
+         */
+        Tub<IsReplicaNeededRpc> rpc;
+    };
+    friend class GarbageCollectReplicaFoundOnStorageTask;
+
+    /**
+     * Try to garbage collect all replicas stored by a master which is now
+     * known to have been completely recovered and removed from the cluster.
+     * Usually replicas are freed explicitly by masters, but this
+     * doesn't work for cases where the replica was created by a master which
+     * has crashed.
+     */
+    class GarbageCollectDownServerTask : public Task {
+      PUBLIC:
+        GarbageCollectDownServerTask(BackupService& service, ServerId masterId);
+        void performTask();
+
+      PRIVATE:
+        /// Backup trying to garbage collect replicas from some removed master.
+        BackupService& service;
+
+        /// Id of the master now known to have been removed from the cluster.
+        ServerId masterId;
+    };
+    friend class GarbageCollectDownServerTask;
 
     DISALLOW_COPY_AND_ASSIGN(BackupService);
 };

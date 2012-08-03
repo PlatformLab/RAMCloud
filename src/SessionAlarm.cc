@@ -14,7 +14,6 @@
  */
 
 #include "Buffer.h"
-#include "Client.h"
 #include "Cycles.h"
 #include "SessionAlarm.h"
 
@@ -120,10 +119,40 @@ SessionAlarm::rpcFinished()
 }
 
 /**
+ * Constructor for PingRpc: initiates a ping RPC and returns once the RPC
+ * has been initiated, without waiting for it to complete.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param session
+ *      Send the ping on this session.
+ */
+SessionAlarmTimer::PingRpc::PingRpc(Context& context,
+        Transport::SessionRef session)
+    : RpcWrapper(sizeof(WireFormat::Ping::Response))
+    , context(context)
+{
+    this->session = session;
+    allocHeader<WireFormat::Ping>();
+    send();
+}
+
+/**
+ * Returns true if the ping RPC completed successfully, false otherwise.
+ */
+bool
+SessionAlarmTimer::PingRpc::succeeded()
+{
+    return (getState() == RpcState::FINISHED) && (responseHeader != NULL)
+            && (responseHeader->status == STATUS_OK);
+}
+
+/**
  * Constructor for SessionAlarmTimer objects.
  */
-SessionAlarmTimer::SessionAlarmTimer(Dispatch& dispatch)
-    : Dispatch::Timer(dispatch)
+SessionAlarmTimer::SessionAlarmTimer(Context& context)
+    : Dispatch::Timer(*context.dispatch)
+    , context(context)
     , activeAlarms()
     , timerIntervalTicks(Cycles::fromNanoseconds(TIMER_INTERVAL_MS * 1000000))
     , pings()
@@ -136,9 +165,7 @@ SessionAlarmTimer::SessionAlarmTimer(Dispatch& dispatch)
 SessionAlarmTimer::~SessionAlarmTimer()
 {
     for (PingMap::iterator it = pings.begin(); it != pings.end(); it++) {
-        it->second.rpc->cancel();
-        delete it->second.request;
-        delete it->second.response;
+        delete it->second;
     }
     while (!activeAlarms.empty()) {
         activeAlarms[0]->rpcFinished();
@@ -159,6 +186,9 @@ SessionAlarmTimer::handleTimerEvent()
         if (alarm->waitingForResponseMs < alarm->pingMs)
             continue;
         if (alarm->waitingForResponseMs > alarm->abortMs) {
+            RAMCLOUD_LOG(WARNING,
+                    "Server at %s is not responding, aborting session",
+                    alarm->session.getServiceLocator().c_str());
             alarm->session.abort(format("server at %s is not responding",
                     alarm->session.getServiceLocator().c_str()));
             continue;
@@ -171,13 +201,7 @@ SessionAlarmTimer::handleTimerEvent()
 
         // It's time to initiate a ping RPC to make sure the server is still
         // alive.
-        Buffer* request = new Buffer;
-        Buffer* response = new Buffer;
-        PingRpc::Request& reqHdr(Client::allocHeader<PingRpc>(*request));
-        reqHdr.nonce = 12345;
-        Transport::ClientRpc* rpc = alarm->session.clientSend(request,
-                response);
-        pings[alarm] = {rpc, request, response};
+        pings[alarm] = new PingRpc(context, &alarm->session);
         RAMCLOUD_LOG(NOTICE, "initiated ping request to %s",
                 alarm->session.getServiceLocator().c_str());
     }
@@ -185,18 +209,14 @@ SessionAlarmTimer::handleTimerEvent()
     // Clean up ping RPCs that completed successfully.
     for (PingMap::iterator it = pings.begin(); it != pings.end(); ) {
         PingMap::iterator current = it;
+        PingRpc* rpc = current->second;
         it++;
-        if (current->second.rpc->isReady()) {
-            try {
-                current->second.rpc->wait();
+        if (rpc->isReady()) {
+            if (rpc->succeeded()) {
                 RAMCLOUD_LOG(NOTICE, "received ping response from %s",
                         current->first->session.getServiceLocator().c_str());
             }
-            catch (TransportException& e) {
-                RAMCLOUD_LOG(ERROR, "%s", e.message.c_str());
-            }
-            delete current->second.request;
-            delete current->second.response;
+            delete rpc;
             pings.erase(current);
         }
     }

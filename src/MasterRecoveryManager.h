@@ -72,7 +72,9 @@ class MasterRecoveryManager : public Recovery::Owner
 
   PRIVATE:
     void main();
-    void restartMasterRecovery(ServerId crashedServerId);
+
+    /// Shared RAMCloud information.
+    Context& context;
 
     /// Authoritative list of all servers in the system and their details.
     CoordinatorServerList& serverList;

@@ -19,6 +19,7 @@
  */
 
 #include "Context.h"
+#include "CoordinatorSession.h"
 #if INFINIBAND
 #include "InfRcTransport.h"
 #endif
@@ -115,14 +116,18 @@ main(int argc, char *argv[])
             DIE("Can't specify both -B and -M options");
 
         if (masterOnly) {
-            config.services = {MASTER_SERVICE,
-                               MEMBERSHIP_SERVICE, PING_SERVICE};
+            config.services = {WireFormat::MASTER_SERVICE,
+                               WireFormat::MEMBERSHIP_SERVICE,
+                               WireFormat::PING_SERVICE};
         } else if (backupOnly) {
-            config.services = {BACKUP_SERVICE,
-                               MEMBERSHIP_SERVICE, PING_SERVICE};
+            config.services = {WireFormat::BACKUP_SERVICE,
+                               WireFormat::MEMBERSHIP_SERVICE,
+                               WireFormat::PING_SERVICE};
         } else {
-            config.services = {MASTER_SERVICE, BACKUP_SERVICE,
-                               MEMBERSHIP_SERVICE, PING_SERVICE};
+            config.services = {WireFormat::MASTER_SERVICE,
+                               WireFormat::BACKUP_SERVICE,
+                               WireFormat::MEMBERSHIP_SERVICE,
+                               WireFormat::PING_SERVICE};
         }
 
         const string localLocator = optionParser.options.getLocalLocator();
@@ -136,6 +141,8 @@ main(int argc, char *argv[])
 
         config.coordinatorLocator =
             optionParser.options.getCoordinatorLocator();
+        context.coordinatorSession->setLocation(
+                config.coordinatorLocator.c_str());
         // Transports may augment the local locator somewhat.
         // Make sure the server is aware of that augmented locator.
         config.localLocator =

@@ -148,20 +148,6 @@ rc_getTableId(struct rc_client* client, const char* name,
     return STATUS_OK;
 }
 
-Status
-rc_ping(struct rc_client* client, const char* serviceLocator,
-        uint64_t nonce, uint64_t timeoutNanoseconds,
-        uint64_t* result)
-{
-    try {
-        *result = client->client->ping(serviceLocator, nonce,
-                                       timeoutNanoseconds);
-    } catch (ClientException& e) {
-        return e.status;
-    }
-    return STATUS_OK;
-}
-
 /**
  * Similar to RamCloudClient::read, except copies the return value out to a
  * fixed-length buffer rather than returning a Buffer object.
@@ -253,6 +239,41 @@ rc_testing_kill(struct rc_client* client, uint64_t tableId,
 {
     try {
         client->client->testingKill(tableId, key, keyLength);
+    } catch (const ClientException& e) {
+        return e.status;
+    }
+    return STATUS_OK;
+}
+
+Status
+rc_testing_get_server_id(struct rc_client* client,
+                         uint64_t tableId,
+                         const char* key,
+                         uint16_t keyLength,
+                         uint64_t* serverId)
+{
+    try {
+        *serverId = client->client->testingGetServerId(tableId, key, keyLength);
+    } catch (const ClientException& e) {
+        return e.status;
+    }
+    return STATUS_OK;
+}
+
+Status
+rc_testing_get_service_locator(struct rc_client* client,
+                               uint64_t tableId,
+                               const char* key,
+                               uint16_t keyLength,
+                               char* locatorBuffer,
+                               size_t bufferLength)
+{
+    try {
+        string locator =
+            client->client->testingGetServiceLocator(tableId, key, keyLength);
+        strncpy(locatorBuffer, locator.data(), bufferLength);
+        if (bufferLength > 0)
+            locatorBuffer[bufferLength - 1] = '\0';
     } catch (const ClientException& e) {
         return e.status;
     }

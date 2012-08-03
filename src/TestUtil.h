@@ -36,6 +36,7 @@
 #include "Buffer.h"
 #include "ClientException.h"
 #include "Dispatch.h"
+#include "RpcWrapper.h"
 #include "Transport.h"
 
 namespace RAMCloud {
@@ -61,6 +62,8 @@ class TestUtil {
     static string toString(Buffer* buffer, uint32_t offset, uint32_t length);
     static string toString(Buffer* buffer);
     static bool waitForRpc(Context& context, Transport::ClientRpc& rpc,
+            int ms = 1000);
+    static bool waitForRpc(Context& context, RpcWrapper& rpc,
             int ms = 1000);
 };
 

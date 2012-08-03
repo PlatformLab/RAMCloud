@@ -175,39 +175,13 @@ class Segment {
     static_assert(sizeof(EntryHeader) == 1,
                   "Unexpected padding in Segment::EntryHeader");
 
-  public:
-    Segment();
-    Segment(Allocator& allocator);
-    Segment(const void* buffer, uint32_t length);
-    virtual ~Segment();
-    bool append(LogEntryType type,
-                Buffer& buffer,
-                uint32_t offset,
-                uint32_t length,
-                uint32_t& outOffset);
-    bool append(LogEntryType type, Buffer& buffer, uint32_t& outOffset);
-    bool append(LogEntryType type, Buffer& buffer);
-    bool append(LogEntryType type,
-                const void* data,
-                uint32_t length,
-                uint32_t& outOffset);
-    bool append(LogEntryType type, const void* data, uint32_t length);
-    void free(uint32_t entryOffset);
-    void close();
-    uint32_t appendToBuffer(Buffer& buffer);
-    LogEntryType getEntry(uint32_t offset, Buffer& buffer);
-    uint32_t getTailOffset();
-    uint32_t getSegletsAllocated();
-    uint32_t getSegletsNeeded();
-    bool checkMetadataIntegrity();
-
-  PRIVATE:
     /**
      * Each segment's very last entry is a Footer. The footer denotes the end
      * of the segment and contains a checksum for checking segment metadata
      * integrity.
      */
-    struct Footer {
+    class Footer {
+      public:
         Footer(bool closed, Crc32C segmentChecksum)
             : closed(closed),
               checksum()
@@ -227,6 +201,64 @@ class Segment {
     } __attribute__((__packed__));
     static_assert(sizeof(Footer) == 5, "Unexpected padding in Segment::Footer");
 
+  public:
+    /**
+     * Segment footer prefixed with the necessary metadata to make a full and
+     * properly-formatted segment entry. This special case exists because such
+     * entries are given by value to the ReplicaManager during getAppendedLength()
+     * calls. This is so the ReplicaManager can send a correct footer along with
+     * each write call, while allowing the master to overwrite the footer in its
+     * copy of the segment during writes that are concurrent with the replication.
+     *
+     * This structure is opaque because no code outside of the Segment class should
+     * need to understand the internals. The replication/backup modules need only
+     * know that this blob should be placed immediately after any backed up segment
+     * data.
+     */
+    class OpaqueFooterEntry {
+      public:
+        OpaqueFooterEntry()
+            : entryHeader(LOG_ENTRY_TYPE_INVALID, 0),
+              length(0),
+              footer(false, Crc32C())
+        {
+        }
+      PRIVATE:                      // Just to be very explicit. Do not touch.
+        EntryHeader entryHeader;
+        uint8_t length;
+        Footer footer;
+    } __attribute__((__packed__));
+    static_assert(sizeof(OpaqueFooterEntry) ==
+        (sizeof(EntryHeader) + 1 + sizeof(Footer)),
+        "Unexpected padding in Segment::OpaqueFooterEntry");
+
+    Segment();
+    Segment(Allocator& allocator);
+    Segment(const void* buffer, uint32_t length);
+    virtual ~Segment();
+    bool append(LogEntryType type,
+                Buffer& buffer,
+                uint32_t offset,
+                uint32_t length,
+                uint32_t& outOffset);
+    bool append(LogEntryType type, Buffer& buffer, uint32_t& outOffset);
+    bool append(LogEntryType type, Buffer& buffer);
+    bool append(LogEntryType type,
+                const void* data,
+                uint32_t length,
+                uint32_t& outOffset);
+    bool append(LogEntryType type, const void* data, uint32_t length);
+    void free(uint32_t entryOffset);
+    void close();
+    uint32_t appendToBuffer(Buffer& buffer, uint32_t offset, uint32_t length) const;
+    uint32_t appendToBuffer(Buffer& buffer);
+    LogEntryType getEntry(uint32_t offset, Buffer& buffer);
+    uint32_t getAppendedLength(OpaqueFooterEntry& footerEntry) const;
+    uint32_t getSegletsAllocated();
+    uint32_t getSegletsNeeded();
+    bool checkMetadataIntegrity();
+
+  PRIVATE:
     /**
      * This allocator is used when constructing a segment that wraps another
      * serialized segment. When constructing such a segment we neither allocate,
@@ -254,17 +286,16 @@ class Segment {
 
     typedef std::vector<void*> SegletVector;
 
-    uint32_t appendToBuffer(Buffer& buffer, uint32_t offset, uint32_t length);
     void appendFooter();
     const EntryHeader* getEntryHeader(uint32_t offset);
     void getEntryInfo(uint32_t offset,
                       LogEntryType& outType,
                       uint32_t &outDataOffset,
                       uint32_t &outDataLength);
-    uint32_t peek(uint32_t offset, const void** outAddress);
+    uint32_t peek(uint32_t offset, const void** outAddress) const;
     uint32_t bytesLeft();
     uint32_t bytesNeeded(uint32_t length);
-    uint32_t copyOut(uint32_t offset, void* buffer, uint32_t length);
+    uint32_t copyOut(uint32_t offset, void* buffer, uint32_t length) const;
     uint32_t copyIn(uint32_t offset, const void* buffer, uint32_t length);
     uint32_t copyInFromBuffer(uint32_t segmentOffset,
                               Buffer& buffer,

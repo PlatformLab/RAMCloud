@@ -22,6 +22,7 @@
 #include "Logger.h"
 #include "Segment.h"
 #include "Server.h"
+#include "ServerList.h"
 #include "ServiceMask.h"
 
 namespace RAMCloud {
@@ -61,101 +62,14 @@ namespace RAMCloud {
  */
 class MockCluster {
   public:
-    /**
-     * Create a MockCluster for unit testing with a running coordinator.
-     * Currently, the coordinator does not run additional services (for
-     * example, PingService).  Create and register those manually (with
-     * #transport) if you need them.
-     *
-     * \param context
-     *      Overall information about the RAMCloud server or client.
-     * \param coordinatorLocator
-     *      The service locator that other servers in the MockCluster will
-     *      use to talk to the coordinator.
-     */
-    explicit MockCluster(Context& context,
-            string coordinatorLocator = "mock:host=coordinator")
-        : context(context)
-        , transport(context)
-        , mockRegistrar(context, transport)
-        , coordinatorLocator(coordinatorLocator)
-        , coordinator()
-        , coordinatorClient()
-        , servers()
-    {
-        coordinator.construct(context);
-        transport.addService(*coordinator, coordinatorLocator,
-                             COORDINATOR_SERVICE);
-        coordinatorClient.construct(context, coordinatorLocator.c_str());
-    }
+     explicit MockCluster(Context& context,
+         string coordinatorLocator = "mock:host=coordinator");
+    ~MockCluster();
+    Server* addServer(ServerConfig config);
 
     /**
-     * Added servers are deleted in reverse order of their creation to avoid
-     * weird shutdown deadlock issues (for example, master try indefinitely to
-     * flush their logs to backups on shutdown).
-     */
-    ~MockCluster()
-    {
-        for (auto it = servers.rbegin(); it != servers.rend(); ++it) {
-            RAMCLOUD_TEST_LOG("%s", (*it)->config.services.toString().c_str());
-            delete *it;
-        }
-    }
-
-    /**
-     * Add a new server to the cluster; notice \a config is passed
-     * by value; the caller is NOT responsible for freeing the returned Server.
-     * A ServerConfig can be obtained from ServerConfig::forTesting
-     * which will work for most tests.  From there different tests will need
-     * to override a few things.  Most importantly, for any configuration it
-     * is important to select which services will run on the server.
-     * For example, config.services = {MASTER_SERVICE, PING_SERVICE}.
-     * Examples of other things that can be configured include number of
-     * replicas, size of segments, number of segment frames on the backup
-     * storage, etc.).
-     *
-     * If config.coordinatorLocator is left blank (which is its default)
-     * then the server will enlist with the coordinator which was created
-     * along with this cluster.  If config.localLocator is left blank (which
-     * is its default) it will be assigned a service locator of
-     * "mock:host=serverX" where X starts at 0 and increases each time
-     * addServer() is called.  Notice, that because each server contains
-     * a copy of its ServerConfig \a config is NOT modified to reflect these
-     * tweaks to the service locators.  The generated locators can be obtained
-     * from the config field in Server.  In order to reduce breakage with older
-     * unit tests and to make for clearer hostnames, its possible to override
-     * config.localLocator to control the locator the added server listens at.
-     *
-     * Look at ServerConfig for all the details on what configuration of
-     * a server is possible.
-     *
-     * Example usage:
-     *
-     * ServerConfig config = ServerConfig::forTesting();
-     * config.services = {BACKUP_SERVICE, PING_SERVICE};
-     * auto* backup = cluster.get<BackupClient>(cluster.addServer(config));
-     * backup->openSegment({99, 0}, 10);
-     *
-     * \return
-     *      A pointer to the new Server that has been added to the cluster
-     *      and enlisted with the coordinator.  The caller is NOT responsible
-     *      for freeing the returned Server.
-     */
-    Server* addServer(ServerConfig config) {
-        if (config.coordinatorLocator == "")
-            config.coordinatorLocator = coordinatorLocator;
-        if (config.localLocator == "") {
-            size_t nextIdx = servers.size();
-            config.localLocator = format("mock:host=server%lu", nextIdx);
-        }
-        std::unique_ptr<Server> server(new Server(context, config));
-        server->startForTesting(transport);
-        servers.push_back(server.get());
-        return server.release();
-    }
-
-    /**
-     * Return a client to a particular server in the cluster.
+     * Return a client for a particular server in the cluster.  This
+     * method should go away when the new RPC wrappers are finished.
      *
      * \tparam T
      *      Type of the client desired to talk to \a server.
@@ -164,25 +78,16 @@ class MockCluster {
      */
     template <typename T>
     std::unique_ptr<T> get(Server* server) {
-        return std::unique_ptr<T>(
-            new T(context.transportManager->
-                    getSession(server->config.localLocator.c_str())));
+        ServiceLocator locator(server->config.localLocator);
+        return std::unique_ptr<T>(new T(transport.getSession(locator)));
     }
 
-    /**
-     * Return a client to this cluster's coordinator; important, the caller
-     * is NOT responsible for freeing returned the client.  Also, the client is
-     * shared among all callers of this method (i.e. it always returns a pointer
-     * to the same client).
-     */
-    CoordinatorClient* getCoordinatorClient() {
-        return coordinatorClient.get();
-    }
+    /// Caller-supplied context that we manage to provide access to
+    /// the cluster.
+    Context& linkedContext;
 
-    /**
-     * Shared RAMCloud information.
-     */
-    Context& context;
+    /// Context that will be used for the cluster coordinator.
+    Context coordinatorContext;
 
     /**
      * Transport the servers in the cluster use to communicate.  Unlike a
@@ -195,20 +100,18 @@ class MockCluster {
      */
     BindTransport transport;
 
-    /// Registers and deregisters the transport with the TransportManager.
-    TransportManager::MockRegistrar mockRegistrar;
-
     /// Locator of the coordinator of the MockCluster.
     string coordinatorLocator;
 
     /// The coordinator of the MockCluster.
     Tub<CoordinatorService> coordinator;
 
-    /// A client to the coordinator of the MockCluster.
-    Tub<CoordinatorClient> coordinatorClient;
-
     /// Servers in the cluster; used to delete them when the cluster goes away.
     vector<Server*> servers;
+
+    /// Contexts in this array correspond to entries in the \c servers vector.
+    /// Used to clean them up when the cluster goes away.
+    vector<Context*> contexts;
 };
 
 } // namespace RAMCloud

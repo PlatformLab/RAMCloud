@@ -16,6 +16,7 @@
 
 #include "TestUtil.h"
 #include "BindTransport.h"
+#include "FailSession.h"
 #include "MembershipService.h"
 #include "MockTransportFactory.h"
 #include "MockTransport.h"
@@ -97,6 +98,21 @@ TEST_F(TransportManagerTest, initialize_registerExistingMemory) {
               TestLog::get());
 }
 
+TEST_F(TransportManagerTest, flushSession) {
+    MockTransport transport(context);
+    manager.registerMock(&transport);
+    manager.getSession("foo:;mock:");
+    MockTransport::sessionDeleteCount = 0;
+    EXPECT_EQ(1U, transport.sessionCreateCount);
+    manager.getSession("foo:;mock:");
+    EXPECT_EQ(1U, transport.sessionCreateCount);
+    manager.flushSession("foo:;mock:");
+    EXPECT_EQ(1U, MockTransport::sessionDeleteCount);
+    manager.getSession("foo:;mock:");
+    EXPECT_EQ(2U, transport.sessionCreateCount);
+    manager.unregisterMock();
+}
+
 TEST_F(TransportManagerTest, getSession_basics) {
     manager.registerMock(NULL);
     Transport::SessionRef session(manager.getSession("foo:;mock:"));
@@ -152,29 +168,18 @@ TEST_F(TransportManagerTest, getSession_createWorkerSession) {
     EXPECT_EQ("WorkerSession: created", TestLog::get());
 }
 
-TEST_F(TransportManagerTest, getSession_badTransportFailure) {
+TEST_F(TransportManagerTest, getSession_openSessionFailure) {
+    TestLog::Enable _;
     manager.registerMock(NULL);
-    EXPECT_THROW(manager.getSession("foo:"), TransportException);
-    try {
-        manager.getSession("foo:");
-    } catch (TransportException& e) {
-        EXPECT_EQ(e.message, "No supported transport found for "
-                             "this service locator: foo:");
-    }
-}
-
-TEST_F(TransportManagerTest, getSession_transportgetSessionFailure) {
-    manager.registerMock(NULL);
-    EXPECT_THROW(manager.getSession("mock:host=error"), TransportException);
+    string message = "no exception";
     try {
         manager.getSession("mock:host=error");
     } catch (TransportException& e) {
-        EXPECT_TRUE(TestUtil::matchesPosixRegex(
-            "Could not obtain transport session for this service locator: "
-            "mock:host=error (details: RAMCloud::TransportException: "
-            "Failed to open session thrown at .*)",
-            e.message));
+        EXPECT_EQ("Couldn't open session for locator mock:host=error",
+                e.message);
+        message = "exception thrown";
     }
+    EXPECT_EQ("exception thrown", message);
 }
 
 TEST_F(TransportManagerTest, getSession_matchServerId) {
@@ -184,8 +189,10 @@ TEST_F(TransportManagerTest, getSession_matchServerId) {
     ServerList list(context);
     BindTransport transport(context);
     context.transportManager->registerMock(&transport);
+    context.transportManager->skipServerIdCheck = false;
     MembershipService membership(id, list);
-    transport.addService(membership, "mock:host=member", MEMBERSHIP_SERVICE);
+    transport.addService(membership, "mock:host=member",
+                         WireFormat::MEMBERSHIP_SERVICE);
 
     EXPECT_NO_THROW(context.transportManager->getSession(
         "mock:host=member", id));
@@ -199,6 +206,61 @@ TEST_F(TransportManagerTest, getSession_matchServerId) {
 }
 
 // No tests for getListeningLocatorsString: it's trivial.
+
+TEST_F(TransportManagerTest, openSession_noSupportingTransports) {
+    TestLog::Enable _;
+    manager.registerMock(NULL, "mock");
+    manager.registerMock(NULL, "mock2");
+    EXPECT_EQ(manager.openSession("foo:"), FailSession::get());
+    EXPECT_EQ("openSession: No supported transport found for locator foo:",
+              TestLog::get());
+}
+
+TEST_F(TransportManagerTest, openSession_ignoreTransportCreateError) {
+    TestLog::Enable _;
+    manager.registerMock(NULL, "error");
+    manager.registerMock(NULL, "mock");
+    Transport::SessionRef session(manager.openSession("error:;mock:"));
+    EXPECT_TRUE(session.get() != NULL);
+    EXPECT_TRUE(manager.transports.back() != NULL);
+    EXPECT_TRUE(manager.transports[manager.transports.size()-2] == NULL);
+    EXPECT_EQ("createTransport: exception thrown", TestLog::get());
+}
+
+TEST_F(TransportManagerTest, openSession_cantOpenSession) {
+    TestLog::Enable _;
+    manager.registerMock(NULL);
+    EXPECT_EQ(manager.openSession("mock:host=error"), FailSession::get());
+    EXPECT_EQ("openSession: Couldn't open session for locator "
+            "mock:host=error (Failed to open session)",
+            TestLog::get());
+}
+
+TEST_F(TransportManagerTest, openSession_cantOpenSessionMultipleMessages) {
+    TestLog::Enable _;
+    manager.registerMock(NULL, "m1");
+    manager.registerMock(NULL, "m2");
+    manager.registerMock(NULL, "m3");
+    EXPECT_EQ(manager.openSession(
+            "m1:host=error;m3:host=error;m2:host=error"), FailSession::get());
+    EXPECT_EQ("openSession: Couldn't open session for locator "
+            "m1:host=error;m3:host=error;m2:host=error "
+            "(m1:host=error: Failed to open session, "
+            "m3:host=error: Failed to open session, "
+            "m2:host=error: Failed to open session)",
+            TestLog::get());
+}
+
+TEST_F(TransportManagerTest, openSession_succeedAfterFailure) {
+    manager.registerMock(NULL, "m1");
+    manager.registerMock(NULL, "m2");
+    Transport::SessionRef session(manager.openSession(
+            "m1:host=error;m2:host=ok"));
+    EXPECT_TRUE(session.get() != NULL);
+    EXPECT_TRUE(manager.transports.back() != NULL);
+    EXPECT_EQ("m1:host=error;m2:host=ok",
+            session->getServiceLocator());
+}
 
 TEST_F(TransportManagerTest, registerMemory) {
     TestLog::Enable _;

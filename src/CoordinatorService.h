@@ -16,20 +16,22 @@
 #ifndef RAMCLOUD_COORDINATORSERVICE_H
 #define RAMCLOUD_COORDINATORSERVICE_H
 
+#include <Client/Client.h>
+
 #include "ServerList.pb.h"
 #include "Tablets.pb.h"
 
 #include "Common.h"
 #include "ClientException.h"
+#include "LogCabinHelper.h"
 #include "MasterRecoveryManager.h"
 #include "RawMetrics.h"
 #include "Recovery.h"
-#include "Rpc.h"
 #include "RuntimeOptions.h"
-#include "ServerId.h"
 #include "Service.h"
 #include "TabletMap.h"
 #include "TransportManager.h"
+#include "CoordinatorServerManager.h"
 
 namespace RAMCloud {
 
@@ -38,90 +40,74 @@ namespace RAMCloud {
  */
 class CoordinatorService : public Service {
   public:
-    explicit CoordinatorService(Context& context);
+    explicit CoordinatorService(Context& context,
+                                string LogCabinLocator = "testing");
     ~CoordinatorService();
-    void dispatch(RpcOpcode opcode,
+    void dispatch(WireFormat::Opcode opcode,
                   Rpc& rpc);
 
   PRIVATE:
-    /**
-     * The ping timeout used when the Coordinator verifies an incoming
-     * hint server down message. Until we resolve the scheduler issues that we
-     * have been seeing this timeout should be at least 250ms.
-     */
-    static const int TIMEOUT_USECS = 250 * 1000;
-
     // - rpc handlers -
-    void createTable(const CreateTableRpc::Request& reqHdr,
-                     CreateTableRpc::Response& respHdr,
+    void createTable(const WireFormat::CreateTable::Request& reqHdr,
+                     WireFormat::CreateTable::Response& respHdr,
                      Rpc& rpc);
-    void dropTable(const DropTableRpc::Request& reqHdr,
-                   DropTableRpc::Response& respHdr,
+    void dropTable(const WireFormat::DropTable::Request& reqHdr,
+                   WireFormat::DropTable::Response& respHdr,
                    Rpc& rpc);
-    void splitTablet(const SplitTabletRpc::Request& reqHdr,
-                   SplitTabletRpc::Response& respHdr,
+    void splitTablet(const WireFormat::SplitTablet::Request& reqHdr,
+                   WireFormat::SplitTablet::Response& respHdr,
                    Rpc& rpc);
-    void getTableId(const GetTableIdRpc::Request& reqHdr,
-                    GetTableIdRpc::Response& respHdr,
+    void getTableId(const WireFormat::GetTableId::Request& reqHdr,
+                    WireFormat::GetTableId::Response& respHdr,
                     Rpc& rpc);
-    void enlistServer(const EnlistServerRpc::Request& reqHdr,
-                      EnlistServerRpc::Response& respHdr,
+    void enlistServer(const WireFormat::EnlistServer::Request& reqHdr,
+                      WireFormat::EnlistServer::Response& respHdr,
                       Rpc& rpc);
-    void getServerList(const GetServerListRpc::Request& reqHdr,
-                       GetServerListRpc::Response& respHdr,
+    void getServerList(const WireFormat::GetServerList::Request& reqHdr,
+                       WireFormat::GetServerList::Response& respHdr,
                        Rpc& rpc);
-    void getTabletMap(const GetTabletMapRpc::Request& reqHdr,
-                      GetTabletMapRpc::Response& respHdr,
+    void getTabletMap(const WireFormat::GetTabletMap::Request& reqHdr,
+                      WireFormat::GetTabletMap::Response& respHdr,
                       Rpc& rpc);
-    void hintServerDown(const HintServerDownRpc::Request& reqHdr,
-                        HintServerDownRpc::Response& respHdr,
+    void hintServerDown(const WireFormat::HintServerDown::Request& reqHdr,
+                        WireFormat::HintServerDown::Response& respHdr,
                         Rpc& rpc);
     void recoveryMasterFinished(
-        const RecoveryMasterFinishedRpc::Request& reqHdr,
-        RecoveryMasterFinishedRpc::Response& respHdr,
-        Rpc& rpc);
-    void quiesce(const BackupQuiesceRpc::Request& reqHdr,
-                 BackupQuiesceRpc::Response& respHdr,
-                 Rpc& rpc);
-    void setWill(const SetWillRpc::Request& reqHdr,
-                 SetWillRpc::Response& respHdr,
+            const WireFormat::RecoveryMasterFinished::Request& reqHdr,
+            WireFormat::RecoveryMasterFinished::Response& respHdr,
+            Rpc& rpc);
+    void quiesce(const WireFormat::BackupQuiesce::Request& reqHdr,
+                 WireFormat::BackupQuiesce::Response& respHdr,
                  Rpc& rpc);
     void reassignTabletOwnership(
-                const ReassignTabletOwnershipRpc::Request& reqHdr,
-                ReassignTabletOwnershipRpc::Response& respHdr,
-                Rpc& rpc);
-    void sendServerList(const SendServerListRpc::Request& reqHdr,
-                        SendServerListRpc::Response& respHdr,
+            const WireFormat::ReassignTabletOwnership::Request& reqHdr,
+            WireFormat::ReassignTabletOwnership::Response& respHdr,
+            Rpc& rpc);
+    void sendServerList(const WireFormat::SendServerList::Request& reqHdr,
+                        WireFormat::SendServerList::Response& respHdr,
                         Rpc& rpc);
-    void setRuntimeOption(const SetRuntimeOptionRpc::Request& reqHdr,
-                          SetRuntimeOptionRpc::Response& respHdr,
+    void setRuntimeOption(const WireFormat::SetRuntimeOption::Request& reqHdr,
+                          WireFormat::SetRuntimeOption::Response& respHdr,
                           Rpc& rpc);
-    // - helper methods -
-    bool assignReplicationGroup(uint64_t replicationId,
-                                const vector<ServerId>& replicationGroupIds);
-    void createReplicationGroup();
-    bool hintServerDown(ServerId serverId);
-    void removeReplicationGroup(uint64_t replicationId);
-    void sendServerList(ServerId destination);
-    void setMinOpenSegmentId(const SetMinOpenSegmentIdRpc::Request& reqHdr,
-                             SetMinOpenSegmentIdRpc::Response& respHdr,
-                             Rpc& rpc);
-    bool setWill(ServerId masterId, Buffer& buffer,
-                 uint32_t offset, uint32_t length);
-    bool verifyServerFailure(ServerId serverId);
+    void setMinOpenSegmentId(
+        const WireFormat::SetMinOpenSegmentId::Request& reqHdr,
+        WireFormat::SetMinOpenSegmentId::Response& respHdr,
+        Rpc& rpc);
 
     /**
      * Shared RAMCloud information.
      */
     Context& context;
 
+  public:
     /**
      * List of all servers in the system. This structure is used to allocate
      * ServerIds as well as to keep track of any information we need to keep
      * for individual servers (e.g. ServiceLocator strings, Wills, etc).
      */
-    CoordinatorServerList serverList;
+    CoordinatorServerList& serverList;
 
+  PRIVATE:
     /**
      * What are the tablets, and who is the master for each.
      */
@@ -148,14 +134,6 @@ class CoordinatorService : public Service {
     uint32_t nextTableMasterIdx;
 
     /**
-     * The id of the next replication group to be created. The replication
-     * group is a set of backups that store all of the replicas of a segment.
-     * NextReplicationId starts at 1 and is never reused.
-     * Id 0 is reserved for nodes that do not belong to a replication group.
-     */
-    uint64_t nextReplicationId;
-
-    /**
      * Contains coordinator configuration options which can be modified while
      * the cluster is running. Currently mostly used for setting debugging
      * or testing parameters.
@@ -168,11 +146,28 @@ class CoordinatorService : public Service {
     MasterRecoveryManager recoveryManager;
 
     /**
-     * Used for testing only. If true, the HINT_SERVER_DOWN handler will
-     * assume that the server has failed (rather than checking for itself).
+     * Handles all server configuration details on behalf of the coordinator.
      */
-    bool forceServerDownForTesting;
+    CoordinatorServerManager serverManager;
 
+    /**
+     * Handle to the cluster of LogCabin which provides reliable, consistent
+     * storage.
+     */
+    Tub<LogCabin::Client::Cluster> logCabinCluster;
+
+    /**
+     * Handle to the log interface provided by LogCabin.
+     */
+    Tub<LogCabin::Client::Log> logCabinLog;
+
+    /**
+     * Handle to a helper class that provides higher level abstractions
+     * to interact with LogCabin.
+     */
+    Tub<LogCabinHelper> logCabinHelper;
+
+    friend class CoordinatorServerManager;
     DISALLOW_COPY_AND_ASSIGN(CoordinatorService);
 };
 

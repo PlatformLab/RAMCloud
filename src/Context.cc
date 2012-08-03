@@ -15,6 +15,8 @@
  */
 
 #include "Context.h"
+#include "CoordinatorServerList.h"
+#include "CoordinatorSession.h"
 #include "Dispatch.h"
 #include "ServiceManager.h"
 #include "ShortMacros.h"
@@ -64,6 +66,9 @@ Context::Context(bool hasDedicatedDispatchThread)
     , transportManager(NULL)
     , serviceManager(NULL)
     , sessionAlarmTimer(NULL)
+    , coordinatorSession(NULL)
+    , serverList(NULL)
+    , coordinatorServerList(NULL)
 {
     try {
 #if TESTING
@@ -75,7 +80,8 @@ Context::Context(bool hasDedicatedDispatchThread)
 #endif
         transportManager = new TransportManager(*this);
         serviceManager = new ServiceManager(*this);
-        sessionAlarmTimer = new SessionAlarmTimer(*dispatch);
+        sessionAlarmTimer = new SessionAlarmTimer(*this);
+        coordinatorSession = new CoordinatorSession(*this);
     } catch (...) {
         destroy();
         throw;
@@ -104,6 +110,9 @@ Context::destroy()
     // Make sure to delete the members in the opposite order from their
     // construction.
 
+    delete coordinatorSession;
+    coordinatorSession = NULL;
+
     delete serviceManager;
     serviceManager = NULL;
 
@@ -122,6 +131,9 @@ Context::destroy()
     delete mockContextMember1;
     mockContextMember1 = NULL;
 #endif
+
+    serverList = NULL;
+    coordinatorServerList = NULL;
 }
 
 } // namespace RAMCloud

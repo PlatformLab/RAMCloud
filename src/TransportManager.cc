@@ -23,8 +23,8 @@
 #include "TransportFactory.h"
 #include "TcpTransport.h"
 #include "FastTransport.h"
-#include "UnreliableTransport.h"
 #include "UdpDriver.h"
+#include "FailSession.h"
 
 #ifdef INFINIBAND
 #include "InfRcTransport.h"
@@ -52,16 +52,6 @@ static struct FastUdpTransportFactory : public TransportFactory {
     }
 } fastUdpTransportFactory;
 
-static struct UnreliableUdpTransportFactory : public TransportFactory {
-    UnreliableUdpTransportFactory()
-        : TransportFactory("unreliable+kernelUdp", "unreliable+udp") {}
-    Transport* createTransport(Context& context,
-            const ServiceLocator* localServiceLocator) {
-        return new UnreliableTransport(context,
-                new UdpDriver(context, localServiceLocator));
-    }
-} unreliableUdpTransportFactory;
-
 #ifdef INFINIBAND
 static struct FastInfUdTransportFactory : public TransportFactory {
     FastInfUdTransportFactory()
@@ -73,16 +63,6 @@ static struct FastInfUdTransportFactory : public TransportFactory {
     }
 } fastInfUdTransportFactory;
 
-static struct UnreliableInfUdTransportFactory : public TransportFactory {
-    UnreliableInfUdTransportFactory()
-        : TransportFactory("unreliable+infinibandud", "unreliable+infud") {}
-    Transport* createTransport(Context& context,
-            const ServiceLocator* localServiceLocator) {
-        return new UnreliableTransport(context,
-                new InfUdDriver<>(context, localServiceLocator, false));
-    }
-} unreliableInfUdTransportFactory;
-
 static struct FastInfEthTransportFactory : public TransportFactory {
     FastInfEthTransportFactory()
         : TransportFactory("fast+infinibandethernet", "fast+infeth") {}
@@ -92,17 +72,6 @@ static struct FastInfEthTransportFactory : public TransportFactory {
                 new InfUdDriver<>(context, localServiceLocator, true));
     }
 } fastInfEthTransportFactory;
-
-static struct UnreliableInfEthTransportFactory : public TransportFactory {
-    UnreliableInfEthTransportFactory()
-        : TransportFactory("unreliable+infinibandethernet",
-                           "unreliable+infeth") {}
-    Transport* createTransport(Context& context,
-            const ServiceLocator* localServiceLocator) {
-        return new UnreliableTransport(context,
-                new InfUdDriver<>(context, localServiceLocator, true));
-    }
-} unreliableInfEthTransportFactory;
 
 static struct InfRcTransportFactory : public TransportFactory {
     InfRcTransportFactory()
@@ -125,15 +94,13 @@ TransportManager::TransportManager(Context& context)
     , registeredSizes()
     , mutex()
     , timeoutMs(0)
+    , skipServerIdCheck(false)
 {
     transportFactories.push_back(&tcpTransportFactory);
     transportFactories.push_back(&fastUdpTransportFactory);
-    transportFactories.push_back(&unreliableUdpTransportFactory);
 #ifdef INFINIBAND
     transportFactories.push_back(&fastInfUdTransportFactory);
-    transportFactories.push_back(&unreliableInfUdTransportFactory);
     transportFactories.push_back(&fastInfEthTransportFactory);
-    transportFactories.push_back(&unreliableInfEthTransportFactory);
     transportFactories.push_back(&infRcTransportFactory);
 #endif
     transports.resize(transportFactories.size(), NULL);
@@ -219,6 +186,22 @@ TransportManager::initialize(const char* localServiceLocator)
 }
 
 /**
+ * Remove a session from the session cache, if it is present.
+ *
+ * \param serviceLocator
+ *      Service locator for which any existing session should be flushed (was
+ *      passed to an earlier call to getSession).
+ */
+void
+TransportManager::flushSession(const char* serviceLocator)
+{
+    TEST_LOG("flushing session for %s", serviceLocator);
+    auto it = sessionCache.find(serviceLocator);
+    if (it != sessionCache.end())
+        sessionCache.erase(it);
+}
+
+/**
  * Get a session on which to send RPC requests to a service.  This method
  * keeps a cache of sessions and will reuse existing sessions whenever
  * possible. If necessary, the method also instantiates new transports
@@ -227,14 +210,17 @@ TransportManager::initialize(const char* localServiceLocator)
  * \param serviceLocator
  *      Desired service.
  *
+ * \return
+ *      A session corresponding to serviceLocator. If a session could not
+ *      be opened for serviceLocator then the error gets logged and a
+ *      FailSession is returned.
+ *
  * \throw NoSuchKeyException
  *      A transport supporting one of the protocols claims a service locator
  *      option is missing.
  * \throw BadValueException
  *      A transport supporting one of the protocols claims a service locator
  *      option is malformed.
- * \throw TransportException
- *      No transport was found for this service locator.
  */
 Transport::SessionRef
 TransportManager::getSession(const char* serviceLocator)
@@ -256,79 +242,15 @@ TransportManager::getSession(const char* serviceLocator)
 
     // Session was not found in the cache, so create a new one and add
     // it to the cache.
-
-    // Will contain more detailed information about the first transport to
-    // throw an exception for this locator.
-    string firstException;
-
-    // Iterate over all of the sub-locators, looking for a transport that
-    // can handle its protocol.
-    bool transportSupported = false;
-    auto locators = ServiceLocator::parseServiceLocators(serviceLocator);
-    foreach (auto& locator, locators) {
-        for (uint32_t i = 0; i < transportFactories.size(); i++) {
-            TransportFactory* factory = transportFactories[i];
-            if (!factory->supports(locator.getProtocol().c_str())) {
-                continue;
-            }
-
-            if (transports[i] == NULL) {
-                // Try to create a new transport via this factory.
-                // It's OK if that doesn't work (e.g. the particular
-                // transport may depend on physical devices that don't
-                // exist on this machine).
-                try {
-                    Dispatch::Lock lock(context.dispatch);
-                    transports[i] = factory->createTransport(context, NULL);
-                    for (uint32_t j = 0; j < registeredBases.size(); j++) {
-                        transports[i]->registerMemory(registeredBases[j],
-                                                      registeredSizes[j]);
-                    }
-                } catch (TransportException &e) {
-                    continue;
-                }
-            }
-
-            transportSupported = true;
-            try {
-                Transport::SessionRef session = transports[i]->getSession(
-                        locator, timeoutMs);
-                if (isServer) {
-                    session = new ServiceManager::WorkerSession(context,
-                                                                session);
-                }
-
-                // The cache is based on the complete initial service locator
-                // string.
-                sessionCache.insert({serviceLocator, session});
-                session->setServiceLocator(serviceLocator);
-
-                uint64_t elapsed = counter.stop();
-                metrics->transport.sessionOpenTicks += elapsed;
-                metrics->transport.sessionOpenSquaredTicks +=
-                    elapsed * elapsed;
-                ++metrics->transport.sessionOpenCount;
-                return session;
-            } catch (TransportException& e) {
-                // TODO(ongaro): Transport::getName() would be nice here.
-                LOG(DEBUG, "Transport %p refused to open session for %s",
-                    transports[i], locator.getOriginalString().c_str());
-                if (firstException.empty())
-                    firstException = " (details: " + e.str() + ")";
-            }
-        }
+    Transport::SessionRef session(openSession(serviceLocator));
+    if (session == FailSession::get()) {
+        // This is temporary; eventually we should just return the FailSession.
+        throw TransportException(HERE,
+                format("Couldn't open session for locator %s",
+                serviceLocator));
     }
-
-    string errorMsg;
-    if (transportSupported) {
-        errorMsg = format("Could not obtain transport session for this "
-            "service locator: %s", serviceLocator) + firstException;
-    } else {
-        errorMsg = format("No supported transport found for this "
-            "service locator: %s", serviceLocator);
-    }
-
-    throw TransportException(HERE, errorMsg);
+    sessionCache.insert({serviceLocator, session});
+    return session;
 }
 
 /**
@@ -363,8 +285,10 @@ TransportManager::getSession(const char* serviceLocator, ServerId needServerId)
     Transport::SessionRef session = getSession(serviceLocator);
     ServerId actualId;
 
+    if (skipServerIdCheck)
+        return session;
     try {
-        actualId = MembershipClient(context).getServerId(session);
+        actualId = MembershipClient::getServerId(context, session);
     } catch (TransportException& e) {
         LOG(DEBUG, "Failed to obtain ServerId from \"%s\": %s",
             serviceLocator, e.what());
@@ -396,6 +320,89 @@ string
 TransportManager::getListeningLocatorsString()
 {
     return listeningLocators;
+}
+
+/**
+ * Given a service locator, open a new session connected to that service
+ * locator.  If necessary, this method also instantiates a new transport
+ * based on the service locator.  This method accesses no shared data, so
+ * it is thread-safe.
+ *
+ * \param serviceLocator
+ *      Desired service.
+ *
+ * \return
+ *      A reference to the new session. If a session could not be opened,
+ *      an error message is logged and the FailSession is returned.
+ */
+Transport::SessionRef
+TransportManager::openSession(const char* serviceLocator)
+{
+    // Collects error messages from all the transports that tried to
+    // open a session from this locator.
+    string messages;
+
+    // Iterate over all of the sub-locators, looking for a transport that
+    // can handle its protocol.
+    vector<ServiceLocator> locators =
+            ServiceLocator::parseServiceLocators(serviceLocator);
+    foreach (ServiceLocator& locator, locators) {
+        for (uint32_t i = 0; i < transportFactories.size(); i++) {
+            TransportFactory* factory = transportFactories[i];
+            if (!factory->supports(locator.getProtocol().c_str())) {
+                continue;
+            }
+
+            if (transports[i] == NULL) {
+                // Try to create a new transport via this factory.
+                // It's OK if that doesn't work (e.g. the particular
+                // transport may depend on physical devices that don't
+                // exist on this machine).
+                try {
+                    Dispatch::Lock lock(context.dispatch);
+                    transports[i] = factory->createTransport(context, NULL);
+                    for (uint32_t j = 0; j < registeredBases.size(); j++) {
+                        transports[i]->registerMemory(registeredBases[j],
+                                                      registeredSizes[j]);
+                    }
+                } catch (TransportException &e) {
+                    continue;
+                }
+            }
+
+            try {
+                Transport::SessionRef session = transports[i]->getSession(
+                        locator, timeoutMs);
+                if (isServer) {
+                    session = new ServiceManager::WorkerSession(context,
+                                                                session);
+                }
+                session->setServiceLocator(serviceLocator);
+                return session;
+            } catch (TransportException& e) {
+                // Save error information in case none of the locators works.
+                if (locators.size() == 1) {
+                    messages = e.message;
+                } else {
+                    if (!messages.empty()) {
+                        messages += ", ";
+                    }
+                    messages += locator.getOriginalString().c_str();
+                    messages += ": ";
+                    messages += e.message;
+                }
+            }
+        }
+    }
+
+    if (messages.empty()) {
+        LOG(WARNING, "No supported transport found for locator %s",
+                serviceLocator);
+    } else {
+        LOG(WARNING, "Couldn't open session for locator %s (%s)",
+                serviceLocator, messages.c_str());
+    }
+    return FailSession::get();
 }
 
 /**

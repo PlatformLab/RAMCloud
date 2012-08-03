@@ -21,7 +21,6 @@
 
 #include "Common.h"
 #include "PingClient.h"
-#include "Rpc.h"
 #include "ServiceLocator.h"
 #include "ServerId.h"
 #include "ServerList.h"
@@ -44,7 +43,6 @@ namespace RAMCloud {
 class FailureDetector {
   public:
     FailureDetector(Context& context,
-                    const string &coordinatorLocatorString,
                     ServerId ourServerId,
                     ServerList& serverList);
     ~FailureDetector();
@@ -93,13 +91,6 @@ class FailureDetector {
 
     /// Set by halt() to ask the failure detector thread to exit.
     bool threadShouldExit;
-
-    // Service Clients
-    /// PingClient instance
-    PingClient           pingClient;
-
-    /// CoordinatorClient instance
-    CoordinatorClient    coordinatorClient;
 
     /// ServerList whose consistency we will check against random nodes that
     /// we ping.

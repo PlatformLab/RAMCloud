@@ -23,9 +23,11 @@ extern int mockContextMemberThrowException;
 TEST(Context, constructor) {
     TestLog::Enable _;
     Context context;
+    EXPECT_TRUE(context.serverList == NULL);
     EXPECT_TRUE(context.dispatch != NULL);
     EXPECT_TRUE(context.transportManager != NULL);
     EXPECT_TRUE(context.serviceManager != NULL);
+    EXPECT_TRUE(context.coordinatorSession != NULL);
     mockContextMemberThrowException = 2;
     TestLog::reset();
     EXPECT_THROW(Context inner(false), Exception);

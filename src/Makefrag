@@ -24,11 +24,13 @@ endif
 
 # these files are compiled into everything but clients
 SHARED_SRCFILES := \
-		   src/Client.cc \
+		   src/AbstractServerList.cc \
 		   src/ClientException.cc \
 		   src/Context.cc \
 		   src/CoordinatorClient.cc \
+		   src/CoordinatorRpcWrapper.cc \
 		   src/CoordinatorServerList.cc \
+		   src/CoordinatorSession.cc \
 		   src/Crc32C.cc \
 		   src/BackupClient.cc \
 		   src/BackupFailureMonitor.cc \
@@ -41,8 +43,11 @@ SHARED_SRCFILES := \
 		   src/Cycles.cc \
 		   src/Dispatch.cc \
 		   src/Driver.cc \
-		   src/FastTransport.cc \
+		   src/Enumeration.cc \
+		   src/EnumerationIterator.cc \
 		   src/FailureDetector.cc \
+		   src/FailSession.cc \
+		   src/FastTransport.cc \
 		   src/IpAddress.cc \
 		   src/Key.cc \
 		   src/LargeBlockOfMemory.cc \
@@ -56,8 +61,10 @@ SHARED_SRCFILES := \
 		   src/MembershipClient.cc \
 		   src/MembershipService.cc \
 		   src/Memory.cc \
+		   src/MultiRead.cc \
 		   src/MurmurHash3.cc \
 		   src/ObjectFinder.cc \
+		   src/ObjectRpcWrapper.cc \
 		   src/OptionParser.cc \
 		   src/PcapFile.cc \
 		   src/PingClient.cc \
@@ -67,10 +74,11 @@ SHARED_SRCFILES := \
 		   src/Recovery.cc \
 		   src/ReplicaManager.cc \
 		   src/ReplicatedSegment.cc \
-		   src/Rpc.cc \
+		   src/RpcWrapper.cc \
 		   src/Segment.cc \
 		   src/SegmentIterator.cc \
 		   src/SegmentManager.cc \
+		   src/ServerIdRpcWrapper.cc \
 		   src/ServerList.cc \
 		   src/ServerMetrics.cc \
 		   src/ServerRpcPool.cc \
@@ -81,6 +89,8 @@ SHARED_SRCFILES := \
 		   src/SpinLock.cc \
 		   src/Status.cc \
 		   src/StringUtil.cc \
+		   src/TableEnumerator.cc \
+		   src/TabletMap.cc \
 		   src/TaskQueue.cc \
 		   src/TcpTransport.cc \
 		   src/TestLog.cc \
@@ -89,9 +99,10 @@ SHARED_SRCFILES := \
 		   src/Transport.cc \
 		   src/TransportManager.cc \
 		   src/UdpDriver.cc \
-		   src/UnreliableTransport.cc \
 		   src/WallTime.cc \
+		   src/WireFormat.cc \
 		   $(INFINIBAND_SRCFILES) \
+		   $(OBJDIR)/EnumerationIterator.pb.cc \
 		   $(OBJDIR)/MetricList.pb.cc \
 		   $(OBJDIR)/ServerList.pb.cc \
 		   $(OBJDIR)/ServerStatistics.pb.cc \

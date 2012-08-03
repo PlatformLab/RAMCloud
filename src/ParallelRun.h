@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,32 +13,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_CLIENT_H
-#define RAMCLOUD_CLIENT_H
+#ifndef RAMCLOUD_PARALLELRUN_H
+#define RAMCLOUD_PARALLELRUN_H
 
-#include <boost/utility/result_of.hpp>
-
-#include "Buffer.h"
-#include "ClientException.h"
 #include "Common.h"
-#include "Dispatch.h"
-#include "Rpc.h"
-#include "Status.h"
 #include "Tub.h"
-#include "Transport.h"
-
-/**
- * Defines a synchronous RPC method in terms of an asynchronous RPC class.
- * Defines a method named methodName that constructs an AsyncClass with a
- * reference to its 'this' instance and the arguments its given, then calls
- * the AsyncClass's operator() method.
- */
-#define DEF_SYNC_RPC_METHOD(methodName, AsyncClass) \
-    template<typename... Args> \
-    boost::result_of<AsyncClass()>::type \
-    methodName(Args&&... args) { \
-        return AsyncClass(*this, static_cast<Args&&>(args)...)(); \
-    }
 
 namespace RAMCloud {
 
@@ -191,112 +170,6 @@ parallelRun(Tub<T>* tasks, size_t numTasks, size_t maxOutstanding)
     ParallelRun<T>(tasks, numTasks, maxOutstanding).wait();
 }
 
-/**
- * A base class for RPC clients.
- */
-class Client {
-  public:
-    Client() : status(STATUS_OK) {}
-    virtual ~Client() {}
-
-    /**
-     * Completion status from the most recent RPC completed for this client.
-     */
-    Status status;
-
-    // begin RPC proxy method helpers
-
-    /**
-     * Helper for RPC proxy methods that prepares an RPC request header.
-     * You should call this before every use of #sendRecv().
-     */
-    template <typename Rpc>
-    static typename Rpc::Request&
-    allocHeader(Buffer& requestBuffer)
-    {
-        assert(requestBuffer.getTotalLength() == 0);
-        typename Rpc::Request& requestHeader(
-            *new(&requestBuffer, APPEND) typename Rpc::Request);
-        memset(&requestHeader, 0, sizeof(requestHeader));
-        requestHeader.common.opcode = Rpc::opcode;
-        requestHeader.common.service = Rpc::service;
-        return requestHeader;
-    }
-
-  PROTECTED:
-
-    /// An opaque handle returned by #send() and passed into #recv().
-    struct AsyncState {
-        AsyncState() : rpc(NULL), responseBuffer(NULL) {}
-        bool isReady() { return rpc->isReady(); }
-        void cancel() { rpc->cancel(); }
-      private:
-        Transport::ClientRpc* rpc;
-        Buffer* responseBuffer;
-        friend class Client;
-    };
-
-    /// First half of sendRecv. Call #recv() after this.
-    template <typename Rpc>
-    AsyncState
-    send(Transport::SessionRef& session,
-         Buffer& requestBuffer, Buffer& responseBuffer)
-    {
-        assert(responseBuffer.getTotalLength() == 0);
-        AsyncState state;
-        state.responseBuffer = &responseBuffer;
-        state.rpc = session->clientSend(&requestBuffer, &responseBuffer);
-        return state;
-    }
-
-    /// Second half of sendRecv. Call #send() before this.
-    template <typename Rpc>
-    const typename Rpc::Response&
-    recv(AsyncState& state)
-    {
-        state.rpc->wait();
-        const typename Rpc::Response* responseHeader =
-            state.responseBuffer->getStart<typename Rpc::Response>();
-        if (responseHeader == NULL)
-            throwShortResponseError(*state.responseBuffer);
-        status = responseHeader->common.status;
-        return *responseHeader;
-    }
-
-    /**
-     * Helper for RPC proxy methods that sends a request and receive a
-     * response. You should call #allocHeader() before this and #checkStatus()
-     * after this.
-     */
-    template <typename Rpc>
-    const typename Rpc::Response&
-    sendRecv(Transport::SessionRef& session,
-             Buffer& requestBuffer, Buffer& responseBuffer)
-    {
-        AsyncState state(send<Rpc>(session, requestBuffer, responseBuffer));
-        return recv<Rpc>(state);
-    }
-
-    /**
-     * Helper for RPC proxy methods that throws a ClientException if the status
-     * is not OK. You should call this after every use of #sendRecv().
-     */
-    void checkStatus(const CodeLocation& where) const
-    {
-        RAMCLOUD_TEST_LOG("status: %d", STATUS_OK);
-        if (status != STATUS_OK)
-            ClientException::throwException(where, status);
-    }
-
-    // end RPC proxy method helpers
-
-    void throwShortResponseError(Buffer& response)
-        __attribute__((noreturn));
-
-  private:
-    DISALLOW_COPY_AND_ASSIGN(Client);
-};
-
 } // end RAMCloud
 
-#endif  // RAMCLOUD_CLIENT_H
+#endif  // RAMCLOUD_PARALLELRUN_H

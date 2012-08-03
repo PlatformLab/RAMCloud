@@ -33,14 +33,14 @@ struct BindTransport : public Transport {
     // services all associated with the same service locator (e.g.
     // the services that would be contained in a single server).
     struct ServiceArray {
-        Service* services[INVALID_SERVICE];
+        Service* services[WireFormat::INVALID_SERVICE];
     };
 
     explicit BindTransport(Context& context, Service* service = NULL)
         : context(context), services(), abortCounter(0), errorMessage()
     {
         if (service)
-            addService(*service, "mock:", MASTER_SERVICE);
+            addService(*service, "mock:", WireFormat::MASTER_SERVICE);
     }
 
     string
@@ -49,12 +49,13 @@ struct BindTransport : public Transport {
     }
 
     void
-    addService(Service& service, const string locator, ServiceType type) {
+    addService(Service& service, const string locator,
+            WireFormat::ServiceType type) {
         services[locator].services[type] = &service;
     }
 
     Transport::SessionRef
-    getSession(const ServiceLocator& serviceLocator, uint32_t timeoutMs) {
+    getSession(const ServiceLocator& serviceLocator, uint32_t timeoutMs = 0) {
         const string& locator = serviceLocator.getOriginalString();
         ServiceMap::iterator it = services.find(locator);
         if (it == services.end()) {
@@ -87,8 +88,12 @@ struct BindTransport : public Transport {
       public:
         explicit BindSession(BindTransport& transport, ServiceArray* services,
                              const string& locator)
-            : transport(transport), services(services), locator(locator) {}
+            : transport(transport), services(services), locator(locator),
+            lastRequest(NULL), lastResponse(NULL), lastNotifier(NULL),
+            dontNotify(false) {}
+
         void abort(const string& message) {}
+        void cancelRequest(RpcNotifier* notifier) {}
         ClientRpc* clientSend(Buffer* request, Buffer* response) {
             BindClientRpc* result = new(response, MISC)
                     BindClientRpc(transport.context, request, response);
@@ -105,9 +110,11 @@ struct BindTransport : public Transport {
                 transport.errorMessage = "";
                 return result;
             }
-            const RpcRequestCommon* header;
-            header = request->getStart<RpcRequestCommon>();
-            if ((header == NULL) || (header->service >= INVALID_SERVICE)) {
+
+            const WireFormat::RequestCommon* header;
+            header = request->getStart<WireFormat::RequestCommon>();
+            if ((header == NULL) ||
+                    (header->service >= WireFormat::INVALID_SERVICE)) {
                 throw ServiceNotAvailableException(HERE);
             }
             Service* service = services->services[header->service];
@@ -121,11 +128,65 @@ struct BindTransport : public Transport {
         void release() {
             delete this;
         }
+        void sendRequest(Buffer* request, Buffer* response,
+                         RpcNotifier* notifier)
+        {
+            response->reset();
+            lastRequest = request;
+            lastResponse = response;
+            lastNotifier = notifier;
+            Service::Rpc rpc(NULL, *request, *response);
+            if (transport.abortCounter > 0) {
+                transport.abortCounter--;
+                if (transport.abortCounter == 0) {
+                    // Simulate a failure of the server to respond.
+                    notifier->failed();
+                    return;
+                }
+            }
+            if (transport.errorMessage != "") {
+                notifier->failed();
+                transport.errorMessage = "";
+                return;
+            }
+            const WireFormat::RequestCommon* header;
+            header = request->getStart<WireFormat::RequestCommon>();
+            if ((header == NULL) ||
+                    (header->service >= WireFormat::INVALID_SERVICE)) {
+                throw ServiceNotAvailableException(HERE);
+            }
+            Service* service = services->services[header->service];
+            if (service == NULL) {
+                throw ServiceNotAvailableException(HERE);
+            }
+            service->handleRpc(rpc);
+            if (!dontNotify) {
+                notifier->completed();
+                lastNotifier = NULL;
+            }
+        }
         BindTransport& transport;
 
         // Points to an array holding one of each of the available services.
         ServiceArray* services;
         const string locator;
+
+        // The request and response buffers from the last call to sendRequest
+        // for this session.
+        Buffer *lastRequest, *lastResponse;
+
+        // Notifier from the last call to sendRequest, if that call hasn't
+        // yet been responded to.
+        RpcNotifier *lastNotifier;
+
+        // If the following variable is set to true by testing code, then
+        // sendRequest does not immediately signal completion of the RPC.
+        // It does complete the RPC, but returns without calling the
+        // notifier, leaving it to testing code to invoke the notifier
+        // explicitly to complete the call (the testing code can also
+        // modify the response).
+        bool dontNotify;
+
         DISALLOW_COPY_AND_ASSIGN(BindSession);
     };
 

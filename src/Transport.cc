@@ -15,10 +15,28 @@
 
 #include "Dispatch.h"
 #include "Fence.h"
-#include "Rpc.h"
 #include "Transport.h"
+#include "WireFormat.h"
 
 namespace RAMCloud {
+
+/**
+ * This method is invoked in the dispatch thread by a transport when
+ * a response message is successfully received for RPC.
+ */
+void
+Transport::RpcNotifier::completed() {
+}
+
+/**
+ * This method is invoked in the dispatch thread by a transport if a
+ * transport-level error prevents an RPC from completing. In this case,
+ * the wrapper should assume that the session for the RPC is dead;
+ * it will typically open a new session and retry the operation.
+ */
+void
+Transport::RpcNotifier::failed() {
+}
 
 /**
  * Wait for the RPC response to arrive (if it hasn't already) and throw
@@ -103,7 +121,7 @@ Transport::ClientRpc::cancel(const string& message)
         return;
     cancelCleanup();
     string fullMessage = format("%s RPC cancelled",
-            Rpc::opcodeSymbol(*request));
+            WireFormat::opcodeSymbol(*request));
     if (message.size() > 0) {
         fullMessage.append(": ");
         fullMessage.append(message);

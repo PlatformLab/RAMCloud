@@ -248,7 +248,7 @@ printPercent(const char* name, double value, const char* description)
  *      multiRead operation.
  */
 double
-timeMultiRead(MasterClient::ReadObject** requests, int numObjects)
+timeMultiRead(MultiReadObject** requests, int numObjects)
 {
     // Do the multiRead once just to warm up all the caches everywhere.
     cluster->multiRead(requests, numObjects);
@@ -602,7 +602,8 @@ waitForObject(uint64_t tableId, const void* key, uint16_t keyLength,
                         "Object <%lu, %.*s> didn't reach desired state '%s' "
                         "(actual: '%.*s')",
                         tableId, keyLength, reinterpret_cast<const char*>(key),
-                        desired, downCast<int>(length), actual));
+                        desired, downCast<int>(value.getTotalLength()),
+                        actual));
                 exit(1);
             }
         }
@@ -982,7 +983,7 @@ broadcast()
  *      The number of master servers across which the objects written
  *      should be distributed.
  * \param objsPerMaster
- *      The number to objects to be written to each master server.
+ *      The number of objects to be written to each master server.
  * \return
  *      The average time, in seconds, to read all the objects in a single
  *      multiRead operation.
@@ -995,8 +996,8 @@ doMultiRead(int dataLength, uint16_t keyLength,
         return 0;
     Buffer input, output;
 
-    MasterClient::ReadObject requestObjects[numMasters][objsPerMaster];
-    MasterClient::ReadObject* requests[numMasters][objsPerMaster];
+    MultiReadObject requestObjects[numMasters][objsPerMaster];
+    MultiReadObject* requests[numMasters][objsPerMaster];
     Tub<Buffer> values[numMasters][objsPerMaster];
     char keys[numMasters][objsPerMaster][keyLength];
 
@@ -1015,7 +1016,7 @@ doMultiRead(int dataLength, uint16_t keyLength,
             // Create read object corresponding to each object to be
             // used in the multiread request later.
             requestObjects[tableNum][i] =
-                    MasterClient::ReadObject(tableIds[tableNum],
+                    MultiReadObject(tableIds[tableNum],
                     keys[tableNum][i], keyLength, &values[tableNum][i]);
             requests[tableNum][i] = &requestObjects[tableNum][i];
         }
@@ -1214,8 +1215,6 @@ readAllToAll()
             usleep(10 * 1000);
         } while (strcmp(command, "run") != 0);
         setSlaveState("running");
-        std::cout << "Slave id " << clientIndex
-                  << " reading from all masters" << std::endl;
 
         for (int tableNum = 0; tableNum < numTables; ++tableNum) {
             string tableName = format("table%d", tableNum);
@@ -1224,7 +1223,7 @@ readAllToAll()
 
                 Buffer result;
                 uint64_t startCycles = Cycles::rdtsc();
-                RamCloud::Read read(*cluster, tableId, key, keyLength, &result);
+                ReadRpc read(*cluster, tableId, key, keyLength, &result);
                 while (!read.isReady()) {
                     context.dispatch->poll();
                     double secsWaiting =
@@ -1237,7 +1236,7 @@ readAllToAll()
                         continue;
                     }
                 }
-                read();
+                read.wait();
             } catch (ClientException& e) {
                 RAMCLOUD_LOG(ERROR,
                     "Client %d got exception reading from table %s: %s",
@@ -1262,7 +1261,7 @@ readAllToAll()
         uint64_t tableId = tableIds[i];
         Buffer result;
         uint64_t startCycles = Cycles::rdtsc();
-        RamCloud::Read read(*cluster, tableId, key, keyLength, &result);
+        ReadRpc read(*cluster, tableId, key, keyLength, &result);
         while (!read.isReady()) {
             context.dispatch->poll();
             if (Cycles::toSeconds(Cycles::rdtsc() - startCycles) > 1.0) {
@@ -1272,7 +1271,7 @@ readAllToAll()
                 return;
             }
         }
-        read();
+        read.wait();
     }
 
     for (int slaveIndex = 1; slaveIndex < numClients; ++slaveIndex) {

@@ -31,17 +31,17 @@ class ServerTest: public ::testing::Test {
     MockCluster cluster;
     ServerConfig config;
     Tub<Server> server;
-    PingClient ping;
 
     ServerTest()
         : context()
         , cluster(context)
         , config(ServerConfig::forTesting())
         , server()
-        , ping(context)
     {
-        config.services = {MASTER_SERVICE, BACKUP_SERVICE, MEMBERSHIP_SERVICE,
-                           PING_SERVICE};
+        config.services = {WireFormat::MASTER_SERVICE,
+                           WireFormat::BACKUP_SERVICE,
+                           WireFormat::MEMBERSHIP_SERVICE,
+                           WireFormat::PING_SERVICE};
         config.coordinatorLocator = cluster.coordinatorLocator;
         config.localLocator = "mock:host=server0";
         server.construct(context, config);
@@ -51,10 +51,9 @@ class ServerTest: public ::testing::Test {
 };
 
 TEST_F(ServerTest, startForTesting) {
-    EXPECT_THROW(ping.ping(config.localLocator.c_str(), 0, 100 * 1000),
-                 TransportException);
+    TestLog::Enable _;
     server->startForTesting(cluster.transport);
-    ping.ping(config.localLocator.c_str(), 0, 100 * 1000);
+    PingClient::ping(context, server->serverId, ServerId());
 }
 
 // run is too much of a pain to and not that interesting.
@@ -63,25 +62,28 @@ TEST_F(ServerTest, createAndRegisterServices) {
     // Use testing config, but register with the real ServiceManager instead
     // of the BindTransport and see if things get set up properly.
     server->createAndRegisterServices(NULL);
-    EXPECT_TRUE(server->coordinator);
     EXPECT_TRUE(server->master);
     EXPECT_TRUE(server->backup);
     EXPECT_TRUE(server->membership);
     EXPECT_TRUE(server->ping);
     const auto& services = context.serviceManager->services;
-    ASSERT_TRUE(services[MASTER_SERVICE]);
-    EXPECT_EQ(server->master.get(), &services[MASTER_SERVICE]->service);
-    ASSERT_TRUE(services[BACKUP_SERVICE]);
-    EXPECT_EQ(server->backup.get(), &services[BACKUP_SERVICE]->service);
-    ASSERT_TRUE(services[MEMBERSHIP_SERVICE]);
-    EXPECT_EQ(server->membership.get(), &services[MEMBERSHIP_SERVICE]->service);
-    ASSERT_TRUE(services[PING_SERVICE]);
-    EXPECT_EQ(server->ping.get(), &services[PING_SERVICE]->service);
+    ASSERT_TRUE(services[WireFormat::MASTER_SERVICE]);
+    EXPECT_EQ(server->master.get(),
+        &services[WireFormat::MASTER_SERVICE]->service);
+    ASSERT_TRUE(services[WireFormat::BACKUP_SERVICE]);
+    EXPECT_EQ(server->backup.get(),
+        &services[WireFormat::BACKUP_SERVICE]->service);
+    ASSERT_TRUE(services[WireFormat::MEMBERSHIP_SERVICE]);
+    EXPECT_EQ(server->membership.get(),
+        &services[WireFormat::MEMBERSHIP_SERVICE]->service);
+    ASSERT_TRUE(services[WireFormat::PING_SERVICE]);
+    EXPECT_EQ(server->ping.get(),
+        &services[WireFormat::PING_SERVICE]->service);
 }
 
 namespace {
 bool enlistServerFilter(string s) {
-    return s == "enlistServer";
+    return s == "beforeReplyComplete";
 }
 }
 
@@ -89,17 +91,18 @@ TEST_F(ServerTest, enlist) {
     server->createAndRegisterServices(&cluster.transport);
     TestLog::Enable _(enlistServerFilter);
     server->enlist({128, 0});
-    EXPECT_EQ("enlistServer: Enlisting new server at mock:host=server0 "
-                  "(server id 1) supporting services: MASTER_SERVICE, "
-                  "BACKUP_SERVICE, PING_SERVICE, MEMBERSHIP_SERVICE | "
-              "enlistServer: Newly enlisted server 1 replaces server 128 | "
-              "enlistServer: Backup at id 1 has 100 MB/s read 100 MB/s write",
-              TestLog::get());
+    EXPECT_EQ(
+        "beforeReplyComplete: Enlisting new server at mock:host=server0 "
+        "(server id 1) supporting services: MASTER_SERVICE, "
+        "BACKUP_SERVICE, PING_SERVICE, MEMBERSHIP_SERVICE | "
+        "beforeReplyComplete: Newly enlisted server 1 replaces server 128 | "
+        "beforeReplyComplete: Backup at id 1 has 100 MB/s read 100 MB/s write",
+         TestLog::get());
     ASSERT_TRUE(server->master->serverId.isValid());
     EXPECT_TRUE(server->backup->serverId.isValid());
 
     ProtoBuf::ServerList serverList;
-    server->coordinator->getServerList(serverList);
+    CoordinatorClient::getServerList(context, serverList);
     EXPECT_EQ(1, serverList.server_size());
     auto mask = config.services.serialize();
     EXPECT_EQ(config.localLocator, serverList.server(0).service_locator());

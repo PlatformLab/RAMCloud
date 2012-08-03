@@ -150,6 +150,30 @@ class Object {
     }
 
     /**
+     * Construct an object by deserializing an existing object in contiguous
+     * memory. Use this method to read an object that was previously serialized
+     * and happens to already be contiguous.
+     *
+     * \param buffer
+     *      Pointer to memory containing the entire serialized object. It it the
+     *      caller's responsibility to make sure this actually contains a full
+     *      object. If it does not, then behavior is undefined.
+     * \param length
+     *      Total length of the object in bytes.
+     */
+    Object(const void* buffer, uint32_t length)
+        : serializedForm(*reinterpret_cast<const SerializedForm*>(buffer)),
+          key(reinterpret_cast<const void*>(reinterpret_cast<const uint8_t*>(
+              buffer) + sizeof(SerializedForm))),
+          dataLength(length - sizeof32(serializedForm) - serializedForm.keyLength),
+          data(reinterpret_cast<const void*>(reinterpret_cast<const uint8_t*>(
+              key) + serializedForm.keyLength)),
+          dataBuffer(),
+          objectBuffer()
+    {
+    }
+
+    /**
      * Append the serialized object header, binary string key, and data blob
      * to the provided buffer.
      *

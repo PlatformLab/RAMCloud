@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -31,7 +31,7 @@ class MockService : public Service {
             gate(0), sendReply(false),
             threadLimit(threadLimit) { }
     virtual ~MockService() {}
-    virtual void dispatch(RpcOpcode opcode, Rpc& rpc)
+    virtual void dispatch(WireFormat::Opcode opcode, Rpc& rpc)
     {
         {
             std::unique_lock<std::mutex> lock(mutex);

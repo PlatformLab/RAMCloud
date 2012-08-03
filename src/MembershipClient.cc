@@ -27,18 +27,70 @@
 namespace RAMCloud {
 
 /**
- * Obtain the ServerId associated with the server connected to by the given
- * Session.
- */ 
+ * Given a Session, obtain the ServerId for the server behind that session.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param session
+ *      Connection to a RAMCloud server.
+ *
+ * \return
+ *       The RAMCloud identifier for the server  associated with #session.
+ *
+ * \throw TransportException
+ *       Thrown if an unrecoverable error occurred while communicating with
+ *       the target server.
+ */
 ServerId
-MembershipClient::getServerId(Transport::SessionRef session)
+MembershipClient::getServerId(Context& context, Transport::SessionRef session)
 {
-    // Fill in the request.
-    Buffer req, resp;
-    allocHeader<GetServerIdRpc>(req);
-    const GetServerIdRpc::Response& respHdr(
-        sendRecv<GetServerIdRpc>(session, req, resp));
-    checkStatus(HERE);
+    GetServerIdRpc rpc(context, session);
+    return rpc.wait();
+}
+
+/**
+ * Constructor for GetServerIdRpc: initiates an RPC in the same way as
+ * #MembershipClient::getServerId, but returns once the RPC has been initiated,
+ * without waiting for it to complete.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param session
+ *      Connection to a RAMCloud server.
+ */
+GetServerIdRpc::GetServerIdRpc(Context& context,
+        Transport::SessionRef session)
+    : RpcWrapper(sizeof(WireFormat::GetServerId::Response))
+    , context(context)
+{
+    this->session = session;
+    allocHeader<WireFormat::GetServerId>();
+    send();
+}
+
+/**
+ * Wait for a getServerId RPC to complete, and return the same
+ * results as #MembershipClient::getServerId.
+ *
+ * \return
+ *       The RAMCloud identifier for the server associated with the
+ *       session specified in the constructor.
+ *
+ * \throw TransportException
+ *       Thrown if an unrecoverable error occurred while communicating with
+ *       the target server.
+ */
+ServerId
+GetServerIdRpc::wait()
+{
+    waitInternal(*context.dispatch);
+    if (getState() != RpcState::FINISHED) {
+        throw TransportException(HERE);
+    }
+    const WireFormat::GetServerId::Response& respHdr(
+            getResponseHeader<WireFormat::GetServerId>());
+    if (respHdr.common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr.common.status);
     return ServerId(respHdr.serverId);
 }
 
@@ -46,57 +98,119 @@ MembershipClient::getServerId(Transport::SessionRef session)
  * Instruct the cluster membership service for the specified server to replace
  * its idea of cluster membership with the complete list given.
  *
- * \param serviceLocator
+ * \param context
+ *      Overall information about this RAMCloud server.
+ * \param serverId
  *      Identifies the server to which this update should be sent.
- *
  * \param list
  *      The complete server list representing all cluster membership.
+ *
+ * \throw ServerDoesntExistException
+ *      The intended server for this RPC is not part of the cluster;
+ *      if it ever existed, it has since crashed.
  */ 
 void
-MembershipClient::setServerList(const char* serviceLocator,
-                                ProtoBuf::ServerList& list)
+MembershipClient::setServerList(Context& context, ServerId serverId,
+        ProtoBuf::ServerList& list)
 {
-    // Fill in the request.
-    Buffer req, resp;
-    SetServerListRpc::Request& reqHdr(allocHeader<SetServerListRpc>(req));
-    Transport::SessionRef session =
-            context.transportManager->getSession(serviceLocator);
-    reqHdr.serverListLength = serializeToRequest(req, list);
-    sendRecv<SetServerListRpc>(session, req, resp);
-    checkStatus(HERE);
+    SetServerListRpc rpc(context, serverId, list);
+    return rpc.wait();
 }
 
 /**
- * Issue a cluster membership update to the specified server.
+ * Constructor for SetServerListRpc: initiates an RPC in the same way as
+ * #MembershipClient::setServerList, but returns once the RPC has been initiated,
+ * without waiting for it to complete.
  *
- * TODO(Rumble): This should be asynchronous. There's no reason for the Coordinator
- *      to wait.
- *
- * \param serviceLocator
+ * \param context
+ *      Overall information about this RAMCloud server.
+ * \param serverId
  *      Identifies the server to which this update should be sent.
+ * \param list
+ *      The complete server list representing all cluster membership.
+ */
+SetServerListRpc::SetServerListRpc(Context& context, ServerId serverId,
+        ProtoBuf::ServerList& list)
+    : ServerIdRpcWrapper(context, serverId,
+            sizeof(WireFormat::SetServerList::Response))
+{
+    WireFormat::SetServerList::Request& reqHdr(
+            allocHeader<WireFormat::SetServerList>());
+    reqHdr.serverListLength = serializeToRequest(request, list);
+    send();
+}
+
+/**
+ * Notify a server that other servers have entered or left the cluster.
  *
- * \param update
- *      The update to be sent.
+ * \param context
+ *      Overall information about this RAMCloud server.
+ * \param serverId
+ *      Identifies the server to which this update should be sent.
+ * \param changes
+ *      Information about changes to the list of servers in the cluster.
  *
  * \return
  *      Returns true if the server successfully applied the update, otherwise
  *      returns false if it could not. Failure is due to the version number of
  *      the update not matching what was expected (i.e. the server lost an
  *      update at some point).
+ *
+ * \throw ServerDoesntExistException
+ *      The intended server for this RPC is not part of the cluster;
+ *      if it ever existed, it has since crashed.
+ */ 
+bool
+MembershipClient::updateServerList(Context& context, ServerId serverId,
+        ProtoBuf::ServerList& changes)
+{
+    UpdateServerListRpc rpc(context, serverId, changes);
+    return rpc.wait();
+}
+
+/**
+ * Constructor for UpdateServerListRpc: initiates an RPC in the same way as
+ * #MembershipClient::updateServerList, but returns once the RPC has been initiated,
+ * without waiting for it to complete.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server.
+ * \param serverId
+ *      Identifies the server to which this update should be sent.
+ * \param changes
+ *      Information about changes to the list of servers in the cluster.
+ */
+UpdateServerListRpc::UpdateServerListRpc(Context& context, ServerId serverId,
+        ProtoBuf::ServerList& changes)
+    : ServerIdRpcWrapper(context, serverId,
+            sizeof(WireFormat::UpdateServerList::Response))
+{
+    WireFormat::UpdateServerList::Request& reqHdr(
+            allocHeader<WireFormat::UpdateServerList>());
+    reqHdr.serverListLength = serializeToRequest(request, changes);
+    send();
+}
+
+/**
+ * Wait for an updateServerList RPC to complete, and throw exceptions
+ * for any errors.
+ *
+ * \return
+ *      Returns true if the server successfully applied the update, otherwise
+ *      returns false if it could not. Failure is due to the version number of
+ *      the update not matching what was expected (i.e. the server lost an
+ *      update at some point).
+ *
+ * \throw ServerDoesntExistException
+ *      The target server for this RPC is not part of the cluster;
+ *      if it ever existed, it has since crashed.
  */
 bool
-MembershipClient::updateServerList(const char* serviceLocator,
-                                   ProtoBuf::ServerList& update)
+UpdateServerListRpc::wait()
 {
-    // Fill in the request.
-    Buffer req, resp;
-    UpdateServerListRpc::Request& reqHdr(allocHeader<UpdateServerListRpc>(req));
-    Transport::SessionRef session =
-            context.transportManager->getSession(serviceLocator);
-    reqHdr.serverListLength = serializeToRequest(req, update);
-    const UpdateServerListRpc::Response& respHdr(
-        sendRecv<UpdateServerListRpc>(session, req, resp));
-    checkStatus(HERE);
+    waitAndCheckErrors();
+    const WireFormat::UpdateServerList::Response& respHdr(
+            getResponseHeader<WireFormat::UpdateServerList>());
     return respHdr.lostUpdates == 0;
 }
 

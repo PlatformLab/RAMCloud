@@ -41,10 +41,6 @@ RAMCloud::Status    rc_dropTable(struct rc_client* client, const char* name);
 RAMCloud::Status    rc_getStatus(struct rc_client* client);
 RAMCloud::Status    rc_getTableId(struct rc_client* client, const char* name,
                             uint64_t* tableId);
-RAMCloud::Status    rc_ping(struct rc_client* client,
-                            const char* serviceLocator,
-                            uint64_t nonce, uint64_t timeoutNanoseconds,
-                            uint64_t* result);
 
 RAMCloud::Status    rc_read(struct rc_client* client, uint64_t tableId,
                             const void* key, uint16_t keyLength,
@@ -63,6 +59,17 @@ RAMCloud::Status    rc_write(struct rc_client* client, uint64_t tableId,
 
 RAMCloud::Status    rc_testing_kill(struct rc_client* client, uint64_t tableId,
                                     const void* key, uint16_t keyLength);
+RAMCloud::Status    rc_testing_get_server_id(struct rc_client* client,
+                                             uint64_t tableId,
+                                             const void* key,
+                                             uint16_t keyLength,
+                                             uint64_t* serverId);
+RAMCloud::Status    rc_testing_get_service_locator(struct rc_client* client,
+                                                   uint64_t tableId,
+                                                   const void* key,
+                                                   uint16_t keyLength,
+                                                   char* locatorBuffer,
+                                                   size_t bufferLength);
 RAMCloud::Status    rc_testing_fill(struct rc_client* client, uint64_t tableId,
                                     const void* key, uint16_t keyLength,
                                     uint32_t objectCount, uint32_t objectSize);

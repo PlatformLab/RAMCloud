@@ -233,6 +233,39 @@ Segment::close()
 }
 
 /**
+ * Append contents of the segment to a provided buffer.
+ *
+ * \param buffer
+ *      Buffer to append segment contents to.
+ * \param offset
+ *      Offset in the segment to begin appending from.
+ * \param
+ *      Number of bytes in the segmet to append, starting from the offset.
+ * \return
+ *      The number of actual bytes appended to the buffer. If this was less
+ *      than expected, the offset or length parameter was invalid.
+ */
+uint32_t
+Segment::appendToBuffer(Buffer& buffer, uint32_t offset, uint32_t length) const
+{
+    uint32_t initialLength = length;
+
+    while (length > 0) {
+        const void* contigPointer = NULL;
+        uint32_t contigBytes = std::min(length, peek(offset, &contigPointer));
+        if (contigBytes == 0)
+            break;
+
+        buffer.appendTo(contigPointer, contigBytes);
+
+        offset += contigBytes;
+        length -= contigBytes;
+    }
+
+    return initialLength - length;
+}
+
+/**
  * Append the entire contents of the segment to the provided buffer. This is
  * typically used when transferring a segment over the network.
  */
@@ -266,12 +299,23 @@ Segment::getEntry(uint32_t offset, Buffer& buffer)
 }
 
 /**
- * Return the offset of the tail of the segment. This the offset at which the
- * next entry will be written (assuming there's enough space).
+ * Return the total number of bytes appended to the segment, but not including
+ * the footer. The complete footer entry, including the appropriate segment
+ * metadata, is passed back by value in the 'footerEntry' parameter. A separate
+ * copy must be returned since we will overwrite the footer on the next append
+ * operation.
+ *
+ * \param[out] footerEntry
+ *      The footer entry will be copied out here.
+ * \return
+ *      The total number of bytes appended to the segment, not including the
+ *      footer.
  */
 uint32_t
-Segment::getTailOffset()
+Segment::getAppendedLength(OpaqueFooterEntry& footerEntry) const
 {
+    // The current footer is always in the segment at the tail.
+    copyOut(tail, &footerEntry, sizeof(footerEntry));
     return tail;
 }
 
@@ -360,39 +404,6 @@ Segment::checkMetadataIntegrity()
  ******************************************************************************/
 
 /**
- * Append contents of the segment to a provided buffer.
- *
- * \param buffer
- *      Buffer to append segment contents to.
- * \param offset
- *      Offset in the segment to begin appending from.
- * \param
- *      Number of bytes in the segmet to append, starting from the offset.
- * \return
- *      The number of actual bytes appended to the buffer. If this was less
- *      than expected, the offset or length parameter was invalid.
- */
-uint32_t
-Segment::appendToBuffer(Buffer& buffer, uint32_t offset, uint32_t length)
-{
-    uint32_t initialLength = length;
-
-    while (length > 0) {
-        const void* contigPointer = NULL;
-        uint32_t contigBytes = std::min(length, peek(offset, &contigPointer));
-        if (contigBytes == 0)
-            break;
-
-        buffer.appendTo(contigPointer, contigBytes);
-
-        offset += contigBytes;
-        length -= contigBytes;
-    }
-
-    return initialLength - length;
-}
-
-/**
  * Write an update-to-date footer to the end of this segment. The footer
  * serves to denote the end of the segment, indicate whether or not it is
  * closed, and contains a checksum to verify integrity.
@@ -478,7 +489,7 @@ Segment::getEntryInfo(uint32_t offset,
  *      (outAddress). 
  */
 uint32_t
-Segment::peek(uint32_t offset, const void** outAddress)
+Segment::peek(uint32_t offset, const void** outAddress) const
 {
     uint32_t segletSize = allocator.getSegletSize();
 
@@ -543,7 +554,7 @@ Segment::bytesNeeded(uint32_t length)
  *      of the segment is reached.
  */
 uint32_t
-Segment::copyOut(uint32_t offset, void* buffer, uint32_t length)
+Segment::copyOut(uint32_t offset, void* buffer, uint32_t length) const
 {
     uint32_t initialLength = length;
     uint8_t* bufferBytes = static_cast<uint8_t*>(buffer);

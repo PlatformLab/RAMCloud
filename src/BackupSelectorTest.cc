@@ -28,21 +28,18 @@ namespace RAMCloud {
 struct BackupSelectorTest : public ::testing::Test {
     Context context;
     MockCluster cluster;
-    CoordinatorClient* coordinator;
     BackupSelector* selector;
 
     BackupSelectorTest()
         : context()
         , cluster(context)
-        , coordinator()
         , selector()
     {
         Logger::get().setLogLevels(SILENT_LOG_LEVEL);
 
-        coordinator = cluster.getCoordinatorClient();
-
         ServerConfig config = ServerConfig::forTesting();
-        config.services = {MASTER_SERVICE, MEMBERSHIP_SERVICE};
+        config.services = {WireFormat::MASTER_SERVICE,
+                           WireFormat::MEMBERSHIP_SERVICE};
         Server* server = cluster.addServer(config);
         selector = &server->master->replicaManager.backupSelector;
     }
@@ -51,10 +48,10 @@ struct BackupSelectorTest : public ::testing::Test {
         return *(s.end() - 1);
     }
 
-    void addEqualHosts(CoordinatorClient* coordinator,
-                       std::vector<ServerId>& ids) {
+    void addEqualHosts(std::vector<ServerId>& ids) {
         ServerConfig config = ServerConfig::forTesting();
-        config.services = {BACKUP_SERVICE, MEMBERSHIP_SERVICE};
+        config.services = {WireFormat::BACKUP_SERVICE,
+                           WireFormat::MEMBERSHIP_SERVICE};
         config.backup.mockSpeed = 100;
         for (uint32_t i = 1; i < 10; i++) {
             config.localLocator = format("mock:host=backup%u", i);
@@ -62,10 +59,10 @@ struct BackupSelectorTest : public ::testing::Test {
         }
     }
 
-    void addDifferentHosts(CoordinatorClient* coordinator,
-                           std::vector<ServerId>& ids) {
+    void addDifferentHosts(std::vector<ServerId>& ids) {
         ServerConfig config = ServerConfig::forTesting();
-        config.services = {BACKUP_SERVICE, MEMBERSHIP_SERVICE};
+        config.services = {WireFormat::BACKUP_SERVICE,
+                           WireFormat::MEMBERSHIP_SERVICE};
         for (uint32_t i = 1; i < 10; i++) {
             config.backup.mockSpeed = i * 10;
             config.localLocator = format("mock:host=backup%u", i);
@@ -87,21 +84,20 @@ TEST_F(BackupSelectorTest, backupStats_getExpectedReadMs) {
 }
 
 struct BackgroundEnlistBackup {
-    explicit BackgroundEnlistBackup(Context* context,
-                                    CoordinatorClient* coordinator)
-        : context(context), coordinator(coordinator) {}
+    explicit BackgroundEnlistBackup(Context* context)
+        : context(context) {}
 
     void operator()() {
         // Try to get selectPrimary to block on the empty server list.
         std::this_thread::yield();
         usleep(1 * 1000);
         // See if enlisting a server unblocks the call.
-        coordinator->enlistServer({}, {BACKUP_SERVICE},
-                                  "mock:host=backup10", 10);
+        CoordinatorClient::enlistServer(*context, {},
+                                        {WireFormat::BACKUP_SERVICE},
+                                        "mock:host=backup10", 10);
     }
 
     Context* context;
-    CoordinatorClient* const coordinator;
 
     DISALLOW_COPY_AND_ASSIGN(BackgroundEnlistBackup);
 };
@@ -109,7 +105,7 @@ struct BackgroundEnlistBackup {
 TEST_F(BackupSelectorTest, selectPrimaryNoHosts) {
     // Check to make sure the server waits on server list updates from the
     // coordinator.
-    BackgroundEnlistBackup enlist{&context, coordinator};
+    BackgroundEnlistBackup enlist{&context};
     std::thread enlistThread{std::ref(enlist)};
     ServerId id = selector->selectPrimary(0, NULL);
     EXPECT_EQ(ServerId(2, 0), id);
@@ -119,9 +115,9 @@ TEST_F(BackupSelectorTest, selectPrimaryNoHosts) {
 TEST_F(BackupSelectorTest, selectPrimaryAllConflict) {
     MockRandom _(1);
     std::vector<ServerId> ids;
-    addEqualHosts(coordinator, ids);
+    addEqualHosts(ids);
 
-    BackgroundEnlistBackup enlist{&context, coordinator};
+    BackgroundEnlistBackup enlist{&context};
     std::thread enlistThread{std::ref(enlist)};
 
     ServerId id = selector->selectPrimary(9, &ids[0]);
@@ -134,7 +130,7 @@ TEST_F(BackupSelectorTest, selectPrimaryAllEqual) {
     // getRandomServerIdWithServer(BACKUP_SERVICE) returns backups in order
     // that they enlisted above.
     std::vector<ServerId> ids;
-    addEqualHosts(coordinator, ids);
+    addEqualHosts(ids);
 
     ServerId backup = selector->selectPrimary(0, NULL); // use backup1 / id 2
     EXPECT_EQ(ids[0], backup);
@@ -143,7 +139,7 @@ TEST_F(BackupSelectorTest, selectPrimaryAllEqual) {
 TEST_F(BackupSelectorTest, selectPrimaryAllEqualOneConstraint) {
     MockRandom _(1);
     std::vector<ServerId> ids;
-    addEqualHosts(coordinator, ids);
+    addEqualHosts(ids);
 
     ServerId backup =
         selector->selectPrimary(1, &ids[0]); // must skip backup1, use backup2
@@ -153,7 +149,7 @@ TEST_F(BackupSelectorTest, selectPrimaryAllEqualOneConstraint) {
 TEST_F(BackupSelectorTest, selectPrimaryAllEqualThreeConstraints) {
     MockRandom _(1);
     std::vector<ServerId> ids;
-    addEqualHosts(coordinator, ids);
+    addEqualHosts(ids);
 
     ServerId backup =
         selector->selectPrimary(3, &ids[0]); // must skip backup1/2/3, use 4
@@ -163,7 +159,7 @@ TEST_F(BackupSelectorTest, selectPrimaryAllEqualThreeConstraints) {
 TEST_F(BackupSelectorTest, selectPrimaryAllEqualNonContiguousConstraints) {
     MockRandom _(1);
     std::vector<ServerId> ids;
-    addEqualHosts(coordinator, ids);
+    addEqualHosts(ids);
 
     std::vector<ServerId> conflicts = { ids[0], ids[1], ids[3] };
     ServerId backup =
@@ -174,7 +170,7 @@ TEST_F(BackupSelectorTest, selectPrimaryAllEqualNonContiguousConstraints) {
 TEST_F(BackupSelectorTest, selectPrimaryDifferentSpeeds) {
     MockRandom _(1);
     std::vector<ServerId> ids;
-    addDifferentHosts(coordinator, ids);
+    addDifferentHosts(ids);
 
     ServerId backup = selector->selectPrimary(0, NULL);
     EXPECT_EQ(ids[4], backup); // Of the 5 inspected the last is the fastest.
@@ -183,7 +179,7 @@ TEST_F(BackupSelectorTest, selectPrimaryDifferentSpeeds) {
 TEST_F(BackupSelectorTest, selectPrimaryDifferentSpeedsOneConstraint) {
     MockRandom _(1);
     std::vector<ServerId> ids;
-    addDifferentHosts(coordinator, ids);
+    addDifferentHosts(ids);
 
     ServerId backup = selector->selectPrimary(1, &ids[4]);
     EXPECT_EQ(ids[5], backup); // 5 inspected, but must retry on the last
@@ -194,7 +190,7 @@ TEST_F(BackupSelectorTest, selectPrimaryDifferentSpeedsOneConstraint) {
 TEST_F(BackupSelectorTest, selectPrimaryDifferentSpeedsFourConstraints) {
     MockRandom _(1);
     std::vector<ServerId> ids;
-    addDifferentHosts(coordinator, ids);
+    addDifferentHosts(ids);
 
     ServerId backup = selector->selectPrimary(4, &ids[4]);
     EXPECT_EQ(ids[8], backup); // First 4 are slow, next 4 conflict,
@@ -203,7 +199,7 @@ TEST_F(BackupSelectorTest, selectPrimaryDifferentSpeedsFourConstraints) {
 
 TEST_F(BackupSelectorTest, selectPrimaryEvenPrimaryPlacement) {
     std::vector<ServerId> ids;
-    addEqualHosts(coordinator, ids);
+    addEqualHosts(ids);
 
     uint32_t primaryCounts[9] = {};
     for (uint32_t i = 0; i < 900; ++i) {
@@ -218,7 +214,7 @@ TEST_F(BackupSelectorTest, selectPrimaryEvenPrimaryPlacement) {
 TEST_F(BackupSelectorTest, selectSecondary) {
     MockRandom _(1);
     std::vector<ServerId> ids;
-    addDifferentHosts(coordinator, ids);
+    addDifferentHosts(ids);
 
     ServerId id = selector->selectSecondary(0, NULL);
     EXPECT_EQ(ServerId(2, 0), id);
@@ -235,7 +231,7 @@ TEST_F(BackupSelectorTest, selectSecondary) {
 TEST_F(BackupSelectorTest, selectSecondaryConflictsWithAll) {
     MockRandom _(1);
     std::vector<ServerId> ids;
-    addDifferentHosts(coordinator, ids);
+    addDifferentHosts(ids);
 
     ServerId id = selector->selectSecondary(uint32_t(ids.size()), &ids[0]);
     EXPECT_EQ(ServerId(0, 0), id);

@@ -503,9 +503,6 @@ def makeReport(data):
     coordSection.ms('Completing recovery on backups',
         coord.coordinator.recoveryCompleteTicks / coord.clockFrequency,
         total=recoveryTime)
-    coordSection.ms('Set will',
-        coord.rpc.setWillTicks / coord.clockFrequency,
-        total=recoveryTime)
     coordSection.ms('Get tablet map',
         coord.rpc.getTabletMapTicks / coord.clockFrequency,
         total=recoveryTime)
@@ -513,7 +510,6 @@ def makeReport(data):
         ((coord.coordinator.recoveryTicks -
           coord.coordinator.recoveryBuildReplicaMapTicks -
           coord.coordinator.recoveryStartTicks -
-          coord.rpc.setWillTicks -
           coord.rpc.getTabletMapTicks -
           coord.rpc.recoveryMasterFinishedTicks) /
          coord.clockFrequency),

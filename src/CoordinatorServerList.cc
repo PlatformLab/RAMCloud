@@ -27,21 +27,18 @@
 
 namespace RAMCloud {
 
-//////////////////////////////////////////////////////////////////////
-// CoordinatorServerList Public Methods
-//////////////////////////////////////////////////////////////////////
-
 /**
  * Constructor for CoordinatorServerList.
+ *
+ *
+ * \param context
+ *      Overall information about the RAMCloud server
  */
 CoordinatorServerList::CoordinatorServerList(Context& context)
-    : context(context)
-    , mutex()
+    : AbstractServerList(context)
     , serverList()
     , numberOfMasters(0)
     , numberOfBackups(0)
-    , versionNumber(0)
-    , trackers()
 {
 }
 
@@ -50,13 +47,40 @@ CoordinatorServerList::CoordinatorServerList(Context& context)
  */
 CoordinatorServerList::~CoordinatorServerList()
 {
-    foreach (auto& pair, serverList) {
-        Tub<Entry>& entry = pair.entry;
-        if (entry && entry->isMaster() && entry->will != NULL)
-            delete entry->will;
-    }
 }
 
+
+//////////////////////////////////////////////////////////////////////
+// CoordinatorServerList Protected Methods From AbstractServerList
+//////////////////////////////////////////////////////////////////////
+ServerDetails*
+CoordinatorServerList::iget(size_t index)
+{
+    return (serverList[index].entry) ? serverList[index].entry.get() : NULL;
+}
+
+bool
+CoordinatorServerList::icontains(ServerId id) const
+{
+    uint32_t index = id.indexNumber();
+    return index < serverList.size() &&
+            serverList[index].entry &&
+            serverList[index].entry->serverId == id;
+}
+
+/**
+ * Return the number of valid indexes in this list w/o lock. Valid does not mean
+ * that they're occupied, only that they are within the bounds of the array.
+ */
+size_t
+CoordinatorServerList::isize() const
+{
+    return serverList.size();
+}
+
+//////////////////////////////////////////////////////////////////////
+// CoordinatorServerList Public Methods
+//////////////////////////////////////////////////////////////////////
 /**
  * Add a new server to the CoordinatorServerList and generate a new, unique
  * ServerId for it.
@@ -98,12 +122,11 @@ CoordinatorServerList::add(string serviceLocator,
     pair.nextGenerationNumber++;
     pair.entry.construct(id, serviceLocator, serviceMask);
 
-    if (serviceMask.has(MASTER_SERVICE)) {
+    if (serviceMask.has(WireFormat::MASTER_SERVICE)) {
         numberOfMasters++;
-        pair.entry->will = new ProtoBuf::Tablets;
     }
 
-    if (serviceMask.has(BACKUP_SERVICE)) {
+    if (serviceMask.has(WireFormat::BACKUP_SERVICE)) {
         numberOfBackups++;
         pair.entry->expectedReadMBytesPerSec = readSpeed;
     }
@@ -185,8 +208,8 @@ CoordinatorServerList::remove(ServerId serverId,
     uint32_t index = serverId.indexNumber();
     if (index >= serverList.size() || !serverList[index].entry ||
         serverList[index].entry->serverId != serverId) {
-        throw Exception(HERE,
-                        format("Invalid ServerId (%lu)", serverId.getId()));
+        throw NoSuchServer(HERE,
+            format("Invalid ServerId (%lu)", serverId.getId()));
     }
 
     crashed(lock, serverId, update);
@@ -218,74 +241,8 @@ void
 CoordinatorServerList::incrementVersion(ProtoBuf::ServerList& update)
 {
     Lock _(mutex);
-    versionNumber++;
-    update.set_version_number(versionNumber);
-}
-
-/**
- * Add on to existing will for some server.
- *
- * \param serverId
- *      Server whose will is being changed.
- * \param willEntries
- *      Entries to append to the existing will for server \a serverId.
- *      Each entry's user_data field should either contain a
- *      partition id to group the will entries or ~0lu which indicates
- *      this method should automatically group the entries (by placing
- *      each entry into its own partition).
- * \throw
- *      Exception is thrown if the given ServerId is not in this list.
- */
-void
-CoordinatorServerList::addToWill(ServerId serverId,
-                                 const ProtoBuf::Tablets& willEntries)
-{
-    Lock _(mutex);
-    Entry& server = const_cast<Entry&>(getReferenceFromServerId(serverId));
-    uint64_t nextPartition = 0;
-    if (server.will->tablet_size() > 0) {
-        foreach (const auto& tablet, server.will->tablet()) {
-            nextPartition = std::max(nextPartition, tablet.user_data());
-        }
-        ++nextPartition;
-    }
-    // Do it the hard way because the protobuf docs aren't clear enough
-    // to safely use CopyFrom/MergeFrom.
-    foreach (const auto& tablet, willEntries.tablet()) {
-        auto& entry = *server.will->add_tablet();
-        entry = tablet;
-        // Hack: if the 'partition' field is left ~0 then put it in
-        // its own partition.
-        if (entry.user_data() == ~(0lu))
-            entry.set_user_data(nextPartition++);
-    }
-}
-
-/**
- * Replace an existing will for some server with an updated will.
- *
- * \param serverId
- *      Server whose will is being changed.
- * \param will
- *      Replaces the existing will for server \a serverId.
- * \throw
- *      Exception is thrown if the given ServerId is not in this list.
- */
-void
-CoordinatorServerList::setWill(ServerId serverId,
-                               const ProtoBuf::Tablets& will)
-{
-    Lock _(mutex);
-    Entry& server = const_cast<Entry&>(getReferenceFromServerId(serverId));
-    if (!server.isMaster()) {
-        LOG(WARNING, "Server %lu is not a master! Ignoring new will.",
-            server.serverId.getId());
-        return;
-    }
-    uint32_t oldWillSize = server.will->tablet_size();
-    *server.will = will;
-    LOG(NOTICE, "Master %lu updated its Will (now %d entries, was %d)",
-        server.serverId.getId(), will.tablet_size(), oldWillSize);
+    version++;
+    update.set_version_number(version);
 }
 
 /**
@@ -330,22 +287,6 @@ CoordinatorServerList::setReplicationId(ServerId serverId,
 }
 
 /**
- * Open a session to the given ServerId. This method simply calls through to
- * TransportManager::getSession. See the documentation there for exceptions
- * that may be thrown.
- *
- * \throw Exception
- *      Exception is thrown if the given ServerId is not in this list.
- */
-Transport::SessionRef
-CoordinatorServerList::getSession(ServerId id) const
-{
-    Lock _(mutex);
-    return context.transportManager->getSession(
-        getReferenceFromServerId(id).serviceLocator.c_str(), id);
-}
-
-/**
  * Returns a copy of the details associated with the given ServerId.
  *
  * \param serverId
@@ -379,6 +320,41 @@ CoordinatorServerList::operator[](size_t index) const
     return serverList[index].entry;
 }
 
+
+/**
+ * Returns a copy of the details associated with the given ServerId.
+ *
+ * \param serverId
+ *      ServerId to look up in the list.
+ * \throw
+ *      Exception is thrown if the given ServerId is not in this list.
+ */
+CoordinatorServerList::Entry
+CoordinatorServerList::at(const ServerId& serverId) const
+{
+    Lock _(mutex);
+    return getReferenceFromServerId(serverId);
+}
+
+/**
+ * Returns a copy of the details associated with the given position
+ * in the server list or empty if the position in the list is
+ * unoccupied.
+ *
+ * \param index
+ *      Position of entry in the server list to return a copy of.
+ * \throw
+ *      Exception is thrown if the given ServerId is not in this list.
+ */
+Tub<CoordinatorServerList::Entry>
+CoordinatorServerList::at(size_t index) const
+{
+    Lock _(mutex);
+    if (index >= serverList.size())
+        throw Exception(HERE, format("Index beyond array length (%zd)", index));
+    return serverList[index].entry;
+}
+
 /**
  * Return true if the given serverId is in this list regardless of
  * whether it is crashed or not.  This can be used to check membership,
@@ -387,31 +363,9 @@ CoordinatorServerList::operator[](size_t index) const
 bool
 CoordinatorServerList::contains(ServerId serverId) const
 {
-    Lock _(mutex);
-    if (!serverId.isValid())
-        return false;
-
-    uint32_t index = serverId.indexNumber();
-
-    if (index >= serverList.size())
-        return false;
-
-    if (!serverList[index].entry)
-        return false;
-
-    return serverList[index].entry->serverId == serverId;
+    return serverId.isValid() && icontains(serverId);
 }
 
-/**
- * Return the number of valid indexes in this list. Valid does not mean that
- * they're occupied, only that they are within the bounds of the array.
- */
-size_t
-CoordinatorServerList::size() const
-{
-    Lock _(mutex);
-    return serverList.size();
-}
 
 /**
  * Get the number of masters in the list; does not include servers in
@@ -490,7 +444,8 @@ CoordinatorServerList::nextBackupIndex(uint32_t startIndex) const
 void
 CoordinatorServerList::serialize(ProtoBuf::ServerList& protoBuf) const
 {
-    serialize(protoBuf, {MASTER_SERVICE, BACKUP_SERVICE});
+    serialize(protoBuf, {WireFormat::MASTER_SERVICE,
+        WireFormat::BACKUP_SERVICE});
 }
 
 /**
@@ -538,12 +493,11 @@ CoordinatorServerList::sendMembershipUpdate(ProtoBuf::ServerList& update,
 
     Tub<ProtoBuf::ServerList> serializedServerList;
 
-    MembershipClient client(context);
     for (size_t i = 0; i < serverList.size(); i++) {
         Tub<Entry>& entry = serverList[i].entry;
         if (!entry ||
             entry->status != ServerStatus::UP ||
-            !entry->services.has(MEMBERSHIP_SERVICE))
+            !entry->services.has(WireFormat::MEMBERSHIP_SERVICE))
             continue;
         if (entry->serverId == excludeServerId)
             continue;
@@ -551,11 +505,14 @@ CoordinatorServerList::sendMembershipUpdate(ProtoBuf::ServerList& update,
         bool succeeded = false;
         try {
             succeeded =
-                client.updateServerList(entry->serviceLocator.c_str(), update);
+                MembershipClient::updateServerList(context, entry->serverId,
+                                                   update);
         } catch (const TransportException& e) {
             // It's suspicious that pushing the update failed, but
             // perhaps it's best to wait to try the full list push
             // before jumping to conclusions.
+            LOG(NOTICE, "Failed to send cluster membership update to %lu: %s",
+                entry->serverId.getId(), e.what());
         }
 
         // If this server had missed a previous update it will return
@@ -568,77 +525,45 @@ CoordinatorServerList::sendMembershipUpdate(ProtoBuf::ServerList& update,
                 serialize(lock, *serializedServerList);
             }
             try {
-                client.setServerList(entry->serviceLocator.c_str(),
+                MembershipClient::setServerList(context, entry->serverId,
                                      *serializedServerList);
             } catch (const TransportException& e) {
                 // TODO(stutsman): Things aren't looking good for this
                 // server.  The coordinator will probably want to investigate
                 // the server and evict it.
+                LOG(NOTICE, "Failed to send full cluster server list to %lu "
+                    "after it failed to accept the update: %s",
+                    entry->serverId.getId(), e.what());
             }
         }
+
+        LOG(DEBUG, "Server list update sent to server %lu",
+            entry->serverId.getId());
     }
 }
 
 /**
- * Register a ServerTracker with this list. Any updates to this
- * list (additions, removals, or crashes) will be propagated to the tracker.
- * The current list of hosts will be pushed to the tracker immediately so
- * that its state is synchronised with this list.
- *
- * \throw ServerListException
- *      An exception is thrown if the same tracker is registered more
- *      than once.
+ * Add a LogCabin entry id corresponding to a state change for
+ * a particular server.
  */
 void
-CoordinatorServerList::registerTracker(ServerTrackerInterface& tracker)
+CoordinatorServerList::addLogCabinEntryId(ServerId serverId,
+                                          LogCabin::Client::EntryId entryId)
 {
     Lock _(mutex);
-
-    auto it = std::find(trackers.begin(), trackers.end(), &tracker);
-    if (it != trackers.end()) {
-        throw ServerListException(HERE,
-            "Cannot register the same tracker twice!");
-    }
-
-    trackers.push_back(&tracker);
-
-    // Push all known servers which are crashed first.
-    // Order is important to guarantee that if one server replaced another
-    // during enlistment that the registering tracker queue will have the
-    // crash event for the replaced server before the add event of the
-    // server which replaced it.
-    foreach (const auto& server, serverList) {
-        if (!server.entry || server.entry->status != ServerStatus::CRASHED)
-            continue;
-        const Entry& entry = *server.entry;
-        ServerDetails details = entry;
-        details.status = ServerStatus::UP;
-        tracker.enqueueChange(details, ServerChangeEvent::SERVER_ADDED);
-        tracker.enqueueChange(entry, ServerChangeEvent::SERVER_CRASHED);
-    }
-    // Push all known server which are up.
-    foreach (const auto& server, serverList) {
-        if (!server.entry || server.entry->status != ServerStatus::UP)
-            continue;
-        tracker.enqueueChange(*server.entry, ServerChangeEvent::SERVER_ADDED);
-    }
-    tracker.fireCallback();
+    Entry& entry = const_cast<Entry&>(getReferenceFromServerId(serverId));
+    entry.logCabinEntryId = entryId;
 }
 
 /**
- * Unregister a ServerTracker that was previously registered with this
- * list. Doing so will cease all update propagation.
+ * Return the entry id corresponding to entry in LogCabin log
+ * that has details for the server with id serverId.
  */
-void
-CoordinatorServerList::unregisterTracker(ServerTrackerInterface& tracker)
+LogCabin::Client::EntryId
+CoordinatorServerList::getLogCabinEntryId(ServerId serverId)
 {
-    Lock _(mutex);
-    for (auto it = trackers.begin(); it != trackers.end(); ++it) {
-        if (*it == &tracker) {
-            trackers.erase(it);
-            break;
-        }
-    }
+    Entry& entry = const_cast<Entry&>(getReferenceFromServerId(serverId));
+    return entry.logCabinEntryId;
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -655,8 +580,8 @@ CoordinatorServerList::crashed(const Lock& lock,
     uint32_t index = serverId.indexNumber();
     if (index >= serverList.size() || !serverList[index].entry ||
         serverList[index].entry->serverId != serverId) {
-        throw Exception(HERE,
-                        format("Invalid ServerId (%lu)", serverId.getId()));
+        throw NoSuchServer(HERE,
+            format("Invalid ServerId (%lu)", serverId.getId()));
     }
 
     auto& entry = serverList[index].entry;
@@ -716,10 +641,12 @@ const CoordinatorServerList::Entry&
 CoordinatorServerList::getReferenceFromServerId(const ServerId& serverId) const
 {
     uint32_t index = serverId.indexNumber();
-    if (index < serverList.size() && serverList[index].entry)
+    if (index < serverList.size() && serverList[index].entry
+            && serverList[index].entry->serverId == serverId)
         return *serverList[index].entry;
 
-    throw Exception(HERE, format("Invalid ServerId (%lu)", serverId.getId()));
+    throw NoSuchServer(HERE,
+        format("Invalid ServerId (%lu)", serverId.getId()));
 }
 
 /**
@@ -736,7 +663,8 @@ void
 CoordinatorServerList::serialize(const Lock& lock,
                                  ProtoBuf::ServerList& protoBuf) const
 {
-    serialize(lock, protoBuf, {MASTER_SERVICE, BACKUP_SERVICE});
+    serialize(lock, protoBuf, {WireFormat::MASTER_SERVICE,
+        WireFormat::BACKUP_SERVICE});
 }
 
 /**
@@ -766,14 +694,17 @@ CoordinatorServerList::serialize(const Lock& lock,
 
         const Entry& entry = *serverList[i].entry;
 
-        if ((entry.isMaster() && services.has(MASTER_SERVICE)) ||
-            (entry.isBackup() && services.has(BACKUP_SERVICE))) {
+        if ((entry.services.has(WireFormat::MASTER_SERVICE) &&
+             services.has(WireFormat::MASTER_SERVICE)) ||
+            (entry.services.has(WireFormat::BACKUP_SERVICE) &&
+             services.has(WireFormat::BACKUP_SERVICE)))
+        {
             ProtoBuf::ServerList_Entry& protoBufEntry(*protoBuf.add_server());
             entry.serialize(protoBufEntry);
         }
     }
 
-    protoBuf.set_version_number(versionNumber);
+    protoBuf.set_version_number(version);
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -785,9 +716,9 @@ CoordinatorServerList::serialize(const Lock& lock,
  */
 CoordinatorServerList::Entry::Entry()
     : ServerDetails()
-    , will()
     , minOpenSegmentId()
     , replicationId()
+    , logCabinEntryId()
 {
 }
 
@@ -814,9 +745,9 @@ CoordinatorServerList::Entry::Entry(ServerId serverId,
                     services,
                     0,
                     ServerStatus::UP)
-    , will(NULL)
     , minOpenSegmentId(0)
     , replicationId(0)
+    , logCabinEntryId(LogCabin::Client::EntryId())
 {
 }
 

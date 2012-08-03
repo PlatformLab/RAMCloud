@@ -21,8 +21,8 @@
 #ifndef RAMCLOUD_MEMBERSHIPCLIENT_H
 #define RAMCLOUD_MEMBERSHIPCLIENT_H
 
-#include "Client.h"
 #include "ServerId.h"
+#include "ServerIdRpcWrapper.h"
 #include "ServerList.pb.h"
 #include "Transport.h"
 
@@ -41,22 +41,69 @@ namespace RAMCloud {
  * exact same network address that a previous one might have).
  *
  * See #MembershipService for more information.
+ *
+ * The class contains only static methods, so you shouldn't ever need to
+ * instantiate an object.
  */
-class MembershipClient : public Client {
+class MembershipClient {
   public:
-    explicit MembershipClient(Context& context) : context(context) {}
-    ServerId getServerId(Transport::SessionRef session);
-    void setServerList(const char* serviceLocator,
-                       ProtoBuf::ServerList& list);
-    bool updateServerList(const char* serviceLocator,
-                          ProtoBuf::ServerList& update);
+    static ServerId getServerId(Context& context,
+            Transport::SessionRef session);
+    static void setServerList(Context& context, ServerId serverId,
+            ProtoBuf::ServerList& list);
+    static bool updateServerList(Context& context, ServerId serverId,
+            ProtoBuf::ServerList& changes);
 
   private:
-    /// Shared RAMCloud information.
-    Context& context;
-
-    DISALLOW_COPY_AND_ASSIGN(MembershipClient);
+    MembershipClient();
 };
+
+/**
+ * Encapsulates the state of a MembershipClient::getServerId
+ * request, allowing it to execute asynchronously.
+ */
+class GetServerIdRpc : public RpcWrapper {
+  public:
+    GetServerIdRpc(Context& context, Transport::SessionRef session);
+    ~GetServerIdRpc() {}
+    ServerId wait();
+
+  PRIVATE:
+    Context& context;
+    DISALLOW_COPY_AND_ASSIGN(GetServerIdRpc);
+};
+
+/**
+ * Encapsulates the state of a MembershipClient::setServerList
+ * request, allowing it to execute asynchronously.
+ */
+class SetServerListRpc : public ServerIdRpcWrapper {
+  public:
+    SetServerListRpc(Context& context, ServerId serverId,
+            ProtoBuf::ServerList& list);
+    ~SetServerListRpc() {}
+    /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
+    void wait() {waitAndCheckErrors();}
+
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(SetServerListRpc);
+};
+
+/**
+ * Encapsulates the state of a MembershipClient::updateServerList
+ * request, allowing it to execute asynchronously.
+ */
+class UpdateServerListRpc : public ServerIdRpcWrapper {
+  public:
+    UpdateServerListRpc(Context& context, ServerId serverId,
+            ProtoBuf::ServerList& update);
+    ~UpdateServerListRpc() {}
+    bool wait();
+
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(UpdateServerListRpc);
+};
+
 } // namespace RAMCloud
 
 #endif // RAMCLOUD_MEMBERSHIPCLIENT_H

@@ -234,7 +234,8 @@ Log::getHeadPosition()
     // return until iteration is done, since callers to append() will block
     // holding this lock!
     Lock lock(appendLock);
-    return { head->id, head->getTailOffset() };
+    Segment::OpaqueFooterEntry unused;
+    return { head->id, head->getAppendedLength(unused) };
 }
 
 /**
@@ -259,15 +260,18 @@ Log::getSegmentId(HashTable::Reference reference)
  *
  * \param segmentId
  *      Only allocate a new log head if the current log head is the one
- *      specified.  This is used to prevent useless allocations in the
- *      case that multiple callers try to allocate new log heads at the
- *      same time.
+ *      specified.  If \a segmentId is empty a new head is allocated
+ *      regardless of which segment is currently the log head.  This is
+ *      used to prevent useless allocations in the case that multiple
+ *      callers try to allocate new log heads at the same time.
+ * \throw LogOutOfMemoryException
+ *      If no Segments are free.
  */
 void
-Log::allocateHeadIfStillOn(uint64_t segmentId)
+Log::allocateHeadIfStillOn(Tub<uint64_t> segmentId)
 {
     Lock lock(appendLock);
-    if (head->id == segmentId)
+    if (!segmentId || head->id == *segmentId)
         head = segmentManager.allocHead();
 
     // XXX What if we're out of space? The above could return NULL, in which

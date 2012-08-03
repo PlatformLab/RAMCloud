@@ -14,7 +14,6 @@
  */
 
 #include "BackupSelector.h"
-#include "Rpc.h"
 #include "ShortMacros.h"
 #include "Segment.h"
 
@@ -100,7 +99,8 @@ BackupSelector::selectSecondary(uint32_t numBackups,
 {
     while (true) {
         applyTrackerChanges();
-        ServerId id = tracker.getRandomServerIdWithService(BACKUP_SERVICE);
+        ServerId id = tracker.getRandomServerIdWithService(
+            WireFormat::BACKUP_SERVICE);
         if (id.isValid() &&
             !conflictWithAny(id, numBackups, backupIds)) {
             return id;

@@ -17,6 +17,7 @@
 #include "Recovery.h"
 #include "ShortMacros.h"
 #include "TabletsBuilder.h"
+#include "TabletMap.h"
 #include "ProtoBuf.h"
 
 namespace RAMCloud {
@@ -27,15 +28,18 @@ struct RecoveryTest : public ::testing::Test {
     Context context;
     TaskQueue taskQueue;
     RecoveryTracker tracker;
-    ProtoBuf::Tablets tablets;
+    ServerList serverList;
+    TabletMap tabletMap;
 
     RecoveryTest()
         : context()
         , taskQueue()
         , tracker(context)
-        , tablets()
+        , serverList(context)
+        , tabletMap()
     {
         Logger::get().setLogLevels(SILENT_LOG_LEVEL);
+        context.serverList = &serverList;
     }
 
     /**
@@ -75,7 +79,7 @@ namespace {
  *      List of segment ids which should be in the log digest.
  */
 void
-populateLogDigest(BackupClient::StartReadingData::Result& result,
+populateLogDigest(StartReadingDataRpc::Result& result,
                   uint64_t segmentId,
                   std::vector<uint64_t> segmentIds)
 {
@@ -93,24 +97,26 @@ populateLogDigest(BackupClient::StartReadingData::Result& result,
 }
 }
 
-TEST_F(RecoveryTest, constructor) {
-    // Mostly trivial, but does compute numPartitions from the will.
+TEST_F(RecoveryTest, partitionTablets) {
     Tub<Recovery> recovery;
     Recovery::Owner* own = static_cast<Recovery::Owner*>(NULL);
-
-    recovery.construct(taskQueue, &tracker, own, ServerId(99), tablets, 0lu);
+    recovery.construct(context, taskQueue, &tabletMap, &tracker, own,
+                       ServerId(99), 0lu);
+    recovery->partitionTablets();
     EXPECT_EQ(0lu, recovery->numPartitions);
 
-    TabletsBuilder{tablets}
-        (123,  0,  9, TabletsBuilder::RECOVERING, 0)
-        (123, 20, 29, TabletsBuilder::RECOVERING, 0);
-    recovery.construct(taskQueue, &tracker, own, ServerId(99), tablets, 0lu);
-    EXPECT_EQ(1lu, recovery->numPartitions);
-
-    TabletsBuilder{tablets}
-        (123, 10, 19, TabletsBuilder::RECOVERING, 1);
-    recovery.construct(taskQueue, &tracker, own, ServerId(99), tablets, 0lu);
+    tabletMap.addTablet({123,  0,  9, {99, 0}, Tablet::RECOVERING, {}});
+    tabletMap.addTablet({123, 20, 29, {99, 0}, Tablet::RECOVERING, {}});
+    recovery.construct(context, taskQueue, &tabletMap, &tracker, own,
+                       ServerId(99), 0lu);
+    recovery->partitionTablets();
     EXPECT_EQ(2lu, recovery->numPartitions);
+
+    tabletMap.addTablet({123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
+    recovery.construct(context, taskQueue, &tabletMap, &tracker, own,
+                       ServerId(99), 0lu);
+    recovery->partitionTablets();
+    EXPECT_EQ(3lu, recovery->numPartitions);
 }
 
 TEST_F(RecoveryTest, startBackups) {
@@ -123,7 +129,7 @@ TEST_F(RecoveryTest, startBackups) {
     struct Cb : public BackupStartTask::TestingCallback {
         int callCount;
         Cb() : callCount() {}
-        void backupStartTaskSend(BackupClient::StartReadingData::Result& result)
+        void backupStartTaskSend(StartReadingDataRpc::Result& result)
         {
             if (callCount == 0) {
                 // Two segments on backup1, one that overlaps with backup2
@@ -142,11 +148,14 @@ TEST_F(RecoveryTest, startBackups) {
             callCount++;
         }
     } callback;
-    addServersToTracker(3, {BACKUP_SERVICE});
-    Recovery recovery(taskQueue, &tracker, NULL, ServerId(99), tablets, 0lu);
+    addServersToTracker(3, {WireFormat::BACKUP_SERVICE});
+    tabletMap.addTablet({123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
+    Recovery recovery(context, taskQueue, &tabletMap, &tracker, NULL,
+                      ServerId(99), 0lu);
     recovery.testingBackupStartTaskSendCallback = &callback;
+    recovery.partitionTablets();
     recovery.startBackups();
-    EXPECT_EQ((vector<RecoverRpc::Replica> {
+    EXPECT_EQ((vector<WireFormat::Recover::Replica> {
                     { 1, 88 },
                     { 2, 88 },
                     { 1, 89 },
@@ -154,12 +163,20 @@ TEST_F(RecoveryTest, startBackups) {
               recovery.replicaMap);
 }
 
+TEST_F(RecoveryTest, startBackups_failureContactingSomeBackup) {
+    Recovery recovery(context, taskQueue, &tabletMap, &tracker, NULL,
+                      ServerId(99), 0lu);
+    ProtoBuf::Tablets partitions;
+    BackupStartTask task(&recovery, {2, 0}, {1, 0}, partitions, 0);
+    EXPECT_NO_THROW(task.send());
+}
+
 TEST_F(RecoveryTest, startBackups_secondariesEarlyInSomeList) {
     // See buildReplicaMap test for info about how the callback is used.
     struct Cb : public BackupStartTask::TestingCallback {
         int callCount;
         Cb() : callCount() {}
-        void backupStartTaskSend(BackupClient::StartReadingData::Result& result)
+        void backupStartTaskSend(StartReadingDataRpc::Result& result)
         {
             if (callCount == 0) {
                 result.segmentIdAndLength.push_back({88lu, 100u});
@@ -178,9 +195,12 @@ TEST_F(RecoveryTest, startBackups_secondariesEarlyInSomeList) {
             callCount++;
         }
     } callback;
-    addServersToTracker(3, {BACKUP_SERVICE});
-    Recovery recovery(taskQueue, &tracker, NULL, ServerId(99), tablets, 0lu);
+    addServersToTracker(3, {WireFormat::BACKUP_SERVICE});
+    tabletMap.addTablet({123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
+    Recovery recovery(context, taskQueue, &tabletMap, &tracker, NULL,
+                      ServerId(99), 0lu);
     recovery.testingBackupStartTaskSendCallback = &callback;
+    recovery.partitionTablets();
     recovery.startBackups();
     ASSERT_EQ(6U, recovery.replicaMap.size());
     // The secondary of segment 91 must be last in the list.
@@ -195,9 +215,12 @@ bool startBackupsFilter(string s) {
 
 TEST_F(RecoveryTest, startBackups_noLogDigestFound) {
     BackupStartTask::TestingCallback callback; // No-op callback.
-    addServersToTracker(3, {BACKUP_SERVICE});
-    Recovery recovery(taskQueue, &tracker, NULL, ServerId(99), tablets, 0lu);
+    addServersToTracker(3, {WireFormat::BACKUP_SERVICE});
+    tabletMap.addTablet({123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
+    Recovery recovery(context, taskQueue, &tabletMap, &tracker, NULL,
+                      ServerId(99), 0lu);
     recovery.testingBackupStartTaskSendCallback = &callback;
+    recovery.partitionTablets();
     TestLog::Enable _(startBackupsFilter);
     recovery.startBackups();
     EXPECT_EQ(
@@ -210,14 +233,17 @@ TEST_F(RecoveryTest, startBackups_noLogDigestFound) {
 TEST_F(RecoveryTest, startBackups_someReplicasMissing) {
     // See buildReplicaMap test for info about how the callback is used.
     struct Cb : public BackupStartTask::TestingCallback {
-        void backupStartTaskSend(BackupClient::StartReadingData::Result& result)
+        void backupStartTaskSend(StartReadingDataRpc::Result& result)
         {
             populateLogDigest(result, 91, {91});
         }
     } callback;
-    addServersToTracker(3, {BACKUP_SERVICE});
-    Recovery recovery(taskQueue, &tracker, NULL, ServerId(99), tablets, 0lu);
+    addServersToTracker(3, {WireFormat::BACKUP_SERVICE});
+    tabletMap.addTablet({123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
+    Recovery recovery(context, taskQueue, &tabletMap, &tracker, NULL,
+                      ServerId(99), 0lu);
     recovery.testingBackupStartTaskSendCallback = &callback;
+    recovery.partitionTablets();
     TestLog::Enable _(startBackupsFilter);
     recovery.startBackups();
     EXPECT_EQ(
@@ -229,6 +255,7 @@ TEST_F(RecoveryTest, startBackups_someReplicasMissing) {
 }
 
 TEST_F(RecoveryTest, BackupStartTask_filterOutInvalidReplicas) {
+    ProtoBuf::Tablets tablets;
     BackupStartTask task(NULL, {2, 0}, {1, 0}, tablets, 10lu);
     auto& segments = task.result.segmentIdAndLength;
     segments = {
@@ -348,10 +375,10 @@ TEST_F(RecoveryTest, buildReplicaMap) {
     result->segmentIdAndLength.push_back({91lu, 100u});
     result->primarySegmentCount = 1;
 
-    addServersToTracker(3, {BACKUP_SERVICE});
+    addServersToTracker(3, {WireFormat::BACKUP_SERVICE});
 
     auto replicaMap = buildReplicaMap(tasks, 2, &tracker, 91, 100);
-    EXPECT_EQ((vector<RecoverRpc::Replica> {
+    EXPECT_EQ((vector<WireFormat::Recover::Replica> {
                     { 2, 88 },
                     { 3, 88 },
                     { 2, 89 },
@@ -363,7 +390,7 @@ TEST_F(RecoveryTest, buildReplicaMap) {
     tracker.getServerDetails({3, 0})->expectedReadMBytesPerSec = 101;
     TestLog::Enable _;
     replicaMap = buildReplicaMap(tasks, 2, &tracker, 91, 100);
-    EXPECT_EQ((vector<RecoverRpc::Replica> {
+    EXPECT_EQ((vector<WireFormat::Recover::Replica> {
                     { 3, 88 },
                     { 2, 88 },
                     { 2, 89 },
@@ -384,10 +411,10 @@ TEST_F(RecoveryTest, buildReplicaMap_badReplicas) {
     result->segmentIdAndLength.push_back({91lu, 101u}); // longer than head
     result->primarySegmentCount = 3;
 
-    addServersToTracker(2, {BACKUP_SERVICE});
+    addServersToTracker(2, {WireFormat::BACKUP_SERVICE});
 
     auto replicaMap = buildReplicaMap(tasks, 1, &tracker, 91, 100);
-    EXPECT_EQ((vector<RecoverRpc::Replica>()), replicaMap);
+    EXPECT_EQ((vector<WireFormat::Recover::Replica>()), replicaMap);
 }
 
 TEST_F(RecoveryTest, startRecoveryMasters) {
@@ -396,11 +423,10 @@ TEST_F(RecoveryTest, startRecoveryMasters) {
         int callCount;
         Cb() : callCount() {}
         void masterStartTaskSend(uint64_t recoveryId,
-                                 ServerId crashedServerId,
-                                 uint32_t partitionId,
-                                 const ProtoBuf::Tablets& tablets,
-                                 const RecoverRpc::Replica replicaMap[],
-                                 size_t replicaMapSize)
+            ServerId crashedServerId, uint32_t partitionId,
+            const ProtoBuf::Tablets& tablets,
+            const WireFormat::Recover::Replica replicaMap[],
+            size_t replicaMapSize)
         {
             if (callCount == 0) {
                 EXPECT_EQ(1lu, recoveryId);
@@ -434,12 +460,17 @@ TEST_F(RecoveryTest, startRecoveryMasters) {
             ++callCount;
         }
     } callback;
-    TabletsBuilder{tablets}
-        (123,  0,  9, TabletsBuilder::RECOVERING, 0)
-        (123, 20, 29, TabletsBuilder::RECOVERING, 0)
-        (123, 10, 19, TabletsBuilder::RECOVERING, 1);
-    addServersToTracker(2, {MASTER_SERVICE});
-    Recovery recovery(taskQueue, &tracker, NULL, {99, 0}, tablets, 0lu);
+    addServersToTracker(2, {WireFormat::MASTER_SERVICE});
+    tabletMap.addTablet({123,  0,  9, {99, 0}, Tablet::RECOVERING, {}});
+    tabletMap.addTablet({123, 20, 29, {99, 0}, Tablet::RECOVERING, {}});
+    tabletMap.addTablet({123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
+    Recovery recovery(context, taskQueue, &tabletMap, &tracker, NULL,
+                      {99, 0}, 0lu);
+    recovery.partitionTablets();
+    // Hack 'tablets' to get the first two tablets on the same server.
+    recovery.tabletsToRecover.mutable_tablet(1)->set_user_data(0);
+    recovery.tabletsToRecover.mutable_tablet(2)->set_user_data(1);
+    recovery.numPartitions = 2;
     recovery.testingMasterStartTaskSendCallback = &callback;
     recovery.startRecoveryMasters();
 
@@ -461,11 +492,10 @@ TEST_F(RecoveryTest, startRecoveryMasters_tooFewIdleMasters) {
         int callCount;
         Cb() : callCount() {}
         void masterStartTaskSend(uint64_t recoveryId,
-                                 ServerId crashedServerId,
-                                 uint32_t partitionId,
-                                 const ProtoBuf::Tablets& tablets,
-                                 const RecoverRpc::Replica replicaMap[],
-                                 size_t replicaMapSize)
+            ServerId crashedServerId, uint32_t partitionId,
+            const ProtoBuf::Tablets& tablets,
+            const WireFormat::Recover::Replica replicaMap[],
+            size_t replicaMapSize)
         {
             if (callCount == 0) {
                 EXPECT_EQ(1lu, recoveryId);
@@ -477,13 +507,18 @@ TEST_F(RecoveryTest, startRecoveryMasters_tooFewIdleMasters) {
             ++callCount;
         }
     } callback;
-    TabletsBuilder{tablets}
-        (123,  0,  9, TabletsBuilder::RECOVERING, 0)
-        (123, 20, 29, TabletsBuilder::RECOVERING, 0)
-        (123, 10, 19, TabletsBuilder::RECOVERING, 1);
-    addServersToTracker(2, {MASTER_SERVICE});
+    addServersToTracker(2, {WireFormat::MASTER_SERVICE});
     tracker[ServerId(1, 0)] = reinterpret_cast<Recovery*>(0x1);
-    Recovery recovery(taskQueue, &tracker, NULL, {99, 0}, tablets, 0lu);
+    tabletMap.addTablet({123,  0,  9, {99, 0}, Tablet::RECOVERING, {}});
+    tabletMap.addTablet({123, 20, 29, {99, 0}, Tablet::RECOVERING, {}});
+    tabletMap.addTablet({123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
+    Recovery recovery(context, taskQueue, &tabletMap, &tracker, NULL,
+                      {99, 0}, 0lu);
+    recovery.partitionTablets();
+    // Hack 'tablets' to get the first two tablets on the same server.
+    recovery.tabletsToRecover.mutable_tablet(1)->set_user_data(0);
+    recovery.tabletsToRecover.mutable_tablet(2)->set_user_data(1);
+    recovery.numPartitions = 2;
     recovery.testingMasterStartTaskSendCallback = &callback;
     recovery.startRecoveryMasters();
 
@@ -495,27 +530,78 @@ TEST_F(RecoveryTest, startRecoveryMasters_tooFewIdleMasters) {
     EXPECT_FALSE(recovery.wasCompletelySuccessful());
 }
 
-TEST_F(RecoveryTest, startRecoveryMasters_allFailDuringRecoverRpc) {
-    TabletsBuilder{tablets}
-        (123,  0,  9, TabletsBuilder::RECOVERING, 0)
-        (123, 20, 29, TabletsBuilder::RECOVERING, 0)
-        (123, 10, 19, TabletsBuilder::RECOVERING, 1);
-    addServersToTracker(2, {MASTER_SERVICE});
-    Recovery recovery(taskQueue, &tracker, NULL, {99, 0}, tablets, 0lu);
+/**
+ * Slightly different than the tooFewIdleMasters case above: because
+ * no recovery master get started we need to make sure recovery doesn't
+ * enter the 'wait for recovery masters' phase and that it finishes early.
+ */
+TEST_F(RecoveryTest, startRecoveryMasters_noIdleMasters) {
+    struct Owner : public Recovery::Owner {
+        Owner() : finishedCalled(), destroyCalled() {}
+        bool finishedCalled;
+        bool destroyCalled;
+        void recoveryFinished(Recovery* recovery) {
+            finishedCalled = true;
+        }
+        void destroyAndFreeRecovery(Recovery* recovery) {
+            destroyCalled = true;
+        }
+    } owner;
+    MockRandom __(1);
+    addServersToTracker(2, {WireFormat::MASTER_SERVICE});
+    tracker[ServerId(1, 0)] = reinterpret_cast<Recovery*>(0x1);
+    tracker[ServerId(2, 0)] = reinterpret_cast<Recovery*>(0x1);
+    tabletMap.addTablet({123,  0,  9, {99, 0}, Tablet::RECOVERING, {}});
+    tabletMap.addTablet({123, 20, 29, {99, 0}, Tablet::RECOVERING, {}});
+    tabletMap.addTablet({123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
+    Recovery recovery(context, taskQueue, &tabletMap, &tracker, &owner,
+                      {99, 0}, 0lu);
+    recovery.partitionTablets();
+
+    TestLog::Enable _;
     recovery.startRecoveryMasters();
 
-    EXPECT_EQ(2u, recovery.numPartitions);
+    EXPECT_EQ(
+        "startRecoveryMasters: Starting recovery 1 for crashed server 99 "
+            "with 3 partitions | "
+        "startRecoveryMasters: Couldn't find enough masters not already "
+            "performing a recovery to recover all partitions: 3 partitions "
+            "will be recovered later | "
+        "recoveryMasterFinished: Recovery wasn't completely successful; "
+            "will not broadcast the end of recovery 1 for server 99 to backups",
+        TestLog::get());
+    EXPECT_EQ(3u, recovery.numPartitions);
     EXPECT_EQ(0u, recovery.successfulRecoveryMasters);
-    EXPECT_EQ(2u, recovery.unsuccessfulRecoveryMasters);
-    EXPECT_EQ(Recovery::BROADCAST_RECOVERY_COMPLETE, recovery.status);
-    EXPECT_TRUE(recovery.isScheduled()); // scheduled to send broadcast
+    EXPECT_EQ(3u, recovery.unsuccessfulRecoveryMasters);
+    EXPECT_EQ(Recovery::DONE, recovery.status);
+    EXPECT_FALSE(recovery.wasCompletelySuccessful());
+    EXPECT_TRUE(owner.finishedCalled);
+    EXPECT_TRUE(owner.destroyCalled);
+}
+
+TEST_F(RecoveryTest, startRecoveryMasters_allFailDuringRecoverRpc) {
+    addServersToTracker(2, {WireFormat::MASTER_SERVICE});
+    tabletMap.addTablet({123,  0,  9, {99, 0}, Tablet::RECOVERING, {}});
+    tabletMap.addTablet({123, 20, 29, {99, 0}, Tablet::RECOVERING, {}});
+    tabletMap.addTablet({123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
+    Recovery recovery(context, taskQueue, &tabletMap, &tracker, NULL,
+                      {99, 0}, 0lu);
+    recovery.partitionTablets();
+    recovery.startRecoveryMasters();
+
+    EXPECT_EQ(3u, recovery.numPartitions);
+    EXPECT_EQ(0u, recovery.successfulRecoveryMasters);
+    EXPECT_EQ(3u, recovery.unsuccessfulRecoveryMasters);
+    EXPECT_EQ(Recovery::DONE, recovery.status);
+    EXPECT_FALSE(recovery.isScheduled()); // NOT scheduled to send broadcast
     EXPECT_FALSE(tracker[ServerId(1, 0)]);
     EXPECT_FALSE(tracker[ServerId(2, 0)]);
 }
 
 TEST_F(RecoveryTest, recoveryMasterFinished) {
-    addServersToTracker(3, {MASTER_SERVICE});
-    Recovery recovery(taskQueue, &tracker, NULL, {99, 0}, tablets, 0lu);
+    addServersToTracker(3, {WireFormat::MASTER_SERVICE});
+    Recovery recovery(context, taskQueue, &tabletMap, &tracker, NULL,
+                      {99, 0}, 0lu);
     tracker[ServerId(2, 0)] = &recovery;
     tracker[ServerId(3, 0)] = &recovery;
     recovery.numPartitions = 2;
@@ -534,11 +620,11 @@ TEST_F(RecoveryTest, recoveryMasterFinished) {
     recovery.recoveryMasterFinished({3, 0}, false);
     EXPECT_EQ(1u, recovery.successfulRecoveryMasters);
     EXPECT_EQ(1u, recovery.unsuccessfulRecoveryMasters);
-    EXPECT_EQ(Recovery::BROADCAST_RECOVERY_COMPLETE, recovery.status);
+    EXPECT_EQ(Recovery::DONE, recovery.status);
 }
 
 TEST_F(RecoveryTest, broadcastRecoveryComplete) {
-    addServersToTracker(3, {BACKUP_SERVICE});
+    addServersToTracker(3, {WireFormat::BACKUP_SERVICE});
     struct Cb : public BackupEndTaskTestingCallback {
         int callCount;
         Cb() : callCount() {}
@@ -548,7 +634,8 @@ TEST_F(RecoveryTest, broadcastRecoveryComplete) {
             ++callCount;
         }
     } callback;
-    Recovery recovery(taskQueue, &tracker, NULL, {99, 0}, tablets, 0lu);
+    Recovery recovery(context, taskQueue, &tabletMap, &tracker, NULL,
+                      {99, 0}, 0lu);
     recovery.testingBackupEndTaskSendCallback = &callback;
     recovery.broadcastRecoveryComplete();
     EXPECT_EQ(3, callback.callCount);

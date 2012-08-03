@@ -47,8 +47,8 @@ struct ServerConfig {
         : coordinatorLocator()
         , localLocator()
         , clusterName("__unnamed__")
-        , services{MASTER_SERVICE, BACKUP_SERVICE,
-                   MEMBERSHIP_SERVICE}
+        , services{WireFormat::MASTER_SERVICE, WireFormat::BACKUP_SERVICE,
+                   WireFormat::MEMBERSHIP_SERVICE}
         , detectFailures(false)
         , pinMemory(false)
         , segmentSize(128 * 1024)
@@ -69,8 +69,8 @@ struct ServerConfig {
         : coordinatorLocator()
         , localLocator()
         , clusterName("__unnamed__")
-        , services{MASTER_SERVICE, BACKUP_SERVICE,
-                   PING_SERVICE, MEMBERSHIP_SERVICE}
+        , services{WireFormat::MASTER_SERVICE, WireFormat::BACKUP_SERVICE,
+                   WireFormat::PING_SERVICE, WireFormat::MEMBERSHIP_SERVICE}
         , detectFailures(true)
         , pinMemory(true)
         , segmentSize(Segment::DEFAULT_SEGMENT_SIZE)

@@ -21,14 +21,17 @@
 #ifndef RAMCLOUD_COORDINATORSERVERLIST_H
 #define RAMCLOUD_COORDINATORSERVERLIST_H
 
+#include <Client/Client.h>
+
 #include "ServerList.pb.h"
 #include "Tablets.pb.h"
 
-#include "Rpc.h"
 #include "ServiceMask.h"
 #include "ServerId.h"
 #include "ServerList.h"
 #include "Tub.h"
+
+#include "AbstractServerList.h"
 
 namespace RAMCloud {
 
@@ -39,20 +42,16 @@ class ServerTrackerInterface;
  * A CoordinatorServerList allocates ServerIds and holds Coordinator
  * state associated with live servers. It is closely related to the
  * ServerList and ServerTracker classes in that it essentially consists
- * of a map of ServerIds to some data. However, unlike ServerLists it
- * does not propagate events to trackers, and unlike ServerTrackers it
- * is not an asynchronous model of queued updates.
- *
- * If a module wishes to keep track of changes to the CoordinatorServerList
- * (when machines are added, crash, or are removed), then it may register
- * its own private ServerTracker with the CoordinatorServerList.
- * The tracker will be fed updates whenever servers come or go. The tracker
- * also provides a convenient way to associate their own per-server state
- * with ServerIds that they're using or keeping track of.
- *
- * Operations on CoordinatorServerList are thread-safe.
+ * of a map of ServerIds to some data and supports ServerTrackers. The 
+ * tracker will be fed updates whenever servers come or go (add, 
+ * crashed, removed).
+ * 
+ * CoordinatorServerList is thread-safe and supports ServerTrackers
+ * 
+ * This class publicly extends AbstractServerList to provide a common
+ * interface to READ from map of ServerIds and (un)register trackers.
  */
-class CoordinatorServerList {
+class CoordinatorServerList : public AbstractServerList{
   PUBLIC:
     /**
      * This class represents one entry in the CoordinatorServerList. Each
@@ -75,21 +74,15 @@ class CoordinatorServerList {
 
         bool isMaster() const {
             return (status == ServerStatus::UP) &&
-                   services.has(MASTER_SERVICE);
+                   services.has(WireFormat::MASTER_SERVICE);
         }
         bool isBackup() const {
             return (status == ServerStatus::UP) &&
-                   services.has(BACKUP_SERVICE);
+                   services.has(WireFormat::BACKUP_SERVICE);
         }
 
         // Fields below this point are maintained on the coordinator only
         // and are not transmitted to members' ServerLists.
-
-        /**
-         * The master's will (only valid if the services includes
-         * MASTER_SERVICE).
-         */
-        ProtoBuf::Tablets* will;
 
         /**
          * Any open replicas found during recovery are considered invalid
@@ -104,6 +97,17 @@ class CoordinatorServerList {
          * a replication group. Each group has a unique Id.
          */
         uint64_t replicationId;
+
+        /**
+         * Entry id corresponding to entry in LogCabin log that has
+         * deatils for this server.
+         */
+         LogCabin::Client::EntryId logCabinEntryId;
+    };
+
+    struct NoSuchServer : public Exception {
+        explicit NoSuchServer(const CodeLocation& where, string msg)
+            : Exception(where, msg) {}
     };
 
     explicit CoordinatorServerList(Context& context);
@@ -117,18 +121,14 @@ class CoordinatorServerList {
                 ProtoBuf::ServerList& update);
     void incrementVersion(ProtoBuf::ServerList& update);
 
-    void addToWill(ServerId serverId,
-                   const ProtoBuf::Tablets& willEntries);
-    void setWill(ServerId serverId,
-                 const ProtoBuf::Tablets& willEntries);
     void setMinOpenSegmentId(ServerId serverId, uint64_t segmentId);
     void setReplicationId(ServerId serverId, uint64_t segmentId);
 
-    Transport::SessionRef getSession(ServerId id) const;
     Entry operator[](const ServerId& serverId) const;
     Tub<Entry> operator[](size_t index) const;
+    Entry at(const ServerId& serverId) const;
+    Tub<Entry> at(size_t index) const;
     bool contains(ServerId serverId) const;
-    size_t size() const;
     uint32_t masterCount() const;
     uint32_t backupCount() const;
     uint32_t nextMasterIndex(uint32_t startIndex) const;
@@ -138,9 +138,16 @@ class CoordinatorServerList {
                    ServiceMask services) const;
     void sendMembershipUpdate(ProtoBuf::ServerList& update,
                               ServerId excludeServerId);
+    void addLogCabinEntryId(ServerId serverId,
+                            LogCabin::Client::EntryId entryId);
+    LogCabin::Client::EntryId getLogCabinEntryId(ServerId serverId);
 
-    void registerTracker(ServerTrackerInterface& tracker);
-    void unregisterTracker(ServerTrackerInterface& tracker);
+
+  PROTECTED:
+    /// Internal Use Only - Does not grab locks
+    ServerDetails* iget(size_t index);
+    bool icontains(ServerId id) const;
+    size_t isize() const;
 
   PRIVATE:
     /**
@@ -164,8 +171,6 @@ class CoordinatorServerList {
         Tub<Entry> entry;
     };
 
-    typedef std::lock_guard<std::mutex> Lock;
-
     void crashed(const Lock& lock,
                  ServerId serverId,
                  ProtoBuf::ServerList& update);
@@ -175,14 +180,6 @@ class CoordinatorServerList {
     void serialize(const Lock& lock, ProtoBuf::ServerList& protobuf,
                    ServiceMask services) const;
 
-    /// Shared RAMCloud information.
-    Context& context;
-
-    /// Provides monitor-style protection for all operations on the tablet map.
-    /// A Lock for this mutex must be held to read or modify any state in
-    /// the server list.
-    mutable std::mutex mutex;
-
     /// Slots in the server list.
     std::vector<GenerationNumberEntryPair> serverList;
 
@@ -191,18 +188,6 @@ class CoordinatorServerList {
 
     /// Number of backups in the server list.
     uint32_t numberOfBackups;
-
-    /// Incremented each time the server list is modified (i.e. when add or
-    /// remove is called). Since we usually send delta updates to clients,
-    /// they can use this to determine if any previous RPC was missed and
-    /// then re-fetch the latest list in its entirety to get back on track.
-    uint64_t versionNumber;
-
-    /**
-     * ServerTrackers that have registered with us and will receive updates
-     * regarding additions or removals from this list.
-     */
-    std::vector<ServerTrackerInterface*> trackers;
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorServerList);
 };

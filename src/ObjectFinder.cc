@@ -27,15 +27,15 @@ namespace {
  */
 class RealTabletMapFetcher : public ObjectFinder::TabletMapFetcher {
   public:
-    explicit RealTabletMapFetcher(CoordinatorClient& coordinator)
-        : coordinator(coordinator)
+    explicit RealTabletMapFetcher(Context& context)
+        : context(context)
     {
     }
     void getTabletMap(ProtoBuf::Tablets& tabletMap) {
-        coordinator.getTabletMap(tabletMap);
+        CoordinatorClient::getTabletMap(context, tabletMap);
     }
   private:
-    CoordinatorClient& coordinator;
+    Context& context;
 };
 
 } // anonymous namespace
@@ -43,14 +43,12 @@ class RealTabletMapFetcher : public ObjectFinder::TabletMapFetcher {
 /**
  * Constructor.
  * \param context
- *      Overall information about the RAMCloud server.
- * \param coordinator
- *      This object keeps a reference to \a coordinator
+ *      Overall information about this client.
  */
-ObjectFinder::ObjectFinder(Context& context, CoordinatorClient& coordinator)
+ObjectFinder::ObjectFinder(Context& context)
     : context(context)
     , tabletMap()
-    , tabletMapFetcher(new RealTabletMapFetcher(coordinator))
+    , tabletMapFetcher(new RealTabletMapFetcher(context))
 {
 }
 
@@ -73,6 +71,51 @@ Transport::SessionRef
 ObjectFinder::lookup(uint64_t table, const void* key, uint16_t keyLength) {
     HashType keyHash = Key::getHash(table, key, keyLength);
 
+    return lookup(table, keyHash);
+}
+
+/**
+ * Lookup the master for a key hash in a given table. Useful for
+ * looking up a key hash range in the table when you do not have a
+ * specific key.
+ *
+ * \param table
+ *      The table containing the desired object (return value from a
+ *      previous call to getTableId).
+ * \param keyHash
+ *      A hash value in the space of key hashes.
+ *
+ * \throw TableDoesntExistException
+ *      The coordinator has no record of the table.
+ */
+Transport::SessionRef
+ObjectFinder::lookup(uint64_t table, HashType keyHash)
+{
+    return context.transportManager->getSession(
+                lookupTablet(table, keyHash).service_locator().c_str());
+}
+
+/**
+ * Lookup the master for a particular key in a given table.
+ * Only used internally in lookup() and for some crazy testing/debugging
+ * routines.
+ *
+ * \param table
+ *      The table containing the desired object (return value from a
+ *      previous call to getTableId).
+ * \param keyHash
+ *      A hash value in the space of key hashes.
+ * \return
+ *      Reference to a tablet with the details of the server that owns
+ *      the specified key. This reference may be invalidated by any future
+ *      calls to the ObjectFinder.
+ *
+ * \throw TableDoesntExistException
+ *      The coordinator has no record of the table.
+ */
+const ProtoBuf::Tablets::Tablet&
+ObjectFinder::lookupTablet(uint64_t table, HashType keyHash)
+{
     /*
     * The control flow in here is a bit tricky:
     * Since tabletMap is a cache of the coordinator's tablet map, we can only
@@ -89,8 +132,7 @@ ObjectFinder::lookup(uint64_t table, const void* key, uint16_t keyLength) {
                 keyHash <= tablet.end_key_hash()) {
                 if (tablet.state() == ProtoBuf::Tablets_Tablet_State_NORMAL) {
                     // TODO(ongaro): add cache
-                    return context.transportManager->getSession(
-                            tablet.service_locator().c_str());
+                    return tablet;
                 } else {
                     // tablet is recovering or something, try again
                     if (haveRefreshed)
@@ -113,52 +155,6 @@ ObjectFinder::lookup(uint64_t table, const void* key, uint16_t keyLength) {
                 usleep(10000);
             }
     }
-}
-
-/**
- * Lookup the masters for multiple keys across tables.
- * \param requests
- *      Array listing the objects to be read/written
- * \param numRequests
- *      Length of requests array
- * \return requestBins
- *      Bins requests according to the master they correspond to.
- */
-
-std::vector<ObjectFinder::MasterRequests>
-ObjectFinder::multiLookup(MasterClient::ReadObject* requests[],
-                          uint32_t numRequests) {
-
-    std::vector<ObjectFinder::MasterRequests> requestBins;
-    for (uint32_t i = 0; i < numRequests; i++){
-        try {
-            Transport::SessionRef currentSessionRef =
-                ObjectFinder::lookup(requests[i]->tableId,
-                                     requests[i]->key, requests[i]->keyLength);
-
-            // if this master already exists in the requestBins, add request
-            // to the requestBin corresponding to that master
-            bool masterFound = false;
-            for (uint32_t j = 0; j < requestBins.size(); j++){
-                if (currentSessionRef == requestBins[j].sessionRef){
-                    requestBins[j].requests.push_back(requests[i]);
-                    masterFound = true;
-                    break;
-                }
-            }
-            // else create a new requestBin corresponding to this master
-            if (!masterFound) {
-                requestBins.push_back(ObjectFinder::MasterRequests());
-                requestBins.back().sessionRef = currentSessionRef;
-                requestBins.back().requests.push_back(requests[i]);
-            }
-        }
-        catch (TableDoesntExistException &e) {
-            requests[i]->status = STATUS_TABLE_DOESNT_EXIST;
-        }
-    }
-
-    return requestBins;
 }
 
 /**
@@ -222,6 +218,5 @@ ObjectFinder::waitForAllTabletsNormal()
         }
     }
 }
-
 
 } // namespace RAMCloud

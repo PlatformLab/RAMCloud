@@ -111,12 +111,13 @@ class InfRcTransport : public Transport {
                                InfRcSession* session,
                                Buffer* request,
                                Buffer* response,
-                               uint64_t nonce);
+                               uint64_t nonce,
+                               RpcNotifier* notifier);
             void sendOrQueue();
-        protected:
+        PROTECTED:
             virtual void cancelCleanup();
 
-        private:
+        PRIVATE:
             bool
             tryZeroCopy(Buffer* request);
 
@@ -129,6 +130,9 @@ class InfRcTransport : public Transport {
                 REQUEST_SENT,
                 RESPONSE_RECEIVED,
             } state;
+
+            /// Use this object to report completion.
+            RpcNotifier* notifier;
         public:
             IntrusiveListHook   queueEntries;
             friend class InfRcSession;
@@ -164,7 +168,10 @@ class InfRcTransport : public Transport {
         Transport::ClientRpc* clientSend(Buffer* request, Buffer* response)
             __attribute__((warn_unused_result));
         virtual void abort(const string& message);
+        virtual void cancelRequest(RpcNotifier* notifier);
         void release();
+        virtual void sendRequest(Buffer* request, Buffer* response,
+            RpcNotifier* notifier);
 
       PRIVATE:
         // Transport that manages this session.

@@ -16,213 +16,183 @@
 #ifndef RAMCLOUD_MASTERCLIENT_H
 #define RAMCLOUD_MASTERCLIENT_H
 
-#include "Client.h"
 #include "Common.h"
 #include "CoordinatorClient.h"
 #include "Transport.h"
 #include "Buffer.h"
+#include "Segment.h"
 #include "ServerId.h"
+#include "ServerIdRpcWrapper.h"
 #include "ServerStatistics.pb.h"
 #include "Tub.h"
 #include "Log.h"
 
 namespace RAMCloud {
 
-class MasterClient : public Client {
+/**
+ * Provides methods for invoking RPCs to RAMCloud masters.  The invoking
+ * machine is typically another RAMCloud server (either master or backup)
+ * or the cluster coordinator; these methods are not normally used by
+ * RAMCloud applications. The class contains only static methods, so you
+ * shouldn't ever need to instantiate an object.
+ */
+class MasterClient {
   public:
+    static void dropTabletOwnership(Context& context, ServerId serverId,
+            uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash);
+    static Log::Position getHeadOfLog(Context& context, ServerId serverId);
+    static bool isReplicaNeeded(Context& context, ServerId serverId,
+            ServerId backupServerId, uint64_t segmentId);
+    static void prepForMigration(Context& context, ServerId serverId,
+            uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash,
+            uint64_t expectedObjects, uint64_t expectedBytes);
+    static void recover(Context& context, ServerId serverId,
+            uint64_t recoveryId, ServerId crashedServerId,
+            uint64_t partitionId, const ProtoBuf::Tablets& tablets,
+            const WireFormat::Recover::Replica* replicas,
+            uint32_t numReplicas);
+    static void receiveMigrationData(Context& context, ServerId serverId,
+            uint64_t tableId, uint64_t firstKeyHash, Segment& segment);
+    static void splitMasterTablet(Context& context, ServerId serverId,
+            uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash,
+            uint64_t splitKeyHash);
+    static void takeTabletOwnership(Context& context, ServerId id,
+            uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash);
 
-    /**
-     * Format for requesting a read of an object as a part of multiRead
-     */
-    struct ReadObject {
-        /**
-         * The table containing the desired object (return value from
-         * a previous call to getTableId).
-         */
-        uint64_t tableId;
-
-        /**
-         * Variable length key that uniquely identifies the object within table.
-         * It does not necessarily have to be null terminated like a string.
-         * The caller is responsible for ensuring that this key remains valid
-         * until the call is reaped/canceled.
-         */
-        const void* key;
-
-        /**
-         * Length of key
-         */
-        uint16_t keyLength;
-
-        /**
-         * If the read for this object was successful, the Tub<Buffer>
-         * will hold the contents of the desired object. If not, it will
-         * not be initialized, giving "false" when the buffer is tested.
-         */
-        Tub<Buffer>* value;
-
-        /**
-         * The version number of the object is returned here
-         */
-        uint64_t version;
-
-        /**
-         * The status of read (either that the read succeeded, or the
-         * error in case it didn't) is returned here.
-         */
-        Status status;
-
-        ReadObject(uint64_t tableId, const void* key, uint16_t keyLength,
-                   Tub<Buffer>* value)
-            : tableId(tableId)
-            , key(key)
-            , keyLength(keyLength)
-            , value(value)
-            , version()
-            , status()
-        {
-        }
-
-        ReadObject()
-            : tableId()
-            , key()
-            , keyLength()
-            , value()
-            , version()
-            , status()
-        {
-        }
-    };
-
-    /// An asynchronous version of #multiread().
-    class MultiRead {
-      public:
-        MultiRead(MasterClient& client,
-                  std::vector<ReadObject*>& requests);
-        bool isReady() { return state.isReady(); }
-        void complete();
-      private:
-        MasterClient& client;
-        Buffer requestBuffer;
-        Buffer responseBuffer;
-        AsyncState state;
-        std::vector<ReadObject*>& requests;
-        DISALLOW_COPY_AND_ASSIGN(MultiRead);
-    };
-
-    /// An asynchronous version of #read().
-    class Read {
-      public:
-        Read(MasterClient& client,
-             uint64_t tableId, const void* key, uint16_t keyLength,
-             Buffer* value, const RejectRules* rejectRules,
-             uint64_t* version);
-        void cancel() { state.cancel(); }
-        bool isReady() { return state.isReady(); }
-        void operator()();
-      private:
-        MasterClient& client;
-        uint64_t* version;
-        Buffer requestBuffer;
-        Buffer& responseBuffer;
-        AsyncState state;
-        DISALLOW_COPY_AND_ASSIGN(Read);
-    };
-
-    class Recover {
-      public:
-        Recover(MasterClient& client,
-                uint64_t recoveryId,
-                ServerId crashedServerId,
-                uint64_t partitionId,
-                const ProtoBuf::Tablets& tablets,
-                const RecoverRpc::Replica* replicas,
-                uint32_t numReplicas);
-        bool isReady() { return state.isReady(); }
-        void operator()();
-      private:
-        MasterClient& client;
-        Buffer requestBuffer;
-        Buffer responseBuffer;
-        AsyncState state;
-        DISALLOW_COPY_AND_ASSIGN(Recover);
-    };
-
-    /// An asynchronous version of #write().
-    class Write {
-      public:
-        Write(MasterClient& client,
-              uint64_t tableId, const void* key, uint16_t keyLength,
-              Buffer& buffer,
-              const RejectRules* rejectRules = NULL,
-              uint64_t* version = NULL, bool async = false);
-        Write(MasterClient& client,
-              uint64_t tableId, const void* key, uint16_t keyLength,
-              const void* buf, uint32_t length,
-              const RejectRules* rejectRules = NULL,
-              uint64_t* version = NULL, bool async = false);
-        bool isReady() { return state.isReady(); }
-        void operator()();
-      private:
-        MasterClient& client;
-        uint64_t* version;
-        Buffer requestBuffer;
-        Buffer responseBuffer;
-        AsyncState state;
-        DISALLOW_COPY_AND_ASSIGN(Write);
-    };
-
-    explicit MasterClient(Transport::SessionRef session) : session(session) {}
-    void fillWithTestData(uint32_t numObjects, uint32_t objectSize);
-    void increment(uint64_t tableId, const void* key, uint16_t keyLength,
-                   int64_t incrementValue,
-                   const RejectRules* rejectRules = NULL,
-                   uint64_t* version = NULL, int64_t* newValue = NULL);
-    bool isReplicaNeeded(ServerId backupServerId, uint64_t segmentId);
-    Log::Position getHeadOfLog();
-    void multiRead(std::vector<ReadObject*> requests);
-    void getServerStatistics(ProtoBuf::ServerStatistics& serverStats);
-    void read(uint64_t tableId, const void* key, uint16_t keyLength,
-              Buffer* value, const RejectRules* rejectRules = NULL,
-              uint64_t* version = NULL);
-    void prepForMigration(uint64_t tableId,
-                          uint64_t firstKey,
-                          uint64_t lastKey,
-                          uint64_t expectedObjects,
-                          uint64_t expectedBytes);
-    void receiveMigrationData(uint64_t tableId,
-                              uint64_t firstKey,
-                              Segment& segment);
-    void migrateTablet(uint64_t tableId,
-                       uint64_t firstKey,
-                       uint64_t lastKey,
-                       ServerId newMasterOwnerId);
-    void recover(uint64_t recoveryId,
-                 ServerId crashedServerId, uint64_t partitionId,
-                 const ProtoBuf::Tablets& tablets,
-                 const RecoverRpc::Replica* replicas, uint32_t numReplicas);
-    void remove(uint64_t tableId, const void* key, uint16_t keyLength,
-                const RejectRules* rejectRules = NULL,
-                uint64_t* version = NULL);
-    void dropTabletOwnership(uint64_t tabletId,
-                             uint64_t firstKey,
-                             uint64_t lastKey);
-    void splitMasterTablet(uint64_t tableId,
-                           uint64_t startKeyHash,
-                           uint64_t endKeyHash,
-                           uint64_t splitKeyHash);
-    void takeTabletOwnership(uint64_t tableId,
-                             uint64_t firstKey,
-                             uint64_t lastKey);
-    void write(uint64_t tableId, const void* key, uint16_t keyLength,
-               const void* buf, uint32_t length,
-               const RejectRules* rejectRules = NULL, uint64_t* version = NULL,
-               bool async = false);
-
-  protected:
-    Transport::SessionRef session;
-    DISALLOW_COPY_AND_ASSIGN(MasterClient);
+  private:
+    MasterClient();
 };
+
+/**
+ * Encapsulates the state of a MasterClient::dropTabletOwnership
+ * request, allowing it to execute asynchronously.
+ */
+class DropTabletOwnershipRpc : public ServerIdRpcWrapper {
+  public:
+    DropTabletOwnershipRpc(Context& context, ServerId serverId,
+            uint64_t tableId, uint64_t firstKey, uint64_t lastKey);
+    ~DropTabletOwnershipRpc() {}
+    /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
+    void wait() {waitAndCheckErrors();}
+
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(DropTabletOwnershipRpc);
+};
+
+/**
+ * Encapsulates the state of a MasterClient::getHeadOfLog
+ * request, allowing it to execute asynchronously.
+ */
+class GetHeadOfLogRpc : public ServerIdRpcWrapper {
+  public:
+    GetHeadOfLogRpc(Context& context, ServerId serverId);
+    ~GetHeadOfLogRpc() {}
+    Log::Position wait();
+
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(GetHeadOfLogRpc);
+};
+
+/**
+ * Encapsulates the state of a MasterClient::isReplicaNeeded
+ * request, allowing it to execute asynchronously.
+ */
+class IsReplicaNeededRpc : public ServerIdRpcWrapper {
+  public:
+    IsReplicaNeededRpc(Context& context, ServerId serverId,
+            ServerId backupServerId, uint64_t segmentId);
+    ~IsReplicaNeededRpc() {}
+    bool wait();
+
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(IsReplicaNeededRpc);
+};
+
+/**
+ * Encapsulates the state of a MasterClient::prepForMigration
+ * request, allowing it to execute asynchronously.
+ */
+class PrepForMigrationRpc : public ServerIdRpcWrapper {
+  public:
+    PrepForMigrationRpc(Context& context, ServerId serverId,
+            uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash,
+            uint64_t expectedObjects, uint64_t expectedBytes);
+    ~PrepForMigrationRpc() {}
+    /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
+    void wait() {waitAndCheckErrors();}
+
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(PrepForMigrationRpc);
+};
+
+/**
+ * Encapsulates the state of a MasterClient::receiveMigrationData
+ * request, allowing it to execute asynchronously.
+ */
+class ReceiveMigrationDataRpc : public ServerIdRpcWrapper {
+  public:
+    ReceiveMigrationDataRpc(Context& context, ServerId serverId,
+            uint64_t tableId, uint64_t firstKey, Segment& segment);
+    ~ReceiveMigrationDataRpc() {}
+    /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
+    void wait() {waitAndCheckErrors();}
+
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(ReceiveMigrationDataRpc);
+};
+
+/**
+ * Encapsulates the state of a MasterClient::recover
+ * request, allowing it to execute asynchronously.
+ */
+class RecoverRpc : public ServerIdRpcWrapper {
+  public:
+    RecoverRpc(Context& context, ServerId serverId, uint64_t recoveryId,
+            ServerId crashedServerId, uint64_t partitionId,
+            const ProtoBuf::Tablets& tablets,
+            const WireFormat::Recover::Replica* replicas,
+            uint32_t numReplicas);
+    ~RecoverRpc() {}
+    /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
+    void wait() {waitAndCheckErrors();}
+
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(RecoverRpc);
+};
+
+/**
+ * Encapsulates the state of a MasterClient::splitMasterTablet
+ * request, allowing it to execute asynchronously.
+ */
+class SplitMasterTabletRpc : public ServerIdRpcWrapper {
+  public:
+    SplitMasterTabletRpc(Context& context, ServerId serverId,
+            uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash,
+            uint64_t splitKeyHash);
+    ~SplitMasterTabletRpc() {}
+    /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
+    void wait() {waitAndCheckErrors();}
+
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(SplitMasterTabletRpc);
+};
+
+/**
+ * Encapsulates the state of a MasterClient::takeTabletOwnership
+ * request, allowing it to execute asynchronously.
+ */
+class TakeTabletOwnershipRpc : public ServerIdRpcWrapper {
+  public:
+    TakeTabletOwnershipRpc(Context& context, ServerId id,
+            uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash);
+    ~TakeTabletOwnershipRpc() {}
+    /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
+    void wait() {waitAndCheckErrors();}
+
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(TakeTabletOwnershipRpc);
+};
+
 } // namespace RAMCloud
 
 #endif // RAMCLOUD_MASTERCLIENT_H

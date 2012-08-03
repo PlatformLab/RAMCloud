@@ -244,11 +244,11 @@ class Crc32C {
     /**
      * Return the accumulated checksum.
      */
-    ResultType getResult() {
+    ResultType getResult() const {
         return ~result;
     }
 
-  PROTECTED:
+  PRIVATE:
     /// Whether this machine has Intel's CRC32C instruction.
     static bool haveHardware;
 

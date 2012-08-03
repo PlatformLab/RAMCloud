@@ -423,7 +423,8 @@ void Dispatch::File::setEvents(int events)
  * \param owner
  *      The dispatch object on whose behalf this thread is working.
  */
-void Dispatch::epollThreadMain(Dispatch* owner) {
+void Dispatch::epollThreadMain(Dispatch* owner)
+try {
 #define MAX_EVENTS 10
     struct epoll_event events[MAX_EVENTS];
     while (true) {
@@ -479,6 +480,12 @@ void Dispatch::epollThreadMain(Dispatch* owner) {
             owner->readyFd = events[i].data.fd;
         }
     }
+} catch (const std::exception& e) {
+    LOG(ERROR, "Fatal error in epollThreadMain: %s", e.what());
+    throw;
+} catch (...) {
+    LOG(ERROR, "Unknown fatal error in epollThreadMain.");
+    throw;
 }
 
 /**
@@ -505,8 +512,7 @@ Dispatch::fdIsReady(int fd)
  * is invoked.
  *
  * \param dispatch
- *      Dispatch object that will manage this timer (defaults to the
- *      global #RAMCloud::dispatch object).
+ *      Dispatch object that will manage this timer.
  */
 Dispatch::Timer::Timer(Dispatch& dispatch)
     : owner(&dispatch), triggerTime(0), slot(-1)
@@ -517,8 +523,7 @@ Dispatch::Timer::Timer(Dispatch& dispatch)
  * Construct a timer and start it running.
  *
  * \param dispatch
- *      Dispatch object that will manage this timer (defaults to the
- *      global #RAMCloud::dispatch object).
+ *      Dispatch object that will manage this timer.
  * \param cycles
  *      Time at which the timer should trigger, measured in cycles (the units
  *      returned by #Cycles::rdtsc).

@@ -50,7 +50,7 @@ class LogTest : public ::testing::Test {
         : context(),
           serverId(ServerId(57, 0)),
           serverList(context),
-          replicaManager(context, serverList, serverId, 0, NULL),
+          replicaManager(context, serverList, serverId, 0),
           allocator(4 * 8192, 8192, 8192),
           segmentManager(context, serverId, allocator, replicaManager, 1.0),
           entryHandlers(),
@@ -178,11 +178,15 @@ TEST_F(LogTest, getSegmentId) {
 
 TEST_F(LogTest, allocateHeadIfStillOn) {
     LogSegment* oldHead = l.head;
-    l.allocateHeadIfStillOn(0UL);
+    l.allocateHeadIfStillOn({0UL});
     EXPECT_NE(oldHead, l.head);
 
     oldHead = l.head;
-    l.allocateHeadIfStillOn(0UL);
+    l.allocateHeadIfStillOn({});
+    EXPECT_NE(oldHead, l.head);
+
+    oldHead = l.head;
+    l.allocateHeadIfStillOn({0UL});
     EXPECT_EQ(oldHead, l.head);
 }
 

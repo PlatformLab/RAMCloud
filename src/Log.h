@@ -174,7 +174,7 @@ class Log {
     void sync();
     Position getHeadPosition();
     uint64_t getSegmentId(HashTable::Reference reference);
-    void allocateHeadIfStillOn(uint64_t segmentId);
+    void allocateHeadIfStillOn(Tub<uint64_t> segmentId);
     bool containsSegment(uint64_t segmentId);
 
   PRIVATE:

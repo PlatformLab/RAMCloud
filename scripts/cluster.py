@@ -417,7 +417,7 @@ def run(
 
     if not share_hosts:
         if (len(hosts) - num_servers) < 1:
-            raise Exception('Asked for %d servers without sharing hosts with '
+            raise Exception('Asked for %d servers without sharing hosts with %d '
                             'clients, but only %d hosts were available'
                             % (num_servers, num_clients, len(hosts)))
 
@@ -429,7 +429,7 @@ def run(
         cluster.verbose = verbose
         cluster.transport = transport
         cluster.replicas = replicas
-        cluster.timeout = 20
+        cluster.timeout = timeout
         cluster.disk = disk1
 
         coordinator = cluster.start_coordinator(hosts[0], coordinator_args)
@@ -476,7 +476,7 @@ def run(
             assert(len(client_hosts) == num_clients)
 
             clients = cluster.start_clients(client_hosts, client)
-            cluster.wait(clients)
+            cluster.wait(clients, timeout)
 
         return cluster.log_subdir
 

@@ -72,6 +72,7 @@ TcpTransport::TcpTransport(Context& context,
 
     int r = sys->fcntl(listenSocket, F_SETFL, O_NONBLOCK);
     if (r != 0) {
+        sys->close(listenSocket);
         throw TransportException(HERE,
                 "TcpTransport couldn't set nonblocking on listen socket",
                 errno);
@@ -80,6 +81,7 @@ TcpTransport::TcpTransport(Context& context,
     int optval = 1;
     if (sys->setsockopt(listenSocket, SOL_SOCKET, SO_REUSEADDR, &optval,
                            sizeof(optval)) != 0) {
+        sys->close(listenSocket);
         throw TransportException(HERE,
                 "TcpTransport couldn't set SO_REUSEADDR on listen socket",
                 errno);
@@ -87,14 +89,14 @@ TcpTransport::TcpTransport(Context& context,
 
     if (sys->bind(listenSocket, &address.address,
             sizeof(address.address)) == -1) {
-        // destructor will close listenSocket
+        sys->close(listenSocket);
         string message = format("TcpTransport couldn't bind to '%s'",
                 serviceLocator->getOriginalString().c_str());
         throw TransportException(HERE, message, errno);
     }
 
     if (sys->listen(listenSocket, INT_MAX) == -1) {
-        // destructor will close listenSocket
+        sys->close(listenSocket);
         throw TransportException(HERE,
                 "TcpTransport couldn't listen on socket", errno);
     }
@@ -404,6 +406,8 @@ TcpTransport::sendMessage(int fd, uint64_t nonce, Buffer& payload,
 #endif
     if (r == -1) {
         if ((errno != EAGAIN) && (errno != EWOULDBLOCK)) {
+            LOG(DEBUG, "I/O error in TcpTransport::sendMessage: %s",
+                strerror(errno));
             throw TransportException(HERE,
                     "I/O error in TcpTransport::sendMessage", errno);
         }
@@ -575,6 +579,8 @@ TcpTransport::TcpSession::TcpSession(TcpTransport& transport,
     setServiceLocator(serviceLocator.getOriginalString());
     fd = sys->socket(PF_INET, SOCK_STREAM, 0);
     if (fd == -1) {
+        LOG(DEBUG, "TcpTransport couldn't open socket for session: %s",
+            strerror(errno));
         throw TransportException(HERE,
                 "TcpTransport couldn't open socket for session", errno);
     }
@@ -583,6 +589,8 @@ TcpTransport::TcpSession::TcpSession(TcpTransport& transport,
     if (r == -1) {
         sys->close(fd);
         fd = -1;
+        LOG(DEBUG, "TcpTransport couldn't connect to %s: %s",
+            getServiceLocator().c_str(), strerror(errno));
         throw TransportException(HERE, format(
                 "TcpTransport couldn't connect to %s",
                 getServiceLocator().c_str()), errno);
@@ -611,6 +619,29 @@ TcpTransport::TcpSession::abort(const string& message)
     close();
 }
 
+// See Transport::Session::cancelRequest for documentation.
+void
+TcpTransport::TcpSession::cancelRequest(RpcNotifier* notifier)
+{
+    // Search for an RPC that refers to this notifier; if one is
+    // found then remove all state relating to it.
+    foreach (TcpClientRpc& rpc, rpcsWaitingForResponse) {
+        if (rpc.notifier == notifier) {
+            rpcsWaitingForResponse.erase(
+                    rpcsWaitingForResponse.iterator_to(rpc));
+            alarm.rpcFinished();
+            return;
+        }
+    }
+    foreach (TcpClientRpc& rpc, rpcsWaitingToSend) {
+        if (rpc.notifier == notifier) {
+            rpcsWaitingToSend.erase(
+                    rpcsWaitingToSend.iterator_to(rpc));
+            return;
+        }
+    }
+}
+
 /**
  * Close the socket associated with a session.
  */
@@ -622,10 +653,18 @@ TcpTransport::TcpSession::close()
         fd = -1;
     }
     while (!rpcsWaitingForResponse.empty()) {
-        rpcsWaitingForResponse.front().cancel(errorInfo);
+        TcpClientRpc& rpc = rpcsWaitingForResponse.front();
+        if (rpc.notifier != NULL) {
+             rpc.notifier->failed();
+        }
+        rpc.cancel(errorInfo);
     }
     while (!rpcsWaitingToSend.empty()) {
-        rpcsWaitingToSend.front().cancel(errorInfo);
+        TcpClientRpc& rpc = rpcsWaitingToSend.front();
+        if (rpc.notifier != NULL) {
+             rpc.notifier->failed();
+        }
+        rpc.cancel(errorInfo);
     }
     if (clientIoHandler) {
         Dispatch::Lock lock(transport.context.dispatch);
@@ -638,11 +677,12 @@ TcpTransport::ClientRpc*
 TcpTransport::TcpSession::clientSend(Buffer* request, Buffer* response)
 {
     if (fd == -1) {
+        LOG(DEBUG, "TcpTransport errorInfo: %s", errorInfo.c_str());
         throw TransportException(HERE, errorInfo);
     }
     alarm.rpcStarted();
     TcpClientRpc* rpc = new(response, MISC) TcpClientRpc(*this, request,
-            response, serial);
+            response, serial, NULL);
     serial++;
     if (!rpcsWaitingToSend.empty()) {
         // Can't transmit this request yet; there are already other
@@ -691,6 +731,42 @@ TcpTransport::TcpSession::findRpc(Header& header) {
     return NULL;
 }
 
+// See Transport::Session::sendRequest for documentation.
+void
+TcpTransport::TcpSession::sendRequest(Buffer* request, Buffer* response,
+        RpcNotifier* notifier)
+{
+    response->reset();
+    if (fd == -1) {
+        notifier->failed();
+        return;
+    }
+    alarm.rpcStarted();
+    TcpClientRpc* rpc = new(response, MISC) TcpClientRpc(*this,
+            request, response, serial, notifier);
+    serial++;
+    if (!rpcsWaitingToSend.empty()) {
+        // Can't transmit this request yet; there are already other
+        // requests that haven't yet been sent.
+        rpcsWaitingToSend.push_back(*rpc);
+        return;
+    }
+
+    // Try to transmit the request.
+    bytesLeftToSend = TcpTransport::sendMessage(fd, rpc->nonce,
+            *request, -1);
+    if (bytesLeftToSend == 0) {
+        // The whole request was sent immediately (this should be the
+        // common case).
+        rpcsWaitingForResponse.push_back(*rpc);
+        rpc->sent = true;
+    } else {
+        rpcsWaitingToSend.push_back(*rpc);
+        clientIoHandler->setEvents(Dispatch::FileEvent::READABLE |
+                Dispatch::FileEvent::WRITABLE);
+    }
+}
+
 /**
  * Constructor for ClientSocketHandlers.
  *
@@ -732,6 +808,9 @@ TcpTransport::ClientSocketHandler::handleFileEvent(int events)
                             *session.current));
                     session.alarm.rpcFinished();
                     session.current->markFinished();
+                    if (session.current->notifier != NULL) {
+                        session.current->notifier->completed();
+                    }
                     session.current = NULL;
                 }
                 session.message.construct(static_cast<Buffer*>(NULL), &session);

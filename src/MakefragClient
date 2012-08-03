@@ -1,5 +1,3 @@
-OBJDIRS += client_shared
-
 ifeq ($(INFINIBAND),yes)
 INFINIBAND_SRCFILES := \
 	   src/Infiniband.cc \
@@ -11,19 +9,23 @@ INFINIBAND_SRCFILES :=
 endif
 
 CLIENT_SRCFILES := \
+		   src/AbstractServerList.cc \
 		   src/Buffer.cc \
 		   src/CRamCloud.cc \
-		   src/Client.cc \
 		   src/ClientException.cc \
 		   src/ClusterMetrics.cc \
 		   src/CodeLocation.cc \
 		   src/Context.cc \
 		   src/CoordinatorClient.cc \
+		   src/CoordinatorRpcWrapper.cc \
+		   src/CoordinatorServerList.cc \
+		   src/CoordinatorSession.cc \
 		   src/Crc32C.cc \
 		   src/Common.cc \
 		   src/Cycles.cc \
 		   src/Dispatch.cc \
 		   src/Driver.cc \
+		   src/FailSession.cc \
 		   src/FastTransport.cc \
 		   src/IpAddress.cc \
 		   src/Logger.cc \
@@ -31,14 +33,17 @@ CLIENT_SRCFILES := \
 		   src/MasterClient.cc \
 		   src/MembershipClient.cc \
 		   src/Memory.cc \
+		   src/MultiRead.cc \
 		   src/MurmurHash3.cc \
 		   src/ObjectFinder.cc \
+		   src/ObjectRpcWrapper.cc \
 		   src/PcapFile.cc \
 		   src/PingClient.cc \
 		   src/RamCloud.cc \
 		   src/RawMetrics.cc \
-		   src/Rpc.cc \
 		   src/Segment.cc \
+		   src/RpcWrapper.cc \
+		   src/ServerIdRpcWrapper.cc \
 		   src/ServerList.cc \
 		   src/ServerMetrics.cc \
 		   src/ServerRpcPool.cc \
@@ -49,6 +54,7 @@ CLIENT_SRCFILES := \
 		   src/SpinLock.cc \
 		   src/Status.cc \
 		   src/StringUtil.cc \
+		   src/TableEnumerator.cc \
 		   src/TcpTransport.cc \
 		   src/TestLog.cc \
 		   src/ThreadId.cc \
@@ -56,7 +62,7 @@ CLIENT_SRCFILES := \
 		   src/Transport.cc \
 		   src/TransportManager.cc \
 		   src/UdpDriver.cc \
-		   src/UnreliableTransport.cc \
+		   src/WireFormat.cc \
 		   $(INFINIBAND_SRCFILES) \
 		   $(OBJDIR)/MetricList.pb.cc \
 		   $(OBJDIR)/ServerList.pb.cc \
@@ -68,24 +74,12 @@ CLIENT_OBJFILES := $(CLIENT_SRCFILES)
 CLIENT_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/%.o, $(CLIENT_OBJFILES))
 CLIENT_OBJFILES := $(patsubst $(OBJDIR)/%.cc, $(OBJDIR)/%.o, $(CLIENT_OBJFILES))
 
-CLIENT_SHARED_OBJFILES := $(CLIENT_SRCFILES)
-CLIENT_SHARED_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/client_shared/%.o, $(CLIENT_SHARED_OBJFILES))
-CLIENT_SHARED_OBJFILES := $(patsubst $(OBJDIR)/%.cc, $(OBJDIR)/client_shared/%.o, $(CLIENT_SHARED_OBJFILES))
-
-$(OBJDIR)/client_shared/%.o: $(TOP)/src/%.cc $(AUTO_GEN_HEADERS)
-	@mkdir -p $(@D)
-	$(call run-cxx,$@,$<,-fPIC)
-
-$(OBJDIR)/client_shared/%.o: $(OBJDIR)/%.cc $(AUTO_GEN_HEADERS)
-	@mkdir -p $(@D)
-	$(call run-cxx,$@,$<,-fPIC)
-
 $(OBJDIR)/libramcloud.a: $(CLIENT_OBJFILES)
 	@mkdir -p $(@D)
 	$(AR) rcs $@ $^
 
 # protocol buffers seems to need -lpthread, meh
-$(OBJDIR)/libramcloud.so: $(CLIENT_SHARED_OBJFILES)
+$(OBJDIR)/libramcloud.so: $(CLIENT_OBJFILES)
 	@mkdir -p $(@D)
 	$(CXX) -shared -lpthread -o $@ $^ -Wl,--no-undefined $(LIBS)
 

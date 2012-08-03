@@ -36,4 +36,13 @@ TEST(StringUtilTest, endsWith) {
     EXPECT_FALSE(endsWith("o", "foo"));
 }
 
+TEST(StringUtilTest, contains) {
+    EXPECT_TRUE(contains("foo", "foo"));
+    EXPECT_TRUE(contains("foo", "oo"));
+    EXPECT_TRUE(contains("foo", ""));
+    EXPECT_TRUE(contains("", ""));
+    EXPECT_FALSE(contains("o", "foo"));
+}
+
+
 }  // namespace RAMCloud

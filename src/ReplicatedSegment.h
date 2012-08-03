@@ -193,7 +193,6 @@ class ReplicatedSegment : public Task {
         Replica()
             : isActive(false)
             , backupId()
-            , client()
             , acked()
             , sent()
             , freeRpc()
@@ -221,7 +220,6 @@ class ReplicatedSegment : public Task {
         void start(ServerId backupId, Transport::SessionRef session) {
             isActive = true;
             this->backupId = backupId;
-            client.construct(session);
         }
 
         /**
@@ -262,9 +260,6 @@ class ReplicatedSegment : public Task {
         /// Id of remote backup server where this replica is (to be) stored.
         ServerId backupId;
 
-        /// Client to remote backup server where this replica is (to be) stored.
-        Tub<BackupClient> client;
-
         /**
          * Tracks how much of a segment has been acknowledged as buffered
          * durably on a backup.
@@ -279,10 +274,10 @@ class ReplicatedSegment : public Task {
         Progress sent;
 
         /// The outstanding free operation to this backup, if any.
-        Tub<BackupClient::FreeSegment> freeRpc;
+        Tub<FreeSegmentRpc> freeRpc;
 
         /// The outstanding write operation to this backup, if any.
-        Tub<BackupClient::WriteSegment> writeRpc;
+        Tub<WriteSegmentRpc> writeRpc;
 
         // Fields below survive across failed()/start() calls.
 
@@ -306,11 +301,10 @@ class ReplicatedSegment : public Task {
   PUBLIC:
     void free();
     bool isSynced() const;
-    void close(ReplicatedSegment* followingSegment);
+    void close();
     bool handleBackupFailure(ServerId failedId)
         __attribute__((warn_unused_result));
     void sync(uint32_t offset);
-    void write(uint32_t offset);
 
   PRIVATE:
     friend class ReplicaManager;
@@ -321,16 +315,18 @@ class ReplicatedSegment : public Task {
      */
     enum { MAX_WRITE_RPCS_IN_FLIGHT = 4 };
 
-    ReplicatedSegment(TaskQueue& taskQueue,
+    ReplicatedSegment(Context& context,
+                      TaskQueue& taskQueue,
                       BackupTracker& tracker,
                       BaseBackupSelector& backupSelector,
                       Deleter& deleter,
                       uint32_t& writeRpcsInFlight,
                       MinOpenSegmentId& minOpenSegmentId,
                       std::mutex& dataMutex,
+                      uint64_t segmentId,
+                      const Segment* segment,
                       bool normalLogSegment,
-                      ServerId masterId, uint64_t segmentId,
-                      const void* data, uint32_t openLen,
+                      ServerId masterId,
                       uint32_t numReplicas,
                       uint32_t maxBytesPerWriteRpc = 1024 * 1024);
     ~ReplicatedSegment();
@@ -365,6 +361,9 @@ class ReplicatedSegment : public Task {
     }
 
 // - member variables -
+    /// Shared RAMCloud information.
+    Context& context;
+
     /**
      * A ServerTracker used to find backups and track replica distribution
      * stats.  Each entry in the tracker contains a pointer to a BackupStats
@@ -402,6 +401,13 @@ class ReplicatedSegment : public Task {
     typedef std::lock_guard<std::mutex> Lock;
 
     /**
+     * Segment to be replicated. It is expected that the segment already
+     * contains a header when this ReplicatedSegment is constructed;
+     * see #openLen.
+     */
+    const Segment* segment;
+
+    /**
      * False if this segment was/is being created by the log cleaner,
      * true if this segment was opened as a head of the log (that is,
      * it has a log digest and was/is actively written to by worker
@@ -414,12 +420,6 @@ class ReplicatedSegment : public Task {
 
     /// Id for the segment, must match the segmentId given by the log module.
     const uint64_t segmentId;
-
-    /// The start of raw bytes of the in-memory log segment to be replicated.
-    const void* data;
-
-    /// Bytes to send atomically to backups with the open segment rpc.
-    const uint32_t openLen;
 
     /**
      * Maximum number of bytes to send in any single write rpc
@@ -434,6 +434,37 @@ class ReplicatedSegment : public Task {
      * replication.
      */
     Progress queued;
+
+    /**
+     * Footer log entry provided by the #segment which is being replicated that
+     * must be stamped on the end (at #queued.bytes) of the replicas in
+     * storage. During recovery this footer is used to detect corruption and so
+     * must be in place for updates to replicas to be considered durable. If
+     * replica manager cannot send all the data ready to be replicated in the
+     * next rpc (that is, when #queued.bytes - #acked.bytes >
+     * maxBytesPerWriteRpc) it will not send a footer with the write. When
+     * this happens the backup ensures the most recently transmitted footer is
+     * used if the replica is closed or recovered in a way such that all
+     * non-footered writes sent since the last footered write will be
+     * atomically undone.
+     */
+    Segment::OpaqueFooterEntry queuedFooterEntry;
+
+    /**
+     * Bytes to send atomically to backups with the opening backup write rpc.
+     * Queried from #segment when this ReplicatedSegment is constructed.
+     */
+    uint32_t openLen;
+
+    /**
+     * Similar to #queuedFooterEntry, except it is the footer just for the
+     * data sent to the backup with the opening write. Must be kept separately
+     * because new data with new footers can be queued for replication before
+     * the opening write has been sent but the opening write must be sent
+     * without any object data (due to the no-write-before-preceding-close
+     * rule).
+     */
+    Segment::OpaqueFooterEntry openingWriteFooterEntry;
 
     /// True if all known replicas of this segment should be freed on backups.
     bool freeQueued;
@@ -464,6 +495,20 @@ class ReplicatedSegment : public Task {
      * undetectably lost in the case that all replicas of it are lost.
      */
     bool precedingSegmentCloseAcked;
+
+    /**
+     * An open rpc for a replica cannot be issued until the open for the
+     * prior segment in the log has been acknowledged. This constraint is
+     * only enfoced for segments which have a followingSegment (see close(),
+     * other segments created as part of the log cleaner and unit tests skip
+     * this check. This segment waits until the preceding segment sets this
+     * to true which happens immediately after the preceding segment receives
+     * acknowledgment back from its replicas for its opening write. The goal
+     * is to prevent log digests which occur later in the log from being
+     * written before the replicas which it mentions have been made durable.
+     * Otherwise, data loss could be detected on recovery.
+     */
+    bool precedingSegmentOpenAcked;
 
     /**
      * Set to true if this segment lost a replica while it was open and hasn't

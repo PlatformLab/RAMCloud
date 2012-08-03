@@ -575,6 +575,33 @@ class HashTable {
         return numBuckets;
     }
 
+    /**
+     * Find the bucket index corresponding to a particular key.
+     * This also calculates the secondary hash bits used to disambiguate entries
+     * in the same bucket.
+     * \param[in] numBuckets
+     *      The number of buckets in the HashTable as reported by
+     *      #getNumBuckets().
+     * \param[in] key
+     *      Key object representing the element we're looking for. 
+     * \param[out] secondaryHash
+     *      The secondary hash bits (16 bits).
+     * \return
+     *      The bucket index corresponding to the given referent ID.
+     */
+    static uint64_t
+    findBucketIndex(uint64_t numBuckets, Key& key, uint64_t *secondaryHash)
+    {
+        uint64_t hashValue = key.getHash();
+        uint64_t bucketHash = hashValue & 0x0000ffffffffffffUL;
+        *secondaryHash = hashValue >> 48;
+        return (bucketHash & (numBuckets - 1));
+        // This is equivalent to:
+        //     &buckets.get()[bucketHash % numBuckets]
+        // since numBuckets is a power of two, and this saves about 14 cycles on
+        // an Intel Core 2 (see src/misc/modulus.cc).
+    }
+
   PRIVATE:
 
     // forward declarations
@@ -595,14 +622,9 @@ class HashTable {
     CacheLine *
     findBucket(Key& key, uint64_t *secondaryHash) //const
     {
-        uint64_t hashValue = key.getHash();
-        uint64_t bucketHash = hashValue & 0x0000ffffffffffffUL;
-        *secondaryHash = hashValue >> 48;
-        return &buckets.get()[bucketHash & (numBuckets - 1)];
-        // This is equivalent to:
-        //     &buckets.get()[bucketHash % numBuckets]
-        // since numBuckets is a power of two, and this saves about 14 cycles on
-        // an Intel Core 2 (see src/misc/modulus.cc).
+        uint64_t bucketIndex =
+                findBucketIndex(numBuckets, key, secondaryHash);
+        return &buckets.get()[bucketIndex];
     }
 
     /**

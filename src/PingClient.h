@@ -16,7 +16,8 @@
 #ifndef RAMCLOUD_PINGCLIENT_H
 #define RAMCLOUD_PINGCLIENT_H
 
-#include "Client.h"
+#include "ServerId.h"
+#include "ServerIdRpcWrapper.h"
 #include "ServerMetrics.h"
 #include "Transport.h"
 
@@ -24,39 +25,51 @@ namespace RAMCloud {
 
 /**
  * This class implements the client-side interface to the ping service.
+ * The class contains only static methods, so you shouldn't ever need
+ * to instantiate an object.
  */
-class PingClient : public Client {
+class PingClient {
   public:
-    /// An asynchronous remote kill operation.
-    class Kill {
-      public:
-        Kill(PingClient& client, const char *serviceLocator);
-        void cancel() { state.cancel(); }
-      private:
-        PingClient& client;
-        Buffer requestBuffer;
-        Buffer responseBuffer;
-        AsyncState state;
-        DISALLOW_COPY_AND_ASSIGN(Kill);
-    };
-
-    explicit PingClient(Context& context) : context(context) {}
-    ServerMetrics getMetrics(const char* serviceLocator);
-    uint64_t ping(const char* serviceLocator,
-                  uint64_t nonce,
-                  uint64_t timeoutNanoseconds,
-                  uint64_t* serverListVersion = NULL);
-    uint64_t proxyPing(const char* serviceLocator1,
-            const char* serviceLocator2,
-            uint64_t timeoutNanoseconds1,
-            uint64_t timeoutNanoseconds2);
-
-    /// Shared RAMCloud information.
-    Context& context;
+    static uint64_t ping(Context& context, ServerId targetId,
+            ServerId callerId = ServerId());
+    static uint64_t proxyPing(Context& context, ServerId proxyId,
+            ServerId targetId, uint64_t timeoutNanoseconds);
 
   private:
-    DISALLOW_COPY_AND_ASSIGN(PingClient);
+    PingClient();
 };
+
+/**
+ * Encapsulates the state of a PingClient::ping
+ * request, allowing it to execute asynchronously.
+ */
+class PingRpc : public ServerIdRpcWrapper {
+    public:
+    PingRpc(Context& context, ServerId targetId,
+            ServerId callerId = ServerId());
+    ~PingRpc() {}
+    uint64_t wait();
+    uint64_t wait(uint64_t timeoutNanoseconds);
+
+    PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(PingRpc);
+};
+
+/**
+ * Encapsulates the state of a PingClient::proxyPing
+ * request, allowing it to execute asynchronously.
+ */
+class ProxyPingRpc : public ServerIdRpcWrapper {
+    public:
+    ProxyPingRpc(Context& context, ServerId proxyId, ServerId targetId,
+            uint64_t timeoutNanoseconds);
+    ~ProxyPingRpc() {}
+    uint64_t wait();
+
+    PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(ProxyPingRpc);
+};
+
 } // namespace RAMCloud
 
 #endif // RAMCLOUD_PINGCLIENT_H

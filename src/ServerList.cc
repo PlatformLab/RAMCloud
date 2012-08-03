@@ -30,11 +30,8 @@ namespace RAMCloud {
  *      Overall information about the RAMCloud server
  */
 ServerList::ServerList(Context& context)
-    : context(context),
-      serverList(),
-      version(0),
-      trackers(),
-      mutex()
+    : AbstractServerList(context)
+    , serverList()
 {
 }
 
@@ -45,134 +42,39 @@ ServerList::~ServerList()
 {
 }
 
-/**
- * Obtain the locator associated with the given ServerId.
- *
- * \param id
- *      The ServerId to look up the locator for.
- *
- * \return
- *      The ServiceLocator string assocated with the given ServerId.
- *
- * \throw ServerListException
- *      An exception is thrown if this ServerId is not in the list.
- *      This could happen due to a stale id that refers to a server
- *      that has since left the system. It may be possible in the
- *      future for other RPCs to refer to ServerIds that this machine
- *      does not yet know of.
- */
-string
-ServerList::getLocator(ServerId id)
+//////////////////////////////////////////////////////////////////////
+// ServerList - Protected Methods (inherited AbstractServerList)
+//////////////////////////////////////////////////////////////////////
+ServerDetails*
+ServerList::iget(size_t index)
 {
-    Lock lock(mutex);
+    return (serverList[index]) ? serverList[index].get() : NULL;
+}
+
+bool
+ServerList::icontains(ServerId id) const
+{
     uint32_t index = id.indexNumber();
-    if (index >= serverList.size() || !serverList[index] ||
-      serverList[index]->serverId != id) {
-        throw ServerListException(HERE, format(
-            "ServerId %lu is not in the ServerList", *id));
-    }
 
-    return serverList[index]->serviceLocator;
+    return  index < serverList.size() &&
+            serverList[index] &&
+            serverList[index]->serverId == id;
 }
 
 /**
- * Return a human-readable string representation for a server.
- *
- * \param id
- *      The ServerId for the server.
- *
- * \return
- *      The most informative human-readable string associated with the given
- *      ServerId.
+ * Return the number of valid indexes in this list w/o lock. Valid does not mean
+ * that they're occupied, only that they are within the bounds of the array.
  */
-string
-ServerList::toString(ServerId id)
+size_t
+ServerList::isize() const
 {
-    string locator;
-    try {
-        locator = getLocator(id);
-    } catch (const ServerListException& e) {
-        locator = "(locator unavailable)";
-    }
-    return format("server %lu at %s",
-                  id.getId(),
-                  locator.c_str());
+    return serverList.size();
 }
 
-/**
- * Return a human-readable string representation of a status.
- *
- * \return
- *      The string representing the status.
- */
-string
-ServerList::toString(ServerStatus status)
-{
-    switch (status) {
-        case ServerStatus::UP:
-            return "UP";
-        case ServerStatus::CRASHED:
-            return "CRASHED";
-        case ServerStatus::DOWN:
-            return "DOWN";
-        default:
-            return "UNKOWN";
-    }
-}
 
-/**
- * Return a human-readable string representation of the contents of
- * the list.
- *
- * \return
- *      The string representing the contents of the list.
- */
-string
-ServerList::toString()
-{
-    Lock lock(mutex);
-
-    string result;
-    foreach (const auto& server, serverList) {
-        if (!server)
-            continue;
-        result.append(
-            format("server %lu at %s with %s is %s\n",
-                   server->serverId.getId(),
-                   server->serviceLocator.c_str(),
-                   server->services.toString().c_str(),
-                   toString(server->status).c_str()));
-    }
-
-    return result;
-}
-
-/**
- * Open a session to the given ServerId. This method simply calls through to
- * TransportManager::getSession. See the documentation there for exceptions
- * that may be thrown.
- *
- * \throw ServerListException
- *      A ServerListException is thrown if the given ServerId is not in this
- *      list.
- */
-Transport::SessionRef
-ServerList::getSession(ServerId id)
-{
-    return context.transportManager->getSession(
-        getLocator(id).c_str(), id);
-}
-
-/**
- * Return the current size of this list.
- */
-uint32_t
-ServerList::size()
-{
-    Lock lock(mutex);
-    return downCast<uint32_t>(serverList.size());
-}
-
+//////////////////////////////////////////////////////////////////////
+// ServerList Public Methods
+//////////////////////////////////////////////////////////////////////
 /**
  * Return the ServerId associated with a given index. If there is none,
  * an invalid ServerId is returned (i.e. the isValid() method will return
@@ -185,91 +87,6 @@ ServerList::operator[](uint32_t index)
     if (index >= serverList.size() || !serverList[index])
         return ServerId(/* invalid id */);
     return serverList[index]->serverId;
-}
-
-/**
- * Return true if the given ServerId is in the list, otherwise return false.
- * Notice, that even when true is returned the server may be in CRASHED
- * state rather than UP state.
- */
-bool
-ServerList::contains(ServerId serverId)
-{
-    Lock lock(mutex);
-    return contains(lock, serverId);
-}
-
-/**
- * Get the version of this list, as set by #setVersion. Used to tell whether or
- * not the list of out of date with the coordinator (and other hosts).
- */
-uint64_t
-ServerList::getVersion()
-{
-    Lock lock(mutex);
-    return version;
-}
-
-/**
- * Register a ServerTracker with this ServerList. Any updates to this
- * list (additions or removals) will be propagated to the tracker. The
- * current list of hosts will be pushed to the tracker immediately so
- * that its state is synchronised with this ServerList.
- *
- * \throw ServerListException
- *      An exception is thrown if the same tracker is registered more
- *      than once.
- */
-void
-ServerList::registerTracker(ServerTrackerInterface& tracker)
-{
-    Lock lock(mutex);
-
-    bool alreadyRegistered =
-        std::find(trackers.begin(), trackers.end(), &tracker) != trackers.end();
-    if (alreadyRegistered) {
-        throw ServerListException(HERE,
-            "Cannot register the same tracker twice!");
-    }
-
-    trackers.push_back(&tracker);
-
-    // Push all known servers which are crashed first.
-    // Order is important to guarantee that if one server replaced another
-    // during enlistment that the registering tracker queue will have the
-    // crash event for the replaced server before the add event of the
-    // server which replaced it.
-    foreach (const Tub<ServerDetails>& server, serverList) {
-        if (!server || server->status != ServerStatus::CRASHED)
-            continue;
-        ServerDetails details = *server;
-        details.status = ServerStatus::UP;
-        tracker.enqueueChange(details, ServerChangeEvent::SERVER_ADDED);
-        tracker.enqueueChange(*server, ServerChangeEvent::SERVER_CRASHED);
-    }
-    // Push all known server which are up.
-    foreach (const Tub<ServerDetails>& server, serverList) {
-        if (!server || server->status != ServerStatus::UP)
-            continue;
-        tracker.enqueueChange(*server, ServerChangeEvent::SERVER_ADDED);
-    }
-    tracker.fireCallback();
-}
-
-/**
- * Unregister a ServerTracker that was previously registered with this
- * ServerList. Doing so will cease all update propagation.
- */
-void
-ServerList::unregisterTracker(ServerTrackerInterface& tracker)
-{
-    Lock lock(mutex);
-    for (size_t i = 0; i < trackers.size(); i++) {
-        if (trackers[i] == &tracker) {
-            trackers.erase(trackers.begin() + i);
-            break;
-        }
-    }
 }
 
 /**
@@ -391,7 +208,7 @@ ServerList::applyUpdate(const ProtoBuf::ServerList& update)
                 readMBytesPerSec);
             add(id, locator, services, readMBytesPerSec);
         } else if (status == ServerStatus::CRASHED) {
-            if (!contains(lock, id)) {
+            if (!icontains(id)) {
                 LOG(ERROR, "  Cannot mark server id %lu as crashed: The server "
                     "is not in our list, despite list version numbers matching "
                     "(%lu). Something is screwed up! Requesting the entire "
@@ -402,7 +219,7 @@ ServerList::applyUpdate(const ProtoBuf::ServerList& update)
             LOG(NOTICE, "  Marking server id %lu as crashed", id.getId());
             crashed(id, locator, services, readMBytesPerSec);
         } else if (status == ServerStatus::DOWN) {
-            if (!contains(lock, id)) {
+            if (!icontains(id)) {
                 LOG(ERROR, "  Cannot remove server id %lu: The server is "
                     "not in our list, despite list version numbers matching "
                     "(%lu). Something is screwed up! Requesting the entire "
@@ -423,22 +240,9 @@ ServerList::applyUpdate(const ProtoBuf::ServerList& update)
     return false;
 }
 
-// - private -
-
-/**
- * Return true if the given ServerId is in the list, otherwise return false.
- * Notice, that even when true is returned the server may be in CRASHED
- * state rather than UP state.
- */
-bool
-ServerList::contains(const Lock& lock, const ServerId serverId)
-{
-    uint32_t index = serverId.indexNumber();
-    if (index >= serverList.size() || !serverList[index])
-        return false;
-    return serverList[index]->serverId == serverId;
-}
-
+//////////////////////////////////////////////////////////////////////
+// ServerList - Private Methods
+//////////////////////////////////////////////////////////////////////
 /**
  * Add a new server to the ServerList along with some details.
  * All registered ServerTrackers will have the changes enqueued to them.

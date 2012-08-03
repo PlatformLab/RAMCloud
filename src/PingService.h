@@ -30,23 +30,23 @@ class PingService : public Service {
   public:
     explicit PingService(Context& context);
     explicit PingService(Context& context, ServerList* serverList);
-    void dispatch(RpcOpcode opcode, Rpc& rpc);
+    void dispatch(WireFormat::Opcode opcode, Rpc& rpc);
     virtual int maxThreads() {
         return 5;
     }
 
   PRIVATE:
-    void getMetrics(const GetMetricsRpc::Request& reqHdr,
-              GetMetricsRpc::Response& respHdr,
+    void getMetrics(const WireFormat::GetMetrics::Request& reqHdr,
+              WireFormat::GetMetrics::Response& respHdr,
               Rpc& rpc);
-    void ping(const PingRpc::Request& reqHdr,
-              PingRpc::Response& respHdr,
+    void ping(const WireFormat::Ping::Request& reqHdr,
+              WireFormat::Ping::Response& respHdr,
               Rpc& rpc);
-    void proxyPing(const ProxyPingRpc::Request& reqHdr,
-              ProxyPingRpc::Response& respHdr,
+    void proxyPing(const WireFormat::ProxyPing::Request& reqHdr,
+              WireFormat::ProxyPing::Response& respHdr,
               Rpc& rpc);
-    void kill(const KillRpc::Request& reqHdr,
-               KillRpc::Response& respHdr,
+    void kill(const WireFormat::Kill::Request& reqHdr,
+               WireFormat::Kill::Response& respHdr,
                Rpc& rpc);
 
     /// Shared RAMCloud information.
@@ -56,6 +56,11 @@ class PingService : public Service {
     /// should refer to the server's global ServerList, which is being
     /// kept up-to-date by the MembershipService.
     ServerList* serverList;
+
+    /// If this variable is true, the kill method returns without dying.
+    /// This is used during unit tests that verify the communication path
+    /// for this call.
+    bool ignoreKill;
 
     DISALLOW_COPY_AND_ASSIGN(PingService);
 };

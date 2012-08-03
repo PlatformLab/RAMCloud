@@ -13,6 +13,8 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <gtest/gtest.h>
+
 #include <queue>
 
 #include "Transport.h"
@@ -50,6 +52,89 @@ class MockTransport : public Transport {
 
     void clearInput();
     void setInput(const char* message);
+    void clearOutput();
+
+    enum Event { CLIENT_SEND, ABORT, CANCEL, SEND_REQUEST, SERVER_REPLY };
+
+    /**
+     * Compare a transmission buffer to some expected value and return the
+     * differences, if any; for use with gtest.
+     *
+     * \param index
+     *      Which recorded transmission to compare against. Each transmission
+     *      made is stored in order starting at index 0. If this exceeds the
+     *      number of recorded messages then AssertionFailure will be returned
+     *      with an appropriate debugging message.
+     * \param event
+     *      Which event the transmission at \a index should have been enqueued
+     *      by (see Event).
+     * \param header
+     *      The expected rpc head the transmission at \a index should have.
+     * \param payload
+     *      Optional byte string to compare against the data that trails the
+     *      header in the enqueued message buffer.
+     * \param payloadBytes
+     *      Number of bytes starting at \a payload to compare against the
+     *      byte string that follows the header in the buffer.
+     * \return
+     *      A gtest AssertionResult that contains useful debugging information
+     *      when the output doesn't match what was expected.
+     */
+    template <typename T>
+    ::testing::AssertionResult
+    outputMatches(size_t index, Event event, const T& header,
+                  const char* payload = NULL, size_t payloadBytes = 0)
+    {
+        try {
+            auto& pair = output.at(index);
+            if (pair.first != event) {
+                return ::testing::AssertionFailure() <<
+                    format("Expected event %u, actual event %u",
+                           event, pair.first);
+            }
+            Buffer& actualBuffer = pair.second;
+            if (actualBuffer.getTotalLength() < sizeof(header)) {
+                return ::testing::AssertionFailure() <<
+                    format("Actual output was only %u bytes but header "
+                           "header length was %lu",
+                           actualBuffer.getTotalLength(), sizeof(header));
+            }
+            typedef const char* b;
+            auto* actualHeader = actualBuffer.getRange(0, sizeof(T));
+            if (memcmp(&header, actualHeader, sizeof(header))) {
+                return ::testing::AssertionFailure() <<
+                    format("Expected header doesn't match actual header:\n"
+                           "  Actual: \"%s\"\nExpected: \"%s\"\n",
+                           toStringHack(b(actualHeader),
+                                        sizeof(header)).c_str(),
+                           toStringHack(b(&header),
+                                        sizeof(header)).c_str());
+            }
+            uint32_t actualPayloadBytes = actualBuffer.getTotalLength() -
+                                          uint32_t(sizeof(header));
+            auto* actualPayload = actualBuffer.getRange(sizeof(header),
+                                                        actualPayloadBytes);
+            if (payloadBytes != actualPayloadBytes ||
+                memcmp(payload, actualPayload, payloadBytes) != 0)
+            {
+                return ::testing::AssertionFailure() <<
+                    format("Headers matched, payloads don't match:\n"
+                           "  Actual: \"%s\" (length %u)\n"
+                           "Expected: \"%s\" (length %lu)\n",
+                           toStringHack(b(actualPayload),
+                                        actualPayloadBytes).c_str(),
+                            actualPayloadBytes,
+                           toStringHack(b(payload),
+                                        uint32_t(payloadBytes)).c_str(),
+                           payloadBytes);
+            }
+        } catch (const std::out_of_range& e) {
+            return ::testing::AssertionFailure() <<
+                format("No output message in MockTransport at index %lu",
+                       index);
+        }
+        return ::testing::AssertionSuccess();
+    }
 
     class MockServerRpc : public ServerRpc {
         public:
@@ -80,10 +165,11 @@ class MockTransport : public Transport {
                 : transport(transport), serviceLocator(serviceLocator) {}
             virtual ~MockSession();
             void abort(const string& message);
+            virtual void cancelRequest(RpcNotifier* notifier);
             virtual ClientRpc* clientSend(Buffer* payload, Buffer* response);
-            virtual void release() {
-                delete this;
-            }
+            virtual void release();
+            virtual void sendRequest(Buffer* request, Buffer* response,
+                    RpcNotifier* notifier);
         private:
             MockTransport* transport;
             const ServiceLocator serviceLocator;
@@ -97,8 +183,16 @@ class MockTransport : public Transport {
 
     /**
      * Records information from each call to clientSend and sendReply.
+     * Can be cleared with clearOutput().
      */
     string outputLog;
+
+    /**
+     * Records the transmitted buffers along with the event which caused
+     * their transmission (see Event). For use with outputMatches(); can
+     * be cleared with clearOutput().
+     */
+    std::deque<pair<Event, Buffer>> output;
 
     /*
      * Status from the most recent call to sendReply (STATUS_MAX_VALUE+1 means
@@ -112,11 +206,17 @@ class MockTransport : public Transport {
      */
     std::queue<const char*> inputMessages;
 
+    // Notifier from the last call to sendRequest.
+    RpcNotifier *lastNotifier;
+
     // The following variables count calls to various methods, for use
     // by tests.
     uint32_t serverSendCount;
     uint32_t clientSendCount;
     uint32_t clientRecvCount;
+
+    // Count of number of sessions created.
+    uint32_t sessionCreateCount;
 
     // The following variable must be static: sessions can get deleted
     // *after* their transport, so can't reference anything in a particular
@@ -126,6 +226,11 @@ class MockTransport : public Transport {
     // ServiceLocator string passed to constructor, or "mock:" if the
     // constructor argument was NULL.
     string locatorString;
+
+  private:
+    void appendToOutput(Event event, const string& message);
+    void appendToOutput(Event event, Buffer& payload);
+    string toStringHack(const char* buf, uint32_t length);
 
     DISALLOW_COPY_AND_ASSIGN(MockTransport);
 };

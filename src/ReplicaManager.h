@@ -32,6 +32,8 @@
 
 namespace RAMCloud {
 
+class Segment;
+
 /**
  * Creates and tracks replicas of local in-memory segments on remote backups.
  *
@@ -60,23 +62,34 @@ class ReplicaManager
     : public ReplicatedSegment::Deleter
 {
   PUBLIC:
+    typedef std::lock_guard<std::mutex> Lock;
+
     ReplicaManager(Context& context,
                    ServerList& serverList,
                    const ServerId& masterId,
-                   uint32_t numReplicas,
-                   const string* coordinatorLocator);
+                   uint32_t numReplicas);
     ~ReplicaManager();
 
     bool isIdle();
     bool isReplicaNeeded(ServerId backupServerId, uint64_t segmentId);
-    ReplicatedSegment* openSegment(bool isLogHead, uint64_t segmentId,
-                                   const void* data, uint32_t openLen)
+    ReplicatedSegment* allocateHead(uint64_t segmentId, const Segment* segment,
+                                    ReplicatedSegment* precedingSegment,
+                                    uint32_t openLen)
+        __attribute__((warn_unused_result));
+    ReplicatedSegment* allocateNonHead(uint64_t segmentId,
+                                       const Segment* segment,
+                                       uint32_t openLen);
         __attribute__((warn_unused_result));
     void startFailureMonitor(Log* log);
     void haltFailureMonitor();
     void proceed();
 
   PRIVATE:
+    ReplicatedSegment* allocateSegment(const Lock& lock, uint64_t segmentId,
+                                       const Segment* segment, bool isLogHead,
+                                       uint32_t openLen)
+        __attribute__((warn_unused_result));
+
     /// Shared RAMCloud information.
     Context& context;
 
@@ -97,9 +110,6 @@ class ReplicaManager
     /// Selects backups to store replicas while obeying placement constraints.
     BackupSelector backupSelector;
 
-    /// Used by minOpenSegmentId to update the value on the coordinator.
-    Tub<CoordinatorClient> coordinator;
-
     /**
      * Protects all internal data structures during concurrent calls to the
      * ReplicaManager and any of its ReplicatedSegments.
@@ -109,7 +119,6 @@ class ReplicaManager
      * or modify any state in the ReplicaManager.
      */
     std::mutex dataMutex;
-    typedef std::lock_guard<std::mutex> Lock;
 
     /// Id of master that this will be managing replicas for.
     const ServerId& masterId;

@@ -32,6 +32,7 @@
 #include "ServerConfig.h"
 #include "SpinLock.h"
 #include "Table.h"
+#include "WireFormat.h"
 
 namespace RAMCloud {
 
@@ -49,11 +50,10 @@ class MasterService : public Service, Log::EntryHandlers {
   public:
     MasterService(Context& context,
                   const ServerConfig& config,
-                  CoordinatorClient* coordinator,
                   ServerList& serverList);
     virtual ~MasterService();
     void init(ServerId id);
-    void dispatch(RpcOpcode opcode,
+    void dispatch(WireFormat::Opcode opcode,
                   Rpc& rpc);
 
     uint32_t getTimestamp(LogEntryType type, Buffer& buffer);
@@ -107,45 +107,52 @@ class MasterService : public Service, Log::EntryHandlers {
         State state;
     };
 
-    void fillWithTestData(const FillWithTestDataRpc::Request& reqHdr,
-                          FillWithTestDataRpc::Response& respHdr,
+    void enumeration(const WireFormat::Enumerate::Request& reqHdr,
+                     WireFormat::Enumerate::Response& respHdr,
+                     Rpc& rpc);
+    void fillWithTestData(const WireFormat::FillWithTestData::Request& reqHdr,
+                          WireFormat::FillWithTestData::Response& respHdr,
                           Rpc& rpc);
-    void increment(const IncrementRpc::Request& reqHdr,
-                 IncrementRpc::Response& respHdr,
+    void increment(const WireFormat::Increment::Request& reqHdr,
+                 WireFormat::Increment::Response& respHdr,
                  Rpc& rpc);
-    void isReplicaNeeded(const IsReplicaNeededRpc::Request& reqHdr,
-                         IsReplicaNeededRpc::Response& respHdr,
+    void isReplicaNeeded(const WireFormat::IsReplicaNeeded::Request& reqHdr,
+                         WireFormat::IsReplicaNeeded::Response& respHdr,
                          Rpc& rpc);
-    void getHeadOfLog(const GetHeadOfLogRpc::Request& reqHdr,
-                      GetHeadOfLogRpc::Response& respHdr,
+    void getHeadOfLog(const WireFormat::GetHeadOfLog::Request& reqHdr,
+                      WireFormat::GetHeadOfLog::Response& respHdr,
                       Rpc& rpc);
-    void multiRead(const MultiReadRpc::Request& reqHdr,
-                   MultiReadRpc::Response& respHdr,
+    void multiRead(const WireFormat::MultiRead::Request& reqHdr,
+                   WireFormat::MultiRead::Response& respHdr,
                    Rpc& rpc);
-    void read(const ReadRpc::Request& reqHdr,
-              ReadRpc::Response& respHdr,
+    void read(const WireFormat::Read::Request& reqHdr,
+              WireFormat::Read::Response& respHdr,
               Rpc& rpc);
-    void getServerStatistics(const GetServerStatisticsRpc::Request& reqHdr,
-                             GetServerStatisticsRpc::Response& respHdr,
-                             Rpc& rpc);
-    void dropTabletOwnership(const DropTabletOwnershipRpc::Request& reqHdr,
-                             DropTabletOwnershipRpc::Response& respHdr,
-                             Rpc& rpc);
-    void takeTabletOwnership(const TakeTabletOwnershipRpc::Request& reqHdr,
-                             TakeTabletOwnershipRpc::Response& respHdr,
-                             Rpc& rpc);
-    void prepForMigration(const PrepForMigrationRpc::Request& reqHdr,
-                          PrepForMigrationRpc::Response& respHdr,
+    void getServerStatistics(
+        const WireFormat::GetServerStatistics::Request& reqHdr,
+        WireFormat::GetServerStatistics::Response& respHdr,
+        Rpc& rpc);
+    void dropTabletOwnership(
+        const WireFormat::DropTabletOwnership::Request& reqHdr,
+        WireFormat::DropTabletOwnership::Response& respHdr,
+        Rpc& rpc);
+    void takeTabletOwnership(
+            const WireFormat::TakeTabletOwnership::Request& reqHdr,
+            WireFormat::TakeTabletOwnership::Response& respHdr,
+            Rpc& rpc);
+    void prepForMigration(const WireFormat::PrepForMigration::Request& reqHdr,
+                          WireFormat::PrepForMigration::Response& respHdr,
                           Rpc& rpc);
-    void migrateTablet(const MigrateTabletRpc::Request& reqHdr,
-                       MigrateTabletRpc::Response& respHdr,
+    void migrateTablet(const WireFormat::MigrateTablet::Request& reqHdr,
+                       WireFormat::MigrateTablet::Response& respHdr,
                        Rpc& rpc);
-    void receiveMigrationData(const ReceiveMigrationDataRpc::Request& reqHdr,
-                              ReceiveMigrationDataRpc::Response& respHdr,
-                              Rpc& rpc);
+    void receiveMigrationData(
+        const WireFormat::ReceiveMigrationData::Request& reqHdr,
+        WireFormat::ReceiveMigrationData::Response& respHdr,
+        Rpc& rpc);
     void purgeObjectsFromUnknownTablets();
-    void recover(const RecoverRpc::Request& reqHdr,
-                 RecoverRpc::Response& respHdr,
+    void recover(const WireFormat::Recover::Request& reqHdr,
+                 WireFormat::Recover::Response& respHdr,
                  Rpc& rpc);
     void recoverSegmentPrefetcher(SegmentIterator& i);
     void recoverSegment(uint64_t segmentId, const void *buffer,
@@ -153,14 +160,14 @@ class MasterService : public Service, Log::EntryHandlers {
     void recover(ServerId masterId,
                  uint64_t partitionId,
                  vector<Replica>& replicas);
-    void remove(const RemoveRpc::Request& reqHdr,
-                RemoveRpc::Response& respHdr,
+    void remove(const WireFormat::Remove::Request& reqHdr,
+                WireFormat::Remove::Response& respHdr,
                 Rpc& rpc);
-    void splitMasterTablet(const SplitMasterTabletRpc::Request& reqHdr,
-                SplitMasterTabletRpc::Response& respHdr,
+    void splitMasterTablet(const WireFormat::SplitMasterTablet::Request& reqHdr,
+                WireFormat::SplitMasterTablet::Response& respHdr,
                 Rpc& rpc);
-    void write(const WriteRpc::Request& reqHdr,
-               WriteRpc::Response& respHdr,
+    void write(const WireFormat::Write::Request& reqHdr,
+               WireFormat::Write::Response& respHdr,
                Rpc& rpc);
 
   public:
@@ -168,7 +175,6 @@ class MasterService : public Service, Log::EntryHandlers {
     Context& context;
 
     const ServerConfig& config;
-    CoordinatorClient* coordinator;
 
     ServerId serverId;
 
@@ -245,6 +251,13 @@ class MasterService : public Service, Log::EntryHandlers {
      * writes we'll need to revisit this.
      */
     SpinLock objectUpdateLock;
+
+    /**
+     * Determines the maximum size of the response buffer for multiRead
+     * operations. Normally MAX_RPC_LEN, but can be modified during tests
+     * to simplify testing.
+     */
+    uint32_t maxMultiReadResponseSize;
 
     /* Tombstone cleanup method used after recovery. */
     void removeTombstones();

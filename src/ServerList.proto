@@ -37,7 +37,7 @@ message ServerList {
     required fixed32 expected_read_mbytes_per_sec = 5;
 
     /// The current status of this server in terms of cluster membership.
-    /// See above for ServerStatus details.
+    /// See above for ServerStatus in ServerList.h for legal enum values.
     required fixed32 status = 6;
   }
 

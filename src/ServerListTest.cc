@@ -53,46 +53,6 @@ class ServerListTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(ServerListTest);
 };
 
-TEST_F(ServerListTest, getLocator) {
-    EXPECT_THROW(sl.getLocator(ServerId(1, 0)), ServerListException);
-    sl.add(ServerId(1, 0), "mock:", {}, 100);
-    EXPECT_THROW(sl.getLocator(ServerId(2, 0)), ServerListException);
-    EXPECT_EQ("mock:", sl.getLocator(ServerId(1, 0)));
-}
-
-TEST_F(ServerListTest, toString) {
-    EXPECT_EQ("server 1 at (locator unavailable)",
-              sl.toString(ServerId(1)));
-    sl.add(ServerId(1), "mock:service=locator", {}, 100);
-    EXPECT_EQ("server 1 at mock:service=locator",
-              sl.toString(ServerId(1)));
-}
-
-TEST_F(ServerListTest, toString_status) {
-    EXPECT_EQ("UP", ServerList::toString(ServerStatus::UP));
-    EXPECT_EQ("CRASHED", ServerList::toString(ServerStatus::CRASHED));
-    EXPECT_EQ("DOWN", ServerList::toString(ServerStatus::DOWN));
-}
-
-TEST_F(ServerListTest, toString_all) {
-    EXPECT_EQ("", sl.toString());
-    sl.add(ServerId(1), "mock:host=one", {MASTER_SERVICE}, 100);
-    EXPECT_EQ(
-        "server 1 at mock:host=one with MASTER_SERVICE is UP\n",
-        sl.toString());
-    sl.add(ServerId(2), "mock:host=two", {BACKUP_SERVICE}, 75);
-    EXPECT_EQ(
-        "server 1 at mock:host=one with MASTER_SERVICE is UP\n"
-        "server 2 at mock:host=two with BACKUP_SERVICE is UP\n",
-        sl.toString());
-}
-
-TEST_F(ServerListTest, size) {
-    EXPECT_EQ(sl.serverList.size(), sl.size());
-    sl.add(ServerId(572, 0), "mock:", {}, 100);
-    EXPECT_EQ(573U, sl.size());
-}
-
 TEST_F(ServerListTest, indexOperator) {
     EXPECT_FALSE(sl[0].isValid());
     EXPECT_FALSE(sl[183742].isValid());
@@ -100,60 +60,6 @@ TEST_F(ServerListTest, indexOperator) {
     EXPECT_EQ(ServerId(7572, 2734), sl[7572]);
     sl.remove(ServerId(7572, 2734));
     EXPECT_FALSE(sl[7572].isValid());
-}
-
-TEST_F(ServerListTest, contains) {
-    EXPECT_FALSE(sl.contains(ServerId(0, 0)));
-    EXPECT_FALSE(sl.contains(ServerId(1, 0)));
-    sl.add(ServerId(1, 0), "mock:", {}, 100);
-    EXPECT_TRUE(sl.contains(ServerId(1, 0)));
-    sl.remove(ServerId(1, 0));
-    EXPECT_FALSE(sl.contains(ServerId(1, 0)));
-}
-
-TEST_F(ServerListTest, registerTracker) {
-    sl.registerTracker(tr);
-    EXPECT_EQ(1U, sl.trackers.size());
-    EXPECT_EQ(&tr, sl.trackers[0]);
-    EXPECT_THROW(sl.registerTracker(tr), Exception);
-}
-
-TEST_F(ServerListTest, registerTracker_pushAdds) {
-    sl.add(ServerId(1, 2), "mock:", {}, 100);
-    sl.add(ServerId(2, 3), "mock:", {}, 100);
-    sl.add(ServerId(0, 1), "mock:", {}, 100);
-    sl.add(ServerId(3, 4), "mock:", {}, 100);
-    sl.crashed(ServerId(3, 4), "mock:", {}, 100);
-    sl.remove(ServerId(2, 3));
-    sl.registerTracker(tr);
-
-    // Should be in order, but missing (2, 3)
-    EXPECT_EQ(4U, changes.size());
-    EXPECT_EQ(ServerId(3, 4), changes.front().server.serverId);
-    EXPECT_EQ(ServerChangeEvent::SERVER_ADDED, changes.front().event);
-    changes.pop();
-    EXPECT_EQ(ServerId(3, 4), changes.front().server.serverId);
-    EXPECT_EQ(ServerChangeEvent::SERVER_CRASHED, changes.front().event);
-    changes.pop();
-    EXPECT_EQ(ServerId(0, 1), changes.front().server.serverId);
-    EXPECT_EQ(ServerChangeEvent::SERVER_ADDED, changes.front().event);
-    changes.pop();
-    EXPECT_EQ(ServerId(1, 2), changes.front().server.serverId);
-    EXPECT_EQ(ServerChangeEvent::SERVER_ADDED, changes.front().event);
-    changes.pop();
-}
-
-TEST_F(ServerListTest, unregisterTracker) {
-    EXPECT_EQ(0U, sl.trackers.size());
-
-    sl.unregisterTracker(tr);
-    EXPECT_EQ(0U, sl.trackers.size());
-
-    sl.registerTracker(tr);
-    EXPECT_EQ(1U, sl.trackers.size());
-
-    sl.unregisterTracker(tr);
-    EXPECT_EQ(0U, sl.trackers.size());
 }
 
 static bool
@@ -170,8 +76,8 @@ TEST_F(ServerListTest, applyFullList_fromEmpty) {
 
     ProtoBuf::ServerList wholeList;
     ServerListBuilder{wholeList}
-        ({MASTER_SERVICE}, *ServerId(1, 0), "mock:host=one", 101)
-        ({BACKUP_SERVICE}, *ServerId(2, 0), "mock:host=two", 102,
+        ({WireFormat::MASTER_SERVICE}, *ServerId(1, 0), "mock:host=one", 101)
+        ({WireFormat::BACKUP_SERVICE}, *ServerId(2, 0), "mock:host=two", 102,
             ServerStatus::CRASHED);
     wholeList.set_version_number(99u);
     sl.applyFullList(wholeList);
@@ -179,10 +85,10 @@ TEST_F(ServerListTest, applyFullList_fromEmpty) {
     EXPECT_EQ(3U, sl.size());       // [0] is reserved
     EXPECT_EQ(ServerId(1, 0), sl[1]);
     EXPECT_EQ(ServerId(2, 0), sl[2]);
-    EXPECT_EQ("mock:host=one", sl.getLocator(ServerId(1, 0)));
+    EXPECT_STREQ("mock:host=one", sl.getLocator(ServerId(1, 0)));
     EXPECT_EQ(ServerStatus::UP,
               sl.serverList[ServerId(1, 0).indexNumber()]->status);
-    EXPECT_EQ("mock:host=two", sl.getLocator(ServerId(2, 0)));
+    EXPECT_STREQ("mock:host=two", sl.getLocator(ServerId(2, 0)));
     EXPECT_EQ(ServerStatus::CRASHED,
               sl.serverList[ServerId(2, 0).indexNumber()]->status);
     EXPECT_EQ(99u, sl.version);
@@ -196,9 +102,9 @@ TEST_F(ServerListTest, applyFullList_overlap) {
     // Set the initial list.
     ProtoBuf::ServerList initialList;
     ServerListBuilder{initialList}
-        ({MASTER_SERVICE}, *ServerId(1, 0), "mock:host=one")
-        ({BACKUP_SERVICE}, *ServerId(2, 0), "mock:host=two")
-        ({MASTER_SERVICE}, *ServerId(4, 0), "mock:host=four", 104,
+        ({WireFormat::MASTER_SERVICE}, *ServerId(1, 0), "mock:host=one")
+        ({WireFormat::BACKUP_SERVICE}, *ServerId(2, 0), "mock:host=two")
+        ({WireFormat::MASTER_SERVICE}, *ServerId(4, 0), "mock:host=four", 104,
             ServerStatus::CRASHED);
     initialList.set_version_number(0);
     sl.applyFullList(initialList);
@@ -206,11 +112,14 @@ TEST_F(ServerListTest, applyFullList_overlap) {
     // Now issue a new list that partially overlaps.
     ProtoBuf::ServerList newerList;
     ServerListBuilder{newerList}
-        ({MASTER_SERVICE}, *ServerId(1, 5), "mock:host=oneBeta", 101)
-        ({BACKUP_SERVICE}, *ServerId(2, 0), "mock:host=two", 102)
-        ({BACKUP_SERVICE}, *ServerId(3, 0), "mock:host=three", 103)
-        ({MASTER_SERVICE}, *ServerId(4, 1), "mock:host=fourBeta", 104,
-            ServerStatus::CRASHED);
+        ({WireFormat::MASTER_SERVICE}, *ServerId(1, 5),
+            "mock:host=oneBeta", 101)
+        ({WireFormat::BACKUP_SERVICE}, *ServerId(2, 0),
+            "mock:host=two", 102)
+        ({WireFormat::BACKUP_SERVICE}, *ServerId(3, 0),
+            "mock:host=three", 103)
+        ({WireFormat::MASTER_SERVICE}, *ServerId(4, 1),
+            "mock:host=fourBeta", 104, ServerStatus::CRASHED);
     newerList.set_version_number(1);
 
     while (!changes.empty())
@@ -225,9 +134,9 @@ TEST_F(ServerListTest, applyFullList_overlap) {
     EXPECT_EQ(ServerId(1, 5), sl[1]);
     EXPECT_EQ(ServerId(2, 0), sl[2]);
     EXPECT_EQ(ServerId(3, 0), sl[3]);
-    EXPECT_EQ("mock:host=oneBeta", sl.getLocator(ServerId(1, 5)));
-    EXPECT_EQ("mock:host=two", sl.getLocator(ServerId(2, 0)));
-    EXPECT_EQ("mock:host=three", sl.getLocator(ServerId(3, 0)));
+    EXPECT_STREQ("mock:host=oneBeta", sl.getLocator(ServerId(1, 5)));
+    EXPECT_STREQ("mock:host=two", sl.getLocator(ServerId(2, 0)));
+    EXPECT_STREQ("mock:host=three", sl.getLocator(ServerId(3, 0)));
     EXPECT_EQ("applyFullList: Got complete list of servers containing 4 "
               "entries (version number 1)", TestLog::get());
     // Removal of {1, 0} proceeds everything but must be preceded by a crash
@@ -279,7 +188,7 @@ TEST_F(ServerListTest, applyUpdate_normal) {
     // Set the initial list.
     ProtoBuf::ServerList initialList;
     ServerListBuilder{initialList}
-        ({MASTER_SERVICE}, *ServerId(1, 0), "mock:host=one");
+        ({WireFormat::MASTER_SERVICE}, *ServerId(1, 0), "mock:host=one");
     initialList.set_version_number(0);
     sl.applyFullList(initialList);
 
@@ -288,13 +197,13 @@ TEST_F(ServerListTest, applyUpdate_normal) {
     // Now issue an update.
     ProtoBuf::ServerList updateList;
     ServerListBuilder{updateList}
-        ({MASTER_SERVICE}, *ServerId(1, 0), "mock:host=one", 101,
+        ({WireFormat::MASTER_SERVICE}, *ServerId(1, 0), "mock:host=one", 101,
              ServerStatus::DOWN)
-        ({BACKUP_SERVICE}, *ServerId(2, 0), "mock:host=two", 102);
+        ({WireFormat::BACKUP_SERVICE}, *ServerId(2, 0), "mock:host=two", 102);
     updateList.set_version_number(1);
     EXPECT_FALSE(sl.applyUpdate(updateList));
     EXPECT_FALSE(sl.contains(ServerId(1, 0)));
-    EXPECT_EQ("mock:host=two", sl.getLocator(ServerId(2, 0)));
+    EXPECT_STREQ("mock:host=two", sl.getLocator(ServerId(2, 0)));
     EXPECT_EQ(
         "applyUpdate: Got server list update (version number 1) | "
         "applyUpdate:   Removing server id 1 | "
@@ -308,7 +217,7 @@ TEST_F(ServerListTest, applyUpdate_missedUpdate) {
 
     ProtoBuf::ServerList updateList;
     ServerListBuilder{updateList}
-        ({MASTER_SERVICE}, *ServerId(1, 0), "mock:host=one");
+        ({WireFormat::MASTER_SERVICE}, *ServerId(1, 0), "mock:host=one");
     updateList.set_version_number(57234);
     EXPECT_TRUE(sl.applyUpdate(updateList));
     EXPECT_EQ("applyUpdate: Update generation number is 57234, but last "
@@ -324,7 +233,7 @@ TEST_F(ServerListTest, applyUpdate_versionOkButSomethingAmiss) {
 
     ProtoBuf::ServerList updateList;
     ServerListBuilder{updateList}
-        ({MASTER_SERVICE}, *ServerId(1, 0), "mock:host=one", 0,
+        ({WireFormat::MASTER_SERVICE}, *ServerId(1, 0), "mock:host=one", 0,
             ServerStatus::DOWN);
     updateList.set_version_number(1);
     EXPECT_TRUE(sl.applyUpdate(updateList));
@@ -345,20 +254,24 @@ TEST_F(ServerListTest, add) {
     TestLog::Enable _(&addFilter);
 
     EXPECT_EQ(0U, sl.serverList.size());
-    sl.add(ServerId(57, 1), "mock:", {MASTER_SERVICE, BACKUP_SERVICE}, 100);
+    sl.add(ServerId(57, 1), "mock:", {WireFormat::MASTER_SERVICE,
+                                      WireFormat::BACKUP_SERVICE}, 100);
     EXPECT_EQ(58U, sl.serverList.size());
     EXPECT_EQ(ServerId(57, 1), sl.serverList[57]->serverId);
     EXPECT_EQ("mock:", sl.serverList[57]->serviceLocator);
-    EXPECT_TRUE(sl.serverList[57]->services.has(MASTER_SERVICE));
-    EXPECT_TRUE(sl.serverList[57]->services.has(BACKUP_SERVICE));
-    EXPECT_FALSE(sl.serverList[57]->services.has(PING_SERVICE));
+    EXPECT_TRUE(sl.serverList[57]->services.has(WireFormat::MASTER_SERVICE));
+    EXPECT_TRUE(sl.serverList[57]->services.has(WireFormat::BACKUP_SERVICE));
+    EXPECT_FALSE(sl.serverList[57]->services.has(WireFormat::PING_SERVICE));
     EXPECT_EQ(100u, sl.serverList[57]->expectedReadMBytesPerSec);
     EXPECT_EQ(1U, changes.size());
     EXPECT_EQ(ServerId(57, 1), changes.front().server.serverId);
     EXPECT_EQ("mock:", changes.front().server.serviceLocator);
-    EXPECT_TRUE(changes.front().server.services.has(MASTER_SERVICE));
-    EXPECT_TRUE(changes.front().server.services.has(BACKUP_SERVICE));
-    EXPECT_FALSE(changes.front().server.services.has(PING_SERVICE));
+    EXPECT_TRUE(changes.front().server.services.has(
+        WireFormat::MASTER_SERVICE));
+    EXPECT_TRUE(changes.front().server.services.has(
+        WireFormat::BACKUP_SERVICE));
+    EXPECT_FALSE(changes.front().server.services.has(
+        WireFormat::PING_SERVICE));
     EXPECT_EQ(100u, changes.front().server.expectedReadMBytesPerSec);
     EXPECT_EQ(ServerChangeEvent::SERVER_ADDED, changes.front().event);
     changes.pop();

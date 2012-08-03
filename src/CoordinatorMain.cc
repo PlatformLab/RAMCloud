@@ -54,19 +54,25 @@ main(int argc, char *argv[])
         localLocator = context.transportManager->
                                 getListeningLocatorsString();
         LOG(NOTICE, "coordinator: Listening on %s", localLocator.c_str());
+        context.coordinatorServerList = new CoordinatorServerList(context);
         CoordinatorService coordinatorService(context);
         context.serviceManager->addService(coordinatorService,
-                                                COORDINATOR_SERVICE);
+                                           WireFormat::COORDINATOR_SERVICE);
         PingService pingService(context);
-        context.serviceManager->addService(pingService, PING_SERVICE);
+        context.serviceManager->addService(pingService,
+                                           WireFormat::PING_SERVICE);
         Dispatch& dispatch = *context.dispatch;
         while (true) {
             dispatch.poll();
         }
         return 0;
-    } catch (RAMCloud::Exception& e) {
+    } catch (const std::exception& e) {
         LOG(ERROR, "Fatal error in coordinator at %s: %s",
-            localLocator.c_str(), e.str().c_str());
+            localLocator.c_str(), e.what());
+        return 1;
+    } catch (...) {
+        LOG(ERROR, "Unknown fatal error in coordinator at %s",
+            localLocator.c_str());
         return 1;
     }
 }

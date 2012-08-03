@@ -18,166 +18,6 @@
 
 namespace RAMCloud {
 
-/**
- * Create a new instance; usually just one instance is created as part
- * of the CoordinatorService.
- *
- * \param context
- *      Overall information about the RAMCloud server or client.
- * \param serverList
- *      Authoritative list of all servers in the system and their details.
- * \param  tabletMap
- *      Authoritative information about tablets and their mapping to servers.
- * \param runtimeOptions
- *      Configuration options which are stored by the coordinator.
- *      May be NULL for testing.
- */
-MasterRecoveryManager::MasterRecoveryManager(Context& context,
-                                             CoordinatorServerList& serverList,
-                                             TabletMap& tabletMap,
-                                             RuntimeOptions* runtimeOptions)
-    : serverList(serverList)
-    , tabletMap(tabletMap)
-    , runtimeOptions(runtimeOptions)
-    , thread()
-    , waitingRecoveries()
-    , activeRecoveries()
-    , maxActiveRecoveries(1u)
-    , taskQueue()
-    , tracker(context, serverList, this)
-    , doNotStartRecoveries()
-{
-}
-
-/**
- * Halt the thread, if running, and destroy this.
- */
-MasterRecoveryManager::~MasterRecoveryManager()
-{
-    halt();
-}
-
-/**
- * Start thread for performing recoveries; this must be called before other
- * operations to ensure recoveries actually happen.
- * Calling start() on an instance that is already started has no effect.
- * start() and halt() are not thread-safe.
- */
-void
-MasterRecoveryManager::start()
-{
-    if (!thread)
-        thread.construct(&MasterRecoveryManager::main, this);
-}
-
-/**
- * Stop progress on recoveries.  Calling halt() on an instance that is
- * already halted or has never been started has no effect.
- * start() and halt() are not thread-safe.
- */
-void
-MasterRecoveryManager::halt()
-{
-    taskQueue.halt();
-    if (thread)
-        thread->join();
-    thread.destroy();
-}
-
-/**
- * Mark the tablets belonging to a now crashed server as RECOVERING and enqueue
- * the recovery of the tablets; actual recovery happens asynchronously.
- *
- * \param crashedServerId
- *      The crashed server which is to be recovered. If the server did
- *      not own any tablets when it crashed then no recovery is started.
- */
-void
-MasterRecoveryManager::startMasterRecovery(ServerId crashedServerId)
-{
-    auto tablets =
-        tabletMap.setStatusForServer(crashedServerId, Tablet::RECOVERING);
-    if (tablets.empty()) {
-        LOG(NOTICE, "Server %lu crashed, but it had no tablets",
-            crashedServerId.getId());
-        return;
-    }
-    restartMasterRecovery(crashedServerId);
-}
-
-namespace MasterRecoveryManagerInternal {
-class ApplyTrackerChangesTask : public Task {
-  PUBLIC:
-    /**
-     * Create a task which when run will apply all enqueued changes to
-     * #tracker and notifies any recoveries which have lost recovery masters.
-     * This brings #mgr.tracker into sync with #mgr.serverList. Because this
-     * task is run by #mgr.taskQueue is it serialized with other tasks.
-     */
-    explicit ApplyTrackerChangesTask(MasterRecoveryManager& mgr)
-        : Task(mgr.taskQueue)
-        , mgr(mgr)
-    {
-        schedule();
-    }
-
-    void performTask()
-    {
-        ServerDetails server;
-        ServerChangeEvent event;
-        while (mgr.tracker.getChange(server, event)) {
-            if (event == SERVER_CRASHED || event == SERVER_REMOVED) {
-                Recovery* recovery = mgr.tracker[server.serverId];
-                if (!recovery)
-                    break;
-                // Like it or not, recovery is done on this recovery master
-                // but unsuccessfully.
-                recovery->recoveryMasterFinished(server.serverId, false);
-            }
-        }
-    }
-
-    MasterRecoveryManager& mgr;
-};
-}
-using namespace MasterRecoveryManagerInternal; // NOLINT
-
-/**
- * Schedule the handling of recovery master failures and the application
- * of changes to #tracker.  Invoked by #serverList whenever #tracker has
- * pending changes are pushed to it due to modifications to #serverList.
- */
-void
-MasterRecoveryManager::trackerChangesEnqueued()
-{
-    (new ApplyTrackerChangesTask(*this))->schedule();
-}
-
-/**
- * Deletes a Recovery and cleans up all resources associated with
- * it in the MasterRecoveryManager. Invoked by Recovery instances
- * when they've outlived their usefulness.
- * Note, this method performs no synchronization itself and is unsafe to call
- * in general. Basically it should only be called in the context of a performTask
- * method on a Recovery which is serialized by #taskQueue.
- *
- * \param recovery
- *      Recovery that is prepared to meet its maker.
- */
-void
-MasterRecoveryManager::destroyAndFreeRecovery(Recovery* recovery)
-{
-    // Waiting until destruction to remove the activeRecoveries
-    // means another recovery won't start until after the end of
-    // recovery broadcast. To change that just move the erase
-    // to recoveryFinished().
-    activeRecoveries.erase(recovery->getRecoveryId());
-    LOG(NOTICE,
-        "Recovery of server %lu done (now %lu active recoveries)",
-        recovery->crashedServerId.getId(), activeRecoveries.size());
-    delete recovery;
-}
-
 // - Recovery sub-tasks -
 
 namespace MasterRecoveryManagerInternal {
@@ -268,14 +108,6 @@ class EnqueueMasterRecoveryTask : public Task {
      *      MasterRecoveryManager which should enqueue a new recovery.
      * \param crashedServerId
      *      The crashed server which is to be recovered.
-     * \param will
-     *      A partitioned set of tablets or "will" of the crashed Master.
-     *      It is represented as a tablet map with a partition id in the
-     *      user_data field.  Partition ids must start at 0 and be
-     *      consecutive.  No partition id can have 0 entries before
-     *      any other partition that has more than 0 entries.  This
-     *      is because the recovery recovers partitions up but excluding the
-     *      first with no entries.
      * \param minOpenSegmentId
      *      Used to filter out replicas of segments which may have become
      *      inconsistent. A replica with a segment id less than this is
@@ -285,15 +117,15 @@ class EnqueueMasterRecoveryTask : public Task {
      */
     EnqueueMasterRecoveryTask(MasterRecoveryManager& recoveryManager,
                               ServerId crashedServerId,
-                              const ProtoBuf::Tablets& will,
                               uint64_t minOpenSegmentId)
         : Task(recoveryManager.taskQueue)
         , mgr(recoveryManager)
         , recovery()
         , minOpenSegmentId(minOpenSegmentId)
     {
-        recovery = new Recovery(mgr.taskQueue, &mgr.tracker, &mgr,
-                                crashedServerId, will, minOpenSegmentId);
+        recovery = new Recovery(recoveryManager.context, mgr.taskQueue,
+                                &mgr.tabletMap, &mgr.tracker,
+                                &mgr, crashedServerId, minOpenSegmentId);
     }
 
     /**
@@ -401,6 +233,9 @@ class RecoveryMasterFinishedTask : public Task {
                         "we need to handle this sensibly");
                 }
             }
+            LOG(DEBUG, "Coordinator tabletMap after recovery master %lu "
+                "finished: %s",
+                recoveryMasterId.getId(), mgr.tabletMap.debugString().c_str());
         } else {
             LOG(WARNING, "A recovery master failed to recover its partition");
         }
@@ -419,6 +254,198 @@ class RecoveryMasterFinishedTask : public Task {
 };
 }
 using namespace MasterRecoveryManagerInternal; // NOLINT
+
+/**
+ * Create a new instance; usually just one instance is created as part
+ * of the CoordinatorService.
+ *
+ * \param context
+ *      Overall information about the RAMCloud server or client.
+ * \param serverList
+ *      Authoritative list of all servers in the system and their details.
+ * \param  tabletMap
+ *      Authoritative information about tablets and their mapping to servers.
+ * \param runtimeOptions
+ *      Configuration options which are stored by the coordinator.
+ *      May be NULL for testing.
+ */
+MasterRecoveryManager::MasterRecoveryManager(Context& context,
+                                             CoordinatorServerList& serverList,
+                                             TabletMap& tabletMap,
+                                             RuntimeOptions* runtimeOptions)
+    : context(context)
+    , serverList(serverList)
+    , tabletMap(tabletMap)
+    , runtimeOptions(runtimeOptions)
+    , thread()
+    , waitingRecoveries()
+    , activeRecoveries()
+    , maxActiveRecoveries(1u)
+    , taskQueue()
+    , tracker(context, serverList, this)
+    , doNotStartRecoveries()
+{
+}
+
+/**
+ * Halt the thread, if running, and destroy this.
+ */
+MasterRecoveryManager::~MasterRecoveryManager()
+{
+    halt();
+}
+
+/**
+ * Start thread for performing recoveries; this must be called before other
+ * operations to ensure recoveries actually happen.
+ * Calling start() on an instance that is already started has no effect.
+ * start() and halt() are not thread-safe.
+ */
+void
+MasterRecoveryManager::start()
+{
+    if (!thread)
+        thread.construct(&MasterRecoveryManager::main, this);
+}
+
+/**
+ * Stop progress on recoveries.  Calling halt() on an instance that is
+ * already halted or has never been started has no effect.
+ * start() and halt() are not thread-safe.
+ */
+void
+MasterRecoveryManager::halt()
+{
+    taskQueue.halt();
+    if (thread)
+        thread->join();
+    thread.destroy();
+}
+
+/**
+ * Mark the tablets belonging to a now crashed server as RECOVERING and enqueue
+ * the recovery of the crashed master's tablets; actual recovery happens
+ * asynchronously.
+ *
+ * \param crashedServerId
+ *      The crashed server which is to be recovered. If the server did
+ *      not own any tablets when it crashed then no recovery is started.
+ */
+void
+MasterRecoveryManager::startMasterRecovery(ServerId crashedServerId)
+{
+    auto tablets =
+        tabletMap.setStatusForServer(crashedServerId, Tablet::RECOVERING);
+    if (tablets.empty()) {
+        LOG(NOTICE, "Server %lu crashed, but it had no tablets",
+            crashedServerId.getId());
+        return;
+    }
+
+    try {
+        CoordinatorServerList::Entry server = serverList[crashedServerId];
+        LOG(NOTICE, "Scheduling recovery of master %lu",
+            crashedServerId.getId());
+
+        if (doNotStartRecoveries) {
+            TEST_LOG("Recovery crashedServerId: %lu", crashedServerId.getId());
+            return;
+        }
+
+        (new EnqueueMasterRecoveryTask(*this, crashedServerId,
+                                       server.minOpenSegmentId))->schedule();
+    } catch (const Exception& e) {
+        // Check one last time just to sanity check the correctness of the
+        // recovery mananger: make sure that if the server isn't in the
+        // server list anymore (presumably because a recovery completed on
+        // it since the time of the start of the call) that there really aren't
+        // any tablets left on it.
+        tablets =
+            tabletMap.setStatusForServer(crashedServerId, Tablet::RECOVERING);
+        if (!tablets.empty()) {
+            LOG(ERROR, "Tried to start recovery for crashed server %lu which "
+                "has tablets in the tablet map but is no longer in the "
+                "coordinator server list. Cannot recover. Kiss your data "
+                "goodbye.", crashedServerId.getId());
+        }
+    }
+}
+
+namespace MasterRecoveryManagerInternal {
+class ApplyTrackerChangesTask : public Task {
+  PUBLIC:
+    /**
+     * Create a task which when run will apply all enqueued changes to
+     * #tracker and notifies any recoveries which have lost recovery masters.
+     * This brings #mgr.tracker into sync with #mgr.serverList. Because this
+     * task is run by #mgr.taskQueue is it serialized with other tasks.
+     */
+    explicit ApplyTrackerChangesTask(MasterRecoveryManager& mgr)
+        : Task(mgr.taskQueue)
+        , mgr(mgr)
+    {
+    }
+
+    void performTask()
+    {
+        ServerDetails server;
+        ServerChangeEvent event;
+        while (mgr.tracker.getChange(server, event)) {
+            if (event == SERVER_CRASHED || event == SERVER_REMOVED) {
+                Recovery* recovery = mgr.tracker[server.serverId];
+                if (!recovery)
+                    break;
+                LOG(NOTICE, "Recovery master %lu crashed while recovering "
+                    "a partition of server %lu", server.serverId.getId(),
+                    recovery->crashedServerId.getId());
+                // Like it or not, recovery is done on this recovery master
+                // but unsuccessfully.
+                recovery->recoveryMasterFinished(server.serverId, false);
+            }
+        }
+        delete this;
+    }
+
+    MasterRecoveryManager& mgr;
+};
+}
+using namespace MasterRecoveryManagerInternal; // NOLINT
+
+/**
+ * Schedule the handling of recovery master failures and the application
+ * of changes to #tracker.  Invoked by #serverList whenever #tracker has
+ * pending changes are pushed to it due to modifications to #serverList.
+ */
+void
+MasterRecoveryManager::trackerChangesEnqueued()
+{
+    (new ApplyTrackerChangesTask(*this))->schedule();
+}
+
+/**
+ * Deletes a Recovery and cleans up all resources associated with
+ * it in the MasterRecoveryManager. Invoked by Recovery instances
+ * when they've outlived their usefulness.
+ * Note, this method performs no synchronization itself and is unsafe to call
+ * in general. Basically it should only be called in the context of a performTask
+ * method on a Recovery which is serialized by #taskQueue.
+ *
+ * \param recovery
+ *      Recovery that is prepared to meet its maker.
+ */
+void
+MasterRecoveryManager::destroyAndFreeRecovery(Recovery* recovery)
+{
+    // Waiting until destruction to remove the activeRecoveries
+    // means another recovery won't start until after the end of
+    // recovery broadcast. To change that just move the erase
+    // to recoveryFinished().
+    activeRecoveries.erase(recovery->getRecoveryId());
+    LOG(NOTICE,
+        "Recovery of server %lu done (now %lu active recoveries)",
+        recovery->crashedServerId.getId(), activeRecoveries.size());
+    delete recovery;
+}
 
 /**
  * Note \a recovery as finished and either send out the updated server list
@@ -444,18 +471,23 @@ MasterRecoveryManager::recoveryFinished(Recovery* recovery)
     // means another recovery won't start until after the end of
     // recovery broadcast. To change that just move the erase
     // from destroyAndFreeRecovery() to recoveryFinished().
-    LOG(NOTICE, "Recovery completed for master %lu",
-        recovery->crashedServerId.getId());
+    LOG(NOTICE, "Recovery %lu completed for master %lu",
+        recovery->getRecoveryId(), recovery->crashedServerId.getId());
     if (recovery->wasCompletelySuccessful()) {
         // Remove recovered server from the server list and broadcast
         // the change to the cluster.
         // TODO(stutsman): Eventually we'll want CoordinatorServerList
         // to take care of this for us automatically. So we can just
         // do the remove.
-        ProtoBuf::ServerList update;
-        serverList.remove(recovery->crashedServerId, update);
-        serverList.incrementVersion(update);
-        serverList.sendMembershipUpdate(update, {});
+        try {
+            ProtoBuf::ServerList update;
+            serverList.remove(recovery->crashedServerId, update);
+            serverList.incrementVersion(update);
+            serverList.sendMembershipUpdate(update, {});
+        } catch (const Exception& e) {
+            // Server may have already been removed from the list
+            // because of an earlier recovery.
+        }
         (new MaybeStartRecoveryTask(*this))->schedule();
     } else {
         LOG(NOTICE,
@@ -465,7 +497,6 @@ MasterRecoveryManager::recoveryFinished(Recovery* recovery)
         // Enqueue will schedule a MaybeStartRecoveryTask.
         (new EnqueueMasterRecoveryTask(*this,
                                        recovery->crashedServerId,
-                                       recovery->will,
                                        recovery->minOpenSegmentId))->
                                                             schedule();
     }
@@ -521,41 +552,14 @@ MasterRecoveryManager::recoveryMasterFinished(
  */
 void
 MasterRecoveryManager::main()
-{
+try {
     taskQueue.performTasksUntilHalt();
-}
-
-/**
- * Enqueue the recovery of the tablets indicated in the will stored in the
- * CoordinatorServerList; actual recovery happens asynchronously. This method
- * does NOT mark the recovering tablets as RECOVERING; see startMasterRecovery()
- * for that.
- *
- * \param crashedServerId
- *      The crashed server which is to be recovered. If the server did
- *      not own any tablets when it crashed then no recovery is started.
- *      This id *must* be in #serverList so the will and minOpenSegmentId
- *      can be determined.
- *
- *  TODO(stutsman): Do we want to compare the will with the tablet map entries
- *  marked recovering in the callee? Or should we work toward making the
- *  wills and the tablet map consistent?
- */
-void
-MasterRecoveryManager::restartMasterRecovery(ServerId crashedServerId)
-{
-    CoordinatorServerList::Entry server = serverList[crashedServerId];
-    LOG(NOTICE, "Scheduling recovery of master %lu", crashedServerId.getId());
-
-    if (doNotStartRecoveries) {
-        TEST_LOG("Recovery crashedServerId: %lu", crashedServerId.getId());
-        TEST_LOG("Recovery will: %s", server.will->ShortDebugString().c_str());
-        return;
-    }
-
-    (new EnqueueMasterRecoveryTask(*this, crashedServerId,
-                                   *server.will,
-                                   server.minOpenSegmentId))->schedule();
+} catch (const std::exception& e) {
+    LOG(ERROR, "Fatal error in MasterRecoveryManager: %s", e.what());
+    throw;
+} catch (...) {
+    LOG(ERROR, "Unknown fatal error in MasterRecoveryManager.");
+    throw;
 }
 
 } // namespace RAMCloud

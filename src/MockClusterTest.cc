@@ -40,16 +40,16 @@ class MockClusterTest : public ::testing::Test {
 
 TEST_F(MockClusterTest, constructor) {
     ProtoBuf::ServerList serverList;
-    cluster->getCoordinatorClient()->getServerList(serverList);
+    CoordinatorClient::getServerList(context, serverList);
     EXPECT_EQ(0, serverList.server_size());
 }
 
 static bool destructorFilter(string s) { return s == "~MockCluster"; }
 
 TEST_F(MockClusterTest, destructor) {
-    config.services = {BACKUP_SERVICE};
+    config.services = {WireFormat::BACKUP_SERVICE};
     cluster->addServer(config);
-    config.services = {MASTER_SERVICE};
+    config.services = {WireFormat::MASTER_SERVICE};
     cluster->addServer(config);
     TestLog::Enable _(&destructorFilter);
     cluster.destroy();
@@ -59,7 +59,7 @@ TEST_F(MockClusterTest, destructor) {
 }
 
 TEST_F(MockClusterTest, addServer) {
-    config.services = {BACKUP_SERVICE};
+    config.services = {WireFormat::BACKUP_SERVICE};
     Server* server = cluster->addServer(config);
     EXPECT_EQ(server->config.localLocator, "mock:host=server0");
     EXPECT_FALSE(server->master);
@@ -67,15 +67,12 @@ TEST_F(MockClusterTest, addServer) {
     EXPECT_FALSE(server->membership);
     EXPECT_FALSE(server->ping);
     EXPECT_EQ(1u, cluster->servers.size());
-    cluster->get<BackupClient>(server)->openSegment({99, 0}, 100);
+    Segment segment;
+    BackupClient::writeSegment(context, server->serverId, {99, 0},
+                               100, &segment, 0, 0, {},
+                               WireFormat::BackupWrite::OPEN);
     server = cluster->addServer(config);
     EXPECT_EQ(server->config.localLocator, "mock:host=server1");
-}
-
-TEST_F(MockClusterTest, get) {
-    config.services = {BACKUP_SERVICE};
-    cluster->get<BackupClient>(
-        cluster->addServer(config))->openSegment({99, 0}, 100);
 }
 
 // Don't delete this.  Occasionally useful for checking unit test perf.
@@ -89,13 +86,13 @@ TEST_F(MockClusterTest, benchCoordinatorOnly) {
 }
 
 TEST_F(MockClusterTest, benchBackupCreate) {
-    config.services = {BACKUP_SERVICE};
+    config.services = {WireFormat::BACKUP_SERVICE};
     for (int i = 0; i < its; ++i)
         cluster->addServer(config);
 }
 
 TEST_F(MockClusterTest, benchMasterCreate) {
-    config.services = {MASTER_SERVICE};
+    config.services = {WireFormat::MASTER_SERVICE};
     for (int i = 0; i < its; ++i)
         cluster->addServer(config);
 }
@@ -109,20 +106,22 @@ TEST_F(MockClusterTest, benchTinyMasterCreate) {
 }
 
 TEST_F(MockClusterTest, benchMembershipCreate) {
-    config.services = {MEMBERSHIP_SERVICE};
+    config.services = {WireFormat::MEMBERSHIP_SERVICE};
     for (int i = 0; i < its; ++i)
         cluster->addServer(config);
 }
 
 TEST_F(MockClusterTest, benchPingCreate) {
-    config.services = {PING_SERVICE};
+    config.services = {WireFormat::PING_SERVICE};
     for (int i = 0; i < its; ++i)
         cluster->addServer(config);
 }
 
 TEST_F(MockClusterTest, benchFullCreate) {
-    config.services = {MASTER_SERVICE, BACKUP_SERVICE,
-                       MEMBERSHIP_SERVICE, PING_SERVICE};
+    config.services = {WireFormat::MASTER_SERVICE,
+                       WireFormat::BACKUP_SERVICE,
+                       WireFormat::MEMBERSHIP_SERVICE,
+                       WireFormat::PING_SERVICE};
     for (int i = 0; i < its; ++i)
         cluster->addServer(config);
 }

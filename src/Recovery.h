@@ -24,6 +24,7 @@
 #include "LogMetadata.h"
 #include "RawMetrics.h"
 #include "ServerTracker.h"
+#include "TabletMap.h"
 #include "Tablets.pb.h"
 #include "TaskQueue.h"
 
@@ -31,6 +32,7 @@ namespace RAMCloud {
 
 class Recovery;
 typedef ServerTracker<Recovery> RecoveryTracker;
+class Tablet;
 
 namespace RecoveryInternal {
 /**
@@ -53,21 +55,20 @@ class BackupStartTask {
     void filterOutInvalidReplicas();
     void wait();
     const ServerId backupId;
-    BackupClient::StartReadingData::Result result;
+    StartReadingDataRpc::Result result;
 
   PRIVATE:
     Recovery* recovery;
     const ServerId crashedMasterId;
     const ProtoBuf::Tablets& partitions;
     const uint64_t minOpenSegmentId;
-    Tub<BackupClient> client;
-    Tub<BackupClient::StartReadingData> rpc;
+    Tub<StartReadingDataRpc> rpc;
     bool done;
 
   PUBLIC:
     struct TestingCallback {
         virtual void backupStartTaskSend(
-                        BackupClient::StartReadingData::Result& result) {}
+                        StartReadingDataRpc::Result& result) {}
         virtual ~TestingCallback() {}
     };
     TestingCallback* testingCallback;
@@ -79,20 +80,17 @@ bool verifyLogComplete(Tub<BackupStartTask> tasks[],
                        const LogDigest& digest);
 Tub<std::tuple<uint64_t, uint32_t, LogDigest>>
 findLogDigest(Tub<BackupStartTask> tasks[], size_t taskCount);
-vector<RecoverRpc::Replica> buildReplicaMap(Tub<BackupStartTask> tasks[],
-                                            size_t taskCount,
-                                            RecoveryTracker* tracker,
-                                            uint64_t headId,
-                                            uint32_t headLength);
+vector<WireFormat::Recover::Replica> buildReplicaMap(
+    Tub<BackupStartTask> tasks[], size_t taskCount,
+    RecoveryTracker* tracker, uint64_t headId, uint32_t headLength);
 
 struct MasterStartTask;
 struct MasterStartTaskTestingCallback {
     virtual void masterStartTaskSend(uint64_t recoveryId,
-                                     ServerId crashedServerId,
-                                     uint32_t partitionId,
-                                     const ProtoBuf::Tablets& tablets,
-                                     const RecoverRpc::Replica replicaMap[],
-                                     size_t replicaMapSize) {}
+        ServerId crashedServerId, uint32_t partitionId,
+        const ProtoBuf::Tablets& tablets,
+        const WireFormat::Recover::Replica replicaMap[],
+        size_t replicaMapSize) {}
     virtual ~MasterStartTaskTestingCallback() {}
 };
 
@@ -116,17 +114,17 @@ class Recovery : public Task {
      * The default logic does nothing which is useful for
      * Recovery during unit testing.
      */
-    struct Owner{
+    struct Owner {
         virtual void recoveryFinished(Recovery* recovery) {}
         virtual void destroyAndFreeRecovery(Recovery* recovery) {}
         virtual ~Owner() {}
     };
-
-    Recovery(TaskQueue& taskQueue,
+    Recovery(Context& context,
+             TaskQueue& taskQueue,
+             TabletMap* tabletMap,
              RecoveryTracker* tracker,
              Owner* owner,
              ServerId crashedServerId,
-             const ProtoBuf::Tablets& will,
              uint64_t minOpenSegmentId);
     ~Recovery();
 
@@ -137,15 +135,11 @@ class Recovery : public Task {
     bool wasCompletelySuccessful() const;
     uint64_t getRecoveryId() const;
 
+    /// Shared RAMCloud information.
+    Context& context;
+
     /// The id of the crashed master which is being recovered.
     const ServerId crashedServerId;
-
-    /**
-     * A partitioning of tablets ('will') for the crashed master which
-     * describes how its contents should be divided up among recovery
-     * masters in order to balance recovery time across recovery masters.
-     */
-    const ProtoBuf::Tablets will;
 
     /**
      * Used to filter out replicas of segments which may have become
@@ -156,9 +150,29 @@ class Recovery : public Task {
     const uint64_t minOpenSegmentId;
 
   PRIVATE:
+    void partitionTablets();
     void startBackups();
     void startRecoveryMasters();
     void broadcastRecoveryComplete();
+
+    /**
+     * Partitioning of tablets for the crashed master which describes how its
+     * contents should be divided up among recovery masters in order to balance
+     * recovery time across recovery masters.  It is represented as a
+     * serialized tablet map with a partition id in the user_data field.
+     * Partition ids must start at 0 and be consecutive. No partition id can
+     * have 0 entries before any other partition that has more than 0 entries.
+     * This is because the recovery recovers partitions up but excluding the
+     * first with no entries.
+     */
+    ProtoBuf::Tablets tabletsToRecover;
+
+    /**
+     * Coordinator's authoritative information about tablets and their mapping
+     * to servers. Used during to find out which tablets need to be recovered
+     * for the crashed master.
+     */
+    TabletMap* tabletMap;
 
      /**
       * The MasterRecoveryManager's tracker which maintains a list of all
@@ -203,7 +217,7 @@ class Recovery : public Task {
      * A mapping of segmentIds to backup host service locators.
      * Populated by buildReplicaMap().
      */
-    vector<RecoverRpc::Replica> replicaMap;
+    vector<WireFormat::Recover::Replica> replicaMap;
 
     /**
      * Number of partitions in will; determines the number of recovery

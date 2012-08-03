@@ -25,8 +25,10 @@
 #include <boost/intrusive_ptr.hpp>
 
 #include "Common.h"
+#include "Atomic.h"
 #include "BoostIntrusive.h"
 #include "Buffer.h"
+#include "Fence.h"
 #include "ServiceLocator.h"
 #include "Tub.h"
 
@@ -57,8 +59,9 @@ struct TransportException : public Exception {
  * characteristics.
  */
 class Transport {
-
   public:
+    class RpcNotifier;
+
       /// Transports should cut off longer RPCs to prevent runaways.
       static const uint32_t MAX_RPC_LEN = (1 << 24);
 
@@ -292,6 +295,33 @@ class Transport {
         virtual ClientRpc* clientSend(Buffer* request, Buffer* response) = 0;
 
         /**
+         * Initiate the transmission of an RPC request to the server.
+         * \param request
+         *      The RPC request payload to send. The caller must not modify or
+         *      even access \a request until notifier's completed or failed
+         *      method has been invoked.
+         * \param[out] response
+         *      A Buffer that will be filled in with the RPC response. The
+         *      transport will clear any existing contents.  The caller must
+         *      not access \a response until \a notifier's \c completed or
+         *      \c failed method has been invoked.
+         * \param notifier
+         *      This object will be invoked when the RPC has completed or
+         *      failed. It also serves as a unique identifier for the RPC,
+         *      which can be passed to cancelRequest.
+         */
+        virtual void sendRequest(Buffer* request, Buffer* response,
+                RpcNotifier* notifier) = 0;
+
+        /**
+         * Cancel an RPC request that was sent previously.
+         * \param notifier
+         *      Notifier object associated with this request (was passed
+         *      to #sendRequest when the RPC was initiated).
+         */
+        virtual void cancelRequest(RpcNotifier* notifier) = 0;
+
+        /**
          * \return
          *      Return a reference to the service locator this Session is to.
          */
@@ -341,6 +371,22 @@ class Transport {
      * invoked to reclaim the session storage.
      */
     typedef boost::intrusive_ptr<Session> SessionRef;
+
+    /**
+     * An RpcNotifier is an object that transports use to notify higher-level
+     * software when an RPC has completed.  The RpcNotifier also serves as a
+     * unique identifier for the RPC, which can be used to cancel it.
+     * 
+     */
+    class RpcNotifier {
+      public:
+        explicit RpcNotifier() {}
+        virtual ~RpcNotifier() {}
+        virtual void completed();
+        virtual void failed();
+
+        DISALLOW_COPY_AND_ASSIGN(RpcNotifier);
+    };
 
     /**
      * Constructor for Transport.

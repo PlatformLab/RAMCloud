@@ -95,7 +95,7 @@ ServiceManager::~ServiceManager()
  */
 
 void
-ServiceManager::addService(Service& service, ServiceType type) {
+ServiceManager::addService(Service& service, WireFormat::ServiceType type) {
     assert(!services[type]);
     services[type].construct(service);
     serviceCount++;
@@ -129,9 +129,9 @@ ServiceManager::handleRpc(Transport::ServerRpc* rpc)
     assert(rpc->epochIsSet());
 
     // Find the service for this RPC.
-    const RpcRequestCommon* header;
-    header = rpc->requestPayload.getStart<RpcRequestCommon>();
-    if ((header == NULL) || (header->service >= INVALID_SERVICE) ||
+    const WireFormat::RequestCommon* header;
+    header = rpc->requestPayload.getStart<WireFormat::RequestCommon>();
+    if ((header == NULL) || (header->service >= WireFormat::INVALID_SERVICE) ||
             !services[header->service]) {
 #if TESTING
         if (serviceCount == 0) {
@@ -347,6 +347,9 @@ ServiceManager::workerMain(Worker* worker)
     } catch (std::exception& e) {
         LOG(ERROR, "worker: %s", e.what());
         throw; // will likely call std::terminate()
+    } catch (...) {
+        LOG(ERROR, "worker");
+        throw; // will likely call std::terminate()
     }
 }
 
@@ -451,14 +454,36 @@ ServiceManager::WorkerSession::abort(const string& message)
     return wrapped->abort(message);
 }
 
+// See Transport::Session::cancelRequest for documentation.
+void
+ServiceManager::WorkerSession::cancelRequest(
+        Transport::RpcNotifier* notifier)
+{
+    // Must make sure that the dispatch thread isn't running when we
+    // invoked the real cancelRequest.
+    Dispatch::Lock lock(context.dispatch);
+    return wrapped->cancelRequest(notifier);
+}
+
 // See Transport::Session::clientSend for documentation.
 Transport::ClientRpc*
 ServiceManager::WorkerSession::clientSend(Buffer* request, Buffer* reply)
 {
     // Must make sure that the dispatch thread isn't running when we
-    // invoked the real clientSend.
+    // invoke the real clientSend.
     Dispatch::Lock lock(context.dispatch);
     return wrapped->clientSend(request, reply);
+}
+
+// See Transport::Session::sendRequest for documentation.
+void
+ServiceManager::WorkerSession::sendRequest(Buffer* request,
+        Buffer* response, Transport::RpcNotifier* notifier)
+{
+    // Must make sure that the dispatch thread isn't running when we
+    // invoke the real sendRequest.
+    Dispatch::Lock lock(context.dispatch);
+    wrapped->sendRequest(request, response, notifier);
 }
 
 } // namespace RAMCloud

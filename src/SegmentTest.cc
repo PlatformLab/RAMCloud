@@ -154,6 +154,7 @@ TEST_P(SegmentTest, append_blackBox) {
 TEST_P(SegmentTest, append_outOfSpace) {
     Segment::Allocator* allocator = GetParam();
     Segment s(*allocator);
+    Segment::OpaqueFooterEntry unused;
 
     // How many N-length writes can we make to this segment?
     char buf[107];
@@ -168,18 +169,19 @@ TEST_P(SegmentTest, append_outOfSpace) {
 
     EXPECT_EQ(expectedAppends, actualAppends);
     EXPECT_EQ(allocator->getSegletsPerSegment(), s.getSegletsAllocated());
-    EXPECT_GE(allocator->getSegmentSize() - s.getTailOffset(),
+    EXPECT_GE(allocator->getSegmentSize() - s.getAppendedLength(unused),
         s.bytesNeeded(sizeof(Segment::Footer)));
 }
 
 TEST_P(SegmentTest, append_whiteBox) {
     Segment s(*GetParam());
+    Segment::OpaqueFooterEntry unused;
 
     uint32_t offset;
     s.append(LOG_ENTRY_TYPE_OBJ, "hi", 2, offset);
 
     EXPECT_EQ(0U, offset);
-    EXPECT_EQ(4U, s.getTailOffset());
+    EXPECT_EQ(4U, s.getAppendedLength(unused));
 
     Buffer buffer;
     s.appendToBuffer(buffer);
@@ -209,6 +211,7 @@ TEST_P(SegmentTest, append_differentLengthBytes) {
         { 3, threeByteLengths, arrayLength(threeByteLengths) }
         // 4-byte lengths? Fuhgeddaboudit!
     };
+    Segment::OpaqueFooterEntry unused;
 
     for (uint32_t i = 0; i < unsafeArrayLength(tests); i++) {
         for (uint32_t j = 0; j < tests[i].bytesToAppendLength; j++) {
@@ -219,7 +222,7 @@ TEST_P(SegmentTest, append_differentLengthBytes) {
             s.append(LOG_ENTRY_TYPE_OBJ, buf, length);
             EXPECT_EQ(sizeof(Segment::EntryHeader) +
                         tests[i].expectedLengthBytes + length,
-                      s.getTailOffset());
+                      s.getAppendedLength(unused));
 
             const Segment::EntryHeader* entryHeader = NULL;
             Buffer buffer;
@@ -285,6 +288,11 @@ TEST_P(SegmentTest, getEntry) {
         reinterpret_cast<const char*>(buffer.getRange(0, 21)));
 }
 
+TEST_P(SegmentTest, getAppendedLength) {
+    Segment s(*GetParam());
+    // XXXXX
+}
+
 TEST_P(SegmentTest, getSegletsAllocated) {
     Segment::Allocator* allocator = GetParam();
     Segment s(*allocator);
@@ -310,14 +318,15 @@ TEST_P(SegmentTest, getSegletsNeeded) {
 
 TEST_P(SegmentTest, appendFooter) {
     Segment s(*GetParam());
+    Segment::OpaqueFooterEntry unused;
 
     // Appending the footer shouldn't alter the tail or the checksum
     // we've accumulated thus far.
     s.append(LOG_ENTRY_TYPE_OBJ, "blah", 4);
-    uint32_t tail = s.getTailOffset();
+    uint32_t tail = s.getAppendedLength(unused);
     Crc32C checksum = s.checksum;
     s.appendFooter();
-    EXPECT_EQ(tail, s.getTailOffset());
+    EXPECT_EQ(tail, s.getAppendedLength(unused));
     EXPECT_EQ(checksum.getResult(), s.checksum.getResult());
 }
 
@@ -381,10 +390,6 @@ TEST_P(SegmentTest, getEntryInfo) {
         s.getEntryInfo(8, type, dataOffset, dataLength);
         EXPECT_EQ(0U, dataLength);
     }
-}
-
-TEST_P(SegmentTest, getAddressAt) {
-    Segment s(*GetParam());
 }
 
 TEST_P(SegmentTest, peek) {

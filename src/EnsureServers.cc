@@ -41,9 +41,9 @@ countServices(ProtoBuf::ServerList& serverList, int& masters, int &backups)
             continue;
         ServiceMask mask =
             ServiceMask::deserialize(serverList.server(i).services());
-        if (mask.has(MASTER_SERVICE))
+        if (mask.has(WireFormat::MASTER_SERVICE))
             masters++;
-        if (mask.has(BACKUP_SERVICE))
+        if (mask.has(WireFormat::BACKUP_SERVICE))
             backups++;
     }
 }
@@ -81,12 +81,12 @@ try
     int actualMasters = -1;
     int actualBackups = -1;
     int actualServers = -1;
+    RamCloud ramcloud(context,
+                      optionParser.options.getCoordinatorLocator().c_str());
     do {
         ProtoBuf::ServerList serverList;
         try {
-            RamCloud(context,
-                     optionParser.options.getCoordinatorLocator().c_str())
-                .coordinator.getServerList(serverList);
+            CoordinatorClient::getServerList(context, serverList);
         } catch (const TransportException& e) {
             LOG(ERROR, "couldn't query cluster membership: %s\n",
                 e.str().c_str());
