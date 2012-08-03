@@ -232,7 +232,7 @@ class RecoveryTestCase(ContextManagerTestCase):
         #self.last_unused_port += 1
 
     @timeout(240)
-    def _test_restart(self):
+    def test_restart(self):
         # We'll want two flavors of this test, I think. One with re-enlistement
         # and one as it is now (__unnamed__ means backups don't enlist as
         # replacements).  Both should be stable as long as they don't
