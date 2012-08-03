@@ -516,6 +516,7 @@ CoordinatorServerList::sendMembershipUpdate(ProtoBuf::ServerList& update,
                 succeeded = rpc.wait();
             } catch (const TransportException& e) {}
         } else {
+            rpc.cancel();
             LOG(NOTICE, "Failed to send cluster membership update to %lu",
                 entry->serverId.getId());
         }
@@ -540,6 +541,7 @@ CoordinatorServerList::sendMembershipUpdate(ProtoBuf::ServerList& update,
                     rpc.wait();
                 } catch (const TransportException& e) {}
             } else {
+                rpc.cancel();
                 LOG(NOTICE, "Failed to send full cluster server list to %lu "
                     "after it failed to accept the update",
                     entry->serverId.getId());
