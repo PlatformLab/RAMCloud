@@ -53,7 +53,7 @@ class ObjectFinder {
     }
 
     void waitForTabletDown();
-    void waitForAllTabletsNormal();
+    void waitForAllTabletsNormal(uint64_t timeoutNs = ~0lu);
 
   PRIVATE:
     /**

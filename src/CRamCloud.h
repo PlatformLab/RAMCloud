@@ -76,7 +76,9 @@ RAMCloud::Status    rc_testing_fill(struct rc_client* client, uint64_t tableId,
 RAMCloud::Status    rc_testing_set_runtime_option(struct rc_client* client,
                                                   const char* option,
                                                   const char* value);
-void rc_testing_wait_for_all_tablets_normal(struct rc_client* client);
+void rc_testing_wait_for_all_tablets_normal(struct rc_client* client,
+                                            uint64_t timeoutNs);
+void rc_set_log_file(const char* path);
 
 #ifdef __cplusplus
 }

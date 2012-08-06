@@ -93,6 +93,6 @@ class ContextManagerTestCase(unittest.TestCase):
     def __enter__(self):
         return self
 
-    def __exit__(self, *args):
+    def __exit__(self, exc_type, exc_value, traceback):
         return False # rethrow exception, if any
 

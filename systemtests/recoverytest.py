@@ -18,6 +18,7 @@ from __future__ import division, print_function
 from ramcloudtest import *
 import ramcloud
 import cluster
+import log
 import time
 
 def extractLocatorFromCommand(command):
@@ -63,13 +64,20 @@ class RecoveryTestCase(ContextManagerTestCase):
             self.cluster.ensure_servers()
 
             self.rc = ramcloud.RAMCloud()
+            print('%s ... ' % self.cluster.log_subdir, end='', file=sys.stderr)
+            self.rc.set_log_file(os.path.join(self.cluster.log_subdir,
+                                              'client.log'))
             self.rc.connect(self.cluster.coordinator_locator)
         except:
             self.cluster.__exit__()
             raise
         return self
 
-    def __exit__(self, *args):
+    def __exit__(self, exc_type, exc_value, traceback):
+        if exc_type is self.failureException:
+            log_info = log.scan(self.cluster.log_subdir, ["WARNING", "ERROR"])
+            if len(log_info) > 0:
+                print(log_info)
         self.cluster.__exit__()
         return False # rethrow exception, if any
 
@@ -79,7 +87,7 @@ class RecoveryTestCase(ContextManagerTestCase):
         self.rc.write(self.table, 'testKey', 'testValue')
 
     @timeout()
-    def test_simple_recovery(self):
+    def test_01_simple_recovery(self):
         """Store a value on a master, crash that master, wait for recovery,
         then read a value from the recovery master.
         """
@@ -92,7 +100,7 @@ class RecoveryTestCase(ContextManagerTestCase):
         self.assertEqual(('testValue', 1), value)
 
     @timeout()
-    def test_600M_recovery(self):
+    def test_02_600M_recovery(self):
         """Store 600 MB of objects on a master, crash that master,
         wait for recovery, then read a value from the recovery master.
         """
@@ -108,7 +116,7 @@ class RecoveryTestCase(ContextManagerTestCase):
         self.assertEqual(expectedValue, value)
 
     @timeout()
-    def test_recovery_master_failure(self):
+    def test_03_recovery_master_failure(self):
         """Cause a recovery where one of the recovery masters fails which
         is remedied by a follow up recovery.
         """
@@ -122,7 +130,7 @@ class RecoveryTestCase(ContextManagerTestCase):
         self.assertEqual(('testValue', 1), value)
 
     @timeout()
-    def test_repeated_recovery_master_failures(self):
+    def test_04_repeated_recovery_master_failures(self):
         """Cause a recovery where one of the recovery masters fails which,
         the followup recovery has its recovery master fail as well, then
         on the third recovery things work out.
@@ -137,7 +145,7 @@ class RecoveryTestCase(ContextManagerTestCase):
         self.assertEqual(('testValue', 1), value)
 
     @timeout(30)
-    def test_multiple_recovery_master_failures_in_one_recovery(self):
+    def test_05_multiple_recovery_master_failures_in_one_recovery(self):
         """Cause a recovery where two of the recovery masters fail which
         is remedied by a follow up recovery.
         """
@@ -166,7 +174,7 @@ class RecoveryTestCase(ContextManagerTestCase):
         self.assertEqual(('testValue2', 1), value)
 
     @timeout()
-    def test_one_backup_fails_during_recovery(self):
+    def test_06_one_backup_fails_during_recovery(self):
         # Create a second table, due to round robin this will be on a different
         # server than the first.
         self.createTestValue()
@@ -189,7 +197,7 @@ class RecoveryTestCase(ContextManagerTestCase):
         self.assertEqual(('testValue', 1), value)
 
     @timeout()
-    def _test_only_one_recovery_master_for_many_partitions(self):
+    def _test_07_only_one_recovery_master_for_many_partitions(self):
         """Cause a recovery when there is only one recovery master available
         and make sure that eventually all of the partitions of the will are
         recovered on that recovery master.
@@ -223,7 +231,9 @@ class RecoveryTestCase(ContextManagerTestCase):
             if host == h[0]:
                 host = h
                 break
-        self.servers.append(self.cluster.start_server(host, args='--clusterName=%s' % self.clusterName))
+        self.servers.append(
+            self.cluster.start_server(host,
+                                      args='--clusterName=%s' % self.clusterName))
         # Hack below can be used to use different ports for all servers
         #self.servers.append(
         #    self.cluster.start_server(host,
@@ -231,31 +241,29 @@ class RecoveryTestCase(ContextManagerTestCase):
         #        args='--clusterName=%s' % self.clusterName))
         #self.last_unused_port += 1
 
-    @timeout(240)
-    def test_restart(self):
-        # We'll want two flavors of this test, I think. One with re-enlistement
-        # and one as it is now (__unnamed__ means backups don't enlist as
-        # replacements).  Both should be stable as long as they don't
-        # lose too many backups at once, the named one should tolerate replica
-        # unavailbility.
+    @timeout(180)
+    def test_08_restart(self):
+        # We'll want two flavors of this test, I think.
+        # In this one backups re-enlist. Another test where they do not would
+        # be interesting, as it should be stable as well as long as crashes
+        # come slowly enough.
+        print()
         self.createTestValue()
-        self.addServerInfo([self.table])
         self.rc.testing_fill(self.table, '0', 592415, 1024)
+        print('Restarting ', end='')
         for x in range(20):
             server = self.servers[0]
-            print('Restarting %s' % server.host)
+            print(server.host, end= ' ')
+            sys.stdout.flush()
             self.restart(server)
             time.sleep(5)
-            print('Doing test read')
-            server_id = self.rc.testing_get_server_id(self.table, 'testKey')
-            locator = self.rc.testing_get_service_locator(self.table, 'testKey')
-            print('Key is on %d %s' % (server_id, locator))
+            self.rc.testing_wait_for_all_tablets_normal(10 * 10**9)
             value = self.rc.read(self.table, 'testKey')
             self.assertEqual(('testValue', 1), value)
-            print('Looks good')
+        print()
 
     @timeout(240)
-    def _test_restart_large(self):
+    def _test_09_restart_large(self):
         #self.addServerInfo([self.table])
 
         # - Setup -
@@ -265,7 +273,7 @@ class RecoveryTestCase(ContextManagerTestCase):
         numObjectsPerTable = 592415
         objectSize = 1024
         timeToWaitForRecovery = 5
-        numCrashes = 20
+        numCrashes = 1
 
         tables = []
         for t in range(len(self.servers)):
@@ -273,16 +281,19 @@ class RecoveryTestCase(ContextManagerTestCase):
             self.rc.create_table(name)
             table_id = self.rc.get_table_id(name)
             tables.append(table_id)
-            print('Filling %s with %d objects of %d bytes' % (name, numObjectsPerTable, objectSize))
+            print('Filling %s with %d objects of %d bytes' %
+                    (name, numObjectsPerTable, objectSize))
             self.rc.testing_fill(table_id, '0', numObjectsPerTable, objectSize)
             self.rc.write(table_id, 'testKey', 'testValue')
 
         # - Restart a server at-a-time and check recovery -
+        print('Restarting ')
         for x in range(numCrashes):
             server = self.servers[0]
             print('Restarting %s' % server.host)
             self.restart(server)
             time.sleep(timeToWaitForRecovery)
+            self.rc.testing_wait_for_all_tablets_normal(240 * 10**9)
             print('Doing test reads')
             for table in tables:
                 # These messages may be stale since they precede the actual read.
@@ -293,7 +304,10 @@ class RecoveryTestCase(ContextManagerTestCase):
                 self.assertEqual(('testValue', numObjectsPerTable + 1), value)
             print('Looks good')
 
-    def _test_cold_start(self):
+        print('Waiting for GC to catch up')
+        time.sleep(20)
+
+    def _test_10_cold_start(self):
         self.rc.testing_fill(self.table, '0', 592415, 1024)
         print('Killing all servers')
         for server in self.servers:

@@ -308,8 +308,15 @@ rc_testing_set_runtime_option(struct rc_client* client,
 }
 
 void
-rc_testing_wait_for_all_tablets_normal(struct rc_client* client)
+rc_testing_wait_for_all_tablets_normal(struct rc_client* client,
+                                       uint64_t timeoutNs)
 {
-    client->client->testingWaitForAllTabletsNormal();
+    client->client->testingWaitForAllTabletsNormal(timeoutNs);
+}
+
+void
+rc_set_log_file(const char* path)
+{
+    Logger::get().setLogFile(path);
 }
 

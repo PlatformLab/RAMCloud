@@ -1264,9 +1264,9 @@ SetRuntimeOptionRpc::SetRuntimeOptionRpc(RamCloud& ramcloud,
  * (that is, no tablet is under recovery).
  */
 void
-RamCloud::testingWaitForAllTabletsNormal()
+RamCloud::testingWaitForAllTabletsNormal(uint64_t timeoutNs)
 {
-    objectFinder.waitForAllTabletsNormal();
+    objectFinder.waitForAllTabletsNormal(timeoutNs);
 }
 
 /**
