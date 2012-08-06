@@ -20,6 +20,8 @@ sys.path.append('scripts')
 sys.path.append('bindings/python')
 
 import common
+import os
+os.environ['LD_LIBRARY_PATH'] = common.obj_dir + ':' + os.environ['LD_LIBRARY_PATH']
 import unittest
 import signal
 
