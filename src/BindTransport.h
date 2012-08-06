@@ -76,14 +76,6 @@ struct BindTransport : public Transport {
         DISALLOW_COPY_AND_ASSIGN(BindServerRpc);
     };
 
-    struct BindClientRpc : public ClientRpc {
-        BindClientRpc(Context& context, Buffer* request, Buffer* response)
-            : Transport::ClientRpc(context, request, response) {}
-        friend class BindTransport;
-        friend class BindSession;
-        DISALLOW_COPY_AND_ASSIGN(BindClientRpc);
-    };
-
     struct BindSession : public Session {
       public:
         explicit BindSession(BindTransport& transport, ServiceArray* services,
@@ -94,37 +86,6 @@ struct BindTransport : public Transport {
 
         void abort(const string& message) {}
         void cancelRequest(RpcNotifier* notifier) {}
-        ClientRpc* clientSend(Buffer* request, Buffer* response) {
-            BindClientRpc* result = new(response, MISC)
-                    BindClientRpc(transport.context, request, response);
-            Service::Rpc rpc(NULL, *request, *response);
-            if (transport.abortCounter > 0) {
-                transport.abortCounter--;
-                if (transport.abortCounter == 0) {
-                    // Simulate a failure of the server to respond.
-                    return result;
-                }
-            }
-            if (transport.errorMessage != "") {
-                result->markFinished(transport.errorMessage);
-                transport.errorMessage = "";
-                return result;
-            }
-
-            const WireFormat::RequestCommon* header;
-            header = request->getStart<WireFormat::RequestCommon>();
-            if ((header == NULL) ||
-                    (header->service >= WireFormat::INVALID_SERVICE)) {
-                throw ServiceNotAvailableException(HERE);
-            }
-            Service* service = services->services[header->service];
-            if (service == NULL) {
-                throw ServiceNotAvailableException(HERE);
-            }
-            service->handleRpc(rpc);
-            result->markFinished();
-            return result;
-        }
         void release() {
             delete this;
         }
@@ -200,9 +161,8 @@ struct BindTransport : public Transport {
     int abortCounter;
 
     /**
-     * If this is set to a non-empty value then a TransportException with
-     * message #errorMessage will be thrown on wait() of the next rpc sent
-     * via clientSend().
+     * If this is set to a non-empty value then the next RPC will
+     * fail immediately.
      */
     string errorMessage;
 

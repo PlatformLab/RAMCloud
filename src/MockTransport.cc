@@ -15,6 +15,7 @@
 
 #include "TestUtil.h"
 #include "MockTransport.h"
+#include "WireFormat.h"
 
 namespace RAMCloud {
 uint32_t RAMCloud::MockTransport::sessionDeleteCount = 0;
@@ -35,7 +36,6 @@ MockTransport::MockTransport(Context& context,
             , inputMessages()
             , lastNotifier(NULL)
             , serverSendCount(0)
-            , clientSendCount(0)
             , clientRecvCount(0)
             , sessionCreateCount(0)
             , locatorString()
@@ -103,27 +103,6 @@ void
 MockTransport::MockSession::cancelRequest(RpcNotifier* notifier)
 {
     transport->appendToOutput(CANCEL, "");
-}
-
-/**
- * Issue an RPC request using this transport.
- *
- * This is a fake method; it simply logs information about the request.
- *
- * \param payload
- *      Contents of the request message.
- * \param[out] response
- *      When a response arrives, the response message will be made
- *      available via this Buffer.
- *
- * \return  A pointer to the allocated space or \c NULL if there is not enough
- *          space in this Allocation.
- */
-Transport::ClientRpc*
-MockTransport::MockSession::clientSend(Buffer* payload, Buffer* response)
-{
-    transport->appendToOutput(CLIENT_SEND, *payload);
-    return new(response, MISC) MockClientRpc(transport, payload, response);
 }
 
 // See Transport::Session::release for documentation.
@@ -238,39 +217,6 @@ string
 MockTransport::MockServerRpc::getClientServiceLocator()
 {
     return "";
-}
-
-//-------------------------------------
-// MockTransport::MockClientRpc class
-//-------------------------------------
-
-/**
- * Construct a MockClientRpc.
- *
- * \param transport
- *      The MockTransport object that this RPC is associated with.
- * \param[out] request
- *      Buffer containing the request message.
- * \param[out] response
- *      Buffer in which the response message should be placed.
- */
-MockTransport::MockClientRpc::MockClientRpc(MockTransport* transport,
-                                            Buffer* request,
-                                            Buffer* response)
-        : Transport::ClientRpc(transport->context, request, response)
-{
-    if (transport->inputMessages.empty()) {
-        markFinished("no responses enqueued for MockTransport");
-        return;
-    }
-    const char *resp = transport->inputMessages.front();
-    transport->inputMessages.pop();
-    if (resp == NULL) {
-        markFinished("testing");
-        return;
-    }
-    response->fillFromString(resp);
-    markFinished();
 }
 
 // - private -

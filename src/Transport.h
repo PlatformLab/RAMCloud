@@ -66,100 +66,6 @@ class Transport {
       static const uint32_t MAX_RPC_LEN = (1 << 24);
 
     /**
-     * A RPC call that has been sent and is pending a response from a server.
-     * #clientSend() will return one of these, and the caller of that method
-     * must later call #wait() on it.
-     */
-    class ClientRpc {
-      PROTECTED:
-        /**
-         * Constructor for ClientRpc.
-         *
-         * \param context
-         *      Overall information about the RAMCloud server or client.
-         * \param request
-         *      Holds the outgoing (request) message for the RPC.
-         * \param response
-         *      Used to hold the response message, when it arrives.
-         */
-        ClientRpc(Context& context, Buffer* request, Buffer* response)
-            : context(context)
-            , request(request)
-            , response(response)
-            , finished(0)
-            , errorMessage() {}
-
-      public:
-
-        /**
-         * Destructor for ClientRpc.
-         */
-        virtual ~ClientRpc() {}
-
-        /**
-         * Wait for the RPC response to arrive (if it hasn't already) and
-         * throw an exception if there were any problems. Once this method
-         * has returned the caller can access the response message using
-         * the #Buffer that was passed to #clientSend().
-         *
-         * \throw TransportException
-         *      Something went wrong at the transport level (e.g. the
-         *      server crashed).
-         */
-        void wait();
-
-        /**
-         * Indicate whether a response or error has been received for
-         * the RPC.  Used for asynchronous processing of RPCs.
-         *
-         * \return
-         *      True means that #wait will not block when it is invoked.
-         *      Note: even if this method returns true, #wait must still
-         *      be invoked so it can throw exceptions (this method will
-         *      not throw any exceptions).
-         */
-        bool isReady() {
-            return (finished.load() != 0);
-        }
-
-        void cancel(const string& message);
-        void cancel(const char* message = "");
-
-        // Shared RAMCloud information.
-        Context& context;
-
-        // Request and response messages.
-        Buffer* request;
-        Buffer* response;
-
-      PROTECTED:
-        /**
-         * This method provides a hook for individual transports to unwind RPCs
-         * in progress as part of cancellation.  It is invoked by #cancel with
-         * the Dispatch lock held  (and only if the RPC isn't already finished);
-         * once it returns #cancel will mark the RPC finished.
-         */
-        virtual void cancelCleanup() {}
-        void markFinished(const string& errorMessage);
-        void markFinished(const char* errorMessage = NULL);
-
-        /**
-         * Non-zero means that the RPC has completed (either with or without an
-         * error), so the next call to #wait should return immediately.
-         */
-        std::atomic_int finished;
-
-        /**
-         * If an error occurred in the RPC then this holds the error message;
-         * if the RPC completed normally than this has no value.
-         */
-        Tub<string> errorMessage;
-
-      PRIVATE:
-        DISALLOW_COPY_AND_ASSIGN(ClientRpc);
-    };
-
-    /**
      * An RPC request that has been received and is either being serviced or
      * waiting for service.
      */
@@ -270,31 +176,6 @@ class Transport {
         virtual void release() = 0;
 
         /**
-         * Send an RPC request.
-         * \param[in] request
-         *      The RPC request payload to send. The caller must not modify or
-         *      even access \a request until the corresponding call to
-         *      #Transport::ClientRpc::wait() returns. The Transport may
-         *      add new chunks to \a request but will not modify its existing
-         *      chunks.
-         * \param[out] response
-         *      An empty Buffer that will be filled in with the received
-         *      RPC response. The caller must not access \a response until the
-         *      corresponding call to #Transport::ClientRpc::wait()
-         *      returns.
-         * \return
-         *      The RPC object through which to receive the reply. The caller
-         *      must eventually call #Transport::ClientRpc::wait() on this
-         *      object to complete the RPC and deliver any exceptions that
-         *      might have occurred. This object is allocated in \a response
-         *      and will automatically be deallocated when \a response is
-         *      deleted or reset.
-         * \throw TransportException
-         *      If any errors occur while initiating the request.
-         */
-        virtual ClientRpc* clientSend(Buffer* request, Buffer* response) = 0;
-
-        /**
          * Initiate the transmission of an RPC request to the server.
          * \param request
          *      The RPC request payload to send. The caller must not modify or
@@ -339,7 +220,7 @@ class Transport {
 
         /**
          * Shut down this session: abort any RPCs in progress and reject
-         * any future calls to \c clientSend.
+         * any future calls to \c sendRequest.
          * \param message
          *      Provides information about why the Session is being aborted.
          */

@@ -107,7 +107,7 @@ class TcpTransport : public Transport {
         /// Buffer in which incoming message will be stored (not including
         /// transport-specific header).  NULL means the message will be
         /// discarded.
-        Buffer *buffer;
+        Buffer* buffer;
 
         /// Session that will find the buffer to use for this message once
         /// the header has arrived (or NULL).
@@ -155,23 +155,28 @@ class TcpTransport : public Transport {
     /**
      * The TCP implementation of Transport::ClientRpc.
      */
-    class TcpClientRpc : public Transport::ClientRpc {
+    class TcpClientRpc {
       public:
         friend class TcpTransport;
         friend class TcpSession;
-        explicit TcpClientRpc(TcpSession& session, Buffer* request,
-                Buffer* response, uint64_t nonce, RpcNotifier* notifier)
-            : Transport::ClientRpc(session.transport.context,
-                    request, response),
-              nonce(nonce), session(session), sent(false), queueEntries(),
-              notifier(notifier)
-               { }
-      PROTECTED:
-        virtual void cancelCleanup();
+        explicit TcpClientRpc(TcpSession* session, Buffer* request,
+                Buffer* response, RpcNotifier* notifier, uint64_t nonce)
+            : session(session)
+            , request(request)
+            , response(response)
+            , notifier(notifier)
+            , nonce(nonce)
+            , sent(false)
+            , queueEntries()
+        { }
+
       PRIVATE:
+        TcpSession* session;      /// Session used for this RPC.
+        Buffer* request;          /// Request message for the RPC.
+        Buffer* response;         /// Will eventually hold the response message.
+        RpcNotifier* notifier;    /// Use this object to report completion.
         uint64_t nonce;           /// Unique identifier for this RPC; used
                                   /// to pair the RPC with its response.
-        TcpSession& session;      /// Session used for this RPC.
         bool sent;                /// True means the request has been sent
                                   /// and we are waiting for the response;
                                   /// false means this RPC is queued on
@@ -180,7 +185,6 @@ class TcpTransport : public Transport {
                                   /// Used to link this RPC onto the
                                   /// rpcsWaitingToSend and
                                   /// rpcsWaitingForResponse lists of session.
-        RpcNotifier* notifier;    /// Use this object to report completion.
         DISALLOW_COPY_AND_ASSIGN(TcpClientRpc);
     };
 
@@ -188,7 +192,7 @@ class TcpTransport : public Transport {
     void closeSocket(int fd);
     static ssize_t recvCarefully(int fd, void* buffer, size_t length);
     static int sendMessage
-        (int fd, uint64_t nonce, Buffer& payload,
+        (int fd, uint64_t nonce, Buffer* payload,
             int bytesToSend);
 
     /**
@@ -257,8 +261,6 @@ class TcpTransport : public Transport {
         ~TcpSession();
         virtual void abort(const string& message);
         virtual void cancelRequest(RpcNotifier* notifier);
-        ClientRpc* clientSend(Buffer* request, Buffer* reply)
-            __attribute__((warn_unused_result));
         Buffer* findRpc(Header& header);
         void release() {
             delete this;
@@ -375,6 +377,9 @@ class TcpTransport : public Transport {
 
     /// Pool allocator for our ServerRpc objects.
     ServerRpcPool<TcpServerRpc> serverRpcPool;
+
+    /// Pool allocator for TcpClientRpc objects.
+    ObjectPool<TcpClientRpc> clientRpcPool;
 
     DISALLOW_COPY_AND_ASSIGN(TcpTransport);
 };

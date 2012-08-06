@@ -433,7 +433,7 @@ Worker::sendReply()
  * \param context
  *      Overall information about the RAMCloud server.
  * \param wrapped
- *      Another Session object, to which #clientSend requests will be
+ *      Another Session object, to which #sendRequest calls will be
  *      forwarded.
  */
 ServiceManager::WorkerSession::WorkerSession(Context& context,
@@ -463,16 +463,6 @@ ServiceManager::WorkerSession::cancelRequest(
     // invoked the real cancelRequest.
     Dispatch::Lock lock(context.dispatch);
     return wrapped->cancelRequest(notifier);
-}
-
-// See Transport::Session::clientSend for documentation.
-Transport::ClientRpc*
-ServiceManager::WorkerSession::clientSend(Buffer* request, Buffer* reply)
-{
-    // Must make sure that the dispatch thread isn't running when we
-    // invoke the real clientSend.
-    Dispatch::Lock lock(context.dispatch);
-    return wrapped->clientSend(request, reply);
 }
 
 // See Transport::Session::sendRequest for documentation.

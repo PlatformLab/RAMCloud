@@ -30,8 +30,6 @@ class FailSession : public Transport::Session {
     virtual ~FailSession();
     virtual void abort(const string& message);
     virtual void cancelRequest(Transport::RpcNotifier* notifier);
-    virtual Transport::ClientRpc* clientSend(Buffer* request,
-            Buffer* response);
     static FailSession* get();
     virtual void release();
     virtual void sendRequest(Buffer* request, Buffer* response,

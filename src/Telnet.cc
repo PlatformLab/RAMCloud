@@ -25,6 +25,8 @@
 #include "Common.h"
 #include "Buffer.h"
 #include "CycleCounter.h"
+#include "Dispatch.h"
+#include "MockWrapper.h"
 #include "OptionParser.h"
 #include "TransportManager.h"
 
@@ -85,29 +87,30 @@ try
     if (!generate) {
         char sendbuf[1024];
         char recvbuf[serverCount][1024];
-        Transport::ClientRpc* rpcs[serverCount];
         RAMCLOUD_LOG(DEBUG, "Sending to %d servers", serverCount);
         while (fgets(sendbuf, sizeof(sendbuf), stdin) != NULL) {
-            Buffer response[serverCount];
-            Buffer request[serverCount];
+            MockWrapper rpcs[serverCount];
             for (int i = 0; i < serverCount; i++) {
-                Buffer::Chunk::appendToBuffer(&request[i], sendbuf,
+                Buffer::Chunk::appendToBuffer(&rpcs[i].request, sendbuf,
                     static_cast<uint32_t>(strlen(sendbuf)));
                 RAMCLOUD_LOG(DEBUG, "Sending out request %d to %s",
                     i, serverLocators[i].c_str());
-                rpcs[i] = session[i]->clientSend(&request[i], &response[i]);
+                session[i]->sendRequest(&rpcs[i].request, &rpcs[i].response,
+                                        &rpcs[i]);
             }
 
             for (int i = 0; i < serverCount; i++) {
                 RAMCLOUD_LOG(DEBUG, "Getting reply %d", i);
-                rpcs[i]->wait();
-                uint32_t respLen = response[i].getTotalLength();
+                while ((rpcs[i].completedCount + rpcs[i].failedCount) == 0) {
+                    context.dispatch->poll();
+                }
+                uint32_t respLen = rpcs[i].response.getTotalLength();
                 if (respLen >= sizeof(recvbuf[i])) {
                     RAMCLOUD_LOG(WARNING, "Failed to get reply %d", i);
                     break;
                 }
                 recvbuf[i][respLen] = '\0';
-                response[i].copy(0, respLen, recvbuf[i]);
+                rpcs[i].response.copy(0, respLen, recvbuf[i]);
                 fputs(static_cast<char*>(recvbuf[i]), stdout);
             }
         }
@@ -115,12 +118,14 @@ try
         char buf[1024];
         memset(buf, 0xcc, sizeof(buf));
         while (true) {
-            Buffer request;
-            Buffer response;
+            MockWrapper rpc;
             uint64_t totalFrags = (generateRandom() & 0x3FF);
             for (uint32_t i = 0; i < totalFrags; i++)
-                Buffer::Chunk::appendToBuffer(&request, buf, sizeof(buf));
-            session[0]->clientSend(&request, &response)->wait();
+                Buffer::Chunk::appendToBuffer(&rpc.request, buf, sizeof(buf));
+            session[0]->sendRequest(&rpc.request, &rpc.response, &rpc);
+            while ((rpc.completedCount + rpc.failedCount) == 0) {
+                context.dispatch->poll();
+            }
         }
     }
     return 0;

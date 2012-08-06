@@ -42,7 +42,7 @@ namespace RAMCloud {
  * layer just to give a developer a rough idea of where to look.
  *
  * - Client Outbound
- *  - ClientSession::clientSend
+ *  - ClientSession::sendRequest
  *   - ClientSession::getAvailableChannel
  *  - OutboundMessage::beginSending
  *  - OutboundMessage::send
@@ -98,21 +98,26 @@ class FastTransport : public Transport {
      * Once the RPC is created start() will initiate the RPC and wait()
      * will block until the response is complete and valid.
      */
-    class ClientRpc : public Transport::ClientRpc {
-      PROTECTED:
-        virtual void cancelCleanup();
-      PRIVATE:
+    class ClientRpc {
+      public:
         ClientRpc(ClientSession* session, Buffer* request,
                   Buffer* response, RpcNotifier* notifier);
 
+      PRIVATE:
         /// The ClientSession on which to send/receive the RPC.
         ClientSession* const session;
 
-        /// Entries to allow this RPC to be placed in a channel queue.
-        IntrusiveListHook channelQueueEntries;
+        /// Request message for the RPC.
+        Buffer* request;
+
+        /// Will eventually hold the response for the RPC.
+        Buffer* response;
 
         /// Use this object to report completion.
         RpcNotifier* notifier;
+
+        /// Entries to allow this RPC to be placed in a channel queue.
+        IntrusiveListHook channelQueueEntries;
 
       PRIVATE:
         friend class FastTransport;
@@ -669,20 +674,23 @@ class FastTransport : public Transport {
         /// nop
         virtual ~Session() {}
 
+        enum NonIdleAction {IGNORE_NON_IDLE, LOG_NON_IDLE, ASSERT_NON_IDLE};
+
         /**
          * This method destroys all of the state associated with a session,
          * but only if the session is not in active use for any RPCs.
          *
-         * \param expectIdle
-         *      True means the caller expects the session to be idle; if not,
-         *      an error message should be logged.
+         * \param nonIdleAction
+         *      Indicates what to do if the session is currently in active use:
+         *      do nothing, log a message and do nothing, or log a message and
+         *      generate an assertion failure.
          *
          * \return
          *      True means that the session was idle, so its state was
          *      destroyed.  False means the session was in use, so it couldn't
          *      be cleaned up.
          */
-        virtual bool expire(bool expectIdle = false) = 0;
+        virtual bool expire(NonIdleAction nonIdleAction = IGNORE_NON_IDLE) = 0;
 
         /**
          * Populate a Header with all the fields necessary to send it to
@@ -769,8 +777,7 @@ class FastTransport : public Transport {
         void beginSending(uint8_t channelId);
         virtual void abort(const string& message);
         virtual void cancelRequest(RpcNotifier* notifier);
-        virtual ClientRpc* clientSend(Buffer* request, Buffer* response);
-        virtual bool expire(bool expectIdle = false);
+        virtual bool expire(NonIdleAction nonIdleAction = IGNORE_NON_IDLE);
         virtual void fillHeader(Header* const header, uint8_t channelId) const;
         virtual const Driver::Address* getAddress();
         void processInboundPacket(Driver::Received* received);
@@ -907,12 +914,10 @@ class FastTransport : public Transport {
         ClientSession(FastTransport* transport, uint32_t sessionId);
         ~ClientSession();
 
-        void cancelRpc(ClientRpc* rpc);
-        ClientRpc* clientSend(Buffer* request, Buffer* response);
         virtual void abort(const string& message);
         virtual void cancelRequest(RpcNotifier* notifier);
         void connect();
-        bool expire(bool expectIdle = false);
+        bool expire(NonIdleAction nonIdleAction = IGNORE_NON_IDLE);
         void fillHeader(Header* const header, uint8_t channelId) const;
         const Driver::Address* getAddress();
         void init(const ServiceLocator& serviceLocator, uint32_t timeoutMs);
@@ -1260,6 +1265,9 @@ class FastTransport : public Transport {
 
     /// Pool allocator for our ServerRpc objects.
     ServerRpcPool<ServerRpc> serverRpcPool;
+
+    /// Pool allocator for ClientRpc objects.
+    ObjectPool<ClientRpc> clientRpcPool;
 
     // If non-zero, overrides the value of sessionExpireCycles during tests.
     static uint64_t sessionExpireCyclesOverride;

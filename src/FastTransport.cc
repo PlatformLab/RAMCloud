@@ -42,6 +42,7 @@ FastTransport::FastTransport(Context& context, Driver* driver)
     , clientSessions(this)
     , serverSessions(this)
     , serverRpcPool()
+    , clientRpcPool()
 {
     struct IncomingPacketHandler : Driver::IncomingPacketHandler {
         explicit IncomingPacketHandler(FastTransport& t) : t(t) {}
@@ -258,17 +259,12 @@ FastTransport::ClientRpc::ClientRpc(ClientSession* session,
                                     Buffer* request,
                                     Buffer* response,
                                     RpcNotifier* notifier)
-    : Transport::ClientRpc(session->transport->context, request, response)
-    , session(session)
-    , channelQueueEntries()
+    : session(session)
+    , request(request)
+    , response(response)
     , notifier(notifier)
+    , channelQueueEntries()
 {
-}
-
-void
-FastTransport::ClientRpc::cancelCleanup()
-{
-    session->cancelRpc(this);
 }
 
 // --- ServerRpc ---
@@ -584,9 +580,9 @@ FastTransport::InboundMessage::Timer::handleTimerEvent()
 {
     inboundMsg->silentIntervals++;
     if (inboundMsg->silentIntervals > MAX_SILENT_INTERVALS) {
-        inboundMsg->session->abort(format(
-                "timeout waiting for response from server at %s",
-                inboundMsg->session->getServiceLocator().c_str()));
+        LOG(WARNING, "timeout waiting for response from server at %s",
+                inboundMsg->session->getServiceLocator().c_str());
+        inboundMsg->session->abort("");
     } else {
         // Note: silentIntervals == 1 isn't cause for concern, since we could
         // have received the latest packet just before this timer fired.
@@ -892,9 +888,9 @@ FastTransport::OutboundMessage::Timer::handleTimerEvent()
 {
     outboundMsg->silentIntervals++;
     if (outboundMsg->silentIntervals > MAX_SILENT_INTERVALS) {
-        outboundMsg->session->abort(format(
-                "timeout waiting for acknowledgment from server at %s",
-                outboundMsg->session->getServiceLocator().c_str()));
+        LOG(WARNING, "timeout waiting for acknowledgment from server at %s",
+                outboundMsg->session->getServiceLocator().c_str());
+        outboundMsg->session->abort("");
     } else {
         outboundMsg->send();
     }
@@ -931,7 +927,7 @@ FastTransport::ServerSession::ServerSession(FastTransport* transport,
 
 FastTransport::ServerSession::~ServerSession()
 {
-    assert(expire(true));
+    expire(ASSERT_NON_IDLE);
 }
 
 /// This shouldn't ever be called.
@@ -969,22 +965,17 @@ FastTransport::ServerSession::cancelRequest(RpcNotifier* notifier)
     LOG(WARNING, "invoked unexpectedly");
 }
 
-/// This shouldn't ever be called.
-FastTransport::ClientRpc*
-FastTransport::ServerSession::clientSend(Buffer* request, Buffer* response)
-{
-    LOG(WARNING, "invoked unexpectedly");
-    return NULL;
-}
-
 // See Session::expire().
 bool
-FastTransport::ServerSession::expire(bool expectIdle)
+FastTransport::ServerSession::expire(NonIdleAction nonIdleAction)
 {
     for (uint32_t i = 0; i < NUM_CHANNELS_PER_SESSION; i++) {
         if (channels[i].state == ServerChannel::PROCESSING) {
-            if (expectIdle)
+            if (nonIdleAction != IGNORE_NON_IDLE) {
                 LOG(ERROR, "channel %u active", i);
+                if (nonIdleAction == ASSERT_NON_IDLE)
+                    assert(channels[i].state != ServerChannel::PROCESSING);
+            }
             return false;
         }
     }
@@ -1249,33 +1240,26 @@ FastTransport::ClientSession::ClientSession(FastTransport* transport,
 
 FastTransport::ClientSession::~ClientSession()
 {
-    assert(expire(true));
+    abort("");
 }
 
 // See Transport::ClientSession::abort().
 void
 FastTransport::ClientSession::abort(const string& message)
 {
-    LOG(DEBUG, "aborting connection to %s: %s", getServiceLocator().c_str(),
-        message.c_str());
-    abortMessage = message;
     for (uint32_t i = 0; i < numChannels; i++) {
         ClientRpc* rpc = channels[i].currentRpc;
         if (rpc) {
-            rpc->markFinished(message);
-            if (rpc->notifier != NULL) {
-                 rpc->notifier->failed();
-            }
+            rpc->notifier->failed();
+            transport->clientRpcPool.destroy(rpc);
         }
     }
     ChannelQueue::iterator iter(channelQueue.begin());
     while (iter != channelQueue.end()) {
         ClientRpc& rpc(*iter);
         iter = channelQueue.erase(iter);
-        rpc.markFinished(message);
-        if (rpc.notifier != NULL) {
-                rpc.notifier->failed();
-        }
+        rpc.notifier->failed();
+        transport->clientRpcPool.destroy(&rpc);
     }
     resetChannels();
     serverSessionHint = INVALID_HINT;
@@ -1290,7 +1274,7 @@ FastTransport::ClientSession::cancelRequest(RpcNotifier* notifier)
     for (uint32_t i = 0; i < numChannels; i++) {
         ClientRpc* rpc = channels[i].currentRpc;
         if (rpc && (rpc->notifier == notifier)) {
-            rpc->notifier->failed();
+            transport->clientRpcPool.destroy(rpc);
             reassignChannel(&channels[i]);
             return;
         }
@@ -1298,62 +1282,10 @@ FastTransport::ClientSession::cancelRequest(RpcNotifier* notifier)
     foreach (ClientRpc& rpc, channelQueue) {
         if (rpc.notifier == notifier) {
             erase(channelQueue, rpc);
+            transport->clientRpcPool.destroy(&rpc);
             return;
         }
     }
-}
-
-/**
- * This method is invoked by ClientRpc::cancelCleanup to carry out all of its work.
- *
- * \param rpc
- *      The remote procedure call to cancel.
- */
-void FastTransport::ClientSession::cancelRpc(FastTransport::ClientRpc* rpc)
-{
-    // First, see if the RPC has already been assigned a channel.  If so,
-    // separate it from the channel and reassign the channel.
-    bool rpcHasChannel = false;
-    for (uint32_t i = 0; i < numChannels; i++) {
-        if (channels[i].currentRpc == rpc) {
-            rpcHasChannel = true;
-            reassignChannel(&channels[i]);
-        }
-    }
-    if (!rpcHasChannel) {
-        // The RPC must be waiting on ChannelQueue; remove it from the queue.
-        erase(channelQueue, *rpc);
-    }
-}
-
-// See Transport::Session::clientSend().
-FastTransport::ClientRpc*
-FastTransport::ClientSession::clientSend(Buffer* request, Buffer* response)
-{
-    ClientRpc* rpc = new(response, MISC) ClientRpc(this, request, response,
-                                                   NULL);
-
-    // rpc will be performed immediately on the first available channel or
-    // queued until a channel is idle if none are currently available.
-    lastActivityTime = transport->context.dispatch->currentTime;
-    if (!isConnected()) {
-        connect();
-        LOG(DEBUG, "queueing RPC");
-        channelQueue.push_back(*rpc);
-    } else {
-        ClientChannel* channel = getAvailableChannel();
-        if (!channel) {
-            LOG(DEBUG, "queueing RPC");
-            channelQueue.push_back(*rpc);
-        } else {
-            assert(channel->state == ClientChannel::IDLE);
-            channel->state = ClientChannel::SENDING;
-            channel->currentRpc = rpc;
-            channel->outboundMsg.beginSending(rpc->request);
-        }
-    }
-
-    return rpc;
 }
 
 /**
@@ -1369,29 +1301,38 @@ FastTransport::ClientSession::connect()
 
 // See Session::expire().
 bool
-FastTransport::ClientSession::expire(bool expectIdle)
+FastTransport::ClientSession::expire(NonIdleAction nonIdleAction)
 {
     if (refCount > 0) {
-        if (expectIdle)
+        if (nonIdleAction != IGNORE_NON_IDLE) {
             LOG(ERROR, "refCount %d in session for %s", refCount,
                 getServiceLocator().c_str());
+            if (nonIdleAction == ASSERT_NON_IDLE)
+                assert(refCount <= 0);
+        }
         return false;
     }
     for (uint32_t i = 0; i < numChannels; i++) {
         if (channels[i].currentRpc) {
-            if (expectIdle)
+            if (nonIdleAction != IGNORE_NON_IDLE) {
                 LOG(ERROR, "channel %u active in session for %s", i,
                     getServiceLocator().c_str());
+                if (nonIdleAction == ASSERT_NON_IDLE)
+                    assert(!channels[i].currentRpc);
+            }
             return false;
         }
     }
     if (!channelQueue.empty()) {
-        if (expectIdle)
+        if (nonIdleAction != IGNORE_NON_IDLE) {
             LOG(ERROR, "channelQueue not empty in session for %s",
                 getServiceLocator().c_str());
+            if (nonIdleAction == ASSERT_NON_IDLE)
+                assert(channelQueue.empty());
+            }
         return false;
     }
-    abort("session expired");
+    abort("");
     return true;
 }
 
@@ -1521,8 +1462,8 @@ FastTransport::ClientSession::sendRequest(Buffer* request, Buffer* response,
                                           RpcNotifier* notifier)
 {
     response->reset();
-    ClientRpc* rpc = new(response, MISC) ClientRpc(this, request, response,
-                                                   notifier);
+    ClientRpc* rpc = transport->clientRpcPool.construct(this, request,
+                                                        response, notifier);
 
     // rpc will be performed immediately on the first available channel or
     // queued until a channel is idle if none are currently available.
@@ -1667,10 +1608,8 @@ FastTransport::ClientSession::processReceivedData(ClientChannel* channel,
     }
     if (channel->inboundMsg.processReceivedData(received)) {
         // InboundMsg has gotten its last fragment
-        channel->currentRpc->markFinished();
-        if (channel->currentRpc->notifier != NULL) {
-            channel->currentRpc->notifier->completed();
-        }
+        channel->currentRpc->notifier->completed();
+        transport->clientRpcPool.destroy(channel->currentRpc);
         reassignChannel(channel);
     }
 }
@@ -1755,8 +1694,9 @@ FastTransport::ClientSession::Timer::handleTimerEvent()
 {
     if (session->sessionOpenAttempts >= MAX_SILENT_INTERVALS) {
         session->sessionOpenAttempts = 0;
-        session->abort(format("timeout while opening session with %s",
-                session->getServiceLocator().c_str()));
+        LOG(WARNING, "timeout while opening session with %s",
+                session->getServiceLocator().c_str());
+        session->abort("");
     } else {
         LOG(NOTICE, "retrying session open with %s",
             session->getServiceLocator().c_str());
