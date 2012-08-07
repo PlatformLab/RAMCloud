@@ -227,7 +227,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServerLogCabin) {
 
     ProtoBuf::StateEnlistServer readState;
     serverManager->service.logCabinHelper->getProtoBufFromEntryId(
-        2, readState);
+        3, readState);
     EXPECT_EQ("entry_type: \"StateEnlistServer\"\n"
               "replaces_id: 1\n"
               "new_server_id: 2\nservice_mask: 2\n"
@@ -237,7 +237,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServerLogCabin) {
 
     ProtoBuf::ServerInformation readInfo;
     serverManager->service.logCabinHelper->getProtoBufFromEntryId(
-        3, readInfo);
+        4, readInfo);
     EXPECT_EQ("entry_type: \"ServerInformation\"\n"
               "server_id: 2\nservice_mask: 2\n"
               "read_speed: 0\nwrite_speed: 0\n"
@@ -450,6 +450,24 @@ TEST_F(CoordinatorServerManagerTest, sendServerList_main) {
     EXPECT_NE(string::npos, TestLog::get().find(
         "applyFullList: Got complete list of servers containing 1 "
         "entries (version number 2)"));
+}
+
+TEST_F(CoordinatorServerManagerTest, serverDown) {
+    TaskQueue mgr;
+    serverManager->service.recoveryManager.doNotStartRecoveries = true;
+    // master is already enlisted
+
+    ramcloud->createTable("foo");
+    serverManager->forceServerDownForTesting = true;
+    TestLog::Enable _(startMasterRecoveryFilter);
+
+    serverManager->serverDown(masterServerId);
+
+    EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1 | "
+              "startMasterRecovery: Recovery crashedServerId: 1",
+               TestLog::get());
+    EXPECT_EQ(ServerStatus::CRASHED,
+              serverList->at(master->serverId).status);
 }
 
 TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentId) {

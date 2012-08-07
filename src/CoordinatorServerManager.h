@@ -65,6 +65,7 @@ class CoordinatorServerManager {
                                EntryId entryId);
     void removeReplicationGroup(uint64_t groupId);
     void sendServerList(ServerId serverId);
+    void serverDown(ServerId serverId);
     void setMinOpenSegmentId(ServerId serverId, uint64_t segmentId);
     void setMinOpenSegmentIdRecover(ProtoBuf::ServerInformation* state,
                                     EntryId entryId);
