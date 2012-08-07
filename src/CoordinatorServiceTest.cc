@@ -382,9 +382,9 @@ TEST_F(CoordinatorServiceTest, sendServerList) {
     ServerConfig config = ServerConfig::forTesting();
     config.services = {WireFormat::MEMBERSHIP_SERVICE};
     ServerId id = cluster.addServer(config)->serverId;
-
     TestLog::Enable _;
     CoordinatorClient::sendServerList(context, id);
+    cluster.syncCoordinatorServerList();
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
             "Sending server list to server id 2", TestLog::get()));
 }

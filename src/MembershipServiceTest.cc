@@ -62,13 +62,12 @@ TEST_F(MembershipServiceTest, getServerId) {
 
 TEST_F(MembershipServiceTest, setServerList) {
     CoordinatorServerList source(context);
-    ProtoBuf::ServerList update;
     ServerId id1 = source.add("mock:host=55", {WireFormat::MASTER_SERVICE,
-            WireFormat::PING_SERVICE}, 100, update);
+            WireFormat::PING_SERVICE}, 100);
     ServerId id2 = source.add("mock:host=56", {WireFormat::MASTER_SERVICE,
-            WireFormat::PING_SERVICE}, 100, update);
+            WireFormat::PING_SERVICE}, 100);
     ServerId id3 = source.add("mock:host=57", {WireFormat::MASTER_SERVICE,
-            WireFormat::PING_SERVICE}, 100, update);
+            WireFormat::PING_SERVICE}, 100);
     ProtoBuf::ServerList fullList;
     source.serialize(fullList);
     MembershipClient::setServerList(context, serverId, fullList);
@@ -80,13 +79,14 @@ TEST_F(MembershipServiceTest, setServerList) {
 
 TEST_F(MembershipServiceTest, updateServerList) {
     CoordinatorServerList source(context);
-    ProtoBuf::ServerList update;
-    ServerId id1 = source.add("mock:host=55", {WireFormat::MASTER_SERVICE,
-            WireFormat::PING_SERVICE}, 100, update);
-    ServerId id2 = source.add("mock:host=56", {WireFormat::MASTER_SERVICE,
-            WireFormat::PING_SERVICE}, 100, update);
-    source.incrementVersion(update);
-    MembershipClient::updateServerList(context, serverId, update);
+    ProtoBuf::ServerList& updates = source.updates;
+    ServerId id1 = source.add("mock:host=55",
+            {WireFormat::MASTER_SERVICE, WireFormat::PING_SERVICE}, 100);
+    ServerId id2 = source.add("mock:host=56",
+            {WireFormat::MASTER_SERVICE, WireFormat::PING_SERVICE}, 100);
+
+    updates.set_version_number(1);
+    MembershipClient::updateServerList(context, serverId, updates);
     EXPECT_STREQ("mock:host=55", serverList.getLocator(id1));
     EXPECT_STREQ("mock:host=56", serverList.getLocator(id2));
     EXPECT_TRUE(serverList.contains(serverId));

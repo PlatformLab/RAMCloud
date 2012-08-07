@@ -480,10 +480,8 @@ MasterRecoveryManager::recoveryFinished(Recovery* recovery)
         // to take care of this for us automatically. So we can just
         // do the remove.
         try {
-            ProtoBuf::ServerList update;
-            serverList.remove(recovery->crashedServerId, update);
-            serverList.incrementVersion(update);
-            serverList.sendMembershipUpdate(update, {});
+            serverList.remove(recovery->crashedServerId);
+            serverList.sendMembershipUpdate({});
         } catch (const Exception& e) {
             // Server may have already been removed from the list
             // because of an earlier recovery.

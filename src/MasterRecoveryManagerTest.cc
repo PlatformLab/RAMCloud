@@ -50,10 +50,9 @@ struct MasterRecoveryManagerTest : public ::testing::Test {
      *      ServerId of the entry added to #serverList.
      */
     ServerId addMaster() {
-        ProtoBuf::ServerList update;
         ServerId serverId =
-            serverList.add("fake-locator", {WireFormat::MASTER_SERVICE},
-                           0, update);
+             serverList.add("fake-locator", {WireFormat::MASTER_SERVICE}, 0);
+        serverList.updates.Clear(); // prevents cross contamination
         while (!mgr.taskQueue.isIdle())
             mgr.taskQueue.performTask();
         return serverId;
@@ -70,8 +69,8 @@ struct MasterRecoveryManagerTest : public ::testing::Test {
      *      Server to mark as crashed.
      */
     void crashServer(ServerId crashedServerId) {
-        ProtoBuf::ServerList update;
-        serverList.crashed(crashedServerId, update);
+        serverList.crashed(crashedServerId);
+        serverList.updates.Clear(); // prevents cross contamination
         while (!mgr.taskQueue.isIdle())
             mgr.taskQueue.performTask();
     }

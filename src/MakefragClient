@@ -44,6 +44,7 @@ CLIENT_SRCFILES := \
 		   src/RpcWrapper.cc \
 		   src/ServerIdRpcWrapper.cc \
 		   src/ServerList.cc \
+           src/ServerListUpdater.cc \
 		   src/ServerMetrics.cc \
 		   src/ServerRpcPool.cc \
 		   src/Service.cc \

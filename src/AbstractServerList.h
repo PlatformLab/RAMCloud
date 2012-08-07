@@ -173,18 +173,18 @@ struct ServerListException : public Exception {
 class ServerTrackerInterface;
 
 /**
- * AbstractServerList provides a common interface to READ from a map of 
- * ServerIds to ServerDetails. This abstract class relies on its subclasses to 
+ * AbstractServerList provides a common interface to READ from a map of
+ * ServerIds to ServerDetails. This abstract class relies on its subclasses to
  * provide an underlying storage mechanism to map ServerIds to ServerDetails.
- * 
+ *
  * This class provides support for ServerTrackers. If a module wishes
- * to keep track of changes to the ServerList, then it may register its own 
- * private ServerTracker with the AbstractServerList. The tracker will be fed 
- * updates (dependent on subclass). The tracker also provides a convenient 
- * way to associate their own per-server state with ServerIds that they're 
+ * to keep track of changes to the ServerList, then it may register its own
+ * private ServerTracker with the AbstractServerList. The tracker will be fed
+ * updates (dependent on subclass). The tracker also provides a convenient
+ * way to associate their own per-server state with ServerIds that they're
  * using or keeping track of.
- * 
- * All the functions in this class are thread-safe (monitor-style). 
+ *
+ * All the functions in this class are thread-safe (monitor-style).
  */
 class AbstractServerList {
   PUBLIC:
@@ -211,29 +211,33 @@ class AbstractServerList {
     /**
      * Retrieve the ServerDetails stored in the underlying subclass storage
      * at index index;
-     * 
+     *
      * \param index - index of underlying storage
      * \return ServerDetails contained at index
      */
     virtual ServerDetails* iget(size_t index) = 0;
 
     /**
-     * Check of this ServerId is contained within the list. 
-     * 
+     * Check of this ServerId is contained within the list.
+     *
      * \param id - ServerId that to look up
-     * \return bool - true if id is within list. 
+     * \return bool - true if id is within list.
      */
     virtual bool icontains(ServerId id) const = 0;
 
     /**
      * Return the number of valid indexes in the list
-     * 
-     * \return size_t - number of valid indexes. 
+     *
+     * \return size_t - number of valid indexes.
      */
     virtual size_t isize() const = 0;
 
     /// Shared RAMCloud information.
     Context& context;
+
+    /// Used to detect when the AbstractServerList has entered its destruction
+    /// phase and will no longer accept new trackers.
+    bool isBeingDestroyed;
 
     /// Incremented each time the server list is modified (i.e. when add or
     /// remove is called). Since we usually send delta updates to clients,
@@ -250,9 +254,9 @@ class AbstractServerList {
     /// are being handled. Provides monitor-style protection for all operations
     /// on the ServerId map. A Lock for this mutex MUST be held to read or
     /// modify any state in the server list.
-    mutable std::recursive_mutex mutex;
+    mutable std::mutex mutex;
 
-    typedef std::lock_guard<std::recursive_mutex> Lock;
+    typedef std::lock_guard<std::mutex> Lock;
 };
 
 } //namespace RAMCloud

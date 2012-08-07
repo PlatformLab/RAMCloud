@@ -62,6 +62,14 @@ TEST_F(ServerTrackerTest, constructors) {
     EXPECT_EQ(static_cast<uint32_t>(-1), trcb.lastRemovedIndex);
 }
 
+TEST_F(ServerTrackerTest, destructor) {
+    EXPECT_EQ(2U, sl.trackers.size());
+    ServerTracker<int>* tr2 = new ServerTracker<int>(context, sl);
+    EXPECT_EQ(3U, sl.trackers.size());
+    delete tr2;
+    EXPECT_EQ(2U, sl.trackers.size());
+}
+
 TEST_F(ServerTrackerTest, enqueueChange) {
     EXPECT_EQ(0U, tr.serverList.size());
     EXPECT_EQ(0U, tr.changes.changes.size());
@@ -476,6 +484,15 @@ TEST_F(ServerTrackerTest, ChangeQueue_getChange) {
 
 TEST_F(ServerTrackerTest, ChangeQueue_hasChanges) {
 
+}
+
+TEST_F(ServerTrackerTest, setParent) {
+    EXPECT_EQ(&sl, tr.parent);
+    tr.setParent(NULL);
+    EXPECT_EQ(static_cast<AbstractServerList*>(NULL), tr.parent);
+
+    tr.setParent(&sl);
+    EXPECT_EQ(&sl, tr.parent);
 }
 
 }  // namespace RAMCloud

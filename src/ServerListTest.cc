@@ -22,18 +22,18 @@
 
 namespace RAMCloud {
 
-namespace {
+namespace __ServerListTest__ {
 static std::queue<ServerTracker<int>::ServerChange> changes;
 
-class MockServerTracker : public ServerTrackerInterface {
-    void
-    enqueueChange(const ServerDetails& server, ServerChangeEvent event)
+class MockServerTracker : public ServerTracker<int> {
+  public:
+    explicit MockServerTracker(Context& context): ServerTracker<int>(context) {}
+    void enqueueChange(const ServerDetails& server, ServerChangeEvent event)
     {
-        changes.push({server, event});
+        __ServerListTest__::changes.push({server, event});
     }
     void fireCallback() {}
 };
-}
 
 class ServerListTest : public ::testing::Test {
   public:
@@ -44,7 +44,7 @@ class ServerListTest : public ::testing::Test {
     ServerListTest()
         : context(),
           sl(context),
-          tr()
+          tr(context)
     {
         while (!changes.empty())
             changes.pop();
@@ -660,4 +660,5 @@ TEST_F(ServerListTest, removeNewerIdCurrentlyCrashed) {
     changes.pop();
 }
 
+}  // namespace __ServerListTest__
 }  // namespace RAMCloud

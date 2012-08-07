@@ -125,7 +125,7 @@ FastTransport::numFrags(const Buffer* dataBuffer)
  * \param header
  *      Header from the incoming packet that indicated a bad session.
  * \param address
- *      Indicates where to send the error packet. 
+ *      Indicates where to send the error packet.
  */
 void
 FastTransport::sendBadSessionError(Header *header,
@@ -1365,7 +1365,7 @@ FastTransport::ClientSession::getAddress()
  *      If we can't get any signs of life out of the server within this
  *      many milliseconds during an RPC then the session will be aborted.
  *      0 means we get to pick a reasonable default.
- *      
+ *
  */
 void
 FastTransport::ClientSession::init(const ServiceLocator& serviceLocator,

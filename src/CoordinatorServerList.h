@@ -13,41 +13,39 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * This file defines the CoordinatorServerList class.
- */
-
 #ifndef RAMCLOUD_COORDINATORSERVERLIST_H
 #define RAMCLOUD_COORDINATORSERVERLIST_H
 
-#include <Client/Client.h>
-
 #include "ServerList.pb.h"
-#include "Tablets.pb.h"
-
-#include "ServiceMask.h"
-#include "ServerId.h"
-#include "ServerList.h"
-#include "Tub.h"
 
 #include "AbstractServerList.h"
+#include "ServiceMask.h"
+#include "ServerId.h"
+#include "ServerListUpdater.h"
+#include "Tub.h"
 
 namespace RAMCloud {
 
-/// Forward declartion.
-class ServerTrackerInterface;
+/// Forward Declaration
+class ServerListUpdater;
 
 /**
  * A CoordinatorServerList allocates ServerIds and holds Coordinator
  * state associated with live servers. It is closely related to the
  * ServerList and ServerTracker classes in that it essentially consists
- * of a map of ServerIds to some data and supports ServerTrackers. The 
- * tracker will be fed updates whenever servers come or go (add, 
+ * of a map of ServerIds to some data and supports ServerTrackers. The
+ * tracker will be fed updates whenever servers come or go (add,
  * crashed, removed).
- * 
- * CoordinatorServerList is thread-safe and supports ServerTrackers
- * 
+ *
+ * Additionally, this class contains the logic to propagate membership updates
+ * (add/crashed/remove) and send the full list to ServerIds on the list.
+ * Add/Crashed/Removes statuses are buffered into an internally managed
+ * Protobuf until sendMembershipUpdate() is called, which will flush the buffer.
+ * The updates are done asynchronously from the CoordinatorServerList call
+ * thread. sync() can be called to force a synchronization point.
+ *
+ * CoordinatorServerList is thread-safe and supports ServerTrackers.
+ *
  * This class publicly extends AbstractServerList to provide a common
  * interface to READ from map of ServerIds and (un)register trackers.
  */
@@ -105,21 +103,12 @@ class CoordinatorServerList : public AbstractServerList{
          LogCabin::Client::EntryId logCabinEntryId;
     };
 
-    struct NoSuchServer : public Exception {
-        explicit NoSuchServer(const CodeLocation& where, string msg)
-            : Exception(where, msg) {}
-    };
-
     explicit CoordinatorServerList(Context& context);
     ~CoordinatorServerList();
     ServerId add(string serviceLocator, ServiceMask serviceMask,
-                 uint32_t readSpeed,
-                 ProtoBuf::ServerList& update);
-    void crashed(ServerId serverId,
-                 ProtoBuf::ServerList& update);
-    void remove(ServerId serverId,
-                ProtoBuf::ServerList& update);
-    void incrementVersion(ProtoBuf::ServerList& update);
+                 uint32_t readSpeed);
+    void crashed(ServerId serverId);
+    void remove(ServerId serverId);
 
     void setMinOpenSegmentId(ServerId serverId, uint64_t segmentId);
     void setReplicationId(ServerId serverId, uint64_t segmentId);
@@ -136,12 +125,14 @@ class CoordinatorServerList : public AbstractServerList{
     void serialize(ProtoBuf::ServerList& protoBuf) const;
     void serialize(ProtoBuf::ServerList& protobuf,
                    ServiceMask services) const;
-    void sendMembershipUpdate(ProtoBuf::ServerList& update,
-                              ServerId excludeServerId);
+
+    void sendServerList(ServerId& serverId);
+    void sendMembershipUpdate(ServerId excludeServerId);
+    void sync();
+
     void addLogCabinEntryId(ServerId serverId,
                             LogCabin::Client::EntryId entryId);
     LogCabin::Client::EntryId getLogCabinEntryId(ServerId serverId);
-
 
   PROTECTED:
     /// Internal Use Only - Does not grab locks
@@ -171,14 +162,15 @@ class CoordinatorServerList : public AbstractServerList{
         Tub<Entry> entry;
     };
 
-    void crashed(const Lock& lock,
-                 ServerId serverId,
-                 ProtoBuf::ServerList& update);
+    void crashed(const Lock& lock, ServerId serverId);
     uint32_t firstFreeIndex();
     const Entry& getReferenceFromServerId(const ServerId& serverId) const;
     void serialize(const Lock& lock, ProtoBuf::ServerList& protoBuf) const;
     void serialize(const Lock& lock, ProtoBuf::ServerList& protobuf,
                    ServiceMask services) const;
+
+     /// Used to propagate ServerList changes in the background.
+    ServerListUpdater updater;
 
     /// Slots in the server list.
     std::vector<GenerationNumberEntryPair> serverList;
@@ -188,6 +180,18 @@ class CoordinatorServerList : public AbstractServerList{
 
     /// Number of backups in the server list.
     uint32_t numberOfBackups;
+
+    /**
+     * Stores add/remove/crashed updates to server list until a
+     * sendMembershipUpdate call which will update the version number, enqueue
+     * a copy to the BackgroundUpdater work queue and clear() this entry.
+     * \a update can contain remove, crash, and add notifications,
+     * but removals/crashes must precede additions in the update to ensure
+     * ordering guarantees about notifications related to servers which
+     * re-enlist.  For now, this means calls to remove() and crashed() must
+     * proceed call to add() if they have a common \a update.
+     */
+    ProtoBuf::ServerList updates;
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorServerList);
 };

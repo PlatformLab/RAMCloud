@@ -16,6 +16,8 @@
 #ifndef RAMCLOUD_TABLETMAP_H
 #define RAMCLOUD_TABLETMAP_H
 
+#include "Tablets.pb.h"
+
 #include "Common.h"
 #include "CoordinatorServerList.h"
 #include "LogTypes.h"

@@ -138,11 +138,8 @@ TEST_F(TabletMapTest, removeTabletsForTable) {
 
 TEST_F(TabletMapTest, serialize) {
     CoordinatorServerList serverList(context);
-    ProtoBuf::ServerList update;
-    auto id1 = serverList.add("mock:host=one", {WireFormat::MASTER_SERVICE},
-                              1, update);
-    auto id2 = serverList.add("mock:host=two", {WireFormat::MASTER_SERVICE},
-                              2, update);
+    auto id1 = serverList.add("mock:host=one", {WireFormat::MASTER_SERVICE}, 1);
+    auto id2 = serverList.add("mock:host=two", {WireFormat::MASTER_SERVICE}, 2);
     map.addTablet({0, 1, 6, id1, Tablet::NORMAL, {0, 5}});
     map.addTablet({1, 2, 7, id2, Tablet::NORMAL, {1, 6}});
     ProtoBuf::Tablets tablets;

@@ -22,6 +22,8 @@
 #define RAMCLOUD_SERVERID_H
 
 #include <functional>
+#include "Common.h"
+
 
 namespace RAMCloud {
 

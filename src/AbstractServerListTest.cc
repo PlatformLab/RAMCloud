@@ -22,18 +22,19 @@
 
 namespace RAMCloud {
 
-namespace {
+namespace __AbstractServerListTest__ {
 static std::queue<ServerTracker<int>::ServerChange> changes;
 
-class MockServerTracker : public ServerTrackerInterface {
-    void
-    enqueueChange(const ServerDetails& server, ServerChangeEvent event)
+struct MockServerTracker : public ServerTracker<int> {
+    explicit MockServerTracker(Context& context) : ServerTracker<int>(context)
     {
-        changes.push({server, event});
+    }
+    void enqueueChange(const ServerDetails& server, ServerChangeEvent event)
+    {
+        __AbstractServerListTest__::changes.push({server, event});
     }
     void fireCallback() {}
 };
-}
 
 class AbstractServerListSubClass : public AbstractServerList {
   PUBLIC:
@@ -110,7 +111,7 @@ class AbstractServerListTest : public ::testing::Test {
     AbstractServerListTest()
         : context()
         , sl(context)
-        , tr()
+        , tr(context)
     {
         while (!changes.empty())
             changes.pop();
@@ -122,6 +123,18 @@ TEST_F(AbstractServerListTest, constructor) {
     Context context;
     AbstractServerListSubClass sl(context);
     EXPECT_EQ(0UL, sl.getVersion());
+}
+
+TEST_F(AbstractServerListTest, destructor) {
+    auto* sl = new AbstractServerListSubClass(context);
+    MockServerTracker tr(context);
+    EXPECT_EQ(static_cast<AbstractServerList*>(NULL), tr.parent);
+
+    sl->registerTracker(tr);
+    EXPECT_EQ(sl, tr.parent);
+
+    delete sl;
+    EXPECT_EQ(static_cast<AbstractServerList*>(NULL), tr.parent);
 }
 
 TEST_F(AbstractServerListTest, getLocator) {
@@ -167,6 +180,12 @@ TEST_F(AbstractServerListTest, registerTracker) {
     EXPECT_THROW(sl.registerTracker(tr), Exception);
 }
 
+TEST_F(AbstractServerListTest, registerTracker_duringDestruction) {
+    sl.isBeingDestroyed = true;
+    EXPECT_THROW(sl.registerTracker(tr), ServerListException);
+    EXPECT_EQ(0U, sl.trackers.size());
+}
+
 TEST_F(AbstractServerListTest, registerTracker_pushAdds) {
     ServerId& id1 = sl.add("mock:", ServerStatus::UP);
     ServerId& id2 = sl.add("mock:", ServerStatus::UP);
@@ -205,6 +224,19 @@ TEST_F(AbstractServerListTest, unregisterTracker) {
 
     sl.unregisterTracker(tr);
     EXPECT_EQ(0U, sl.trackers.size());
+}
+
+TEST_F(AbstractServerListTest, unregisterTracker_duringDestruction) {
+    sl.registerTracker(tr);
+    sl.isBeingDestroyed = true;
+
+    // Test to see if it really leaves queue untouched.
+    sl.unregisterTracker(tr);
+    EXPECT_EQ(1U, sl.trackers.size());
+
+    // Unregister for reals otherwise there'd be an error.
+    sl.isBeingDestroyed = false;
+    sl.unregisterTracker(tr);
 }
 
 TEST_F(AbstractServerListTest, getVersion) {
@@ -254,4 +286,6 @@ TEST_F(AbstractServerListTest, toString_all) {
         sl.toString());
 }
 
+
+} /// namespace __AbstractServerListTest__
 } /// namespace RAMCloud
