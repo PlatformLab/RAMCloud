@@ -17,6 +17,7 @@
 #define RAMCLOUD_RPCWRAPPER_H
 
 #include "Dispatch.h"
+#include "Fence.h"
 #include "Transport.h"
 #include "WireFormat.h"
 
