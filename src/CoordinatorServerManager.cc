@@ -126,8 +126,6 @@ CoordinatorServerManager::createReplicationGroup()
  * Implements enlisting a server onto the CoordinatorServerList and
  * propagating updates to the cluster.
  *
- * TODO(ankitak): Re-work after RAM-431 is resolved.
- *
  * \param replacesId
  *      Server id of the server that the enlisting server is replacing.
  * \param serviceMask
@@ -172,12 +170,9 @@ CoordinatorServerManager::enlistServer(
     }
 
     ServerId newServerId = service.serverList.add(serviceLocator,
-                                                   serviceMask,
-                                                   readSpeed);
+                                                  serviceMask,
+                                                  readSpeed);
 
-    service.serverList.sendMembershipUpdate(newServerId);
-
-    // Log Cabin Entry TODO(ankitak) look this over.
     ProtoBuf::StateEnlistServer state;
     state.set_entry_type("StateEnlistServer");
     state.set_replaces_id(replacesId.getId());
@@ -186,7 +181,9 @@ CoordinatorServerManager::enlistServer(
     state.set_read_speed(readSpeed);
     state.set_write_speed(writeSpeed);
     state.set_service_locator(string(serviceLocator));
-    auto stateEntryId = service.logCabinHelper->appendProtoBuf(state);
+    EntryId stateEntryId = service.logCabinHelper->appendProtoBuf(state);
+
+    service.serverList.sendMembershipUpdate(newServerId);
 
     CoordinatorServerList::Entry entry = service.serverList[newServerId];
     LOG(NOTICE, "Enlisting new server at %s (server id %lu) supporting "
@@ -213,7 +210,7 @@ CoordinatorServerManager::enlistServer(
         createReplicationGroup();
     }
 
-     ProtoBuf::ServerInformation info;
+    ProtoBuf::ServerInformation info;
     info.set_entry_type("ServerInformation");
     info.set_server_id(newServerId.getId());
     info.set_service_mask(serviceMask.serialize());

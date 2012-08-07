@@ -213,8 +213,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServerReplaceANonMaster) {
     EXPECT_FALSE(serverList->contains(replacesId));
 }
 
-// TODO(ankitak): Improve the test while re-working after RAM-431. syang0
-// commented this out for the time being, please relook at it, ankitak.
+// TODO(ankitak): Improve the test.
 TEST_F(CoordinatorServerManagerTest, enlistServerLogCabin) {
     TaskQueue mgr;
     serverManager->service.recoveryManager.doNotStartRecoveries = true;
@@ -226,25 +225,24 @@ TEST_F(CoordinatorServerManagerTest, enlistServerLogCabin) {
                                         {WireFormat::BACKUP_SERVICE},
                                         "mock:host=backup"));
 
+    ProtoBuf::StateEnlistServer readState;
+    serverManager->service.logCabinHelper->getProtoBufFromEntryId(
+        2, readState);
+    EXPECT_EQ("entry_type: \"StateEnlistServer\"\n"
+              "replaces_id: 1\n"
+              "new_server_id: 2\nservice_mask: 2\n"
+              "read_speed: 0\nwrite_speed: 0\n"
+              "service_locator: \"mock:host=backup\"\n",
+              readState.DebugString());
 
-//    ProtoBuf::StateEnlistServer readState;
-//    serverManager->service.logCabinHelper->getProtoBufFromEntryId(
-//        2, readState);
-//    EXPECT_EQ("entry_type: \"StateEnlistServer\"\n"
-//              "replaces_id: 1\n"
-//              "new_server_id: 2\nservice_mask: 2\n"
-//              "read_speed: 0\nwrite_speed: 0\n"
-//              "service_locator: \"mock:host=backup\"\n",
-//              readState.DebugString());
-//
-//    ProtoBuf::ServerInformation readInfo;
-//    serverManager->service.logCabinHelper->getProtoBufFromEntryId(
-//        3, readInfo);
-//    EXPECT_EQ("entry_type: \"ServerInformation\"\n"
-//              "server_id: 2\nservice_mask: 2\n"
-//              "read_speed: 0\nwrite_speed: 0\n"
-//              "service_locator: \"mock:host=backup\"\n",
-//              readInfo.DebugString());
+    ProtoBuf::ServerInformation readInfo;
+    serverManager->service.logCabinHelper->getProtoBufFromEntryId(
+        3, readInfo);
+    EXPECT_EQ("entry_type: \"ServerInformation\"\n"
+              "server_id: 2\nservice_mask: 2\n"
+              "read_speed: 0\nwrite_speed: 0\n"
+              "service_locator: \"mock:host=backup\"\n",
+              readInfo.DebugString());
 }
 
 TEST_F(CoordinatorServerManagerTest, getServerList) {

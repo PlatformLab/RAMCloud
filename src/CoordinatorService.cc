@@ -302,7 +302,6 @@ CoordinatorService::enlistServer(
     const char* serviceLocator = getString(rpc.requestPayload, sizeof(reqHdr),
                                            reqHdr.serviceLocatorLength);
 
-    // TODO(ankitak): Re-work after RAM-431.
     ServerId newServerId = serverManager.enlistServer(
         replacesId, serviceMask, readSpeed, writeSpeed,
         serviceLocator);

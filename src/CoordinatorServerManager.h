@@ -40,10 +40,6 @@ using LogCabin::Client::NO_ID;
 class CoordinatorServerManager {
 
   PUBLIC:
-    // Forward declaration of class EnlistServer defined below.
-    // TODO(ankitak): Remove after RAM-431.
-    class EnlistServer;
-
     explicit CoordinatorServerManager(CoordinatorService& coordinatorService);
     ~CoordinatorServerManager();
 
@@ -62,9 +58,6 @@ class CoordinatorServerManager {
                                const uint32_t readSpeed,
                                const uint32_t writeSpeed,
                                const char* serviceLocator);
-    //TODO(syang0) TODO(ankitak) please look this over
-    void enlistServerRecover(
-                ProtoBuf::StateEnlistServer* state, EntryId entryId);
 
     ProtoBuf::ServerList getServerList(ServiceMask serviceMask);
     bool hintServerDown(ServerId serverId);
@@ -77,80 +70,6 @@ class CoordinatorServerManager {
                                     EntryId entryId);
     bool verifyServerFailure(ServerId serverId);
 
-    /**
-     * Defines methods and stores data to enlist a server.
-     */
-    // TODO(ankitak): Re-work and move under PRIVATE after RAM-431.
-    class EnlistServer {
-        public:
-            EnlistServer(CoordinatorServerManager &manager,
-                         ServerId replacesId,
-                         ServiceMask serviceMask,
-                         const uint32_t readSpeed,
-                         const uint32_t writeSpeed,
-                         const char* serviceLocator)
-                : manager(manager),
-                  replacesId(replacesId), replacedEntry(),
-                  newServerId(), serviceMask(serviceMask),
-                  readSpeed(readSpeed), writeSpeed(writeSpeed),
-                  serviceLocator(serviceLocator),
-                  serverListUpdate(),
-                  replacesEntryId(), stateEntryId() {}
-            ServerId beforeReply();
-            void afterReply();
-        private:
-            /**
-             * Reference to the instance of coordinator server manager
-             * initializing this class.
-             * Used to get access to CoordinatorService& service.
-             */
-            CoordinatorServerManager &manager;
-			/**
-			 * Server id of the server that the enlisting server is replacing.
-			 */
-            ServerId replacesId;
-			/**
-			 * Keeps track of the details of the server that is being forced
-			 * out of the cluster by the enlister so we can start recovery.
-			 */
-            Tub<CoordinatorServerList::Entry> replacedEntry;
-			/**
-			 * The id assigned to the enlisting server.
-			 */
-            ServerId newServerId;
-			/**
-			 * Services supported by the enlisting server.
-			 */
-            ServiceMask serviceMask;
-			/**
-			 * Read speed of the enlisting server.
-			 */
-            const uint32_t readSpeed;
-			/**
-			 * Write speed of the enlisting server.
-			 */
-            const uint32_t writeSpeed;
-			/**
-			 * Service Locator of the enlisting server.
-			 */
-            const char* serviceLocator;
-			/**
-			 * Keeps track of the server list updates to be sent
-			 * to the cluster.
-			 */
-            ProtoBuf::ServerList serverListUpdate;
-            /**
-             * LogCabin entry id for the entry corresponding to the
-             * server that is being forced out of the cluster.
-             */
-            EntryId replacesEntryId;
-            /**
-             * LogCabin entry id for the entry corresponding to the
-             * state for this operation.
-             */
-            EntryId stateEntryId;
-            DISALLOW_COPY_AND_ASSIGN(EnlistServer);
-    };
 
   PRIVATE:
 
