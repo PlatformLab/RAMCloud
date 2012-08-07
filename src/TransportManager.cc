@@ -243,12 +243,6 @@ TransportManager::getSession(const char* serviceLocator)
     // Session was not found in the cache, so create a new one and add
     // it to the cache.
     Transport::SessionRef session(openSession(serviceLocator));
-    if (session == FailSession::get()) {
-        // This is temporary; eventually we should just return the FailSession.
-        throw TransportException(HERE,
-                format("Couldn't open session for locator %s",
-                serviceLocator));
-    }
     sessionCache.insert({serviceLocator, session});
     return session;
 }
@@ -262,22 +256,20 @@ TransportManager::getSession(const char* serviceLocator)
  *
  * \param serviceLocator
  *      Desired service.
- *
  * \param needServerId
- *      The ServerId expected for the server being connected to. If the
- *      given id does not match the other end an exception is thrown.
+ *      The ServerId expected for the server being connected to.
+ *
+ * \return
+ *      The return value is a session that may be used to issue RPCs to the
+ *      specified server. If there was a transport error opening the session,
+ *      or if the server id did not match, then a FailSession is returned.
  *
  * \throw NoSuchKeyException
  *      A transport supporting one of the protocols claims a service locator
  *      option is missing.
- *
  * \throw BadValueException
  *      A transport supporting one of the protocols claims a service locator
  *      option is malformed.
- *
- * \throw TransportException
- *      No transport was found for this service locator, or the remote server's
- *      ServerId either could not be obtained or did not match the one provided.
  */
 Transport::SessionRef
 TransportManager::getSession(const char* serviceLocator, ServerId needServerId)
@@ -305,7 +297,7 @@ TransportManager::getSession(const char* serviceLocator, ServerId needServerId)
             *needServerId, serviceLocator, *actualId);
         flushSession(serviceLocator);
         LOG(DEBUG, "%s", errorStr.c_str());
-        throw TransportException(HERE, errorStr);
+        return FailSession::get();
     }
 
     return session;

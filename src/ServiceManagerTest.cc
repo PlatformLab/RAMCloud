@@ -465,7 +465,7 @@ TEST_F(ServiceManagerTest, WorkerSession_cancelRequest) {
             context, transport.getSession());
     wrappedSession->sendRequest(&rpc.request, &rpc.response, &rpc);
     wrappedSession->cancelRequest(&rpc);
-    EXPECT_STREQ("sendRequest: abcdefg | cancel",
+    EXPECT_STREQ("sendRequest: abcdefg | cancel: ",
             transport.outputLog.c_str());
 }
 
