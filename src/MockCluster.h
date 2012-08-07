@@ -67,21 +67,6 @@ class MockCluster {
     ~MockCluster();
     Server* addServer(ServerConfig config);
 
-    /**
-     * Return a client for a particular server in the cluster.  This
-     * method should go away when the new RPC wrappers are finished.
-     *
-     * \tparam T
-     *      Type of the client desired to talk to \a server.
-     * \param server
-     *      Which server the returned client should send requests to.
-     */
-    template <typename T>
-    std::unique_ptr<T> get(Server* server) {
-        ServiceLocator locator(server->config.localLocator);
-        return std::unique_ptr<T>(new T(transport.getSession(locator)));
-    }
-
     /// Caller-supplied context that we manage to provide access to
     /// the cluster.
     Context& linkedContext;
