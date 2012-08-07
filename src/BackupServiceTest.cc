@@ -1534,7 +1534,7 @@ TEST_F(SegmentInfoTest, appendRecoverySegment) {
                                buffer.getTotalLength());
     EXPECT_FALSE(it.isDone());
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, it.getType());
-    EXPECT_EQ(0U, it.getLength());
+    EXPECT_EQ(28U, it.getLength());
 
     it.next();
     EXPECT_TRUE(it.isDone());
@@ -1587,7 +1587,7 @@ TEST_F(SegmentInfoTest, appendRecoverySegmentSecondarySegment) {
                                buffer.getTotalLength());
     EXPECT_FALSE(it.isDone());
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, it.getType());
-    EXPECT_EQ(0U, it.getLength());
+    EXPECT_EQ(28U, it.getLength());
 
     it.next();
     EXPECT_TRUE(it.isDone());

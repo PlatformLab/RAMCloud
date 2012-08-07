@@ -38,7 +38,8 @@ Segment::Segment()
       closed(false),
       tail(0),
       bytesFreed(0),
-      checksum()
+      checksum(),
+      currentFooter()
 {
     for (uint32_t i = 0; i < allocator.getSegletsPerSegment(); i++)
         seglets.push_back(allocator.alloc());
@@ -63,7 +64,8 @@ Segment::Segment(Allocator& allocator)
       closed(false),
       tail(0),
       bytesFreed(0),
-      checksum()
+      checksum(),
+      currentFooter()
 {
     // If only we had C++11 support this duplication wouldn't be necessary...
     for (uint32_t i = 0; i < allocator.getSegletsPerSegment(); i++)
@@ -92,7 +94,8 @@ Segment::Segment(const void* buffer, uint32_t length)
       closed(true),
       tail(length),
       bytesFreed(0),
-      checksum()
+      checksum(),
+      currentFooter()
 {
     // We promise not to scribble on it, honest!
     seglets.push_back(const_cast<void*>(buffer));
@@ -314,8 +317,7 @@ Segment::getEntry(uint32_t offset, Buffer& buffer)
 uint32_t
 Segment::getAppendedLength(OpaqueFooterEntry& footerEntry) const
 {
-    // The current footer is always in the segment at the tail.
-    copyOut(tail, &footerEntry, sizeof(footerEntry));
+    footerEntry = currentFooter;
     return tail;
 }
 
@@ -428,6 +430,9 @@ Segment::appendFooter()
 
     Footer footer(closed, tempChecksum);
     copyIn(tempTail, &footer, sizeof(footer));
+
+    // Temporary hack. Look away, please.
+    copyOut(tail, &currentFooter, sizeof(currentFooter));
 }
 
 /**

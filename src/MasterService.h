@@ -208,13 +208,17 @@ class MasterService : public Service, Log::EntryHandlers {
      * new data is notified of dead data. Garbage collection ("cleaning") takes
      * place concurrently with server execution and may cause live data to be
      * reshuffled to new locations in memory.
+     *
+     * The log is not constructed until init() is called, since we don't know
+     * our own ServerId until then and the log's constructor will ensure that
+     * the first segment is replicated before returning (if needed).
      */
-    Log log;
+    Log* log;
 
     /**
      * Comparison functor used by the hash table to compare keys for equality.
      */
-    LogKeyComparer keyComparer;
+    LogKeyComparer* keyComparer;
 
     /**
      * The (table ID, key, keyLength) to #RAMCloud::Object pointer map for all
@@ -223,7 +227,7 @@ class MasterService : public Service, Log::EntryHandlers {
      * server; objects from deleted tablets are not immediately purged from the
      * hash table.
      */
-    HashTable objectMap;
+    HashTable* objectMap;
 
     /**
      * Tablets this master owns.

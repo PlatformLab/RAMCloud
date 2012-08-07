@@ -115,11 +115,13 @@ Log::append(LogEntryType type,
         head = newHead;
 
         if (!head->append(type, buffer, offset, length, segmentOffset)) {
-            // If we still can't append it, the caller must be appending more
-            // than we can fit in a segment. This is something that just
-            // shouldn't happen. Should we throw FatalError instead?
-            LOG(WARNING, "Entry too big to append to log: %u bytes", length);
-            return false;
+            // TODO(Steve): We should probably just permit up to 1/N'th of the
+            // size of a segment in any single append. Say, 1/2th or 1/4th as
+            // a ceiling. Then we could ensure that after opening a new head
+            // we have at least as much space, or else throw a fatal error.
+            LOG(ERROR, "Entry too big to append to log: %u bytes of type %d",
+                length, static_cast<int>(type));
+            throw FatalError(HERE, "Entry too big to append to log");
         }
     }
 
@@ -215,7 +217,7 @@ Log::sync()
 {
     Segment::OpaqueFooterEntry unused;
     head->replicatedSegment->sync(head->getAppendedLength(unused));
-    TEST_LOG("synced");
+    TEST_LOG("log synced");
 }
 
 /**

@@ -51,7 +51,7 @@ MasterService::LogKeyComparer::LogKeyComparer(Log& log)
 }
 
 /**
- * Compare a given key for equality with an entry stored in the log.
+ * Compare a given key for equality with an entry stored in the log->
  *
  * \param key
  *      Key to match again the log entry.
@@ -115,18 +115,15 @@ MasterService::MasterService(Context& context,
     , replicaManager(context, serverList, serverId, config.master.numReplicas)
     , allocator(config.master.logBytes, config.segmentSize, config.segletSize)
     , segmentManager(context, serverId, allocator, replicaManager, 2.0) 
-    , log(context, *this, segmentManager,
-          replicaManager, config.master.disableLogCleaner)
-    , keyComparer(log)
-    , objectMap(config.master.hashTableBytes / HashTable::bytesPerCacheLine(),
-                keyComparer)
+    , log(NULL)
+    , keyComparer(NULL)
+    , objectMap(NULL)
     , tablets()
     , initCalled(false)
     , anyWrites(false)
     , objectUpdateLock()
     , maxMultiReadResponseSize(Transport::MAX_RPC_LEN)
 {
-    replicaManager.startFailureMonitor(&log);
 }
 
 MasterService::~MasterService()
@@ -137,6 +134,13 @@ MasterService::~MasterService()
         tables.insert(reinterpret_cast<Table*>(tablet.user_data()));
     foreach (Table* table, tables)
         delete table;
+
+    if (log)
+        delete log;
+    if (keyComparer)
+        delete keyComparer;
+    if (objectMap)
+        delete objectMap;
 }
 
 void
@@ -234,6 +238,13 @@ MasterService::init(ServerId id)
     LOG(NOTICE, "My server ID is %lu", serverId.getId());
     metrics->serverId = serverId.getId();
 
+    log = new Log(context, *this, segmentManager,
+                  replicaManager, config.master.disableLogCleaner);
+    keyComparer = new LogKeyComparer(*log);
+    objectMap = new HashTable(config.master.hashTableBytes /
+        HashTable::bytesPerCacheLine(), *keyComparer);
+    replicaManager.startFailureMonitor(log);
+
     initCalled = true;
 }
 
@@ -280,7 +291,7 @@ MasterService::enumeration(const WireFormat::Enumerate::Request& reqHdr,
                                - reqHdr.iteratorBytes);
     Enumeration enumeration(reqHdr.tableId, reqHdr.tabletFirstHash,
                             actualTabletStartHash, actualTabletEndHash,
-                            &respHdr.tabletFirstHash, iter, log, objectMap,
+                            &respHdr.tabletFirstHash, iter, *log, *objectMap,
                             rpc.replyPayload, maxPayloadBytes);
     enumeration.complete();
     respHdr.payloadBytes = rpc.replyPayload.getTotalLength()
@@ -362,7 +373,7 @@ MasterService::fillWithTestData(
         }
     }
 
-    log.sync();
+    log->sync();
 
     LOG(NOTICE, "Done writing objects.");
 }
@@ -375,7 +386,7 @@ MasterService::getHeadOfLog(const WireFormat::GetHeadOfLog::Request& reqHdr,
                             WireFormat::GetHeadOfLog::Response& respHdr,
                             Rpc& rpc)
 {
-    Log::Position head = log.getHeadPosition();
+    Log::Position head = log->getHeadPosition();
     respHdr.headSegmentId = head.getSegmentId();
     respHdr.headSegmentOffset = head.getSegmentOffset();
 }
@@ -832,7 +843,7 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request& reqHdr,
 
     // Hold on to the iterator since it locks the head Segment, avoiding any
     // additional appends once we've finished iterating.
-    LogIterator it(log);
+    LogIterator it(*log);
     for (; !it.isDone(); it.next()) {
         LogEntryType type = it.getType();
         if (type != LOG_ENTRY_TYPE_OBJ && type != LOG_ENTRY_TYPE_OBJTOMB) {
@@ -1010,14 +1021,14 @@ recoveryCleanup(HashTable::Reference maybeTomb, void *cookie)
     LogEntryType type;
     Buffer buffer;
 
-    type = server->log.getEntry(maybeTomb, buffer);
+    type = server->log->getEntry(maybeTomb, buffer);
     if (type == LOG_ENTRY_TYPE_OBJTOMB) {
         Key key(type, buffer);
 
-        bool r = server->objectMap.remove(key);
+        bool r = server->objectMap->remove(key);
         assert(r);
 
-        // Tombstones are not explicitly freed in the log. The cleaner will
+        // Tombstones are not explicitly freed in the log-> The cleaner will
         // figure out that they're dead.
     }
 }
@@ -1035,7 +1046,7 @@ class RemoveTombstonePoller : public Dispatch::Poller {
      * automatically deregisters it from Dispatch.
      *
      * \param masterService
-     *      The instance of MasterService which owns the #objectMap.
+     *      The instance of MasterService which owns the #objectMap->
      * \param objectMap
      *      The HashTable which will be purged of tombstones.
      */
@@ -1092,10 +1103,10 @@ MasterService::removeTombstones()
     CycleCounter<RawMetric> _(&metrics->master.removeTombstoneTicks);
 #if TESTING
     // Asynchronous tombstone removal raises hell in unit tests.
-    objectMap.forEach(recoveryCleanup, this);
+    objectMap->forEach(recoveryCleanup, this);
 #else
     Dispatch::Lock lock(context.dispatch);
-    new RemoveTombstonePoller(*this, objectMap);
+    new RemoveTombstonePoller(*this, *objectMap);
 #endif
 }
 
@@ -1458,7 +1469,7 @@ MasterService::recover(ServerId masterId,
         LOG(NOTICE, "Syncing the log");
         metrics->master.logSyncBytes =
             0 - metrics->transport.transmit.byteCount;
-        log.sync();
+        log->sync();
         metrics->master.logSyncBytes += metrics->transport.transmit.byteCount;
         LOG(NOTICE, "Syncing the log done");
     }
@@ -1481,7 +1492,7 @@ MasterService::recover(ServerId masterId,
  *
  * \param entry
  *      Handle to an object as returned from the master's
- *      objectMap.lookup() or on callback from objectMap.forEach().
+ *      objectMap->lookup() or on callback from objectMap->forEach().
  *      This object is removed from the objectMap and freed from
  *      the log if it doesn't belong to any tablet the master
  *      lists among its tablets.
@@ -1496,15 +1507,15 @@ removeObjectIfFromUnknownTablet(HashTable::Reference reference, void *cookie)
     LogEntryType type;
     Buffer buffer;
 
-    type = master->log.getEntry(reference, buffer);
+    type = master->log->getEntry(reference, buffer);
     if (type != LOG_ENTRY_TYPE_OBJ)
         return;
 
     Key key(type, buffer);
     if (!master->getTable(key)) {
-        bool r = master->objectMap.remove(key);
+        bool r = master->objectMap->remove(key);
         assert(r);
-        master->log.free(reference);
+        master->log->free(reference);
     }
 }
 
@@ -1516,7 +1527,7 @@ removeObjectIfFromUnknownTablet(HashTable::Reference reference, void *cookie)
 void
 MasterService::purgeObjectsFromUnknownTablets()
 {
-    objectMap.forEach(removeObjectIfFromUnknownTablet, this);
+    objectMap->forEach(removeObjectIfFromUnknownTablet, this);
 }
 
 /**
@@ -1574,7 +1585,7 @@ MasterService::recover(const WireFormat::Recover::Request& reqHdr,
     }
 
     // Record the log position before recovery started.
-    Log::Position headOfLog = log.getHeadPosition();
+    Log::Position headOfLog = log->getHeadPosition();
 
     // Recover Segments, firing MasterService::recoverSegment for each one.
     bool successful = false;
@@ -1671,7 +1682,7 @@ MasterService::recoverSegmentPrefetcher(SegmentIterator& it)
     Buffer buffer;
     it.appendToBuffer(buffer);
     Key key(type, buffer);
-    objectMap.prefetchBucket(key);
+    objectMap->prefetchBucket(key);
 }
 
 /**
@@ -1753,7 +1764,7 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
             if (recoverObj.getVersion() >= minSuccessor) {
                 // write to log (with lazy backup flush) & update hash table
                 HashTable::Reference newObjReference;
-                log.append(LOG_ENTRY_TYPE_OBJ, buffer, false, newObjReference);
+                log->append(LOG_ENTRY_TYPE_OBJ, buffer, false, newObjReference);
 
                 // XXX- what happens if the log is full? won't an exception here
                 //      just cause the master to try another backup?
@@ -1761,14 +1772,14 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
                 ++metrics->master.objectAppendCount;
                 metrics->master.liveObjectBytes += buffer.getTotalLength();
 
-                objectMap.replace(key, newObjReference);
+                objectMap->replace(key, newObjReference);
 
                 // nuke the old object, if it existed
                 // XXX-- need to put tombstones in the HT and have this free
                 //       them as well 
                 if (freeCurrentEntry) {
                     metrics->master.liveObjectBytes -= currentBuffer.getTotalLength();
-                    log.free(currentReference);
+                    log->free(currentReference);
                 } else {
                     ++metrics->master.liveObjectCount;
                 }
@@ -1811,17 +1822,17 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
             if (recoverTomb.getObjectVersion() >= minSuccessor) {
                 ++metrics->master.tombstoneAppendCount;
                 HashTable::Reference newTombReference;
-                log.append(LOG_ENTRY_TYPE_OBJTOMB, buffer, false, newTombReference);
+                log->append(LOG_ENTRY_TYPE_OBJTOMB, buffer, false, newTombReference);
 
                 // XXX- append could fail here!
 
-                objectMap.replace(key, newTombReference);
+                objectMap->replace(key, newTombReference);
 
                 // nuke the object, if it existed
                 if (freeCurrentEntry) {
                     --metrics->master.liveObjectCount;
                     metrics->master.liveObjectBytes -= currentBuffer.getTotalLength();
-                    log.free(currentReference);
+                    log->free(currentReference);
                 }
             } else {
                 ++metrics->master.tombstoneDiscardCount;
@@ -1878,7 +1889,7 @@ MasterService::remove(const WireFormat::Remove::Request& reqHdr,
     }
 
     ObjectTombstone tombstone(object,
-                              log.getSegmentId(reference),
+                              log->getSegmentId(reference),
                               secondsTimestamp());
     Buffer tombstoneBuffer;
     tombstone.serializeToBuffer(tombstoneBuffer);
@@ -1886,7 +1897,7 @@ MasterService::remove(const WireFormat::Remove::Request& reqHdr,
     // Write the tombstone into the Log, increment the tablet version
     // number, and remove from the hash table.
     HashTable::Reference dummy;
-    if (!log.append(LOG_ENTRY_TYPE_OBJTOMB, tombstoneBuffer, false, dummy)) {
+    if (!log->append(LOG_ENTRY_TYPE_OBJTOMB, tombstoneBuffer, false, dummy)) {
         // The log is out of space. Tell the client to retry and hope
         // that either the cleaner makes space soon or we shift load
         // off of this server.
@@ -1895,8 +1906,8 @@ MasterService::remove(const WireFormat::Remove::Request& reqHdr,
     }
 
     table->RaiseVersion(object.getVersion() + 1);
-    log.free(reference);
-    objectMap.remove(key);
+    log->free(reference);
+    objectMap->remove(key);
 }
 
 /**
@@ -2227,7 +2238,7 @@ MasterService::relocateObject(Buffer& oldBuffer,
     if (table == NULL) {
         // That tablet doesn't exist on this server anymore.
         // Just remove the hash table entry, if it exists.
-        objectMap.remove(key);
+        objectMap->remove(key);
         return false;
     }
 
@@ -2241,7 +2252,7 @@ MasterService::relocateObject(Buffer& oldBuffer,
         keepNewObject = (currentBuffer.getStart<uint8_t>() ==
                          oldBuffer.getStart<uint8_t>());
         if (keepNewObject)
-            objectMap.replace(key, newReference);
+            objectMap->replace(key, newReference);
     }
 
     // Update table statistics.
@@ -2287,7 +2298,7 @@ bool
 MasterService::checkTombstoneLiveness(Buffer& buffer)
 {
     ObjectTombstone tomb(buffer);
-    return log.containsSegment(tomb.getSegmentId());
+    return log->containsSegment(tomb.getSegmentId());
 }
 
 /**
@@ -2320,8 +2331,8 @@ MasterService::relocateTombstone(Buffer& oldBuffer,
 {
     ObjectTombstone tomb(oldBuffer);
 
-    // See if the object this tombstone refers to is still in the log.
-    bool keepNewTomb = log.containsSegment(tomb.getSegmentId());
+    // See if the object this tombstone refers to is still in the log->
+    bool keepNewTomb = log->containsSegment(tomb.getSegmentId());
 
     if (!keepNewTomb) {
         Key key(LOG_ENTRY_TYPE_OBJTOMB, oldBuffer);
@@ -2370,7 +2381,7 @@ MasterService::getTombstoneTimestamp(Buffer& buffer)
  * \param data
  *      Constitutes the binary blob that will be value of this object. That is,
  *      everything following the Object header and the string key. Everything
- *      from the buffer will be copied into the log.
+ *      from the buffer will be copied into the log->
  * \param newVersion
  *      The version number of the new object is returned here. If the operation
  *      was successful this will be the new version for the object; if this
@@ -2453,14 +2464,14 @@ MasterService::storeObject(Key& key,
       currentType == LOG_ENTRY_TYPE_OBJ) {
         Object object(currentBuffer);
         ObjectTombstone tombstone(object,
-                                  log.getSegmentId(currentReference),
+                                  log->getSegmentId(currentReference),
                                   secondsTimestamp());
 
         Buffer tombstoneBuffer;
         tombstone.serializeToBuffer(tombstoneBuffer);
 
         HashTable::Reference dummy;
-        if (!log.append(LOG_ENTRY_TYPE_OBJTOMB, tombstoneBuffer, sync, dummy))
+        if (!log->append(LOG_ENTRY_TYPE_OBJTOMB, tombstoneBuffer, sync, dummy))
             return STATUS_RETRY;
 
         // TODO(anyone): The above isn't safe. If we crash before writing the
@@ -2468,21 +2479,21 @@ MasterService::storeObject(Key& key,
         //               we'll have lost the old object. One solution is to
         //               introduce the combined Object+Tombstone type.
         
-        log.free(currentReference);
+        log->free(currentReference);
     }
 
     Buffer buffer;
     newObject.serializeToBuffer(buffer);
 
     HashTable::Reference newObjectReference;
-    if (!log.append(LOG_ENTRY_TYPE_OBJ, buffer, sync, newObjectReference)) {
+    if (!log->append(LOG_ENTRY_TYPE_OBJ, buffer, sync, newObjectReference)) {
         // The log is out of space. Tell the client to retry and hope
         // that either the cleaner makes space soon or we shift load
         // off of this server.
         return STATUS_RETRY;
     }
 
-    objectMap.replace(key, newObjectReference);
+    objectMap->replace(key, newObjectReference);
     *newVersion = newObject.getVersion();
     bytesWritten += key.getStringKeyLength() + data.getTotalLength();
     return STATUS_OK;
@@ -2501,10 +2512,10 @@ MasterService::lookup(Key& key,
                       Buffer& buffer,
                       HashTable::Reference& reference)
 {
-    bool success = objectMap.lookup(key, reference);
+    bool success = objectMap->lookup(key, reference);
     if (!success)
         return false;
-    type = log.getEntry(reference, buffer);
+    type = log->getEntry(reference, buffer);
     return true;
 }
 

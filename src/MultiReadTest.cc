@@ -59,7 +59,8 @@ class MultiReadTest : public ::testing::Test {
         config.localLocator = "mock:host=master1";
         config.maxObjectKeySize = 512;
         config.maxObjectDataSize = 1024;
-        config.segmentSize = 16*1024;
+        config.segmentSize = 128*1024;
+        config.segletSize = 128*1024;
         cluster.addServer(config);
         config.services = {WireFormat::MASTER_SERVICE,
                            WireFormat::PING_SERVICE};
@@ -345,21 +346,12 @@ TEST_F(MultiReadTest, PartRpc_finish_shortResponse) {
     TestLog::reset();
     EXPECT_EQ("mock:host=master1(2) -", rpcStatus(request));
 
-    // Can't read segment entry from response.
+    // Can't read Response::Part from response.
     session1->lastResponse->truncateEnd(
         session1->lastResponse->getTotalLength() - 18);
     session1->lastNotifier->completed();
     EXPECT_FALSE(request.isReady());
-    EXPECT_EQ("finish: missing segment entry", TestLog::get());
-    TestLog::reset();
-    EXPECT_EQ("mock:host=master1(2) -", rpcStatus(request));
-
-    // Can't read object header from response.
-    session1->lastResponse->truncateEnd(
-        session1->lastResponse->getTotalLength() - 30);
-    session1->lastNotifier->completed();
-    EXPECT_FALSE(request.isReady());
-    EXPECT_EQ("finish: missing object header", TestLog::get());
+    EXPECT_EQ("finish: missing Response::Part", TestLog::get());
     TestLog::reset();
     EXPECT_EQ("mock:host=master1(2) -", rpcStatus(request));
 

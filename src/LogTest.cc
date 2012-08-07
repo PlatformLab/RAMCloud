@@ -20,6 +20,7 @@
 #include "Log.h"
 #include "LogEntryTypes.h"
 #include "Memory.h"
+#include "StringUtil.h"
 #include "Transport.h"
 
 namespace RAMCloud {
@@ -74,7 +75,7 @@ TEST_F(LogTest, constructor_cleaner)
     Log l2(context, entryHandlers, segmentManager, replicaManager, false);
     EXPECT_NE(static_cast<LogSegment*>(NULL), l2.head);
     EXPECT_TRUE(l2.cleaner);
-    EXPECT_EQ("sync: synced", TestLog::get());
+    EXPECT_TRUE(StringUtil::endsWith(TestLog::get(), "sync: log synced"));
 }
 
 TEST_F(LogTest, constructor_noCleaner)
@@ -83,7 +84,7 @@ TEST_F(LogTest, constructor_noCleaner)
     Log l2(context, entryHandlers, segmentManager, replicaManager, true);
     EXPECT_NE(static_cast<LogSegment*>(NULL), l2.head);
     EXPECT_FALSE(l2.cleaner);
-    EXPECT_EQ("sync: synced", TestLog::get());
+    EXPECT_TRUE(StringUtil::endsWith(TestLog::get(), "sync: log synced"));
 }
 
 TEST_F(LogTest, append_basic) {
@@ -111,15 +112,22 @@ TEST_F(LogTest, append_basic) {
     // getEntry()'s test ensures actual data gets there.
 }
 
+static bool
+appendFilter(string s)
+{
+    return s == "append";
+}
+
 TEST_F(LogTest, append_tooBigToEverFit) {
-    TestLog::Enable _;
+    TestLog::Enable _(appendFilter);
 
     char data[8193];
     LogSegment* oldHead = l.head;
 
-    EXPECT_FALSE(l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true));
+    EXPECT_THROW(l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true),
+        FatalError);
     EXPECT_NE(oldHead, l.head);
-    EXPECT_EQ("append: Entry too big to append to log: 8193 bytes",
+    EXPECT_EQ("append: Entry too big to append to log: 8193 bytes of type 3",
         TestLog::get());
 }
 
@@ -145,20 +153,20 @@ TEST_F(LogTest, getEntry) {
 TEST_F(LogTest, sync) {
     TestLog::Enable _(syncFilter);
     l.sync();
-    EXPECT_EQ("sync: synced", TestLog::get());
+    EXPECT_TRUE(StringUtil::endsWith(TestLog::get(), "sync: log synced"));
 }
 
 TEST_F(LogTest, getHeadPosition) {
-    EXPECT_EQ(Log::Position(0, 44), l.getHeadPosition());
+    EXPECT_EQ(Log::Position(0, 76), l.getHeadPosition());
 
     char data[1000];
     l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true);
-    EXPECT_EQ(Log::Position(0, 1047), l.getHeadPosition());
+    EXPECT_EQ(Log::Position(0, 1079), l.getHeadPosition());
 
     while (l.getHeadPosition().getSegmentId() == 0)
         l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true);
 
-    EXPECT_EQ(Log::Position(1, 1047), l.getHeadPosition());
+    EXPECT_EQ(Log::Position(1, 1079), l.getHeadPosition());
 }
 
 TEST_F(LogTest, getSegmentId) {

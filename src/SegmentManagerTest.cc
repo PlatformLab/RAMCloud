@@ -76,8 +76,14 @@ TEST_F(SegmentManagerTest, destructor) {
     EXPECT_EQ(4U, allocator.getFreeSegmentCount());
 }
 
+static bool
+allocFilter(string s)
+{
+    return s == "alloc";
+}
+
 TEST_F(SegmentManagerTest, allocHead) {
-    TestLog::Enable _;
+    TestLog::Enable _(allocFilter);
 
     EXPECT_EQ(static_cast<LogSegment*>(NULL), segmentManager.getHeadSegment());
     LogSegment* head = segmentManager.allocHead();
@@ -116,7 +122,7 @@ TEST_F(SegmentManagerTest, allocHead) {
 }
 
 TEST_F(SegmentManagerTest, allocSurvivor) {
-    TestLog::Enable _;
+    TestLog::Enable _(allocFilter);
 
     segmentManager.setSurvivorSegmentReserve(1);
     LogSegment* s = segmentManager.allocSurvivor(5);

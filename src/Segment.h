@@ -334,6 +334,10 @@ class Segment {
     /// is their responsibility.
     Crc32C checksum;
 
+    /// Temporary nonsense to make horrible unit tests that abuse segments in
+    /// weird ways work.
+    OpaqueFooterEntry currentFooter;
+
     friend class SegmentIterator;
 
     DISALLOW_COPY_AND_ASSIGN(Segment);

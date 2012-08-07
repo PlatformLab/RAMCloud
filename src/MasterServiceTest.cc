@@ -174,10 +174,12 @@ class MasterServiceTest : public ::testing::Test {
     // Write a segment containing nothing but a header to a backup. This is used
     // to test fetching of recovery segments in various tests.
     static void
-    writeRecoverableSegment(Context& context, ServerId serverId, uint64_t logId, uint64_t segmentId)
+    writeRecoverableSegment(Context& context,
+                            ReplicaManager& mgr,
+                            ServerId serverId,
+                            uint64_t logId,
+                            uint64_t segmentId)
     {
-        ReplicaManager mgr(context, *context.serverList, serverId, 1);
-
         Segment seg;
         SegmentHeader header(logId, segmentId, 1000,
                              Segment::INVALID_SEGMENT_ID);
@@ -312,8 +314,8 @@ TEST_F(MasterServiceTest, enumeration_mergeTablet) {
     EnumerationIterator initialIter(iter, 0, 0);
     EnumerationIterator::Frame preMergeConfiguration(
         0x0000000000000000LLU, 0x7f00000000000000LLU,
-        service->objectMap.getNumBuckets(),
-        service->objectMap.getNumBuckets()*3/5, 0U);
+        service->objectMap->getNumBuckets(),
+        service->objectMap->getNumBuckets()*3/5, 0U);
     initialIter.push(preMergeConfiguration);
     initialIter.serialize(iter);
     EnumerateTableRpc rpc(*ramcloud, 0, 0, iter, objects);
@@ -508,7 +510,8 @@ TEST_F(MasterServiceTest, recover_basics) {
                        server->config.services, 100);
     }
 
-    writeRecoverableSegment(context, serverId, 123, 87);
+    ReplicaManager mgr(context, *context.serverList, serverId, 1);
+    writeRecoverableSegment(context, mgr, serverId, 123, 87);
 
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
@@ -562,12 +565,12 @@ TEST_F(MasterServiceTest, removeIfFromUnknownTablet) {
 
     ramcloud->write(tableId, "1", 1, "");
 
-    bool success = service->objectMap.lookup(key, reference);
+    bool success = service->objectMap->lookup(key, reference);
     EXPECT_TRUE(success);
 
     EXPECT_TRUE(service->getTable(key) != NULL);
     removeObjectIfFromUnknownTablet(reference, service);
-    EXPECT_TRUE(service->objectMap.lookup(key, reference));
+    EXPECT_TRUE(service->objectMap->lookup(key, reference));
 
     foreach (const ProtoBuf::Tablets::Tablet& tablet, service->tablets.tablet())
         delete reinterpret_cast<Table*>(tablet.user_data());
@@ -575,7 +578,7 @@ TEST_F(MasterServiceTest, removeIfFromUnknownTablet) {
 
     EXPECT_TRUE(service->getTable(key) == NULL);
     removeObjectIfFromUnknownTablet(reference, service);
-    EXPECT_FALSE(service->objectMap.lookup(key, reference));
+    EXPECT_FALSE(service->objectMap->lookup(key, reference));
 }
 
 /**
@@ -601,7 +604,8 @@ TEST_F(MasterServiceTest, recover) {
                        server->config.services, 100);
     }
 
-    writeRecoverableSegment(context, serverId, 123, 88);
+    ReplicaManager mgr(context, *context.serverList, serverId, 1);
+    writeRecoverableSegment(context, mgr, serverId, 123, 88);
 
     ServerConfig backup2Config = backup1Config;
     backup2Config.localLocator = "mock:host=backup2";
@@ -822,14 +826,14 @@ TEST_F(MasterServiceTest, recoverSegment) {
     ObjectTombstone t1(o1, 0, 0);
     buffer.reset();
     t1.serializeToBuffer(buffer);
-    service->log.append(LOG_ENTRY_TYPE_OBJTOMB, buffer, true, logTomb1Ref);
-    ret = service->objectMap.replace(key2, logTomb1Ref);
+    service->log->append(LOG_ENTRY_TYPE_OBJTOMB, buffer, true, logTomb1Ref);
+    ret = service->objectMap->replace(key2, logTomb1Ref);
     EXPECT_FALSE(ret);
     len = buildRecoverySegment(seg, segLen, key2, 1, "equal guy");
     service->recoverSegment(0, seg, len);
     len = buildRecoverySegment(seg, segLen, key2, 0, "older guy");
     service->recoverSegment(0, seg, len);
-    EXPECT_TRUE(service->objectMap.lookup(key2, reference));
+    EXPECT_TRUE(service->objectMap->lookup(key2, reference));
     EXPECT_EQ(reference, logTomb1Ref);
     service->removeTombstones();
     EXPECT_THROW(ramcloud->read(0, "key2", 4, &value),
@@ -841,21 +845,21 @@ TEST_F(MasterServiceTest, recoverSegment) {
     ObjectTombstone t2(o2, 0, 0);
     buffer.reset();
     t2.serializeToBuffer(buffer);
-    ret = service->log.append(LOG_ENTRY_TYPE_OBJTOMB, buffer, true, logTomb2Ref);
+    ret = service->log->append(LOG_ENTRY_TYPE_OBJTOMB, buffer, true, logTomb2Ref);
     EXPECT_TRUE(ret);
-    ret = service->objectMap.replace(key3, logTomb2Ref);
+    ret = service->objectMap->replace(key3, logTomb2Ref);
     EXPECT_FALSE(ret);
     len = buildRecoverySegment(seg, segLen, key3, 11, "newer guy");
     service->recoverSegment(0, seg, len);
     verifyRecoveryObject(key3, "newer guy");
-    EXPECT_TRUE(service->objectMap.lookup(key3, reference));
+    EXPECT_TRUE(service->objectMap->lookup(key3, reference));
     EXPECT_NE(reference, logTomb1Ref);
     EXPECT_NE(reference, logTomb2Ref);
     service->removeTombstones();
 
     // Case 3: No tombstone, no object. Recovered object always added.
     Key key4(0 , "key4", 4);
-    EXPECT_FALSE(service->objectMap.lookup(key4, reference));
+    EXPECT_FALSE(service->objectMap->lookup(key4, reference));
     len = buildRecoverySegment(seg, segLen, key4, 0, "only guy");
     service->recoverSegment(0, seg, len);
     verifyRecoveryObject(key4, "only guy");
@@ -895,7 +899,7 @@ TEST_F(MasterServiceTest, recoverSegment) {
     len = buildRecoverySegment(seg, segLen, t4);
     service->recoverSegment(0, seg, len);
     service->removeTombstones();
-    EXPECT_FALSE(service->objectMap.lookup(key6, reference));
+    EXPECT_FALSE(service->objectMap->lookup(key6, reference));
     EXPECT_THROW(ramcloud->read(0, "key6", 4, &value),
                  ObjectDoesntExistException);
 
@@ -908,7 +912,7 @@ TEST_F(MasterServiceTest, recoverSegment) {
     len = buildRecoverySegment(seg, segLen, t5);
     service->recoverSegment(0, seg, len);
     service->removeTombstones();
-    EXPECT_FALSE(service->objectMap.lookup(key7, reference));
+    EXPECT_FALSE(service->objectMap->lookup(key7, reference));
     EXPECT_THROW(ramcloud->read(0, "key7", 4, &value),
                  ObjectDoesntExistException);
 
@@ -959,7 +963,7 @@ TEST_F(MasterServiceTest, recoverSegment) {
 
     // Case 3: No tombstone, no object. Recovered tombstone always added.
     Key key10(0, "key10", 5);
-    EXPECT_FALSE(service->objectMap.lookup(key10, reference));
+    EXPECT_FALSE(service->objectMap->lookup(key10, reference));
     Object o10(key10, NULL, 0, 0, 0);
     ObjectTombstone t10(o10, 0, 0);
     len = buildRecoverySegment(seg, segLen, t10);
@@ -1716,7 +1720,7 @@ TEST_F(MasterServiceTest, objectRelocationCallback_objectAlive) {
     table->objectBytes += oldBuffer.getTotalLength();
 
     HashTable::Reference newReference;
-    success = service->log.append(LOG_ENTRY_TYPE_OBJ,
+    success = service->log->append(LOG_ENTRY_TYPE_OBJ,
                                   oldBuffer,
                                   true,
                                   newReference);
@@ -1724,7 +1728,7 @@ TEST_F(MasterServiceTest, objectRelocationCallback_objectAlive) {
 
     LogEntryType newType;
     Buffer newBuffer;
-    newType = service->log.getEntry(newReference, newBuffer);
+    newType = service->log->getEntry(newReference, newBuffer);
 
     LogEntryType oldType2;
     Buffer oldBuffer2;
@@ -1838,25 +1842,25 @@ TEST_F(MasterServiceTest, tombstoneRelocationCallback_basics) {
 
     Object object(buffer);
     ObjectTombstone tombstone(object,
-                              service->log.getSegmentId(reference),
+                              service->log->getSegmentId(reference),
                               0);
 
     Buffer tombstoneBuffer;
     tombstone.serializeToBuffer(tombstoneBuffer);
 
     HashTable::Reference oldTombstoneReference;
-    success = service->log.append(LOG_ENTRY_TYPE_OBJTOMB, tombstoneBuffer,
+    success = service->log->append(LOG_ENTRY_TYPE_OBJTOMB, tombstoneBuffer,
                                   true, oldTombstoneReference);
     EXPECT_TRUE(success);
 
     HashTable::Reference newTombstoneReference;
-    success = service->log.append(LOG_ENTRY_TYPE_OBJTOMB, tombstoneBuffer,
+    success = service->log->append(LOG_ENTRY_TYPE_OBJTOMB, tombstoneBuffer,
                                   true, newTombstoneReference);
     EXPECT_TRUE(success);
 
     LogEntryType oldTypeInLog;
     Buffer oldBufferInLog; 
-    oldTypeInLog = service->log.getEntry(oldTombstoneReference, oldBufferInLog);
+    oldTypeInLog = service->log->getEntry(oldTombstoneReference, oldBufferInLog);
 
     success = service->relocate(LOG_ENTRY_TYPE_OBJTOMB,
                                   oldBufferInLog,
@@ -1864,9 +1868,9 @@ TEST_F(MasterServiceTest, tombstoneRelocationCallback_basics) {
     EXPECT_TRUE(success);
 
     // Check that tombstoneRelocationCallback() is checking the liveness
-    // of the right segment (in log.containsSegment() function call).
+    // of the right segment (in log->containsSegment() function call).
     string comparisonString = "containsSegment: " +
-            format("%lu", service->log.getSegmentId(oldTombstoneReference));
+            format("%lu", service->log->getSegmentId(oldTombstoneReference));
     EXPECT_EQ(comparisonString, TestLog::get());
 }
 
@@ -1887,12 +1891,7 @@ class MasterServiceFullSegmentSizeTest : public MasterServiceTest {
 
 TEST_F(MasterServiceFullSegmentSizeTest, write_maximumObjectSize) {
     char* key = new char[masterConfig.maxObjectKeySize];
-    char* buf = new char[masterConfig.maxObjectDataSize + 1];
-
-    // should fail
-    EXPECT_THROW(ramcloud->write(0, key, masterConfig.maxObjectKeySize,
-                               buf, masterConfig.maxObjectDataSize + 1),
-                 LogException);
+    char* buf = new char[masterConfig.maxObjectDataSize];
 
     // should succeed
     EXPECT_NO_THROW(ramcloud->write(0, key, masterConfig.maxObjectKeySize,
@@ -1920,7 +1919,7 @@ class MasterRecoverTest : public ::testing::Test {
         : context()
         , cluster(context)
         , segmentSize(1 << 16) // Smaller than usual to make tests faster.
-        , segmentFrames(2)
+        , segmentFrames(3)     // Master's log uses one when constructed.
         , backup1Id()
         , backup2Id()
     {
@@ -1994,11 +1993,12 @@ TEST_F(MasterRecoverTest, recover) {
     ServerId serverId(99, 0);
     ServerList serverList(context);
     serverList.add(backup1Id, "mock:host=backup1",
-                   {WireFormat::BACKUP_SERVICE, WireFormat::MEMBERSHIP_SERVICE},
+                   {WireFormat::BACKUP_SERVICE,
+                    WireFormat::MEMBERSHIP_SERVICE},
                    100);
-
-    MasterServiceTest::writeRecoverableSegment(context, serverId, 99, 87);
-    MasterServiceTest::writeRecoverableSegment(context, serverId, 99, 88);
+    ReplicaManager mgr(context, serverList, serverId, 1);
+    MasterServiceTest::writeRecoverableSegment(context, mgr, serverId, 99, 87);
+    MasterServiceTest::writeRecoverableSegment(context, mgr, serverId, 99, 88);
 
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
