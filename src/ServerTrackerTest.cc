@@ -75,7 +75,7 @@ TEST_F(ServerTrackerTest, enqueueChange) {
     EXPECT_EQ(0U, tr.changes.changes.size());
     tr.enqueueChange(ServerDetails(ServerId(2, 0), ServerStatus::UP),
                      ServerChangeEvent::SERVER_ADDED);
-    EXPECT_EQ(3U, tr.serverList.size());
+    EXPECT_EQ(0U, tr.serverList.size()); // No vector resize before getChange()!
     EXPECT_EQ(1U, tr.changes.changes.size());
 
     // Ensure nothing was actually added to the lists.
@@ -188,10 +188,9 @@ TEST_F(ServerTrackerTest, getChange) {
                                    {WireFormat::BACKUP_SERVICE}, 100,
                                    ServerStatus::UP),
                      ServerChangeEvent::SERVER_ADDED);
-    EXPECT_EQ(3U, tr.serverList.size());
-    EXPECT_FALSE(tr.serverList[2].server.serverId.isValid());
-    EXPECT_TRUE(tr.serverList[2].pointer == NULL);
+    EXPECT_EQ(0U, tr.serverList.size());
     EXPECT_TRUE(tr.getChange(server, event));
+    EXPECT_EQ(3U, tr.serverList.size());
     EXPECT_EQ(ServerId(2, 0), server.serverId);
     EXPECT_EQ("Prophylaxis", server.serviceLocator);
     EXPECT_TRUE(server.services.has(WireFormat::BACKUP_SERVICE));
