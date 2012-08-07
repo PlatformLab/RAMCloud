@@ -57,8 +57,15 @@ class CoordinatorServerManager {
     bool assignReplicationGroup(uint64_t replicationId,
                                 const vector<ServerId>& replicationGroupIds);
     void createReplicationGroup();
-    ServerId enlistServerBeforeReply(EnlistServer& ref);
-    void enlistServerAfterReply(EnlistServer& ref);
+    ServerId enlistServer(ServerId replacesId,
+                               ServiceMask serviceMask,
+                               const uint32_t readSpeed,
+                               const uint32_t writeSpeed,
+                               const char* serviceLocator);
+    //TODO(syang0) TODO(ankitak) please look this over
+    void enlistServerRecover(
+                ProtoBuf::StateEnlistServer* state, EntryId entryId);
+
     ProtoBuf::ServerList getServerList(ServiceMask serviceMask);
     bool hintServerDown(ServerId serverId);
     void hintServerDownRecover(ProtoBuf::StateHintServerDown* state,

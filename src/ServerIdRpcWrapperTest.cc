@@ -43,9 +43,8 @@ class ServerIdRpcWrapperTest : public ::testing::Test {
         context.serverList = &serverList;
         context.serverList->add(ServerId(1, 0), "mock:", {}, 100);
         context.coordinatorServerList = &coordinatorServerList;
-        ProtoBuf::ServerList update;
         coordId = context.coordinatorServerList->add("mock:coord=1",
-                {WireFormat::MASTER_SERVICE}, 100, update);
+                {WireFormat::MASTER_SERVICE}, 100);
     }
 
     ~ServerIdRpcWrapperTest()
@@ -102,8 +101,7 @@ TEST_F(ServerIdRpcWrapperTest, handleTransportError_coordinatorServerList) {
     wrapper.request.fillFromString("100");
     wrapper.send();
     wrapper.state = RpcWrapper::RpcState::FAILED;
-    ProtoBuf::ServerList update;
-    context.coordinatorServerList->crashed(coordId, update);
+    context.coordinatorServerList->crashed(coordId);
     EXPECT_TRUE(wrapper.isReady());
     EXPECT_STREQ("FAILED", wrapper.stateString());
     EXPECT_EQ("flushSession: flushing session for mock:coord=1",

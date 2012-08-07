@@ -16,21 +16,13 @@
 #ifndef RAMCLOUD_TRANSPORT_H
 #define RAMCLOUD_TRANSPORT_H
 
-#if __GNUC__ >= 4 && __GNUC_MINOR__ >= 5
-#include <atomic>
-#else
-#include <cstdatomic>
-#endif
 #include <string>
 #include <boost/intrusive_ptr.hpp>
 
 #include "Common.h"
-#include "Atomic.h"
 #include "BoostIntrusive.h"
 #include "Buffer.h"
-#include "Fence.h"
 #include "ServiceLocator.h"
-#include "Tub.h"
 
 namespace RAMCloud {
 

@@ -693,25 +693,24 @@ class BackupService : public Service
     TaskQueue gcTaskQueue;
 
     /**
-     * Try to garbage collect a replica found on disk until it is finally
-     * removed. Usually replicas are freed explicitly by masters, but this
-     * doesn't work for cases where the replica was found on disk as part
-     * of an old master.
+     * Try to garbage collect replicas from a particular master found on disk
+     * until it is finally removed. Usually replicas are freed explicitly by
+     * masters, but this doesn't work for cases where the replica was found on
+     * disk as part of an old master.
      *
-     * This task may generate RPCs to the master to determine the
-     * status of the replica which survived on-storage across backup
-     * failures.
+     * This task may generate RPCs to the master to determine the status of the
+     * replica which survived on-storage across backup failures.
      */
-    class GarbageCollectReplicaFoundOnStorageTask : public Task {
+    class GarbageCollectReplicasFoundOnStorageTask : public Task {
       PUBLIC:
-        GarbageCollectReplicaFoundOnStorageTask(BackupService& service,
-                                                ServerId masterId,
-                                                uint64_t segmentId);
-        ~GarbageCollectReplicaFoundOnStorageTask();
+        GarbageCollectReplicasFoundOnStorageTask(BackupService& service,
+                                                 ServerId masterId);
+        void addSegmentId(uint64_t segmentId);
         void performTask();
 
       PRIVATE:
-        void deleteReplica();
+        bool tryToFreeReplica(uint64_t segmentId);
+        void deleteReplica(uint64_t segmentId);
 
         /// Backup which is trying to garbage collect the replica.
         BackupService& service;
@@ -719,14 +718,16 @@ class BackupService : public Service
         /// Id of the master which originally created the replica.
         ServerId masterId;
 
-        /// Segment id of the replica which is a candidate for removal.
-        uint64_t segmentId;
+        /// Segment ids of the replicas which are candidates for removal.
+        std::deque<uint64_t> segmentIds;
 
         /**
          * Space for a rpc to the master to ask it explicitly if it would
          * like this replica to be retain as it makes more replica elsewhere.
          */
         Tub<IsReplicaNeededRpc> rpc;
+
+        DISALLOW_COPY_AND_ASSIGN(GarbageCollectReplicasFoundOnStorageTask);
     };
     friend class GarbageCollectReplicaFoundOnStorageTask;
 
@@ -748,6 +749,8 @@ class BackupService : public Service
 
         /// Id of the master now known to have been removed from the cluster.
         ServerId masterId;
+
+        DISALLOW_COPY_AND_ASSIGN(GarbageCollectDownServerTask);
     };
     friend class GarbageCollectDownServerTask;
 

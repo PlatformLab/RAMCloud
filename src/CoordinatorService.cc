@@ -303,17 +303,12 @@ CoordinatorService::enlistServer(
                                            reqHdr.serviceLocatorLength);
 
     // TODO(ankitak): Re-work after RAM-431.
-
-    CoordinatorServerManager::EnlistServer ref(
-        serverManager, replacesId, serviceMask, readSpeed, writeSpeed,
+    ServerId newServerId = serverManager.enlistServer(
+        replacesId, serviceMask, readSpeed, writeSpeed,
         serviceLocator);
-
-    ServerId newServerId = serverManager.enlistServerBeforeReply(ref);
 
     respHdr.serverId = newServerId.getId();
     rpc.sendReply();
-
-    serverManager.enlistServerAfterReply(ref);
 }
 
 /**
@@ -554,7 +549,7 @@ CoordinatorService::setMinOpenSegmentId(
 
     try {
         serverManager.setMinOpenSegmentId(serverId, segmentId);
-    } catch (const CoordinatorServerList::NoSuchServer& e) {
+    } catch (const ServerListException& e) {
         LOG(WARNING, "setMinOpenSegmentId server doesn't exist: %lu",
             serverId.getId());
         respHdr.common.status = STATUS_SERVER_DOESNT_EXIST;

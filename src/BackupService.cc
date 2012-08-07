@@ -1161,7 +1161,7 @@ try {
     throw;
 }
 
-// --- BackupService::GarbageCollectReplicaFoundOnStorageTask ---
+// --- BackupService::GarbageCollectReplicasFoundOnStorageTask ---
 
 /**
  * Try to garbage collect a replica found on disk until it is finally
@@ -1177,47 +1177,77 @@ try {
  *      Backup which is trying to garbage collect the replica.
  * \param masterId
  *      Id of the master which originally created the replica.
- * \param segmentId
- *      Segment id of the replica which is a candidate for removal.
  */
 BackupService::
-    GarbageCollectReplicaFoundOnStorageTask::
-    GarbageCollectReplicaFoundOnStorageTask(BackupService& service,
-                                            ServerId masterId,
-                                            uint64_t segmentId)
+    GarbageCollectReplicasFoundOnStorageTask::
+    GarbageCollectReplicasFoundOnStorageTask(BackupService& service,
+                                            ServerId masterId)
     : Task(service.gcTaskQueue)
     , service(service)
     , masterId(masterId)
-    , segmentId(segmentId)
+    , segmentIds()
     , rpc()
 {
 }
 
-BackupService::
-    GarbageCollectReplicaFoundOnStorageTask::
-    ~GarbageCollectReplicaFoundOnStorageTask()
+/**
+ * Add a segmentId for a replica which should be considered for garbage
+ * collection. Garbage collection won't actually start until schedule() is
+ * called. All calls to addSegment must precede the call to schedule() the
+ * task.
+ *
+ * \param segmentId
+ *      Id of the segment a particular replica is associated with that was
+ *      found on disk storage. Once this task is scheduled it will be
+ *      considered for garbage collection until freed.
+ */
+void
+BackupService::GarbageCollectReplicasFoundOnStorageTask::
+    addSegmentId(uint64_t segmentId)
 {
-    if (rpc)
-        rpc->cancel();
+    segmentIds.push_back(segmentId);
 }
 
 /**
- * Try to make progress in garbage collecting the replica without blocking.
+ * Try to make progress in garbage collecting replicas without blocking.
+ * Attempts one replica at a time in order to prevent flooding the
+ * master this task is associated with.
  */
 void
-BackupService::GarbageCollectReplicaFoundOnStorageTask::performTask()
+BackupService::GarbageCollectReplicasFoundOnStorageTask::performTask()
 {
-    if (!service.config.backup.gc) {
+    if (!service.config.backup.gc || segmentIds.empty()) {
         delete this;
         return;
     }
+    uint64_t segmentId = segmentIds.front();
+    bool freed = tryToFreeReplica(segmentId);
+    if (freed)
+        segmentIds.pop_front();
+    schedule();
+}
+
+/**
+ * Only used internally; try to make progress in garbage collecting one replica
+ * without blocking.
+ *
+ * \param segmentId
+ *      Id of the segment of the replica which is on the chopping block. Once
+ *      a value is passed as \a segmentId that value must be passed on all
+ *      subsequent calls until true is returned.
+ * \return
+ *      True if the segment was successfully freed from storage, false otherwise.
+ *      See important notes on \a segmentId.
+ */
+bool
+BackupService::GarbageCollectReplicasFoundOnStorageTask::
+    tryToFreeReplica(uint64_t segmentId)
+{
     {
         BackupService::Lock _(service.mutex);
         auto* replica = service.findSegmentInfo(masterId, segmentId);
-        if (!replica) {
-            delete this;
-            return;
-        }
+        if (!replica)
+            return true;
     }
 
     if (rpc) {
@@ -1235,9 +1265,8 @@ BackupService::GarbageCollectReplicaFoundOnStorageTask::performTask()
                 LOG(DEBUG, "Server has recovered from lost replica; "
                     "freeing replica for <%lu,%lu>",
                     masterId.getId(), segmentId);
-                deleteReplica();
-                delete this;
-                return;
+                deleteReplica(segmentId);
+                return true;
             } else {
                 LOG(DEBUG, "Server has not recovered from lost "
                     "replica; retaining replica for <%lu,%lu>; will "
@@ -1248,8 +1277,7 @@ BackupService::GarbageCollectReplicaFoundOnStorageTask::performTask()
     } else {
         rpc.construct(service.context, masterId, service.serverId, segmentId);
     }
-    schedule();
-    return;
+    return false;
 }
 
 /**
@@ -1257,12 +1285,18 @@ BackupService::GarbageCollectReplicaFoundOnStorageTask::performTask()
  * it from the backup's segments map.
  */
 void
-BackupService::GarbageCollectReplicaFoundOnStorageTask::deleteReplica()
+BackupService::GarbageCollectReplicasFoundOnStorageTask::
+    deleteReplica(uint64_t segmentId)
 {
-    BackupService::Lock _(service.mutex);
-    auto* replica = service.findSegmentInfo(masterId, segmentId);
+    SegmentInfo* replica = NULL;
+    {
+        BackupService::Lock _(service.mutex);
+        replica = service.findSegmentInfo(masterId, segmentId);
+        if (!replica)
+            return;
+        service.segments.erase({masterId, segmentId});
+    }
     replica->free();
-    service.segments.erase({masterId, segmentId});
     delete replica;
 }
 
@@ -1816,6 +1850,11 @@ BackupService::restartFromStorage()
     const HeaderAndFooter* entries =
         reinterpret_cast<const HeaderAndFooter*>(allHeadersAndFooters.get());
 
+    // Keeps track of which task is garbage collecting replicas for each
+    // masterId.
+    std::unordered_map<ServerId, GarbageCollectReplicasFoundOnStorageTask*>
+        gcTasks;
+
     for (uint32_t frame = 0; frame < config.backup.numSegmentFrames; ++frame) {
         auto& entry = entries[frame];
         // Check header.
@@ -1859,10 +1898,16 @@ BackupService::restartFromStorage()
                                masterId, segmentId, segmentSize,
                                frame, wasClosedOnStorage);
         segments[MasterSegmentIdPair(masterId, segmentId)] = info;
-        (new GarbageCollectReplicaFoundOnStorageTask(*this,
-                                                     masterId,
-                                                     segmentId))->schedule();
+        if (gcTasks.find(masterId) == gcTasks.end()) {
+            gcTasks[masterId] =
+                new GarbageCollectReplicasFoundOnStorageTask(*this, masterId);
+        }
+        gcTasks[masterId]->addSegmentId(segmentId);
     }
+
+    // Kick off the garbage collection for replicas stored on disk.
+    foreach (const auto& value, gcTasks)
+        value.second->schedule();
 
     LOG(NOTICE, "Replica information retreived from storage: %f ms",
         1000. * Cycles::toSeconds(restartTime.stop()));

@@ -12,18 +12,11 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
-
-/**
- * \file
- * This file implements the CoordinatorServerList class.
- */
-
 #include "Common.h"
 #include "CoordinatorServerList.h"
-#include "Cycles.h"
-#include "MembershipClient.h"
-#include "ShortMacros.h"
+#include "ServerListUpdater.h"
 #include "ServerTracker.h"
+#include "ShortMacros.h"
 #include "TransportManager.h"
 
 namespace RAMCloud {
@@ -37,10 +30,13 @@ namespace RAMCloud {
  */
 CoordinatorServerList::CoordinatorServerList(Context& context)
     : AbstractServerList(context)
+    , updater(context, *this)
     , serverList()
     , numberOfMasters(0)
     , numberOfBackups(0)
+    , updates()
 {
+    updater.start();
 }
 
 /**
@@ -86,12 +82,11 @@ CoordinatorServerList::isize() const
  * Add a new server to the CoordinatorServerList and generate a new, unique
  * ServerId for it.
  *
- * After an add() but before sending \a update to the cluster
- * incrementVersion() must be called.  Also, \a update can contain remove,
- * crash, and add notifications, but removals/crashes must precede additions
- * in the update to ensure ordering guarantees about notifications related to
- * servers which re-enlist.  For now, this means calls to remove()/crashed()
- * must proceed call to add() if they have a common \a update.
+ * The result of this operation will be added in the class's update Protobuffer
+ * intended for the cluster. To send out the update, call sendMembershipUpdate()
+ * which will also increment the version number. Calls to remove()
+ * and crashed() must proceed call to add() to ensure ordering guarantees
+ * about notifications related to servers which re-enlist.
  *
  * The addition will be pushed to all registered trackers and those with
  * callbacks will be notified.
@@ -100,20 +95,16 @@ CoordinatorServerList::isize() const
  *      The ServiceLocator string of the server to add.
  * \param serviceMask
  *      Which services this server supports.
- *  \param readSpeed
+ * \param readSpeed
  *      Speed of the storage on the enlisting server if it includes a backup
  *      service.  Argument is ignored otherwise.
- * \param update
- *      Cluster membership update message to append a serialized add
- *      notification to.
  * \return
  *      The unique ServerId assigned to this server.
  */
 ServerId
 CoordinatorServerList::add(string serviceLocator,
                            ServiceMask serviceMask,
-                           uint32_t readSpeed,
-                           ProtoBuf::ServerList& update)
+                           uint32_t readSpeed)
 {
     Lock _(mutex);
     uint32_t index = firstFreeIndex();
@@ -132,7 +123,7 @@ CoordinatorServerList::add(string serviceLocator,
         pair.entry->expectedReadMBytesPerSec = readSpeed;
     }
 
-    ProtoBuf::ServerList_Entry& protoBufEntry(*update.add_server());
+    ProtoBuf::ServerList_Entry& protoBufEntry(*updates.add_server());
     pair.entry->serialize(protoBufEntry);
 
     foreach (ServerTrackerInterface* tracker, trackers)
@@ -151,12 +142,11 @@ CoordinatorServerList::add(string serviceLocator,
  * This is a no-op of the server is already marked as crashed;
  * the effect is undefined if the server's status is DOWN.
  *
- * After a crashed() but before sending \a update to the cluster
- * incrementVersion() must be called.  Also, \a update can contain remove,
- * crash, and add notifications, but removals/crashes must precede additions
- * in the update to ensure ordering guarantees about notifications related to
- * servers which re-enlist.  For now, this means calls to remove()/crashed()
- * must proceed call to add() if they have a common \a update.
+ * The result of this operation will be added in the class's update Protobuffer
+ * intended for the cluster. To send out the update, call sendMembershipUpdate()
+ * which will also increment the version number. Calls to remove()
+ * and crashed() must proceed call to add() to ensure ordering guarantees
+ * about notifications related to servers which re-enlist.
  *
  * The addition will be pushed to all registered trackers and those with
  * callbacks will be notified.
@@ -164,16 +154,12 @@ CoordinatorServerList::add(string serviceLocator,
  * \param serverId
  *      The ServerId of the server to remove from the CoordinatorServerList.
  *      It must not have been removed already (see remove()).
- * \param update
- *      Cluster membership update message to append a serialized crash
- *      notification to.
  */
 void
-CoordinatorServerList::crashed(ServerId serverId,
-                               ProtoBuf::ServerList& update)
+CoordinatorServerList::crashed(ServerId serverId)
 {
     Lock lock(mutex);
-    crashed(lock, serverId, update);
+    crashed(lock, serverId);
 }
 
 /**
@@ -183,12 +169,11 @@ CoordinatorServerList::crashed(ServerId serverId,
  *
  * This method may actually append two entries to \a update (see below).
  *
- * After a remove() but before sending \a update to the cluster
- * incrementVersion() must be called.  Also, \a update can contain remove,
- * crash, and add notifications, but removals/crashes must precede additions
- * in the update to ensure ordering guarantees about notifications related to
- * servers which re-enlist.  For now, this means calls to remove()/crashed()
- * must proceed call to add() if they have a common \a update.
+ * The result of this operation will be added in the class's update Protobuffer
+ * intended for the cluster. To send out the update, call sendMembershipUpdate()
+ * which will also increment the version number. Calls to remove()
+ * and crashed() must proceed call to add() to ensure ordering guarantees
+ * about notifications related to servers which re-enlist.
  *
  * The addition will be pushed to all registered trackers and those with
  * callbacks will be notified.
@@ -196,31 +181,26 @@ CoordinatorServerList::crashed(ServerId serverId,
  * \param serverId
  *      The ServerId of the server to remove from the CoordinatorServerList.
  *      It must be in the list (either UP or CRASHED).
- * \param update
- *      Cluster membership update message to append a serialized removal
- *      notification to.  A crash notification will be appended before the
- *      removal notification if this server was removed while in UP status.
  */
 void
-CoordinatorServerList::remove(ServerId serverId,
-                              ProtoBuf::ServerList& update)
+CoordinatorServerList::remove(ServerId serverId)
 {
     Lock lock(mutex);
     uint32_t index = serverId.indexNumber();
     if (index >= serverList.size() || !serverList[index].entry ||
         serverList[index].entry->serverId != serverId) {
-        throw NoSuchServer(HERE,
+        throw ServerListException(HERE,
             format("Invalid ServerId (%lu)", serverId.getId()));
     }
 
-    crashed(lock, serverId, update);
+    crashed(lock, serverId);
 
     auto& entry = serverList[index].entry;
     // Even though we destroy this entry almost immediately setting the state
     // gets the serialized update message's state field correct.
     entry->status = ServerStatus::DOWN;
 
-    ProtoBuf::ServerList_Entry& protoBufEntry(*update.add_server());
+    ProtoBuf::ServerList_Entry& protoBufEntry(*updates.add_server());
     entry->serialize(protoBufEntry);
 
     Entry removedEntry = *entry;
@@ -230,20 +210,6 @@ CoordinatorServerList::remove(ServerId serverId,
         tracker->enqueueChange(removedEntry, ServerChangeEvent::SERVER_REMOVED);
     foreach (ServerTrackerInterface* tracker, trackers)
         tracker->fireCallback();
-}
-
-/**
- * Increments the list's version number and sets the version number on
- * \a update to match, this must be called after remove()/add() calls have
- * changed the list but before the update message has been sent to the
- * cluster members.
- */
-void
-CoordinatorServerList::incrementVersion(ProtoBuf::ServerList& update)
-{
-    Lock _(mutex);
-    version++;
-    update.set_version_number(version);
 }
 
 /**
@@ -364,6 +330,7 @@ CoordinatorServerList::at(size_t index) const
 bool
 CoordinatorServerList::contains(ServerId serverId) const
 {
+    Lock _(mutex);
     return serverId.isValid() && icontains(serverId);
 }
 
@@ -471,15 +438,14 @@ CoordinatorServerList::serialize(ProtoBuf::ServerList& protoBuf,
 
 /**
  * Issue a cluster membership update to all enlisted servers in the system
- * that are running the MembershipService.
+ * that are running the MembershipService. This is an asynchronous call.
  *
- * Currently this call happens synchronously on the calling thread, but
- * eventually the CoordinatorServerList should provide a context to
- * send these updates automatically and asynchronously.
- * TODO(stutsman): Implement this feature.
+ * This call will increment the version of the ServerList.
  *
- * \param update
- *      Protocol Buffer containing the update to be sent.
+ * The CoordinatorServerList should provide a context to send these updates
+ * automatically.
+ * TODO(stutsman/syang0): Implement this feature.
+ *
  * \param excludeServerId
  *      ServerId of a server that is not to receive this update. This is
  *      used to avoid sending an update message to a server immediately
@@ -487,13 +453,16 @@ CoordinatorServerList::serialize(ProtoBuf::ServerList& protoBuf,
  *      instead).
  */
 void
-CoordinatorServerList::sendMembershipUpdate(ProtoBuf::ServerList& update,
-                                            ServerId excludeServerId)
+CoordinatorServerList::sendMembershipUpdate(ServerId excludeServerId)
 {
-    Lock lock(mutex);
+    Lock _(mutex);
+    std::vector<ServerId> recipients;
 
-    Tub<ProtoBuf::ServerList> serializedServerList;
+    // Increment version
+    version++;
+    updates.set_version_number(version);
 
+    // Collect the servers that need this update.
     for (size_t i = 0; i < serverList.size(); i++) {
         Tub<Entry>& entry = serverList[i].entry;
         if (!entry ||
@@ -503,56 +472,50 @@ CoordinatorServerList::sendMembershipUpdate(ProtoBuf::ServerList& update,
         if (entry->serverId == excludeServerId)
             continue;
 
-        UpdateServerListRpc rpc(context, entry->serverId, update);
-
-        bool succeeded = false;
-        uint64_t start = Cycles::rdtsc();
-        uint64_t stalled = 0;
-        const uint64_t timeoutNs = 250 * 1000 * 1000; // 250 ms
-        while (!rpc.isReady() && stalled < timeoutNs)
-            stalled = Cycles::toNanoseconds(Cycles::rdtsc() - start);
-        if (stalled < timeoutNs) {
-            try {
-                succeeded = rpc.wait();
-            } catch (const TransportException& e) {}
-        } else {
-            rpc.cancel();
-            LOG(NOTICE, "Failed to send cluster membership update to %lu",
-                entry->serverId.getId());
-        }
-
-        // If this server had missed a previous update it will return
-        // failure and expect us to push the whole list again.
-        if (!succeeded) {
-            LOG(NOTICE, "Server %lu had lost an update. Sending whole list.",
-                entry->serverId.getId());
-            if (!serializedServerList) {
-                serializedServerList.construct();
-                serialize(lock, *serializedServerList);
-            }
-            SetServerListRpc rpc(context, entry->serverId,
-                                 *serializedServerList);
-            uint64_t start = Cycles::rdtsc();
-            uint64_t stalled = 0;
-            while (!rpc.isReady() && stalled < timeoutNs)
-                stalled = Cycles::toNanoseconds(Cycles::rdtsc() - start);
-            if (stalled < timeoutNs) {
-                try {
-                    rpc.wait();
-                } catch (const TransportException& e) {}
-            } else {
-                rpc.cancel();
-                LOG(NOTICE, "Failed to send full cluster server list to %lu "
-                    "after it failed to accept the update",
-                    entry->serverId.getId());
-            }
-        }
-
-        LOG(DEBUG, "Server list update sent to server %lu",
-            entry->serverId.getId());
+        recipients.push_back(entry->serverId);
     }
+
+    // Enqueue for a background update
+    updater.sendUpdate(recipients, updates);
+
+    // Clear list to collect next batch of updates.
+    updates.Clear();
 }
 
+/**
+ * Push the entire server list to the specified server. This is used to both
+ * push the initial list when a server enlists, as well as to push the list
+ * again if a server misses any updates and has gone out of sync.
+ *
+ * \param serverId
+ *      ServerId of the server to send the list to.
+ */
+void
+CoordinatorServerList::sendServerList(ServerId& serverId) {
+    Lock lock(mutex);
+
+     if (!serverId.isValid() || !icontains(serverId)) {
+        LOG(WARNING, "Could not send list to unknown server %lu", *serverId);
+        return;
+    }
+
+    const Entry& entry = getReferenceFromServerId(serverId);
+    if (entry.status != ServerStatus::UP) {
+        LOG(WARNING, "Could not send list to crashed server %lu", *serverId);
+        return;
+    }
+
+    if (!entry.services.has(WireFormat::MEMBERSHIP_SERVICE)) {
+        LOG(WARNING, "Could not send list to server without membership "
+            "service: %lu", *serverId);
+        return;
+    }
+
+    ProtoBuf::ServerList serializedServerList;
+    serialize(lock, serializedServerList, {WireFormat::MASTER_SERVICE,
+            WireFormat::BACKUP_SERVICE});
+    updater.sendFullList(serverId, serializedServerList);
+}
 /**
  * Add a LogCabin entry id corresponding to a state change for
  * a particular server.
@@ -585,13 +548,12 @@ CoordinatorServerList::getLogCabinEntryId(ServerId serverId)
 // This version doesn't acquire locks since it is used internally.
 void
 CoordinatorServerList::crashed(const Lock& lock,
-                               ServerId serverId,
-                               ProtoBuf::ServerList& update)
+                               ServerId serverId)
 {
     uint32_t index = serverId.indexNumber();
     if (index >= serverList.size() || !serverList[index].entry ||
         serverList[index].entry->serverId != serverId) {
-        throw NoSuchServer(HERE,
+        throw ServerListException(HERE,
             format("Invalid ServerId (%lu)", serverId.getId()));
     }
 
@@ -607,7 +569,7 @@ CoordinatorServerList::crashed(const Lock& lock,
 
     entry->status = ServerStatus::CRASHED;
 
-    ProtoBuf::ServerList_Entry& protoBufEntry(*update.add_server());
+    ProtoBuf::ServerList_Entry& protoBufEntry(*updates.add_server());
     entry->serialize(protoBufEntry);
 
     foreach (ServerTrackerInterface* tracker, trackers)
@@ -656,7 +618,7 @@ CoordinatorServerList::getReferenceFromServerId(const ServerId& serverId) const
             && serverList[index].entry->serverId == serverId)
         return *serverList[index].entry;
 
-    throw NoSuchServer(HERE,
+    throw ServerListException(HERE,
         format("Invalid ServerId (%lu)", serverId.getId()));
 }
 
@@ -718,6 +680,17 @@ CoordinatorServerList::serialize(const Lock& lock,
     protoBuf.set_version_number(version);
 }
 
+
+/**
+ * Blocks until all the queued updates in the BackgroundUpdater are sent out.
+ */
+void
+CoordinatorServerList::sync()
+{
+    updater.flush();
+}
+
+
 //////////////////////////////////////////////////////////////////////
 // CoordinatorServerList::Entry Methods
 //////////////////////////////////////////////////////////////////////
@@ -777,5 +750,4 @@ CoordinatorServerList::Entry::serialize(ProtoBuf::ServerList_Entry& dest) const
     else
         dest.set_expected_read_mbytes_per_sec(0); // Tests expect the field.
 }
-
 } // namespace RAMCloud

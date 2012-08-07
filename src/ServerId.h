@@ -21,6 +21,10 @@
 #ifndef RAMCLOUD_SERVERID_H
 #define RAMCLOUD_SERVERID_H
 
+#include <functional>
+#include "Common.h"
+
+
 namespace RAMCloud {
 
 /**
@@ -191,5 +195,18 @@ class ServerId {
 };
 
 } // namespace RAMCloud
+
+namespace std {
+/**
+ * Hash a server id. Makes it easy to put ServerIds in unordered_sets or
+ * to use them as the key in unordered_maps.
+ */
+template<>
+struct hash<RAMCloud::ServerId> {
+    size_t operator()(const RAMCloud::ServerId& serverId) const {
+        return hash<uint64_t>()(serverId.getId());
+    }
+};
+}
 
 #endif // !RAMCLOUD_SERVERID_H

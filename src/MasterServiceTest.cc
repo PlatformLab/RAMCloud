@@ -289,8 +289,8 @@ TEST_F(MasterServiceTest, enumeration_tabletNotOnServer) {
     Buffer iter, nextIter, objects;
     EnumerateTableRpc rpc(*ramcloud, 99, 0, iter, objects);
     EXPECT_THROW(rpc.wait(nextIter), TableDoesntExistException);
-    EXPECT_EQ("checkStatus: Server mock:host=master doesn't store "
-              "<99, 0x0>; refreshing object map | "
+    EXPECT_EQ("checkStatus: Server mock:host=master "
+              "doesn't store <99, 0x0>; refreshing object map | "
               "flush: flushing object map",
               TestLog::get());
 }
@@ -1356,6 +1356,11 @@ TEST_F(MasterServiceTest, migrateTablet_movingData) {
     master2Config.localLocator = "mock:host=master2";
     Server* master2 = cluster.addServer(master2Config);
 
+    // TODO(syang0) RAM-441 without the syncCoordinatorServerList() call  in
+    // cluster.addServer(..) above, this crashes since the CoordinatorServerList
+    // update is asynchronous and the client calls a migrate before the CSL has
+    // been propagated. The recipient servers basically don't know about each
+    // other yet and can't perform a migrate.
     TestLog::Enable _(migrateTabletFilter);
 
     ramcloud->migrateTablet(tbl, 0, -1, master2->serverId);

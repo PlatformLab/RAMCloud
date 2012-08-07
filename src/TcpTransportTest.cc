@@ -566,7 +566,7 @@ TEST_F(TcpTransportTest, readMessage_getBufferFromSession) {
     int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
     MockWrapper rpc1("request1");
     TcpTransport::TcpSession session(client);
-    TcpTransport::TcpClientRpc* r1 = client.clientRpcPool.construct(&session,
+    TcpTransport::TcpClientRpc* r1 = client.clientRpcPool.construct(
             &rpc1.request, &rpc1.response, &rpc1, 66UL);
     session.rpcsWaitingForResponse.push_back(*r1);
     TcpTransport::IncomingMessage incoming(NULL, &session);
@@ -807,13 +807,13 @@ TEST_F(TcpTransportTest, findRpc) {
     TcpTransport::TcpSession session(client);
     MockWrapper rpc1("11111"), rpc2("2222"), rpc3("3333");
     TcpTransport::TcpClientRpc* r1 = client.clientRpcPool.construct(
-            &session, &rpc1.request, &rpc1.response, &rpc1, 111UL);
+            &rpc1.request, &rpc1.response, &rpc1, 111UL);
     session.rpcsWaitingForResponse.push_back(*r1);
     TcpTransport::TcpClientRpc* r2 = client.clientRpcPool.construct(
-            &session, &rpc2.request, &rpc2.response, &rpc2, 222UL);
+            &rpc2.request, &rpc2.response, &rpc2, 222UL);
     session.rpcsWaitingForResponse.push_back(*r2);
     TcpTransport::TcpClientRpc* r3 = client.clientRpcPool.construct(
-            &session, &rpc3.request, &rpc3.response, &rpc3, 333UL);
+            &rpc3.request, &rpc3.response, &rpc3, 333UL);
     session.rpcsWaitingForResponse.push_back(*r3);
     TcpTransport::Header header;
     header.nonce = 111UL;

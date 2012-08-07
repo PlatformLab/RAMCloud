@@ -66,6 +66,7 @@ class MockCluster {
          string coordinatorLocator = "mock:host=coordinator");
     ~MockCluster();
     Server* addServer(ServerConfig config);
+    void syncCoordinatorServerList();
 
     /// Caller-supplied context that we manage to provide access to
     /// the cluster.

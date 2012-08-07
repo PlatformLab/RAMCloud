@@ -122,37 +122,62 @@ CoordinatorServerManager::createReplicationGroup()
     }
 }
 
+ /**
+ * Implements enlisting a server onto the CoordinatorServerList and
+ * propagating updates to the cluster.
+ *
+ * TODO(ankitak): Re-work after RAM-431 is resolved.
+ *
+ * \param replacesId
+ *      Server id of the server that the enlisting server is replacing.
+ * \param serviceMask
+ *      Services supported by the enlisting server.
+ * \param readSpeed
+ *      Read speed of the enlisting server.
+ * \param writeSpeed
+ *      Write speed of the enlisting server.
+ * \param serviceLocator
+ *      Service Locator of the enlisting server.
+ *
+ * \return
+ *      Server id assigned to the enlisting server.
+ */
 ServerId
-CoordinatorServerManager::EnlistServer::beforeReply()
+CoordinatorServerManager::enlistServer(
+    ServerId replacesId, ServiceMask serviceMask, const uint32_t readSpeed,
+    const uint32_t writeSpeed,  const char* serviceLocator)
 {
+    Tub<CoordinatorServerList::Entry> replacedEntry;
+    Tub<LogCabin::Client::EntryId> replacesEntryId;
+
     // The order of the updates in serverListUpdate is important: the remove
     // must be ordered before the add to ensure that as members apply the
     // update they will see the removal of the old server id before the
     // addition of the new, replacing server id.
-    if (manager.service.serverList.contains(replacesId)) {
+    if (service.serverList.contains(replacesId)) {
         replacesEntryId =
-            manager.service.serverList.getLogCabinEntryId(replacesId);
+            service.serverList.getLogCabinEntryId(replacesId);
         LOG(NOTICE, "%s is enlisting claiming to replace server id "
             "%lu, which is still in the server list, taking its word "
             "for it and assuming the old server has failed",
             serviceLocator, replacesId.getId());
-        replacedEntry.construct(manager.service.serverList[replacesId]);
-        // Don't increment server list yet; done after the add below.
-        // Note, if the server being replaced is already crashed this may
-        // not append an update at all.
-        manager.service.serverList.crashed(replacesId, serverListUpdate);
+        replacedEntry.construct(service.serverList[replacesId]);
+        service.serverList.crashed(replacesId);
         // If the server being replaced did not have a master then there
         // will be no recovery.  That means it needs to transition to
         // removed status now (usually recoveries remove servers from the
         // list when they complete).
-        if (!replacedEntry->services.has(WireFormat::MASTER_SERVICE))
-            manager.service.serverList.remove(replacesId, serverListUpdate);
+        if (!replacedEntry.get()->services.has(WireFormat::MASTER_SERVICE))
+            service.serverList.remove(replacesId);
     }
 
-    newServerId = manager.service.serverList.add(
-        serviceLocator, serviceMask, readSpeed, serverListUpdate);
-    manager.service.serverList.incrementVersion(serverListUpdate);
+    ServerId newServerId = service.serverList.add(serviceLocator,
+                                                   serviceMask,
+                                                   readSpeed);
 
+    service.serverList.sendMembershipUpdate(newServerId);
+
+    // Log Cabin Entry TODO(ankitak) look this over.
     ProtoBuf::StateEnlistServer state;
     state.set_entry_type("StateEnlistServer");
     state.set_replaces_id(replacesId.getId());
@@ -161,46 +186,34 @@ CoordinatorServerManager::EnlistServer::beforeReply()
     state.set_read_speed(readSpeed);
     state.set_write_speed(writeSpeed);
     state.set_service_locator(string(serviceLocator));
+    auto stateEntryId = service.logCabinHelper->appendProtoBuf(state);
 
-    stateEntryId = manager.service.logCabinHelper->appendProtoBuf(state);
-
-    CoordinatorServerList::Entry entry =
-        manager.service.serverList[newServerId];
-
-    LOG(NOTICE,
-        "Enlisting new server at %s (server id %lu) supporting services: %s",
-        serviceLocator, newServerId.getId(), entry.services.toString().c_str());
-    if (replacesId.isValid()) {
-        LOG(NOTICE, "Newly enlisted server %lu replaces server %lu",
-            newServerId.getId(), replacesId.getId());
-    }
-    if (entry.isBackup()) {
-        LOG(DEBUG, "Backup at id %lu has %u MB/s read %u MB/s write",
-            newServerId.getId(), readSpeed, writeSpeed);
-        manager.createReplicationGroup();
-    }
-
-    return newServerId;
-}
-
-void
-CoordinatorServerManager::EnlistServer::afterReply()
-{
-    CoordinatorServerList::Entry entry =
-        manager.service.serverList[newServerId];
+    CoordinatorServerList::Entry entry = service.serverList[newServerId];
+    LOG(NOTICE, "Enlisting new server at %s (server id %lu) supporting "
+        "services: %s", serviceLocator, newServerId.getId(),
+        entry.services.toString().c_str());
 
     if (entry.services.has(WireFormat::MEMBERSHIP_SERVICE))
-        manager.sendServerList(newServerId);
-    manager.service.serverList.sendMembershipUpdate(
-        serverListUpdate, newServerId);
+        sendServerList(newServerId);
 
     // Recovery on the replaced host is deferred until the replacing host
     // has been enlisted.
     if (replacedEntry)
-        manager.service.recoveryManager.startMasterRecovery(
+        service.recoveryManager.startMasterRecovery(
             replacedEntry.get()->serverId);
 
-    ProtoBuf::ServerInformation info;
+    if (replacesId.isValid()) {
+        LOG(NOTICE, "Newly enlisted server %lu replaces server %lu",
+            newServerId.getId(), replacesId.getId());
+    }
+
+    if (entry.isBackup()) {
+        LOG(DEBUG, "Backup at id %lu has %u MB/s read %u MB/s write",
+            newServerId.getId(), readSpeed, writeSpeed);
+        createReplicationGroup();
+    }
+
+     ProtoBuf::ServerInformation info;
     info.set_entry_type("ServerInformation");
     info.set_server_id(newServerId.getId());
     info.set_service_mask(serviceMask.serialize());
@@ -214,43 +227,10 @@ CoordinatorServerManager::EnlistServer::afterReply()
         invalidates.push_back(replacesEntryId);
 
     EntryId infoEntryId =
-        manager.service.logCabinHelper->appendProtoBuf(info, invalidates);
-    manager.service.serverList.addLogCabinEntryId(newServerId, infoEntryId);
-}
+        service.logCabinHelper->appendProtoBuf(info, invalidates);
+    service.serverList.addLogCabinEntryId(newServerId, infoEntryId);
 
-/**
- * Implements the part to handle enlistServer before responding to the
- * enlisting server with the serverId assigned to it.
- *
- * TODO(ankitak): Re-work after RAM-431 is resolved.
- *
- * \param ref
- *      Reference to the EnlistServer object that stores all the data
- *      required to complete this operation.
- *
- * \return
- *      Server id assigned to the enlisting server.
- */
-ServerId
-CoordinatorServerManager::enlistServerBeforeReply(EnlistServer& ref)
-{
-    return ref.beforeReply();
-}
-
-/**
- * Implements the part to handle enlistServer after responding to the
- * enlisting server with the serverId assigned to it.
- *
- * TODO(ankitak): Re-work after RAM-431 is resolved.
- *
- * \param ref
- *      Reference to the EnlistServer object that stores all the data
- *      required to complete this operation.
- */
-void
-CoordinatorServerManager::enlistServerAfterReply(EnlistServer& ref)
-{
-    ref.afterReply();
+    return newServerId;
 }
 
 /**
@@ -310,22 +290,20 @@ CoordinatorServerManager::HintServerDown::complete(EntryId entryId)
      // to remove the dead backup before initiating recovery. Otherwise, other
      // servers may try to backup onto a dead machine which will cause delays.
      CoordinatorServerList::Entry entry = manager.service.serverList[serverId];
-     ProtoBuf::ServerList update;
-     manager.service.serverList.crashed(serverId, update);
+     manager.service.serverList.crashed(serverId);
      // If the server being replaced did not have a master then there
      // will be no recovery.  That means it needs to transition to
      // removed status now (usually recoveries remove servers from the
      // list when they complete).
      if (!entry.services.has(WireFormat::MASTER_SERVICE))
-         manager.service.serverList.remove(serverId, update);
-     manager.service.serverList.incrementVersion(update);
+         manager.service.serverList.remove(serverId);
 
      // Update cluster membership information.
      // Backup recovery is kicked off via this update.
      // Deciding whether to place this before or after the start of master
      // recovery is difficult.
      manager.service.serverList.sendMembershipUpdate(
-             update, ServerId(/* invalid id */));
+                                    ServerId(/* invalid id */));
 
      manager.service.recoveryManager.startMasterRecovery(entry.serverId);
 
@@ -416,30 +394,7 @@ CoordinatorServerManager::removeReplicationGroup(uint64_t groupId)
 void
 CoordinatorServerManager::sendServerList(ServerId serverId)
 {
-    if (!service.serverList.contains(serverId)) {
-        LOG(WARNING, "Could not send list to unknown server %lu", *serverId);
-        return;
-    }
-
-    if (service.serverList[serverId].status != ServerStatus::UP) {
-        LOG(WARNING, "Could not send list to crashed server %lu", *serverId);
-        return;
-    }
-
-    if (!service.serverList[serverId].services.has(
-            WireFormat::MEMBERSHIP_SERVICE)) {
-        LOG(WARNING, "Could not send list to server without membership "
-            "service: %lu", *serverId);
-        return;
-    }
-
-    LOG(DEBUG, "Sending server list to server id %lu as requested", *serverId);
-
-    ProtoBuf::ServerList serializedServerList;
-    service.serverList.serialize(serializedServerList);
-
-    MembershipClient::setServerList(service.context, serverId,
-        serializedServerList);
+    service.serverList.sendServerList(serverId);
 }
 
 void
@@ -467,11 +422,11 @@ CoordinatorServerManager::SetMinOpenSegmentId::complete(EntryId entryId)
         // Update local state.
         manager.service.serverList.addLogCabinEntryId(serverId, entryId);
         manager.service.serverList.setMinOpenSegmentId(serverId, segmentId);
-    } catch (const CoordinatorServerList::NoSuchServer& e) {
+    } catch (const ServerListException& e) {
         LOG(WARNING, "setMinOpenSegmentId server doesn't exist: %lu",
             serverId.getId());
         manager.service.logCabinLog->invalidate(vector<EntryId>(entryId));
-        throw CoordinatorServerList::NoSuchServer(e);
+        throw ServerListException(e);
     }
 }
 

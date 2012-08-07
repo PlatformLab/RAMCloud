@@ -28,6 +28,7 @@ namespace RAMCloud {
  */
 AbstractServerList::AbstractServerList(Context& context)
     : context(context)
+    , isBeingDestroyed(false)
     , version(0)
     , trackers()
     , mutex()
@@ -39,6 +40,14 @@ AbstractServerList::AbstractServerList(Context& context)
  */
 AbstractServerList::~AbstractServerList()
 {
+    // Unregister All Trackers (clear their pointers)
+    Lock _(mutex);
+    isBeingDestroyed = true;
+
+    for (size_t i = 0; i < trackers.size(); i++) {
+        if (trackers[i])
+            trackers[i]->setParent(NULL);
+    }
 }
 
 /**
@@ -120,12 +129,16 @@ AbstractServerList::contains(ServerId id) const {
  *
  * \throw ServerListException
  *      An exception is thrown if the same tracker is registered more
- *      than once.
+ *      than once or if ServerList is in the process of being destroyed.
  */
 void
 AbstractServerList::registerTracker(ServerTrackerInterface& tracker)
 {
     Lock _(mutex);
+
+    if (isBeingDestroyed)
+        throw ServerListException(HERE, "ServerList has entered its destruction"
+                " phase and will not accept new trackers.");
 
     bool alreadyRegistered =
         std::find(trackers.begin(), trackers.end(), &tracker) != trackers.end();
@@ -136,6 +149,7 @@ AbstractServerList::registerTracker(ServerTrackerInterface& tracker)
     }
 
     trackers.push_back(&tracker);
+    tracker.setParent(this);
 
     // Push all known servers which are crashed first.
     // Order is important to guarantee that if one server replaced another
@@ -171,9 +185,15 @@ void
 AbstractServerList::unregisterTracker(ServerTrackerInterface& tracker)
 {
     Lock _(mutex);
+    if (isBeingDestroyed) {
+        tracker.setParent(NULL);
+        return;
+    }
+
     for (size_t i = 0; i < trackers.size(); i++) {
         if (trackers[i] == &tracker) {
             trackers.erase(trackers.begin() + i);
+            tracker.setParent(NULL);
             break;
         }
     }

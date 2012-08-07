@@ -159,10 +159,9 @@ class TcpTransport : public Transport {
       public:
         friend class TcpTransport;
         friend class TcpSession;
-        explicit TcpClientRpc(TcpSession* session, Buffer* request,
-                Buffer* response, RpcNotifier* notifier, uint64_t nonce)
-            : session(session)
-            , request(request)
+        explicit TcpClientRpc(Buffer* request, Buffer* response,
+                RpcNotifier* notifier, uint64_t nonce)
+            : request(request)
             , response(response)
             , notifier(notifier)
             , nonce(nonce)
@@ -171,7 +170,6 @@ class TcpTransport : public Transport {
         { }
 
       PRIVATE:
-        TcpSession* session;      /// Session used for this RPC.
         Buffer* request;          /// Request message for the RPC.
         Buffer* response;         /// Will eventually hold the response message.
         RpcNotifier* notifier;    /// Use this object to report completion.

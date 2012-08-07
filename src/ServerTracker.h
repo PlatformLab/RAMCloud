@@ -56,6 +56,10 @@ class ServerTrackerInterface {
     virtual void enqueueChange(const ServerDetails& server,
                                ServerChangeEvent event) = 0;
     virtual void fireCallback() = 0;
+
+  PRIVATE:
+    friend class AbstractServerList;
+    virtual void setParent(AbstractServerList* parent) = 0;
 };
 
 /**
@@ -71,7 +75,7 @@ class ServerTrackerInterface {
  *     ReplicaManager could use this to keep track of segments replicated
  *     on various machines.
  *
- * ServerTrackers are fed server notifications (ServerChanges) from a 
+ * ServerTrackers are fed server notifications (ServerChanges) from a
  * ServerList with which it has been registered. The canonical hierarchy
  * is a single ServerList root feeding updates to one or more ServerTrackers:
  *
@@ -92,7 +96,7 @@ class ServerTrackerInterface {
  *
  * Note that ServerTracker is <b>not</b> thread-safe. Either use a separate
  * tracker for each thread, or serialize access to the object with a lock or
- * other synchronization primitive. 
+ * other synchronization primitive.
  */
 template<typename T>
 class ServerTracker : public ServerTrackerInterface {
@@ -120,8 +124,7 @@ class ServerTracker : public ServerTrackerInterface {
     explicit ServerTracker(Context& context)
         : ServerTrackerInterface()
         , context(context)
-        , serverListParent()
-        , coordinatorServerListParent()
+        , parent()
         , serverList()
         , changes()
         , lastRemovedIndex(-1)
@@ -132,18 +135,17 @@ class ServerTracker : public ServerTrackerInterface {
 
     /**
      * Constructor for ServerTracker.
-     * 
+     *
      * \param context
      *      Overall information about the RAMCloud server.
      * \param parent
-     *      The ServerList to obtain updates from. This is typically a
+     *      The AbstractServerList to obtain updates from. This is typically a
      *      single, process-global list used by all trackers.
      */
-    explicit ServerTracker(Context& context, ServerList& parent)
+    explicit ServerTracker(Context& context, AbstractServerList& parent)
         : ServerTrackerInterface()
         , context(context)
-        , serverListParent(&parent)
-        , coordinatorServerListParent()
+        , parent(&parent)
         , serverList()
         , changes()
         , lastRemovedIndex(-1)
@@ -160,7 +162,7 @@ class ServerTracker : public ServerTrackerInterface {
      * \param context
      *      Overall information about the RAMCloud server or client.
      * \param parent
-     *      The ServerList to obtain updates from. This is typically a
+     *      The AbstractServerList to obtain updates from. This is typically a
      *      single, process-global list used by all trackers.
      * \param eventCallback
      *      A callback functor to be invoked whenever there is an
@@ -169,73 +171,13 @@ class ServerTracker : public ServerTrackerInterface {
      *      event and should be extremely efficient so as to not
      *      hold up delivery of the same or future events to other
      *      ServerTrackers.
-     */ 
-    explicit ServerTracker(Context& context,
-                           ServerList& parent,
-                           Callback* eventCallback)
-        : ServerTrackerInterface()
-        , context(context)
-        , serverListParent(&parent)
-        , coordinatorServerListParent()
-        , serverList()
-        , changes()
-        , lastRemovedIndex(-1)
-        , eventCallback(eventCallback)
-        , numberOfServers(0)
-        , testing_avoidGetChangeAssertion(false)
-    {
-        parent.registerTracker(*this);
-    }
-
-    /**
-     * Create a ServerTracker and register it with a CoordinatorServerList.
-     *
-     * \param context
-     *      Overall information about the RAMCloud server or client.
-     * \param parent
-     *      The coordinator's CoordinatorServerList whose updates will be
-     *      tracked.
      */
-    explicit ServerTracker(Context& context, CoordinatorServerList& parent)
-        : ServerTrackerInterface()
-        , context(context)
-        , serverListParent()
-        , coordinatorServerListParent(&parent)
-        , serverList()
-        , changes()
-        , lastRemovedIndex(-1)
-        , eventCallback()
-        , numberOfServers(0)
-        , testing_avoidGetChangeAssertion(false)
-    {
-        parent.registerTracker(*this);
-    }
-
-    /**
-     * Create a ServerTracker and register it with a CoordinatorServerList
-     * along with a callback that will be invoked any time changes are
-     * enqueued with this tracker.
-     *
-     * \param context
-     *      Overall information about the RAMCloud server or client.
-     * \param parent
-     *      The coordinator's CoordinatorServerList whose updates will be
-     *      tracked.
-     * \param eventCallback
-     *      A callback functor to be invoked whenever there is an
-     *      upcoming change to the list. This functor will execute
-     *      in the context of the CoordinatorServerList that has
-     *      fed us the event and should be extremely efficient so as to not
-     *      hold up delivery of the same or future events to other
-     *      ServerTrackers.
-     */ 
     explicit ServerTracker(Context& context,
-                           CoordinatorServerList& parent,
+                           AbstractServerList& parent,
                            Callback* eventCallback)
         : ServerTrackerInterface()
         , context(context)
-        , serverListParent()
-        , coordinatorServerListParent(&parent)
+        , parent(&parent)
         , serverList()
         , changes()
         , lastRemovedIndex(-1)
@@ -248,13 +190,11 @@ class ServerTracker : public ServerTrackerInterface {
 
     /**
      * Destructor for ServerTracker.
-     */ 
+     */
     ~ServerTracker()
     {
-        if (serverListParent)
-            serverListParent->unregisterTracker(*this);
-        if (coordinatorServerListParent)
-            coordinatorServerListParent->unregisterTracker(*this);
+        if (parent)
+            parent->unregisterTracker(*this);
     }
 
     /**
@@ -633,6 +573,17 @@ class ServerTracker : public ServerTrackerInterface {
 
   PRIVATE:
     /**
+     * Method used by a parent AbstractServerList to  set the parent pointer
+     * upon construction/destruction and register/unregister
+     *
+     * \param parent
+     *          A pointer to the new parent
+     */
+    virtual void
+    setParent(AbstractServerList* parent) {
+        this->parent = parent;
+    }
+    /**
      * A ServerChange represents a single addition or removal of a server
      * in the system. It's only used to logically group ServerIds and
      * ServerChangeEvents in the ChangeQueue (defined below).
@@ -739,13 +690,9 @@ class ServerTracker : public ServerTrackerInterface {
     /// Shared RAMCloud information.
     Context& context;
 
-    /// ServerList from which this tracker gets all updates, NULL if the tracker
-    /// is registered with a CoordinatorServerList instead.
-    ServerList* serverListParent;
-
-    /// CoordinatorServerList from which this tracker gets all updates, NULL
-    /// if the the tracker is registered with a ServerList instead.
-    CoordinatorServerList* coordinatorServerListParent;
+    /// CoordinatorServerList/ServerList from which this tracker is registered
+    /// gets all the updates, NULL if unregistered
+    AbstractServerList* parent;
 
     /// Servers that we're tracking and the templated state we're associating
     /// with them. Note that this list is not synchronously updated when the

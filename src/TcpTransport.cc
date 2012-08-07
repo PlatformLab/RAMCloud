@@ -710,8 +710,8 @@ TcpTransport::TcpSession::sendRequest(Buffer* request, Buffer* response,
         return;
     }
     alarm.rpcStarted();
-    TcpClientRpc* rpc = transport.clientRpcPool.construct(this, request,
-            response, notifier, serial);
+    TcpClientRpc* rpc = transport.clientRpcPool.construct(request, response,
+            notifier, serial);
     serial++;
     if (!rpcsWaitingToSend.empty()) {
         // Can't transmit this request yet; there are already other
