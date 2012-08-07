@@ -14,6 +14,7 @@
  */
 
 #include "TestUtil.h"
+#include "FailSession.h"
 #include "TestLog.h"
 #include "ServerList.h"
 #include "ServerListBuilder.h"
@@ -364,7 +365,7 @@ TEST_F(ServerTrackerTest, getSession) {
 
     details.status = ServerStatus::CRASHED;
     tr.enqueueChange(details, ServerChangeEvent::SERVER_CRASHED);
-    EXPECT_THROW(tr.getSession(ServerId(1, 1)), TransportException);
+    EXPECT_EQ(FailSession::get(), tr.getSession(ServerId(1, 1)));
 }
 
 TEST_F(ServerTrackerTest, indexOperator) {

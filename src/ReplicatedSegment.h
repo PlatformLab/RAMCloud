@@ -215,10 +215,8 @@ class ReplicatedSegment : public Task {
          * \param backupId
          *      The ServerId of the process which is the target of this
          *      replica.
-         * \param session
-         *      A session to the same process as \a backupId.
          */
-        void start(ServerId backupId, Transport::SessionRef session) {
+        void start(ServerId backupId) {
             isActive = true;
             this->backupId = backupId;
         }

@@ -637,8 +637,7 @@ TEST_F(ReplicatedSegmentTest, performTaskFreeOneReplicaToFree) {
     segment->close();
     segment->free();
 
-    Transport::SessionRef session = transport.getSession();
-    segment->replicas[0].start(backupId1, session);
+    segment->replicas[0].start(backupId1);
     taskQueue.performTask();
     EXPECT_TRUE(segment->isScheduled());
     EXPECT_EQ(0u, deleter.count);
@@ -718,10 +717,8 @@ TEST_F(ReplicatedSegmentTest, performFreeRpcIsReady) {
 
     transport.setInput("0");     // freeSegment response
 
-    Transport::SessionRef session = transport.getSession();
-
     segment->freeQueued = true;
-    segment->replicas[0].start(backupId1, session);
+    segment->replicas[0].start(backupId1);
     segment->replicas[0].freeRpc.construct(context, backupId1,
                                            masterId, segmentId);
     EXPECT_STREQ("sendRequest: 0x1001c 999 0 888 0",
@@ -734,10 +731,9 @@ TEST_F(ReplicatedSegmentTest, performFreeRpcFailed) {
     transport.clearInput();
 
     reset();
-    Transport::SessionRef session = transport.getSession();
 
     segment->freeQueued = true;
-    segment->replicas[0].start({99, 99}, session);
+    segment->replicas[0].start({99, 99});
     segment->replicas[0].freeRpc.construct(context, ServerId(99, 99),
                                            masterId, segmentId);
     TestLog::Enable _;
@@ -792,18 +788,6 @@ TEST_F(ReplicatedSegmentTest, performFreeWriteRpcInProgress) {
     EXPECT_FALSE(segment->replicas[0].isActive);
     EXPECT_FALSE(segment->isScheduled());
     EXPECT_EQ(1u, deleter.count);
-}
-
-TEST_F(ReplicatedSegmentTest, performWriteCannotGetSession) {
-    context.transportManager->skipServerIdCheck = false;
-    transport.setInput("0 0 0");  // succeed server id check
-    transport.setInput("0 10 0"); // fail server id check
-    transport.setInput("0 99 0"); // fail server id check
-
-    taskQueue.performTask(); // fail to send writes
-
-    EXPECT_TRUE(segment->replicas[0].isActive);
-    EXPECT_FALSE(segment->replicas[1].isActive);
 }
 
 TEST_F(ReplicatedSegmentTest, performWriteTooManyInFlight) {

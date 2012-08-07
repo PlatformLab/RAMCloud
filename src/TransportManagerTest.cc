@@ -171,15 +171,11 @@ TEST_F(TransportManagerTest, getSession_createWorkerSession) {
 TEST_F(TransportManagerTest, getSession_openSessionFailure) {
     TestLog::Enable _;
     manager.registerMock(NULL);
-    string message = "no exception";
-    try {
-        manager.getSession("mock:host=error");
-    } catch (TransportException& e) {
-        EXPECT_EQ("Couldn't open session for locator mock:host=error",
-                e.message);
-        message = "exception thrown";
-    }
-    EXPECT_EQ("exception thrown", message);
+    Transport::SessionRef session = manager.getSession("mock:host=error");
+    EXPECT_EQ(FailSession::get(), session.get());
+    EXPECT_EQ("openSession: Couldn't open session for locator "
+              "mock:host=error (Failed to open session)",
+              TestLog::get());
 }
 
 TEST_F(TransportManagerTest, getSession_matchServerId) {
@@ -196,11 +192,13 @@ TEST_F(TransportManagerTest, getSession_matchServerId) {
 
     EXPECT_NO_THROW(context.transportManager->getSession(
         "mock:host=member", id));
-    EXPECT_THROW(context.transportManager->getSession("mock:host=member",
-        ServerId(1, 52)), TransportException);
-    EXPECT_NE(string::npos, TestLog::get().find("getSession: Expected ServerId "
-        "223338299393 at \"mock:host=member\", but actual server id was "
-        "227633266689!"));
+    Transport::SessionRef session = context.transportManager->getSession(
+        "mock:host=member", ServerId(1, 52));
+    EXPECT_EQ(FailSession::get(), session.get());
+    EXPECT_EQ("flushSession: flushing session for mock:host=member | "
+              "getSession: Expected ServerId 223338299393 at "
+              "\"mock:host=member\", but actual server id was 227633266689!",
+              TestLog::get());
 
     context.transportManager->unregisterMock();
 }

@@ -507,19 +507,7 @@ ReplicatedSegment::performWrite(Replica& replica)
         LOG(DEBUG, "Starting replication of segment %lu replica slot %ld "
             "on backup %lu", segmentId, &replica - &replicas[0],
             backupId.getId());
-        try {
-            Transport::SessionRef session = tracker.getSession(backupId);
-            replica.start(backupId, session);
-        } catch (const TransportException& e) {
-            static uint64_t count = 0;
-            if (BitOps::isPowerOfTwo(++count))
-                LOG(NOTICE, "Cannot create a session to backup %lu, perhaps "
-                    "the backup has crashed; will choose another backup",
-                    backupId.getId());
-            replica.reset();
-            schedule();
-            return;
-        }
+        replica.start(backupId);
         // Fall-through: this should drop down into the case that no
         // writeRpc is outstanding and the open hasn't been acknowledged
         // yet to send out the open rpc.  That block is also responsible
