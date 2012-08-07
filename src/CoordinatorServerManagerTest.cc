@@ -213,8 +213,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServerReplaceANonMaster) {
     EXPECT_FALSE(serverList->contains(replacesId));
 }
 
-// TODO(ankitak): Improve the test while re-working after RAM-431. syang0
-// commented this out for the time being, please relook at it, ankitak.
+// TODO(ankitak): Improve the test.
 TEST_F(CoordinatorServerManagerTest, enlistServerLogCabin) {
     TaskQueue mgr;
     serverManager->service.recoveryManager.doNotStartRecoveries = true;
@@ -226,25 +225,24 @@ TEST_F(CoordinatorServerManagerTest, enlistServerLogCabin) {
                                         {WireFormat::BACKUP_SERVICE},
                                         "mock:host=backup"));
 
+    ProtoBuf::StateEnlistServer readState;
+    serverManager->service.logCabinHelper->getProtoBufFromEntryId(
+        3, readState);
+    EXPECT_EQ("entry_type: \"StateEnlistServer\"\n"
+              "replaces_id: 1\n"
+              "new_server_id: 2\nservice_mask: 2\n"
+              "read_speed: 0\nwrite_speed: 0\n"
+              "service_locator: \"mock:host=backup\"\n",
+              readState.DebugString());
 
-//    ProtoBuf::StateEnlistServer readState;
-//    serverManager->service.logCabinHelper->getProtoBufFromEntryId(
-//        2, readState);
-//    EXPECT_EQ("entry_type: \"StateEnlistServer\"\n"
-//              "replaces_id: 1\n"
-//              "new_server_id: 2\nservice_mask: 2\n"
-//              "read_speed: 0\nwrite_speed: 0\n"
-//              "service_locator: \"mock:host=backup\"\n",
-//              readState.DebugString());
-//
-//    ProtoBuf::ServerInformation readInfo;
-//    serverManager->service.logCabinHelper->getProtoBufFromEntryId(
-//        3, readInfo);
-//    EXPECT_EQ("entry_type: \"ServerInformation\"\n"
-//              "server_id: 2\nservice_mask: 2\n"
-//              "read_speed: 0\nwrite_speed: 0\n"
-//              "service_locator: \"mock:host=backup\"\n",
-//              readInfo.DebugString());
+    ProtoBuf::ServerInformation readInfo;
+    serverManager->service.logCabinHelper->getProtoBufFromEntryId(
+        4, readInfo);
+    EXPECT_EQ("entry_type: \"ServerInformation\"\n"
+              "server_id: 2\nservice_mask: 2\n"
+              "read_speed: 0\nwrite_speed: 0\n"
+              "service_locator: \"mock:host=backup\"\n",
+              readInfo.DebugString());
 }
 
 TEST_F(CoordinatorServerManagerTest, getServerList) {
@@ -452,6 +450,24 @@ TEST_F(CoordinatorServerManagerTest, sendServerList_main) {
     EXPECT_NE(string::npos, TestLog::get().find(
         "applyFullList: Got complete list of servers containing 1 "
         "entries (version number 2)"));
+}
+
+TEST_F(CoordinatorServerManagerTest, serverDown) {
+    TaskQueue mgr;
+    serverManager->service.recoveryManager.doNotStartRecoveries = true;
+    // master is already enlisted
+
+    ramcloud->createTable("foo");
+    serverManager->forceServerDownForTesting = true;
+    TestLog::Enable _(startMasterRecoveryFilter);
+
+    serverManager->serverDown(masterServerId);
+
+    EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1 | "
+              "startMasterRecovery: Recovery crashedServerId: 1",
+               TestLog::get());
+    EXPECT_EQ(ServerStatus::CRASHED,
+              serverList->at(master->serverId).status);
 }
 
 TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentId) {

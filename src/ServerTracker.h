@@ -222,11 +222,6 @@ class ServerTracker : public ServerTrackerInterface {
                (event == SERVER_REMOVED &&
                 server.status == ServerStatus::DOWN));
 
-        uint32_t index = server.serverId.indexNumber();
-
-        if (index >= serverList.size())
-            serverList.resize(index + 1);
-
         changes.addChange(server, event);
     }
 
@@ -326,6 +321,12 @@ class ServerTracker : public ServerTrackerInterface {
 
         ServerChange change = changes.getChange();
         uint32_t index = change.server.serverId.indexNumber();
+
+        // Resizing may cause the vector to allocate new internal space,
+        // meaning that any references into it may be invalidated after
+        // this statement!
+        if (index >= serverList.size())
+            serverList.resize(index + 1);
 
         // Ensure that the ServerList guarantees hold.
         assert((change.event == SERVER_ADDED &&

@@ -1181,7 +1181,7 @@ TEST_F(BackupServiceTest, writeSegment_openSegmentOutOfStorage) {
     openSegment(ServerId(99, 0), 89);
     EXPECT_THROW(
         openSegment(ServerId(99, 0), 90),
-        BackupStorageException);
+        BackupOpenRejectedException);
     EXPECT_EQ(5, BackupStorage::Handle::getAllocatedHandlesCount());
 }
 

@@ -1914,23 +1914,6 @@ BackupService::restartFromStorage()
 #endif
 }
 
-namespace {
-/**
- * Make generateRandom model RandomNumberGenerator.
- * This makes it easy to mock the calls for randomness during testing.
- *
- * \param n
- *      Limits the result to the range [0, n).
- * \return
- *      Returns a pseudo-random number in the range [0, n).
- */
-uint32_t
-randomNumberGenerator(uint32_t n)
-{
-    return static_cast<uint32_t>(generateRandom()) % n;
-}
-}
-
 /**
  * Begin reading disk data for a Master and bucketing the objects in the
  * Segments according to a requested TabletMap, returning a list of backed
@@ -2172,6 +2155,14 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request& reqHdr,
                                        primary);
                 segments[MasterSegmentIdPair(masterId, segmentId)] = info;
                 info->open();
+            } catch (const BackupStorageException& e) {
+                segments.erase(MasterSegmentIdPair(masterId, segmentId));
+                delete info;
+                LOG(NOTICE, "Master tried to open replica for <%lu,%lu> but "
+                    "there was a problem allocating storage space; "
+                    "rejecting open request: %s", masterId.getId(), segmentId,
+                    e.what());
+                throw BackupOpenRejectedException(HERE);
             } catch (...) {
                 segments.erase(MasterSegmentIdPair(masterId, segmentId));
                 delete info;

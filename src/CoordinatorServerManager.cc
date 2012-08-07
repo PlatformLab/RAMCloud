@@ -122,11 +122,9 @@ CoordinatorServerManager::createReplicationGroup()
     }
 }
 
- /**
+/**
  * Implements enlisting a server onto the CoordinatorServerList and
  * propagating updates to the cluster.
- *
- * TODO(ankitak): Re-work after RAM-431 is resolved.
  *
  * \param replacesId
  *      Server id of the server that the enlisting server is replacing.
@@ -147,37 +145,22 @@ CoordinatorServerManager::enlistServer(
     ServerId replacesId, ServiceMask serviceMask, const uint32_t readSpeed,
     const uint32_t writeSpeed,  const char* serviceLocator)
 {
-    Tub<CoordinatorServerList::Entry> replacedEntry;
-    Tub<LogCabin::Client::EntryId> replacesEntryId;
-
     // The order of the updates in serverListUpdate is important: the remove
     // must be ordered before the add to ensure that as members apply the
     // update they will see the removal of the old server id before the
     // addition of the new, replacing server id.
     if (service.serverList.contains(replacesId)) {
-        replacesEntryId =
-            service.serverList.getLogCabinEntryId(replacesId);
         LOG(NOTICE, "%s is enlisting claiming to replace server id "
             "%lu, which is still in the server list, taking its word "
             "for it and assuming the old server has failed",
             serviceLocator, replacesId.getId());
-        replacedEntry.construct(service.serverList[replacesId]);
-        service.serverList.crashed(replacesId);
-        // If the server being replaced did not have a master then there
-        // will be no recovery.  That means it needs to transition to
-        // removed status now (usually recoveries remove servers from the
-        // list when they complete).
-        if (!replacedEntry.get()->services.has(WireFormat::MASTER_SERVICE))
-            service.serverList.remove(replacesId);
+
+        serverDown(replacesId);
     }
 
-    ServerId newServerId = service.serverList.add(serviceLocator,
-                                                   serviceMask,
-                                                   readSpeed);
+    ServerId newServerId =
+        service.serverList.add(serviceLocator, serviceMask, readSpeed);
 
-    service.serverList.sendMembershipUpdate(newServerId);
-
-    // Log Cabin Entry TODO(ankitak) look this over.
     ProtoBuf::StateEnlistServer state;
     state.set_entry_type("StateEnlistServer");
     state.set_replaces_id(replacesId.getId());
@@ -186,7 +169,9 @@ CoordinatorServerManager::enlistServer(
     state.set_read_speed(readSpeed);
     state.set_write_speed(writeSpeed);
     state.set_service_locator(string(serviceLocator));
-    auto stateEntryId = service.logCabinHelper->appendProtoBuf(state);
+    EntryId stateEntryId = service.logCabinHelper->appendProtoBuf(state);
+
+    service.serverList.sendMembershipUpdate(newServerId);
 
     CoordinatorServerList::Entry entry = service.serverList[newServerId];
     LOG(NOTICE, "Enlisting new server at %s (server id %lu) supporting "
@@ -195,12 +180,6 @@ CoordinatorServerManager::enlistServer(
 
     if (entry.services.has(WireFormat::MEMBERSHIP_SERVICE))
         sendServerList(newServerId);
-
-    // Recovery on the replaced host is deferred until the replacing host
-    // has been enlisted.
-    if (replacedEntry)
-        service.recoveryManager.startMasterRecovery(
-            replacedEntry.get()->serverId);
 
     if (replacesId.isValid()) {
         LOG(NOTICE, "Newly enlisted server %lu replaces server %lu",
@@ -213,7 +192,7 @@ CoordinatorServerManager::enlistServer(
         createReplicationGroup();
     }
 
-     ProtoBuf::ServerInformation info;
+    ProtoBuf::ServerInformation info;
     info.set_entry_type("ServerInformation");
     info.set_server_id(newServerId.getId());
     info.set_service_mask(serviceMask.serialize());
@@ -221,13 +200,8 @@ CoordinatorServerManager::enlistServer(
     info.set_write_speed(writeSpeed);
     info.set_service_locator(string(serviceLocator));
 
-    vector<EntryId> invalidates;
-    invalidates.push_back(stateEntryId);
-    if (replacesEntryId)
-        invalidates.push_back(replacesEntryId);
-
-    EntryId infoEntryId =
-        service.logCabinHelper->appendProtoBuf(info, invalidates);
+    EntryId infoEntryId = service.logCabinHelper->appendProtoBuf(
+        info, vector<EntryId>(stateEntryId));
     service.serverList.addLogCabinEntryId(newServerId, infoEntryId);
 
     return newServerId;
@@ -280,38 +254,8 @@ CoordinatorServerManager::HintServerDown::execute()
 bool
 CoordinatorServerManager::HintServerDown::complete(EntryId entryId)
 {
-     // Get the entry id for the LogCabin entry corresponding to this
-     // server before the server information is removed from serverList,
-     // so that the LogCabin entry can be invalidated later.
-     EntryId serverInfoEntryId =
-         manager.service.serverList.getLogCabinEntryId(serverId);
-
-     // If this machine has a backup and master on the same server it is best
-     // to remove the dead backup before initiating recovery. Otherwise, other
-     // servers may try to backup onto a dead machine which will cause delays.
-     CoordinatorServerList::Entry entry = manager.service.serverList[serverId];
-     manager.service.serverList.crashed(serverId);
-     // If the server being replaced did not have a master then there
-     // will be no recovery.  That means it needs to transition to
-     // removed status now (usually recoveries remove servers from the
-     // list when they complete).
-     if (!entry.services.has(WireFormat::MASTER_SERVICE))
-         manager.service.serverList.remove(serverId);
-
-     // Update cluster membership information.
-     // Backup recovery is kicked off via this update.
-     // Deciding whether to place this before or after the start of master
-     // recovery is difficult.
-     manager.service.serverList.sendMembershipUpdate(
-                                    ServerId(/* invalid id */));
-
-     manager.service.recoveryManager.startMasterRecovery(entry.serverId);
-
-     manager.removeReplicationGroup(entry.replicationId);
-     manager.createReplicationGroup();
-
-     manager.service.logCabinLog->invalidate(
-         vector<EntryId>(serverInfoEntryId, entryId));
+     manager.serverDown(serverId);
+     manager.service.logCabinLog->invalidate(vector<EntryId>(entryId));
 
      return true;
 }
@@ -395,6 +339,49 @@ void
 CoordinatorServerManager::sendServerList(ServerId serverId)
 {
     service.serverList.sendServerList(serverId);
+}
+
+/**
+ * Force out a server from the cluster.
+ *
+ * \param serverId
+ *      Server id of the server to be forced out.
+ */
+void
+CoordinatorServerManager::serverDown(ServerId serverId)
+{
+    // Get the entry id for the LogCabin entry corresponding to this
+    // server before the server information is removed from serverList,
+    // so that the LogCabin entry can be invalidated later.
+    EntryId serverInfoEntryId =
+        service.serverList.getLogCabinEntryId(serverId);
+
+    // If this machine has a backup and master on the same server it is best
+    // to remove the dead backup before initiating recovery. Otherwise, other
+    // servers may try to backup onto a dead machine which will cause delays.
+    CoordinatorServerList::Entry entry(service.serverList[serverId]);
+
+    service.serverList.crashed(serverId);
+    // If the server being replaced did not have a master then there
+    // will be no recovery.  That means it needs to transition to
+    // removed status now (usually recoveries remove servers from the
+    // list when they complete).
+    if (!entry.services.has(WireFormat::MASTER_SERVICE))
+        service.serverList.remove(serverId);
+
+    // Update cluster membership information.
+    // Backup recovery is kicked off via this update.
+    // Deciding whether to place this before or after the start of master
+    // recovery is difficult.
+    service.serverList.sendMembershipUpdate(
+                            ServerId(/*Invalid Id*/));
+
+    service.recoveryManager.startMasterRecovery(entry.serverId);
+
+    removeReplicationGroup(entry.replicationId);
+    createReplicationGroup();
+
+    service.logCabinLog->invalidate(vector<EntryId>(serverInfoEntryId));
 }
 
 void
