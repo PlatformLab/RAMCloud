@@ -44,15 +44,6 @@ void FailSession::cancelRequest(Transport::RpcNotifier* notifier)
     // requests in the first place.
 }
 
-// See Transport::Session for documentation.
-Transport::ClientRpc* FailSession::clientSend(Buffer* request,
-        Buffer* response)
-{
-    // This method is obsolete and should never get invoked.
-    throw FatalError(HERE,
-            "FailSession::clientSend shouldn't be invoked");
-}
-
 /**
  * Return a pointer to a single shared instance of FailSession.  We
  * use a single instance everywhere a FailSession is needed; this is

@@ -115,10 +115,10 @@ struct ReplicatedSegmentTest : public ::testing::Test {
             // prior one in the log.
             if (precedingSegment) {
                 precedingSegment->followingSegment = segment.get();
-                segment->precedingSegmentCloseAcked =
-                    precedingSegment->getAcked().close;
-                segment->precedingSegmentOpenAcked =
-                    precedingSegment->getAcked().open;
+                segment->precedingSegmentCloseCommitted =
+                    precedingSegment->getCommitted().close;
+                segment->precedingSegmentOpenCommitted =
+                    precedingSegment->getCommitted().open;
             }
 
         }
@@ -261,8 +261,10 @@ TEST_F(ReplicatedSegmentTest, isSynced) {
     segment->replicas[0].isActive = segment->replicas[1].isActive = true;
     segment->replicas[0].sent =
         segment->replicas[0].acked =
+        segment->replicas[0].committed =
         segment->replicas[1].sent =
-        segment->replicas[1].acked = {true, 10, false};
+        segment->replicas[1].acked =
+        segment->replicas[1].committed = {true, 10, false};
     EXPECT_TRUE(segment->isSynced());
     segment->recoveringFromLostOpenReplicas = true;
     EXPECT_FALSE(segment->isSynced());
@@ -362,13 +364,13 @@ TEST_F(ReplicatedSegmentTest, sync) {
                  999, 888, 0, 10, Wr::OPEN, false, true, footerEntry},
                 "abcdefghij", 10));
     transport.clearOutput();
-    EXPECT_TRUE(segment->getAcked().open);
-    EXPECT_EQ(openLen, segment->getAcked().bytes);
+    EXPECT_TRUE(segment->getCommitted().open);
+    EXPECT_EQ(openLen, segment->getCommitted().bytes);
 
     segment->sync(segment->queued.bytes); // second sync doesn't send anything
     EXPECT_EQ("", transport.outputLog);
     transport.clearOutput();
-    EXPECT_EQ(openLen, segment->getAcked().bytes);
+    EXPECT_EQ(openLen, segment->getCommitted().bytes);
 
     createSegment->logSegment.tail = openLen + 10;
     segment->sync(openLen); // doesn't send anything
@@ -384,7 +386,7 @@ TEST_F(ReplicatedSegmentTest, sync) {
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
                  999, 888, 10, 10, Wr::NONE, false, true, footerEntry},
                 "klmnopqrst ", 10));
-    EXPECT_EQ(openLen + 10, segment->getAcked().bytes);
+    EXPECT_EQ(openLen + 10, segment->getCommitted().bytes);
 }
 
 TEST_F(ReplicatedSegmentTest, syncDoubleCheckCrossSegmentOrderingConstraints) {
@@ -485,10 +487,10 @@ TEST_F(ReplicatedSegmentTest, syncRecoveringFromLostOpenReplicas) {
     segment->sync(openLen); // second sync sends nothing
     EXPECT_TRUE(transport.output.empty());
     transport.clearOutput();
-    EXPECT_EQ(openLen, segment->getAcked().bytes);
+    EXPECT_EQ(openLen, segment->getCommitted().bytes);
     EXPECT_EQ(backupId1, segment->replicas[0].backupId);
     EXPECT_EQ(backupId2, segment->replicas[1].backupId);
-    EXPECT_FALSE(segment->getAcked().close);
+    EXPECT_FALSE(segment->getCommitted().close);
 
     // Now the open segment encounters a failure.
     IGNORE_RESULT(segment->handleBackupFailure({0, 0}));
@@ -505,14 +507,14 @@ TEST_F(ReplicatedSegmentTest, syncRecoveringFromLostOpenReplicas) {
 
     EXPECT_EQ(0lu, minOpenSegmentId.current);
     // Will drive recovery (open a replica elsewhere, set minOpenSegmentId).
-    EXPECT_FALSE(segment->getAcked().close);
+    EXPECT_FALSE(segment->getCommitted().close);
     // Notice: weird and special case that only happens during testing:
     // The replica gets recreated right back on the backup with id 0
     // because it isn't removed from the ServerList that the
     // BackupSelector is working of off.
     TestLog::Enable _(filter);
     segment->sync(openLen);
-    EXPECT_TRUE(segment->getAcked().close);
+    EXPECT_TRUE(segment->getCommitted().close);
     // Fragile test log check, but left here because the output is pretty
     // reassuring to a human reader that the test does what one expects.
     EXPECT_EQ("sync: syncing | "
@@ -548,12 +550,78 @@ TEST_F(ReplicatedSegmentTest, syncRecoveringFromLostOpenReplicas) {
     EXPECT_TRUE(transport.outputMatches(2, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
                  999, 888, 10, 0, Wr::CLOSE, true, true, footerEntry}));
-    EXPECT_TRUE(segment->getAcked().close);
+    EXPECT_TRUE(segment->getCommitted().close);
     EXPECT_EQ(889lu, minOpenSegmentId.current);
     transport.clearOutput();
 
     segment->sync(openLen); // doesn't send anything
     EXPECT_TRUE(transport.outputLog.empty());
+}
+
+/*
+ * Ensures that even if backups have acked an object, sync doesn't return
+ * for that object until some subsequent footer has been acknowledged by the
+ * backup.
+ */
+TEST_F(ReplicatedSegmentTest, syncWaitsForCommittedEvenWhenAcked) {
+    Segment::OpaqueFooterEntry openingFooterEntry;
+    createSegment->logSegment.getAppendedLength(openingFooterEntry);
+
+    // oversized write queued
+    createSegment->logSegment.tail =
+        segment->maxBytesPerWriteRpc + segment->openLen + 1;
+    createSegment->logSegment.checksum.result = 0xcabba9e;
+    Segment::OpaqueFooterEntry footerEntry;
+    createSegment->logSegment.getAppendedLength(footerEntry);
+    segment->close();
+    EXPECT_TRUE(segment->isScheduled());
+
+    transport.setInput("0 0"); // open/write
+    transport.setInput("0 0"); // open/write
+    taskQueue.performTask(); // send open
+    EXPECT_TRUE(segment->isScheduled());
+    taskQueue.performTask(); // reap opens
+
+    EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
+        WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
+                 999, 888, 0, 10, Wr::OPENPRIMARY, false, true,
+                 openingFooterEntry},
+                "abcdefghij", 10));
+    EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
+        WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
+                 999, 888, 0, 10, Wr::OPEN, false, true,
+                 openingFooterEntry},
+                "abcdefghij", 10));
+
+    transport.clearOutput();
+
+    transport.setInput("0 0"); // write
+    transport.setInput("0 0"); // write
+    transport.setInput("0 0"); // close
+    transport.setInput("0 0"); // close
+
+    segment->sync(openLen + 1);
+
+    Segment::OpaqueFooterEntry emptyFooter;
+    EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
+        WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
+                 999, 888, 10, 21, Wr::NONE, false, false, emptyFooter},
+                "klmnopqrstuvwxyzabcde", 21));
+    EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
+        WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
+                 999, 888, 10, 21, Wr::NONE, false, false, emptyFooter},
+                "klmnopqrstuvwxyzabcde", 21));
+    EXPECT_TRUE(transport.outputMatches(2, MockTransport::SEND_REQUEST,
+        WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
+                 999, 888, 31, 1, Wr::CLOSE, false, true, footerEntry},
+                "f", 1));
+    EXPECT_TRUE(transport.outputMatches(3, MockTransport::SEND_REQUEST,
+        WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
+                 999, 888, 31, 1, Wr::CLOSE, false, true, footerEntry},
+                "f", 1));
+
+    EXPECT_EQ(0u, deleter.count);
+    reset();
 }
 
 TEST_F(ReplicatedSegmentTest, performTaskFreeNothingToDo) {
@@ -899,10 +967,12 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcIsReady) {
     ASSERT_TRUE(segment->replicas[0].isActive);
     EXPECT_EQ(openLen, segment->replicas[0].sent.bytes);
     EXPECT_EQ(0u, segment->replicas[0].acked.bytes);
+    EXPECT_EQ(0u, segment->replicas[0].committed.bytes);
 
     taskQueue.performTask();
     ASSERT_TRUE(segment->replicas[0].isActive);
     EXPECT_EQ(openLen, segment->replicas[0].acked.bytes);
+    EXPECT_EQ(openLen, segment->replicas[0].committed.bytes);
     EXPECT_TRUE(segment->isScheduled());
     EXPECT_FALSE(segment->replicas[0].writeRpc);
     EXPECT_EQ(0u, deleter.count);
@@ -922,6 +992,7 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
     taskQueue.performTask();  // send open requests
     ASSERT_TRUE(segment->replicas[0].isActive);
     EXPECT_EQ(openLen, segment->replicas[0].sent.bytes);
+    EXPECT_EQ(0u, segment->replicas[0].acked.bytes);
     EXPECT_EQ(0u, segment->replicas[0].acked.bytes);
     ASSERT_TRUE(segment->replicas[1].isActive);
     EXPECT_EQ(openLen, segment->replicas[1].sent.bytes);
@@ -948,9 +1019,11 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
     EXPECT_TRUE(segment->isScheduled());
     ASSERT_TRUE(segment->replicas[0].isActive);
     EXPECT_EQ(openLen, segment->replicas[0].acked.bytes);
+    EXPECT_EQ(openLen, segment->replicas[0].committed.bytes);
     EXPECT_FALSE(segment->replicas[0].writeRpc);
     ASSERT_TRUE(segment->replicas[1].isActive);
     EXPECT_EQ(0u, segment->replicas[1].acked.bytes);
+    EXPECT_EQ(0u, segment->replicas[1].committed.bytes);
     // Ensure retried open rpc goes to the same backup as the first attempt.
     EXPECT_EQ(backupIdForFirstOpenAttempt, segment->replicas[1].backupId);
 
@@ -983,10 +1056,12 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
     }
     EXPECT_TRUE(segment->isScheduled());
     ASSERT_TRUE(segment->replicas[0].isActive);
+    EXPECT_EQ(openLen, segment->replicas[0].committed.bytes);
     EXPECT_EQ(openLen, segment->replicas[0].acked.bytes);
     EXPECT_EQ(openLen, segment->replicas[0].sent.bytes);
     EXPECT_FALSE(segment->replicas[0].writeRpc);
     ASSERT_TRUE(segment->replicas[1].isActive);
+    EXPECT_EQ(openLen + 10, segment->replicas[1].committed.bytes);
     EXPECT_EQ(openLen + 10, segment->replicas[1].acked.bytes);
     EXPECT_EQ(openLen + 10, segment->replicas[1].sent.bytes);
     EXPECT_FALSE(segment->replicas[1].writeRpc);
@@ -1119,6 +1194,7 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureNewHeadOpenAckedBeforeClose) {
     EXPECT_TRUE(newHead->replicas[0].writeRpc);
     EXPECT_TRUE(newHead->replicas[0].sent.open);
     EXPECT_FALSE(newHead->replicas[0].acked.open);
+    EXPECT_FALSE(newHead->replicas[0].committed.open);
 
     EXPECT_TRUE(segment->isScheduled());
     ASSERT_TRUE(segment->replicas[0].isActive);
@@ -1132,6 +1208,7 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureNewHeadOpenAckedBeforeClose) {
     ASSERT_TRUE(newHead->replicas[0].isActive);
     EXPECT_FALSE(newHead->replicas[0].writeRpc);
     EXPECT_TRUE(newHead->replicas[0].acked.open);
+    EXPECT_TRUE(newHead->replicas[0].committed.open);
 
     EXPECT_TRUE(segment->isScheduled());
     ASSERT_TRUE(segment->replicas[0].isActive);
@@ -1164,10 +1241,11 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureCloseBeforeNewHeadWrittenTo) {
     newHead->schedule();
 
     EXPECT_TRUE(newHead->isScheduled());
-    EXPECT_FALSE(newHead->precedingSegmentCloseAcked);
+    EXPECT_FALSE(newHead->precedingSegmentCloseCommitted);
     ASSERT_TRUE(newHead->replicas[0].isActive);
     EXPECT_FALSE(newHead->replicas[0].writeRpc);
     EXPECT_TRUE(newHead->replicas[0].acked.open);
+    EXPECT_TRUE(newHead->replicas[0].committed.open);
     EXPECT_EQ(openLen, newHead->replicas[0].sent.bytes);
 
     EXPECT_TRUE(segment->isScheduled());
@@ -1175,6 +1253,7 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureCloseBeforeNewHeadWrittenTo) {
     EXPECT_FALSE(segment->replicas[0].writeRpc);
     EXPECT_FALSE(segment->replicas[0].sent.close);
     EXPECT_FALSE(segment->replicas[0].acked.close);
+    EXPECT_FALSE(segment->replicas[0].committed.close);
 
     transport.setInput("0 0"); // write - segment close replica 1
     transport.setInput("0 0"); // write - segment close replica 2
@@ -1191,10 +1270,11 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureCloseBeforeNewHeadWrittenTo) {
         TestLog::get());
 
     EXPECT_TRUE(newHead->isScheduled());
-    EXPECT_FALSE(newHead->precedingSegmentCloseAcked);
+    EXPECT_FALSE(newHead->precedingSegmentCloseCommitted);
     ASSERT_TRUE(newHead->replicas[0].isActive);
     EXPECT_FALSE(newHead->replicas[0].writeRpc);
     EXPECT_TRUE(newHead->replicas[0].acked.open);
+    EXPECT_TRUE(newHead->replicas[0].committed.open);
     EXPECT_EQ(openLen, newHead->replicas[0].sent.bytes);
 
     EXPECT_TRUE(segment->isScheduled());
@@ -1202,14 +1282,16 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureCloseBeforeNewHeadWrittenTo) {
     EXPECT_TRUE(segment->replicas[0].writeRpc);
     EXPECT_TRUE(segment->replicas[0].sent.close);
     EXPECT_FALSE(segment->replicas[0].acked.close);
+    EXPECT_FALSE(segment->replicas[0].committed.close);
 
     taskQueue.performTask(); // reap close rpcs on replicas
 
     EXPECT_TRUE(newHead->isScheduled());
-    EXPECT_TRUE(newHead->precedingSegmentCloseAcked);
+    EXPECT_TRUE(newHead->precedingSegmentCloseCommitted);
     ASSERT_TRUE(newHead->replicas[0].isActive);
     EXPECT_FALSE(newHead->replicas[0].writeRpc);
     EXPECT_TRUE(newHead->replicas[0].acked.open);
+    EXPECT_TRUE(newHead->replicas[0].committed.open);
     EXPECT_EQ(openLen, newHead->replicas[0].sent.bytes);
 
     EXPECT_FALSE(segment->isScheduled());
@@ -1217,15 +1299,17 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureCloseBeforeNewHeadWrittenTo) {
     EXPECT_FALSE(segment->replicas[0].writeRpc);
     EXPECT_TRUE(segment->replicas[0].sent.close);
     EXPECT_TRUE(segment->replicas[0].acked.close);
+    EXPECT_TRUE(segment->replicas[0].committed.close);
     ASSERT_TRUE(segment->replicas[1].isActive);
     EXPECT_FALSE(segment->replicas[1].writeRpc);
     EXPECT_TRUE(segment->replicas[1].sent.close);
     EXPECT_TRUE(segment->replicas[1].acked.close);
+    EXPECT_TRUE(segment->replicas[1].committed.close);
 
     taskQueue.performTask(); // send newHead write
 
     EXPECT_TRUE(newHead->isScheduled());
-    EXPECT_TRUE(newHead->precedingSegmentCloseAcked);
+    EXPECT_TRUE(newHead->precedingSegmentCloseCommitted);
     ASSERT_TRUE(newHead->replicas[0].isActive);
     EXPECT_TRUE(newHead->replicas[0].writeRpc);
     EXPECT_EQ(openLen + 10, newHead->replicas[0].sent.bytes);
@@ -1234,6 +1318,7 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureCloseBeforeNewHeadWrittenTo) {
     ASSERT_TRUE(segment->replicas[0].isActive);
     EXPECT_FALSE(segment->replicas[0].writeRpc);
     EXPECT_TRUE(segment->replicas[0].acked.close);
+    EXPECT_TRUE(segment->replicas[0].committed.close);
 
     EXPECT_EQ(0u, deleter.count);
     newHead->scheduled = false;
@@ -1257,10 +1342,12 @@ TEST_F(ReplicatedSegmentTest, performWriteBackupRejectedOpen) {
     ASSERT_TRUE(segment->replicas[0].isActive);
     EXPECT_EQ(openLen, segment->replicas[0].sent.bytes);
     EXPECT_EQ(10u, segment->replicas[0].acked.bytes);
+    EXPECT_EQ(10u, segment->replicas[0].committed.bytes);
 
     ASSERT_FALSE(segment->replicas[1].isActive);
     EXPECT_EQ(0u, segment->replicas[1].sent.bytes);
     EXPECT_EQ(0u, segment->replicas[1].acked.bytes);
+    EXPECT_EQ(0u, segment->replicas[1].committed.bytes);
     EXPECT_FALSE(segment->replicas[1].writeRpc);
     EXPECT_EQ(ServerId(), segment->replicas[1].backupId);
 
@@ -1308,9 +1395,10 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureDurableOpensOrdered) {
             "is durably open",
         TestLog::get());
     EXPECT_TRUE(newHead->isScheduled());
-    EXPECT_FALSE(newHead->precedingSegmentOpenAcked);
+    EXPECT_FALSE(newHead->precedingSegmentOpenCommitted);
     ASSERT_TRUE(newHead->replicas[0].isActive);
     EXPECT_FALSE(newHead->replicas[0].writeRpc);
+    EXPECT_FALSE(newHead->replicas[0].committed.open);
     EXPECT_FALSE(newHead->replicas[0].acked.open);
     EXPECT_EQ(0lu, newHead->replicas[0].sent.bytes);
 
@@ -1335,14 +1423,16 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureDurableOpensOrdered) {
         "performWrite: Sending open to backup 1",
         TestLog::get());
     EXPECT_TRUE(newHead->isScheduled());
-    EXPECT_TRUE(newHead->precedingSegmentOpenAcked);
+    EXPECT_TRUE(newHead->precedingSegmentOpenCommitted);
     ASSERT_TRUE(newHead->replicas[0].isActive);
     EXPECT_TRUE(newHead->replicas[0].writeRpc);
+    EXPECT_FALSE(newHead->replicas[0].committed.open);
     EXPECT_FALSE(newHead->replicas[0].acked.open);
     EXPECT_EQ(openLen, newHead->replicas[0].sent.bytes);
 
     taskQueue.performTask();
     taskQueue.performTask(); // reap open rpc on new head
+    EXPECT_TRUE(newHead->replicas[0].committed.open);
     EXPECT_TRUE(newHead->replicas[0].acked.open);
 }
 
@@ -1357,75 +1447,7 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureDurableOpensOrderedAlreadyOpen)
     auto newHead = createSegment.segment.get();
     segment->close(); // close queued
 
-    EXPECT_TRUE(newHead->precedingSegmentOpenAcked);
-}
-
-TEST_F(ReplicatedSegmentTest, performWriteCheckFootersTxProperly) {
-    Segment::OpaqueFooterEntry openingFooterEntry;
-    createSegment->logSegment.getAppendedLength(openingFooterEntry);
-
-    // oversized write queued
-    createSegment->logSegment.tail =
-        segment->maxBytesPerWriteRpc + segment->openLen + 1;
-    createSegment->logSegment.checksum.result = 0xcabba9e;
-    Segment::OpaqueFooterEntry footerEntry;
-    createSegment->logSegment.getAppendedLength(footerEntry);
-    segment->close();
-    EXPECT_TRUE(segment->isScheduled());
-
-    transport.setInput("0 0"); // open/write
-    transport.setInput("0 0"); // open/write
-    taskQueue.performTask(); // send open
-    EXPECT_TRUE(segment->isScheduled());
-    taskQueue.performTask(); // reap opens
-
-    EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
-        WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 0, 10, Wr::OPENPRIMARY, false, true,
-                 openingFooterEntry},
-                "abcdefghij", 10));
-    EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
-        WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 0, 10, Wr::OPEN, false, true,
-                 openingFooterEntry},
-                "abcdefghij", 10));
-
-    transport.clearOutput();
-    transport.setInput("0 0"); // write
-    transport.setInput("0 0"); // write
-    taskQueue.performTask(); // send second round
-
-    Segment::OpaqueFooterEntry emptyFooter;
-    EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
-        WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 21, Wr::NONE, false, false, emptyFooter},
-                "klmnopqrstuvwxyzabcde", 21));
-    EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
-        WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 21, Wr::NONE, false, false, emptyFooter},
-                "klmnopqrstuvwxyzabcde", 21));
-    EXPECT_TRUE(segment->isScheduled());
-    EXPECT_TRUE(segment->replicas[0].writeRpc);
-    transport.clearOutput();
-
-    taskQueue.performTask(); // reap second round
-    transport.setInput("0 0"); // close
-    transport.setInput("0 0"); // close
-    taskQueue.performTask(); // send third (closing) round
-
-    EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
-        WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 31, 1, Wr::CLOSE, false, true, footerEntry},
-                "f", 1));
-    EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
-        WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 31, 1, Wr::CLOSE, false, true, footerEntry},
-                "f", 1));
-    EXPECT_TRUE(segment->isScheduled());
-    EXPECT_TRUE(segment->replicas[0].writeRpc);
-
-    EXPECT_EQ(0u, deleter.count);
-    reset();
+    EXPECT_TRUE(newHead->precedingSegmentOpenCommitted);
 }
 
 } // namespace RAMCloud

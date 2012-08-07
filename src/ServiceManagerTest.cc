@@ -394,50 +394,46 @@ TEST_F(ServiceManagerTest, Worker_handoff_callFutex) {
     EXPECT_EQ("serverReply: 0x10001 100", transport.outputLog);
 }
 
-// The following tests both the constructor and the clientSend method
+// The following tests both the constructor and the sendRequest method
 // for WorkerSession.
 TEST_F(ServiceManagerTest, WorkerSession) {
     MockTransport transport(context);
-    Buffer request;
-    Buffer reply;
-    request.fillFromString("abcdefg");
+    MockWrapper rpc("abcdefg");
     MockTransport::sessionDeleteCount = 0;
 
-    Transport::Session* wrappedSession = new ServiceManager::WorkerSession(
+    Transport::SessionRef wrappedSession = new ServiceManager::WorkerSession(
             context, transport.getSession());
 
-    // Make sure that clientSend gets passed down to the underlying session.
-    wrappedSession->clientSend(&request, &reply);
-    EXPECT_STREQ("clientSend: abcdefg/0", transport.outputLog.c_str());
+    // Make sure that sendRequest gets passed down to the underlying session.
+    wrappedSession->sendRequest(&rpc.request, &rpc.response, &rpc);
+    EXPECT_STREQ("sendRequest: abcdefg", transport.outputLog.c_str());
     EXPECT_EQ(0U, MockTransport::sessionDeleteCount);
 
     // Make sure that sessions get cleaned up properly.
-    delete wrappedSession;
+    wrappedSession = NULL;
     EXPECT_EQ(1U, MockTransport::sessionDeleteCount);
 }
 
-// The next test makes sure that clientSend synchronizes properly with the
+// The next test makes sure that sendRequest synchronizes properly with the
 // dispatch thread.
 
-void serviceManagerTestWorker(Context* context,
-        Transport::SessionRef session) {
-    Buffer request;
-    Buffer reply;
-    request.fillFromString("abcdefg");
-    session->clientSend(&request, &reply);
+void serviceManagerTestWorker(Context* context, MockWrapper* rpc,
+        Transport::Session* session) {
+    session->sendRequest(&rpc->request, &rpc->response, rpc);
 }
 
-TEST_F(ServiceManagerTest, WorkerSession_SyncWithDispatchThread) {
+TEST_F(ServiceManagerTest, WorkerSession_syncWithDispatchThread) {
     Context context(true);
     TestLog::Enable logSilencer;
 
     MockTransport transport(context);
+    MockWrapper rpc("abcdefg");
     Transport::SessionRef wrappedSession = new ServiceManager::WorkerSession(
             context, transport.getSession());
-    std::thread child(serviceManagerTestWorker, &context,
-            wrappedSession);
+    std::thread child(serviceManagerTestWorker, &context, &rpc,
+            wrappedSession.get());
 
-    // Make sure the child hangs in clientSend until we invoke the dispatcher.
+    // Make sure the child hangs in sendRequest until we invoke the dispatcher.
     usleep(1000);
     EXPECT_STREQ("", transport.outputLog.c_str());
     for (int i = 0; i < 1000; i++) {
@@ -447,15 +443,12 @@ TEST_F(ServiceManagerTest, WorkerSession_SyncWithDispatchThread) {
         }
         usleep(1000);
     }
-    EXPECT_STREQ("clientSend: abcdefg/0", transport.outputLog.c_str());
+    EXPECT_STREQ("sendRequest: abcdefg", transport.outputLog.c_str());
     child.join();
 }
 
 TEST_F(ServiceManagerTest, WorkerSession_abort) {
     MockTransport transport(context);
-    Buffer request;
-    Buffer reply;
-    request.fillFromString("abcdefg");
     MockTransport::sessionDeleteCount = 0;
 
     Transport::Session* wrappedSession = new ServiceManager::WorkerSession(
@@ -467,22 +460,22 @@ TEST_F(ServiceManagerTest, WorkerSession_abort) {
 
 TEST_F(ServiceManagerTest, WorkerSession_cancelRequest) {
     MockTransport transport(context);
-    RpcWrapper wrapper(4);
-    wrapper.request.fillFromString("abcdefg");
-    MockTransport::sessionDeleteCount = 0;
-    wrapper.testSend(transport.getSession());
-    wrapper.cancel();
-    EXPECT_STREQ("sendRequest: abcdefg/0 | cancel: ",
+    MockWrapper rpc("abcdefg");
+    Transport::Session* wrappedSession = new ServiceManager::WorkerSession(
+            context, transport.getSession());
+    wrappedSession->sendRequest(&rpc.request, &rpc.response, &rpc);
+    wrappedSession->cancelRequest(&rpc);
+    EXPECT_STREQ("sendRequest: abcdefg | cancel",
             transport.outputLog.c_str());
 }
 
 TEST_F(ServiceManagerTest, WorkerSession_sendRequest) {
     MockTransport transport(context);
-    RpcWrapper wrapper(4);
-    wrapper.request.fillFromString("abcdefg");
-    MockTransport::sessionDeleteCount = 0;
-    wrapper.testSend(transport.getSession());
-    EXPECT_STREQ("sendRequest: abcdefg/0", transport.outputLog.c_str());
+    MockWrapper rpc("abcdefg");
+    Transport::Session* wrappedSession = new ServiceManager::WorkerSession(
+            context, transport.getSession());
+    wrappedSession->sendRequest(&rpc.request, &rpc.response, &rpc);
+    EXPECT_STREQ("sendRequest: abcdefg", transport.outputLog.c_str());
 }
 
 

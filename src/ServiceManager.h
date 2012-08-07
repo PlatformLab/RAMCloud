@@ -122,8 +122,6 @@ class ServiceManager : Dispatch::Poller {
         ~WorkerSession() {}
         virtual void abort(const string& message);
         virtual void cancelRequest(Transport::RpcNotifier* notifier);
-        virtual Transport::ClientRpc* clientSend(Buffer* request,
-                Buffer* reply) __attribute__((warn_unused_result));
         void release() {
             delete this;
         }
@@ -131,7 +129,7 @@ class ServiceManager : Dispatch::Poller {
                 Transport::RpcNotifier* notifier);
       PRIVATE:
         Context &context;              /// Global RAMCloud state.
-        Transport::SessionRef wrapped; /// clientSend calls must be forwarded
+        Transport::SessionRef wrapped; /// sendRequest calls must be forwarded
                                        /// to this underlying object.
         DISALLOW_COPY_AND_ASSIGN(WorkerSession);
     };

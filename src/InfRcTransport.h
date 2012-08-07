@@ -105,17 +105,15 @@ class InfRcTransport : public Transport {
             DISALLOW_COPY_AND_ASSIGN(ServerRpc);
     };
 
-    class ClientRpc : public Transport::ClientRpc {
+    class ClientRpc {
         public:
             explicit ClientRpc(InfRcTransport* transport,
                                InfRcSession* session,
                                Buffer* request,
                                Buffer* response,
-                               uint64_t nonce,
-                               RpcNotifier* notifier);
+                               RpcNotifier* notifier,
+                               uint64_t nonce);
             void sendOrQueue();
-        PROTECTED:
-            virtual void cancelCleanup();
 
         PRIVATE:
             bool
@@ -123,6 +121,14 @@ class InfRcTransport : public Transport {
 
             InfRcTransport*     transport;
             InfRcSession*       session;
+
+            // Buffers for request and response messages.
+            Buffer*             request;
+            Buffer*             response;
+
+            /// Use this object to report completion.
+            RpcNotifier*        notifier;
+
             /// Uniquely identifies the RPC.
             uint64_t            nonce;
             enum {
@@ -130,9 +136,6 @@ class InfRcTransport : public Transport {
                 REQUEST_SENT,
                 RESPONSE_RECEIVED,
             } state;
-
-            /// Use this object to report completion.
-            RpcNotifier* notifier;
         public:
             IntrusiveListHook   queueEntries;
             friend class InfRcSession;
@@ -165,8 +168,6 @@ class InfRcTransport : public Transport {
       public:
         explicit InfRcSession(InfRcTransport *transport,
             const ServiceLocator& sl, uint32_t timeoutMs);
-        Transport::ClientRpc* clientSend(Buffer* request, Buffer* response)
-            __attribute__((warn_unused_result));
         virtual void abort(const string& message);
         virtual void cancelRequest(RpcNotifier* notifier);
         void release();
@@ -368,9 +369,20 @@ class InfRcTransport : public Transport {
     /// Pool allocator for our ServerRpc objects.
     ServerRpcPool<ServerRpc> serverRpcPool;
 
+    /// Allocator for ClientRpc objects.
+    ObjectPool<ClientRpc> clientRpcPool;
+
     /// Name for this machine/application (passed from clients to servers so
     /// servers know who they are talking to).
     static char name[50];
+
+    /// This variable gets around what appears to be a bug in Infiniband: as
+    /// of 8/2012, if a queue pair is closed when transmit buffers are active
+    /// on it, the transmit buffers never get returned via commonTxCq.  To
+    /// work around this problem, don't delete queue pairs immediately. Instead,
+    /// save them in this vector and delete them at a safe time, when there are
+    /// no outstanding transmit buffers to be lost.
+    vector<QueuePair*> deadQueuePairs;
 
     DISALLOW_COPY_AND_ASSIGN(InfRcTransport);
 };

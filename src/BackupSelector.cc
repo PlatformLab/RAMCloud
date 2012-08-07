@@ -14,6 +14,7 @@
  */
 
 #include "BackupSelector.h"
+#include "Cycles.h"
 #include "ShortMacros.h"
 #include "Segment.h"
 
@@ -97,6 +98,7 @@ ServerId
 BackupSelector::selectSecondary(uint32_t numBackups,
                                 const ServerId backupIds[])
 {
+    uint64_t startTicks = Cycles::rdtsc();
     while (true) {
         applyTrackerChanges();
         ServerId id = tracker.getRandomServerIdWithService(
@@ -104,6 +106,13 @@ BackupSelector::selectSecondary(uint32_t numBackups,
         if (id.isValid() &&
             !conflictWithAny(id, numBackups, backupIds)) {
             return id;
+        }
+        auto waited = Cycles::toNanoseconds(Cycles::rdtsc() - startTicks);
+        if (waited > 1000000000lu) {
+            LOG(WARNING, "BackupSelector could not find a suitable server in "
+                "the last 1s; seems to be stuck; waiting for the coordinator "
+                "to notify this master of newly enlisted backups");
+            startTicks = Cycles::rdtsc();
         }
     }
 }

@@ -15,7 +15,7 @@
 
 #include "TestUtil.h"
 #include "InfRcTransport.h"
-#include "RpcWrapper.h"
+#include "MockWrapper.h"
 #include "ServiceManager.h"
 
 namespace RAMCloud {
@@ -46,34 +46,32 @@ TEST_F(InfRcTransportTest, sanityCheck) {
     // of data.
 
     Transport::SessionRef session = client.getSession(locator);
-    Buffer response;
+    MockWrapper rpc("abcdefg");
     // Put junk in the response buffer to make sure it gets cleared properly.
-    response.fillFromString("abcde");
-    RpcWrapper wrapper(4, &response);
-
-    wrapper.request.fillFromString("abcdefg");
-    wrapper.testSend(session);
+    rpc.response.fillFromString("abcde");
+    session->sendRequest(&rpc.request, &rpc.response, &rpc);
     Transport::ServerRpc* serverRpc =
             context.serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
-    EXPECT_EQ("abcdefg/0", TestUtil::toString(&serverRpc->requestPayload));
-    EXPECT_FALSE(wrapper.isReady());
+    EXPECT_EQ("abcdefg", TestUtil::toString(&serverRpc->requestPayload));
+    EXPECT_STREQ("completed: 0, failed: 0", rpc.getState());
     serverRpc->replyPayload.fillFromString("klmn");
     serverRpc->sendReply();
-    EXPECT_TRUE(TestUtil::waitForRpc(context, wrapper));
-    EXPECT_EQ("klmn/0", TestUtil::toString(wrapper.response));
+    EXPECT_TRUE(TestUtil::waitForRpc(context, rpc));
+    EXPECT_STREQ("completed: 1, failed: 0", rpc.getState());
+    EXPECT_EQ("klmn/0", TestUtil::toString(&rpc.response));
 
-    TestUtil::fillLargeBuffer(&wrapper.request, 100000);
-    wrapper.response->reset();
-    wrapper.testSend(session);
+    rpc.reset();
+    TestUtil::fillLargeBuffer(&rpc.request, 100000);
+    session->sendRequest(&rpc.request, &rpc.response, &rpc);
     serverRpc = context.serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_EQ("ok",
             TestUtil::checkLargeBuffer(&serverRpc->requestPayload, 100000));
     TestUtil::fillLargeBuffer(&serverRpc->replyPayload, 50000);
     serverRpc->sendReply();
-    EXPECT_TRUE(TestUtil::waitForRpc(context, wrapper));
-    EXPECT_EQ("ok", TestUtil::checkLargeBuffer(wrapper.response, 50000));
+    EXPECT_TRUE(TestUtil::waitForRpc(context, rpc));
+    EXPECT_EQ("ok", TestUtil::checkLargeBuffer(&rpc.response, 50000));
 }
 
 TEST_F(InfRcTransportTest, InfRcSession_abort_onClientSendQueue) {
@@ -84,20 +82,19 @@ TEST_F(InfRcTransportTest, InfRcSession_abort_onClientSendQueue) {
     InfRcTransport<RealInfiniband>::InfRcSession* rawSession =
             reinterpret_cast<InfRcTransport<RealInfiniband>::
             InfRcSession*>(session.get());
-    RpcWrapper wrapper1(4), wrapper2(4);
-    wrapper1.request.fillFromString("r1");
-    wrapper2.request.fillFromString("r2");
+    MockWrapper rpc1("r1");
+    MockWrapper rpc2("r2");
     client.numUsedClientSrqBuffers =
             InfRcTransport<RealInfiniband>::MAX_SHARED_RX_QUEUE_DEPTH+1;
-    wrapper1.testSend(session);
-    wrapper2.testSend(session);
+    session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
+    session->sendRequest(&rpc2.request, &rpc2.response, &rpc2);
     EXPECT_EQ(2U, client.clientSendQueue.size());
 
     session->abort("aborted by test");
     EXPECT_EQ(0U, client.clientSendQueue.size());
     EXPECT_EQ(0, rawSession->alarm.outstandingRpcs);
-    EXPECT_STREQ("FAILED", wrapper1.stateString());
-    EXPECT_STREQ("FAILED", wrapper2.stateString());
+    EXPECT_STREQ("completed: 0, failed: 1", rpc1.getState());
+    EXPECT_STREQ("completed: 0, failed: 1", rpc2.getState());
 }
 
 TEST_F(InfRcTransportTest, InfRcSession_abort_onOutstandingRpcs) {
@@ -105,17 +102,16 @@ TEST_F(InfRcTransportTest, InfRcSession_abort_onOutstandingRpcs) {
 
     // Arrange for 2 messages on outstandingRpcs.
     Transport::SessionRef session = client.getSession(locator);
-    RpcWrapper wrapper1(4), wrapper2(4);
-    wrapper1.request.fillFromString("r1");
-    wrapper2.request.fillFromString("r2");
-    wrapper1.testSend(session);
-    wrapper2.testSend(session);
+    MockWrapper rpc1("r1");
+    MockWrapper rpc2("r2");
+    session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
+    session->sendRequest(&rpc2.request, &rpc2.response, &rpc2);
     EXPECT_EQ(2U, client.outstandingRpcs.size());
 
     session->abort("aborted by test");
     EXPECT_EQ(0U, client.outstandingRpcs.size());
-    EXPECT_STREQ("FAILED", wrapper1.stateString());
-    EXPECT_STREQ("FAILED", wrapper2.stateString());
+    EXPECT_STREQ("completed: 0, failed: 1", rpc1.getState());
+    EXPECT_STREQ("completed: 0, failed: 1", rpc2.getState());
 }
 
 TEST_F(InfRcTransportTest, InfRcSession_cancelRequest_rpcPending) {
@@ -126,16 +122,16 @@ TEST_F(InfRcTransportTest, InfRcSession_cancelRequest_rpcPending) {
     InfRcTransport<RealInfiniband>::InfRcSession* rawSession =
             reinterpret_cast<InfRcTransport<RealInfiniband>::
             InfRcSession*>(session.get());
-    RpcWrapper wrapper(4);
-    wrapper.request.fillFromString("abcdefg");
+    MockWrapper rpc("abcdefg");
     client.numUsedClientSrqBuffers =
             InfRcTransport<RealInfiniband>::MAX_SHARED_RX_QUEUE_DEPTH+1;
-    wrapper.testSend(session);
+    session->sendRequest(&rpc.request, &rpc.response, &rpc);
     EXPECT_EQ(1U, client.clientSendQueue.size());
-    wrapper.cancel();
+    session->cancelRequest(&rpc);
     EXPECT_EQ(0U, client.clientSendQueue.size());
     EXPECT_EQ(0, rawSession->alarm.outstandingRpcs);
-    EXPECT_STREQ("CANCELED", wrapper.stateString());
+    // (cancelRequest doesn't call either completed or failed)
+    EXPECT_STREQ("completed: 0, failed: 0", rpc.getState());
 }
 
 TEST_F(InfRcTransportTest, InfRcSession_cancelRequest_rpcSent) {
@@ -146,21 +142,19 @@ TEST_F(InfRcTransportTest, InfRcSession_cancelRequest_rpcSent) {
     InfRcTransport<RealInfiniband>::InfRcSession* rawSession =
             reinterpret_cast<InfRcTransport<RealInfiniband>::
             InfRcSession*>(session.get());
-    RpcWrapper wrapper(4);
-    wrapper.request.fillFromString("abcdefg");
-    wrapper.testSend(session);
+    MockWrapper rpc("abcdefg");
+    session->sendRequest(&rpc.request, &rpc.response, &rpc);
     Transport::ServerRpc* serverRpc =
             context.serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
-    EXPECT_FALSE(wrapper.isReady());
+    EXPECT_STREQ("completed: 0, failed: 0", rpc.getState());
     EXPECT_EQ(1U, client.outstandingRpcs.size());
     EXPECT_EQ(1u, client.numUsedClientSrqBuffers);
     EXPECT_EQ(1, rawSession->alarm.outstandingRpcs);
-    wrapper.cancel();
+    session->cancelRequest(&rpc);
     EXPECT_EQ(0U, client.outstandingRpcs.size());
     EXPECT_EQ(0u, client.numUsedClientSrqBuffers);
     EXPECT_EQ(0, rawSession->alarm.outstandingRpcs);
-    EXPECT_STREQ("CANCELED", wrapper.stateString());
 
     // Send the response, and make sure it is ignored by the client.
     serverRpc->replyPayload.fillFromString("klmn");
@@ -168,10 +162,10 @@ TEST_F(InfRcTransportTest, InfRcSession_cancelRequest_rpcSent) {
     TestLog::reset();
 
     // Make sure we can send another request and receive its response.
-    wrapper.request.reset();
-    wrapper.request.fillFromString("xyzzy");
-    wrapper.response->reset();
-    wrapper.testSend(session);
+    rpc.reset();
+    rpc.request.reset();
+    rpc.request.fillFromString("xyzzy");
+    session->sendRequest(&rpc.request, &rpc.response, &rpc);
     serverRpc = context.serviceManager->waitForRpc(1.0);
 
     // Note: the log entry for the unrecognized response to the canceled
@@ -184,27 +178,22 @@ TEST_F(InfRcTransportTest, InfRcSession_cancelRequest_rpcSent) {
     EXPECT_EQ("xyzzy/0", TestUtil::toString(&serverRpc->requestPayload));
     serverRpc->replyPayload.fillFromString("response2");
     serverRpc->sendReply();
-    EXPECT_TRUE(TestUtil::waitForRpc(context, wrapper));
-    EXPECT_EQ("response2/0", TestUtil::toString(wrapper.response));
+    EXPECT_TRUE(TestUtil::waitForRpc(context, rpc));
+    EXPECT_EQ("response2/0", TestUtil::toString(&rpc.response));
 }
 
-TEST_F(InfRcTransportTest, ClientRpc_clientSend_sessionAborted) {
+TEST_F(InfRcTransportTest, ClientRpc_sendRequest_sessionAborted) {
     Transport::SessionRef session = client.getSession(locator);
-    RpcWrapper wrapper(4);
+    MockWrapper rpc;
     session->abort("test abort");
-    string message("no exception");
-    try {
-        wrapper.testSend(session);
-    } catch (TransportException& e) {
-        message = e.message;
-    }
-    EXPECT_EQ("test abort", message);
+    session->sendRequest(&rpc.request, &rpc.response, &rpc);
+    EXPECT_STREQ("completed: 0, failed: 1", rpc.getState());
 }
 
 TEST_F(InfRcTransportTest, ServerRpc_getClientServiceLocator) {
     Transport::SessionRef session = client.getSession(locator);
-    RpcWrapper wrapper(4);
-    wrapper.testSend(session);
+    MockWrapper rpc("request");
+    session->sendRequest(&rpc.request, &rpc.response, &rpc);
     Transport::ServerRpc* serverRpc =
             context.serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
@@ -212,7 +201,7 @@ TEST_F(InfRcTransportTest, ServerRpc_getClientServiceLocator) {
         "infrc:host=127\\.0\\.0\\.1,port=[0-9][0-9]*",
         serverRpc->getClientServiceLocator()));
     serverRpc->sendReply();
-    EXPECT_TRUE(TestUtil::waitForRpc(context, wrapper));
+    EXPECT_TRUE(TestUtil::waitForRpc(context, rpc));
 }
 
 }  // namespace RAMCloud

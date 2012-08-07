@@ -147,14 +147,6 @@ class MockTransport : public Transport {
             DISALLOW_COPY_AND_ASSIGN(MockServerRpc);
     };
 
-    class MockClientRpc : public ClientRpc {
-        public:
-            explicit MockClientRpc(MockTransport* transport, Buffer* request,
-                                   Buffer* response);
-        private:
-            DISALLOW_COPY_AND_ASSIGN(MockClientRpc);
-    };
-
     class MockSession : public Session {
         public:
             explicit MockSession(MockTransport* transport)
@@ -166,7 +158,6 @@ class MockTransport : public Transport {
             virtual ~MockSession();
             void abort(const string& message);
             virtual void cancelRequest(RpcNotifier* notifier);
-            virtual ClientRpc* clientSend(Buffer* payload, Buffer* response);
             virtual void release();
             virtual void sendRequest(Buffer* request, Buffer* response,
                     RpcNotifier* notifier);
@@ -182,8 +173,7 @@ class MockTransport : public Transport {
     Context& context;
 
     /**
-     * Records information from each call to clientSend and sendReply.
-     * Can be cleared with clearOutput().
+     * Records information from each call to sendRequest and other methods.
      */
     string outputLog;
 
@@ -212,7 +202,6 @@ class MockTransport : public Transport {
     // The following variables count calls to various methods, for use
     // by tests.
     uint32_t serverSendCount;
-    uint32_t clientSendCount;
     uint32_t clientRecvCount;
 
     // Count of number of sessions created.

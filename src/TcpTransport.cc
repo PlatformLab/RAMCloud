@@ -58,6 +58,7 @@ TcpTransport::TcpTransport(Context& context,
     , sockets()
     , nextSocketId(100)
     , serverRpcPool()
+    , clientRpcPool()
 {
     if (serviceLocator == NULL)
         return;
@@ -302,7 +303,7 @@ TcpTransport::ServerSocketHandler::handleFileEvent(int events)
                 }
                 TcpServerRpc& rpc = socket->rpcsWaitingToReply.front();
                 socket->bytesLeftToSend = TcpTransport::sendMessage(fd,
-                        rpc.message.header.nonce, rpc.replyPayload,
+                        rpc.message.header.nonce, &rpc.replyPayload,
                         socket->bytesLeftToSend);
                 if (socket->bytesLeftToSend != 0) {
                     break;
@@ -352,14 +353,14 @@ TcpTransport::ServerSocketHandler::handleFileEvent(int events)
  *      An I/O error occurred.
  */
 int
-TcpTransport::sendMessage(int fd, uint64_t nonce, Buffer& payload,
+TcpTransport::sendMessage(int fd, uint64_t nonce, Buffer* payload,
         int bytesToSend)
 {
     assert(fd >= 0);
 
     Header header;
     header.nonce = nonce;
-    header.len = payload.getTotalLength();
+    header.len = payload->getTotalLength();
     int totalLength = downCast<int>(sizeof(header) + header.len);
     if (bytesToSend < 0) {
         bytesToSend = totalLength;
@@ -369,7 +370,7 @@ TcpTransport::sendMessage(int fd, uint64_t nonce, Buffer& payload,
     // Use an iovec to send everything in one kernel call: one iov
     // for header, the rest for payload.  Skip parts that have
     // already been sent.
-    uint32_t iovecs = 1 + payload.getNumberChunks();
+    uint32_t iovecs = 1 + payload->getNumberChunks();
     struct iovec iov[iovecs];
     int offset;
     int iovecIndex;
@@ -382,7 +383,7 @@ TcpTransport::sendMessage(int fd, uint64_t nonce, Buffer& payload,
         iovecIndex = 0;
         offset = alreadySent - downCast<int>(sizeof(header));
     }
-    Buffer::Iterator iter(payload, offset, header.len - offset);
+    Buffer::Iterator iter(*payload, offset, header.len - offset);
     while (!iter.isDone()) {
         iov[iovecIndex].iov_base = const_cast<void*>(iter.getData());
         iov[iovecIndex].iov_len = iter.getLength();
@@ -629,6 +630,7 @@ TcpTransport::TcpSession::cancelRequest(RpcNotifier* notifier)
         if (rpc.notifier == notifier) {
             rpcsWaitingForResponse.erase(
                     rpcsWaitingForResponse.iterator_to(rpc));
+            transport.clientRpcPool.destroy(&rpc);
             alarm.rpcFinished();
             return;
         }
@@ -637,6 +639,7 @@ TcpTransport::TcpSession::cancelRequest(RpcNotifier* notifier)
         if (rpc.notifier == notifier) {
             rpcsWaitingToSend.erase(
                     rpcsWaitingToSend.iterator_to(rpc));
+            transport.clientRpcPool.destroy(&rpc);
             return;
         }
     }
@@ -654,56 +657,21 @@ TcpTransport::TcpSession::close()
     }
     while (!rpcsWaitingForResponse.empty()) {
         TcpClientRpc& rpc = rpcsWaitingForResponse.front();
-        if (rpc.notifier != NULL) {
-             rpc.notifier->failed();
-        }
-        rpc.cancel(errorInfo);
+        rpc.notifier->failed();
+        rpcsWaitingForResponse.pop_front();
+        transport.clientRpcPool.destroy(&rpc);
+
     }
     while (!rpcsWaitingToSend.empty()) {
         TcpClientRpc& rpc = rpcsWaitingToSend.front();
-        if (rpc.notifier != NULL) {
-             rpc.notifier->failed();
-        }
-        rpc.cancel(errorInfo);
+        rpc.notifier->failed();
+        rpcsWaitingToSend.pop_front();
+        transport.clientRpcPool.destroy(&rpc);
     }
     if (clientIoHandler) {
         Dispatch::Lock lock(transport.context.dispatch);
         clientIoHandler.destroy();
     }
-}
-
-// See Transport::Session::clientSend for documentation.
-TcpTransport::ClientRpc*
-TcpTransport::TcpSession::clientSend(Buffer* request, Buffer* response)
-{
-    if (fd == -1) {
-        LOG(DEBUG, "TcpTransport errorInfo: %s", errorInfo.c_str());
-        throw TransportException(HERE, errorInfo);
-    }
-    alarm.rpcStarted();
-    TcpClientRpc* rpc = new(response, MISC) TcpClientRpc(*this, request,
-            response, serial, NULL);
-    serial++;
-    if (!rpcsWaitingToSend.empty()) {
-        // Can't transmit this request yet; there are already other
-        // requests that haven't yet been sent.
-        rpcsWaitingToSend.push_back(*rpc);
-        return rpc;
-    }
-
-    // Try to transmit the request.
-    bytesLeftToSend = TcpTransport::sendMessage(fd, rpc->nonce, *request, -1);
-    if (bytesLeftToSend == 0) {
-        // The whole request was sent immediately (this should be the
-        // common case).
-        rpcsWaitingForResponse.push_back(*rpc);
-        rpc->sent = true;
-    } else {
-        rpcsWaitingToSend.push_back(*rpc);
-        clientIoHandler->setEvents(Dispatch::FileEvent::READABLE |
-                Dispatch::FileEvent::WRITABLE);
-    }
-    return rpc;
 }
 
 /**
@@ -742,8 +710,8 @@ TcpTransport::TcpSession::sendRequest(Buffer* request, Buffer* response,
         return;
     }
     alarm.rpcStarted();
-    TcpClientRpc* rpc = new(response, MISC) TcpClientRpc(*this,
-            request, response, serial, notifier);
+    TcpClientRpc* rpc = transport.clientRpcPool.construct(this, request,
+            response, notifier, serial);
     serial++;
     if (!rpcsWaitingToSend.empty()) {
         // Can't transmit this request yet; there are already other
@@ -754,7 +722,7 @@ TcpTransport::TcpSession::sendRequest(Buffer* request, Buffer* response,
 
     // Try to transmit the request.
     bytesLeftToSend = TcpTransport::sendMessage(fd, rpc->nonce,
-            *request, -1);
+            request, -1);
     if (bytesLeftToSend == 0) {
         // The whole request was sent immediately (this should be the
         // common case).
@@ -807,10 +775,8 @@ TcpTransport::ClientSocketHandler::handleFileEvent(int events)
                             session.rpcsWaitingForResponse.iterator_to(
                             *session.current));
                     session.alarm.rpcFinished();
-                    session.current->markFinished();
-                    if (session.current->notifier != NULL) {
-                        session.current->notifier->completed();
-                    }
+                    session.current->notifier->completed();
+                    session.transport.clientRpcPool.destroy(session.current);
                     session.current = NULL;
                 }
                 session.message.construct(static_cast<Buffer*>(NULL), &session);
@@ -820,7 +786,7 @@ TcpTransport::ClientSocketHandler::handleFileEvent(int events)
             while (!session.rpcsWaitingToSend.empty()) {
                 TcpClientRpc& rpc = session.rpcsWaitingToSend.front();
                 session.bytesLeftToSend = TcpTransport::sendMessage(
-                        session.fd, rpc.nonce, *(rpc.request),
+                        session.fd, rpc.nonce, rpc.request,
                         session.bytesLeftToSend);
                 if (session.bytesLeftToSend != 0) {
                     return;
@@ -862,7 +828,7 @@ TcpTransport::TcpServerRpc::sendReply()
 
         // Try to transmit the response.
         socket->bytesLeftToSend = TcpTransport::sendMessage(fd,
-                message.header.nonce, replyPayload, -1);
+                message.header.nonce, &replyPayload, -1);
         if (socket->bytesLeftToSend > 0) {
             socket->rpcsWaitingToReply.push_back(*this);
             socket->ioHandler.setEvents(Dispatch::FileEvent::READABLE |
@@ -883,20 +849,6 @@ TcpTransport::TcpServerRpc::getClientServiceLocator()
     Socket* socket = transport.sockets[fd];
     return format("tcp:host=%s,port=%hu", inet_ntoa(socket->sin.sin_addr),
         NTOHS(socket->sin.sin_port));
-}
-
-// See Transport::ClientRpc::cancelCleanup for documentation.
-void
-TcpTransport::TcpClientRpc::cancelCleanup()
-{
-    if (sent) {
-        session.rpcsWaitingForResponse.erase(
-                session.rpcsWaitingForResponse.iterator_to(*this));
-    } else {
-        session.rpcsWaitingToSend.erase(
-                session.rpcsWaitingToSend.iterator_to(*this));
-    }
-    session.alarm.rpcFinished();
 }
 
 }  // namespace RAMCloud

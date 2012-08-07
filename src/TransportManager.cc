@@ -292,6 +292,7 @@ TransportManager::getSession(const char* serviceLocator, ServerId needServerId)
     } catch (TransportException& e) {
         LOG(DEBUG, "Failed to obtain ServerId from \"%s\": %s",
             serviceLocator, e.what());
+        flushSession(serviceLocator);
         // Fall through to error handling below (since actualId remains
         // invalid).
     }
@@ -302,6 +303,7 @@ TransportManager::getSession(const char* serviceLocator, ServerId needServerId)
         string errorStr = format("Expected ServerId %lu at \"%s\", but actual "
             "server id was %lu!",
             *needServerId, serviceLocator, *actualId);
+        flushSession(serviceLocator);
         LOG(DEBUG, "%s", errorStr.c_str());
         throw TransportException(HERE, errorStr);
     }

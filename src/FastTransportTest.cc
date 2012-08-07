@@ -162,30 +162,30 @@ TEST_F(FastTransportTest, sanityCheck) {
     FastTransport client(context, clientDriver);
     Transport::SessionRef session = client.getSession(serverLocator);
 
-    RpcWrapper wrapper(4);
-    wrapper.request.fillFromString("abcdefg");
-    wrapper.testSend(session);
+    MockWrapper rpc1("abcdefg");
+    session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
     Transport::ServerRpc* serverRpc =
         context.serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
-    EXPECT_EQ("abcdefg/0", TestUtil::toString(&serverRpc->requestPayload));
-    EXPECT_FALSE(wrapper.isReady());
+    EXPECT_EQ("abcdefg", TestUtil::toString(&serverRpc->requestPayload));
+    EXPECT_STREQ("completed: 0, failed: 0", rpc1.getState());
     serverRpc->replyPayload.fillFromString("klmn");
     serverRpc->sendReply();
-    EXPECT_TRUE(TestUtil::waitForRpc(context, wrapper));
-    EXPECT_EQ("klmn/0", TestUtil::toString(wrapper.response));
+    EXPECT_TRUE(TestUtil::waitForRpc(context, rpc1));
+    EXPECT_STREQ("completed: 1, failed: 0", rpc1.getState());
+    EXPECT_EQ("klmn/0", TestUtil::toString(&rpc1.response));
 
-    TestUtil::fillLargeBuffer(&wrapper.request, 100000);
-    wrapper.response->reset();
-    wrapper.testSend(session);
+    MockWrapper rpc2;
+    TestUtil::fillLargeBuffer(&rpc2.request, 100000);
+    session->sendRequest(&rpc2.request, &rpc2.response, &rpc2);
     serverRpc = context.serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_EQ("ok",
           TestUtil::checkLargeBuffer(&serverRpc->requestPayload, 100000));
     TestUtil::fillLargeBuffer(&serverRpc->replyPayload, 50000);
     serverRpc->sendReply();
-    EXPECT_TRUE(TestUtil::waitForRpc(context, wrapper));
-    EXPECT_EQ("ok", TestUtil::checkLargeBuffer(wrapper.response, 50000));
+    EXPECT_TRUE(TestUtil::waitForRpc(context, rpc2));
+    EXPECT_EQ("ok", TestUtil::checkLargeBuffer(&rpc2.response, 50000));
 #endif
 }
 
@@ -399,6 +399,7 @@ TEST_F(FastTransportTest, handleIncomingPacket_s2cBadHint) {
 }
 
 TEST_F(FastTransportTest, ServerRpc_getClientServiceLocator) {
+    TestLog::Enable _;
     ServiceLocator serverLocator("fast+udp: host=localhost, port=11101");
     UdpDriver* serverDriver = new UdpDriver(context, &serverLocator);
     FastTransport server(context, serverDriver);
@@ -406,71 +407,16 @@ TEST_F(FastTransportTest, ServerRpc_getClientServiceLocator) {
     FastTransport client(context, clientDriver);
     Transport::SessionRef session = client.getSession(serverLocator);
 
-    Buffer request, reply;
-    request.fillFromString("acdefg");
-    Transport::ClientRpc* clientRpc = session->clientSend(&request, &reply);
+    MockWrapper rpc("acdefg");
+    session->sendRequest(&rpc.request, &rpc.response, &rpc);
     Transport::ServerRpc* serverRpc =
         context.serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
         "fast+udp:127\\.0\\.0\\.1:[0-9][0-9]*",
         serverRpc->getClientServiceLocator()));
-    reply.fillFromString("hijlkm");
     serverRpc->sendReply();
-    EXPECT_TRUE(TestUtil::waitForRpc(context, *clientRpc));
-}
-
-// --- ClientRpcTest ---
-
-class ClientRpcTest : public ::testing::Test {
-  public:
-    Context context;
-    Buffer* request;
-    Buffer* response;
-    FastTransport* transport;
-    FastTransport::ClientSession* session;
-    MockDriver* driver;
-    FastTransport::ClientRpc* rpc;
-    const char* address;
-    uint16_t port;
-
-    ClientRpcTest()
-        : context()
-        , request(NULL)
-        , response(NULL)
-        , transport(NULL)
-        , session(NULL)
-        , driver(NULL)
-        , rpc(NULL)
-        , address("1.2.3.4")
-        , port(1234)
-    {
-        driver = new MockDriver(FastTransport::Header::headerToString);
-        transport = new FastTransport(context, driver);
-        session = new FastTransport::ClientSession(transport, 0x98765432);
-
-        request = new Buffer();
-        response = new Buffer();
-
-        rpc = new FastTransport::ClientRpc(session, request, response, NULL);
-    }
-
-    ~ClientRpcTest()
-    {
-        delete response;
-        delete request;
-        delete session;
-        delete transport;
-    }
-
-  private:
-    DISALLOW_COPY_AND_ASSIGN(ClientRpcTest);
-};
-
-TEST_F(ClientRpcTest, constructor) {
-    EXPECT_EQ(request, rpc->request);
-    EXPECT_EQ(response, rpc->response);
-    EXPECT_EQ(session, rpc->session);
+    EXPECT_TRUE(TestUtil::waitForRpc(context, rpc));
 }
 
 // --- InboundMessageTest ---
@@ -815,6 +761,7 @@ TEST_F(InboundMessageTest, processReceivedData_timerAdded) {
 }
 
 TEST_F(InboundMessageTest, handleTimerEvent) {
+    TestLog::Enable _;
     msg->silentIntervals = 0;
     msg->timer->handleTimerEvent();
 
@@ -833,8 +780,9 @@ TEST_F(InboundMessageTest, handleTimerEvent) {
     driver->outputLog.clear();
     msg->timer->handleTimerEvent();
     EXPECT_EQ("", driver->outputLog);
-    EXPECT_EQ("timeout waiting for response from server at fast+udp: "
-            "host=1.2.3.4, port=1234", clientSession->abortMessage);
+    EXPECT_EQ("handleTimerEvent: timeout waiting for response from "
+              "server at fast+udp: host=1.2.3.4, port=1234",
+              TestLog::get());
 }
 
 // --- OutboundMessageTest ---
@@ -1195,6 +1143,7 @@ TEST_F(OutboundMessageTest, sendOneData_requestAck) {
 }
 
 TEST_F(OutboundMessageTest, handleTimerEvent) {
+    TestLog::Enable _;
     // First call should just resend a packet.
     msg->useTimer = true;
     msg->sentTimes[0] = tsc - msg->session->timeoutCycles - 1;
@@ -1208,9 +1157,9 @@ TEST_F(OutboundMessageTest, handleTimerEvent) {
     driver->outputLog.clear();
     msg->timer->handleTimerEvent();
     EXPECT_EQ("", driver->outputLog);
-    EXPECT_EQ("timeout waiting for acknowledgment from server "
-            "at fast+udp: host=1.2.3.4, port=1234",
-            clientSession->abortMessage);
+    EXPECT_EQ("handleTimerEvent: timeout waiting for acknowledgment "
+              "from server at fast+udp: host=1.2.3.4, port=1234",
+              TestLog::get());
 }
 
 // --- ServerSessionTest ---
@@ -1280,7 +1229,7 @@ TEST_F(ServerSessionTest, expire_channelStillProcessing) {
     session->lastActivityTime = 1;
     session->channels[FastTransport::NUM_CHANNELS_PER_SESSION - 1].state =
         FastTransport::ServerSession::ServerChannel::PROCESSING;
-    EXPECT_FALSE(session->expire(true));
+    EXPECT_FALSE(session->expire(FastTransport::ServerSession::LOG_NON_IDLE));
     EXPECT_EQ("expire: channel 7 active", TestLog::get());
 
     session->channels[FastTransport::NUM_CHANNELS_PER_SESSION - 1].state =
@@ -1537,8 +1486,7 @@ class ClientSessionTest: public ::testing::Test {
     MockDriver* driver;
     FastTransport* transport;
     FastTransport::ClientSession* session;
-    Buffer* request;
-    Buffer* response;
+    MockWrapper* wrapper;
     const uint32_t sessionId;
     sockaddr_in addr;
     sockaddr* addrp;
@@ -1551,8 +1499,7 @@ class ClientSessionTest: public ::testing::Test {
         , driver(NULL)
         , transport(NULL)
         , session(NULL)
-        , request(NULL)
-        , response(NULL)
+        , wrapper(NULL)
         , sessionId(0x98765432)
         , addr()
         , addrp(NULL)
@@ -1566,19 +1513,16 @@ class ClientSessionTest: public ::testing::Test {
         addrLen = sizeof(addr);
         addrp = reinterpret_cast<sockaddr*>(&addr);
 
+        wrapper = new MockWrapper("request");
         driver = new MockDriver(FastTransport::Header::headerToString);
         transport = new FastTransport(context, driver);
         session = new FastTransport::ClientSession(transport, sessionId);
         session->setServiceLocator("dummyService");
-        request = new Buffer();
-        request->fillFromString("request");
-        response = new Buffer();
     }
 
     ~ClientSessionTest()
     {
-        delete response;
-        delete request;
+        delete wrapper;
         delete session;
         delete transport;
     }
@@ -1592,17 +1536,20 @@ TEST_F(ClientSessionTest, abort) {
     session->allocateChannels();
 
     // Arrange for 2 RPCs to be active, with 2 others waiting for channels.
-    RpcWrapper wrapper1(4), wrapper2(4), wrapper3(4), wrapper4(4);
-    wrapper1.testSend(session);
-    wrapper2.testSend(session);
-    wrapper3.testSend(session);
-    wrapper4.testSend(session);
+    MockWrapper rpc1("request1");
+    MockWrapper rpc2("request2");
+    MockWrapper rpc3("request3");
+    MockWrapper rpc4("request4");
+    session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
+    session->sendRequest(&rpc2.request, &rpc2.response, &rpc2);
+    session->sendRequest(&rpc3.request, &rpc3.response, &rpc3);
+    session->sendRequest(&rpc4.request, &rpc4.response, &rpc4);
     EXPECT_EQ(2U, session->channelQueue.size());
     session->abort("test abort");
-    EXPECT_STREQ("FAILED", wrapper1.stateString());
-    EXPECT_STREQ("FAILED", wrapper2.stateString());
-    EXPECT_STREQ("FAILED", wrapper3.stateString());
-    EXPECT_STREQ("FAILED", wrapper4.stateString());
+    EXPECT_STREQ("completed: 0, failed: 1", rpc1.getState());
+    EXPECT_STREQ("completed: 0, failed: 1", rpc2.getState());
+    EXPECT_STREQ("completed: 0, failed: 1", rpc3.getState());
+    EXPECT_STREQ("completed: 0, failed: 1", rpc4.getState());
     EXPECT_TRUE(session->channelQueue.empty());
     EXPECT_EQ(FastTransport::ClientSession::INVALID_TOKEN,
               session->token);
@@ -1613,91 +1560,30 @@ TEST_F(ClientSessionTest, cancelRequest) {
     session->allocateChannels();
 
     // Arrange for 2 RPCs to be active, with 2 others waiting for channels.
-    RpcWrapper wrapper1(4), wrapper2(4), wrapper3(4), wrapper4(4);
-    wrapper1.testSend(session);
-    wrapper2.testSend(session);
-    wrapper3.testSend(session);
-    wrapper4.testSend(session);
+    MockWrapper rpc1("request1");
+    MockWrapper rpc2("request2");
+    MockWrapper rpc3("request3");
+    MockWrapper rpc4("request4");
+    session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
+    session->sendRequest(&rpc2.request, &rpc2.response, &rpc2);
+    session->sendRequest(&rpc3.request, &rpc3.response, &rpc3);
+    session->sendRequest(&rpc4.request, &rpc4.response, &rpc4);
     EXPECT_EQ(2U, session->channelQueue.size());
 
     // Cancel one of the queued RPCs.
-    wrapper4.cancel();
-    EXPECT_STREQ("CANCELED", wrapper4.stateString());
-    EXPECT_FALSE(wrapper1.isReady());
-    EXPECT_FALSE(wrapper2.isReady());
-    EXPECT_FALSE(wrapper3.isReady());
+    session->cancelRequest(&rpc4);
+    EXPECT_EQ(1U, session->channelQueue.size());
+    EXPECT_EQ("request3", TestUtil::toString(
+            session->channelQueue.front().request));
 
     // Cancel one of the active RPCs, and make sure that another
     // one activates.
-    EXPECT_EQ(&wrapper2, session->channels[1].currentRpc->notifier);
-    wrapper2.cancel();
-    EXPECT_STREQ("CANCELED", wrapper2.stateString());
+    EXPECT_EQ("request2", TestUtil::toString(
+        session->channels[1].currentRpc->request));
+    session->cancelRequest(&rpc2);
     EXPECT_EQ(0U, session->channelQueue.size());
-}
-
-TEST_F(ClientSessionTest, cancelRpc_rpcAssignedToChannel) {
-    session->numChannels = 3;
-    session->allocateChannels();
-    Buffer request2, response2, request3, response3;
-    request2.fillFromString("request2");
-    request3.fillFromString("request3");
-    session->clientSend(request, response);
-    session->clientSend(&request2, &response2);
-    FastTransport::ClientRpc* rpc3 = session->clientSend(
-            &request3, &response3);
-    EXPECT_TRUE(session->channels[2].currentRpc != NULL);
-    rpc3->cancel();
-    EXPECT_TRUE(session->channels[2].currentRpc == NULL);
-    session->abort("cleanup");
-}
-
-TEST_F(ClientSessionTest, cancelRpc_rpcWaitingForChannel) {
-    session->numChannels = 2;
-    session->allocateChannels();
-    Buffer request2, response2, request3, response3;
-    request2.fillFromString("request2");
-    request3.fillFromString("request3");
-    session->clientSend(request, response);
-    session->clientSend(&request2, &response2);
-    FastTransport::ClientRpc* rpc3 = session->clientSend(
-            &request3, &response3);
-    EXPECT_EQ(1U, session->channelQueue.size());
-    rpc3->cancel();
-    EXPECT_EQ(0U, session->channelQueue.size());
-    session->abort("cleanup");
-}
-
-TEST_F(ClientSessionTest, clientSend_notConnected) {
-    EXPECT_FALSE(session->isConnected());
-    EXPECT_TRUE(session->channelQueue.empty());
-    FastTransport::ClientRpc* rpc = session->clientSend(request, response);
-    EXPECT_EQ(rpc, &session->channelQueue.front());
-    session->channelQueue.pop_front(); // satisfy boost assertion;
-}
-
-TEST_F(ClientSessionTest, clientSend_noAvailableChannel) {
-    EXPECT_TRUE(session->channelQueue.empty());
-    FastTransport::ClientRpc* rpc = session->clientSend(request, response);
-    EXPECT_EQ(rpc, &session->channelQueue.front());
-    session->channelQueue.pop_front(); // satisfy boost assertion;
-}
-
-TEST_F(ClientSessionTest, clientSend_availableChannel) {
-    context.dispatch->currentTime = 98328;
-
-    session->numChannels = FastTransport::MAX_NUM_CHANNELS_PER_SESSION;
-    session->allocateChannels();
-
-    FastTransport::ClientRpc* rpc = session->clientSend(request,
-                                                        response);
-    FastTransport::ClientSession::ClientChannel* channel =
-            &session->channels[0];
-    EXPECT_EQ(FastTransport::ClientSession::
-              ClientChannel::SENDING,
-              channel->state);
-    EXPECT_EQ(rpc, channel->currentRpc);
-    channel->currentRpc = NULL;
-    EXPECT_EQ(context.dispatch->currentTime, session->lastActivityTime);
+    EXPECT_EQ("request3", TestUtil::toString(
+        session->channels[1].currentRpc->request));
 }
 
 TEST_F(ClientSessionTest, connect) {
@@ -1721,7 +1607,7 @@ TEST_F(ClientSessionTest, expire_activeRef) {
     session->numChannels = FastTransport::MAX_NUM_CHANNELS_PER_SESSION;
     session->allocateChannels();
     FastTransport::SessionRef s(session);
-    EXPECT_FALSE(session->expire(true));
+    EXPECT_FALSE(session->expire(FastTransport::ServerSession::LOG_NON_IDLE));
     EXPECT_EQ("expire: refCount 1 in session for dummyService",
               TestLog::get());
 }
@@ -1731,10 +1617,11 @@ TEST_F(ClientSessionTest, expire_activeOnChannel) {
     session->numChannels = FastTransport::MAX_NUM_CHANNELS_PER_SESSION;
     session->allocateChannels();
 
-    FastTransport::ClientRpc rpc(session, request, response, NULL);
+    FastTransport::ClientRpc rpc(session, &wrapper->request,
+                                 &wrapper->response, wrapper);
     session->channels[0].currentRpc = &rpc;
 
-    EXPECT_FALSE(session->expire(true));
+    EXPECT_FALSE(session->expire(FastTransport::ServerSession::LOG_NON_IDLE));
     EXPECT_EQ("expire: channel 0 active in session for dummyService",
               TestLog::get());
 
@@ -1746,10 +1633,11 @@ TEST_F(ClientSessionTest, expire_rpcQueued) {
     session->numChannels = FastTransport::MAX_NUM_CHANNELS_PER_SESSION;
     session->allocateChannels();
 
-    FastTransport::ClientRpc rpc(session, request, response, NULL);
+    FastTransport::ClientRpc rpc(session, &wrapper->request,
+                                 &wrapper->response, wrapper);
     session->channelQueue.push_back(rpc);
 
-    EXPECT_FALSE(session->expire(true));
+    EXPECT_FALSE(session->expire(FastTransport::ServerSession::LOG_NON_IDLE));
     EXPECT_EQ("expire: channelQueue not empty in session for dummyService",
               TestLog::get());
 
@@ -1817,9 +1705,9 @@ TEST_F(ClientSessionTest, processInboundPacket_data) {
     EXPECT_TRUE(channel != NULL);
     channel->state = FastTransport::ClientSession::ClientChannel::SENDING;
     channel->currentRpc = new FastTransport::ClientRpc(session,
-                                                       request,
-                                                       response,
-                                                       NULL);
+                                                       &wrapper->request,
+                                                       &wrapper->response,
+                                                       wrapper);
 
     MockReceived recvd(0, 2, "first of two");
     session->processInboundPacket(&recvd);
@@ -1840,7 +1728,7 @@ TEST_F(ClientSessionTest, processInboundPacket_ack) {
     channel->state = FastTransport::ClientSession::ClientChannel::SENDING;
 
     channel->outboundMsg.totalFrags = 5;
-    channel->outboundMsg.sendBuffer = request;
+    channel->outboundMsg.sendBuffer = &wrapper->request;
 
     FastTransport::AckResponse ackResp(2, 0);
     MockReceived recvd(0, 5, &ackResp, sizeof(FastTransport::AckResponse));
@@ -1857,7 +1745,8 @@ TEST_F(ClientSessionTest, processInboundPacket_badSession) {
 
     // Put an RPC on one of the channels
     FastTransport::ClientRpc* rpc =
-            new FastTransport::ClientRpc(session, request, response, NULL);
+            new FastTransport::ClientRpc(session, &wrapper->request,
+                                         &wrapper->response, wrapper);
     session->channels[1].currentRpc = rpc;
 
     MockReceived recvd(0, 1, "");
@@ -1900,8 +1789,10 @@ TEST_F(ClientSessionTest, processInboundPacket_badPayloadType) {
             session->getAvailableChannel();
     EXPECT_TRUE(NULL != channel);
     channel->state = FastTransport::ClientSession::ClientChannel::SENDING;
-    channel->currentRpc = new FastTransport::ClientRpc(session, request,
-                                                       response, NULL);
+    channel->currentRpc = new FastTransport::ClientRpc(session,
+                                                       &wrapper->request,
+                                                       &wrapper->response,
+                                                       wrapper);
 
     MockReceived recvd(0, 2, "packet data");
     recvd.getHeader()->payloadType = FastTransport::Header::RESERVED1;
@@ -1920,8 +1811,10 @@ TEST_F(ClientSessionTest, processInboundPacket_stalePacket) {
             session->getAvailableChannel();
     EXPECT_TRUE(NULL != channel);
     channel->state = FastTransport::ClientSession::ClientChannel::SENDING;
-    channel->currentRpc = new FastTransport::ClientRpc(session, request,
-                                                       response, NULL);
+    channel->currentRpc = new FastTransport::ClientRpc(session,
+                                                       &wrapper->request,
+                                                       &wrapper->response,
+                                                       wrapper);
 
     MockReceived recvd(0, 2, "packet data");
     recvd.getHeader()->rpcId = 3;
@@ -1942,17 +1835,17 @@ TEST_F(ClientSessionTest, sendRequest_clearResponseBuffer) {
     Buffer response;
     response.fillFromString("abcdef");
     EXPECT_EQ(7U, response.getTotalLength());
-    RpcWrapper wrapper(4, &response);
-    wrapper.testSend(session);
+    MockWrapper rpc("request");
+    session->sendRequest(&rpc.request, &response, &rpc);
     EXPECT_EQ(0U, response.getTotalLength());
 }
 
 TEST_F(ClientSessionTest, sendRequest_notConnected) {
     EXPECT_FALSE(session->isConnected());
     EXPECT_TRUE(session->channelQueue.empty());
-    RpcWrapper wrapper(4);
-    wrapper.testSend(session);
-    EXPECT_EQ(&wrapper, session->channelQueue.front().notifier);
+    MockWrapper rpc("request");
+    session->sendRequest(&rpc.request, &rpc.response, &rpc);
+    EXPECT_EQ(&rpc, session->channelQueue.front().notifier);
 }
 
 TEST_F(ClientSessionTest, sendRequest_noAvailableChannel) {
@@ -1960,10 +1853,11 @@ TEST_F(ClientSessionTest, sendRequest_noAvailableChannel) {
     session->allocateChannels();
     EXPECT_TRUE(session->isConnected());
     EXPECT_TRUE(session->channelQueue.empty());
-    RpcWrapper wrapper1(4), wrapper2(4);
-    wrapper1.testSend(session);
-    wrapper2.testSend(session);
-    EXPECT_EQ(&wrapper2, session->channelQueue.front().notifier);
+    MockWrapper rpc1("request1");
+    MockWrapper rpc2("request2");
+    session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
+    session->sendRequest(&rpc2.request, &rpc2.response, &rpc2);
+    EXPECT_EQ(&rpc2, session->channelQueue.front().notifier);
 }
 
 TEST_F(ClientSessionTest, sendRequest_availableChannel) {
@@ -1972,14 +1866,14 @@ TEST_F(ClientSessionTest, sendRequest_availableChannel) {
     session->numChannels = FastTransport::MAX_NUM_CHANNELS_PER_SESSION;
     session->allocateChannels();
 
-    RpcWrapper wrapper(4);
-    wrapper.testSend(session);
+    MockWrapper rpc("request");
+    session->sendRequest(&rpc.request, &rpc.response, &rpc);
     FastTransport::ClientSession::ClientChannel* channel =
             &session->channels[0];
     EXPECT_EQ(FastTransport::ClientSession::
               ClientChannel::SENDING,
               channel->state);
-    EXPECT_EQ(&wrapper, channel->currentRpc->notifier);
+    EXPECT_EQ(&rpc, channel->currentRpc->notifier);
     EXPECT_EQ(context.dispatch->currentTime, session->lastActivityTime);
 }
 
@@ -2020,7 +1914,8 @@ TEST_F(ClientSessionTest, getAvailableChannel) {
 }
 
 TEST_F(ClientSessionTest, processReceivedData_transitionSendToReceive) {
-    FastTransport::ClientRpc rpc(session, request, response, NULL);
+    FastTransport::ClientRpc rpc(session, &wrapper->request,
+                                 &wrapper->response, wrapper);
     session->channelQueue.push_back(rpc);
 
     FastTransport::SessionOpenResponse sessResp =
@@ -2039,8 +1934,8 @@ TEST_F(ClientSessionTest, processReceivedData_transitionSendToReceive) {
 }
 
 TEST_F(ClientSessionTest, processReceivedData_rpcFinished) {
-    RpcWrapper wrapper(4);
-    wrapper.testSend(session);
+    MockWrapper rpc("request");
+    session->sendRequest(&rpc.request, &rpc.response, &rpc);
 
     FastTransport::SessionOpenResponse sessResp =
             { FastTransport::NUM_CHANNELS_PER_SESSION };
@@ -2051,13 +1946,15 @@ TEST_F(ClientSessionTest, processReceivedData_rpcFinished) {
     FastTransport::ClientSession::ClientChannel* channel =
             &session->channels[0];
     session->processReceivedData(channel, &recvd);
-    EXPECT_STREQ("FINISHED", wrapper.stateString());
+    EXPECT_STREQ("completed: 1, failed: 0", rpc.getState());
     EXPECT_EQ(0, channel->currentRpc);
 }
 
 TEST_F(ClientSessionTest, reassignChannel_queueEmpty) {
-    FastTransport::ClientRpc rpc(session, request, response, NULL);
-    session->channelQueue.push_back(rpc);
+    FastTransport::ClientRpc* rpc =
+        transport->clientRpcPool.construct(session, &wrapper->request,
+                                           &wrapper->response, wrapper);
+    session->channelQueue.push_back(*rpc);
 
     FastTransport::SessionOpenResponse sessResp =
             { FastTransport::NUM_CHANNELS_PER_SESSION };
@@ -2076,16 +1973,22 @@ TEST_F(ClientSessionTest, reassignChannel_queueEmpty) {
 }
 
 TEST_F(ClientSessionTest, reassignChannel_getWorkFromQueue) {
-    FastTransport::ClientRpc rpc1(session, request, response, NULL);
-    session->channelQueue.push_back(rpc1);
+    MockWrapper wrapper1;
+    FastTransport::ClientRpc* rpc1 =
+        transport->clientRpcPool.construct(session, &wrapper1.request,
+                                           &wrapper1.response, &wrapper1);
+    session->channelQueue.push_back(*rpc1);
 
     FastTransport::SessionOpenResponse sessResp =
             { FastTransport::NUM_CHANNELS_PER_SESSION };
     MockReceived initRecvd(0, 1, &sessResp, sizeof(sessResp));
     session->processSessionOpenResponse(&initRecvd);
 
-    FastTransport::ClientRpc rpc2(session, request, response, NULL);
-    session->channelQueue.push_back(rpc2);
+    MockWrapper wrapper2;
+    FastTransport::ClientRpc* rpc2 =
+        transport->clientRpcPool.construct(session, &wrapper2.request,
+                                           &wrapper2.response, &wrapper2);
+    session->channelQueue.push_back(*rpc2);
 
     MockReceived recvd(0, 1, "God hates ponies.");
     FastTransport::ClientSession::ClientChannel* channel =
@@ -2095,9 +1998,8 @@ TEST_F(ClientSessionTest, reassignChannel_getWorkFromQueue) {
     EXPECT_EQ(FastTransport::ClientSession::
               ClientChannel::SENDING,
               channel->state);
-    EXPECT_EQ(&rpc2, channel->currentRpc);
+    EXPECT_EQ(rpc2, channel->currentRpc);
     EXPECT_TRUE(session->channelQueue.empty());
-    channel->currentRpc = NULL;
 }
 
 TEST_F(ClientSessionTest, processSessionOpenResponse) {
@@ -2109,7 +2011,8 @@ TEST_F(ClientSessionTest, processSessionOpenResponse) {
     header->sessionToken = 0x1212343456567878;
 
     // Insert an RPC into the work queue
-    FastTransport::ClientRpc rpc(session, request, response, NULL);
+    FastTransport::ClientRpc rpc(session, &wrapper->request,
+                                 &wrapper->response, wrapper);
     session->channelQueue.push_back(rpc);
 
     session->processSessionOpenResponse(&recvd);
@@ -2142,6 +2045,7 @@ TEST_F(ClientSessionTest, processSessionOpenResponse_tooManyChannelsOnServer) {
 }
 
 TEST_F(ClientSessionTest, handleTimerEvent) {
+    TestLog::Enable _;
     ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=12345");
     session->init(serviceLocator, 0);
     session->connect();
@@ -2151,10 +2055,11 @@ TEST_F(ClientSessionTest, handleTimerEvent) {
         session->timer.handleTimerEvent();
         EXPECT_EQ(i, session->sessionOpenAttempts);
     }
+    TestLog::reset();
     session->timer.handleTimerEvent();
     EXPECT_EQ(0, session->sessionOpenAttempts);
-    EXPECT_EQ("timeout while opening session with fast+udp: host=1.2.3.4, "
-              "port=12345", session->abortMessage);
+    EXPECT_EQ("handleTimerEvent: timeout while opening session with "
+              "fast+udp: host=1.2.3.4, port=12345", TestLog::get());
 }
 
 // --- SessionTableTest ---

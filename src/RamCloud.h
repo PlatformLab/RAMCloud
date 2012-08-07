@@ -71,7 +71,7 @@ class RamCloud {
             uint16_t keyLength);
     void testingKill(uint64_t tableId, const void* key, uint16_t keyLength);
     void testingSetRuntimeOption(const char* option, const char* value);
-    void testingWaitForAllTabletsNormal();
+    void testingWaitForAllTabletsNormal(uint64_t timeoutNs = ~0lu);
     void write(uint64_t tableId, const void* key, uint16_t keyLength,
             const void* buf, uint32_t length,
             const RejectRules* rejectRules = NULL, uint64_t* version = NULL,

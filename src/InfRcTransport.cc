@@ -148,6 +148,8 @@ InfRcTransport<Infiniband>::InfRcTransport(Context& context,
     , logMemoryRegion(0)
     , transmitCycleCounter()
     , serverRpcPool()
+    , clientRpcPool()
+    , deadQueuePairs()
 {
     const char *ibDeviceName = NULL;
 
@@ -349,34 +351,34 @@ InfRcTransport<Infiniband>::InfRcSession::abort(const string& message)
     for (typename ClientRpcList::iterator
             it(transport->clientSendQueue.begin());
             it != transport->clientSendQueue.end(); ) {
-        typename ClientRpcList::iterator current(it);
+        ClientRpc& rpc = *it;
         it++;
-        if (current->session == this) {
+        if (rpc.session == this) {
             LOG(NOTICE, "Infiniband aborting %s request to %s",
-                    WireFormat::opcodeSymbol(*current->request),
+                    WireFormat::opcodeSymbol(*rpc.request),
                     getServiceLocator().c_str());
-            if (current->notifier != NULL) {
-                 current->notifier->failed();
-            }
-            current->cancel(message);
+            rpc.notifier->failed();
+            erase(transport->clientSendQueue, rpc);
+            transport->clientRpcPool.destroy(&rpc);
         }
     }
     for (typename ClientRpcList::iterator
             it(transport->outstandingRpcs.begin());
             it != transport->outstandingRpcs.end(); ) {
-        typename ClientRpcList::iterator current(it);
+        ClientRpc& rpc = *it;
         it++;
-        if (current->session == this) {
+        if (rpc.session == this) {
             LOG(NOTICE, "Infiniband aborting %s request to %s",
-                    WireFormat::opcodeSymbol(*current->request),
+                    WireFormat::opcodeSymbol(*rpc.request),
                     getServiceLocator().c_str());
-            if (current->notifier != NULL) {
-                 current->notifier->failed();
-            }
-            current->cancel(message);
+            rpc.notifier->failed();
+            erase(transport->outstandingRpcs, rpc);
+            --transport->numUsedClientSrqBuffers;
+            transport->clientRpcPool.destroy(&rpc);
         }
     }
-    delete qp;
+    if (qp)
+        transport->deadQueuePairs.push_back(qp);
     qp = NULL;
 }
 
@@ -390,15 +392,15 @@ InfRcTransport<Infiniband>::InfRcSession::cancelRequest(
     // found then remove all state relating to it.
     foreach (ClientRpc& rpc, transport->clientSendQueue) {
         if (rpc.notifier == notifier) {
-            rpc.state = ClientRpc::RESPONSE_RECEIVED;
             erase(transport->clientSendQueue, rpc);
+            transport->clientRpcPool.destroy(&rpc);
             return;
         }
     }
     foreach (ClientRpc& rpc, transport->outstandingRpcs) {
         if (rpc.notifier == notifier) {
-            rpc.state = ClientRpc::RESPONSE_RECEIVED;
             erase(transport->outstandingRpcs, rpc);
+            transport->clientRpcPool.destroy(&rpc);
             --transport->numUsedClientSrqBuffers;
             alarm.rpcFinished();
             if (transport->outstandingRpcs.empty()) {
@@ -407,48 +409,6 @@ InfRcTransport<Infiniband>::InfRcSession::cancelRequest(
             return;
         }
     }
-}
-
-/**
- * Issue an RPC request using infiniband->
- *
- * \param request
- *      Contents of the request message.
- * \param[out] response
- *      When a response arrives, the response message will be made
- *      available via this Buffer.
- *
- * \return  A pointer to the allocated space or \c NULL if there is not enough
- *          space in this Allocation.
- */
-template<typename Infiniband>
-Transport::ClientRpc*
-InfRcTransport<Infiniband>::InfRcSession::clientSend(Buffer* request,
-                                                     Buffer* response)
-{
-    InfRcTransport *t = transport;
-    if (qp == NULL) {
-        throw TransportException(HERE, abortMessage);
-    }
-
-    if (request->getTotalLength() > t->getMaxRpcSize()) {
-        throw TransportException(HERE,
-             format("client request exceeds maximum rpc size "
-                    "(attempted %u bytes, maximum %u bytes)",
-                    request->getTotalLength(),
-                    t->getMaxRpcSize()));
-    }
-
-    // Construct our ClientRpc in the response Buffer.
-    //
-    // We do this because we're loaning one of our registered receive buffers
-    // to the caller of wait() and need to issue it back to the HCA when
-    // they're done with it.
-    ClientRpc *rpc = new(response, MISC) ClientRpc(transport, this,
-                                                   request, response,
-                                                   generateRandom(), NULL);
-    rpc->sendOrQueue();
-    return rpc;
 }
 
 // See Transport::Session::sendRequest for documentation.
@@ -460,7 +420,8 @@ InfRcTransport<Infiniband>::InfRcSession::sendRequest(Buffer* request,
     response->reset();
     InfRcTransport *t = transport;
     if (qp == NULL) {
-        throw TransportException(HERE, abortMessage);
+        notifier->failed();
+        return;
     }
 
     LOG(DEBUG, "Sending %s request to %s with %u bytes",
@@ -473,16 +434,10 @@ InfRcTransport<Infiniband>::InfRcSession::sendRequest(Buffer* request,
                     request->getTotalLength(),
                     t->getMaxRpcSize()));
     }
-
-    // Construct our ClientRpc in the response Buffer.
-    //
-    // We do this because we're loaning one of our registered receive buffers
-    // to the caller of wait() and need to issue it back to the HCA when
-    // they're done with it.
-    ClientRpc *rpc = new(response, MISC) ClientRpc(transport, this,
-                                                   request, response,
-                                                   generateRandom(),
-                                                   notifier);
+    ClientRpc *rpc = transport->clientRpcPool.construct(transport, this,
+                                                        request, response,
+                                                        notifier,
+                                                        generateRandom());
     rpc->sendOrQueue();
 }
 
@@ -818,6 +773,13 @@ InfRcTransport<Infiniband>::reapTxBuffers()
         metrics->transport.infiniband.transmitActiveTicks +=
             transmitCycleCounter->stop();
         transmitCycleCounter.destroy();
+
+        // It's now safe to delete queue pairs (see comment by declaration
+        // for deadQueuePairs).
+        while (!deadQueuePairs.empty()) {
+            delete deadQueuePairs.back();
+            deadQueuePairs.pop_back();
+        }
     }
 
     return n;
@@ -961,15 +923,16 @@ InfRcTransport<Infiniband>::ClientRpc::ClientRpc(InfRcTransport* transport,
                                      InfRcSession* session,
                                      Buffer* request,
                                      Buffer* response,
-                                     uint64_t nonce,
-                                     RpcNotifier* notifier)
-    : Transport::ClientRpc(transport->context, request, response),
-      transport(transport),
-      session(session),
-      nonce(nonce),
-      state(PENDING),
-      notifier(notifier),
-      queueEntries()
+                                     RpcNotifier* notifier,
+                                     uint64_t nonce)
+    : transport(transport)
+    , session(session)
+    , request(request)
+    , response(response)
+    , notifier(notifier)
+    , nonce(nonce)
+    , state(PENDING)
+    , queueEntries()
 {
 
 }
@@ -1057,29 +1020,6 @@ InfRcTransport<Infiniband>::ClientRpc::sendOrQueue()
 }
 
 /**
- * This method is invoked by Transport::ClientRpc::cancel to perform
- * transport-specific actions to abort an RPC that could be in any state
- * of processing.
- */
-template<typename Infiniband>
-void
-InfRcTransport<Infiniband>::ClientRpc::cancelCleanup()
-{
-    if (state == PENDING) {
-        transport->clientSendQueue.erase(
-            transport->clientSendQueue.iterator_to(*this));
-    } else {
-        transport->outstandingRpcs.erase(
-            transport->outstandingRpcs.iterator_to(*this));
-        --transport->numUsedClientSrqBuffers;
-        session->alarm.rpcFinished();
-    }
-    state = RESPONSE_RECEIVED;
-    if (transport->outstandingRpcs.empty())
-        transport->clientRpcsActiveTime.destroy();
-}
-
-/**
  * This method is invoked by the dispatcher's inner polling loop; it
  * checks for incoming RPC requests and responses and processes them.
  *
@@ -1136,10 +1076,8 @@ InfRcTransport<Infiniband>::Poller::poll()
                 metrics->transport.receive.byteCount +=
                     rpc.response->getTotalLength();
                 metrics->transport.receive.ticks += receiveTicks.stop();
-                rpc.markFinished();
-                if (rpc.notifier != NULL) {
-                    rpc.notifier->completed();
-                }
+                rpc.notifier->completed();
+                t->clientRpcPool.destroy(&rpc);
                 if (t->outstandingRpcs.empty())
                     t->clientRpcsActiveTime.destroy();
                 goto next;

@@ -13,6 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "Cycles.h"
 #include "ObjectFinder.h"
 #include "ShortMacros.h"
 #include "Key.h"
@@ -194,11 +195,12 @@ ObjectFinder::waitForTabletDown()
  * Used for testing to detect when the recovery is complete.
  */
 void
-ObjectFinder::waitForAllTabletsNormal()
+ObjectFinder::waitForAllTabletsNormal(uint64_t timeoutNs)
 {
     flush();
 
-    for (;;) {
+    uint64_t start = Cycles::rdtsc();
+    while (Cycles::toNanoseconds(Cycles::rdtsc() - start) < timeoutNs) {
         bool allNormal = true;
         foreach (const ProtoBuf::Tablets::Tablet& tablet, tabletMap.tablet()) {
             if (tablet.state() != ProtoBuf::Tablets_Tablet_State_NORMAL) {

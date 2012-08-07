@@ -20,6 +20,7 @@
 
 #include "Common.h"
 #include "CoordinatorServerList.h"
+#include "Cycles.h"
 #include "MembershipClient.h"
 #include "ShortMacros.h"
 #include "ServerTracker.h"
@@ -502,17 +503,22 @@ CoordinatorServerList::sendMembershipUpdate(ProtoBuf::ServerList& update,
         if (entry->serverId == excludeServerId)
             continue;
 
+        UpdateServerListRpc rpc(context, entry->serverId, update);
+
         bool succeeded = false;
-        try {
-            succeeded =
-                MembershipClient::updateServerList(context, entry->serverId,
-                                                   update);
-        } catch (const TransportException& e) {
-            // It's suspicious that pushing the update failed, but
-            // perhaps it's best to wait to try the full list push
-            // before jumping to conclusions.
-            LOG(NOTICE, "Failed to send cluster membership update to %lu: %s",
-                entry->serverId.getId(), e.what());
+        uint64_t start = Cycles::rdtsc();
+        uint64_t stalled = 0;
+        const uint64_t timeoutNs = 250 * 1000 * 1000; // 250 ms
+        while (!rpc.isReady() && stalled < timeoutNs)
+            stalled = Cycles::toNanoseconds(Cycles::rdtsc() - start);
+        if (stalled < timeoutNs) {
+            try {
+                succeeded = rpc.wait();
+            } catch (const TransportException& e) {}
+        } else {
+            rpc.cancel();
+            LOG(NOTICE, "Failed to send cluster membership update to %lu",
+                entry->serverId.getId());
         }
 
         // If this server had missed a previous update it will return
@@ -524,16 +530,21 @@ CoordinatorServerList::sendMembershipUpdate(ProtoBuf::ServerList& update,
                 serializedServerList.construct();
                 serialize(lock, *serializedServerList);
             }
-            try {
-                MembershipClient::setServerList(context, entry->serverId,
-                                     *serializedServerList);
-            } catch (const TransportException& e) {
-                // TODO(stutsman): Things aren't looking good for this
-                // server.  The coordinator will probably want to investigate
-                // the server and evict it.
+            SetServerListRpc rpc(context, entry->serverId,
+                                 *serializedServerList);
+            uint64_t start = Cycles::rdtsc();
+            uint64_t stalled = 0;
+            while (!rpc.isReady() && stalled < timeoutNs)
+                stalled = Cycles::toNanoseconds(Cycles::rdtsc() - start);
+            if (stalled < timeoutNs) {
+                try {
+                    rpc.wait();
+                } catch (const TransportException& e) {}
+            } else {
+                rpc.cancel();
                 LOG(NOTICE, "Failed to send full cluster server list to %lu "
-                    "after it failed to accept the update: %s",
-                    entry->serverId.getId(), e.what());
+                    "after it failed to accept the update",
+                    entry->serverId.getId());
             }
         }
 

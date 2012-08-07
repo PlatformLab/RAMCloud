@@ -20,6 +20,8 @@ sys.path.append('scripts')
 sys.path.append('bindings/python')
 
 import common
+import os
+os.environ['LD_LIBRARY_PATH'] = common.obj_dir + ':' + os.environ['LD_LIBRARY_PATH']
 import unittest
 import signal
 
@@ -91,6 +93,6 @@ class ContextManagerTestCase(unittest.TestCase):
     def __enter__(self):
         return self
 
-    def __exit__(self, *args):
+    def __exit__(self, exc_type, exc_value, traceback):
         return False # rethrow exception, if any
 

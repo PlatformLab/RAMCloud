@@ -13,6 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "BitOps.h"
 #include "CycleCounter.h"
 #include "ReplicatedSegment.h"
 #include "Segment.h"
@@ -99,8 +100,8 @@ ReplicatedSegment::ReplicatedSegment(Context& context,
     , openingWriteFooterEntry()
     , freeQueued(false)
     , followingSegment(NULL)
-    , precedingSegmentCloseAcked(true)
-    , precedingSegmentOpenAcked(true)
+    , precedingSegmentCloseCommitted(true)
+    , precedingSegmentOpenCommitted(true)
     , recoveringFromLostOpenReplicas(false)
     , listEntries()
     , replicas(numReplicas)
@@ -175,7 +176,7 @@ ReplicatedSegment::isSynced() const
     uint32_t appendedBytes = segment->getAppendedLength(unused);
     if (queued.bytes != appendedBytes)
         return false;
-    return !recoveringFromLostOpenReplicas && (getAcked() == queued);
+    return !recoveringFromLostOpenReplicas && (getCommitted() == queued);
 }
 
 /**
@@ -198,7 +199,7 @@ ReplicatedSegment::close()
     queued.close = true;
     // It is necessary to update queued.bytes here because the segment believes
     // it has fully replicated all data when queued.close and
-    // getAcked().bytes == queued.bytes.
+    // getCommitted().bytes == queued.bytes.
     Segment::OpaqueFooterEntry footerEntry;
     uint32_t appendedBytes = segment->getAppendedLength(footerEntry);
     if (appendedBytes > queued.bytes) {
@@ -254,7 +255,7 @@ ReplicatedSegment::handleBackupFailure(ServerId failedId)
         // replicated with the atomic replication protocol) then we have
         // a problem we have to patch up.
         if (normalLogSegment &&
-            !getAcked().close &&
+            !getCommitted().close &&
             !replica.replicateAtomically &&
             !recoveringFromLostOpenReplicas) {
             recoveringFromLostOpenReplicas = true;
@@ -303,7 +304,7 @@ ReplicatedSegment::sync(uint32_t offset)
     // replicas have been shot down by setting the minOpenSegmentId.
     // Once this flag is cleared those conditions have been met and
     // it is safe to use the usual definition.
-    if (!recoveringFromLostOpenReplicas && getAcked().bytes >= offset)
+    if (!recoveringFromLostOpenReplicas && getCommitted().bytes >= offset)
         return;
 
     Segment::OpaqueFooterEntry footerEntry;
@@ -314,10 +315,17 @@ ReplicatedSegment::sync(uint32_t offset)
         schedule();
     }
 
+    uint64_t syncStartTicks = Cycles::rdtsc();
     while (true) {
         taskQueue.performTask();
-        if (!recoveringFromLostOpenReplicas && getAcked().bytes >= offset)
+        if (!recoveringFromLostOpenReplicas && getCommitted().bytes >= offset)
             return;
+        auto waited = Cycles::toNanoseconds(Cycles::rdtsc() - syncStartTicks);
+        if (waited > 1000000000lu) {
+            LOG(WARNING, "Log write sync has taken over 1s; seems to be stuck");
+            dumpProgress();
+            syncStartTicks = Cycles::rdtsc();
+        }
     }
 }
 
@@ -357,7 +365,7 @@ ReplicatedSegment::performTask()
         // be detected as the head of the log during a recovery.  Hence the
         // extra condition above.
         if (recoveringFromLostOpenReplicas) {
-            if (getAcked().close) {
+            if (getCommitted().close) {
                 if (minOpenSegmentId.isGreaterThan(segmentId)) {
                     // Ok, this segment is now recovered.
                     LOG(DEBUG,
@@ -469,7 +477,7 @@ ReplicatedSegment::performWrite(Replica& replica)
 {
     assert(!replica.freeRpc);
 
-    if (replica.isActive && replica.acked == queued) {
+    if (replica.isActive && replica.committed == queued) {
         // If this replica is synced no further work is needed for now.
         return;
     }
@@ -503,9 +511,11 @@ ReplicatedSegment::performWrite(Replica& replica)
             Transport::SessionRef session = tracker.getSession(backupId);
             replica.start(backupId, session);
         } catch (const TransportException& e) {
-            LOG(NOTICE, "Cannot create a session to backup %lu, perhaps the "
-                "backup has crashed; will choose another backup",
-                backupId.getId());
+            static uint64_t count = 0;
+            if (BitOps::isPowerOfTwo(++count))
+                LOG(NOTICE, "Cannot create a session to backup %lu, perhaps "
+                    "the backup has crashed; will choose another backup",
+                    backupId.getId());
             replica.reset();
             schedule();
             return;
@@ -523,10 +533,17 @@ ReplicatedSegment::performWrite(Replica& replica)
             try {
                 replica.writeRpc->wait();
                 replica.acked = replica.sent;
-                if (getAcked().open && followingSegment)
-                    followingSegment->precedingSegmentOpenAcked = true;
-                if (getAcked().close && followingSegment) {
-                    followingSegment->precedingSegmentCloseAcked = true;
+                if (replica.acked == queued || replica.acked.bytes == openLen) {
+                    // committed advances whenever a footer was sent.
+                    // Which happens in two cases:
+                    // a) all the queued data was acked or
+                    // b) the opening write was acked
+                    replica.committed = replica.acked;
+                }
+                if (getCommitted().open && followingSegment)
+                    followingSegment->precedingSegmentOpenCommitted = true;
+                if (getCommitted().close && followingSegment) {
+                    followingSegment->precedingSegmentCloseCommitted = true;
                     // Don't poke at potentially non-existent segments later.
                     followingSegment = NULL;
                 }
@@ -547,7 +564,7 @@ ReplicatedSegment::performWrite(Replica& replica)
             }
             replica.writeRpc.destroy();
             --writeRpcsInFlight;
-            if (replica.acked != queued)
+            if (replica.committed != queued)
                 schedule();
             return;
         } else {
@@ -556,8 +573,8 @@ ReplicatedSegment::performWrite(Replica& replica)
             return;
         }
     } else {
-        if (!replica.acked.open) {
-            if (!precedingSegmentOpenAcked) {
+        if (!replica.committed.open) {
+            if (!precedingSegmentOpenCommitted) {
                 TEST_LOG("Cannot open segment %lu until preceding segment "
                          "is durably open", segmentId);
                 schedule();
@@ -586,10 +603,12 @@ ReplicatedSegment::performWrite(Replica& replica)
             } catch (const TransportException& e) {
                 // Ignore the exception and retry; we'll be interrupted by
                 // changes to the server list if the backup is down.
-                LOG(DEBUG, "Cannot create session for write to backup %lu, "
-                    "perhaps the backup has crashed; retrying until "
-                    "coordinator tells us it is gone.",
-                    replica.backupId.getId());
+                static uint64_t count = 0;
+                if (BitOps::isPowerOfTwo(++count))
+                    LOG(DEBUG, "Cannot create session for write to backup %lu, "
+                        "perhaps the backup has crashed; retrying until "
+                        "coordinator tells us it is gone.",
+                        replica.backupId.getId());
             }
             schedule();
             return;
@@ -598,14 +617,15 @@ ReplicatedSegment::performWrite(Replica& replica)
         // No outstanding write but not yet synced.
         if (replica.sent < queued) {
             // Some part of the data hasn't been sent yet.  Send it.
-            if (!precedingSegmentCloseAcked) {
+            if (!precedingSegmentCloseCommitted) {
                 TEST_LOG("Cannot write segment %lu until preceding segment "
                          "is durably closed", segmentId);
                 // This segment must wait to send write rpcs until the
-                // preceding segment in the log sets precedingSegmentCloseAcked
-                // to true.  The goal is to prevent data written in this
-                // segment from being undetectably lost in the case that all
-                // replicas of it are lost. See #precedingSegmentCloseAcked.
+                // preceding segment in the log sets
+                // precedingSegmentCloseCommitted to true. The goal is to
+                // prevent data written in this segment from being undetectably
+                // lost in the case that all replicas of it are lost. See
+                // #precedingSegmentCloseCommitted.
 
                 schedule();
                 return;
@@ -630,7 +650,7 @@ ReplicatedSegment::performWrite(Replica& replica)
 
             if (flags == WireFormat::BackupWrite::CLOSE &&
                 followingSegment &&
-                !followingSegment->getAcked().open) {
+                !followingSegment->getCommitted().open) {
                 TEST_LOG("Cannot close segment %lu until following segment "
                          "is durably open", segmentId);
                 // Do not send a closing write rpc for this replica until
@@ -662,10 +682,12 @@ ReplicatedSegment::performWrite(Replica& replica)
             } catch (const TransportException& e) {
                 // Ignore the exception and retry; we'll be interrupted by
                 // changes to the server list if the backup is down.
-                LOG(DEBUG, "Cannot create session for write to backup %lu, "
-                    "perhaps the backup has crashed; retrying until "
-                    "coordinator tells us it is gone.",
-                    replica.backupId.getId());
+                static uint64_t count = 0;
+                if (BitOps::isPowerOfTwo(++count))
+                    LOG(DEBUG, "Cannot create session for write to backup %lu, "
+                        "perhaps the backup has crashed; retrying until "
+                        "coordinator tells us it is gone. [%lu]",
+                        replica.backupId.getId(), count);
             }
             schedule();
             return;
@@ -677,6 +699,38 @@ ReplicatedSegment::performWrite(Replica& replica)
         }
     }
     assert(false); // Unreachable by construction
+}
+
+/**
+ * Prints a ton of internal state of the replica. Useful for diagnosing why
+ * a particular segment's replication is stuck.
+ */
+void
+ReplicatedSegment::dumpProgress()
+{
+    string info = format(
+        "ReplicatedSegment <%lu,%lu>\n"
+        "queued: open %u, bytes %u, close %u\n"
+        "committed: open %u, bytes, %u, close %u\n",
+        masterId.getId(), segmentId,
+        queued.open, queued.bytes, queued.close,
+        getCommitted().open, getCommitted().bytes, getCommitted().close);
+    uint32_t i = 0;
+    foreach (const auto& replica, replicas) {
+        info.append(format(
+            "Replica %u\n"
+            "sent: open %u, bytes %u, close %u\n"
+            "acked: open %u, bytes %u, close %u\n"
+            "committed: open %u, bytes, %u, close %u\n"
+            "write rpc outstanding: %u\n",
+            i++,
+            replica.sent.open, replica.sent.bytes, replica.sent.close,
+            replica.acked.open, replica.acked.bytes, replica.acked.close,
+            replica.committed.open, replica.committed.bytes,
+            replica.committed.close,
+            bool(replica.writeRpc)));
+    }
+    LOG(DEBUG, "\n%s", info.c_str());
 }
 
 } // namespace RAMCloud

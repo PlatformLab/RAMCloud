@@ -20,9 +20,9 @@
 
 namespace RAMCloud {
 
-class MockWrapper : public RpcWrapper {
+class LogRpcWrapper : public RpcWrapper {
   public:
-    explicit MockWrapper(uint32_t responseHeaderLength)
+    explicit LogRpcWrapper(uint32_t responseHeaderLength)
         : RpcWrapper(responseHeaderLength)
     {}
     virtual bool checkStatus() {
@@ -150,7 +150,7 @@ TEST_F(RpcWrapperTest, isReady_retryStatus) {
 
 TEST_F(RpcWrapperTest, isReady_callCheckStatus) {
     TestLog::Enable _;
-    MockWrapper wrapper(4);
+    LogRpcWrapper wrapper(4);
     wrapper.session = session;
     setStatus(wrapper.response, Status::STATUS_UNIMPLEMENTED_REQUEST);
     wrapper.state = RpcWrapper::RpcState::FINISHED;
@@ -194,7 +194,7 @@ TEST_F(RpcWrapperTest, isReady_canceled) {
 
 TEST_F(RpcWrapperTest, isReady_failed) {
     TestLog::Enable _;
-    MockWrapper wrapper(4);
+    LogRpcWrapper wrapper(4);
     wrapper.session = session;
     wrapper.state = RpcWrapper::RpcState::FAILED;
     EXPECT_TRUE(wrapper.isReady());
