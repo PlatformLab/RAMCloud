@@ -120,6 +120,8 @@ class MasterServiceTest : public ::testing::Test {
         tablet.set_user_data(reinterpret_cast<uint64_t>(new Table(0, 0, ~0UL)));
     }
 
+    // Build a properly formatted segment containing a single object. This
+    // segment may be passed directly to the MasterService::recover() routine.
     uint32_t
     buildRecoverySegment(char *segmentBuf, uint32_t segmentCapacity,
                          Key& key, uint64_t version, string objContents)
@@ -136,12 +138,17 @@ class MasterServiceTest : public ::testing::Test {
 
         Buffer buffer;
         s.appendToBuffer(buffer);
-        EXPECT_GE(segmentCapacity, buffer.getTotalLength());
+        Segment::OpaqueFooterEntry footerEntry;
+        s.getAppendedLength(footerEntry);
+        EXPECT_GE(segmentCapacity, buffer.getTotalLength() + sizeof(footerEntry));
         buffer.copy(0, buffer.getTotalLength(), segmentBuf);
+        memcpy(segmentBuf + buffer.getTotalLength(), &footerEntry, sizeof(footerEntry));
 
         return buffer.getTotalLength();
     }
 
+    // Build a properly formatted segment containing a single tombstone. This
+    // segment may be passed directly to the MasterService::recover() routine.
     uint32_t
     buildRecoverySegment(char *segmentBuf, uint64_t segmentCapacity,
                          ObjectTombstone& tomb)
@@ -155,19 +162,39 @@ class MasterServiceTest : public ::testing::Test {
 
         Buffer buffer;
         s.appendToBuffer(buffer);
-        EXPECT_GE(segmentCapacity, buffer.getTotalLength());
+        Segment::OpaqueFooterEntry footerEntry;
+        s.getAppendedLength(footerEntry);
+        EXPECT_GE(segmentCapacity, buffer.getTotalLength() + sizeof(footerEntry));
+        buffer.copy(0, buffer.getTotalLength(), segmentBuf);
+        memcpy(segmentBuf + buffer.getTotalLength(), &footerEntry, sizeof(footerEntry));
 
         return buffer.getTotalLength();
+    }
+
+    // Write a segment containing nothing but a header to a backup. This is used
+    // to test fetching of recovery segments in various tests.
+    static void
+    writeRecoverableSegment(Context& context, ServerId serverId, uint64_t logId, uint64_t segmentId)
+    {
+        ReplicaManager mgr(context, *context.serverList, serverId, 1);
+
+        Segment seg;
+        SegmentHeader header(logId, segmentId, 1000,
+                             Segment::INVALID_SEGMENT_ID);
+        seg.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
+        ReplicatedSegment* rs = mgr.allocateHead(segmentId, &seg, NULL);
+        Segment::OpaqueFooterEntry unused;
+        rs->sync(seg.getAppendedLength(unused));
     }
 
     void
     verifyRecoveryObject(Key& key, string contents)
     {
         Buffer value;
-        ramcloud->read(key.getTableId(),
-                       key.getStringKey(),
-                       key.getStringKeyLength(),
-                       &value);
+        EXPECT_NO_THROW(ramcloud->read(key.getTableId(),
+                                       key.getStringKey(),
+                                       key.getStringKeyLength(),
+                                       &value));
         const char *s = reinterpret_cast<const char *>(
             value.getRange(0, value.getTotalLength()));
         EXPECT_EQ(0, strcmp(s, contents.c_str()));
@@ -218,10 +245,10 @@ TEST_F(MasterServiceTest, enumeration_basics) {
     EnumerateTableRpc rpc(*ramcloud, 0, 0, iter, objects);
     nextTabletStartHash = rpc.wait(nextIter);
     EXPECT_EQ(0U, nextTabletStartHash);
-    EXPECT_EQ(66U, objects.getTotalLength());
+    EXPECT_EQ(74U, objects.getTotalLength());
 
     // First object.
-    EXPECT_EQ(29U, *objects.getOffset<uint32_t>(0));            // size
+    EXPECT_EQ(33U, *objects.getOffset<uint32_t>(0));            // size
     Buffer buffer1;
     buffer1.appendTo(objects.getRange(4, objects.getTotalLength() - 4),
                      objects.getTotalLength() - 4);
@@ -234,15 +261,15 @@ TEST_F(MasterServiceTest, enumeration_basics) {
                                object1.getData()), 6));
 
     // Second object.
-    EXPECT_EQ(29U, *objects.getOffset<uint32_t>(33));           // size
+    EXPECT_EQ(33U, *objects.getOffset<uint32_t>(37));           // size
     Buffer buffer2;
-    buffer2.appendTo(objects.getRange(33, objects.getTotalLength() - 33),
-                     objects.getTotalLength() - 33);
+    buffer2.appendTo(objects.getRange(41, objects.getTotalLength() - 41),
+                     objects.getTotalLength() - 41);
     Object object2(buffer2);
     EXPECT_EQ(0U, object2.getTableId());                        // table ID
     EXPECT_EQ(1U, object2.getKeyLength());                      // key length
     EXPECT_EQ(version1, object2.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("0", object2.getKey(), 1));             // key
+    EXPECT_EQ(0, memcmp("1", object2.getKey(), 1));             // key
     EXPECT_EQ("ghijkl", string(reinterpret_cast<const char*>(   // value
                                object2.getData()), 6));
 
@@ -271,6 +298,9 @@ TEST_F(MasterServiceTest, enumeration_mergeTablet) {
     ramcloud->write(0, "012345", 6, "abcdef", 6, NULL, &version0, false);
     ramcloud->write(0, "678910", 6, "ghijkl", 6, NULL, &version1, false);
 
+    // Note that (0, "012345") hashes to 0x20d331db4d315fe2 and (1, "678910")
+    // hashes to 0x290e4a5b74ca2fbd.
+
     Buffer iter, nextIter, finalIter, objects;
     uint64_t nextTabletStartHash;
 
@@ -283,26 +313,26 @@ TEST_F(MasterServiceTest, enumeration_mergeTablet) {
     EnumerationIterator::Frame preMergeConfiguration(
         0x0000000000000000LLU, 0x7f00000000000000LLU,
         service->objectMap.getNumBuckets(),
-        service->objectMap.getNumBuckets()*3/4, 0U);
+        service->objectMap.getNumBuckets()*3/5, 0U);
     initialIter.push(preMergeConfiguration);
     initialIter.serialize(iter);
     EnumerateTableRpc rpc(*ramcloud, 0, 0, iter, objects);
     nextTabletStartHash = rpc.wait(nextIter);
     EXPECT_EQ(0U, nextTabletStartHash);
-    EXPECT_EQ(38U, objects.getTotalLength());
+    EXPECT_EQ(42U, objects.getTotalLength());
 
     // First object.
-    EXPECT_EQ(34U, *objects.getOffset<uint32_t>(0));            // size
+    EXPECT_EQ(38U, *objects.getOffset<uint32_t>(0));            // size
     Buffer buffer1;
     buffer1.appendTo(objects.getRange(4, objects.getTotalLength() - 4),
                      objects.getTotalLength() - 4);
     Object object1(buffer1);
     EXPECT_EQ(0U, object1.getTableId());                        // table ID
     EXPECT_EQ(6U, object1.getKeyLength());                      // key length
-    EXPECT_EQ(version0, object1.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("012345", object1.getKey(), 6));        // key
-    EXPECT_EQ("abcdef", string(reinterpret_cast<const char*>(
-                               object1.getData()), 6));          // value
+    EXPECT_EQ(version1, object1.getVersion());                  // version
+    EXPECT_EQ(0, memcmp("678910", object1.getKey(), 6));        // key
+    EXPECT_EQ("ghijkl", string(reinterpret_cast<const char*>(
+                               object1.getData()), 6));         // value
 
     // The second object is not returned because it would have lived
     // on the part of the pre-merge tablet that we (pretended to have)
@@ -331,7 +361,7 @@ TEST_F(MasterServiceTest, read_tableNotOnServer) {
     EXPECT_THROW(ramcloud->read(99, "0", 1, &value),
                  TableDoesntExistException);
     EXPECT_EQ("checkStatus: Server mock:host=master doesn't store "
-              "<99, 0x2ac9debed546a380>; refreshing object map | "
+              "<99, 0x5d6056eb0c0352ce>; refreshing object map | "
               "flush: flushing object map",
               TestLog::get());
 }
@@ -376,7 +406,7 @@ TEST_F(MasterServiceTest, multiRead_basics) {
 
 TEST_F(MasterServiceTest, multiRead_bufferSizeExceeded) {
     uint64_t tableId1 = ramcloud->createTable("table1");
-    service->maxMultiReadResponseSize = 150;
+    service->maxMultiReadResponseSize = 75;
     ramcloud->write(tableId1, "0", 1,
             "chunk1:12 chunk2:12 chunk3:12 chunk4:12 chunk5:12 ",
             50);
@@ -463,10 +493,10 @@ TEST_F(MasterServiceTest, detectSegmentRecoveryFailure_failure) {
 }
 
 TEST_F(MasterServiceTest, getHeadOfLog) {
-    EXPECT_EQ(Log::Position(0, 44),
+    EXPECT_EQ(Log::Position(0, 2093),
               MasterClient::getHeadOfLog(context, masterServer->serverId));
     ramcloud->write(0, "0", 1, "abcdef", 6);
-    EXPECT_EQ(Log::Position(0, 79),
+    EXPECT_EQ(Log::Position(0, 2128),
               MasterClient::getHeadOfLog(context, masterServer->serverId));
 }
 
@@ -478,12 +508,7 @@ TEST_F(MasterServiceTest, recover_basics) {
                        server->config.services, 100);
     }
 
-    ReplicaManager mgr(context, *context.serverList, serverId, 1);
-
-#if 0 // Won't work now that Segments don't control replication.
-    Segment segment(123, 87, segMem, segmentSize, &mgr);
-    segment.sync();
-#endif
+    writeRecoverableSegment(context, serverId, 123, 87);
 
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
@@ -509,7 +534,7 @@ TEST_F(MasterServiceTest, recover_basics) {
         "server 1 at mock:host=backup1 | ",
         TestLog::get()));
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "recover: Recovering segment 87 with size 0 | "
+        "recover: Recovering segment 87 with size 7 | "
         "recoverSegment: recoverSegment 87, ... | ",
         TestLog::get()));
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
@@ -576,12 +601,7 @@ TEST_F(MasterServiceTest, recover) {
                        server->config.services, 100);
     }
 
-    ReplicaManager mgr(context, *context.serverList, serverId, 1);
-
-#if 0   // Doesn't work anymore when segments don't know of replication.
-    Segment __(123, 88, segMem, segmentSize, &mgr);
-    __.sync();
-#endif
+    writeRecoverableSegment(context, serverId, 123, 88);
 
     ServerConfig backup2Config = backup1Config;
     backup2Config.localLocator = "mock:host=backup2";
@@ -711,10 +731,10 @@ TEST_F(MasterServiceTest, recover_ctimeUpdateIssued) {
         "recoveryMasterFinished: tablet { "
         "table_id: 123 start_key_hash: 0 end_key_hash: 9 state: RECOVERING "
         "server_id: 2 service_locator: \"mock:host=master\" user_data: 0 "
-        "ctime_log_head_id: 0 ctime_log_head_offset: 79 } tablet { table_id: "
+        "ctime_log_head_id: 0 ctime_log_head_offset: 2128 } tablet { table_id: "
         "123 start_key_hash: 10 end_key_hash: 19 state: RECOVERING server_id: "
         "2 service_locator: \"mock:host=master\" user_data: 0 "
-        "ctime_log_head_id: 0 ctime_log_head_offset: 79 } tablet { table_id: "
+        "ctime_log_head_id: 0 ctime_log_head_offset: 2128 } tablet { table_id: "
         "123 start_key_hash: 20 end_key_hash: 29 state: RECOVERING server_id: "
         "2 service_locator: \"mock:host=master\" user_data: "));
 }
@@ -859,7 +879,7 @@ TEST_F(MasterServiceTest, recoverSegment) {
     Key key5(0, "key5", 4);
     len = buildRecoverySegment(seg, segLen, key5, 1, "newer guy");
     service->recoverSegment(0, seg, len);
-    Object o3(key5, NULL, 0, 4, 0);
+    Object o3(key5, NULL, 0, 0, 0);
     ObjectTombstone t3(o3, 0, 0);
     len = buildRecoverySegment(seg, segLen, t3);
     service->recoverSegment(0, seg, len);
@@ -927,7 +947,7 @@ TEST_F(MasterServiceTest, recoverSegment) {
     EXPECT_EQ(0U, t8InLog.getObjectVersion());
 
     Object o9(key9, NULL, 0, 1, 0);
-    ObjectTombstone t9(o8, 0, 0);
+    ObjectTombstone t9(o9, 0, 0);
     len = buildRecoverySegment(seg, segLen, t9);
     service->recoverSegment(0, seg, len);
     buffer.reset();
@@ -970,7 +990,7 @@ TEST_F(MasterServiceTest, remove_tableNotOnServer) {
     TestLog::Enable _;
     EXPECT_THROW(ramcloud->remove(99, "key0", 4), TableDoesntExistException);
     EXPECT_EQ("checkStatus: Server mock:host=master doesn't store "
-              "<99, 0xf97fb2f45d80df48>; refreshing object map | "
+              "<99, 0x42f1a215441e6e54>; refreshing object map | "
               "flush: flushing object map",
               TestLog::get());
 }
@@ -1361,7 +1381,7 @@ TEST_F(MasterServiceTest, receiveMigrationData) {
                                                     6, 0, s),
         UnknownTableException);
     EXPECT_EQ("receiveMigrationData: migration data received for "
-        "unknown tablet 6, firstKey 0", TestLog::get());
+        "unknown tablet 6, firstKeyHash 0", TestLog::get());
     EXPECT_THROW(MasterClient::receiveMigrationData(context,
                                                     masterServer->serverId,
                                                     5, 0, s),
@@ -1976,16 +1996,9 @@ TEST_F(MasterRecoverTest, recover) {
     serverList.add(backup1Id, "mock:host=backup1",
                    {WireFormat::BACKUP_SERVICE, WireFormat::MEMBERSHIP_SERVICE},
                    100);
-    ReplicaManager mgr(context, serverList, serverId, 1);
 
-#if 0   // Broken now that segments don't deal with replication.
-    Segment s1(99, 87, segMem1, segmentSize, &mgr);
-    s1.close();
-    char* segMem2 = static_cast<char*>(Memory::xmemalign(HERE, segmentSize,
-                                                         segmentSize));
-    Segment s2(99, 88, segMem2, segmentSize, &mgr);
-    s2.close(NULL);
-#endif
+    MasterServiceTest::writeRecoverableSegment(context, serverId, 99, 87);
+    MasterServiceTest::writeRecoverableSegment(context, serverId, 99, 88);
 
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);

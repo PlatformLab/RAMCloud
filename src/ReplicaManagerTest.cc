@@ -99,9 +99,9 @@ TEST_F(ReplicaManagerTest, allocateHead) {
     char data[] = "Hello world!";
 
     Segment priorSeg(data, arrayLength(data));
-    auto prior = mgr->allocateHead(87, &priorSeg, NULL, arrayLength(data));
+    auto prior = mgr->allocateHead(87, &priorSeg, NULL);
     Segment seg(data, arrayLength(data));
-    auto segment = mgr->allocateHead(88, &seg, prior, arrayLength(data));
+    auto segment = mgr->allocateHead(88, &seg, prior);
 
     ASSERT_FALSE(mgr->taskQueue.isIdle());
     EXPECT_EQ(2u, mgr->replicatedSegmentList.size());
@@ -114,7 +114,7 @@ TEST_F(ReplicaManagerTest, allocateNonHead) {
     char data[] = "Hello world!";
 
     Segment seg(data, arrayLength(data));
-    auto segment = mgr->allocateHead(88, &seg, NULL, arrayLength(data));
+    auto segment = mgr->allocateHead(88, &seg, NULL);
 
     ASSERT_FALSE(mgr->taskQueue.isIdle());
     EXPECT_EQ(segment, mgr->taskQueue.tasks.front());
@@ -143,9 +143,6 @@ TEST_F(ReplicaManagerTest, writeSegment) {
     Buffer buffer;
     Segment s;
 
-    // XXX- this isn't going to work properly anymore since segments
-    //      don't replicate themselves.
-
     SegmentHeader header = { *serverId, 88, segmentSize,
         Segment::INVALID_SEGMENT_ID };
     buffer.appendTo(&header, sizeof(header));
@@ -158,12 +155,16 @@ TEST_F(ReplicaManagerTest, writeSegment) {
     s.append(LOG_ENTRY_TYPE_OBJ, buffer);
     s.close();
 
+    ReplicatedSegment* rs = mgr->allocateHead(88, &s, NULL);
+    rs->close();
+    rs->sync(s.tail);
+
     EXPECT_EQ(1U, mgr->replicatedSegmentList.size());
 
     ProtoBuf::Tablets will;
     ProtoBuf::Tablets::Tablet& tablet(*will.add_tablet());
     tablet.set_table_id(123);
-    HashType keyHash = Key::getHash(0, "10", 2);
+    HashType keyHash = Key::getHash(123, "10", 2);
     tablet.set_start_key_hash(keyHash);
     tablet.set_end_key_hash(keyHash);
 
@@ -199,7 +200,7 @@ TEST_F(ReplicaManagerTest, writeSegment) {
 
 TEST_F(ReplicaManagerTest, proceed) {
     Segment seg;
-    mgr->allocateHead(89, &seg, NULL, 0)->close();
+    mgr->allocateHead(89, &seg, NULL)->close();
     auto& segment = mgr->replicatedSegmentList.front();
     EXPECT_FALSE(segment.replicas[0].isActive);
     mgr->proceed();
@@ -211,9 +212,9 @@ TEST_F(ReplicaManagerTest, handleBackupFailure) {
     Segment seg1;
     Segment seg2;
     Segment seg3;
-    auto s1 = mgr->allocateHead(89, &seg1, NULL, 0);
-    auto s2 = mgr->allocateHead(90, &seg2, s1, 0);
-    auto s3 = mgr->allocateHead(91, &seg3, s2, 0);
+    auto s1 = mgr->allocateHead(89, &seg1, NULL);
+    auto s2 = mgr->allocateHead(90, &seg2, s1);
+    auto s3 = mgr->allocateHead(91, &seg3, s2);
     mgr->proceed();
     mgr->proceed();
     mgr->proceed();
@@ -221,7 +222,7 @@ TEST_F(ReplicaManagerTest, handleBackupFailure) {
     ASSERT_TRUE(segmentId);
     EXPECT_EQ(91u, *segmentId);
     Segment seg4;
-    IGNORE_RESULT(mgr->allocateHead(92, &seg4, s3, 0));
+    IGNORE_RESULT(mgr->allocateHead(92, &seg4, s3));
     // If we don't meet the dependencies the backup will refuse
     // to tear-down as it tries to make sure there is no data loss.
     s1->close();
@@ -231,7 +232,7 @@ TEST_F(ReplicaManagerTest, handleBackupFailure) {
 
 TEST_F(ReplicaManagerTest, destroyAndFreeReplicatedSegment) {
     Segment seg;
-    auto* segment = mgr->allocateHead(89, &seg, NULL, 0);
+    auto* segment = mgr->allocateHead(89, &seg, NULL);
     segment->sync(0);
     while (!mgr->taskQueue.isIdle())
         mgr->proceed(); // Make sure the close gets pushed out as well.
@@ -264,6 +265,14 @@ bool filter(string s) {
 }
 }
 
+class DoNothingHandlers : public Log::EntryHandlers {
+  public:
+    uint32_t getTimestamp(LogEntryType type, Buffer& buffer) { return 0; }
+    bool checkLiveness(LogEntryType type, Buffer& buffer) { return true; }
+    bool relocate(LogEntryType type, Buffer& oldBuffer,
+                  HashTable::Reference newReference) { return true; }
+};
+
 /**
  * Not a test for a specific method, rather a more complete test of the
  * entire backup recovery system.  If this test gets too difficult to
@@ -273,17 +282,18 @@ bool filter(string s) {
  */
 TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
     MockRandom __(1);
-#if 0
+
     const uint64_t logSegs = 4;
-    Log log(context, serverId, logSegs * 8192, 8192, 4298,
-            mgr.get(), true);
-    log.registerType(LOG_ENTRY_TYPE_OBJ, true, NULL, NULL,
-                    NULL, NULL, NULL);
+    SegmentManager::Allocator allocator(logSegs * 8192, 8192, 8192);
+    SegmentManager segmentManager(context, serverId, allocator, *mgr, 1.0);
+    DoNothingHandlers entryHandlers;
+    Log log(context, entryHandlers, segmentManager, *mgr, true);
+
     // Set up the scenario:
     // Two log segments in the log, one durably closed and the other open
-    // with a single pending write.
-    log.allocateHead(); // First log head, will be closed during recovery.
-    log.allocateHead(); // Second log head, will be open during recovery.
+    // with a single pending write. The first log head is already open and
+    // will be closed during recovery.
+    log.allocateHeadIfStillOn({});  // Second log head, will be open during recovery.
     static char buf[64];
     // Sync append to new head ensures that the first log segment must be
     // durably closed.
@@ -295,7 +305,7 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
     log.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf), false);
     log.head->replicatedSegment->schedule();
     ASSERT_FALSE(mgr->isIdle());
-    ASSERT_EQ(1u, log.head->getId());
+    ASSERT_EQ(1u, log.head->id);
 
     ServerConfig config = ServerConfig::forTesting();
     config.services = {WireFormat::BACKUP_SERVICE,
@@ -315,7 +325,6 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
 
     // Wait for backup recovery to finish.
     while (!mgr->isIdle());
-#endif
 
     // Though extremely fragile this gives a great sanity check on the order
     // of things during backup recovery which is exceptionally helpful since
@@ -341,12 +350,11 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
         // Ensure a new log head is allocated.
         "main: Allocating a new log head | "
         // Which provides the required new log digest via open.
-        "allocateSegment: Allocating new replicated segment for <3,2> "
-            "initial open length 76 | "
+        "allocateSegment: Allocating new replicated segment for <3,2> | "
         "close: 3, 1, 2 | "
         // And which also provides the needed close on the log segment
         // with the lost open replica.
-        "close: Segment 1 closed (length 216) | "
+        "close: Segment 1 closed (length 208) | "
         // Notice the actual close to the backup is delayed because it
         // must wait on a durable open to the new log head.
         "performWrite: Cannot close segment 1 until following segment is "
@@ -416,9 +424,7 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
         , TestLog::get());
 
     // Make sure it rolled over to a new log head.
-#if 0
-    EXPECT_EQ(2u, log.head->getId());
-#endif
+    EXPECT_EQ(2u, log.head->id);
     // Make sure the minOpenSegmentId was updated.
     EXPECT_EQ(2u,
         cluster.coordinator->context.coordinatorServerList->at(

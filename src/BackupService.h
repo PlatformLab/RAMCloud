@@ -52,12 +52,16 @@
 namespace RAMCloud {
 
 #if TESTING
-bool isEntryAlive(LogEntryType type,
+bool isEntryAlive(Log::Position& position,
+                  const SegmentIterator& it,
                   Buffer& buffer,
-                  const ProtoBuf::Tablets::Tablet& tablet);
-Tub<uint64_t> whichPartition(LogEntryType type,
+                  const ProtoBuf::Tablets::Tablet& tablet,
+                  SegmentHeader& header);
+Tub<uint64_t> whichPartition(Log::Position& position,
+                             const SegmentIterator& it,
                              Buffer& buffer,
-                             const ProtoBuf::Tablets& partitions);
+                             const ProtoBuf::Tablets& partitions,
+                             SegmentHeader& header);
 #endif
 
 /**
@@ -263,7 +267,7 @@ class BackupService : public Service
                    uint32_t length, uint32_t destOffset,
                    const Segment::OpaqueFooterEntry* footerEntry,
                    bool atomic);
-        const void* getLogDigest(uint32_t* byteLength = NULL);
+        bool getLogDigest(Buffer* digestBuffer);
 
         /**
          * Return true if #this should be loaded from disk before
@@ -359,9 +363,9 @@ class BackupService : public Service
         Tub<ProtoBuf::Tablets> recoveryPartitions;
 
         /// An array of recovery segments when non-null.
-        Buffer* recoverySegments;
+        Segment* recoverySegments;
 
-        /// The number of Buffers in #recoverySegments.
+        /// The number of Segments in #recoverySegments.
         uint32_t recoverySegmentsLength;
 
         /**

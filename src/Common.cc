@@ -87,9 +87,18 @@ debug_dump64(Buffer& buffer)
 string
 format(const char* format, ...)
 {
-    string s;
     va_list ap;
     va_start(ap, format);
+    string s = vformat(format, ap);
+    va_end(ap);
+    return s;
+}
+
+/// A safe version of vprintf.
+string
+vformat(const char* format, va_list ap)
+{
+    string s;
 
     // We're not really sure how big of a buffer will be necessary.
     // Try 1K, if not the return value will tell us how much is necessary.
@@ -108,7 +117,6 @@ format(const char* format, ...)
         bufSize = r + 1;
     }
 
-    va_end(ap);
     return s;
 }
 

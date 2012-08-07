@@ -123,9 +123,8 @@ Log::append(LogEntryType type,
         }
     }
 
-    if (sync) {
-        // XXX ...
-    }
+    if (sync)
+        Log::sync();
 
     outReference = buildReference(head->slot, segmentOffset);
     return true;
@@ -153,6 +152,9 @@ Log::append(LogEntryType type,
  *      Pointer to data to be appended.
  * \param length
  *      Number of bytes to append from the given pointer.
+ * \param sync
+ *      If true, do not return until the append has been replicated to backups.
+ *      If false, may return before any replication has been done.
  * \return
  *      True if the append succeeded, false if there was either insufficient
  *      space to complete the operation or the requested append was larger
@@ -160,7 +162,7 @@ Log::append(LogEntryType type,
  *  
  */
 bool
-Log::append(LogEntryType type, const void* data, uint32_t length)
+Log::append(LogEntryType type, const void* data, uint32_t length, bool sync)
 {
     Buffer buffer;
     buffer.appendTo(data, length);
@@ -211,12 +213,8 @@ Log::getEntry(HashTable::Reference reference, Buffer& outBuffer)
 void
 Log::sync()
 {
-    // ---XXXXX sync (teehee!) with Ryan---
-#if 0
-    if (head)
-        head->sync();
-#endif
-
+    Segment::OpaqueFooterEntry unused;
+    head->replicatedSegment->sync(head->getAppendedLength(unused));
     TEST_LOG("synced");
 }
 

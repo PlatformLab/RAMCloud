@@ -17,6 +17,7 @@
 #define RAMCLOUD_LOGSEGMENT_H
 
 #include "BoostIntrusive.h"
+#include "ReplicatedSegment.h"
 #include "Segment.h"
 
 namespace RAMCloud {
@@ -35,6 +36,7 @@ class LogSegment : public Segment {
           id(id),
           slot(slot),
           cleanedEpoch(0),
+          replicatedSegment(NULL),
           listEntries(),
           allListEntries()
     {
@@ -48,6 +50,9 @@ class LogSegment : public Segment {
 
     /// Epoch during which this segment was cleaned.
     uint64_t cleanedEpoch;
+
+    /// The ReplicatedSegment instance that is handling backups of this segment.
+    ReplicatedSegment* replicatedSegment;
 
     /// Hook used for linking this LogSegment into an intrusive list according
     /// to this object's state in SegmentManager.

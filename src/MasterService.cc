@@ -337,18 +337,15 @@ MasterService::fillWithTestData(
 
         int t = objects % numTablets;
 
-        string keyString = format("%d", objects / numTablets);
-        uint16_t keyLength = static_cast<uint16_t>(keyString.length());
-
-        char* keyLocation = new(&buffer, APPEND) char[keyLength];
-        memcpy(keyLocation, keyString.c_str(), keyLength);
-
         // safe? doubtful. simple? you bet.
         char data[reqHdr.objectSize];
         memset(data, 0xcc, reqHdr.objectSize);
         Buffer::Chunk::appendToBuffer(&buffer, data, reqHdr.objectSize);
 
-        Key key(tables[t]->getId(), keyLocation, keyLength);
+        string keyString = format("%d", objects / numTablets);
+        Key key(tables[t]->getId(),
+                keyString.c_str(),
+                downCast<uint16_t>(keyString.length()));
 
         uint64_t newVersion;
         Status status = storeObject(key,
@@ -1752,8 +1749,6 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
 
                 minSuccessor = currentVersion + 1;
             }
-
-            // XXX- objects don't contain checksums anymore!
 
             if (recoverObj.getVersion() >= minSuccessor) {
                 // write to log (with lazy backup flush) & update hash table

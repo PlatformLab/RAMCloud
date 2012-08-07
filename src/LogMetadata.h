@@ -43,6 +43,16 @@ struct SegmentHeader {
         checksum = segmentChecksum.getResult();
     }
 
+    /**
+     * Return true if the segment this header describes was created by the
+     * cleaner. Otherwise, it is or was a log head.
+     */
+    bool
+    generatedByCleaner() const
+    {
+        return headSegmentIdDuringCleaning != Segment::INVALID_SEGMENT_ID;
+    }
+
     /// ID of the Log this segment belongs to.
     uint64_t logId;
 
@@ -108,13 +118,13 @@ class LogDigest {
           freeSlots((length - sizeof32(LogDigestData)) / sizeof32(SegmentId)),
           checksum()
     {
-        if (length <= sizeof32(LogDigestData))
+        if (length < getBytesFromCount(maxSegmentCount))
             throw LogDigestException(HERE, "length too small");
 
         if (freeSlots > maxSegmentCount)
             freeSlots = downCast<uint32_t>(maxSegmentCount);
 
-        ldd->segmentCount = 0;
+        ldd->segmentCount = freeSlots;
         for (uint32_t i = 0; i < freeSlots; i++) {
             ldd->segmentIds[i] = static_cast<SegmentId>(
                                             Segment::INVALID_SEGMENT_ID);

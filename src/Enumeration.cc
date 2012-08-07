@@ -108,7 +108,8 @@ enumerateBucket(HashTable::Reference reference, void* cookie)
 }
 
 /**
- * Appends objects to a buffer. Each object is a uint32_t size and blob.
+ * Appends objects to a buffer. Each object is a uint32_t size and a complete,
+ * serialized Object.
  *
  * \param log
  *      The log containing the objects.
@@ -128,14 +129,17 @@ appendObjectsToBuffer(Log& log,
     for (uint32_t index = 0; index < references.size(); index++) {
         Buffer objectBuffer;
         log.getEntry(references[index], objectBuffer);
-        Object object(objectBuffer);
-        uint32_t length = object.getDataLength();
+        uint32_t length = objectBuffer.getTotalLength();
         if (buffer->getTotalLength() + sizeof(length) + length > maxBytes) {
             return index;
         }
 
         new(buffer, APPEND) uint32_t(length);
-        object.serializeToBuffer(*buffer);
+        Buffer::Iterator it(objectBuffer, 0, objectBuffer.getTotalLength());
+        while (!it.isDone()) {
+            buffer->appendTo(it.getData(), it.getLength());
+            it.next();
+        }
     }
 
     return -1;

@@ -23,6 +23,7 @@
 #include "Log.h"
 #include "LogEntryTypes.h"
 #include "MasterClient.h"
+#include "Object.h"
 #include "ServerConfig.h"
 #include "SegmentIterator.h"
 #include "ShortMacros.h"
@@ -302,11 +303,7 @@ BackupService::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
         throw BackupBadSegmentIdException(HERE);
     }
 
-    for (Buffer::Iterator it(recoverySegments[partitionId]);
-         !it.isDone(); it.next())
-    {
-        Buffer::Chunk::appendToBuffer(&buffer, it.getData(), it.getLength());
-    }
+    recoverySegments[partitionId].appendToBuffer(buffer);
 
     LOG(DEBUG, "appendRecoverySegment <%lu,%lu>", *masterId, segmentId);
     return STATUS_OK;
@@ -354,18 +351,17 @@ BackupService::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
  *      a previous instance of the tablet and should be dropped.
  */
 bool
-isEntryAlive(LogEntryType type,
+isEntryAlive(Log::Position& position,
+             LogEntryType type,
              Buffer& buffer,
-             const ProtoBuf::Tablets::Tablet& tablet)
+             const ProtoBuf::Tablets::Tablet& tablet,
+             const SegmentHeader& header)
 {
-// XXX- need to rethink where we pull these bits of information from... 
-#if 0
-    if (it.isCleanerSegment()) {
-        uint64_t headId = it.getHeader().headSegmentIdDuringCleaning;
+    if (header.generatedByCleaner()) {
+        uint64_t headId = header.headSegmentIdDuringCleaning;
         if (headId <= tablet.ctime_log_head_id())
             return false;
     } else {
-        Log::Position position = it.getLogPosition();
         if (position.getSegmentId() < tablet.ctime_log_head_id())
             return false;
         if (position.getSegmentId() == tablet.ctime_log_head_id() &&
@@ -373,7 +369,6 @@ isEntryAlive(LogEntryType type,
             return false;
         }
     }
-#endif
     return true;
 }
 
@@ -392,27 +387,23 @@ isEntryAlive(LogEntryType type,
  *      If the object or tombstone doesn't belong to any of the partitions.
  */
 Tub<uint64_t>
-whichPartition(LogEntryType type,
+whichPartition(Log::Position& position,
+               LogEntryType type,
                Buffer& buffer,
-               const ProtoBuf::Tablets& partitions)
+               const ProtoBuf::Tablets& partitions,
+               const SegmentHeader& header)
 {
     uint64_t tableId = -1;
     HashType keyHash = -1;
 
     if (type == LOG_ENTRY_TYPE_OBJ) {
-// XXX- need to figure out what to do given that keyHash expect contiguity.
-#if 0
-        const Object* object = it.get<Object>();
-        tableId = object->tableId;
-        keyHash = object->keyHash();
-#endif
+        Object object(buffer);
+        tableId = object.getTableId();
+        keyHash = Key::getHash(tableId, object.getKey(), object.getKeyLength());
     } else { // LOG_ENTRY_TYPE_OBJTOMB:
-// XXX- same here!
-#if 0
-        const ObjectTombstone* tombstone = it.get<ObjectTombstone>();
-        tableId = tombstone->tableId;
-        keyHash = tombstone->keyHash();
-#endif
+        ObjectTombstone tomb(buffer);
+        tableId = tomb.getTableId();
+        keyHash = Key::getHash(tableId, tomb.getKey(), tomb.getKeyLength());
     }
 
     Tub<uint64_t> ret;
@@ -423,7 +414,7 @@ whichPartition(LogEntryType type,
             (tablet.start_key_hash() <= keyHash &&
             tablet.end_key_hash() >= keyHash)) {
 
-            if (!isEntryAlive(type, buffer, tablet)) {
+            if (!isEntryAlive(position, type, buffer, tablet, header)) {
                 LOG(NOTICE, "Skipping object with <tableId, keyHash> of "
                     "<%lu,%lu> because it appears to have existed prior "
                     "to this tablet's creation.", tableId, keyHash);
@@ -483,45 +474,58 @@ BackupService::SegmentInfo::buildRecoverySegments(
         partitionCount, segmentId);
     CycleCounter<RawMetric> _(&metrics->backup.filterTicks);
 
-    recoverySegments = new Buffer[partitionCount];
+    recoverySegments = new Segment[partitionCount];
     recoverySegmentsLength = partitionCount;
 
     try {
+        const SegmentHeader* header = NULL;
         for (SegmentIterator it(segment, segmentSize);
              !it.isDone();
              it.next())
         {
             LogEntryType type = it.getType();
+
+            if (type == LOG_ENTRY_TYPE_SEGHEADER) {
+                Buffer buffer;
+                it.appendToBuffer(buffer);
+                header = buffer.getStart<SegmentHeader>();
+                continue;
+            }
+
             if (type != LOG_ENTRY_TYPE_OBJ && type != LOG_ENTRY_TYPE_OBJTOMB)
                 continue;
 
+            if (header == NULL) {
+                LOG(WARNING, "Object or tombstone came before header");
+                throw Exception(HERE, "catch this and bail");
+            }
+
             Buffer buffer;
             it.appendToBuffer(buffer);
+
+            Log::Position position(segmentId, it.getOffset());
         
             // find out which partition this entry belongs in
-            Tub<uint64_t> partitionId = whichPartition(type,
+            Tub<uint64_t> partitionId = whichPartition(position,
+                                                       type,
                                                        buffer,
-                                                       partitions);
+                                                       partitions,
+                                                       *header);
             if (!partitionId)
                 continue;
-// XXX This is fucked up. There should be a way to create contiguous segments
-//     and just write the entries in as usual. Perhaps have a Segment::Allocator
-//     that is 1 chunk of 8MB and have recoverySegments[] consist of virgin
-//     segments. We can then segment->alloc() and entry->copyIn(Entry& other),
-//     perhaps? Or, maybe make a segment->append() function that does just that?
-#if 0
-            const SegmentEntry* entry = reinterpret_cast<const SegmentEntry*>(
-                    reinterpret_cast<const char*>(it.getPointer()) -
-                    sizeof(*entry));
-            const uint32_t len = (sizeof32(*entry)) + it.getLength());
-            void *out = new(&recoverySegments[*partitionId], APPEND) char[len];
-            memcpy(out, entry, len);
-#endif
+
+            bool success = recoverySegments[*partitionId].append(type, buffer);
+            if (!success) {
+                LOG(WARNING, "Failed to append data to recovery segment");
+                throw Exception(HERE, "catch this and bail");
+            }
         }
 #if TESTING
         for (uint64_t i = 0; i < recoverySegmentsLength; ++i) {
+            Segment::OpaqueFooterEntry unused;
             LOG(DEBUG, "Recovery segment for <%lu,%lu> partition %lu is %u B",
-                *masterId, segmentId, i, recoverySegments[i].getTotalLength());
+                *masterId, segmentId, i,
+                 recoverySegments[i].getAppendedLength(unused));
         }
 #endif
     } catch (const SegmentIteratorException& e) {
@@ -771,18 +775,18 @@ BackupService::SegmentInfo::write(Buffer& src,
 }
 
 /**
- * Scan the current Segment for a LogDigest. If it exists, return a pointer
- * to it. The out parameter can be used to supply the number of bytes it
- * occupies.
+ * Scan the current Segment for a LogDigest. If it exists, append it to the
+ * given buffer.
  *
- * \param[out] byteLength
- *      Optional out parameter for the number of bytes the LogDigest
- *      occupies.
+ * \param[out] digestBuffer
+ *      Buffer to append the digest to, if found. May be NULL if the data is
+ *      not desired and only the presence is needed.
  * \return
- *      NULL if no LogDigest exists in the Segment, else a valid pointer.
+ *      True if the digest was found and appended to the given buffer, otherwise
+ *      false.
  */
-const void*
-BackupService::SegmentInfo::getLogDigest(uint32_t* byteLength)
+bool
+BackupService::SegmentInfo::getLogDigest(Buffer* digestBuffer)
 {
     Lock lock(mutex);
     // If the Segment is malformed somehow, just ignore it. The
@@ -791,20 +795,16 @@ BackupService::SegmentInfo::getLogDigest(uint32_t* byteLength)
         SegmentIterator it(segment, segmentSize);
         while (!it.isDone()) {
             if (it.getType() == LOG_ENTRY_TYPE_LOGDIGEST) {
-                if (byteLength != NULL)
-                    *byteLength = it.getLength();
-// XXXX- can't just return a pointer to it. should we return the Segment::Entry,
-//       or copy out, or pass a Buffer& into this method? What to do?
-#if 0
-                return it.getPointer();
-#endif
+                if (digestBuffer != NULL)
+                    it.appendToBuffer(*digestBuffer);
+                return true;
             }
             it.next();
         }
     } catch (SegmentIteratorException& e) {
         LOG(WARNING, "SegmentIterator constructor failed: %s", e.str().c_str());
     }
-    return NULL;
+    return false;
 }
 
 // - private -
@@ -1919,8 +1919,7 @@ BackupService::startReadingData(
 
     uint64_t logDigestLastId = ~0UL;
     uint32_t logDigestLastLen = 0;
-    uint32_t logDigestBytes = 0;
-    const void* logDigestPtr = NULL;
+    Buffer logDigest;
 
     vector<SegmentInfo*> primarySegments;
     vector<SegmentInfo*> secondarySegments;
@@ -1941,23 +1940,6 @@ BackupService::startReadingData(
             (info->primary ?
                 primarySegments :
                 secondarySegments).push_back(info);
-
-            // Obtain the LogDigest from the lowest Segment Id of any
-            // open replica.
-            uint64_t segmentId = info->segmentId;
-            if (info->isOpen() && segmentId <= logDigestLastId) {
-                const void* newDigest = NULL;
-                uint32_t newDigestBytes;
-                newDigest = info->getLogDigest(&newDigestBytes);
-                if (newDigest != NULL) {
-                    logDigestLastId = segmentId;
-                    logDigestLastLen = info->getRightmostWrittenOffset();
-                    logDigestBytes = newDigestBytes;
-                    logDigestPtr = newDigest;
-                    LOG(DEBUG, "Segment %lu's LogDigest queued for response",
-                        segmentId);
-                }
-            }
         }
     }
 
@@ -1997,12 +1979,32 @@ BackupService::startReadingData(
     LOG(DEBUG, "Sending %u segment ids for this master (%u primary)",
         respHdr.segmentIdCount, respHdr.primarySegmentCount);
 
+    vector<SegmentInfo*> allSegments[2] = {primarySegments, secondarySegments};
+    foreach (auto segments, allSegments) {
+        foreach (auto info, segments) {
+            // Obtain the LogDigest from the lowest Segment Id of any
+            // open replica.
+            if (info->isOpen() && info->segmentId <= logDigestLastId) {
+                if (info->getLogDigest(NULL)) {
+                    logDigest.reset();
+                    info->getLogDigest(&logDigest);
+                    logDigestLastId = info->segmentId;
+                    logDigestLastLen = info->getRightmostWrittenOffset();
+                    LOG(DEBUG, "Segment %lu's LogDigest queued for response",
+                        info->segmentId);
+                }
+            }
+        }
+    }
+
     respHdr.digestSegmentId  = logDigestLastId;
     respHdr.digestSegmentLen = logDigestLastLen;
-    respHdr.digestBytes = logDigestBytes;
+    respHdr.digestBytes = logDigest.getTotalLength();
     if (respHdr.digestBytes > 0) {
         void* out = new(&rpc.replyPayload, APPEND) char[respHdr.digestBytes];
-        memcpy(out, logDigestPtr, respHdr.digestBytes);
+        memcpy(out,
+               logDigest.getRange(0, respHdr.digestBytes),
+               respHdr.digestBytes);
         LOG(DEBUG, "Sent %u bytes of LogDigest to coord", respHdr.digestBytes);
     }
 

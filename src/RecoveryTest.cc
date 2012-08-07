@@ -334,10 +334,12 @@ TEST_F(RecoveryTest, findLogDigest) {
     uint32_t bytes = downCast<uint32_t>(LogDigest::getBytesFromCount(0));
     result0.logDigestBytes = bytes;
     result0.logDigestBuffer = std::unique_ptr<char[]>(new char[bytes]);
+    LogDigest digest0(0, result0.logDigestBuffer.get(), bytes);
     result0.logDigestSegmentId = 10;
     result0.logDigestSegmentLen = 1;
     result1.logDigestBytes = bytes;
     result1.logDigestBuffer = std::unique_ptr<char[]>(new char[bytes]);
+    LogDigest digest1(0, result1.logDigestBuffer.get(), bytes);
     result1.logDigestSegmentId = 10;
     result1.logDigestSegmentLen = 1;
     // Two log digests, same segment id, same length (keeps earlier of two).

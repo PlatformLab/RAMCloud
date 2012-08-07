@@ -146,7 +146,7 @@ class Log {
          */
         uint32_t getSegmentOffset() const { return pos.second; }
 
-      private:
+      PRIVATE:
         std::pair<uint64_t, uint32_t> pos;
     };
 
@@ -167,7 +167,10 @@ class Log {
                 Buffer& buffer,
                 bool sync,
                 HashTable::Reference& outReference);
-    bool append(LogEntryType type, const void* data, uint32_t length);
+    bool append(LogEntryType type,
+                const void* data,
+                uint32_t length,
+                bool sync);
     void free(HashTable::Reference reference);
     LogEntryType getEntry(HashTable::Reference reference,
                           Buffer& outBuffer);

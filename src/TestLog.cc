@@ -115,8 +115,6 @@ namespace TestLog {
         const char* format, ...)
     {
         Lock _(mutex);
-        va_list ap;
-        char line[512];
 
         if (!enabled || (predicate && !predicate(where.function)))
             return;
@@ -124,13 +122,12 @@ namespace TestLog {
         if (message.length())
             message += " | ";
 
-        snprintf(line, sizeof(line), "%s: ", where.function);
-        message += line;
+        message += RAMCloud::format("%s: ", where.function);
 
+        va_list ap;
         va_start(ap, format);
-        vsnprintf(line, sizeof(line), format, ap);
+        message += vformat(format, ap);
         va_end(ap);
-        message += line;
     }
 
     /**

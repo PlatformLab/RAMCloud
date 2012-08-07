@@ -124,13 +124,21 @@ SegmentManager::allocHead()
     //writeMaximumVersionNumber(newHead);
     //writeWill(newHead);
 
+    ReplicatedSegment* prevReplicatedSegment = NULL;
+    if (prevHead != NULL)
+        prevReplicatedSegment = prevHead->replicatedSegment;
 
-// XXX- replica manager open/sync hook here!
+    newHead->replicatedSegment = replicaManager.allocateHead(
+        newHead->id, newHead, prevReplicatedSegment);
+    Segment::OpaqueFooterEntry unused;
+    newHead->replicatedSegment->sync(newHead->getAppendedLength(unused));
 
     // Only close the old head _after_ we've opened up the new head!
     if (prevHead != NULL) {
         // An exception here would be problematic.
-// XXX- replica manager close hook here!
+        prevHead->replicatedSegment->close();
+        Segment::OpaqueFooterEntry unused;  // TODO(steve/ryan): is sync needed??
+        prevHead->replicatedSegment->sync(prevHead->getAppendedLength(unused));
         changeState(*prevHead, NEWLY_CLEANABLE);
     }
 
@@ -154,8 +162,12 @@ SegmentManager::allocSurvivor(uint64_t headSegmentIdDuringCleaning)
     Lock guard(lock);
 
     LogSegment* s = alloc(true);
-    if (s != NULL)
-        writeHeader(s, headSegmentIdDuringCleaning);
+    if (s == NULL)
+        return NULL;
+
+    writeHeader(s, headSegmentIdDuringCleaning);
+
+    s->replicatedSegment = replicaManager.allocateNonHead(s->id, s);
 
     return s;
 }
@@ -346,10 +358,7 @@ uint32_t
 SegmentManager::getAllocatedSegmentCount()
 {
     Lock guard(lock);
-    size_t total = 0;
-    for (int i = 0; i < TOTAL_STATES; i++)
-        total += segmentsByState[i].size();
-    return downCast<uint32_t>(total);
+    return downCast<uint32_t>(allSegments.size());
 }
 
 /**
@@ -436,6 +445,10 @@ SegmentManager::writeDigest(LogSegment* head)
     uint32_t digestBytes = LogDigest::getBytesFromCount(maxSegments);
     char digestBuf[digestBytes];
     LogDigest digest(maxSegments, digestBuf, digestBytes);
+
+    // TODO(Steve): Log digest is now a fixed size. This should probably change.
+    // Might be worth investigating just using a protobuf instead, if its fast
+    // enough.
 
     // Only include new survivor segments if no log iteration in progress.
     if (logIteratorCount == 0) {

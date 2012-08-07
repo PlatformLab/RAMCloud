@@ -90,7 +90,7 @@ struct ReplicatedSegmentTest : public ::testing::Test {
         CreateSegment(ReplicatedSegmentTest* test,
                       ReplicatedSegment* precedingSegment,
                       uint64_t segmentId)
-            : logSegment()
+            : logSegment(test->data, DATA_LEN)
             , segment()
         {
             void* segMem =
@@ -143,7 +143,7 @@ struct ReplicatedSegmentTest : public ::testing::Test {
     MockBackupSelector backupSelector;
     MockTransport transport;
     TransportManager::MockRegistrar mockRegistrar;
-    CreateSegment createSegment;
+    CreateSegment* createSegment;
     ReplicatedSegment* segment;
     ServerId backupId1;
     ServerId backupId2;
@@ -166,8 +166,8 @@ struct ReplicatedSegmentTest : public ::testing::Test {
         , backupSelector(numReplicas)
         , transport(context)
         , mockRegistrar(context, transport)
-        , createSegment(this, NULL, segmentId)
-        , segment(createSegment.segment.get())
+        , createSegment(NULL)
+        , segment(NULL)
         , backupId1(0, 0)
         , backupId2(1, 0)
     {
@@ -187,6 +187,16 @@ struct ReplicatedSegmentTest : public ::testing::Test {
         size_t msgLen = strlen(msg);
         for (int i = 0; i < DATA_LEN; ++i)
             data[i] = msg[i % msgLen];
+
+        // Create the segment _after_ initializing data[] so that the contents
+        // don't change after construction.
+        createSegment = new CreateSegment(this, NULL, segmentId);
+        segment = createSegment->segment.get();
+    }
+
+    ~ReplicatedSegmentTest()
+    {
+        delete createSegment;
     }
 
     void reset() {
@@ -257,7 +267,7 @@ TEST_F(ReplicatedSegmentTest, isSynced) {
     segment->recoveringFromLostOpenReplicas = true;
     EXPECT_FALSE(segment->isSynced());
     segment->recoveringFromLostOpenReplicas = false;
-    createSegment.logSegment.tail = openLen + 10; // write queued
+    createSegment->logSegment.tail = openLen + 10; // write queued
     EXPECT_FALSE(segment->isSynced());
     reset();
 }
@@ -279,7 +289,7 @@ TEST_F(ReplicatedSegmentTest, handleBackupFailureWhileOpen) {
 
     transport.setInput("0 0"); // write
     transport.setInput("0 0"); // write
-    createSegment.logSegment.tail = openLen; // write queued
+    createSegment->logSegment.tail = openLen; // write queued
     // Not active still, next performTask chooses backups and sends opens.
     EXPECT_FALSE(segment->handleBackupFailure({0, 0}));
     foreach (auto& replica, segment->replicas)
@@ -308,7 +318,7 @@ TEST_F(ReplicatedSegmentTest, handleBackupFailureWhileOpen) {
 TEST_F(ReplicatedSegmentTest, handleBackupFailureWhileHandlingFailure) {
     transport.setInput("0 0"); // open
     transport.setInput("0 0"); // open
-    createSegment.logSegment.tail = openLen; // write queued
+    createSegment->logSegment.tail = openLen; // write queued
     taskQueue.performTask(); // send opens
     taskQueue.performTask(); // reap opens
 
@@ -339,10 +349,10 @@ TEST_F(ReplicatedSegmentTest, sync) {
     transport.setInput("0 0"); // write
     transport.setInput("0 0"); // write
 
-    createSegment.logSegment.tail = openLen;
+    createSegment->logSegment.tail = openLen;
     segment->sync(segment->queued.bytes); // first sync sends the opens
     Segment::OpaqueFooterEntry footerEntry;
-    createSegment.logSegment.getAppendedLength(footerEntry);
+    createSegment->logSegment.getAppendedLength(footerEntry);
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
                  999, 888, 0, 10, Wr::OPENPRIMARY, false, true, footerEntry},
@@ -360,12 +370,12 @@ TEST_F(ReplicatedSegmentTest, sync) {
     transport.clearOutput();
     EXPECT_EQ(openLen, segment->getAcked().bytes);
 
-    createSegment.logSegment.tail = openLen + 10;
+    createSegment->logSegment.tail = openLen + 10;
     segment->sync(openLen); // doesn't send anything
     EXPECT_TRUE(transport.output.empty());
     transport.clearOutput();
     segment->sync(openLen + 1); // will wait until after the next send
-    createSegment.logSegment.getAppendedLength(footerEntry);
+    createSegment->logSegment.getAppendedLength(footerEntry);
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
                  999, 888, 10, 10, Wr::NONE, false, true, footerEntry},
@@ -469,7 +479,7 @@ TEST_F(ReplicatedSegmentTest, syncRecoveringFromLostOpenReplicas) {
     transport.setInput("0 0"); // write/close
     transport.setInput("0 0"); // setOpenMinSegmentId
 
-    createSegment.logSegment.tail = openLen;
+    createSegment->logSegment.tail = openLen;
     segment->sync(openLen); // first sync sends the opens
     transport.clearOutput();
     segment->sync(openLen); // second sync sends nothing
@@ -524,7 +534,7 @@ TEST_F(ReplicatedSegmentTest, syncRecoveringFromLostOpenReplicas) {
     // Notice weird "atomic" write flags two of them (high-order bits
     // glommed together with the flags field).
     Segment::OpaqueFooterEntry footerEntry;
-    createSegment.logSegment.getAppendedLength(footerEntry);
+    createSegment->logSegment.getAppendedLength(footerEntry);
     // Opening primary write, marked atomic.
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
@@ -547,7 +557,7 @@ TEST_F(ReplicatedSegmentTest, syncRecoveringFromLostOpenReplicas) {
 }
 
 TEST_F(ReplicatedSegmentTest, performTaskFreeNothingToDo) {
-    createSegment.logSegment.tail = openLen + 10; // write queued
+    createSegment->logSegment.tail = openLen + 10; // write queued
     segment->close();
     segment->free();
     taskQueue.performTask();
@@ -594,7 +604,7 @@ TEST_F(ReplicatedSegmentTest, performTaskRecoveringFromLostOpenReplicas) {
     // originally failed replica (original outstanding rpc should be canceled).
     taskQueue.performTask();
     Segment::OpaqueFooterEntry footerEntry;
-    createSegment.logSegment.getAppendedLength(footerEntry);
+    createSegment->logSegment.getAppendedLength(footerEntry);
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
                  999, 888, 0, 10, Wr::OPENPRIMARY, true, true, footerEntry},
@@ -743,7 +753,7 @@ TEST_F(ReplicatedSegmentTest, performWriteTooManyInFlight) {
     EXPECT_FALSE(segment->replicas[1].writeRpc);
 
     writeRpcsInFlight = ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT;
-    createSegment.logSegment.tail = openLen + 10; // write queued
+    createSegment->logSegment.tail = openLen + 10; // write queued
     segment->queued.bytes = openLen + 10;
     segment->schedule();
     taskQueue.performTask(); // try to send writes, shouldn't be able to.
@@ -756,7 +766,7 @@ TEST_F(ReplicatedSegmentTest, performWriteTooManyInFlight) {
     writeRpcsInFlight = ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT - 1;
     taskQueue.performTask(); // retry writes since a slot freed up
     Segment::OpaqueFooterEntry footerEntry;
-    createSegment.logSegment.getAppendedLength(footerEntry);
+    createSegment->logSegment.getAppendedLength(footerEntry);
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
                  999, 888, 10, 10, Wr::NONE, false, true, footerEntry},
@@ -811,7 +821,7 @@ TEST_F(ReplicatedSegmentTest, performWriteOpen) {
     }
 
     Segment::OpaqueFooterEntry footerEntry;
-    createSegment.logSegment.getAppendedLength(footerEntry);
+    createSegment->logSegment.getAppendedLength(footerEntry);
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
                  999, 888, 0, 10, Wr::OPENPRIMARY, false, true, footerEntry},
@@ -844,7 +854,7 @@ TEST_F(ReplicatedSegmentTest, performWriteOpenTooManyInFlight) {
     writeRpcsInFlight = ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT - 1;
     taskQueue.performTask(); // retry writes since a slot freed up
     Segment::OpaqueFooterEntry footerEntry;
-    createSegment.logSegment.getAppendedLength(footerEntry);
+    createSegment->logSegment.getAppendedLength(footerEntry);
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
                  999, 888, 0, 10, Wr::OPENPRIMARY, false, true, footerEntry},
@@ -918,7 +928,7 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
     ServerId backupIdForFirstOpenAttempt = segment->replicas[1].backupId;
 
     Segment::OpaqueFooterEntry footerEntry;
-    createSegment.logSegment.getAppendedLength(footerEntry);
+    createSegment->logSegment.getAppendedLength(footerEntry);
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
                  999, 888, 0, 10, Wr::OPENPRIMARY, false, true, footerEntry},
@@ -952,7 +962,7 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
     transport.clearOutput();
     taskQueue.performTask();  // reap second open request
 
-    createSegment.logSegment.tail = openLen + 10; // write queued
+    createSegment->logSegment.tail = openLen + 10; // write queued
     segment->close();
     taskQueue.performTask();  // send close requests
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
@@ -1002,13 +1012,13 @@ TEST_F(ReplicatedSegmentTest, performWriteMoreToSend) {
     transport.setInput("0 0"); // write
     transport.setInput("0 0"); // write
 
-    createSegment.logSegment.tail = openLen + 20; // write queued
+    createSegment->logSegment.tail = openLen + 20; // write queued
     Segment::OpaqueFooterEntry openingFooterEntry;
-    createSegment.logSegment.getAppendedLength(openingFooterEntry);
-    createSegment.logSegment.checksum.result = 0xff00ff00;
+    createSegment->logSegment.getAppendedLength(openingFooterEntry);
+    createSegment->logSegment.checksum.result = 0xff00ff00;
     segment->close();
     Segment::OpaqueFooterEntry closingFooterEntry;
-    createSegment.logSegment.getAppendedLength(closingFooterEntry);
+    createSegment->logSegment.getAppendedLength(closingFooterEntry);
     taskQueue.performTask(); // send open
     EXPECT_TRUE(segment->isScheduled());
     taskQueue.performTask(); // reap opens
@@ -1041,7 +1051,7 @@ TEST_F(ReplicatedSegmentTest, performWriteClosedButLongerThanMaxTxLimit) {
     taskQueue.performTask(); // reap opens
 
     // oversized write queued
-    createSegment.logSegment.tail =
+    createSegment->logSegment.tail =
         segment->maxBytesPerWriteRpc + segment->openLen + 1;
     segment->close();
     EXPECT_TRUE(segment->isScheduled());
@@ -1352,14 +1362,14 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureDurableOpensOrderedAlreadyOpen)
 
 TEST_F(ReplicatedSegmentTest, performWriteCheckFootersTxProperly) {
     Segment::OpaqueFooterEntry openingFooterEntry;
-    createSegment.logSegment.getAppendedLength(openingFooterEntry);
+    createSegment->logSegment.getAppendedLength(openingFooterEntry);
 
     // oversized write queued
-    createSegment.logSegment.tail =
+    createSegment->logSegment.tail =
         segment->maxBytesPerWriteRpc + segment->openLen + 1;
-    createSegment.logSegment.checksum.result = 0xcabba9e;
+    createSegment->logSegment.checksum.result = 0xcabba9e;
     Segment::OpaqueFooterEntry footerEntry;
-    createSegment.logSegment.getAppendedLength(footerEntry);
+    createSegment->logSegment.getAppendedLength(footerEntry);
     segment->close();
     EXPECT_TRUE(segment->isScheduled());
 

@@ -205,18 +205,18 @@ class BackupServiceTest : public ::testing::Test {
     {
         // partition 0
         appendTablet(tablets, 0, 123,
-            Key::getHash(0, "9", 1), Key::getHash(0, "9", 1), 0, 0);
+            Key::getHash(123, "9", 1), Key::getHash(123, "9", 1), 0, 0);
         appendTablet(tablets, 0, 123,
-            Key::getHash(0, "10", 2), Key::getHash(0, "10", 2), 0, 0);
+            Key::getHash(123, "10", 2), Key::getHash(123, "10", 2), 0, 0);
         appendTablet(tablets, 0, 123,
-            Key::getHash(0, "29", 2), Key::getHash(0, "29", 2), 0, 0);
+            Key::getHash(123, "29", 2), Key::getHash(123, "29", 2), 0, 0);
 
         appendTablet(tablets, 0, 124,
-            Key::getHash(0, "20", 2), Key::getHash(0, "20", 2), 0, 0);
+            Key::getHash(124, "20", 2), Key::getHash(124, "20", 2), 0, 0);
 
         // partition 1
         appendTablet(tablets, 1, 123,
-            Key::getHash(0, "30", 2), Key::getHash(0, "30", 2), 0, 0);
+            Key::getHash(123, "30", 2), Key::getHash(123, "30", 2), 0, 0);
         appendTablet(tablets, 1, 125,
             0, std::numeric_limits<uint64_t>::max(), 0, 0);
     }
@@ -236,8 +236,8 @@ class BackupServiceTest : public ::testing::Test {
         char digestBuf[LogDigest::getBytesFromCount
                             (downCast<uint32_t>(digestIds.size()))];
         LogDigest src(downCast<uint32_t>(digestIds.size()),
-                        digestBuf,
-                        sizeof32(digestBuf));
+                      digestBuf,
+                      sizeof32(digestBuf));
         for (uint32_t i = 0; i < digestIds.size(); i++)
             src.addSegment(digestIds[i]);
 
@@ -411,7 +411,7 @@ TEST_F(BackupServiceTest, getRecoveryData) {
     appendObject(s, ServerId(99, 0), 88, "test1", 6, 123, "29", 2);
     // Barely out of tablets
     appendObject(s, ServerId(99, 0), 88, "test2", 6, 123, "30", 2);
-    // In on other table
+    // In another table
     appendObject(s, ServerId(99, 0), 88, "test3", 6, 124, "20", 2);
     // Not in any table
     appendObject(s, ServerId(99, 0), 88, "test4", 6, 125, "20", 2);
@@ -420,7 +420,7 @@ TEST_F(BackupServiceTest, getRecoveryData) {
     appendTombstone(s, ServerId(99, 0), 88, 123, "29", 2);
     // Barely out of tablets
     appendTombstone(s, ServerId(99, 0), 88, 123, "30", 2);
-    // In on other table
+    // In another table
     appendTombstone(s, ServerId(99, 0), 88, 124, "20", 2);
     // Not in any table
     appendTombstone(s, ServerId(99, 0), 88, 125, "20", 2);
@@ -475,10 +475,10 @@ TEST_F(BackupServiceTest, getRecoveryData) {
         EXPECT_FALSE(it.isDone());
         EXPECT_EQ(LOG_ENTRY_TYPE_OBJTOMB, it.getType());
         it.setBufferTo(b);
-        Object object(b);
-        EXPECT_EQ(124U, object.getTableId());
+        ObjectTombstone tomb(b);
+        EXPECT_EQ(124U, tomb.getTableId());
         EXPECT_EQ("20", TestUtil::toString(
-            object.getKey(), object.getKeyLength()));
+            tomb.getKey(), tomb.getKeyLength()));
         it.next();
     }
 
@@ -517,8 +517,9 @@ TEST_F(BackupServiceTest, getRecoveryData_moreThanOneSegmentStored) {
 
         Buffer b;
         it.setBufferTo(b);
-        EXPECT_EQ("test2", TestUtil::toString(&b, sizeof32(Object),
-            b.getTotalLength() - sizeof32(Object)));
+        Object object(b);
+        EXPECT_EQ("test2", TestUtil::toString(object.getData(),
+            object.getDataLength() - 1));
 
         it.next();
         EXPECT_TRUE(it.isDone());
@@ -536,8 +537,9 @@ TEST_F(BackupServiceTest, getRecoveryData_moreThanOneSegmentStored) {
 
         Buffer b;
         it.setBufferTo(b);
-        EXPECT_EQ("test1", TestUtil::toString(&b, sizeof32(Object),
-            b.getTotalLength() - sizeof32(Object)));
+        Object object(b);
+        EXPECT_EQ("test1", TestUtil::toString(object.getData(),
+            object.getDataLength() - 1));
 
         it.next();
         EXPECT_TRUE(it.isDone());
@@ -646,10 +648,9 @@ TEST_F(BackupServiceTest, recoverySegmentBuilder) {
     EXPECT_EQ(BackupService::SegmentInfo::RECOVERING,
                             toBuild[0]->state);
     ASSERT_TRUE(toBuild[0]->recoverySegments);
-    Buffer* buf = &toBuild[0]->recoverySegments[0];
-    ASSERT_TRUE(buf);
-    SegmentIterator it(buf->getRange(0, buf->getTotalLength()),
-                                buf->getTotalLength());
+    Segment* seg = &toBuild[0]->recoverySegments[0];
+    ASSERT_TRUE(seg);
+    SegmentIterator it(*seg);
     EXPECT_FALSE(it.isDone());
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, it.getType());
 
@@ -658,7 +659,7 @@ TEST_F(BackupServiceTest, recoverySegmentBuilder) {
         it.setBufferTo(b);
         Object object(b);
         EXPECT_EQ("test1", TestUtil::toString(
-            object.getData(), object.getDataLength()));
+            object.getData(), object.getDataLength() - 1));
         it.next();
         EXPECT_TRUE(it.isDone());
     }
@@ -666,18 +667,17 @@ TEST_F(BackupServiceTest, recoverySegmentBuilder) {
     EXPECT_EQ(BackupService::SegmentInfo::RECOVERING,
               toBuild[1]->state);
     EXPECT_TRUE(NULL != toBuild[1]->recoverySegments);
-    buf = &toBuild[1]->recoverySegments[1];
-    SegmentIterator it2(buf->getRange(0, buf->getTotalLength()),
-                                buf->getTotalLength());
+    seg = &toBuild[1]->recoverySegments[1];
+    SegmentIterator it2(*seg);
     EXPECT_FALSE(it2.isDone());
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, it2.getType());
 
     {
         Buffer b;
-        it.setBufferTo(b);
+        it2.setBufferTo(b);
         Object object(b);
         EXPECT_EQ("test2", TestUtil::toString(
-            object.getData(), object.getDataLength()));
+            object.getData(), object.getDataLength() - 1));
         it2.next();
         EXPECT_TRUE(it2.isDone());
     }
@@ -915,7 +915,7 @@ TEST_F(BackupServiceTest, startReadingData_logDigest_simple) {
     EXPECT_EQ(LogDigest::getBytesFromCount(1),
         result.logDigestBytes);
     EXPECT_EQ(88U, result.logDigestSegmentId);
-    EXPECT_EQ(60U, result.logDigestSegmentLen);
+    EXPECT_EQ(18U, result.logDigestSegmentLen);
     {
         LogDigest ld(result.logDigestBuffer.get(), result.logDigestBytes);
         EXPECT_EQ(1, ld.getSegmentCount());
@@ -927,7 +927,7 @@ TEST_F(BackupServiceTest, startReadingData_logDigest_simple) {
                                             ProtoBuf::Tablets());
     EXPECT_EQ(LogDigest::getBytesFromCount(1), result.logDigestBytes);
     EXPECT_EQ(88U, result.logDigestSegmentId);
-    EXPECT_EQ(60U, result.logDigestSegmentLen);
+    EXPECT_EQ(18U, result.logDigestSegmentLen);
     {
         LogDigest ld(result.logDigestBuffer.get(), result.logDigestBytes);
         EXPECT_EQ(1, ld.getSegmentCount());
@@ -947,7 +947,7 @@ TEST_F(BackupServiceTest, startReadingData_logDigest_simple) {
     EXPECT_EQ(LogDigest::getBytesFromCount(1),
         result.logDigestBytes);
     EXPECT_EQ(89U, result.logDigestSegmentId);
-    EXPECT_EQ(60U, result.logDigestSegmentLen);
+    EXPECT_EQ(18U, result.logDigestSegmentLen);
     {
         LogDigest ld(result.logDigestBuffer.get(), result.logDigestBytes);
         EXPECT_EQ(1, ld.getSegmentCount());
@@ -969,7 +969,7 @@ TEST_F(BackupServiceTest, startReadingData_logDigest_latest) {
             BackupClient::startReadingData(context, backupId, ServerId(99, 0),
                                            ProtoBuf::Tablets());
         EXPECT_EQ(88U, result.logDigestSegmentId);
-        EXPECT_EQ(60U, result.logDigestSegmentLen);
+        EXPECT_EQ(18U, result.logDigestSegmentLen);
         EXPECT_EQ(LogDigest::getBytesFromCount(1),
             result.logDigestBytes);
         LogDigest ld(result.logDigestBuffer.get(), result.logDigestBytes);
@@ -1495,13 +1495,13 @@ void
 createTabletList(ProtoBuf::Tablets& tablets)
 {
     appendTablet(tablets, 0, 123,
-        Key::getHash(0, "10", 2), Key::getHash(0, "10", 2), 0, 0);
+        Key::getHash(123, "10", 2), Key::getHash(123, "10", 2), 0, 0);
     appendTablet(tablets, 1, 123,
-        Key::getHash(0, "30", 2), Key::getHash(0, "30", 2), 0, 0);
+        Key::getHash(123, "30", 2), Key::getHash(123, "30", 2), 0, 0);
 
     // tablet created when log head was > (0, 0)
     appendTablet(tablets, 0, 123,
-        Key::getHash(0, "XX", 2), Key::getHash(0, "XX", 2), 12741, 57273);
+        Key::getHash(123, "XX", 2), Key::getHash(123, "XX", 2), 12741, 57273);
 }
 
 TEST_F(SegmentInfoTest, appendRecoverySegment) {

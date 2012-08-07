@@ -73,12 +73,10 @@ class ReplicaManager
     bool isIdle();
     bool isReplicaNeeded(ServerId backupServerId, uint64_t segmentId);
     ReplicatedSegment* allocateHead(uint64_t segmentId, const Segment* segment,
-                                    ReplicatedSegment* precedingSegment,
-                                    uint32_t openLen)
+                                    ReplicatedSegment* precedingSegment);
         __attribute__((warn_unused_result));
     ReplicatedSegment* allocateNonHead(uint64_t segmentId,
-                                       const Segment* segment,
-                                       uint32_t openLen);
+                                       const Segment* segment);
         __attribute__((warn_unused_result));
     void startFailureMonitor(Log* log);
     void haltFailureMonitor();
@@ -86,8 +84,7 @@ class ReplicaManager
 
   PRIVATE:
     ReplicatedSegment* allocateSegment(const Lock& lock, uint64_t segmentId,
-                                       const Segment* segment, bool isLogHead,
-                                       uint32_t openLen)
+                                       const Segment* segment, bool isLogHead);
         __attribute__((warn_unused_result));
 
     /// Shared RAMCloud information.

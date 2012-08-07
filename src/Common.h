@@ -162,6 +162,8 @@ class MockRandom {
 
 string format(const char* format, ...)
     __attribute__((format(printf, 1, 2)));
+string vformat(const char* format, va_list ap)
+    __attribute__((format(printf, 1, 0)));
 
 string demangle(const char* name);
 

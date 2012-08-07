@@ -52,6 +52,7 @@ class SegmentIterator {
     VIRTUAL_FOR_TESTING void next();
     VIRTUAL_FOR_TESTING LogEntryType getType();
     VIRTUAL_FOR_TESTING uint32_t getLength();
+    VIRTUAL_FOR_TESTING uint32_t getOffset();
     VIRTUAL_FOR_TESTING uint32_t appendToBuffer(Buffer& buffer);
     VIRTUAL_FOR_TESTING uint32_t setBufferTo(Buffer& buffer);
 

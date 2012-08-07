@@ -62,9 +62,15 @@ class LogTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(LogTest);
 };
 
+static bool
+syncFilter(string s)
+{
+    return s == "sync";
+}
+
 TEST_F(LogTest, constructor_cleaner)
 {
-    TestLog::Enable _;
+    TestLog::Enable _(syncFilter);
     Log l2(context, entryHandlers, segmentManager, replicaManager, false);
     EXPECT_NE(static_cast<LogSegment*>(NULL), l2.head);
     EXPECT_TRUE(l2.cleaner);
@@ -73,7 +79,7 @@ TEST_F(LogTest, constructor_cleaner)
 
 TEST_F(LogTest, constructor_noCleaner)
 {
-    TestLog::Enable _;
+    TestLog::Enable _(syncFilter);
     Log l2(context, entryHandlers, segmentManager, replicaManager, true);
     EXPECT_NE(static_cast<LogSegment*>(NULL), l2.head);
     EXPECT_FALSE(l2.cleaner);
@@ -84,22 +90,22 @@ TEST_F(LogTest, append_basic) {
     char data[7000];
     LogSegment* oldHead = l.head;
 
-    EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data)));
+    EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true));
     EXPECT_EQ(oldHead, l.head);
 
-    EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data)));
+    EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true));
     EXPECT_NE(oldHead, l.head);
     oldHead = l.head;
 
-    EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data)));
+    EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true));
     EXPECT_NE(oldHead, l.head);
     oldHead = l.head;
 
-    EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data)));
+    EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true));
     EXPECT_NE(oldHead, l.head);
     oldHead = l.head;
 
-    EXPECT_FALSE(l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data)));
+    EXPECT_FALSE(l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true));
     EXPECT_EQ(oldHead, l.head);
 
     // getEntry()'s test ensures actual data gets there.
@@ -111,7 +117,7 @@ TEST_F(LogTest, append_tooBigToEverFit) {
     char data[8193];
     LogSegment* oldHead = l.head;
 
-    EXPECT_FALSE(l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data)));
+    EXPECT_FALSE(l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true));
     EXPECT_NE(oldHead, l.head);
     EXPECT_EQ("append: Entry too big to append to log: 8193 bytes",
         TestLog::get());
@@ -137,7 +143,7 @@ TEST_F(LogTest, getEntry) {
 }
 
 TEST_F(LogTest, sync) {
-    TestLog::Enable _;
+    TestLog::Enable _(syncFilter);
     l.sync();
     EXPECT_EQ("sync: synced", TestLog::get());
 }
@@ -146,11 +152,11 @@ TEST_F(LogTest, getHeadPosition) {
     EXPECT_EQ(Log::Position(0, 44), l.getHeadPosition());
 
     char data[1000];
-    l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data));
+    l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true);
     EXPECT_EQ(Log::Position(0, 1047), l.getHeadPosition());
 
     while (l.getHeadPosition().getSegmentId() == 0)
-        l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data));
+        l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true);
 
     EXPECT_EQ(Log::Position(1, 1047), l.getHeadPosition());
 }
@@ -196,7 +202,7 @@ TEST_F(LogTest, containsSegment) {
 
     char data[1000];
     while (l.getHeadPosition().getSegmentId() == 0)
-        l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data));
+        l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true);
 
     EXPECT_TRUE(l.containsSegment(0));
     EXPECT_TRUE(l.containsSegment(1));

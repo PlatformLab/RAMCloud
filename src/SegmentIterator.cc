@@ -163,6 +163,17 @@ SegmentIterator::getLength()
 }
 
 /**
+ * Return the byte offset of the entry currently pointed to by the iterator
+ * within the segment. This is primarily useful in building Log::Position
+ * objects.
+ */
+uint32_t
+SegmentIterator::getOffset()
+{
+    return currentOffset;
+}
+
+/**
  * Append the current entry to the provided buffer.
  */
 uint32_t

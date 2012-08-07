@@ -248,7 +248,7 @@ rc_testing_kill(struct rc_client* client, uint64_t tableId,
 Status
 rc_testing_get_server_id(struct rc_client* client,
                          uint64_t tableId,
-                         const char* key,
+                         const void* key,
                          uint16_t keyLength,
                          uint64_t* serverId)
 {
@@ -263,7 +263,7 @@ rc_testing_get_server_id(struct rc_client* client,
 Status
 rc_testing_get_service_locator(struct rc_client* client,
                                uint64_t tableId,
-                               const char* key,
+                               const void* key,
                                uint16_t keyLength,
                                char* locatorBuffer,
                                size_t bufferLength)
