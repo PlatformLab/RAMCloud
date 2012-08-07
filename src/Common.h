@@ -154,6 +154,8 @@ class MockRandom {
 #define generateRandom() RAMCloud::_generateRandom()
 #endif
 
+uint32_t randomNumberGenerator(uint32_t n);
+
 #if TESTING
 #define VIRTUAL_FOR_TESTING virtual
 #else

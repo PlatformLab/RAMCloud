@@ -706,6 +706,7 @@ Recovery::startRecoveryMasters()
     // Set up the tasks to execute the RPCs.
     std::vector<ServerId> masters =
         tracker->getServersWithService(WireFormat::MASTER_SERVICE);
+    std::random_shuffle(masters.begin(), masters.end(), randomNumberGenerator);
     uint32_t started = 0;
     Tub<MasterStartTask> recoverTasks[numPartitions];
     foreach (ServerId master, masters) {

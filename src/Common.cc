@@ -152,6 +152,22 @@ _generateRandom()
 }
 
 /**
+ * Make generateRandom model RandomNumberGenerator.
+ * This makes it easy to mock the calls for randomness during testing
+ * since generateRandom supports mock values.
+ *
+ * \param n
+ *      Limits the result to the range [0, n).
+ * \return
+ *      Returns a pseudo-random number in the range [0, n).
+ */
+uint32_t
+randomNumberGenerator(uint32_t n)
+{
+    return static_cast<uint32_t>(generateRandom()) % n;
+}
+
+/**
  * Pin the process to a particular CPU.
  * \param cpu
  *      The number of the CPU on which to execute, starting from 0.
