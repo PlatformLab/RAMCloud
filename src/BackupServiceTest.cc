@@ -716,7 +716,7 @@ TEST_F(BackupServiceTest, restartFromStorage)
     memcpy(b(file) + sizeof(superblock), &checksum, sizeof(checksum));
 
     for (uint32_t frame = 0; frame < config.backup.numSegmentFrames; ++frame) {
-        SegmentHeader header{99, 88, config.segmentSize,
+        SegmentHeader header{70 + (frame % 2), 88, config.segmentSize,
             Segment::INVALID_SEGMENT_ID};
         SegmentEntry headerEntry(LOG_ENTRY_TYPE_SEGHEADER, sizeof(header));
         SegmentFooter footer{0xcafebabe};
@@ -785,26 +785,26 @@ TEST_F(BackupServiceTest, restartFromStorage)
     BackupService* backup = cluster->addServer(config)->backup.get();
     EXPECT_EQ(ServerId(99, 0), backup->getFormerServerId());
     EXPECT_NE(string::npos, TestLog::get().find(
-        "restartFromStorage: Found stored replica <99,88> on backup storage "
+        "restartFromStorage: Found stored replica <70,88> on backup storage "
             "in frame 0 which was closed | "
-        "restartFromStorage: Found stored replica <99,89> on backup storage "
+        "restartFromStorage: Found stored replica <71,89> on backup storage "
             "in frame 1 which was open | "
         "restartFromStorage: Log entry type for header does not match in "
             "frame 2 | "
         "restartFromStorage: Unexpected log entry length while reading "
             "segment replica header from backup storage, discarding replica, "
             "(expected length 28, stored length 999) | "
-        "restartFromStorage: Found stored replica <99,92> on backup storage "
+        "restartFromStorage: Found stored replica <70,92> on backup storage "
             "in frame 4 which was open | "
-        "restartFromStorage: Found stored replica <99,93> on backup storage "
+        "restartFromStorage: Found stored replica <71,93> on backup storage "
             "in frame 5 which was open"));
 
-    EXPECT_TRUE(backup->findSegmentInfo({99, 0}, 88));
-    EXPECT_TRUE(backup->findSegmentInfo({99, 0}, 89));
-    EXPECT_FALSE(backup->findSegmentInfo({99, 0}, 90));
-    EXPECT_FALSE(backup->findSegmentInfo({99, 0}, 91));
-    EXPECT_TRUE(backup->findSegmentInfo({99, 0}, 92));
-    EXPECT_TRUE(backup->findSegmentInfo({99, 0}, 93));
+    EXPECT_TRUE(backup->findSegmentInfo({70, 0}, 88));
+    EXPECT_TRUE(backup->findSegmentInfo({71, 0}, 89));
+    EXPECT_FALSE(backup->findSegmentInfo({70, 0}, 90));
+    EXPECT_FALSE(backup->findSegmentInfo({71, 0}, 91));
+    EXPECT_TRUE(backup->findSegmentInfo({70, 0}, 92));
+    EXPECT_TRUE(backup->findSegmentInfo({71, 0}, 93));
 
     SingleFileStorage* storage =
         static_cast<SingleFileStorage*>(backup->storage.get());
@@ -814,6 +814,13 @@ TEST_F(BackupServiceTest, restartFromStorage)
     EXPECT_TRUE(storage->freeMap.test(3));
     EXPECT_FALSE(storage->freeMap.test(4));
     EXPECT_FALSE(storage->freeMap.test(5));
+
+    EXPECT_EQ(2lu, backup->gcTaskQueue.outstandingTasks());
+    // Because config.backup.gc is false these tasks delete themselves
+    // immediately when performed.
+    backup->gcTaskQueue.performTask();
+    backup->gcTaskQueue.performTask();
+    EXPECT_EQ(0lu, backup->gcTaskQueue.outstandingTasks());
 
     } catch (...) {
         close(fd);
@@ -1292,36 +1299,35 @@ TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask) {
     closeSegment({13, 0}, 11);
     backup->findSegmentInfo({13, 0}, 11)->createdByCurrentProcess = false;
 
-    typedef BackupService::GarbageCollectReplicaFoundOnStorageTask Task;
-    std::unique_ptr<Task> task(new Task(*backup, {13, 0}, 10));
+    typedef BackupService::GarbageCollectReplicasFoundOnStorageTask Task;
+    std::unique_ptr<Task> task(new Task(*backup, {13, 0}));
+    task->addSegmentId(10);
+    task->addSegmentId(11);
     task->schedule();
     const_cast<ServerConfig&>(backup->config).backup.gc = true;
 
     EXPECT_FALSE(task->rpc);
-    backup->gcTaskQueue.performTask(); // send rpc
+    backup->gcTaskQueue.performTask(); // send rpc to probe 10
     ASSERT_TRUE(task->rpc);
 
     TestLog::Enable _;
     backup->gcTaskQueue.performTask(); // get response - false for 10
     EXPECT_FALSE(task->rpc);
     EXPECT_TRUE(StringUtil::contains(TestLog::get(),
-        "performTask: Server has recovered from lost replica; "
+        "tryToFreeReplica: Server has recovered from lost replica; "
         "freeing replica for <13,10>"));
-    EXPECT_EQ(0lu, backup->gcTaskQueue.outstandingTasks());
+    EXPECT_EQ(1lu, backup->gcTaskQueue.outstandingTasks());
     EXPECT_FALSE(backup->findSegmentInfo({13, 0}, 10));
     EXPECT_TRUE(backup->findSegmentInfo({13, 0}, 11));
-    task.release();
 
-    task.reset(new Task(*backup, {13, 0}, 11));
-    task->schedule();
     EXPECT_FALSE(task->rpc);
-    backup->gcTaskQueue.performTask(); // send rpc
+    backup->gcTaskQueue.performTask(); // send rpc to probe 11
     ASSERT_TRUE(task->rpc);
 
     TestLog::reset();
     backup->gcTaskQueue.performTask(); // get response - true for 11
     EXPECT_TRUE(StringUtil::contains(TestLog::get(),
-        "performTask: Server has not recovered from lost replica; "
+        "tryToFreeReplica: Server has not recovered from lost replica; "
         "retaining replica for <13,11>; "
         "will probe replica status again later"));
     EXPECT_EQ(1lu, backup->gcTaskQueue.outstandingTasks());
@@ -1334,17 +1340,22 @@ TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask) {
     EXPECT_TRUE(task->rpc);
     backup->gcTaskQueue.performTask(); // get response - server doesn't exist
     EXPECT_TRUE(StringUtil::contains(TestLog::get(),
-        "performTask: Server 13 marked down; cluster has recovered from its "
-            "failure | "
-        "performTask: Server has recovered from lost replica; "
+        "tryToFreeReplica: Server 13 marked down; cluster has recovered from "
+            "its failure | "
+        "tryToFreeReplica: Server has recovered from lost replica; "
             "freeing replica for <13,11>"));
+    EXPECT_EQ(1lu, backup->gcTaskQueue.outstandingTasks());
+
+    // Final perform finds no segments to free and just cleans up
+    backup->gcTaskQueue.performTask();
     EXPECT_EQ(0lu, backup->gcTaskQueue.outstandingTasks());
     task.release();
 }
 
 TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask_freedFirst) {
-    typedef BackupService::GarbageCollectReplicaFoundOnStorageTask Task;
-    std::unique_ptr<Task> task(new Task(*backup, {99, 0}, 88));
+    typedef BackupService::GarbageCollectReplicasFoundOnStorageTask Task;
+    std::unique_ptr<Task> task(new Task(*backup, {99, 0}));
+    task->addSegmentId(88);
     task->schedule();
     const_cast<ServerConfig&>(backup->config).backup.gc = true;
 
@@ -1352,6 +1363,9 @@ TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask_freedFirst) {
     backup->gcTaskQueue.performTask();
     EXPECT_EQ("", TestLog::get());
 
+    // Final perform finds no segments to free and just cleans up
+    backup->gcTaskQueue.performTask();
+    EXPECT_EQ(0lu, backup->gcTaskQueue.outstandingTasks());
     task.release();
 }
 
