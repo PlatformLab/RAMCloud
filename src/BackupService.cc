@@ -1106,11 +1106,14 @@ try {
         buildingInfo = loadingInfo;
         if (i < infos.size()) {
             loadingInfo = infos[i];
-            LOG(DEBUG, "Starting load of %uth segment", i);
+            LOG(DEBUG, "Starting load of %uth segment (<%lu,%lu>)", i,
+                loadingInfo->masterId.getId(), loadingInfo->segmentId);
             loadingInfo->startLoading();
         }
         buildingInfo->buildRecoverySegments(partitions);
-        LOG(DEBUG, "Done building recovery segments for %u", i - 1);
+        LOG(DEBUG, "Done building recovery segments for %uth segment "
+            "(<%lu,%lu>)", i - 1,
+            buildingInfo->masterId.getId(), buildingInfo->segmentId);
         if (i == infos.size())
             break;
     }
@@ -1912,8 +1915,6 @@ BackupService::startReadingData(
         WireFormat::BackupStartReadingData::Response& respHdr,
         Rpc& rpc)
 {
-    LOG(DEBUG, "Backup preparing for recovery of crashed server %lu",
-        reqHdr.masterId);
     recoveryTicks.construct(&metrics->backup.recoveryTicks);
     recoveryStart = Cycles::rdtsc();
     metrics->backup.recoveryCount++;
@@ -1922,6 +1923,10 @@ BackupService::startReadingData(
     ProtoBuf::Tablets partitions;
     ProtoBuf::parseFromResponse(rpc.requestPayload, sizeof(reqHdr),
                                 reqHdr.partitionsLength, partitions);
+    LOG(DEBUG, "Backup preparing for recovery of crashed server %lu; "
+        "loading replicas and filtering them according to the following "
+        "partitions:\n%s",
+        reqHdr.masterId, partitions.DebugString().c_str());
 
     uint64_t logDigestLastId = ~0UL;
     uint32_t logDigestLastLen = 0;
@@ -1960,8 +1965,8 @@ BackupService::startReadingData(
                     logDigestLastLen = info->getRightmostWrittenOffset();
                     logDigestBytes = newDigestBytes;
                     logDigestPtr = newDigest;
-                    LOG(DEBUG, "Segment %lu's LogDigest queued for response",
-                        segmentId);
+                    LOG(DEBUG, "Segment <%lu,%lu> LogDigest queued for "
+                        "response", info->masterId.getId(), segmentId);
                 }
             }
         }

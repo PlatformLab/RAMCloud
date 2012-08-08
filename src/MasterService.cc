@@ -1554,8 +1554,11 @@ MasterService::recover(const WireFormat::Recover::Request& reqHdr,
                         replicaLocation->segmentId);
         replicas.push_back(replica);
     }
-    LOG(DEBUG, "Starting recovery of %u tablets on masterId %lu",
-        recoveryTablets.tablet_size(), serverId.getId());
+    LOG(DEBUG, "Starting recovery %lu for crashed master %lu; "
+        "recovering partition %lu (see user_data) of the following "
+        "partitions:\n%s",
+        recoveryId, crashedServerId.getId(), partitionId,
+        recoveryTablets.DebugString().c_str());
     rpc.sendReply();
 
     // reqHdr, respHdr, and rpc are off-limits now

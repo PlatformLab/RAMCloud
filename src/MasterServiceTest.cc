@@ -483,7 +483,6 @@ TEST_F(MasterServiceTest, recover_basics) {
                           arrayLength(replicas));
 
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "recover: Starting recovery of 4 tablets on masterId 2 | "
         "recover: Recovering master 123, partition 0, 1 replicas available | "
         "recover: Starting getRecoveryData from server 1 at "
         "mock:host=backup1 for "
