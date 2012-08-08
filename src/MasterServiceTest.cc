@@ -1991,17 +1991,20 @@ class MasterRecoverTest : public ::testing::Test {
 TEST_F(MasterRecoverTest, recover) {
     MasterService* master = createMasterService();
 
-    // Give them a name so that freeSegment doesn't get called on
-    // destructor until after the test.
-    ServerId serverId(99, 0);
-    ServerList serverList(context);
-    serverList.add(backup1Id, "mock:host=backup1",
+    // Create a separate fake "server" (private context and serverList) and
+    // use it to replicate 2 segments worth of data on a single backup.
+    Context context2;
+    ServerList serverList2(context2);
+    context2.transportManager->registerMock(&cluster.transport);
+    serverList2.add(backup1Id, "mock:host=backup1",
                    {WireFormat::BACKUP_SERVICE,
                     WireFormat::MEMBERSHIP_SERVICE},
                    100);
-    ReplicaManager mgr(context, serverId, 1);
+    ServerId serverId(99, 0);
+    ReplicaManager mgr(context2, serverId, 1);
     MasterServiceTest::writeRecoverableSegment(context, mgr, serverId, 99, 87);
     MasterServiceTest::writeRecoverableSegment(context, mgr, serverId, 99, 88);
+    context2.transportManager->unregisterMock();
 
     // Now run recovery, as if the fake server failed.
     ProtoBuf::Tablets tablets;

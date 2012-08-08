@@ -21,6 +21,7 @@
 #include "ReplicatedSegment.h"
 #include "Segment.h"
 #include "ShortMacros.h"
+#include "StringUtil.h"
 #include "TaskQueue.h"
 #include "TransportManager.h"
 #include "WireFormat.h"
@@ -89,12 +90,13 @@ struct ReplicatedSegmentTest : public ::testing::Test {
     struct CreateSegment {
         CreateSegment(ReplicatedSegmentTest* test,
                       ReplicatedSegment* precedingSegment,
-                      uint64_t segmentId)
+                      uint64_t segmentId,
+                      uint32_t numReplicas)
             : logSegment(test->data, DATA_LEN)
             , segment()
         {
             void* segMem =
-                operator new(ReplicatedSegment::sizeOf(test->numReplicas));
+                operator new(ReplicatedSegment::sizeOf(numReplicas));
             logSegment.tail = test->openLen; // open queued
             segment.reset(
                 new(segMem) ReplicatedSegment(test->context,
@@ -109,7 +111,7 @@ struct ReplicatedSegmentTest : public ::testing::Test {
                                               &logSegment,
                                               true,
                                               test->masterId,
-                                              test->numReplicas,
+                                              numReplicas,
                                               MAX_BYTES_PER_WRITE));
             // Set up ordering constraints between this new segment and the
             // prior one in the log.
@@ -189,7 +191,7 @@ struct ReplicatedSegmentTest : public ::testing::Test {
 
         // Create the segment _after_ initializing data[] so that the contents
         // don't change after construction.
-        createSegment = new CreateSegment(this, NULL, segmentId);
+        createSegment = new CreateSegment(this, NULL, segmentId, numReplicas);
         segment = createSegment->segment.get();
     }
 
@@ -398,7 +400,7 @@ TEST_F(ReplicatedSegmentTest, syncDoubleCheckCrossSegmentOrderingConstraints) {
     transport.setInput("0 0"); // write
     transport.setInput("0 0"); // write
 
-    CreateSegment createSegment(this, segment, segmentId + 1);
+    CreateSegment createSegment(this, segment, segmentId + 1, numReplicas);
     auto newHead = createSegment.segment.get();
     segment->close(); // close queued
     createSegment.logSegment.tail = openLen + 10; // write queued
@@ -464,7 +466,7 @@ TEST_F(ReplicatedSegmentTest, syncDoubleCheckCrossSegmentOrderingConstraints) {
 
 namespace {
 bool filter(string s) {
-    return s != "checkStatus";
+    return s != "checkStatus" && s != "schedule";
 }
 }
 
@@ -621,6 +623,25 @@ TEST_F(ReplicatedSegmentTest, syncWaitsForCommittedEvenWhenAcked) {
 
     EXPECT_EQ(0u, deleter.count);
     reset();
+}
+
+TEST_F(ReplicatedSegmentTest, scheduleWithReplicas) {
+    TestLog::Enable _;
+    transport.setInput("0 0"); // write
+    transport.setInput("0 0"); // write
+    transport.setInput("0 0"); // write
+    transport.setInput("0 0"); // write
+    createSegment->logSegment.tail = openLen + 1;
+    segment->sync(openLen + 1);
+    EXPECT_TRUE(StringUtil::contains(TestLog::get(), "schedule: scheduled"));
+}
+
+TEST_F(ReplicatedSegmentTest, scheduleWithZeroReplicas) {
+    TestLog::Enable _;
+    CreateSegment createSegment(this, segment, segmentId + 1, 0);
+    // Task::schedule() must not have been invoked.
+    EXPECT_FALSE(StringUtil::contains(TestLog::get(), "schedule: scheduled"));
+    EXPECT_EQ("schedule: zero replicas: nothing to schedule", TestLog::get());
 }
 
 TEST_F(ReplicatedSegmentTest, performTaskFreeNothingToDo) {
@@ -1165,7 +1186,7 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureNewHeadOpenAckedBeforeClose) {
     taskQueue.performTask(); // reap segment open
     taskQueue.performTask();
 
-    CreateSegment createSegment(this, segment, segmentId + 1);
+    CreateSegment createSegment(this, segment, segmentId + 1, numReplicas);
     auto newHead = createSegment.segment.get();
     segment->close();
 
@@ -1203,7 +1224,7 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureNewHeadOpenAckedBeforeClose) {
 }
 
 TEST_F(ReplicatedSegmentTest, performWriteEnsureCloseBeforeNewHeadWrittenTo) {
-    CreateSegment newCreateSegment(this, segment, segmentId + 1);
+    CreateSegment newCreateSegment(this, segment, segmentId + 1, numReplicas);
     auto newHead = newCreateSegment.segment.get();
 
     transport.setInput("0 0"); // write - segment open
@@ -1243,7 +1264,7 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureCloseBeforeNewHeadWrittenTo) {
     taskQueue.performTask(); // send close rpcs for segment
     transport.setInput("0 0"); // write - newHead
     transport.setInput("0 0"); // write - newHead
-    TestLog::Enable _;
+    TestLog::Enable _(filter);
     taskQueue.performTask(); // try newHead write but can't
     EXPECT_EQ(
         "performWrite: Cannot write segment 889 until preceding segment "
@@ -1351,7 +1372,7 @@ bool performWriteFilter(string s) {
 }
 
 TEST_F(ReplicatedSegmentTest, performWriteEnsureDurableOpensOrdered) {
-    CreateSegment createSegment(this, segment, segmentId + 1);
+    CreateSegment createSegment(this, segment, segmentId + 1, numReplicas);
     auto newHead = createSegment.segment.get();
     segment->close(); // close queued
 
@@ -1426,7 +1447,7 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureDurableOpensOrderedAlreadyOpen)
     taskQueue.performTask(); // send segment open for first segment
     taskQueue.performTask(); // reap segment open for first segment
 
-    CreateSegment createSegment(this, segment, segmentId + 1);
+    CreateSegment createSegment(this, segment, segmentId + 1, numReplicas);
     auto newHead = createSegment.segment.get();
     segment->close(); // close queued
 

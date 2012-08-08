@@ -356,7 +356,7 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
         "close: 3, 1, 2 | "
         // And which also provides the needed close on the log segment
         // with the lost open replica.
-        "close: Segment 1 closed (length 208) | "
+        "close: Segment 1 closed (length 180) | "
         // Notice the actual close to the backup is delayed because it
         // must wait on a durable open to the new log head.
         "performWrite: Cannot close segment 1 until following segment is "

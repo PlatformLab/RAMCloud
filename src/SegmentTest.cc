@@ -422,9 +422,9 @@ TEST_P(SegmentTest, peek) {
 
 TEST_P(SegmentTest, bytesLeft) {
     Segment s(*GetParam());
-    EXPECT_EQ(s.allocator.getSegmentSize(), s.bytesLeft());
+    EXPECT_EQ(s.allocator.getSegmentSize(), s.bytesLeft() + 7);
     s.append(LOG_ENTRY_TYPE_OBJ, "blah", 5);
-    EXPECT_EQ(s.allocator.getSegmentSize() - 7, s.bytesLeft());
+    EXPECT_EQ(s.allocator.getSegmentSize() - 14, s.bytesLeft());
     s.close();
     EXPECT_EQ(0U, s.bytesLeft());
 }

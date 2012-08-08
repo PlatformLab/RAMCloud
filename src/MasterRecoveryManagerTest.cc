@@ -103,7 +103,8 @@ TEST_F(MasterRecoveryManagerTest, startMasterRecovery) {
     tabletMap.addTablet({0, 0, ~0lu, crashedServerId, Tablet::NORMAL, {2, 3}});
     TestLog::Enable _;
     mgr.startMasterRecovery(crashedServerId);
-    EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1",
+    EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1 | "
+                "schedule: scheduled",
               TestLog::get());
     auto tablet = tabletMap.getTablet(0, 0, ~0lu);
     EXPECT_EQ(tablet.status, Tablet::RECOVERING);
@@ -224,7 +225,9 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
             "serverId: 2 status: NORMAL ctime: 0, 0 } "
         "Tablet { tableId: 0 startKeyHash: 0 endKeyHash: 18446744073709551615 "
             "serverId: 1 status: RECOVERING ctime: 2, 3 } | "
-        "recoveryFinished: Recovery 1 completed for master 1",
+        "schedule: scheduled | "
+        "recoveryFinished: Recovery 1 completed for master 1 | "
+        "schedule: scheduled | schedule: scheduled",
               TestLog::get());
 
     // Recovery task which is finishing up, ApplyTrackerChangesTask (due to
@@ -271,19 +274,20 @@ TEST_F(MasterRecoveryManagerTest,
         "recoveryFinished: Recovery 1 completed for master 1 | "
         "recoveryFinished: Recovery of server 1 failed to recover some "
             "tablets, rescheduling another recovery | "
+        "schedule: scheduled | "
         "destroyAndFreeRecovery: Recovery of server 1 done (now 0 active "
             "recoveries)"
         , TestLog::get());
     recovery.release();
 
     TestLog::reset();
-    mgr.taskQueue.performTask();
-    EXPECT_EQ("", TestLog::get()); // EnqueueMasterRecoveryTask.
+    mgr.taskQueue.performTask();  // EnqueueMasterRecoveryTask.
+    EXPECT_EQ("schedule: scheduled", TestLog::get());
 
     TestLog::reset();
     mgr.taskQueue.performTask();  // MaybeStartMasterRecoveryTask.
-    EXPECT_EQ("performTask: Starting recovery of server 1 "
-                  "(now 1 active recoveries)", TestLog::get());
+    EXPECT_EQ("schedule: scheduled | performTask: Starting recovery of server "
+                  "1 (now 1 active recoveries)", TestLog::get());
 }
 
 TEST_F(MasterRecoveryManagerTest,
@@ -314,8 +318,10 @@ TEST_F(MasterRecoveryManagerTest,
     EXPECT_EQ(0lu, mgr.activeRecoveries.size());
     TestLog::Enable _;
     mgr.taskQueue.performTask();
-    EXPECT_EQ("performTask: Starting recovery of server 1 "
+    EXPECT_EQ("schedule: scheduled | "
+              "performTask: Starting recovery of server 1 "
                   "(now 1 active recoveries) | "
+              "schedule: scheduled | "
               "performTask: Starting recovery of server 2 "
                   "(now 2 active recoveries) | "
               "performTask: 1 recoveries blocked waiting for other recoveries",
@@ -348,7 +354,8 @@ TEST_F(MasterRecoveryManagerTest,
     EXPECT_EQ(0lu, mgr.activeRecoveries.size());
     TestLog::Enable _;
     mgr.taskQueue.performTask();
-    EXPECT_EQ("performTask: Starting recovery of server 1 "
+    EXPECT_EQ("schedule: scheduled | "
+              "performTask: Starting recovery of server 1 "
                   "(now 1 active recoveries) | "
               "performTask: Delaying start of recovery of server 1; "
                   "another recovery is active for the same ServerId | "

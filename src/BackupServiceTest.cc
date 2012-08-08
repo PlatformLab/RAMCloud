@@ -1361,6 +1361,12 @@ TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask) {
     task.release();
 }
 
+static bool
+taskScheduleFilter(string s)
+{
+    return s != "schedule";
+}
+
 TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask_freedFirst) {
     typedef BackupService::GarbageCollectReplicasFoundOnStorageTask Task;
     std::unique_ptr<Task> task(new Task(*backup, {99, 0}));
@@ -1368,7 +1374,7 @@ TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask_freedFirst) {
     task->schedule();
     const_cast<ServerConfig&>(backup->config).backup.gc = true;
 
-    TestLog::Enable _;
+    TestLog::Enable _(taskScheduleFilter);
     backup->gcTaskQueue.performTask();
     EXPECT_EQ("", TestLog::get());
 

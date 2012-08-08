@@ -344,6 +344,7 @@ class ReplicatedSegment : public Task {
                       uint32_t maxBytesPerWriteRpc = 1024 * 1024);
     ~ReplicatedSegment();
 
+    void schedule();
     void performTask();
     void performFree(Replica& replica);
     void performWrite(Replica& replica);

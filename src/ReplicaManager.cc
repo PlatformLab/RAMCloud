@@ -410,7 +410,8 @@ ReplicaManager::allocateSegment(const Lock& lock,
                                  dataMutex, segmentId, segment,
                                  isLogHead, masterId, numReplicas);
     replicatedSegmentList.push_back(*replicatedSegment);
-    replicatedSegment->schedule();
+
+    // ReplicatedSegment's constructor has scheduled the open.
 
     return replicatedSegment;
 }

@@ -129,16 +129,19 @@ SegmentManager::allocHead()
     if (prevHead != NULL)
         prevReplicatedSegment = prevHead->replicatedSegment;
 
+    // Allocate a new ReplicatedSegment to handle backing up the new head. This
+    // call will also sync the initial data (header, digest, etc) to the needed
+    // number of replicas before returning.
     newHead->replicatedSegment = replicaManager.allocateHead(
         newHead->id, newHead, prevReplicatedSegment);
-    Segment::OpaqueFooterEntry unused;
-    newHead->replicatedSegment->sync(newHead->getAppendedLength(unused));
 
-    // Only close the old head _after_ we've opened up the new head!
+    // Close the old head after we've opened up the new head. This ensures that
+    // we always have an open segment on backups, unless of course there was a
+    // coordinated failure, in which case we can unambiguously detect it.
     if (prevHead != NULL) {
         // An exception here would be problematic.
         prevHead->replicatedSegment->close();
-        Segment::OpaqueFooterEntry unused;  // TODO(steve/ryan): is sync needed??
+        Segment::OpaqueFooterEntry unused;  // TODO(ryan): Should close be sync?
         prevHead->replicatedSegment->sync(prevHead->getAppendedLength(unused));
         changeState(*prevHead, NEWLY_CLEANABLE);
     }

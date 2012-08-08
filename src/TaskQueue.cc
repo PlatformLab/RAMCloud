@@ -13,7 +13,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "ShortMacros.h"
 #include "TaskQueue.h"
+#include "TestLog.h"
 
 namespace RAMCloud {
 
@@ -197,6 +199,7 @@ TaskQueue::schedule(Task* task)
     task->scheduled = true;
     tasks.push(task);
     taskAdded.notify_one();
+    TEST_LOG("scheduled");
 }
 
 /**

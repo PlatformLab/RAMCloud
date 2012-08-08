@@ -332,6 +332,18 @@ ReplicatedSegment::sync(uint32_t offset)
 // - private -
 
 /**
+ * Schedule this task if the number of replicas is greater than zero.
+ */
+void
+ReplicatedSegment::schedule()
+{
+    if (replicas.empty())
+        TEST_LOG("zero replicas: nothing to schedule");
+    else
+        Task::schedule();
+}
+
+/**
  * Check replication state and make progress in restoring invariants;
  * generally don't invoke this directly, instead use schedule().
  *
