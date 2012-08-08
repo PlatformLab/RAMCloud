@@ -532,8 +532,7 @@ class BackupService : public Service
     };
 
   public:
-    BackupService(Context& context, const ServerConfig& config,
-                  ServerList& serverList);
+    BackupService(Context& context, const ServerConfig& config);
     virtual ~BackupService();
     void benchmark(uint32_t& readSpeed, uint32_t& writeSpeed);
     void dispatch(WireFormat::Opcode opcode, Rpc& rpc);

@@ -29,7 +29,6 @@ namespace RAMCloud {
 class PingService : public Service {
   public:
     explicit PingService(Context& context);
-    explicit PingService(Context& context, ServerList* serverList);
     void dispatch(WireFormat::Opcode opcode, Rpc& rpc);
     virtual int maxThreads() {
         return 5;
@@ -51,11 +50,6 @@ class PingService : public Service {
 
     /// Shared RAMCloud information.
     Context& context;
-
-    /// ServerList whose version will be returned on ping requests. This
-    /// should refer to the server's global ServerList, which is being
-    /// kept up-to-date by the MembershipService.
-    ServerList* serverList;
 
     /// If this variable is true, the kill method returns without dying.
     /// This is used during unit tests that verify the communication path

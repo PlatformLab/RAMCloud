@@ -48,7 +48,6 @@ class ServerListUpdaterTest : public ::testing::Test {
     {
         psl1.set_version_number(4);
         psl2.set_version_number(99);
-        context.coordinatorServerList = &csl;
         id1 = csl.add("mock:host=server1", {WireFormat::MEMBERSHIP_SERVICE}, 0);
         id2 = csl.add("mock:host=server2", {WireFormat::MEMBERSHIP_SERVICE}, 0);
 
@@ -286,7 +285,7 @@ TEST_F(ServerListUpdaterTest, sendMembershipUpdate) {
 
     EXPECT_EQ("sendRequest: 0x40024 9 1041 0 /0 | "
             "sendRequest: 0x40024 9 0x6311 0 /0 | "
-            "sendRequest: 0x40023 9 17 0 /0",
+            "sendRequest: 0x40023 9 529 0 /0",
     transport.outputLog);
 }
 

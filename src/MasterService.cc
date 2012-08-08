@@ -101,18 +101,14 @@ MasterService::Replica::Replica(uint64_t backupId, uint64_t segmentId,
  * \param config
  *      Contains various parameters that configure the operation of
  *      this server.
- * \param serverList
- *      A reference to the global ServerList.
  */
 MasterService::MasterService(Context& context,
-                             const ServerConfig& config,
-                             ServerList& serverList)
+                             const ServerConfig& config)
     : context(context)
     , config(config)
     , serverId()
-    , serverList(serverList)
     , bytesWritten(0)
-    , replicaManager(context, serverList, serverId, config.master.numReplicas)
+    , replicaManager(context, serverId, config.master.numReplicas)
     , allocator(config.master.logBytes, config.segmentSize, config.segletSize)
     , segmentManager(context, serverId, allocator, replicaManager, 2.0) 
     , log(NULL)
@@ -835,7 +831,7 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request& reqHdr,
 
     LOG(NOTICE, "Migrating tablet (id %lu, first %lu, last %lu) to "
         "ServerId %lu (\"%s\")", tableId, firstKeyHash, lastKeyHash,
-        *newOwnerMasterId, serverList.getLocator(newOwnerMasterId));
+        *newOwnerMasterId, context.serverList->getLocator(newOwnerMasterId));
 
     // We'll send over objects in Segment containers for better network
     // efficiency and convenience.
@@ -1123,12 +1119,10 @@ namespace MasterServiceInternal {
 class RecoveryTask {
   PUBLIC:
     RecoveryTask(Context& context,
-                 ServerList& serverList,
                  ServerId masterId,
                  uint64_t partitionId,
                  MasterService::Replica& replica)
         : context(context)
-        , serverList(serverList)
         , masterId(masterId)
         , partitionId(partitionId)
         , replica(replica)
@@ -1144,7 +1138,7 @@ class RecoveryTask {
         if (rpc && !rpc->isReady()) {
             LOG(WARNING, "Task destroyed while RPC active: segment %lu, "
                     "server %s", replica.segmentId,
-                    serverList.toString(replica.backupId).c_str());
+                    context.serverList->toString(replica.backupId).c_str());
         }
     }
     void resend() {
@@ -1154,7 +1148,6 @@ class RecoveryTask {
                       partitionId, response);
     }
     Context& context;
-    ServerList& serverList;
     ServerId masterId;
     uint64_t partitionId;
     MasterService::Replica& replica;
@@ -1323,10 +1316,10 @@ MasterService::recover(ServerId masterId,
             auto& replica = *replicaIt;
             LOG(DEBUG, "Starting getRecoveryData from %s for segment %lu "
                 "on channel %ld (initial round of RPCs)",
-                serverList.toString(replica.backupId).c_str(),
+                context.serverList->toString(replica.backupId).c_str(),
                 replica.segmentId,
                 &task - &tasks[0]);
-            task.construct(context, serverList, masterId, partitionId,
+            task.construct(context, masterId, partitionId,
                            replica);
             replica.state = Replica::State::WAITING;
             runningSet.insert(replica.segmentId);
@@ -1362,7 +1355,7 @@ MasterService::recover(ServerId masterId,
             readStallTicks.destroy();
             LOG(DEBUG, "Waiting on recovery data for segment %lu from %s",
                 task->replica.segmentId,
-                serverList.toString(task->replica.backupId).c_str());
+                context.serverList->toString(task->replica.backupId).c_str());
             try {
                 task->rpc->wait();
                 uint64_t grdTime = Cycles::rdtsc() - task->startTime;
@@ -1375,7 +1368,8 @@ MasterService::recover(ServerId masterId,
                 }
                 LOG(DEBUG, "Got getRecoveryData response from %s, took %.1f us "
                     "on channel %ld",
-                    serverList.toString(task->replica.backupId).c_str(),
+                    context.serverList->toString(
+                        task->replica.backupId).c_str(),
                     Cycles::toSeconds(grdTime)*1e06,
                     &task - &tasks[0]);
 
@@ -1392,14 +1386,16 @@ MasterService::recover(ServerId masterId,
                 runningSet.erase(task->replica.segmentId);
                 // Mark this and any other entries for this segment as OK.
                 LOG(DEBUG, "Checking %s off the list for %lu",
-                    serverList.toString(task->replica.backupId).c_str(),
+                    context.serverList->toString(
+                        task->replica.backupId).c_str(),
                     task->replica.segmentId);
                 task->replica.state = Replica::State::OK;
                 foreach (auto it, segmentIdToBackups.equal_range(
                                         task->replica.segmentId)) {
                     Replica& otherReplica = *it.second;
                     LOG(DEBUG, "Checking %s off the list for %lu",
-                        serverList.toString(otherReplica.backupId).c_str(),
+                        context.serverList->toString(
+                            otherReplica.backupId).c_str(),
                         otherReplica.segmentId);
                     otherReplica.state = Replica::State::OK;
                 }
@@ -1411,7 +1407,8 @@ MasterService::recover(ServerId masterId,
             } catch (const ClientException& e) {
                 LOG(WARNING, "getRecoveryData failed on %s, "
                     "trying next backup; failure was: %s",
-                    serverList.toString(task->replica.backupId).c_str(),
+                    context.serverList->toString(
+                        task->replica.backupId).c_str(),
                     e.str().c_str());
                 task->replica.state = Replica::State::FAILED;
                 runningSet.erase(task->replica.segmentId);
@@ -1438,19 +1435,18 @@ MasterService::recover(ServerId masterId,
                 Replica& replica = *replicaIt;
                 LOG(DEBUG, "Starting getRecoveryData from %s for segment %lu "
                     "on channel %ld (after RPC completion)",
-                    serverList.toString(replica.backupId).c_str(),
+                    context.serverList->toString(replica.backupId).c_str(),
                     replica.segmentId,
                     &task - &tasks[0]);
                 try {
-                    task.construct(context, serverList, masterId, partitionId,
-                                   replica);
+                    task.construct(context, masterId, partitionId, replica);
                     replica.state = Replica::State::WAITING;
                     runningSet.insert(replica.segmentId);
                     ++metrics->master.segmentReadCount;
                 } catch (const TransportException& e) {
                     LOG(WARNING, "Couldn't contact %s, trying next backup; "
                         "failure was: %s",
-                        serverList.toString(replica.backupId).c_str(),
+                        context.serverList->toString(replica.backupId).c_str(),
                         e.str().c_str());
                     replica.state = Replica::State::FAILED;
                 } catch (const ServerListException& e) {

@@ -41,14 +41,13 @@ class PingServiceTest : public ::testing::Test {
         , transport(context)
         , mockRegistrar(context, transport)
         , serverList(context)
-        , pingService(context, &serverList)
+        , pingService(context)
         , serverId(1, 3)
     {
         transport.addService(pingService, "mock:host=ping",
                              WireFormat::PING_SERVICE);
         serverList.add(serverId, "mock:host=ping",
                        {WireFormat::PING_SERVICE}, 100);
-        context.serverList = &serverList;
     }
 
     DISALLOW_COPY_AND_ASSIGN(PingServiceTest);

@@ -260,9 +260,7 @@ using namespace MasterRecoveryManagerInternal; // NOLINT
  * of the CoordinatorService.
  *
  * \param context
- *      Overall information about the RAMCloud server or client.
- * \param serverList
- *      Authoritative list of all servers in the system and their details.
+ *      Overall information about the RAMCloud server or client..
  * \param  tabletMap
  *      Authoritative information about tablets and their mapping to servers.
  * \param runtimeOptions
@@ -270,11 +268,9 @@ using namespace MasterRecoveryManagerInternal; // NOLINT
  *      May be NULL for testing.
  */
 MasterRecoveryManager::MasterRecoveryManager(Context& context,
-                                             CoordinatorServerList& serverList,
                                              TabletMap& tabletMap,
                                              RuntimeOptions* runtimeOptions)
     : context(context)
-    , serverList(serverList)
     , tabletMap(tabletMap)
     , runtimeOptions(runtimeOptions)
     , thread()
@@ -282,7 +278,7 @@ MasterRecoveryManager::MasterRecoveryManager(Context& context,
     , activeRecoveries()
     , maxActiveRecoveries(1u)
     , taskQueue()
-    , tracker(context, serverList, this)
+    , tracker(context, this)
     , doNotStartRecoveries()
 {
 }
@@ -343,7 +339,8 @@ MasterRecoveryManager::startMasterRecovery(ServerId crashedServerId)
     }
 
     try {
-        CoordinatorServerList::Entry server = serverList[crashedServerId];
+        CoordinatorServerList::Entry server =
+            context.coordinatorServerList->at(crashedServerId);
         LOG(NOTICE, "Scheduling recovery of master %lu",
             crashedServerId.getId());
 
@@ -480,8 +477,7 @@ MasterRecoveryManager::recoveryFinished(Recovery* recovery)
         // to take care of this for us automatically. So we can just
         // do the remove.
         try {
-            serverList.remove(recovery->crashedServerId);
-            serverList.sendMembershipUpdate({});
+            context.coordinatorServerList->remove(recovery->crashedServerId);
         } catch (const Exception& e) {
             // Server may have already been removed from the list
             // because of an earlier recovery.

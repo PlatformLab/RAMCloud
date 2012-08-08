@@ -83,7 +83,7 @@ CoordinatorServerManager::assignReplicationGroup(
  * are not assigned a replication group and are up.
  * If there are not enough available candidates for a new group, the function
  * returns without sending out any Rpcs. If there are enough group members
- * to form a new group, but one of the servers is down, hintServerDown will
+ * to form a new group, but one of the servers is down, hintServerƒown will
  * reset the replication group of that server.
  */
 void
@@ -170,8 +170,6 @@ CoordinatorServerManager::enlistServer(
     state.set_write_speed(writeSpeed);
     state.set_service_locator(string(serviceLocator));
     EntryId stateEntryId = service.logCabinHelper->appendProtoBuf(state);
-
-    service.serverList.sendMembershipUpdate(newServerId);
 
     CoordinatorServerList::Entry entry = service.serverList[newServerId];
     LOG(NOTICE, "Enlisting new server at %s (server id %lu) supporting "
@@ -368,13 +366,6 @@ CoordinatorServerManager::serverDown(ServerId serverId)
     // list when they complete).
     if (!entry.services.has(WireFormat::MASTER_SERVICE))
         service.serverList.remove(serverId);
-
-    // Update cluster membership information.
-    // Backup recovery is kicked off via this update.
-    // Deciding whether to place this before or after the start of master
-    // recovery is difficult.
-    service.serverList.sendMembershipUpdate(
-                            ServerId(/*Invalid Id*/));
 
     service.recoveryManager.startMasterRecovery(entry.serverId);
 

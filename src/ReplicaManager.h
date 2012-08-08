@@ -65,7 +65,6 @@ class ReplicaManager
     typedef std::lock_guard<std::mutex> Lock;
 
     ReplicaManager(Context& context,
-                   ServerList& serverList,
                    const ServerId& masterId,
                    uint32_t numReplicas);
     ~ReplicaManager();

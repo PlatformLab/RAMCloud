@@ -115,37 +115,18 @@ class ServerTracker : public ServerTrackerInterface {
     };
 
     /**
-     * Constructor for a ServerTracker which is not associated with
-     * and ServerList. For unit testing.
+     * Constructor for a ServerTracker.
      *
      * \param context
      *      Overall information about the RAMCloud server or client.
+     *      Updates will be obtained from this context's serverList.
+     *      If the context has no serverList (for testing only) then
+     *      no updating will occur.
      */
     explicit ServerTracker(Context& context)
         : ServerTrackerInterface()
         , context(context)
-        , parent()
-        , serverList()
-        , changes()
-        , lastRemovedIndex(-1)
-        , eventCallback()
-        , numberOfServers(0)
-        , testing_avoidGetChangeAssertion(false)
-    {}
-
-    /**
-     * Constructor for ServerTracker.
-     *
-     * \param context
-     *      Overall information about the RAMCloud server.
-     * \param parent
-     *      The AbstractServerList to obtain updates from. This is typically a
-     *      single, process-global list used by all trackers.
-     */
-    explicit ServerTracker(Context& context, AbstractServerList& parent)
-        : ServerTrackerInterface()
-        , context(context)
-        , parent(&parent)
+        , parent(NULL)
         , serverList()
         , changes()
         , lastRemovedIndex(-1)
@@ -153,7 +134,8 @@ class ServerTracker : public ServerTrackerInterface {
         , numberOfServers(0)
         , testing_avoidGetChangeAssertion(false)
     {
-        parent.registerTracker(*this);
+        if (context.serverList != NULL)
+            context.serverList->registerTracker(*this);
     }
 
     /**
@@ -161,9 +143,7 @@ class ServerTracker : public ServerTrackerInterface {
      *
      * \param context
      *      Overall information about the RAMCloud server or client.
-     * \param parent
-     *      The AbstractServerList to obtain updates from. This is typically a
-     *      single, process-global list used by all trackers.
+     *      Updates will be obtained from this context's serverList.
      * \param eventCallback
      *      A callback functor to be invoked whenever there is an
      *      upcoming change to the list. This functor will execute
@@ -173,11 +153,10 @@ class ServerTracker : public ServerTrackerInterface {
      *      ServerTrackers.
      */
     explicit ServerTracker(Context& context,
-                           AbstractServerList& parent,
                            Callback* eventCallback)
         : ServerTrackerInterface()
         , context(context)
-        , parent(&parent)
+        , parent(NULL)
         , serverList()
         , changes()
         , lastRemovedIndex(-1)
@@ -185,7 +164,7 @@ class ServerTracker : public ServerTrackerInterface {
         , numberOfServers(0)
         , testing_avoidGetChangeAssertion(false)
     {
-        parent.registerTracker(*this);
+        context.serverList->registerTracker(*this);
     }
 
     /**
@@ -193,7 +172,7 @@ class ServerTracker : public ServerTrackerInterface {
      */
     ~ServerTracker()
     {
-        if (parent)
+        if (parent != NULL)
             parent->unregisterTracker(*this);
     }
 
@@ -692,7 +671,10 @@ class ServerTracker : public ServerTrackerInterface {
     Context& context;
 
     /// CoordinatorServerList/ServerList from which this tracker is registered
-    /// gets all the updates, NULL if unregistered
+    /// gets all the updates, NULL if unregistered.  We use this variable
+    /// internally instead of context.serverList, because this variable will be
+    /// NULLified if the parent server list goes away, and that's important for
+    /// us to know.
     AbstractServerList* parent;
 
     /// Servers that we're tracking and the templated state we're associating

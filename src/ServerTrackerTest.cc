@@ -35,8 +35,8 @@ class ServerTrackerTest : public ::testing::Test {
         : context()
         , callback()
         , sl(context)
-        , tr(context, sl)
-        , trcb(context, sl, &callback)
+        , tr(context)
+        , trcb(context, &callback)
     {
     }
 
@@ -64,7 +64,7 @@ TEST_F(ServerTrackerTest, constructors) {
 
 TEST_F(ServerTrackerTest, destructor) {
     EXPECT_EQ(2U, sl.trackers.size());
-    ServerTracker<int>* tr2 = new ServerTracker<int>(context, sl);
+    ServerTracker<int>* tr2 = new ServerTracker<int>(context);
     EXPECT_EQ(3U, sl.trackers.size());
     delete tr2;
     EXPECT_EQ(2U, sl.trackers.size());
@@ -141,9 +141,9 @@ TEST_F(ServerTrackerTest, fireCallback) {
     // Ensure that all trackers have changes enqueued
     // before any of the trackers receives notification.
     EnsureBothHaveChangesCallback orderCheckCb;
-    ServerTracker<int> tr1(context, sl, &orderCheckCb);
+    ServerTracker<int> tr1(context, &orderCheckCb);
     CountCallback countCb;
-    ServerTracker<int> tr2(context, sl, &countCb);
+    ServerTracker<int> tr2(context, &countCb);
     orderCheckCb.tr1 = &tr1;
     orderCheckCb.tr2 = &tr2;
     while (tr1.getChange(details, event)); // clear out both queues

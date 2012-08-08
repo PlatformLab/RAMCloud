@@ -19,6 +19,41 @@
 #include "ShortMacros.h"
 
 namespace RAMCloud {
+/**
+ * Constructor for Server: binds a configuration to a Server, but doesn't
+ * start anything up yet.
+ *
+ * \param context
+ *      Overall information about the RAMCloud server.  Note: if caller
+ *      has not provided a serverList here, then we will.
+ * \param config
+ *      Specifies which services and their configuration details for
+ *      when the Server is run.
+ */
+Server::Server(Context& context, const ServerConfig& config)
+    : context(context)
+    , config(config)
+    , backupReadSpeed()
+    , backupWriteSpeed()
+    , serverId()
+    , serverList(NULL)
+    , failureDetector()
+    , master()
+    , backup()
+    , membership()
+    , ping()
+{
+    context.coordinatorSession->setLocation(
+            config.coordinatorLocator.c_str());
+}
+
+/**
+ * Destructor for Server.
+ */
+Server::~Server()
+{
+    delete serverList;
+}
 
 /**
  * Create services according to #config, enlist with the coordinator and
@@ -93,14 +128,15 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
             "(yet).");
     }
 
-    if ((context.serverList == NULL)
-            && (context.coordinatorServerList == NULL)) {
-        context.serverList = &serverList;
+    // If a serverList was already provided in the context, then use it;
+    // otherwise, create a new one.
+    if (context.serverList == NULL) {
+        serverList = new ServerList(context);
     }
 
     if (config.services.has(WireFormat::MASTER_SERVICE)) {
         LOG(NOTICE, "Master is using %u backups", config.master.numReplicas);
-        master.construct(context, config, *context.serverList);
+        master.construct(context, config);
         if (bindTransport) {
             bindTransport->addService(*master,
                                       config.localLocator,
@@ -112,7 +148,7 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
     }
 
     if (config.services.has(WireFormat::BACKUP_SERVICE)) {
-        backup.construct(context, config, *context.serverList);
+        backup.construct(context, config);
         formerServerId = backup->getFormerServerId();
         if (config.backup.mockSpeed == 0) {
             backup->benchmark(backupReadSpeed, backupWriteSpeed);
@@ -130,7 +166,8 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
     }
 
     if (config.services.has(WireFormat::MEMBERSHIP_SERVICE)) {
-        membership.construct(serverId, *context.serverList);
+        membership.construct(serverId,
+            *static_cast<ServerList*>(context.serverList));
         if (bindTransport) {
             bindTransport->addService(*membership,
                                       config.localLocator,
@@ -142,7 +179,7 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
     }
 
     if (config.services.has(WireFormat::PING_SERVICE)) {
-        ping.construct(context, context.serverList);
+        ping.construct(context);
         if (bindTransport) {
             bindTransport->addService(*ping,
                                       config.localLocator,
@@ -187,8 +224,7 @@ Server::enlist(ServerId replacingId)
     if (config.detectFailures) {
         failureDetector.construct(
             context,
-            serverId,
-            serverList);
+            serverId);
         failureDetector->start();
     }
 }

@@ -67,6 +67,7 @@ class MasterServiceRefresher : public ObjectFinder::TabletMapFetcher {
 class MasterServiceTest : public ::testing::Test {
   public:
     Context context;
+    ServerList serverList;
     MockCluster cluster;
     Tub<RamCloud> ramcloud;
     ServerConfig backup1Config;
@@ -82,6 +83,7 @@ class MasterServiceTest : public ::testing::Test {
     // to provide a fixture with a different value.
     explicit MasterServiceTest(uint32_t segmentSize = 256 * 1024)
         : context()
+        , serverList(context)
         , cluster(context)
         , ramcloud()
         , backup1Config(ServerConfig::forTesting())
@@ -504,14 +506,13 @@ TEST_F(MasterServiceTest, getHeadOfLog) {
 }
 
 TEST_F(MasterServiceTest, recover_basics) {
-//    const uint32_t segmentSize = backup1Config.segmentSize;
     ServerId serverId(123, 0);
     foreach (auto* server, cluster.servers) {
-        context.serverList->add(server->serverId, server->config.localLocator,
+        serverList.add(server->serverId, server->config.localLocator,
                        server->config.services, 100);
     }
 
-    ReplicaManager mgr(context, *context.serverList, serverId, 1);
+    ReplicaManager mgr(context, serverId, 1);
     writeRecoverableSegment(context, mgr, serverId, 123, 87);
 
     ProtoBuf::Tablets tablets;
@@ -596,16 +597,13 @@ TEST_F(MasterServiceTest, removeIfFromUnknownTablet) {
   * 5) ServerDoesntExistExceptions are deferred until the RPC is waited on.
   */
 TEST_F(MasterServiceTest, recover) {
-    const uint32_t segmentSize = backup1Config.segmentSize;
-    char* segMem =
-        static_cast<char*>(Memory::xmemalign(HERE, segmentSize, segmentSize));
     ServerId serverId(123, 0);
     foreach (auto* server, cluster.servers) {
-        context.serverList->add(server->serverId, server->config.localLocator,
+        serverList.add(server->serverId, server->config.localLocator,
                        server->config.services, 100);
     }
 
-    ReplicaManager mgr(context, *context.serverList, serverId, 1);
+    ReplicaManager mgr(context, serverId, 1);
     writeRecoverableSegment(context, mgr, serverId, 123, 88);
 
     ServerConfig backup2Config = backup1Config;
@@ -711,8 +709,6 @@ TEST_F(MasterServiceTest, recover) {
         "for segment 93 on channel . (after RPC completion)",
         TestLog::get()));
     EXPECT_EQ(State::FAILED, replicas.at(8).state);
-
-    free(segMem);
 }
 
 static bool
@@ -2003,10 +1999,11 @@ TEST_F(MasterRecoverTest, recover) {
                    {WireFormat::BACKUP_SERVICE,
                     WireFormat::MEMBERSHIP_SERVICE},
                    100);
-    ReplicaManager mgr(context, serverList, serverId, 1);
+    ReplicaManager mgr(context, serverId, 1);
     MasterServiceTest::writeRecoverableSegment(context, mgr, serverId, 99, 87);
     MasterServiceTest::writeRecoverableSegment(context, mgr, serverId, 99, 88);
 
+    // Now run recovery, as if the fake server failed.
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
     {

@@ -36,26 +36,24 @@ namespace RAMCloud {
 class FailureDetectorTest : public ::testing::Test {
   public:
     Context context;
+    ServerList serverList;
     TestLog::Enable logEnabler;
     MockTransport mockTransport;
     MockTransport coordTransport;
-    ServerList* serverList;
     FailureDetector *fd;
 
     FailureDetectorTest()
         : context(),
+          serverList(context),
           logEnabler(),
           mockTransport(context),
           coordTransport(context),
-          serverList(NULL),
           fd(NULL)
     {
-        serverList = new ServerList(context);
         context.transportManager->registerMock(&mockTransport, "mock");
         context.transportManager->registerMock(&coordTransport, "coord");
         context.coordinatorSession->setLocation("coord:");
-        context.serverList = serverList;
-        fd = new FailureDetector(context, ServerId(57, 27342), *serverList);
+        fd = new FailureDetector(context, ServerId(57, 27342));
     }
 
     ~FailureDetectorTest()
@@ -63,7 +61,6 @@ class FailureDetectorTest : public ::testing::Test {
         delete fd;
         context.transportManager->unregisterMock();
         context.transportManager->unregisterMock();
-        delete serverList;
     }
 
     static bool
@@ -77,7 +74,7 @@ class FailureDetectorTest : public ::testing::Test {
     {
         ServerDetails dummy1;
         ServerChangeEvent dummy2;
-        serverList->add(id, locator, {WireFormat::PING_SERVICE}, 100);
+        serverList.add(id, locator, {WireFormat::PING_SERVICE}, 100);
         fd->serverTracker.getChange(dummy1, dummy2);
     }
 
@@ -116,7 +113,7 @@ TEST_F(FailureDetectorTest, pingRandomServer_pingFailure) {
 }
 
 TEST_F(FailureDetectorTest, checkServerListVersion) {
-    serverList->version = 0;
+    serverList.version = 0;
     fd->checkServerListVersion(0);
     EXPECT_FALSE(fd->staleServerListSuspected);
 
@@ -143,7 +140,7 @@ TEST_F(FailureDetectorTest, checkForStaleServerList) {
     TestLog::reset();
     fd->staleServerListSuspected = true;
     fd->staleServerListVersion = 0;
-    serverList->version = 1;
+    serverList.version = 1;
     fd->checkForStaleServerList();
     EXPECT_FALSE(fd->staleServerListSuspected);
     EXPECT_EQ("checkForStaleServerList: Version advanced. "

@@ -27,12 +27,15 @@ namespace RAMCloud {
  * Constructor for ServerList.
 
  * \param context
- *      Overall information about the RAMCloud server
+ *      Overall information about the RAMCloud server.  The constructor
+ *      will modify context so that its serverList member refers to this
+ *      object.
  */
 ServerList::ServerList(Context& context)
     : AbstractServerList(context)
     , serverList()
 {
+    context.serverList = this;
 }
 
 /**

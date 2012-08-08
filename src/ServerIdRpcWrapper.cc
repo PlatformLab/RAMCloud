@@ -72,11 +72,7 @@ ServerIdRpcWrapper::handleTransportError()
 
     bool up;
     try {
-        if (context.serverList != NULL) {
-            up = context.serverList->isUp(id);
-        } else {
-            up = context.coordinatorServerList->isUp(id);
-        }
+        up = context.serverList->isUp(id);
     }
     catch (Exception& e) {
         // This exception happens if the server can't be found in the
@@ -99,14 +95,10 @@ ServerIdRpcWrapper::handleTransportError()
 void
 ServerIdRpcWrapper::send()
 {
-    assert(context.serverList != NULL ||
-            context.coordinatorServerList != NULL);
+    assert(context.serverList != NULL);
     try {
-        const char* locator =
-                (context.serverList != NULL)
-                ? context.serverList->getLocator(id)
-                : context.coordinatorServerList->getLocator(id);
-        session = context.transportManager->getSession(locator, id);
+        session = context.transportManager->getSession(
+                context.serverList->getLocator(id), id);
     }
     catch (Exception& e) {
         LOG(DEBUG, "ServerIdRpcWrapper couldn't get session: %s",

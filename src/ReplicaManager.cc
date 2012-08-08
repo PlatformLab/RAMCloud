@@ -30,9 +30,6 @@ namespace RAMCloud {
  * single log results in undefined behavior.
  * \param context
  *      Overall information about the RAMCloud server.
- * \param serverList
- *      Used to construct a tracker to find backups and track replica
- *      distribution stats.
  * \param masterId
  *      Server id of master that this will be managing replicas for (also
  *      serves as the log id).
@@ -40,12 +37,11 @@ namespace RAMCloud {
  *      Number replicas to keep of each segment.
  */
 ReplicaManager::ReplicaManager(Context& context,
-                               ServerList& serverList,
                                const ServerId& masterId,
                                uint32_t numReplicas)
     : context(context)
     , numReplicas(numReplicas)
-    , tracker(context, serverList)
+    , tracker(context)
     , backupSelector(tracker)
     , dataMutex()
     , masterId(masterId)
@@ -54,7 +50,7 @@ ReplicaManager::ReplicaManager(Context& context,
     , taskQueue()
     , writeRpcsInFlight(0)
     , minOpenSegmentId()
-    , failureMonitor(context, serverList, this)
+    , failureMonitor(context, this)
 {
     minOpenSegmentId.construct(context, &taskQueue, &masterId);
 }

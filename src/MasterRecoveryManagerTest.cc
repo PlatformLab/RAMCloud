@@ -34,7 +34,7 @@ struct MasterRecoveryManagerTest : public ::testing::Test {
         : context()
         , serverList(context)
         , tabletMap()
-        , mgr(context, serverList, tabletMap, NULL)
+        , mgr(context, tabletMap, NULL)
     {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
     }
@@ -147,31 +147,35 @@ TEST_F(MasterRecoveryManagerTest, trackerChangesEnqueued) {
 }
 
 TEST_F(MasterRecoveryManagerTest, recoveryFinished) {
+    EXPECT_EQ(0lu, serverList.version);
     addMaster();
+    EXPECT_EQ(1lu, serverList.version);
     Recovery recovery(context, mgr.taskQueue, &tabletMap, &mgr.tracker,
                       NULL, {1, 0}, 0lu);
     recovery.status = Recovery::BROADCAST_RECOVERY_COMPLETE;
     ASSERT_EQ(0lu, mgr.taskQueue.outstandingTasks());
-    EXPECT_EQ(0lu, serverList.version);
+    EXPECT_EQ(1lu, serverList.version);
     mgr.recoveryFinished(&recovery);
 
     // ApplyTrackerChangesTask for crashed, one for remove, and the
     // MaybeStartRecoveryTask.
     EXPECT_EQ(3lu, mgr.taskQueue.outstandingTasks());
-    EXPECT_EQ(1lu, serverList.version);
+    EXPECT_EQ(2lu, serverList.version);
 }
 
 TEST_F(MasterRecoveryManagerTest, recoveryFinishedUnsuccessful) {
+    EXPECT_EQ(0lu, serverList.version);
     addMaster();
+    EXPECT_EQ(1lu, serverList.version);
     Recovery recovery(context, mgr.taskQueue, &tabletMap, &mgr.tracker,
                       NULL, {1, 0},  0lu);
     ASSERT_EQ(0lu, mgr.taskQueue.outstandingTasks());
-    EXPECT_EQ(0lu, serverList.version);
+    EXPECT_EQ(1lu, serverList.version);
     mgr.recoveryFinished(&recovery);
 
     // EnqueueRecoveryTask.
     EXPECT_EQ(1lu, mgr.taskQueue.outstandingTasks());
-    EXPECT_EQ(0lu, serverList.version);
+    EXPECT_EQ(1lu, serverList.version);
 }
 
 TEST_F(MasterRecoveryManagerTest, recoveryMasterFinishedNoSuchRecovery) {
@@ -189,9 +193,11 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
     MockRandom __(1);
     tabletMap.addTablet({0, 0, ~0lu, {1, 0}, Tablet::NORMAL, {2, 3}});
 
+    EXPECT_EQ(0lu, serverList.version);
     auto crashedServerId = addMaster();
     crashServer(crashedServerId);
     addMaster(); // Recovery master.
+    EXPECT_EQ(3lu, serverList.version);
 
     std::unique_ptr<Recovery> recovery{
         new Recovery(context, mgr.taskQueue, &tabletMap, &mgr.tracker, &mgr,
@@ -208,7 +214,7 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
 
     mgr.recoveryMasterFinished(recovery->recoveryId,
                                {2, 0}, recoveredTablets, true);
-    EXPECT_EQ(0lu, serverList.version);
+    EXPECT_EQ(3lu, serverList.version);
     EXPECT_EQ(1lu, mgr.taskQueue.outstandingTasks());
     TestLog::Enable _;
     mgr.taskQueue.performTask(); // Do RecoveryMasterFinishedTask.
@@ -226,7 +232,7 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
     EXPECT_EQ(3lu, mgr.taskQueue.outstandingTasks());
 
     // Ensure server list broadcast happened.
-    EXPECT_EQ(1lu, serverList.version);
+    EXPECT_EQ(4lu, serverList.version);
 }
 
 TEST_F(MasterRecoveryManagerTest,

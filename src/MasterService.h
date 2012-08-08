@@ -49,8 +49,7 @@ class RecoveryTask;
 class MasterService : public Service, Log::EntryHandlers {
   public:
     MasterService(Context& context,
-                  const ServerConfig& config,
-                  ServerList& serverList);
+                  const ServerConfig& config);
     virtual ~MasterService();
     void init(ServerId id);
     void dispatch(WireFormat::Opcode opcode,
@@ -176,11 +175,11 @@ class MasterService : public Service, Log::EntryHandlers {
 
     const ServerConfig& config;
 
+    /// The identifier assigned to this service by the coordinator.  Initial
+    /// state (before enlistment) is ???.
     ServerId serverId;
 
   PRIVATE:
-    /// A reference to the global ServerList.
-    ServerList& serverList;
 
     /// Track total bytes of object data written (not including log overhead).
     uint64_t bytesWritten;

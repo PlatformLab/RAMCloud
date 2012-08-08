@@ -95,7 +95,6 @@ TEST_F(ServerListTest, applyFullList_fromEmpty) {
 }
 
 TEST_F(ServerListTest, applyFullList_overlap) {
-    sl.registerTracker(tr);
     EXPECT_EQ(0U, sl.size());
     EXPECT_EQ(0U, sl.getVersion());
 
@@ -250,7 +249,6 @@ addFilter(string s)
 }
 
 TEST_F(ServerListTest, add) {
-    sl.registerTracker(tr);
     TestLog::Enable _(&addFilter);
 
     EXPECT_EQ(0U, sl.serverList.size());
@@ -308,7 +306,6 @@ TEST_F(ServerListTest, add) {
 
 TEST_F(ServerListTest, addIdsMatchCurrentlyUp) {
     // Current entry == new entry, current entry is up.
-    sl.registerTracker(tr);
     TestLog::Enable _(&addFilter);
     sl.add({1, 0}, "mock:", {}, 100);
     ASSERT_EQ(1u, changes.size());
@@ -320,7 +317,6 @@ TEST_F(ServerListTest, addIdsMatchCurrentlyUp) {
 
 TEST_F(ServerListTest, addIdsMatchCurrentlyCrashed) {
     // Current entry == new entry, current entry is crashed.
-    sl.registerTracker(tr);
     TestLog::Enable _(&addFilter);
     sl.crashed({1, 0}, "mock:", {}, 100);
     ASSERT_EQ(2u, changes.size());
@@ -334,7 +330,6 @@ TEST_F(ServerListTest, addIdsMatchCurrentlyCrashed) {
 
 TEST_F(ServerListTest, addCurrentlyDown) {
     // No current entry.
-    sl.registerTracker(tr);
     sl.add({1, 0}, "mock:", {}, 100);
     EXPECT_EQ(1U, changes.size());
     EXPECT_EQ(ServerId(1, 0), changes.front().server.serverId);
@@ -343,7 +338,6 @@ TEST_F(ServerListTest, addCurrentlyDown) {
 
 TEST_F(ServerListTest, addNewerIdCurrentlyUp) {
     // Current entry is older than new entry, current entry is up.
-    sl.registerTracker(tr);
     sl.add({1, 0}, "mock:", {}, 100);
     EXPECT_EQ(1U, changes.size());
     changes.pop();
@@ -365,7 +359,6 @@ TEST_F(ServerListTest, addNewerIdCurrentlyUp) {
 
 TEST_F(ServerListTest, addNewerIdCurrentlyCrashed) {
     // Current entry is older than new entry, current entry is crashed.
-    sl.registerTracker(tr);
     sl.crashed({1, 0}, "mock:", {}, 100);
     EXPECT_EQ(2U, changes.size());
     changes.pop();
@@ -384,7 +377,6 @@ TEST_F(ServerListTest, addNewerIdCurrentlyCrashed) {
 }
 
 TEST_F(ServerListTest, crashedBadIndex) {
-    sl.registerTracker(tr);
     sl.crashed({1, 0}, "mock:", {}, 100);
     ASSERT_EQ(2u, changes.size());
     EXPECT_EQ(ServerId(1, 0), changes.front().server.serverId);
@@ -397,7 +389,6 @@ TEST_F(ServerListTest, crashedBadIndex) {
 
 TEST_F(ServerListTest, crashedIdsMatchCurrentlyUp) {
     // Current entry == new entry, current entry is up.
-    sl.registerTracker(tr);
     sl.add({1, 0}, "mock:", {}, 100);
     ASSERT_EQ(1u, changes.size());
     changes.pop();
@@ -411,7 +402,6 @@ TEST_F(ServerListTest, crashedIdsMatchCurrentlyUp) {
 
 TEST_F(ServerListTest, crashedIdsMatchCurrentlyCrashed) {
     // Current entry == new entry, current entry is crashed.
-    sl.registerTracker(tr);
     sl.add({1, 0}, "mock:", {}, 100);
     ASSERT_EQ(1u, changes.size());
     changes.pop();
@@ -428,7 +418,6 @@ TEST_F(ServerListTest, crashedIdsMatchCurrentlyCrashed) {
 
 TEST_F(ServerListTest, crashedCurrentlyDown) {
     // No current entry.
-    sl.registerTracker(tr);
     sl.add({1, 0}, "mock:", {}, 100);
     changes.pop();
     sl.remove({1, 0});
@@ -446,7 +435,6 @@ TEST_F(ServerListTest, crashedCurrentlyDown) {
 
 TEST_F(ServerListTest, crashedNewerIdCurrentlyUp) {
     // Current entry is older than new entry, current entry is up.
-    sl.registerTracker(tr);
     sl.add({1, 0}, "mock:", {}, 100);
     ASSERT_EQ(1u, changes.size());
     changes.pop();
@@ -473,7 +461,6 @@ TEST_F(ServerListTest, crashedNewerIdCurrentlyUp) {
 
 TEST_F(ServerListTest, crashedNewerIdCurrentlyCrashed) {
     // Current entry is older than new entry, current entry is crashed.
-    sl.registerTracker(tr);
     sl.add({1, 0}, "mock:", {}, 100);
     sl.crashed({1, 0}, "mock:", {}, 100);
     ASSERT_EQ(2u, changes.size());
@@ -504,7 +491,6 @@ removeFilter(string s)
 }
 
 TEST_F(ServerListTest, remove) {
-    sl.registerTracker(tr);
     Logger::get().setLogLevels(DEBUG);
     TestLog::Enable _(&removeFilter);
 
@@ -583,7 +569,6 @@ TEST_F(ServerListTest, remove) {
 
 TEST_F(ServerListTest, removeIdsMatchCurrentlyUp) {
     // Current entry == new entry, current entry is up.
-    sl.registerTracker(tr);
     sl.add({1, 0}, "mock:", {}, 100);
     EXPECT_EQ(1u, changes.size());
     changes.pop();
@@ -599,7 +584,6 @@ TEST_F(ServerListTest, removeIdsMatchCurrentlyUp) {
 
 TEST_F(ServerListTest, removeIdsMatchCurrentlyCrashed) {
     // Current entry == new entry, current entry is crashed.
-    sl.registerTracker(tr);
     sl.crashed({1, 0}, "mock:", {}, 100);
     ASSERT_EQ(2u, changes.size());
     changes.pop();
@@ -612,7 +596,6 @@ TEST_F(ServerListTest, removeIdsMatchCurrentlyCrashed) {
 }
 
 TEST_F(ServerListTest, removeCurrentlyDown) {
-    sl.registerTracker(tr);
     // Have to do an add/remove to get the array sized right.
     sl.add({1, 0}, "mock:", {}, 100);
     sl.remove({1, 0});
@@ -629,7 +612,6 @@ TEST_F(ServerListTest, removeCurrentlyDown) {
 
 TEST_F(ServerListTest, removeNewerIdCurrentlyUp) {
     // Current entry is older than new entry, current entry is up.
-    sl.registerTracker(tr);
     sl.add({1, 0}, "mock:", {}, 100);
     EXPECT_EQ(1u, changes.size());
     changes.pop();
@@ -648,7 +630,6 @@ TEST_F(ServerListTest, removeNewerIdCurrentlyUp) {
 
 TEST_F(ServerListTest, removeNewerIdCurrentlyCrashed) {
     // Current entry is older than new entry, current entry is crashed.
-    sl.registerTracker(tr);
     sl.crashed({1, 0}, "mock:", {}, 100);
     ASSERT_EQ(2u, changes.size());
     changes.pop();

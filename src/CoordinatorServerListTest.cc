@@ -13,6 +13,7 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <mutex>
 #include <queue>
 
 #include "TestUtil.h"
@@ -43,14 +44,17 @@ class CoordinatorServerListTest : public ::testing::Test {
     Context context;
     CoordinatorServerList sl;
     MockServerTracker tr;
+    std::mutex mutex;
 
     CoordinatorServerListTest()
         : context()
         , sl(context)
         , tr(context)
+        , mutex()
     {
-        context.coordinatorServerList = &sl;
     }
+
+    typedef std::lock_guard<std::mutex> Lock;
     DISALLOW_COPY_AND_ASSIGN(CoordinatorServerListTest);
 };
 
@@ -86,8 +90,8 @@ protoBufMatchesEntry(const ProtoBuf::ServerList_Entry& protoBufEntry,
  * NOTE: ServerList.Updater should be halt()'ed before sendMembershipUpdate(..)
  * was called in order for the protobuf to be retrieved correctly.
  *
- * @param csl - CoordinatorServerList that you're interested in
- * @return ProtoBuf::ServerList update that was queued.
+ * \param csl - CoordinatorServerList that you're interested in
+ * \return ProtoBuf::ServerList update that was queued.
  */
 static ProtoBuf::ServerList
 getAndPopUpdateFrom(CoordinatorServerList& csl) {
@@ -105,14 +109,17 @@ TEST_F(CoordinatorServerListTest, constructor) {
 }
 
 TEST_F(CoordinatorServerListTest, add) {
+
     sl.updater.halt(); // Stop Updater to see enqueued protobufs
     EXPECT_EQ(0U, sl.serverList.size());
     EXPECT_EQ(0U, sl.numberOfMasters);
     EXPECT_EQ(0U, sl.numberOfBackups);
 
     {
+        EXPECT_EQ(0U, sl.version);
         EXPECT_EQ(ServerId(1, 0), sl.add("mock:host=server1",
-                                        {WireFormat::MASTER_SERVICE}, 100));
+                                         {WireFormat::MASTER_SERVICE}, 100));
+        EXPECT_EQ(1U, sl.version);
         EXPECT_TRUE(sl.serverList[1].entry);
         EXPECT_FALSE(sl.serverList[0].entry);
         EXPECT_EQ(1U, sl.numberOfMasters);
@@ -123,8 +130,6 @@ TEST_F(CoordinatorServerListTest, add) {
         EXPECT_FALSE(sl.serverList[1].entry->isBackup());
         EXPECT_EQ(0u, sl.serverList[1].entry->expectedReadMBytesPerSec);
         EXPECT_EQ(1U, sl.serverList[1].nextGenerationNumber);
-        EXPECT_EQ(0U, sl.version);
-        sl.sendMembershipUpdate({});    // internally increments version
         ProtoBuf::ServerList update = getAndPopUpdateFrom(sl);
         EXPECT_EQ(1U, sl.version);
         EXPECT_EQ(1U, update.version_number());
@@ -134,8 +139,10 @@ TEST_F(CoordinatorServerListTest, add) {
     }
 
     {
+        EXPECT_EQ(1U, sl.version);
         EXPECT_EQ(ServerId(2, 0), sl.add("hi again",
                                          {WireFormat::BACKUP_SERVICE}, 100));
+        EXPECT_EQ(2U, sl.version);
         EXPECT_TRUE(sl.serverList[2].entry);
         EXPECT_EQ(ServerId(2, 0), sl.serverList[2].entry->serverId);
         EXPECT_EQ("hi again", sl.serverList[2].entry->serviceLocator);
@@ -145,8 +152,6 @@ TEST_F(CoordinatorServerListTest, add) {
         EXPECT_EQ(1U, sl.serverList[2].nextGenerationNumber);
         EXPECT_EQ(1U, sl.numberOfMasters);
         EXPECT_EQ(1U, sl.numberOfBackups);
-        EXPECT_EQ(1U, sl.version);
-        sl.sendMembershipUpdate({});    // internally increments version
         ProtoBuf::ServerList update = getAndPopUpdateFrom(sl);
         EXPECT_EQ(2U, sl.version);
         EXPECT_EQ(2U, update.version_number());
@@ -156,7 +161,6 @@ TEST_F(CoordinatorServerListTest, add) {
 }
 
 TEST_F(CoordinatorServerListTest, add_trackerUpdated) {
-    sl.registerTracker(tr);
     TestLog::Enable _;
     sl.add("hi!", {WireFormat::MASTER_SERVICE}, 100);
     EXPECT_EQ("fireCallback: called", TestLog::get());
@@ -172,30 +176,32 @@ TEST_F(CoordinatorServerListTest, add_trackerUpdated) {
 }
 
 TEST_F(CoordinatorServerListTest, crashed) {
-    ProtoBuf::ServerList& update = sl.updates;
+    ProtoBuf::ServerList updates;
+    sl.updater.halt(); //Stop updates
 
     EXPECT_THROW(sl.crashed(ServerId(0, 0)), Exception);
-    EXPECT_EQ(0, update.server_size());
+    // Ensure nothing was sent
+    EXPECT_EQ(0U, sl.updater.msgQueue.size());
 
     sl.add("hi!", {WireFormat::MASTER_SERVICE}, 100);
+    getAndPopUpdateFrom(sl);
+
     CoordinatorServerList::Entry entryCopy = sl[ServerId(1, 0)];
-    update.Clear();
     EXPECT_NO_THROW(sl.crashed(ServerId(1, 0)));
     ASSERT_TRUE(sl.serverList[1].entry);
     EXPECT_EQ(ServerStatus::CRASHED, sl.serverList[1].entry->status);
-    EXPECT_TRUE(protoBufMatchesEntry(update.server(0),
+    updates = getAndPopUpdateFrom(sl);
+    EXPECT_TRUE(protoBufMatchesEntry(updates.server(0),
                                      entryCopy, ServerStatus::CRASHED));
 
-    update.Clear();
     // Already crashed; a no-op.
     sl.crashed(ServerId(1, 0));
-    EXPECT_EQ(0, update.server_size());
+    EXPECT_TRUE(sl.updater.msgQueue.empty());
     EXPECT_EQ(0U, sl.numberOfMasters);
     EXPECT_EQ(0U, sl.numberOfBackups);
 }
 
 TEST_F(CoordinatorServerListTest, crashed_trackerUpdated) {
-    sl.registerTracker(tr);
     TestLog::Enable _;
     ServerId serverId = sl.add("hi!", {WireFormat::MASTER_SERVICE}, 100);
     sl.crashed(serverId);
@@ -214,41 +220,44 @@ TEST_F(CoordinatorServerListTest, crashed_trackerUpdated) {
 }
 
 TEST_F(CoordinatorServerListTest, remove) {
-    ProtoBuf::ServerList& update = sl.updates;
+    ProtoBuf::ServerList update;
     sl.updater.halt();
 
     EXPECT_THROW(sl.remove(ServerId(0, 0)), Exception);
-    EXPECT_EQ(0, update.server_size());
+    EXPECT_TRUE(sl.updater.msgQueue.empty());
 
     sl.add("hi!", {WireFormat::MASTER_SERVICE}, 100);
     CoordinatorServerList::Entry entryCopy = sl[ServerId(1, 0)];
+    update = getAndPopUpdateFrom(sl);
     EXPECT_EQ(1 , update.server_size());
 
-    update.Clear();
     EXPECT_NO_THROW(sl.remove(ServerId(1, 0)));
     EXPECT_FALSE(sl.serverList[1].entry);
+    update = getAndPopUpdateFrom(sl);
     EXPECT_TRUE(protoBufMatchesEntry(update.server(0),
             entryCopy, ServerStatus::CRASHED));
     EXPECT_TRUE(protoBufMatchesEntry(update.server(1),
             entryCopy, ServerStatus::DOWN));
 
     EXPECT_THROW(sl.remove(ServerId(1, 0)), Exception);
+    EXPECT_TRUE(sl.updater.msgQueue.empty());
     EXPECT_EQ(0U, sl.numberOfMasters);
     EXPECT_EQ(0U, sl.numberOfBackups);
 
     sl.add("hi, again", {WireFormat::BACKUP_SERVICE}, 100);
     sl.crashed(ServerId(1, 1));
     EXPECT_TRUE(sl.serverList[1].entry);
-    update.Clear();
+    getAndPopUpdateFrom(sl); // remove add Protobuf
+    getAndPopUpdateFrom(sl); // remove crashed Protobuf
     EXPECT_THROW(sl.remove(ServerId(1, 2)), Exception);
     EXPECT_NO_THROW(sl.remove(ServerId(1, 1)));
+    update = getAndPopUpdateFrom(sl);
     EXPECT_EQ(uint32_t(ServerStatus::DOWN), update.server(0).status());
     EXPECT_EQ(0U, sl.numberOfMasters);
     EXPECT_EQ(0U, sl.numberOfBackups);
 }
 
 TEST_F(CoordinatorServerListTest, remove_trackerUpdated) {
-    sl.registerTracker(tr);
     TestLog::Enable _;
     ServerId serverId = sl.add("hi!", {WireFormat::MASTER_SERVICE}, 100);
     sl.remove(serverId);
@@ -376,22 +385,25 @@ TEST_F(CoordinatorServerListTest, sendMembershipUpdate) {
     TransportManager::MockRegistrar _(context, transport);
     ProtoBuf::ServerList& update = sl.updates;
 
+    // Used for internal calls that don't call sendMembersShipUpdates
+    Lock lock(mutex);
+
     // Test unoccupied server slot. Remove must wait until after last add to
     // ensure slot isn't recycled.
     ServerId serverId1 =
-        sl.add("mock:host=server1", {WireFormat::MEMBERSHIP_SERVICE}, 0);
+        sl.add(lock, "mock:host=server1", {WireFormat::MEMBERSHIP_SERVICE}, 0);
 
     // Test crashed server gets skipped as a recipient.
-    ServerId serverId2 = sl.add("mock:host=server2", {}, 0);
-    sl.crashed(serverId2);
+    ServerId serverId2 = sl.add(lock, "mock:host=server2", {}, 0);
+    sl.crashed(lock, serverId2);
 
     // Test server with no membership service.
-    ServerId serverId3 = sl.add("mock:host=server3", {}, 0);
+    ServerId serverId3 = sl.add(lock, "mock:host=server3", {}, 0);
 
     // Test exclude list.
     ServerId serverId4 =
-        sl.add("mock:host=server4", {WireFormat::MEMBERSHIP_SERVICE}, 0);
-    sl.remove(serverId1);
+        sl.add(lock, "mock:host=server4", {WireFormat::MEMBERSHIP_SERVICE}, 0);
+    sl.remove(lock, serverId1);
 
     update.Clear();
     TestLog::Enable __(statusFilter);
@@ -404,24 +416,31 @@ TEST_F(CoordinatorServerListTest, sendMembershipUpdate) {
     EXPECT_EQ("", TestLog::get());
 
     ServerId serverId5 =
-        sl.add("mock:host=server5", {WireFormat::MEMBERSHIP_SERVICE}, 0);
+        sl.add(lock, "mock:host=server5", {WireFormat::MEMBERSHIP_SERVICE}, 0);
 
     update.Clear();
+
+    TestLog::reset();
+    transport.outputLog = "";
+    sl.version = 0;
 
     transport.setInput("0 1"); // Server 5 (in the first slot) has trouble.
     transport.setInput("0");   // Server 5 ok to the send of the entire list.
     transport.setInput("0 0"); // Server 4 gets the update just fine.
 
-    TestLog::reset();
-    transport.outputLog = "";
-    sl.version = 0;
-    sl.sendMembershipUpdate({});
+    // Call without add to generate update
+    ServerId serverId6 =
+        sl.add("mock:host=server6", {WireFormat::MEMBERSHIP_SERVICE}, 0);
+
     sl.sync(); // Need to wait for updates to propagate
 
-    EXPECT_EQ("sendRequest: 0x40024 9 273 0 /0 | " // Update to server 5.
-              "sendRequest: 0x40023 9 273 0 /0 | "  // Set list to server 5.
-              "sendRequest: 0x40024 9 273 0 /0",   // Update to server 4.
-              transport.outputLog);
+    EXPECT_EQ("sendRequest: 0x40024 54 0x100d2b0a 0x11000000 5 0 0x6f6d111a "
+            "ck:host=server6-/0 0x35000000 0 273 0 /0 | " // Update to server 5
+            "sendRequest: 0x40023 9 273 0 /0 | "          // SetList to server 5
+            "sendRequest: 0x40024 54 0x100d2b0a 0x11000000 5 0 0x6f6d111a "
+            "ck:host=server6-/0 0x35000000 0 273 0 /0",   // Update to server 4
+            transport.outputLog);
+
     EXPECT_EQ("sendMembershipUpdate: Server 4294967297 had lost an update. "
                   "Sending whole list. | "
               "sendMembershipUpdate: Server list update sent to server 4",

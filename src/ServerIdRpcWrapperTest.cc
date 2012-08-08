@@ -29,7 +29,6 @@ class ServerIdRpcWrapperTest : public ::testing::Test {
     ServerId id;
     ServerId coordId;
     ServerList serverList;
-    CoordinatorServerList coordinatorServerList;
 
     ServerIdRpcWrapperTest()
         : context()
@@ -37,14 +36,9 @@ class ServerIdRpcWrapperTest : public ::testing::Test {
         , id(1, 0)
         , coordId()
         , serverList(context)
-        , coordinatorServerList(context)
     {
         context.transportManager->registerMock(&transport);
-        context.serverList = &serverList;
-        context.serverList->add(ServerId(1, 0), "mock:", {}, 100);
-        context.coordinatorServerList = &coordinatorServerList;
-        coordId = context.coordinatorServerList->add("mock:coord=1",
-                {WireFormat::MASTER_SERVICE}, 100);
+        serverList.add(ServerId(1, 0), "mock:", {}, 100);
     }
 
     ~ServerIdRpcWrapperTest()
@@ -86,25 +80,10 @@ TEST_F(ServerIdRpcWrapperTest, handleTransportError_serverCrashed) {
     wrapper.request.fillFromString("100");
     wrapper.send();
     wrapper.state = RpcWrapper::RpcState::FAILED;
-    context.serverList->crashed(id, "mock:", {}, 100);
+    serverList.crashed(id, "mock:", {}, 100);
     EXPECT_TRUE(wrapper.isReady());
     EXPECT_STREQ("FAILED", wrapper.stateString());
     EXPECT_EQ("flushSession: flushing session for mock:",
-            TestLog::get());
-    EXPECT_TRUE(wrapper.serverDown);
-}
-
-TEST_F(ServerIdRpcWrapperTest, handleTransportError_coordinatorServerList) {
-    TestLog::Enable _;
-    context.serverList = NULL;
-    ServerIdRpcWrapper wrapper(context, id, 4);
-    wrapper.request.fillFromString("100");
-    wrapper.send();
-    wrapper.state = RpcWrapper::RpcState::FAILED;
-    context.coordinatorServerList->crashed(coordId);
-    EXPECT_TRUE(wrapper.isReady());
-    EXPECT_STREQ("FAILED", wrapper.stateString());
-    EXPECT_EQ("flushSession: flushing session for mock:coord=1",
             TestLog::get());
     EXPECT_TRUE(wrapper.serverDown);
 }
@@ -126,16 +105,6 @@ TEST_F(ServerIdRpcWrapperTest, send) {
     EXPECT_STREQ("IN_PROGRESS", wrapper.stateString());
     EXPECT_EQ("sendRequest: 100", transport.outputLog);
     EXPECT_EQ("mock:", wrapper.session->getServiceLocator());
-}
-
-TEST_F(ServerIdRpcWrapperTest, send_coordinatorServerList) {
-    context.serverList = NULL;
-    ServerIdRpcWrapper wrapper(context, coordId, 4);
-    wrapper.request.fillFromString("100");
-    wrapper.send();
-    EXPECT_STREQ("IN_PROGRESS", wrapper.stateString());
-    EXPECT_EQ("sendRequest: 100", transport.outputLog);
-    EXPECT_EQ("mock:coord=1", wrapper.session->getServiceLocator());
 }
 
 TEST_F(ServerIdRpcWrapperTest, send_exception) {

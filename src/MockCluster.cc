@@ -26,11 +26,12 @@ namespace RAMCloud {
  * #transport) if you need them.
  *
  * \param context
- *      A context that will be linked to this cluster (it will include
- *      a BindTransport that can access all of the servers in the cluster,
- *      a serverList that includes all the servers in the cluster, and
- *      a coordinatorSession that provides access to the coordinator
- *      for the cluster)
+ *      An external context, owned by the caller, that will be updated
+ *      here so that it can be used to access the cluster. This context will
+ *      include a BindTransport that can access all of the servers in the
+ *      cluster, a serverList that includes all the servers in the cluster,
+ *      and a coordinatorSession that provides access to the coordinator
+ *      for the cluster.
  * \param coordinatorLocator
  *      The service locator that other servers in the MockCluster will
  *      use to talk to the coordinator.
@@ -43,13 +44,15 @@ MockCluster::MockCluster(Context& context, string coordinatorLocator)
     , coordinator()
     , servers()
     , contexts()
+    , linkedContextServerList()
 {
-    linkedContext.serverList = new ServerList(linkedContext);
+    if (linkedContext.serverList == NULL) {
+        linkedContextServerList.construct(linkedContext);
+    }
     linkedContext.transportManager->registerMock(&transport);
     linkedContext.coordinatorSession->setLocation(coordinatorLocator.c_str());
 
-    coordinatorContext.coordinatorServerList =
-            new CoordinatorServerList(coordinatorContext);
+    new CoordinatorServerList(coordinatorContext);
     coordinatorContext.transportManager->registerMock(&transport);
     coordinatorContext.coordinatorSession->setLocation(
             coordinatorLocator.c_str());
@@ -87,7 +90,10 @@ MockCluster::~MockCluster()
     coordinatorContext.transportManager->unregisterMock();
 
     // Cleanup modifications we made to the caller's context.
-    delete linkedContext.serverList;
+    if (linkedContextServerList && (linkedContext.serverList ==
+            linkedContextServerList.get())) {
+        linkedContext.serverList = NULL;
+    }
     linkedContext.transportManager->unregisterMock();
 }
 
@@ -139,7 +145,7 @@ MockCluster::addServer(ServerConfig config) {
         config.localLocator = format("mock:host=server%lu", nextIdx);
     }
     Context* context = new Context();
-    context->serverList = new ServerList(*context);
+    new ServerList(*context);
     context->transportManager->registerMock(&transport);
     contexts.push_back(context);
 
@@ -147,8 +153,8 @@ MockCluster::addServer(ServerConfig config) {
     servers.push_back(server);
     server->startForTesting(transport);
 
-    linkedContext.serverList->add(server->serverId, config.localLocator,
-                                  config.services, 100);
+    ServerList* sl = static_cast<ServerList*>(linkedContext.serverList);
+    sl->add(server->serverId, config.localLocator, config.services, 100);
     syncCoordinatorServerList();
     return server;
 }

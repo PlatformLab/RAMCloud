@@ -1359,12 +1359,9 @@ BackupService::GarbageCollectDownServerTask::performTask()
  * \param config
  *      Settings for this instance. The caller guarantees that config will
  *      exist for the duration of this BackupService's lifetime.
- * \param serverList
- *      A reference to the global ServerList.
  */
 BackupService::BackupService(Context& context,
-                             const ServerConfig& config,
-                             ServerList& serverList)
+                             const ServerConfig& config)
     : context(context)
     , mutex()
     , config(config)
@@ -1387,7 +1384,7 @@ BackupService::BackupService(Context& context,
     , initCalled(false)
     , replicationId(0)
     , replicationGroup()
-    , gcTracker(context, serverList, this)
+    , gcTracker(context, this)
     , gcThread()
     , testingDoNotStartGcThread(false)
     , gcTaskQueue()
