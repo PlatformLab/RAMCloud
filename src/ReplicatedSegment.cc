@@ -116,13 +116,15 @@ ReplicatedSegment::~ReplicatedSegment()
 
 /**
  * Request the eventual freeing all known replicas of a segment from its
- * backups.  The caller's ReplicatedSegment pointer is invalidated upon the
- * return of this function.  After the return of this call all outstanding
+ * backups. The caller's ReplicatedSegment pointer is invalidated upon the
+ * return of this function. After the return of this call all outstanding
  * write rpcs for this segment are guaranteed to have completed so the log
- * memory associated with this segment is free for reuse.  This implies that
+ * memory associated with this segment is free for reuse. This implies that
  * this call can spin waiting for write rpcs, though, it tries to be
  * friendly to concurrent operations by releasing and reacquiring the
  * internal ReplicaManager lock each time it checks rpcs for completion.
+ * Eventually canceling any outstanding write rpc would be better, but
+ * doing so is unsafe in this case (RAM-359).
  *
  * Currently, there is no public interface to ensure enqueued free
  * operations have completed.
