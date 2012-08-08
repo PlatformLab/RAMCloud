@@ -431,12 +431,12 @@ TEST_F(CoordinatorServerManagerTest, sendServerList_checkLogs) {
         "applyFullList: Got complete list of servers"));
 
     serverList->crashed(id);
+    cluster.syncCoordinatorServerList();    // clear crashed() messages
     TestLog::reset();
     CoordinatorClient::sendServerList(context, id);
     cluster.syncCoordinatorServerList();
-    EXPECT_EQ(
-        "sendServerList: Could not send list to crashed server 3",
-        TestLog::get());
+    EXPECT_NE(std::string::npos, TestLog::get().find(
+            "sendServerList: Could not send list to crashed server 3"));
 }
 
 TEST_F(CoordinatorServerManagerTest, sendServerList_main) {

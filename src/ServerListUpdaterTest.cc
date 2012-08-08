@@ -286,7 +286,7 @@ TEST_F(ServerListUpdaterTest, sendMembershipUpdate) {
 
     EXPECT_EQ("sendRequest: 0x40024 9 1041 0 /0 | "
             "sendRequest: 0x40024 9 0x6311 0 /0 | "
-            "sendRequest: 0x40023 9 17 0 /0",
+            "sendRequest: 0x40023 9 529 0 /0",
     transport.outputLog);
 }
 

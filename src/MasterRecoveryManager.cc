@@ -481,7 +481,6 @@ MasterRecoveryManager::recoveryFinished(Recovery* recovery)
         // do the remove.
         try {
             serverList.remove(recovery->crashedServerId);
-            serverList.sendMembershipUpdate({});
         } catch (const Exception& e) {
             // Server may have already been removed from the list
             // because of an earlier recovery.

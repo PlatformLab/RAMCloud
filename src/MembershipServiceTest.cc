@@ -78,11 +78,16 @@ TEST_F(MembershipServiceTest, setServerList) {
 }
 
 TEST_F(MembershipServiceTest, updateServerList) {
+    // lock used to access internal CoordinatorServerList add() to prevent
+    // cross-contaminating updateServerList() calls to be called internally.
+    std::mutex mutex;
+    std::lock_guard<std::mutex> lock(mutex);
+
     CoordinatorServerList source(context);
     ProtoBuf::ServerList& updates = source.updates;
-    ServerId id1 = source.add("mock:host=55",
+    ServerId id1 = source.add(lock, "mock:host=55",
             {WireFormat::MASTER_SERVICE, WireFormat::PING_SERVICE}, 100);
-    ServerId id2 = source.add("mock:host=56",
+    ServerId id2 = source.add(lock, "mock:host=56",
             {WireFormat::MASTER_SERVICE, WireFormat::PING_SERVICE}, 100);
 
     updates.set_version_number(1);

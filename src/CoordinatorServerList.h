@@ -127,7 +127,6 @@ class CoordinatorServerList : public AbstractServerList{
                    ServiceMask services) const;
 
     void sendServerList(ServerId& serverId);
-    void sendMembershipUpdate(ServerId excludeServerId);
     void sync();
 
     void addLogCabinEntryId(ServerId serverId,
@@ -162,7 +161,11 @@ class CoordinatorServerList : public AbstractServerList{
         Tub<Entry> entry;
     };
 
+    ServerId add(Lock& lock, string serviceLocator,
+                 ServiceMask serviceMask, uint32_t readSpeed);
     void crashed(const Lock& lock, ServerId serverId);
+    void remove(Lock& lock, ServerId serverId);
+    void sendMembershipUpdate(ServerId excludeServerId);
     uint32_t firstFreeIndex();
     const Entry& getReferenceFromServerId(const ServerId& serverId) const;
     void serialize(const Lock& lock, ProtoBuf::ServerList& protoBuf) const;

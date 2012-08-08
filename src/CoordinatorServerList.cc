@@ -106,32 +106,10 @@ CoordinatorServerList::add(string serviceLocator,
                            ServiceMask serviceMask,
                            uint32_t readSpeed)
 {
-    Lock _(mutex);
-    uint32_t index = firstFreeIndex();
-
-    auto& pair = serverList[index];
-    ServerId id(index, pair.nextGenerationNumber);
-    pair.nextGenerationNumber++;
-    pair.entry.construct(id, serviceLocator, serviceMask);
-
-    if (serviceMask.has(WireFormat::MASTER_SERVICE)) {
-        numberOfMasters++;
-    }
-
-    if (serviceMask.has(WireFormat::BACKUP_SERVICE)) {
-        numberOfBackups++;
-        pair.entry->expectedReadMBytesPerSec = readSpeed;
-    }
-
-    ProtoBuf::ServerList_Entry& protoBufEntry(*updates.add_server());
-    pair.entry->serialize(protoBufEntry);
-
-    foreach (ServerTrackerInterface* tracker, trackers)
-        tracker->enqueueChange(*pair.entry, ServerChangeEvent::SERVER_ADDED);
-    foreach (ServerTrackerInterface* tracker, trackers)
-        tracker->fireCallback();
-
-    return id;
+    Lock lock(mutex);
+    ServerId newServerId = add(lock, serviceLocator, serviceMask, readSpeed);
+    sendMembershipUpdate(newServerId);
+    return newServerId;
 }
 
 /**
@@ -160,6 +138,7 @@ CoordinatorServerList::crashed(ServerId serverId)
 {
     Lock lock(mutex);
     crashed(lock, serverId);
+    sendMembershipUpdate({});
 }
 
 /**
@@ -186,30 +165,8 @@ void
 CoordinatorServerList::remove(ServerId serverId)
 {
     Lock lock(mutex);
-    uint32_t index = serverId.indexNumber();
-    if (index >= serverList.size() || !serverList[index].entry ||
-        serverList[index].entry->serverId != serverId) {
-        throw ServerListException(HERE,
-            format("Invalid ServerId (%lu)", serverId.getId()));
-    }
-
-    crashed(lock, serverId);
-
-    auto& entry = serverList[index].entry;
-    // Even though we destroy this entry almost immediately setting the state
-    // gets the serialized update message's state field correct.
-    entry->status = ServerStatus::DOWN;
-
-    ProtoBuf::ServerList_Entry& protoBufEntry(*updates.add_server());
-    entry->serialize(protoBufEntry);
-
-    Entry removedEntry = *entry;
-    entry.destroy();
-
-    foreach (ServerTrackerInterface* tracker, trackers)
-        tracker->enqueueChange(removedEntry, ServerChangeEvent::SERVER_REMOVED);
-    foreach (ServerTrackerInterface* tracker, trackers)
-        tracker->fireCallback();
+    remove(lock, serverId);
+    sendMembershipUpdate({});
 }
 
 /**
@@ -437,52 +394,6 @@ CoordinatorServerList::serialize(ProtoBuf::ServerList& protoBuf,
 }
 
 /**
- * Issue a cluster membership update to all enlisted servers in the system
- * that are running the MembershipService. This is an asynchronous call.
- *
- * This call will increment the version of the ServerList.
- *
- * The CoordinatorServerList should provide a context to send these updates
- * automatically.
- * TODO(stutsman/syang0): Implement this feature.
- *
- * \param excludeServerId
- *      ServerId of a server that is not to receive this update. This is
- *      used to avoid sending an update message to a server immediately
- *      following its enlistment (since we'll be sending the entire list
- *      instead).
- */
-void
-CoordinatorServerList::sendMembershipUpdate(ServerId excludeServerId)
-{
-    Lock _(mutex);
-    std::vector<ServerId> recipients;
-
-    // Increment version
-    version++;
-    updates.set_version_number(version);
-
-    // Collect the servers that need this update.
-    for (size_t i = 0; i < serverList.size(); i++) {
-        Tub<Entry>& entry = serverList[i].entry;
-        if (!entry ||
-            entry->status != ServerStatus::UP ||
-            !entry->services.has(WireFormat::MEMBERSHIP_SERVICE))
-            continue;
-        if (entry->serverId == excludeServerId)
-            continue;
-
-        recipients.push_back(entry->serverId);
-    }
-
-    // Enqueue for a background update
-    updater.sendUpdate(recipients, updates);
-
-    // Clear list to collect next batch of updates.
-    updates.Clear();
-}
-
-/**
  * Push the entire server list to the specified server. This is used to both
  * push the initial list when a server enlists, as well as to push the list
  * again if a server misses any updates and has gone out of sync.
@@ -545,7 +456,44 @@ CoordinatorServerList::getLogCabinEntryId(ServerId serverId)
 //////////////////////////////////////////////////////////////////////
 
 // See docs on public version.
-// This version doesn't acquire locks since it is used internally.
+// This version doesn't acquire locks and does not send out updates
+// since it is used internally.
+ServerId
+CoordinatorServerList::add(Lock& lock,
+                           string serviceLocator,
+                           ServiceMask serviceMask,
+                           uint32_t readSpeed)
+{
+    uint32_t index = firstFreeIndex();
+
+    auto& pair = serverList[index];
+    ServerId id(index, pair.nextGenerationNumber);
+    pair.nextGenerationNumber++;
+    pair.entry.construct(id, serviceLocator, serviceMask);
+
+    if (serviceMask.has(WireFormat::MASTER_SERVICE)) {
+        numberOfMasters++;
+    }
+
+    if (serviceMask.has(WireFormat::BACKUP_SERVICE)) {
+        numberOfBackups++;
+        pair.entry->expectedReadMBytesPerSec = readSpeed;
+    }
+
+    ProtoBuf::ServerList_Entry& protoBufEntry(*updates.add_server());
+    pair.entry->serialize(protoBufEntry);
+
+    foreach (ServerTrackerInterface* tracker, trackers)
+        tracker->enqueueChange(*pair.entry, ServerChangeEvent::SERVER_ADDED);
+    foreach (ServerTrackerInterface* tracker, trackers)
+        tracker->fireCallback();
+
+    return id;
+}
+
+// See docs on public version.
+// This version doesn't acquire locks and does not send out updates
+// since it is used internally.
 void
 CoordinatorServerList::crashed(const Lock& lock,
                                ServerId serverId)
@@ -576,6 +524,82 @@ CoordinatorServerList::crashed(const Lock& lock,
         tracker->enqueueChange(*entry, ServerChangeEvent::SERVER_CRASHED);
     foreach (ServerTrackerInterface* tracker, trackers)
         tracker->fireCallback();
+}
+
+// See docs on public version.
+// This version doesn't acquire locks and does not send out updates
+// since it is used internally.
+void
+CoordinatorServerList::remove(Lock& lock,
+                              ServerId serverId)
+{
+    uint32_t index = serverId.indexNumber();
+    if (index >= serverList.size() || !serverList[index].entry ||
+        serverList[index].entry->serverId != serverId) {
+        throw ServerListException(HERE,
+            format("Invalid ServerId (%lu)", serverId.getId()));
+    }
+
+    crashed(lock, serverId);
+
+    auto& entry = serverList[index].entry;
+    // Even though we destroy this entry almost immediately setting the state
+    // gets the serialized update message's state field correct.
+    entry->status = ServerStatus::DOWN;
+
+    ProtoBuf::ServerList_Entry& protoBufEntry(*updates.add_server());
+    entry->serialize(protoBufEntry);
+
+    Entry removedEntry = *entry;
+    entry.destroy();
+
+    foreach (ServerTrackerInterface* tracker, trackers)
+        tracker->enqueueChange(removedEntry, ServerChangeEvent::SERVER_REMOVED);
+    foreach (ServerTrackerInterface* tracker, trackers)
+        tracker->fireCallback();
+}
+
+/**
+ * Issue a cluster membership update (if there are any) to all enlisted servers
+ * in the system that are running the MembershipService. This is an asynchronous
+ * call. It will only update the version number if an update was sent.
+ *
+ *
+ * \param excludeServerId
+ *      ServerId of a server that is not to receive this update. This is
+ *      used to avoid sending an update message to a server immediately
+ *      following its enlistment (since we'll be sending the entire list
+ *      instead).
+ */
+void
+CoordinatorServerList::sendMembershipUpdate(ServerId excludeServerId)
+{
+    // If there are no updates, don't generate a send.
+    if (updates.server_size() == 0)
+        return;
+
+    std::vector<ServerId> recipients;
+
+    // Collect the servers that need this update.
+    for (size_t i = 0; i < serverList.size(); i++) {
+        Tub<Entry>& entry = serverList[i].entry;
+        if (!entry ||
+            entry->status != ServerStatus::UP ||
+            !entry->services.has(WireFormat::MEMBERSHIP_SERVICE))
+            continue;
+        if (entry->serverId == excludeServerId)
+            continue;
+
+        recipients.push_back(entry->serverId);
+    }
+
+    // Increment version and queue for a background update
+    version++;
+    updates.set_version_number(version);
+    updater.sendUpdate(recipients, updates);
+
+    // Clear list to collect next batch of updates.
+    updates.Clear();
 }
 
 /**
