@@ -340,8 +340,8 @@ verifyLogComplete(Tub<BackupStartTask> tasks[],
     }
 
     uint32_t missing = 0;
-    for (int i = 0; i < digest.getSegmentCount(); i++) {
-        uint64_t id = digest.getSegmentIds()[i];
+    for (uint32_t i = 0; i < digest.size(); i++) {
+        uint64_t id = digest[i];
         if (!contains(replicaSet, id)) {
             LOG(NOTICE, "Segment %lu listed in the log digest but not found "
                 "among available backups", id);

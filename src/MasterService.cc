@@ -668,7 +668,12 @@ MasterService::takeTabletOwnership(
     // Before any tablets can be assigned to this master it must have at
     // least one segment on backups, otherwise it is impossible to
     // distinguish between the loss of its entire log and the case where no
-    // data was ever written to it. The log's constructor made this guarantee.
+    // data was ever written to it. The log's constructor does not create a
+    // head segment because doing so can lead to deadlock: the first master
+    // blocks, waiting to hear about enough backup servers, meanwhile the
+    // coordinator is trying to issue an RPC to the master, but it isn't
+    // even servicing transports yet!
+    log->sync();
 
     ProtoBuf::Tablets::Tablet* tablet = NULL;
     foreach (ProtoBuf::Tablets::Tablet& i, *tablets.mutable_tablet()) {

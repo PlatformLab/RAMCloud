@@ -18,6 +18,7 @@
 #include "TestUtil.h"
 #include "BackupService.h"
 #include "Log.h"
+#include "LogDigest.h"
 #include "MockCluster.h"
 #include "SegmentIterator.h"
 #include "Server.h"
@@ -233,16 +234,14 @@ class BackupServiceTest : public ::testing::Test {
     writeDigestedSegment(ServerId masterId, uint64_t segmentId,
         vector<uint64_t> digestIds, bool atomic = false)
     {
-        char digestBuf[LogDigest::getBytesFromCount
-                            (downCast<uint32_t>(digestIds.size()))];
-        LogDigest src(downCast<uint32_t>(digestIds.size()),
-                      digestBuf,
-                      sizeof32(digestBuf));
+        LogDigest digest;
         for (uint32_t i = 0; i < digestIds.size(); i++)
-            src.addSegment(digestIds[i]);
+            digest.addSegmentId(digestIds[i]);
+        Buffer digestBuffer;
+        digest.appendToBuffer(digestBuffer);
 
         Segment s;
-        s.append(LOG_ENTRY_TYPE_LOGDIGEST, digestBuf, src.getBytes());
+        s.append(LOG_ENTRY_TYPE_LOGDIGEST, digestBuffer);
         
         Buffer buffer;
         s.appendToBuffer(buffer);
@@ -919,26 +918,25 @@ TEST_F(BackupServiceTest, startReadingData_logDigest_simple) {
     StartReadingDataRpc::Result result =
         BackupClient::startReadingData(context, backupId, ServerId(99, 0),
                                        ProtoBuf::Tablets());
-    EXPECT_EQ(LogDigest::getBytesFromCount(1),
-        result.logDigestBytes);
+    EXPECT_EQ(12U, result.logDigestBytes);
     EXPECT_EQ(88U, result.logDigestSegmentId);
-    EXPECT_EQ(18U, result.logDigestSegmentLen);
+    EXPECT_EQ(14U, result.logDigestSegmentLen);
     {
         LogDigest ld(result.logDigestBuffer.get(), result.logDigestBytes);
-        EXPECT_EQ(1, ld.getSegmentCount());
-        EXPECT_EQ(0x3f17c2451f0cafUL, ld.getSegmentIds()[0]);
+        EXPECT_EQ(1U, ld.size());
+        EXPECT_EQ(0x3f17c2451f0cafUL, ld[0]);
     }
 
     // Repeating the call should yield the same digest.
     result = BackupClient::startReadingData(context, backupId, {99, 0},
                                             ProtoBuf::Tablets());
-    EXPECT_EQ(LogDigest::getBytesFromCount(1), result.logDigestBytes);
+    EXPECT_EQ(12U, result.logDigestBytes);
     EXPECT_EQ(88U, result.logDigestSegmentId);
-    EXPECT_EQ(18U, result.logDigestSegmentLen);
+    EXPECT_EQ(14U, result.logDigestSegmentLen);
     {
         LogDigest ld(result.logDigestBuffer.get(), result.logDigestBytes);
-        EXPECT_EQ(1, ld.getSegmentCount());
-        EXPECT_EQ(0x3f17c2451f0cafUL, ld.getSegmentIds()[0]);
+        EXPECT_EQ(1U, ld.size());
+        EXPECT_EQ(0x3f17c2451f0cafUL, ld[0]);
     }
 
     auto* info = backup->findSegmentInfo({99, 0}, 88);
@@ -951,14 +949,13 @@ TEST_F(BackupServiceTest, startReadingData_logDigest_simple) {
 
     result = BackupClient::startReadingData(context, backupId, ServerId(99, 0),
                                             ProtoBuf::Tablets());
-    EXPECT_EQ(LogDigest::getBytesFromCount(1),
-        result.logDigestBytes);
+    EXPECT_EQ(12U, result.logDigestBytes);
     EXPECT_EQ(89U, result.logDigestSegmentId);
-    EXPECT_EQ(18U, result.logDigestSegmentLen);
+    EXPECT_EQ(14U, result.logDigestSegmentLen);
     {
         LogDigest ld(result.logDigestBuffer.get(), result.logDigestBytes);
-        EXPECT_EQ(1, ld.getSegmentCount());
-        EXPECT_EQ(0x5d8ec445d537e15UL, ld.getSegmentIds()[0]);
+        EXPECT_EQ(1U, ld.size());
+        EXPECT_EQ(0x5d8ec445d537e15UL, ld[0]);
     }
 }
 
@@ -976,12 +973,11 @@ TEST_F(BackupServiceTest, startReadingData_logDigest_latest) {
             BackupClient::startReadingData(context, backupId, ServerId(99, 0),
                                            ProtoBuf::Tablets());
         EXPECT_EQ(88U, result.logDigestSegmentId);
-        EXPECT_EQ(18U, result.logDigestSegmentLen);
-        EXPECT_EQ(LogDigest::getBytesFromCount(1),
-            result.logDigestBytes);
+        EXPECT_EQ(14U, result.logDigestSegmentLen);
+        EXPECT_EQ(12U, result.logDigestBytes);
         LogDigest ld(result.logDigestBuffer.get(), result.logDigestBytes);
-        EXPECT_EQ(1, ld.getSegmentCount());
-        EXPECT_EQ(0x39e874a1e85fcUL, ld.getSegmentIds()[0]);
+        EXPECT_EQ(1U, ld.size());
+        EXPECT_EQ(0x39e874a1e85fcUL, ld[0]);
     }
 }
 

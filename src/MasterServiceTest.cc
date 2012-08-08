@@ -108,6 +108,7 @@ class MasterServiceTest : public ::testing::Test {
         masterConfig.master.numReplicas = 1;
         masterServer = cluster.addServer(masterConfig);
         service = masterServer->master.get();
+        service->log->sync();
 
         ramcloud.construct(context, "mock:host=coordinator");
         ramcloud->objectFinder.tabletMapFetcher.reset(
@@ -495,10 +496,10 @@ TEST_F(MasterServiceTest, detectSegmentRecoveryFailure_failure) {
 }
 
 TEST_F(MasterServiceTest, getHeadOfLog) {
-    EXPECT_EQ(Log::Position(0, 2093),
+    EXPECT_EQ(Log::Position(0, 48),
               MasterClient::getHeadOfLog(context, masterServer->serverId));
     ramcloud->write(0, "0", 1, "abcdef", 6);
-    EXPECT_EQ(Log::Position(0, 2128),
+    EXPECT_EQ(Log::Position(0, 83),
               MasterClient::getHeadOfLog(context, masterServer->serverId));
 }
 
@@ -735,10 +736,10 @@ TEST_F(MasterServiceTest, recover_ctimeUpdateIssued) {
         "recoveryMasterFinished: tablet { "
         "table_id: 123 start_key_hash: 0 end_key_hash: 9 state: RECOVERING "
         "server_id: 2 service_locator: \"mock:host=master\" user_data: 0 "
-        "ctime_log_head_id: 0 ctime_log_head_offset: 2128 } tablet { table_id: "
+        "ctime_log_head_id: 0 ctime_log_head_offset: 83 } tablet { table_id: "
         "123 start_key_hash: 10 end_key_hash: 19 state: RECOVERING server_id: "
         "2 service_locator: \"mock:host=master\" user_data: 0 "
-        "ctime_log_head_id: 0 ctime_log_head_offset: 2128 } tablet { table_id: "
+        "ctime_log_head_id: 0 ctime_log_head_offset: 83 } tablet { table_id: "
         "123 start_key_hash: 20 end_key_hash: 29 state: RECOVERING server_id: "
         "2 service_locator: \"mock:host=master\" user_data: "));
 }
@@ -1355,6 +1356,7 @@ TEST_F(MasterServiceTest, migrateTablet_movingData) {
     master2Config.master.numReplicas = 0;
     master2Config.localLocator = "mock:host=master2";
     Server* master2 = cluster.addServer(master2Config);
+    master2->master->log->sync();
 
     // TODO(syang0) RAM-441 without the syncCoordinatorServerList() call  in
     // cluster.addServer(..) above, this crashes since the CoordinatorServerList

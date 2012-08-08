@@ -216,7 +216,7 @@ Segment::free(uint32_t offset)
     const EntryHeader* header = getEntryHeader(offset);
 
     uint32_t length = 0;
-    copyOut(offset, &length, header->getLengthBytes());
+    copyOut(offset + sizeof32(*header), &length, header->getLengthBytes());
 
     bytesFreed += (sizeof32(*header) + header->getLengthBytes() + length);
     assert(bytesFreed <= tail);
@@ -523,8 +523,11 @@ Segment::bytesLeft()
     if (closed)
         return 0;
 
+    // TODO(Steve): Remove the footer entry reservation after we start passing
+    // the footer always on the side (and rename it something better, like
+    // "certificate", perhaps).
     uint32_t capacity = getSegletsAllocated() * allocator.getSegletSize();
-    return capacity - tail;
+    return capacity - tail - sizeof32(OpaqueFooterEntry);
 }
 
 /**

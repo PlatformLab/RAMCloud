@@ -69,8 +69,8 @@ TEST_F(LogIteratorTest, constructor_emptyLog) {
     LogIterator i(l);
     EXPECT_EQ(&l, &i.log);
     EXPECT_EQ(0U, i.segmentList.size());
-    EXPECT_EQ(0U, i.currentSegment->id);
-    EXPECT_TRUE(i.currentIterator);
+    EXPECT_EQ(static_cast<LogSegment*>(NULL), i.currentSegment);
+    EXPECT_FALSE(i.currentIterator);
     EXPECT_TRUE(i.headLocked);
     EXPECT_EQ(1, segmentManager.logIteratorCount);
 }
@@ -116,7 +116,13 @@ TEST_F(LogIteratorTest, destructor) {
 TEST_F(LogIteratorTest, isDone_simple) {
     {
         LogIterator i(l);
+        EXPECT_TRUE(i.isDone());
+    }
 
+    l.sync();
+
+    {
+        LogIterator i(l);
         EXPECT_FALSE(i.isDone());
         EXPECT_EQ(LOG_ENTRY_TYPE_SEGHEADER, i.getType());
         i.next();
@@ -167,6 +173,8 @@ TEST_F(LogIteratorTest, isDone_multiSegment) {
 #endif
 
 TEST_F(LogIteratorTest, next) {
+    l.sync();
+
     {
         LogIterator i(l);
         EXPECT_TRUE(i.headLocked);

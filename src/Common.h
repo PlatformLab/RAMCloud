@@ -229,8 +229,9 @@ get(const Map& map, const typename Map::key_type& key)
         - 100)
 
 /**
- * Convenience to avoid having downcasts everywhere we take sizeof and
- * are using uint32_ts. Prior to this there were 52 such instances!
+ * Convenience to avoid having downcasts everywhere we take sizeof, which
+ * returns size_t, but want a uint32_t. Prior to this there were dozens of
+ * instances of 'downCast<uint32_t>(sizeof(Foo))';
  */
 #define sizeof32(type) downCast<uint32_t>(sizeof(type))
 

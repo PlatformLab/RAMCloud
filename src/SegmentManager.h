@@ -320,10 +320,10 @@ class SegmentManager::Allocator : public Segment::Allocator {
     /**
      * Return the total number of bytes this allocator has for the log.
      */
-    uint32_t
+    uint64_t
     getTotalBytes()
     {
-        return downCast<uint32_t>(block.length);
+        return block.length;
     }
 
     /**

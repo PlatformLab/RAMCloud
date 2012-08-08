@@ -23,11 +23,19 @@ namespace RAMCloud {
 
 
 /**
- * Constructor for Log. Upon returning, the first segment of the log will be
- * opened and synced to any backup replicas. Doing so avoids ambiguity if no
- * log segments are found after a crash. So long as the log is opened before
- * any tablets are assigned, failure to find segments can only mean loss of
- * the log.
+ * Constructor for Log. No segments are allocated in the constructor, so if
+ * replicas are being used no backups will have been contacted yet and there
+ * will be no durable evidence of this log having existed. Before issuing any
+ * appends, invoke the sync() method to allocate the first head and commit it
+ * to any backups.
+ *
+ * The reason for this behaviour is complicated. We want to ensure that the
+ * log is made durable before assigning any tablets to the master, since we
+ * want a lack of the log on disk to unambiguously mean data loss if the
+ * coordinator thinks we have any tablets. However, the constructor cannot
+ * allocate and replicate the first head, since there is the potential for
+ * deadlock (transport manager isn't running yet, so we can't learn of any
+ * backups from the coordinator).
  *
  * \param context
  *      Overall information about the RAMCloud server.
@@ -51,16 +59,11 @@ Log::Log(Context& context,
       segmentManager(segmentManager),
       replicaManager(replicaManager),
       cleaner(),
-      head(segmentManager.allocHead()),
+      head(NULL),
       appendLock()
 {
-    if (head == NULL)
-        throw LogException(HERE, "Could not allocate initial head segment");
-
     if (!disableCleaner)
         cleaner.construct(context, segmentManager, replicaManager, 4);
-
-    sync();
 }
 
 /**
@@ -103,6 +106,9 @@ Log::append(LogEntryType type,
             HashTable::Reference& outReference)
 {
     Lock lock(appendLock);
+
+    if (head == NULL)
+        throw FatalError(HERE, "called before first sync()");
 
     // Try to append. If we can't, try to allocate a new head to get more space.
     uint32_t segmentOffset;
@@ -210,11 +216,22 @@ Log::getEntry(HashTable::Reference reference, Buffer& outBuffer)
 }
 
 /**
- * Wait for all segments to be fully replicated.
+ * Wait for all segments to be fully replicated. If there has never been a head
+ * segment, allocate one and sync it to backups. This method must be invoked
+ * before any appends to the log are permitted.
  */
 void
 Log::sync()
 {
+    // The only time 'head' should be NULL is after construction and before the
+    // initial call to this method. Even if we run out of memory in the future,
+    // head will remain valid.
+    if (head == NULL) {
+        head = segmentManager.allocHead();
+        if (head == NULL)
+            throw FatalError(HERE, "Could not allocate initial head segment");
+    }
+
     Segment::OpaqueFooterEntry unused;
     head->replicatedSegment->sync(head->getAppendedLength(unused));
     TEST_LOG("log synced");
@@ -234,6 +251,12 @@ Log::getHeadPosition()
     // return until iteration is done, since callers to append() will block
     // holding this lock!
     Lock lock(appendLock);
+
+    if (head == NULL) {
+        // If invoked before the first call to sync, then we've made no appends.
+        return { 0, 0 };
+    }
+
     Segment::OpaqueFooterEntry unused;
     return { head->id, head->getAppendedLength(unused) };
 }
@@ -271,6 +294,10 @@ void
 Log::allocateHeadIfStillOn(Tub<uint64_t> segmentId)
 {
     Lock lock(appendLock);
+
+    if (head == NULL)
+        throw FatalError(HERE, "called before first sync()");
+
     if (!segmentId || head->id == *segmentId)
         head = segmentManager.allocHead();
 

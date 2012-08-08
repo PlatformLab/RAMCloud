@@ -14,6 +14,7 @@
  */
 
 #include "Common.h"
+#include "LogDigest.h"
 #include "LogMetadata.h"
 #include "ShortMacros.h"
 #include "SegmentManager.h"
@@ -441,10 +442,7 @@ SegmentManager::writeHeader(LogSegment* segment, uint64_t headSegmentIdDuringCle
 void
 SegmentManager::writeDigest(LogSegment* head)
 {
-    // Just allocate enough stack space for the max possible number of segments.
-    uint32_t digestBytes = LogDigest::getBytesFromCount(maxSegments);
-    char digestBuf[digestBytes];
-    LogDigest digest(maxSegments, digestBuf, digestBytes);
+    LogDigest digest;
 
     // TODO(Steve): Log digest is now a fixed size. This should probably change.
     // Might be worth investigating just using a protobuf instead, if its fast
@@ -459,12 +457,12 @@ SegmentManager::writeDigest(LogSegment* head)
     }
 
     foreach (LogSegment& s, segmentsByState[CLEANABLE])
-        digest.addSegment(s.id);
+        digest.addSegmentId(s.id);
 
     foreach (LogSegment& s, segmentsByState[NEWLY_CLEANABLE])
-        digest.addSegment(s.id);
+        digest.addSegmentId(s.id);
 
-    digest.addSegment(head->id);
+    digest.addSegmentId(head->id);
 
     // Only preclude/free cleaned segments if no log iteration in progress.
     if (logIteratorCount == 0) {
@@ -474,13 +472,15 @@ SegmentManager::writeDigest(LogSegment* head)
         }
     } else {
         foreach (LogSegment& s, segmentsByState[FREEABLE_PENDING_DIGEST_AND_REFERENCES])
-            digest.addSegment(s.id);
+            digest.addSegmentId(s.id);
     }
 
-    bool success = head->append(LOG_ENTRY_TYPE_LOGDIGEST, digestBuf, digest.getBytes());
+    Buffer buffer;
+    digest.appendToBuffer(buffer);
+    bool success = head->append(LOG_ENTRY_TYPE_LOGDIGEST, buffer);
     if (!success) {
         throw FatalError(HERE, format("Could not append log digest of %u bytes to head segment",
-            digest.getBytes()));
+            buffer.getTotalLength()));
     }
 }
 

@@ -21,7 +21,7 @@
 #include "BackupClient.h"
 #include "CoordinatorServerList.h"
 #include "CycleCounter.h"
-#include "LogMetadata.h"
+#include "LogDigest.h"
 #include "RawMetrics.h"
 #include "ServerTracker.h"
 #include "TabletMap.h"

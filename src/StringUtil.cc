@@ -35,7 +35,7 @@ endsWith(const string& haystack, const string& needle)
                              needle.length(), needle) == 0);
 }
 
-/// Return true if haystack exists somewhere in needle.
+/// Return true if needle exists somewhere in haystack.
 bool
 contains(const string& haystack, const string& needle)
 {

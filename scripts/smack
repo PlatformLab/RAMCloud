@@ -34,7 +34,7 @@ atexit "portslay $cport"
 
 # Start a server and run tests
 $OBJDIR/coordinator -C $coordinatorLocator > /dev/null 2>&1 &
-$OBJDIR/server -M -L $masterLocator -C $coordinatorLocator > /dev/null 2>&1 &
+$OBJDIR/server -M -L $masterLocator -C $coordinatorLocator & 
 sleep .1
 
 python scripts/smack.py -n $count -C $coordinatorLocator > $outfile

@@ -57,34 +57,25 @@ class LogTest : public ::testing::Test {
           entryHandlers(),
           l(context, entryHandlers, segmentManager, replicaManager, true)
     {
+        l.sync();
     }
 
   private:
     DISALLOW_COPY_AND_ASSIGN(LogTest);
 };
 
-static bool
-syncFilter(string s)
-{
-    return s == "sync";
-}
-
 TEST_F(LogTest, constructor_cleaner)
 {
-    TestLog::Enable _(syncFilter);
     Log l2(context, entryHandlers, segmentManager, replicaManager, false);
-    EXPECT_NE(static_cast<LogSegment*>(NULL), l2.head);
+    EXPECT_EQ(static_cast<LogSegment*>(NULL), l2.head);
     EXPECT_TRUE(l2.cleaner);
-    EXPECT_TRUE(StringUtil::endsWith(TestLog::get(), "sync: log synced"));
 }
 
 TEST_F(LogTest, constructor_noCleaner)
 {
-    TestLog::Enable _(syncFilter);
     Log l2(context, entryHandlers, segmentManager, replicaManager, true);
-    EXPECT_NE(static_cast<LogSegment*>(NULL), l2.head);
+    EXPECT_EQ(static_cast<LogSegment*>(NULL), l2.head);
     EXPECT_FALSE(l2.cleaner);
-    EXPECT_TRUE(StringUtil::endsWith(TestLog::get(), "sync: log synced"));
 }
 
 TEST_F(LogTest, append_basic) {
@@ -150,6 +141,12 @@ TEST_F(LogTest, getEntry) {
     EXPECT_EQ(data, *buffer.getStart<uint64_t>());
 }
 
+static bool
+syncFilter(string s)
+{
+    return s == "sync";
+}
+
 TEST_F(LogTest, sync) {
     TestLog::Enable _(syncFilter);
     l.sync();
@@ -157,16 +154,21 @@ TEST_F(LogTest, sync) {
 }
 
 TEST_F(LogTest, getHeadPosition) {
-    EXPECT_EQ(Log::Position(0, 76), l.getHeadPosition());
+    // unsynced should return <0, 0>...
+    Log l2(context, entryHandlers, segmentManager, replicaManager, true);
+    EXPECT_EQ(Log::Position(0, 0), l2.getHeadPosition());
+
+    // synced returns something else...
+    EXPECT_EQ(Log::Position(0, 48), l.getHeadPosition());
 
     char data[1000];
     l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true);
-    EXPECT_EQ(Log::Position(0, 1079), l.getHeadPosition());
+    EXPECT_EQ(Log::Position(0, 1051), l.getHeadPosition());
 
     while (l.getHeadPosition().getSegmentId() == 0)
         l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true);
 
-    EXPECT_EQ(Log::Position(1, 1079), l.getHeadPosition());
+    EXPECT_EQ(Log::Position(1, 1051), l.getHeadPosition());
 }
 
 TEST_F(LogTest, getSegmentId) {

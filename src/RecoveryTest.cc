@@ -84,18 +84,20 @@ populateLogDigest(StartReadingDataRpc::Result& result,
                   std::vector<uint64_t> segmentIds)
 {
     // Doesn't matter for these tests.
+    LogDigest digest;
+    foreach (uint64_t id, segmentIds)
+        digest.addSegmentId(id);
+
+    Buffer buffer;
+    digest.appendToBuffer(buffer);
     result.logDigestSegmentLen = 100;
     result.logDigestSegmentId = segmentId;
-    result.logDigestBytes =
-        downCast<uint32_t>(LogDigest::getBytesFromCount(segmentIds.size()));
+    result.logDigestBytes = buffer.getTotalLength();
     result.logDigestBuffer =
         std::unique_ptr<char[]>(new char[result.logDigestBytes]);
-    LogDigest digest(segmentIds.size(),
-                     result.logDigestBuffer.get(), result.logDigestBytes);
-    foreach (auto segmentId, segmentIds)
-        digest.addSegment(segmentId);
+    buffer.copy(0, buffer.getTotalLength(), result.logDigestBuffer.get());
 }
-}
+} // namespace
 
 TEST_F(RecoveryTest, partitionTablets) {
     Tub<Recovery> recovery;
@@ -268,7 +270,7 @@ TEST_F(RecoveryTest, BackupStartTask_filterOutInvalidReplicas) {
     };
 
     task.result.primarySegmentCount = 2;
-    uint32_t bytes = downCast<uint32_t>(LogDigest::getBytesFromCount(0));
+    uint32_t bytes = 4; // Doesn't really matter.
     task.result.logDigestBytes = bytes;
     task.result.logDigestBuffer = std::unique_ptr<char[]>(new char[bytes]);
     task.result.logDigestSegmentId = 9;
@@ -291,13 +293,10 @@ TEST_F(RecoveryTest, BackupStartTask_filterOutInvalidReplicas) {
 }
 
 TEST_F(RecoveryTest, verifyLogComplete) {
-    const size_t segmentCount = 3;
-    const uint32_t bufferSize = LogDigest::getBytesFromCount(segmentCount);
-    char buffer[bufferSize];
-    LogDigest digest(segmentCount, buffer, bufferSize);
-    digest.addSegment(10);
-    digest.addSegment(11);
-    digest.addSegment(12);
+    LogDigest digest;
+    digest.addSegmentId(10);
+    digest.addSegmentId(11);
+    digest.addSegmentId(12);
 
     Tub<BackupStartTask> tasks[1];
     ProtoBuf::Tablets tablets;
@@ -331,24 +330,35 @@ TEST_F(RecoveryTest, findLogDigest) {
     auto& result0 = tasks[0]->result;
     auto& result1 = tasks[1]->result;
 
-    uint32_t bytes = downCast<uint32_t>(LogDigest::getBytesFromCount(0));
-    result0.logDigestBytes = bytes;
+    // Two digests with different contents to differentiate them below.
+    LogDigest result0Digest, result1Digest;
+    result0Digest.addSegmentId(0);
+    result1Digest.addSegmentId(1);
+
+    Buffer result0Buffer, result1Buffer;
+    result0Digest.appendToBuffer(result0Buffer);
+    result1Digest.appendToBuffer(result1Buffer);
+
+    uint32_t bytes = result0Buffer.getTotalLength();
+
+    result0.logDigestBytes = bytes; 
     result0.logDigestBuffer = std::unique_ptr<char[]>(new char[bytes]);
-    LogDigest digest0(0, result0.logDigestBuffer.get(), bytes);
     result0.logDigestSegmentId = 10;
     result0.logDigestSegmentLen = 1;
+    result0Buffer.copy(0, bytes, result0.logDigestBuffer.get());
+
     result1.logDigestBytes = bytes;
     result1.logDigestBuffer = std::unique_ptr<char[]>(new char[bytes]);
-    LogDigest digest1(0, result1.logDigestBuffer.get(), bytes);
     result1.logDigestSegmentId = 10;
     result1.logDigestSegmentLen = 1;
+    result1Buffer.copy(0, bytes, result1.logDigestBuffer.get());
+
     // Two log digests, same segment id, same length (keeps earlier of two).
     digest = findLogDigest(tasks, 2);
     ASSERT_TRUE(digest);
     EXPECT_EQ(10lu, get<0>(*digest));
     EXPECT_EQ(1u, get<1>(*digest));
-    EXPECT_EQ(result0.logDigestBuffer.get(),
-              reinterpret_cast<char*>(std::get<2>(*digest).ldd));
+    EXPECT_EQ(0u, std::get<2>(*digest)[0]);
 
     result1.logDigestSegmentId = 9;
     // Two log digests, later one has a lower segment id.
@@ -356,8 +366,7 @@ TEST_F(RecoveryTest, findLogDigest) {
     ASSERT_TRUE(digest);
     EXPECT_EQ(9lu, get<0>(*digest));
     EXPECT_EQ(1u, get<1>(*digest));
-    EXPECT_EQ(result1.logDigestBuffer.get(),
-              reinterpret_cast<char*>(std::get<2>(*digest).ldd));
+    EXPECT_EQ(1u, get<2>(*digest)[0]);
 }
 
 TEST_F(RecoveryTest, buildReplicaMap) {

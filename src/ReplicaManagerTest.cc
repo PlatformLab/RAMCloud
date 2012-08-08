@@ -288,6 +288,7 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
     SegmentManager segmentManager(context, serverId, allocator, *mgr, 1.0);
     DoNothingHandlers entryHandlers;
     Log log(context, entryHandlers, segmentManager, *mgr, true);
+    log.sync();
 
     // Set up the scenario:
     // Two log segments in the log, one durably closed and the other open
