@@ -46,7 +46,6 @@ class MembershipServiceTest : public ::testing::Test {
     {
         transport.addService(service, "mock:host=member",
                              WireFormat::MEMBERSHIP_SERVICE);
-        context.serverList = &serverList;
         serverList.add(serverId, "mock:host=member",
                        {WireFormat::PING_SERVICE}, 100);
     }
@@ -61,7 +60,10 @@ TEST_F(MembershipServiceTest, getServerId) {
 }
 
 TEST_F(MembershipServiceTest, setServerList) {
-    CoordinatorServerList source(context);
+    // Create a temporary coordinator server list (with its own context)
+    // to use as a source for update information.
+    Context context2;
+    CoordinatorServerList source(context2);
     ServerId id1 = source.add("mock:host=55", {WireFormat::MASTER_SERVICE,
             WireFormat::PING_SERVICE}, 100);
     ServerId id2 = source.add("mock:host=56", {WireFormat::MASTER_SERVICE,
@@ -70,6 +72,7 @@ TEST_F(MembershipServiceTest, setServerList) {
             WireFormat::PING_SERVICE}, 100);
     ProtoBuf::ServerList fullList;
     source.serialize(fullList);
+
     MembershipClient::setServerList(context, serverId, fullList);
     EXPECT_STREQ("mock:host=55", serverList.getLocator(id1));
     EXPECT_STREQ("mock:host=56", serverList.getLocator(id2));
@@ -83,14 +86,17 @@ TEST_F(MembershipServiceTest, updateServerList) {
     std::mutex mutex;
     std::lock_guard<std::mutex> lock(mutex);
 
-    CoordinatorServerList source(context);
+    // Create a temporary coordinator server list (with its own context)
+    // to use as a source for update information.
+    Context context2;
+    CoordinatorServerList source(context2);
     ProtoBuf::ServerList& updates = source.updates;
     ServerId id1 = source.add(lock, "mock:host=55",
             {WireFormat::MASTER_SERVICE, WireFormat::PING_SERVICE}, 100);
     ServerId id2 = source.add(lock, "mock:host=56",
             {WireFormat::MASTER_SERVICE, WireFormat::PING_SERVICE}, 100);
-
     updates.set_version_number(1);
+
     MembershipClient::updateServerList(context, serverId, updates);
     EXPECT_STREQ("mock:host=55", serverList.getLocator(id1));
     EXPECT_STREQ("mock:host=56", serverList.getLocator(id2));

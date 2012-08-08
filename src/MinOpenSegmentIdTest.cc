@@ -28,6 +28,7 @@ class MinOpenSegmentIdTest : public ::testing::Test {
     ServerId serverId;
     TaskQueue taskQueue;
     MinOpenSegmentId min;
+    CoordinatorServerList* serverList;
 
     MinOpenSegmentIdTest()
         : context()
@@ -36,6 +37,7 @@ class MinOpenSegmentIdTest : public ::testing::Test {
         , serverId()
         , taskQueue()
         , min(context, &taskQueue, &serverId)
+        , serverList(service->context.coordinatorServerList)
     {
         ServerConfig config = ServerConfig::forTesting();
         config.services = {WireFormat::MASTER_SERVICE};
@@ -61,7 +63,7 @@ TEST_F(MinOpenSegmentIdTest, isGreaterThan) {
 }
 
 TEST_F(MinOpenSegmentIdTest, updateToAtLeast) {
-    uint64_t coordMin = service->serverList[serverId].minOpenSegmentId;
+    uint64_t coordMin = (*serverList)[serverId].minOpenSegmentId;
     min.updateToAtLeast(1lu); // first request
     EXPECT_EQ(1lu, min.requested);
     EXPECT_EQ(0lu, min.sent);
@@ -69,7 +71,7 @@ TEST_F(MinOpenSegmentIdTest, updateToAtLeast) {
     EXPECT_EQ(0lu, coordMin);
     EXPECT_TRUE(min.isScheduled());
     taskQueue.performTask(); // send rpc
-    coordMin = service->serverList[serverId].minOpenSegmentId;
+    coordMin = (*serverList)[serverId].minOpenSegmentId;
     min.updateToAtLeast(2lu); // request while rpc outstanding
     EXPECT_EQ(2lu, min.requested);
     EXPECT_EQ(1lu, min.sent);
@@ -78,7 +80,7 @@ TEST_F(MinOpenSegmentIdTest, updateToAtLeast) {
     EXPECT_TRUE(min.rpc);
     EXPECT_TRUE(min.isScheduled());
     taskQueue.performTask(); // reap rpc
-    coordMin = service->serverList[serverId].minOpenSegmentId;
+    coordMin = (*serverList)[serverId].minOpenSegmentId;
     EXPECT_EQ(2lu, min.requested);
     EXPECT_EQ(1lu, min.sent);
     EXPECT_EQ(1lu, min.current);
@@ -87,7 +89,7 @@ TEST_F(MinOpenSegmentIdTest, updateToAtLeast) {
     EXPECT_TRUE(min.isScheduled());
     taskQueue.performTask(); // send rpc
     taskQueue.performTask(); // reap rpc
-    coordMin = service->serverList[serverId].minOpenSegmentId;
+    coordMin = (*serverList)[serverId].minOpenSegmentId;
     EXPECT_EQ(2lu, min.requested);
     EXPECT_EQ(2lu, min.sent);
     EXPECT_EQ(2lu, min.current);

@@ -69,7 +69,7 @@ class BackupServiceTest : public ::testing::Test {
         server = cluster->addServer(config);
         backup = server->backup.get();
 
-        context.serverList->add(backupId, server->config.localLocator,
+        serverList.add(backupId, server->config.localLocator,
                                 {WireFormat::BACKUP_SERVICE}, 100);
     }
 
@@ -1289,8 +1289,10 @@ TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask) {
                                   WireFormat::MEMBERSHIP_SERVICE);
     cluster->transport.addService(master, "mock:host=m",
                                   WireFormat::MASTER_SERVICE);
-    backup->context.serverList->add({13, 0}, "mock:host=m", {}, 100);
-    context.serverList->add({13, 0}, "mock:host=m", {}, 100);
+    ServerList* backupServerList = static_cast<ServerList*>(
+        backup->context.serverList);
+    backupServerList->add({13, 0}, "mock:host=m", {}, 100);
+    serverList.add({13, 0}, "mock:host=m", {}, 100);
 
     openSegment({13, 0}, 10);
     closeSegment({13, 0}, 10);
@@ -1332,7 +1334,7 @@ TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask) {
         "will probe replica status again later"));
     EXPECT_EQ(1lu, backup->gcTaskQueue.outstandingTasks());
 
-    backup->context.serverList->remove({13, 0});
+    backupServerList->remove({13, 0});
 
     TestLog::reset();
     EXPECT_FALSE(task->rpc);

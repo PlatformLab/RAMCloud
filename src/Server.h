@@ -33,41 +33,17 @@ class BindTransport;
 
 /**
  * Container for the various services and resources that make up a single
- * RAMCloud server.  Typically there is a single Server created on main(),
- * but this class also allows creation of many Servers which helps
- * for testing (see MockCluster).
+ * RAMCloud server (master and/or backup, but not coordinator).  Typically
+ * there is a single Server created on main(), but this class can be used
+ * to create many servers for testing (e.g., in MockCluster).
  *
  * Server is not (yet) capable of providing the CoordinatorService; it is
  * pieced together manually in CoordinatorMain.cc.
  */
 class Server {
   PUBLIC:
-    /**
-     * Bind a configuration to a Server, but don't start anything up
-     * yet.
-     *
-     * \param context
-     *      Overall information about the RAMCloud server.
-     * \param config
-     *      Specifies which services and their configuration details for
-     *      when the Server is run.
-     */
-    explicit Server(Context& context, const ServerConfig& config)
-        : context(context)
-        , config(config)
-        , backupReadSpeed()
-        , backupWriteSpeed()
-        , serverId()
-        , serverList(context)
-        , failureDetector()
-        , master()
-        , backup()
-        , membership()
-        , ping()
-    {
-        context.coordinatorSession->setLocation(
-                config.coordinatorLocator.c_str());
-    }
+    explicit Server(Context& context, const ServerConfig& config);
+    ~Server();
 
     void startForTesting(BindTransport& bindTransport);
     void run() __attribute__ ((noreturn));
@@ -112,17 +88,12 @@ class Server {
     ServerId serverId;
 
     /**
-     * List of servers in the cluster which can be used by services to receive
-     * cluster membership change notifications and to track per-server
-     * details.  This class is maintained by the membership service.
-     * See ServerList and ServerTracker.
-     *
-     * Note, if no membership service is requested on this service
-     * (config.services) then this list will go un-updated.  Keep in mind,
-     * this can lead to infinite loops in code that waits for notifications
-     * of changes to the list.
+     * The following variable is NULL if a serverList was already provided
+     * in \c context. If not, we create a new one and store its pointer here
+     * (so we can delete it in the destructor) as well as in context.
+     * Normally, the server list should be accessed from \c context, not here.
      */
-    ServerList serverList;
+    ServerList* serverList;
 
     /// If enabled detects other Server in the cluster, else empty.
     Tub<FailureDetector> failureDetector;
@@ -150,6 +121,8 @@ class Server {
      * See config.services.
      */
     Tub<PingService> ping;
+
+    DISALLOW_COPY_AND_ASSIGN(Server);
 };
 
 } // namespace RAMCloud

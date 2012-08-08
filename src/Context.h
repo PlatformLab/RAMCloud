@@ -21,15 +21,15 @@
 namespace RAMCloud {
 
 // forward declarations
-class Logger;
+class AbstractServerList;
 class CoordinatorServerList;
 class CoordinatorSession;
 class Dispatch;
+class Logger;
 class MockContextMember;
-class TransportManager;
-class ServerList;
 class ServiceManager;
 class SessionAlarmTimer;
+class TransportManager;
 
 /**
  * Context is a container for global variables.
@@ -78,12 +78,15 @@ class Context {
     // Variables below this point are used only in servers.  They are
     // always NULL on clients.
 
-    // The following variable is available on masters and backups, but
-    // not coordinators. Owned elsewhere; not freed by this class.
-    ServerList* serverList;
+    // The following variable is available on all servers (masters, backups,
+    // coordinator). It provides facilities that are common to both ServerList
+    // and CoordinatorServerList. Owned elsewhere; not freed by this class.
+    AbstractServerList* serverList;
 
-    // The following variable is available on coordinators, but not
-    // masters and backups. Owned elsewhere; not freed by this class.
+    // On coordinators, the following variable refers to the same object as
+    // \c serverList; it provides additional features used by coordinators to
+    // manage cluster membership.  NULL except on coordinators.  Owned
+    // elsewhere; not freed by this class.
     CoordinatorServerList* coordinatorServerList;
 
   PRIVATE:

@@ -51,7 +51,6 @@ class MasterRecoveryManager : public Recovery::Owner
 {
   PUBLIC:
     MasterRecoveryManager(Context& context,
-                          CoordinatorServerList& serverList,
                           TabletMap& tabletMap,
                           RuntimeOptions* runtimeOptions);
     ~MasterRecoveryManager();
@@ -75,9 +74,6 @@ class MasterRecoveryManager : public Recovery::Owner
 
     /// Shared RAMCloud information.
     Context& context;
-
-    /// Authoritative list of all servers in the system and their details.
-    CoordinatorServerList& serverList;
 
     /// Authoritative information about tablets and their mapping to servers.
     TabletMap& tabletMap;

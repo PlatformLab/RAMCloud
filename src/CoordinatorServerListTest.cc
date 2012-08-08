@@ -52,7 +52,6 @@ class CoordinatorServerListTest : public ::testing::Test {
         , tr(context)
         , mutex()
     {
-        context.coordinatorServerList = &sl;
     }
 
     typedef std::lock_guard<std::mutex> Lock;
@@ -162,7 +161,6 @@ TEST_F(CoordinatorServerListTest, add) {
 }
 
 TEST_F(CoordinatorServerListTest, add_trackerUpdated) {
-    sl.registerTracker(tr);
     TestLog::Enable _;
     sl.add("hi!", {WireFormat::MASTER_SERVICE}, 100);
     EXPECT_EQ("fireCallback: called", TestLog::get());
@@ -204,7 +202,6 @@ TEST_F(CoordinatorServerListTest, crashed) {
 }
 
 TEST_F(CoordinatorServerListTest, crashed_trackerUpdated) {
-    sl.registerTracker(tr);
     TestLog::Enable _;
     ServerId serverId = sl.add("hi!", {WireFormat::MASTER_SERVICE}, 100);
     sl.crashed(serverId);
@@ -261,7 +258,6 @@ TEST_F(CoordinatorServerListTest, remove) {
 }
 
 TEST_F(CoordinatorServerListTest, remove_trackerUpdated) {
-    sl.registerTracker(tr);
     TestLog::Enable _;
     ServerId serverId = sl.add("hi!", {WireFormat::MASTER_SERVICE}, 100);
     sl.remove(serverId);

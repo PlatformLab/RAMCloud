@@ -39,7 +39,6 @@ struct RecoveryTest : public ::testing::Test {
         , tabletMap()
     {
         Logger::get().setLogLevels(SILENT_LOG_LEVEL);
-        context.serverList = &serverList;
     }
 
     /**

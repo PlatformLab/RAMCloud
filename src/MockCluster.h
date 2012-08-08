@@ -69,7 +69,7 @@ class MockCluster {
     void syncCoordinatorServerList();
 
     /// Caller-supplied context that we manage to provide access to
-    /// the cluster.
+    /// the cluster (see documentation for constructor parameter).
     Context& linkedContext;
 
     /// Context that will be used for the cluster coordinator.
@@ -98,6 +98,9 @@ class MockCluster {
     /// Contexts in this array correspond to entries in the \c servers vector.
     /// Used to clean them up when the cluster goes away.
     vector<Context*> contexts;
+
+    /// If linkedContext didn't already have a server list, we use this for it.
+    Tub<ServerList> linkedContextServerList;
 };
 
 } // namespace RAMCloud

@@ -39,21 +39,14 @@ namespace RAMCloud {
  * \param[in] ourServerId
  *      The ServerId of this server, as returned by enlistment with the
  *      coordinator. Used only to avoid pinging ourself.
- * \param[in] serverList
- *      The ServerList for this server. This module will check to see if
- *      any updates have been missed by comparing versions with other
- *      servers that it pings. If it falls behind, a request will to
- *      sent to the coordinator to fix any discrepancy.
  */
 FailureDetector::FailureDetector(Context& context,
-                                 const ServerId ourServerId,
-                                 ServerList& serverList)
+                                 const ServerId ourServerId)
     : context(context),
       ourServerId(ourServerId),
-      serverTracker(context, serverList),
+      serverTracker(context),
       thread(),
       threadShouldExit(false),
-      serverList(serverList),
       staleServerListSuspected(false),
       staleServerListVersion(0),
       staleServerListTimestamp(0)
@@ -154,7 +147,7 @@ FailureDetector::pingRandomServer()
 
     string locator;
     try {
-        locator = serverList.getLocator(pingee);
+        locator = context.serverList->getLocator(pingee);
         uint64_t serverListVersion;
         LOG(DEBUG, "Sending ping to server %lu (%s)", pingee.getId(),
             locator.c_str());
@@ -203,7 +196,7 @@ FailureDetector::checkServerListVersion(uint64_t observedVersion)
     if (staleServerListSuspected)
         return;
 
-    uint64_t currentVersion = serverList.getVersion();
+    uint64_t currentVersion = context.serverList->getVersion();
     if (observedVersion <= currentVersion)
         return;
 
@@ -230,7 +223,7 @@ FailureDetector::checkForStaleServerList()
         return;
     }
 
-    uint64_t currentVersion = serverList.getVersion();
+    uint64_t currentVersion = context.serverList->getVersion();
     if (currentVersion > staleServerListVersion) {
         staleServerListSuspected = false;
         TEST_LOG("Version advanced. Suspicion suspended.");

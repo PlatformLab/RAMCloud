@@ -24,9 +24,10 @@ namespace RAMCloud {
 /**
  * Constructor for CoordinatorServerList.
  *
- *
  * \param context
- *      Overall information about the RAMCloud server
+ *      Overall information about the RAMCloud server.  The constructor
+ *      will modify \c context so that its \c serverList and
+ *      \c coordinatorServerList members refer to this object.
  */
 CoordinatorServerList::CoordinatorServerList(Context& context)
     : AbstractServerList(context)
@@ -36,6 +37,7 @@ CoordinatorServerList::CoordinatorServerList(Context& context)
     , numberOfBackups(0)
     , updates()
 {
+    context.serverList = context.coordinatorServerList = this;
     updater.start();
 }
 

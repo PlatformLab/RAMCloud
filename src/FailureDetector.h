@@ -43,8 +43,7 @@ namespace RAMCloud {
 class FailureDetector {
   public:
     FailureDetector(Context& context,
-                    ServerId ourServerId,
-                    ServerList& serverList);
+                    ServerId ourServerId);
     ~FailureDetector();
     void start();
     void halt();
@@ -91,10 +90,6 @@ class FailureDetector {
 
     /// Set by halt() to ask the failure detector thread to exit.
     bool threadShouldExit;
-
-    /// ServerList whose consistency we will check against random nodes that
-    /// we ping.
-    ServerList&          serverList;
 
     /// If true, we suspect that our ServerList is out of date and are waiting
     /// for STALE_SERVER_LIST_USECS to expire to request a new list.

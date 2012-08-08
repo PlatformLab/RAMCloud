@@ -25,6 +25,7 @@ namespace RAMCloud {
 
 struct ReplicaManagerTest : public ::testing::Test {
     Context context;
+    ServerList serverList;
     MockCluster cluster;
     const uint32_t segmentSize;
     Tub<ReplicaManager> mgr;
@@ -34,6 +35,7 @@ struct ReplicaManagerTest : public ::testing::Test {
 
     ReplicaManagerTest()
         : context()
+        , serverList(context)
         , cluster(context)
         , segmentSize(1 << 16)
         , mgr()
@@ -54,14 +56,14 @@ struct ReplicaManagerTest : public ::testing::Test {
         config.localLocator = "mock:host=backup2";
         backup2Id = addToServerList(cluster.addServer(config));
 
-        mgr.construct(context, *context.serverList, serverId, 2);
+        mgr.construct(context, serverId, 2);
         serverId = CoordinatorClient::enlistServer(context, {},
             {WireFormat::MASTER_SERVICE}, "", 0 , 0);
     }
 
     ServerId addToServerList(Server* server)
     {
-        context.serverList->add(server->serverId,
+        serverList.add(server->serverId,
                        server->config.localLocator,
                        server->config.services,
                        server->config.backup.mockSpeed);
@@ -81,14 +83,14 @@ TEST_F(ReplicaManagerTest, isReplicaNeeded) {
 
     // Is not needed if we know about the backup (and hence the crashes of any
     // of its predecessors and we have no record of this segment.
-    context.serverList->add({2, 0}, "mock:host=backup1",
-                            {WireFormat::BACKUP_SERVICE}, 100);
+    serverList.add({2, 0}, "mock:host=backup1",
+                   {WireFormat::BACKUP_SERVICE}, 100);
     while (mgr->failureMonitor.tracker.getChange(server, event));
     EXPECT_FALSE(mgr->isReplicaNeeded({2, 0}, 99));
 
     // Is needed if we know the calling backup has crashed; the successor
     // backup will take care of garbage collection.
-    context.serverList->crashed({2, 0}, "mock:host=backup1",
+    serverList.crashed({2, 0}, "mock:host=backup1",
                                 {WireFormat::BACKUP_SERVICE}, 100);
     while (mgr->failureMonitor.tracker.getChange(server, event));
     EXPECT_TRUE(mgr->isReplicaNeeded({2, 0}, 99));
@@ -298,10 +300,9 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
     EXPECT_FALSE(mgr->isIdle());
 
     TestLog::Enable _(filter);
-    BackupFailureMonitor failureMonitor(context, *context.serverList,
-                                        mgr.get());
+    BackupFailureMonitor failureMonitor(context, mgr.get());
     failureMonitor.start(&log);
-    context.serverList->remove(backup1Id);
+    serverList.remove(backup1Id);
 
     // Wait for backup recovery to finish.
     while (!mgr->isIdle());

@@ -40,7 +40,6 @@ class BackupFailureMonitor
 {
   PUBLIC:
     BackupFailureMonitor(Context& context,
-                         ServerList& serverList,
                          ReplicaManager* replicaManager);
     ~BackupFailureMonitor();
 

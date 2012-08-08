@@ -48,8 +48,7 @@ class RecoveryTask;
 class MasterService : public Service {
   public:
     MasterService(Context& context,
-                  const ServerConfig& config,
-                  ServerList& serverList);
+                  const ServerConfig& config);
     virtual ~MasterService();
     void init(ServerId id);
     void dispatch(WireFormat::Opcode opcode,
@@ -155,11 +154,11 @@ class MasterService : public Service {
 
     const ServerConfig& config;
 
+    /// The identifier assigned to this service by the coordinator.  Initial
+    /// state (before enlistment) is ???.
     ServerId serverId;
 
   PRIVATE:
-    /// A reference to the global ServerList.
-    ServerList& serverList;
 
     /**
      * Creates and tracks replicas of in-memory log segments on remote backups.

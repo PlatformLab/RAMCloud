@@ -151,7 +151,7 @@ struct ReplicatedSegmentTest : public ::testing::Test {
         : context()
         , taskQueue()
         , serverList(context)
-        , tracker(context, serverList, NULL)
+        , tracker(context, NULL)
         , deleter()
         , writeRpcsInFlight(0)
         , dataMutex()
@@ -171,7 +171,6 @@ struct ReplicatedSegmentTest : public ::testing::Test {
         , backupId2(1, 0)
     {
         Logger::get().setLogLevels(SILENT_LOG_LEVEL);
-        context.serverList = &serverList;
 
         serverList.add(backupId1, "mock:host=backup1",
                        {WireFormat::BACKUP_SERVICE}, 100);

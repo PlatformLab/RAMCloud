@@ -67,6 +67,7 @@ class MasterServiceRefresher : public ObjectFinder::TabletMapFetcher {
 class MasterServiceTest : public ::testing::Test {
   public:
     Context context;
+    ServerList serverList;
     MockCluster cluster;
     Tub<RamCloud> ramcloud;
     ServerConfig backup1Config;
@@ -82,6 +83,7 @@ class MasterServiceTest : public ::testing::Test {
     // to provide a fixture with a different value.
     explicit MasterServiceTest(uint32_t segmentSize = 256 * 1024)
         : context()
+        , serverList(context)
         , cluster(context)
         , ramcloud()
         , backup1Config(ServerConfig::forTesting())
@@ -460,9 +462,9 @@ TEST_F(MasterServiceTest, recover_basics) {
         static_cast<char*>(Memory::xmemalign(HERE, segmentSize, segmentSize));
     ServerId serverId(123, 0);
     foreach (auto* server, cluster.servers)
-        context.serverList->add(server->serverId, server->config.localLocator,
+        serverList.add(server->serverId, server->config.localLocator,
                        server->config.services, 100);
-    ReplicaManager mgr(context, *context.serverList, serverId, 1);
+    ReplicaManager mgr(context, serverId, 1);
     Segment segment(123, 87, segMem, segmentSize, &mgr);
     segment.sync();
 
@@ -554,9 +556,9 @@ TEST_F(MasterServiceTest, recover) {
         static_cast<char*>(Memory::xmemalign(HERE, segmentSize, segmentSize));
     ServerId serverId(123, 0);
     foreach (auto* server, cluster.servers)
-        context.serverList->add(server->serverId, server->config.localLocator,
+        serverList.add(server->serverId, server->config.localLocator,
                        server->config.services, 100);
-    ReplicaManager mgr(context, *context.serverList, serverId, 1);
+    ReplicaManager mgr(context, serverId, 1);
     Segment __(123, 88, segMem, segmentSize, &mgr);
     __.sync();
 
@@ -1874,20 +1876,27 @@ TEST_F(MasterRecoverTest, recover) {
 
     char* segMem1 = static_cast<char*>(Memory::xmemalign(HERE, segmentSize,
                                                          segmentSize));
-    ServerId serverId(99, 0);
-    ServerList serverList(context);
-    serverList.add(backup1Id, "mock:host=backup1",
+
+    // Create a separate fake "server" (private context and serverList) and
+    // use it to replicate 2 segments worth of data on a single backup.
+    Context context2;
+    ServerList serverList2(context2);
+    context2.transportManager->registerMock(&cluster.transport);
+    serverList2.add(backup1Id, "mock:host=backup1",
                    {WireFormat::BACKUP_SERVICE,
                     WireFormat::MEMBERSHIP_SERVICE},
                    100);
-    ReplicaManager mgr(context, serverList, serverId, 1);
+    ServerId serverId(99, 0);
+    ReplicaManager mgr(context2, serverId, 1);
     Segment s1(99, 87, segMem1, segmentSize, &mgr);
     s1.close();
     char* segMem2 = static_cast<char*>(Memory::xmemalign(HERE, segmentSize,
                                                          segmentSize));
     Segment s2(99, 88, segMem2, segmentSize, &mgr);
     s2.close();
+    context2.transportManager->unregisterMock();
 
+    // Now run recovery, as if the fake server failed.
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
     {

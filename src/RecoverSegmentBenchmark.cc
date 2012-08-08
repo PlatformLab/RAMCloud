@@ -41,7 +41,7 @@ class RecoverSegmentBenchmark {
         config.setLogAndHashTableSize(logSize, hashTableSize);
         config.services = {WireFormat::MASTER_SERVICE};
         config.master.numReplicas = 0;
-        service = new MasterService(context, config, serverList);
+        service = new MasterService(context, config);
         service->serverId = ServerId(1, 0);
     }
 

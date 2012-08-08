@@ -24,33 +24,15 @@
 namespace RAMCloud {
 
 /**
- * Construct a PingService. This one will not be associated with a ServerList
- * and will therefore not return a valid ServerList version in response to
- * pings.
+ * Construct a PingService.
  *
  * \param context
- *      Overall information about the RAMCloud server.
+ *      Overall information about the RAMCloud server. The caller is assumed
+ *      to have associated a serverList with this context; if not, this service
+ *      will not return a valid ServerList version in response to pings.
  */
 PingService::PingService(Context& context)
     : context(context)
-    , serverList(NULL)
-    , ignoreKill(false)
-{
-}
-
-/**
- * Construct a PingService and associate it with the given serverList. Each
- * ping response will include the list's current version. This is used by
- * the FailureDetector to discover if a server's list is stale.
- *
- * \param context
- *      Overall information about the RAMCloud server or client.
- * \param serverList
- *      The ServerList whose version will be reflected in ping responses.
- */
-PingService::PingService(Context& context, ServerList* serverList)
-    : context(context)
-    , serverList(serverList)
     , ignoreKill(false)
 {
 }
@@ -90,8 +72,8 @@ PingService::ping(const WireFormat::Ping::Request& reqHdr,
             reqHdr.callerId);
     }
     respHdr.serverListVersion = 0;
-    if (serverList != NULL)
-        respHdr.serverListVersion = serverList->getVersion();
+    if (context.serverList != NULL)
+        respHdr.serverListVersion = context.serverList->getVersion();
 }
 
 /**
