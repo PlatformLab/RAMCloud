@@ -1897,7 +1897,7 @@ MasterService::remove(const WireFormat::Remove::Request& reqHdr,
 
     ObjectTombstone tombstone(object,
                               log->getSegmentId(reference),
-                              secondsTimestamp());
+                              WallTime::secondsTimestamp());
     Buffer tombstoneBuffer;
     tombstone.serializeToBuffer(tombstoneBuffer);
 
@@ -2488,7 +2488,7 @@ MasterService::storeObject(Key& key,
     uint64_t newObjectVersion = (currentVersion == VERSION_NONEXISTENT) ?
         table->AllocateVersion() : currentVersion + 1;
 
-    Object newObject(key, data, newObjectVersion, secondsTimestamp());
+    Object newObject(key, data, newObjectVersion, WallTime::secondsTimestamp());
 
     assert(currentVersion == VERSION_NONEXISTENT ||
            newObject.getVersion() > currentVersion);
@@ -2498,7 +2498,7 @@ MasterService::storeObject(Key& key,
         Object object(currentBuffer);
         ObjectTombstone tombstone(object,
                                   log->getSegmentId(currentReference),
-                                  secondsTimestamp());
+                                  WallTime::secondsTimestamp());
 
         Buffer tombstoneBuffer;
         tombstone.serializeToBuffer(tombstoneBuffer);

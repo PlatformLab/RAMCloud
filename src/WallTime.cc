@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -15,6 +15,7 @@
 
 #include "Common.h"
 #include "Cycles.h"
+#include "WallTime.h"
 
 /**
  * \file
@@ -24,29 +25,11 @@
 
 namespace RAMCloud {
 
-/**
- * The RAMCloud epoch began Jan 1 00:00:00 2011 UTC.
- * The Unix epoch began 41(!) years prior. May ours
- * last just as long!
- */
-#define RAMCLOUD_UNIX_OFFSET (41 * 365 * 86400)
-
-/**
- * The base Unix time, used by the timestamp methods below.
- * This exists so that we need only call the kernel once to
- * get the time. In the future, we'll use rdtsc().
- */
-static time_t baseTime = 0;
-
-/**
- * CPU timestamp counter value at the first call to
- * #secondsTimestamp. Used to avoid subsequent syscalls
- * to obtain current time in conjunction with #baseTime.
- */
-static uint64_t baseTsc = 0;
-
+// Static member declarations and initial values.
+time_t WallTime::baseTime = 0;
+uint64_t WallTime::baseTsc = 0;
 #if TESTING
-uint32_t mockWallTimeValue = 0;
+uint32_t WallTime::mockWallTimeValue = 0;
 #endif
 
 /**
@@ -55,7 +38,7 @@ uint32_t mockWallTimeValue = 0;
  * All subsequent calls use CPUs timestamp counter.
  */
 uint32_t
-secondsTimestamp()
+WallTime::secondsTimestamp()
 {
 #if TESTING
     if (mockWallTimeValue)
@@ -94,7 +77,7 @@ secondsTimestamp()
  *      A RAMCloud epoch timestamp, as returned via #secondsTimestamp. 
  */
 time_t
-secondsTimestampToUnix(uint32_t timestamp)
+WallTime::secondsTimestampToUnix(uint32_t timestamp)
 {
     return (time_t)timestamp + RAMCLOUD_UNIX_OFFSET;
 }
