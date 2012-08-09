@@ -1,0 +1,200 @@
+/* Copyright (c) 2012 Stanford University
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR(S) DISCLAIM ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL AUTHORS BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+
+/// XXXXXXXXXx- standardise on "Metrics" or "Statistics".
+
+package RAMCloud.ProtoBuf;
+
+/// A collection of various statistics used to keep track of what
+/// the log is up to.
+message LogStatistics {
+  message LogEntryCounts {
+    required int32 type = 1;
+    required fixed64 count = 2;
+  };
+
+  message SegmentStatistics {
+    /// Identifier of the segment.
+    required fixed64 segment_id = 1;
+
+    /// Number of live entries in the segment by type.
+    repeated LogEntryCounts live_entry_counts = 2;
+
+    /// Number of live entry bytes in the segment by type.
+    repeated LogEntryCounts live_entry_bytes = 3;
+
+    /// Number of dead entries in the in memory segment by type.
+    repeated LogEntryCounts dead_memory_entry_counts = 4;
+
+    /// Number of dead entry bytes in the in memory segment by type.
+    repeated LogEntryCounts dead_memory_entry_bytes = 5;
+
+    /// Number of dead entries in the on disk segment by type.
+    repeated LogEntryCounts dead_disk_entry_counts = 6;
+
+    /// Number of dead entry bytes in the on disk segment by type.
+    repeated LogEntryCounts dead_disk_entry_bytes = 7;
+
+    /// Number of 128KB seglets allocated to the segment.
+    optional fixed32 seglets_allocated = 8;
+
+    /// Number of 128KB seglets needed by the segment for the
+    /// live entries it contains.
+    optional fixed32 seglets_needed = 9;
+  }
+
+  /// See LogCleaner.h's DiskCleanerMetrics structure for details
+  /// on this message's fields.
+  message DiskCleanerMetrics {
+    optional fixed64 ticks = 1;
+    optional fixed64 get_segments_ticks = 2;
+    optional fixed64 collect_live_entries_ticks = 3;
+    optional fixed64 liveness_callback_ticks = 4; 
+    optional fixed64 sort_live_entries_ticks = 5; 
+    optional fixed64 move_live_data_ticks = 6;
+    optional fixed64 segment_append_ticks = 7;
+    optional fixed64 close_and_sync_ticks = 8;
+    optional fixed64 relocation_callback_ticks = 9;
+    optional fixed64 cleaning_complete_ticks = 10;
+    optional fixed64 cleaning_passes = 11;
+    optional fixed64 failed_disk_passes = 12;
+    optional fixed64 failed_disk_pass_ticks = 13;
+    optional double write_cost_sum = 14;
+    optional fixed64 entries_liveness_checked = 15;
+    optional fixed64 live_entry_bytes = 16;
+    optional fixed64 live_entries_relocated = 17;
+    optional fixed64 entries_rolled_back = 18;
+    optional fixed64 segments_generated = 19;
+    optional fixed64 segments_cleaned = 20;
+    optional fixed64 cleaned_utilization_sum = 21;
+    optional fixed64 generated_utilization_sum = 22;
+    optional fixed64 entries_in_cleaned_segments = 23;
+    optional fixed64 log_segments_free_before_pass = 24;
+    optional fixed64 log_segments_free_after_pass = 25;
+    optional fixed64 bytes_appended = 26;
+    optional fixed64 seglets_freed = 27;
+    repeated LogEntryCounts entry_type_counts = 28;
+    repeated LogEntryCounts reloc_entry_type_counts = 29;
+
+    /// See LogCleaner.h's SegmentUtilHistogram
+    repeated fixed64 segment_util_histogram_before = 30;
+    repeated fixed64 segment_util_histogram_after = 31;
+    repeated fixed64 cleaned_segment_util_histogram = 32;
+    repeated fixed64 write_cost_histogram = 33;
+  };
+
+  // See LogCleaner.h's MemoryCleanerMetrics structure for details on
+  // this message's fields.
+  message MemoryCleanerMetrics {
+    optional fixed64 ticks = 1;
+    optional fixed64 segments_cleaned = 2;
+    optional fixed64 entries_liveness_checked = 3;
+    optional fixed64 live_entries_relocated = 4;
+    optional fixed64 liveness_callback_ticks = 5;
+    optional fixed64 relocation_callback_ticks = 6;
+    optional fixed64 segment_append_ticks = 7;
+    optional fixed64 log_cleaning_into_ticks = 8;
+    optional fixed64 log_cleaning_complete_ticks = 9;
+    optional fixed64 entries_in_cleaned_segments = 10;
+    optional fixed64 bytes_appended = 11;
+    optional fixed64 entries_rolled_back = 12;
+    optional fixed64 free_seglet_space_ticks = 13;
+    optional fixed64 seglets_freed = 14;
+
+    repeated fixed64 write_cost_histogram = 15;
+  };
+
+  /// List of segments in the system.
+  repeated SegmentStatistics segments = 1;
+
+  /// Total number of appends made to the log.
+  optional fixed64 appends = 2;
+
+  /// Total bytes appended to the log.
+  optional fixed64 bytes_appended = 3;
+
+  /// Total frees made to the log.
+  optional fixed64 frees = 4;
+
+  /// Total bytes freed in the log.
+  optional fixed64 freed_bytes = 5;
+
+  /// Total number of free seglets in the log.
+  optional fixed64 free_seglets = 8;
+
+  /// Total number of segments in the log.
+  optional fixed64 live_segments = 9;
+
+  /// Segment capacity in bytes.
+  optional fixed64 segment_capacity = 10;
+
+  /// Total number of in-memory segments available for storing data.
+  optional fixed64 total_memory_segments = 11;
+
+  /// Seglet capacity in bytes.
+  optional fixed64 seglet_capacity = 12;
+
+  /// List of disk cleaner metrics from previous cleaning passes.
+  /// The latest pass is the last in the list.
+  repeated DiskCleanerMetrics disk_cleaner_metrics = 13;
+
+  /// List of memory cleaner metrics from previous cleaning passes.
+  repeated MemoryCleanerMetrics memory_cleaner_metrics = 14;
+
+  /// Server CPU frequency. Used to convert ticks to seconds.
+  //required fixed64 cpu_hz = 15;
+
+  /// Number of processor ticks this server has been up for.
+  optional fixed64 uptime_ticks = 16;
+
+  /// Number of processor ticks the server has spent out of memory.
+  optional fixed64 out_of_memory_ticks = 17;
+
+  /// Number of processor ticks the server has spent syncing to replicas.
+  /// This includes both regular log and cleaner sync operations.
+  optional fixed64 replication_sync_ticks = 18;
+
+  /// Low free memory watermark that triggers in-memory cleaning.
+  optional fixed32 memory_cleaner_low_watermark = 19;
+
+  /// Low free disk watermark that triggers disk cleaning.
+  optional fixed32 disk_cleaner_low_watermark = 20;
+
+  /// When in-memory cleaning reaches this cost threshold, start cleaning on
+  /// disk as well.
+  optional fixed32 write_cost_threshold = 21;
+
+  /// Indicates whether or not the in-memory cleaner is disabled.
+  optional bool memory_cleaner_disabled = 22;
+
+  /// Number of times each segment is replicated on remote backups.
+  optional fixed32 replication_factor = 23;
+
+  /// Amount of space used on disk backups is equal to the amount of space
+  /// in memory times this value.
+  optional double disk_expansion_factor = 24;
+
+  /// Total number of mmap calls on seglets.
+  optional fixed64 mmap_count = 25;
+
+  /// Total number of munmap calls on seglets.
+  optional fixed64 munmap_count = 26;
+
+  /// Total ticks spent mmaping seglets.
+  optional fixed64 mmap_ticks = 27;
+
+  /// total ticks spent unmapping seglets.
+  optional fixed64 munmap_ticks = 28;
+}
