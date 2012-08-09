@@ -139,10 +139,12 @@ class Object {
      *      actually contains a full object. If it does not, then behavior
      *      is undefined.
      */
-    Object(Buffer& buffer)
+    explicit Object(Buffer& buffer)
         : serializedForm(*buffer.getStart<SerializedForm>()),
           key(NULL),
-          dataLength(buffer.getTotalLength() - sizeof32(serializedForm) - serializedForm.keyLength),
+          dataLength(buffer.getTotalLength() -
+                     sizeof32(serializedForm) -
+                     serializedForm.keyLength),
           data(),
           dataBuffer(),
           objectBuffer(&buffer)
@@ -165,7 +167,8 @@ class Object {
         : serializedForm(*reinterpret_cast<const SerializedForm*>(buffer)),
           key(reinterpret_cast<const void*>(reinterpret_cast<const uint8_t*>(
               buffer) + sizeof(SerializedForm))),
-          dataLength(length - sizeof32(serializedForm) - serializedForm.keyLength),
+          dataLength(length - sizeof32(serializedForm) -
+                              serializedForm.keyLength),
           data(reinterpret_cast<const void*>(reinterpret_cast<const uint8_t*>(
               key) + serializedForm.keyLength)),
           dataBuffer(),
@@ -203,7 +206,9 @@ class Object {
             return;
         }
 
-        Buffer::Iterator it(**objectBuffer, sizeof32(serializedForm), getKeyLength());
+        Buffer::Iterator it(**objectBuffer,
+                            sizeof32(serializedForm),
+                            getKeyLength());
         while (!it.isDone()) {
             buffer.appendTo(it.getData(), it.getLength());
             it.next();
@@ -260,7 +265,8 @@ class Object {
         if (key)
             return key;
 
-        return (*objectBuffer)->getRange(sizeof(serializedForm), getKeyLength());
+        return (*objectBuffer)->getRange(
+            sizeof(serializedForm), getKeyLength());
     }
 
     /**
@@ -285,7 +291,8 @@ class Object {
         if (dataBuffer)
             return (*dataBuffer)->getRange(0, dataLength);
 
-        return (*objectBuffer)->getRange(sizeof32(SerializedForm) + getKeyLength(), dataLength);
+        return (*objectBuffer)->getRange(
+            sizeof32(SerializedForm) + getKeyLength(), dataLength);
     }
 
     /**
@@ -355,7 +362,7 @@ class Object {
          *      Length of the object's binary string key in bytes.
          * \param version
          *      64-bit version number associated with this object.
-         * \param
+         * \param timestamp
          *      Timestamp of this object's creation or modification. Used
          *      primarily by the log in making cleaning decisions.
          */
@@ -391,7 +398,7 @@ class Object {
         uint32_t checksum;
 
         /// Following this class will be the key and the data. This member is
-        /// only here to denote this. 
+        /// only here to denote this.
         char keyAndData[0];
     } __attribute__((__packed__));
     static_assert(sizeof(SerializedForm) == 26,
@@ -527,7 +534,7 @@ class ObjectTombstone {
      *      actually contains a full tombstone. If it does not, then behavior
      *      is undefined.
      */
-    ObjectTombstone(Buffer& buffer)
+    explicit ObjectTombstone(Buffer& buffer)
         : serializedForm(*buffer.getStart<SerializedForm>()),
           key(),
           tombstoneBuffer(&buffer)
@@ -564,7 +571,9 @@ class ObjectTombstone {
             return;
         }
 
-        Buffer::Iterator it(**tombstoneBuffer, sizeof32(serializedForm), getKeyLength());
+        Buffer::Iterator it(**tombstoneBuffer,
+                            sizeof32(serializedForm),
+                            getKeyLength());
         while (!it.isDone()) {
             buffer.appendTo(it.getData(), it.getLength());
             it.next();
@@ -590,7 +599,8 @@ class ObjectTombstone {
         if (key)
             return *key;
 
-        return (*tombstoneBuffer)->getRange(sizeof(serializedForm), getKeyLength());
+        return (*tombstoneBuffer)->getRange(
+            sizeof(serializedForm), getKeyLength());
     }
 
     /**
@@ -668,7 +678,7 @@ class ObjectTombstone {
          *      64-bit identifier of the log segment the dead object is in.
          * \param objectVersion
          *      64-bit version number associated with the dead object.
-         * \param
+         * \param timestamp
          *      Timestamp of this tombstone's creation. Used primarily by the
          *      log in making cleaning decisions.
          */
@@ -693,7 +703,7 @@ class ObjectTombstone {
         /// Length of the binary string key in bytes.
         uint16_t keyLength;
 
-        /// The log segment that the dead object this tombstone refers to was 
+        /// The log segment that the dead object this tombstone refers to was
         /// in. Once this segment is no longer in the system, this tombstone
         /// is no longer necessary and may be garbage collected.
         uint64_t segmentId;
@@ -732,7 +742,9 @@ class ObjectTombstone {
         if (key) {
             crc.update(*key, getKeyLength());
         } else {
-            crc.update(**tombstoneBuffer, sizeof(serializedForm), getKeyLength());
+            crc.update(**tombstoneBuffer,
+                       sizeof(serializedForm),
+                       getKeyLength());
         }
 
         return crc.getResult();

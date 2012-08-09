@@ -58,7 +58,7 @@ SegmentManager::SegmentManager(Context& context,
       numSurvivorSegmentsAlloced(0),
       segments(NULL),
       states(NULL),
-      freeSlots(), 
+      freeSlots(),
       nextSegmentId(0),
       idToSlotMap(),
       allSegments(),
@@ -274,7 +274,8 @@ SegmentManager::logIteratorDestroyed()
  *      Appropriate segments, if any, are returned here.
  */
 void
-SegmentManager::getActiveSegments(uint64_t minSegmentId, LogSegmentVector& outList)
+SegmentManager::getActiveSegments(uint64_t minSegmentId,
+                                  LogSegmentVector& outList)
 {
     if (logIteratorCount == 0)
         throw SegmentManagerException(HERE, "cannot call outside of iteration");
@@ -285,7 +286,7 @@ SegmentManager::getActiveSegments(uint64_t minSegmentId, LogSegmentVector& outLi
     // is presently part of the log.
     State activeSegmentStates[] = {
         NEWLY_CLEANABLE,
-        CLEANABLE, 
+        CLEANABLE,
         FREEABLE_PENDING_DIGEST_AND_REFERENCES
     };
 
@@ -422,13 +423,15 @@ SegmentManager::getSegmentSize()
  *      value should be Segment::INVALID_SEGMENT_ID.
  */
 void
-SegmentManager::writeHeader(LogSegment* segment, uint64_t headSegmentIdDuringCleaning)
+SegmentManager::writeHeader(LogSegment* segment,
+                            uint64_t headSegmentIdDuringCleaning)
 {
     SegmentHeader header(*logId,
                          segment->id,
                          allocator.getSegmentSize(),
                          headSegmentIdDuringCleaning);
-    bool success = segment->append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
+    bool success = segment->append(LOG_ENTRY_TYPE_SEGHEADER,
+                                   &header, sizeof(header));
     if (!success)
         throw FatalError(HERE, "Could not append segment header");
 }
@@ -469,12 +472,16 @@ SegmentManager::writeDigest(LogSegment* head)
 
     // Only preclude/free cleaned segments if no log iteration in progress.
     if (logIteratorCount == 0) {
-        while (!segmentsByState[FREEABLE_PENDING_DIGEST_AND_REFERENCES].empty()) {
-            LogSegment& s = segmentsByState[FREEABLE_PENDING_DIGEST_AND_REFERENCES].front();
+        SegmentList& list = segmentsByState[
+            FREEABLE_PENDING_DIGEST_AND_REFERENCES];
+        while (!list.empty()) {
+            LogSegment& s = list.front();
             changeState(s, FREEABLE_PENDING_REFERENCES);
         }
     } else {
-        foreach (LogSegment& s, segmentsByState[FREEABLE_PENDING_DIGEST_AND_REFERENCES])
+        SegmentList& list = segmentsByState[
+            FREEABLE_PENDING_DIGEST_AND_REFERENCES];
+        foreach (LogSegment& s, list)
             digest.addSegmentId(s.id);
     }
 
@@ -482,8 +489,8 @@ SegmentManager::writeDigest(LogSegment* head)
     digest.appendToBuffer(buffer);
     bool success = head->append(LOG_ENTRY_TYPE_LOGDIGEST, buffer);
     if (!success) {
-        throw FatalError(HERE, format("Could not append log digest of %u bytes to head segment",
-            buffer.getTotalLength()));
+        throw FatalError(HERE, format("Could not append log digest of %u bytes "
+            "to head segment", buffer.getTotalLength()));
     }
 }
 
@@ -514,7 +521,7 @@ void
 SegmentManager::changeState(LogSegment& s, State newState)
 {
     removeFromLists(s);
-    *states[s.slot] = newState; 
+    *states[s.slot] = newState;
     addToLists(s);
 }
 
@@ -574,7 +581,7 @@ SegmentManager::alloc(bool forCleaner)
     uint32_t slot = freeSlots.back();
     freeSlots.pop_back();
     assert(!segments[slot]);
-    
+
     State state = (forCleaner) ? CLEANING_INTO : HEAD;
     segments[slot].construct(allocator, id, slot);
     states[slot].construct(state);
@@ -656,7 +663,8 @@ SegmentManager::removeFromLists(LogSegment& s)
 void
 SegmentManager::freeUnreferencedSegments()
 {
-    uint64_t earliestEpoch = ServerRpcPool<>::getEarliestOutstandingEpoch(context);
+    uint64_t earliestEpoch =
+        ServerRpcPool<>::getEarliestOutstandingEpoch(context);
     SegmentList& freeablePending = segmentsByState[FREEABLE_PENDING_REFERENCES];
     SegmentList::iterator it = freeablePending.begin();
 

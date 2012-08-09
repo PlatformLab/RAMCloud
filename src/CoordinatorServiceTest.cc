@@ -339,7 +339,7 @@ TEST_F(CoordinatorServiceTest, reassignTabletOwnership) {
     // on host being migrated to.
     Buffer empty;
     HashTable::Reference reference;
-    master2->master->log->append(LOG_ENTRY_TYPE_OBJ, empty, true, reference); 
+    master2->master->log->append(LOG_ENTRY_TYPE_OBJ, empty, true, reference);
 
     // master is already enlisted
     ramcloud->createTable("foo");

@@ -188,7 +188,10 @@ Segment::append(LogEntryType type, Buffer& buffer)
  * Please see the first append method for documentation.
  */
 bool
-Segment::append(LogEntryType type, const void* data, uint32_t length, uint32_t& outOffset)
+Segment::append(LogEntryType type,
+                const void* data,
+                uint32_t length,
+                uint32_t& outOffset)
 {
     Buffer buffer;
     buffer.appendTo(data, length);
@@ -242,7 +245,7 @@ Segment::close()
  *      Buffer to append segment contents to.
  * \param offset
  *      Offset in the segment to begin appending from.
- * \param
+ * \param length
  *      Number of bytes in the segmet to append, starting from the offset.
  * \return
  *      The number of actual bytes appended to the buffer. If this was less
@@ -338,7 +341,8 @@ uint32_t
 Segment::getSegletsNeeded()
 {
     uint32_t liveBytes = tail - bytesFreed + bytesNeeded(sizeof(Footer));
-    return (liveBytes + allocator.getSegletSize() - 1) / allocator.getSegletSize();
+    return (liveBytes + allocator.getSegletSize() - 1) /
+        allocator.getSegletSize();
 }
 
 /**
@@ -368,7 +372,7 @@ Segment::checkMetadataIntegrity()
     const EntryHeader* header = NULL;
     const void* unused = NULL;
     while (peek(offset, &unused) > 0) {
-        header = getEntryHeader(offset); 
+        header = getEntryHeader(offset);
         currentChecksum.update(header, sizeof(*header));
 
         uint32_t length = 0;
@@ -389,7 +393,7 @@ Segment::checkMetadataIntegrity()
     Footer footerInSegment(false, Crc32C());
     copyOut(offset + sizeof32(*header) + header->getLengthBytes(),
             &footerInSegment, sizeof32(footerInSegment));
-    
+
     Footer expectedFooter(footerInSegment.closed, currentChecksum);
 
     if (footerInSegment.checksum != expectedFooter.checksum) {
@@ -464,6 +468,14 @@ Segment::getEntryHeader(uint32_t offset)
  *      Offset of the entry in the segment. This should point to the entry
  *      header structure. Normally this value is obtained as the result of
  *      an append call.
+ * \param outType
+ *      The type of the queried entry is returned in this out parameter.
+ * \param outDataOffset
+ *      The segment byte offset at which the queried entry's data begins is
+ *      returned in this out parameter.
+ * \param outDataLength
+ *      The length of the queried entry (not including metadata), is returned
+ *      in this out parameter.
  */
 void
 Segment::getEntryInfo(uint32_t offset,
@@ -476,7 +488,8 @@ Segment::getEntryInfo(uint32_t offset,
     outDataOffset = offset + sizeof32(*header) + header->getLengthBytes();
 
     outDataLength = 0;
-    copyOut(offset + sizeof32(*header), &outDataLength, header->getLengthBytes());
+    copyOut(offset + sizeof32(*header), &outDataLength,
+        header->getLengthBytes());
 }
 
 /**

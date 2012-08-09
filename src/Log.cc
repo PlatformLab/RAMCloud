@@ -21,7 +21,6 @@
 
 namespace RAMCloud {
 
-
 /**
  * Constructor for Log. No segments are allocated in the constructor, so if
  * replicas are being used no backups will have been contacted yet and there
@@ -39,9 +38,13 @@ namespace RAMCloud {
  *
  * \param context
  *      Overall information about the RAMCloud server.
- * \param logId
- *      A unique numerical identifier for this Log. This should be globally
- *      unique in the RAMCloud system.
+ * \param entryHandlers
+ *      Class to query for various bits of per-object information. For instance,
+ *      the log may want to know whether an object is still needed or if it can
+ *      be garbage collected. Methods on the given class instance will be
+ *      invoked to field such queries.
+ * \param segmentManager
+ *      The SegmentManager this log should allocate its head segments from.
  * \param replicaManager
  *      The ReplicaManager that will be used to make each of this Log's
  *      Segments durable.
@@ -301,10 +304,10 @@ Log::allocateHeadIfStillOn(Tub<uint64_t> segmentId)
     if (!segmentId || head->id == *segmentId)
         head = segmentManager.allocHead();
 
-    // XXX What if we're out of space? The above could return NULL, in which
-    //     case we haven't actually closed it. Could we return false to replica
-    //     manager and rely on it retrying? The previous code could have thrown
-    //     an exception, but we never caught it...
+    // TODO(steve/ryan): What if we're out of space? The above could return
+    //     NULL, in which case we haven't actually closed it. Could we return
+    //     false to replica manager and rely on it retrying? The previous code
+    //     could have thrown an exception, but we never caught it...
 }
 
 /**

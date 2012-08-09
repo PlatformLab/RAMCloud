@@ -340,7 +340,7 @@ TEST_F(RecoveryTest, findLogDigest) {
 
     uint32_t bytes = result0Buffer.getTotalLength();
 
-    result0.logDigestBytes = bytes; 
+    result0.logDigestBytes = bytes;
     result0.logDigestBuffer = std::unique_ptr<char[]>(new char[bytes]);
     result0.logDigestSegmentId = 10;
     result0.logDigestSegmentLen = 1;

@@ -70,7 +70,7 @@ class HashTable {
         {
         }
 
-        Reference(uint64_t value)
+        explicit Reference(uint64_t value)
             : value(value)
         {
             if (value & 0xffff000000000000lu)
@@ -124,7 +124,7 @@ class HashTable {
      * besides storing logged objects.
      */
     struct KeyComparer {
-        virtual ~KeyComparer() { } 
+        virtual ~KeyComparer() { }
 
         /**
          * Returns true if the given Key refers to the given reference.
@@ -320,6 +320,8 @@ class HashTable {
      * \param[in] numBuckets
      *      The number of buckets in the new hash table. This should be a power
      *      of two.
+     * \param[in] keyComparer
+     *      Comparison functor that will compare keys for equality.
      * \throw Exception
      *      An exception is thrown if numBuckets is 0.
      */
@@ -350,14 +352,14 @@ class HashTable {
 
     /**
      * Find the address of an element in the hash table given its key.
-     * \param[in] Key
+     * \param[in] key
      *      Key representing the element to look up.
      * \param[out] reference
      *      If found, the reference matching the given key is returned here.
      * \return
      *      True if found, else false.
      */
-    bool 
+    bool
     lookup(Key& key, Reference& reference)
     {
         // Find the bucket using 64 bit hash of the key. Any collisions
@@ -380,7 +382,7 @@ class HashTable {
 
     /**
      * Remove an element from the hash table.
-     * \param[in] Key
+     * \param[in] key
      *      Key representing the element to be removed from the hash table.
      * \return
      *      Whether the hash table contained the key specified.
@@ -404,7 +406,7 @@ class HashTable {
      * This is equivalent to, but faster than, #remove() followed by #replace().
      * \param[in] key
      *      Key representing the element to replace and being replaced.
-     * \param[in] logEntry
+     * \param[in] reference
      *      New element to insert into the hash table.
      * \retval true
      *      The hash table previously contained the key and its entry has

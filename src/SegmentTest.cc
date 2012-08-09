@@ -48,7 +48,7 @@ class SegmentTest : public ::testing::TestWithParam<Segment::Allocator*> {
                 }
 
                 EXPECT_FALSE(dirty);
-            
+
                 delete[] b;
             }
         }
@@ -67,12 +67,12 @@ class SegmentTest : public ::testing::TestWithParam<Segment::Allocator*> {
                 offset = 0;
             }
 
-            uint8_t* allocation = &currentBuffer[offset]; 
+            uint8_t* allocation = &currentBuffer[offset];
             offset += (2 * getSegletSize());
 
             if (offset == (2 * getSegmentSize()))
                 currentBuffer = NULL;
-            
+
             return allocation;
         }
 
@@ -143,10 +143,10 @@ TEST_P(SegmentTest, append_blackBox) {
     for (uint32_t i = 0; i < 1000; i += 100) {
         uint32_t offset;
         EXPECT_TRUE(s.append(LOG_ENTRY_TYPE_OBJ, buf, i, offset));
-        
+
         Buffer buffer;
         s.getEntry(offset, buffer);
-        EXPECT_EQ(i, buffer.getTotalLength()); 
+        EXPECT_EQ(i, buffer.getTotalLength());
         EXPECT_EQ(0, memcmp(buf, buffer.getRange(0, i), i));
     }
 }
@@ -198,7 +198,7 @@ TEST_P(SegmentTest, append_whiteBox) {
 }
 
 TEST_P(SegmentTest, append_differentLengthBytes) {
-    uint32_t oneByteLengths[] = { 0, 255 }; 
+    uint32_t oneByteLengths[] = { 0, 255 };
     uint32_t twoByteLengths[] = { 256, 65535 };
     uint32_t threeByteLengths[] = { 65536 };
     struct {
@@ -290,7 +290,7 @@ TEST_P(SegmentTest, getEntry) {
 
 TEST_P(SegmentTest, getAppendedLength) {
     Segment s(*GetParam());
-    // XXXXX
+    // TODO(steve): write me.
 }
 
 TEST_P(SegmentTest, getSegletsAllocated) {
@@ -379,7 +379,7 @@ TEST_P(SegmentTest, getEntryInfo) {
         EXPECT_EQ(10U, dataOffset);
 
         s.getEntryInfo(0, type, dataOffset, dataLength);
-        EXPECT_EQ(0U, dataLength); 
+        EXPECT_EQ(0U, dataLength);
 
         s.getEntryInfo(2, type, dataOffset, dataLength);
         EXPECT_EQ(0U, dataLength);
@@ -473,7 +473,7 @@ TEST_P(SegmentTest, copyInFromBuffer) {
     Buffer buffer;
     buffer.appendTo(buf, sizeof(buf));
 
-    EXPECT_EQ(0U, s.copyInFromBuffer(segmentSize, buffer, 0, sizeof(buf))); 
+    EXPECT_EQ(0U, s.copyInFromBuffer(segmentSize, buffer, 0, sizeof(buf)));
     EXPECT_EQ(5U, s.copyInFromBuffer(segmentSize - 5, buffer, 0, sizeof(buf)));
     EXPECT_EQ(sizeof32(buf),
        s.copyInFromBuffer(segmentSize - sizeof32(buf), buffer, 0, sizeof(buf)));
@@ -501,7 +501,7 @@ TEST_P(SegmentTest, checkMetadataIntegrity_simple) {
     EXPECT_TRUE(s.checkMetadataIntegrity());
 
     // scribbling on an entry's data won't harm anything
-    s.copyIn(2, "ASDFHASDF", 10); 
+    s.copyIn(2, "ASDFHASDF", 10);
     EXPECT_TRUE(s.checkMetadataIntegrity());
 
     // scribbling on metadata should result in a checksum error

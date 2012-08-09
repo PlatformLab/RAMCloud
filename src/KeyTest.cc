@@ -39,7 +39,7 @@ TEST_F(KeyTest, constructor_fromLog)
     Key key(12, "blah", 5);
     Object object(key, NULL, 0, 0, 0);
     object.serializeToBuffer(buffer);
-    Key key2(LOG_ENTRY_TYPE_OBJ, buffer); 
+    Key key2(LOG_ENTRY_TYPE_OBJ, buffer);
     EXPECT_EQ(12U, key2.getTableId());
     EXPECT_STREQ("blah", reinterpret_cast<const char*>(key2.getStringKey()));
     EXPECT_EQ(5U, key2.getStringKeyLength());
@@ -64,7 +64,7 @@ TEST_F(KeyTest, constructor_fromBuffer)
     Buffer buffer;
     buffer.appendTo("woops", 6);
 
-    Key key(48, buffer, 0, 6); 
+    Key key(48, buffer, 0, 6);
     EXPECT_EQ(48U, key.getTableId());
     EXPECT_EQ(0, memcmp("woops", key.getStringKey(), 6));
     EXPECT_EQ(6U, key.getStringKeyLength());

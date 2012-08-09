@@ -35,14 +35,14 @@ class TestObject {
   public:
     // We don't care about tables or string keys, so we'll assume table 0
     // and let our keys be 64-bit integers.
-    TestObject(uint64_t key)
+    explicit TestObject(uint64_t key)
         : key(key)
     {
     }
 
     uint64_t key;
 
-    DISALLOW_COPY_AND_ASSIGN(TestObject);
+    DISALLOW_COPY_AND_ASSIGN(TestObject); // NOLINT
 } __attribute__((aligned(64)));
 
 class TestObjectKeyComparer : public HashTable::KeyComparer {
@@ -54,7 +54,8 @@ class TestObjectKeyComparer : public HashTable::KeyComparer {
         // HashTable::Reference.
         TestObject* candidateObject =
             reinterpret_cast<TestObject*>(candidate.get());
-        Key candidateKey(0, &candidateObject->key, sizeof(candidateObject->key));
+        Key candidateKey(0, &candidateObject->key,
+            sizeof(candidateObject->key));
         return (key == candidateKey);
     }
 };

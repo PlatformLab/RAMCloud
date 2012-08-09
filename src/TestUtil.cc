@@ -182,13 +182,20 @@ TestUtil::toString(const void* buf, uint32_t length)
 }
 
 /**
- * \copydoc TestUtil::toString
+ * Create a printable representation of the contents of the buffer,
+ * starting at a given offset and spanning a given length of bytes.
+ * The string representation was designed primarily for printing
+ * network packets during testing.
  *
+ * \param buffer
+ *      The buffer to create a string representation of.
  * \param offset
  *      Offset of the first byte in the buffer to be stringified.
  * \param length
  *      Total number of bytes in the buffer to be stringified, starting
  *      at the given offset.
+ * \return
+ *      See the toString(Buffer*) method's return documentation.
  */
 string
 TestUtil::toString(Buffer* buffer, uint32_t offset, uint32_t length)

@@ -76,7 +76,7 @@ LogDigest::addSegmentId(uint64_t id)
 {
     segmentIds.push_back(id);
     checksum.update(&segmentIds.back(), sizeof(segmentIds.back()));
-    header.checksum = checksum.getResult(); 
+    header.checksum = checksum.getResult();
 }
 
 /**

@@ -30,11 +30,19 @@ namespace RAMCloud {
 /**
  * Construct a new LogCleaner object.
  *
- * \param[in] log
- *      Pointer to the Log we'll be cleaning.
- * \param[in] replicaManager
- *      The ReplicaManager to use for Segments written out by
- *      the cleaner.
+ * \param context
+ *      Overall information about the RAMCloud server.
+ * \param segmentManager
+ *      The SegmentManager to query for newly cleanable segments, allocate
+ *      survivor segments from, and report cleaned segments to.
+ * \param replicaManager
+ *      The ReplicaManager to use in backing up segments written out by the
+ *      cleaner.
+ * \param writeCostThreshold
+ *      Threshold after which disk cleaning will be forced, even if disk space
+ *      usage is not high. The treshold represents the maximum amount of work
+ *      the in-memory cleaner should do on its own before trying to free up
+ *      tombstone space by cleaning disk segments.
  */
 LogCleaner::LogCleaner(Context& context,
                        SegmentManager& segmentManager,

@@ -259,7 +259,7 @@ TEST_F(LogIteratorTest, next) {
             lastSegmentId = i.currentSegment->id;
             i.next();
         }
-        EXPECT_EQ(2U, lastSegmentId); 
+        EXPECT_EQ(2U, lastSegmentId);
 
         segmentManager.free(cleanerSeg);
     }

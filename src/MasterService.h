@@ -25,7 +25,6 @@
 #include "SegmentIterator.h"
 #include "SegmentManager.h"
 #include "ReplicaManager.h"
-#include "SegmentIterator.h"
 #include "ServerList.h"
 #include "ServerStatistics.pb.h"
 #include "Service.h"
@@ -68,7 +67,7 @@ class MasterService : public Service, Log::EntryHandlers {
      */
     class LogKeyComparer : public HashTable::KeyComparer {
       public:
-        LogKeyComparer(Log& log);
+        explicit LogKeyComparer(Log& log);
         bool doesMatch(Key& key, HashTable::Reference reference);
 
       private:
@@ -288,7 +287,7 @@ class MasterService : public Service, Log::EntryHandlers {
         __attribute__((warn_unused_result));
     bool checkObjectLiveness(Buffer& buffer);
     bool relocateObject(Buffer& oldBuffer,
-                          HashTable::Reference newReference);
+                        HashTable::Reference newReference);
     uint32_t getObjectTimestamp(Buffer& buffer);
     bool checkTombstoneLiveness(Buffer& buffer);
     bool relocateTombstone(Buffer& oldBuffer,
@@ -300,7 +299,10 @@ class MasterService : public Service, Log::EntryHandlers {
                        uint64_t* newVersion,
                        bool sync) __attribute__((warn_unused_result));
     bool lookup(Key& key, LogEntryType& type, Buffer& buffer);
-    bool lookup(Key& key, LogEntryType& type, Buffer& buffer, HashTable::Reference& reference);
+    bool lookup(Key& key,
+                LogEntryType& type,
+                Buffer& buffer,
+                HashTable::Reference& reference);
 
     friend class RecoverSegmentBenchmark;
     friend class MasterServiceInternal::RecoveryTask;

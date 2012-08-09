@@ -194,7 +194,8 @@ TEST_F(ReplicaManagerTest, writeSegment) {
             Buffer buffer;
             it.appendToBuffer(buffer);
             Object object(buffer);
-            EXPECT_EQ("10", TestUtil::toString(object.getKey(), object.getKeyLength()));
+            EXPECT_EQ("10", TestUtil::toString(object.getKey(),
+                                               object.getKeyLength()));
             EXPECT_EQ(123U, object.getTableId());
         }
     }
@@ -295,8 +296,9 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
     // Set up the scenario:
     // Two log segments in the log, one durably closed and the other open
     // with a single pending write. The first log head is already open and
-    // will be closed during recovery.
-    log.allocateHeadIfStillOn({});  // Second log head, will be open during recovery.
+    // will be closed during recovery. The second log head, will be open
+    // during recovery.
+    log.allocateHeadIfStillOn({});
     static char buf[64];
     // Sync append to new head ensures that the first log segment must be
     // durably closed.

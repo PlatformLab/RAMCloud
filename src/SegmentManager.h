@@ -288,7 +288,7 @@ class SegmentManager::Allocator : public Segment::Allocator {
      * \param totalBytes
      *      Total number of bytes to allocate for the log.
      */
-    Allocator(size_t totalBytes)
+    explicit Allocator(size_t totalBytes)
         : segmentSize(Segment::DEFAULT_SEGMENT_SIZE),
           segletSize(Segment::DEFAULT_SEGLET_SIZE),
           freeList(),
@@ -348,7 +348,7 @@ class SegmentManager::Allocator : public Segment::Allocator {
     /**
      * Allocate a seglet's worth of memory.
      */
-    void* 
+    void*
     alloc()
     {
         if (getFreeSegmentCount() == 0)

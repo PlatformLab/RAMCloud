@@ -110,7 +110,7 @@ MasterService::MasterService(Context& context,
     , bytesWritten(0)
     , replicaManager(context, serverId, config.master.numReplicas)
     , allocator(config.master.logBytes, config.segmentSize, config.segletSize)
-    , segmentManager(context, serverId, allocator, replicaManager, 2.0) 
+    , segmentManager(context, serverId, allocator, replicaManager, 2.0)
     , log(NULL)
     , keyComparer(NULL)
     , objectMap(NULL)
@@ -868,7 +868,7 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request& reqHdr,
             // Otherwise they're dead.
             LogEntryType currentType;
             Buffer currentBuffer;
-            if (lookup(key, currentType, currentBuffer) == false) 
+            if (lookup(key, currentType, currentBuffer) == false)
                 continue;
 
             // NB: The cleaner is currently locked out due to the global
@@ -1491,12 +1491,11 @@ MasterService::recover(ServerId masterId,
  * it belongs to a tablet that isn't listed in the master's tablets.
  * Used by purgeObjectsFromUnknownTablets().
  *
- * \param entry
- *      Handle to an object as returned from the master's
- *      objectMap->lookup() or on callback from objectMap->forEach().
- *      This object is removed from the objectMap and freed from
- *      the log if it doesn't belong to any tablet the master
- *      lists among its tablets.
+ * \param reference
+ *      Reference into the log for an object as returned from the master's
+ *      objectMap->lookup() or on callback from objectMap->forEach(). This
+ *      object is removed from the objectMap and freed from the log if it
+ *      doesn't belong to any tablet the master lists among its tablets.
  * \param cookie
  *      Pointer to the MasterService where this object is currently
  *      stored.
@@ -1767,8 +1766,9 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
                 HashTable::Reference newObjReference;
                 log->append(LOG_ENTRY_TYPE_OBJ, buffer, false, newObjReference);
 
-                // XXX- what happens if the log is full? won't an exception here
-                //      just cause the master to try another backup?
+                // TODO(steve/ryan): what happens if the log is full? won't an
+                //      exception here just cause the master to try another
+                //      backup?
 
                 ++metrics->master.objectAppendCount;
                 metrics->master.liveObjectBytes += buffer.getTotalLength();
@@ -1776,10 +1776,11 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
                 objectMap->replace(key, newObjReference);
 
                 // nuke the old object, if it existed
-                // XXX-- need to put tombstones in the HT and have this free
-                //       them as well 
+                // TODO(steve): put tombstones in the HT and have this free them
+                //              as well
                 if (freeCurrentEntry) {
-                    metrics->master.liveObjectBytes -= currentBuffer.getTotalLength();
+                    metrics->master.liveObjectBytes -=
+                        currentBuffer.getTotalLength();
                     log->free(currentReference);
                 } else {
                     ++metrics->master.liveObjectCount;
@@ -1823,16 +1824,18 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
             if (recoverTomb.getObjectVersion() >= minSuccessor) {
                 ++metrics->master.tombstoneAppendCount;
                 HashTable::Reference newTombReference;
-                log->append(LOG_ENTRY_TYPE_OBJTOMB, buffer, false, newTombReference);
+                log->append(LOG_ENTRY_TYPE_OBJTOMB, buffer,
+                            false, newTombReference);
 
-                // XXX- append could fail here!
+                // TODO(steve/ryan): append could fail here!
 
                 objectMap->replace(key, newTombReference);
 
                 // nuke the object, if it existed
                 if (freeCurrentEntry) {
                     --metrics->master.liveObjectCount;
-                    metrics->master.liveObjectBytes -= currentBuffer.getTotalLength();
+                    metrics->master.liveObjectBytes -=
+                        currentBuffer.getTotalLength();
                     log->free(currentReference);
                 }
             } else {
@@ -1949,7 +1952,8 @@ MasterService::increment(const WireFormat::Increment::Request& reqHdr,
         return;
     }
 
-    const int64_t oldValue = *reinterpret_cast<const int64_t*>(object.getData());
+    const int64_t oldValue = *reinterpret_cast<const int64_t*>(
+        object.getData());
     int64_t newValue = oldValue + reqHdr.incrementValue;
 
     // Write the new value back
@@ -2023,19 +2027,14 @@ MasterService::write(const WireFormat::Write::Request& reqHdr,
 }
 
 /**
- * Ensures that this master owns the tablet for the given object
- * based on its tableId and key and returns the corresponding Table.
+ * Ensures that this master owns the tablet for the given object (based on its
+ * tableId and string key) and returns the corresponding Table.
  *
- * \param tableId
- *      Identifier for a desired table.
  * \param key
- *      Variable length key that uniquely identifies the object within tableId.
- * \param keyLength
- *      Size in bytes of the key.
- *
+ *      Key to look up the corresponding table for.
  * \return
- *      The Table of which the tablet containing this object is a part,
- *      or NULL if this master does not own the tablet.
+ *      The Table of which the tablet containing this key is a part, or NULL if
+ *      this master does not own the tablet.
  */
 Table*
 MasterService::getTable(Key& key)
@@ -2135,6 +2134,15 @@ MasterService::rejectOperation(const RejectRules& rejectRules, uint64_t version)
     return STATUS_OK;
 }
 
+/**
+ * Extract the timestamp from an entry written into the log. Used by the log
+ * code do more efficient cleaning.
+ *
+ * \param type
+ *      Type of the object being queried.
+ * \param buffer
+ *      Buffer pointing to the object in the log being queried.
+ */
 uint32_t
 MasterService::getTimestamp(LogEntryType type, Buffer& buffer)
 {
@@ -2146,6 +2154,16 @@ MasterService::getTimestamp(LogEntryType type, Buffer& buffer)
         return 0;
 }
 
+/**
+ * Check if an entry in the log is still alive. If not, it will be garbage
+ * collected. If so, the cleaner will copy it to a new location and alert
+ * us that it has been relocated (see the relocate() method).
+ *
+ * \param type
+ *      Type of the object being queried.
+ * \param buffer
+ *      Buffer pointing to the object in the log being queried.
+ */
 bool
 MasterService::checkLiveness(LogEntryType type, Buffer& buffer)
 {
@@ -2157,6 +2175,27 @@ MasterService::checkLiveness(LogEntryType type, Buffer& buffer)
         return false;
 }
 
+/**
+ * Report that a log entry has been copied to a new location and query whether
+ * it is still needed. This serves two functions. First, to allow this service
+ * to update any references so that they point to the object's new location.
+ * Second, to allow this service to back out if the object is no longer needed,
+ * since it may have been erased between this call and a previous call to
+ * checkLiveness().
+ *
+ * \param type
+ *      Type of the object being queried.
+ * \param oldBuffer
+ *      Buffer pointing to the object in the log being queried. This is the
+ *      location that will soon be invalid due to garbage collection.
+ * \param newReference
+ *      Reference to the new location of the object in the log. If the object
+ *      is still alive, this reference must replace the previous one.
+ * \return
+ *      True if the object is still alive and newReference will be used. False
+ *      if the object is dead and the space pointed to by newReference may be
+ *      garbage collected along with the old copy.
+ */
 bool
 MasterService::relocate(LogEntryType type,
                         Buffer& oldBuffer,
@@ -2175,10 +2214,8 @@ MasterService::relocate(LogEntryType type,
  * by the hash table). If so, the cleaner must perpetuate it. If not, it
  * can be safely discarded.
  *
- * \param[in] handle
- *      LogEntryHandle to the object whose liveness is being queried.
- * \param[in] cookie
- *      The opaque state pointer registered with the callback.
+ * \param objectBuffer
+ *      Buffer pointing to the object being checked for liveness.
  * \return
  *      True if the object is still alive, else false.
  */
@@ -2214,18 +2251,17 @@ MasterService::checkObjectLiveness(Buffer& objectBuffer)
  * return whether or not any action has been taken so the caller will know
  * whether or not the new copy should be retained.
  *
- * \param[in] oldHandle
- *      LogEntryHandle to the object's old location that will soon be
- *      invalid.
- * \param[in] newHandle
- *      LogEntryHandle to the object's new location that already exists
- *      as a possible replacement, if needed.
- * \param[in] cookie
- *      The opaque state pointer registered with the callback.
+ * \param oldBuffer
+ *      Buffer pointing to the object's current location, which will soon be
+ *      invalidated.
+ * \param newReference
+ *      Log reference pointing to a new copy of the object that may be kept
+ *      if the object is still alive.
  * \return
- *      True if newHandle is needed (i.e. it replaced oldHandle). False
- *      indicates that newHandle wasn't needed and can be immediately
- *      deleted.
+ *      True if newReference is needed, that is, the object is still alive and
+ *      the new location must not be garbage collected. False indicates that
+ *      newReference wasn't needed and both the old object and the new copy
+ *      may be immediately deleted.
  */
 bool
 MasterService::relocateObject(Buffer& oldBuffer,
@@ -2271,8 +2307,8 @@ MasterService::relocateObject(Buffer& oldBuffer,
  * Log, since not all Log entries need timestamps and other parts of the
  * system (or clients) may care about Object modification times.
  *
- * \param[in]  handle
- *      LogEntryHandle to the entry being examined.
+ * \param buffer
+ *      Buffer pointing to the object the timestamp is to be extracted from.
  * \return
  *      The Object's modification timestamp.
  */
@@ -2288,10 +2324,8 @@ MasterService::getObjectTimestamp(Buffer& buffer)
  * a segment that still exists). If so, the cleaner must perpetuate it. If
  * not, it can be safely discarded.
  *
- * \param[in] handle
+ * \param buffer
  *      LogEntryHandle to the object whose liveness is being queried.
- * \param[in] cookie
- *      The opaque state pointer registered with the callback.
  * \return
  *      True if the object is still alive, else false.
  */
@@ -2313,18 +2347,15 @@ MasterService::checkTombstoneLiveness(Buffer& buffer)
  * return whether or not any action has been taken so the caller will know
  * whether or not the new copy should be retained.
  *
- * \param[in] oldHandle
- *      LogEntryHandle to the Tombstones's old location that will soon be
- *      invalid.
- * \param[in] newHandle
- *      LogEntryHandle to the Tombstones's new location that already exists
+ * \param oldBuffer
+ *      Buffer pointing to the tombstone that will soon be invalidated.
+ * \param newReference
+ *      Log reference to the Tombstones's new location that already exists
  *      as a possible replacement, if needed.
- * \param[in] cookie
- *      The opaque state pointer registered with the callback.
  * \return
- *      True if newHandle is needed (i.e. it replaced oldHandle). False
- *      indicates that newHandle wasn't needed and can be immediately
- *      deleted.
+ *      True if newReference is needed. That is, it should remain allocated.
+ *      False indicates that newReference wasn't needed (because the pointed-to
+ *      object doesn't exist on backups anymore) and can be immediately deleted.
  */
 bool
 MasterService::relocateTombstone(Buffer& oldBuffer,
@@ -2348,12 +2379,10 @@ MasterService::relocateTombstone(Buffer& oldBuffer,
 }
 
 /**
- * Callback used by the Log to determine the age of Tombstone. We don't
- * current store tombstone ages, so just return the current timstamp
- * (they're perpetually young). This needs to be re-thought.
+ * Callback used by the Log to determine the age of Tombstone.
  *
- * \param[in]  handle
- *      LogEntryHandle to the entry being examined.
+ * \param buffer
+ *      Buffer pointing to the tombstone the timestamp is to be extracted from.
  * \return
  *      The tombstone's creation timestamp.
  */
@@ -2370,7 +2399,7 @@ MasterService::getTombstoneTimestamp(Buffer& buffer)
  * writing a tombstone if a previous version exists, storing to the log,
  * and adding or replacing an entry in the hash table.
  *
- * \param Key
+ * \param key
  *      Key that will refer to the object being stored. 
  * \param rejectRules
  *      Specifies conditions under which the write should be aborted with an
@@ -2441,7 +2470,7 @@ MasterService::storeObject(Key& key,
             recoveryCleanup(currentReference, this);
         } else {
             Object currentObject(currentBuffer);
-            currentVersion = currentObject.getVersion(); 
+            currentVersion = currentObject.getVersion();
         }
     }
 
@@ -2479,7 +2508,7 @@ MasterService::storeObject(Key& key,
         //               new entry (because of timing, or we run out of space),
         //               we'll have lost the old object. One solution is to
         //               introduce the combined Object+Tombstone type.
-        
+
         log->free(currentReference);
     }
 

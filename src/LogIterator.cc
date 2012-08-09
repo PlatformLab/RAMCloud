@@ -158,7 +158,7 @@ LogIterator::next()
     // TODO(rumble): It's a bummer that we're holding the head locked. Should
     // we not iterate over these segments before the head?
     if (headLocked && log.head != segmentList.back())
-        {} // XXX assert(currentIterator->isCleanerSegment());
+        {} // TODO(steve): assert(currentIterator->isCleanerSegment());
 
     segmentList.pop_back();
 }

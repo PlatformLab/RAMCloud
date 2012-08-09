@@ -156,7 +156,7 @@ class ObjectHashComparator {
      * \param log
      *      Log containing the objects we're enumerating.
      */
-    ObjectHashComparator(Log& log)
+    explicit ObjectHashComparator(Log& log)
         : log(log)
     {
     }

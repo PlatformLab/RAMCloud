@@ -58,7 +58,8 @@ struct KeyException : public Exception {
 class Key {
   public:
     Key(LogEntryType type, Buffer& buffer);
-    Key(uint64_t tableId, Buffer& buffer, uint32_t stringKeyOffset, uint16_t stringKeyLength);
+    Key(uint64_t tableId, Buffer& buffer,
+        uint32_t stringKeyOffset, uint16_t stringKeyLength);
     Key(uint64_t tableId, const void* stringKey, uint16_t stringKeyLength);
     HashType getHash();
     bool operator==(const Key& other) const;
@@ -100,7 +101,7 @@ class Key {
      * Take the binary string key and convert it into a printable string.
      * Any printable ASCII characters (including space, but not other
      * whitespace), will be unchanged. Any non-printable characters will
-     * be represented in escaped hexadecimal form, for example '\xf8\x07'.
+     * be represented in escaped hexadecimal form, for example "\xf8\x07".
      *
      * \param input
      *      Pointer to some memory that may or may not contain ascii

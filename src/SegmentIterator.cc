@@ -152,7 +152,8 @@ SegmentIterator::getLength()
     // We may be iterating a segment that has been appended to again,
     // so evict the cache if we last saw a footer.
     if (!currentLength) {
-        const Segment::EntryHeader* header = segment->getEntryHeader(currentOffset);
+        const Segment::EntryHeader* header =
+            segment->getEntryHeader(currentOffset);
         uint32_t length = 0;
         segment->copyOut(currentOffset + sizeof32(*header),
                          &length,

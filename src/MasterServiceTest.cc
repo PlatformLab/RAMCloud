@@ -143,9 +143,11 @@ class MasterServiceTest : public ::testing::Test {
         s.appendToBuffer(buffer);
         Segment::OpaqueFooterEntry footerEntry;
         s.getAppendedLength(footerEntry);
-        EXPECT_GE(segmentCapacity, buffer.getTotalLength() + sizeof(footerEntry));
+        EXPECT_GE(segmentCapacity,
+                  buffer.getTotalLength() + sizeof(footerEntry));
         buffer.copy(0, buffer.getTotalLength(), segmentBuf);
-        memcpy(segmentBuf + buffer.getTotalLength(), &footerEntry, sizeof(footerEntry));
+        memcpy(segmentBuf + buffer.getTotalLength(),
+            &footerEntry, sizeof(footerEntry));
 
         return buffer.getTotalLength();
     }
@@ -167,9 +169,11 @@ class MasterServiceTest : public ::testing::Test {
         s.appendToBuffer(buffer);
         Segment::OpaqueFooterEntry footerEntry;
         s.getAppendedLength(footerEntry);
-        EXPECT_GE(segmentCapacity, buffer.getTotalLength() + sizeof(footerEntry));
+        EXPECT_GE(segmentCapacity,
+                  buffer.getTotalLength() + sizeof(footerEntry));
         buffer.copy(0, buffer.getTotalLength(), segmentBuf);
-        memcpy(segmentBuf + buffer.getTotalLength(), &footerEntry, sizeof(footerEntry));
+        memcpy(segmentBuf + buffer.getTotalLength(),
+            &footerEntry, sizeof(footerEntry));
 
         return buffer.getTotalLength();
     }
@@ -262,8 +266,8 @@ TEST_F(MasterServiceTest, enumeration_basics) {
     EXPECT_EQ(1U, object1.getKeyLength());                      // key length
     EXPECT_EQ(version0, object1.getVersion());                  // version
     EXPECT_EQ(0, memcmp("0", object1.getKey(), 1));             // key
-    EXPECT_EQ("abcdef", string(reinterpret_cast<const char*>(   // value
-                               object1.getData()), 6));
+    EXPECT_EQ("abcdef", string(reinterpret_cast<const char*>    // value
+                               (object1.getData()), 6));
 
     // Second object.
     EXPECT_EQ(33U, *objects.getOffset<uint32_t>(37));           // size
@@ -275,8 +279,8 @@ TEST_F(MasterServiceTest, enumeration_basics) {
     EXPECT_EQ(1U, object2.getKeyLength());                      // key length
     EXPECT_EQ(version1, object2.getVersion());                  // version
     EXPECT_EQ(0, memcmp("1", object2.getKey(), 1));             // key
-    EXPECT_EQ("ghijkl", string(reinterpret_cast<const char*>(   // value
-                               object2.getData()), 6));
+    EXPECT_EQ("ghijkl", string(reinterpret_cast<const char*>    // value
+                               (object2.getData()), 6));
 
     // We don't actually care about the contents of the iterator as
     // long as we get back 0 objects on the second call.
@@ -562,7 +566,7 @@ TEST_F(MasterServiceTest, recover_basics) {
 TEST_F(MasterServiceTest, removeIfFromUnknownTablet) {
     ramcloud->createTable("table");
     uint64_t tableId = ramcloud->getTableId("table");
-    Key key(tableId, "1", 1); 
+    Key key(tableId, "1", 1);
     HashTable::Reference reference;
 
     ramcloud->write(tableId, "1", 1, "");
@@ -842,7 +846,8 @@ TEST_F(MasterServiceTest, recoverSegment) {
     ObjectTombstone t2(o2, 0, 0);
     buffer.reset();
     t2.serializeToBuffer(buffer);
-    ret = service->log->append(LOG_ENTRY_TYPE_OBJTOMB, buffer, true, logTomb2Ref);
+    ret = service->log->append(LOG_ENTRY_TYPE_OBJTOMB, buffer,
+                               true, logTomb2Ref);
     EXPECT_TRUE(ret);
     ret = service->objectMap->replace(key3, logTomb2Ref);
     EXPECT_FALSE(ret);
@@ -1714,7 +1719,7 @@ TEST_F(MasterServiceTest, objectRelocationCallback_objectAlive) {
                     "item0", 5, NULL, &version);
 
     LogEntryType oldType;
-    Buffer oldBuffer; 
+    Buffer oldBuffer;
     bool success = service->lookup(key, oldType, oldBuffer);
     EXPECT_TRUE(success);
 
@@ -1862,8 +1867,9 @@ TEST_F(MasterServiceTest, tombstoneRelocationCallback_basics) {
     EXPECT_TRUE(success);
 
     LogEntryType oldTypeInLog;
-    Buffer oldBufferInLog; 
-    oldTypeInLog = service->log->getEntry(oldTombstoneReference, oldBufferInLog);
+    Buffer oldBufferInLog;
+    oldTypeInLog = service->log->getEntry(oldTombstoneReference,
+                                          oldBufferInLog);
 
     success = service->relocate(LOG_ENTRY_TYPE_OBJTOMB,
                                   oldBufferInLog,

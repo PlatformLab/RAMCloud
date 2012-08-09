@@ -64,7 +64,7 @@ class TestObject {
     uint16_t stringKeyLength;
     uint64_t count;             // Used in forEach callback tests
 
-    DISALLOW_COPY_AND_ASSIGN(TestObject);
+    DISALLOW_COPY_AND_ASSIGN(TestObject);   // NOLINT
 } __attribute__((aligned(64)));
 
 /**
@@ -240,7 +240,7 @@ TEST_F(HashTableEntryTest, trivial_clear) {
 TEST_F(HashTableEntryTest, setReference) {
     HashTable::Entry e;
     e.value = 0xdeadbeefdeadbeefUL;
-    e.setReference(0xaaaaUL, HashTable::Reference( 
+    e.setReference(0xaaaaUL, HashTable::Reference(
         0x7fffffffffffUL));
     HashTable::Entry::UnpackedEntry out;
     out = e.unpack();

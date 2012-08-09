@@ -129,12 +129,12 @@ class Log {
         {
         }
 
-        bool operator==(const Position& other) const { return pos == other.pos; }
-        bool operator!=(const Position& other) const { return pos != other.pos; }
-        bool operator< (const Position& other) const { return pos <  other.pos; }
-        bool operator<=(const Position& other) const { return pos <= other.pos; }
-        bool operator> (const Position& other) const { return pos >  other.pos; }
-        bool operator>=(const Position& other) const { return pos >= other.pos; }
+        bool operator==(const Position& other) const {return pos == other.pos;}
+        bool operator!=(const Position& other) const {return pos != other.pos;}
+        bool operator< (const Position& other) const {return pos <  other.pos;}
+        bool operator<=(const Position& other) const {return pos <= other.pos;}
+        bool operator> (const Position& other) const {return pos >  other.pos;}
+        bool operator>=(const Position& other) const {return pos >= other.pos;}
 
         /**
          * Return the segment identifier component of this position object.

@@ -73,7 +73,8 @@ Key::Key(LogEntryType type, Buffer& buffer)
  * \param stringKeyLength
  *      Length of the binary string key in bytes.
  */
-Key::Key(uint64_t tableId, Buffer& buffer, uint32_t stringKeyOffset, uint16_t stringKeyLength)
+Key::Key(uint64_t tableId, Buffer& buffer,
+         uint32_t stringKeyOffset, uint16_t stringKeyLength)
     : tableId(tableId),
       stringKey(buffer.getRange(stringKeyOffset, stringKeyLength)),
       stringKeyLength(stringKeyLength),

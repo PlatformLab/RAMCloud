@@ -35,8 +35,8 @@ class ObjectTest : public ::testing::Test {
           objectFromContiguousVoidPointer(),
           objects()
     {
-        strcpy(stringKey, "hi");
-        strcpy(dataBlob, "YO!");
+        snprintf(stringKey, sizeof(stringKey), "hi");
+        snrpintf(dataBlob, sizeof(dataBlob), "YO!");
 
         Key key(57, stringKey, sizeof(stringKey));
 
@@ -82,7 +82,7 @@ class ObjectTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(ObjectTest);
 };
 
-TEST_F(ObjectTest, constructor_fromVoidPointer) 
+TEST_F(ObjectTest, constructor_fromVoidPointer)
 {
     Object& object = *objectFromVoidPointer;
 
@@ -95,8 +95,8 @@ TEST_F(ObjectTest, constructor_fromVoidPointer)
     EXPECT_EQ(0, memcmp("hi", object.key, 3));
     EXPECT_EQ(4U, object.dataLength);
     EXPECT_TRUE(object.data);
-    EXPECT_FALSE(object.dataBuffer); 
-    EXPECT_FALSE(object.objectBuffer); 
+    EXPECT_FALSE(object.dataBuffer);
+    EXPECT_FALSE(object.objectBuffer);
     EXPECT_EQ(0, memcmp("YO!", *object.data, 4));
 }
 
@@ -114,7 +114,7 @@ TEST_F(ObjectTest, constructor_dataFromBuffer)
     EXPECT_EQ(4U, object.dataLength);
     EXPECT_FALSE(object.data);
     EXPECT_TRUE(object.dataBuffer);
-    EXPECT_FALSE(object.objectBuffer); 
+    EXPECT_FALSE(object.objectBuffer);
     EXPECT_EQ(0, memcmp("YO!", object.getData(), 4));
 }
 
@@ -133,7 +133,7 @@ TEST_F(ObjectTest, constructor_entirelyFromBuffer)
     EXPECT_EQ(4U, object.dataLength);
     EXPECT_FALSE(object.data);
     EXPECT_FALSE(object.dataBuffer);
-    EXPECT_TRUE(object.objectBuffer); 
+    EXPECT_TRUE(object.objectBuffer);
     EXPECT_EQ(0, memcmp("YO!", object.getData(), 4));
 }
 
@@ -151,7 +151,7 @@ TEST_F(ObjectTest, constructor_fromContiguousVoidPointer)
     EXPECT_EQ(4U, object.dataLength);
     EXPECT_TRUE(object.data);
     EXPECT_FALSE(object.dataBuffer);
-    EXPECT_FALSE(object.objectBuffer); 
+    EXPECT_FALSE(object.objectBuffer);
     EXPECT_EQ(0, memcmp("YO!", object.getData(), 4));
 }
 
@@ -211,7 +211,7 @@ TEST_F(ObjectTest, getKey) {
 
 TEST_F(ObjectTest, getKeyLength) {
     for (uint32_t i = 0; i < arrayLength(objects); i++)
-        EXPECT_EQ(3U, objects[i]->getKeyLength()); 
+        EXPECT_EQ(3U, objects[i]->getKeyLength());
 }
 
 TEST_F(ObjectTest, getData) {
@@ -294,8 +294,8 @@ class ObjectTombstoneTest : public ::testing::Test {
           tombstoneFromObject(),
           tombstoneFromBuffer()
     {
-        strcpy(stringKey, "key!");
-        strcpy(dataBlob, "data!");
+        snprintf(stringKey, sizeof(stringKey), "key!");
+        snprintf(dataBlob, sizeof(dataBlob), "data!");
 
         Key key(572, stringKey, 5);
         object.construct(key, dataBlob, 6, 58, 723);

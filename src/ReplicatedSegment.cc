@@ -18,7 +18,6 @@
 #include "ReplicatedSegment.h"
 #include "Segment.h"
 #include "ShortMacros.h"
-#include "CycleCounter.h"
 
 namespace RAMCloud {
 

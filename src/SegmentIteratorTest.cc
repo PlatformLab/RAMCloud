@@ -39,7 +39,7 @@ class SegmentIteratorTest : public ::testing::Test {
 
 TEST_F(SegmentIteratorTest, constructor_fromSegment_empty) {
     EXPECT_NO_THROW(SegmentIterator(s));
-    
+
     SegmentIterator it(s);
     EXPECT_TRUE(it.isDone());
     EXPECT_EQ(LOG_ENTRY_TYPE_SEGFOOTER, it.getType());

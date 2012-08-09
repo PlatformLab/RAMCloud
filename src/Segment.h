@@ -233,7 +233,7 @@ class Segment {
         "Unexpected padding in Segment::OpaqueFooterEntry");
 
     Segment();
-    Segment(Allocator& allocator);
+    explicit Segment(Allocator& allocator);
     Segment(const void* buffer, uint32_t length);
     virtual ~Segment();
     bool append(LogEntryType type,
@@ -250,7 +250,9 @@ class Segment {
     bool append(LogEntryType type, const void* data, uint32_t length);
     void free(uint32_t entryOffset);
     void close();
-    uint32_t appendToBuffer(Buffer& buffer, uint32_t offset, uint32_t length) const;
+    uint32_t appendToBuffer(Buffer& buffer,
+                            uint32_t offset,
+                            uint32_t length) const;
     uint32_t appendToBuffer(Buffer& buffer);
     LogEntryType getEntry(uint32_t offset, Buffer& buffer);
     uint32_t getAppendedLength(OpaqueFooterEntry& footerEntry) const;
@@ -270,7 +272,7 @@ class Segment {
      */
     class FakeAllocator : public Allocator {
       public:
-        FakeAllocator(uint32_t length)
+        FakeAllocator(uint32_t length)  // NOLINT
             : length(length)
         {
         }

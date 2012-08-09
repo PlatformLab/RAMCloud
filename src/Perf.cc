@@ -299,7 +299,7 @@ class PerfKeyComparer : public HashTable::KeyComparer {
     {
         uint64_t* object = reinterpret_cast<uint64_t*>(candidate.get());
         Key candidateKey(0, object, downCast<uint16_t>(sizeof(*object)));
-        return (key == candidateKey); 
+        return (key == candidateKey);
     }
 };
 
@@ -595,7 +595,7 @@ double segmentEntrySort()
     for (SegmentIterator i(s); !i.isDone(); i.next()) {
         if (i.getType() == LOG_ENTRY_TYPE_OBJ) {
             uint64_t handle = 0;    // fake pointer to object
-            
+
             Buffer buffer;
             i.appendToBuffer(buffer);
             Object object(buffer);

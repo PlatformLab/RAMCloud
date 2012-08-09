@@ -99,7 +99,8 @@ class RecoverSegmentBenchmark {
         uint64_t ticks = Cycles::rdtsc() - before;
 
         uint64_t totalObjectBytes = numObjects * dataBytes;
-        uint64_t totalSegmentBytes = numSegments * Segment::DEFAULT_SEGMENT_SIZE;
+        uint64_t totalSegmentBytes = numSegments *
+                                     Segment::DEFAULT_SEGMENT_SIZE;
         printf("Recovery of %d %dKB Segments with %d byte Objects took %lu "
             "milliseconds\n", numSegments, Segment::DEFAULT_SEGMENT_SIZE / 1024,
             dataBytes, RAMCloud::Cycles::toNanoseconds(ticks) / 1000 / 1000);

@@ -112,8 +112,8 @@ TEST_F(SegmentManagerTest, allocHead) {
     EXPECT_NE(head, oldHead);
     EXPECT_EQ(head, segmentManager.getHeadSegment());
     EXPECT_EQ(oldHead,
-        &segmentManager.segmentsByState[SegmentManager::NEWLY_CLEANABLE].back());
-     
+       &segmentManager.segmentsByState[SegmentManager::NEWLY_CLEANABLE].back());
+
     EXPECT_NE(static_cast<LogSegment*>(NULL), segmentManager.allocHead());
     EXPECT_NE(static_cast<LogSegment*>(NULL), segmentManager.allocHead());
     EXPECT_EQ(static_cast<LogSegment*>(NULL), segmentManager.allocHead());
@@ -324,7 +324,7 @@ TEST_F(SegmentManagerTest, writeHeader) {
 }
 
 TEST_F(SegmentManagerTest, writeDigest) {
-    // XXX
+    // TODO(steve): write me.
 }
 
 TEST_F(SegmentManagerTest, getHeadSegment) {
@@ -349,11 +349,11 @@ TEST_F(SegmentManagerTest, changeState) {
 }
 
 TEST_F(SegmentManagerTest, mayAlloc) {
-    // XXX
+    // TODO(steve): write me.
 }
 
 TEST_F(SegmentManagerTest, alloc) {
-    // XXX
+    // TODO(steve): write me.
 }
 
 TEST_F(SegmentManagerTest, free) {

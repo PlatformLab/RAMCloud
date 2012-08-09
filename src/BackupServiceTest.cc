@@ -23,7 +23,6 @@
 #include "SegmentIterator.h"
 #include "Server.h"
 #include "Key.h"
-#include "Server.h"
 #include "ShortMacros.h"
 #include "StringUtil.h"
 
@@ -242,7 +241,7 @@ class BackupServiceTest : public ::testing::Test {
 
         Segment s;
         s.append(LOG_ENTRY_TYPE_LOGDIGEST, digestBuffer);
-        
+
         Buffer buffer;
         s.appendToBuffer(buffer);
         Segment::OpaqueFooterEntry footerEntry;
@@ -687,7 +686,12 @@ bool restartFilter(string s) {
     return s == "restartFromStorage";
 }
 }
-#ifdef XXX 
+
+#if 0
+// We can't do this anymore. This file can't just fake up entries. For one, it's
+// hard because the length fields aren't part of the Segment::EntryHeader
+// anymore. More importantly, however, it shouldn't be reaching into segment
+// internals. I think this might need to just build temporary segments instead.
 TEST_F(BackupServiceTest, restartFromStorage)
 {
     const char* path = "/tmp/ramcloud-backup-storage-test-delete-this";
@@ -726,11 +730,12 @@ TEST_F(BackupServiceTest, restartFromStorage)
     for (uint32_t frame = 0; frame < config.backup.numSegmentFrames; ++frame) {
         SegmentHeader header{70 + (frame % 2), 88, config.segmentSize,
             Segment::INVALID_SEGMENT_ID};
-        Segment::EntryHeader headerEntry(LOG_ENTRY_TYPE_SEGHEADER, sizeof(header));
+        Segment::EntryHeader headerEntry(LOG_ENTRY_TYPE_SEGHEADER,
+                                         sizeof(header));
         SegmentFooter footer{0xcafebabe};
-        Segment::EntryHeader footerEntry(LOG_ENTRY_TYPE_SEGFOOTER, sizeof(footer));
-// XXXXXXXXX- can't do this anymore. this file can't just fake up entries, since the length fields aren't part of the Segment::EntryHeader anymore.
-//  - this file really needs to build temporary segments instead.
+        Segment::EntryHeader footerEntry(LOG_ENTRY_TYPE_SEGFOOTER,
+                                         sizeof(footer));
+
         bool close = true;
 
         // Set up various weird scenarios for each segment frame.
@@ -1187,10 +1192,12 @@ TEST_F(BackupServiceTest, writeSegment_atomic) {
         *backup->findSegmentInfo(ServerId(99, 0), 88);
     EXPECT_FALSE(info.replicateAtomically);
     EXPECT_TRUE(info.satisfiesAtomicReplicationGuarantees());
-    writeRawString({99, 0}, 88, 10, "test", WireFormat::BackupWrite::NONE, true);
+    writeRawString({99, 0}, 88, 10, "test",
+        WireFormat::BackupWrite::NONE, true);
     EXPECT_TRUE(info.replicateAtomically);
     EXPECT_FALSE(info.satisfiesAtomicReplicationGuarantees());
-    writeRawString({99, 0}, 88, 15, "test", WireFormat::BackupWrite::CLOSE, true);
+    writeRawString({99, 0}, 88, 15, "test",
+        WireFormat::BackupWrite::CLOSE, true);
     EXPECT_TRUE(info.replicateAtomically);
     EXPECT_TRUE(info.satisfiesAtomicReplicationGuarantees());
     EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());

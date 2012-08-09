@@ -77,7 +77,7 @@ class SegmentIterator {
     /// Cache of the length of the entry at currentOffset. Set the first time
     /// getType() is called and destroyed when next() is called.
     Tub<uint32_t> currentLength;
- 
+
     DISALLOW_COPY_AND_ASSIGN(SegmentIterator);
 };
 
