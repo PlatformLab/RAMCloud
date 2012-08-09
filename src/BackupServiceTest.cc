@@ -1300,11 +1300,15 @@ TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask) {
     openSegment({13, 0}, 11);
     closeSegment({13, 0}, 11);
     backup->findSegmentInfo({13, 0}, 11)->createdByCurrentProcess = false;
+    openSegment({13, 0}, 12);
+    closeSegment({13, 0}, 12);
+    backup->findSegmentInfo({13, 0}, 12)->createdByCurrentProcess = false;
 
     typedef BackupService::GarbageCollectReplicasFoundOnStorageTask Task;
     std::unique_ptr<Task> task(new Task(*backup, {13, 0}));
     task->addSegmentId(10);
     task->addSegmentId(11);
+    task->addSegmentId(12);
     task->schedule();
     const_cast<ServerConfig&>(backup->config).backup.gc = true;
 
@@ -1321,6 +1325,7 @@ TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask) {
     EXPECT_EQ(1lu, backup->gcTaskQueue.outstandingTasks());
     EXPECT_FALSE(backup->findSegmentInfo({13, 0}, 10));
     EXPECT_TRUE(backup->findSegmentInfo({13, 0}, 11));
+    EXPECT_TRUE(backup->findSegmentInfo({13, 0}, 12));
 
     EXPECT_FALSE(task->rpc);
     backup->gcTaskQueue.performTask(); // send rpc to probe 11
@@ -1334,6 +1339,17 @@ TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask) {
         "will probe replica status again later"));
     EXPECT_EQ(1lu, backup->gcTaskQueue.outstandingTasks());
 
+    backupServerList->crashed({13, 0}, "mock:host=m", {}, 100);
+
+    TestLog::reset();
+    EXPECT_FALSE(task->rpc);
+    backup->gcTaskQueue.performTask(); // find out server crashed
+    EXPECT_TRUE(StringUtil::contains(TestLog::get(),
+        "tryToFreeReplica: Server 13 marked crashed; "
+        "waiting for cluster to recover from its failure "
+        "before freeing <13,11>"));
+    EXPECT_EQ(1lu, backup->gcTaskQueue.outstandingTasks());
+
     backupServerList->remove({13, 0});
 
     TestLog::reset();
@@ -1345,7 +1361,7 @@ TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask) {
         "tryToFreeReplica: Server 13 marked down; cluster has recovered from "
             "its failure | "
         "tryToFreeReplica: Server has recovered from lost replica; "
-            "freeing replica for <13,11>"));
+            "freeing replica for <13,12>"));
     EXPECT_EQ(1lu, backup->gcTaskQueue.outstandingTasks());
 
     // Final perform finds no segments to free and just cleans up
