@@ -59,8 +59,10 @@ class ServerListUpdaterTest : public ::testing::Test {
         csl.updater.halt();
         psl1.set_version_number(4);
         psl2.set_version_number(99);
-        id1 = csl.add("mock:host=server1", {WireFormat::MEMBERSHIP_SERVICE}, 0);
-        id2 = csl.add("mock:host=server2", {WireFormat::MEMBERSHIP_SERVICE}, 0);
+        id1 = csl.generateUniqueId();
+        csl.add(id1, "mock:host=server1", {WireFormat::MEMBERSHIP_SERVICE}, 0);
+        id2 = csl.generateUniqueId();
+        csl.add(id2, "mock:host=server2", {WireFormat::MEMBERSHIP_SERVICE}, 0);
 
         // Prevents cross contamination of MembershipUpdates and transport logs
         deleteMessageQueue(csl.updater);

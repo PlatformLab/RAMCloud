@@ -105,9 +105,10 @@ class CoordinatorServerList : public AbstractServerList{
 
     explicit CoordinatorServerList(Context& context);
     ~CoordinatorServerList();
-    ServerId add(string serviceLocator, ServiceMask serviceMask,
-                 uint32_t readSpeed);
+    void add(ServerId serverId, string serviceLocator,
+             ServiceMask serviceMask, uint32_t readSpeed);
     void crashed(ServerId serverId);
+    ServerId generateUniqueId();
     void remove(ServerId serverId);
 
     void setMinOpenSegmentId(ServerId serverId, uint64_t segmentId);
@@ -161,8 +162,8 @@ class CoordinatorServerList : public AbstractServerList{
         Tub<Entry> entry;
     };
 
-    ServerId add(Lock& lock, string serviceLocator,
-                 ServiceMask serviceMask, uint32_t readSpeed);
+    void add(Lock& lock, ServerId serverId, string serviceLocator,
+             ServiceMask serviceMask, uint32_t readSpeed);
     void crashed(const Lock& lock, ServerId serverId);
     void remove(Lock& lock, ServerId serverId);
     void sendMembershipUpdate(ServerId excludeServerId);

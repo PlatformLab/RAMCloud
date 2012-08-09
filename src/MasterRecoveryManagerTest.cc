@@ -50,8 +50,9 @@ struct MasterRecoveryManagerTest : public ::testing::Test {
      *      ServerId of the entry added to #serverList.
      */
     ServerId addMaster() {
-        ServerId serverId =
-             serverList.add("fake-locator", {WireFormat::MASTER_SERVICE}, 0);
+        ServerId serverId = serverList.generateUniqueId();
+        serverList.add(serverId, "fake-locator",
+            {WireFormat::MASTER_SERVICE}, 0);
         serverList.updates.Clear(); // prevents cross contamination
         while (!mgr.taskQueue.isIdle())
             mgr.taskQueue.performTask();

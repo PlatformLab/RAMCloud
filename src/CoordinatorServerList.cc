@@ -81,8 +81,7 @@ CoordinatorServerList::isize() const
 // CoordinatorServerList Public Methods
 //////////////////////////////////////////////////////////////////////
 /**
- * Add a new server to the CoordinatorServerList and generate a new, unique
- * ServerId for it.
+ * Add a new server to the CoordinatorServerList with a given ServerId.
  *
  * The result of this operation will be added in the class's update Protobuffer
  * intended for the cluster. To send out the update, call sendMembershipUpdate()
@@ -93,25 +92,25 @@ CoordinatorServerList::isize() const
  * The addition will be pushed to all registered trackers and those with
  * callbacks will be notified.
  *
+ * \param serverId
+ *      The serverId to be assigned to the new server.
  * \param serviceLocator
  *      The ServiceLocator string of the server to add.
  * \param serviceMask
  *      Which services this server supports.
  * \param readSpeed
  *      Speed of the storage on the enlisting server if it includes a backup
- *      service.  Argument is ignored otherwise.
- * \return
- *      The unique ServerId assigned to this server.
+ *      service. Argument is ignored otherwise.
  */
-ServerId
-CoordinatorServerList::add(string serviceLocator,
+void
+CoordinatorServerList::add(ServerId serverId,
+                           string serviceLocator,
                            ServiceMask serviceMask,
                            uint32_t readSpeed)
 {
     Lock lock(mutex);
-    ServerId newServerId = add(lock, serviceLocator, serviceMask, readSpeed);
-    sendMembershipUpdate(newServerId);
-    return newServerId;
+    add(lock, serverId, serviceLocator, serviceMask, readSpeed);
+    sendMembershipUpdate(serverId);
 }
 
 /**
@@ -141,6 +140,26 @@ CoordinatorServerList::crashed(ServerId serverId)
     Lock lock(mutex);
     crashed(lock, serverId);
     sendMembershipUpdate({});
+}
+
+/**
+ * Generate a new, unique ServerId that may later be assigned to a server
+ * using add().
+ *
+ * \return
+ *      The unique ServerId generated.
+ */
+ServerId
+CoordinatorServerList::generateUniqueId()
+{
+    uint32_t index = firstFreeIndex();
+
+    auto& pair = serverList[index];
+    ServerId id(index, pair.nextGenerationNumber);
+    pair.nextGenerationNumber++;
+    pair.entry.construct(id, "", ServiceMask());
+
+    return id;
 }
 
 /**
@@ -407,7 +426,7 @@ void
 CoordinatorServerList::sendServerList(ServerId& serverId) {
     Lock lock(mutex);
 
-     if (!serverId.isValid() || !icontains(serverId)) {
+    if (!serverId.isValid() || !icontains(serverId)) {
         LOG(WARNING, "Could not send list to unknown server %lu", *serverId);
         return;
     }
@@ -460,18 +479,19 @@ CoordinatorServerList::getLogCabinEntryId(ServerId serverId)
 // See docs on public version.
 // This version doesn't acquire locks and does not send out updates
 // since it is used internally.
-ServerId
+void
 CoordinatorServerList::add(Lock& lock,
+                           ServerId serverId,
                            string serviceLocator,
                            ServiceMask serviceMask,
                            uint32_t readSpeed)
 {
-    uint32_t index = firstFreeIndex();
+    uint32_t index = serverId.indexNumber();
 
     auto& pair = serverList[index];
-    ServerId id(index, pair.nextGenerationNumber);
+    pair.nextGenerationNumber = serverId.generationNumber();
     pair.nextGenerationNumber++;
-    pair.entry.construct(id, serviceLocator, serviceMask);
+    pair.entry.construct(serverId, serviceLocator, serviceMask);
 
     if (serviceMask.has(WireFormat::MASTER_SERVICE)) {
         numberOfMasters++;
@@ -489,8 +509,6 @@ CoordinatorServerList::add(Lock& lock,
         tracker->enqueueChange(*pair.entry, ServerChangeEvent::SERVER_ADDED);
     foreach (ServerTrackerInterface* tracker, trackers)
         tracker->fireCallback();
-
-    return id;
 }
 
 // See docs on public version.

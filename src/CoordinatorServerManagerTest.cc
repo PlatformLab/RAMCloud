@@ -519,8 +519,8 @@ TEST_F(CoordinatorServerManagerTest, verifyServerFailure) {
     // Case 2: server incommunicado.
     MockTransport mockTransport(context);
     context.transportManager->registerMock(&mockTransport, "mock2");
-    ServerId deadId = serverList->add("mock2:", {WireFormat::PING_SERVICE},
-                                      100);
+    ServerId deadId = serverList->generateUniqueId();
+    serverList->add(deadId, "mock2:", {WireFormat::PING_SERVICE}, 100);
     EXPECT_TRUE(serverManager->verifyServerFailure(deadId));
     context.transportManager->unregisterMock();
 }

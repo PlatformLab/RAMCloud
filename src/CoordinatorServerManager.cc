@@ -158,8 +158,9 @@ CoordinatorServerManager::enlistServer(
         serverDown(replacesId);
     }
 
-    ServerId newServerId =
-        service.serverList.add(serviceLocator, serviceMask, readSpeed);
+    ServerId newServerId = service.serverList.generateUniqueId();
+    service.serverList.add(newServerId, serviceLocator,
+            serviceMask, readSpeed);
 
     ProtoBuf::StateEnlistServer state;
     state.set_entry_type("StateEnlistServer");

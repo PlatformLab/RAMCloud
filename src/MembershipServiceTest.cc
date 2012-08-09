@@ -64,11 +64,14 @@ TEST_F(MembershipServiceTest, setServerList) {
     // to use as a source for update information.
     Context context2;
     CoordinatorServerList source(context2);
-    ServerId id1 = source.add("mock:host=55", {WireFormat::MASTER_SERVICE,
+    ServerId id1 = source.generateUniqueId();
+    source.add(id1, "mock:host=55", {WireFormat::MASTER_SERVICE,
             WireFormat::PING_SERVICE}, 100);
-    ServerId id2 = source.add("mock:host=56", {WireFormat::MASTER_SERVICE,
+    ServerId id2 = source.generateUniqueId();
+    source.add(id2, "mock:host=56", {WireFormat::MASTER_SERVICE,
             WireFormat::PING_SERVICE}, 100);
-    ServerId id3 = source.add("mock:host=57", {WireFormat::MASTER_SERVICE,
+    ServerId id3 = source.generateUniqueId();
+    source.add(id3, "mock:host=57", {WireFormat::MASTER_SERVICE,
             WireFormat::PING_SERVICE}, 100);
     ProtoBuf::ServerList fullList;
     source.serialize(fullList);
@@ -91,9 +94,11 @@ TEST_F(MembershipServiceTest, updateServerList) {
     Context context2;
     CoordinatorServerList source(context2);
     ProtoBuf::ServerList& updates = source.updates;
-    ServerId id1 = source.add(lock, "mock:host=55",
+    ServerId id1 = source.generateUniqueId();
+    source.add(lock, id1, "mock:host=55",
             {WireFormat::MASTER_SERVICE, WireFormat::PING_SERVICE}, 100);
-    ServerId id2 = source.add(lock, "mock:host=56",
+    ServerId id2 = source.generateUniqueId();
+    source.add(lock, id2, "mock:host=56",
             {WireFormat::MASTER_SERVICE, WireFormat::PING_SERVICE}, 100);
     updates.set_version_number(1);
 
