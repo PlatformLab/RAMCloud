@@ -101,6 +101,7 @@ TESTS_SRCFILES := \
 		  src/TubTest.cc \
 		  src/UdpDriverTest.cc \
 		  src/VarLenArrayTest.cc \
+		  src/WallTimeTest.cc \
 		  src/WindowTest.cc \
 		  src/WireFormatTest.cc \
 		  src/RamCloudTest.cc \
