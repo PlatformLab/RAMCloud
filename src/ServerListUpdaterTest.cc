@@ -23,6 +23,16 @@
 
 namespace RAMCloud {
 
+
+namespace {
+/// Deletes all messages on an updater
+static void
+deleteMessageQueue(ServerListUpdater& updater) {
+    while (!updater.msgQueue.empty())
+        updater.msgQueue.pop();
+}
+}
+
 class ServerListUpdaterTest : public ::testing::Test {
   public:
     Context context;
@@ -46,13 +56,14 @@ class ServerListUpdaterTest : public ::testing::Test {
         , transport(context)
         , registrar(context, transport)
     {
+        csl.updater.halt();
         psl1.set_version_number(4);
         psl2.set_version_number(99);
         id1 = csl.add("mock:host=server1", {WireFormat::MEMBERSHIP_SERVICE}, 0);
         id2 = csl.add("mock:host=server2", {WireFormat::MEMBERSHIP_SERVICE}, 0);
 
-        // Prevents cross contamination of transport logs
-        csl.sync();
+        // Prevents cross contamination of MembershipUpdates and transport logs
+        deleteMessageQueue(csl.updater);
         transport.output.clear();
         transport.outputLog.clear();
     }
