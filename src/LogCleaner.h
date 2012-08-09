@@ -19,7 +19,7 @@
 #include <thread>
 #include <vector>
 
-#include "LogStatistics.pb.h"
+//#include "LogStatistics.pb.h"
 
 #include "Common.h"
 #include "Segment.h"
@@ -58,7 +58,7 @@ class LogCleaner {
                ReplicaManager& replicaManager,
                uint32_t writeCostThreshold);
     ~LogCleaner();
-    void statistics(ProtoBuf::LogStatistics& logStats) const
+    void statistics(/*ProtoBuf::LogStatistics& logStats*/) const
     {
     }
 };
