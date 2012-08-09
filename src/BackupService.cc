@@ -1142,11 +1142,14 @@ try {
         buildingInfo = loadingInfo;
         if (i < infos.size()) {
             loadingInfo = infos[i];
-            LOG(DEBUG, "Starting load of %uth segment", i);
+            LOG(DEBUG, "Starting load of %uth segment (<%lu,%lu>)", i,
+                loadingInfo->masterId.getId(), loadingInfo->segmentId);
             loadingInfo->startLoading();
         }
         buildingInfo->buildRecoverySegments(partitions);
-        LOG(DEBUG, "Done building recovery segments for %u", i - 1);
+        LOG(DEBUG, "Done building recovery segments for %uth segment "
+            "(<%lu,%lu>)", i - 1,
+            buildingInfo->masterId.getId(), buildingInfo->segmentId);
         if (i == infos.size())
             break;
     }
@@ -1227,8 +1230,8 @@ BackupService::GarbageCollectReplicasFoundOnStorageTask::performTask()
         return;
     }
     uint64_t segmentId = segmentIds.front();
-    bool freed = tryToFreeReplica(segmentId);
-    if (freed)
+    bool done = tryToFreeReplica(segmentId);
+    if (done)
         segmentIds.pop_front();
     schedule();
 }
@@ -1242,8 +1245,8 @@ BackupService::GarbageCollectReplicasFoundOnStorageTask::performTask()
  *      a value is passed as \a segmentId that value must be passed on all
  *      subsequent calls until true is returned.
  * \return
- *      True if the segment was successfully freed from storage, false otherwise.
- *      See important notes on \a segmentId.
+ *      True if no additional work is need to free the segment from storage,
+ *      false otherwise. See important notes on \a segmentId.
  */
 bool
 BackupService::GarbageCollectReplicasFoundOnStorageTask::
@@ -1254,6 +1257,22 @@ BackupService::GarbageCollectReplicasFoundOnStorageTask::
         auto* replica = service.findSegmentInfo(masterId, segmentId);
         if (!replica)
             return true;
+    }
+
+    // Due to RAM-447 it is a bit tricky to decipher when a server is in
+    // crashed status. It is done here outside the context of the
+    // ServerDoesntExistException because of that bug.
+    if (service.context.serverList->contains(masterId) &&
+        !service.context.serverList->isUp(masterId))
+    {
+        // In the server list but not up implies crashed.
+        // Since server has crashed just let
+        // GarbageCollectDownServerTask free it. It will get
+        // scheduled when master recovery finishes for masterId.
+        LOG(DEBUG, "Server %lu marked crashed; waiting for cluster "
+            "to recover from its failure before freeing <%lu,%lu>",
+            masterId.getId(), masterId.getId(), segmentId);
+        return true;
     }
 
     if (rpc) {
@@ -1937,8 +1956,6 @@ BackupService::startReadingData(
         WireFormat::BackupStartReadingData::Response& respHdr,
         Rpc& rpc)
 {
-    LOG(DEBUG, "Backup preparing for recovery of crashed server %lu",
-        reqHdr.masterId);
     recoveryTicks.construct(&metrics->backup.recoveryTicks);
     recoveryStart = Cycles::rdtsc();
     metrics->backup.recoveryCount++;
@@ -1947,6 +1964,10 @@ BackupService::startReadingData(
     ProtoBuf::Tablets partitions;
     ProtoBuf::parseFromResponse(rpc.requestPayload, sizeof(reqHdr),
                                 reqHdr.partitionsLength, partitions);
+    LOG(DEBUG, "Backup preparing for recovery of crashed server %lu; "
+        "loading replicas and filtering them according to the following "
+        "partitions:\n%s",
+        reqHdr.masterId, partitions.DebugString().c_str());
 
     uint64_t logDigestLastId = ~0UL;
     uint32_t logDigestLastLen = 0;
