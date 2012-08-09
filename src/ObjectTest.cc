@@ -36,7 +36,7 @@ class ObjectTest : public ::testing::Test {
           objects()
     {
         snprintf(stringKey, sizeof(stringKey), "hi");
-        snrpintf(dataBlob, sizeof(dataBlob), "YO!");
+        snprintf(dataBlob, sizeof(dataBlob), "YO!");
 
         Key key(57, stringKey, sizeof(stringKey));
 

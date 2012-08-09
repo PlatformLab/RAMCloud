@@ -578,6 +578,8 @@ WriteSegmentRpc::WriteSegmentRpc(Context& context,
     reqHdr.footerIncluded = (footerEntry != NULL);
     if (reqHdr.footerIncluded)
         reqHdr.footerEntry = *footerEntry;
+    else
+        reqHdr.footerEntry = Segment::OpaqueFooterEntry();
     reqHdr.flags = flags;
     reqHdr.atomic = atomic;
     segment->appendToBuffer(request, offset, length);

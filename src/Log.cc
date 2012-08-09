@@ -24,9 +24,8 @@ namespace RAMCloud {
 /**
  * Constructor for Log. No segments are allocated in the constructor, so if
  * replicas are being used no backups will have been contacted yet and there
- * will be no durable evidence of this log having existed. Before issuing any
- * appends, invoke the sync() method to allocate the first head and commit it
- * to any backups.
+ * will be no durable evidence of this log having existed. Call sync() or make
+ * a synchronous append() to allocate and force the head segment to backups.
  *
  * The reason for this behaviour is complicated. We want to ensure that the
  * log is made durable before assigning any tablets to the master, since we
@@ -110,8 +109,12 @@ Log::append(LogEntryType type,
 {
     Lock lock(appendLock);
 
-    if (head == NULL)
-        throw FatalError(HERE, "called before first sync()");
+    // This is only possible once after construction.
+    if (head == NULL) {
+        head = segmentManager.allocHead();
+        if (head == NULL)
+            throw FatalError(HERE, "Could not allocate initial head segment");
+    }
 
     // Try to append. If we can't, try to allocate a new head to get more space.
     uint32_t segmentOffset;
@@ -256,7 +259,8 @@ Log::getHeadPosition()
     Lock lock(appendLock);
 
     if (head == NULL) {
-        // If invoked before the first call to sync, then we've made no appends.
+        // If invoked before the first call to append or sync, then we can say
+        // the log is currently at the initial position.
         return { 0, 0 };
     }
 
@@ -298,10 +302,7 @@ Log::allocateHeadIfStillOn(Tub<uint64_t> segmentId)
 {
     Lock lock(appendLock);
 
-    if (head == NULL)
-        throw FatalError(HERE, "called before first sync()");
-
-    if (!segmentId || head->id == *segmentId)
+    if (!segmentId || (head != NULL && head->id == *segmentId))
         head = segmentManager.allocHead();
 
     // TODO(steve/ryan): What if we're out of space? The above could return

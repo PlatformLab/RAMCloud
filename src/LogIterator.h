@@ -74,11 +74,11 @@ class LogIterator {
     /// need to be updated (since the log could have advanced forward).
     LogSegmentVector segmentList;
 
-    /// Pointer to the current LogSegment we're interating over.
-    LogSegment* currentSegment;
-
     /// SegmentIterator for the Segment we're currently iterating over.
     Tub<SegmentIterator> currentIterator;
+
+    /// Identifier of the Segment currently being iterated over.
+    uint64_t currentSegmentId;
 
     /// Indication that the head is locked and must be unlocked on destruction.
     bool headLocked;

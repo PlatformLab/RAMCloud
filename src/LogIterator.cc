@@ -60,8 +60,8 @@ namespace RAMCloud {
 LogIterator::LogIterator(Log& log)
     : log(log),
       segmentList(),
-      currentSegment(NULL),
       currentIterator(),
+      currentSegmentId(Segment::INVALID_SEGMENT_ID),
       headLocked(false)
 {
     log.segmentManager.logIteratorCreated();
@@ -115,41 +115,30 @@ LogIterator::isDone()
 void
 LogIterator::next()
 {
-    if (currentIterator) {
+    if (currentIterator && !currentIterator->isDone()) {
         currentIterator->next();
-        if (!currentIterator->isDone())
-            return;
+        return;
     }
 
     // We've exhausted the current segment. Now try the next one, if there
     // is one.
 
-    uint64_t currentSegmentId = -1;
-    if (currentSegment != NULL) {
-        currentSegmentId = currentSegment->id;
-        currentSegment = NULL;
+    if (currentIterator)
         currentIterator.destroy();
-    }
 
     if (segmentList.size() == 0)
         populateSegmentList(currentSegmentId + 1);
 
-    if (segmentList.size() == 0) {
-        assert(headLocked);
+    if (segmentList.size() == 0)
         return;
-    }
 
-    if (!headLocked) {
+    if (segmentList.back() == log.head) {
         log.appendLock.lock();
-
-        if (segmentList.back() == log.head)
-            headLocked = true;
-        else
-            log.appendLock.unlock();
+        headLocked = true;
     }
 
-    currentSegment = segmentList.back();
-    currentIterator.construct(*currentSegment);
+    currentIterator.construct(*segmentList.back());
+    currentSegmentId = segmentList.back()->id;
 
     // If we've just iterated over the head, then the only segments
     // that can exist in the log with higher IDs must have been generated
