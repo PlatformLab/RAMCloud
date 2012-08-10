@@ -139,10 +139,12 @@ SegmentManager::allocHead()
     // we always have an open segment on backups, unless of course there was a
     // coordinated failure, in which case we can unambiguously detect it.
     if (prevHead != NULL) {
-        // An exception here would be problematic.
         prevHead->replicatedSegment->close();
-        Segment::OpaqueFooterEntry unused;  // TODO(ryan): Should close be sync?
-        prevHead->replicatedSegment->sync(prevHead->getAppendedLength(unused));
+        // DO NOT call prevHead->replicatedSegment->sync() here.
+        // Ensuring the segments are stored on the backups safely is the
+        // problem of the ReplicaManager. Calling sync() here can cause
+        // deadlock (handling backup failures requires rolling over to a new
+        // segment and sync() requires handling backup failures).
         changeState(*prevHead, NEWLY_CLEANABLE);
     }
 
