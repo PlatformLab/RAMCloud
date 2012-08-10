@@ -330,7 +330,6 @@ class ReplicatedSegment : public Task {
 
     ReplicatedSegment(Context& context,
                       TaskQueue& taskQueue,
-                      BackupTracker& tracker,
                       BaseBackupSelector& backupSelector,
                       Deleter& deleter,
                       uint32_t& writeRpcsInFlight,
@@ -379,14 +378,6 @@ class ReplicatedSegment : public Task {
 // - member variables -
     /// Shared RAMCloud information.
     Context& context;
-
-    /**
-     * A ServerTracker used to find backups and track replica distribution
-     * stats.  Each entry in the tracker contains a pointer to a BackupStats
-     * struct which stores the number of primary replicas stored on that
-     * server.
-     */
-    BackupTracker& tracker;
 
     /// Used to choose where to store replicas. Shared among ReplicatedSegments.
     BaseBackupSelector& backupSelector;

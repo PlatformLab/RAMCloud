@@ -41,8 +41,7 @@ ReplicaManager::ReplicaManager(Context& context,
                                uint32_t numReplicas)
     : context(context)
     , numReplicas(numReplicas)
-    , tracker(context)
-    , backupSelector(tracker)
+    , backupSelector(context)
     , dataMutex()
     , masterId(masterId)
     , replicatedSegmentPool(ReplicatedSegment::sizeOf(numReplicas))
@@ -319,7 +318,7 @@ ReplicaManager::allocateNonHead(uint64_t segmentId, const Segment* segment)
 }
 
 /**
- * Start monitoring for failures.  Subsequent calls to startFailureMonitor()
+ * Start monitoring for failures. Subsequent calls to startFailureMonitor()
  * have no effect, unless \a log disagrees between the calls, in which case
  * the behavior is undefined.
  *
@@ -340,7 +339,7 @@ ReplicaManager::startFailureMonitor(Log* log)
 /**
  * Stop monitoring for failures.
  * After this call returns the ReplicaManager holds no references to the
- * Log (passed in on startFailureMonitor()).  Failing to call this before
+ * Log (passed in on startFailureMonitor()). Failing to call this before
  * the destruction of the Log will result in undefined behavior.
  */
 void
@@ -405,8 +404,8 @@ ReplicaManager::allocateSegment(const Lock& lock,
     if (p == NULL)
         DIE("Out of memory");
     auto* replicatedSegment =
-        new(p) ReplicatedSegment(context, taskQueue, tracker, backupSelector,
-                                 *this, writeRpcsInFlight, *minOpenSegmentId,
+        new(p) ReplicatedSegment(context, taskQueue, backupSelector, *this,
+                                 writeRpcsInFlight, *minOpenSegmentId,
                                  dataMutex, segmentId, segment,
                                  isLogHead, masterId, numReplicas);
     replicatedSegmentList.push_back(*replicatedSegment);

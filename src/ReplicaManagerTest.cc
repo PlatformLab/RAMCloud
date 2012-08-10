@@ -347,9 +347,12 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
         // Next few, ensure open/closed segments get tagged appropriately
         // since recovery is different for each.
         "handleBackupFailure: Handling backup failure of serverId 1 | "
-        "handleBackupFailure: Segment 0 recovering from lost replica | "
-        "handleBackupFailure: Segment 1 recovering from lost replica | "
-        "handleBackupFailure: Lost replica(s) for segment 1 while open | "
+        "handleBackupFailure: Segment 0 recovering from lost replica "
+            "which was on backup 1 | "
+        "handleBackupFailure: Segment 1 recovering from lost replica "
+            "which was on backup 1 | "
+        "handleBackupFailure: Lost replica(s) for segment 1 "
+            "while open due to crash of backup 1 | "
         "handleBackupFailure: Highest affected segmentId 1 | "
         // Ensure a new log head is allocated.
         "main: Allocating a new log head | "

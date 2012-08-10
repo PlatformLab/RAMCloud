@@ -31,9 +31,6 @@ namespace RAMCloud {
  * \param taskQueue
  *      The ReplicaManager's work queue, this is added to it when schedule()
  *      is called.
- * \param tracker
- *      The tracker used to find backups and track replica distribution
- *      stats.
  * \param backupSelector
  *      Used to choose where to store replicas. Shared among ReplicatedSegments.
  * \param writeRpcsInFlight
@@ -68,7 +65,6 @@ namespace RAMCloud {
  */
 ReplicatedSegment::ReplicatedSegment(Context& context,
                                      TaskQueue& taskQueue,
-                                     BackupTracker& tracker,
                                      BaseBackupSelector& backupSelector,
                                      Deleter& deleter,
                                      uint32_t& writeRpcsInFlight,
@@ -82,7 +78,6 @@ ReplicatedSegment::ReplicatedSegment(Context& context,
                                      uint32_t maxBytesPerWriteRpc)
     : Task(taskQueue)
     , context(context)
-    , tracker(tracker)
     , backupSelector(backupSelector)
     , deleter(deleter)
     , writeRpcsInFlight(writeRpcsInFlight)
@@ -248,7 +243,8 @@ ReplicatedSegment::handleBackupFailure(ServerId failedId)
     foreach (auto& replica, replicas) {
         if (!replica.isActive || replica.backupId != failedId)
             continue;
-        LOG(DEBUG, "Segment %lu recovering from lost replica", segmentId);
+        LOG(DEBUG, "Segment %lu recovering from lost replica which was on "
+            "backup %lu", segmentId, failedId.getId());
         ++metrics->master.replicaRecoveries;
 
         // If the segment contains a digest, isn't durably acked, and
@@ -260,7 +256,8 @@ ReplicatedSegment::handleBackupFailure(ServerId failedId)
             !replica.replicateAtomically &&
             !recoveringFromLostOpenReplicas) {
             recoveringFromLostOpenReplicas = true;
-            LOG(DEBUG, "Lost replica(s) for segment %lu while open", segmentId);
+            LOG(DEBUG, "Lost replica(s) for segment %lu while open due to "
+                "crash of backup %lu", segmentId, failedId.getId());
             ++metrics->master.openReplicaRecoveries;
         }
 
@@ -711,20 +708,20 @@ ReplicatedSegment::dumpProgress()
 {
     string info = format(
         "ReplicatedSegment <%lu,%lu>\n"
-        "queued: open %u, bytes %u, close %u\n"
-        "committed: open %u, bytes, %u, close %u\n",
+        "    queued: open %u, bytes %u, close %u\n"
+        "    committed: open %u, bytes, %u, close %u\n",
         masterId.getId(), segmentId,
         queued.open, queued.bytes, queued.close,
         getCommitted().open, getCommitted().bytes, getCommitted().close);
     uint32_t i = 0;
     foreach (const auto& replica, replicas) {
         info.append(format(
-            "Replica %u\n"
-            "sent: open %u, bytes %u, close %u\n"
-            "acked: open %u, bytes %u, close %u\n"
-            "committed: open %u, bytes, %u, close %u\n"
-            "write rpc outstanding: %u\n",
-            i++,
+            "  Replica %u on Backup %lu\n"
+            "    sent: open %u, bytes %u, close %u\n"
+            "    acked: open %u, bytes %u, close %u\n"
+            "    committed: open %u, bytes, %u, close %u\n"
+            "    write rpc outstanding: %u\n",
+            i++, replica.backupId.getId(),
             replica.sent.open, replica.sent.bytes, replica.sent.close,
             replica.acked.open, replica.acked.bytes, replica.acked.close,
             replica.committed.open, replica.committed.bytes,

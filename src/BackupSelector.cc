@@ -42,12 +42,12 @@ BackupStats::getExpectedReadMs() {
 
 /**
  * Constructor.
- * \param tracker
- *      The tracker used to find backups and track replica distribution
- *      stats.
+ * \param context
+ *      Overall information about this RAMCloud server; used to register
+ *      #tracker with this server's ServerList.
  */
-BackupSelector::BackupSelector(BackupTracker& tracker)
-    : tracker(tracker)
+BackupSelector::BackupSelector(Context& context)
+    : tracker(context)
 {
 }
 
@@ -133,13 +133,13 @@ BackupSelector::applyTrackerChanges()
     ServerChangeEvent event;
     while (tracker.getChange(server, event)) {
         if (event == SERVER_ADDED) {
-           tracker[server.serverId] = new BackupStats;
-           tracker[server.serverId]->expectedReadMBytesPerSec =
-               server.expectedReadMBytesPerSec;
+            tracker[server.serverId] = new BackupStats;
+            tracker[server.serverId]->expectedReadMBytesPerSec =
+                server.expectedReadMBytesPerSec;
         } else if (event == SERVER_REMOVED) {
-           BackupStats* stats = tracker[server.serverId];
-           delete stats;
-           tracker[server.serverId] = NULL;
+            BackupStats* stats = tracker[server.serverId];
+            delete stats;
+            tracker[server.serverId] = NULL;
         }
     }
 }

@@ -101,7 +101,6 @@ struct ReplicatedSegmentTest : public ::testing::Test {
             segment.reset(
                 new(segMem) ReplicatedSegment(test->context,
                                               test->taskQueue,
-                                              test->tracker,
                                               test->backupSelector,
                                               test->deleter,
                                               test->writeRpcsInFlight,
@@ -131,7 +130,6 @@ struct ReplicatedSegmentTest : public ::testing::Test {
     Context context;
     TaskQueue taskQueue;
     ServerList serverList;
-    BackupTracker tracker;
     CountingDeleter deleter;
     uint32_t writeRpcsInFlight;
     std::mutex dataMutex;
@@ -154,7 +152,6 @@ struct ReplicatedSegmentTest : public ::testing::Test {
         : context()
         , taskQueue()
         , serverList(context)
-        , tracker(context, NULL)
         , deleter()
         , writeRpcsInFlight(0)
         , dataMutex()
@@ -179,10 +176,6 @@ struct ReplicatedSegmentTest : public ::testing::Test {
                        {WireFormat::BACKUP_SERVICE}, 100);
         serverList.add(backupId2, "mock:host=backup2",
                        {WireFormat::BACKUP_SERVICE}, 100);
-        ServerDetails server;
-        ServerChangeEvent event;
-        tracker.getChange(server, event);
-        tracker.getChange(server, event);
 
         const char* msg = "abcdefghijklmnopqrstuvwxyz";
         size_t msgLen = strlen(msg);

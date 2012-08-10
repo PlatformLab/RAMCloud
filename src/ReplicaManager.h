@@ -94,15 +94,6 @@ class ReplicaManager
     const uint32_t numReplicas;
 
   PRIVATE:
-    /**
-     * A ServerTracker used to find backups and track replica distribution
-     * stats.  Each entry in the tracker contains a pointer to a BackupStats
-     * struct which stores the number of primary replicas stored on that
-     * server.  Used by ReplicatedSegments and #backupSelector; updated by
-     * #backupSelector.
-     */
-    BackupTracker tracker;
-
     /// Selects backups to store replicas while obeying placement constraints.
     BackupSelector backupSelector;
 
@@ -160,7 +151,7 @@ class ReplicaManager
     BackupFailureMonitor failureMonitor;
 
   PUBLIC:
-    // Only used by Log.
+    // Only used by BackupFailureMonitor.
     Tub<uint64_t> handleBackupFailure(ServerId failedId);
 
     // Only used by ReplicatedSegment.
