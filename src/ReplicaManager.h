@@ -104,7 +104,33 @@ class ReplicaManager
      * its replicas as well as helper structures like the #taskQueue and
      * #replicatedSegmentList.  A lock for this mutex must be held to read
      * or modify any state in the ReplicaManager.
+     *
+     * Locking in ReplicaManager and ReplicatedSegment maintains several
+     * important properties:
+     * 1) Only one thread is in proceed() at a time. When any thread is
+     *    "in" the ReplicaManager performing replication all other threads
+     *    are locked out.
+     * 2) When multiple threads call sync() simultaneously only one is
+     *    admitted at a time and that thread doesn't release locks until
+     *    its objects are committed on backups, but sync() still coalesces
+     *    operations so that when threads acquire the appropriate locks in
+     *    sync they may find their work has already been done by another thread.
+     *    There is a subtle starvation problem that can occur which
+     *    ReplicatedSegment::syncMutex prevents. See
+     *    ReplicatedSegment::sync() for the details.
+     * 3) Calls to sync() cannot lock out calls to handleBackupFailure()
+     *    indefinitely. Calls to sync() may block forever if they are trying to
+     *    communicate with failed servers. Threads sync()ing objects must
+     *    release #dataMutex periodically to ensure the BackupFailureMonitor can
+     *    modify ReplicatedSegments which have inoperable backups.
+     * 4) Part of a handling backup failure may include allocating a new log
+     *    head. #dataMutex MUST NOT be held when allocating a head since
+     *    log code calls into the ReplicaManager and ReplicatedSegments which
+     *    would cause deadlock. Because of this allocating a new log head
+     *    in response to backup failures only happens in the
+     *    BackupFailureMonitor where it is safe to do so.
      */
+
     std::mutex dataMutex;
 
     /// Id of master that this will be managing replicas for.

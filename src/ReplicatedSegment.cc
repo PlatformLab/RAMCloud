@@ -83,6 +83,7 @@ ReplicatedSegment::ReplicatedSegment(Context& context,
     , writeRpcsInFlight(writeRpcsInFlight)
     , minOpenSegmentId(minOpenSegmentId)
     , dataMutex(dataMutex)
+    , syncMutex()
     , segment(segment)
     , normalLogSegment(normalLogSegment)
     , masterId(masterId)
@@ -280,9 +281,27 @@ ReplicatedSegment::handleBackupFailure(ServerId failedId)
  * ReplicatedSegment::close are obeyed).  Note, this method can wait forever if
  * \a offset bytes are never enqueued for replication.
  *
- * This must be called after any openSegment() or ReplicatedSegment::write()
- * calls where the operation must be immediately durable (though, keep in mind,
- * host failures could have eliminated some replicas even as sync returns).
+ * This must be called after any openSegment() calls where the operation must
+ * be immediately durable (though, keep in mind, host failures could have
+ * eliminated some replicas even as sync returns).
+ *
+ * ReplicaManager::dataMutex documents some of issues with locking that
+ * affect this method. Two important subtleties are handled with the
+ * locking in this method:
+ * 1) #dataMutex cannot be held indefinitely while threads wait for their
+ *    objects to be synced. This is because sync() may block forever in
+ *    the case of failures until handleBackupFailure() can be called by
+ *    the BackupFailureMonitor which also requires #dataMutex.
+ * 2) #syncMutex chooses just one thread at a time to attempt to sync all
+ *    the data found in the segment immediately after it acquires the locks.
+ *    This is important because it prevents repeated calls to
+ *    segment->getAppendedLength(). Repeated calls could "push out" the
+ *    offset of the next footer to be sent to the backups. Then, since there is
+ *    a limit the size of write rpcs, it is possible that several back-to-back
+ *    rpcs wouldn't include a footer. Some sync()s could have to wait for
+ *    several round trips while they wait for the next footer to be sent out
+ *    before they are considered committed and safe for acknowledgement to
+ *    clients.
  *
  * \param offset
  *      The number of bytes of the segment that must be replicated before the
@@ -294,7 +313,10 @@ ReplicatedSegment::sync(uint32_t offset)
     CycleCounter<RawMetric> _(&metrics->master.replicaManagerTicks);
     TEST_LOG("syncing");
 
-    Lock lock(dataMutex);
+    Lock syncLock(syncMutex);
+    Tub<Lock> lock;
+    lock.construct(dataMutex);
+
     // Definition of synced changes if this segment isn't durably closed
     // and is recovering from a lost replica.  In that case the data
     // the data isn't durable until it has been replicated *along with*
@@ -324,6 +346,7 @@ ReplicatedSegment::sync(uint32_t offset)
             dumpProgress();
             syncStartTicks = Cycles::rdtsc();
         }
+        lock.construct(dataMutex);
     }
 }
 

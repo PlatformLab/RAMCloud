@@ -400,12 +400,23 @@ class ReplicatedSegment : public Task {
     MinOpenSegmentId& minOpenSegmentId;
 
     /**
-     * Protects all state for this segment and others the ReplicaManager is
-     * tracking; see ReplicaManager.  A lock for this mutex must be held to
-     * read or modify any state associated with this segment or any other.
+     * See ReplicaManager::dataMutex; there are many subtleties to the locking
+     * in this module.
      */
     std::mutex& dataMutex;
     typedef std::lock_guard<std::mutex> Lock;
+
+    /**
+     * Used to select a "winner" thread that is allowed to sync. Once some
+     * thread acquires this lock it holds it until its sync() call returns.
+     * Threads take turns driving replication in sync(), though work is batched
+     * (that is, some thread may sync data that another thread is waiting on).
+     * A lock on #dataMutex is still needed to access or modify fields in this
+     * or any other segment.
+     * See ReplicaManager::dataMutex; there are many subtleties to the locking
+     * in this module.
+     */
+    std::mutex syncMutex;
 
     /**
      * Segment to be replicated. It is expected that the segment already
