@@ -16,7 +16,9 @@
 #ifndef RAMCLOUD_LOGGER_H
 #define RAMCLOUD_LOGGER_H
 
+#include <time.h>
 #include <mutex>
+#include <unordered_map>
 #include "Common.h"
 
 namespace RAMCloud {
@@ -78,11 +80,14 @@ class Logger {
     void setLogLevel(LogModule, int level);
     void setLogLevel(string module, string level);
     void changeLogLevel(LogModule, int delta);
+    void reset();
 
     void setLogLevels(LogLevel level);
     void setLogLevels(int level);
     void setLogLevels(string level);
     void changeLogLevels(int delta);
+    void disableCollapsing();
+    void enableCollapsing();
 
     void saveLogLevels(LogLevel (&currentLogLevels)[NUM_LOG_MODULES]) {
         std::copy(logLevels, logLevels + NUM_LOG_MODULES, currentLogLevels);
@@ -111,6 +116,10 @@ class Logger {
     }
 
   PRIVATE:
+    void cleanCollapseMap(struct timespec now);
+    FILE* getStream();
+    void printMessage(struct timespec t, const char* message, int skipCount);
+
     /**
      * The stream on which to log messages.  NULL means use stderr.
      * Note: we don't ever set this value to stderr: if the application
@@ -135,6 +144,84 @@ class Logger {
      * Singleton global logger that will be returned by Logger::get.
      */
     static Logger* sharedLogger;
+
+    /**
+     * Objects of the following type are used in collapseMap to keep
+     * track of recently logged entries so that duplicates can be
+     * collapsed.
+     */
+    struct SkipInfo {
+        /**
+         * Don't print this log message again until the time given below.
+         */
+        struct timespec nextPrintTime;
+
+        /**
+         * Number of times we have skipped printing this message
+         * because nextPrintTime hadn't yet been reached.
+         */
+        int skipCount;
+
+        SkipInfo(struct timespec nextPrintTime, int skipCount)
+            : nextPrintTime(nextPrintTime), skipCount(skipCount) {}
+        SkipInfo()
+            : nextPrintTime({0, 0}), skipCount(0) {}
+    };
+
+    /**
+     * This object is used for log message collapsing: if the same message
+     * is output repeatedly in a short time window, the first message is
+     * printed immediately, but duplicates are not printed. Information about
+     * that is recorded here, and eventually we print a single message for
+     * all of the duplicates. Keys are log messages (everything except the
+     * time part).
+     */
+    typedef std::unordered_map<std::string, SkipInfo> CollapseMap;
+    CollapseMap collapseMap;
+
+    /**
+     * This variable determines the interval over which log message collapsing
+     * is done: once a given message has been printed, the same message will
+     * not be printed again for this many milliseconds (this value is normally
+     * constant, but can be modified for testing).
+     */
+    uint32_t collapseIntervalMs;
+
+    /**
+     * This is the value of collapseIntervalMs except during testing.
+     */
+    static const uint32_t DEFAULT_COLLAPSE_INTERVAL = 5000;
+
+    /**
+     * Don't retain more than this many entries in collapseMap at a time:
+     * this is to limit memory usage if an application should generate a large
+     * number of unique log entries in a short time interval.
+     */
+    uint32_t maxCollapseMapSize;
+
+    /**
+     * This is the value of maxCollapseMapSize except during testing.
+     */
+    static const uint32_t DEFAULT_COLLAPSE_MAP_LIMIT = 1000;
+
+    /**
+     * Call cleanCollapseMap when this time is reached (this is the smallest
+     * nextPrintTime for any entry in the table, or a large time if the
+     * table is empty).
+     */
+    struct timespec nextCleanTime;
+
+    /**
+     * Counts the number of active calls to disableCollapsing; >0 means
+     * print every log message.
+     */
+    int collapsingDisableCount;
+
+    /**
+     * If non-zero, overrides default value for buffer size in logMessage
+     * (used for testing).
+     */
+    uint32_t testingBufferSize;
 
     DISALLOW_COPY_AND_ASSIGN(Logger);
 };

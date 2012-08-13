@@ -44,5 +44,14 @@ TEST(StringUtilTest, contains) {
     EXPECT_FALSE(contains("o", "foo"));
 }
 
+TEST(StringUtilTest, regsub) {
+    EXPECT_EQ("0 yyy zzz 0 0 0 qqq",
+            regsub("xxx yyy zzz xxx xxx xxx qqq", "[x]+", "0"));
+    EXPECT_EQ("Unmatched [ or [^",
+            regsub("xxx yyy zzz xxx xxx xxx qqq", "[xyz", "0"));
+    EXPECT_EQ("no match here",
+            regsub("no match here", "xyzzy", "0"));
+}
+
 
 }  // namespace RAMCloud

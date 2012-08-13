@@ -76,7 +76,7 @@ TESTS_SRCFILES := \
 		  src/ServerIdRpcWrapperTest.cc \
 		  src/ServerIdTest.cc \
 		  src/ServerListTest.cc \
-                  src/ServerListUpdaterTest.cc \
+      src/ServerListUpdaterTest.cc \
 		  src/ServerMetricsTest.cc \
 		  src/ServerRpcPoolTest.cc \
 		  src/ServerTest.cc \
@@ -100,6 +100,7 @@ TESTS_SRCFILES := \
 		  src/TransportManagerTest.cc \
 		  src/TubTest.cc \
 		  src/UdpDriverTest.cc \
+		  src/UtilTest.cc \
 		  src/VarLenArrayTest.cc \
 		  src/WallTimeTest.cc \
 		  src/WindowTest.cc \

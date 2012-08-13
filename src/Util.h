@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Facebook
+/* Copyright (c) 2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,26 +13,27 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_STRINGUTIL_H
-#define RAMCLOUD_STRINGUTIL_H
+#ifndef RAMCLOUD_UTIL_H
+#define RAMCLOUD_UTIL_H
 
+#include <time.h>
 #include "Common.h"
 
 namespace RAMCloud {
 
 /**
- * Utilities for working with strings.
+ * Miscellaneous methods that seem like they might be useful in several
+ * different places.
  */
-namespace StringUtil {
+namespace Util {
 
-bool startsWith(const string& haystack, const string& needle);
-bool endsWith(const string& haystack, const string& needle);
-bool contains(const string& haystack, const string& needle);
-string regsub(const string& subject, const string& pattern,
-        const string& replacement);
+bool timespecLess(const struct timespec& t1, const struct timespec& t2);
+bool timespecLessEqual(const struct timespec& t1, const struct timespec& t2);
+struct timespec timespecAdd(const struct timespec& t1,
+        const struct timespec& t2);
 
-} // end StringUtil
+} // end Util
 
 } // end RAMCloud
 
-#endif  // RAMCLOUD_STRINGUTIL_H
+#endif  // RAMCLOUD_UTIL_H

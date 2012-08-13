@@ -422,6 +422,7 @@ try
         LOG(ERROR, "Metrics mismatches: %lu",
                 metricsAfter.size() - diff.size());
     }
+    Logger::get().disableCollapsing();
     for (ClusterMetrics::iterator serverIt = diff.begin();
             serverIt != diff.end(); serverIt++) {
         LOG(NOTICE, "Metrics: begin server %s", serverIt->first.c_str());
@@ -432,6 +433,7 @@ try
                     metricIt->second);
         }
     }
+    Logger::get().enableCollapsing();
 
     return 0;
 } catch (RAMCloud::ClientException& e) {

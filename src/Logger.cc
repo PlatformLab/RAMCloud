@@ -14,7 +14,6 @@
  */
 
 #include <stdarg.h>
-#include <time.h>
 #include <execinfo.h>
 
 #include <boost/lexical_cast.hpp>
@@ -22,6 +21,7 @@
 #include "Logger.h"
 #include "ShortMacros.h"
 #include "ThreadId.h"
+#include "Util.h"
 
 namespace RAMCloud {
 
@@ -45,30 +45,21 @@ static const char* logModuleNames[] = {"default", "transport"};
 static_assert(unsafeArrayLength(logModuleNames) == NUM_LOG_MODULES,
               "logModuleNames size does not match NUM_LOG_MODULES");
 
-namespace {
-/// RAII-style POSIX stdio file lock
-class FileLocker {
-  public:
-    explicit FileLocker(FILE* handle)
-        : handle(handle) {
-        flockfile(handle);
-    }
-    ~FileLocker() {
-        funlockfile(handle);
-    }
-  private:
-    FILE* const handle;
-    DISALLOW_COPY_AND_ASSIGN(FileLocker);
-};
-} // anonymous namespace
-
 /**
  * Create a new debug logger; messages will go to stderr by default.
  * \param[in] level
  *      Messages for all modules at least as important as \a level will be
  *      logged.
  */
-Logger::Logger(LogLevel level) : stream(NULL), mutex()
+Logger::Logger(LogLevel level)
+    : stream(NULL)
+    , mutex()
+    , collapseMap()
+    , collapseIntervalMs(DEFAULT_COLLAPSE_INTERVAL)
+    , maxCollapseMapSize(DEFAULT_COLLAPSE_MAP_LIMIT)
+    , nextCleanTime({0, 0})
+    , collapsingDisableCount(0)
+    , testingBufferSize(0)
 {
     setLogLevels(level);
 }
@@ -291,6 +282,31 @@ Logger::changeLogLevels(int delta)
 }
 
 /**
+ * Turn off the mechanism that normally suppresses duplicate log messages.
+ * Calls to this method nest: for each call here, there must be a
+ * corresponding call to \c enableCollapsing before collapsing will be
+ * enabled again.
+ */
+void
+Logger::disableCollapsing()
+{
+    Lock lock(mutex);
+    collapsingDisableCount++;
+}
+
+/**
+ * This method cancels the impact of a previous call to \c disableCollapsing.
+ * Once there has been one call here for every call to \c disableCollapsing,
+ * collapsing will be re-enabled.
+ */
+void
+Logger::enableCollapsing()
+{
+    Lock lock(mutex);
+    collapsingDisableCount--;
+}
+
+/**
  * Log a backtrace for the system administrator.
  * This version doesn't provide C++ name demangling so it can be helpful
  * to run the output of the backtrace through c++filt.
@@ -332,7 +348,7 @@ Logger::logBacktrace(LogModule module, LogLevel level,
  *      See #LOG.
  * \param[in] where
  *      The result of #HERE.
- * \param[in] format
+ * \param[in] fmt
  *      See #LOG except the string should end with a newline character.
  * \param[in] ...
  *      See #LOG.
@@ -340,34 +356,180 @@ Logger::logBacktrace(LogModule module, LogLevel level,
 void
 Logger::logMessage(LogModule module, LogLevel level,
                    const CodeLocation& where,
-                   const char* format, ...)
+                   const char* fmt, ...)
 {
     Lock lock(mutex);
     static int pid = getpid();
     va_list ap;
     struct timespec now;
-    FILE* f = stream;
-    if (stream == NULL) {
-        f = stderr;
+    clock_gettime(CLOCK_REALTIME, &now);
+
+    // Compute the body of the log message except for the initial timestamp
+    // (i.e. process the original format string, and add location/process/thread
+    // info).
+    string message = format("%s:%d in %s %s %s[%d:%lu]: ",
+            where.relativeFile().c_str(), where.line,
+            where.qualifiedFunction().c_str(), logModuleNames[module],
+            logLevelNames[level], pid, ThreadId::get());
+    char buffer[2000];
+    va_start(ap, fmt);
+    uint32_t bufferSize = testingBufferSize ? testingBufferSize
+            : downCast<uint32_t>(sizeof(buffer));
+    uint32_t needed = vsnprintf(buffer, bufferSize, fmt, ap);
+    va_end(ap);
+    message += buffer;
+    if (needed >= bufferSize) {
+        // Couldn't quite fit the whole message in our fixed-size buffer.
+        // Just truncate the message.
+        snprintf(buffer, bufferSize, "... (%d chars truncated)\n",
+                (needed + 1 - bufferSize));
+        message += buffer;
     }
 
-    clock_gettime(CLOCK_REALTIME, &now);
-    FileLocker _(f);
+    if (collapsingDisableCount > 0) {
+        printMessage(now, message.c_str(), 0);
+        return;
+    }
 
-    fprintf(f, "%010lu.%09lu %s:%d in %s %s %s[%d:%lu]: ",
-            now.tv_sec, now.tv_nsec,
-            where.relativeFile().c_str(), where.line,
-            where.qualifiedFunction().c_str(),
-            logModuleNames[module],
-            logLevelNames[level],
-            pid,
-            ThreadId::get());
+    // Suppress messages that we have printed recently.
+    CollapseMap::iterator iter = collapseMap.find(message);
+    SkipInfo* skip = NULL;
+    if (iter != collapseMap.end()) {
+        // We have printed this message before; if it was recently,
+        // don't print the current message, but keep track of the fact
+        // that we skipped it.
+        skip = &iter->second;
+        if (Util::timespecLess(now, skip->nextPrintTime)) {
+            skip->skipCount++;
+            return;
+        }
 
-    va_start(ap, format);
-    vfprintf(f, format, ap);
-    va_end(ap);
+        // We've printed this message before, but it was a while ago,
+        // so print the message again.
+    } else {
+        // Make a new collapseMap entry so we won't print this message
+        // again for a while.
+        skip = &collapseMap[message];
+    }
+    skip->nextPrintTime = Util::timespecAdd(now,
+            {0, collapseIntervalMs*1000000});
 
+    // Print previously-deferred messages, if needed.
+    if (Util::timespecLessEqual(nextCleanTime, now)) {
+        cleanCollapseMap(now);
+    }
+    if (Util::timespecLess(skip->nextPrintTime, nextCleanTime)) {
+        nextCleanTime = skip->nextPrintTime;
+    }
+
+    // Print the current message.
+    printMessage(now, message.c_str(), skip->skipCount);
+    skip->skipCount = 0;
+
+    // If collapseMap gets too large, just delete an entry at random.
+    if (collapseMap.size() > maxCollapseMapSize) {
+        collapseMap.erase(collapseMap.begin());
+    }
+}
+
+/**
+ * This method is called to print delayed log messages. If a bunch of
+ * duplicates for the message were suppressed, but no new copies of that
+ * message are logged, we eventually want to print out information about
+ * the suppressed duplicates. This method does that (and it also removes
+ * old entries from \c collapseMap). The caller must hold the Logger lock.
+ *
+ * \param now
+ *      The current time: information will be printed about any suppressed
+ *      duplicates with \c nextPrintTime less than or equal to this, or
+ *      such entries will be removed from collapseMap if there are no
+ *      suppressed duplicates.
+ */
+void
+Logger::cleanCollapseMap(struct timespec now)
+{
+    nextCleanTime = Util::timespecAdd(now, {1000, 0});
+    CollapseMap::iterator iter = collapseMap.begin();
+    while (iter != collapseMap.end()) {
+        const string* message = &iter->first;
+        SkipInfo* skip = &iter->second;
+        if (Util::timespecLessEqual(skip->nextPrintTime, now)) {
+            // This entry has been around for a while: if there were
+            // suppress messages then print one; otherwise delete the
+            // entry.
+            if (skip->skipCount == 0) {
+                // This entry is old and there haven't been any suppressed
+                // log messages for it; just delete the entry.
+                iter++;
+                collapseMap.erase(*message);
+                continue;
+            }
+
+            // This entry contains suppressed log messages, but it's been
+            // a long time since we printed the last one; print another one.
+
+            printMessage(skip->nextPrintTime, message->c_str(),
+                    skip->skipCount-1);
+            skip->skipCount = 0;
+            skip->nextPrintTime = Util::timespecAdd(now,
+                    {collapseIntervalMs/1000,
+                    (collapseIntervalMs%1000)*1000000});
+        }
+        if (Util::timespecLess(skip->nextPrintTime, nextCleanTime)) {
+            nextCleanTime = skip->nextPrintTime;
+        }
+        iter++;
+    }
+}
+
+/**
+ * Return the I/O stream to use for log output.
+ */
+FILE*
+Logger::getStream()
+{
+    if (stream != NULL)
+        return stream;
+    return stderr;
+}
+
+/**
+ * Utility method that actually prints messages; eliminates duplicated code.
+ * The caller must hold the Logger lock.
+ *
+ * \param t
+ *      Time to be printed in the message.
+ * \param message
+ *      Main body of the message (everything but the timestamp).
+ * \param skipCount
+ *      If nonzero, additional message is printed before the main one,
+ *      indicating that duplicate messages were suppressed.
+ */
+void
+Logger::printMessage(struct timespec t, const char* message, int skipCount)
+{
+    FILE* f = getStream();
+    if (skipCount > 0) {
+        fprintf(f, "%010lu.%09lu (%d duplicates of the following message "
+                "were suppressed)\n", t.tv_sec, t.tv_nsec, skipCount);
+    }
+    fprintf(f, "%010lu.%09lu %s", t.tv_sec, t.tv_nsec, message);
     fflush(f);
+}
+
+/**
+ * Restore a logger to its default initialized state. Used primarily by tests.
+ */
+void
+Logger::reset()
+{
+    if (stream != NULL)
+        fclose(stream);
+    stream = NULL;
+    collapseMap.clear();
+    collapseIntervalMs = DEFAULT_COLLAPSE_INTERVAL;
+    maxCollapseMapSize = DEFAULT_COLLAPSE_MAP_LIMIT;
+    collapsingDisableCount = 0;
 }
 
 } // end RAMCloud
