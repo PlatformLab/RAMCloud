@@ -155,7 +155,14 @@ CoordinatorServerManager::enlistServer(
             "for it and assuming the old server has failed",
             serviceLocator, replacesId.getId());
 
+        ProtoBuf::StateServerDown state;
+        state.set_entry_type("StateServerDown");
+        state.set_server_id(replacesId.getId());
+        EntryId entryId = service.logCabinHelper->appendProtoBuf(state);
+
         serverDown(replacesId);
+
+        service.logCabinLog->invalidate(vector<EntryId>(entryId));
     }
 
     ServerId newServerId = service.serverList.generateUniqueId();
@@ -164,7 +171,6 @@ CoordinatorServerManager::enlistServer(
 
     ProtoBuf::StateEnlistServer state;
     state.set_entry_type("StateEnlistServer");
-    state.set_replaces_id(replacesId.getId());
     state.set_new_server_id(newServerId.getId());
     state.set_service_mask(serviceMask.serialize());
     state.set_read_speed(readSpeed);

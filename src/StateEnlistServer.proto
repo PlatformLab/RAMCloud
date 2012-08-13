@@ -22,9 +22,6 @@ message StateEnlistServer {
     /// Entry type for this LogCabin entry.
     required string entry_type = 1;
 
-	/// Server id of the server that the enlisting server is replacing.
-    required fixed64 replaces_id = 2;
-
 	/// The id assigned to the enlisting server.
     required fixed64 new_server_id = 3;
 
