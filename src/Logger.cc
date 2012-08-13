@@ -412,7 +412,8 @@ Logger::logMessage(LogModule module, LogLevel level,
         skip = &collapseMap[message];
     }
     skip->nextPrintTime = Util::timespecAdd(now,
-            {0, collapseIntervalMs*1000000});
+            {collapseIntervalMs/1000,
+            (collapseIntervalMs%1000)*1000000});
 
     // Print previously-deferred messages, if needed.
     if (Util::timespecLessEqual(nextCleanTime, now)) {

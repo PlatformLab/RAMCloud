@@ -261,7 +261,7 @@ TEST_F(SessionAlarmTimerTest, handleTimerEvent_pingAndAbortSession) {
     timer.handleTimerEvent();
     EXPECT_EQ("sendRequest: opcode PING", AlarmSession::log);
     AlarmSession::log.clear();
-    EXPECT_EQ("handleTimerEvent: initiated ping request to test:alarm",
+    EXPECT_EQ("handleTimerEvent: sent ping",
             TestLog::get());
     timer.handleTimerEvent();
     EXPECT_EQ("abort: server at test:alarm is not responding",
@@ -292,9 +292,9 @@ TEST_F(SessionAlarmTest, handleTimerEvent_cleanupPings) {
         timer.handleTimerEvent();
     }
     EXPECT_EQ(3U, timer.pings.size());
-    EXPECT_EQ("handleTimerEvent: initiated ping request to test:alarm | "
-            "handleTimerEvent: initiated ping request to test:alarm | "
-            "handleTimerEvent: initiated ping request to test:alarm",
+    EXPECT_EQ("handleTimerEvent: sent ping | "
+            "handleTimerEvent: sent ping | "
+            "handleTimerEvent: sent ping",
             TestLog::get());
     TestLog::reset();
 
@@ -305,7 +305,7 @@ TEST_F(SessionAlarmTest, handleTimerEvent_cleanupPings) {
     EXPECT_EQ(1U, timer.pings.size());
     EXPECT_EQ(&alarm3, timer.pings.begin()->first);
 
-    // Finish the third pings and check for cleanup.
+    // Finish the third ping and check for cleanup.
     session3->finishRpcs();
     timer.handleTimerEvent();
     EXPECT_EQ(0U, timer.pings.size());

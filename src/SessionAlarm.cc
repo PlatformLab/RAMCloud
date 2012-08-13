@@ -202,8 +202,7 @@ SessionAlarmTimer::handleTimerEvent()
         // It's time to initiate a ping RPC to make sure the server is still
         // alive.
         pings[alarm] = new PingRpc(context, &alarm->session);
-        RAMCLOUD_LOG(NOTICE, "initiated ping request to %s",
-                alarm->session.getServiceLocator().c_str());
+        RAMCLOUD_TEST_LOG("sent ping");
     }
 
     // Clean up ping RPCs that completed successfully.
@@ -213,7 +212,8 @@ SessionAlarmTimer::handleTimerEvent()
         it++;
         if (rpc->isReady()) {
             if (rpc->succeeded()) {
-                RAMCLOUD_LOG(NOTICE, "received ping response from %s",
+                RAMCLOUD_LOG(NOTICE,
+                        "Waiting for RPC from server at %s (ping succeeded)",
                         current->first->session.getServiceLocator().c_str());
             }
             delete rpc;
