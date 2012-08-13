@@ -245,8 +245,8 @@ CoordinatorServerManager::HintServerDown::execute()
      LOG(NOTICE, "Server id %lu has crashed, notifying the cluster and "
          "starting recovery", serverId.getId());
 
-     ProtoBuf::StateHintServerDown state;
-     state.set_entry_type("StateHintServerDown");
+     ProtoBuf::StateServerDown state;
+     state.set_entry_type("StateServerDown");
      state.set_server_id(this->serverId.getId());
 
      EntryId entryId = manager.service.logCabinHelper->appendProtoBuf(state);
@@ -301,7 +301,7 @@ CoordinatorServerManager::hintServerDown(ServerId serverId)
  */
 void
 CoordinatorServerManager::hintServerDownRecover(
-    ProtoBuf::StateHintServerDown* state, EntryId entryId)
+    ProtoBuf::StateServerDown* state, EntryId entryId)
 {
     Lock _(mutex);
     ServerId serverId = ServerId(state->server_id());

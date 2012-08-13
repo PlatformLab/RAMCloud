@@ -7,7 +7,7 @@ COORDINATOR_SRCFILES := \
 			src/RuntimeOptions.cc \
 			src/ServerInformation.pb.cc \
 			src/StateEnlistServer.pb.cc \
-			src/StateHintServerDown.pb.cc \
+			src/StateServerDown.pb.cc \
 			$(NULL)
 
 COORDINATOR_OBJFILES := $(COORDINATOR_SRCFILES)

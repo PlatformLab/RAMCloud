@@ -16,12 +16,12 @@
 package RAMCloud.ProtoBuf;
 
 // The information appended to LogCabin by the Coordinator
-// to store the state of hintServerDown operation.
-message StateHintServerDown {
+// to store the state when forcing a server out of the cluster.
+message StateServerDown {
 
     /// Entry type for this LogCabin entry.
     required string entry_type = 1;
 
-    /// ServerId of the server that is suspected to be down.
+    /// ServerId of the server that is being forced out.
     required uint64 server_id = 2;
 }

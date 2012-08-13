@@ -22,7 +22,7 @@
 #include "CoordinatorServerList.h"
 #include "ServerInformation.pb.h"
 #include "StateEnlistServer.pb.h"
-#include "StateHintServerDown.pb.h"
+#include "StateServerDown.pb.h"
 
 namespace RAMCloud {
 
@@ -61,7 +61,7 @@ class CoordinatorServerManager {
 
     ProtoBuf::ServerList getServerList(ServiceMask serviceMask);
     bool hintServerDown(ServerId serverId);
-    void hintServerDownRecover(ProtoBuf::StateHintServerDown* state,
+    void hintServerDownRecover(ProtoBuf::StateServerDown* state,
                                EntryId entryId);
     void removeReplicationGroup(uint64_t groupId);
     void sendServerList(ServerId serverId);
