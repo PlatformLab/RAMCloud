@@ -123,6 +123,104 @@ CoordinatorServerManager::createReplicationGroup()
 }
 
 /**
+ * Do everything needed to execute the EnlistServer operation.
+ * Do any processing required before logging the state
+ * in LogCabin, log the state in LogCabin, then call #complete().
+ */
+ServerId
+CoordinatorServerManager::EnlistServer::execute()
+{
+    // The order of the updates in serverListUpdate is important: the remove
+    // must be ordered before the add to ensure that as members apply the
+    // update they will see the removal of the old server id before the
+    // addition of the new, replacing server id.
+
+    if (manager.service.serverList.contains(replacesId)) {
+        LOG(NOTICE, "%s is enlisting claiming to replace server id "
+            "%lu, which is still in the server list, taking its word "
+            "for it and assuming the old server has failed",
+            serviceLocator, replacesId.getId());
+
+        ProtoBuf::StateServerDown state;
+        state.set_entry_type("StateServerDown");
+        state.set_server_id(replacesId.getId());
+        EntryId entryId = manager.service.logCabinHelper->appendProtoBuf(state);
+
+        manager.serverDown(replacesId);
+
+        manager.service.logCabinLog->invalidate(vector<EntryId>(entryId));
+    }
+
+    newServerId = manager.service.serverList.generateUniqueId();
+
+    ProtoBuf::StateEnlistServer state;
+    state.set_entry_type("StateEnlistServer");
+    state.set_service_mask(serviceMask.serialize());
+    state.set_read_speed(readSpeed);
+    state.set_write_speed(writeSpeed);
+    state.set_service_locator(string(serviceLocator));
+    state.set_new_server_id(newServerId.getId());
+
+    EntryId stateEntryId =
+        manager.service.logCabinHelper->appendProtoBuf(state);
+
+    return complete(stateEntryId);
+}
+
+/**
+ * Complete the EnlistServer operation after its state has been
+ * logged in LogCabin.
+ * This is called internally by #execute() in case of normal operation
+ * (which is in turn called by #enlistServer()), and
+ * directly for coordinator recovery (by #enlistServerRecover()).
+ *
+ * \param entryId
+ *      The entry id of the LogCabin entry corresponding to the state
+ *      of the operation to be completed.
+ */
+ServerId
+CoordinatorServerManager::EnlistServer::complete(EntryId entryId)
+{
+    manager.service.serverList.add(
+            newServerId, serviceLocator, serviceMask, readSpeed);
+
+    CoordinatorServerList::Entry entry =
+            manager.service.serverList[newServerId];
+
+    LOG(NOTICE, "Enlisting new server at %s (server id %lu) supporting "
+        "services: %s", serviceLocator, newServerId.getId(),
+        entry.services.toString().c_str());
+
+    if (entry.services.has(WireFormat::MEMBERSHIP_SERVICE))
+        manager.sendServerList(newServerId);
+
+    if (replacesId.isValid()) {
+        LOG(NOTICE, "Newly enlisted server %lu replaces server %lu",
+            newServerId.getId(), replacesId.getId());
+    }
+
+    if (entry.isBackup()) {
+        LOG(DEBUG, "Backup at id %lu has %u MB/s read %u MB/s write",
+            newServerId.getId(), readSpeed, writeSpeed);
+        manager.createReplicationGroup();
+    }
+
+    ProtoBuf::ServerInformation info;
+    info.set_entry_type("ServerInformation");
+    info.set_server_id(newServerId.getId());
+    info.set_service_mask(serviceMask.serialize());
+    info.set_read_speed(readSpeed);
+    info.set_write_speed(writeSpeed);
+    info.set_service_locator(string(serviceLocator));
+
+    EntryId infoEntryId = manager.service.logCabinHelper->appendProtoBuf(
+        info, vector<EntryId>(entryId));
+    manager.service.serverList.addLogCabinEntryId(newServerId, infoEntryId);
+
+    return newServerId;
+}
+
+/**
  * Implements enlisting a server onto the CoordinatorServerList and
  * propagating updates to the cluster.
  *
@@ -145,71 +243,33 @@ CoordinatorServerManager::enlistServer(
     ServerId replacesId, ServiceMask serviceMask, const uint32_t readSpeed,
     const uint32_t writeSpeed,  const char* serviceLocator)
 {
-    // The order of the updates in serverListUpdate is important: the remove
-    // must be ordered before the add to ensure that as members apply the
-    // update they will see the removal of the old server id before the
-    // addition of the new, replacing server id.
-    if (service.serverList.contains(replacesId)) {
-        LOG(NOTICE, "%s is enlisting claiming to replace server id "
-            "%lu, which is still in the server list, taking its word "
-            "for it and assuming the old server has failed",
-            serviceLocator, replacesId.getId());
+    Lock _(mutex);
+    return EnlistServer(*this, replacesId, serviceMask,
+                        readSpeed, writeSpeed, serviceLocator,
+                        ServerId()).execute();
+}
 
-        ProtoBuf::StateServerDown state;
-        state.set_entry_type("StateServerDown");
-        state.set_server_id(replacesId.getId());
-        EntryId entryId = service.logCabinHelper->appendProtoBuf(state);
-
-        serverDown(replacesId);
-
-        service.logCabinLog->invalidate(vector<EntryId>(entryId));
-    }
-
-    ServerId newServerId = service.serverList.generateUniqueId();
-    service.serverList.add(newServerId, serviceLocator,
-            serviceMask, readSpeed);
-
-    ProtoBuf::StateEnlistServer state;
-    state.set_entry_type("StateEnlistServer");
-    state.set_new_server_id(newServerId.getId());
-    state.set_service_mask(serviceMask.serialize());
-    state.set_read_speed(readSpeed);
-    state.set_write_speed(writeSpeed);
-    state.set_service_locator(string(serviceLocator));
-    EntryId stateEntryId = service.logCabinHelper->appendProtoBuf(state);
-
-    CoordinatorServerList::Entry entry = service.serverList[newServerId];
-    LOG(NOTICE, "Enlisting new server at %s (server id %lu) supporting "
-        "services: %s", serviceLocator, newServerId.getId(),
-        entry.services.toString().c_str());
-
-    if (entry.services.has(WireFormat::MEMBERSHIP_SERVICE))
-        sendServerList(newServerId);
-
-    if (replacesId.isValid()) {
-        LOG(NOTICE, "Newly enlisted server %lu replaces server %lu",
-            newServerId.getId(), replacesId.getId());
-    }
-
-    if (entry.isBackup()) {
-        LOG(DEBUG, "Backup at id %lu has %u MB/s read %u MB/s write",
-            newServerId.getId(), readSpeed, writeSpeed);
-        createReplicationGroup();
-    }
-
-    ProtoBuf::ServerInformation info;
-    info.set_entry_type("ServerInformation");
-    info.set_server_id(newServerId.getId());
-    info.set_service_mask(serviceMask.serialize());
-    info.set_read_speed(readSpeed);
-    info.set_write_speed(writeSpeed);
-    info.set_service_locator(string(serviceLocator));
-
-    EntryId infoEntryId = service.logCabinHelper->appendProtoBuf(
-        info, vector<EntryId>(stateEntryId));
-    service.serverList.addLogCabinEntryId(newServerId, infoEntryId);
-
-    return newServerId;
+/**
+ * Complete an enlistServer during coordinator recovery.
+ *
+ * \param state
+ *      The ProtoBuf that encapsulates the state of the enlistServer
+ *      operation to be recovered.
+ * \param entryId
+ *      The entry id of the LogCabin entry corresponding to the state.
+ */
+void
+CoordinatorServerManager::enlistServerRecover(
+    ProtoBuf::StateEnlistServer* state, EntryId entryId)
+{
+    Lock _(mutex);
+    EnlistServer(*this,
+                 ServerId(),
+                 ServiceMask::deserialize(state->service_mask()),
+                 state->read_speed(),
+                 state->write_speed(),
+                 state->service_locator().c_str(),
+                 ServerId(state->new_server_id())).complete(entryId);
 }
 
 /**

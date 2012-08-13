@@ -54,11 +54,11 @@ class CoordinatorServerManager {
                                 const vector<ServerId>& replicationGroupIds);
     void createReplicationGroup();
     ServerId enlistServer(ServerId replacesId,
-                               ServiceMask serviceMask,
-                               const uint32_t readSpeed,
-                               const uint32_t writeSpeed,
-                               const char* serviceLocator);
-
+                          ServiceMask serviceMask,
+                          const uint32_t readSpeed, const uint32_t writeSpeed,
+                          const char* serviceLocator);
+    void enlistServerRecover(ProtoBuf::StateEnlistServer* state,
+                             EntryId entryId);
     ProtoBuf::ServerList getServerList(ServiceMask serviceMask);
     bool hintServerDown(ServerId serverId);
     void hintServerDownRecover(ProtoBuf::StateServerDown* state,
@@ -73,6 +73,61 @@ class CoordinatorServerManager {
 
 
   PRIVATE:
+
+    /**
+     * Defines methods and stores data to enlist a server.
+     */
+    class EnlistServer {
+      public:
+          EnlistServer(CoordinatorServerManager &manager,
+                       ServerId replacesId,
+                       ServiceMask serviceMask,
+                       const uint32_t readSpeed,
+                       const uint32_t writeSpeed,
+                       const char* serviceLocator,
+                       ServerId newServerId)
+              : manager(manager),
+                replacesId(replacesId),
+                serviceMask(serviceMask),
+                readSpeed(readSpeed), writeSpeed(writeSpeed),
+                serviceLocator(serviceLocator),
+                newServerId(newServerId) {}
+          ServerId execute();
+          ServerId complete(EntryId entryId);
+
+      private:
+          /**
+           * Reference to the instance of coordinator server manager
+           * initializing this class.
+           * Used to get access to CoordinatorService& service.
+           */
+          CoordinatorServerManager &manager;
+    	  /**
+    	   * Server id of the server that the enlisting server is replacing.
+    	   */
+          ServerId replacesId;
+    	  /**
+    	   * Services supported by the enlisting server.
+    	   */
+          ServiceMask serviceMask;
+          /**
+    	   * Read speed of the enlisting server.
+    	   */
+          const uint32_t readSpeed;
+    	  /**
+    	   * Write speed of the enlisting server.
+    	   */
+          const uint32_t writeSpeed;
+    	  /**
+    	   * Service Locator of the enlisting server.
+    	   */
+          const char* serviceLocator;
+          /**
+           * The id assigned to the enlisting server.
+           */
+          ServerId newServerId;
+          DISALLOW_COPY_AND_ASSIGN(EnlistServer);
+    };
 
     /**
      * Defines methods and stores data to hintServerDown.

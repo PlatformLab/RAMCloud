@@ -226,8 +226,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServerLogCabin) {
                                         "mock:host=backup"));
 
     ProtoBuf::StateEnlistServer readState;
-    serverManager->service.logCabinHelper->getProtoBufFromEntryId(
-        5, readState);
+    serverManager->service.logCabinHelper->getProtoBufFromEntryId(5, readState);
     EXPECT_EQ("entry_type: \"StateEnlistServer\"\n"
               "new_server_id: 2\nservice_mask: 2\n"
               "read_speed: 0\nwrite_speed: 0\n"
@@ -235,8 +234,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServerLogCabin) {
               readState.DebugString());
 
     ProtoBuf::ServerInformation readInfo;
-    serverManager->service.logCabinHelper->getProtoBufFromEntryId(
-        6, readInfo);
+    serverManager->service.logCabinHelper->getProtoBufFromEntryId(6, readInfo);
     EXPECT_EQ("entry_type: \"ServerInformation\"\n"
               "server_id: 2\nservice_mask: 2\n"
               "read_speed: 0\nwrite_speed: 0\n"
