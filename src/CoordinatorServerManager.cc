@@ -222,6 +222,11 @@ CoordinatorServerManager::getServerList(ServiceMask serviceMask)
     return serialServerList;
 }
 
+/**
+ * Do everything needed to execute the HintServerDown operation.
+ * Do any processing required before logging the state
+ * in LogCabin, log the state in LogCabin, then call #complete().
+ */
 bool
 CoordinatorServerManager::HintServerDown::execute()
 {
@@ -250,6 +255,17 @@ CoordinatorServerManager::HintServerDown::execute()
      return complete(entryId);
 }
 
+/**
+ * Complete the HintServerDown operation after its state has been
+ * logged in LogCabin.
+ * This is called internally by #execute() in case of normal operation
+ * (which is in turn called by #hintServerDown()), and
+ * directly for coordinator recovery (by #hintServerDownRecover()).
+ *
+ * \param entryId
+ *      The entry id of the LogCabin entry corresponding to the state
+ *      of the operation to be completed.
+ */
 bool
 CoordinatorServerManager::HintServerDown::complete(EntryId entryId)
 {
@@ -376,6 +392,11 @@ CoordinatorServerManager::serverDown(ServerId serverId)
     service.logCabinLog->invalidate(vector<EntryId>(serverInfoEntryId));
 }
 
+/**
+ * Do everything needed to execute the SetMinOpenSegmentId operation.
+ * Do any processing required before logging the state
+ * in LogCabin, log the state in LogCabin, then call #complete().
+ */
 void
 CoordinatorServerManager::SetMinOpenSegmentId::execute()
 {
@@ -394,6 +415,17 @@ CoordinatorServerManager::SetMinOpenSegmentId::execute()
     complete(newEntryId);
 }
 
+/**
+ * Complete the SetMinOpenSegmentId operation after its state has been
+ * logged in LogCabin.
+ * This is called internally by #execute() in case of normal operation
+ * (which is in turn called by #setMinOpenSegmentId()), and
+ * directly for coordinator recovery (by #setMinOpenSegmentIdRecover()).
+ *
+ * \param entryId
+ *      The entry id of the LogCabin entry corresponding to the state
+ *      of the operation to be completed.
+ */
 void
 CoordinatorServerManager::SetMinOpenSegmentId::complete(EntryId entryId)
 {
