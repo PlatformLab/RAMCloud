@@ -15,6 +15,7 @@ TESTS_SRCFILES := \
       src/AbstractServerListTest.cc \
 		  src/AtomicTest.cc \
 		  src/BackupFailureMonitorTest.cc \
+		  src/BackupReplicaTest.cc \
 		  src/BackupSelectorTest.cc \
 		  src/BackupServiceTest.cc \
 		  src/BackupStorageTest.cc \
