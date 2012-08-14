@@ -90,7 +90,7 @@ TEST_F(InfRcTransportTest, InfRcSession_abort_onClientSendQueue) {
     session->sendRequest(&rpc2.request, &rpc2.response, &rpc2);
     EXPECT_EQ(2U, client.clientSendQueue.size());
 
-    session->abort("aborted by test");
+    session->abort();
     EXPECT_EQ(0U, client.clientSendQueue.size());
     EXPECT_EQ(0, rawSession->alarm.outstandingRpcs);
     EXPECT_STREQ("completed: 0, failed: 1", rpc1.getState());
@@ -108,7 +108,7 @@ TEST_F(InfRcTransportTest, InfRcSession_abort_onOutstandingRpcs) {
     session->sendRequest(&rpc2.request, &rpc2.response, &rpc2);
     EXPECT_EQ(2U, client.outstandingRpcs.size());
 
-    session->abort("aborted by test");
+    session->abort();
     EXPECT_EQ(0U, client.outstandingRpcs.size());
     EXPECT_STREQ("completed: 0, failed: 1", rpc1.getState());
     EXPECT_STREQ("completed: 0, failed: 1", rpc2.getState());
@@ -185,7 +185,7 @@ TEST_F(InfRcTransportTest, InfRcSession_cancelRequest_rpcSent) {
 TEST_F(InfRcTransportTest, ClientRpc_sendRequest_sessionAborted) {
     Transport::SessionRef session = client.getSession(locator);
     MockWrapper rpc;
-    session->abort("test abort");
+    session->abort();
     session->sendRequest(&rpc.request, &rpc.response, &rpc);
     EXPECT_STREQ("completed: 0, failed: 1", rpc.getState());
 }

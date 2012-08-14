@@ -321,7 +321,6 @@ InfRcTransport<Infiniband>::InfRcSession::InfRcSession(
     , qp(NULL)
     , alarm(*transport->context.sessionAlarmTimer, *this,
             (timeoutMs != 0) ? timeoutMs : DEFAULT_TIMEOUT_MS)
-    , abortMessage()
 {
     setServiceLocator(sl.getOriginalString());
     IpAddress address(sl);
@@ -338,16 +337,15 @@ template<typename Infiniband>
 void
 InfRcTransport<Infiniband>::InfRcSession::release()
 {
-    abort("session closed");
+    abort();
     delete this;
 }
 
 // See documentation for Transport::Session::abort.
 template<typename Infiniband>
 void
-InfRcTransport<Infiniband>::InfRcSession::abort(const string& message)
+InfRcTransport<Infiniband>::InfRcSession::abort()
 {
-    abortMessage = message;
     for (typename ClientRpcList::iterator
             it(transport->clientSendQueue.begin());
             it != transport->clientSendQueue.end(); ) {

@@ -257,7 +257,7 @@ class TcpTransport : public Transport {
                 const ServiceLocator& serviceLocator,
                 uint32_t timeoutMs = 0);
         ~TcpSession();
-        virtual void abort(const string& message);
+        virtual void abort();
         virtual void cancelRequest(RpcNotifier* notifier);
         Buffer* findRpc(Header& header);
         void release() {
@@ -271,7 +271,7 @@ class TcpTransport : public Transport {
             address(), fd(-1), serial(1),
             rpcsWaitingToSend(), bytesLeftToSend(0),
             rpcsWaitingForResponse(), current(NULL),
-            message(), clientIoHandler(), errorInfo(),
+            message(), clientIoHandler(),
             alarm(*transport.context.sessionAlarmTimer, *this, 0) { }
 #endif
         void close();
@@ -307,8 +307,6 @@ class TcpTransport : public Transport {
         Tub<ClientSocketHandler> clientIoHandler;
                                   /// Used to get notified when response data
                                   /// arrives.
-        string errorInfo;         /// If the session is no longer usable,
-                                  /// this variable indicates why.
         SessionAlarm alarm;       /// Used to detect server timeouts.
         DISALLOW_COPY_AND_ASSIGN(TcpSession);
     };

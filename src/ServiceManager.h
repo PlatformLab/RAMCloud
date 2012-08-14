@@ -120,7 +120,7 @@ class ServiceManager : Dispatch::Poller {
         explicit WorkerSession(Context& context,
                 Transport::SessionRef wrapped);
         ~WorkerSession() {}
-        virtual void abort(const string& message);
+        virtual void abort();
         virtual void cancelRequest(Transport::RpcNotifier* notifier);
         void release() {
             delete this;

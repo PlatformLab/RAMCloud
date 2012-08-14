@@ -168,7 +168,7 @@ class InfRcTransport : public Transport {
       public:
         explicit InfRcSession(InfRcTransport *transport,
             const ServiceLocator& sl, uint32_t timeoutMs);
-        virtual void abort(const string& message);
+        virtual void abort();
         virtual void cancelRequest(RpcNotifier* notifier);
         void release();
         virtual void sendRequest(Buffer* request, Buffer* response,
@@ -183,9 +183,6 @@ class InfRcTransport : public Transport {
 
         // Used to detect server timeouts.
         SessionAlarm alarm;
-
-        // Message explaining why the socket was aborted.
-        string abortMessage;
 
         friend class ClientRpc;
         friend class Poller;

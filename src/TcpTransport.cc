@@ -573,7 +573,6 @@ TcpTransport::TcpSession::TcpSession(TcpTransport& transport,
     , current(NULL)
     , message()
     , clientIoHandler()
-    , errorInfo()
     , alarm(*transport.context.sessionAlarmTimer, *this,
             (timeoutMs != 0) ? timeoutMs : DEFAULT_TIMEOUT_MS)
 {
@@ -608,15 +607,13 @@ TcpTransport::TcpSession::TcpSession(TcpTransport& transport,
  */
 TcpTransport::TcpSession::~TcpSession()
 {
-    errorInfo = "session closed";
     close();
 }
 
 // See documentation for Transport::Session::abort.
 void
-TcpTransport::TcpSession::abort(const string& message)
+TcpTransport::TcpSession::abort()
 {
-    errorInfo = message;
     close();
 }
 
@@ -803,11 +800,13 @@ TcpTransport::ClientSocketHandler::handleFileEvent(int events)
     } catch (TcpTransportEof& e) {
         // Close the session's socket in order to prevent an infinite loop of
         // calls to this method.
-        session.abort("socket closed by server");
+        LOG(NOTICE, "server %s closed socket",
+                session.getServiceLocator().c_str());
+        session.abort();
     } catch (TransportException& e) {
         LOG(ERROR, "TcpTransport::ClientSocketHandler closing session "
                 "socket: %s", e.message.c_str());
-        session.abort(e.message.c_str());
+        session.abort();
     }
 }
 

@@ -582,7 +582,7 @@ FastTransport::InboundMessage::Timer::handleTimerEvent()
     if (inboundMsg->silentIntervals > MAX_SILENT_INTERVALS) {
         LOG(WARNING, "timeout waiting for response from server at %s",
                 inboundMsg->session->getServiceLocator().c_str());
-        inboundMsg->session->abort("");
+        inboundMsg->session->abort();
     } else {
         // Note: silentIntervals == 1 isn't cause for concern, since we could
         // have received the latest packet just before this timer fired.
@@ -890,7 +890,7 @@ FastTransport::OutboundMessage::Timer::handleTimerEvent()
     if (outboundMsg->silentIntervals > MAX_SILENT_INTERVALS) {
         LOG(WARNING, "timeout waiting for acknowledgment from server at %s",
                 outboundMsg->session->getServiceLocator().c_str());
-        outboundMsg->session->abort("");
+        outboundMsg->session->abort();
     } else {
         outboundMsg->send();
     }
@@ -932,9 +932,9 @@ FastTransport::ServerSession::~ServerSession()
 
 /// This shouldn't ever be called.
 void
-FastTransport::ServerSession::abort(const string& message)
+FastTransport::ServerSession::abort()
 {
-    LOG(WARNING, "invoked unexpectedly: %s", message.c_str());
+    LOG(WARNING, "invoked unexpectedly");
 }
 
 /**
@@ -1240,12 +1240,12 @@ FastTransport::ClientSession::ClientSession(FastTransport* transport,
 
 FastTransport::ClientSession::~ClientSession()
 {
-    abort("");
+    abort();
 }
 
 // See Transport::ClientSession::abort().
 void
-FastTransport::ClientSession::abort(const string& message)
+FastTransport::ClientSession::abort()
 {
     for (uint32_t i = 0; i < numChannels; i++) {
         ClientRpc* rpc = channels[i].currentRpc;
@@ -1332,7 +1332,7 @@ FastTransport::ClientSession::expire(NonIdleAction nonIdleAction)
             }
         return false;
     }
-    abort("");
+    abort();
     return true;
 }
 
@@ -1696,7 +1696,7 @@ FastTransport::ClientSession::Timer::handleTimerEvent()
         session->sessionOpenAttempts = 0;
         LOG(WARNING, "timeout while opening session with %s",
                 session->getServiceLocator().c_str());
-        session->abort("");
+        session->abort();
     } else {
         LOG(NOTICE, "retrying session open with %s",
             session->getServiceLocator().c_str());

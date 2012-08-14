@@ -84,7 +84,7 @@ struct BindTransport : public Transport {
             lastRequest(NULL), lastResponse(NULL), lastNotifier(NULL),
             dontNotify(false) {}
 
-        void abort(const string& message) {}
+        void abort() {}
         void cancelRequest(RpcNotifier* notifier) {}
         void release() {
             delete this;

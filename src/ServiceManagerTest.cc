@@ -454,8 +454,8 @@ TEST_F(ServiceManagerTest, WorkerSession_abort) {
     Transport::Session* wrappedSession = new ServiceManager::WorkerSession(
             context, transport.getSession());
 
-    wrappedSession->abort("test message");
-    EXPECT_STREQ("abort: test message", transport.outputLog.c_str());
+    wrappedSession->abort();
+    EXPECT_STREQ("abort: ", transport.outputLog.c_str());
 }
 
 TEST_F(ServiceManagerTest, WorkerSession_cancelRequest) {

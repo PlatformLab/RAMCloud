@@ -31,7 +31,7 @@ FailSession::~FailSession()
 {}
 
 // See Transport::Session for documentation.
-void FailSession::abort(const string& message)
+void FailSession::abort()
 {
     // No need to do anything here: this session is already as dead as
     // a doornail.

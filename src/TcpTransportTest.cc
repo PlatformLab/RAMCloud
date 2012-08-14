@@ -577,7 +577,7 @@ TEST_F(TcpTransportTest, readMessage_getBufferFromSession) {
     write(fd, "abcde", 5);
     EXPECT_TRUE(incoming.readMessage(serverFd));
     EXPECT_EQ("abcde", TestUtil::toString(&rpc1.response));
-    session.abort("session closed");
+    session.abort();
     close(fd);
 }
 
@@ -701,7 +701,7 @@ TEST_F(TcpTransportTest, TcpSession_abort) {
     Transport::SessionRef session = client.getSession(locator);
     MockWrapper rpc("request");
     session->sendRequest(&rpc.request, &rpc.response, &rpc);
-    session->abort("aborted for test");
+    session->abort();
     EXPECT_STREQ("completed: 0, failed: 1", rpc.getState());
 }
 
@@ -824,7 +824,7 @@ TEST_F(TcpTransportTest, findRpc) {
     EXPECT_EQ(&rpc3.response, session.findRpc(header));
     header.nonce = 334UL;
     EXPECT_TRUE(session.findRpc(header) == NULL);
-    session.abort("session closed");
+    session.abort();
 }
 
 TEST_F(TcpTransportTest, sendRequest_clearResponse) {
@@ -839,7 +839,7 @@ TEST_F(TcpTransportTest, sendRequest_sessionClosed) {
     Transport::SessionRef session = client.getSession(locator);
     TcpTransport::TcpSession* rawSession =
             reinterpret_cast<TcpTransport::TcpSession*>(session.get());
-    rawSession->abort("session closed");
+    rawSession->abort();
     MockWrapper rpc("request");
     session->sendRequest(&rpc.request, &rpc.response, &rpc);
     EXPECT_STREQ("completed: 0, failed: 1", rpc.getState());
@@ -948,7 +948,6 @@ TEST_F(TcpTransportTest, ClientSocketHandler_eof) {
     sys->recvEof = true;
     rawSession->clientIoHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     EXPECT_EQ(-1, rawSession->fd);
-    EXPECT_EQ("socket closed by server", rawSession->errorInfo);
 }
 
 TEST_F(TcpTransportTest, ClientSocketHandler_eofOutsideRPC) {
@@ -962,7 +961,6 @@ TEST_F(TcpTransportTest, ClientSocketHandler_eofOutsideRPC) {
             reinterpret_cast<TcpTransport::TcpSession*>(session.get());
     rawSession->clientIoHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     EXPECT_EQ(-1, rawSession->fd);
-    EXPECT_EQ("socket closed by server", rawSession->errorInfo);
 }
 
 TEST_F(TcpTransportTest, ClientSocketHandler_ioError) {
@@ -1080,6 +1078,7 @@ TEST_F(TcpTransportTest, sendReply) {
 }
 
 TEST_F(TcpTransportTest, sessionAlarm) {
+    TestLog::Enable _;
     TcpTransport::TcpSession* session = new TcpTransport::TcpSession(
             client, locator, 30);
     Transport::SessionRef ref = session;
@@ -1096,7 +1095,6 @@ TEST_F(TcpTransportTest, sessionAlarm) {
         context.sessionAlarmTimer->handleTimerEvent();
     }
     EXPECT_NE(-1, session->fd);
-    EXPECT_EQ("", session->errorInfo);
 
     // Issue a second request, don't respond to it, and make sure it
     // times out.
@@ -1106,8 +1104,6 @@ TEST_F(TcpTransportTest, sessionAlarm) {
         context.sessionAlarmTimer->handleTimerEvent();
     }
     EXPECT_EQ(-1, session->fd);
-    EXPECT_EQ("server at tcp+ip:host=localhost,port=11000 is not responding",
-            session->errorInfo);
     EXPECT_STREQ("completed: 0, failed: 1", rpc2.getState());
 }
 

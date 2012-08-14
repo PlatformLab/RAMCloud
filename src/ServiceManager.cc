@@ -446,12 +446,12 @@ ServiceManager::WorkerSession::WorkerSession(Context& context,
 
 // See Transport::Session::abort for documentation.
 void
-ServiceManager::WorkerSession::abort(const string& message)
+ServiceManager::WorkerSession::abort()
 {
     // Must make sure that the dispatch thread isn't running when we
     // invoked the real abort.
     Dispatch::Lock lock(context.dispatch);
-    return wrapped->abort(message);
+    return wrapped->abort();
 }
 
 // See Transport::Session::cancelRequest for documentation.

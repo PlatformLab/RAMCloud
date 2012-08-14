@@ -156,7 +156,7 @@ class MockTransport : public Transport {
                         const ServiceLocator& serviceLocator)
                 : transport(transport), serviceLocator(serviceLocator) {}
             virtual ~MockSession();
-            void abort(const string& message);
+            void abort();
             virtual void cancelRequest(RpcNotifier* notifier);
             virtual void release();
             virtual void sendRequest(Buffer* request, Buffer* response,

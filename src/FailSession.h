@@ -28,7 +28,7 @@ namespace RAMCloud {
 class FailSession : public Transport::Session {
   public:
     virtual ~FailSession();
-    virtual void abort(const string& message);
+    virtual void abort();
     virtual void cancelRequest(Transport::RpcNotifier* notifier);
     static FailSession* get();
     virtual void release();

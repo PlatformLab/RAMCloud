@@ -1545,7 +1545,7 @@ TEST_F(ClientSessionTest, abort) {
     session->sendRequest(&rpc3.request, &rpc3.response, &rpc3);
     session->sendRequest(&rpc4.request, &rpc4.response, &rpc4);
     EXPECT_EQ(2U, session->channelQueue.size());
-    session->abort("test abort");
+    session->abort();
     EXPECT_STREQ("completed: 0, failed: 1", rpc1.getState());
     EXPECT_STREQ("completed: 0, failed: 1", rpc2.getState());
     EXPECT_STREQ("completed: 0, failed: 1", rpc3.getState());

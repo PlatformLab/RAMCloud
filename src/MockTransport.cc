@@ -93,9 +93,9 @@ MockTransport::MockSession::~MockSession()
  * log message.
  */
 void
-MockTransport::MockSession::abort(const string& message)
+MockTransport::MockSession::abort()
 {
-    transport->appendToOutput(ABORT, message);
+    transport->appendToOutput(ABORT, "");
 }
 
 // See Transport::Session::cancelRequest for documentation.

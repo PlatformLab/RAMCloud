@@ -775,7 +775,7 @@ class FastTransport : public Transport {
         ServerSession(FastTransport* transport, uint32_t sessionId);
         ~ServerSession();
         void beginSending(uint8_t channelId);
-        virtual void abort(const string& message);
+        virtual void abort();
         virtual void cancelRequest(RpcNotifier* notifier);
         virtual bool expire(NonIdleAction nonIdleAction = IGNORE_NON_IDLE);
         virtual void fillHeader(Header* const header, uint8_t channelId) const;
@@ -914,7 +914,7 @@ class FastTransport : public Transport {
         ClientSession(FastTransport* transport, uint32_t sessionId);
         ~ClientSession();
 
-        virtual void abort(const string& message);
+        virtual void abort();
         virtual void cancelRequest(RpcNotifier* notifier);
         void connect();
         bool expire(NonIdleAction nonIdleAction = IGNORE_NON_IDLE);
