@@ -553,7 +553,7 @@ TEST_F(TcpTransportTest, readMessage_messageTooLong) {
     EXPECT_EQ("readMessage: TcpTransport received oversize message "
             "(999999999 bytes); discarding extra bytes",
             TestLog::get());
-    EXPECT_EQ(0x1000000U, incoming.messageLength);
+    EXPECT_EQ(8388808U, incoming.messageLength);
 
     close(fd);
 }

@@ -54,8 +54,9 @@ class Transport {
   public:
     class RpcNotifier;
 
-      /// Transports should cut off longer RPCs to prevent runaways.
-      static const uint32_t MAX_RPC_LEN = (1 << 24);
+      /// Maximum allowable size for an RPC request or response message: must
+      /// be large enough to hold an 8MB segment plus header information.
+      static const uint32_t MAX_RPC_LEN = ((1 << 23) + 200);
 
     /**
      * An RPC request that has been received and is either being serviced or
