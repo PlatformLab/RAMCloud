@@ -148,8 +148,7 @@ test: $(OBJDIR)/test \
       $(OBJDIR)/HashTableBenchmark \
       $(OBJDIR)/LogCleanerBenchmark \
       $(OBJDIR)/Perf \
-      $(OBJDIR)/RecoverSegmentBenchmark \
-      $(OBJDIR)/Telnet
+      $(OBJDIR)/RecoverSegmentBenchmark
 	$(OBJDIR)/test
 
 all: $(OBJDIR)/Perf $(OBJDIR)/ClusterPerf
@@ -162,10 +161,6 @@ $(OBJDIR)/HashTableBenchmark: $(OBJDIR)/HashTableBenchmark.o $(SHARED_OBJFILES) 
 	$(CXX) -o $@ $^ $(LIBS)
 
 $(OBJDIR)/Echo: $(OBJDIR)/Echo.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
-	@mkdir -p $(@D)
-	$(CXX) -o $@ $^ $(LIBS)
-
-$(OBJDIR)/Telnet: $(OBJDIR)/Telnet.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
 	@mkdir -p $(@D)
 	$(CXX) -o $@ $^ $(LIBS)
 
