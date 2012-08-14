@@ -851,15 +851,15 @@ TEST_F(DispatchTest, Lock_recursiveLocks) {
     EXPECT_TRUE(dispatch != NULL);
     Tub<Dispatch::Lock> lock1, lock2, lock3;
     lock1.construct(dispatch);
-    EXPECT_EQ(1, dispatch->locked.load());
+    EXPECT_EQ(1, dispatch->lockNeeded.load());
     lock2.construct(dispatch);
     lock3.construct(dispatch);
-    EXPECT_EQ(1, dispatch->locked.load());
+    EXPECT_EQ(1, dispatch->lockNeeded.load());
     lock3.destroy();
     lock2.destroy();
-    EXPECT_EQ(1, dispatch->locked.load());
+    EXPECT_EQ(1, dispatch->lockNeeded.load());
     lock1.destroy();
-    EXPECT_EQ(0, dispatch->locked.load());
+    EXPECT_EQ(0, dispatch->lockNeeded.load());
     dispatch = NULL;
     thread.join();
 }
