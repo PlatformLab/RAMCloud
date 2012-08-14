@@ -611,16 +611,18 @@ void Dispatch::Timer::stop()
     slot = -1;
 }
 
-#if TESTING
 /**
  * A thread-local flag that says whether this thread is currently executing
- * within a Dispatch::Lock. It is used to throw an assertion failure if a
- * thread ever tries to acquire a second Dispatch::Lock, which is not allowed.
+ * within a Dispatch::Lock. It is used to allow recursive acquisition of the
+ * dispatch lock (example where this is needed: a worker thread on a server
+ * sends an RPC, which acquires the dispatch lock; then it invokes the
+ * transport's \c sendRequest method, which attempts to reset the response
+ * buffer; this causes chunk-specific deleters to be invoked, such as
+ * UdpDriver::release; however, these need to acquire the dispatch lock, since
+ * they can also be invoked by worker threads at other times when the lock is
+ * not already held).
  */
 static __thread bool thisThreadHasDispatchLock = false;
-#else
-static NoOp<int> thisThreadHasDispatchLock;
-#endif
 
 /**
  * Construct a Lock object, which means we must lock the dispatch
@@ -634,11 +636,10 @@ static NoOp<int> thisThreadHasDispatchLock;
 Dispatch::Lock::Lock(Dispatch* dispatch)
     : dispatch(dispatch), lock()
 {
-    if (dispatch->isDispatchThread()) {
+    if (dispatch->isDispatchThread() || thisThreadHasDispatchLock) {
         return;
     }
 
-    assert(!thisThreadHasDispatchLock);
     thisThreadHasDispatchLock = true;
     lock.construct(dispatch->mutex);
 
@@ -670,9 +671,11 @@ Dispatch::Lock::~Lock()
 {
     if (!lock) {
         // We never acquired the mutex; this means we're running in the
-        // dispatch thread so there's nothing for us to do here.
+        // dispatch thread or this was a recursive lock acquisition, so
+        // there's nothing for us to do here.
         return;
     }
+    assert(thisThreadHasDispatchLock);
 
     Fence::leave();
     dispatch->lockNeeded.store(0);

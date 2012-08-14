@@ -259,8 +259,6 @@ RpcWrapper::send()
     //   approaches (such as using service locators): they must set the
     //   session member before invoking this method.
 
-    // TODO(syang0) Temp fix for RAM-442
-    response->reset();
     state = IN_PROGRESS;
     if (session)
         session->sendRequest(&request, response, this);

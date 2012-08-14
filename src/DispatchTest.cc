@@ -826,7 +826,42 @@ TEST_F(DispatchTest, Lock_inDispatchThread) {
     EXPECT_EQ("poller p1 invoked", *localLog);
 }
 
-// The test case test_poll_locking has already tested the
+// The test case poll_locking has already tested the
 // functionality of locking from a non-dispatch thread.
+
+
+// Helper function for the following test; creates a dispatch object
+// in a separate thread.
+static void testRecursionThread(Dispatch** dispatch) {
+    Dispatch actual(true);
+    *dispatch = &actual;
+    while (*dispatch != NULL) {
+        // Wait for the main thread to finish using this object.
+        actual.poll();
+    }
+}
+TEST_F(DispatchTest, Lock_recursiveLocks) {
+    Dispatch *dispatch = NULL;
+    std::thread thread(testRecursionThread, &dispatch);
+    for (int i = 0; i < 1000; i++) {
+        if (dispatch != NULL)
+            break;
+        usleep(1000);
+    }
+    EXPECT_TRUE(dispatch != NULL);
+    Tub<Dispatch::Lock> lock1, lock2, lock3;
+    lock1.construct(dispatch);
+    EXPECT_EQ(1, dispatch->locked.load());
+    lock2.construct(dispatch);
+    lock3.construct(dispatch);
+    EXPECT_EQ(1, dispatch->locked.load());
+    lock3.destroy();
+    lock2.destroy();
+    EXPECT_EQ(1, dispatch->locked.load());
+    lock1.destroy();
+    EXPECT_EQ(0, dispatch->locked.load());
+    dispatch = NULL;
+    thread.join();
+}
 
 }  // namespace RAMCloud
