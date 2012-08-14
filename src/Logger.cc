@@ -531,7 +531,61 @@ Logger::reset()
     collapseIntervalMs = DEFAULT_COLLAPSE_INTERVAL;
     maxCollapseMapSize = DEFAULT_COLLAPSE_MAP_LIMIT;
     collapsingDisableCount = 0;
+    testingBufferSize = 0;
+}
+
+/**
+ * This replaces the default __assert_fail function, which is invoked by the
+ * assert macro when there are errors. This function differs from the default
+ * __assert_fail function in that it dumps its output to the RAMCloud log file.
+ *
+ * \param assertion
+ *      Textual description of the assertion that failed.
+ * \param file
+ *      Name of the source file containing the assertion.
+ * \param line
+ *      Line number of the line containing the assertion, within \a file.
+ * \param function
+ *      Textual description of the function containing the assertion.
+ */
+void
+Logger::assertionError(const char *assertion, const char *file,
+                       unsigned int line, const char *function)
+{
+    Lock lock(mutex);
+    struct timespec now;
+    clock_gettime(CLOCK_REALTIME, &now);
+
+    // Compute the body of the log message except for the initial timestamp
+    char buffer[strlen(assertion) + 500];
+    snprintf(buffer, sizeof(buffer),
+            "%s:%d in %s %s %s[%d:%lu]: Assertion `%s' failed.\n",
+            file, line, function,
+            logModuleNames[RAMCLOUD_CURRENT_LOG_MODULE],
+            logLevelNames[ERROR], getpid(), ThreadId::get(), assertion);
+    printMessage(now, buffer, 0);
 }
 
 } // end RAMCloud
 
+/**
+ * This replaces the default __assert_fail function, which is invoked by the
+ * assert macro when there are errors. This function differs from the default
+ * __assert_fail function in that it dumps its output to the RAMCloud log file.
+ *
+ * \param assertion
+ *      Textual description of the assertion that failed.
+ * \param file
+ *      Name of the source file containing the assertion.
+ * \param line
+ *      Line number of the line containing the assertion, within \a file.
+ * \param function
+ *      Textual description of the function containing the assertion.
+ */
+void
+__assert_fail(const char *assertion, const char *file, unsigned int line,
+        const char *function)
+{
+    RAMCloud::Logger::get().assertionError(assertion, file, line, function);
+    abort();
+}

@@ -88,6 +88,8 @@ class Logger {
     void changeLogLevels(int delta);
     void disableCollapsing();
     void enableCollapsing();
+    void assertionError(const char *assertion, const char *file,
+                        unsigned int line, const char *function);
 
     void saveLogLevels(LogLevel (&currentLogLevels)[NUM_LOG_MODULES]) {
         std::copy(logLevels, logLevels + NUM_LOG_MODULES, currentLogLevels);

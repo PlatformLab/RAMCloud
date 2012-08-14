@@ -463,4 +463,13 @@ TEST_F(LoggerTest, redirectStderr) {
             TestUtil::readFile("__test.log")));
 }
 
+TEST_F(LoggerTest, assertionError) {
+    Logger& logger = Logger::get();
+    logger.setLogFile("__test.log");
+    logger.assertionError("assertion info", "file", 99, "function");
+    EXPECT_TRUE(TestUtil::matchesPosixRegex(
+            "file:99 in function .* Assertion `assertion info' failed",
+            TestUtil::readFile("__test.log")));
+}
+
 }  // namespace RAMCloud
