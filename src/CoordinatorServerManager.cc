@@ -141,14 +141,7 @@ CoordinatorServerManager::EnlistServer::execute()
             "for it and assuming the old server has failed",
             serviceLocator, replacesId.getId());
 
-        ProtoBuf::StateServerDown state;
-        state.set_entry_type("StateServerDown");
-        state.set_server_id(replacesId.getId());
-        EntryId entryId = manager.service.logCabinHelper->appendProtoBuf(state);
-
         manager.serverDown(replacesId);
-
-        manager.service.logCabinLog->invalidate(vector<EntryId>(entryId));
     }
 
     newServerId = manager.service.serverList.generateUniqueId();
@@ -289,59 +282,6 @@ CoordinatorServerManager::getServerList(ServiceMask serviceMask)
 }
 
 /**
- * Do everything needed to execute the HintServerDown operation.
- * Do any processing required before logging the state
- * in LogCabin, log the state in LogCabin, then call #complete().
- */
-bool
-CoordinatorServerManager::HintServerDown::execute()
-{
-     if (!manager.service.serverList.contains(serverId) ||
-         manager.service.serverList[serverId].status != ServerStatus::UP) {
-         LOG(NOTICE, "Spurious crash report on unknown server id %lu",
-             serverId.getId());
-         return true;
-     }
-
-     LOG(NOTICE, "Checking server id %lu (%s)",
-         serverId.getId(), manager.service.serverList.getLocator(serverId));
-     if (!manager.verifyServerFailure(serverId))
-         return false;
-
-     LOG(NOTICE, "Server id %lu has crashed, notifying the cluster and "
-         "starting recovery", serverId.getId());
-
-     ProtoBuf::StateServerDown state;
-     state.set_entry_type("StateServerDown");
-     state.set_server_id(this->serverId.getId());
-
-     EntryId entryId = manager.service.logCabinHelper->appendProtoBuf(state);
-     LOG(DEBUG, "LogCabin entryId: %lu", entryId);
-
-     return complete(entryId);
-}
-
-/**
- * Complete the HintServerDown operation after its state has been
- * logged in LogCabin.
- * This is called internally by #execute() in case of normal operation
- * (which is in turn called by #hintServerDown()), and
- * directly for coordinator recovery (by #hintServerDownRecover()).
- *
- * \param entryId
- *      The entry id of the LogCabin entry corresponding to the state
- *      of the operation to be completed.
- */
-bool
-CoordinatorServerManager::HintServerDown::complete(EntryId entryId)
-{
-     manager.serverDown(serverId);
-     manager.service.logCabinLog->invalidate(vector<EntryId>(entryId));
-
-     return true;
-}
-
-/**
  * Returns true if server is down, false otherwise.
  *
  * \param serverId
@@ -353,25 +293,24 @@ bool
 CoordinatorServerManager::hintServerDown(ServerId serverId)
 {
     Lock _(mutex);
-    return HintServerDown(*this, serverId).execute();
-}
+    if (!service.serverList.contains(serverId) ||
+         service.serverList[serverId].status != ServerStatus::UP) {
+         LOG(NOTICE, "Spurious crash report on unknown server id %lu",
+             serverId.getId());
+         return true;
+     }
 
-/**
- * Complete a hintServerDown during coordinator recovery.
- *
- * \param state
- *      The ProtoBuf that encapsulates the state of the hintServerDown
- *      operation to be recovered.
- * \param entryId
- *      The entry id of the LogCabin entry corresponding to the state.
- */
-void
-CoordinatorServerManager::hintServerDownRecover(
-    ProtoBuf::StateServerDown* state, EntryId entryId)
-{
-    Lock _(mutex);
-    ServerId serverId = ServerId(state->server_id());
-    HintServerDown(*this, serverId).complete(entryId);
+     LOG(NOTICE, "Checking server id %lu (%s)",
+         serverId.getId(), service.serverList.getLocator(serverId));
+     if (!verifyServerFailure(serverId))
+         return false;
+
+     LOG(NOTICE, "Server id %lu has crashed, notifying the cluster and "
+         "starting recovery", serverId.getId());
+
+     serverDown(serverId);
+
+     return true;
 }
 
 /**
@@ -423,7 +362,67 @@ CoordinatorServerManager::sendServerList(ServerId serverId)
 }
 
 /**
+ * Do everything needed to execute the ServerDown operation.
+ * Do any processing required before logging the state
+ * in LogCabin, log the state in LogCabin, then call #complete().
+ */
+void
+CoordinatorServerManager::ServerDown::execute()
+{
+    ProtoBuf::StateServerDown state;
+    state.set_entry_type("StateServerDown");
+    state.set_server_id(this->serverId.getId());
+
+    EntryId entryId = manager.service.logCabinHelper->appendProtoBuf(state);
+    LOG(DEBUG, "LogCabin entryId: %lu", entryId);
+
+    complete(entryId);
+}
+
+/**
+ * Complete the ServerDown operation after its state has been
+ * logged in LogCabin.
+ * This is called internally by #execute() in case of normal operation, and
+ * directly for coordinator recovery (by #serverDownRecover()).
+ *
+ * \param entryId
+ *      The entry id of the LogCabin entry corresponding to the state
+ *      of the operation to be completed.
+ */
+void
+CoordinatorServerManager::ServerDown::complete(EntryId entryId)
+{
+    // Get the entry id for the LogCabin entry corresponding to this
+    // server before the server information is removed from serverList,
+    // so that the LogCabin entry can be invalidated later.
+    EntryId serverInfoEntryId =
+        manager.service.serverList.getLogCabinEntryId(serverId);
+
+    // If this machine has a backup and master on the same server it is best
+    // to remove the dead backup before initiating recovery. Otherwise, other
+    // servers may try to backup onto a dead machine which will cause delays.
+    CoordinatorServerList::Entry entry(manager.service.serverList[serverId]);
+
+    manager.service.serverList.crashed(serverId);
+    // If the server being replaced did not have a master then there
+    // will be no recovery.  That means it needs to transition to
+    // removed status now (usually recoveries remove servers from the
+    // list when they complete).
+    if (!entry.services.has(WireFormat::MASTER_SERVICE))
+        manager.service.serverList.remove(serverId);
+
+    manager.service.recoveryManager.startMasterRecovery(entry.serverId);
+
+    manager.removeReplicationGroup(entry.replicationId);
+    manager.createReplicationGroup();
+
+    manager.service.logCabinLog->invalidate(vector<EntryId>(
+        serverInfoEntryId, entryId));
+}
+
+/**
  * Force out a server from the cluster.
+ * \warning The calling function has to hold a lock for thread safety.
  *
  * \param serverId
  *      Server id of the server to be forced out.
@@ -431,31 +430,24 @@ CoordinatorServerManager::sendServerList(ServerId serverId)
 void
 CoordinatorServerManager::serverDown(ServerId serverId)
 {
-    // Get the entry id for the LogCabin entry corresponding to this
-    // server before the server information is removed from serverList,
-    // so that the LogCabin entry can be invalidated later.
-    EntryId serverInfoEntryId =
-        service.serverList.getLogCabinEntryId(serverId);
+    ServerDown(*this, serverId).execute();
+}
 
-    // If this machine has a backup and master on the same server it is best
-    // to remove the dead backup before initiating recovery. Otherwise, other
-    // servers may try to backup onto a dead machine which will cause delays.
-    CoordinatorServerList::Entry entry(service.serverList[serverId]);
-
-    service.serverList.crashed(serverId);
-    // If the server being replaced did not have a master then there
-    // will be no recovery.  That means it needs to transition to
-    // removed status now (usually recoveries remove servers from the
-    // list when they complete).
-    if (!entry.services.has(WireFormat::MASTER_SERVICE))
-        service.serverList.remove(serverId);
-
-    service.recoveryManager.startMasterRecovery(entry.serverId);
-
-    removeReplicationGroup(entry.replicationId);
-    createReplicationGroup();
-
-    service.logCabinLog->invalidate(vector<EntryId>(serverInfoEntryId));
+/**
+ * Complete a ServerDown during coordinator recovery.
+ *
+ * \param state
+ *      The ProtoBuf that encapsulates the state of the ServerDown
+ *      operation to be recovered.
+ * \param entryId
+ *      The entry id of the LogCabin entry corresponding to the state.
+ */
+void
+CoordinatorServerManager::serverDownRecover(
+    ProtoBuf::StateServerDown* state, EntryId entryId)
+{
+    Lock _(mutex);
+    ServerDown(*this, ServerId(state->server_id())).complete(entryId);
 }
 
 /**

@@ -61,11 +61,11 @@ class CoordinatorServerManager {
                              EntryId entryId);
     ProtoBuf::ServerList getServerList(ServiceMask serviceMask);
     bool hintServerDown(ServerId serverId);
-    void hintServerDownRecover(ProtoBuf::StateServerDown* state,
-                               EntryId entryId);
     void removeReplicationGroup(uint64_t groupId);
     void sendServerList(ServerId serverId);
     void serverDown(ServerId serverId);
+    void serverDownRecover(ProtoBuf::StateServerDown* state,
+                           EntryId entryId);
     void setMinOpenSegmentId(ServerId serverId, uint64_t segmentId);
     void setMinOpenSegmentIdRecover(ProtoBuf::ServerInformation* state,
                                     EntryId entryId);
@@ -130,15 +130,15 @@ class CoordinatorServerManager {
     };
 
     /**
-     * Defines methods and stores data to hintServerDown.
+     * Defines methods and stores data to force a server out of the cluster.
      */
-    class HintServerDown {
+    class ServerDown {
         public:
-            HintServerDown(CoordinatorServerManager &manager,
-                           ServerId serverId)
+            ServerDown(CoordinatorServerManager &manager,
+                       ServerId serverId)
                 : manager(manager), serverId(serverId) {}
-            bool execute();
-            bool complete(EntryId entryId);
+            void execute();
+            void complete(EntryId entryId);
         private:
             /**
              * Reference to the instance of coordinator server manager
@@ -150,7 +150,7 @@ class CoordinatorServerManager {
              * ServerId of the server that is suspected to be down.
              */
             ServerId serverId;
-            DISALLOW_COPY_AND_ASSIGN(HintServerDown);
+            DISALLOW_COPY_AND_ASSIGN(ServerDown);
     };
 
     /**

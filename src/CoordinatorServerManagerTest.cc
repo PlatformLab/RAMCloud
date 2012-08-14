@@ -226,7 +226,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServerLogCabin) {
                                         "mock:host=backup"));
 
     ProtoBuf::StateEnlistServer readState;
-    serverManager->service.logCabinHelper->getProtoBufFromEntryId(5, readState);
+    serverManager->service.logCabinHelper->getProtoBufFromEntryId(4, readState);
     EXPECT_EQ("entry_type: \"StateEnlistServer\"\n"
               "new_server_id: 2\nservice_mask: 2\n"
               "read_speed: 0\nwrite_speed: 0\n"
@@ -234,7 +234,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServerLogCabin) {
               readState.DebugString());
 
     ProtoBuf::ServerInformation readInfo;
-    serverManager->service.logCabinHelper->getProtoBufFromEntryId(6, readInfo);
+    serverManager->service.logCabinHelper->getProtoBufFromEntryId(5, readInfo);
     EXPECT_EQ("entry_type: \"ServerInformation\"\n"
               "server_id: 2\nservice_mask: 2\n"
               "read_speed: 0\nwrite_speed: 0\n"
@@ -291,89 +291,6 @@ TEST_F(CoordinatorServerManagerTest, getServerList_masters) {
     CoordinatorClient::getMasterList(context, list);
     EXPECT_EQ("mock:host=master mock:host=master2",
             getLocators(list));
-}
-
-TEST_F(CoordinatorServerManagerTest, hintServerDown_backup) {
-    ServerId id =
-        CoordinatorClient::enlistServer(context, {},
-                                        {WireFormat::BACKUP_SERVICE},
-                                        "mock:host=backup");
-    EXPECT_EQ(1U, serverManager->service.serverList.backupCount());
-    serverManager->forceServerDownForTesting = true;
-    CoordinatorClient::hintServerDown(context, id);
-    EXPECT_EQ(0U, serverList->backupCount());
-    EXPECT_FALSE(serverList->contains(id));
-}
-
-TEST_F(CoordinatorServerManagerTest, hintServerDown_server) {
-    TaskQueue mgr;
-    serverManager->service.recoveryManager.doNotStartRecoveries = true;
-    // master is already enlisted
-    CoordinatorClient::enlistServer(context, {},
-                                    {WireFormat::MASTER_SERVICE,
-                                    WireFormat::PING_SERVICE},
-                                    "mock:host=master2");
-    CoordinatorClient::enlistServer(context, {}, {WireFormat::BACKUP_SERVICE},
-                                    "mock:host=backup");
-    ramcloud->createTable("foo");
-    serverManager->forceServerDownForTesting = true;
-    TestLog::Enable _(startMasterRecoveryFilter);
-    CoordinatorClient::hintServerDown(context, masterServerId);
-    EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1 | "
-              "startMasterRecovery: Recovery crashedServerId: 1",
-               TestLog::get());
-    EXPECT_EQ(ServerStatus::CRASHED,
-              serverList->at(master->serverId).status);
-}
-
-TEST_F(CoordinatorServerManagerTest, hintServerDownRecover) {
-    TaskQueue mgr;
-    serverManager->service.recoveryManager.doNotStartRecoveries = true;
-    // master is already enlisted
-
-    ramcloud->createTable("foo");
-    serverManager->forceServerDownForTesting = true;
-    TestLog::Enable _(startMasterRecoveryFilter);
-
-    ProtoBuf::StateServerDown state;
-    state.set_entry_type("StateServerDown");
-    state.set_server_id(masterServerId.getId());
-
-    EntryId entryId =
-        serverManager->service.logCabinHelper->appendProtoBuf(state);
-
-    serverManager->hintServerDownRecover(&state, entryId);
-
-    EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1 | "
-              "startMasterRecovery: Recovery crashedServerId: 1",
-               TestLog::get());
-    EXPECT_EQ(ServerStatus::CRASHED,
-              serverList->at(master->serverId).status);
-}
-
-TEST_F(CoordinatorServerManagerTest, hintServerDown_execute) {
-    TaskQueue mgr;
-    serverManager->service.recoveryManager.doNotStartRecoveries = true;
-    // master is already enlisted
-
-    ramcloud->createTable("foo");
-    serverManager->forceServerDownForTesting = true;
-
-    TestLog::Enable _;
-    serverManager->hintServerDown(masterServerId);
-
-    string searchString = "execute: LogCabin entryId: ";
-    ASSERT_NE(string::npos, TestLog::get().find(searchString));
-    string entryIdString = TestLog::get().substr(
-        TestLog::get().find(searchString) + searchString.length(), 1);
-    EntryId entryId = strtoul(entryIdString.c_str(), NULL, 0);
-
-    ProtoBuf::StateServerDown readState;
-    serverManager->service.logCabinHelper->getProtoBufFromEntryId(
-        entryId, readState);
-
-    EXPECT_EQ("entry_type: \"StateServerDown\"\nserver_id: 1\n",
-              readState.DebugString());
 }
 
 TEST_F(CoordinatorServerManagerTest, removeReplicationGroup) {
@@ -449,7 +366,19 @@ TEST_F(CoordinatorServerManagerTest, sendServerList_main) {
         "entries (version number 2)"));
 }
 
-TEST_F(CoordinatorServerManagerTest, serverDown) {
+TEST_F(CoordinatorServerManagerTest, serverDown_backup) {
+    ServerId id =
+        CoordinatorClient::enlistServer(context, {},
+                                        {WireFormat::BACKUP_SERVICE},
+                                        "mock:host=backup");
+    EXPECT_EQ(1U, serverManager->service.serverList.backupCount());
+    serverManager->forceServerDownForTesting = true;
+    serverManager->serverDown(id);
+    EXPECT_EQ(0U, serverList->backupCount());
+    EXPECT_FALSE(serverList->contains(id));
+}
+
+TEST_F(CoordinatorServerManagerTest, serverDown_server) {
     TaskQueue mgr;
     serverManager->service.recoveryManager.doNotStartRecoveries = true;
     // master is already enlisted
@@ -459,6 +388,56 @@ TEST_F(CoordinatorServerManagerTest, serverDown) {
     TestLog::Enable _(startMasterRecoveryFilter);
 
     serverManager->serverDown(masterServerId);
+
+    EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1 | "
+              "startMasterRecovery: Recovery crashedServerId: 1",
+               TestLog::get());
+    EXPECT_EQ(ServerStatus::CRASHED,
+              serverList->at(master->serverId).status);
+}
+
+TEST_F(CoordinatorServerManagerTest, serverDown_logcabin) {
+    TaskQueue mgr;
+    serverManager->service.recoveryManager.doNotStartRecoveries = true;
+    // master is already enlisted
+
+    ramcloud->createTable("foo");
+    serverManager->forceServerDownForTesting = true;
+
+    TestLog::Enable _;
+    serverManager->serverDown(masterServerId);
+
+    string searchString = "execute: LogCabin entryId: ";
+    ASSERT_NE(string::npos, TestLog::get().find(searchString));
+    string entryIdString = TestLog::get().substr(
+        TestLog::get().find(searchString) + searchString.length(), 1);
+    EntryId entryId = strtoul(entryIdString.c_str(), NULL, 0);
+
+    ProtoBuf::StateServerDown readState;
+    serverManager->service.logCabinHelper->getProtoBufFromEntryId(
+        entryId, readState);
+
+    EXPECT_EQ("entry_type: \"StateServerDown\"\nserver_id: 1\n",
+              readState.DebugString());
+}
+
+TEST_F(CoordinatorServerManagerTest, serverDownRecover) {
+    TaskQueue mgr;
+    serverManager->service.recoveryManager.doNotStartRecoveries = true;
+    // master is already enlisted
+
+    ramcloud->createTable("foo");
+    serverManager->forceServerDownForTesting = true;
+    TestLog::Enable _(startMasterRecoveryFilter);
+
+    ProtoBuf::StateServerDown state;
+    state.set_entry_type("StateServerDown");
+    state.set_server_id(masterServerId.getId());
+
+    EntryId entryId =
+        serverManager->service.logCabinHelper->appendProtoBuf(state);
+
+    serverManager->serverDownRecover(&state, entryId);
 
     EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1 | "
               "startMasterRecovery: Recovery crashedServerId: 1",
