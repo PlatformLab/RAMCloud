@@ -156,6 +156,7 @@ CoordinatorServerManager::EnlistServer::execute()
 
     EntryId stateEntryId =
         manager.service.logCabinHelper->appendProtoBuf(state);
+    LOG(DEBUG, "LogCabin: StateEnlistServer entryId: %lu", stateEntryId);
 
     return complete(stateEntryId);
 }
@@ -209,6 +210,7 @@ CoordinatorServerManager::EnlistServer::complete(EntryId entryId)
     EntryId infoEntryId = manager.service.logCabinHelper->appendProtoBuf(
         info, vector<EntryId>(entryId));
     manager.service.serverList.addLogCabinEntryId(newServerId, infoEntryId);
+    LOG(DEBUG, "LogCabin: ServerInformation entryId: %lu", infoEntryId);
 
     return newServerId;
 }
@@ -374,7 +376,7 @@ CoordinatorServerManager::ServerDown::execute()
     state.set_server_id(this->serverId.getId());
 
     EntryId entryId = manager.service.logCabinHelper->appendProtoBuf(state);
-    LOG(DEBUG, "LogCabin entryId: %lu", entryId);
+    LOG(DEBUG, "LogCabin: StateServerDown entryId: %lu", entryId);
 
     complete(entryId);
 }

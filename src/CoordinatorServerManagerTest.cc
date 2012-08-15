@@ -90,6 +90,21 @@ class CoordinatorServerManagerTest : public ::testing::Test {
         return result;
     }
 
+    // From the debug log messages, find the entry id specified immediately
+    // next to the given search string.
+    EntryId
+    findEntryId(string searchString)
+    {
+        auto position = TestLog::get().find(searchString);
+        if (position == string::npos) {
+            throw "Search string not found";
+        } else {
+            string entryIdString = TestLog::get().substr(
+                TestLog::get().find(searchString) + searchString.length(), 1);
+            return strtoul(entryIdString.c_str(), NULL, 0);
+        }
+    }
+
     DISALLOW_COPY_AND_ASSIGN(CoordinatorServerManagerTest);
 };
 
@@ -176,7 +191,7 @@ bool startMasterRecoveryFilter(string s) {
 }
 }
 
-TEST_F(CoordinatorServerManagerTest, enlistServerReplaceAMaster) {
+TEST_F(CoordinatorServerManagerTest, enlistServer_ReplaceAMaster) {
     TaskQueue mgr;
     serverManager->service.recoveryManager.doNotStartRecoveries = true;
 
@@ -194,7 +209,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServerReplaceAMaster) {
               serverList->at(masterServerId).status);
 }
 
-TEST_F(CoordinatorServerManagerTest, enlistServerReplaceANonMaster) {
+TEST_F(CoordinatorServerManagerTest, enlistServer_ReplaceANonMaster) {
     TaskQueue mgr;
     serverManager->service.recoveryManager.doNotStartRecoveries = true;
 
@@ -213,28 +228,34 @@ TEST_F(CoordinatorServerManagerTest, enlistServerReplaceANonMaster) {
     EXPECT_FALSE(serverList->contains(replacesId));
 }
 
-// TODO(ankitak): Improve the test.
-TEST_F(CoordinatorServerManagerTest, enlistServerLogCabin) {
+TEST_F(CoordinatorServerManagerTest, enlistServer_LogCabin) {
     TaskQueue mgr;
     serverManager->service.recoveryManager.doNotStartRecoveries = true;
 
     ramcloud->createTable("foo");
 
+    TestLog::Enable _;
     EXPECT_EQ(ServerId(2, 0),
         CoordinatorClient::enlistServer(context, masterServerId,
                                         {WireFormat::BACKUP_SERVICE},
                                         "mock:host=backup"));
 
+    string searchString = "execute: LogCabin: StateEnlistServer entryId: ";
+    ASSERT_NO_THROW(findEntryId(searchString));
     ProtoBuf::StateEnlistServer readState;
-    serverManager->service.logCabinHelper->getProtoBufFromEntryId(4, readState);
+    serverManager->service.logCabinHelper->getProtoBufFromEntryId(
+        findEntryId(searchString), readState);
     EXPECT_EQ("entry_type: \"StateEnlistServer\"\n"
               "new_server_id: 2\nservice_mask: 2\n"
               "read_speed: 0\nwrite_speed: 0\n"
               "service_locator: \"mock:host=backup\"\n",
               readState.DebugString());
 
+    searchString = "complete: LogCabin: ServerInformation entryId: ";
+    ASSERT_NO_THROW(findEntryId(searchString));
     ProtoBuf::ServerInformation readInfo;
-    serverManager->service.logCabinHelper->getProtoBufFromEntryId(5, readInfo);
+    serverManager->service.logCabinHelper->getProtoBufFromEntryId(
+        findEntryId(searchString), readInfo);
     EXPECT_EQ("entry_type: \"ServerInformation\"\n"
               "server_id: 2\nservice_mask: 2\n"
               "read_speed: 0\nwrite_speed: 0\n"
@@ -396,7 +417,7 @@ TEST_F(CoordinatorServerManagerTest, serverDown_server) {
               serverList->at(master->serverId).status);
 }
 
-TEST_F(CoordinatorServerManagerTest, serverDown_logcabin) {
+TEST_F(CoordinatorServerManagerTest, serverDown_LogCabin) {
     TaskQueue mgr;
     serverManager->service.recoveryManager.doNotStartRecoveries = true;
     // master is already enlisted
@@ -407,15 +428,11 @@ TEST_F(CoordinatorServerManagerTest, serverDown_logcabin) {
     TestLog::Enable _;
     serverManager->serverDown(masterServerId);
 
-    string searchString = "execute: LogCabin entryId: ";
-    ASSERT_NE(string::npos, TestLog::get().find(searchString));
-    string entryIdString = TestLog::get().substr(
-        TestLog::get().find(searchString) + searchString.length(), 1);
-    EntryId entryId = strtoul(entryIdString.c_str(), NULL, 0);
-
+    string searchString = "execute: LogCabin: StateServerDown entryId: ";
+    ASSERT_NO_THROW(findEntryId(searchString));
     ProtoBuf::StateServerDown readState;
     serverManager->service.logCabinHelper->getProtoBufFromEntryId(
-        entryId, readState);
+        findEntryId(searchString), readState);
 
     EXPECT_EQ("entry_type: \"StateServerDown\"\nserver_id: 1\n",
               readState.DebugString());
@@ -456,16 +473,16 @@ TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentId) {
 }
 
 TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentIdRecover) {
-    EntryId oldEntryId = serverList->getLogCabinEntryId(masterServerId);
+    EntryId serverInfoEntryId = serverList->getLogCabinEntryId(masterServerId);
     ProtoBuf::ServerInformation serverInfo;
     serverManager->service.logCabinHelper->getProtoBufFromEntryId(
-        oldEntryId, serverInfo);
+        serverInfoEntryId, serverInfo);
 
     serverInfo.set_min_open_segment_id(10);
-    EntryId newEntryId =
+    EntryId entryId =
         serverManager->service.logCabinHelper->appendProtoBuf(serverInfo);
 
-    serverManager->setMinOpenSegmentIdRecover(&serverInfo, newEntryId);
+    serverManager->setMinOpenSegmentIdRecover(&serverInfo, entryId);
 
     EXPECT_EQ(10u, serverList->at(masterServerId).minOpenSegmentId);
 }

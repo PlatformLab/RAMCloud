@@ -101,7 +101,8 @@ TEST_F(ServerTest, enlist) {
         "(server id 1) supporting services: MASTER_SERVICE, "
         "BACKUP_SERVICE, PING_SERVICE, MEMBERSHIP_SERVICE | "
         "complete: Newly enlisted server 1 replaces server 128 | "
-        "complete: Backup at id 1 has 100 MB/s read 100 MB/s write",
+        "complete: Backup at id 1 has 100 MB/s read 100 MB/s write | "
+        "complete: LogCabin: ServerInformation entryId: 1",
          TestLog::get());
     ASSERT_TRUE(server->master->serverId.isValid());
     EXPECT_TRUE(server->backup->serverId.isValid());
