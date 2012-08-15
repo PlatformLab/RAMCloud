@@ -35,7 +35,6 @@ ServerList::ServerList(Context& context)
     : AbstractServerList(context)
     , serverList()
 {
-    context.serverList = this;
 }
 
 /**

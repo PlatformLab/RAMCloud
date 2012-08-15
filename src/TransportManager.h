@@ -49,8 +49,6 @@ class TransportManager {
     void initialize(const char* serviceLocator);
     void flushSession(const char* serviceLocator);
     Transport::SessionRef getSession(const char* serviceLocator);
-    Transport::SessionRef getSession(const char* serviceLocator,
-                                     ServerId serverId);
     string getListeningLocatorsString();
     Transport::SessionRef openSession(const char* serviceLocator);
     void registerMemory(void* base, size_t bytes);
@@ -74,7 +72,11 @@ class TransportManager {
         transportFactories.push_back(
                 new MockTransportFactory(context, transport, protocol));
         transports.push_back(NULL);
-        skipServerIdCheck = true;
+
+        // Skip RPCs to verify server ids: this makes tests much simpler,
+        // and individual tests can restore normal behavior if they need it.
+        if (context.serverList != NULL)
+            context.serverList->skipServerIdCheck = true;
     }
 
     /**
@@ -163,13 +165,6 @@ class TransportManager {
      * means that each transport gets to pick its own default.
      */
     uint32_t timeoutMs;
-
-    /**
-     * During tests this variable can be set to true to disable the
-     * getServerId call in getSession (that call makes it painful to
-     * set up test configurations).
-     */
-    bool skipServerIdCheck;
 
     DISALLOW_COPY_AND_ASSIGN(TransportManager);
 };

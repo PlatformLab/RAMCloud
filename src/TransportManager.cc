@@ -94,7 +94,6 @@ TransportManager::TransportManager(Context& context)
     , registeredSizes()
     , mutex()
     , timeoutMs(0)
-    , skipServerIdCheck(false)
 {
     transportFactories.push_back(&tcpTransportFactory);
     transportFactories.push_back(&fastUdpTransportFactory);
@@ -244,62 +243,6 @@ TransportManager::getSession(const char* serviceLocator)
     // it to the cache.
     Transport::SessionRef session(openSession(serviceLocator));
     sessionCache.insert({serviceLocator, session});
-    return session;
-}
-
-/**
- * Open a session based on a ServiceLocator string, but ensure that the
- * remote end is the expected ServerId. This will guarantee that the
- * session returned is to the precise server requested. Using locator
- * strings does not guarantee this, as they may be reused across different
- * process instantiations.
- *
- * \param serviceLocator
- *      Desired service.
- * \param needServerId
- *      The ServerId expected for the server being connected to.
- *
- * \return
- *      The return value is a session that may be used to issue RPCs to the
- *      specified server. If there was a transport error opening the session,
- *      or if the server id did not match, then a FailSession is returned.
- *
- * \throw NoSuchKeyException
- *      A transport supporting one of the protocols claims a service locator
- *      option is missing.
- * \throw BadValueException
- *      A transport supporting one of the protocols claims a service locator
- *      option is malformed.
- */
-Transport::SessionRef
-TransportManager::getSession(const char* serviceLocator, ServerId needServerId)
-{
-    Transport::SessionRef session = getSession(serviceLocator);
-    ServerId actualId;
-
-    if (skipServerIdCheck)
-        return session;
-    try {
-        actualId = MembershipClient::getServerId(context, session);
-    } catch (TransportException& e) {
-        LOG(DEBUG, "Failed to obtain ServerId from \"%s\": %s",
-            serviceLocator, e.what());
-        flushSession(serviceLocator);
-        // Fall through to error handling below (since actualId remains
-        // invalid).
-    }
-
-    if (actualId != needServerId) {
-        // Looks like a locator was reused before this ServerId was
-        // removed. This is possible, but should be very rare.
-        string errorStr = format("Expected ServerId %lu at \"%s\", but actual "
-            "server id was %lu!",
-            *needServerId, serviceLocator, *actualId);
-        flushSession(serviceLocator);
-        LOG(DEBUG, "%s", errorStr.c_str());
-        return FailSession::get();
-    }
-
     return session;
 }
 

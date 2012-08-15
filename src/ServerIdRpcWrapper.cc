@@ -79,10 +79,7 @@ ServerIdRpcWrapper::handleTransportError()
         // server list.  This means the server is down.
         up = false;
     }
-    if (session) {
-        context.transportManager->flushSession(
-                session->getServiceLocator().c_str());
-    }
+    context.serverList->flushSession(id);
     if (!up) {
         serverDown = true;
         return true;
@@ -96,16 +93,7 @@ void
 ServerIdRpcWrapper::send()
 {
     assert(context.serverList != NULL);
-    try {
-        session = context.transportManager->getSession(
-                context.serverList->getLocator(id), id);
-    }
-    catch (Exception& e) {
-        LOG(DEBUG, "ServerIdRpcWrapper couldn't get session: %s",
-                e.message.c_str());
-        state = FAILED;
-        return;
-    }
+    session = context.serverList->getSession(id);
     state = IN_PROGRESS;
     session->sendRequest(&request, response, this);
 }

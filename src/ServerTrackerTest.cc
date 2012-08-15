@@ -358,23 +358,6 @@ TEST_F(ServerTrackerTest, getServerDetails) {
               tr.getServerDetails(ServerId(1, 1))->status);
 }
 
-TEST_F(ServerTrackerTest, getSession) {
-    TestLog::Enable _;
-    EXPECT_THROW(tr.getSession(ServerId(1, 0)), TransportException);
-
-    ServerDetails details(ServerId(1, 1), "mock:",
-                          {WireFormat::MASTER_SERVICE},
-                          100, ServerStatus::UP);
-    tr.enqueueChange(details, ServerChangeEvent::SERVER_ADDED);
-    ServerDetails server;
-    ServerChangeEvent event;
-    EXPECT_TRUE(tr.getChange(server, event));
-
-    details.status = ServerStatus::CRASHED;
-    tr.enqueueChange(details, ServerChangeEvent::SERVER_CRASHED);
-    EXPECT_EQ(FailSession::get(), tr.getSession(ServerId(1, 1)));
-}
-
 TEST_F(ServerTrackerTest, indexOperator) {
     TestLog::Enable _; // suck up getChange WARNING
     ServerDetails server;

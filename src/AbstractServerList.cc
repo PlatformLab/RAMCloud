@@ -16,6 +16,7 @@
 #include "TransportManager.h"
 
 #include "AbstractServerList.h"
+#include "FailSession.h"
 #include "ServerTracker.h"
 
 namespace RAMCloud {
@@ -32,7 +33,9 @@ AbstractServerList::AbstractServerList(Context& context)
     , version(0)
     , trackers()
     , mutex()
+    , skipServerIdCheck(false)
 {
+    context.serverList = this;
 }
 
 /**
@@ -94,19 +97,83 @@ AbstractServerList::isUp(ServerId id) {
 }
 
 /**
- * Open a session to the given ServerId. This method simply calls through to
- * TransportManager::getSession. See the documentation there for exceptions
- * that may be thrown.
+ * Return a session to the given ServerId; a FailSession is returned if the
+ * given server doesn't exist or a session cannot be opened.
  *
- * \throw ServerListException
- *      A ServerListException is thrown if the given ServerId is not in this
- *      list.
+ * \param id
+ *      Identifier for a particular server.
  */
 Transport::SessionRef
 AbstractServerList::getSession(ServerId id)
 {
-    // getLocator(id) locks list for access
-    return context.transportManager->getSession(getLocator(id), id);
+    // This method is a bit tricky because we don't want to hold the
+    // lock while opening a new session. This means it's possible that
+    // two different threads might each discover that there is no cached
+    // session and open new sessions in parallel.  In addition, it's
+    // possible that a server could be deleted while a session is being
+    // opened for it.
+    const char* locator;
+    {
+        Lock _(mutex);
+        if (!icontains(id))
+            return FailSession::get();
+        ServerDetails* details = iget(id.indexNumber());
+        if (details->session != NULL)
+            return details->session;
+        locator = details->serviceLocator.c_str();
+    }
+
+    // No cached session. Open a new session and send a brief request to
+    // the server to verify that it has the expected identifier.
+    Transport::SessionRef session =
+            context.transportManager->openSession(locator);
+    if (!skipServerIdCheck) {
+        try {
+            ServerId actualId = MembershipClient::getServerId(context,
+                    session);
+            if (id != actualId) {
+                RAMCLOUD_LOG(DEBUG, "Expected ServerId %lu for \"%s\", "
+                        "but actual server id was %lu",
+                        id.getId(), locator, actualId.getId());
+                return FailSession::get();
+            }
+        }
+        catch (const TransportException& e) {
+            RAMCLOUD_LOG(DEBUG, "Failed to obtain ServerId from \"%s\": %s",
+                    locator, e.what());
+            return FailSession::get();
+        }
+    }
+
+    // We've successfully opened a session. Add it back back into the server
+    // list, assuming this ServerId is still valid and no one else has put a
+    // session there first.
+    {
+        Lock _(mutex);
+        if (!icontains(id))
+            return FailSession::get();
+        ServerDetails* details = iget(id.indexNumber());
+        if (details->session == NULL)
+            details->session = session;
+        return details->session;
+    }
+}
+
+/**
+ * If there is a session cached for the given server id, flush it so that
+ * future attempts to communicate with the server will create a new session.
+ *
+ * \param id
+ *      Identifier for a particular server.
+ */
+void
+AbstractServerList::flushSession(ServerId id)
+{
+    Lock _(mutex);
+    if (icontains(id)) {
+        iget(id.indexNumber())->session = NULL;
+        RAMCLOUD_TEST_LOG("flushed session for id %lu", id.getId());
+    }
 }
 
 /**

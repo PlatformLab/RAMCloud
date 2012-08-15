@@ -56,6 +56,7 @@ class ServerDetails {
     ServerDetails()
         : serverId()
         , serviceLocator()
+        , session()
         , services()
         , expectedReadMBytesPerSec()
         , status(ServerStatus::DOWN)
@@ -68,6 +69,7 @@ class ServerDetails {
     ServerDetails(ServerId id, ServerStatus status)
         : serverId(id)
         , serviceLocator()
+        , session()
         , services()
         , expectedReadMBytesPerSec()
         , status(status)
@@ -83,6 +85,7 @@ class ServerDetails {
                   ServerStatus status)
         : serverId(id)
         , serviceLocator(locator)
+        , session()
         , services(services)
         , expectedReadMBytesPerSec(expectedReadMBytesPerSec)
         , status(status)
@@ -97,6 +100,7 @@ class ServerDetails {
     ServerDetails(const ServerDetails& other)
         : serverId(other.serverId)
         , serviceLocator(other.serviceLocator.c_str())
+        , session()
         , services(other.services)
         , expectedReadMBytesPerSec(other.expectedReadMBytesPerSec)
         , status(other.status)
@@ -117,6 +121,7 @@ class ServerDetails {
     ServerDetails(ServerDetails&& other)
         : serverId(other.serverId)
         , serviceLocator(other.serviceLocator.c_str())
+        , session(other.session)
         , services(other.services)
         , expectedReadMBytesPerSec(other.expectedReadMBytesPerSec)
         , status(other.status)
@@ -139,8 +144,11 @@ class ServerDetails {
     /// ServerId associated with this index in the serverList (never reused).
     ServerId serverId;
 
-    /// Service locator which can be used to contact this server.
+    /// Service locator that can be used to contact this server.
     string serviceLocator;
+
+    /// Cached session for communication with the server (may be NULL).
+    Transport::SessionRef session;
 
     /// Which services are supported by the process at #serverId.
     ServiceMask services;
@@ -191,9 +199,10 @@ class AbstractServerList {
     explicit AbstractServerList(Context& context);
     virtual ~AbstractServerList();
 
-    Transport::SessionRef getSession(ServerId id);
     virtual bool contains(ServerId id) const;
     const char* getLocator(ServerId id);
+    void flushSession(ServerId id);
+    Transport::SessionRef getSession(ServerId id);
     uint64_t getVersion() const;
     bool isUp(ServerId id);
     size_t size() const;
@@ -210,18 +219,21 @@ class AbstractServerList {
 
     /**
      * Retrieve the ServerDetails stored in the underlying subclass storage
-     * at index index;
+     * at \a index, or NULL if there is no active server in that slot.
      *
-     * \param index - index of underlying storage
+     * \param index
+     *      Index into table of server entries.
+     *
      * \return ServerDetails contained at index
      */
     virtual ServerDetails* iget(size_t index) = 0;
 
     /**
-     * Check of this ServerId is contained within the list.
+     * Return true if this ServerId is contained within the list, false
+     * otherwise
      *
-     * \param id - ServerId that to look up
-     * \return bool - true if id is within list.
+     * \param id
+     *      ServerId to look up
      */
     virtual bool icontains(ServerId id) const = 0;
 
@@ -255,6 +267,13 @@ class AbstractServerList {
     /// on the ServerId map. A Lock for this mutex MUST be held to read or
     /// modify any state in the server list.
     mutable std::mutex mutex;
+
+    /// During tests this variable can be set to true to disable the
+    /// getServerId call in getSession (that call makes it painful to
+    /// set up test configurations).
+    bool skipServerIdCheck;
+
+    friend class TransportManager;       // (so it can set skipServerIdCheck)
 
     typedef std::lock_guard<std::mutex> Lock;
 };

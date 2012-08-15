@@ -25,17 +25,17 @@ namespace RAMCloud {
 class ServerIdRpcWrapperTest : public ::testing::Test {
   public:
     Context context;
+    ServerList serverList;
     MockTransport transport;
     ServerId id;
     ServerId coordId;
-    ServerList serverList;
 
     ServerIdRpcWrapperTest()
         : context()
+        , serverList(context)
         , transport(context)
         , id(1, 0)
         , coordId()
-        , serverList(context)
     {
         context.transportManager->registerMock(&transport);
         serverList.add(ServerId(1, 0), "mock:", {}, 100);
@@ -69,7 +69,7 @@ TEST_F(ServerIdRpcWrapperTest, handleTransportError_serverUp) {
     wrapper.state = RpcWrapper::RpcState::FAILED;
     EXPECT_FALSE(wrapper.isReady());
     EXPECT_STREQ("IN_PROGRESS", wrapper.stateString());
-    EXPECT_EQ("flushSession: flushing session for mock:",
+    EXPECT_EQ("flushSession: flushed session for id 1",
             TestLog::get());
     EXPECT_FALSE(wrapper.serverDown);
 }
@@ -83,7 +83,7 @@ TEST_F(ServerIdRpcWrapperTest, handleTransportError_serverCrashed) {
     serverList.crashed(id, "mock:", {}, 100);
     EXPECT_TRUE(wrapper.isReady());
     EXPECT_STREQ("FAILED", wrapper.stateString());
-    EXPECT_EQ("flushSession: flushing session for mock:",
+    EXPECT_EQ("flushSession: flushed session for id 1",
             TestLog::get());
     EXPECT_TRUE(wrapper.serverDown);
 }
@@ -105,17 +105,6 @@ TEST_F(ServerIdRpcWrapperTest, send) {
     EXPECT_STREQ("IN_PROGRESS", wrapper.stateString());
     EXPECT_EQ("sendRequest: 100", transport.outputLog);
     EXPECT_EQ("mock:", wrapper.session->getServiceLocator());
-}
-
-TEST_F(ServerIdRpcWrapperTest, send_exception) {
-    TestLog::Enable _;
-    ServerIdRpcWrapper wrapper(context, ServerId(20, 3), 4);
-    wrapper.request.fillFromString("100");
-    wrapper.send();
-    EXPECT_STREQ("FAILED", wrapper.stateString());
-    EXPECT_EQ("send: ServerIdRpcWrapper couldn't get session: "
-            "Invalid ServerID (12884901908)",
-            TestLog::get());
 }
 
 TEST_F(ServerIdRpcWrapperTest, waitAndCheckErrors_success) {

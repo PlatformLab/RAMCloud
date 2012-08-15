@@ -439,36 +439,6 @@ class ServerTracker : public ServerTrackerInterface {
     }
 
     /**
-     * Open a session to the given ServerId. This method simply calls through to
-     * TransportManager::getSession. See the documentation there for exceptions
-     * that may be thrown.
-     *
-     * \param id
-     *      The ServerId to get a Session to.
-     * \throw ServerListException
-     *      A ServerListException is thrown if the given ServerId is not in this
-     *      list.
-     */
-    Transport::SessionRef
-    getSession(ServerId id)
-    {
-        uint32_t index = id.indexNumber();
-        if (index >= serverList.size() ||
-            serverList[index].server.serverId != id) {
-            throw TransportException(HERE,
-                            format("ServerId %lu is not in this tracker.",
-                                   id.getId()));
-        }
-        if (serverList[index].server.status != ServerStatus::UP) {
-            throw TransportException(HERE,
-                            format("ServerId %lu is not up.",
-                                   id.getId()));
-        }
-        return context.transportManager->getSession(
-                getLocator(id).c_str(), id);
-    }
-
-    /**
      * Return a reference to the T* we're associating with an active ServerId.
      * If the exact serverId given does not exist an exception is thrown.
      *

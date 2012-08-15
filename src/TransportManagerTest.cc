@@ -178,31 +178,6 @@ TEST_F(TransportManagerTest, getSession_openSessionFailure) {
               TestLog::get());
 }
 
-TEST_F(TransportManagerTest, getSession_matchServerId) {
-    TestLog::Enable _;
-
-    ServerId id(1, 53);
-    ServerList list(context);
-    BindTransport transport(context);
-    context.transportManager->registerMock(&transport);
-    context.transportManager->skipServerIdCheck = false;
-    MembershipService membership(id, list);
-    transport.addService(membership, "mock:host=member",
-                         WireFormat::MEMBERSHIP_SERVICE);
-
-    EXPECT_NO_THROW(context.transportManager->getSession(
-        "mock:host=member", id));
-    Transport::SessionRef session = context.transportManager->getSession(
-        "mock:host=member", ServerId(1, 52));
-    EXPECT_EQ(FailSession::get(), session.get());
-    EXPECT_EQ("flushSession: flushing session for mock:host=member | "
-              "getSession: Expected ServerId 223338299393 at "
-              "\"mock:host=member\", but actual server id was 227633266689!",
-              TestLog::get());
-
-    context.transportManager->unregisterMock();
-}
-
 // No tests for getListeningLocatorsString: it's trivial.
 
 TEST_F(TransportManagerTest, openSession_noSupportingTransports) {

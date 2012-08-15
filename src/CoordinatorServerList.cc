@@ -37,7 +37,7 @@ CoordinatorServerList::CoordinatorServerList(Context& context)
     , numberOfBackups(0)
     , updates()
 {
-    context.serverList = context.coordinatorServerList = this;
+    context.coordinatorServerList = this;
     updater.start();
 }
 

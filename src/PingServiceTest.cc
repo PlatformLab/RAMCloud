@@ -30,17 +30,17 @@ namespace RAMCloud {
 class PingServiceTest : public ::testing::Test {
   public:
     Context context;
+    ServerList serverList;
     BindTransport transport;
     TransportManager::MockRegistrar mockRegistrar;
-    ServerList serverList;
     PingService pingService;
     ServerId serverId;
 
     PingServiceTest()
         : context()
+        , serverList(context)
         , transport(context)
         , mockRegistrar(context, transport)
-        , serverList(context)
         , pingService(context)
         , serverId(1, 3)
     {
@@ -112,8 +112,7 @@ TEST_F(PingServiceTest, ping_wait_serverGoesAway) {
     }
 
     EXPECT_EQ(0xffffffffffffffffU, result);
-    EXPECT_EQ("flushSession: flushing session for mock2: | "
-            "wait: server doesn't exist", TestLog::get());
+    EXPECT_EQ("wait: server doesn't exist", TestLog::get());
     thread.join();
     context.transportManager->unregisterMock();
 }
