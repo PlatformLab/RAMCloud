@@ -45,22 +45,24 @@ ServerList::~ServerList()
 }
 
 //////////////////////////////////////////////////////////////////////
-// ServerList - Protected Methods (inherited AbstractServerList)
+// ServerList - Protected Methods (inherited from AbstractServerList)
 //////////////////////////////////////////////////////////////////////
 ServerDetails*
-ServerList::iget(size_t index)
-{
-    return (serverList[index]) ? serverList[index].get() : NULL;
-}
-
-bool
-ServerList::icontains(ServerId id) const
+ServerList::iget(ServerId id)
 {
     uint32_t index = id.indexNumber();
+    if ((index < serverList.size()) && (serverList[index])) {
+        ServerDetails* details = serverList[index].get();
+        if (details->serverId == id)
+            return details;
+    }
+    return NULL;
+}
 
-    return  index < serverList.size() &&
-            serverList[index] &&
-            serverList[index]->serverId == id;
+ServerDetails*
+ServerList::iget(uint32_t index)
+{
+    return (serverList[index]) ? serverList[index].get() : NULL;
 }
 
 /**
@@ -210,7 +212,7 @@ ServerList::applyUpdate(const ProtoBuf::ServerList& update)
                 readMBytesPerSec);
             add(id, locator, services, readMBytesPerSec);
         } else if (status == ServerStatus::CRASHED) {
-            if (!icontains(id)) {
+            if (iget(id) == NULL) {
                 LOG(ERROR, "  Cannot mark server id %lu as crashed: The server "
                     "is not in our list, despite list version numbers matching "
                     "(%lu). Something is screwed up! Requesting the entire "
@@ -221,7 +223,7 @@ ServerList::applyUpdate(const ProtoBuf::ServerList& update)
             LOG(NOTICE, "  Marking server id %lu as crashed", id.getId());
             crashed(id, locator, services, readMBytesPerSec);
         } else if (status == ServerStatus::DOWN) {
-            if (!icontains(id)) {
+            if (iget(id) == NULL) {
                 LOG(ERROR, "  Cannot remove server id %lu: The server is "
                     "not in our list, despite list version numbers matching "
                     "(%lu). Something is screwed up! Requesting the entire "

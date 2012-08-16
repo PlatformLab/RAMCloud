@@ -53,18 +53,21 @@ CoordinatorServerList::~CoordinatorServerList()
 // CoordinatorServerList Protected Methods From AbstractServerList
 //////////////////////////////////////////////////////////////////////
 ServerDetails*
-CoordinatorServerList::iget(size_t index)
-{
-    return (serverList[index].entry) ? serverList[index].entry.get() : NULL;
-}
-
-bool
-CoordinatorServerList::icontains(ServerId id) const
+CoordinatorServerList::iget(ServerId id)
 {
     uint32_t index = id.indexNumber();
-    return index < serverList.size() &&
-            serverList[index].entry &&
-            serverList[index].entry->serverId == id;
+    if ((index < serverList.size()) && serverList[index].entry) {
+        ServerDetails* details = serverList[index].entry.get();
+        if (details->serverId == id)
+            return details;
+    }
+    return NULL;
+}
+
+ServerDetails*
+CoordinatorServerList::iget(uint32_t index)
+{
+    return (serverList[index].entry) ? serverList[index].entry.get() : NULL;
 }
 
 /**
@@ -300,18 +303,6 @@ CoordinatorServerList::at(size_t index) const
     return serverList[index].entry;
 }
 
-/**
- * Return true if the given serverId is in this list regardless of
- * whether it is crashed or not.  This can be used to check membership,
- * rather than having to try and catch around the index operator.
- */
-bool
-CoordinatorServerList::contains(ServerId serverId) const
-{
-    Lock _(mutex);
-    return serverId.isValid() && icontains(serverId);
-}
-
 
 /**
  * Get the number of masters in the list; does not include servers in
@@ -426,7 +417,7 @@ void
 CoordinatorServerList::sendServerList(ServerId& serverId) {
     Lock lock(mutex);
 
-    if (!serverId.isValid() || !icontains(serverId)) {
+    if (iget(serverId) == NULL) {
         LOG(WARNING, "Could not send list to unknown server %lu", *serverId);
         return;
     }

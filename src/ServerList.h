@@ -53,8 +53,8 @@ class ServerList : public AbstractServerList {
 
   PROTECTED:
     /// Internal Use Only - Does not grab locks
-    ServerDetails* iget(size_t index);
-    bool icontains(ServerId id) const;
+    ServerDetails* iget(ServerId id);
+    ServerDetails* iget(uint32_t index);
     size_t isize() const;
 
   PRIVATE:

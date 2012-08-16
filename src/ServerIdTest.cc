@@ -29,7 +29,7 @@ class ServerIdTest : public ::testing::Test {
 TEST_F(ServerIdTest, invalidServerId) {
     EXPECT_EQ(static_cast<uint32_t>(-1),
         ServerId::INVALID_SERVERID_GENERATION_NUMBER);
-    EXPECT_EQ(ServerId()._generationNumber(),
+    EXPECT_EQ(ServerId().generationNumber(),
         ServerId::INVALID_SERVERID_GENERATION_NUMBER);
 }
 

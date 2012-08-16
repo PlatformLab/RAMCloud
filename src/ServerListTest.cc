@@ -53,6 +53,15 @@ class ServerListTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(ServerListTest);
 };
 
+TEST_F(ServerListTest, iget_serverId) {
+    sl.add(ServerId(5, 2), "mock:id=5", {}, 100);
+    EXPECT_TRUE(sl.iget({10, 0}) == NULL);
+    EXPECT_TRUE(sl.iget({2, 0}) == NULL);
+    EXPECT_TRUE(sl.iget({5, 1}) == NULL);
+    EXPECT_TRUE(sl.iget({5, 2}) != NULL);
+    EXPECT_EQ("mock:id=5", sl.iget({5, 2})->serviceLocator);
+}
+
 TEST_F(ServerListTest, indexOperator) {
     EXPECT_FALSE(sl[0].isValid());
     EXPECT_FALSE(sl[183742].isValid());

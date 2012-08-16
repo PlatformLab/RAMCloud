@@ -69,14 +69,12 @@ const char*
 AbstractServerList::getLocator(ServerId id)
 {
     Lock _(mutex);
-
-    if (icontains(id))
-        return iget(id.indexNumber())->serviceLocator.c_str();
+    ServerDetails* details = iget(id);
+    if (details != NULL)
+        return details->serviceLocator.c_str();
 
     throw ServerListException(HERE,
             format("Invalid ServerID (%lu)", id.getId()));
-
-
 }
 
 /**
@@ -92,8 +90,8 @@ AbstractServerList::getLocator(ServerId id)
 bool
 AbstractServerList::isUp(ServerId id) {
     Lock _(mutex);
-
-    return icontains(id) && iget(id.indexNumber())->status == ServerStatus::UP;
+    ServerDetails* details = iget(id);
+    return (details != NULL) && (details->status == ServerStatus::UP);
 }
 
 /**
@@ -115,9 +113,9 @@ AbstractServerList::getSession(ServerId id)
     const char* locator;
     {
         Lock _(mutex);
-        if (!icontains(id))
+        ServerDetails* details = iget(id);
+        if (details == NULL)
             return FailSession::get();
-        ServerDetails* details = iget(id.indexNumber());
         if (details->session != NULL)
             return details->session;
         locator = details->serviceLocator.c_str();
@@ -150,9 +148,9 @@ AbstractServerList::getSession(ServerId id)
     // session there first.
     {
         Lock _(mutex);
-        if (!icontains(id))
+        ServerDetails* details = iget(id);
+        if (details == NULL)
             return FailSession::get();
-        ServerDetails* details = iget(id.indexNumber());
         if (details->session == NULL)
             details->session = session;
         return details->session;
@@ -170,8 +168,9 @@ void
 AbstractServerList::flushSession(ServerId id)
 {
     Lock _(mutex);
-    if (icontains(id)) {
-        iget(id.indexNumber())->session = NULL;
+    ServerDetails* details = iget(id);
+    if (details != NULL) {
+        details->session = NULL;
         RAMCLOUD_TEST_LOG("flushed session for id %lu", id.getId());
     }
 }
@@ -182,10 +181,10 @@ AbstractServerList::flushSession(ServerId id)
  * rather than having to try and catch around the index operator.
  */
 bool
-AbstractServerList::contains(ServerId id) const {
+AbstractServerList::contains(ServerId id) {
     Lock _(mutex);
 
-    return icontains(id);
+    return iget(id) != NULL;
 }
 
 /**
@@ -223,7 +222,7 @@ AbstractServerList::registerTracker(ServerTrackerInterface& tracker)
     // during enlistment that the registering tracker queue will have the
     // crash event for the replaced server before the add event of the
     // server which replaced it.
-    for (size_t n = 0; n < isize(); n++)  {
+    for (uint32_t n = 0; n < isize(); n++)  {
         const ServerDetails* server = iget(n);
         if (!server || server->status != ServerStatus::CRASHED)
             continue;
@@ -235,7 +234,7 @@ AbstractServerList::registerTracker(ServerTrackerInterface& tracker)
     }
 
     // Push all known servers that are up
-    for (size_t n = 0; n < isize(); n++)  {
+    for (uint32_t n = 0; n < isize(); n++)  {
         ServerDetails* server = iget(n);
         if (!server || server->status != ServerStatus::UP)
             continue;
@@ -346,7 +345,7 @@ AbstractServerList::toString()
     Lock lock(mutex);
 
     string result;
-    for (size_t n = 0; n < isize(); n++) {
+    for (uint32_t n = 0; n < isize(); n++) {
         ServerDetails* server = iget(n);
         if (!server)
             continue;

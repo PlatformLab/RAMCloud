@@ -199,7 +199,7 @@ class AbstractServerList {
     explicit AbstractServerList(Context& context);
     virtual ~AbstractServerList();
 
-    virtual bool contains(ServerId id) const;
+    virtual bool contains(ServerId id);
     const char* getLocator(ServerId id);
     void flushSession(ServerId id);
     Transport::SessionRef getSession(ServerId id);
@@ -218,24 +218,22 @@ class AbstractServerList {
     /// Internal Use Only - Does not grab locks
 
     /**
+     * Retrieve the ServerDetails for the given server, or NULL if there
+     * is no server with that id.
+     *
+     * \param id
+     *      Identifies the desired server.
+     */
+    virtual ServerDetails* iget(ServerId id) = 0;
+
+    /**
      * Retrieve the ServerDetails stored in the underlying subclass storage
      * at \a index, or NULL if there is no active server in that slot.
      *
      * \param index
      *      Index into table of server entries.
-     *
-     * \return ServerDetails contained at index
      */
-    virtual ServerDetails* iget(size_t index) = 0;
-
-    /**
-     * Return true if this ServerId is contained within the list, false
-     * otherwise
-     *
-     * \param id
-     *      ServerId to look up
-     */
-    virtual bool icontains(ServerId id) const = 0;
+    virtual ServerDetails* iget(uint32_t index) = 0;
 
     /**
      * Return the number of valid indexes in the list

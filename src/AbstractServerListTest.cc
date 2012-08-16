@@ -48,16 +48,20 @@ class AbstractServerListSubClass : public AbstractServerList {
     }
 
     ServerDetails*
-    iget(size_t index) {
-        return &(servers.at(index));
+    iget(ServerId id)
+    {
+        uint32_t index = id.indexNumber();
+        if (index < servers.size()) {
+            ServerDetails* details = &servers[index];
+            if (details->serverId == id)
+                return details;
+        }
+        return NULL;
     }
 
-    bool
-    icontains(ServerId id) const {
-        uint32_t index = id.indexNumber();
-
-        return  index < servers.size() &&
-                servers.at(index).serverId == id;
+    ServerDetails*
+    iget(uint32_t index) {
+        return &(servers.at(index));
     }
 
     size_t
@@ -146,8 +150,8 @@ TEST_F(AbstractServerListTest, isUp) {
     EXPECT_FALSE(sl.isUp(ServerId(1, 0)));
     ServerId& id1 = sl.add("mock::2", ServerStatus::UP);
     ServerId& id2 = sl.add("mock::3", ServerStatus::DOWN);
-    EXPECT_TRUE(sl.icontains(id1));
-    EXPECT_TRUE(sl.icontains(id2));
+    EXPECT_TRUE(sl.iget(id1) != NULL);
+    EXPECT_TRUE(sl.iget(id2) != NULL);
     EXPECT_TRUE(sl.isUp(id1));
     EXPECT_FALSE(sl.isUp(ServerId(1, 2)));
     EXPECT_FALSE(sl.isUp(ServerId(2, 0)));

@@ -108,6 +108,16 @@ TEST_F(CoordinatorServerListTest, constructor) {
     EXPECT_FALSE(sl.updater.stop);
 }
 
+TEST_F(CoordinatorServerListTest, iget_serverId) {
+    sl.serverList.resize(6);
+    sl.add(ServerId(5, 2), "mock:id=5", {WireFormat::MASTER_SERVICE}, 100);
+    EXPECT_TRUE(sl.iget({20, 0}) == NULL);
+    EXPECT_TRUE(sl.iget({2, 0}) == NULL);
+    EXPECT_TRUE(sl.iget({5, 1}) == NULL);
+    EXPECT_TRUE(sl.iget({5, 2}) != NULL);
+    EXPECT_EQ("mock:id=5", sl.iget({5, 2})->serviceLocator);
+}
+
 TEST_F(CoordinatorServerListTest, add) {
 
     sl.updater.halt(); // Stop Updater to see enqueued protobufs
