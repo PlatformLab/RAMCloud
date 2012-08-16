@@ -237,28 +237,28 @@ TEST_F(CoordinatorServerManagerTest, enlistServer_LogCabin) {
         serverManager->enlistServer(masterServerId,
                                     {WireFormat::BACKUP_SERVICE},
                                     0, 0, "mock:host=backup"));
+    ProtoBuf::ServerInformation readState;
 
-    string searchString = "execute: LogCabin: StateEnlistServer entryId: ";
+    string searchString = "execute: LogCabin: ServerEnlisting entryId: ";
     ASSERT_NO_THROW(findEntryId(searchString));
-    ProtoBuf::StateEnlistServer readState;
     serverManager->service.logCabinHelper->getProtoBufFromEntryId(
         findEntryId(searchString), readState);
-    EXPECT_EQ("entry_type: \"StateEnlistServer\"\n"
-              "new_server_id: 2\nservice_mask: 2\n"
+    EXPECT_EQ("entry_type: \"ServerEnlisting\"\n"
+              "server_id: 2\nservice_mask: 2\n"
               "read_speed: 0\nwrite_speed: 0\n"
               "service_locator: \"mock:host=backup\"\n",
               readState.DebugString());
 
-    searchString = "complete: LogCabin: ServerInformation entryId: ";
+    searchString = "complete: LogCabin: ServerEnlisted entryId: ";
     ASSERT_NO_THROW(findEntryId(searchString));
     ProtoBuf::ServerInformation readInfo;
     serverManager->service.logCabinHelper->getProtoBufFromEntryId(
-        findEntryId(searchString), readInfo);
-    EXPECT_EQ("entry_type: \"ServerInformation\"\n"
+        findEntryId(searchString), readState);
+    EXPECT_EQ("entry_type: \"ServerEnlisted\"\n"
               "server_id: 2\nservice_mask: 2\n"
               "read_speed: 0\nwrite_speed: 0\n"
               "service_locator: \"mock:host=backup\"\n",
-              readInfo.DebugString());
+              readState.DebugString());
 }
 
 TEST_F(CoordinatorServerManagerTest, removeReplicationGroup) {

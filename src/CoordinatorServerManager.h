@@ -21,7 +21,6 @@
 #include "Common.h"
 #include "CoordinatorServerList.h"
 #include "ServerInformation.pb.h"
-#include "StateEnlistServer.pb.h"
 #include "StateServerDown.pb.h"
 
 namespace RAMCloud {
@@ -57,7 +56,7 @@ class CoordinatorServerManager {
                           ServiceMask serviceMask,
                           const uint32_t readSpeed, const uint32_t writeSpeed,
                           const char* serviceLocator);
-    void enlistServerRecover(ProtoBuf::StateEnlistServer* state,
+    void enlistServerRecover(ProtoBuf::ServerInformation* state,
                              EntryId entryId);
     ProtoBuf::ServerList getServerList(ServiceMask serviceMask);
     bool hintServerDown(ServerId serverId);

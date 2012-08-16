@@ -146,19 +146,19 @@ CoordinatorServerManager::EnlistServer::execute()
 
     newServerId = manager.service.serverList.generateUniqueId();
 
-    ProtoBuf::StateEnlistServer state;
-    state.set_entry_type("StateEnlistServer");
+    ProtoBuf::ServerInformation state;
+    state.set_entry_type("ServerEnlisting");
+    state.set_server_id(newServerId.getId());
     state.set_service_mask(serviceMask.serialize());
     state.set_read_speed(readSpeed);
     state.set_write_speed(writeSpeed);
     state.set_service_locator(string(serviceLocator));
-    state.set_new_server_id(newServerId.getId());
 
-    EntryId stateEntryId =
+    EntryId entryId =
         manager.service.logCabinHelper->appendProtoBuf(state);
-    LOG(DEBUG, "LogCabin: StateEnlistServer entryId: %lu", stateEntryId);
+    LOG(DEBUG, "LogCabin: ServerEnlisting entryId: %lu", entryId);
 
-    return complete(stateEntryId);
+    return complete(entryId);
 }
 
 /**
@@ -199,18 +199,18 @@ CoordinatorServerManager::EnlistServer::complete(EntryId entryId)
         manager.createReplicationGroup();
     }
 
-    ProtoBuf::ServerInformation info;
-    info.set_entry_type("ServerInformation");
-    info.set_server_id(newServerId.getId());
-    info.set_service_mask(serviceMask.serialize());
-    info.set_read_speed(readSpeed);
-    info.set_write_speed(writeSpeed);
-    info.set_service_locator(string(serviceLocator));
+    ProtoBuf::ServerInformation state;
+    state.set_entry_type("ServerEnlisted");
+    state.set_server_id(newServerId.getId());
+    state.set_service_mask(serviceMask.serialize());
+    state.set_read_speed(readSpeed);
+    state.set_write_speed(writeSpeed);
+    state.set_service_locator(string(serviceLocator));
 
-    EntryId infoEntryId = manager.service.logCabinHelper->appendProtoBuf(
-        info, vector<EntryId>(entryId));
-    manager.service.serverList.addLogCabinEntryId(newServerId, infoEntryId);
-    LOG(DEBUG, "LogCabin: ServerInformation entryId: %lu", infoEntryId);
+    EntryId newEntryId = manager.service.logCabinHelper->appendProtoBuf(
+        state, vector<EntryId>(entryId));
+    manager.service.serverList.addLogCabinEntryId(newServerId, newEntryId);
+    LOG(DEBUG, "LogCabin: ServerEnlisted entryId: %lu", newEntryId);
 
     return newServerId;
 }
@@ -255,7 +255,7 @@ CoordinatorServerManager::enlistServer(
  */
 void
 CoordinatorServerManager::enlistServerRecover(
-    ProtoBuf::StateEnlistServer* state, EntryId entryId)
+    ProtoBuf::ServerInformation* state, EntryId entryId)
 {
     Lock _(mutex);
     EnlistServer(*this,
@@ -264,7 +264,7 @@ CoordinatorServerManager::enlistServerRecover(
                  state->read_speed(),
                  state->write_speed(),
                  state->service_locator().c_str(),
-                 ServerId(state->new_server_id())).complete(entryId);
+                 ServerId(state->server_id())).complete(entryId);
 }
 
 /**
