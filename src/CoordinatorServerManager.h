@@ -80,17 +80,17 @@ class CoordinatorServerManager {
       public:
           EnlistServer(CoordinatorServerManager &manager,
                        ServerId replacesId,
+                       ServerId newServerId,
                        ServiceMask serviceMask,
                        const uint32_t readSpeed,
                        const uint32_t writeSpeed,
-                       const char* serviceLocator,
-                       ServerId newServerId)
+                       const char* serviceLocator)
               : manager(manager),
                 replacesId(replacesId),
+                newServerId(newServerId),
                 serviceMask(serviceMask),
                 readSpeed(readSpeed), writeSpeed(writeSpeed),
-                serviceLocator(serviceLocator),
-                newServerId(newServerId) {}
+                serviceLocator(serviceLocator) {}
           ServerId execute();
           ServerId complete(EntryId entryId);
 
@@ -105,6 +105,10 @@ class CoordinatorServerManager {
     	   * Server id of the server that the enlisting server is replacing.
     	   */
           ServerId replacesId;
+          /**
+           * The id assigned to the enlisting server.
+           */
+          ServerId newServerId;
     	  /**
     	   * Services supported by the enlisting server.
     	   */
@@ -121,10 +125,6 @@ class CoordinatorServerManager {
     	   * Service Locator of the enlisting server.
     	   */
           const char* serviceLocator;
-          /**
-           * The id assigned to the enlisting server.
-           */
-          ServerId newServerId;
           DISALLOW_COPY_AND_ASSIGN(EnlistServer);
     };
 

@@ -239,9 +239,8 @@ CoordinatorServerManager::enlistServer(
     const uint32_t writeSpeed,  const char* serviceLocator)
 {
     Lock _(mutex);
-    return EnlistServer(*this, replacesId, serviceMask,
-                        readSpeed, writeSpeed, serviceLocator,
-                        ServerId()).execute();
+    return EnlistServer(*this, replacesId, ServerId(), serviceMask,
+                        readSpeed, writeSpeed, serviceLocator).execute();
 }
 
 /**
@@ -260,11 +259,11 @@ CoordinatorServerManager::enlistServerRecover(
     Lock _(mutex);
     EnlistServer(*this,
                  ServerId(),
+                 ServerId(state->server_id()),
                  ServiceMask::deserialize(state->service_mask()),
                  state->read_speed(),
                  state->write_speed(),
-                 state->service_locator().c_str(),
-                 ServerId(state->server_id())).complete(entryId);
+                 state->service_locator().c_str()).complete(entryId);
 }
 
 /**
