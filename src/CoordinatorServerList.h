@@ -98,9 +98,15 @@ class CoordinatorServerList : public AbstractServerList{
 
         /**
          * Entry id corresponding to entry in LogCabin log that has
-         * deatils for this server.
+         * intial information for this server.
          */
-         LogCabin::Client::EntryId logCabinEntryId;
+         LogCabin::Client::EntryId serverInfoLogId;
+
+        /**
+         * Entry id corresponding to entry in LogCabin log that has
+         * updates for this server.
+         */
+         LogCabin::Client::EntryId serverUpdateLogId;
     };
 
     explicit CoordinatorServerList(Context& context);
@@ -129,9 +135,12 @@ class CoordinatorServerList : public AbstractServerList{
     void sendServerList(ServerId& serverId);
     void sync();
 
-    void addLogCabinEntryId(ServerId serverId,
+    void addServerInfoLogId(ServerId serverId,
                             LogCabin::Client::EntryId entryId);
-    LogCabin::Client::EntryId getLogCabinEntryId(ServerId serverId);
+    void addServerUpdateLogId(ServerId serverId,
+                              LogCabin::Client::EntryId entryId);
+    LogCabin::Client::EntryId getServerInfoLogId(ServerId serverId);
+    LogCabin::Client::EntryId getServerUpdateLogId(ServerId serverId);
 
   PROTECTED:
     /// Internal Use Only - Does not grab locks

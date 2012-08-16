@@ -554,24 +554,45 @@ TEST_F(CoordinatorServerListTest, Entry_serialize) {
     EXPECT_EQ(ServerStatus::UP, ServerStatus(serialEntry2.status()));
 }
 
-TEST_F(CoordinatorServerListTest, addLogCabinEntryId) {
+TEST_F(CoordinatorServerListTest, addServerInfoLogId) {
     ServerId serverId = sl.generateUniqueId();
     sl.add(serverId, "", {WireFormat::MASTER_SERVICE}, 100);
-    sl.addLogCabinEntryId(serverId, 10);
+    sl.addServerInfoLogId(serverId, 10);
 
     CoordinatorServerList::Entry entry(sl.getReferenceFromServerId(serverId));
-    EXPECT_EQ(10U, entry.logCabinEntryId);
+    EXPECT_EQ(10U, entry.serverInfoLogId);
 }
 
-TEST_F(CoordinatorServerListTest, getLogCabinEntryIds) {
+TEST_F(CoordinatorServerListTest, getServerInfoLogId) {
     ServerId serverId = sl.generateUniqueId();
     sl.add(serverId, "", {WireFormat::MASTER_SERVICE}, 100);
     CoordinatorServerList::Entry& entry =
         const_cast<CoordinatorServerList::Entry&>(
             sl.getReferenceFromServerId(serverId));
-    entry.logCabinEntryId = 10U;
+    entry.serverInfoLogId = 10U;
 
-    LogCabin::Client::EntryId entryId = sl.getLogCabinEntryId(serverId);
+    LogCabin::Client::EntryId entryId = sl.getServerInfoLogId(serverId);
+    EXPECT_EQ(10U, entryId);
+}
+
+TEST_F(CoordinatorServerListTest, addServerUpdateLogId) {
+    ServerId serverId = sl.generateUniqueId();
+    sl.add(serverId, "", {WireFormat::MASTER_SERVICE}, 100);
+    sl.addServerUpdateLogId(serverId, 10);
+
+    CoordinatorServerList::Entry entry(sl.getReferenceFromServerId(serverId));
+    EXPECT_EQ(10U, entry.serverUpdateLogId);
+}
+
+TEST_F(CoordinatorServerListTest, getServerUpdateLogId) {
+    ServerId serverId = sl.generateUniqueId();
+    sl.add(serverId, "", {WireFormat::MASTER_SERVICE}, 100);
+    CoordinatorServerList::Entry& entry =
+        const_cast<CoordinatorServerList::Entry&>(
+            sl.getReferenceFromServerId(serverId));
+    entry.serverUpdateLogId = 10U;
+
+    LogCabin::Client::EntryId entryId = sl.getServerUpdateLogId(serverId);
     EXPECT_EQ(10U, entryId);
 }
 

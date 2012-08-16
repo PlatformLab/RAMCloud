@@ -419,10 +419,10 @@ TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentId) {
 }
 
 TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentIdRecover) {
-    EntryId serverInfoEntryId = serverList->getLogCabinEntryId(masterServerId);
+    EntryId serverInfoLogId = serverList->getServerInfoLogId(masterServerId);
     ProtoBuf::ServerInformation serverInfo;
     serverManager->service.logCabinHelper->getProtoBufFromEntryId(
-        serverInfoEntryId, serverInfo);
+        serverInfoLogId, serverInfo);
 
     serverInfo.set_min_open_segment_id(10);
     EntryId entryId =
@@ -437,7 +437,7 @@ TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentId_execute) {
     TestLog::Enable _;
     serverManager->setMinOpenSegmentId(masterServerId, 10);
 
-    EntryId entryId = serverList->getLogCabinEntryId(masterServerId);
+    EntryId entryId = serverList->getServerInfoLogId(masterServerId);
     ProtoBuf::ServerInformation readInfo;
     serverManager->service.logCabinHelper->getProtoBufFromEntryId(
         entryId, readInfo);

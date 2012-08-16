@@ -439,28 +439,77 @@ CoordinatorServerList::sendServerList(ServerId& serverId) {
             WireFormat::BACKUP_SERVICE});
     updater.sendFullList(serverId, serializedServerList);
 }
+
 /**
- * Add a LogCabin entry id corresponding to a state change for
- * a particular server.
+ * Add a LogCabin entry id corresponding to the intial information for a server.
+ *
+ * \param serverId
+ *      ServerId of the server for which the LogCabin entry id is being stored.
+ *
+ * \param entryId
+ *      LogCabin entry id corresponding to the intial information for server.
  */
 void
-CoordinatorServerList::addLogCabinEntryId(ServerId serverId,
+CoordinatorServerList::addServerInfoLogId(ServerId serverId,
                                           LogCabin::Client::EntryId entryId)
 {
     Lock _(mutex);
     Entry& entry = const_cast<Entry&>(getReferenceFromServerId(serverId));
-    entry.logCabinEntryId = entryId;
+    entry.serverInfoLogId = entryId;
 }
 
 /**
  * Return the entry id corresponding to entry in LogCabin log
- * that has details for the server with id serverId.
+ * that has the intial information for the server.
+ *
+ * \param serverId
+ *      ServerId of the server for whose initial information the
+ *      LogCabin entry id is being requested.
+ *
+ * \return
+ *      LogCabin entry id corresponding to the intial information for server.
  */
 LogCabin::Client::EntryId
-CoordinatorServerList::getLogCabinEntryId(ServerId serverId)
+CoordinatorServerList::getServerInfoLogId(ServerId serverId)
 {
     Entry& entry = const_cast<Entry&>(getReferenceFromServerId(serverId));
-    return entry.logCabinEntryId;
+    return entry.serverInfoLogId;
+}
+
+/**
+ * Add a LogCabin entry id corresponding to the updates for a server.
+ *
+ * \param serverId
+ *      ServerId of the server for which the LogCabin entry id is being stored.
+ *
+ * \param entryId
+ *      LogCabin entry id corresponding to the updates for server.
+ */
+void
+CoordinatorServerList::addServerUpdateLogId(ServerId serverId,
+                                            LogCabin::Client::EntryId entryId)
+{
+    Lock _(mutex);
+    Entry& entry = const_cast<Entry&>(getReferenceFromServerId(serverId));
+    entry.serverUpdateLogId = entryId;
+}
+
+/**
+ * Return the entry id corresponding to entry in LogCabin log
+ * that has the updates for the server.
+ *
+ * \param serverId
+ *      ServerId of the server for whose updates the
+ *      LogCabin entry id is being requested.
+ *
+ * \return
+ *      LogCabin entry id corresponding to the updates for server.
+ */
+LogCabin::Client::EntryId
+CoordinatorServerList::getServerUpdateLogId(ServerId serverId)
+{
+    Entry& entry = const_cast<Entry&>(getReferenceFromServerId(serverId));
+    return entry.serverUpdateLogId;
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -737,7 +786,8 @@ CoordinatorServerList::Entry::Entry()
     : ServerDetails()
     , minOpenSegmentId()
     , replicationId()
-    , logCabinEntryId()
+    , serverInfoLogId()
+    , serverUpdateLogId()
 {
 }
 
@@ -766,7 +816,8 @@ CoordinatorServerList::Entry::Entry(ServerId serverId,
                     ServerStatus::UP)
     , minOpenSegmentId(0)
     , replicationId(0)
-    , logCabinEntryId(LogCabin::Client::EntryId())
+    , serverInfoLogId(LogCabin::Client::EntryId())
+    , serverUpdateLogId(LogCabin::Client::EntryId())
 {
 }
 

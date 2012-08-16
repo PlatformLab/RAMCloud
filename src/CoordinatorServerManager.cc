@@ -209,7 +209,7 @@ CoordinatorServerManager::EnlistServer::complete(EntryId entryId)
 
     EntryId newEntryId = manager.service.logCabinHelper->appendProtoBuf(
         state, vector<EntryId>(entryId));
-    manager.service.serverList.addLogCabinEntryId(newServerId, newEntryId);
+    manager.service.serverList.addServerInfoLogId(newServerId, newEntryId);
     LOG(DEBUG, "LogCabin: ServerEnlisted entryId: %lu", newEntryId);
 
     return newServerId;
@@ -396,8 +396,8 @@ CoordinatorServerManager::ServerDown::complete(EntryId entryId)
     // Get the entry id for the LogCabin entry corresponding to this
     // server before the server information is removed from serverList,
     // so that the LogCabin entry can be invalidated later.
-    EntryId serverInfoEntryId =
-        manager.service.serverList.getLogCabinEntryId(serverId);
+    EntryId serverInfoLogId =
+        manager.service.serverList.getServerInfoLogId(serverId);
 
     // If this machine has a backup and master on the same server it is best
     // to remove the dead backup before initiating recovery. Otherwise, other
@@ -418,7 +418,7 @@ CoordinatorServerManager::ServerDown::complete(EntryId entryId)
     manager.createReplicationGroup();
 
     manager.service.logCabinLog->invalidate(vector<EntryId>(
-        serverInfoEntryId, entryId));
+        serverInfoLogId, entryId));
 }
 
 /**
@@ -460,7 +460,7 @@ void
 CoordinatorServerManager::SetMinOpenSegmentId::execute()
 {
     EntryId oldEntryId =
-        manager.service.serverList.getLogCabinEntryId(serverId);
+        manager.service.serverList.getServerInfoLogId(serverId);
     ProtoBuf::ServerInformation serverInfo;
     manager.service.logCabinHelper->getProtoBufFromEntryId(
         oldEntryId, serverInfo);
@@ -490,7 +490,7 @@ CoordinatorServerManager::SetMinOpenSegmentId::complete(EntryId entryId)
 {
     try {
         // Update local state.
-        manager.service.serverList.addLogCabinEntryId(serverId, entryId);
+        manager.service.serverList.addServerInfoLogId(serverId, entryId);
         manager.service.serverList.setMinOpenSegmentId(serverId, segmentId);
     } catch (const ServerListException& e) {
         LOG(WARNING, "setMinOpenSegmentId server doesn't exist: %lu",
