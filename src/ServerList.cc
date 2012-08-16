@@ -51,7 +51,7 @@ ServerDetails*
 ServerList::iget(ServerId id)
 {
     uint32_t index = id.indexNumber();
-    if ((index < serverList.size()) && (serverList[index])) {
+    if ((index < serverList.size()) && serverList[index]) {
         ServerDetails* details = serverList[index].get();
         if (details->serverId == id)
             return details;
