@@ -69,18 +69,8 @@ ServerIdRpcWrapper::handleTransportError()
         // would occur during testing otherwise).
         return true;
     }
-
-    bool up;
-    try {
-        up = context.serverList->isUp(id);
-    }
-    catch (Exception& e) {
-        // This exception happens if the server can't be found in the
-        // server list.  This means the server is down.
-        up = false;
-    }
     context.serverList->flushSession(id);
-    if (!up) {
+    if (!context.serverList->isUp(id)) {
         serverDown = true;
         return true;
     }
