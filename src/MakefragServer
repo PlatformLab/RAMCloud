@@ -1,8 +1,8 @@
 SERVER_SRCFILES := \
-		   src/AsyncIoQueue.cc \
 		   src/BackupReplica.cc \
 		   src/BackupService.cc \
 		   src/BackupStorage.cc \
+		   src/PriorityTaskQueue.cc \
 		   src/Server.cc \
 		   $(NULL)
 

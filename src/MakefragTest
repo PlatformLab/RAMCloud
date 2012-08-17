@@ -13,7 +13,6 @@ endif
 
 TESTS_SRCFILES := \
       src/AbstractServerListTest.cc \
-		  src/AsyncIoQueueTest.cc \
 		  src/AtomicTest.cc \
 		  src/BackupFailureMonitorTest.cc \
 		  src/BackupReplicaTest.cc \
@@ -65,6 +64,7 @@ TESTS_SRCFILES := \
 		  src/ObjectTest.cc \
 		  src/ObjectRpcWrapperTest.cc \
 		  src/PingServiceTest.cc \
+		  src/PriorityTaskQueueTest.cc \
 		  src/ProtoBufTest.cc \
 		  src/RawMetricsTest.cc \
 		  src/Recovery.cc \

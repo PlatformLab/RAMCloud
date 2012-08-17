@@ -49,7 +49,7 @@ Task::~Task()
 
 /**
  * Return true if this Task will be executed by #taskQueue. This call is safe
- * to even during concurrent operations on the underlying TaskManager.
+ * even during concurrent operations on the underlying TaskQueue.
  */
 bool
 Task::isScheduled()
@@ -59,7 +59,7 @@ Task::isScheduled()
 
 /**
  * Enqueue this Task for execution by #taskQueue. This call is safe
- * even during concurrent operations on the underlying TaskManager.
+ * even during concurrent operations on the underlying TaskQueue.
  *
  * Just before taskQueue executes this task, isScheduled() is reset to
  * false and this task will not be executed on subsequent passes made

@@ -84,7 +84,8 @@ TEST_F(TaskQueueTest, performTask)
         task2.schedule();
         taskQueue.performTask();
         EXPECT_FALSE(task1.isScheduled());
-        EXPECT_TRUE(task2.isScheduled()); taskQueue.performTask();
+        EXPECT_TRUE(task2.isScheduled());
+        taskQueue.performTask();
         EXPECT_FALSE(task2.isScheduled());
     }
     EXPECT_EQ(3, task1.count);
