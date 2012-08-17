@@ -265,7 +265,7 @@ RpcWrapper::send()
 }
 
 /**
- * This method is provides a simple implementation of \c wait that
+ * This method provides a simple implementation of \c wait that
  * doesn't do any processing of the result; it just waits for completion
  * and checks for errors.  It is invoked by various other wrapper
  * classes as their implementation of \c wait.
@@ -304,21 +304,6 @@ RpcWrapper::stateString() {
     static char buffer[100];
     snprintf(buffer, sizeof(buffer), "unknown (%d)", int(state));
     return buffer;
-}
-
-/**
- * This method is intended for use in testing transports: it sends the
- * request message to session, and updates the wrapper state accordingly.
- *
- * \param session
- *      Session on which to send the request.
- */
-void
-RpcWrapper::testSend(Transport::SessionRef session)
-{
-    this->session = session;
-    state = IN_PROGRESS;
-    session->sendRequest(&request, response, this);
 }
 
 /**
