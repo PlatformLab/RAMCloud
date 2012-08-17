@@ -530,6 +530,14 @@ CoordinatorServerList::add(Lock& lock,
 {
     uint32_t index = serverId.indexNumber();
 
+    // When add is not preceded by generateUniqueId(),
+    // for example, during coordinator recovery while adding a server that
+    // had already enlisted before the previous coordinator leader crashed,
+    // the serverList might not have space allocated for this index number.
+    // So we need to resize it explicitly.
+    if (index >= serverList.size())
+        serverList.resize(index + 1);
+
     auto& pair = serverList[index];
     pair.nextGenerationNumber = serverId.generationNumber();
     pair.nextGenerationNumber++;
