@@ -214,8 +214,8 @@ TEST_F(ServerListTest, applyUpdate_normal) {
     EXPECT_STREQ("mock:host=two", sl.getLocator(ServerId(2, 0)));
     EXPECT_EQ(
         "applyUpdate: Got server list update (version number 1) | "
-        "applyUpdate:   Removing server id 1 | "
-        "applyUpdate:   Adding server id 2 (locator \"mock:host=two\") "
+        "applyUpdate:   Removing server id 1.0 | "
+        "applyUpdate:   Adding server id 2.0 (locator \"mock:host=two\") "
             "with services BACKUP_SERVICE and 102 MB/s storage"
         , TestLog::get());
 }
@@ -246,7 +246,7 @@ TEST_F(ServerListTest, applyUpdate_versionOkButSomethingAmiss) {
     updateList.set_version_number(1);
     EXPECT_TRUE(sl.applyUpdate(updateList));
     EXPECT_EQ("applyUpdate: Got server list update (version number 1) | "
-        "applyUpdate:   Cannot remove server id 1: The server is not in "
+        "applyUpdate:   Cannot remove server id 1.0: The server is not in "
         "our list, despite list version numbers matching (1). Something is "
         "screwed up! Requesting the entire list again.", TestLog::get());
 }
@@ -285,20 +285,20 @@ TEST_F(ServerListTest, add) {
 
     // Duplicate ADD
     sl.add(ServerId(57, 1), "mock:", {}, 100);
-    EXPECT_EQ("add: Duplicate add of ServerId 4294967353!", TestLog::get());
+    EXPECT_EQ("add: Duplicate add of ServerId 57.1!", TestLog::get());
     TestLog::reset();
     EXPECT_EQ(0U, changes.size());
 
     // ADD of older ServerId
     sl.add(ServerId(57, 0), "mock:", {}, 100);
     EXPECT_EQ("add: Dropping addition of ServerId older than the current entry "
-        "(57 < 4294967353)!", TestLog::get());
+        "(57.0 < 57.1)!", TestLog::get());
     TestLog::reset();
     EXPECT_EQ(0U, changes.size());
 
     // ADD before previous REMOVE
     sl.add(ServerId(57, 2), "mock:", {}, 100);
-    EXPECT_EQ("add: Addition of 8589934649 seen before removal of 4294967353! "
+    EXPECT_EQ("add: Addition of 57.2 seen before removal of 57.1! "
         "Issuing removal before addition.", TestLog::get());
     TestLog::reset();
     EXPECT_EQ(3U, changes.size());
@@ -320,7 +320,7 @@ TEST_F(ServerListTest, addIdsMatchCurrentlyUp) {
     ASSERT_EQ(1u, changes.size());
     changes.pop();
     sl.add({1, 0}, "mock:", {}, 100);
-    EXPECT_EQ("add: Duplicate add of ServerId 1!", TestLog::get());
+    EXPECT_EQ("add: Duplicate add of ServerId 1.0!", TestLog::get());
     EXPECT_EQ(0U, changes.size());
 }
 
@@ -332,7 +332,7 @@ TEST_F(ServerListTest, addIdsMatchCurrentlyCrashed) {
     changes.pop();
     changes.pop();
     sl.add({1, 0}, "mock:", {}, 100);
-    EXPECT_EQ("add: Add of ServerId 1 after it had already been marked "
+    EXPECT_EQ("add: Add of ServerId 1.0 after it had already been marked "
               "crashed; ignoring", TestLog::get());
     EXPECT_EQ(0U, changes.size());
 }
@@ -352,7 +352,7 @@ TEST_F(ServerListTest, addNewerIdCurrentlyUp) {
     changes.pop();
     TestLog::Enable _;
     sl.add({1, 1}, "mock:", {}, 100);
-    EXPECT_EQ("add: Addition of 4294967297 seen before removal of 1! "
+    EXPECT_EQ("add: Addition of 1.1 seen before removal of 1.0! "
               "Issuing removal before addition.", TestLog::get());
     ASSERT_EQ(3U, changes.size());
     EXPECT_EQ(ServerId(1, 0), changes.front().server.serverId);
@@ -374,7 +374,7 @@ TEST_F(ServerListTest, addNewerIdCurrentlyCrashed) {
     changes.pop();
     TestLog::Enable _;
     sl.add({1, 1}, "mock:", {}, 100);
-    EXPECT_EQ("add: Addition of 4294967297 seen before removal of 1! "
+    EXPECT_EQ("add: Addition of 1.1 seen before removal of 1.0! "
               "Issuing removal before addition.", TestLog::get());
     ASSERT_EQ(2U, changes.size());
     EXPECT_EQ(ServerId(1, 0), changes.front().server.serverId);
@@ -417,7 +417,7 @@ TEST_F(ServerListTest, crashedIdsMatchCurrentlyCrashed) {
     sl.crashed({1, 0}, "mock:", {}, 100);
     TestLog::Enable _;
     sl.crashed({1, 0}, "mock:", {}, 100);
-    EXPECT_EQ("crashed: Duplicate crash of ServerId 1!", TestLog::get());
+    EXPECT_EQ("crashed: Duplicate crash of ServerId 1.0!", TestLog::get());
     EXPECT_TRUE(sl.serverList[1]);
     EXPECT_EQ(ServerStatus::CRASHED, sl.serverList[1]->status);
     ASSERT_EQ(1u, changes.size());
@@ -449,7 +449,7 @@ TEST_F(ServerListTest, crashedNewerIdCurrentlyUp) {
     changes.pop();
     TestLog::Enable _;
     sl.crashed({1, 1}, "mock:", {}, 100);
-    EXPECT_EQ("crashed: Crash of 4294967297 seen before crash of 1! "
+    EXPECT_EQ("crashed: Crash of 1.1 seen before crash of 1.0! "
               "Issuing crash/removal before addition.", TestLog::get());
     EXPECT_TRUE(sl.serverList[1]);
     EXPECT_EQ(ServerStatus::CRASHED, sl.serverList[1]->status);
@@ -477,7 +477,7 @@ TEST_F(ServerListTest, crashedNewerIdCurrentlyCrashed) {
     changes.pop();
     TestLog::Enable _;
     sl.crashed({1, 1}, "mock:", {}, 100);
-    EXPECT_EQ("crashed: Crash of 4294967297 seen before crash of 1! "
+    EXPECT_EQ("crashed: Crash of 1.1 seen before crash of 1.0! "
               "Issuing crash/removal before addition.", TestLog::get());
     EXPECT_TRUE(sl.serverList[1]);
     EXPECT_EQ(ServerStatus::CRASHED, sl.serverList[1]->status);
@@ -511,9 +511,9 @@ TEST_F(ServerListTest, remove) {
     sl.remove(ServerId(0, 0)); // remove non-existant
     sl.remove(ServerId(1, 0)); // remove for old version
 
-    EXPECT_EQ("remove: Ignoring removal of unknown ServerId 0 | "
-        "remove: Ignoring removal of unknown ServerId 0 | "
-        "remove: Ignoring removal of unknown ServerId 1",
+    EXPECT_EQ("remove: Ignoring removal of unknown ServerId 0.0 | "
+        "remove: Ignoring removal of unknown ServerId 0.0 | "
+        "remove: Ignoring removal of unknown ServerId 1.0",
         TestLog::get());
     TestLog::reset();
 
@@ -533,8 +533,8 @@ TEST_F(ServerListTest, remove) {
     sl.add(ServerId(1, 1), "mock:", {}, 100);
     changes.pop();
     sl.remove(ServerId(1, 2));
-    EXPECT_EQ("remove: Removing ServerId 4294967297 because removal for a "
-        "newer generation number was received (8589934593)", TestLog::get());
+    EXPECT_EQ("remove: Removing ServerId 1.1 because removal for a "
+        "newer generation number was received (1.2)", TestLog::get());
     TestLog::reset();
     EXPECT_FALSE(sl.serverList[1]);
     EXPECT_EQ(2U, changes.size());
@@ -563,8 +563,8 @@ TEST_F(ServerListTest, remove) {
     sl.add(ServerId(1, 1), "mock:", {}, 100);
     changes.pop();
     sl.remove(ServerId(1, 2));
-    EXPECT_EQ("remove: Removing ServerId 4294967297 because removal for a "
-        "newer generation number was received (8589934593)", TestLog::get());
+    EXPECT_EQ("remove: Removing ServerId 1.1 because removal for a "
+        "newer generation number was received (1.2)", TestLog::get());
     TestLog::reset();
     EXPECT_FALSE(sl.serverList[1]);
     EXPECT_EQ(2U, changes.size());
@@ -614,7 +614,7 @@ TEST_F(ServerListTest, removeCurrentlyDown) {
     changes.pop();
     TestLog::Enable _;
     sl.remove({1, 0});
-    EXPECT_EQ("remove: Ignoring removal of unknown ServerId 1",
+    EXPECT_EQ("remove: Ignoring removal of unknown ServerId 1.0",
               TestLog::get());
     EXPECT_EQ(0u, changes.size());
 }
@@ -626,8 +626,8 @@ TEST_F(ServerListTest, removeNewerIdCurrentlyUp) {
     changes.pop();
     TestLog::Enable _;
     sl.remove({1, 1});
-    EXPECT_EQ("remove: Removing ServerId 1 because removal for a newer "
-              "generation number was received (4294967297)", TestLog::get());
+    EXPECT_EQ("remove: Removing ServerId 1.0 because removal for a newer "
+              "generation number was received (1.1)", TestLog::get());
     ASSERT_EQ(2u, changes.size());
     EXPECT_EQ(ServerId(1, 0), changes.front().server.serverId);
     EXPECT_EQ(ServerChangeEvent::SERVER_CRASHED, changes.front().event);

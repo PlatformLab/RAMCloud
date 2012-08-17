@@ -137,9 +137,9 @@ CoordinatorServerManager::EnlistServer::execute()
 
     if (manager.service.serverList.contains(replacesId)) {
         LOG(NOTICE, "%s is enlisting claiming to replace server id "
-            "%lu, which is still in the server list, taking its word "
+            "%s, which is still in the server list, taking its word "
             "for it and assuming the old server has failed",
-            serviceLocator, replacesId.getId());
+            serviceLocator, replacesId.toString().c_str());
 
         manager.serverDown(replacesId);
     }
@@ -182,21 +182,22 @@ CoordinatorServerManager::EnlistServer::complete(EntryId entryId)
     CoordinatorServerList::Entry entry =
             manager.service.serverList[newServerId];
 
-    LOG(NOTICE, "Enlisting new server at %s (server id %lu) supporting "
-        "services: %s", serviceLocator, newServerId.getId(),
+    LOG(NOTICE, "Enlisting new server at %s (server id %s) supporting "
+        "services: %s", serviceLocator, newServerId.toString().c_str(),
         entry.services.toString().c_str());
 
     if (entry.services.has(WireFormat::MEMBERSHIP_SERVICE))
         manager.sendServerList(newServerId);
 
     if (replacesId.isValid()) {
-        LOG(NOTICE, "Newly enlisted server %lu replaces server %lu",
-            newServerId.getId(), replacesId.getId());
+        LOG(NOTICE, "Newly enlisted server %s replaces server %s",
+            newServerId.toString().c_str(),
+            replacesId.toString().c_str());
     }
 
     if (entry.isBackup()) {
-        LOG(DEBUG, "Backup at id %lu has %u MB/s read %u MB/s write",
-            newServerId.getId(), readSpeed, writeSpeed);
+        LOG(DEBUG, "Backup at id %s has %u MB/s read %u MB/s write",
+            newServerId.toString().c_str(), readSpeed, writeSpeed);
         manager.createReplicationGroup();
     }
 
@@ -297,18 +298,18 @@ CoordinatorServerManager::hintServerDown(ServerId serverId)
     Lock _(mutex);
     if (!service.serverList.contains(serverId) ||
          service.serverList[serverId].status != ServerStatus::UP) {
-         LOG(NOTICE, "Spurious crash report on unknown server id %lu",
-             serverId.getId());
+         LOG(NOTICE, "Spurious crash report on unknown server id %s",
+             serverId.toString().c_str());
          return true;
      }
 
-     LOG(NOTICE, "Checking server id %lu (%s)",
-         serverId.getId(), service.serverList.getLocator(serverId));
+     LOG(NOTICE, "Checking server id %s (%s)",
+         serverId.toString().c_str(), service.serverList.getLocator(serverId));
      if (!verifyServerFailure(serverId))
          return false;
 
-     LOG(NOTICE, "Server id %lu has crashed, notifying the cluster and "
-         "starting recovery", serverId.getId());
+     LOG(NOTICE, "Server id %s has crashed, notifying the cluster and "
+         "starting recovery", serverId.toString().c_str());
 
      serverDown(serverId);
 
@@ -508,8 +509,8 @@ CoordinatorServerManager::SetMinOpenSegmentId::complete(EntryId entryId)
         manager.service.serverList.addServerUpdateLogId(serverId, entryId);
         manager.service.serverList.setMinOpenSegmentId(serverId, segmentId);
     } catch (const ServerListException& e) {
-        LOG(WARNING, "setMinOpenSegmentId server doesn't exist: %lu",
-            serverId.getId());
+        LOG(WARNING, "setMinOpenSegmentId server doesn't exist: %s",
+            serverId.toString().c_str());
         manager.service.logCabinLog->invalidate(vector<EntryId>(entryId));
         throw ServerListException(e);
     }
@@ -570,12 +571,12 @@ CoordinatorServerManager::verifyServerFailure(ServerId serverId) {
     const string& serviceLocator = service.serverList[serverId].serviceLocator;
     PingRpc pingRpc(service.context, serverId, ServerId());
     if (pingRpc.wait(TIMEOUT_USECS * 1000) != ~0UL) {
-        LOG(NOTICE, "False positive for server id %lu (\"%s\")",
-                    *serverId, serviceLocator.c_str());
+        LOG(NOTICE, "False positive for server id %s (\"%s\")",
+                    serverId.toString().c_str(), serviceLocator.c_str());
         return false;
     }
-    LOG(NOTICE, "Verified host failure: id %lu (\"%s\")",
-        *serverId, serviceLocator.c_str());
+    LOG(NOTICE, "Verified host failure: id %s (\"%s\")",
+        serverId.toString().c_str(), serviceLocator.c_str());
     return true;
 }
 

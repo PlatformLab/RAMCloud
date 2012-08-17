@@ -186,8 +186,8 @@ TEST_F(AbstractServerListTest, getSession_serverIdDoesntMatch) {
     transport.setInput("0 6 7");
     ServerId& id1 = sl.add("mock:id=1", ServerStatus::UP);
     EXPECT_EQ("fail:", sl.getSession(id1)->getServiceLocator());
-    EXPECT_EQ("getSession: Expected ServerId 0 for \"mock:id=1\", but "
-            "actual server id was 30064771078", TestLog::get());
+    EXPECT_EQ("getSession: Expected ServerId 0.0 for \"mock:id=1\", but "
+            "actual server id was 6.7", TestLog::get());
     context.transportManager->unregisterMock();
 }
 TEST_F(AbstractServerListTest, getSession_transportErrorCheckingId) {
@@ -407,10 +407,10 @@ TEST_F(AbstractServerListTest, size) {
 }
 
 TEST_F(AbstractServerListTest, toString) {
-    EXPECT_EQ("server 1 at (locator unavailable)",
+    EXPECT_EQ("server 1.0 at (locator unavailable)",
               sl.toString(ServerId(1)));
     ServerId& id = sl.add("mock:service=locator", ServerStatus::UP);
-    EXPECT_EQ("server 0 at mock:service=locator",
+    EXPECT_EQ("server 0.0 at mock:service=locator",
               sl.toString(id));
 }
 
@@ -425,13 +425,13 @@ TEST_F(AbstractServerListTest, toString_all) {
     sl.add("locator 1", ServerStatus::CRASHED);
     sl.servers.back().services = {WireFormat::MASTER_SERVICE};
     EXPECT_EQ(
-        "server 0 at locator 1 with MASTER_SERVICE is CRASHED\n",
+        "server 0.0 at locator 1 with MASTER_SERVICE is CRASHED\n",
         sl.toString());
     sl.add("locatez twoz", ServerStatus::UP);
     sl.servers.back().services = {WireFormat::BACKUP_SERVICE};
     EXPECT_EQ(
-        "server 0 at locator 1 with MASTER_SERVICE is CRASHED\n"
-        "server 1 at locatez twoz with BACKUP_SERVICE is UP\n",
+        "server 0.0 at locator 1 with MASTER_SERVICE is CRASHED\n"
+        "server 1.0 at locatez twoz with BACKUP_SERVICE is UP\n",
         sl.toString());
 }
 

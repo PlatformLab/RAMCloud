@@ -283,9 +283,10 @@ class ServerTracker : public ServerTrackerInterface {
                 // exists solely to ensure that you aren't leaking anything.
                 RAMCLOUD_LOG(WARNING,
                     "User of this ServerTracker did not NULL out "
-                    "previous pointer for index %u (ServerId %lu)!",
+                    "previous pointer for index %u (ServerId %s)!",
                     lastRemovedIndex,
-                    serverList[lastRemovedIndex].server.serverId.getId());
+                    serverList[lastRemovedIndex].server.serverId.
+                    toString().c_str());
                 assert(testing_avoidGetChangeAssertion);
             }
 
@@ -431,8 +432,8 @@ class ServerTracker : public ServerTrackerInterface {
         if (index >= serverList.size() ||
             serverList[index].server.serverId != id) {
             throw Exception(HERE,
-                            format("ServerId %lu is not in this tracker.",
-                                   id.getId()));
+                            format("ServerId %s is not in this tracker.",
+                                   id.toString().c_str()));
         }
 
         return &serverList[index].server;
@@ -487,8 +488,8 @@ class ServerTracker : public ServerTrackerInterface {
             if (!server.server.serverId.isValid())
                 continue;
             result.append(
-                format("server %lu at %s with %s is %s\n",
-                       server.server.serverId.getId(),
+                format("server %s at %s with %s is %s\n",
+                       server.server.serverId.toString().c_str(),
                        server.server.serviceLocator.c_str(),
                        server.server.services.toString().c_str(),
                        ServerList::toString(server.server.status).c_str()));

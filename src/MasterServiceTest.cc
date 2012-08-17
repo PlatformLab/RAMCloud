@@ -534,31 +534,31 @@ TEST_F(MasterServiceTest, recover_basics) {
                           arrayLength(replicas));
 
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "recover: Recovering master 123, partition 0, 1 replicas available | "
-        "recover: Starting getRecoveryData from server 1 at "
+        "recover: Recovering master 123.0, partition 0, 1 replicas available | "
+        "recover: Starting getRecoveryData from server 1.0 at "
         "mock:host=backup1 for "
         "segment 87 on channel 0 (initial round of RPCs) | "
         "recover: Waiting on recovery data for segment 87 from "
-        "server 1 at mock:host=backup1 | ",
+        "server 1.0 at mock:host=backup1 | ",
         TestLog::get()));
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
         "recover: Recovering segment 87 with size 7 | "
         "recoverSegment: recoverSegment 87, ... | ",
         TestLog::get()));
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "recover: Checking server 1 at mock:host=backup1 "
+        "recover: Checking server 1.0 at mock:host=backup1 "
         "off the list for 87 | "
-        "recover: Checking server 1 at mock:host=backup1 "
+        "recover: Checking server 1.0 at mock:host=backup1 "
         "off the list for 87 | ",
         TestLog::get()));
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "recover: set tablet 123 0 9 to locator mock:host=master, id 2 | "
-        "recover: set tablet 123 10 19 to locator mock:host=master, id 2 | "
-        "recover: set tablet 123 20 29 to locator mock:host=master, id 2 | "
+        "recover: set tablet 123 0 9 to locator mock:host=master, id 2.0 | "
+        "recover: set tablet 123 10 19 to locator mock:host=master, id 2.0 | "
+        "recover: set tablet 123 20 29 to locator mock:host=master, id 2.0 | "
         "recover: set tablet 124 20 100 to locator mock:host=master, "
-        "id 2 | "
+        "id 2.0 | "
         "recover: Reporting completion of recovery 10 | "
-        "recoveryMasterFinished: called by masterId 2 with 4 tablets",
+        "recoveryMasterFinished: called by masterId 2.0 with 4 tablets",
         TestLog::get()));
 }
 
@@ -644,7 +644,8 @@ TEST_F(MasterServiceTest, recover) {
                  SegmentRecoveryFailedException);
     // 1,2,3) 87 was requested from the first server list entry.
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "recover: Starting getRecoveryData from server . at mock:host=backup1 "
+        "recover: Starting getRecoveryData from server .\\.0 "
+        "at mock:host=backup1 "
         "for segment 87 on channel . (initial round of RPCs)",
         TestLog::get()));
     typedef MasterService::Replica::State State;
@@ -652,24 +653,28 @@ TEST_F(MasterServiceTest, recover) {
     // 2,3) 87 was *not* requested a second time in the initial RPC round
     // but was requested later once the first failed.
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "recover: Starting getRecoveryData from server . at mock:host=backup2 "
+        "recover: Starting getRecoveryData from server .\\.0 "
+        "at mock:host=backup2 "
         "for segment 87 .* (after RPC completion)",
         TestLog::get()));
     // 1,4) 88 was requested from the third server list entry and
     //      succeeded, which knocks the third and forth entries into
     //      OK status, preventing the launch of the forth entry
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "recover: Starting getRecoveryData from server . at mock:host=backup1 "
+        "recover: Starting getRecoveryData from server .\\.0 "
+        "at mock:host=backup1 "
         "for segment 88 on channel . (initial round of RPCs)",
         TestLog::get()));
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "recover: Checking server . at mock:host=backup1 off the list for 88"
-        " | "
-        "recover: Checking server . at mock:host=backup2 off the list for 88",
+        "recover: Checking server .\\.0 at mock:host=backup1 off "
+        "the list for 88 | "
+        "recover: Checking server .\\.0 at mock:host=backup2 off "
+        "the list for 88",
         TestLog::get()));
     // 1,4) 88 was requested NOT from the forth server list entry.
     EXPECT_TRUE(TestUtil::doesNotMatchPosixRegex(
-        "recover: Starting getRecoveryData from server . at mock:host=backup2 "
+        "recover: Starting getRecoveryData from server .\\.0 "
+        "at mock:host=backup2 "
         "for segment 88 .* (after RPC completion)",
         TestLog::get()));
     EXPECT_EQ(State::OK, replicas.at(2).state);
@@ -678,37 +683,40 @@ TEST_F(MasterServiceTest, recover) {
     //    and that 91 got issued in place, first-found due to 90's
     //    bad locator
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "recover: Starting getRecoveryData from server . at mock:host=backup1 "
+        "recover: Starting getRecoveryData from server .\\.0 "
+        "at mock:host=backup1 "
         "for segment 89 on channel . (initial round of RPCs)",
         TestLog::get()));
     EXPECT_EQ(State::FAILED, replicas.at(4).state);
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "recover: Starting getRecoveryData from server 1003 at "
+        "recover: Starting getRecoveryData from server 1003.0 at "
         "(locator unavailable) "
         "for segment 90 on channel . (initial round of RPCs)",
         TestLog::get()));
     // 5) Checks bad locators for initial RPCs are handled
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "recover: No record of backup 1003, trying next backup",
+        "recover: No record of backup 1003.0, trying next backup",
         TestLog::get()));
     EXPECT_EQ(State::FAILED, replicas.at(5).state);
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "recover: Starting getRecoveryData from server . at mock:host=backup1 "
+        "recover: Starting getRecoveryData from server .\\.0 "
+        "at mock:host=backup1 "
         "for segment 91 on channel . (after RPC completion)",
         TestLog::get()));
     EXPECT_EQ(State::FAILED, replicas.at(6).state);
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "recover: Starting getRecoveryData from server 1004 at "
+        "recover: Starting getRecoveryData from server 1004.0 at "
         "(locator unavailable) "
         "for segment 92 on channel . (after RPC completion)",
         TestLog::get()));
     // 5) Checks bad locators for non-initial RPCs are handled
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "recover: No record of backup 1004, trying next backup",
+        "recover: No record of backup 1004.0, trying next backup",
         TestLog::get()));
     EXPECT_EQ(State::FAILED, replicas.at(7).state);
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "recover: Starting getRecoveryData from server . at mock:host=backup1 "
+        "recover: Starting getRecoveryData from server .\\.0 "
+        "at mock:host=backup1 "
         "for segment 93 on channel . (after RPC completion)",
         TestLog::get()));
     EXPECT_EQ(State::FAILED, replicas.at(8).state);
@@ -730,7 +738,7 @@ TEST_F(MasterServiceTest, recover_ctimeUpdateIssued) {
                           ServerId(123), 0, tablets, replicas, 0);
 
     EXPECT_TRUE(StringUtil::startsWith(TestLog::get(),
-        "recoveryMasterFinished: called by masterId 2 with 4 tablets | "
+        "recoveryMasterFinished: called by masterId 2.0 with 4 tablets | "
         "recoveryMasterFinished: Recovered tablets | "
         "recoveryMasterFinished: tablet { "
         "table_id: 123 start_key_hash: 0 end_key_hash: 9 state: RECOVERING "
@@ -1367,7 +1375,7 @@ TEST_F(MasterServiceTest, migrateTablet_movingData) {
 
     ramcloud->migrateTablet(tbl, 0, -1, master2->serverId);
     EXPECT_EQ("migrateTablet: Migrating tablet (id 0, first 0, last "
-        "18446744073709551615) to ServerId 3 (\"mock:host=master2\") "
+        "18446744073709551615) to ServerId 3.0 (\"mock:host=master2\") "
         "| migrateTablet: Sending last migration segment | "
         "migrateTablet: Tablet migration succeeded. Sent 1 objects "
         "and 0 tombstones. 35 bytes in total.", TestLog::get());
@@ -2033,7 +2041,7 @@ TEST_F(MasterRecoverTest, recover) {
     TestLog::Enable _(&recoverSegmentFilter);
     master->recover(ServerId(99, 0), 0, replicas);
     EXPECT_EQ(0U, TestLog::get().find(
-        "recover: Recovering master 99, partition 0, 3 replicas "
+        "recover: Recovering master 99.0, partition 0, 3 replicas "
         "available"));
     EXPECT_NE(string::npos, TestLog::get().find(
         "recoverSegment: Segment 88 replay complete"));
@@ -2057,15 +2065,18 @@ TEST_F(MasterRecoverTest, failedToRecoverAll) {
                  SegmentRecoveryFailedException);
     string log = TestLog::get();
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "recover: Recovering master 99, partition 0, 2 replicas available | "
-        "recover: Starting getRecoveryData from server . at mock:host=backup1 "
-        "for segment 87 on channel 0 (initial round of RPCs) | "
-        "recover: Starting getRecoveryData from server . at mock:host=backup1 "
-        "for segment 88 on channel 1 (initial round of RPCs) | "
+        "recover: Recovering master 99.0, partition 0, 2 replicas available | "
+        "recover: Starting getRecoveryData from server .\\.0 at "
+        "mock:host=backup1 for segment 87 on channel 0 "
+        "(initial round of RPCs) | "
+        "recover: Starting getRecoveryData from server .\\.0 at "
+        "mock:host=backup1 for segment 88 on channel 1 "
+        "(initial round of RPCs) | "
         "recover: Waiting on recovery data for segment 87 from "
-        "server . at mock:host=backup1 | "
-        "recover: getRecoveryData failed on server . at mock:host=backup1, "
-        "trying next backup; failure was: bad segment id",
+        "server .\\.0 at mock:host=backup1 | "
+        "recover: getRecoveryData failed on server .\\.0 at "
+        "mock:host=backup1, trying next backup; failure was: "
+        "bad segment id",
         log.substr(0, log.find(" thrown at"))));
 }
 

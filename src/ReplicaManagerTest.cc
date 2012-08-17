@@ -343,22 +343,22 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
         // the completion of the test is also checking to make sure that
         // BackupFailureMonitor is driving the ReplicaManager proceed()
         // loop until recovery has completed.
-        "main: Notifying log of failure of serverId 1 | "
+        "main: Notifying log of failure of serverId 1.0 | "
         // Next few, ensure open/closed segments get tagged appropriately
         // since recovery is different for each.
-        "handleBackupFailure: Handling backup failure of serverId 1 | "
+        "handleBackupFailure: Handling backup failure of serverId 1.0 | "
         "handleBackupFailure: Segment 0 recovering from lost replica "
-            "which was on backup 1 | "
+            "which was on backup 1.0 | "
         "handleBackupFailure: Segment 1 recovering from lost replica "
-            "which was on backup 1 | "
+            "which was on backup 1.0 | "
         "handleBackupFailure: Lost replica(s) for segment 1 "
-            "while open due to crash of backup 1 | "
+            "while open due to crash of backup 1.0 | "
         "handleBackupFailure: Highest affected segmentId 1 | "
         // Ensure a new log head is allocated.
         "main: Allocating a new log head | "
         // Which provides the required new log digest via open.
-        "allocateSegment: Allocating new replicated segment for <3,2> | "
-        "close: 3, 1, 2 | "
+        "allocateSegment: Allocating new replicated segment for <3.0,2> | "
+        "close: 3.0, 1, 2 | "
         // And which also provides the needed close on the log segment
         // with the lost open replica.
         "close: Segment 1 closed (length 180) | "
@@ -368,35 +368,35 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
             "durably open | "
         // Re-replication of Segment 1's lost replica.
         "performWrite: Starting replication of segment 1 replica slot 1 "
-            "on backup 4 | "
-        "performWrite: Sending open to backup 4 | "
-        "writeSegment: Opening <3,1> | "
+            "on backup 4.0 | "
+        "performWrite: Sending open to backup 4.0 | "
+        "writeSegment: Opening <3.0,1> | "
         // Re-replication of Segment 0's lost replica.
-        "selectPrimary: Chose server 4 with 0 primary replicas and 100 MB/s "
+        "selectPrimary: Chose server 4.0 with 0 primary replicas and 100 MB/s "
             "disk bandwidth (expected time to read on recovery is 80 ms) | "
         "performWrite: Starting replication of segment 0 replica slot 0 "
-            "on backup 4 | "
-        "performWrite: Sending open to backup 4 | "
-        "writeSegment: Opening <3,0> | "
+            "on backup 4.0 | "
+        "performWrite: Sending open to backup 4.0 | "
+        "writeSegment: Opening <3.0,0> | "
         // Starting replication of new log head Segment 2.
-        "selectPrimary: Chose server 2 with 1 primary replicas and 100 MB/s "
+        "selectPrimary: Chose server 2.0 with 1 primary replicas and 100 MB/s "
             "disk bandwidth (expected time to read on recovery is 160 ms) | "
         "performWrite: Starting replication of segment 2 replica slot 0 "
-            "on backup 2 | "
+            "on backup 2.0 | "
         // But replication cannot start right away because preceding segments
         // haven't been durably opened.
         "performWrite: Cannot open segment 2 until preceding segment is "
             "durably open | "
         "performWrite: Starting replication of segment 2 replica slot 1 "
-            "on backup 4 | "
+            "on backup 4.0 | "
         "performWrite: Cannot open segment 2 until preceding segment is "
             "durably open | "
         "performWrite: Cannot close segment 1 until following segment is "
             "durably open | "
-        "performWrite: Sending open to backup 2 | "
-        "writeSegment: Opening <3,2> | "
-        "performWrite: Sending open to backup 4 | "
-        "writeSegment: Opening <3,2> | "
+        "performWrite: Sending open to backup 2.0 | "
+        "writeSegment: Opening <3.0,2> | "
+        "performWrite: Sending open to backup 4.0 | "
+        "writeSegment: Opening <3.0,2> | "
         // Segment 1 is still waiting for the RPC for the open for Segment 2
         // to be reaped to ensure that it is durably open. Repeats twice
         // because segment 2 was delayed in sending its open due to the open
@@ -410,9 +410,9 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
         // That frees Segment 1 to finally send it's closing write which
         // accounts for 2 rpcs, one to each of its replicas.  The other
         // write is to finish the replication of segment 0.
-        "performWrite: Sending write to backup 4 | "
-        "performWrite: Sending write to backup 2 | "
-        "performWrite: Sending write to backup 4 | "
+        "performWrite: Sending write to backup 4.0 | "
+        "performWrite: Sending write to backup 2.0 | "
+        "performWrite: Sending write to backup 4.0 | "
         // Update minOpenSegmentId on the coordinator to complete the lost
         // open segment recovery protocol.
         // Happens a few times because the code just polls to keep updating
@@ -420,12 +420,12 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
         // RPC is sent, though.
         "performTask: Updating minOpenSegmentId on coordinator to ensure lost "
             "replicas of segment 1 will not be reused | "
-        "updateToAtLeast: request update to minOpenSegmentId for 3 to 2 | "
-        "setMinOpenSegmentId: setMinOpenSegmentId for server 3 to 2 | "
+        "updateToAtLeast: request update to minOpenSegmentId for 3.0 to 2 | "
+        "setMinOpenSegmentId: setMinOpenSegmentId for server 3.0 to 2 | "
         "performTask: Updating minOpenSegmentId on coordinator to ensure lost "
             "replicas of segment 1 will not be reused | "
-        "updateToAtLeast: request update to minOpenSegmentId for 3 to 2 | "
-        "performTask: coordinator minOpenSegmentId for 3 updated to 2 | "
+        "updateToAtLeast: request update to minOpenSegmentId for 3.0 to 2 | "
+        "performTask: coordinator minOpenSegmentId for 3.0 updated to 2 | "
         "performTask: minOpenSegmentId ok, lost open replica recovery "
             "complete on segment 1"
         , TestLog::get());

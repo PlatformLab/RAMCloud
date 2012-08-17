@@ -129,7 +129,7 @@ ReplicatedSegment::~ReplicatedSegment()
 void
 ReplicatedSegment::free()
 {
-    TEST_LOG("%lu, %lu", *masterId, segmentId);
+    TEST_LOG("%s, %lu", masterId.toString().c_str(), segmentId);
 
     // The order is important and rather subtle here:
     // First, mark the segment as queued for freeing.
@@ -188,8 +188,8 @@ void
 ReplicatedSegment::close()
 {
     Lock _(dataMutex);
-    TEST_LOG("%lu, %lu, %lu", *masterId, segmentId, followingSegment ?
-                                            followingSegment->segmentId : 0);
+    TEST_LOG("%s, %lu, %lu", masterId.toString().c_str(), segmentId,
+             followingSegment ? followingSegment->segmentId : 0);
 
     // immutable after close
     assert(!queued.close);
@@ -245,7 +245,7 @@ ReplicatedSegment::handleBackupFailure(ServerId failedId)
         if (!replica.isActive || replica.backupId != failedId)
             continue;
         LOG(DEBUG, "Segment %lu recovering from lost replica which was on "
-            "backup %lu", segmentId, failedId.getId());
+            "backup %s", segmentId, failedId.toString().c_str());
         ++metrics->master.replicaRecoveries;
 
         // If the segment contains a digest, isn't durably acked, and
@@ -258,7 +258,7 @@ ReplicatedSegment::handleBackupFailure(ServerId failedId)
             !recoveringFromLostOpenReplicas) {
             recoveringFromLostOpenReplicas = true;
             LOG(DEBUG, "Lost replica(s) for segment %lu while open due to "
-                "crash of backup %lu", segmentId, failedId.getId());
+                "crash of backup %s", segmentId, failedId.toString().c_str());
             ++metrics->master.openReplicaRecoveries;
         }
 
@@ -538,8 +538,8 @@ ReplicatedSegment::performWrite(Replica& replica)
             backupId = backupSelector.selectSecondary(numConflicts, conflicts);
         }
         LOG(DEBUG, "Starting replication of segment %lu replica slot %ld "
-            "on backup %lu", segmentId, &replica - &replicas[0],
-            backupId.getId());
+            "on backup %s", segmentId, &replica - &replicas[0],
+            backupId.toString().c_str());
         replica.start(backupId);
         // Fall-through: this should drop down into the case that no
         // writeRpc is outstanding and the open hasn't been acknowledged
@@ -573,14 +573,14 @@ ReplicatedSegment::performWrite(Replica& replica)
                 // handleBackupFailure to reset the replica and break this
                 // loop.
                 replica.sent = replica.acked;
-                LOG(WARNING, "Couldn't write to backup %lu; server is down",
-                    replica.backupId.getId());
+                LOG(WARNING, "Couldn't write to backup %s; server is down",
+                    replica.backupId.toString().c_str());
             } catch (const BackupOpenRejectedException& e) {
                 LOG(NOTICE,
-                    "Couldn't open replica on backup %lu; server may be "
+                    "Couldn't open replica on backup %s; server may be "
                     "overloaded or may already have a replica for this segment "
                     "which was found on disk after a crash; will choose "
-                    "another backup", replica.backupId.getId());
+                    "another backup", replica.backupId.toString().c_str());
                 replica.reset();
             }
             replica.writeRpc.destroy();
@@ -612,7 +612,8 @@ ReplicatedSegment::performWrite(Replica& replica)
             if (replicaIsPrimary(replica))
                 flags = WireFormat::BackupWrite::OPENPRIMARY;
 
-            TEST_LOG("Sending open to backup %lu", replica.backupId.getId());
+            TEST_LOG("Sending open to backup %s",
+                     replica.backupId.toString().c_str());
             try {
                 replica.writeRpc.construct(context, replica.backupId,
                                            masterId, segmentId, segment, 0,
@@ -626,10 +627,10 @@ ReplicatedSegment::performWrite(Replica& replica)
                 // changes to the server list if the backup is down.
                 static uint64_t count = 0;
                 if (BitOps::isPowerOfTwo(++count))
-                    LOG(DEBUG, "Cannot create session for write to backup %lu, "
+                    LOG(DEBUG, "Cannot create session for write to backup %s, "
                         "perhaps the backup has crashed; retrying until "
                         "coordinator tells us it is gone.",
-                        replica.backupId.getId());
+                        replica.backupId.toString().c_str());
             }
             schedule();
             return;
@@ -691,7 +692,8 @@ ReplicatedSegment::performWrite(Replica& replica)
                 return;
             }
 
-            TEST_LOG("Sending write to backup %lu", replica.backupId.getId());
+            TEST_LOG("Sending write to backup %s",
+                     replica.backupId.toString().c_str());
             try {
                 replica.writeRpc.construct(context, replica.backupId, masterId,
                                            segmentId, segment, offset, length,
@@ -705,10 +707,10 @@ ReplicatedSegment::performWrite(Replica& replica)
                 // changes to the server list if the backup is down.
                 static uint64_t count = 0;
                 if (BitOps::isPowerOfTwo(++count))
-                    LOG(DEBUG, "Cannot create session for write to backup %lu, "
+                    LOG(DEBUG, "Cannot create session for write to backup %s, "
                         "perhaps the backup has crashed; retrying until "
                         "coordinator tells us it is gone. [%lu]",
-                        replica.backupId.getId(), count);
+                        replica.backupId.toString().c_str(), count);
             }
             schedule();
             return;
@@ -730,21 +732,21 @@ void
 ReplicatedSegment::dumpProgress()
 {
     string info = format(
-        "ReplicatedSegment <%lu,%lu>\n"
+        "ReplicatedSegment <%s,%lu>\n"
         "    queued: open %u, bytes %u, close %u\n"
         "    committed: open %u, bytes, %u, close %u\n",
-        masterId.getId(), segmentId,
+        masterId.toString().c_str(), segmentId,
         queued.open, queued.bytes, queued.close,
         getCommitted().open, getCommitted().bytes, getCommitted().close);
     uint32_t i = 0;
     foreach (const auto& replica, replicas) {
         info.append(format(
-            "  Replica %u on Backup %lu\n"
+            "  Replica %u on Backup %s\n"
             "    sent: open %u, bytes %u, close %u\n"
             "    acked: open %u, bytes %u, close %u\n"
             "    committed: open %u, bytes, %u, close %u\n"
             "    write rpc outstanding: %u\n",
-            i++, replica.backupId.getId(),
+            i++, replica.backupId.toString().c_str(),
             replica.sent.open, replica.sent.bytes, replica.sent.close,
             replica.acked.open, replica.acked.bytes, replica.acked.close,
             replica.committed.open, replica.committed.bytes,

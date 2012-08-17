@@ -100,15 +100,15 @@ TEST_F(CoordinatorServiceTest, createTable) {
     EXPECT_EQ(1U, get(service->tables, "bar"));
     EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
               "endKeyHash: 18446744073709551615 "
-              "serverId: 1 status: NORMAL "
+              "serverId: 1.0 status: NORMAL "
               "ctime: 0, 50 } "
               "Tablet { tableId: 1 startKeyHash: 0 "
               "endKeyHash: 18446744073709551615 "
-              "serverId: 2 status: NORMAL "
+              "serverId: 2.0 status: NORMAL "
               "ctime: 0, 0 } "
               "Tablet { tableId: 2 startKeyHash: 0 "
               "endKeyHash: 18446744073709551615 "
-              "serverId: 1 status: NORMAL "
+              "serverId: 1.0 status: NORMAL "
               "ctime: 0, 50 }",
               service->tabletMap.debugString());
     EXPECT_EQ(2, master->tablets.tablet_size());
@@ -127,11 +127,11 @@ TEST_F(CoordinatorServiceTest,
     ramcloud->createTable("foo", 2);
     EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
               "endKeyHash: 9223372036854775807 "
-              "serverId: 1 status: NORMAL "
+              "serverId: 1.0 status: NORMAL "
               "ctime: 0, 48 } "
               "Tablet { tableId: 0 startKeyHash: 9223372036854775808 "
               "endKeyHash: 18446744073709551615 "
-              "serverId: 2 status: NORMAL "
+              "serverId: 2.0 status: NORMAL "
               "ctime: 0, 0 }",
               service->tabletMap.debugString());
     EXPECT_EQ(1, master->tablets.tablet_size());
@@ -150,15 +150,15 @@ TEST_F(CoordinatorServiceTest,
 
     EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
               "endKeyHash: 6148914691236517205 "
-              "serverId: 1 status: NORMAL "
+              "serverId: 1.0 status: NORMAL "
               "ctime: 0, 48 } "
               "Tablet { tableId: 0 startKeyHash: 6148914691236517206 "
               "endKeyHash: 12297829382473034410 "
-              "serverId: 2 status: NORMAL "
+              "serverId: 2.0 status: NORMAL "
               "ctime: 0, 0 } "
               "Tablet { tableId: 0 startKeyHash: 12297829382473034411 "
               "endKeyHash: 18446744073709551615 "
-              "serverId: 1 status: NORMAL "
+              "serverId: 1.0 status: NORMAL "
               "ctime: 0, 48 }",
               service->tabletMap.debugString());
     EXPECT_EQ(2, master->tablets.tablet_size());
@@ -171,29 +171,29 @@ TEST_F(CoordinatorServiceTest, splitTablet) {
     ramcloud->splitTablet("foo", 0, ~0UL, (~0UL/2));
     EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
               "endKeyHash: 9223372036854775806 "
-              "serverId: 1 status: NORMAL "
+              "serverId: 1.0 status: NORMAL "
               "ctime: 0, 48 } "
               "Tablet { tableId: 0 "
               "startKeyHash: 9223372036854775807 "
               "endKeyHash: 18446744073709551615 "
-              "serverId: 1 status: NORMAL "
+              "serverId: 1.0 status: NORMAL "
               "ctime: 0, 48 }",
               service->tabletMap.debugString());
 
     ramcloud->splitTablet("foo", 0, 9223372036854775806, 4611686018427387903);
     EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
               "endKeyHash: 4611686018427387902 "
-              "serverId: 1 status: NORMAL "
+              "serverId: 1.0 status: NORMAL "
               "ctime: 0, 48 } "
               "Tablet { tableId: 0 "
               "startKeyHash: 9223372036854775807 "
               "endKeyHash: 18446744073709551615 "
-              "serverId: 1 status: NORMAL "
+              "serverId: 1.0 status: NORMAL "
               "ctime: 0, 48 } "
               "Tablet { tableId: 0 "
               "startKeyHash: 4611686018427387903 "
               "endKeyHash: 9223372036854775806 "
-              "serverId: 1 status: NORMAL "
+              "serverId: 1.0 status: NORMAL "
               "ctime: 0, 48 }",
               service->tabletMap.debugString());
 
@@ -221,7 +221,7 @@ TEST_F(CoordinatorServiceTest, dropTable) {
     ramcloud->dropTable("bar");
     EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
               "endKeyHash: 18446744073709551615 "
-              "serverId: 1 status: NORMAL "
+              "serverId: 1.0 status: NORMAL "
               "ctime: 0, 48 }",
               service->tabletMap.debugString());
     EXPECT_EQ(0, master2.tablets.tablet_size());
@@ -233,7 +233,7 @@ TEST_F(CoordinatorServiceTest, dropTable) {
     ramcloud->dropTable("bar");
     EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
               "endKeyHash: 18446744073709551615 "
-              "serverId: 1 status: NORMAL "
+              "serverId: 1.0 status: NORMAL "
               "ctime: 0, 48 }",
               service->tabletMap.debugString());
     EXPECT_EQ(1, master->tablets.tablet_size());
@@ -354,7 +354,7 @@ TEST_F(CoordinatorServiceTest, reassignTabletOwnership) {
 
     EXPECT_THROW(CoordinatorClient::reassignTabletOwnership(context,
         0, 0, -1, ServerId(472, 2)), ServerDoesntExistException);
-    EXPECT_EQ("reassignTabletOwnership: Server id 8589935064 does not exist! "
+    EXPECT_EQ("reassignTabletOwnership: Server id 472.2 does not exist! "
         "Cannot reassign ownership of tablet 0, range "
         "[0, 18446744073709551615]!", TestLog::get());
     EXPECT_EQ(1, master->tablets.tablet_size());
@@ -372,7 +372,7 @@ TEST_F(CoordinatorServiceTest, reassignTabletOwnership) {
     CoordinatorClient::reassignTabletOwnership(context, 0, 0, -1,
         master2->serverId);
     EXPECT_EQ("reassignTabletOwnership: Reassigning tablet 0, range "
-        "[0, 18446744073709551615] from server id 1 to server id 2.",
+        "[0, 18446744073709551615] from server id 1.0 to server id 2.0.",
         TestLog::get());
     // Calling master removes the entry itself after the RPC completes on coord.
     EXPECT_EQ(1, master->tablets.tablet_size());

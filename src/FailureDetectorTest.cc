@@ -98,8 +98,8 @@ TEST_F(FailureDetectorTest, pingRandomServer_pingSuccess) {
     mockTransport.setInput("0 0 55 0 1 0");
     fd->pingRandomServer();
     EXPECT_TRUE(StringUtil::startsWith(TestLog::get(),
-                "pingRandomServer: Sending ping to server 1 (mock:) | "
-                "pingRandomServer: Ping succeeded to server 1 (mock:)"));
+                "pingRandomServer: Sending ping to server 1.0 (mock:) | "
+                "pingRandomServer: Ping succeeded to server 1.0 (mock:)"));
 }
 
 TEST_F(FailureDetectorTest, pingRandomServer_pingFailure) {
@@ -107,9 +107,9 @@ TEST_F(FailureDetectorTest, pingRandomServer_pingFailure) {
     addServer(ServerId(1, 0), "mock:");
     coordTransport.setInput("0");
     fd->pingRandomServer();
-    EXPECT_EQ("pingRandomServer: Sending ping to server 1 (mock:) | "
+    EXPECT_EQ("pingRandomServer: Sending ping to server 1.0 (mock:) | "
               "wait: timeout | pingRandomServer: Ping timeout to "
-              "server id 1 (locator \"mock:\")", TestLog::get());
+              "server id 1.0 (locator \"mock:\")", TestLog::get());
 }
 
 TEST_F(FailureDetectorTest, checkServerListVersion) {

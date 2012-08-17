@@ -101,8 +101,8 @@ try {
             if (event != SERVER_CRASHED)
                 continue;
             LOG(DEBUG,
-                "Notifying log of failure of serverId %lu",
-                id.getId());
+                "Notifying log of failure of serverId %s",
+                id.toString().c_str());
             if (replicaManager) {
                 Tub<uint64_t> failedOpenSegment =
                     replicaManager->handleBackupFailure(id);

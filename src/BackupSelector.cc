@@ -75,9 +75,9 @@ BackupSelector::selectPrimary(uint32_t numBackups,
         }
     }
     BackupStats* stats = tracker[primary];
-    LOG(DEBUG, "Chose server %lu with %u primary replicas and %u MB/s disk "
+    LOG(DEBUG, "Chose server %s with %u primary replicas and %u MB/s disk "
                "bandwidth (expected time to read on recovery is %u ms)",
-               primary.getId(), stats->primaryReplicaCount,
+               primary.toString().c_str(), stats->primaryReplicaCount,
                stats->expectedReadMBytesPerSec, stats->getExpectedReadMs());
     ++stats->primaryReplicaCount;
 

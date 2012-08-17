@@ -246,8 +246,9 @@ ServerListUpdater::handleRequest(Message& msg) {
     foreach (ServerId id, msg.recipients) {
         // Ensure server is still up before sending updates
         if (!parent.isUp(id)) {
-            LOG(NOTICE, "Async sendUpdate to %lu occured after it was "
-                    "removed/downed in the CoordinatorServerList.", id.getId());
+            LOG(NOTICE, "Async sendUpdate to %s occured after it was "
+                    "removed/downed in the CoordinatorServerList.",
+                    id.toString().c_str());
             continue;
         }
 
@@ -257,8 +258,8 @@ ServerListUpdater::handleRequest(Message& msg) {
                     sendMembershipUpdate(id, msg.update, serializedServerList);
                     break;
                 case FULL_LIST:
-                    LOG(DEBUG, "Sending server list to server id %lu as "
-                            "requested", *id);
+                    LOG(DEBUG, "Sending server list to server id %s as "
+                            "requested", id.toString().c_str());
                     MembershipClient::setServerList(context, id, msg.update);
                     break;
                 default:
@@ -268,8 +269,9 @@ ServerListUpdater::handleRequest(Message& msg) {
             }
         } catch (const ServerDoesntExistException& e) {
             // Log but fail quietly otherwise since there's nothing we can do.
-            LOG(NOTICE, "Async sendUpdate to %lu occured after it was "
-                    "removed/downed in the CoordinatorServerList.", id.getId());
+            LOG(NOTICE, "Async sendUpdate to %s occured after it was "
+                    "removed/downed in the CoordinatorServerList.",
+                    id.toString().c_str());
         }
     }
 }
@@ -312,19 +314,20 @@ ServerListUpdater::sendMembershipUpdate(
         } catch (const TransportException& e) {}
     } else {
         rpc.cancel();
-        LOG(NOTICE, "Failed to send cluster membership update to %lu",
-            id.getId());
+        LOG(NOTICE, "Failed to send cluster membership update to %s",
+            id.toString().c_str());
     }
 
     if (succeeded) {
-         LOG(DEBUG, "Server list update sent to server %lu", id.getId());
+         LOG(DEBUG, "Server list update sent to server %s",
+             id.toString().c_str());
          return;
     }
 
     // If this server had missed a previous update it will return
     // failure and expect us to push the whole list again.
-    LOG(NOTICE, "Server %lu had lost an update. Sending whole list.",
-        id.getId());
+    LOG(NOTICE, "Server %s had lost an update. Sending whole list.",
+        id.toString().c_str());
     if (!serializedServerList) {
         serializedServerList.construct();
         parent.serialize(*serializedServerList);
@@ -341,9 +344,9 @@ ServerListUpdater::sendMembershipUpdate(
         } catch (const TransportException& e) {}
     } else {
         rpc2.cancel();
-        LOG(NOTICE, "Failed to send full cluster server list to %lu "
+        LOG(NOTICE, "Failed to send full cluster server list to %s "
             "after it failed to accept the update",
-            id.getId());
+            id.toString().c_str());
     }
 }
 } // namespace RAMCloud

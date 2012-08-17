@@ -398,8 +398,8 @@ ReplicaManager::allocateSegment(const Lock& lock,
                                 const Segment* segment,
                                 bool isLogHead)
 {
-    LOG(DEBUG, "Allocating new replicated segment for <%lu,%lu>",
-        masterId.getId(), segmentId);
+    LOG(DEBUG, "Allocating new replicated segment for <%s,%lu>",
+        masterId.toString().c_str(), segmentId);
     auto* p = replicatedSegmentPool.malloc();
     if (p == NULL)
         DIE("Out of memory");
@@ -447,7 +447,8 @@ Tub<uint64_t>
 ReplicaManager::handleBackupFailure(ServerId failedId)
 {
     Lock _(dataMutex);
-    LOG(NOTICE, "Handling backup failure of serverId %lu", failedId.getId());
+    LOG(NOTICE, "Handling backup failure of serverId %s",
+        failedId.toString().c_str());
 
     Tub<uint64_t> failedOpenSegmentId;
     foreach (auto& segment, replicatedSegmentList) {

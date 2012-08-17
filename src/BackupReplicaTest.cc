@@ -70,8 +70,8 @@ TEST_F(BackupReplicaTest, destructor) {
         info.open();
         EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
     }
-    EXPECT_EQ("~BackupReplica: Backup shutting down with open segment <99,88>, "
-              "closing out to storage", TestLog::get());
+    EXPECT_EQ("~BackupReplica: Backup shutting down with open segment "
+              "<99.0,88>, closing out to storage", TestLog::get());
     TestLog::reset();
     {
         // Still open atomic replica.  Shouldn't get persisted.
@@ -82,9 +82,9 @@ TEST_F(BackupReplicaTest, destructor) {
         info2.write(src, 0, 0, 0, NULL, true);
         EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
     }
-    EXPECT_EQ("~BackupReplica: Backup shutting down with open segment <99,89>, "
-              "which was open for atomic replication; discarding since the "
-              "replica was incomplete",
+    EXPECT_EQ("~BackupReplica: Backup shutting down with open "
+              "segment <99.0,89>, which was open for atomic "
+              "replication; discarding since the replica was incomplete",
               TestLog::get());
     EXPECT_EQ(0, BackupStorage::Handle::getAllocatedHandlesCount());
 }
@@ -244,7 +244,7 @@ TEST_F(BackupReplicaTest, appendRecoverySegmentNotYetRecovered) {
     Status status;
     EXPECT_THROW(status = info.appendRecoverySegment(0, buffer),
                  BackupBadSegmentIdException);
-    EXPECT_EQ("appendRecoverySegment: Asked for segment <99,88> which isn't "
+    EXPECT_EQ("appendRecoverySegment: Asked for segment <99.0,88> which isn't "
               "recovering", TestLog::get());
 }
 
@@ -272,7 +272,7 @@ TEST_F(BackupReplicaTest, appendRecoverySegmentPartitionOutOfBounds) {
                  BackupBadSegmentIdException);
     EXPECT_EQ(STATUS_OK, status);
     EXPECT_EQ("appendRecoverySegment: Asked for recovery segment 0 from "
-              "segment <99,88> but there are only 0 partitions",
+              "segment <99.0,88> but there are only 0 partitions",
               TestLog::get());
 }
 

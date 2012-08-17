@@ -191,29 +191,29 @@ TEST_F(TabletMapTest, splitTablet) {
     map.splitTablet(0, 0, ~0lu, ~0lu / 2);
     EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
               "endKeyHash: 9223372036854775806 "
-              "serverId: 1 status: NORMAL "
+              "serverId: 1.0 status: NORMAL "
               "ctime: 2, 3 } "
               "Tablet { tableId: 0 "
               "startKeyHash: 9223372036854775807 "
               "endKeyHash: 18446744073709551615 "
-              "serverId: 1 status: NORMAL "
+              "serverId: 1.0 status: NORMAL "
               "ctime: 2, 3 }",
               map.debugString());
 
     map.splitTablet(0, 0, 9223372036854775806, 4611686018427387903);
     EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
               "endKeyHash: 4611686018427387902 "
-              "serverId: 1 status: NORMAL "
+              "serverId: 1.0 status: NORMAL "
               "ctime: 2, 3 } "
               "Tablet { tableId: 0 "
               "startKeyHash: 9223372036854775807 "
               "endKeyHash: 18446744073709551615 "
-              "serverId: 1 status: NORMAL "
+              "serverId: 1.0 status: NORMAL "
               "ctime: 2, 3 } "
               "Tablet { tableId: 0 "
               "startKeyHash: 4611686018427387903 "
               "endKeyHash: 9223372036854775806 "
-              "serverId: 1 status: NORMAL "
+              "serverId: 1.0 status: NORMAL "
               "ctime: 2, 3 }",
               map.debugString());
 

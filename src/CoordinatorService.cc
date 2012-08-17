@@ -182,8 +182,9 @@ CoordinatorService::createTable(const WireFormat::CreateTable::Request& reqHdr,
         MasterClient::takeTabletOwnership(context, master.serverId, tableId,
                                           firstKeyHash, lastKeyHash);
 
-        LOG(DEBUG, "Created table '%s' with id %lu and a span %u on master %lu",
-                    name, tableId, serverSpan, master.serverId.getId());
+        LOG(DEBUG, "Created table '%s' with id %lu and a span %u on master %s",
+                    name, tableId, serverSpan,
+                    master.serverId.toString().c_str());
     }
 
     LOG(NOTICE, "Created table '%s' with id %lu",
@@ -419,9 +420,10 @@ CoordinatorService::reassignTabletOwnership(
 {
     ServerId newOwner(reqHdr.newOwnerId);
     if (!serverList.contains(newOwner)) {
-        LOG(WARNING, "Server id %lu does not exist! Cannot reassign "
-            "ownership of tablet %lu, range [%lu, %lu]!", *newOwner,
-            reqHdr.tableId, reqHdr.firstKeyHash, reqHdr.lastKeyHash);
+        LOG(WARNING, "Server id %s does not exist! Cannot reassign "
+            "ownership of tablet %lu, range [%lu, %lu]!",
+            newOwner.toString().c_str(), reqHdr.tableId,
+            reqHdr.firstKeyHash, reqHdr.lastKeyHash);
         respHdr.common.status = STATUS_SERVER_DOESNT_EXIST;
         return;
     }
@@ -434,8 +436,9 @@ CoordinatorService::reassignTabletOwnership(
                                            reqHdr.firstKeyHash,
                                            reqHdr.lastKeyHash);
         LOG(NOTICE, "Reassigning tablet %lu, range [%lu, %lu] from server "
-            "id %lu to server id %lu.", reqHdr.tableId, reqHdr.firstKeyHash,
-            reqHdr.lastKeyHash, tablet.serverId.getId(), newOwner.getId());
+            "id %s to server id %s.", reqHdr.tableId, reqHdr.firstKeyHash,
+            reqHdr.lastKeyHash, tablet.serverId.toString().c_str(),
+            newOwner.toString().c_str());
     } catch (const TabletMap::NoSuchTablet& e) {
         LOG(WARNING, "Could not reassign tablet %lu, range [%lu, %lu]: "
             "not found!", reqHdr.tableId, reqHdr.firstKeyHash,
@@ -543,14 +546,14 @@ CoordinatorService::setMinOpenSegmentId(
     ServerId serverId(reqHdr.serverId);
     uint64_t segmentId = reqHdr.segmentId;
 
-    LOG(DEBUG, "setMinOpenSegmentId for server %lu to %lu",
-        serverId.getId(), segmentId);
+    LOG(DEBUG, "setMinOpenSegmentId for server %s to %lu",
+        serverId.toString().c_str(), segmentId);
 
     try {
         serverManager.setMinOpenSegmentId(serverId, segmentId);
     } catch (const ServerListException& e) {
-        LOG(WARNING, "setMinOpenSegmentId server doesn't exist: %lu",
-            serverId.getId());
+        LOG(WARNING, "setMinOpenSegmentId server doesn't exist: %s",
+            serverId.toString().c_str());
         respHdr.common.status = STATUS_SERVER_DOESNT_EXIST;
         return;
     }

@@ -572,13 +572,14 @@ TEST_F(RecoveryTest, startRecoveryMasters_noIdleMasters) {
     recovery.startRecoveryMasters();
 
     EXPECT_EQ(
-        "startRecoveryMasters: Starting recovery 1 for crashed server 99 "
+        "startRecoveryMasters: Starting recovery 1 for crashed server 99.0 "
             "with 3 partitions | "
         "startRecoveryMasters: Couldn't find enough masters not already "
             "performing a recovery to recover all partitions: 3 partitions "
             "will be recovered later | "
         "recoveryMasterFinished: Recovery wasn't completely successful; "
-            "will not broadcast the end of recovery 1 for server 99 to backups",
+            "will not broadcast the end of recovery 1 for "
+            "server 99.0 to backups",
         TestLog::get());
     EXPECT_EQ(3u, recovery.numPartitions);
     EXPECT_EQ(0u, recovery.successfulRecoveryMasters);

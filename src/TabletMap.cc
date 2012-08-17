@@ -85,7 +85,7 @@ TabletMap::debugString() const
         result << "Tablet { tableId: " << tablet.tableId
                << " startKeyHash: " << tablet.startKeyHash
                << " endKeyHash: " << tablet.endKeyHash
-               << " serverId: " << tablet.serverId.getId()
+               << " serverId: " << tablet.serverId.toString().c_str()
                << " status: " << status
                << " ctime: " << tablet.ctime.getSegmentId()
                << ", " << tablet.ctime.getSegmentOffset() <<  " }";
@@ -229,9 +229,9 @@ TabletMap::serialize(const CoordinatorServerList& serverList,
             const string& locator = serverList[tablet.serverId].serviceLocator;
             entry.set_service_locator(locator.c_str());
         } catch (const Exception& e) {
-            LOG(NOTICE, "Server id (%lu) in tablet map no longer in server "
+            LOG(NOTICE, "Server id (%s) in tablet map no longer in server "
                 "list; sending empty locator for entry",
-                tablet.serverId.getId());
+                tablet.serverId.toString().c_str());
         }
     }
 }

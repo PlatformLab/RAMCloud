@@ -282,7 +282,7 @@ TEST_F(ServerListUpdaterTest, handleRequest) {
     TestLog::Enable _;
     updater.handleRequest(msg2);
     EXPECT_EQ("", transport.outputLog);
-    EXPECT_EQ("handleRequest: Async sendUpdate to 2 occured after it was "
+    EXPECT_EQ("handleRequest: Async sendUpdate to 2.0 occured after it was "
             "removed/downed in the CoordinatorServerList.", TestLog::get());
 }
 

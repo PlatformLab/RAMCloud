@@ -231,7 +231,7 @@ MasterService::init(ServerId id)
     assert(!initCalled);
 
     serverId = id;
-    LOG(NOTICE, "My server ID is %lu", serverId.getId());
+    LOG(NOTICE, "My server ID is %s", serverId.toString().c_str());
     metrics->serverId = serverId.getId();
 
     log = new Log(context, *this, segmentManager,
@@ -830,8 +830,9 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request& reqHdr,
                                    firstKeyHash, lastKeyHash, 0, 0);
 
     LOG(NOTICE, "Migrating tablet (id %lu, first %lu, last %lu) to "
-        "ServerId %lu (\"%s\")", tableId, firstKeyHash, lastKeyHash,
-        *newOwnerMasterId, context.serverList->getLocator(newOwnerMasterId));
+        "ServerId %s (\"%s\")", tableId, firstKeyHash, lastKeyHash,
+        newOwnerMasterId.toString().c_str(),
+        context.serverList->getLocator(newOwnerMasterId));
 
     // We'll send over objects in Segment containers for better network
     // efficiency and convenience.
@@ -1297,8 +1298,8 @@ MasterService::recover(ServerId masterId,
      */
     uint64_t usefulTime = 0;
     uint64_t start = Cycles::rdtsc();
-    LOG(NOTICE, "Recovering master %lu, partition %lu, %lu replicas available",
-        *masterId, partitionId, replicas.size());
+    LOG(NOTICE, "Recovering master %s, partition %lu, %lu replicas available",
+        masterId.toString().c_str(), partitionId, replicas.size());
 
     std::unordered_set<uint64_t> runningSet;
     Tub<RecoveryTask> tasks[4];
@@ -1400,8 +1401,8 @@ MasterService::recover(ServerId masterId,
                     otherReplica.state = Replica::State::OK;
                 }
             } catch (const ServerDoesntExistException& e) {
-                LOG(WARNING, "No record of backup %lu, trying next backup",
-                    task->replica.backupId.getId());
+                LOG(WARNING, "No record of backup %s, trying next backup",
+                    task->replica.backupId.toString().c_str());
                 task->replica.state = Replica::State::FAILED;
                 runningSet.erase(task->replica.segmentId);
             } catch (const ClientException& e) {
@@ -1450,9 +1451,9 @@ MasterService::recover(ServerId masterId,
                         e.str().c_str());
                     replica.state = Replica::State::FAILED;
                 } catch (const ServerListException& e) {
-                    LOG(WARNING, "No record of backup %lu, "
+                    LOG(WARNING, "No record of backup %s, "
                         "trying next backup",
-                        replica.backupId.getId());
+                        replica.backupId.toString().c_str());
                     replica.state = Replica::State::FAILED;
                 }
             }
@@ -1563,10 +1564,10 @@ MasterService::recover(const WireFormat::Recover::Request& reqHdr,
                         replicaLocation->segmentId);
         replicas.push_back(replica);
     }
-    LOG(DEBUG, "Starting recovery %lu for crashed master %lu; "
+    LOG(DEBUG, "Starting recovery %lu for crashed master %s; "
         "recovering partition %lu (see user_data) of the following "
         "partitions:\n%s",
-        recoveryId, crashedServerId.getId(), partitionId,
+        recoveryId, crashedServerId.toString().c_str(), partitionId,
         recoveryTablets.DebugString().c_str());
     rpc.sendReply();
 
@@ -1613,10 +1614,10 @@ MasterService::recover(const WireFormat::Recover::Request& reqHdr,
     // coordinator decided to recover these tablets elsewhere instead).
     foreach (ProtoBuf::Tablets::Tablet& tablet,
              *recoveryTablets.mutable_tablet()) {
-        LOG(NOTICE, "set tablet %lu %lu %lu to locator %s, id %lu",
+        LOG(NOTICE, "set tablet %lu %lu %lu to locator %s, id %s",
                  tablet.table_id(), tablet.start_key_hash(),
                  tablet.end_key_hash(), config.localLocator.c_str(),
-                 serverId.getId());
+                 serverId.toString().c_str());
         tablet.set_service_locator(config.localLocator);
         tablet.set_server_id(serverId.getId());
         tablet.set_ctime_log_head_id(headOfLog.getSegmentId());

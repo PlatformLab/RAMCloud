@@ -143,6 +143,16 @@ class ServerId {
     }
 
     /**
+     * Return a human-readable representation of a ServerId.
+     */
+    string toString() const
+    {
+        if (isValid())
+            return format("%u.%u", indexNumber(), generationNumber());
+        return "invalid";
+    }
+
+    /**
      * Test the equality of two ServerIds.
      */
     bool

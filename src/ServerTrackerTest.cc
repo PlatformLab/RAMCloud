@@ -221,7 +221,7 @@ TEST_F(ServerTrackerTest, getChange) {
     tr.testing_avoidGetChangeAssertion = true;
     EXPECT_FALSE(tr.getChange(server, event));
     EXPECT_EQ("getChange: User of this ServerTracker did not NULL out previous "
-        "pointer for index 2 (ServerId 2)!", TestLog::get());
+        "pointer for index 2 (ServerId 2.0)!", TestLog::get());
     EXPECT_FALSE(tr.serverList[2].server.serverId.isValid());
     EXPECT_EQ("", tr.serverList[2].server.serviceLocator);
     EXPECT_EQ(0u, tr.serverList[2].server.services.serialize());
@@ -413,7 +413,7 @@ TEST_F(ServerTrackerTest, toString) {
     EXPECT_EQ("", tr.toString());
     EXPECT_TRUE(tr.getChange(server, event));
     EXPECT_EQ(
-        "server 1 at mock: with MASTER_SERVICE is UP\n",
+        "server 1.0 at mock: with MASTER_SERVICE is UP\n",
         tr.toString());
 }
 

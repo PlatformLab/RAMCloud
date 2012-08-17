@@ -200,8 +200,8 @@ TEST_F(CoordinatorServerManagerTest, enlistServer_ReplaceAMaster) {
         serverManager->enlistServer(masterServerId,
                                     {WireFormat::BACKUP_SERVICE},
                                     0, 0, "mock:host=backup"));
-    EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1 | "
-              "startMasterRecovery: Recovery crashedServerId: 1",
+    EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1.0 | "
+              "startMasterRecovery: Recovery crashedServerId: 1.0",
               TestLog::get());
     EXPECT_TRUE(serverList->contains(masterServerId));
     EXPECT_EQ(ServerStatus::CRASHED,
@@ -221,7 +221,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServer_ReplaceANonMaster) {
     EXPECT_EQ(ServerId(2, 1),
         serverManager->enlistServer(replacesId, {WireFormat::BACKUP_SERVICE},
                                     0, 0, "mock:host=backup2"));
-    EXPECT_EQ("startMasterRecovery: Server 2 crashed, but it had no tablets",
+    EXPECT_EQ("startMasterRecovery: Server 2.0 crashed, but it had no tablets",
               TestLog::get());
     EXPECT_FALSE(serverList->contains(replacesId));
 }
@@ -356,8 +356,8 @@ TEST_F(CoordinatorServerManagerTest, serverDown_server) {
 
     serverManager->serverDown(masterServerId);
 
-    EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1 | "
-              "startMasterRecovery: Recovery crashedServerId: 1",
+    EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1.0 | "
+              "startMasterRecovery: Recovery crashedServerId: 1.0",
                TestLog::get());
     EXPECT_EQ(ServerStatus::CRASHED,
               serverList->at(master->serverId).status);
@@ -402,8 +402,8 @@ TEST_F(CoordinatorServerManagerTest, serverDownRecover) {
 
     serverManager->serverDownRecover(&state, entryId);
 
-    EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1 | "
-              "startMasterRecovery: Recovery crashedServerId: 1",
+    EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1.0 | "
+              "startMasterRecovery: Recovery crashedServerId: 1.0",
                TestLog::get());
     EXPECT_EQ(ServerStatus::CRASHED,
               serverList->at(master->serverId).status);

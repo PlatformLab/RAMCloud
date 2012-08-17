@@ -168,12 +168,14 @@ BackupReplica::~BackupReplica()
 
     if (state == OPEN) {
         if (replicateAtomically && state != CLOSED) {
-            LOG(NOTICE, "Backup shutting down with open segment <%lu,%lu>, "
+            LOG(NOTICE, "Backup shutting down with open segment <%s,%lu>, "
                 "which was open for atomic replication; discarding since the "
-                "replica was incomplete", *masterId, segmentId);
+                "replica was incomplete", masterId.toString().c_str(),
+                segmentId);
         } else {
-            LOG(NOTICE, "Backup shutting down with open segment <%lu,%lu>, "
-                "closing out to storage", *masterId, segmentId);
+            LOG(NOTICE, "Backup shutting down with open segment <%s,%lu>, "
+                "closing out to storage", masterId.toString().c_str(),
+                segmentId);
             state = CLOSED;
             CycleCounter<RawMetric> _(&metrics->backup.storageWriteTicks);
             ++metrics->backup.storageWriteCount;
@@ -228,16 +230,16 @@ BackupReplica::appendRecoverySegment(uint64_t partitionId, Buffer& buffer)
     }
 
     if (state != RECOVERING) {
-        LOG(WARNING, "Asked for segment <%lu,%lu> which isn't recovering",
-            *masterId, segmentId);
+        LOG(WARNING, "Asked for segment <%s,%lu> which isn't recovering",
+           masterId.toString().c_str(), segmentId);
         throw BackupBadSegmentIdException(HERE);
     }
 
     if (!primary) {
         if (!isRecovered() && !recoveryException) {
-            LOG(DEBUG, "Requested segment <%lu,%lu> is secondary, "
+            LOG(DEBUG, "Requested segment <%su,%lu> is secondary, "
                 "starting build of recovery segments now",
-                *masterId, segmentId);
+                masterId.toString().c_str(), segmentId);
             waitForOngoingOps(lock);
             ioScheduler.load(*this);
             ++storageOpCount;
@@ -248,8 +250,8 @@ BackupReplica::appendRecoverySegment(uint64_t partitionId, Buffer& buffer)
     }
 
     if (!isRecovered() && !recoveryException) {
-        LOG(DEBUG, "Deferring because <%lu,%lu> not yet filtered",
-            *masterId, segmentId);
+        LOG(DEBUG, "Deferring because <%s,%lu> not yet filtered",
+            masterId.toString().c_str(), segmentId);
         return STATUS_RETRY;
     }
     assert(state == RECOVERING);
@@ -266,15 +268,17 @@ BackupReplica::appendRecoverySegment(uint64_t partitionId, Buffer& buffer)
     }
 
     if (partitionId >= recoverySegmentsLength) {
-        LOG(WARNING, "Asked for recovery segment %lu from segment <%lu,%lu> "
+        LOG(WARNING, "Asked for recovery segment %lu from segment <%s,%lu> "
                      "but there are only %u partitions",
-            partitionId, *masterId, segmentId, recoverySegmentsLength);
+            partitionId, masterId.toString().c_str(), segmentId,
+            recoverySegmentsLength);
         throw BackupBadSegmentIdException(HERE);
     }
 
     recoverySegments[partitionId].appendToBuffer(buffer);
 
-    LOG(DEBUG, "appendRecoverySegment <%lu,%lu>", *masterId, segmentId);
+    LOG(DEBUG, "appendRecoverySegment <%s,%lu>", masterId.toString().c_str(),
+        segmentId);
     return STATUS_OK;
 }
 
@@ -440,8 +444,8 @@ BackupReplica::buildRecoverySegments(const ProtoBuf::Tablets& partitions)
     assert(state == RECOVERING);
 
     if (recoverySegments) {
-        LOG(NOTICE, "Recovery segments already built for <%lu,%lu>",
-            masterId.getId(), segmentId);
+        LOG(NOTICE, "Recovery segments already built for <%s,%lu>",
+            masterId.toString().c_str(), segmentId);
         // Skip if the recovery segments were generated earlier.
         condition.notify_all();
         return;
@@ -513,8 +517,8 @@ BackupReplica::buildRecoverySegments(const ProtoBuf::Tablets& partitions)
 #if TESTING
         for (uint64_t i = 0; i < recoverySegmentsLength; ++i) {
             Segment::OpaqueFooterEntry unused;
-            LOG(DEBUG, "Recovery segment for <%lu,%lu> partition %lu is %u B",
-                *masterId, segmentId, i,
+            LOG(DEBUG, "Recovery segment for <%s,%lu> partition %lu is %u B",
+                masterId.toString().c_str(), segmentId, i,
                  recoverySegments[i].getAppendedLength(unused));
         }
 #endif
@@ -536,9 +540,9 @@ BackupReplica::buildRecoverySegments(const ProtoBuf::Tablets& partitions)
         recoveryException.reset(new SegmentRecoveryFailedException(HERE));
         // leave state as RECOVERING, see note in above block
     }
-    LOG(DEBUG, "<%lu,%lu> recovery segments took %lu ms to construct, "
+    LOG(DEBUG, "<%s,%lu> recovery segments took %lu ms to construct, "
                "notifying other threads",
-        *masterId, segmentId,
+        masterId.toString().c_str(), segmentId,
         Cycles::toNanoseconds(Cycles::rdtsc() - start) / 1000 / 1000);
     condition.notify_all();
 }
@@ -735,19 +739,21 @@ BackupReplica::write(Buffer& src,
     if (footerEntry) {
         const uint32_t targetFooterOffset = destOffset + length;
         if (targetFooterOffset < footerOffset) {
-            LOG(ERROR, "Write to <%lu,%lu> included a footer which was "
+            LOG(ERROR, "Write to <%s,%lu> included a footer which was "
                 "requested to be written at offset %u but a prior write "
                 "placed a footer later in the segment at %u",
-                masterId.getId(), segmentId, targetFooterOffset, footerOffset);
+                masterId.toString().c_str(), segmentId, targetFooterOffset,
+                footerOffset);
             throw BackupSegmentOverflowException(HERE);
         }
         if (targetFooterOffset + 2 * sizeof(*footerEntry) > segmentSize) {
             // Need room for two copies of the footer. One at the end of the
             // data and the other aligned to the end of the segment which
             // can be found during restart without reading the whole segment.
-            LOG(ERROR, "Write to <%lu,%lu> included a footer which was "
+            LOG(ERROR, "Write to <%s,%lu> included a footer which was "
                 "requested to be written at offset %u but there isn't "
-                "enough room in the segment for the footer", masterId.getId(),
+                "enough room in the segment for the footer",
+                masterId.toString().c_str(),
                 segmentId, targetFooterOffset);
             throw BackupSegmentOverflowException(HERE);
         }

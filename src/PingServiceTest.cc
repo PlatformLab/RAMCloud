@@ -63,7 +63,7 @@ TEST_F(PingServiceTest, ping_basics) {
     TestLog::reset();
     EXPECT_EQ(0UL,
               PingClient::ping(context, serverId, ServerId(99)));
-    EXPECT_EQ("ping: Received ping request from server 99",
+    EXPECT_EQ("ping: Received ping request from server 99.0",
               TestLog::get());
 }
 

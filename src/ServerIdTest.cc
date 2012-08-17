@@ -68,6 +68,11 @@ TEST_F(ServerIdTest, isValid) {
     EXPECT_FALSE(ServerId(2347, -1).isValid());
 }
 
+TEST_F(ServerIdTest, toString) {
+    EXPECT_EQ("1.2", ServerId(1, 2).toString());
+    EXPECT_EQ("invalid", ServerId(77, -1).toString());
+}
+
 TEST_F(ServerIdTest, operatorEquals) {
     ServerId a(23742, 77650);
     ServerId b(23742, 77650);

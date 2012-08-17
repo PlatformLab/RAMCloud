@@ -68,8 +68,8 @@ PingService::ping(const WireFormat::Ping::Request& reqHdr,
         LOG(DEBUG, "Received ping request from unknown endpoint "
             "(perhaps the coordinator or a client)");
     } else {
-        LOG(DEBUG, "Received ping request from server %lu",
-            reqHdr.callerId);
+        LOG(DEBUG, "Received ping request from server %s",
+            ServerId(reqHdr.callerId).toString().c_str());
     }
     respHdr.serverListVersion = 0;
     if (context.serverList != NULL)

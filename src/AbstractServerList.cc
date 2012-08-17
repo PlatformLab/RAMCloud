@@ -74,7 +74,7 @@ AbstractServerList::getLocator(ServerId id)
         return details->serviceLocator.c_str();
 
     throw ServerListException(HERE,
-            format("Invalid ServerID (%lu)", id.getId()));
+            format("Invalid ServerId (%s)", id.toString().c_str()));
 }
 
 /**
@@ -130,9 +130,10 @@ AbstractServerList::getSession(ServerId id)
             ServerId actualId = MembershipClient::getServerId(context,
                     session);
             if (id != actualId) {
-                RAMCLOUD_LOG(DEBUG, "Expected ServerId %lu for \"%s\", "
-                        "but actual server id was %lu",
-                        id.getId(), locator, actualId.getId());
+                RAMCLOUD_LOG(DEBUG, "Expected ServerId %s for \"%s\", "
+                        "but actual server id was %s",
+                        id.toString().c_str(), locator,
+                        actualId.toString().c_str());
                 return FailSession::get();
             }
         }
@@ -171,7 +172,7 @@ AbstractServerList::flushSession(ServerId id)
     ServerDetails* details = iget(id);
     if (details != NULL) {
         details->session = NULL;
-        RAMCLOUD_TEST_LOG("flushed session for id %lu", id.getId());
+        RAMCLOUD_TEST_LOG("flushed session for id %s", id.toString().c_str());
     }
 }
 
@@ -306,8 +307,8 @@ AbstractServerList::toString(ServerId id)
     } catch (const ServerListException& e) {
         locator = "(locator unavailable)";
     }
-    return format("server %lu at %s",
-                  id.getId(),
+    return format("server %s at %s",
+                  id.toString().c_str(),
                   locator.c_str());
 }
 
@@ -351,8 +352,8 @@ AbstractServerList::toString()
             continue;
 
         result.append(
-            format("server %lu at %s with %s is %s\n",
-                   server->serverId.getId(),
+            format("server %s at %s with %s is %s\n",
+                   server->serverId.toString().c_str(),
                    server->serviceLocator.c_str(),
                    server->services.toString().c_str(),
                    toString(server->status).c_str()));

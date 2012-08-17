@@ -92,8 +92,8 @@ class MinOpenSegmentId : public Task {
      *      method then try to update the value stored on
      */
     void updateToAtLeast(uint64_t segmentId) {
-        RAMCLOUD_TEST_LOG("request update to minOpenSegmentId for %lu to %lu",
-                          serverId->getId(), segmentId);
+        RAMCLOUD_TEST_LOG("request update to minOpenSegmentId for %s to %lu",
+                          serverId->toString().c_str(), segmentId);
         if (requested > segmentId)
             return;
         requested = segmentId;
@@ -125,8 +125,9 @@ class MinOpenSegmentId : public Task {
             if (rpc->isReady()) {
                 rpc->wait();
                 current = sent;
-                RAMCLOUD_LOG(DEBUG, "coordinator minOpenSegmentId for %lu "
-                             "updated to %lu", serverId->getId(), current);
+                RAMCLOUD_LOG(DEBUG, "coordinator minOpenSegmentId for %s "
+                             "updated to %lu", serverId->toString().c_str(),
+                             current);
                 rpc.destroy();
             }
         }

@@ -418,19 +418,21 @@ CoordinatorServerList::sendServerList(ServerId& serverId) {
     Lock lock(mutex);
 
     if (iget(serverId) == NULL) {
-        LOG(WARNING, "Could not send list to unknown server %lu", *serverId);
+        LOG(WARNING, "Could not send list to unknown server %s",
+            serverId.toString().c_str());
         return;
     }
 
     const Entry& entry = getReferenceFromServerId(serverId);
     if (entry.status != ServerStatus::UP) {
-        LOG(WARNING, "Could not send list to crashed server %lu", *serverId);
+        LOG(WARNING, "Could not send list to crashed server %s",
+            serverId.toString().c_str());
         return;
     }
 
     if (!entry.services.has(WireFormat::MEMBERSHIP_SERVICE)) {
         LOG(WARNING, "Could not send list to server without membership "
-            "service: %lu", *serverId);
+            "service: %s", serverId.toString().c_str());
         return;
     }
 
@@ -562,7 +564,7 @@ CoordinatorServerList::crashed(const Lock& lock,
     if (index >= serverList.size() || !serverList[index].entry ||
         serverList[index].entry->serverId != serverId) {
         throw ServerListException(HERE,
-            format("Invalid ServerId (%lu)", serverId.getId()));
+            format("Invalid ServerId (%s)", serverId.toString().c_str()));
     }
 
     auto& entry = serverList[index].entry;
@@ -597,7 +599,7 @@ CoordinatorServerList::remove(Lock& lock,
     if (index >= serverList.size() || !serverList[index].entry ||
         serverList[index].entry->serverId != serverId) {
         throw ServerListException(HERE,
-            format("Invalid ServerId (%lu)", serverId.getId()));
+            format("Invalid ServerId (%s)", serverId.toString().c_str()));
     }
 
     crashed(lock, serverId);
@@ -703,7 +705,7 @@ CoordinatorServerList::getReferenceFromServerId(const ServerId& serverId) const
         return *serverList[index].entry;
 
     throw ServerListException(HERE,
-        format("Invalid ServerId (%lu)", serverId.getId()));
+        format("Invalid ServerId (%s)", serverId.toString().c_str()));
 }
 
 /**

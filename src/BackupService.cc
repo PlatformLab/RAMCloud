@@ -88,12 +88,12 @@ try {
         }
 
         if (isLoad) {
-            LOG(DEBUG, "Dispatching load of <%lu,%lu>",
-                *replica->masterId, replica->segmentId);
+            LOG(DEBUG, "Dispatching load of <%s,%lu>",
+                replica->masterId.toString().c_str(), replica->segmentId);
             doLoad(*replica);
         } else {
-            LOG(DEBUG, "Dispatching store of <%lu,%lu>",
-                *replica->masterId, replica->segmentId);
+            LOG(DEBUG, "Dispatching store of <%s,%lu>",
+                replica->masterId.toString().c_str(), replica->segmentId);
             doStore(*replica);
         }
     }
@@ -120,8 +120,8 @@ BackupService::IoScheduler::load(BackupReplica& replica)
     Lock lock(queueMutex);
     loadQueue.push(&replica);
     uint32_t count = downCast<uint32_t>(loadQueue.size() + storeQueue.size());
-    LOG(DEBUG, "Queued load of <%lu,%lu> (%u segments waiting for IO)",
-        *replica.masterId, replica.segmentId, count);
+    LOG(DEBUG, "Queued load of <%s,%lu> (%u segments waiting for IO)",
+        replica.masterId.toString().c_str(), replica.segmentId, count);
     queueCond.notify_all();
 #endif
 }
@@ -154,8 +154,8 @@ BackupService::IoScheduler::store(BackupReplica& replica)
     Lock lock(queueMutex);
     storeQueue.push(&replica);
     uint32_t count = downCast<uint32_t>(loadQueue.size() + storeQueue.size());
-    LOG(DEBUG, "Queued store of <%lu,%lu> (%u segments waiting for IO)",
-        *replica.masterId, replica.segmentId, count);
+    LOG(DEBUG, "Queued store of <%s,%lu> (%u segments waiting for IO)",
+        replica.masterId.toString().c_str(), replica.segmentId, count);
     queueCond.notify_all();
 #endif
 }
@@ -205,11 +205,11 @@ BackupService::IoScheduler::doLoad(BackupReplica& replica) const
 #endif
     ReferenceDecrementer<int> _(replica.storageOpCount);
 
-    LOG(DEBUG, "Loading segment <%lu,%lu>",
-        *replica.masterId, replica.segmentId);
+    LOG(DEBUG, "Loading segment <%s,%lu>",
+        replica.masterId.toString().c_str(), replica.segmentId);
     if (replica.inMemory()) {
-        LOG(DEBUG, "Already in memory, skipping load on <%lu,%lu>",
-            *replica.masterId, replica.segmentId);
+        LOG(DEBUG, "Already in memory, skipping load on <%s,%lu>",
+            replica.masterId.toString().c_str(), replica.segmentId);
         replica.condition.notify_all();
         return;
     }
@@ -223,8 +223,8 @@ BackupService::IoScheduler::doLoad(BackupReplica& replica) const
         replica.storage.getSegment(replica.storageHandle, segment);
         uint64_t transferTime = Cycles::toNanoseconds(Cycles::rdtsc() -
             startTime);
-        LOG(DEBUG, "Load of <%lu,%lu> took %lu us (%f MB/s)",
-            *replica.masterId, replica.segmentId,
+        LOG(DEBUG, "Load of <%s,%lu> took %lu us (%f MB/s)",
+            replica.masterId.toString().c_str(), replica.segmentId,
             transferTime / 1000,
             (replica.segmentSize / (1 << 20)) /
             (static_cast<double>(transferTime) / 1000000000lu));
@@ -255,8 +255,8 @@ BackupService::IoScheduler::doStore(BackupReplica& replica) const
 #endif
     ReferenceDecrementer<int> _(replica.storageOpCount);
 
-    LOG(DEBUG, "Storing segment <%lu,%lu>",
-        *replica.masterId, replica.segmentId);
+    LOG(DEBUG, "Storing segment <%s,%lu>",
+        replica.masterId.toString().c_str(), replica.segmentId);
     try {
         CycleCounter<RawMetric> _(&metrics->backup.storageWriteTicks);
         ++metrics->backup.storageWriteCount;
@@ -265,22 +265,22 @@ BackupService::IoScheduler::doStore(BackupReplica& replica) const
         replica.storage.putSegment(replica.storageHandle, replica.segment);
         uint64_t transferTime = Cycles::toNanoseconds(Cycles::rdtsc() -
             startTime);
-        LOG(DEBUG, "Store of <%lu,%lu> took %lu us (%f MB/s)",
-            *replica.masterId, replica.segmentId,
+        LOG(DEBUG, "Store of <%s,%lu> took %lu us (%f MB/s)",
+            replica.masterId.toString().c_str(), replica.segmentId,
             transferTime / 1000,
             (replica.segmentSize / (1 << 20)) /
             (static_cast<double>(transferTime) / 1000000000lu));
     } catch (...) {
-        LOG(WARNING, "Problem storing segment <%lu,%lu>",
-            *replica.masterId, replica.segmentId);
+        LOG(WARNING, "Problem storing segment <%s,%lu>",
+            replica.masterId.toString().c_str(), replica.segmentId);
         replica.condition.notify_all();
         throw;
     }
     replica.pool.free(replica.segment);
     replica.segment = NULL;
     --outstandingStores;
-    LOG(DEBUG, "Done storing segment <%lu,%lu>",
-        *replica.masterId, replica.segmentId);
+    LOG(DEBUG, "Done storing segment <%s,%lu>",
+        replica.masterId.toString().c_str(), replica.segmentId);
     replica.condition.notify_all();
 }
 
@@ -354,14 +354,15 @@ try {
         buildingInfo = loadingInfo;
         if (i < replicas.size()) {
             loadingInfo = replicas[i];
-            LOG(DEBUG, "Starting load of %uth segment (<%lu,%lu>)", i,
-                loadingInfo->masterId.getId(), loadingInfo->segmentId);
+            LOG(DEBUG, "Starting load of %uth segment (<%s,%lu>)", i,
+                loadingInfo->masterId.toString().c_str(),
+                loadingInfo->segmentId);
             loadingInfo->startLoading();
         }
         buildingInfo->buildRecoverySegments(partitions);
         LOG(DEBUG, "Done building recovery segments for %uth segment "
-            "(<%lu,%lu>)", i - 1,
-            buildingInfo->masterId.getId(), buildingInfo->segmentId);
+            "(<%s,%lu>)", i - 1,
+            buildingInfo->masterId.toString().c_str(), buildingInfo->segmentId);
         if (i == replicas.size())
             break;
     }
@@ -481,9 +482,10 @@ BackupService::GarbageCollectReplicasFoundOnStorageTask::
         // Since server has crashed just let
         // GarbageCollectDownServerTask free it. It will get
         // scheduled when master recovery finishes for masterId.
-        LOG(DEBUG, "Server %lu marked crashed; waiting for cluster "
-            "to recover from its failure before freeing <%lu,%lu>",
-            masterId.getId(), masterId.getId(), segmentId);
+        LOG(DEBUG, "Server %s marked crashed; waiting for cluster "
+            "to recover from its failure before freeing <%s,%lu>",
+            masterId.toString().c_str(), masterId.toString().c_str(),
+            segmentId);
         return true;
     }
 
@@ -494,21 +496,21 @@ BackupService::GarbageCollectReplicasFoundOnStorageTask::
                 needed = rpc->wait();
             } catch (const ServerDoesntExistException& e) {
                 needed = false;
-                LOG(DEBUG, "Server %lu marked down; cluster has recovered "
-                    "from its failure", masterId.getId());
+                LOG(DEBUG, "Server %s marked down; cluster has recovered "
+                    "from its failure", masterId.toString().c_str());
             }
             rpc.destroy();
             if (!needed) {
                 LOG(DEBUG, "Server has recovered from lost replica; "
-                    "freeing replica for <%lu,%lu>",
-                    masterId.getId(), segmentId);
+                    "freeing replica for <%s,%lu>",
+                    masterId.toString().c_str(), segmentId);
                 deleteReplica(segmentId);
                 return true;
             } else {
                 LOG(DEBUG, "Server has not recovered from lost "
-                    "replica; retaining replica for <%lu,%lu>; will "
+                    "replica; retaining replica for <%s,%lu>; will "
                     "probe replica status again later",
-                    masterId.getId(), segmentId);
+                    masterId.toString().c_str(), segmentId);
             }
         }
     } else {
@@ -574,9 +576,10 @@ BackupService::GarbageCollectDownServerTask::performTask()
     auto key = MasterSegmentIdPair(masterId, 0lu);
     auto it = service.segments.upper_bound(key);
     if (it != service.segments.end() && it->second->masterId == masterId) {
-        LOG(DEBUG, "Server %lu marked down; cluster has recovered "
-                "from its failure; freeing replica <%lu,%lu>",
-            masterId.getId(), masterId.getId(), it->first.segmentId);
+        LOG(DEBUG, "Server %s marked down; cluster has recovered "
+                "from its failure; freeing replica <%s,%lu>",
+            masterId.toString().c_str(), masterId.toString().c_str(),
+            it->first.segmentId);
         it->second->free();
         service.segments.erase(it->first);
         delete it->second;
@@ -666,8 +669,8 @@ BackupService::BackupService(Context& context,
                 superblock.getClusterName());
             formerServerId = superblock.getServerId();
             LOG(NOTICE, "Will enlist as a replacement for formerly crashed "
-                "server %lu which left replicas behind on disk",
-                formerServerId.getId());
+                "server %s which left replicas behind on disk",
+                formerServerId.toString().c_str());
             restartFromStorage();
         } else {
             LOG(NOTICE, "Replicas stored on disk have a different clusterName "
@@ -853,15 +856,15 @@ BackupService::freeSegment(const WireFormat::BackupFree::Request& reqHdr,
                            WireFormat::BackupFree::Response& respHdr,
                            Rpc& rpc)
 {
-    LOG(DEBUG, "Freeing replica for master %lu segment %lu",
-        reqHdr.masterId, reqHdr.segmentId);
+    ServerId masterId(reqHdr.masterId);
+    LOG(DEBUG, "Freeing replica for master %s segment %lu",
+        masterId.toString().c_str(), reqHdr.segmentId);
 
     SegmentsMap::iterator it =
-        segments.find(MasterSegmentIdPair(ServerId(reqHdr.masterId),
-                                                   reqHdr.segmentId));
+        segments.find(MasterSegmentIdPair(masterId, reqHdr.segmentId));
     if (it == segments.end()) {
-        LOG(WARNING, "Master tried to free non-existent segment: <%lu,%lu>",
-            reqHdr.masterId, reqHdr.segmentId);
+        LOG(WARNING, "Master tried to free non-existent segment: <%s,%lu>",
+            masterId.toString().c_str(), reqHdr.segmentId);
         return;
     }
 
@@ -916,14 +919,15 @@ BackupService::getRecoveryData(
     WireFormat::BackupGetRecoveryData::Response& respHdr,
     Rpc& rpc)
 {
-    LOG(DEBUG, "getRecoveryData masterId %lu, segmentId %lu, partitionId %lu",
-        reqHdr.masterId, reqHdr.segmentId, reqHdr.partitionId);
+    ServerId masterId(reqHdr.masterId);
+    LOG(DEBUG, "getRecoveryData masterId %s, segmentId %lu, partitionId %lu",
+        masterId.toString().c_str(),
+        reqHdr.segmentId, reqHdr.partitionId);
 
-    BackupReplica* replica = findBackupReplica(ServerId(reqHdr.masterId),
-                                                 reqHdr.segmentId);
+    BackupReplica* replica = findBackupReplica(masterId, reqHdr.segmentId);
     if (!replica) {
-        LOG(WARNING, "Asked for bad segment <%lu,%lu>",
-            reqHdr.masterId, reqHdr.segmentId);
+        LOG(WARNING, "Asked for bad segment <%s,%lu>",
+            masterId.toString().c_str(), reqHdr.segmentId);
         throw BackupBadSegmentIdException(HERE);
     }
 
@@ -948,14 +952,14 @@ BackupService::init(ServerId id)
     assert(!initCalled);
 
     serverId = id;
-    LOG(NOTICE, "My server ID is %lu", *id);
+    LOG(NOTICE, "My server ID is %s", id.toString().c_str());
     if (metrics->serverId == 0) {
         metrics->serverId = *serverId;
     }
 
     storage->resetSuperblock(serverId, config.clusterName);
-    LOG(NOTICE, "Backup %lu will store replicas under cluster name '%s'",
-        serverId.getId(), config.clusterName.c_str());
+    LOG(NOTICE, "Backup %s will store replicas under cluster name '%s'",
+        serverId.toString().c_str(), config.clusterName.c_str());
     initCalled = true;
 }
 
@@ -1016,7 +1020,8 @@ BackupService::recoveryComplete(
         WireFormat::BackupRecoveryComplete::Response& respHdr,
         Rpc& rpc)
 {
-    LOG(DEBUG, "masterID: %lu", reqHdr.masterId);
+    LOG(DEBUG, "masterID: %s",
+        ServerId(reqHdr.masterId).toString().c_str());
     rpc.sendReply();
     recoveryTicks.destroy();
 }
@@ -1105,9 +1110,10 @@ BackupService::restartFromStorage()
             wasClosedOnStorage = true;
         }
         // TODO(stutsman): Eventually will need open segment checksums.
-        LOG(DEBUG, "Found stored replica <%lu,%lu> on backup storage in "
+        LOG(DEBUG, "Found stored replica <%s,%lu> on backup storage in "
                    "frame %u which was %s",
-            entry.header.logId, entry.header.segmentId, frame,
+            ServerId(entry.header.logId).toString().c_str(),
+            entry.header.segmentId, frame,
             wasClosedOnStorage ? "closed" : "open");
 
         // Add this replica to metadata.
@@ -1160,10 +1166,11 @@ BackupService::startReadingData(
     ProtoBuf::Tablets partitions;
     ProtoBuf::parseFromResponse(rpc.requestPayload, sizeof(reqHdr),
                                 reqHdr.partitionsLength, partitions);
-    LOG(DEBUG, "Backup preparing for recovery of crashed server %lu; "
+    LOG(DEBUG, "Backup preparing for recovery of crashed server %s; "
         "loading replicas and filtering them according to the following "
         "partitions:\n%s",
-        reqHdr.masterId, partitions.DebugString().c_str());
+        ServerId(reqHdr.masterId).toString().c_str(),
+        partitions.DebugString().c_str());
 
     uint64_t logDigestLastId = ~0UL;
     uint32_t logDigestLastLen = 0;
@@ -1180,10 +1187,10 @@ BackupService::startReadingData(
 
         if (*masterId == reqHdr.masterId) {
             if (!replica->satisfiesAtomicReplicationGuarantees()) {
-                LOG(WARNING, "Asked for replica <%lu,%lu> which was being "
+                LOG(WARNING, "Asked for replica <%s,%lu> which was being "
                     "replicated atomically but which has yet to be closed; "
                     "ignoring the replica",
-                    masterId.getId(), replica->segmentId);
+                    masterId.toString().c_str(), replica->segmentId);
                 continue;
             }
             (replica->primary ?
@@ -1206,8 +1213,8 @@ BackupService::startReadingData(
     foreach (auto replica, primarySegments) {
         new(&rpc.replyPayload, APPEND) Replica
             {replica->segmentId, replica->getRightmostWrittenOffset()};
-        LOG(DEBUG, "Crashed master %lu had segment %lu (primary) with len %u",
-            *replica->masterId, replica->segmentId,
+        LOG(DEBUG, "Crashed master %s had segment %lu (primary) with len %u",
+            replica->masterId.toString().c_str(), replica->segmentId,
             replica->getRightmostWrittenOffset());
         bool wasRecovering = replica->setRecovering();
         allRecovered &= wasRecovering;
@@ -1215,9 +1222,9 @@ BackupService::startReadingData(
     foreach (auto replica, secondarySegments) {
         new(&rpc.replyPayload, APPEND) Replica
             {replica->segmentId, replica->getRightmostWrittenOffset()};
-        LOG(DEBUG, "Crashed master %lu had segment %lu (secondary) with len %u"
+        LOG(DEBUG, "Crashed master %s had segment %lu (secondary) with len %u"
             ", stored partitions for deferred recovery segment construction",
-            *replica->masterId, replica->segmentId,
+            replica->masterId.toString().c_str(), replica->segmentId,
             replica->getRightmostWrittenOffset());
         bool wasRecovering = replica->setRecovering(partitions);
         allRecovered &= wasRecovering;
@@ -1329,15 +1336,17 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request& reqHdr,
             // replica from disk, and then the master detects the crash and
             // tries to re-replicate the segment which lost a replica on
             // the restarted backup.
-            LOG(NOTICE, "Master tried to open replica for <%lu,%lu> but "
+            LOG(NOTICE, "Master tried to open replica for <%s,%lu> but "
                 "another replica was recovered from storage with the same id; "
-                "rejecting open request", masterId.getId(), segmentId);
+                "rejecting open request", masterId.toString().c_str(),
+                segmentId);
             throw BackupOpenRejectedException(HERE);
         } else {
             // This should never happen.
-            LOG(ERROR, "Master tried to write replica for <%lu,%lu> but "
+            LOG(ERROR, "Master tried to write replica for <%s,%lu> but "
                 "another replica was recovered from storage with the same id; "
-                "rejecting write request", masterId.getId(), segmentId);
+                "rejecting write request", masterId.toString().c_str(),
+                segmentId);
             // This exception will crash the calling master.
             throw BackupBadSegmentIdException(HERE);
         }
@@ -1366,7 +1375,8 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request& reqHdr,
             }
         }
         if (!replica) {
-            LOG(DEBUG, "Opening <%lu,%lu>", *masterId, segmentId);
+            LOG(DEBUG, "Opening <%s,%lu>", masterId.toString().c_str(),
+                segmentId);
             try {
                 replica = new BackupReplica(*storage,
                                        pool,
@@ -1380,10 +1390,10 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request& reqHdr,
             } catch (const BackupStorageException& e) {
                 segments.erase(MasterSegmentIdPair(masterId, segmentId));
                 delete replica;
-                LOG(NOTICE, "Master tried to open replica for <%lu,%lu> but "
+                LOG(NOTICE, "Master tried to open replica for <%s,%lu> but "
                     "there was a problem allocating storage space; "
-                    "rejecting open request: %s", masterId.getId(), segmentId,
-                    e.what());
+                    "rejecting open request: %s", masterId.toString().c_str(),
+                    segmentId, e.what());
                 throw BackupOpenRejectedException(HERE);
             } catch (...) {
                 segments.erase(MasterSegmentIdPair(masterId, segmentId));
@@ -1395,9 +1405,10 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request& reqHdr,
 
     // Perform write.
     if (!replica) {
-        LOG(WARNING, "Tried write to a replica of segment <%lu,%lu> but "
-            "no such replica was open on this backup (server id %lu)",
-            masterId.getId(), segmentId, serverId.getId());
+        LOG(WARNING, "Tried write to a replica of segment <%s,%lu> but "
+            "no such replica was open on this backup (server id %s)",
+            masterId.toString().c_str(), segmentId,
+            serverId.toString().c_str());
         throw BackupBadSegmentIdException(HERE);
     } else if (replica->isOpen()) {
         // Need to check all three conditions because overflow is possible
@@ -1419,9 +1430,10 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request& reqHdr,
         bytesWritten += reqHdr.length;
     } else {
         if (!(reqHdr.flags & WireFormat::BackupWrite::CLOSE)) {
-            LOG(WARNING, "Tried write to a replica of segment <%lu,%lu> but "
-                "the replica was already closed on this backup (server id %lu)",
-                masterId.getId(), segmentId, serverId.getId());
+            LOG(WARNING, "Tried write to a replica of segment <%s,%lu> but "
+                "the replica was already closed on this backup (server id %s)",
+                masterId.toString().c_str(), segmentId,
+                serverId.toString().c_str());
             throw BackupBadSegmentIdException(HERE);
         }
         LOG(WARNING, "Closing segment write after close, may have been "

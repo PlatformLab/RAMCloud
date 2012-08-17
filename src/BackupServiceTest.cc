@@ -293,8 +293,8 @@ TEST_F(BackupServiceTest, constructorNoReuseReplicas) {
             "storage. Any replicas stored will not be reusable by future "
             "backups. Specify clusterName for persistence across backup "
             "restarts. | "
-        "init: My server ID is 3 | "
-        "init: Backup 3 will store replicas under cluster name '__unnamed__'"
+        "init: My server ID is 3.0 | "
+        "init: Backup 3.0 will store replicas under cluster name '__unnamed__'"
         , TestLog::get());
 }
 
@@ -317,8 +317,8 @@ TEST_F(BackupServiceTest, constructorDestroyConfusingReplicas) {
         "BackupService: Replicas stored on disk have a different clusterName "
             "('__unnamed__'). Scribbling storage to ensure any stale replicas "
             "left behind by old backups aren't used by future backups | "
-        "init: My server ID is 3 | "
-        "init: Backup 3 will store replicas under cluster name 'testing'"
+        "init: My server ID is 3.0 | "
+        "init: Backup 3.0 will store replicas under cluster name 'testing'"
         , TestLog::get());
 }
 
@@ -341,9 +341,9 @@ TEST_F(BackupServiceTest, constructorReuseReplicas)
             "('testing'). Scanning storage to find all replicas and to make "
             "them available to recoveries. | "
         "BackupService: Will enlist as a replacement for formerly crashed "
-            "server 2 which left replicas behind on disk | "
-        "init: My server ID is 4294967298 | "
-        "init: Backup 4294967298 will store replicas under cluster name "
+            "server 2.0 which left replicas behind on disk | "
+        "init: My server ID is 2.1 | "
+        "init: Backup 2.1 will store replicas under cluster name "
             "'testing'"
         , TestLog::get());
 }
@@ -1336,7 +1336,7 @@ TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask) {
     EXPECT_FALSE(task->rpc);
     EXPECT_TRUE(StringUtil::contains(TestLog::get(),
         "tryToFreeReplica: Server has recovered from lost replica; "
-        "freeing replica for <13,10>"));
+        "freeing replica for <13.0,10>"));
     EXPECT_EQ(1lu, backup->gcTaskQueue.outstandingTasks());
     EXPECT_FALSE(backup->findBackupReplica({13, 0}, 10));
     EXPECT_TRUE(backup->findBackupReplica({13, 0}, 11));
@@ -1350,7 +1350,7 @@ TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask) {
     backup->gcTaskQueue.performTask(); // get response - true for 11
     EXPECT_TRUE(StringUtil::contains(TestLog::get(),
         "tryToFreeReplica: Server has not recovered from lost replica; "
-        "retaining replica for <13,11>; "
+        "retaining replica for <13.0,11>; "
         "will probe replica status again later"));
     EXPECT_EQ(1lu, backup->gcTaskQueue.outstandingTasks());
 
@@ -1360,9 +1360,9 @@ TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask) {
     EXPECT_FALSE(task->rpc);
     backup->gcTaskQueue.performTask(); // find out server crashed
     EXPECT_TRUE(StringUtil::contains(TestLog::get(),
-        "tryToFreeReplica: Server 13 marked crashed; "
+        "tryToFreeReplica: Server 13.0 marked crashed; "
         "waiting for cluster to recover from its failure "
-        "before freeing <13,11>"));
+        "before freeing <13.0,11>"));
     EXPECT_EQ(1lu, backup->gcTaskQueue.outstandingTasks());
 
     backupServerList->remove({13, 0});
@@ -1373,10 +1373,10 @@ TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask) {
     EXPECT_TRUE(task->rpc);
     backup->gcTaskQueue.performTask(); // get response - server doesn't exist
     EXPECT_TRUE(StringUtil::contains(TestLog::get(),
-        "tryToFreeReplica: Server 13 marked down; cluster has recovered from "
+        "tryToFreeReplica: Server 13.0 marked down; cluster has recovered from "
             "its failure | "
         "tryToFreeReplica: Server has recovered from lost replica; "
-            "freeing replica for <13,12>"));
+            "freeing replica for <13.0,12>"));
     EXPECT_EQ(1lu, backup->gcTaskQueue.outstandingTasks());
 
     // Final perform finds no segments to free and just cleans up
