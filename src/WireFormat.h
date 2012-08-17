@@ -80,15 +80,13 @@ enum Opcode {
     RECOVER                 = 19,
     HINT_SERVER_DOWN        = 20,
     RECOVERY_MASTER_FINISHED = 21,
-    ENUMERATION             = 22,
+    ENUMERATE             = 22,
     SET_MIN_OPEN_SEGMENT_ID = 23,
     FILL_WITH_TEST_DATA     = 24,
     MULTI_READ              = 25,
     GET_METRICS             = 26,
-    BACKUP_CLOSE            = 27,
     BACKUP_FREE             = 28,
     BACKUP_GETRECOVERYDATA  = 29,
-    BACKUP_OPEN             = 30,
     BACKUP_STARTREADINGDATA = 31,
     BACKUP_WRITE            = 32,
     BACKUP_RECOVERYCOMPLETE = 33,
@@ -399,7 +397,7 @@ struct EnlistServer {
 };
 
 struct Enumerate {
-    static const Opcode opcode = ENUMERATION;
+    static const Opcode opcode = ENUMERATE;
     static const ServiceType service = MASTER_SERVICE;
     struct Request {
         RequestCommon common;

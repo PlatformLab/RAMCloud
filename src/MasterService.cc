@@ -153,7 +153,7 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc& rpc)
             break;
         case WireFormat::Enumerate::opcode:
             callHandler<WireFormat::Enumerate, MasterService,
-                        &MasterService::enumeration>(rpc);
+                        &MasterService::enumerate>(rpc);
             break;
         case WireFormat::FillWithTestData::opcode:
             callHandler<WireFormat::FillWithTestData, MasterService,
@@ -245,12 +245,12 @@ MasterService::init(ServerId id)
 }
 
 /**
- * Top-level server method to handle the ENUMERATION request.
+ * Top-level server method to handle the ENUMERATE request.
  *
  * \copydetails Service::ping
  */
 void
-MasterService::enumeration(const WireFormat::Enumerate::Request& reqHdr,
+MasterService::enumerate(const WireFormat::Enumerate::Request& reqHdr,
                            WireFormat::Enumerate::Response& respHdr,
                            Rpc& rpc)
 {

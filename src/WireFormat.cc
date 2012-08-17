@@ -65,14 +65,12 @@ opcodeSymbol(uint32_t opcode)
         case RECOVER:                    return "RECOVER";
         case HINT_SERVER_DOWN:           return "HINT_SERVER_DOWN";
         case RECOVERY_MASTER_FINISHED:   return "RECOVERY_MASTER_FINISHED";
-        case ENUMERATION:                return "ENUMERATION";
+        case ENUMERATE:                  return "ENUMERATE";
         case FILL_WITH_TEST_DATA:        return "FILL_WITH_TEST_DATA";
         case MULTI_READ:                 return "MULTI_READ";
         case GET_METRICS:                return "GET_METRICS";
-        case BACKUP_CLOSE:               return "BACKUP_CLOSE";
         case BACKUP_FREE:                return "BACKUP_FREE";
         case BACKUP_GETRECOVERYDATA:     return "BACKUP_GETRECOVERYDATA";
-        case BACKUP_OPEN:                return "BACKUP_OPEN";
         case BACKUP_STARTREADINGDATA:    return "BACKUP_STARTREADINGDATA";
         case BACKUP_WRITE:               return "BACKUP_WRITE";
         case BACKUP_RECOVERYCOMPLETE:    return "BACKUP_RECOVERYCOMPLETE";

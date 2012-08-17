@@ -105,9 +105,9 @@ class MasterService : public Service, Log::EntryHandlers {
         State state;
     };
 
-    void enumeration(const WireFormat::Enumerate::Request& reqHdr,
-                     WireFormat::Enumerate::Response& respHdr,
-                     Rpc& rpc);
+    void enumerate(const WireFormat::Enumerate::Request& reqHdr,
+                   WireFormat::Enumerate::Response& respHdr,
+                   Rpc& rpc);
     void fillWithTestData(const WireFormat::FillWithTestData::Request& reqHdr,
                           WireFormat::FillWithTestData::Response& respHdr,
                           Rpc& rpc);
