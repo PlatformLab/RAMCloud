@@ -6,6 +6,7 @@ COORDINATOR_SRCFILES := \
 			src/Recovery.cc \
 			src/RuntimeOptions.cc \
 			src/ServerInformation.pb.cc \
+			src/ServerUpdate.pb.cc \
 			src/StateServerDown.pb.cc \
 			$(NULL)
 

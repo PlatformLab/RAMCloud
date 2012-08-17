@@ -21,6 +21,7 @@
 #include "Common.h"
 #include "CoordinatorServerList.h"
 #include "ServerInformation.pb.h"
+#include "ServerUpdate.pb.h"
 #include "StateServerDown.pb.h"
 
 namespace RAMCloud {
@@ -66,7 +67,7 @@ class CoordinatorServerManager {
     void serverDownRecover(ProtoBuf::StateServerDown* state,
                            EntryId entryId);
     void setMinOpenSegmentId(ServerId serverId, uint64_t segmentId);
-    void setMinOpenSegmentIdRecover(ProtoBuf::ServerInformation* state,
+    void setMinOpenSegmentIdRecover(ProtoBuf::ServerUpdate* state,
                                     EntryId entryId);
     bool verifyServerFailure(ServerId serverId);
 

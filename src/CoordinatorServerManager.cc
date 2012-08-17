@@ -156,6 +156,7 @@ CoordinatorServerManager::EnlistServer::execute()
 
     EntryId entryId =
         manager.service.logCabinHelper->appendProtoBuf(state);
+    manager.service.serverList.addServerInfoLogId(newServerId, entryId);
     LOG(DEBUG, "LogCabin: ServerEnlisting entryId: %lu", entryId);
 
     return complete(entryId);
@@ -393,10 +394,12 @@ CoordinatorServerManager::ServerDown::execute()
 void
 CoordinatorServerManager::ServerDown::complete(EntryId entryId)
 {
-    // Get the entry id for the LogCabin entry corresponding to this
+    // Get the entry ids for the LogCabin entries corresponding to this
     // server before the server information is removed from serverList,
     // so that the LogCabin entry can be invalidated later.
     EntryId serverInfoLogId =
+        manager.service.serverList.getServerInfoLogId(serverId);
+    EntryId serverUpdateLogId =
         manager.service.serverList.getServerInfoLogId(serverId);
 
     // If this machine has a backup and master on the same server it is best
@@ -417,8 +420,11 @@ CoordinatorServerManager::ServerDown::complete(EntryId entryId)
     manager.removeReplicationGroup(entry.replicationId);
     manager.createReplicationGroup();
 
-    manager.service.logCabinLog->invalidate(vector<EntryId>(
-        serverInfoLogId, entryId));
+    vector<EntryId> invalidates {serverInfoLogId, entryId};
+    if (serverUpdateLogId)
+        invalidates.push_back(serverUpdateLogId);
+
+    manager.service.logCabinLog->invalidate(invalidates);
 }
 
 /**
@@ -460,16 +466,25 @@ void
 CoordinatorServerManager::SetMinOpenSegmentId::execute()
 {
     EntryId oldEntryId =
-        manager.service.serverList.getServerInfoLogId(serverId);
-    ProtoBuf::ServerInformation serverInfo;
-    manager.service.logCabinHelper->getProtoBufFromEntryId(
-        oldEntryId, serverInfo);
+        manager.service.serverList.getServerUpdateLogId(serverId);
 
-    serverInfo.set_min_open_segment_id(segmentId);
+    ProtoBuf::ServerUpdate serverUpdate;
+    vector<EntryId> invalidates;
+
+    if (oldEntryId) {
+        manager.service.logCabinHelper->getProtoBufFromEntryId(
+            oldEntryId, serverUpdate);
+        invalidates.push_back(oldEntryId);
+    } else {
+        serverUpdate.set_entry_type("ServerUpdate");
+        serverUpdate.set_server_id(serverId.getId());
+    }
+
+    serverUpdate.set_min_open_segment_id(segmentId);
 
     EntryId newEntryId =
         manager.service.logCabinHelper->appendProtoBuf(
-            serverInfo, vector<EntryId>(oldEntryId));
+            serverUpdate, invalidates);
 
     complete(newEntryId);
 }
@@ -490,7 +505,7 @@ CoordinatorServerManager::SetMinOpenSegmentId::complete(EntryId entryId)
 {
     try {
         // Update local state.
-        manager.service.serverList.addServerInfoLogId(serverId, entryId);
+        manager.service.serverList.addServerUpdateLogId(serverId, entryId);
         manager.service.serverList.setMinOpenSegmentId(serverId, segmentId);
     } catch (const ServerListException& e) {
         LOG(WARNING, "setMinOpenSegmentId server doesn't exist: %lu",
@@ -520,20 +535,20 @@ CoordinatorServerManager::setMinOpenSegmentId(
  * Set the minOpenSegmentId of the server specified in the serverInfo Protobuf
  * to the segmentId specified in the Protobuf.
  *
- * \param serverInfo
- *      The ProtoBuf that has the information about the server whose
+ * \param serverUpdate
+ *      The ProtoBuf that has the update about the server whose
  *      minOpenSegmentId is to be set.
  * \param entryId
- *      The entry id of the LogCabin entry corresponding to the serverInfo.
+ *      The entry id of the LogCabin entry corresponding to serverUpdate.
  */
 void
 CoordinatorServerManager::setMinOpenSegmentIdRecover(
-    ProtoBuf::ServerInformation* serverInfo, EntryId entryId)
+    ProtoBuf::ServerUpdate* serverUpdate, EntryId entryId)
 {
     Lock _(mutex);
-    ServerId serverId = ServerId(serverInfo->server_id());
-    uint64_t segmentId = serverInfo->min_open_segment_id();
-    SetMinOpenSegmentId(*this, serverId, segmentId).complete(entryId);
+    SetMinOpenSegmentId(*this,
+                        ServerId(serverUpdate->server_id()),
+                        serverUpdate->min_open_segment_id()).complete(entryId);
 }
 
 /**

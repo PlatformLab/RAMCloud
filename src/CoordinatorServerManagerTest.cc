@@ -419,16 +419,14 @@ TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentId) {
 }
 
 TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentIdRecover) {
-    EntryId serverInfoLogId = serverList->getServerInfoLogId(masterServerId);
-    ProtoBuf::ServerInformation serverInfo;
-    serverManager->service.logCabinHelper->getProtoBufFromEntryId(
-        serverInfoLogId, serverInfo);
-
-    serverInfo.set_min_open_segment_id(10);
+    ProtoBuf::ServerUpdate serverUpdate;
+    serverUpdate.set_entry_type("ServerUpdate");
+    serverUpdate.set_server_id(masterServerId.getId());
+    serverUpdate.set_min_open_segment_id(10);
     EntryId entryId =
-        serverManager->service.logCabinHelper->appendProtoBuf(serverInfo);
+        serverManager->service.logCabinHelper->appendProtoBuf(serverUpdate);
 
-    serverManager->setMinOpenSegmentIdRecover(&serverInfo, entryId);
+    serverManager->setMinOpenSegmentIdRecover(&serverUpdate, entryId);
 
     EXPECT_EQ(10u, serverList->at(masterServerId).minOpenSegmentId);
 }
@@ -437,12 +435,12 @@ TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentId_execute) {
     TestLog::Enable _;
     serverManager->setMinOpenSegmentId(masterServerId, 10);
 
-    EntryId entryId = serverList->getServerInfoLogId(masterServerId);
-    ProtoBuf::ServerInformation readInfo;
+    EntryId entryId = serverList->getServerUpdateLogId(masterServerId);
+    ProtoBuf::ServerUpdate readUpdate;
     serverManager->service.logCabinHelper->getProtoBufFromEntryId(
-        entryId, readInfo);
+        entryId, readUpdate);
 
-    EXPECT_EQ(10u, readInfo.min_open_segment_id());
+    EXPECT_EQ(10u, readUpdate.min_open_segment_id());
 }
 
 TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentId_complete_noSuchServer)

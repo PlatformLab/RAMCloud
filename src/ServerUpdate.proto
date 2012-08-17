@@ -16,8 +16,8 @@
 package RAMCloud.ProtoBuf;
 
 // The information appended to LogCabin by the Coordinator
-// to store the information about each server.
-message ServerInformation {
+// to store updates for each server.
+message ServerUpdate {
 
     /// Entry type for this LogCabin entry.
     required string entry_type = 1;
@@ -25,15 +25,6 @@ message ServerInformation {
 	/// The server id of the server.
     required fixed64 server_id = 2;
 
-	/// Services supported by the server.
-    required uint32 service_mask = 3;
-
-    /// Read speed of the server.
-    required uint32 read_speed = 4;
-
-	/// Write speed of the server.
-    required uint32 write_speed = 5;
-
-	/// Service Locator of the server.
-    required string service_locator = 6;
+    /// The minimum open segment id of this server.
+    required uint64 min_open_segment_id = 7;
 }
