@@ -127,7 +127,6 @@ TEST_F(CoordinatorServerListTest, add) {
 
     {
         EXPECT_EQ(0U, sl.version);
-        EXPECT_EQ(ServerId(1, 0), sl.generateUniqueId());
         sl.add(ServerId(1, 0), "mock:host=server1",
             {WireFormat::MASTER_SERVICE}, 100);
         EXPECT_EQ(1U, sl.version);
@@ -151,7 +150,6 @@ TEST_F(CoordinatorServerListTest, add) {
 
     {
         EXPECT_EQ(1U, sl.version);
-        EXPECT_EQ(ServerId(2, 0), sl.generateUniqueId());
         sl.add(ServerId(2, 0), "hi again", {WireFormat::BACKUP_SERVICE}, 100);
         EXPECT_EQ(2U, sl.version);
         EXPECT_TRUE(sl.serverList[2].entry);
@@ -231,6 +229,14 @@ TEST_F(CoordinatorServerListTest, crashed_trackerUpdated) {
     EXPECT_EQ(0u, server.expectedReadMBytesPerSec);
     EXPECT_EQ(ServerStatus::CRASHED, server.status);
     EXPECT_EQ(SERVER_CRASHED, tr.changes.front().event);
+}
+
+TEST_F(CoordinatorServerListTest, generateUniqueId) {
+    EXPECT_EQ(ServerId(1, 0), sl.generateUniqueId());
+    EXPECT_EQ(ServerId(2, 0), sl.generateUniqueId());
+
+    sl.remove(ServerId(1, 0));
+    EXPECT_EQ(ServerId(1, 1), sl.generateUniqueId());
 }
 
 TEST_F(CoordinatorServerListTest, remove) {
