@@ -272,7 +272,7 @@ MasterService::enumerate(const WireFormat::Enumerate::Request& reqHdr,
         }
     }
     if (!validTablet) {
-        respHdr.common.status = STATUS_UNKNOWN_TABLE;
+        respHdr.common.status = STATUS_UNKNOWN_TABLET;
         return;
     }
 
@@ -475,7 +475,7 @@ MasterService::multiRead(const WireFormat::MultiRead::Request& reqHdr,
         // we might have an entry in the hash table that's invalid because
         // its tablet no longer lives here.
         if (getTable(key) == NULL) {
-            *status = STATUS_UNKNOWN_TABLE;
+            *status = STATUS_UNKNOWN_TABLET;
             continue;
         }
 
@@ -531,7 +531,7 @@ MasterService::read(const WireFormat::Read::Request& reqHdr,
     // no longer lives here.
 
     if (getTable(key) == NULL) {
-        respHdr.common.status = STATUS_UNKNOWN_TABLE;
+        respHdr.common.status = STATUS_UNKNOWN_TABLET;
         return;
     }
 
@@ -597,7 +597,7 @@ MasterService::dropTabletOwnership(
 
     LOG(WARNING, "Could not drop ownership on unknown tablet (%lu, range "
         "[%lu,%lu])!", reqHdr.tableId, reqHdr.firstKeyHash, reqHdr.lastKeyHash);
-    respHdr.common.status = STATUS_UNKNOWN_TABLE;
+    respHdr.common.status = STATUS_UNKNOWN_TABLET;
 }
 
 /**
@@ -809,7 +809,7 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request& reqHdr,
         LOG(WARNING, "Migration request for range this master does not "
             "own. TableId %lu, range [%lu,%lu]",
             tableId, firstKeyHash, lastKeyHash);
-        respHdr.common.status = STATUS_UNKNOWN_TABLE;
+        respHdr.common.status = STATUS_UNKNOWN_TABLET;
         return;
     }
 
@@ -975,7 +975,7 @@ MasterService::receiveMigrationData(
     if (tablet == NULL) {
         LOG(WARNING, "migration data received for unknown tablet %lu, "
             "firstKeyHash %lu", tableId, firstKeyHash);
-        respHdr.common.status = STATUS_UNKNOWN_TABLE;
+        respHdr.common.status = STATUS_UNKNOWN_TABLET;
         return;
     }
 
@@ -1871,7 +1871,7 @@ MasterService::remove(const WireFormat::Remove::Request& reqHdr,
 
     Table* table = getTable(key);
     if (table == NULL) {
-        respHdr.common.status = STATUS_UNKNOWN_TABLE;
+        respHdr.common.status = STATUS_UNKNOWN_TABLET;
         return;
     }
 
@@ -2443,7 +2443,7 @@ MasterService::storeObject(Key& key,
 {
     Table* table = getTable(key);
     if (table == NULL)
-        return STATUS_UNKNOWN_TABLE;
+        return STATUS_UNKNOWN_TABLET;
 
     if (!anyWrites) {
         // This is the first write; use this as a trigger to update the

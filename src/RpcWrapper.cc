@@ -82,7 +82,7 @@ RpcWrapper::cancel()
  * This method is invoked by isReady when an RPC returns with an error
  * status that isn't known to isReady. Subclasses can override the
  * default implementation to handle some status values (such as
- * STATUS_UNKNOWN_TABLE) by retrying the request.
+ * STATUS_UNKNOWN_TABLET) by retrying the request.
  *
  * \return
  *      The return value from this method will be the return value

@@ -71,8 +71,8 @@ ClientException::throwException(const CodeLocation& where, Status status)
             // an exception to indicate success?) but it is here
             // for completeness.
             throw Success(where);
-        case STATUS_UNKNOWN_TABLE:
-            throw UnknownTableException(where);
+        case STATUS_UNKNOWN_TABLET:
+            throw UnknownTabletException(where);
         case STATUS_TABLE_DOESNT_EXIST:
             throw TableDoesntExistException(where);
         case STATUS_OBJECT_DOESNT_EXIST:

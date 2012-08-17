@@ -95,8 +95,8 @@ class name : public superClass {                            \
 DEFINE_EXCEPTION(Success,
                  STATUS_OK,
                  ClientException)
-DEFINE_EXCEPTION(UnknownTableException,
-                 STATUS_UNKNOWN_TABLE,
+DEFINE_EXCEPTION(UnknownTabletException,
+                 STATUS_UNKNOWN_TABLET,
                  ClientException)
 DEFINE_EXCEPTION(TableDoesntExistException,
                  STATUS_TABLE_DOESNT_EXIST,

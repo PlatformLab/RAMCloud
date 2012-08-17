@@ -85,7 +85,7 @@ ObjectRpcWrapper::ObjectRpcWrapper(RamCloud& ramcloud, uint64_t tableId,
 bool
 ObjectRpcWrapper::checkStatus()
 {
-    if (responseHeader->status == STATUS_UNKNOWN_TABLE) {
+    if (responseHeader->status == STATUS_UNKNOWN_TABLET) {
         // The object isn't where we thought it should be. Refresh our
         // configuration cache and try again.
         LOG(NOTICE, "Server %s doesn't store <%lu, 0x%lx>; "

@@ -39,7 +39,7 @@ enum Status {
     /// for) a given table, but that it may exist elsewhere in the system.
     /// When it's possible that the table exists on another server, this status
     /// should be returned (in preference to the definitive TABLE_DOESNT_EXIST).
-    STATUS_UNKNOWN_TABLE                = 1,
+    STATUS_UNKNOWN_TABLET               = 1,
 
     /// Indicates that a table does not exist anywhere in the system. At present
     /// only the coordinator can say with certainly that a table does not exist.

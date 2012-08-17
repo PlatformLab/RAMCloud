@@ -69,7 +69,7 @@ TEST_F(ObjectRpcWrapperTest, checkStatus_unknownTablet) {
     wrapper.send();
     EXPECT_EQ("mock:refresh=1", wrapper.session->getServiceLocator());
     (new(wrapper.response, APPEND) WireFormat::ResponseCommon)->status =
-            STATUS_UNKNOWN_TABLE;
+            STATUS_UNKNOWN_TABLET;
     wrapper.state = RpcWrapper::RpcState::FINISHED;
     EXPECT_FALSE(wrapper.isReady());
     EXPECT_STREQ("IN_PROGRESS", wrapper.stateString());

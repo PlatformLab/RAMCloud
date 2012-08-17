@@ -383,9 +383,9 @@ TEST_F(MultiReadTest, PartRpc_unknownTable) {
             session1->lastResponse->getTotalLength() -
             downCast<uint32_t>(sizeof(WireFormat::MultiRead::Response)));
     Status* statuses = new(session1->lastResponse, APPEND) Status[3];
-    statuses[0] = STATUS_UNKNOWN_TABLE;
+    statuses[0] = STATUS_UNKNOWN_TABLET;
     statuses[1] = STATUS_OBJECT_DOESNT_EXIST;
-    statuses[2] = STATUS_UNKNOWN_TABLE;
+    statuses[2] = STATUS_UNKNOWN_TABLET;
     session1->lastNotifier->completed();
     EXPECT_FALSE(request.isReady());
     EXPECT_EQ("finish: Server mock:host=master1 doesn't store "

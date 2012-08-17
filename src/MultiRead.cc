@@ -283,7 +283,7 @@ MultiRead::PartRpc::finish()
             request.version = part->version;
             respOffset += part->length;
         } else {
-            if (*status == STATUS_UNKNOWN_TABLE) {
+            if (*status == STATUS_UNKNOWN_TABLET) {
                 // The object isn't where we thought it should be. Refresh our
                 // configuration cache and arrange for this object to be
                 // fetched again.

@@ -463,7 +463,7 @@ TEST_F(MasterServiceTest, multiRead_unknownTable) {
             sizeof(WireFormat::MultiRead::Response));
     EXPECT_TRUE(status != NULL);
     if (status != NULL) {
-        EXPECT_STREQ("STATUS_UNKNOWN_TABLE", statusToSymbol(*status));
+        EXPECT_STREQ("STATUS_UNKNOWN_TABLET", statusToSymbol(*status));
     }
 }
 
@@ -1398,13 +1398,13 @@ TEST_F(MasterServiceTest, receiveMigrationData) {
     EXPECT_THROW(MasterClient::receiveMigrationData(context,
                                                     masterServer->serverId,
                                                     6, 0, s),
-        UnknownTableException);
+        UnknownTabletException);
     EXPECT_EQ("receiveMigrationData: migration data received for "
         "unknown tablet 6, firstKeyHash 0", TestLog::get());
     EXPECT_THROW(MasterClient::receiveMigrationData(context,
                                                     masterServer->serverId,
                                                     5, 0, s),
-        UnknownTableException);
+        UnknownTabletException);
 
     TestLog::reset();
     EXPECT_THROW(MasterClient::receiveMigrationData(context,
