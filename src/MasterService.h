@@ -20,6 +20,7 @@
 #include "CoordinatorClient.h"
 #include "Log.h"
 #include "LogCleaner.h"
+#include "LogEntryHandlers.h"
 #include "HashTable.h"
 #include "Object.h"
 #include "SegmentIterator.h"
@@ -45,7 +46,7 @@ class RecoveryTask;
  * respond to client RPC requests to manipulate objects stored on the
  * server.
  */
-class MasterService : public Service, Log::EntryHandlers {
+class MasterService : public Service, LogEntryHandlers {
   public:
     MasterService(Context& context,
                   const ServerConfig& config);

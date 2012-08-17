@@ -70,8 +70,10 @@ runIt(RamCloud* client,
 {
     char objBuf[objectSize];
 
-    string keys[maxId * 20];
-    for (uint64_t i = 0; i < maxId * 20; i++)
+    const int loops = 100;
+
+    string* keys = new string[maxId * loops];
+    for (uint64_t i = 0; i < maxId * loops; i++)
         keys[i] = format("%lu", nextId(maxId));
 
     uint64_t bytesWritten = 0;
@@ -81,7 +83,7 @@ runIt(RamCloud* client,
     uint64_t lastUpdateBytes = 0;
     uint64_t lastUpdateObjects = 0;
 
-    for (uint64_t i = 0; i < maxId * 20; i++) {
+    for (uint64_t i = 0; i < maxId * loops; i++) {
         client->write(tableId, keys[i].c_str(),
                 downCast<uint16_t>(keys[i].length()), objBuf, objectSize);
 

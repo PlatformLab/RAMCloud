@@ -23,6 +23,7 @@
 #include "BoostIntrusive.h"
 #include "LogCleaner.h"
 #include "LogEntryTypes.h"
+#include "LogEntryHandlers.h"
 #include "Segment.h"
 #include "SegmentManager.h"
 #include "LogSegment.h"
@@ -54,7 +55,7 @@ struct LogException : public Exception {
  * tell the module that appended it to update any references and stop using the
  * old location. A set of callbacks are invoked by the cleaner to test if
  * entries are still alive to and notify the user of the log when an entry has
- * been moved to another log location. See the Log::EntryHandlers interface for
+ * been moved to another log location. See the LogEntryHandlers interface for
  * more details.
  *
  * This particular class provides a simple, thin interface for users of logs.
@@ -64,45 +65,6 @@ struct LogException : public Exception {
  */
 class Log {
   public:
-    /**
-     * This class specifies an interface that must be implemented for handling
-     * various callbacks on entries appended to the log. An instance of a class
-     * implementing this interface is provided to the log constructor.
-     */
-    class EntryHandlers {
-      public:
-        virtual ~EntryHandlers() { }
-
-        /**
-         * This method extracts a uint32_t timestamp from the given entry.
-         * If the entry does not support a timestamp, 0 should be returned.
-         */
-        virtual uint32_t getTimestamp(LogEntryType type, Buffer& buffer) = 0;
-
-        /**
-         * This method returns true if the given entry is still being used,
-         * in which case the cleaner will eventually relocate it and invoke
-         * another callback to indicate the new location. If the entry is
-         * no longer being used and may be garbage collected, this method
-         * should return false.
-         *
-         * After returning false, the entry may disappear at any future time.
-         */
-        virtual bool checkLiveness(LogEntryType type, Buffer& buffer) = 0;
-
-        /**
-         * This method is called after an entry has been copied to a new
-         * location. If the caller wants to retain the data, it should make
-         * note of the new location (via the newReference). If it does not
-         * need the data anymore, it should return false.
-         *
-         * After returning false, the entry may disappear at any future time.
-         */
-        virtual bool relocate(LogEntryType type,
-                              Buffer& oldBuffer,
-                              HashTable::Reference newReference) = 0;
-    };
-
     /**
      * Position is a (Segment Id, Segment Offset) tuple that represents a
      * position in the log. For example, it can be considered the logical time
@@ -151,7 +113,7 @@ class Log {
     };
 
     Log(Context& context,
-        EntryHandlers& entryHandlers,
+        LogEntryHandlers& entryHandlers,
         SegmentManager& segmentManager,
         ReplicaManager& replicaManager,
         bool disableCleaner = false);
@@ -194,7 +156,7 @@ class Log {
     /// Various handlers for entries appended to this log. Used to obtain
     /// timestamps, check liveness, and notify of entry relocation during
     /// cleaning.
-    EntryHandlers& entryHandlers;
+    LogEntryHandlers& entryHandlers;
 
     /// The SegmentManager allocates and keeps track of our segments. It
     /// also mediates mutation of the log between this class and the

@@ -159,7 +159,7 @@ TEST_F(ReplicaManagerTest, writeSegment) {
 
     ReplicatedSegment* rs = mgr->allocateHead(88, &s, NULL);
     rs->close();
-    rs->sync(s.tail);
+    rs->sync(s.head);
 
     EXPECT_EQ(1U, mgr->replicatedSegmentList.size());
 

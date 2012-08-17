@@ -52,7 +52,7 @@ namespace RAMCloud {
  *      collecting freed space. It will eventually run out of memory forever.
  */
 Log::Log(Context& context,
-         EntryHandlers& entryHandlers,
+         LogEntryHandlers& entryHandlers,
          SegmentManager& segmentManager,
          ReplicaManager& replicaManager,
          bool disableCleaner)
@@ -65,7 +65,7 @@ Log::Log(Context& context,
       appendLock()
 {
     if (!disableCleaner)
-        cleaner.construct(context, segmentManager, replicaManager, 4);
+        cleaner.construct(context, segmentManager, replicaManager, entryHandlers, 4);
 }
 
 /**
@@ -111,7 +111,7 @@ Log::append(LogEntryType type,
 
     // This is only possible once after construction.
     if (head == NULL) {
-        head = segmentManager.allocHead();
+        head = segmentManager.allocHead(false);
         if (head == NULL)
             throw FatalError(HERE, "Could not allocate initial head segment");
     }
@@ -120,11 +120,18 @@ Log::append(LogEntryType type,
     uint32_t segmentOffset;
     bool success = head->append(type, buffer, offset, length, segmentOffset);
     if (!success) {
-        LogSegment* newHead = segmentManager.allocHead();
+        LogSegment* newHead = segmentManager.allocHead(false);
         if (newHead == NULL)
             return false;
 
         head = newHead;
+
+        // It's possible that we were allocated an emergency head segment due to
+        // memory pressure. If so, it cannot be appended to. Return failure and
+        // let the client retry. Hopefully the cleaner will free up more memory
+        // soon.
+        if (head->isEmergencyHead)
+            return false;
 
         if (!head->append(type, buffer, offset, length, segmentOffset)) {
             // TODO(Steve): We should probably just permit up to 1/N'th of the
@@ -141,6 +148,15 @@ Log::append(LogEntryType type,
         Log::sync();
 
     outReference = buildReference(head->slot, segmentOffset);
+
+    // TODO(Steve): Should this just be passed in? It's a bummer that we build
+    // a new buffer just to query the callback. Yet we still need the callback
+    // for the cleaner to query the timestamp.
+    Buffer inLogBuffer;
+    head->getEntry(segmentOffset, inLogBuffer);
+    uint32_t timestamp = entryHandlers.getTimestamp(type, inLogBuffer);
+    head->statistics.increment(length, timestamp);
+
     return true;
 }
 
@@ -194,7 +210,11 @@ Log::free(HashTable::Reference reference)
 {
     uint32_t slot = referenceToSlot(reference);
     uint32_t offset = referenceToOffset(reference);
-    segmentManager[slot].free(offset);
+    LogSegment& segment = segmentManager[slot];
+    Buffer buffer;
+    LogEntryType type = segment.getEntry(offset, buffer);
+    uint32_t timestamp = entryHandlers.getTimestamp(type, buffer);
+    segment.statistics.decrement(buffer.getTotalLength(), timestamp);
 }
 
 /**
@@ -206,7 +226,7 @@ Log::free(HashTable::Reference reference)
  * \param reference
  *      Reference to the entry requested. This value is returned in the append
  *      method. If this reference is invalid behaviour is undefined. The log
- *      will indicate when references become invalid via the EntryHandlers
+ *      will indicate when references become invalid via the LogEntryHandlers
  *      class.
  * \param outBuffer
  *      Buffer to append the entry being looked up to.
@@ -233,7 +253,7 @@ Log::sync()
     // initial call to this method. Even if we run out of memory in the future,
     // head will remain valid.
     if (head == NULL) {
-        head = segmentManager.allocHead();
+        head = segmentManager.allocHead(true);
         if (head == NULL)
             throw FatalError(HERE, "Could not allocate initial head segment");
     }
@@ -303,12 +323,7 @@ Log::allocateHeadIfStillOn(Tub<uint64_t> segmentId)
     Lock lock(appendLock);
 
     if (!segmentId || (head != NULL && head->id == *segmentId))
-        head = segmentManager.allocHead();
-
-    // TODO(steve/ryan): What if we're out of space? The above could return
-    //     NULL, in which case we haven't actually closed it. Could we return
-    //     false to replica manager and rely on it retrying? The previous code
-    //     could have thrown an exception, but we never caught it...
+        head = segmentManager.allocHead(true);
 }
 
 /**

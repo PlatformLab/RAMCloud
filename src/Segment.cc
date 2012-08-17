@@ -6,7 +6,7 @@
  *
  * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR(S) DISCLAIM ALL WARRANTIES
  * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL AUTHORS BE LIABLE FOR
+ MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL AUTHORS BE LIABLE FOR
  * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
  * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
@@ -35,9 +35,9 @@ Segment::Segment()
     : fakeAllocator(),
       allocator(SegmentInternal::heapAllocator),
       seglets(),
+      immutable(false),
       closed(false),
-      tail(0),
-      bytesFreed(0),
+      head(0),
       checksum(),
       currentFooter()
 {
@@ -61,9 +61,9 @@ Segment::Segment(Allocator& allocator)
     : fakeAllocator(),
       allocator(allocator),
       seglets(),
+      immutable(false),
       closed(false),
-      tail(0),
-      bytesFreed(0),
+      head(0),
       checksum(),
       currentFooter()
 {
@@ -91,9 +91,9 @@ Segment::Segment(const void* buffer, uint32_t length)
     : fakeAllocator(length),
       allocator(*fakeAllocator),
       seglets(),
+      immutable(false),
       closed(true),
-      tail(length),
-      bytesFreed(0),
+      head(length),
       checksum(),
       currentFooter()
 {
@@ -142,18 +142,18 @@ Segment::append(LogEntryType type,
     if (bytesLeft() < (bytesNeeded(sizeof32(Footer)) + bytesNeeded(length)))
         return false;
 
-    uint32_t startOffset = tail;
+    uint32_t startOffset = head;
 
-    copyIn(tail, &entryHeader, sizeof(entryHeader));
+    copyIn(head, &entryHeader, sizeof(entryHeader));
     checksum.update(&entryHeader, sizeof(entryHeader));
-    tail += sizeof32(entryHeader);
+    head += sizeof32(entryHeader);
 
-    copyIn(tail, &length, entryHeader.getLengthBytes());
+    copyIn(head, &length, entryHeader.getLengthBytes());
     checksum.update(&length, entryHeader.getLengthBytes());
-    tail += entryHeader.getLengthBytes();
+    head += entryHeader.getLengthBytes();
 
-    copyInFromBuffer(tail, buffer, offset, length);
-    tail += length;
+    copyInFromBuffer(head, buffer, offset, length);
+    head += length;
 
     appendFooter();
 
@@ -210,32 +210,47 @@ Segment::append(LogEntryType type, const void* data, uint32_t length)
 }
 
 /**
- * Mark a previously appended entry as free. This simply updates usage
- * statistics.
- */
-void
-Segment::free(uint32_t offset)
-{
-    const EntryHeader* header = getEntryHeader(offset);
-
-    uint32_t length = 0;
-    copyOut(offset + sizeof32(*header), &length, header->getLengthBytes());
-
-    bytesFreed += (sizeof32(*header) + header->getLengthBytes() + length);
-    assert(bytesFreed <= tail);
-}
-
-/**
- * Make the segment as immutable. Closing it will cause all future append
- * operations to fail.
+ * Close the segment, making permanently immutable. Closing it will cause all
+ * future append operations to fail.
  */
 void
 Segment::close()
 {
     if (!closed) {
+        immutable = true;
         closed = true;
         appendFooter();
     }
+}
+
+/**
+ * Mark the segment as immutable, disabling any future appends until it is made
+ * mutable again by calling enableAppends(). This is used to ensure that open
+ * emergency head segments are not appended to by the log. See SegmentManager
+ * for more details.
+ *
+ * Note that segments are mutable by default after construction. 
+ */
+void
+Segment::disableAppends()
+{
+    immutable = true;
+}
+
+/**
+ * Mark the segment as mutable again after a call to disableAppends(). If the
+ * segment is closed, it can never be made mutable again and this call will
+ * fail and return false. Otherwise returns true if the segment is mutable.
+ *
+ * Segments are already mutable after construction.
+ */
+bool
+Segment::enableAppends()
+{
+    if (closed)
+        return false;
+    immutable = false;
+    return true;
 }
 
 /**
@@ -278,8 +293,8 @@ Segment::appendToBuffer(Buffer& buffer, uint32_t offset, uint32_t length) const
 uint32_t
 Segment::appendToBuffer(Buffer& buffer)
 {
-    // Tail does not include the footer.
-    uint32_t length = tail + bytesNeeded(sizeof32(Footer));
+    // Head does not include the footer.
+    uint32_t length = head + bytesNeeded(sizeof32(Footer));
     return appendToBuffer(buffer, 0, length);
 }
 
@@ -321,7 +336,7 @@ uint32_t
 Segment::getAppendedLength(OpaqueFooterEntry& footerEntry) const
 {
     footerEntry = currentFooter;
-    return tail;
+    return head;
 }
 
 /**
@@ -334,15 +349,39 @@ Segment::getSegletsAllocated()
 }
 
 /**
- * Return the number of seglets needed by this segment to store the live data
- * it contains. 
+ * Return the number of seglets this segment is currently using due to prior
+ * append operations.
  */
 uint32_t
-Segment::getSegletsNeeded()
+Segment::getSegletsInUse()
 {
-    uint32_t liveBytes = tail - bytesFreed + bytesNeeded(sizeof(Footer));
-    return (liveBytes + allocator.getSegletSize() - 1) /
-        allocator.getSegletSize();
+    return (head + allocator.getSegletSize() - 1) / allocator.getSegletSize();
+}
+
+/**
+ * Free the given number of unused seglets from the end of a closed segment.
+ *
+ * \return
+ *      True if the operation succeeded. False if no action was taken because
+ *      the segment is not closed or the given count exceeds the number of
+ *      unused seglets.
+ */
+bool
+Segment::freeUnusedSeglets(uint32_t count)
+{
+    if (!closed)
+        return false;
+
+    size_t unusedSeglets = seglets.size() - getSegletsInUse();
+    if (count > unusedSeglets)
+        return false;
+
+    for (uint32_t i = 0; i < count; i++) {
+        allocator.free(seglets.back());
+        seglets.pop_back();
+    }
+
+    return true;
 }
 
 /**
@@ -417,26 +456,26 @@ Segment::checkMetadataIntegrity()
 void
 Segment::appendFooter()
 {
-    // Appending a footer doesn't alter the checksum or the tail pointer
+    // Appending a footer doesn't alter the checksum or the head pointer
     // cached in this object, since we normally overwrite footers with
     // each append.
     Crc32C tempChecksum = checksum;
-    uint32_t tempTail = tail;
+    uint32_t tempHead = head;
 
     uint32_t length = sizeof32(Footer);
     EntryHeader entryHeader(LOG_ENTRY_TYPE_SEGFOOTER, length);
     tempChecksum.update(&entryHeader, sizeof(entryHeader));
     tempChecksum.update(&length, entryHeader.getLengthBytes());
-    copyIn(tempTail, &entryHeader, sizeof(entryHeader));
-    tempTail += sizeof32(entryHeader);
-    copyIn(tempTail, &length, entryHeader.getLengthBytes());
-    tempTail += entryHeader.getLengthBytes();
+    copyIn(tempHead, &entryHeader, sizeof(entryHeader));
+    tempHead += sizeof32(entryHeader);
+    copyIn(tempHead, &length, entryHeader.getLengthBytes());
+    tempHead += entryHeader.getLengthBytes();
 
     Footer footer(closed, tempChecksum);
-    copyIn(tempTail, &footer, sizeof(footer));
+    copyIn(tempHead, &footer, sizeof(footer));
 
     // Temporary hack. Look away, please.
-    copyOut(tail, &currentFooter, sizeof(currentFooter));
+    copyOut(head, &currentFooter, sizeof(currentFooter));
 }
 
 /**
@@ -533,14 +572,14 @@ Segment::peek(uint32_t offset, const void** outAddress) const
 uint32_t
 Segment::bytesLeft()
 {
-    if (closed)
+    if (immutable || closed)
         return 0;
 
     // TODO(Steve): Remove the footer entry reservation after we start passing
     // the footer always on the side (and rename it something better, like
     // "certificate", perhaps).
     uint32_t capacity = getSegletsAllocated() * allocator.getSegletSize();
-    return capacity - tail - sizeof32(OpaqueFooterEntry);
+    return capacity - head - sizeof32(OpaqueFooterEntry);
 }
 
 /**

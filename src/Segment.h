@@ -68,7 +68,7 @@ class Segment {
     // TODO(Steve): This doesn't belong here, but rather in SegmentManager.
     enum { INVALID_SEGMENT_ID = ~(0ull) };
 
-    enum { DEFAULT_SEGLET_SIZE = 128 * 1024 };
+    enum { DEFAULT_SEGLET_SIZE = 64 * 1024 };
 
 #ifdef VALGRIND
     // can't use more than 1M, see http://bugs.kde.org/show_bug.cgi?id=203877
@@ -248,8 +248,9 @@ class Segment {
                 uint32_t length,
                 uint32_t& outOffset);
     bool append(LogEntryType type, const void* data, uint32_t length);
-    void free(uint32_t entryOffset);
     void close();
+    void disableAppends();
+    bool enableAppends();
     uint32_t appendToBuffer(Buffer& buffer,
                             uint32_t offset,
                             uint32_t length) const;
@@ -257,7 +258,8 @@ class Segment {
     LogEntryType getEntry(uint32_t offset, Buffer& buffer);
     uint32_t getAppendedLength(OpaqueFooterEntry& footerEntry) const;
     uint32_t getSegletsAllocated();
-    uint32_t getSegletsNeeded();
+    uint32_t getSegletsInUse();
+    bool freeUnusedSeglets(uint32_t count);
     bool checkMetadataIntegrity();
 
   PRIVATE:
@@ -319,16 +321,17 @@ class Segment {
     /// That is, seglets[0] will cover offset 0 through segletSize - 1.
     SegletVector seglets;
 
-    /// Indicates whether or not this segment is allowed to allocate any more
-    /// space.
+    /// Indicates whether or not this segment can presently be appended to. This
+    /// mutability may be flipped on and off so long as the segment is not
+    /// closed.
+    bool immutable;
+
+    /// Indicates whether or not this segment is ever allowed to allocate any
+    /// more space. Closing a segment is an undoable operation.
     bool closed;
 
     /// Offset to the next free byte in Segment.
-    uint32_t tail;
-
-    /// Bytes freed in this Segment by invocation of the #free method on a
-    /// particular entry handle.
-    uint32_t bytesFreed;
+    uint32_t head;
 
     /// Latest Segment checksum (crc32c). This is a checksum of all metadata
     /// in the Segment (that is, every Segment::Entry, ::Header, and ::Footer).

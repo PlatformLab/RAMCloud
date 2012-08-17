@@ -105,7 +105,7 @@ INSTANTIATE_TEST_CASE_P(SegmentTestAllocators,
 TEST_P(SegmentTest, constructor) {
     Segment s(*GetParam());
     EXPECT_FALSE(s.closed);
-    EXPECT_EQ(0U, s.tail);
+    EXPECT_EQ(0U, s.head);
 
     // Footer should always exist.
     Buffer buffer;
@@ -132,7 +132,7 @@ TEST_F(SegmentTest, constructor_priorSegmentBuffer) {
     EXPECT_EQ(&*s.fakeAllocator, &s.allocator);
     EXPECT_EQ(1U, s.seglets.size());
     EXPECT_TRUE(s.closed);
-    EXPECT_EQ(s.tail, buffer.getTotalLength());
+    EXPECT_EQ(s.head, buffer.getTotalLength());
     EXPECT_EQ(p, s.seglets[0]);
 }
 
@@ -299,34 +299,17 @@ TEST_P(SegmentTest, getSegletsAllocated) {
     EXPECT_EQ(allocator->getSegletsPerSegment(), s.getSegletsAllocated());
 }
 
-TEST_P(SegmentTest, getSegletsNeeded) {
-    Segment::Allocator* allocator = GetParam();
-    Segment s(*allocator);
-    EXPECT_EQ(1U, s.getSegletsNeeded());
-
-    char buf[allocator->getSegletSize()];
-    bool ok = s.append(LOG_ENTRY_TYPE_OBJ, buf, allocator->getSegletSize());
-    if (allocator->getSegletsPerSegment() > 1) {
-        EXPECT_TRUE(ok);
-        EXPECT_GE(s.getSegletsNeeded(), 2U);
-        EXPECT_LE(s.getSegletsNeeded(), 3U);
-    } else {
-        EXPECT_FALSE(ok);
-        EXPECT_EQ(1U, s.getSegletsNeeded());
-    }
-}
-
 TEST_P(SegmentTest, appendFooter) {
     Segment s(*GetParam());
     Segment::OpaqueFooterEntry unused;
 
-    // Appending the footer shouldn't alter the tail or the checksum
+    // Appending the footer shouldn't alter the head or the checksum
     // we've accumulated thus far.
     s.append(LOG_ENTRY_TYPE_OBJ, "blah", 4);
-    uint32_t tail = s.getAppendedLength(unused);
+    uint32_t head = s.getAppendedLength(unused);
     Crc32C checksum = s.checksum;
     s.appendFooter();
-    EXPECT_EQ(tail, s.getAppendedLength(unused));
+    EXPECT_EQ(head, s.getAppendedLength(unused));
     EXPECT_EQ(checksum.getResult(), s.checksum.getResult());
 }
 

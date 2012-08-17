@@ -47,12 +47,253 @@ namespace RAMCloud {
 LogCleaner::LogCleaner(Context& context,
                        SegmentManager& segmentManager,
                        ReplicaManager& replicaManager,
+                       LogEntryHandlers& entryHandlers,
                        uint32_t writeCostThreshold)
+    : segmentManager(segmentManager),
+      replicaManager(replicaManager),
+      entryHandlers(entryHandlers),
+      candidates(),
+      threadShouldExit(false),
+      thread()
 {
+    if (!segmentManager.increaseSurvivorReserve(SURVIVOR_SEGMENTS_TO_RESERVE))
+        throw FatalError(HERE, "Could not reserve survivor segments");
+
+    thread.construct(cleanerThreadEntry, this, &context);
 }
 
 LogCleaner::~LogCleaner()
 {
+    halt();
+}
+
+/**
+ * Static entry point for the cleaner thread. This is invoked via the
+ * std::thread() constructor. This thread performs continuous cleaning on an
+ * as-needed basis.
+ */
+void
+LogCleaner::cleanerThreadEntry(LogCleaner* logCleaner, Context* context)
+{
+    LOG(NOTICE, "LogCleaner thread spun up");
+
+    while (1) {
+        Fence::lfence();
+        if (logCleaner->threadShouldExit)
+            break;
+
+        if (!logCleaner->doWork())
+            usleep(LogCleaner::POLL_USEC);
+    }
+}
+
+/**
+ * Halt the cleaner thread (if it is running). Once halted, it cannot be
+ * restarted. This method does not return until the cleaner thread has
+ * terminated.
+ */
+void
+LogCleaner::halt()
+{
+    if (thread) {
+        threadShouldExit = true;
+        Fence::sfence();
+        thread->join();
+        threadShouldExit = false;
+        thread.destroy();
+    }
+}
+
+/**
+ * Main cleaning loop, invoked periodically via cleanerThreadEntry(). If there
+ * is cleaning to be done, do it now and return true. If no work is to be done,
+ * return false so that the caller may sleep for a bit, rather than banging on
+ * the CPU.
+ */
+bool
+LogCleaner::doWork()
+{
+    // Update our list of candidates.
+    segmentManager.cleanableSegments(candidates);
+
+    // Perform memory and disk cleaning, if needed.
+    bool memoryCleaned = doMemoryCleaning();
+    bool diskCleaned = doDiskCleaning();
+
+    return (memoryCleaned || diskCleaned);
+}
+
+bool
+LogCleaner::doMemoryCleaning()
+{
+    return false;
+}
+
+bool
+LogCleaner::doDiskCleaning()
+{
+    // Obtain the segments we'll clean in this pass. We're guaranteed to have
+    // the resources to clean what's returned.
+    LogSegmentVector segmentsToClean;
+    getSegmentsToClean(segmentsToClean);
+
+    if (segmentsToClean.size() == 0)
+        return false;
+
+    // Extract the currently live entries of the segments we're cleaning and
+    // sort them by age.
+    LiveEntryVector liveEntries;
+    getLiveSortedEntries(segmentsToClean, liveEntries);
+
+    // Relocate the live entries to survivor segments.
+    relocateLiveEntries(liveEntries);
+
+    segmentManager.cleaningComplete(segmentsToClean);
+LOG(NOTICE, "cleaning pass finished processing %lu segs", segmentsToClean.size());
+    return true;
+}
+
+class CostBenefitSorter {
+  public:
+    CostBenefitSorter ()
+        : now(WallTime::secondsTimestamp())
+    {
+    }
+
+    uint64_t
+    costBenefit(LogSegment* s)
+    {
+        // If utilization is 0, cost-benefit is infinity.
+        uint64_t costBenefit = -1UL;
+
+        int utilization = s->getDiskUtilization();
+        if (utilization != 0) {
+            uint64_t timestamp = s->getAverageTimestamp();
+
+            // This generally shouldn't happen, but is possible due to:
+            //  1) Unsynchronized TSCs across cores (WallTime uses rdtsc).
+            //  2) Unsynchronized clocks and "newer" recovered data in the
+            //     log. 
+            //  3) Getting an inconsistent view of the spaceTimeSum and
+            //     liveBytes segment counters due to buggy code.
+            if (timestamp > now) {
+                LOG(WARNING, "timestamp > now");
+                timestamp = now;
+            }
+
+            uint64_t age = now - timestamp;
+            costBenefit = ((100 - utilization) * age) / utilization;
+        }
+
+        return costBenefit;
+    }
+
+    bool
+    operator()(LogSegment* a, LogSegment* b)
+    {
+        return costBenefit(a) > costBenefit(b);
+    }
+
+  private:
+    // WallTime timestamp when this object was constructed.
+    uint64_t now;
+};
+
+void
+LogCleaner::getSegmentsToClean(LogSegmentVector& outSegmentsToClean)
+{
+    // Only proceed if our pool of survivor segments is full.
+    if (segmentManager.getFreeSurvivorCount() != SURVIVOR_SEGMENTS_TO_RESERVE)
+        return;
+
+    // Sort segments so that the best candidates are at the end of the vector.
+    std::sort(candidates.begin(), candidates.end(), CostBenefitSorter());
+
+    uint64_t totalLiveBytes = 0;
+    uint64_t maximumLiveBytes = MAX_LIVE_SEGMENTS_PER_DISK_PASS *
+                                segmentManager.getSegmentSize();
+
+    for (size_t i = 0; i < candidates.size(); i++) {
+        LogSegment* candidate = candidates[i];
+
+        if (candidate->getMemoryUtilization() > MAX_CLEANABLE_MEMORY_UTILIZATION)
+            continue;
+
+        uint64_t liveBytes = candidate->getLiveBytes();
+        if ((totalLiveBytes + liveBytes) > maximumLiveBytes)
+            break;
+
+        totalLiveBytes += liveBytes;
+        outSegmentsToClean.push_back(candidate);
+        candidates[i] = candidates.back();
+        candidates.pop_back();
+
+        LOG(NOTICE, "-- Chose segment with %d util", candidate->getMemoryUtilization());
+    }
+}
+
+void
+LogCleaner::getLiveSortedEntries(LogSegmentVector& segmentsToClean,
+                                 LiveEntryVector& outLiveEntries)
+{
+    foreach (LogSegment* segment, segmentsToClean) {
+        for (SegmentIterator it(*segment); !it.isDone(); it.next()) {
+            LogEntryType type = it.getType();
+            Buffer buffer;
+            it.appendToBuffer(buffer);
+
+            if (!entryHandlers.checkLiveness(type, buffer))
+                continue;
+
+            outLiveEntries.push_back({ segment, it.getOffset(), entryHandlers.getTimestamp(type, buffer) });
+        }
+    }
+
+    std::sort(outLiveEntries.begin(), outLiveEntries.end(), TimestampSorter());
+}
+
+void
+LogCleaner::relocateLiveEntries(LiveEntryVector& liveEntries)
+{
+    LogSegmentVector survivors;
+    LogSegment* survivor = NULL;
+
+    foreach (LiveEntry& entry, liveEntries) {
+        Buffer buffer;
+        LogEntryType type = entry.segment->getEntry(entry.offset, buffer);
+        uint32_t newOffset;
+
+        if (survivor == NULL || !survivor->append(type, buffer, newOffset)) {
+            if (survivor != NULL) {
+                survivor->close();
+                // tell RS to start syncing it, but do so without blocking
+            }
+
+            survivor = segmentManager.allocSurvivor(0 /* XXX */);
+            survivors.push_back(survivor);
+
+            if (!survivor->append(type, buffer, newOffset))
+                throw FatalError(HERE, "Entry didn't fit into empty survivor!");
+        }
+
+        HashTable::Reference newReference((static_cast<uint64_t>(survivor->slot) << 24) | newOffset);
+        if (entryHandlers.relocate(type, buffer, newReference)) {
+            // TODO(Steve): Could just aggregate and do single update per survivor.
+            survivor->statistics.increment(buffer.getTotalLength(), entry.timestamp);
+        } else {
+            // roll it back!
+            //LOG(NOTICE, "must roll back!");
+        }
+    }
+
+    if (survivor != NULL)
+        survivor->close();
+
+    foreach (survivor, survivors) {
+        survivor->freeUnusedSeglets(survivor->getSegletsAllocated() -
+                                    survivor->getSegletsInUse());
+        // sync the survivor!
+    }
 }
 
 } // namespace
