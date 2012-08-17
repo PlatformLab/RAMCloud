@@ -2017,7 +2017,6 @@ TEST_F(MasterRecoverTest, recover) {
     ReplicaManager mgr(context2, serverId, 1);
     MasterServiceTest::writeRecoverableSegment(context, mgr, serverId, 99, 87);
     MasterServiceTest::writeRecoverableSegment(context, mgr, serverId, 99, 88);
-    context2.transportManager->unregisterMock();
 
     // Now run recovery, as if the fake server failed.
     ProtoBuf::Tablets tablets;

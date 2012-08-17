@@ -173,7 +173,6 @@ TEST_F(AbstractServerListTest, getSession_basics) {
     EXPECT_EQ("mock:id=2", session2->getServiceLocator());
     Transport::SessionRef session3 = sl.getSession(id1);
     EXPECT_EQ(session1, session3);
-    context.transportManager->unregisterMock();
 }
 TEST_F(AbstractServerListTest, getSession_bogusId) {
     EXPECT_EQ("fail:", sl.getSession({9999, 22})->getServiceLocator());
@@ -188,7 +187,6 @@ TEST_F(AbstractServerListTest, getSession_serverIdDoesntMatch) {
     EXPECT_EQ("fail:", sl.getSession(id1)->getServiceLocator());
     EXPECT_EQ("getSession: Expected ServerId 0.0 for \"mock:id=1\", but "
             "actual server id was 6.7", TestLog::get());
-    context.transportManager->unregisterMock();
 }
 TEST_F(AbstractServerListTest, getSession_transportErrorCheckingId) {
     TestLog::Enable _;
@@ -201,7 +199,6 @@ TEST_F(AbstractServerListTest, getSession_transportErrorCheckingId) {
     EXPECT_EQ("getSession: Failed to obtain ServerId from \"mock:id=1\": "
             "RAMCloud::TransportException:  thrown at GetServerIdRpc::wait "
             "at src/MembershipClient.cc:88", TestLog::get());
-    context.transportManager->unregisterMock();
 }
 TEST_F(AbstractServerListTest, getSession_successfulServerIdCheck) {
     TestLog::Enable _;
@@ -211,7 +208,6 @@ TEST_F(AbstractServerListTest, getSession_successfulServerIdCheck) {
     transport.setInput("0 0 0");
     ServerId& id1 = sl.add("mock:id=1", ServerStatus::UP);
     EXPECT_EQ("mock:id=1", sl.getSession(id1)->getServiceLocator());
-    context.transportManager->unregisterMock();
 }
 
 // Helper function for the following tests; invokes getSession in a
@@ -253,7 +249,6 @@ TEST_F(AbstractServerListTest, getSession_serverDisappearsDuringCheck) {
     }
     EXPECT_EQ("fail:", session->getServiceLocator());
     thread.join();
-    context.transportManager->unregisterMock();
 }
 TEST_F(AbstractServerListTest, getSession_sessionSetDuringCheck) {
     TestLog::Enable _;
@@ -288,7 +283,6 @@ TEST_F(AbstractServerListTest, getSession_sessionSetDuringCheck) {
     EXPECT_TRUE(result != NULL);
     EXPECT_EQ("test:", result->getServiceLocator());
     thread.join();
-    context.transportManager->unregisterMock();
 }
 
 TEST_F(AbstractServerListTest, flushSession) {
@@ -303,7 +297,6 @@ TEST_F(AbstractServerListTest, flushSession) {
     Transport::SessionRef session2 = sl.getSession(id);
     EXPECT_EQ("mock:id=1", session2->getServiceLocator());
     EXPECT_NE(session1, session2);
-    context.transportManager->unregisterMock();
 }
 
 TEST_F(AbstractServerListTest, contains) {

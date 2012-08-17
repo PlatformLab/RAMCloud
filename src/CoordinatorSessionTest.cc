@@ -33,7 +33,6 @@ class CoordinatorSessionTest : public ::testing::Test {
 
     ~CoordinatorSessionTest()
     {
-        context.transportManager->unregisterMock();
     }
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorSessionTest);

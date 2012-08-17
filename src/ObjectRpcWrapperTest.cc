@@ -57,7 +57,6 @@ class ObjectRpcWrapperTest : public ::testing::Test {
 
     ~ObjectRpcWrapperTest()
     {
-        ramcloud.clientContext.transportManager->unregisterMock();
     }
 
     DISALLOW_COPY_AND_ASSIGN(ObjectRpcWrapperTest);

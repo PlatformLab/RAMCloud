@@ -36,7 +36,6 @@ class CoordinatorRpcWrapperTest : public ::testing::Test {
 
     ~CoordinatorRpcWrapperTest()
     {
-        context.transportManager->unregisterMock();
     }
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorRpcWrapperTest);

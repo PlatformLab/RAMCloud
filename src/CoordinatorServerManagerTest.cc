@@ -459,7 +459,6 @@ TEST_F(CoordinatorServerManagerTest, verifyServerFailure) {
     ServerId deadId = serverList->generateUniqueId();
     serverList->add(deadId, "mock2:", {WireFormat::PING_SERVICE}, 100);
     EXPECT_TRUE(serverManager->verifyServerFailure(deadId));
-    context.transportManager->unregisterMock();
 }
 
 }  // namespace RAMCloud

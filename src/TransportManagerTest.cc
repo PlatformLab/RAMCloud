@@ -110,7 +110,6 @@ TEST_F(TransportManagerTest, flushSession) {
     EXPECT_EQ(1U, MockTransport::sessionDeleteCount);
     manager.getSession("foo:;mock:");
     EXPECT_EQ(2U, transport.sessionCreateCount);
-    manager.unregisterMock();
 }
 
 TEST_F(TransportManagerTest, getSession_basics) {
@@ -173,7 +172,7 @@ TEST_F(TransportManagerTest, getSession_openSessionFailure) {
     manager.registerMock(NULL);
     Transport::SessionRef session = manager.getSession("mock:host=error");
     EXPECT_EQ(FailSession::get(), session.get());
-    EXPECT_EQ("openSession: Couldn't open session for locator "
+    EXPECT_EQ("openSessionInternal: Couldn't open session for locator "
               "mock:host=error (Failed to open session)",
               TestLog::get());
 }
@@ -185,8 +184,8 @@ TEST_F(TransportManagerTest, openSession_noSupportingTransports) {
     manager.registerMock(NULL, "mock");
     manager.registerMock(NULL, "mock2");
     EXPECT_EQ(manager.openSession("foo:"), FailSession::get());
-    EXPECT_EQ("openSession: No supported transport found for locator foo:",
-              TestLog::get());
+    EXPECT_EQ("openSessionInternal: No supported transport found for "
+              "locator foo:", TestLog::get());
 }
 
 TEST_F(TransportManagerTest, openSession_ignoreTransportCreateError) {
@@ -204,7 +203,7 @@ TEST_F(TransportManagerTest, openSession_cantOpenSession) {
     TestLog::Enable _;
     manager.registerMock(NULL);
     EXPECT_EQ(manager.openSession("mock:host=error"), FailSession::get());
-    EXPECT_EQ("openSession: Couldn't open session for locator "
+    EXPECT_EQ("openSessionInternal: Couldn't open session for locator "
             "mock:host=error (Failed to open session)",
             TestLog::get());
 }
@@ -216,7 +215,7 @@ TEST_F(TransportManagerTest, openSession_cantOpenSessionMultipleMessages) {
     manager.registerMock(NULL, "m3");
     EXPECT_EQ(manager.openSession(
             "m1:host=error;m3:host=error;m2:host=error"), FailSession::get());
-    EXPECT_EQ("openSession: Couldn't open session for locator "
+    EXPECT_EQ("openSessionInternal: Couldn't open session for locator "
             "m1:host=error;m3:host=error;m2:host=error "
             "(m1:host=error: Failed to open session, "
             "m3:host=error: Failed to open session, "
@@ -257,8 +256,6 @@ TEST_F(TransportManagerTest, registerMemory) {
     EXPECT_EQ("registerMemory: register 20 bytes at 22 for mock1: | "
               "registerMemory: register 20 bytes at 22 for mock2:",
               TestLog::get());
-    manager.unregisterMock();
-    manager.unregisterMock();
 }
 
 }  // namespace RAMCloud

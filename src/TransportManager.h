@@ -69,6 +69,7 @@ class TransportManager {
      *      is requested.
      */
     void registerMock(Transport* transport, const char* protocol = "mock") {
+        mockRegistrations++;
         transportFactories.push_back(
                 new MockTransportFactory(context, transport, protocol));
         transports.push_back(NULL);
@@ -84,6 +85,7 @@ class TransportManager {
      * Must be paired with a call to #registerMock().
      */
     void unregisterMock() {
+        mockRegistrations--;
         delete transportFactories.back();
         transportFactories.pop_back();
         transports.pop_back();
@@ -104,6 +106,8 @@ class TransportManager {
 #endif
 
   PRIVATE:
+    Transport::SessionRef openSessionInternal(const char* serviceLocator);
+
     /**
      * Shared RAMCloud information.
      */
@@ -165,6 +169,12 @@ class TransportManager {
      * means that each transport gets to pick its own default.
      */
     uint32_t timeoutMs;
+
+    /**
+     * Counts the number of calls to registerMock (minus the number of calls
+     * to unregisterMock), so we can clean up automatically in the destructor.
+     */
+    uint32_t mockRegistrations;
 
     DISALLOW_COPY_AND_ASSIGN(TransportManager);
 };

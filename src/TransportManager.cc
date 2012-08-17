@@ -94,6 +94,7 @@ TransportManager::TransportManager(Context& context)
     , registeredSizes()
     , mutex()
     , timeoutMs(0)
+    , mockRegistrations(0)
 {
     transportFactories.push_back(&tcpTransportFactory);
     transportFactories.push_back(&fastUdpTransportFactory);
@@ -110,6 +111,12 @@ TransportManager::~TransportManager()
     // Must clear the cache and destroy sessionRefs before the
     // transports are destroyed.
     sessionCache.clear();
+
+    // Delete any mockRegistrations
+#if TESTING
+    while (mockRegistrations > 0)
+        unregisterMock();
+#endif
     foreach (auto transport, transports)
         delete transport;
 }
@@ -241,7 +248,7 @@ TransportManager::getSession(const char* serviceLocator)
 
     // Session was not found in the cache, so create a new one and add
     // it to the cache.
-    Transport::SessionRef session(openSession(serviceLocator));
+    Transport::SessionRef session(openSessionInternal(serviceLocator));
     sessionCache.insert({serviceLocator, session});
     return session;
 }
@@ -270,10 +277,34 @@ TransportManager::getListeningLocatorsString()
  *
  * \return
  *      A reference to the new session. If a session could not be opened,
- *      an error message is logged and the FailSession is returned.
+ *      an error message is logged and a FailSession is returned.
  */
 Transport::SessionRef
 TransportManager::openSession(const char* serviceLocator)
+{
+    // If we're running on a server (i.e., multithreaded) must exclude
+    // other threads.
+    Tub<std::lock_guard<SpinLock>> lock;
+    if (isServer) {
+        lock.construct(mutex);
+    }
+    return openSessionInternal(serviceLocator);
+}
+
+/**
+ * This method does all the real work of openSession; it is separate so
+ * that it can be used by other methods such as getSession. The caller must
+ * have acquired the TransportManager lock.
+ *
+ * \param serviceLocator
+ *      Desired service.
+ *
+ * \return
+ *      A reference to the new session. If a session could not be opened,
+ *      an error message is logged and a FailSession is returned.
+ */
+Transport::SessionRef
+TransportManager::openSessionInternal(const char* serviceLocator)
 {
     // Collects error messages from all the transports that tried to
     // open a session from this locator.

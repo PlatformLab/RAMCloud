@@ -80,21 +80,18 @@ MockCluster::~MockCluster()
     // Delete the context that we created, and cleanup all the modifications
     // that we made to them.
     foreach (Context* context, contexts) {
-        context->transportManager->unregisterMock();
         delete context->serverList;
         delete context;
     }
 
     // Cleanup modifications we made to the coordinator context.
     delete coordinatorContext.coordinatorServerList;
-    coordinatorContext.transportManager->unregisterMock();
 
     // Cleanup modifications we made to the caller's context.
     if (linkedContextServerList && (linkedContext.serverList ==
             linkedContextServerList.get())) {
         linkedContext.serverList = NULL;
     }
-    linkedContext.transportManager->unregisterMock();
 }
 
 /**

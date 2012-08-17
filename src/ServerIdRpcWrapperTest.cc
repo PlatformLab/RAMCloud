@@ -43,7 +43,6 @@ class ServerIdRpcWrapperTest : public ::testing::Test {
 
     ~ServerIdRpcWrapperTest()
     {
-        context.transportManager->unregisterMock();
     }
 
     DISALLOW_COPY_AND_ASSIGN(ServerIdRpcWrapperTest);

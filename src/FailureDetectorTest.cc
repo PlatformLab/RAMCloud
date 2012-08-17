@@ -59,8 +59,6 @@ class FailureDetectorTest : public ::testing::Test {
     ~FailureDetectorTest()
     {
         delete fd;
-        context.transportManager->unregisterMock();
-        context.transportManager->unregisterMock();
     }
 
     static bool

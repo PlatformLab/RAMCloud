@@ -80,7 +80,6 @@ TEST_F(PingServiceTest, ping_wait_timeout) {
     double elapsedMicros = 1e06* Cycles::toSeconds(Cycles::rdtsc() - start);
     EXPECT_GE(elapsedMicros, 1000.0);
     EXPECT_LE(elapsedMicros, 2000.0);
-    context.transportManager->unregisterMock();
 }
 
 // Helper function that runs in a separate thread for the following test.
@@ -114,7 +113,6 @@ TEST_F(PingServiceTest, ping_wait_serverGoesAway) {
     EXPECT_EQ(0xffffffffffffffffU, result);
     EXPECT_EQ("wait: server doesn't exist", TestLog::get());
     thread.join();
-    context.transportManager->unregisterMock();
 }
 
 TEST_F(PingServiceTest, proxyPing_basics) {
@@ -134,7 +132,6 @@ TEST_F(PingServiceTest, proxyPing_timeout) {
     double elapsedMicros = 1e06* Cycles::toSeconds(Cycles::rdtsc() - start);
     EXPECT_GE(elapsedMicros, 1000.0);
     EXPECT_LE(elapsedMicros, 2000.0);
-    context.transportManager->unregisterMock();
 }
 
 } // namespace RAMCloud
