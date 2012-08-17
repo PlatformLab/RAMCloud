@@ -130,20 +130,6 @@ CoordinatorServerManager::createReplicationGroup()
 ServerId
 CoordinatorServerManager::EnlistServer::execute()
 {
-    // The order of the updates in serverListUpdate is important: the remove
-    // must be ordered before the add to ensure that as members apply the
-    // update they will see the removal of the old server id before the
-    // addition of the new, replacing server id.
-
-    if (manager.service.serverList.contains(replacesId)) {
-        LOG(NOTICE, "%s is enlisting claiming to replace server id "
-            "%s, which is still in the server list, taking its word "
-            "for it and assuming the old server has failed",
-            serviceLocator, replacesId.toString().c_str());
-
-        manager.serverDown(replacesId);
-    }
-
     newServerId = manager.service.serverList.generateUniqueId();
 
     ProtoBuf::ServerInformation state;
@@ -188,12 +174,6 @@ CoordinatorServerManager::EnlistServer::complete(EntryId entryId)
 
     if (entry.services.has(WireFormat::MEMBERSHIP_SERVICE))
         manager.sendServerList(newServerId);
-
-    if (replacesId.isValid()) {
-        LOG(NOTICE, "Newly enlisted server %s replaces server %s",
-            newServerId.toString().c_str(),
-            replacesId.toString().c_str());
-    }
 
     if (entry.isBackup()) {
         LOG(DEBUG, "Backup at id %s has %u MB/s read %u MB/s write",
@@ -241,8 +221,32 @@ CoordinatorServerManager::enlistServer(
     const uint32_t writeSpeed,  const char* serviceLocator)
 {
     Lock _(mutex);
-    return EnlistServer(*this, replacesId, ServerId(), serviceMask,
-                        readSpeed, writeSpeed, serviceLocator).execute();
+
+    // The order of the updates in serverListUpdate is important: the remove
+    // must be ordered before the add to ensure that as members apply the
+    // update they will see the removal of the old server id before the
+    // addition of the new, replacing server id.
+
+    if (service.serverList.contains(replacesId)) {
+        LOG(NOTICE, "%s is enlisting claiming to replace server id "
+            "%s, which is still in the server list, taking its word "
+            "for it and assuming the old server has failed",
+            serviceLocator, replacesId.toString().c_str());
+
+        serverDown(replacesId);
+    }
+
+    ServerId newServerId =
+        EnlistServer(*this, ServerId(), serviceMask,
+                     readSpeed, writeSpeed, serviceLocator).execute();
+
+    if (replacesId.isValid()) {
+        LOG(NOTICE, "Newly enlisted server %s replaces server %s",
+                    newServerId.toString().c_str(),
+                    replacesId.toString().c_str());
+    }
+
+    return newServerId;
 }
 
 /**
@@ -260,7 +264,6 @@ CoordinatorServerManager::enlistServerRecover(
 {
     Lock _(mutex);
     EnlistServer(*this,
-                 ServerId(),
                  ServerId(state->server_id()),
                  ServiceMask::deserialize(state->service_mask()),
                  state->read_speed(),

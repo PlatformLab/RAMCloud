@@ -80,14 +80,12 @@ class CoordinatorServerManager {
     class EnlistServer {
       public:
           EnlistServer(CoordinatorServerManager &manager,
-                       ServerId replacesId,
                        ServerId newServerId,
                        ServiceMask serviceMask,
                        const uint32_t readSpeed,
                        const uint32_t writeSpeed,
                        const char* serviceLocator)
               : manager(manager),
-                replacesId(replacesId),
                 newServerId(newServerId),
                 serviceMask(serviceMask),
                 readSpeed(readSpeed), writeSpeed(writeSpeed),
@@ -102,10 +100,6 @@ class CoordinatorServerManager {
            * Used to get access to CoordinatorService& service.
            */
           CoordinatorServerManager &manager;
-    	  /**
-    	   * Server id of the server that the enlisting server is replacing.
-    	   */
-          ServerId replacesId;
           /**
            * The id assigned to the enlisting server.
            */
