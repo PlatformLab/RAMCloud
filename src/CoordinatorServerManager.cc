@@ -272,6 +272,31 @@ CoordinatorServerManager::enlistServerRecover(
 }
 
 /**
+ * During coordinator recovery, add a server that had already been
+ * enlisted to local server list.
+ *
+ * \param state
+ *      The ProtoBuf that encapsulates the information about server
+ *      to be added.
+ * \param entryId
+ *      The entry id of the LogCabin entry corresponding to the state.
+ */
+void
+CoordinatorServerManager::enlistedServerRecover(
+    ProtoBuf::ServerInformation* state, EntryId entryId)
+{
+    Lock _(mutex);
+
+    // TODO(ankitak): This will automatically queue a serverlist update
+    // to be sent to the cluster. We don't want to do that for efficiency.
+    service.serverList.add(
+            ServerId(state->server_id()),
+            state->service_locator().c_str(),
+            ServiceMask::deserialize(state->service_mask()),
+            state->read_speed());
+}
+
+/**
  * Return the serialized server list filtered by the serviceMask.
  *
  * \param serviceMask

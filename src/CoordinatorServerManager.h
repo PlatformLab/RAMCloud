@@ -59,6 +59,8 @@ class CoordinatorServerManager {
                           const char* serviceLocator);
     void enlistServerRecover(ProtoBuf::ServerInformation* state,
                              EntryId entryId);
+    void enlistedServerRecover(ProtoBuf::ServerInformation* state,
+                               EntryId entryId);
     ProtoBuf::ServerList getServerList(ServiceMask serviceMask);
     bool hintServerDown(ServerId serverId);
     void removeReplicationGroup(uint64_t groupId);

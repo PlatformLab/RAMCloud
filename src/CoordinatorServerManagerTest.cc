@@ -315,6 +315,45 @@ TEST_F(CoordinatorServerManagerTest, enlistServerRecover) {
               backupList.ShortDebugString());
 }
 
+TEST_F(CoordinatorServerManagerTest, enlistedServerRecover) {
+    EXPECT_EQ(1U, master->serverId.getId());
+
+    ProtoBuf::ServerInformation state;
+    state.set_entry_type("ServerEnlisted");
+    state.set_server_id(ServerId(2, 0).getId());
+    state.set_service_mask(
+        ServiceMask({WireFormat::BACKUP_SERVICE}).serialize());
+    state.set_read_speed(0);
+    state.set_write_speed(0);
+    state.set_service_locator("mock:host=backup");
+
+    EntryId entryId =
+        serverManager->service.logCabinHelper->appendProtoBuf(state);
+
+    TestLog::Enable _(enlistServerFilter);
+
+    serverManager->enlistedServerRecover(&state, entryId);
+
+    EXPECT_EQ("", TestLog::get());
+
+    ProtoBuf::ServerList masterList;
+    serverList->serialize(masterList, {WireFormat::MASTER_SERVICE});
+    EXPECT_TRUE(TestUtil::matchesPosixRegex(
+                "server { services: 25 server_id: 1 "
+                "service_locator: \"mock:host=master\" "
+                "expected_read_mbytes_per_sec: [0-9]\\+ status: 0 } "
+                "version_number: 2",
+                masterList.ShortDebugString()));
+
+    ProtoBuf::ServerList backupList;
+    serverList->serialize(backupList, {WireFormat::BACKUP_SERVICE});
+    EXPECT_EQ("server { services: 2 server_id: 2 "
+              "service_locator: \"mock:host=backup\" "
+              "expected_read_mbytes_per_sec: 0 status: 0 } "
+              "version_number: 2",
+              backupList.ShortDebugString());
+}
+
 TEST_F(CoordinatorServerManagerTest, removeReplicationGroup) {
     ServerId serverIds[3];
     ServerConfig config = ServerConfig::forTesting();
