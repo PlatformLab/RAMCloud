@@ -28,7 +28,8 @@
 namespace RAMCloud {
 
 /**
- * Construct a new LogCleaner object.
+ * Construct a new LogCleaner object. The cleaner will not perform any garbage
+ * collection until the start() method is invoked.
  *
  * \param context
  *      Overall information about the RAMCloud server.
@@ -49,22 +50,50 @@ LogCleaner::LogCleaner(Context& context,
                        ReplicaManager& replicaManager,
                        LogEntryHandlers& entryHandlers,
                        uint32_t writeCostThreshold)
-    : segmentManager(segmentManager),
+    : context(context),
+      segmentManager(segmentManager),
       replicaManager(replicaManager),
       entryHandlers(entryHandlers),
       candidates(),
       threadShouldExit(false),
       thread()
 {
-    if (!segmentManager.increaseSurvivorReserve(SURVIVOR_SEGMENTS_TO_RESERVE))
+    if (!segmentManager.initializeSurvivorReserve(SURVIVOR_SEGMENTS_TO_RESERVE))
         throw FatalError(HERE, "Could not reserve survivor segments");
-
-    thread.construct(cleanerThreadEntry, this, &context);
 }
 
 LogCleaner::~LogCleaner()
 {
-    halt();
+    stop();
+}
+
+/**
+ * Start the log cleaner, if it isn't already running. This spins a thread that
+ * continually cleans if there's work to do until stop() is called.
+ *
+ * The cleaner will not do any work until explicitly enabled via this method.
+ */
+void
+LogCleaner::start()
+{
+    if (!thread)
+        thread.construct(cleanerThreadEntry, this, &context);
+}
+
+/**
+ * Halt the cleaner thread (if it is running). Once halted, it will do no more
+ * work until start() is called again.
+ */
+void
+LogCleaner::stop()
+{
+    if (thread) {
+        threadShouldExit = true;
+        Fence::sfence();
+        thread->join();
+        threadShouldExit = false;
+        thread.destroy();
+    }
 }
 
 /**
@@ -75,7 +104,7 @@ LogCleaner::~LogCleaner()
 void
 LogCleaner::cleanerThreadEntry(LogCleaner* logCleaner, Context* context)
 {
-    LOG(NOTICE, "LogCleaner thread spun up");
+    LOG(NOTICE, "LogCleaner thread started");
 
     while (1) {
         Fence::lfence();
@@ -85,23 +114,8 @@ LogCleaner::cleanerThreadEntry(LogCleaner* logCleaner, Context* context)
         if (!logCleaner->doWork())
             usleep(LogCleaner::POLL_USEC);
     }
-}
 
-/**
- * Halt the cleaner thread (if it is running). Once halted, it cannot be
- * restarted. This method does not return until the cleaner thread has
- * terminated.
- */
-void
-LogCleaner::halt()
-{
-    if (thread) {
-        threadShouldExit = true;
-        Fence::sfence();
-        thread->join();
-        threadShouldExit = false;
-        thread.destroy();
-    }
+    LOG(NOTICE, "LogCleaner thread stopping");
 }
 
 /**
@@ -290,8 +304,8 @@ LogCleaner::relocateLiveEntries(LiveEntryVector& liveEntries)
         survivor->close();
 
     foreach (survivor, survivors) {
-        survivor->freeUnusedSeglets(survivor->getSegletsAllocated() -
-                                    survivor->getSegletsInUse());
+        assert(survivor->freeUnusedSeglets(survivor->getSegletsAllocated() -
+                                    survivor->getSegletsInUse()));
         // sync the survivor!
     }
 }

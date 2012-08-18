@@ -30,6 +30,7 @@ CLIENT_SRCFILES := \
 		   src/IpAddress.cc \
 		   src/Logger.cc \
 		   src/MacAddress.cc \
+		   src/LargeBlockOfMemory.cc \
 		   src/MasterClient.cc \
 		   src/MembershipClient.cc \
 		   src/Memory.cc \
@@ -41,6 +42,8 @@ CLIENT_SRCFILES := \
 		   src/PingClient.cc \
 		   src/RamCloud.cc \
 		   src/RawMetrics.cc \
+		   src/SegletAllocator.cc \
+		   src/Seglet.cc \
 		   src/Segment.cc \
 		   src/RpcWrapper.cc \
 		   src/ServerIdRpcWrapper.cc \

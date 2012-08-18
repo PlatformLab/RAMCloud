@@ -109,8 +109,9 @@ MasterService::MasterService(Context& context,
     , serverId()
     , bytesWritten(0)
     , replicaManager(context, serverId, config.master.numReplicas)
-    , allocator(config.master.logBytes, config.segmentSize, config.segletSize)
-    , segmentManager(context, serverId, allocator, replicaManager, 2.0)
+    , allocator(config.master.logBytes, config.segletSize)
+    , segmentManager(context, config.segmentSize, serverId,
+                     allocator, replicaManager, 2.0)
     , log(NULL)
     , keyComparer(NULL)
     , objectMap(NULL)
@@ -234,12 +235,14 @@ MasterService::init(ServerId id)
     LOG(NOTICE, "My server ID is %lu", serverId.getId());
     metrics->serverId = serverId.getId();
 
-    log = new Log(context, *this, segmentManager,
-                  replicaManager, config.master.disableLogCleaner);
+    log = new Log(context, *this, segmentManager, replicaManager);
     keyComparer = new LogKeyComparer(*log);
     objectMap = new HashTable(config.master.hashTableBytes /
         HashTable::bytesPerCacheLine(), *keyComparer);
     replicaManager.startFailureMonitor(log);
+
+    if (!config.master.disableLogCleaner)
+        log->enableCleaner();
 
     initCalled = true;
 }

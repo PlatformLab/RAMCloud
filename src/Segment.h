@@ -22,6 +22,8 @@
 #include "Buffer.h"
 #include "Crc32C.h"
 #include "LogEntryTypes.h"
+#include "Seglet.h"
+#include "SegletAllocator.h"
 #include "Tub.h"
 
 namespace RAMCloud {
@@ -68,47 +70,12 @@ class Segment {
     // TODO(Steve): This doesn't belong here, but rather in SegmentManager.
     enum { INVALID_SEGMENT_ID = ~(0ull) };
 
-    enum { DEFAULT_SEGLET_SIZE = 64 * 1024 };
-
 #ifdef VALGRIND
     // can't use more than 1M, see http://bugs.kde.org/show_bug.cgi?id=203877
     enum { DEFAULT_SEGMENT_SIZE = 1 * 1024 * 1024 };
 #else
     enum { DEFAULT_SEGMENT_SIZE = 8 * 1024 * 1024 };
 #endif
-
-    /**
-     * Segments obtain their backing memory from an Allocator subclass instance.
-     * This class defines how large segments are, how many seglets they will
-     * consist of, how large seglets are, and provides means of allocating and
-     * freeing individual seglets.
-     */
-    class Allocator {
-      public:
-        virtual ~Allocator() { }
-        virtual uint32_t getSegletsPerSegment() = 0;
-        virtual uint32_t getSegletSize() = 0;
-        virtual void* alloc() = 0;
-        virtual void free(void* seglet) = 0;
-
-        uint32_t
-        getSegmentSize()
-        {
-            return getSegletSize() * getSegletsPerSegment();
-        }
-    };
-
-    /**
-     * A default allocator that uses the standard heap allocator to allocate
-     * seglets of length the default size of an entire segment.
-     */
-    class DefaultHeapAllocator : public Allocator {
-      public:
-        uint32_t getSegletsPerSegment() { return 1; }
-        uint32_t getSegletSize() { return DEFAULT_SEGMENT_SIZE; }
-        void* alloc() { return new char[getSegmentSize()]; }
-        void free(void* seglet) { delete[] reinterpret_cast<char*>(seglet); }
-    };
 
   PRIVATE:
     /**
@@ -233,7 +200,7 @@ class Segment {
         "Unexpected padding in Segment::OpaqueFooterEntry");
 
     Segment();
-    explicit Segment(Allocator& allocator);
+    Segment(vector<Seglet*>& seglets, uint32_t segletSize);
     Segment(const void* buffer, uint32_t length);
     virtual ~Segment();
     bool append(LogEntryType type,
@@ -263,33 +230,6 @@ class Segment {
     bool checkMetadataIntegrity();
 
   PRIVATE:
-    /**
-     * This allocator is used when constructing a segment that wraps another
-     * serialized segment. When constructing such a segment we neither allocate,
-     * nor free, but do query the allocator for segment and seglet information.
-     *
-     * The alternative is adding a boolean to the class and a bunch of special
-     * if statements in various methods. This seems a cleaner solution, if
-     * perhaps a little more oblique.
-     */
-    class FakeAllocator : public Allocator {
-      public:
-        FakeAllocator(uint32_t length)  // NOLINT
-            : length(length)
-        {
-        }
-        uint32_t getSegletsPerSegment() { return 1; }
-        uint32_t getSegletSize() { return length; }
-        void* alloc() { throw FatalError(HERE, "don't call me!"); }
-        void free(void* seglet) { };
-
-      PRIVATE:
-        /// Length of the serialized segment we've "allocated".
-        uint32_t length;
-    };
-
-    typedef std::vector<void*> SegletVector;
-
     void appendFooter();
     const EntryHeader* getEntryHeader(uint32_t offset);
     void getEntryInfo(uint32_t offset,
@@ -306,20 +246,25 @@ class Segment {
                               uint32_t bufferOffset,
                               uint32_t length);
 
-    /// When constructing a segment object that wraps a previously serialized
-    /// segment (for instance, when iterating over a segment from a backup),
-    /// this will contain a fake allocator that neither allocates nor frees
-    /// memory, and claims to have a single seglet per segment of exactly
-    /// the length of what is passed to the constructor.
-    Tub<FakeAllocator> fakeAllocator;
+    /// Size of each seglet in bytes.
+    uint32_t segletSize;
 
-    /// The allocator our seglets are obtained from during construction and
-    /// returned to during destruction.
-    Allocator& allocator;
+    /// Seglets that have been loaned to this segment to store data in. These
+    /// will be freed to their owning allocator upon destruction or calls to
+    /// freeUnusedSeglets().
+    vector<Seglet*> seglets;
 
-    /// Seglets that back this segment. The order here is the logical order.
-    /// That is, seglets[0] will cover offset 0 through segletSize - 1.
-    SegletVector seglets;
+    /// Pointers to memory blocks this segment will append data to. Typically
+    /// this is just a cache of the pointers contained in the seglets loaned to
+    /// this object (avoiding another layer of indirection when looking up an
+    /// address). However, if this class allocated its own space in the default
+    /// constructor, or if it was given a static buffer, a block entry will
+    /// exist here that is not associated with any seglet instance.
+    //
+    /// The order in the array represents the order in which blocks logically
+    /// appear in the segment. That is, segletBlocks[0] will cover byte offset 0
+    /// through segletSize - 1.
+    vector<void*> segletBlocks;
 
     /// Indicates whether or not this segment can presently be appended to. This
     /// mutability may be flipped on and off so long as the segment is not
@@ -329,6 +274,11 @@ class Segment {
     /// Indicates whether or not this segment is ever allowed to allocate any
     /// more space. Closing a segment is an undoable operation.
     bool closed;
+
+    /// In the case that the default constructor was used and this class
+    /// allocated heap space, this will be set to true indicating that the
+    /// destructor must free that space.
+    bool mustFreeBlocks;
 
     /// Offset to the next free byte in Segment.
     uint32_t head;

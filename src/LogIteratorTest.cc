@@ -24,7 +24,7 @@
 
 namespace RAMCloud {
 
-class DoNothingHandlers : public Log::EntryHandlers {
+class DoNothingHandlers : public LogEntryHandlers {
   public:
     uint32_t getTimestamp(LogEntryType type, Buffer& buffer) { return 0; }
     bool checkLiveness(LogEntryType type, Buffer& buffer) { return true; }
@@ -41,7 +41,7 @@ class LogIteratorTest : public ::testing::Test {
     ServerId serverId;
     ServerList serverList;
     ReplicaManager replicaManager;
-    SegmentManager::Allocator allocator;
+    SegletAllocator allocator;
     SegmentManager segmentManager;
     DoNothingHandlers entryHandlers;
     Log l;
@@ -52,10 +52,12 @@ class LogIteratorTest : public ::testing::Test {
           serverId(ServerId(57, 0)),
           serverList(context),
           replicaManager(context, serverId, 0),
-          allocator(10 * 8192, 8192, 8192),
-          segmentManager(context, serverId, allocator, replicaManager, 1.0),
+          allocator((10 + 2 + LogCleaner::SURVIVOR_SEGMENTS_TO_RESERVE) * 8192,
+                    8192),
+          segmentManager(context, 8192, serverId,
+                         allocator, replicaManager, 1.0),
           entryHandlers(),
-          l(context, entryHandlers, segmentManager, replicaManager, true),
+          l(context, entryHandlers, segmentManager, replicaManager),
           data()
     {
     }
@@ -248,7 +250,7 @@ TEST_F(LogIteratorTest, next) {
 
     {
         // Inject a "cleaner" segment into the log
-        segmentManager.setSurvivorSegmentReserve(1);
+        segmentManager.initializeSurvivorReserve(1);
         LogSegment* cleanerSeg = segmentManager.allocSurvivor(5);
         EXPECT_EQ(2U, cleanerSeg->id);
         segmentManager.changeState(*cleanerSeg,
@@ -268,9 +270,9 @@ TEST_F(LogIteratorTest, next) {
 
 TEST_F(LogIteratorTest, populateSegmentList) {
         l.sync();
-        LogSegment* seg1 = segmentManager.allocHead();
-        LogSegment* seg2 = segmentManager.allocHead();
-        LogSegment* seg3 = segmentManager.allocHead();
+        LogSegment* seg1 = segmentManager.allocHead(false);
+        LogSegment* seg2 = segmentManager.allocHead(false);
+        LogSegment* seg3 = segmentManager.allocHead(false);
 
         LogIterator i(l);
         EXPECT_EQ(3U, i.segmentList.size());

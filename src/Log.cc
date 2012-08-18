@@ -47,25 +47,19 @@ namespace RAMCloud {
  * \param replicaManager
  *      The ReplicaManager that will be used to make each of this Log's
  *      Segments durable.
- * \param disableCleaner
- *      If true, do not do any cleaning. This will keep the log from garbage
- *      collecting freed space. It will eventually run out of memory forever.
  */
 Log::Log(Context& context,
          LogEntryHandlers& entryHandlers,
          SegmentManager& segmentManager,
-         ReplicaManager& replicaManager,
-         bool disableCleaner)
+         ReplicaManager& replicaManager)
     : context(context),
       entryHandlers(entryHandlers),
       segmentManager(segmentManager),
       replicaManager(replicaManager),
-      cleaner(),
+      cleaner(context, segmentManager, replicaManager, entryHandlers, 4),
       head(NULL),
       appendLock()
 {
-    if (!disableCleaner)
-        cleaner.construct(context, segmentManager, replicaManager, entryHandlers, 4);
 }
 
 /**
@@ -73,6 +67,25 @@ Log::Log(Context& context,
  */
 Log::~Log()
 {
+}
+
+/**
+ * Enable the cleaner if it isn't already running.
+ */
+void
+Log::enableCleaner()
+{
+    cleaner.start();
+}
+
+/**
+ * Disable the cleaner if it's running. Blocks until the cleaner thread has
+ * quiesced.
+ */
+void
+Log::disableCleaner()
+{
+    cleaner.stop();
 }
 
 /**

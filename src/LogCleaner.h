@@ -61,6 +61,8 @@ class LogCleaner {
                LogEntryHandlers& entryHandlers,
                uint32_t writeCostThreshold);
     ~LogCleaner();
+    void start();
+    void stop();
     void statistics(/*ProtoBuf::LogStatistics& logStats*/) const
     {
     }
@@ -123,7 +125,6 @@ class LogCleaner {
     };
 
     static void cleanerThreadEntry(LogCleaner* logCleaner, Context* context);
-    void halt();
     bool doWork();
     bool doMemoryCleaning();
     bool doDiskCleaning();
@@ -131,6 +132,9 @@ class LogCleaner {
     void getLiveSortedEntries(LogSegmentVector& segmentsToClean,
                               LiveEntryVector& outLiveEntries);
     void relocateLiveEntries(LiveEntryVector& liveEntries);
+
+    /// Shared RAMCloud information.
+    Context& context;
 
     /// The SegmentManager instance that we use to allocate survivor segments,
     /// report cleaned segments to, etc. This class owns all of the segments

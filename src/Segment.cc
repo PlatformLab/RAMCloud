@@ -21,55 +21,44 @@
 
 namespace RAMCloud {
 
-namespace SegmentInternal {
-/// Default heap allocator for the zero-argument constructor.
-Segment::DefaultHeapAllocator heapAllocator;
-}
-
 /**
  * Construct a segment using Segment::DEFAULT_SEGMENT_SIZE bytes dynamically
  * allocated on the heap. This constructor is useful, for instance, when a
  * temporary segment is needed to move data between servers.
  */
 Segment::Segment()
-    : fakeAllocator(),
-      allocator(SegmentInternal::heapAllocator),
+    : segletSize(DEFAULT_SEGMENT_SIZE),
       seglets(),
+      segletBlocks(),
       immutable(false),
       closed(false),
+      mustFreeBlocks(true),
       head(0),
       checksum(),
       currentFooter()
 {
-    for (uint32_t i = 0; i < allocator.getSegletsPerSegment(); i++)
-        seglets.push_back(allocator.alloc());
-
+    segletBlocks.push_back(new uint8_t[segletSize]);
     appendFooter();
 }
 
 /**
- * Construct a segment using the specified allocator. Supplying a custom
- * allocator allows the creator to control the size of the segment, as well
- * as how many discontiguous pieces comprise the segment. This constructor
- * is primarily used by the log's SegmentManager, which keeps a static pool
- * of free memory for the log.
- *
- * \param allocator
- *      Allocator from which this segment will obtain its seglets.
+ * Construct a segment using the provided seglets of the specified size.
  */
-Segment::Segment(Allocator& allocator)
-    : fakeAllocator(),
-      allocator(allocator),
-      seglets(),
+Segment::Segment(vector<Seglet*>& seglets, uint32_t segletSize)
+    : segletSize(segletSize),
+      seglets(seglets),
+      segletBlocks(),
       immutable(false),
       closed(false),
+      mustFreeBlocks(false),
       head(0),
       checksum(),
       currentFooter()
 {
-    // If only we had C++11 support this duplication wouldn't be necessary...
-    for (uint32_t i = 0; i < allocator.getSegletsPerSegment(); i++)
-        seglets.push_back(allocator.alloc());
+    foreach (Seglet* seglet, seglets) {
+        segletBlocks.push_back(seglet->get());
+        assert(seglet->getLength() == segletSize);
+    }
 
     appendFooter();
 }
@@ -88,26 +77,34 @@ Segment::Segment(Allocator& allocator)
  *      Length of the buffer in bytes.
  */
 Segment::Segment(const void* buffer, uint32_t length)
-    : fakeAllocator(length),
-      allocator(*fakeAllocator),
+    : segletSize(length),
       seglets(),
+      segletBlocks(),
       immutable(false),
       closed(true),
+      mustFreeBlocks(false),
       head(length),
       checksum(),
       currentFooter()
 {
     // We promise not to scribble on it, honest!
-    seglets.push_back(const_cast<void*>(buffer));
+    segletBlocks.push_back(const_cast<void*>(buffer));
 }
 
 /**
- * Destroy the segment, returning any memory allocated to its allocator.
+ * Destroy the segment, freeing any Seglets that were allocated.
  */
 Segment::~Segment()
 {
-    for (SegletVector::iterator it = seglets.begin(); it != seglets.end(); it++)
-        allocator.free(*it);
+    // Check if the 0-argument constructor dynamically allocated space we need
+    // to free.
+    if (mustFreeBlocks) {
+        foreach(void* block, segletBlocks)
+            delete[] reinterpret_cast<uint8_t*>(block);
+    }
+
+    foreach (Seglet* seglet, seglets)
+        seglet->free();
 }
 
 /**
@@ -355,7 +352,7 @@ Segment::getSegletsAllocated()
 uint32_t
 Segment::getSegletsInUse()
 {
-    return (head + allocator.getSegletSize() - 1) / allocator.getSegletSize();
+    return (head + segletSize - 1) / segletSize;
 }
 
 /**
@@ -369,7 +366,10 @@ Segment::getSegletsInUse()
 bool
 Segment::freeUnusedSeglets(uint32_t count)
 {
-    if (!closed)
+    // If we're closed or don't have any seglets allocated (either because
+    // they've all been freed or we started with a static or heap allocation
+    // not backed by Seglet classes), there's nothing to be done.
+    if (!closed || seglets.size() == 0)
         return false;
 
     size_t unusedSeglets = seglets.size() - getSegletsInUse();
@@ -377,8 +377,10 @@ Segment::freeUnusedSeglets(uint32_t count)
         return false;
 
     for (uint32_t i = 0; i < count; i++) {
-        allocator.free(seglets.back());
+        assert(seglets.back()->get() == segletBlocks.back());
+        seglets.back()->free();
         seglets.pop_back();
+        segletBlocks.pop_back();
     }
 
     return true;
@@ -548,16 +550,14 @@ Segment::getEntryInfo(uint32_t offset,
 uint32_t
 Segment::peek(uint32_t offset, const void** outAddress) const
 {
-    uint32_t segletSize = allocator.getSegletSize();
-
-    if (offset >= (segletSize * seglets.size()))
+    if (offset >= (segletSize * segletBlocks.size()))
         return 0;
 
     uint32_t segletOffset = offset % segletSize;
     uint32_t contiguousBytes = segletSize - segletOffset;
 
     uint32_t segletIndex = offset / segletSize;
-    uint8_t* segletPtr = reinterpret_cast<uint8_t*>(seglets[segletIndex]);
+    uint8_t* segletPtr = reinterpret_cast<uint8_t*>(segletBlocks[segletIndex]);
     assert(segletPtr != NULL);
     *outAddress = static_cast<void*>(segletPtr + segletOffset);
 
@@ -578,7 +578,7 @@ Segment::bytesLeft()
     // TODO(Steve): Remove the footer entry reservation after we start passing
     // the footer always on the side (and rename it something better, like
     // "certificate", perhaps).
-    uint32_t capacity = getSegletsAllocated() * allocator.getSegletSize();
+    uint32_t capacity = getSegletsAllocated() * segletSize;
     return capacity - head - sizeof32(OpaqueFooterEntry);
 }
 

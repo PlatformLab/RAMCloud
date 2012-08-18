@@ -31,7 +31,7 @@ class SegmentManagerTest : public ::testing::Test {
     ServerId serverId;
     ServerList serverList;
     ReplicaManager replicaManager;
-    SegmentManager::Allocator allocator;
+    SegletAllocator allocator;
     SegmentManager segmentManager;
 
     SegmentManagerTest()
@@ -39,8 +39,8 @@ class SegmentManagerTest : public ::testing::Test {
           serverId(ServerId(57, 0)),
           serverList(context),
           replicaManager(context, serverId, 0),
-          allocator(4 * 8192, 8192, 8192),
-          segmentManager(context, serverId, allocator, replicaManager, 1.0)
+          allocator(6 * 8192, 8192),        // 2 will go in the emergency pool
+          segmentManager(context, 8192, serverId, allocator, replicaManager, 1)
     {
     }
 
@@ -51,29 +51,32 @@ class SegmentManagerTest : public ::testing::Test {
 TEST_F(SegmentManagerTest, constructor)
 {
     EXPECT_THROW(SegmentManager(context,
+                                8192,
                                 serverId,
                                 allocator,
                                 replicaManager,
                                 0.99), SegmentManagerException);
 
-    EXPECT_EQ(0U, segmentManager.numSurvivorSegments);
-    EXPECT_EQ(0U, segmentManager.numSurvivorSegmentsAlloced);
     EXPECT_EQ(0U, segmentManager.nextSegmentId);
     EXPECT_EQ(0, segmentManager.logIteratorCount);
-    EXPECT_EQ(4U, segmentManager.maxSegments);
+    EXPECT_EQ(6U, segmentManager.maxSegments);
     EXPECT_EQ(segmentManager.maxSegments, segmentManager.freeSlots.size());
+    EXPECT_EQ(2U, allocator.getFreeCount(SegletAllocator::EMERGENCY_HEAD));
 }
 
 TEST_F(SegmentManagerTest, destructor) {
+    SegletAllocator allocator2(6 * 8192, 8192);
     Tub<SegmentManager> mgr;
-    mgr.construct(context, serverId, allocator, replicaManager, 1);
-    EXPECT_EQ(4U, allocator.getFreeSegmentCount());
-    mgr->allocHead();
-    mgr->allocHead();
-    EXPECT_EQ(2U, allocator.getFreeSegmentCount());
+    mgr.construct(context, 8192, serverId, allocator2, replicaManager, 1);
+    EXPECT_EQ(2U, allocator2.getFreeCount(SegletAllocator::EMERGENCY_HEAD));
+    EXPECT_EQ(0U, allocator2.getFreeCount(SegletAllocator::CLEANER));
+    EXPECT_EQ(4U, allocator2.getFreeCount(SegletAllocator::DEFAULT));
+    mgr->allocHead(false);
+    mgr->allocHead(false);
+    EXPECT_EQ(2U, allocator2.getFreeCount(SegletAllocator::DEFAULT));
 
     mgr.destroy();
-    EXPECT_EQ(4U, allocator.getFreeSegmentCount());
+    EXPECT_EQ(4U, allocator2.getFreeCount(SegletAllocator::DEFAULT));
 }
 
 static bool
@@ -86,7 +89,7 @@ TEST_F(SegmentManagerTest, allocHead) {
     TestLog::Enable _(allocFilter);
 
     EXPECT_EQ(static_cast<LogSegment*>(NULL), segmentManager.getHeadSegment());
-    LogSegment* head = segmentManager.allocHead();
+    LogSegment* head = segmentManager.allocHead(false);
     EXPECT_EQ("alloc: for head of log", TestLog::get());
     EXPECT_NE(static_cast<LogSegment*>(NULL), head);
     EXPECT_EQ(head, segmentManager.getHeadSegment());
@@ -107,16 +110,16 @@ TEST_F(SegmentManagerTest, allocHead) {
     EXPECT_TRUE(it.isDone());
 
     LogSegment* oldHead = head;
-    head = segmentManager.allocHead();
+    head = segmentManager.allocHead(false);
     EXPECT_NE(static_cast<LogSegment*>(NULL), head);
     EXPECT_NE(head, oldHead);
     EXPECT_EQ(head, segmentManager.getHeadSegment());
     EXPECT_EQ(oldHead,
        &segmentManager.segmentsByState[SegmentManager::NEWLY_CLEANABLE].back());
 
-    EXPECT_NE(static_cast<LogSegment*>(NULL), segmentManager.allocHead());
-    EXPECT_NE(static_cast<LogSegment*>(NULL), segmentManager.allocHead());
-    EXPECT_EQ(static_cast<LogSegment*>(NULL), segmentManager.allocHead());
+    EXPECT_NE(static_cast<LogSegment*>(NULL), segmentManager.allocHead(false));
+    EXPECT_NE(static_cast<LogSegment*>(NULL), segmentManager.allocHead(false));
+    EXPECT_EQ(static_cast<LogSegment*>(NULL), segmentManager.allocHead(false));
     EXPECT_EQ(3U,
         segmentManager.segmentsByState[SegmentManager::NEWLY_CLEANABLE].size());
 }
@@ -124,7 +127,7 @@ TEST_F(SegmentManagerTest, allocHead) {
 TEST_F(SegmentManagerTest, allocSurvivor) {
     TestLog::Enable _(allocFilter);
 
-    segmentManager.setSurvivorSegmentReserve(1);
+    segmentManager.initializeSurvivorReserve(1);
     LogSegment* s = segmentManager.allocSurvivor(5);
     EXPECT_NE(static_cast<LogSegment*>(NULL), s);
     EXPECT_EQ("alloc: for cleaner", TestLog::get());
@@ -141,12 +144,12 @@ TEST_F(SegmentManagerTest, allocSurvivor) {
 }
 
 TEST_F(SegmentManagerTest, cleaningComplete) {
-    LogSegment* cleaned = segmentManager.allocHead();
+    LogSegment* cleaned = segmentManager.allocHead(false);
     EXPECT_NE(static_cast<LogSegment*>(NULL), cleaned);
-    segmentManager.allocHead();
+    segmentManager.allocHead(false);
     EXPECT_NE(cleaned, segmentManager.getHeadSegment());
 
-    segmentManager.setSurvivorSegmentReserve(1);
+    segmentManager.initializeSurvivorReserve(1);
     LogSegment* survivor = segmentManager.allocSurvivor(3);
     EXPECT_NE(static_cast<LogSegment*>(NULL), survivor);
 
@@ -177,13 +180,13 @@ TEST_F(SegmentManagerTest, cleanableSegments) {
     segmentManager.cleanableSegments(cleanable);
     EXPECT_EQ(0U, cleanable.size());
 
-    segmentManager.allocHead();
+    segmentManager.allocHead(false);
     EXPECT_EQ(0U, segmentManager.segmentsByState[
         SegmentManager::NEWLY_CLEANABLE].size());
     segmentManager.cleanableSegments(cleanable);
     EXPECT_EQ(0U, cleanable.size());
 
-    segmentManager.allocHead();
+    segmentManager.allocHead(false);
     EXPECT_EQ(1U, segmentManager.segmentsByState[
         SegmentManager::NEWLY_CLEANABLE].size());
     segmentManager.cleanableSegments(cleanable);
@@ -198,7 +201,7 @@ TEST_F(SegmentManagerTest, cleanableSegments) {
     cleanable.clear();
     EXPECT_EQ(0U, segmentManager.segmentsByState[
         SegmentManager::NEWLY_CLEANABLE].size());
-    segmentManager.allocHead();
+    segmentManager.allocHead(false);
     EXPECT_EQ(1U, segmentManager.segmentsByState[
         SegmentManager::NEWLY_CLEANABLE].size());
     segmentManager.cleanableSegments(cleanable);
@@ -229,10 +232,10 @@ TEST_F(SegmentManagerTest, getActiveSegments) {
     EXPECT_NO_THROW(segmentManager.getActiveSegments(0, active));
     EXPECT_EQ(0U, active.size());
 
-    LogSegment* newlyCleanable = segmentManager.allocHead();
-    LogSegment* cleanable = segmentManager.allocHead();
-    LogSegment* freeablePendingJunk = segmentManager.allocHead();
-    LogSegment* head = segmentManager.allocHead();
+    LogSegment* newlyCleanable = segmentManager.allocHead(false);
+    LogSegment* cleanable = segmentManager.allocHead(false);
+    LogSegment* freeablePendingJunk = segmentManager.allocHead(false);
+    LogSegment* head = segmentManager.allocHead(false);
 
     // "newlyCleanable" is in the correct state already, as is "head"
     segmentManager.changeState(*cleanable, SegmentManager::NEWLY_CLEANABLE);
@@ -259,20 +262,18 @@ TEST_F(SegmentManagerTest, getActiveSegments) {
     segmentManager.logIteratorDestroyed();
 }
 
-TEST_F(SegmentManagerTest, setSurvivorSegmentReserve) {
-    EXPECT_EQ(0U, segmentManager.numSurvivorSegments);
-    segmentManager.setSurvivorSegmentReserve(1);
-    EXPECT_EQ(1U, segmentManager.numSurvivorSegments);
-    segmentManager.setSurvivorSegmentReserve(segmentManager.maxSegments);
-    EXPECT_EQ(segmentManager.maxSegments, segmentManager.numSurvivorSegments);
-    EXPECT_THROW(segmentManager.setSurvivorSegmentReserve(
-        segmentManager.maxSegments + 1), SegmentManagerException);
+TEST_F(SegmentManagerTest, initializeSurvivorSegmentReserve) {
+    LogSegment* nullSeg = NULL;
+    EXPECT_EQ(nullSeg, segmentManager.allocSurvivor(0));
+    EXPECT_TRUE(segmentManager.initializeSurvivorReserve(1));
+    LogSegment* s = segmentManager.allocSurvivor(0);
+    EXPECT_NE(nullSeg, s);
 }
 
 TEST_F(SegmentManagerTest, indexOperator) {
     for (uint32_t i = 0; i < segmentManager.maxSegments + 5; i++)
         EXPECT_THROW(segmentManager[i], SegmentManagerException);
-    LogSegment* head = segmentManager.allocHead();
+    LogSegment* head = segmentManager.allocHead(false);
     EXPECT_EQ(&*segmentManager.segments[head->slot],
         &segmentManager[head->slot]);
 }
@@ -280,11 +281,11 @@ TEST_F(SegmentManagerTest, indexOperator) {
 TEST_F(SegmentManagerTest, doesIdExist) {
     EXPECT_FALSE(segmentManager.doesIdExist(0));
 
-    LogSegment* oldHead = segmentManager.allocHead();
+    LogSegment* oldHead = segmentManager.allocHead(false);
     EXPECT_TRUE(segmentManager.doesIdExist(0));
     EXPECT_FALSE(segmentManager.doesIdExist(1));
 
-    segmentManager.allocHead();
+    segmentManager.allocHead(false);
     EXPECT_TRUE(segmentManager.doesIdExist(0));
     EXPECT_TRUE(segmentManager.doesIdExist(1));
 
@@ -296,9 +297,9 @@ TEST_F(SegmentManagerTest, doesIdExist) {
 
 TEST_F(SegmentManagerTest, getAllocatedSegmentCount) {
     EXPECT_EQ(0U, segmentManager.getAllocatedSegmentCount());
-    segmentManager.allocHead();
+    segmentManager.allocHead(false);
     EXPECT_EQ(1U, segmentManager.getAllocatedSegmentCount());
-    segmentManager.allocHead();
+    segmentManager.allocHead(false);
     EXPECT_EQ(2U, segmentManager.getAllocatedSegmentCount());
 }
 
@@ -306,7 +307,7 @@ TEST_F(SegmentManagerTest, getAllocatedSegmentCount) {
 // aren't paricularly interesting
 
 TEST_F(SegmentManagerTest, writeHeader) {
-    LogSegment* s = segmentManager.alloc(false);
+    LogSegment* s = segmentManager.alloc(SegletAllocator::DEFAULT);
     SegmentIterator sanity(*s);
     EXPECT_TRUE(sanity.isDone());
 
@@ -329,14 +330,14 @@ TEST_F(SegmentManagerTest, writeDigest) {
 
 TEST_F(SegmentManagerTest, getHeadSegment) {
     EXPECT_EQ(static_cast<LogSegment*>(NULL), segmentManager.getHeadSegment());
-    segmentManager.allocHead();
+    segmentManager.allocHead(false);
     EXPECT_NE(static_cast<LogSegment*>(NULL), segmentManager.getHeadSegment());
     EXPECT_EQ(&segmentManager.segmentsByState[SegmentManager::HEAD].back(),
         segmentManager.getHeadSegment());
 }
 
 TEST_F(SegmentManagerTest, changeState) {
-    LogSegment* s = segmentManager.allocHead();
+    LogSegment* s = segmentManager.allocHead(false);
     EXPECT_EQ(SegmentManager::HEAD, *segmentManager.states[s->slot]);
     EXPECT_EQ(1U, segmentManager.segmentsByState[SegmentManager::HEAD].size());
     EXPECT_EQ(0U, segmentManager.segmentsByState[
@@ -348,18 +349,14 @@ TEST_F(SegmentManagerTest, changeState) {
         SegmentManager::CLEANABLE].size());
 }
 
-TEST_F(SegmentManagerTest, mayAlloc) {
-    // TODO(steve): write me.
-}
-
 TEST_F(SegmentManagerTest, alloc) {
     // TODO(steve): write me.
 }
 
 TEST_F(SegmentManagerTest, free) {
-    LogSegment* s = segmentManager.allocHead();
+    LogSegment* s = segmentManager.allocHead(false);
 
-    EXPECT_EQ(3U, segmentManager.freeSlots.size());
+    EXPECT_EQ(5U, segmentManager.freeSlots.size());
     EXPECT_TRUE(contains(segmentManager.idToSlotMap, s->id));
     EXPECT_EQ(1U, segmentManager.segmentsByState[SegmentManager::HEAD].size());
     EXPECT_EQ(1U, segmentManager.allSegments.size());
@@ -370,23 +367,18 @@ TEST_F(SegmentManagerTest, free) {
     uint32_t slot = s->slot;
 
     segmentManager.free(s);
-    EXPECT_EQ(4U, segmentManager.freeSlots.size());
+    EXPECT_EQ(6U, segmentManager.freeSlots.size());
     EXPECT_FALSE(contains(segmentManager.idToSlotMap, id));
     EXPECT_EQ(0U, segmentManager.segmentsByState[SegmentManager::HEAD].size());
     EXPECT_EQ(0U, segmentManager.allSegments.size());
     EXPECT_FALSE(segmentManager.states[slot]);
     EXPECT_FALSE(segmentManager.segments[slot]);
-
-    LogSegment *s2 = segmentManager.allocHead();
-    segmentManager.numSurvivorSegmentsAlloced++;
-    segmentManager.free(s2);
-    EXPECT_EQ(0U, segmentManager.numSurvivorSegmentsAlloced);
 }
 
 TEST_F(SegmentManagerTest, addToLists) {
     EXPECT_EQ(0U, segmentManager.segmentsByState[SegmentManager::HEAD].size());
     EXPECT_EQ(0U, segmentManager.allSegments.size());
-    LogSegment*s = segmentManager.allocHead();
+    LogSegment*s = segmentManager.allocHead(false);
     // allocHead implicitly calls addToLists...
     EXPECT_EQ(1U, segmentManager.segmentsByState[SegmentManager::HEAD].size());
     EXPECT_EQ(s, &segmentManager.segmentsByState[SegmentManager::HEAD].back());
@@ -395,7 +387,7 @@ TEST_F(SegmentManagerTest, addToLists) {
 }
 
 TEST_F(SegmentManagerTest, removeFromLists) {
-    LogSegment* s = segmentManager.allocHead();
+    LogSegment* s = segmentManager.allocHead(false);
     EXPECT_EQ(1U, segmentManager.segmentsByState[SegmentManager::HEAD].size());
     EXPECT_EQ(1U, segmentManager.allSegments.size());
     segmentManager.removeFromLists(*s);
@@ -412,8 +404,8 @@ class TestServerRpc : public Transport::ServerRpc {
 };
 
 TEST_F(SegmentManagerTest, freeUnreferencedSegments) {
-    LogSegment* freeable = segmentManager.allocHead();
-    segmentManager.allocHead();
+    LogSegment* freeable = segmentManager.allocHead(false);
+    segmentManager.allocHead(false);
 
     ServerRpcPoolInternal::currentEpoch = 8;
     ServerRpcPool<TestServerRpc> pool;

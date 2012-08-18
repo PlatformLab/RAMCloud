@@ -88,15 +88,17 @@ class LogSegment : public Segment {
     };
 
   public:
-    LogSegment(Allocator& allocator,
+    LogSegment(vector<Seglet*>& seglets,
+               uint32_t segletSize,
+               uint32_t segmentSize,
                uint64_t id,
                uint32_t slot,
                bool isEmergencyHead)
-        : Segment(allocator),
+        : Segment(seglets, segletSize),
           id(id),
           slot(slot),
-          segletSize(allocator.getSegletSize()),
-          segmentSizeOnBackups(allocator.getSegmentSize()),
+          segletSize(segletSize),
+          segmentSizeOnBackups(segmentSize),
           isEmergencyHead(isEmergencyHead),
           statistics(),
           cleanedEpoch(0),

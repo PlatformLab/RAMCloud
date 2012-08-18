@@ -115,10 +115,11 @@ class Log {
     Log(Context& context,
         LogEntryHandlers& entryHandlers,
         SegmentManager& segmentManager,
-        ReplicaManager& replicaManager,
-        bool disableCleaner = false);
+        ReplicaManager& replicaManager);
     ~Log();
 
+    void enableCleaner();
+    void disableCleaner();
     bool append(LogEntryType type,
                 Buffer& buffer,
                 uint32_t offset,
@@ -169,9 +170,12 @@ class Log {
     /// consistently nonetheless.
     ReplicaManager& replicaManager;
 
-    /// If cleaning is enabled, this contains an instance of the garbage
-    /// collector that will remove dead entries from the log.
-    Tub<LogCleaner> cleaner;
+    /// The garbage collector that will remove dead entries from the log in
+    /// parallel with normal operation. Upon construction it will be in a
+    /// stopped state. A call to enableCleaner() will be needed to kick it
+    /// into action and it may later be disabled via the disableCleaner()
+    /// method.
+    LogCleaner cleaner;
 
     /// Current head of the log. Whatever this points to is owned by
     /// SegmentManager, which is responsible for its eventual deallocation.

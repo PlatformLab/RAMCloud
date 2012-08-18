@@ -192,9 +192,10 @@ class MasterService : public Service, LogEntryHandlers {
     ReplicaManager replicaManager;
 
     /**
-     * Allocator used by the SegmentManager to obtain main memory for the log.
+     * Allocator used by the SegmentManager to obtain main memory for log
+     * segments.
      */
-    SegmentManager::Allocator allocator;
+    SegletAllocator allocator;
 
     /**
      * The SegmentManager manages all segments in the log and interfaces

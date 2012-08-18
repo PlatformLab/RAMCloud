@@ -22,70 +22,40 @@
 
 namespace RAMCloud {
 
+struct SegmentAndSegletSize {
+    uint32_t segmentSize;
+    uint32_t segletSize;
+    uint32_t getSegletsPerSegment() { return segmentSize / segletSize; }
+};
+
+class SegmentAndAllocator {
+  public:
+    SegmentAndAllocator(SegmentAndSegletSize* segmentAndSegletSize)
+        : segmentSize(segmentAndSegletSize->segmentSize),
+          segletSize(segmentAndSegletSize->segletSize),
+          allocator(segmentSize, segletSize),
+          segment()
+    {
+        vector<Seglet*> seglets;
+        EXPECT_TRUE(allocator.alloc(SegletAllocator::DEFAULT,
+                    segmentSize / segletSize,
+                    seglets));
+        segment.construct(seglets, segletSize);
+    }
+
+    const uint32_t segmentSize;
+    const uint32_t segletSize;
+    SegletAllocator allocator;
+    Tub<Segment> segment;
+
+    DISALLOW_COPY_AND_ASSIGN(SegmentAndAllocator);
+};
+
 /**
  * Unit tests for Segment.
  */
-class SegmentTest : public ::testing::TestWithParam<Segment::Allocator*> {
+class SegmentTest : public ::testing::TestWithParam<SegmentAndSegletSize*> {
   public:
-    class HorriblyFragmentedAllocator : public Segment::Allocator {
-      public:
-        HorriblyFragmentedAllocator()
-            : currentBuffer(NULL), offset(0), buffers()
-        {
-        }
-
-        ~HorriblyFragmentedAllocator()
-        {
-            foreach (uint8_t *b, buffers) {
-                // Each buffer alternates between space we allocate and do not
-                // allocate. Ensure any unallocated space was untouched.
-                bool dirty = false;
-                for (uint32_t off = getSegletSize();
-                     off < 2 * getSegmentSize();
-                     off += (2 * getSegletSize())) {
-                    for (uint32_t i = 0; i < getSegletSize(); i++)
-                        dirty |= (b[off + i] != 0xaa);
-                }
-
-                EXPECT_FALSE(dirty);
-
-                delete[] b;
-            }
-        }
-
-        uint32_t getSegletsPerSegment() { return 10000; }
-        uint32_t getSegletSize() { return 7; }
-
-        void*
-        alloc()
-        {
-            // Not doing a malloc per tiny seglet saves a ton of test time.
-            if (currentBuffer == NULL) {
-                currentBuffer = new uint8_t[2 * getSegmentSize()];
-                memset(currentBuffer, 0xaa, 2 * getSegmentSize());
-                buffers.push_back(currentBuffer);
-                offset = 0;
-            }
-
-            uint8_t* allocation = &currentBuffer[offset];
-            offset += (2 * getSegletSize());
-
-            if (offset == (2 * getSegmentSize()))
-                currentBuffer = NULL;
-
-            return allocation;
-        }
-
-        void free(void* seglet) { }
-
-      private:
-        uint8_t* currentBuffer;
-        uint32_t offset;
-        vector<uint8_t*> buffers;
-
-        DISALLOW_COPY_AND_ASSIGN(HorriblyFragmentedAllocator);
-    };
-
     SegmentTest()
     {
     }
@@ -93,17 +63,28 @@ class SegmentTest : public ::testing::TestWithParam<Segment::Allocator*> {
     DISALLOW_COPY_AND_ASSIGN(SegmentTest);
 };
 
-// Run tests with various different backing allocators, to stress the
-// code with different fragmentation in the backing segment memory.
-Segment::DefaultHeapAllocator boringDefaultAllocator;
-SegmentTest::HorriblyFragmentedAllocator horriblyFragmentedAllocator;
-INSTANTIATE_TEST_CASE_P(SegmentTestAllocators,
+// Run tests with various different seglet sizes to stress the code with
+// different fragmentation in the backing segment memory.
+
+SegmentAndSegletSize boringDefault = {
+    Segment::DEFAULT_SEGMENT_SIZE,
+    Seglet::DEFAULT_SEGLET_SIZE
+};
+
+SegmentAndSegletSize horriblyFragmented = {
+    98304,
+    16
+};
+
+INSTANTIATE_TEST_CASE_P(SegmentTestAllocations,
                         SegmentTest,
-                        ::testing::Values(&boringDefaultAllocator,
-                                          &horriblyFragmentedAllocator));
+                        ::testing::Values(&boringDefault,
+                                          &horriblyFragmented));
 
 TEST_P(SegmentTest, constructor) {
-    Segment s(*GetParam());
+    SegmentAndAllocator segAndAlloc(GetParam());
+    Segment& s = *segAndAlloc.segment;
+
     EXPECT_FALSE(s.closed);
     EXPECT_EQ(0U, s.head);
 
@@ -117,6 +98,7 @@ TEST_P(SegmentTest, constructor) {
         buffer.getRange(2, sizeof(*footer)));
     EXPECT_FALSE(footer->closed);
     EXPECT_EQ(0x722308dcU, footer->checksum);
+    EXPECT_FALSE(s.mustFreeBlocks);
 }
 
 TEST_F(SegmentTest, constructor_priorSegmentBuffer) {
@@ -128,16 +110,17 @@ TEST_F(SegmentTest, constructor_priorSegmentBuffer) {
     const void* p = buffer.getRange(0, buffer.getTotalLength());
     Segment s(p, buffer.getTotalLength());
 
-    EXPECT_TRUE(s.fakeAllocator);
-    EXPECT_EQ(&*s.fakeAllocator, &s.allocator);
-    EXPECT_EQ(1U, s.seglets.size());
+    EXPECT_EQ(0U, s.seglets.size());
+    EXPECT_EQ(1U, s.segletBlocks.size());
     EXPECT_TRUE(s.closed);
     EXPECT_EQ(s.head, buffer.getTotalLength());
-    EXPECT_EQ(p, s.seglets[0]);
+    EXPECT_EQ(p, s.segletBlocks[0]);
+    EXPECT_FALSE(s.mustFreeBlocks);
 }
 
 TEST_P(SegmentTest, append_blackBox) {
-    Segment s(*GetParam());
+    SegmentAndAllocator segAndAlloc(GetParam());
+    Segment& s = *segAndAlloc.segment;
 
     char buf[1000];
     for (uint32_t i = 0; i < 1000; i += 100) {
@@ -152,15 +135,15 @@ TEST_P(SegmentTest, append_blackBox) {
 }
 
 TEST_P(SegmentTest, append_outOfSpace) {
-    Segment::Allocator* allocator = GetParam();
-    Segment s(*allocator);
+    SegmentAndAllocator segAndAlloc(GetParam());
+    Segment& s = *segAndAlloc.segment;
     Segment::OpaqueFooterEntry unused;
 
     // How many N-length writes can we make to this segment?
     char buf[107];
     uint32_t bytesPerAppend = s.bytesNeeded(sizeof(buf));
     uint32_t expectedAppends =
-        (allocator->getSegmentSize() - s.bytesNeeded(sizeof32(Segment::Footer)))
+        (GetParam()->segmentSize - s.bytesNeeded(sizeof32(Segment::Footer)))
             / bytesPerAppend;
 
     uint32_t actualAppends = 0;
@@ -168,13 +151,14 @@ TEST_P(SegmentTest, append_outOfSpace) {
         actualAppends++;
 
     EXPECT_EQ(expectedAppends, actualAppends);
-    EXPECT_EQ(allocator->getSegletsPerSegment(), s.getSegletsAllocated());
-    EXPECT_GE(allocator->getSegmentSize() - s.getAppendedLength(unused),
+    EXPECT_EQ(GetParam()->getSegletsPerSegment(), s.getSegletsAllocated());
+    EXPECT_GE(GetParam()->segmentSize - s.getAppendedLength(unused),
         s.bytesNeeded(sizeof(Segment::Footer)));
 }
 
 TEST_P(SegmentTest, append_whiteBox) {
-    Segment s(*GetParam());
+    SegmentAndAllocator segAndAlloc(GetParam());
+    Segment& s = *segAndAlloc.segment;
     Segment::OpaqueFooterEntry unused;
 
     uint32_t offset;
@@ -218,7 +202,8 @@ TEST_P(SegmentTest, append_differentLengthBytes) {
             uint32_t length = tests[i].bytesToAppend[j];
 
             char buf[length];
-            Segment s(*GetParam());
+            SegmentAndAllocator segAndAlloc(GetParam());
+            Segment& s = *segAndAlloc.segment;
             s.append(LOG_ENTRY_TYPE_OBJ, buf, length);
             EXPECT_EQ(sizeof(Segment::EntryHeader) +
                         tests[i].expectedLengthBytes + length,
@@ -237,7 +222,8 @@ TEST_P(SegmentTest, append_differentLengthBytes) {
 }
 
 TEST_P(SegmentTest, close) {
-    Segment s(*GetParam());
+    SegmentAndAllocator segAndAlloc(GetParam());
+    Segment& s = *segAndAlloc.segment;
     EXPECT_FALSE(s.closed);
     s.close();
     EXPECT_TRUE(s.closed);
@@ -252,7 +238,8 @@ TEST_P(SegmentTest, close) {
 }
 
 TEST_P(SegmentTest, appendToBuffer_partial) {
-    Segment s(*GetParam());
+    SegmentAndAllocator segAndAlloc(GetParam());
+    Segment& s = *segAndAlloc.segment;
     uint32_t offset;
     s.append(LOG_ENTRY_TYPE_OBJ, "this is only a test!", 21, offset);
 
@@ -265,7 +252,8 @@ TEST_P(SegmentTest, appendToBuffer_partial) {
 
 TEST_P(SegmentTest, appendToBuffer_all) {
     // Should always include the footer, even if nothing has been appended.
-    Segment s(*GetParam());
+    SegmentAndAllocator segAndAlloc(GetParam());
+    Segment& s = *segAndAlloc.segment;
     Buffer buffer;
     s.appendToBuffer(buffer);
     EXPECT_EQ(7U, buffer.getTotalLength());
@@ -277,7 +265,8 @@ TEST_P(SegmentTest, appendToBuffer_all) {
 }
 
 TEST_P(SegmentTest, getEntry) {
-    Segment s(*GetParam());
+    SegmentAndAllocator segAndAlloc(GetParam());
+    Segment& s = *segAndAlloc.segment;
     uint32_t offset;
     s.append(LOG_ENTRY_TYPE_OBJ, "this is only a test!", 21, offset);
 
@@ -289,18 +278,21 @@ TEST_P(SegmentTest, getEntry) {
 }
 
 TEST_P(SegmentTest, getAppendedLength) {
-    Segment s(*GetParam());
+    SegmentAndAllocator segAndAlloc(GetParam());
+    Segment& s = *segAndAlloc.segment;
     // TODO(steve): write me.
+    (void)s;
 }
 
 TEST_P(SegmentTest, getSegletsAllocated) {
-    Segment::Allocator* allocator = GetParam();
-    Segment s(*allocator);
-    EXPECT_EQ(allocator->getSegletsPerSegment(), s.getSegletsAllocated());
+    SegmentAndAllocator segAndAlloc(GetParam());
+    Segment& s = *segAndAlloc.segment;
+    EXPECT_EQ(GetParam()->getSegletsPerSegment(), s.getSegletsAllocated());
 }
 
 TEST_P(SegmentTest, appendFooter) {
-    Segment s(*GetParam());
+    SegmentAndAllocator segAndAlloc(GetParam());
+    Segment& s = *segAndAlloc.segment;
     Segment::OpaqueFooterEntry unused;
 
     // Appending the footer shouldn't alter the head or the checksum
@@ -319,7 +311,8 @@ TEST_P(SegmentTest, getEntryInfo) {
     uint32_t dataLength;
 
     {
-        Segment s(*GetParam());
+        SegmentAndAllocator segAndAlloc(GetParam());
+        Segment& s = *segAndAlloc.segment;
         s.getEntryInfo(0, type, dataOffset, dataLength);
         EXPECT_EQ(2U, dataOffset);
         char buf[200];
@@ -332,7 +325,8 @@ TEST_P(SegmentTest, getEntryInfo) {
     }
 
     {
-        Segment s(*GetParam());
+        SegmentAndAllocator segAndAlloc(GetParam());
+        Segment& s = *segAndAlloc.segment;
         s.getEntryInfo(0, type, dataOffset, dataLength);
         EXPECT_EQ(2U, dataOffset);
         char buf[2000];
@@ -343,7 +337,8 @@ TEST_P(SegmentTest, getEntryInfo) {
     }
 
     {
-        Segment s(*GetParam());
+        SegmentAndAllocator segAndAlloc(GetParam());
+        Segment& s = *segAndAlloc.segment;
         s.append(LOG_ENTRY_TYPE_OBJ, NULL, 0);  // EntryHeader at 0
         s.append(LOG_ENTRY_TYPE_OBJ, NULL, 0);  // EntryHeader at 2
         s.append(LOG_ENTRY_TYPE_OBJ, "hi", 2);  // EntryHeader at 4
@@ -376,52 +371,56 @@ TEST_P(SegmentTest, getEntryInfo) {
 }
 
 TEST_P(SegmentTest, peek) {
-    Segment s(*GetParam());
+    SegmentAndAllocator segAndAlloc(GetParam());
+    Segment& s = *segAndAlloc.segment;
     const void* pointer = NULL;
     void* const nullPtr = NULL;
 
-    EXPECT_EQ(1U, s.peek(s.allocator.getSegmentSize() - 1, &pointer));
-    EXPECT_EQ(0U, s.peek(s.allocator.getSegmentSize(), &pointer));
-    EXPECT_EQ(0U, s.peek(s.allocator.getSegmentSize() + 1, &pointer));
-    EXPECT_EQ(s.allocator.getSegletSize(), s.peek(0, &pointer));
-    EXPECT_EQ(s.allocator.getSegletSize() - 1, s.peek(1, &pointer));
+    EXPECT_EQ(1U, s.peek(GetParam()->segmentSize - 1, &pointer));
+    EXPECT_EQ(0U, s.peek(GetParam()->segmentSize, &pointer));
+    EXPECT_EQ(0U, s.peek(GetParam()->segmentSize + 1, &pointer));
+    EXPECT_EQ(GetParam()->segletSize, s.peek(0, &pointer));
+    EXPECT_EQ(GetParam()->segletSize - 1, s.peek(1, &pointer));
 
     pointer = NULL;
-    EXPECT_NE(0U, s.peek(s.allocator.getSegmentSize() - 1, &pointer));
+    EXPECT_NE(0U, s.peek(GetParam()->segmentSize - 1, &pointer));
     EXPECT_NE(nullPtr, pointer);
 
     pointer = NULL;
-    EXPECT_EQ(0U, s.peek(s.allocator.getSegmentSize(), &pointer));
+    EXPECT_EQ(0U, s.peek(GetParam()->segmentSize, &pointer));
     EXPECT_EQ(nullPtr, pointer);
 
     pointer = NULL;
-    EXPECT_EQ(0U, s.peek(s.allocator.getSegmentSize() + 1, &pointer));
+    EXPECT_EQ(0U, s.peek(GetParam()->segmentSize + 1, &pointer));
     EXPECT_EQ(nullPtr, pointer);
 
     pointer = NULL;
-    EXPECT_EQ(s.allocator.getSegletSize(), s.peek(0, &pointer));
-    EXPECT_EQ(s.seglets[0], pointer);
+    EXPECT_EQ(GetParam()->segletSize, s.peek(0, &pointer));
+    EXPECT_EQ(s.segletBlocks[0], pointer);
 }
 
 TEST_P(SegmentTest, bytesLeft) {
-    Segment s(*GetParam());
-    EXPECT_EQ(s.allocator.getSegmentSize(), s.bytesLeft() + 7);
+    SegmentAndAllocator segAndAlloc(GetParam());
+    Segment& s = *segAndAlloc.segment;
+    EXPECT_EQ(GetParam()->segmentSize, s.bytesLeft() + 7);
     s.append(LOG_ENTRY_TYPE_OBJ, "blah", 5);
-    EXPECT_EQ(s.allocator.getSegmentSize() - 14, s.bytesLeft());
+    EXPECT_EQ(GetParam()->segmentSize - 14, s.bytesLeft());
     s.close();
     EXPECT_EQ(0U, s.bytesLeft());
 }
 
 TEST_P(SegmentTest, bytesNeeded) {
-    Segment s(*GetParam());
+    SegmentAndAllocator segAndAlloc(GetParam());
+    Segment& s = *segAndAlloc.segment;
     EXPECT_EQ(2U, s.bytesNeeded(0));
     EXPECT_EQ(257U, s.bytesNeeded(255));
     EXPECT_EQ(259U, s.bytesNeeded(256));
 }
 
 TEST_P(SegmentTest, copyOut) {
-    Segment s(*GetParam());
-    uint32_t segmentSize = s.allocator.getSegmentSize();
+    SegmentAndAllocator segAndAlloc(GetParam());
+    Segment& s = *segAndAlloc.segment;
+    uint32_t segmentSize = GetParam()->segmentSize;
 
     char buf[1024];
     EXPECT_EQ(0U, s.copyOut(segmentSize, buf, sizeof(buf)));
@@ -436,8 +435,9 @@ TEST_P(SegmentTest, copyOut) {
 }
 
 TEST_P(SegmentTest, copyIn) {
-    Segment s(*GetParam());
-    uint32_t segmentSize = s.allocator.getSegmentSize();
+    SegmentAndAllocator segAndAlloc(GetParam());
+    Segment& s = *segAndAlloc.segment;
+    uint32_t segmentSize = GetParam()->segmentSize;
 
     char buf[1024];
     EXPECT_EQ(0U, s.copyIn(segmentSize, buf, sizeof(buf)));
@@ -449,8 +449,9 @@ TEST_P(SegmentTest, copyIn) {
 }
 
 TEST_P(SegmentTest, copyInFromBuffer) {
-    Segment s(*GetParam());
-    uint32_t segmentSize = s.allocator.getSegmentSize();
+    SegmentAndAllocator segAndAlloc(GetParam());
+    Segment& s = *segAndAlloc.segment;
+    uint32_t segmentSize = GetParam()->segmentSize;
 
     char buf[1024];
     Buffer buffer;
@@ -478,7 +479,8 @@ TEST_P(SegmentTest, copyInFromBuffer) {
 
 TEST_P(SegmentTest, checkMetadataIntegrity_simple) {
     TestLog::Enable _;
-    Segment s(*GetParam());
+    SegmentAndAllocator segAndAlloc(GetParam());
+    Segment& s = *segAndAlloc.segment;
     EXPECT_TRUE(s.checkMetadataIntegrity());
     s.append(LOG_ENTRY_TYPE_OBJ, "asdfhasdf", 10);
     EXPECT_TRUE(s.checkMetadataIntegrity());
@@ -497,8 +499,9 @@ TEST_P(SegmentTest, checkMetadataIntegrity_simple) {
 
 TEST_P(SegmentTest, checkMetadataIntegrity_noFooter) {
     TestLog::Enable _;
-    Segment s(*GetParam());
-    uint32_t segmentSize = s.allocator.getSegmentSize();
+    SegmentAndAllocator segAndAlloc(GetParam());
+    Segment& s = *segAndAlloc.segment;
+    uint32_t segmentSize = GetParam()->segmentSize;
     char buf[segmentSize];
     memset(buf, 0, segmentSize);
     s.copyIn(0, buf, segmentSize);
@@ -509,8 +512,9 @@ TEST_P(SegmentTest, checkMetadataIntegrity_noFooter) {
 
 TEST_P(SegmentTest, checkMetadataIntegrity_badLength) {
     TestLog::Enable _;
-    Segment s(*GetParam());
-    uint32_t segmentSize = s.allocator.getSegmentSize();
+    SegmentAndAllocator segAndAlloc(GetParam());
+    Segment& s = *segAndAlloc.segment;
+    uint32_t segmentSize = GetParam()->segmentSize;
     Segment::EntryHeader header(LOG_ENTRY_TYPE_OBJ, 1024*1024*1024);
     s.copyIn(0, &header, sizeof(header));
     s.copyIn(sizeof(header), &segmentSize, sizeof(segmentSize));

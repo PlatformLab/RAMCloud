@@ -268,7 +268,7 @@ bool filter(string s) {
 }
 }
 
-class DoNothingHandlers : public Log::EntryHandlers {
+class DoNothingHandlers : public LogEntryHandlers {
   public:
     uint32_t getTimestamp(LogEntryType type, Buffer& buffer) { return 0; }
     bool checkLiveness(LogEntryType type, Buffer& buffer) { return true; }
@@ -286,11 +286,11 @@ class DoNothingHandlers : public Log::EntryHandlers {
 TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
     MockRandom __(1);
 
-    const uint64_t logSegs = 4;
-    SegmentManager::Allocator allocator(logSegs * 8192, 8192, 8192);
-    SegmentManager segmentManager(context, serverId, allocator, *mgr, 1.0);
+    const uint64_t logSegs = 4 + 2 + LogCleaner::SURVIVOR_SEGMENTS_TO_RESERVE;
+    SegletAllocator allocator(logSegs * 8192, 8192);
+    SegmentManager segmentManager(context, 8192, serverId, allocator, *mgr, 1);
     DoNothingHandlers entryHandlers;
-    Log log(context, entryHandlers, segmentManager, *mgr, true);
+    Log log(context, entryHandlers, segmentManager, *mgr);
     log.sync();
 
     // Set up the scenario:
@@ -358,7 +358,7 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
         "close: 3, 1, 2 | "
         // And which also provides the needed close on the log segment
         // with the lost open replica.
-        "close: Segment 1 closed (length 180) | "
+        "close: Segment 1 closed (length 188) | "
         // Notice the actual close to the backup is delayed because it
         // must wait on a durable open to the new log head.
         "performWrite: Cannot close segment 1 until following segment is "

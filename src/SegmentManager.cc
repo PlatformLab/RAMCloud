@@ -17,6 +17,7 @@
 #include "LogDigest.h"
 #include "LogMetadata.h"
 #include "ShortMacros.h"
+#include "SegletAllocator.h"
 #include "SegmentManager.h"
 #include "ServerRpcPool.h"
 
@@ -30,8 +31,12 @@ namespace RAMCloud {
  * \param logId
  *      Identifier of the log this object will manage. Used to stamp segments
  *      so they can be later identified on backups.
+ * \param segmentSize
+ *      Size of segments in bytes. This must be an integer multiple of the size
+ *      of seglets the allocator provides.
  * \param allocator
- *      Allocator to use to construct new log segments.
+ *      SegletAllocator to use to allocate memory from when constructing new log
+ *      segments.
  * \param replicaManager
  *      The replica manager that will handle replication of segments this class
  *      allocates.
@@ -44,20 +49,20 @@ namespace RAMCloud {
  *      Factors larger than 2 or 3 will likely have quickly diminishing returns.
  */
 SegmentManager::SegmentManager(Context& context,
+                               uint32_t segmentSize,
                                ServerId& logId,
-                               Allocator& allocator,
+                               SegletAllocator& allocator,
                                ReplicaManager& replicaManager,
                                double diskExpansionFactor)
     : context(context),
+      segmentSize(segmentSize),
       logId(logId),
       allocator(allocator),
       replicaManager(replicaManager),
+      segletsPerSegment(segmentSize / allocator.getSegletSize()),
       maxSegments(static_cast<uint32_t>(static_cast<double>(
-        allocator.getFreeSegmentCount()) * diskExpansionFactor)),
-      numEmergencyHeads(2),
-      numEmergencyHeadsAlloced(0),
-      numSurvivorSegments(0),
-      numSurvivorSegmentsAlloced(0),
+        allocator.getTotalCount() / segletsPerSegment)
+          * diskExpansionFactor)),
       segments(NULL),
       states(NULL),
       freeSlots(),
@@ -68,13 +73,16 @@ SegmentManager::SegmentManager(Context& context,
       lock(),
       logIteratorCount(0)
 {
+    if ((segmentSize % allocator.getSegletSize()) != 0)
+        throw SegmentManagerException(HERE, "segmentSize % segletSize != 0");
+
     if (diskExpansionFactor < 1.0)
         throw SegmentManagerException(HERE, "diskExpansionFactor not >= 1.0");
 
-    if (allocator.getFreeSegmentCount() < numEmergencyHeads)
+    if (!allocator.initializeEmergencyHeadReserve(2 * segletsPerSegment))
         throw SegmentManagerException(HERE, "must have at least two segments");
 
-    assert(maxSegments >= allocator.getFreeSegmentCount());
+    assert(maxSegments >= (allocator.getTotalCount() / segletsPerSegment));
 
     segments = new Tub<LogSegment>[maxSegments];
     states = new Tub<State>[maxSegments];
@@ -128,14 +136,14 @@ SegmentManager::allocHead(bool mustNotFail)
     Lock guard(lock);
 
     LogSegment* prevHead = getHeadSegment();
-    LogSegment* newHead = alloc(ALLOC_HEAD);
+    LogSegment* newHead = alloc(SegletAllocator::DEFAULT);
     if (newHead == NULL) {
         /// Even if out of memory, we may need to allocate an emergency head
         /// segment to deal with replica failure or to let cleaning free
         /// resources.
         if (mustNotFail ||
           segmentsByState[FREEABLE_PENDING_DIGEST_AND_REFERENCES].size() > 0) {
-            newHead = alloc(ALLOC_EMERGENCY_HEAD);
+            newHead = alloc(SegletAllocator::EMERGENCY_HEAD);
         } else {
             return NULL;
         }
@@ -199,7 +207,7 @@ SegmentManager::allocSurvivor(uint64_t headSegmentIdDuringCleaning)
 {
     Lock guard(lock);
 
-    LogSegment* s = alloc(ALLOC_SURVIVOR);
+    LogSegment* s = alloc(SegletAllocator::CLEANER);
     if (s == NULL)
         return NULL;
 
@@ -345,11 +353,11 @@ SegmentManager::getActiveSegments(uint64_t minSegmentId,
 }
 
 /**
- * Called by the cleaner, typically once at construction time, to specify how
- * many segments to reserve for it for cleaning. These segments will not be
- * allocated for heads of the log. The SegmentManager will ensure that if the
- * reserve is not full, any freed segments are returned to the reserve, rather
- * than used as log heads.
+ * Called by the cleaner once at construction time to specify how many segments
+ * to reserve for it for cleaning. These segments will not be allocated for
+ * heads of the log. The SegmentManager will ensure that if the reserve is not
+ * full, any freed segments are returned to the reserve, rather than used as log
+ * heads.
  *
  * As the name implies, this method may only be called to increase the number
  * of segments reserved. Specifying fewer segments will not shrink the current
@@ -359,24 +367,13 @@ SegmentManager::getActiveSegments(uint64_t minSegmentId,
  *      The total number of full segments to reserve for the cleaner.
  * \return
  *      True if the number of requested segments were reserved, false if the
- *      request was too large and the reserve was left at its prior value.
+ *      request was too large and the reserve was not initialized.
  */
 bool
-SegmentManager::increaseSurvivorReserve(uint32_t numSegments)
+SegmentManager::initializeSurvivorReserve(uint32_t numSegments)
 {
     Lock guard(lock);
-
-    // Avoid having to deal with shrinking the reserve, which could cause a
-    // temporary situation where we have more allocated than reserved, which
-    // could underflow calculating how many reserves have yet to be allocated.
-    if (numSegments < numSurvivorSegments)
-        return false;
-
-    if (numSegments > (allocator.getFreeSegmentCount() - numEmergencyHeads))
-        return false;
-
-    numSurvivorSegments = numSegments;
-    return true;
+    return allocator.initializeCleanerReserve(numSegments * segletsPerSegment);
 }
 
 /**
@@ -426,13 +423,15 @@ SegmentManager::getAllocatedSegmentCount()
 }
 
 /**
- * Return the total number of free segments in the system.
+ * Return the total number of free segments in the system. This does not include
+ * ones reserved for special purposes like log cleaning.
  */
-uint32_t
+size_t
 SegmentManager::getFreeSegmentCount()
 {
     Lock guard(lock);
-    return allocator.getFreeSegmentCount();
+    return allocator.getFreeCount(SegletAllocator::DEFAULT) /
+           (segmentSize / allocator.getSegletSize());
 }
 
 /**
@@ -440,11 +439,12 @@ SegmentManager::getFreeSegmentCount()
  * may subsequently call allocSurvivor() this many times with a guarantee that
  * a survivor segment will be returned.
  */
-uint32_t
+size_t
 SegmentManager::getFreeSurvivorCount()
 {
     Lock guard(lock);
-    return downCast<uint32_t>(numSurvivorSegments - numSurvivorSegmentsAlloced);
+    return allocator.getFreeCount(SegletAllocator::CLEANER) /
+           (segmentSize / allocator.getSegletSize());
 }
 
 /**
@@ -473,7 +473,7 @@ SegmentManager::getSegletSize()
 uint32_t
 SegmentManager::getSegmentSize()
 {
-    return allocator.getSegmentSize();
+    return segmentSize;
 }
 
 /******************************************************************************
@@ -499,7 +499,7 @@ SegmentManager::writeHeader(LogSegment* segment,
 {
     SegmentHeader header(*logId,
                          segment->id,
-                         allocator.getSegmentSize(),
+                         segmentSize,
                          headSegmentIdDuringCleaning);
     bool success = segment->append(LOG_ENTRY_TYPE_SEGHEADER,
                                    &header, sizeof(header));
@@ -601,58 +601,6 @@ SegmentManager::changeState(LogSegment& s, State newState)
 }
 
 /**
- * Determine whether or not an allocation request can be fulfilled, generally
- * due to insufficient memory. Only intended for invocation by alloc().
- *
- * \param forCleaner
- *      If true, check whether allocation of a cleaner survivor segment can be
- *      fulfilled. If false, check if a new head segment allocation can be
- *      fulfilled.
- * \return
- *      True if the allocation is permitted, else false.
- */
-bool
-SegmentManager::mayAlloc(AllocationType type)
-{
-    assert(numEmergencyHeadsAlloced <= numEmergencyHeads);
-    assert(numSurvivorSegmentsAlloced <= numSurvivorSegments);
-
-    size_t emergencyHeadsReserved = numEmergencyHeads -
-                                      numEmergencyHeadsAlloced;
-    size_t survivorSegmentsReserved = numSurvivorSegments -
-                                        numSurvivorSegmentsAlloced;
-    size_t totalReserved = emergencyHeadsReserved + survivorSegmentsReserved;
-
-    assert(allocator.getFreeSegmentCount() >= totalReserved);
-
-    if (type == ALLOC_EMERGENCY_HEAD) {
-        // So long as the internal SegmentManager code does what it should,
-        // (that is, allocates no more than two emergency heads before freeing
-        // one), there will always be a free reservation when this is called.
-        assert(emergencyHeadsReserved > 0);
-        assert(freeSlots.size() > 0);
-        assert(allocator.getFreeSegmentCount() > 0);
-        return true;
-    }
-    
-    if (type == ALLOC_SURVIVOR) {
-        if (survivorSegmentsReserved == 0)
-            return false;
-        assert(freeSlots.size() > 0);
-        assert(allocator.getFreeSegmentCount() > 0);
-        return true;
-    }
-
-    if (allocator.getFreeSegmentCount() <= totalReserved)
-        return false;
-
-    // Should always have at least as many slots free as segments.
-    assert(freeSlots.size() > 0);
-
-    return true;
-}
-
-/**
  * Allocate a new segment, if possible, and set its initial state appropriately.
  *
  * \param forCleaner
@@ -663,14 +611,20 @@ SegmentManager::mayAlloc(AllocationType type)
  *      allocated segment.
  */
 LogSegment*
-SegmentManager::alloc(AllocationType type)
+SegmentManager::alloc(SegletAllocator::AllocationType type)
 {
-    TEST_LOG((type == ALLOC_SURVIVOR) ? "for cleaner" : ((type == ALLOC_HEAD) ?
-        "for head of log" : "for emergency head of log"));
+    TEST_LOG((type == SegletAllocator::CLEANER) ? "for cleaner" :
+        ((type == SegletAllocator::DEFAULT) ?  "for head of log" :
+        "for emergency head of log"));
 
+    // Use this opportunity to see if we can free segments that have been
+    // cleaned but were previously waiting for readers to finish.
     freeUnreferencedSegments();
 
-    if (!mayAlloc(type))
+    uint32_t segletSize = allocator.getSegletSize();
+    vector<Seglet*> seglets;
+
+    if (!allocator.alloc(type, segmentSize / segletSize, seglets))
         return NULL;
 
     uint64_t id = nextSegmentId++;
@@ -678,21 +632,18 @@ SegmentManager::alloc(AllocationType type)
     freeSlots.pop_back();
     assert(!segments[slot]);
 
-    State state = (type == ALLOC_SURVIVOR) ? CLEANING_INTO : HEAD;
-    segments[slot].construct(allocator,
+    State state = (type == SegletAllocator::CLEANER) ? CLEANING_INTO : HEAD;
+    segments[slot].construct(seglets,
+                             segletSize,
+                             segmentSize,
                              id,
                              slot,
-                             (type == ALLOC_EMERGENCY_HEAD));
+                             (type == SegletAllocator::EMERGENCY_HEAD));
     states[slot].construct(state);
     idToSlotMap[id] = slot;
 
     LogSegment& s = *segments[slot];
     addToLists(s);
-
-    if (type == ALLOC_SURVIVOR)
-        numSurvivorSegmentsAlloced++;
-    else if (type == ALLOC_EMERGENCY_HEAD)
-        numEmergencyHeadsAlloced++;
 
     return &s;
 }
@@ -714,7 +665,6 @@ SegmentManager::free(LogSegment* s)
 {
     uint32_t slot = s->slot;
     uint64_t id = segments[slot]->id;
-    bool isEmergencyHead = s->isEmergencyHead;
 
     freeSlots.push_back(slot);
     idToSlotMap.erase(id);
@@ -722,19 +672,6 @@ SegmentManager::free(LogSegment* s)
     removeFromLists(*s);
     states[slot].destroy();
     segments[slot].destroy();
-
-    // Update these after freeing the segment/seglets to avoid a race with the
-    // assertion in mayAlloc that ensures our total free segment count is >= to
-    // all that's been reserved.
-    //
-    // XXXXX- this is sufficient for the emergency head, but not for the survivor
-    // segments count. We can't decrement until a pull segment's worth has been
-    // freed. Should we just keep a counter around? Is it worth the trouble just
-    // for an assertion (albeit a crucial one)?
-    if (isEmergencyHead)
-        numEmergencyHeadsAlloced--;
-    else if (numSurvivorSegmentsAlloced > 0)
-        numSurvivorSegmentsAlloced--;
 }
 
 /**

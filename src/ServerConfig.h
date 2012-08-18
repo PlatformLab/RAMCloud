@@ -17,6 +17,7 @@
 #define RAMCLOUD_SERVERCONFIG_H
 
 #include "Log.h"
+#include "Seglet.h"
 #include "Segment.h"
 #include "ServiceMask.h"
 #include "HashTable.h"
@@ -74,7 +75,7 @@ struct ServerConfig {
         , detectFailures(true)
         , pinMemory(true)
         , segmentSize(Segment::DEFAULT_SEGMENT_SIZE)
-        , segletSize(Segment::DEFAULT_SEGLET_SIZE)
+        , segletSize(Seglet::DEFAULT_SEGLET_SIZE)
         , maxObjectDataSize(segmentSize / 8)
         , maxObjectKeySize((64 * 1024) - 1)
         , master()

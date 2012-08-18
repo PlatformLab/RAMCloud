@@ -25,7 +25,7 @@
 
 namespace RAMCloud {
 
-class DoNothingHandlers : public Log::EntryHandlers {
+class DoNothingHandlers : public LogEntryHandlers {
   public:
     uint32_t getTimestamp(LogEntryType type, Buffer& buffer) { return 0; }
     bool checkLiveness(LogEntryType type, Buffer& buffer) { return true; }
@@ -42,7 +42,7 @@ class LogTest : public ::testing::Test {
     ServerId serverId;
     ServerList serverList;
     ReplicaManager replicaManager;
-    SegmentManager::Allocator allocator;
+    SegletAllocator allocator;
     SegmentManager segmentManager;
     DoNothingHandlers entryHandlers;
     Log l;
@@ -52,10 +52,12 @@ class LogTest : public ::testing::Test {
           serverId(ServerId(57, 0)),
           serverList(context),
           replicaManager(context, serverId, 0),
-          allocator(4 * 8192, 8192, 8192),
-          segmentManager(context, serverId, allocator, replicaManager, 1.0),
+          allocator((6 + 2 + LogCleaner::SURVIVOR_SEGMENTS_TO_RESERVE) * 8192,
+                    8192),
+          segmentManager(context, 8192, serverId,
+                         allocator, replicaManager, 1.0),
           entryHandlers(),
-          l(context, entryHandlers, segmentManager, replicaManager, true)
+          l(context, entryHandlers, segmentManager, replicaManager)
     {
         l.sync();
     }
@@ -64,18 +66,37 @@ class LogTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(LogTest);
 };
 
-TEST_F(LogTest, constructor_cleaner)
-{
-    Log l2(context, entryHandlers, segmentManager, replicaManager, false);
+TEST_F(LogTest, constructor) {
+    SegletAllocator allocator2(
+        (6 + 2 + LogCleaner::SURVIVOR_SEGMENTS_TO_RESERVE) * 8192, 8192);
+    SegmentManager segmentManager2(context, 8192, serverId,
+                                   allocator2, replicaManager, 1.0);
+    Log l2(context, entryHandlers, segmentManager2, replicaManager);
     EXPECT_EQ(static_cast<LogSegment*>(NULL), l2.head);
-    EXPECT_TRUE(l2.cleaner);
 }
 
-TEST_F(LogTest, constructor_noCleaner)
-{
-    Log l2(context, entryHandlers, segmentManager, replicaManager, true);
-    EXPECT_EQ(static_cast<LogSegment*>(NULL), l2.head);
-    EXPECT_FALSE(l2.cleaner);
+TEST_F(LogTest, enableCleaner_and_disableCleaner) {
+    {
+        TestLog::Enable _;
+        l.enableCleaner();
+        usleep(100);
+        EXPECT_EQ("cleanerThreadEntry: LogCleaner thread started",
+            TestLog::get());
+    }
+
+    {
+        TestLog::Enable _;
+        l.disableCleaner();
+        usleep(100);
+        EXPECT_EQ("cleanerThreadEntry: LogCleaner thread stopping",
+            TestLog::get());
+    }
+
+    TestLog::Enable _;
+    l.disableCleaner();
+    l.disableCleaner();
+    usleep(100);
+    EXPECT_EQ("", TestLog::get());
 }
 
 TEST_F(LogTest, append_basic) {
@@ -154,9 +175,15 @@ TEST_F(LogTest, sync) {
 }
 
 TEST_F(LogTest, getHeadPosition) {
-    // unsynced should return <0, 0>...
-    Log l2(context, entryHandlers, segmentManager, replicaManager, true);
-    EXPECT_EQ(Log::Position(0, 0), l2.getHeadPosition());
+    {
+        // unsynced should return <0, 0>...
+        SegletAllocator allocator2(
+            (6 + 2 + LogCleaner::SURVIVOR_SEGMENTS_TO_RESERVE) * 8192, 8192);
+        SegmentManager segmentManager2(context, 8192, serverId,
+                                       allocator2, replicaManager, 1.0);
+        Log l2(context, entryHandlers, segmentManager2, replicaManager);
+        EXPECT_EQ(Log::Position(0, 0), l2.getHeadPosition());
+    }
 
     // synced returns something else...
     EXPECT_EQ(Log::Position(0, 48), l.getHeadPosition());
@@ -168,7 +195,7 @@ TEST_F(LogTest, getHeadPosition) {
     while (l.getHeadPosition().getSegmentId() == 0)
         l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true);
 
-    EXPECT_EQ(Log::Position(1, 1051), l.getHeadPosition());
+    EXPECT_EQ(Log::Position(1, 1059), l.getHeadPosition());
 }
 
 TEST_F(LogTest, getSegmentId) {
