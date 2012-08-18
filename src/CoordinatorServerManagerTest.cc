@@ -261,6 +261,12 @@ TEST_F(CoordinatorServerManagerTest, enlistServer_LogCabin) {
               readState.DebugString());
 }
 
+namespace {
+bool enlistServerFilter(string s) {
+    return s == "complete";
+}
+}
+
 TEST_F(CoordinatorServerManagerTest, enlistServerRecover) {
     EXPECT_EQ(1U, master->serverId.getId());
 
@@ -276,7 +282,20 @@ TEST_F(CoordinatorServerManagerTest, enlistServerRecover) {
     EntryId entryId =
         serverManager->service.logCabinHelper->appendProtoBuf(state);
 
+    TestLog::Enable _(enlistServerFilter);
+
     serverManager->enlistServerRecover(&state, entryId);
+
+    string searchString = "complete: LogCabin: ServerEnlisted entryId: ";
+    ASSERT_NO_THROW(findEntryId(searchString));
+
+    EXPECT_EQ(
+        format("complete: Enlisting new server at mock:host=backup "
+               "(server id 2.0) supporting services: BACKUP_SERVICE | "
+               "complete: Backup at id 2.0 has 0 MB/s read 0 MB/s write | "
+               "complete: LogCabin: ServerEnlisted entryId: %lu",
+               findEntryId(searchString)),
+        TestLog::get());
 
     ProtoBuf::ServerList masterList;
     serverList->serialize(masterList, {WireFormat::MASTER_SERVICE});
