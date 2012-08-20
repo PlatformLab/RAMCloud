@@ -19,6 +19,7 @@
 #include <Client/Client.h>
 
 #include "Common.h"
+#include "EntryType.pb.h"
 
 namespace RAMCloud {
 
@@ -58,6 +59,13 @@ class LogCabinHelper {
         message.ParseFromArray(entriesRead[0].getData(),
                                entriesRead[0].getLength());
     };
+
+    string
+    getEntryType(EntryId entryId) {
+        ProtoBuf::EntryType entryRead;
+        readProtoBuf(entryId, entryRead);
+        return entryRead.entry_type();
+    }
 
   PRIVATE:
     /**
