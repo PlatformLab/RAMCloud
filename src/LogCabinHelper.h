@@ -52,7 +52,8 @@ class LogCabinHelper {
     };
 
     template<typename M>
-    void getProtoBufFromEntryId(EntryId entryId, M& message) {
+    void
+    readProtoBuf(EntryId entryId, M& message) {
         vector<Entry> entriesRead = logCabinLog.read(entryId);
         message.ParseFromArray(entriesRead[0].getData(),
                                entriesRead[0].getLength());

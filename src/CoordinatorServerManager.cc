@@ -501,8 +501,7 @@ CoordinatorServerManager::SetMinOpenSegmentId::execute()
     vector<EntryId> invalidates;
 
     if (oldEntryId) {
-        manager.service.logCabinHelper->getProtoBufFromEntryId(
-            oldEntryId, serverUpdate);
+        manager.service.logCabinHelper->readProtoBuf(oldEntryId, serverUpdate);
         invalidates.push_back(oldEntryId);
     } else {
         serverUpdate.set_entry_type("ServerUpdate");

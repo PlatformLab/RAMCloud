@@ -241,7 +241,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServer_LogCabin) {
 
     string searchString = "execute: LogCabin: ServerEnlisting entryId: ";
     ASSERT_NO_THROW(findEntryId(searchString));
-    serverManager->service.logCabinHelper->getProtoBufFromEntryId(
+    serverManager->service.logCabinHelper->readProtoBuf(
         findEntryId(searchString), readState);
     EXPECT_EQ("entry_type: \"ServerEnlisting\"\n"
               "server_id: 2\nservice_mask: 2\n"
@@ -252,7 +252,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServer_LogCabin) {
     searchString = "complete: LogCabin: ServerEnlisted entryId: ";
     ASSERT_NO_THROW(findEntryId(searchString));
     ProtoBuf::ServerInformation readInfo;
-    serverManager->service.logCabinHelper->getProtoBufFromEntryId(
+    serverManager->service.logCabinHelper->readProtoBuf(
         findEntryId(searchString), readState);
     EXPECT_EQ("entry_type: \"ServerEnlisted\"\n"
               "server_id: 2\nservice_mask: 2\n"
@@ -470,7 +470,7 @@ TEST_F(CoordinatorServerManagerTest, serverDown_LogCabin) {
     string searchString = "execute: LogCabin: StateServerDown entryId: ";
     ASSERT_NO_THROW(findEntryId(searchString));
     ProtoBuf::StateServerDown readState;
-    serverManager->service.logCabinHelper->getProtoBufFromEntryId(
+    serverManager->service.logCabinHelper->readProtoBuf(
         findEntryId(searchString), readState);
 
     EXPECT_EQ("entry_type: \"StateServerDown\"\nserver_id: 1\n",
@@ -530,8 +530,7 @@ TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentId_execute) {
 
     EntryId entryId = serverList->getServerUpdateLogId(masterServerId);
     ProtoBuf::ServerUpdate readUpdate;
-    serverManager->service.logCabinHelper->getProtoBufFromEntryId(
-        entryId, readUpdate);
+    serverManager->service.logCabinHelper->readProtoBuf(entryId, readUpdate);
 
     EXPECT_EQ(10u, readUpdate.min_open_segment_id());
 }
