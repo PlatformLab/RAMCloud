@@ -3,4 +3,4 @@
 	url = ../gtest.git
 [submodule "logcabin"]
 	path = logcabin
-	url = https://github.com/logcabin/logcabin.git
+	url = git://github.com/logcabin/logcabin.git
