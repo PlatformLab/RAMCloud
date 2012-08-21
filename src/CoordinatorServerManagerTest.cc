@@ -26,10 +26,6 @@
 
 namespace RAMCloud {
 
-using LogCabin::Client::Entry;
-using LogCabin::Client::EntryId;
-using LogCabin::Client::NO_ID;
-
 class CoordinatorServerManagerTest : public ::testing::Test {
   public:
     Context context;
