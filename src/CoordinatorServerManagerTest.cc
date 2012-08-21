@@ -36,6 +36,7 @@ class CoordinatorServerManagerTest : public ::testing::Test {
     MasterService* master;
     ServerId masterServerId;
     CoordinatorServerList* serverList;
+    LogCabinHelper* logCabinHelper;
 
     CoordinatorServerManagerTest()
         : context()
@@ -46,6 +47,7 @@ class CoordinatorServerManagerTest : public ::testing::Test {
         , master()
         , masterServerId()
         , serverList()
+        , logCabinHelper()
     {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
 
@@ -61,6 +63,7 @@ class CoordinatorServerManagerTest : public ::testing::Test {
 
         ramcloud.construct(context, "mock:host=coordinator");
         serverList = &(serverManager->service.serverList);
+        logCabinHelper = serverManager->service.logCabinHelper.get();
     }
 
 
@@ -237,8 +240,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServer_LogCabin) {
 
     string searchString = "execute: LogCabin: ServerEnlisting entryId: ";
     ASSERT_NO_THROW(findEntryId(searchString));
-    serverManager->service.logCabinHelper->readProtoBuf(
-        findEntryId(searchString), readState);
+    logCabinHelper->readProtoBuf(findEntryId(searchString), readState);
     EXPECT_EQ("entry_type: \"ServerEnlisting\"\n"
               "server_id: 2\nservice_mask: 2\n"
               "read_speed: 0\nwrite_speed: 0\n"
@@ -248,8 +250,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServer_LogCabin) {
     searchString = "complete: LogCabin: ServerEnlisted entryId: ";
     ASSERT_NO_THROW(findEntryId(searchString));
     ProtoBuf::ServerInformation readInfo;
-    serverManager->service.logCabinHelper->readProtoBuf(
-        findEntryId(searchString), readState);
+    logCabinHelper->readProtoBuf(findEntryId(searchString), readState);
     EXPECT_EQ("entry_type: \"ServerEnlisted\"\n"
               "server_id: 2\nservice_mask: 2\n"
               "read_speed: 0\nwrite_speed: 0\n"
@@ -275,8 +276,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServerRecover) {
     state.set_write_speed(0);
     state.set_service_locator("mock:host=backup");
 
-    EntryId entryId =
-        serverManager->service.logCabinHelper->appendProtoBuf(state);
+    EntryId entryId = logCabinHelper->appendProtoBuf(state);
 
     TestLog::Enable _(enlistServerFilter);
 
@@ -323,8 +323,7 @@ TEST_F(CoordinatorServerManagerTest, enlistedServerRecover) {
     state.set_write_speed(0);
     state.set_service_locator("mock:host=backup");
 
-    EntryId entryId =
-        serverManager->service.logCabinHelper->appendProtoBuf(state);
+    EntryId entryId = logCabinHelper->appendProtoBuf(state);
 
     TestLog::Enable _(enlistServerFilter);
 
@@ -466,8 +465,7 @@ TEST_F(CoordinatorServerManagerTest, serverDown_LogCabin) {
     string searchString = "execute: LogCabin: StateServerDown entryId: ";
     ASSERT_NO_THROW(findEntryId(searchString));
     ProtoBuf::StateServerDown readState;
-    serverManager->service.logCabinHelper->readProtoBuf(
-        findEntryId(searchString), readState);
+    logCabinHelper->readProtoBuf(findEntryId(searchString), readState);
 
     EXPECT_EQ("entry_type: \"StateServerDown\"\nserver_id: 1\n",
               readState.DebugString());
@@ -486,8 +484,7 @@ TEST_F(CoordinatorServerManagerTest, serverDownRecover) {
     state.set_entry_type("StateServerDown");
     state.set_server_id(masterServerId.getId());
 
-    EntryId entryId =
-        serverManager->service.logCabinHelper->appendProtoBuf(state);
+    EntryId entryId = logCabinHelper->appendProtoBuf(state);
 
     serverManager->serverDownRecover(&state, entryId);
 
@@ -512,8 +509,7 @@ TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentIdRecover) {
     serverUpdate.set_entry_type("ServerUpdate");
     serverUpdate.set_server_id(masterServerId.getId());
     serverUpdate.set_min_open_segment_id(10);
-    EntryId entryId =
-        serverManager->service.logCabinHelper->appendProtoBuf(serverUpdate);
+    EntryId entryId = logCabinHelper->appendProtoBuf(serverUpdate);
 
     serverManager->setMinOpenSegmentIdRecover(&serverUpdate, entryId);
 
@@ -526,7 +522,7 @@ TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentId_execute) {
 
     EntryId entryId = serverList->getServerUpdateLogId(masterServerId);
     ProtoBuf::ServerUpdate readUpdate;
-    serverManager->service.logCabinHelper->readProtoBuf(entryId, readUpdate);
+    logCabinHelper->readProtoBuf(entryId, readUpdate);
 
     EXPECT_EQ(10u, readUpdate.min_open_segment_id());
 }
