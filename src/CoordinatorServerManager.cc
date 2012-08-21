@@ -252,49 +252,48 @@ CoordinatorServerManager::enlistServer(
 /**
  * Complete an enlistServer during coordinator recovery.
  *
+ * \param state
+ *      The ProtoBuf that encapsulates the state of the enlistServer
+ *      operation to be recovered.
  * \param entryId
- *      The entry id of the LogCabin entry corresponding to the state
- *      of the enlistServer operation to be recovered.
+ *      The entry id of the LogCabin entry corresponding to the state.
  */
 void
-CoordinatorServerManager::enlistServerRecover(EntryId entryId)
+CoordinatorServerManager::enlistServerRecover(
+    ProtoBuf::ServerInformation* state, EntryId entryId)
 {
     Lock _(mutex);
-
-    ProtoBuf::ServerInformation state;
-    service.logCabinHelper->readProtoBuf(entryId, state);
-
     EnlistServer(*this,
-                 ServerId(state.server_id()),
-                 ServiceMask::deserialize(state.service_mask()),
-                 state.read_speed(),
-                 state.write_speed(),
-                 state.service_locator().c_str()).complete(entryId);
+                 ServerId(state->server_id()),
+                 ServiceMask::deserialize(state->service_mask()),
+                 state->read_speed(),
+                 state->write_speed(),
+                 state->service_locator().c_str()).complete(entryId);
 }
 
 /**
  * During coordinator recovery, add a server that had already been
  * enlisted to local server list.
  *
+ * \param state
+ *      The ProtoBuf that encapsulates the information about server
+ *      to be added.
  * \param entryId
- *      The entry id of the LogCabin entry corresponding to the state
- *      that encapsulates the information about server to be added.
+ *      The entry id of the LogCabin entry corresponding to the state.
  */
 void
-CoordinatorServerManager::enlistedServerRecover(EntryId entryId)
+CoordinatorServerManager::enlistedServerRecover(
+    ProtoBuf::ServerInformation* state, EntryId entryId)
 {
     Lock _(mutex);
-
-    ProtoBuf::ServerInformation state;
-    service.logCabinHelper->readProtoBuf(entryId, state);
 
     // TODO(ankitak): This will automatically queue a serverlist update
     // to be sent to the cluster. We don't want to do that for efficiency.
     service.serverList.add(
-            ServerId(state.server_id()),
-            state.service_locator().c_str(),
-            ServiceMask::deserialize(state.service_mask()),
-            state.read_speed());
+            ServerId(state->server_id()),
+            state->service_locator().c_str(),
+            ServiceMask::deserialize(state->service_mask()),
+            state->read_speed());
 }
 
 /**
@@ -473,19 +472,18 @@ CoordinatorServerManager::serverDown(ServerId serverId)
 /**
  * Complete a ServerDown during coordinator recovery.
  *
+ * \param state
+ *      The ProtoBuf that encapsulates the state of the ServerDown
+ *      operation to be recovered.
  * \param entryId
- *      The entry id of the LogCabin entry corresponding to the state
- *      of the serverDown operation to be recovered.
+ *      The entry id of the LogCabin entry corresponding to the state.
  */
 void
-CoordinatorServerManager::serverDownRecover(EntryId entryId)
+CoordinatorServerManager::serverDownRecover(
+    ProtoBuf::StateServerDown* state, EntryId entryId)
 {
     Lock _(mutex);
-
-    ProtoBuf::StateServerDown state;
-    service.logCabinHelper->readProtoBuf(entryId, state);
-
-    ServerDown(*this, ServerId(state.server_id())).complete(entryId);
+    ServerDown(*this, ServerId(state->server_id())).complete(entryId);
 }
 
 /**
@@ -562,23 +560,23 @@ CoordinatorServerManager::setMinOpenSegmentId(
 }
 
 /**
- * Complete a setMinOpenSegmentId operation during Coordinator Recovery.
+ * Set the minOpenSegmentId of the server specified in the serverInfo Protobuf
+ * to the segmentId specified in the Protobuf.
  *
+ * \param serverUpdate
+ *      The ProtoBuf that has the update about the server whose
+ *      minOpenSegmentId is to be set.
  * \param entryId
- *      The entry id of the LogCabin entry corresponding to the state of
- *      setMinOpenSegmentId operation to be recovered.
+ *      The entry id of the LogCabin entry corresponding to serverUpdate.
  */
 void
-CoordinatorServerManager::setMinOpenSegmentIdRecover(EntryId entryId)
+CoordinatorServerManager::setMinOpenSegmentIdRecover(
+    ProtoBuf::ServerUpdate* serverUpdate, EntryId entryId)
 {
     Lock _(mutex);
-
-    ProtoBuf::ServerUpdate state;
-    service.logCabinHelper->readProtoBuf(entryId, state);
-
     SetMinOpenSegmentId(*this,
-                        ServerId(state.server_id()),
-                        state.min_open_segment_id()).complete(entryId);
+                        ServerId(serverUpdate->server_id()),
+                        serverUpdate->min_open_segment_id()).complete(entryId);
 }
 
 /**

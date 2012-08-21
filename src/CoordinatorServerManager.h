@@ -57,16 +57,20 @@ class CoordinatorServerManager {
                           ServiceMask serviceMask,
                           const uint32_t readSpeed, const uint32_t writeSpeed,
                           const char* serviceLocator);
-    void enlistServerRecover(EntryId entryId);
-    void enlistedServerRecover(EntryId entryId);
+    void enlistServerRecover(ProtoBuf::ServerInformation* state,
+                             EntryId entryId);
+    void enlistedServerRecover(ProtoBuf::ServerInformation* state,
+                               EntryId entryId);
     ProtoBuf::ServerList getServerList(ServiceMask serviceMask);
     bool hintServerDown(ServerId serverId);
     void removeReplicationGroup(uint64_t groupId);
     void sendServerList(ServerId serverId);
     void serverDown(ServerId serverId);
-    void serverDownRecover(EntryId entryId);
+    void serverDownRecover(ProtoBuf::StateServerDown* state,
+                           EntryId entryId);
     void setMinOpenSegmentId(ServerId serverId, uint64_t segmentId);
-    void setMinOpenSegmentIdRecover(EntryId entryId);
+    void setMinOpenSegmentIdRecover(ProtoBuf::ServerUpdate* state,
+                                    EntryId entryId);
     bool verifyServerFailure(ServerId serverId);
 
 

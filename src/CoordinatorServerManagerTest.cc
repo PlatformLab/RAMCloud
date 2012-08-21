@@ -280,7 +280,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServerRecover) {
 
     TestLog::Enable _(enlistServerFilter);
 
-    serverManager->enlistServerRecover(entryId);
+    serverManager->enlistServerRecover(&state, entryId);
 
     string searchString = "complete: LogCabin: ServerEnlisted entryId: ";
     ASSERT_NO_THROW(findEntryId(searchString));
@@ -328,7 +328,7 @@ TEST_F(CoordinatorServerManagerTest, enlistedServerRecover) {
 
     TestLog::Enable _(enlistServerFilter);
 
-    serverManager->enlistedServerRecover(entryId);
+    serverManager->enlistedServerRecover(&state, entryId);
 
     EXPECT_EQ("", TestLog::get());
 
@@ -489,7 +489,7 @@ TEST_F(CoordinatorServerManagerTest, serverDownRecover) {
     EntryId entryId =
         serverManager->service.logCabinHelper->appendProtoBuf(state);
 
-    serverManager->serverDownRecover(entryId);
+    serverManager->serverDownRecover(&state, entryId);
 
     EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1.0 | "
               "startMasterRecovery: Recovery crashedServerId: 1.0",
@@ -515,7 +515,7 @@ TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentIdRecover) {
     EntryId entryId =
         serverManager->service.logCabinHelper->appendProtoBuf(serverUpdate);
 
-    serverManager->setMinOpenSegmentIdRecover(entryId);
+    serverManager->setMinOpenSegmentIdRecover(&serverUpdate, entryId);
 
     EXPECT_EQ(10u, serverList->at(masterServerId).minOpenSegmentId);
 }
