@@ -35,6 +35,12 @@ PriorityTask::PriorityTask(PriorityTaskQueue& taskQueue)
 
 /**
  * Virtual destructor; cancels the task if already scheduled.
+ * performTask() may get invoked while subclasses are in the middle of
+ * being destroyed. It is probably a REALLY good idea to avoid this rather
+ * than rely on the deschedule() here in the superclass destructor, so
+ * subclasses should deschedule at the start of their own destructors to
+ * ensure no future calls to performTask get through (though one could
+ * be executing already).
  */
 PriorityTask::~PriorityTask()
 {
@@ -47,7 +53,7 @@ PriorityTask::~PriorityTask()
  * PriorityTaskQueue.
  */
 bool
-PriorityTask::isScheduled()
+PriorityTask::isScheduled() const
 {
     return entry;
 }

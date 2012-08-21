@@ -219,6 +219,7 @@ struct ServerConfig {
         Backup(Testing) // NOLINT
             : gc(false)
             , inMemory(true)
+            , sync(false)
             , numSegmentFrames(4)
             , file()
             , strategy(1)
@@ -233,6 +234,7 @@ struct ServerConfig {
         Backup()
             : gc(true)
             , inMemory(false)
+            , sync(false)
             , numSegmentFrames(512)
             , file("/var/tmp/backup.log")
             , strategy(1)
@@ -249,6 +251,14 @@ struct ServerConfig {
 
         /// Whether the BackupService should store replicas in RAM or on disk.
         bool inMemory;
+
+        /**
+         * If true backups block until data from calls to writeSegment have
+         * been written to storage. Setting this to false is only safe if
+         * backups buffer writes in non-volatile storage (which, for now,
+         * they certainly don't).
+         */
+        bool sync;
 
         /**
          * Number of replica-sized storage chunks to allocate on the backup's

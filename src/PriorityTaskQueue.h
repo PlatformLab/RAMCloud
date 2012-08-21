@@ -57,10 +57,15 @@ class PriorityTask {
      * Pure virtual method implemented by subclasses; its execution
      * is deferred to a later time perform work asynchronously.
      * See schedule() and PriorityTaskQueue::performTask().
+     * This empty implementation may get invoked when an instance of a subclass
+     * is being destructed. It is probably a REALLY good idea to avoid this, so
+     * subclasses should deschedule at the start of their own destructors to
+     * ensure no future calls to performTask get through (though one could
+     * be executing already).
      */
-    virtual void performTask() = 0;
+    virtual void performTask() {}
 
-    bool isScheduled();
+    bool isScheduled() const;
     void schedule(Priority priority);
     void deschedule();
 

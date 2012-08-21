@@ -40,6 +40,7 @@ TESTS_SRCFILES := \
 		  src/FastTransportTest.cc \
 		  src/HashTableTest.cc \
 		  src/InitializeTest.cc \
+		  src/InMemoryStorageTest.cc \
 		  src/IpAddressTest.cc \
 		  src/KeyTest.cc \
 		  src/LogCabinHelperTest.cc \
@@ -90,6 +91,7 @@ TESTS_SRCFILES := \
 		  src/ServiceMaskTest.cc \
 		  src/ServiceTest.cc \
 		  src/SessionAlarmTest.cc \
+		  src/SingleFileStorageTest.cc \
 		  src/SpinLockTest.cc \
 		  src/StatusTest.cc \
 		  src/StringUtilTest.cc \

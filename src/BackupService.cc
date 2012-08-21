@@ -21,6 +21,7 @@
 #include "Buffer.h"
 #include "ClientException.h"
 #include "Cycles.h"
+#include "InMemoryStorage.h"
 #include "Log.h"
 #include "LogEntryTypes.h"
 #include "MasterClient.h"
@@ -28,6 +29,7 @@
 #include "ServerConfig.h"
 #include "SegmentIterator.h"
 #include "ShortMacros.h"
+#include "SingleFileStorage.h"
 #include "Status.h"
 #include "TransportManager.h"
 
@@ -41,249 +43,6 @@ namespace {
  */
 uint64_t recoveryStart;
 } // anonymous namespace
-
-// --- BackupService::IoScheduler ---
-
-/**
- * Construct an IoScheduler.  There is just one instance of this
- * with its operator() running in a new thread which is instantated
- * by the BackupService.
- */
-BackupService::IoScheduler::IoScheduler()
-    : queueMutex()
-    , queueCond()
-    , loadQueue()
-    , storeQueue()
-    , running(true)
-    , outstandingStores(0)
-{
-}
-
-/**
- * Dequeue IO requests and process them on a thread separate from the
- * main thread.  Processes just one IO at a time.  Prioritizes loads
- * over stores.
- */
-void
-BackupService::IoScheduler::operator()()
-try {
-    while (true) {
-        BackupReplica* replica = NULL;
-        bool isLoad = false;
-        {
-            Lock lock(queueMutex);
-            while (loadQueue.empty() && storeQueue.empty()) {
-                if (!running)
-                    return;
-                queueCond.wait(lock);
-            }
-            isLoad = !loadQueue.empty();
-            if (isLoad) {
-                replica = loadQueue.front();
-                loadQueue.pop();
-            } else {
-                replica = storeQueue.front();
-                storeQueue.pop();
-            }
-        }
-
-        if (isLoad) {
-            LOG(DEBUG, "Dispatching load of <%s,%lu>",
-                replica->masterId.toString().c_str(), replica->segmentId);
-            doLoad(*replica);
-        } else {
-            LOG(DEBUG, "Dispatching store of <%s,%lu>",
-                replica->masterId.toString().c_str(), replica->segmentId);
-            doStore(*replica);
-        }
-    }
-} catch (const std::exception& e) {
-    LOG(ERROR, "Fatal error in BackupService::IoScheduler: %s", e.what());
-    throw;
-} catch (...) {
-    LOG(ERROR, "Unknown fatal error in BackupService::IoScheduler.");
-    throw;
-}
-
-/**
- * Queue a segment load operation to be done on a separate thread.
- *
- * \param replica
- *      The BackupReplica whose data will be loaded from storage.
- */
-void
-BackupService::IoScheduler::load(BackupReplica& replica)
-{
-#ifdef SINGLE_THREADED_BACKUP
-    doLoad(replica);
-#else
-    Lock lock(queueMutex);
-    loadQueue.push(&replica);
-    uint32_t count = downCast<uint32_t>(loadQueue.size() + storeQueue.size());
-    LOG(DEBUG, "Queued load of <%s,%lu> (%u segments waiting for IO)",
-        replica.masterId.toString().c_str(), replica.segmentId, count);
-    queueCond.notify_all();
-#endif
-}
-
-/**
- * Flush all data to storage.
- * Returns once all dirty buffers have been written to storage.
- */
-void
-BackupService::IoScheduler::quiesce()
-{
-    while (outstandingStores > 0) {
-        /* pass */;
-    }
-}
-
-/**
- * Queue a segment store operation to be done on a separate thread.
- *
- * \param replica
- *      The BackupReplica whose data will be stored.
- */
-void
-BackupService::IoScheduler::store(BackupReplica& replica)
-{
-#ifdef SINGLE_THREADED_BACKUP
-    doStore(replica);
-#else
-    ++outstandingStores;
-    Lock lock(queueMutex);
-    storeQueue.push(&replica);
-    uint32_t count = downCast<uint32_t>(loadQueue.size() + storeQueue.size());
-    LOG(DEBUG, "Queued store of <%s,%lu> (%u segments waiting for IO)",
-        replica.masterId.toString().c_str(), replica.segmentId, count);
-    queueCond.notify_all();
-#endif
-}
-
-/**
- * Wait for the IO scheduler to finish currently queued requests and
- * return once the scheduler has terminated and its thread is disposed
- * of.
- *
- * \param ioThread
- *      The thread this IoScheduler is running on.  It will be joined
- *      to ensure the scheduler has fully exited before this call
- *      returns.
- */
-void
-BackupService::IoScheduler::shutdown(std::thread& ioThread)
-{
-    {
-        Lock lock(queueMutex);
-        LOG(DEBUG, "IoScheduler thread exiting");
-        uint32_t count = downCast<uint32_t>(loadQueue.size() +
-                                            storeQueue.size());
-        if (count)
-            LOG(DEBUG, "IoScheduler must service %u pending IOs before exit",
-                count);
-        running = false;
-        queueCond.notify_one();
-    }
-    ioThread.join();
-}
-
-// - private -
-
-/**
- * Load a segment from disk into a valid buffer in memory.  Locks
- * the #BackupReplica::mutex to ensure other operations aren't performed
- * on the segment in the meantime.
- *
- * \param replica
- *      The BackupReplica whose data will be loaded from storage.
- */
-void
-BackupService::IoScheduler::doLoad(BackupReplica& replica) const
-{
-#ifndef SINGLE_THREADED_BACKUP
-    BackupReplica::Lock lock(replica.mutex);
-#endif
-    ReferenceDecrementer<int> _(replica.storageOpCount);
-
-    LOG(DEBUG, "Loading segment <%s,%lu>",
-        replica.masterId.toString().c_str(), replica.segmentId);
-    if (replica.inMemory()) {
-        LOG(DEBUG, "Already in memory, skipping load on <%s,%lu>",
-            replica.masterId.toString().c_str(), replica.segmentId);
-        replica.condition.notify_all();
-        return;
-    }
-
-    char* segment = static_cast<char*>(replica.pool.malloc());
-    try {
-        CycleCounter<RawMetric> _(&metrics->backup.storageReadTicks);
-        ++metrics->backup.storageReadCount;
-        metrics->backup.storageReadBytes += replica.segmentSize;
-        uint64_t startTime = Cycles::rdtsc();
-        replica.storage.getSegment(replica.storageHandle, segment);
-        uint64_t transferTime = Cycles::toNanoseconds(Cycles::rdtsc() -
-            startTime);
-        LOG(DEBUG, "Load of <%s,%lu> took %lu us (%f MB/s)",
-            replica.masterId.toString().c_str(), replica.segmentId,
-            transferTime / 1000,
-            (replica.segmentSize / (1 << 20)) /
-            (static_cast<double>(transferTime) / 1000000000lu));
-    } catch (...) {
-        replica.pool.free(segment);
-        segment = NULL;
-        replica.condition.notify_all();
-        throw;
-    }
-    replica.segment = segment;
-    replica.condition.notify_all();
-    metrics->backup.readingDataTicks = Cycles::rdtsc() - recoveryStart;
-}
-
-/**
- * Store a segment to disk from a valid buffer in memory.  Locks
- * the #BackupReplica::mutex to ensure other operations aren't performed
- * on the segment in the meantime.
- *
- * \param replica
- *      The BackupReplica whose data will be stored.
- */
-void
-BackupService::IoScheduler::doStore(BackupReplica& replica) const
-{
-#ifndef SINGLE_THREADED_BACKUP
-    BackupReplica::Lock lock(replica.mutex);
-#endif
-    ReferenceDecrementer<int> _(replica.storageOpCount);
-
-    LOG(DEBUG, "Storing segment <%s,%lu>",
-        replica.masterId.toString().c_str(), replica.segmentId);
-    try {
-        CycleCounter<RawMetric> _(&metrics->backup.storageWriteTicks);
-        ++metrics->backup.storageWriteCount;
-        metrics->backup.storageWriteBytes += replica.segmentSize;
-        uint64_t startTime = Cycles::rdtsc();
-        replica.storage.putSegment(replica.storageHandle, replica.segment);
-        uint64_t transferTime = Cycles::toNanoseconds(Cycles::rdtsc() -
-            startTime);
-        LOG(DEBUG, "Store of <%s,%lu> took %lu us (%f MB/s)",
-            replica.masterId.toString().c_str(), replica.segmentId,
-            transferTime / 1000,
-            (replica.segmentSize / (1 << 20)) /
-            (static_cast<double>(transferTime) / 1000000000lu));
-    } catch (...) {
-        LOG(WARNING, "Problem storing segment <%s,%lu>",
-            replica.masterId.toString().c_str(), replica.segmentId);
-        replica.condition.notify_all();
-        throw;
-    }
-    replica.pool.free(replica.segment);
-    replica.segment = NULL;
-    --outstandingStores;
-    LOG(DEBUG, "Done storing segment <%s,%lu>",
-        replica.masterId.toString().c_str(), replica.segmentId);
-    replica.condition.notify_all();
-}
-
 
 // --- BackupService::RecoverySegmentBuilder ---
 
@@ -608,19 +367,12 @@ BackupService::BackupService(Context* context,
     , formerServerId()
     , serverId(0)
     , recoveryTicks()
-    , pool(config.segmentSize)
     , recoveryThreadCount{0}
     , segments()
     , segmentSize(config.segmentSize)
     , storage()
     , storageBenchmarkResults()
     , bytesWritten(0)
-    , ioScheduler()
-#ifdef SINGLE_THREADED_BACKUP
-    , ioThread()
-#else
-    , ioThread(std::ref(ioScheduler))
-#endif
     , initCalled(false)
     , replicationId(0)
     , replicationGroup()
@@ -629,29 +381,17 @@ BackupService::BackupService(Context* context,
     , testingDoNotStartGcThread(false)
     , gcTaskQueue()
 {
-    if (config.backup.inMemory)
+    if (config.backup.inMemory) {
         storage.reset(new InMemoryStorage(config.segmentSize,
                                           config.backup.numSegmentFrames));
-    else
+    } else {
         storage.reset(new SingleFileStorage(config.segmentSize,
                                             config.backup.numSegmentFrames,
                                             config.backup.file.c_str(),
                                             O_DIRECT | O_SYNC));
-
-    try {
-        recoveryTicks.construct(); // make unit tests happy
-
-        // Prime the segment pool. This removes an overhead that would
-        // otherwise be seen during the first recovery.
-        void* mem[100];
-        foreach(auto& m, mem)
-            m = pool.malloc();
-        foreach(auto& m, mem)
-            pool.free(m);
-    } catch (...) {
-        ioScheduler.shutdown(ioThread);
-        throw;
     }
+
+    recoveryTicks.construct(); // make unit tests happy
 
     BackupStorage::Superblock superblock = storage->loadSuperblock();
     if (config.clusterName == "__unnamed__") {
@@ -703,8 +443,6 @@ BackupService::~BackupService()
         }
     }
     Fence::enter();
-
-    ioScheduler.shutdown(ioThread);
 
     // Clean up any extra BackupReplicas laying around
     // but don't free them; perhaps we want to load them up
@@ -974,16 +712,22 @@ BackupService::init(ServerId id)
 void
 BackupService::killAllStorage()
 {
+// XXX Rewrite
+#if 0
     CycleCounter<> killTime;
     for (uint32_t frame = 0; frame < config.backup.numSegmentFrames; ++frame) {
-        std::unique_ptr<BackupStorage::Handle>
+        // XXX: Doesn't work anymore? Do we care?
+        std::unique_ptr<BackupStorage::Frame>
             handle(storage->associate(frame));
-        if (handle)
-            storage->free(handle.release());
+        if (handle) {
+            handle->free();
+            handle.release();
+        }
     }
 
     LOG(NOTICE, "On-storage replica destroyed: %f ms",
         1000. * Cycles::toSeconds(killTime.stop()));
+#endif
 }
 
 /**
@@ -1001,8 +745,8 @@ BackupService::quiesce(const WireFormat::BackupQuiesce::Request& reqHdr,
                        WireFormat::BackupQuiesce::Response& respHdr,
                        Rpc& rpc)
 {
-    TEST_LOG("Backup at %s quiescing", config.localLocator.c_str());
-    ioScheduler.quiesce();
+    LOG(NOTICE, "Backup at %s quiescing", config.localLocator.c_str());
+    storage->quiesce();
 }
 
 /**
@@ -1046,6 +790,7 @@ BackupService::restartFromStorage()
 
 // This is all broken. BackupService should not dig so deeply into the internals
 // of segments.
+    // XXX: storage->loadAllMetadata();
     return;
 #if 0
     struct HeaderAndFooter {
@@ -1186,13 +931,6 @@ BackupService::startReadingData(
         BackupReplica* replica = it->second;
 
         if (*masterId == reqHdr.masterId) {
-            if (!replica->satisfiesAtomicReplicationGuarantees()) {
-                LOG(WARNING, "Asked for replica <%s,%lu> which was being "
-                    "replicated atomically but which has yet to be closed; "
-                    "ignoring the replica",
-                    masterId.toString().c_str(), replica->segmentId);
-                continue;
-            }
             (replica->primary ?
                 primarySegments :
                 secondarySegments).push_back(replica);
@@ -1379,14 +1117,12 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request& reqHdr,
                 segmentId);
             try {
                 replica = new BackupReplica(*storage,
-                                       pool,
-                                       ioScheduler,
                                        masterId,
                                        segmentId,
                                        segmentSize,
                                        primary);
                 segments[MasterSegmentIdPair(masterId, segmentId)] = replica;
-                replica->open();
+                replica->open(config.backup.sync);
             } catch (const BackupStorageException& e) {
                 segments.erase(MasterSegmentIdPair(masterId, segmentId));
                 delete replica;
@@ -1422,9 +1158,10 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request& reqHdr,
             CycleCounter<RawMetric> __(&metrics->backup.writeCopyTicks);
             auto* footerEntry = reqHdr.footerIncluded ?
                                                 &reqHdr.footerEntry : NULL;
-            replica->write(rpc.requestPayload, sizeof(reqHdr),
-                        reqHdr.length, reqHdr.offset,
-                        footerEntry, reqHdr.atomic);
+            replica->append(rpc.requestPayload, sizeof(reqHdr),
+                            reqHdr.length, reqHdr.offset,
+                            static_cast<const void*>(footerEntry),
+                            sizeof(*footerEntry));
         }
         metrics->backup.writeCopyBytes += reqHdr.length;
         bytesWritten += reqHdr.length;

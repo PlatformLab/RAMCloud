@@ -85,8 +85,9 @@ SegmentIterator::SegmentIterator(const void *buffer, uint32_t length)
     wrapperSegment.construct(buffer, length);
     segment = &*wrapperSegment;
 
-    if (!segment->checkMetadataIntegrity())
-        throw SegmentIteratorException(HERE, "cannot iterate: corrupt segment");
+    // XXX
+    //if (!segment->checkMetadataIntegrity())
+    //    throw SegmentIteratorException(HERE, "cannot iterate: corrupt segment");
 }
 
 /**

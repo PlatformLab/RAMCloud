@@ -2,8 +2,10 @@ SERVER_SRCFILES := \
 		   src/BackupReplica.cc \
 		   src/BackupService.cc \
 		   src/BackupStorage.cc \
+		   src/InMemoryStorage.cc \
 		   src/PriorityTaskQueue.cc \
 		   src/Server.cc \
+		   src/SingleFileStorage.cc \
 		   $(NULL)
 
 SERVER_OBJFILES := $(SERVER_SRCFILES)

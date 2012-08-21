@@ -176,9 +176,6 @@ string demangle(const char* name);
 
 namespace RAMCloud {
 
-void debug_dump64(const void *buf, uint64_t bytes);
-class Buffer;
-void debug_dump64(Buffer& buffer);
 bool pinToCpu(uint32_t cpu);
 uint64_t getTotalSystemMemory();
 

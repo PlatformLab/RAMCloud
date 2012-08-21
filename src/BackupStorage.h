@@ -16,14 +16,9 @@
 #ifndef RAMCLOUD_BACKUPSTORAGE_H
 #define RAMCLOUD_BACKUPSTORAGE_H
 
-#include <unistd.h>
-
-#include <boost/pool/pool.hpp>
 #include <boost/dynamic_bitset.hpp>
 
-#include "CycleCounter.h"
-#include "Memory.h"
-#include "Segment.h"
+#include "Buffer.h"
 #include "ServerId.h"
 #include "Tub.h"
 
@@ -49,25 +44,6 @@ struct BackupStorageException : public Exception {
         : Exception(where, errNo) {}
     BackupStorageException(const CodeLocation& where, string msg, int errNo)
         : Exception(where, msg, errNo) {}
-};
-
-struct SegmentAllocator
-{
-    typedef std::size_t size_type;
-    typedef std::ptrdiff_t difference_type;
-
-    static char*
-    malloc(const size_type bytes)
-    {
-        return reinterpret_cast<char *>(
-            Memory::xmemalign(HERE, Segment::DEFAULT_SEGMENT_SIZE, bytes));
-    }
-
-    static void
-    free(char* const block)
-    {
-        std::free(block);
-    }
 };
 
 /**
@@ -132,6 +108,7 @@ class BackupStorage {
         Superblock(uint64_t version, ServerId serverId, const char* name)
             : version(version)
             , serverId(serverId.getId())
+            , clusterName()
         {
             assert(strlen(clusterName) < sizeof(clusterName) - 1);
             strncpy(clusterName, name, sizeof(clusterName) - 1);
@@ -148,134 +125,55 @@ class BackupStorage {
                                  const string& clusterName,
                                  uint32_t frameSkipMask = 0) = 0;
     virtual Superblock loadSuperblock() = 0;
+    virtual void quiesce() = 0;
 
-    virtual ~BackupStorage()
-    {
-    }
+    virtual ~BackupStorage() {}
 
     virtual pair<uint32_t, uint32_t> benchmark(BackupStrategy backupStrategy);
 
     /**
-     * An opaque handle used to access a stored segment.  All concrete
+     * An opaque frame used to access a stored segment. All concrete
      * implementations of BackupStorage will subclass this to contain the
-     * state needed to access storage for a particular segment.
+     * state needed to access storage for replicas.
      */
-    class Handle
-    {
+    class Frame {
       PUBLIC:
-        virtual ~Handle()
-        {
-            allocatedHandlesCount--;
-        }
+        virtual void loadMetadata() = 0;
+        virtual void* getMetadata() = 0;
 
-        static int32_t getAllocatedHandlesCount()
-        {
-            return allocatedHandlesCount;
-        }
+        virtual void startLoading() = 0;
+        virtual bool isLoaded() = 0;
+        virtual void* load() = 0;
 
+        virtual void append(Buffer& source,
+                            size_t sourceOffset,
+                            size_t length,
+                            size_t destinationOffset,
+                            const void* metadata,
+                            size_t metadataLength) = 0;
+        virtual void close() = 0;
         /**
-         * Return the current value of allocatedHandlesCount and zero it.
+         * Free the storage for a replica for reuse. Freed data may still
+         * appear during future recoveries if this backup crashes and another
+         * restarts using the same storage.
+         *
+         * IMPORTANT: frame is no longer valid after this call. The caller
+         * must take care not to use it.
          */
-        static int32_t resetAllocatedHandlesCount()
-        {
-            int32_t old = allocatedHandlesCount;
-            allocatedHandlesCount = 0;
-            return old;
-        }
-
-      PROTECTED:
-        Handle()
-        {
-            allocatedHandlesCount++;
-        }
-
-      PRIVATE:
-        static int32_t allocatedHandlesCount;
-
-      DISALLOW_COPY_AND_ASSIGN(Handle);
+        virtual void free() = 0;
+        virtual ~Frame() {}
+        Frame() {}
+      DISALLOW_COPY_AND_ASSIGN(Frame);
     };
 
     /// See #storageType.
     enum class Type { UNKNOWN = 0, MEMORY = 1, DISK = 2 };
 
     /**
-     * Set aside storage for a specific segment and give a handle back
+     * Set aside storage for a specific segment and give a frame back
      * for working with that storage.
      */
-    virtual Handle* allocate() = 0;
-    virtual Handle* associate(uint32_t frame) = 0;
-
-    /**
-     * Release the storage for a segment.  The freed segment's data will
-     * not appear during recovery.
-     *
-     * \param handle
-     *      Handle for the segment storage to release for reuse.
-     *      IMPORTANT: handle is no longer valid after this call.  The caller
-     *      must take care not to reuse it.
-     */
-    virtual void free(Handle* handle) = 0;
-
-    /**
-     * Fetch the starting and ending bytes from each segment frame.
-     * Since segments align their header and footer entries to the
-     * beginning and end this method can be used to fetch all the
-     * locations where the entries would reside (note returned locations
-     * don't necessarily contain valid segment data).
-     *
-     * Some storage implemenations may not support this operation in which
-     * case they simply return NULL indicating they cannot or cannot reliably
-     * retrieve the headers and footers.
-     *
-     * \param headerSize
-     *      Bytes from the beginning of each segment frame to return; the
-     *      starting \a headerSize bytes from each segment frame start at
-     *      f * (headerSize + footerSize) for f = 0 to #segmentFrames - 1
-     *      in the returned result.
-     * \param footerSize
-     *      Bytes from the end of each segment frame to return; the
-     *      ending \a footerSize bytes from each segment frame start at
-     *      f * (headerSize + footerSize) + headerSize for f = 0 to
-     *      #segmentFrames - 1 in the returned result.
-     * \return
-     *      An array of bytes of back-to-back entries of alternating
-     *      size (first \a headerSize, then \a footerSize, repeated
-     *      #segmentFrames times).  NOTE: the caller is responsible
-     *      for deleting the value with delete[].
-     */
-    virtual std::unique_ptr<char[]>
-    getAllHeadersAndFooters(size_t headerSize, size_t footerSize) = 0;
-
-    /**
-     * Fetch a segment from its reserved storage (see allocate() and
-     * putSegment()). Implementations of this method should be thread
-     * safe since multiple simultaneous getSegment() calls are allowed.
-     *
-     * \param handle
-     *      A Handle that was returned from this->allocate().
-     * \param segment
-     *      The start of a contiguous region of memory containing the
-     *      segment to be fetched.
-     */
-    virtual void
-    getSegment(const BackupStorage::Handle* handle, char* segment) const = 0;
-
-    /// Return the segmentSize this storage backend operates on.
-    uint32_t getSegmentSize() const { return segmentSize; }
-
-    /**
-     * Store an entire segment in its reserved storage (see allocate()).
-     * Implementations of this method should be thread safe since multiple
-     * simultaneous putSegment() calls are allowed.
-     *
-     * \param handle
-     *      A Handle that was returned from this->allocate().
-     * \param segment
-     *      The start of a contiguous region of memory containing the
-     *      segment to be stored.
-     */
-    virtual void
-    putSegment(const Handle* handle, const char* segment) const = 0;
+    virtual Frame* open(bool sync) = 0;
 
   PROTECTED:
     /**
@@ -288,197 +186,20 @@ class BackupStorage {
      *      The storage type corresponding with the concrete implementation of
      *      this class.
      */
-    explicit BackupStorage(uint32_t segmentSize, Type storageType)
+    explicit BackupStorage(size_t segmentSize, Type storageType)
         : segmentSize(segmentSize)
         , storageType(storageType)
     {
     }
 
-    /// The segment size this BackupStorage operates on.
-    uint32_t segmentSize;
+    /// Maximum length in bytes of a replica.
+    size_t segmentSize;
 
   PUBLIC:
     /// Used in RawMetrics to print out the backup storage type.
     const Type storageType;
 
     DISALLOW_COPY_AND_ASSIGN(BackupStorage);
-};
-
-/**
- * A BackupStorage backend which treats a file or disk device as a single
- * array of bytes, storing segments at each multiple of the size of a segment.
- */
-class SingleFileStorage : public BackupStorage {
-  public:
-    enum { BLOCK_SIZE = 512 };
-    static_assert(sizeof(Superblock) < BLOCK_SIZE,
-                  "Superblock doesn't fit in a single disk block");
-
-    /**
-     * An opaque handle users of SingleFileStorage must use to access a
-     * stored segment.
-     *
-     * For this implementation is just contains the segmentFrame.
-     */
-    class Handle : public BackupStorage::Handle {
-      public:
-        explicit Handle(uint32_t segmentFrame)
-            : segmentFrame(segmentFrame)
-        {
-        }
-
-        ~Handle()
-        {
-        }
-
-        uint32_t getSegmentFrame() const
-        {
-            return segmentFrame;
-        }
-
-      PRIVATE:
-        uint32_t segmentFrame;
-
-      DISALLOW_COPY_AND_ASSIGN(Handle);
-    };
-
-    SingleFileStorage(uint32_t segmentSize,
-                      uint32_t segmentFrames,
-                      const char* filePath,
-                      int openFlags = 0);
-    virtual ~SingleFileStorage();
-    virtual BackupStorage::Handle* allocate();
-    virtual BackupStorage::Handle* associate(uint32_t frame);
-    virtual pair<uint32_t, uint32_t> benchmark(BackupStrategy backupStrategy);
-    virtual void free(BackupStorage::Handle* handle);
-    virtual std::unique_ptr<char[]>
-    getAllHeadersAndFooters(size_t headerSize, size_t footerSize);
-    virtual void
-    getSegment(const BackupStorage::Handle* handle,
-               char* segment) const;
-    virtual void putSegment(const BackupStorage::Handle* handle,
-                            const char* segment) const;
-    virtual void resetSuperblock(ServerId serverId,
-                                 const string& clusterName,
-                                 uint32_t frameSkipMask = 0);
-    virtual Superblock loadSuperblock();
-
-  PRIVATE:
-    uint64_t offsetOfSegmentFrame(uint32_t segmentFrame) const;
-    uint64_t offsetOfSuperblockFrame(uint32_t index) const;
-    void reserveSpace();
-    Tub<Superblock> tryLoadSuperblock(uint32_t superblockFrame);
-
-    Superblock superblock;
-
-    /// Tracks which of the superblock frames was most recently written.
-    uint32_t lastSuperblockFrame;
-
-    /// Type of the freeMap.  A bitmap.
-    typedef boost::dynamic_bitset<> FreeMap;
-    /// Keeps a bit set for each segmentFrame indicating if it is free.
-    FreeMap freeMap;
-
-    /// Extra flags for use while opening filePath (e.g. O_DIRECT | O_SYNC).
-    int openFlags;
-
-    /// The file descriptor of the storage file.
-    int fd;
-
-    /**
-     * A short segment aligned buffer used for mutilating segment frame
-     * headers on disk.
-     */
-    void* killMessage;
-
-    /// The length killMessage in bytes.
-    uint32_t killMessageLen;
-
-    /**
-     * Track the last used segment frame so they can be used in FIFO.
-     * This gives recovery dump tools a much better chance at recovering
-     * data since old data is destroyed from disk first rather than new.
-     */
-    FreeMap::size_type lastAllocatedFrame;
-
-    /// The number of segments this storage can store simultaneously.
-    const uint32_t segmentFrames;
-
-    DISALLOW_COPY_AND_ASSIGN(SingleFileStorage);
-};
-
-/**
- * A BackupStorage backend which uses an in-memory pool of chunks in the size
- * of segments.
- */
-class InMemoryStorage : public BackupStorage {
-  public:
-    /**
-     * An opaque handle users of InMemoryStorage must use to access a
-     * stored segment.
-     *
-     * For this implementation is just contains the address the segment
-     * is backed up at in RAM.
-     */
-    class Handle : public BackupStorage::Handle {
-      PRIVATE:
-        /// A pool of segmentSize chunks used to store segments.
-        typedef boost::pool<SegmentAllocator> Pool;
-
-      public:
-        /// Create a Handle to segment storage at address.
-        explicit Handle(char* address)
-            : address(address)
-        {
-        }
-
-        ~Handle()
-        {
-        }
-
-        /// See Handle.
-        char* getAddress() const
-        {
-            return address;
-        }
-
-      PRIVATE:
-        /// See Handle.
-        char* address;
-
-      DISALLOW_COPY_AND_ASSIGN(Handle);
-    };
-
-    InMemoryStorage(uint32_t segmentSize,
-                    uint32_t segmentFrames);
-    virtual ~InMemoryStorage();
-    virtual BackupStorage::Handle* allocate();
-    virtual BackupStorage::Handle* associate(uint32_t frame);
-    virtual void free(BackupStorage::Handle* handle);
-    virtual std::unique_ptr<char[]>
-    getAllHeadersAndFooters(size_t headerSize, size_t footerSize);
-    virtual void
-    getSegment(const BackupStorage::Handle* handle,
-               char* segment) const;
-    virtual void putSegment(const BackupStorage::Handle* handle,
-                            const char* segment) const;
-    virtual void resetSuperblock(ServerId serverId,
-                                 const string& clusterName,
-                                 uint32_t frameSkipMask = 0);
-    virtual Superblock loadSuperblock();
-
-  PRIVATE:
-    typedef boost::pool<SegmentAllocator> Pool;
-    /// A pool of segmentSize chunks used to store segments.
-    Pool pool;
-
-    /**
-     * The number of free segmentFrames to accept storage to until
-     * no more storage allocations are allowed.
-     */
-    uint32_t segmentFrames;
-
-    DISALLOW_COPY_AND_ASSIGN(InMemoryStorage);
 };
 
 } // namespace RAMCloud

@@ -17,6 +17,7 @@
 #include "Object.h"
 #include "SegmentIterator.h"
 #include "ShortMacros.h"
+#include "Util.h" // XXX
 
 namespace RAMCloud {
 
@@ -25,11 +26,6 @@ namespace RAMCloud {
  *
  * \param storage
  *      The storage which this segment will be backed by when closed.
- * \param pool
- *      The pool from which this segment should draw and return memory
- *      when it is moved in and out of memory.
- * \param ioScheduler
- *      The IoScheduler through which IO requests are made.
  * \param masterId
  *      The master id of the segment being managed.
  * \param segmentId
@@ -42,8 +38,6 @@ namespace RAMCloud {
  *      at recovery start or on demand.
  */
 BackupReplica::BackupReplica(BackupStorage& storage,
-                             ThreadSafePool& pool,
-                             IoScheduler& ioScheduler,
                              ServerId masterId,
                              uint64_t segmentId,
                              uint32_t segmentSize,
@@ -53,37 +47,26 @@ BackupReplica::BackupReplica(BackupStorage& storage,
     , segmentId(segmentId)
     , createdByCurrentProcess(true)
     , mutex()
-    , condition()
-    , ioScheduler(ioScheduler)
     , recoveryException()
     , recoveryPartitions()
     , recoverySegments(NULL)
     , recoverySegmentsLength()
-    , footerOffset(0)
-    , footerEntry()
     , rightmostWrittenOffset(0)
-    , segment()
     , segmentSize(segmentSize)
     , state(UNINIT)
-    , replicateAtomically(false)
-    , storageHandle()
-    , pool(pool)
+    , frame()
     , storage(storage)
-    , storageOpCount(0)
 {
 }
 
+// XXX
+#if 0
 /**
  * Construct a BackupReplica to manage a replica which already has an
  * existing representation on storage.
  *
  * \param storage
  *      The storage which this segment will be backed by when closed.
- * \param pool
- *      The pool from which this segment should draw and return memory
- *      when it is moved in and out of memory.
- * \param ioScheduler
- *      The IoScheduler through which IO requests are made.
  * \param masterId
  *      The master id of the segment being managed.
  * \param segmentId
@@ -101,8 +84,6 @@ BackupReplica::BackupReplica(BackupStorage& storage,
  *      that assumes open replicas reside in memory.
  */
 BackupReplica::BackupReplica(BackupStorage& storage,
-                             ThreadSafePool& pool,
-                             IoScheduler& ioScheduler,
                              ServerId masterId,
                              uint64_t segmentId,
                              uint32_t segmentSize,
@@ -113,40 +94,27 @@ BackupReplica::BackupReplica(BackupStorage& storage,
     , segmentId(segmentId)
     , createdByCurrentProcess(false)
     , mutex()
-    , condition()
-    , ioScheduler(ioScheduler)
     , recoveryException()
     , recoveryPartitions()
     , recoverySegments(NULL)
     , recoverySegmentsLength()
-    , footerOffset(0)
-    , footerEntry()
     , rightmostWrittenOffset(0)
     , segment()
     , segmentSize(segmentSize)
     , state(isClosed ? CLOSED : OPEN)
-    , replicateAtomically(false)
-    , storageHandle()
-    , pool(pool)
+    , frame()
     , storage(storage)
-    , storageOpCount(0)
 {
-    storageHandle = storage.associate(segmentFrame);
+    // XXX: Busted, but only called by restart
+    frame = storage.associate(segmentFrame);
     if (state == OPEN) {
+        auto buffers = frame->load();
+        segment = buffers.first;
         // There is some disagreement between the masters and backups about
         // the meaning of "open".  In a few places the backup code assumes
         // open replicas must be in memory.  For now its easiest just to
         // make sure that is the case, so on cold start we have to reload
         // open replicas into ram.
-        try {
-            // Get memory for staging the segment writes
-            segment = static_cast<char*>(pool.malloc());
-            storage.getSegment(storageHandle, segment);
-        } catch (...) {
-            pool.free(segment);
-            delete storageHandle;
-            throw;
-        }
     }
 
     // TODO(stutsman): Claim this replica is the longest if it was closed
@@ -156,6 +124,7 @@ BackupReplica::BackupReplica(BackupStorage& storage,
     if (state == CLOSED)
         rightmostWrittenOffset = BYTES_WRITTEN_CLOSED;
 }
+#endif
 
 /**
  * Store any open segments to storage and then release all resources
@@ -164,38 +133,19 @@ BackupReplica::BackupReplica(BackupStorage& storage,
 BackupReplica::~BackupReplica()
 {
     Lock lock(mutex);
-    waitForOngoingOps(lock);
 
     if (state == OPEN) {
-        if (replicateAtomically && state != CLOSED) {
-            LOG(NOTICE, "Backup shutting down with open segment <%s,%lu>, "
-                "which was open for atomic replication; discarding since the "
-                "replica was incomplete", masterId.toString().c_str(),
-                segmentId);
-        } else {
-            LOG(NOTICE, "Backup shutting down with open segment <%s,%lu>, "
-                "closing out to storage", masterId.toString().c_str(),
-                segmentId);
-            state = CLOSED;
-            CycleCounter<RawMetric> _(&metrics->backup.storageWriteTicks);
-            ++metrics->backup.storageWriteCount;
-            metrics->backup.storageWriteBytes += segmentSize;
-            storage.putSegment(storageHandle, segment);
-        }
+        LOG(NOTICE, "Backup shutting down with open segment <%s,%lu>, "
+            "closing out to storage", masterId.toString().c_str(),
+            segmentId);
+        state = CLOSED;
+        CycleCounter<RawMetric> _(&metrics->backup.storageWriteTicks);
+        ++metrics->backup.storageWriteCount;
+        metrics->backup.storageWriteBytes += segmentSize;
+        // XXX: frame->sync();
     }
-    if (isRecovered()) {
+    if (isRecovered())
         delete[] recoverySegments;
-        recoverySegments = NULL;
-        recoverySegmentsLength = 0;
-    }
-    if (inStorage()) {
-        delete storageHandle;
-        storageHandle = NULL;
-    }
-    if (inMemory()) {
-        pool.free(segment);
-        segment = NULL;
-    }
     // recoveryException cleaned up by unique_ptr
 }
 
@@ -237,12 +187,10 @@ BackupReplica::appendRecoverySegment(uint64_t partitionId, Buffer& buffer)
 
     if (!primary) {
         if (!isRecovered() && !recoveryException) {
-            LOG(DEBUG, "Requested segment <%su,%lu> is secondary, "
+            LOG(DEBUG, "Requested segment <%s,%lu> is secondary, "
                 "starting build of recovery segments now",
                 masterId.toString().c_str(), segmentId);
-            waitForOngoingOps(lock);
-            ioScheduler.load(*this);
-            ++storageOpCount;
+            frame->load();
             lock.unlock();
             buildRecoverySegments(*recoveryPartitions);
             lock.lock();
@@ -447,13 +395,13 @@ BackupReplica::buildRecoverySegments(const ProtoBuf::Tablets& partitions)
         LOG(NOTICE, "Recovery segments already built for <%s,%lu>",
             masterId.toString().c_str(), segmentId);
         // Skip if the recovery segments were generated earlier.
-        condition.notify_all();
         return;
     }
 
-    waitForOngoingOps(lock);
-
-    assert(inMemory());
+    void* segment = frame->load();
+    void* metadata = frame->getMetadata();
+    LOG(ERROR, "Metadata dump:\n%s", Util::hexDump(metadata, 512).c_str());
+    // XXX Metadata looking good. Just need alt constructor for Iterator, etc.
 
     uint64_t start = Cycles::rdtsc();
 
@@ -464,7 +412,7 @@ BackupReplica::buildRecoverySegments(const ProtoBuf::Tablets& partitions)
         partitionCount = std::max(partitionCount,
                   downCast<uint32_t>(partitions.tablet(i).user_data() + 1));
     }
-    LOG(NOTICE, "Building %u recovery segments for %lu",
+    LOG(NOTICE, "Building %u recovery segments for segment %lu",
         partitionCount, segmentId);
     CycleCounter<RawMetric> _(&metrics->backup.filterTicks);
 
@@ -478,6 +426,19 @@ BackupReplica::buildRecoverySegments(const ProtoBuf::Tablets& partitions)
              it.next())
         {
             LogEntryType type = it.getType();
+
+            // XXX: Hack: put the right logic here once metadata blocks work.
+            if (type == LOG_ENTRY_TYPE_INVALID ||
+                type >= TOTAL_LOG_ENTRY_TYPES)
+            {
+                break;
+            }
+
+            // XXX
+            if (type == LOG_ENTRY_TYPE_SEGFOOTER) {
+                LOG(ERROR, "Footer in the segment. Shouldn't happen anymore");
+                continue;
+            }
 
             if (type == LOG_ENTRY_TYPE_SEGHEADER) {
                 Buffer buffer;
@@ -544,7 +505,6 @@ BackupReplica::buildRecoverySegments(const ProtoBuf::Tablets& partitions)
                "notifying other threads",
         masterId.toString().c_str(), segmentId,
         Cycles::toNanoseconds(Cycles::rdtsc() - start) / 1000 / 1000);
-    condition.notify_all();
 }
 
 /**
@@ -568,14 +528,11 @@ BackupReplica::close()
     else if (state != OPEN)
         throw BackupBadSegmentIdException(HERE);
 
-    applyFooterEntry();
-
     state = CLOSED;
     rightmostWrittenOffset = BYTES_WRITTEN_CLOSED;
 
-    assert(storageHandle);
-    ioScheduler.store(*this);
-    ++storageOpCount;
+    assert(frame);
+    frame->close();
 }
 
 /**
@@ -587,52 +544,41 @@ void
 BackupReplica::free()
 {
     Lock lock(mutex);
-    waitForOngoingOps(lock);
-
     // Don't wait for secondary segment recovery segments
     // they aren't running in a separate thread.
     while (state == RECOVERING &&
            primary &&
            !isRecovered() &&
-           !recoveryException)
-        condition.wait(lock);
+           !recoveryException);
 
-    if (inMemory())
-        pool.free(segment);
-    segment = NULL;
-    storage.free(storageHandle);
-    storageHandle = NULL;
+    frame->free();
+    frame = NULL;
     state = FREED;
+    TEST_LOG("called");
 }
 
 /**
- * Open the segment.  After this the segment is in memory and mutable
- * with reserved storage.  Any controlled shutdown of the server will
- * ensure the segment reaches stable storage unless the segment is
- * freed in the meantime.
+ * Allocate a frame on storage, resetting its state to accept appends for a new
+ * replica. Open is not synchronous itself. Even after return from open() if
+ * this backup crashes it may find the replica which was formerly stored in
+ * this frame or metadata for the former replica and data for the newly open
+ * replica. Recovery is expected to address these consistency issues with the
+ * checksums.
  *
- * The backing memory is zeroed out, though the storage may still have
- * its old contents.
+ * This call is NOT idempotent since it allocates storage space.
+ * The caller must take care not to repeat calls to open() for a single
+ * replica.
+ *
+ * \param sync
+ *      Only return from write() calls when all enqueued data and the  most
+ *      recently enqueued metadata are durable on storage.
  */
 void
-BackupReplica::open()
+BackupReplica::open(bool sync)
 {
     Lock lock(mutex);
     assert(state == UNINIT);
-    // Get memory for staging the segment writes
-    char* segment = static_cast<char*>(pool.malloc());
-    BackupStorage::Handle* handle;
-    try {
-        // Reserve the space for this on disk
-        handle = storage.allocate();
-    } catch (...) {
-        // Release the staging memory if storage.allocate throws
-        pool.free(segment);
-        throw;
-    }
-
-    this->segment = segment;
-    this->storageHandle = handle;
+    frame = storage.open(sync);
     state = OPEN;
 }
 
@@ -645,7 +591,6 @@ BackupReplica::setRecovering()
 {
     Lock lock(mutex);
     assert(primary);
-    applyFooterEntry();
     bool wasRecovering = state == RECOVERING;
     state = RECOVERING;
     return wasRecovering;
@@ -662,7 +607,6 @@ BackupReplica::setRecovering(const ProtoBuf::Tablets& partitions)
 {
     Lock lock(mutex);
     assert(!primary);
-    applyFooterEntry();
     bool wasRecovering = state == RECOVERING;
     state = RECOVERING;
     // Make a copy of the partition list for deferred filtering.
@@ -681,85 +625,47 @@ void
 BackupReplica::startLoading()
 {
     Lock lock(mutex);
-    waitForOngoingOps(lock);
-
-    ioScheduler.load(*this);
-    ++storageOpCount;
+    frame->startLoading();
 }
 
 /**
- * Store data from a buffer into the backup segment.
- * Tracks, for this segment, which is the rightmost written byte which
- * is used as a proxy for "segment length" for the return of
+ * Store data from a buffer into the replica.
+ * Tracks, for this replica, which is the rightmost written byte which
+ * is used as a proxy for "replica length" for the return of
  * startReadingData calls.
  *
- * \param src
- *      The Buffer from which data is to be stored.
- * \param srcOffset
- *      Offset in bytes at which to start copying.
+ * \param source
+ *      Buffer contained the data to be copied into the replica.
+ * \param sourceOffset
+ *      Offset into \a source where data should be copied from.
  * \param length
- *      The number of bytes to be copied.
- * \param destOffset
- *      Offset into the backup segment in bytes of where the data is to
- *      be copied.
- * \param footerEntry
- *      New footer which should be written at #destOffset + #length and
- *      at the end of the segment frame if the replica is closed or used
- *      for recovery. NULL if the master provided no footer for this write.
- *      Note this means this write isn't committed on the backup until the
- *      next footered write. See #footerEntry.
- * \param atomic
- *      If true then this replica is considered invalid until a closing
- *      write (or subsequent call to write with \a atomic set to false).
- *      This means that the data will never be written to disk and will
- *      not be reported to or used in recoveries unless the replica is
- *      closed.  This allows masters to create replicas of segments
- *      without the threat that they'll be detected as the head of the
- *      log.  Each value of \a atomic for each write call overrides the
- *      last, so in order to atomically write an entire segment all
- *      writes must have \a atomic set to true (though, it is
- *      irrelvant for the last, closing write).  A call with atomic
- *      set to false will make that replica available for normal
- *      treatment as an open segment.
+ *      Bytes to copy to the frame starting at \a sourceOffset in \a source.
+ * \param destinationOffset
+ *      Offset into the replica where the source data should be copied.
+ * \param metadata
+ *      Metadata which should be written to storage immediately after the data
+ *      appended is written. May be NULL if there is no updated metadata to
+ *      commit to storage along with this data.
+ * \param metadataLength
+ *      Bytes of metadata pointed to by \a metadata. Ignored if \a metadata
+ *      is NULL.
  */
 void
-BackupReplica::write(Buffer& src,
-                     uint32_t srcOffset,
-                     uint32_t length,
-                     uint32_t destOffset,
-                     const Segment::OpaqueFooterEntry* footerEntry,
-                     bool atomic)
+BackupReplica::append(Buffer& source,
+                      size_t sourceOffset,
+                      size_t length,
+                      size_t destinationOffset,
+                      const void* metadata,
+                      size_t metadataLength)
 {
     Lock lock(mutex);
-    assert(state == OPEN && inMemory());
-    src.copy(srcOffset, length, &segment[destOffset]);
-    replicateAtomically = atomic;
-    rightmostWrittenOffset = std::max(rightmostWrittenOffset,
-                                      destOffset + length);
-    if (footerEntry) {
-        const uint32_t targetFooterOffset = destOffset + length;
-        if (targetFooterOffset < footerOffset) {
-            LOG(ERROR, "Write to <%s,%lu> included a footer which was "
-                "requested to be written at offset %u but a prior write "
-                "placed a footer later in the segment at %u",
-                masterId.toString().c_str(), segmentId, targetFooterOffset,
-                footerOffset);
-            throw BackupSegmentOverflowException(HERE);
-        }
-        if (targetFooterOffset + 2 * sizeof(*footerEntry) > segmentSize) {
-            // Need room for two copies of the footer. One at the end of the
-            // data and the other aligned to the end of the segment which
-            // can be found during restart without reading the whole segment.
-            LOG(ERROR, "Write to <%s,%lu> included a footer which was "
-                "requested to be written at offset %u but there isn't "
-                "enough room in the segment for the footer",
-                masterId.toString().c_str(),
-                segmentId, targetFooterOffset);
-            throw BackupSegmentOverflowException(HERE);
-        }
-        this->footerEntry = *footerEntry;
-        footerOffset = targetFooterOffset;
-    }
+    assert(state == OPEN);
+    // XXX: Need more than just footer entry here.
+    frame->append(source, sourceOffset, length, destinationOffset,
+                  metadata, metadataLength);
+    rightmostWrittenOffset =
+        std::max(rightmostWrittenOffset,
+                 downCast<uint32_t>(destinationOffset + length));
 }
 
 /**
@@ -776,12 +682,25 @@ BackupReplica::write(Buffer& src,
 bool
 BackupReplica::getLogDigest(Buffer* digestBuffer)
 {
-    Lock lock(mutex);
+    if (!isOpen())
+        return false;
+
+    // This should never block since getLogDigest is only called for open
+    // segments which we always keep in memory.
+    void* replicaData = frame->load();
+    // XXX: Will need the certificate here as well.
+
     // If the Segment is malformed somehow, just ignore it. The
     // coordinator will have to deal.
     try {
-        SegmentIterator it(segment, segmentSize);
+        SegmentIterator it(replicaData, segmentSize);
         while (!it.isDone()) {
+            // XXX: Hack until certificates work.
+            if (it.getType() == LOG_ENTRY_TYPE_INVALID ||
+                it.getType() >= TOTAL_LOG_ENTRY_TYPES)
+            {
+                break;
+            }
             if (it.getType() == LOG_ENTRY_TYPE_LOGDIGEST) {
                 if (digestBuffer != NULL)
                     it.appendToBuffer(*digestBuffer);
@@ -793,25 +712,6 @@ BackupReplica::getLogDigest(Buffer* digestBuffer)
         LOG(WARNING, "SegmentIterator constructor failed: %s", e.str().c_str());
     }
     return false;
-}
-
-// - private -
-
-/**
- * Flatten #footerEntry into two locations in the in-memory buffer (#segment).
- * The first goes where the master asked (#footerOffset), the second goes at
- * the end of the footer, which makes it efficient to find on restart.
- * This has the effect of truncating any non-footered writes since the last
- * footered-write. See #footerEntry for details.
- */
-void
-BackupReplica::applyFooterEntry()
-{
-    if (state != OPEN)
-        return;
-    memcpy(segment + footerOffset, &footerEntry, sizeof(footerEntry));
-    memcpy(segment + segmentSize - sizeof(footerEntry),
-           &footerEntry, sizeof(footerEntry));
 }
 
 } // namespace RAMCloud

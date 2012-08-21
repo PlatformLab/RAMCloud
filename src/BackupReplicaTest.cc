@@ -15,27 +15,20 @@
 
 #include "TestUtil.h"
 #include "BackupReplica.h"
+#include "InMemoryStorage.h"
 #include "Object.h"
+#include "SegmentIterator.h"
 
 namespace RAMCloud {
 
 class BackupReplicaTest : public ::testing::Test {
   public:
-    typedef BackupStorage::Handle Handle;
+    typedef BackupStorage::Frame Frame;
     BackupReplicaTest()
         : segmentSize(64 * 1024)
-        , pool{segmentSize}
         , storage{segmentSize, 2}
-        , ioScheduler()
-        , ioThread(std::ref(ioScheduler))
-        , info{storage, pool, ioScheduler,
-            ServerId(99, 0), 88, segmentSize, true}
+        , info{storage, ServerId(99, 0), 88, segmentSize, true}
     {
-    }
-
-    ~BackupReplicaTest()
-    {
-        ioScheduler.shutdown(ioThread);
     }
 
     /**
@@ -54,10 +47,7 @@ class BackupReplicaTest : public ::testing::Test {
     }
 
     uint32_t segmentSize;
-    BackupService::ThreadSafePool pool;
     InMemoryStorage storage;
-    BackupService::IoScheduler ioScheduler;
-    std::thread ioThread;
     BackupReplica info;
 };
 
@@ -65,40 +55,20 @@ TEST_F(BackupReplicaTest, destructor) {
     TestLog::Enable _;
     {
         // Normal replica.
-        BackupReplica info{storage, pool, ioScheduler,
-            ServerId(99, 0), 88, segmentSize, true};
-        info.open();
-        EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
+        BackupReplica info{storage, ServerId(99, 0), 88, segmentSize, true};
+        info.open(false);
     }
     EXPECT_EQ("~BackupReplica: Backup shutting down with open segment "
               "<99.0,88>, closing out to storage", TestLog::get());
-    TestLog::reset();
-    {
-        // Still open atomic replica.  Shouldn't get persisted.
-        BackupReplica info2{storage, pool, ioScheduler,
-            ServerId(99, 0), 89, segmentSize, true};
-        info2.open();
-        Buffer src;
-        info2.write(src, 0, 0, 0, NULL, true);
-        EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
-    }
-    EXPECT_EQ("~BackupReplica: Backup shutting down with open "
-              "segment <99.0,89>, which was open for atomic "
-              "replication; discarding since the replica was incomplete",
-              TestLog::get());
-    EXPECT_EQ(0, BackupStorage::Handle::getAllocatedHandlesCount());
 }
 
 TEST_F(BackupReplicaTest, destructorLoading) {
     {
-        BackupReplica info{storage, pool, ioScheduler,
-            ServerId(99, 0), 88, segmentSize, true};
-        info.open();
-        EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
+        BackupReplica info{storage, ServerId(99, 0), 88, segmentSize, true};
+        info.open(false);
         info.close();
         info.startLoading();
     }
-    EXPECT_EQ(0, BackupStorage::Handle::getAllocatedHandlesCount());
 }
 
 void
@@ -132,7 +102,7 @@ createTabletList(ProtoBuf::Tablets& tablets)
 }
 
 TEST_F(BackupReplicaTest, appendRecoverySegment) {
-    info.open();
+    info.open(false);
     Segment segment;
 
     SegmentHeader header = { 99, 88, segmentSize, Segment::INVALID_SEGMENT_ID };
@@ -145,7 +115,7 @@ TEST_F(BackupReplicaTest, appendRecoverySegment) {
     Segment::OpaqueFooterEntry footerEntry;
     uint32_t appendedBytes = segment.getAppendedLength(footerEntry);
     segment.appendToBuffer(src, 0, appendedBytes);
-    info.write(src, 0, appendedBytes, 0, &footerEntry, true);
+    info.append(src, 0, appendedBytes, 0, &footerEntry, sizeof(footerEntry));
     info.close();
     info.setRecovering();
     info.startLoading();
@@ -168,9 +138,8 @@ TEST_F(BackupReplicaTest, appendRecoverySegment) {
 }
 
 TEST_F(BackupReplicaTest, appendRecoverySegmentSecondarySegment) {
-    BackupReplica info{storage, pool, ioScheduler,
-        ServerId(99, 0), 88, segmentSize, false};
-    info.open();
+    BackupReplica info{storage, ServerId(99, 0), 88, segmentSize, false};
+    info.open(false);
     Segment segment;
 
     SegmentHeader header = { 99, 88, segmentSize, Segment::INVALID_SEGMENT_ID };
@@ -183,7 +152,7 @@ TEST_F(BackupReplicaTest, appendRecoverySegmentSecondarySegment) {
     Segment::OpaqueFooterEntry footerEntry;
     uint32_t appendedBytes = segment.getAppendedLength(footerEntry);
     segment.appendToBuffer(src, 0, appendedBytes);
-    info.write(src, 0, appendedBytes, 0, &footerEntry, true);
+    info.append(src, 0, appendedBytes, 0, &footerEntry, sizeof(footerEntry));
     info.close();
 
     ProtoBuf::Tablets partitions;
@@ -222,8 +191,11 @@ TEST_F(BackupReplicaTest, appendRecoverySegmentSecondarySegment) {
 
 TEST_F(BackupReplicaTest, appendRecoverySegmentMalformedSegment) {
     TestLog::Enable _;
-    info.open();
-    memcpy(info.segment, "garbage", 7);
+    info.open(false);
+    Buffer src;
+    src.appendTo("garbage", 7);
+    Segment::OpaqueFooterEntry footerEntry;
+    info.append(src, 0, 7, 0, &footerEntry, sizeof(footerEntry));
     info.setRecovering();
     info.startLoading();
 
@@ -232,10 +204,8 @@ TEST_F(BackupReplicaTest, appendRecoverySegmentMalformedSegment) {
     info.buildRecoverySegments(partitions);
 
     Buffer buffer;
-    Status status;
-    EXPECT_THROW(status = info.appendRecoverySegment(0, buffer),
+    EXPECT_THROW(IGNORE_RESULT(info.appendRecoverySegment(0, buffer)),
                  SegmentRecoveryFailedException);
-    EXPECT_EQ(STATUS_OK, status);
 }
 
 TEST_F(BackupReplicaTest, appendRecoverySegmentNotYetRecovered) {
@@ -249,14 +219,14 @@ TEST_F(BackupReplicaTest, appendRecoverySegmentNotYetRecovered) {
 }
 
 TEST_F(BackupReplicaTest, appendRecoverySegmentPartitionOutOfBounds) {
-    info.open();
+    info.open(false);
     Segment segment;
     segment.close();
     Buffer src;
     Segment::OpaqueFooterEntry footerEntry;
     uint32_t appendedBytes = segment.getAppendedLength(footerEntry);
     segment.appendToBuffer(src, 0, appendedBytes);
-    info.write(src, 0, appendedBytes, 0, &footerEntry, true);
+    info.append(src, 0, appendedBytes, 0, &footerEntry, sizeof(footerEntry));
     info.close();
     info.setRecovering();
     info.startLoading();
@@ -267,10 +237,8 @@ TEST_F(BackupReplicaTest, appendRecoverySegmentPartitionOutOfBounds) {
     EXPECT_EQ(0u, info.recoverySegmentsLength);
     Buffer buffer;
     TestLog::Enable _;
-    Status status;
-    EXPECT_THROW(status = info.appendRecoverySegment(0, buffer),
+    EXPECT_THROW(IGNORE_RESULT(info.appendRecoverySegment(0, buffer)),
                  BackupBadSegmentIdException);
-    EXPECT_EQ(STATUS_OK, status);
     EXPECT_EQ("appendRecoverySegment: Asked for recovery segment 0 from "
               "segment <99.0,88> but there are only 0 partitions",
               TestLog::get());
@@ -475,7 +443,6 @@ TEST_F(BackupReplicaTest, buildRecoverySegmentNoTablets) {
 TEST_F(BackupReplicaTest, close) {
     info.open();
     EXPECT_EQ(BackupReplica::OPEN, info.state);
-    ASSERT_TRUE(pool.is_from(info.segment));
     // The F gets tacked on by close() from the header given during write().
     const char* magic = "kitties!F";
     uint32_t bytesToCopy = downCast<uint32_t>(strlen(magic)) - 1;
@@ -491,13 +458,10 @@ TEST_F(BackupReplicaTest, close) {
         BackupReplica::Lock lock(info.mutex);
         info.waitForOngoingOps(lock);
     }
-    EXPECT_FALSE(pool.is_from(info.segment));
 
     char seg[segmentSize];
-    storage.getSegment(info.storageHandle, seg);
+    storage.getSegment(info.storageFrame, seg);
     EXPECT_STREQ(magic, seg);
-
-    EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
 }
 
 TEST_F(BackupReplicaTest, closeWriteFooterEntry) {
@@ -533,22 +497,16 @@ TEST_F(BackupReplicaTest, free) {
         info.waitForOngoingOps(lock);
     }
     EXPECT_FALSE(info.inMemory());
-    EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
     info.free();
-    EXPECT_FALSE(pool.is_from(info.segment));
-    EXPECT_EQ(0, BackupStorage::Handle::getAllocatedHandlesCount());
     EXPECT_EQ(BackupReplica::FREED, info.state);
 }
 
 TEST_F(BackupReplicaTest, freeRecoveringSecondary) {
-    BackupReplica info{storage, pool, ioScheduler,
-        ServerId(99, 0), 88, segmentSize, false};
+    BackupReplica info{storage, ServerId(99, 0), 88, segmentSize, false};
     info.open();
     info.close();
     info.setRecovering(ProtoBuf::Tablets());
     info.free();
-    EXPECT_FALSE(pool.is_from(info.segment));
-    EXPECT_EQ(0, BackupStorage::Handle::getAllocatedHandlesCount());
     EXPECT_EQ(BackupReplica::FREED, info.state);
 }
 
@@ -556,17 +514,16 @@ TEST_F(BackupReplicaTest, open) {
     info.open();
     ASSERT_NE(static_cast<char*>(NULL), info.segment);
     EXPECT_EQ('\0', info.segment[0]);
-    EXPECT_NE(static_cast<Handle*>(NULL), info.storageHandle);
+    EXPECT_NE(static_cast<Frame*>(NULL), info.storageFrame);
     EXPECT_EQ(BackupReplica::OPEN, info.state);
 }
 
 TEST_F(BackupReplicaTest, openStorageAllocationFailure) {
     InMemoryStorage storage{segmentSize, 0};
-    BackupReplica info{storage, pool, ioScheduler,
-        ServerId(99, 0), 88, segmentSize, true};
+    BackupReplica info{storage, ServerId(99, 0), 88, segmentSize, true};
     EXPECT_THROW(info.open(), BackupStorageException);
     ASSERT_EQ(static_cast<char*>(NULL), info.segment);
-    EXPECT_EQ(static_cast<Handle*>(NULL), info.storageHandle);
+    EXPECT_EQ(static_cast<Frame*>(NULL), info.storageFrame);
     EXPECT_EQ(BackupReplica::UNINIT, info.state);
 }
 
@@ -594,8 +551,7 @@ TEST_F(BackupReplicaTest, setRecoveringNoArgsWriteFooterEntry) {
 }
 
 TEST_F(BackupReplicaTest, setRecoveringArgsWriteFooterEntry) {
-    BackupReplica info{storage, pool, ioScheduler,
-        ServerId(99, 0), 88, segmentSize, false};
+    BackupReplica info{storage, ServerId(99, 0), 88, segmentSize, false};
     info.open();
     Buffer src;
     const char message[] = "this is a test";

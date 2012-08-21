@@ -30,7 +30,6 @@
 #endif
 #include <thread>
 #include <memory>
-#include <boost/pool/pool.hpp>
 #include <map>
 #include <queue>
 
@@ -95,126 +94,7 @@ class BackupService : public Service
         T& value;
     };
 
-    // TODO(stutsman): Make this stuff private once the IoScheduler moves
-    // into the BackupStorage layer.
   public:
-    /**
-     * Mediates access to a memory chunk pool to maintain thread safety.
-     * Detailed documentation for each of the methods can be found
-     * as part of boost::pool<>.
-     */
-    class ThreadSafePool {
-      public:
-        /// The type of the in-memory segment size chunk pool.
-        typedef boost::pool<SegmentAllocator> Pool;
-
-        /// The type of lock used to make access to #pool thread safe.
-        typedef std::unique_lock<std::mutex> Lock;
-
-        explicit ThreadSafePool(uint32_t chunkSize)
-            : allocatedChunks()
-            , mutex()
-            , pool(chunkSize)
-        {
-        }
-
-        // See boost::pool<>.
-        ~ThreadSafePool()
-        {
-            Lock _(mutex);
-            if (allocatedChunks)
-                RAMCLOUD_LOG(WARNING,
-                             "Backup segment pool destroyed with "
-                             "%u chunks still allocated",
-                             allocatedChunks);
-        }
-
-        // See boost::pool<>.
-        void
-        free(void* chunk)
-        {
-            Lock _(mutex);
-            pool.free(chunk);
-            allocatedChunks--;
-        }
-
-#if TESTING
-        // See boost::pool<>.
-        bool
-        is_from(void* chunk)
-        {
-            Lock _(mutex);
-            return pool.is_from(chunk);
-        }
-#endif
-
-        // See boost::pool<>.
-        void*
-        malloc()
-        {
-            Lock _(mutex);
-            void* r = pool.malloc();
-            allocatedChunks++;
-            return r;
-        }
-
-      private:
-        /// Track the number of allocated chunks for stat keeping.
-        uint32_t allocatedChunks;
-
-        /// Used to serialize access to #pool and #allocatedChunks.
-        std::mutex mutex;
-
-        /// The backing pool that manages memory chunks.
-        Pool pool;
-    };
-
-    class IoScheduler;
-    class RecoverySegmentBuilder;
-
-    /**
-     * Queues, prioritizes, and dispatches storage load/store operations.
-     */
-    class IoScheduler {
-      public:
-        IoScheduler();
-        void operator()();
-        void load(BackupReplica& info);
-        void quiesce();
-        void store(BackupReplica& info);
-        void shutdown(std::thread& ioThread);
-
-      private:
-        void doLoad(BackupReplica& info) const;
-        void doStore(BackupReplica& info) const;
-
-        typedef std::unique_lock<std::mutex> Lock;
-
-        /// Protects #loadQueue, #storeQueue, and #running.
-        std::mutex queueMutex;
-
-        /// Notified when new requests are added to either queue.
-        std::condition_variable queueCond;
-
-        /// Queue of BackupReplicas to be loaded from storage.
-        std::queue<BackupReplica*> loadQueue;
-
-        /// Queue of BackupReplicas to be written to storage.
-        std::queue<BackupReplica*> storeQueue;
-
-        /// When false scheduler will exit when no outstanding requests remain.
-        bool running;
-
-        /**
-         * The number of store ops issued that have not yet completed.
-         * More precisely, this is the size of #storeQueue plus the number of
-         * threads currently executing #doStore. It is necessary for #quiesce.
-         */
-        mutable std::atomic<uint64_t> outstandingStores;
-
-        DISALLOW_COPY_AND_ASSIGN(IoScheduler);
-    };
-
     /**
      * Asynchronously loads and splits stored segments into recovery segments,
      * trying to acheive efficiency by overlapping work where possible using
@@ -272,7 +152,6 @@ class BackupService : public Service
         uint32_t segmentSize;
     };
 
-  public:
     BackupService(Context* context, const ServerConfig& config);
     virtual ~BackupService();
     void benchmark(uint32_t& readSpeed, uint32_t& writeSpeed);
@@ -349,12 +228,6 @@ class BackupService : public Service
      */
     Tub<CycleCounter<RawMetric>> recoveryTicks;
 
-    /**
-     * A pool of aligned segments (supporting O_DIRECT) to avoid
-     * the memory allocator.
-     */
-    ThreadSafePool pool;
-
     /// Count of threads performing recoveries.
     Atomic<int> recoveryThreadCount;
 
@@ -396,11 +269,6 @@ class BackupService : public Service
 
     /// For unit testing.
     uint64_t bytesWritten;
-
-    /// Gatekeeper through which async IOs are scheduled.
-    IoScheduler ioScheduler;
-    /// The thread driving #ioScheduler.
-    std::thread ioThread;
 
     /// Used to ensure that init() is invoked before the dispatcher runs.
     bool initCalled;

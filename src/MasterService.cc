@@ -345,7 +345,7 @@ MasterService::fillWithTestData(
         int t = objects % numTablets;
 
         // safe? doubtful. simple? you bet.
-        char data[reqHdr.objectSize];
+        uint8_t data[reqHdr.objectSize];
         memset(data, 0xcc, reqHdr.objectSize);
         Buffer::Chunk::appendToBuffer(&buffer, data, reqHdr.objectSize);
 

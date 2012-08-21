@@ -129,6 +129,8 @@ Recovery::performTask()
     metrics->coordinator.recoveryCount++;
     switch (status) {
     case START_RECOVERY_ON_BACKUPS:
+        LOG(NOTICE, "Starting recovery %lu for crashed server %s",
+            recoveryId, crashedServerId.toString().c_str());
         partitionTablets();
         startBackups();
         break;
