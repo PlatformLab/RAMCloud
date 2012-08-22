@@ -14,6 +14,7 @@
  */
 
 #include "TestUtil.h"
+
 #include "ClientException.h"
 #include "CoordinatorServerManager.h"
 #include "MasterService.h"

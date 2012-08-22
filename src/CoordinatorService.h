@@ -23,6 +23,7 @@
 
 #include "Common.h"
 #include "ClientException.h"
+#include "CoordinatorServerManager.h"
 #include "CoordinatorServiceRecovery.h"
 #include "LogCabinHelper.h"
 #include "MasterRecoveryManager.h"
@@ -32,7 +33,6 @@
 #include "Service.h"
 #include "TabletMap.h"
 #include "TransportManager.h"
-#include "CoordinatorServerManager.h"
 
 namespace RAMCloud {
 
