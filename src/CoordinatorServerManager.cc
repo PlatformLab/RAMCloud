@@ -501,7 +501,12 @@ CoordinatorServerManager::SetMinOpenSegmentId::execute()
     vector<EntryId> invalidates;
 
     if (oldEntryId) {
-        manager.service.logCabinHelper->readProtoBuf(oldEntryId, serverUpdate);
+        // TODO(ankitak): After ongaro has added curser API to LogCabin,
+        // use that to read in only one entry here.
+        vector<Entry> entriesRead =
+                manager.service.logCabinLog->read(oldEntryId);
+        manager.service.logCabinHelper->parseProtoBufFromEntry(
+                entriesRead[0], serverUpdate);
         invalidates.push_back(oldEntryId);
     } else {
         serverUpdate.set_entry_type("ServerUpdate");

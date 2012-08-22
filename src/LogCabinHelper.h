@@ -54,17 +54,16 @@ class LogCabinHelper {
 
     template<typename M>
     void
-    readProtoBuf(EntryId entryId, M& message) {
-        vector<Entry> entriesRead = logCabinLog.read(entryId);
-        message.ParseFromArray(entriesRead[0].getData(),
-                               entriesRead[0].getLength());
+    parseProtoBufFromEntry(Entry& entryRead, M& message) {
+        message.ParseFromArray(entryRead.getData(),
+                               entryRead.getLength());
     };
 
     string
-    getEntryType(EntryId entryId) {
-        ProtoBuf::EntryType entryRead;
-        readProtoBuf(entryId, entryRead);
-        return entryRead.entry_type();
+    getEntryType(Entry& entryRead) {
+        ProtoBuf::EntryType message;
+        parseProtoBufFromEntry(entryRead, message);
+        return message.entry_type();
     }
 
   PRIVATE:
