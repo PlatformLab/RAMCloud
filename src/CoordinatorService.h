@@ -23,6 +23,7 @@
 
 #include "Common.h"
 #include "ClientException.h"
+#include "CoordinatorServiceRecovery.h"
 #include "LogCabinHelper.h"
 #include "MasterRecoveryManager.h"
 #include "RawMetrics.h"
@@ -151,6 +152,11 @@ class CoordinatorService : public Service {
     CoordinatorServerManager serverManager;
 
     /**
+     * Handles recovery of a coordinator.
+     */
+    CoordinatorServiceRecovery coordinatorRecovery;
+
+    /**
      * Handle to the cluster of LogCabin which provides reliable, consistent
      * storage.
      */
@@ -168,6 +174,8 @@ class CoordinatorService : public Service {
     Tub<LogCabinHelper> logCabinHelper;
 
     friend class CoordinatorServerManager;
+    friend class CoordinatorServiceRecovery;
+
     DISALLOW_COPY_AND_ASSIGN(CoordinatorService);
 };
 

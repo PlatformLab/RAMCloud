@@ -1,5 +1,6 @@
 COORDINATOR_SRCFILES := \
 			src/CoordinatorService.cc \
+			src/CoordinatorServiceRecovery.cc \
 			src/CoordinatorServerManager.cc \
 			src/EntryType.pb.cc \
 			src/MasterRecoveryManager.cc \
