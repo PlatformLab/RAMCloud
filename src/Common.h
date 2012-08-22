@@ -278,5 +278,16 @@ prefetch(const T* object)
 
 void pinAllMemory();
 
+/*
+ * A macro that's always defined that indicates whether or not this is a debug
+ * build. Allows use of conditionals and lets the compiler remove dead code,
+ * rather than sprinkling gross #ifndefs around.
+ */
+#ifdef NDEBUG
+#define DEBUG_BUILD false
+#else
+#define DEBUG_BUILD true
+#endif
+
 } // end RAMCloud
 #endif // RAMCLOUD_COMMON_H

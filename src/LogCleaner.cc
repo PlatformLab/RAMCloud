@@ -152,37 +152,16 @@ LogCleaner::doWork()
 double
 LogCleaner::doMemoryCleaning()
 {
-    // Only proceed once we have a survivor segment to work with.
-    while (segmentManager.getFreeSurvivorCount() < 1)
-        {}
-
-    // Choose the best segment to clean. We greedily choose the segment with the
-    // most freeable seglets. Care is taken to ensure that we determine the
-    // number of freeable seglets that will keep the segment under our maximum
-    // cleanable utilization after compaction. This ensures that we will always
-    // be able to use this segment during disk cleaning.
-    size_t bestIndex = -1;
-    uint32_t bestDelta = 0;
-    for (size_t i = 0; i < candidates.size(); i++) {
-        LogSegment* candidate = candidates[i];
-        uint32_t liveBytes = candidate->getLiveBytes();
-        uint32_t segletsNeeded = (100 * (liveBytes + segletSize - 1)) /
-                                 segletSize / MAX_CLEANABLE_MEMORY_UTILIZATION;
-        uint32_t segletsAllocated = candidate->getSegletsAllocated();
-        uint32_t delta = segletsAllocated - segletsNeeded;
-        if (segletsNeeded < segletsAllocated && delta > bestDelta) {
-            bestIndex = i;
-            bestDelta = delta;
-        }
-    }
-
-    if (bestIndex == -1UL)
+    uint32_t freeableSeglets;
+    LogSegment* segment = getSegmentToCompact(freeableSeglets);
+    if (segment == NULL)
         return 0;
 
-    LogSegment* segment = candidates[bestIndex];
+    // Only proceed once we have a survivor segment to work with.
+    while (segmentManager.getFreeSurvivorCount() < 1)
+        usleep(100);
+
     LogSegment* survivor = segmentManager.allocSurvivor(segment);
-    uint32_t bytesCopied = 0;
-uint32_t bytesDead = 0;
 
     for (SegmentIterator it(*segment); !it.isDone(); it.next()) {
         LogEntryType type = it.getType();
@@ -190,23 +169,20 @@ uint32_t bytesDead = 0;
         it.appendToBuffer(buffer);
 
         if (!entryHandlers.checkLiveness(type, buffer))
-{
-bytesDead += buffer.getTotalLength();
             continue;
-}
 
         uint32_t timestamp = entryHandlers.getTimestamp(type, buffer);
 
         uint32_t newOffset;
+        uint32_t priorLength = survivor->getAppendedLength();
         if (!survivor->append(type, buffer, newOffset))
             throw FatalError(HERE, "Entry didn't fit into survivor!");
 
         HashTable::Reference newReference((static_cast<uint64_t>(survivor->slot) << 24) | newOffset);
         if (entryHandlers.relocate(type, buffer, newReference)) {
             // TODO(Steve): Could just aggregate and do single update per survivor.
-            survivor->statistics.increment(buffer.getTotalLength(), timestamp);
-            // TODO(Steve): use segment.getAppendedLength()
-            bytesCopied += buffer.getTotalLength();
+            uint32_t bytesUsed = survivor->getAppendedLength() - priorLength;
+            survivor->statistics.increment(bytesUsed, timestamp);
         } else {
             // roll it back!
             //LOG(NOTICE, "must roll back!");
@@ -215,32 +191,28 @@ bytesDead += buffer.getTotalLength();
 
     uint32_t segletsToFree = survivor->getSegletsAllocated() -
                              segment->getSegletsAllocated() +
-                             bestDelta;
+                             freeableSeglets;
 
     survivor->close();
     bool r = survivor->freeUnusedSeglets(segletsToFree);
     assert(r);
 
+    double writeCost = 1 + static_cast<double>(survivor->getAppendedLength()) /
+        (segletsToFree * segletSize);
+
     LOG(NOTICE, "Compacted segment %lu from %u seglets to %u seglets. WC = %.3f",
         segment->id, segment->getSegletsAllocated(),
         survivor->getSegletsAllocated(),
-        1 + static_cast<double>(bestDelta * segletSize) / bytesCopied);
+        writeCost);
 
     segmentManager.memoryCleaningComplete(segment);
 
-    candidates[bestIndex] = candidates.back();
-    candidates.pop_back();
-
-    return 1 + static_cast<double>(bestDelta * segletSize) / bytesCopied;
+    return writeCost;
 }
 
 void
 LogCleaner::doDiskCleaning()
 {
-    // Only proceed once our pool of survivor segments is full.
-    while (segmentManager.getFreeSurvivorCount() < SURVIVOR_SEGMENTS_TO_RESERVE)
-        {}
-
     // Obtain the segments we'll clean in this pass. We're guaranteed to have
     // the resources to clean what's returned.
     LogSegmentVector segmentsToClean;
@@ -259,6 +231,48 @@ LogCleaner::doDiskCleaning()
 
     segmentManager.cleaningComplete(segmentsToClean);
 LOG(NOTICE, "cleaning pass finished processing %lu segs", segmentsToClean.size());
+}
+
+/**
+ * Choose the best segment to clean in memory. We greedily choose the segment
+ * with the most freeable seglets. Care is taken to ensure that we determine the
+ * number of freeable seglets that will keep the segment under our maximum
+ * cleanable utilization after compaction. This ensures that we will always be
+ * able to use the compacted version of this segment during disk cleaning.
+ *
+ * \param[out] outFreeableSeglets
+ *      The maximum number of seglets the caller should be from this segment is
+ *      returned here. Freeing any more may make it impossible to clean the
+ *      resulting compacted segment on disk, which may deadlock the system if
+ *      it prevents freeing up tombstones in other segments.
+ */
+LogSegment*
+LogCleaner::getSegmentToCompact(uint32_t& outFreeableSeglets)
+{
+    size_t bestIndex = -1;
+    uint32_t bestDelta = 0;
+    for (size_t i = 0; i < candidates.size(); i++) {
+        LogSegment* candidate = candidates[i];
+        uint32_t liveBytes = candidate->getLiveBytes();
+        uint32_t segletsNeeded = (100 * (liveBytes + segletSize - 1)) /
+                                 segletSize / MAX_CLEANABLE_MEMORY_UTILIZATION;
+        uint32_t segletsAllocated = candidate->getSegletsAllocated();
+        uint32_t delta = segletsAllocated - segletsNeeded;
+        if (segletsNeeded < segletsAllocated && delta > bestDelta) {
+            bestIndex = i;
+            bestDelta = delta;
+        }
+    }
+
+    if (bestIndex == static_cast<size_t>(-1))
+        return NULL;
+
+    LogSegment* best = candidates[bestIndex];
+    candidates[bestIndex] = candidates.back();
+    candidates.pop_back();
+
+    outFreeableSeglets = bestDelta;
+    return best;
 }
 
 class CostBenefitComparer {
@@ -396,6 +410,10 @@ LogCleaner::getLiveSortedEntries(LogSegmentVector& segmentsToClean,
 void
 LogCleaner::relocateLiveEntries(LiveEntryVector& liveEntries)
 {
+    // Only proceed once our pool of survivor segments is full.
+    while (segmentManager.getFreeSurvivorCount() < SURVIVOR_SEGMENTS_TO_RESERVE)
+        usleep(100);
+
     LogSegmentVector survivors;
     LogSegment* survivor = NULL;
 
@@ -403,6 +421,10 @@ LogCleaner::relocateLiveEntries(LiveEntryVector& liveEntries)
         Buffer buffer;
         LogEntryType type = entry.segment->getEntry(entry.offset, buffer);
         uint32_t newOffset;
+
+        uint32_t priorLength = 0;
+        if (survivor != NULL)
+            priorLength = survivor->getAppendedLength();
 
         if (survivor == NULL || !survivor->append(type, buffer, newOffset)) {
             if (survivor != NULL) {
@@ -413,6 +435,7 @@ LogCleaner::relocateLiveEntries(LiveEntryVector& liveEntries)
             survivor = segmentManager.allocSurvivor(1 /* XXX */);
             survivors.push_back(survivor);
 
+            priorLength = survivor->getAppendedLength();
             if (!survivor->append(type, buffer, newOffset))
                 throw FatalError(HERE, "Entry didn't fit into empty survivor!");
         }
@@ -420,7 +443,8 @@ LogCleaner::relocateLiveEntries(LiveEntryVector& liveEntries)
         HashTable::Reference newReference((static_cast<uint64_t>(survivor->slot) << 24) | newOffset);
         if (entryHandlers.relocate(type, buffer, newReference)) {
             // TODO(Steve): Could just aggregate and do single update per survivor.
-            survivor->statistics.increment(buffer.getTotalLength(), entry.timestamp);
+            uint32_t bytesUsed = survivor->getAppendedLength() - priorLength;
+            survivor->statistics.increment(bytesUsed, entry.timestamp);
         } else {
             // roll it back!
             //LOG(NOTICE, "must roll back!");

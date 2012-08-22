@@ -716,7 +716,7 @@ SegmentManager::alloc(SegletAllocator::AllocationType type,
     freeUnreferencedSegments();
 
     uint32_t slot = allocSlot(type);
-    if (slot == -1U)
+    if (slot == static_cast<uint32_t>(-1))
         return NULL;
 
     uint32_t segletSize = allocator.getSegletSize();

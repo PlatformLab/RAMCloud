@@ -223,6 +223,7 @@ class Segment {
                             uint32_t length) const;
     uint32_t appendToBuffer(Buffer& buffer);
     LogEntryType getEntry(uint32_t offset, Buffer& buffer);
+    uint32_t getAppendedLength() const;
     uint32_t getAppendedLength(OpaqueFooterEntry& footerEntry) const;
     uint32_t getSegletsAllocated();
     uint32_t getSegletsInUse();
@@ -272,7 +273,7 @@ class Segment {
     bool immutable;
 
     /// Indicates whether or not this segment is ever allowed to allocate any
-    /// more space. Closing a segment is an undoable operation.
+    /// more space. Closing a segment is a permanent operation.
     bool closed;
 
     /// In the case that the default constructor was used and this class

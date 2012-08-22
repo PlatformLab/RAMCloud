@@ -138,6 +138,7 @@ class LogCleaner {
     void doWork();
     double doMemoryCleaning();
     void doDiskCleaning();
+    LogSegment* getSegmentToCompact(uint32_t& outFreeableSeglets);
     void getSegmentsToClean(LogSegmentVector& outSegmentsToClean);
     void getLiveSortedEntries(LogSegmentVector& segmentsToClean,
                               LiveEntryVector& outLiveEntries);

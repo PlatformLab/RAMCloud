@@ -318,6 +318,18 @@ Segment::getEntry(uint32_t offset, Buffer& buffer)
 
 /**
  * Return the total number of bytes appended to the segment, but not including
+ * the footer. Calling this method before and after an append will indicate
+ * exactly how many bytes were consumed in storing the appended entry, including
+ * metadata.
+ */
+uint32_t
+Segment::getAppendedLength() const
+{
+    return head;
+}
+
+/**
+ * Return the total number of bytes appended to the segment, but not including
  * the footer. The complete footer entry, including the appropriate segment
  * metadata, is passed back by value in the 'footerEntry' parameter. A separate
  * copy must be returned since we will overwrite the footer on the next append

@@ -179,8 +179,8 @@ SegletAllocator::initializeCleanerReserve(uint32_t numSeglets)
 void
 SegletAllocator::free(Seglet* seglet)
 {
-    // XXX
-    memset(seglet->get(), '!', segletSize);
+    if (DEBUG_BUILD)
+        memset(seglet->get(), '!', segletSize);
 
     std::lock_guard<SpinLock> guard(lock);
 

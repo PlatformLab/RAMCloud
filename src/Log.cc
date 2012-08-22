@@ -131,6 +131,7 @@ Log::append(LogEntryType type,
 
     // Try to append. If we can't, try to allocate a new head to get more space.
     uint32_t segmentOffset;
+    uint32_t bytesUsedBefore = head->getAppendedLength();
     bool success = head->append(type, buffer, offset, length, segmentOffset);
     if (!success) {
         LogSegment* newHead = segmentManager.allocHead(false);
@@ -146,6 +147,7 @@ Log::append(LogEntryType type,
         if (head->isEmergencyHead)
             return false;
 
+        bytesUsedBefore = head->getAppendedLength();
         if (!head->append(type, buffer, offset, length, segmentOffset)) {
             // TODO(Steve): We should probably just permit up to 1/N'th of the
             // size of a segment in any single append. Say, 1/2th or 1/4th as
@@ -168,7 +170,8 @@ Log::append(LogEntryType type,
     Buffer inLogBuffer;
     head->getEntry(segmentOffset, inLogBuffer);
     uint32_t timestamp = entryHandlers.getTimestamp(type, inLogBuffer);
-    head->statistics.increment(length, timestamp);
+    head->statistics.increment(head->getAppendedLength() - bytesUsedBefore,
+                               timestamp);
 
     return true;
 }
