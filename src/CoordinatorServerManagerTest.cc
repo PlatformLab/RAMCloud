@@ -30,7 +30,6 @@ namespace RAMCloud {
 class CoordinatorServerManagerTest : public ::testing::Test {
   public:
     Context context;
-    ServerConfig masterConfig;
     MockCluster cluster;
     Tub<RamCloud> ramcloud;
     CoordinatorServerManager* serverManager;
@@ -42,7 +41,6 @@ class CoordinatorServerManagerTest : public ::testing::Test {
 
     CoordinatorServerManagerTest()
         : context()
-        , masterConfig(ServerConfig::forTesting())
         , cluster(context)
         , ramcloud()
         , serverManager()
@@ -56,6 +54,7 @@ class CoordinatorServerManagerTest : public ::testing::Test {
 
         serverManager = &cluster.coordinator.get()->serverManager;
 
+        ServerConfig masterConfig(ServerConfig::forTesting());
         masterConfig.services = {WireFormat::MASTER_SERVICE,
                                  WireFormat::PING_SERVICE,
                                  WireFormat::MEMBERSHIP_SERVICE};
@@ -65,17 +64,16 @@ class CoordinatorServerManagerTest : public ::testing::Test {
         masterServerId = masterServer->serverId;
 
         ramcloud.construct(context, "mock:host=coordinator");
+
         serverList = &(serverManager->service.serverList);
         logCabinHelper = serverManager->service.logCabinHelper.get();
         logCabinLog = serverManager->service.logCabinLog.get();
     }
 
-
     ~CoordinatorServerManagerTest() {
         // Finish all pending ServerList updates before destroying cluster.
         cluster.syncCoordinatorServerList();
     }
-
 
     // Generate a string containing all of the service locators in a
     // list of servers.

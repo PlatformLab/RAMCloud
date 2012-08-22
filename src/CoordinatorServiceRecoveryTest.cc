@@ -17,7 +17,6 @@
 
 #include "CoordinatorServiceRecovery.h"
 #include "MockCluster.h"
-#include "RamCloud.h"
 
 namespace RAMCloud {
 
@@ -25,20 +24,16 @@ class CoordinatorServerRecoveryTest : public ::testing::Test {
   public:
     Context context;
     MockCluster cluster;
-    Tub<RamCloud> ramcloud;
     CoordinatorServiceRecovery* coordRecovery;
     LogCabinHelper* logCabinHelper;
 
     CoordinatorServerRecoveryTest()
         : context()
         , cluster(context)
-        , ramcloud()
         , coordRecovery()
         , logCabinHelper()
     {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
-
-        ramcloud.construct(context, "mock:host=coordinator");
 
         coordRecovery = &cluster.coordinator.get()->coordinatorRecovery;
         logCabinHelper = coordRecovery->service.logCabinHelper.get();
