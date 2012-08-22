@@ -93,6 +93,16 @@ class LogCleaner {
     /// segment size, maximum entry size, and MAX_LIVE_SEGMENTS_PER_DISK_PASS.
     enum { SURVIVOR_SEGMENTS_TO_RESERVE = 15 };
 
+    /// The minimum amount of memory utilization we will being cleaning at using
+    /// the in-memory cleaner.
+    enum { MIN_MEMORY_UTILIZATION = 90 };
+
+    /// The minimum amount of backup disk utilization we will begin cleaning at
+    /// using the disk cleaner. Note that the disk cleaner may also run if the
+    /// in-memory cleaner is not working efficiently (there are tombstones that
+    /// need to be made freeable by cleaning on disk).
+    enum { MIN_DISK_UTILIZATION = 95 };
+
     /// Tuple containing a reference to a live entry being cleaned, as well as a
     /// cache of its timestamp. The purpose of this is to make sorting entries
     /// by age much faster by caching the timestamp when we first examine the
@@ -125,9 +135,9 @@ class LogCleaner {
     };
 
     static void cleanerThreadEntry(LogCleaner* logCleaner, Context* context);
-    bool doWork();
-    bool doMemoryCleaning();
-    bool doDiskCleaning();
+    void doWork();
+    double doMemoryCleaning();
+    void doDiskCleaning();
     void getSegmentsToClean(LogSegmentVector& outSegmentsToClean);
     void getLiveSortedEntries(LogSegmentVector& segmentsToClean,
                               LiveEntryVector& outLiveEntries);
@@ -150,11 +160,21 @@ class LogCleaner {
     /// (such as liveness), and to notify when an entry has been relocated.
     LogEntryHandlers& entryHandlers;
 
+    /// Threshold defining how much work the in-memory cleaner should do before
+    /// forcing a disk cleaning pass. Necessary because in-memory cleaning does
+    /// not free up tombstones and can become very expensive before we run out
+    /// of disk space and fire up the disk cleaner.
+    double writeCostThreshold;
+
     /// Closed log segments that are candidates for cleaning. Before each
     /// cleaning pass this list will be updated from the SegmentManager with
     /// newly closed segments. The most appropriate segments will then be
     /// cleaned.
     LogSegmentVector candidates;
+
+    /// Size of each seglet in bytes. Used to calculate the best segment for in-
+    /// memory cleaning.
+    uint32_t segletSize;
 
     /// Set by halt() to indicate that the cleaning thread should exit.
     bool threadShouldExit;

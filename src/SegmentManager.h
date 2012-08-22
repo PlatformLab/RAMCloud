@@ -77,7 +77,9 @@ class SegmentManager {
     ~SegmentManager();
     LogSegment* allocHead(bool mustNotFail);
     LogSegment* allocSurvivor(uint64_t headSegmentIdDuringCleaning);
+    LogSegment* allocSurvivor(LogSegment* replacing);
     void cleaningComplete(LogSegmentVector& clean);
+    void memoryCleaningComplete(LogSegment* cleaned);
     void cleanableSegments(LogSegmentVector& out);
     void logIteratorCreated();
     void logIteratorDestroyed();
@@ -88,7 +90,8 @@ class SegmentManager {
     uint32_t getAllocatedSegmentCount();
     size_t getFreeSegmentCount();
     size_t getFreeSurvivorCount();
-    uint32_t getMaximumSegmentCount();
+    int getSegmentUtilization();
+    int getMemoryUtilization();
     uint32_t getSegletSize();
     uint32_t getSegmentSize();
 
@@ -168,9 +171,11 @@ class SegmentManager {
     void writeDigest(LogSegment* newHead, LogSegment* prevHead);
     LogSegment* getHeadSegment();
     void changeState(LogSegment& s, State newState);
-    LogSegment* alloc(SegletAllocator::AllocationType type);
+    LogSegment* alloc(SegletAllocator::AllocationType type, uint64_t segmentId);
     void addToLists(LogSegment& s);
     void removeFromLists(LogSegment& s);
+    uint32_t allocSlot(SegletAllocator::AllocationType type);
+    void freeSlot(uint32_t slot, bool wasEmergencyHead);
     void free(LogSegment* s);
     void freeUnreferencedSegments();
 
@@ -210,9 +215,24 @@ class SegmentManager {
     /// private to this class. A pair<> would also suffice, but seems uglier.
     Tub<State>* states;
 
+    /// List of indices in 'segments' that are reserved for new emergency head
+    /// segments.
+    vector<uint32_t> freeEmergencyHeadSlots;
+
+    /// List of indices in 'segments' that are reserved for new survivor
+    /// segments allocated by the cleaner.
+    vector<uint32_t> freeSurvivorSlots;
+
     /// List of indices in 'segments' that are free. This exists simply to allow
     /// for fast allocation of LogSegments.
-    std::vector<uint32_t> freeSlots;
+    vector<uint32_t> freeSlots;
+
+    /// Number of segments we need to reserve for emergency heads (to allow us
+    /// to roll over to a new log digest when otherwise out of memory).
+    const uint32_t emergencyHeadSlotsReserved;
+
+    /// Number of segments the cleaner requested to keep reserved for it.
+    uint32_t survivorSlotsReserved;
 
     /// Monotonically increasing identifier to be given to the next segment
     /// allocated by this module.

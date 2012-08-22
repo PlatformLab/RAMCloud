@@ -2496,6 +2496,7 @@ MasterService::storeObject(Key& key,
     assert(currentVersion == VERSION_NONEXISTENT ||
            newObject.getVersion() > currentVersion);
 
+    bool freeCurrentReference = false;
     if (currentVersion != VERSION_NONEXISTENT &&
       currentType == LOG_ENTRY_TYPE_OBJ) {
         Object object(currentBuffer);
@@ -2515,7 +2516,11 @@ MasterService::storeObject(Key& key,
         //               we'll have lost the old object. One solution is to
         //               introduce the combined Object+Tombstone type.
 
-        log->free(currentReference);
+        // We can't free here. Not only because of the aforementioned issue,
+        // but also because if we do so and the new object append fails, the
+        // cleaner's statistics won't match what's in the objectMap and it
+        // will not operate correctly.
+        freeCurrentReference = true;
     }
 
     Buffer buffer;
@@ -2530,6 +2535,8 @@ MasterService::storeObject(Key& key,
     }
 
     objectMap->replace(key, newObjectReference);
+    if (freeCurrentReference)
+        log->free(currentReference);
     *newVersion = newObject.getVersion();
     bytesWritten += key.getStringKeyLength() + data.getTotalLength();
     return STATUS_OK;

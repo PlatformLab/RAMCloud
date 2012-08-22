@@ -74,7 +74,7 @@ runIt(RamCloud* client,
 
     string* keys = new string[maxId * loops];
     for (uint64_t i = 0; i < maxId * loops; i++)
-        keys[i] = format("%lu", nextId(maxId));
+        keys[i] = format("%08lu", nextId(maxId));
 
     uint64_t bytesWritten = 0;
     uint64_t objectsWritten = 0;

@@ -65,7 +65,11 @@ SegmentManager::SegmentManager(Context& context,
           * diskExpansionFactor)),
       segments(NULL),
       states(NULL),
+      freeEmergencyHeadSlots(),
+      freeSurvivorSlots(),
       freeSlots(),
+      emergencyHeadSlotsReserved(2),
+      survivorSlotsReserved(0),
       nextSegmentId(0),
       idToSlotMap(),
       allSegments(),
@@ -87,7 +91,9 @@ SegmentManager::SegmentManager(Context& context,
     segments = new Tub<LogSegment>[maxSegments];
     states = new Tub<State>[maxSegments];
 
-    for (uint32_t i = 0; i < maxSegments; i++)
+    for (uint32_t i = 0; i < emergencyHeadSlotsReserved; i++)
+        freeEmergencyHeadSlots.push_back(i);
+    for (uint32_t i = emergencyHeadSlotsReserved; i < maxSegments; i++)
         freeSlots.push_back(i);
 
     // TODO(anyone): Get this hack out of here.
@@ -136,18 +142,20 @@ SegmentManager::allocHead(bool mustNotFail)
     Lock guard(lock);
 
     LogSegment* prevHead = getHeadSegment();
-    LogSegment* newHead = alloc(SegletAllocator::DEFAULT);
+    LogSegment* newHead = alloc(SegletAllocator::DEFAULT, nextSegmentId);
     if (newHead == NULL) {
         /// Even if out of memory, we may need to allocate an emergency head
         /// segment to deal with replica failure or to let cleaning free
         /// resources.
         if (mustNotFail ||
           segmentsByState[FREEABLE_PENDING_DIGEST_AND_REFERENCES].size() > 0) {
-            newHead = alloc(SegletAllocator::EMERGENCY_HEAD);
+            newHead = alloc(SegletAllocator::EMERGENCY_HEAD, nextSegmentId);
         } else {
             return NULL;
         }
     }
+
+    nextSegmentId++;
 
     writeHeader(newHead, Segment::INVALID_SEGMENT_ID);
     if (prevHead != NULL && !prevHead->isEmergencyHead)
@@ -177,7 +185,7 @@ SegmentManager::allocHead(bool mustNotFail)
     // we always have an open segment on backups, unless of course there was a
     // coordinated failure, in which case we can unambiguously detect it.
     if (prevHead != NULL) {
-        // An exception here would be problematic.
+        prevHead->close();
         prevHead->replicatedSegment->close();
         Segment::OpaqueFooterEntry unused;  // TODO(ryan): Should close be sync?
         prevHead->replicatedSegment->sync(prevHead->getAppendedLength(unused));
@@ -192,7 +200,8 @@ SegmentManager::allocHead(bool mustNotFail)
 }
 
 /**
- * Allocate a new segment for the cleaner to write survivor data into.
+ * Allocate a new segment for the cleaner to write survivor data into from a
+ * disk cleaning pass.
  *
  * \param headSegmentIdDuringCleaning
  *      Identifier of the head segment when the current cleaning pass began. Any
@@ -207,13 +216,42 @@ SegmentManager::allocSurvivor(uint64_t headSegmentIdDuringCleaning)
 {
     Lock guard(lock);
 
-    LogSegment* s = alloc(SegletAllocator::CLEANER);
+    LogSegment* s = alloc(SegletAllocator::CLEANER, nextSegmentId);
     if (s == NULL)
         return NULL;
+
+    nextSegmentId++;
 
     writeHeader(s, headSegmentIdDuringCleaning);
 
     s->replicatedSegment = replicaManager.allocateNonHead(s->id, s);
+    s->headSegmentIdDuringCleaning = headSegmentIdDuringCleaning;
+
+    return s;
+}
+
+/**
+ * Allocate a replacement segment for the cleaner to write survivor data into
+ * from a single segment being compacted in memory. The survivor will have the
+ * same identifier as the original and will replace it in the log. This means
+ * that the in-memory copy will differ from those on backup disks and, if a
+ * backup failure occurs, some disk backups may have differing copies.
+ */
+LogSegment*
+SegmentManager::allocSurvivor(LogSegment* replacing)
+{
+    Lock guard(lock);
+
+    LogSegment* s = alloc(SegletAllocator::CLEANER, replacing->id);
+    if (s == NULL)
+        return NULL;
+
+    writeHeader(s, replacing->headSegmentIdDuringCleaning);
+
+    s->headSegmentIdDuringCleaning = replacing->headSegmentIdDuringCleaning;
+
+    // This survivor will inherit the replicatedSegment of the one it replaces
+    // when memoryCleaningComplete() is invoked.
 
     return s;
 }
@@ -265,6 +303,26 @@ SegmentManager::cleaningComplete(LogSegmentVector& clean)
     LOG(NOTICE, "Cleaning used %u seglets to free %u seglets",
         segletsUsed, segletsFreed);
     assert(segletsUsed <= segletsFreed);
+}
+
+void
+SegmentManager::memoryCleaningComplete(LogSegment* cleaned)
+{
+    Lock guard(lock);
+
+    assert(segmentsByState[CLEANING_INTO].size() == 1);
+    LogSegment& survivor = segmentsByState[CLEANING_INTO].front();
+    changeState(survivor, NEWLY_CLEANABLE);
+
+    uint64_t epoch = ServerRpcPool<>::incrementCurrentEpoch() - 1;
+    cleaned->cleanedEpoch = epoch;
+    changeState(*cleaned, FREEABLE_PENDING_REFERENCES);
+
+    // XXX- set the survivor's replicatedSegment* to cleaned's and inform the
+    //      replicatedSegment that its backing segment has changed.
+    survivor.replicatedSegment = cleaned->replicatedSegment;
+    cleaned->replicatedSegment = NULL;
+    //survivor.replicatedSegment->brainTransplant(survivor);
 }
 
 /**
@@ -328,6 +386,8 @@ void
 SegmentManager::getActiveSegments(uint64_t minSegmentId,
                                   LogSegmentVector& outList)
 {
+    Lock guard(lock);
+
     if (logIteratorCount == 0)
         throw SegmentManagerException(HERE, "cannot call outside of iteration");
 
@@ -359,10 +419,6 @@ SegmentManager::getActiveSegments(uint64_t minSegmentId,
  * full, any freed segments are returned to the reserve, rather than used as log
  * heads.
  *
- * As the name implies, this method may only be called to increase the number
- * of segments reserved. Specifying fewer segments will not shrink the current
- * reserve.
- *
  * \param numSegments
  *      The total number of full segments to reserve for the cleaner.
  * \return
@@ -373,7 +429,23 @@ bool
 SegmentManager::initializeSurvivorReserve(uint32_t numSegments)
 {
     Lock guard(lock);
-    return allocator.initializeCleanerReserve(numSegments * segletsPerSegment);
+
+    if (survivorSlotsReserved != 0)
+        return false;
+
+    if (numSegments > freeSlots.size())
+        return false;
+
+    if (!allocator.initializeCleanerReserve(numSegments * segletsPerSegment))
+        return false;
+
+    for (uint32_t i = 0; i < numSegments; i++) {
+        freeSurvivorSlots.push_back(freeSlots.back());
+        freeSlots.pop_back();
+    }
+
+    survivorSlotsReserved = numSegments;
+    return true;
 }
 
 /**
@@ -448,13 +520,34 @@ SegmentManager::getFreeSurvivorCount()
 }
 
 /**
- * Return the maximum number of segments that may ever exist in the system at
- * one time.
+ * Return the percentage of segments in use. The value returned is in the range
+ * [0, 100].
+ *
+ * The SegmentManager may allocate a limited number of segments, regardless of
+ * how much server memory is allocated to each one. This limits the number of
+ * backup segments and therefore the total space used on backups.
  */
-uint32_t
-SegmentManager::getMaximumSegmentCount()
+int
+SegmentManager::getSegmentUtilization()
 {
-    return maxSegments;
+    Lock guard(lock);
+    uint32_t maxUsableSegments = maxSegments -
+                                 emergencyHeadSlotsReserved -
+                                 survivorSlotsReserved;
+    return downCast<int>(100 * (maxUsableSegments - freeSlots.size()) /
+        maxUsableSegments);
+}
+
+/**
+ * Return the percentage of log memory in use. This does not include segments
+ * reserved for the cleaner or for emergency heads; it only takes into account
+ * segments usable for storing new log data. The value returned is in the range
+ * [0, 100].
+ */
+int
+SegmentManager::getMemoryUtilization()
+{
+    return allocator.getMemoryUtilization();
 }
 
 /**
@@ -611,7 +704,8 @@ SegmentManager::changeState(LogSegment& s, State newState)
  *      allocated segment.
  */
 LogSegment*
-SegmentManager::alloc(SegletAllocator::AllocationType type)
+SegmentManager::alloc(SegletAllocator::AllocationType type,
+                      uint64_t segmentId)
 {
     TEST_LOG((type == SegletAllocator::CLEANER) ? "for cleaner" :
         ((type == SegletAllocator::DEFAULT) ?  "for head of log" :
@@ -621,31 +715,64 @@ SegmentManager::alloc(SegletAllocator::AllocationType type)
     // cleaned but were previously waiting for readers to finish.
     freeUnreferencedSegments();
 
+    uint32_t slot = allocSlot(type);
+    if (slot == -1U)
+        return NULL;
+
     uint32_t segletSize = allocator.getSegletSize();
     vector<Seglet*> seglets;
 
-    if (!allocator.alloc(type, segmentSize / segletSize, seglets))
+    if (!allocator.alloc(type, segmentSize / segletSize, seglets)) {
+        assert(type == SegletAllocator::DEFAULT);
+        freeSlot(slot, false);
         return NULL;
-
-    uint64_t id = nextSegmentId++;
-    uint32_t slot = freeSlots.back();
-    freeSlots.pop_back();
-    assert(!segments[slot]);
+    }
 
     State state = (type == SegletAllocator::CLEANER) ? CLEANING_INTO : HEAD;
     segments[slot].construct(seglets,
                              segletSize,
                              segmentSize,
-                             id,
+                             segmentId,
                              slot,
                              (type == SegletAllocator::EMERGENCY_HEAD));
     states[slot].construct(state);
-    idToSlotMap[id] = slot;
+    idToSlotMap[segmentId] = slot;
 
     LogSegment& s = *segments[slot];
     addToLists(s);
 
     return &s;
+}
+
+uint32_t
+SegmentManager::allocSlot(SegletAllocator::AllocationType type)
+{
+    vector<uint32_t>* source = NULL;
+
+    if (type == SegletAllocator::DEFAULT)
+        source = &freeSlots;
+    else if (type == SegletAllocator::CLEANER)
+        source = &freeSurvivorSlots;
+    else if (type == SegletAllocator::EMERGENCY_HEAD)
+        source = &freeEmergencyHeadSlots;
+
+    if (source->empty())
+        return -1;
+
+    uint32_t slot = source->back();
+    source->pop_back();
+    return slot;
+}
+
+void
+SegmentManager::freeSlot(uint32_t slot, bool wasEmergencyHead)
+{
+    if (wasEmergencyHead)
+        freeEmergencyHeadSlots.push_back(slot);
+    else if (freeSurvivorSlots.size() < survivorSlotsReserved)
+        freeSurvivorSlots.push_back(slot);
+    else
+        freeSlots.push_back(slot);
 }
 
 /**
@@ -666,8 +793,12 @@ SegmentManager::free(LogSegment* s)
     uint32_t slot = s->slot;
     uint64_t id = segments[slot]->id;
 
-    freeSlots.push_back(slot);
-    idToSlotMap.erase(id);
+    freeSlot(slot, s->isEmergencyHead);
+
+    // In-memory cleaning may have replaced this segment in the map, so do not
+    // unconditionally remove it.
+    if (idToSlotMap[id] == slot)
+        idToSlotMap.erase(id);
 
     removeFromLists(*s);
     states[slot].destroy();

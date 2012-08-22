@@ -15,6 +15,7 @@
 
 #include "Common.h"
 #include "SegletAllocator.h"
+#include "ShortMacros.h"
 
 namespace RAMCloud {
 
@@ -125,6 +126,13 @@ SegletAllocator::initializeEmergencyHeadReserve(uint32_t numSeglets)
     foreach (Seglet* seglet, emergencyHeadPool)
         seglet->setSourcePool(&emergencyHeadPool);
 
+    LOG(NOTICE, "Reserved %u seglets for emergency head segments (%lu MB). "
+        "%lu seglets (%lu MB) left in default pool.",
+        numSeglets,
+        static_cast<uint64_t>(numSeglets) * segletSize / 1024 / 1024,
+        defaultPool.size(),
+        defaultPool.size() * segletSize / 1024 / 1024);
+
     emergencyHeadPoolReserve = numSeglets;
     return true;
 }
@@ -153,6 +161,13 @@ SegletAllocator::initializeCleanerReserve(uint32_t numSeglets)
     if (!allocFromPool(defaultPool, numSeglets, cleanerPool))
         return false;
 
+    LOG(NOTICE, "Reserved %u seglets for the cleaner (%lu MB). %lu seglets "
+        "(%lu MB) left in default pool.",
+        numSeglets,
+        static_cast<uint64_t>(numSeglets) * segletSize / 1024 / 1024,
+        defaultPool.size(),
+        defaultPool.size() * segletSize / 1024 / 1024);
+
     cleanerPoolReserve = numSeglets;
     return true;
 }
@@ -164,6 +179,9 @@ SegletAllocator::initializeCleanerReserve(uint32_t numSeglets)
 void
 SegletAllocator::free(Seglet* seglet)
 {
+    // XXX
+    memset(seglet->get(), '!', segletSize);
+
     std::lock_guard<SpinLock> guard(lock);
 
     // The emergency head pool is special. Seglets that came from it must be
@@ -248,6 +266,24 @@ uint64_t
 SegletAllocator::getTotalBytes()
 {
     return block.length;
+}
+
+/**
+ * Return the percentage of unreserved seglets currently allocated. In other
+ * words, the amount of space allocated in the log, not including seglets set
+ * aside for cleaning or emergency head segments. The value returned is in
+ * the range [0, 100].
+ */
+int
+SegletAllocator::getMemoryUtilization()
+{
+    std::lock_guard<SpinLock> guard(lock);
+
+    size_t maxDefaultPoolSize = getTotalCount() -
+                                emergencyHeadPoolReserve -
+                                cleanerPoolReserve;
+    return downCast<int>(100 * (maxDefaultPoolSize - defaultPool.size()) /
+                         maxDefaultPoolSize);
 }
 
 /**

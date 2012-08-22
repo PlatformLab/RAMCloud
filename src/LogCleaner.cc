@@ -54,7 +54,9 @@ LogCleaner::LogCleaner(Context& context,
       segmentManager(segmentManager),
       replicaManager(replicaManager),
       entryHandlers(entryHandlers),
+      writeCostThreshold(writeCostThreshold),
       candidates(),
+      segletSize(segmentManager.getSegletSize()),
       threadShouldExit(false),
       thread()
 {
@@ -111,8 +113,7 @@ LogCleaner::cleanerThreadEntry(LogCleaner* logCleaner, Context* context)
         if (logCleaner->threadShouldExit)
             break;
 
-        if (!logCleaner->doWork())
-            usleep(LogCleaner::POLL_USEC);
+        logCleaner->doWork();
     }
 
     LOG(NOTICE, "LogCleaner thread stopping");
@@ -124,35 +125,129 @@ LogCleaner::cleanerThreadEntry(LogCleaner* logCleaner, Context* context)
  * return false so that the caller may sleep for a bit, rather than banging on
  * the CPU.
  */
-bool
+void
 LogCleaner::doWork()
 {
     // Update our list of candidates.
     segmentManager.cleanableSegments(candidates);
 
     // Perform memory and disk cleaning, if needed.
-    bool memoryCleaned = doMemoryCleaning();
-    bool diskCleaned = doDiskCleaning();
+    double writeCost = 0;
 
-    return (memoryCleaned || diskCleaned);
+    if (segmentManager.getMemoryUtilization() >= MIN_MEMORY_UTILIZATION) {
+        writeCost = doMemoryCleaning();
+    }
+
+    if (writeCost > writeCostThreshold ||
+      segmentManager.getSegmentUtilization() >= MIN_DISK_UTILIZATION) {
+        doDiskCleaning();
+    }
+
+    if (segmentManager.getMemoryUtilization() < MIN_MEMORY_UTILIZATION &&
+      segmentManager.getSegmentUtilization() < MIN_DISK_UTILIZATION) {
+        usleep(POLL_USEC);
+    }
 }
 
-bool
+double
 LogCleaner::doMemoryCleaning()
 {
-    return false;
+    // Only proceed once we have a survivor segment to work with.
+    while (segmentManager.getFreeSurvivorCount() < 1)
+        {}
+
+    // Choose the best segment to clean. We greedily choose the segment with the
+    // most freeable seglets. Care is taken to ensure that we determine the
+    // number of freeable seglets that will keep the segment under our maximum
+    // cleanable utilization after compaction. This ensures that we will always
+    // be able to use this segment during disk cleaning.
+    size_t bestIndex = -1;
+    uint32_t bestDelta = 0;
+    for (size_t i = 0; i < candidates.size(); i++) {
+        LogSegment* candidate = candidates[i];
+        uint32_t liveBytes = candidate->getLiveBytes();
+        uint32_t segletsNeeded = (100 * (liveBytes + segletSize - 1)) /
+                                 segletSize / MAX_CLEANABLE_MEMORY_UTILIZATION;
+        uint32_t segletsAllocated = candidate->getSegletsAllocated();
+        uint32_t delta = segletsAllocated - segletsNeeded;
+        if (segletsNeeded < segletsAllocated && delta > bestDelta) {
+            bestIndex = i;
+            bestDelta = delta;
+        }
+    }
+
+    if (bestIndex == -1UL)
+        return 0;
+
+    LogSegment* segment = candidates[bestIndex];
+    LogSegment* survivor = segmentManager.allocSurvivor(segment);
+    uint32_t bytesCopied = 0;
+uint32_t bytesDead = 0;
+
+    for (SegmentIterator it(*segment); !it.isDone(); it.next()) {
+        LogEntryType type = it.getType();
+        Buffer buffer;
+        it.appendToBuffer(buffer);
+
+        if (!entryHandlers.checkLiveness(type, buffer))
+{
+bytesDead += buffer.getTotalLength();
+            continue;
 }
 
-bool
+        uint32_t timestamp = entryHandlers.getTimestamp(type, buffer);
+
+        uint32_t newOffset;
+        if (!survivor->append(type, buffer, newOffset))
+            throw FatalError(HERE, "Entry didn't fit into survivor!");
+
+        HashTable::Reference newReference((static_cast<uint64_t>(survivor->slot) << 24) | newOffset);
+        if (entryHandlers.relocate(type, buffer, newReference)) {
+            // TODO(Steve): Could just aggregate and do single update per survivor.
+            survivor->statistics.increment(buffer.getTotalLength(), timestamp);
+            // TODO(Steve): use segment.getAppendedLength()
+            bytesCopied += buffer.getTotalLength();
+        } else {
+            // roll it back!
+            //LOG(NOTICE, "must roll back!");
+        }
+    }
+
+    uint32_t segletsToFree = survivor->getSegletsAllocated() -
+                             segment->getSegletsAllocated() +
+                             bestDelta;
+
+    survivor->close();
+    bool r = survivor->freeUnusedSeglets(segletsToFree);
+    assert(r);
+
+    LOG(NOTICE, "Compacted segment %lu from %u seglets to %u seglets. WC = %.3f",
+        segment->id, segment->getSegletsAllocated(),
+        survivor->getSegletsAllocated(),
+        1 + static_cast<double>(bestDelta * segletSize) / bytesCopied);
+
+    segmentManager.memoryCleaningComplete(segment);
+
+    candidates[bestIndex] = candidates.back();
+    candidates.pop_back();
+
+    return 1 + static_cast<double>(bestDelta * segletSize) / bytesCopied;
+}
+
+void
 LogCleaner::doDiskCleaning()
 {
+    // Only proceed once our pool of survivor segments is full.
+    while (segmentManager.getFreeSurvivorCount() < SURVIVOR_SEGMENTS_TO_RESERVE)
+        {}
+
     // Obtain the segments we'll clean in this pass. We're guaranteed to have
     // the resources to clean what's returned.
     LogSegmentVector segmentsToClean;
     getSegmentsToClean(segmentsToClean);
 
     if (segmentsToClean.size() == 0)
-        return false;
+        return;
 
     // Extract the currently live entries of the segments we're cleaning and
     // sort them by age.
@@ -164,13 +259,13 @@ LogCleaner::doDiskCleaning()
 
     segmentManager.cleaningComplete(segmentsToClean);
 LOG(NOTICE, "cleaning pass finished processing %lu segs", segmentsToClean.size());
-    return true;
 }
 
-class CostBenefitSorter {
+class CostBenefitComparer {
   public:
-    CostBenefitSorter ()
-        : now(WallTime::secondsTimestamp())
+    CostBenefitComparer()
+        : now(WallTime::secondsTimestamp()),
+          version(Cycles::rdtsc())
     {
     }
 
@@ -205,27 +300,44 @@ class CostBenefitSorter {
     bool
     operator()(LogSegment* a, LogSegment* b)
     {
-        return costBenefit(a) > costBenefit(b);
+        // We must ensure that we maintain the weak strictly ordered constraint,
+        // otherwise surprising things may happen in the stl algorithms when
+        // segment statistics change and alter the computed cost-benefit of a
+        // segment from one comparison to the next.
+        if (a->costBenefitVersion != version) {
+            a->costBenefit = costBenefit(a);
+            a->costBenefitVersion = version;
+        }
+        if (b->costBenefitVersion != version) {
+            b->costBenefit = costBenefit(b);
+            b->costBenefitVersion = version;
+        }
+        return a->costBenefit > b->costBenefit;
     }
 
   private:
-    // WallTime timestamp when this object was constructed.
+    /// WallTime timestamp when this object was constructed.
     uint64_t now;
+
+    /// Unique identifier for this comparer instance. The cost-benefit for a
+    /// particular LogSegment must not change within a comparer's lifetime,
+    /// otherwise weird things can happen, for example A < B, B < C, C < A).
+    uint64_t version;
 };
 
 void
 LogCleaner::getSegmentsToClean(LogSegmentVector& outSegmentsToClean)
 {
-    // Only proceed if our pool of survivor segments is full.
-    if (segmentManager.getFreeSurvivorCount() != SURVIVOR_SEGMENTS_TO_RESERVE)
-        return;
-
-    // Sort segments so that the best candidates are at the end of the vector.
-    std::sort(candidates.begin(), candidates.end(), CostBenefitSorter());
+    // Sort segments so that the best candidates are at the front of the vector.
+    // We could probably use a heap instead and go a little faster, but it's not
+    // easy to say how many top candidates we'd want to track in the heap since
+    // they could each have significantly different numbers of seglets.
+    std::sort(candidates.begin(), candidates.end(), CostBenefitComparer());
 
     uint64_t totalLiveBytes = 0;
     uint64_t maximumLiveBytes = MAX_LIVE_SEGMENTS_PER_DISK_PASS *
                                 segmentManager.getSegmentSize();
+    vector<size_t> chosenIndices;
 
     for (size_t i = 0; i < candidates.size(); i++) {
         LogSegment* candidate = candidates[i];
@@ -239,10 +351,17 @@ LogCleaner::getSegmentsToClean(LogSegmentVector& outSegmentsToClean)
 
         totalLiveBytes += liveBytes;
         outSegmentsToClean.push_back(candidate);
+        chosenIndices.push_back(i);
+
+        LOG(NOTICE, "-- Chose segment id %lu (at %p) with %d util", candidate->id, candidate, candidate->getMemoryUtilization());
+    }
+
+    // Remove chosen segments from the list of candidates. At this point, we've
+    // committed to cleaning what we chose and have guaranteed that we have the
+    // necessary resources to complete the operation.
+    reverse_foreach(size_t i, chosenIndices) {
         candidates[i] = candidates.back();
         candidates.pop_back();
-
-        LOG(NOTICE, "-- Chose segment with %d util", candidate->getMemoryUtilization());
     }
 }
 
@@ -251,6 +370,9 @@ LogCleaner::getLiveSortedEntries(LogSegmentVector& segmentsToClean,
                                  LiveEntryVector& outLiveEntries)
 {
     foreach (LogSegment* segment, segmentsToClean) {
+        uint32_t maxLiveBytes = segment->getLiveBytes();
+        uint32_t totalLiveBytes = 0;
+
         for (SegmentIterator it(*segment); !it.isDone(); it.next()) {
             LogEntryType type = it.getType();
             Buffer buffer;
@@ -260,7 +382,12 @@ LogCleaner::getLiveSortedEntries(LogSegmentVector& segmentsToClean,
                 continue;
 
             outLiveEntries.push_back({ segment, it.getOffset(), entryHandlers.getTimestamp(type, buffer) });
+            totalLiveBytes += buffer.getTotalLength();
         }
+
+        // If this doesn't hold, then MasterService is probably issuing a
+        // log->free(), but is leaving a reference in the hash table.
+        assert(totalLiveBytes <= maxLiveBytes);
     }
 
     std::sort(outLiveEntries.begin(), outLiveEntries.end(), TimestampSorter());
@@ -283,7 +410,7 @@ LogCleaner::relocateLiveEntries(LiveEntryVector& liveEntries)
                 // tell RS to start syncing it, but do so without blocking
             }
 
-            survivor = segmentManager.allocSurvivor(0 /* XXX */);
+            survivor = segmentManager.allocSurvivor(1 /* XXX */);
             survivors.push_back(survivor);
 
             if (!survivor->append(type, buffer, newOffset))
@@ -304,8 +431,9 @@ LogCleaner::relocateLiveEntries(LiveEntryVector& liveEntries)
         survivor->close();
 
     foreach (survivor, survivors) {
-        assert(survivor->freeUnusedSeglets(survivor->getSegletsAllocated() -
-                                    survivor->getSegletsInUse()));
+        bool r = survivor->freeUnusedSeglets(survivor->getSegletsAllocated() -
+                                             survivor->getSegletsInUse());
+        assert(r);
         // sync the survivor!
     }
 }

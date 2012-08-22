@@ -79,6 +79,7 @@ class SegletAllocator {
     uint32_t getSegletSize();
     const void* getBaseAddress();
     uint64_t getTotalBytes();
+    int getMemoryUtilization();
 
   private:
     bool allocFromPool(vector<Seglet*>& pool,

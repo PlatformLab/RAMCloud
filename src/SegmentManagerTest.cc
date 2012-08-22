@@ -116,6 +116,7 @@ TEST_F(SegmentManagerTest, allocHead) {
     EXPECT_EQ(head, segmentManager.getHeadSegment());
     EXPECT_EQ(oldHead,
        &segmentManager.segmentsByState[SegmentManager::NEWLY_CLEANABLE].back());
+    EXPECT_TRUE(oldHead->closed);
 
     EXPECT_NE(static_cast<LogSegment*>(NULL), segmentManager.allocHead(false));
     EXPECT_NE(static_cast<LogSegment*>(NULL), segmentManager.allocHead(false));
