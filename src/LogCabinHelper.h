@@ -52,19 +52,19 @@ class LogCabinHelper {
         return entryId;
     };
 
-    template<typename M>
-    void
-    parseProtoBufFromEntry(Entry& entryRead, M& message) {
-        message.ParseFromArray(entryRead.getData(),
-                               entryRead.getLength());
-    };
-
     string
     getEntryType(Entry& entryRead) {
         ProtoBuf::EntryType message;
         parseProtoBufFromEntry(entryRead, message);
         return message.entry_type();
     }
+
+    template<typename M>
+    void
+    parseProtoBufFromEntry(Entry& entryRead, M& message) {
+        message.ParseFromArray(entryRead.getData(),
+                               entryRead.getLength());
+    };
 
   PRIVATE:
     /**
