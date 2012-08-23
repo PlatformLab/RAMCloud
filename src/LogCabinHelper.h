@@ -40,14 +40,15 @@ class LogCabinHelper {
     template<typename M>
     EntryId
     appendProtoBuf(M& message,
-                   const vector<EntryId>& invalidates = vector<EntryId>()) {
+                   const vector<EntryId>& invalidates = vector<EntryId>(),
+                   EntryId expectedId = NO_ID) {
         string data;
         message.SerializeToString(&data);
 
         Entry stateEntry(data.c_str(),
                          uint32_t(data.length() + 1),
                          invalidates);
-        EntryId entryId = logCabinLog.append(stateEntry);
+        EntryId entryId = logCabinLog.append(stateEntry, expectedId);
 
         return entryId;
     };
