@@ -8,6 +8,7 @@ COORDINATOR_SRCFILES := \
 			src/CoordinatorService.cc \
 			src/CoordinatorServiceRecovery.cc \
 			src/CoordinatorServerManager.cc \
+			src/LogCabinHelper.cc \
 			src/MasterRecoveryManager.cc \
 			src/TabletMap.cc \
 			src/Recovery.cc \
