@@ -1,5 +1,6 @@
 #!/bin/bash
 fail=0
+../bin/rmjunk
 for hook in hooks/pre-commit-*; do
     if [ -x $hook ]; then
         echo "Running $hook..."

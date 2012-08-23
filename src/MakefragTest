@@ -78,7 +78,7 @@ TESTS_SRCFILES := \
 		  src/ServerIdRpcWrapperTest.cc \
 		  src/ServerIdTest.cc \
 		  src/ServerListTest.cc \
-      src/ServerListUpdaterTest.cc \
+          src/ServerListUpdaterTest.cc \
 		  src/ServerMetricsTest.cc \
 		  src/ServerRpcPoolTest.cc \
 		  src/ServerTest.cc \
