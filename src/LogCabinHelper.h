@@ -16,8 +16,9 @@
 #ifndef RAMCLOUD_LOGCABINHELPER_H
 #define RAMCLOUD_LOGCABINHELPER_H
 
-#include <Client/Client.h>
 #include <google/protobuf/message.h>
+#include <Client/Client.h>
+#include <algorithm>
 
 #include "Common.h"
 #include "EntryType.pb.h"
@@ -46,6 +47,8 @@ class LogCabinHelper {
 
     void parseProtoBufFromEntry(Entry& entryRead,
                                 google::protobuf::Message& message);
+
+    vector<Entry> readValidEntries();
 
   PRIVATE:
     /**

@@ -86,5 +86,59 @@ LogCabinHelper::parseProtoBufFromEntry(
                            entryRead.getLength());
 }
 
+/**
+ * Read valid entries starting from the beginning through head of the log.
+ *
+ * Currently, read() function in the LogCabin client API returns all the
+ * entries, including the ones that were invalidated.
+ * Once ongaro implements a cleaner in LogCabin, the read() in LogCabin client
+ * API will return only valid entries and this function will not be needed
+ * anymore.
+ * This function is a temporary (and inefficient) work-around.
+ *
+ * \return
+ *      The valid entries starting at the beginning through head of the log.
+ * \throw LogDisappearedException
+ *      If this log no longer exists because someone deleted it.
+ */
+vector<Entry>
+LogCabinHelper::readValidEntries()
+{
+    // Assumption: The position of an entry in "entries" is the same as
+    // its entryId. This is true currently since LogCabin doesn't do
+    // any cleaning. Once it starts doing cleaning, this function will
+    // not be needed anyway.
+    vector<Entry> entries = logCabinLog.read(0);
+    vector<EntryId> allInvalidatedEntries;
+
+    // Store all the entry ids to the erased in allInvalidatedEntries.
+    // We can't erase it directly here since if we do, then the position
+    // of an entry in "entries" may not correspond to its entry id
+    // anymore.
+    for (vector<Entry>::iterator it = entries.begin();
+            it < entries.end(); it++) {
+        vector<EntryId> invalidates = it->getInvalidates();
+        foreach (EntryId entryId, invalidates) {
+            RAMCLOUD_LOG(DEBUG, "Want to erase entry with id %lu", entryId);
+            allInvalidatedEntries.push_back(entryId);
+        }
+    }
+
+    // Sort "allInvalidatedEntries" such that the entry ids are arranged
+    // in descending order. Then when we actually erase entries from
+    // "entries", it will happen from the end towards the begining
+    // so that deleting an entry doesn't change the position of the
+    // entry to be deleted after it.
+    sort(allInvalidatedEntries.begin(), allInvalidatedEntries.end(),
+         std::greater<EntryId>());
+
+    foreach (EntryId entryId, allInvalidatedEntries) {
+        RAMCLOUD_LOG(DEBUG, "Erasing entry with id %lu", entryId);
+        entries.erase(entries.begin() + entryId);
+    }
+
+    return entries;
+}
+
 } // namespace RAMCloud
 
