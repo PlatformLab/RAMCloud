@@ -18,6 +18,7 @@
 
 #include "Buffer.h"
 #include "HashTable.h"
+#include "LogCleaner.h"
 #include "LogEntryTypes.h"
 
 namespace RAMCloud {
@@ -38,27 +39,22 @@ class LogEntryHandlers {
     virtual uint32_t getTimestamp(LogEntryType type, Buffer& buffer) = 0;
 
     /**
-     * This method returns true if the given entry is still being used,
-     * in which case the cleaner will eventually relocate it and invoke
-     * another callback to indicate the new location. If the entry is
-     * no longer being used and may be garbage collected, this method
-     * should return false.
+     * This method is called for each entry the encountered in segments
+     * being cleaned. If the caller wants to retain the data, it should
+     * use the relocator to store the entry in a new location and obtain
+     * the new reference from it.
      *
-     * After returning false, the entry may disappear at any future time.
-     */
-    virtual bool checkLiveness(LogEntryType type, Buffer& buffer) = 0;
-
-    /**
-     * This method is called after an entry has been copied to a new
-     * location. If the caller wants to retain the data, it should make
-     * note of the new location (via the newReference). If it does not
-     * need the data anymore, it should return false.
+     * The relocator may fail (due to temporarily running out of space)
+     * in that case, the caller should not update any internal state and
+     * return immediately. The cleaner will simply try to relocate the
+     * entry again.
      *
-     * After returning false, the entry may disappear at any future time.
+     * After returning from this method the old entry may disappear at any
+     * future time. References should have already been purged.
      */
-    virtual bool relocate(LogEntryType type,
+    virtual void relocate(LogEntryType type,
                           Buffer& oldBuffer,
-                          HashTable::Reference newReference) = 0;
+                          LogCleaner::Relocator& relocator) = 0;
 };
 
 } // namespace

@@ -2161,27 +2161,6 @@ MasterService::getTimestamp(LogEntryType type, Buffer& buffer)
 }
 
 /**
- * Check if an entry in the log is still alive. If not, it will be garbage
- * collected. If so, the cleaner will copy it to a new location and alert
- * us that it has been relocated (see the relocate() method).
- *
- * \param type
- *      Type of the object being queried.
- * \param buffer
- *      Buffer pointing to the object in the log being queried.
- */
-bool
-MasterService::checkLiveness(LogEntryType type, Buffer& buffer)
-{
-    if (type == LOG_ENTRY_TYPE_OBJ)
-        return checkObjectLiveness(buffer);
-    else if (type == LOG_ENTRY_TYPE_OBJTOMB)
-        return checkTombstoneLiveness(buffer);
-    else
-        return false;
-}
-
-/**
  * Report that a log entry has been copied to a new location and query whether
  * it is still needed. This serves two functions. First, to allow this service
  * to update any references so that they point to the object's new location.
@@ -2189,61 +2168,27 @@ MasterService::checkLiveness(LogEntryType type, Buffer& buffer)
  * since it may have been erased between this call and a previous call to
  * checkLiveness().
  *
+ * XXX update this.
+ *
  * \param type
  *      Type of the object being queried.
  * \param oldBuffer
  *      Buffer pointing to the object in the log being queried. This is the
  *      location that will soon be invalid due to garbage collection.
- * \param newReference
- *      Reference to the new location of the object in the log. If the object
- *      is still alive, this reference must replace the previous one.
  * \return
  *      True if the object is still alive and newReference will be used. False
  *      if the object is dead and the space pointed to by newReference may be
  *      garbage collected along with the old copy.
  */
-bool
+void
 MasterService::relocate(LogEntryType type,
                         Buffer& oldBuffer,
-                        HashTable::Reference newReference)
+                        LogCleaner::Relocator& relocator)
 {
     if (type == LOG_ENTRY_TYPE_OBJ)
-        return relocateObject(oldBuffer, newReference);
+        relocateObject(oldBuffer, relocator);
     else if (type == LOG_ENTRY_TYPE_OBJTOMB)
-        return relocateTombstone(oldBuffer, newReference);
-    else
-        return false;
-}
-
-/**
- * Determine whether or not an object is still alive (i.e. is referenced
- * by the hash table). If so, the cleaner must perpetuate it. If not, it
- * can be safely discarded.
- *
- * \param objectBuffer
- *      Buffer pointing to the object being checked for liveness.
- * \return
- *      True if the object is still alive, else false.
- */
-bool
-MasterService::checkObjectLiveness(Buffer& objectBuffer)
-{
-    Key key(LOG_ENTRY_TYPE_OBJ, objectBuffer);
-
-    std::lock_guard<SpinLock> lock(objectUpdateLock);
-
-    Table* t = getTable(key);
-    if (t == NULL)
-        return false;
-
-    LogEntryType currentType;
-    Buffer currentBuffer;
-    if (!lookup(key, currentType, currentBuffer))
-        return false;
-
-    assert(currentType == LOG_ENTRY_TYPE_OBJ);
-    return (currentBuffer.getStart<uint8_t>() ==
-            objectBuffer.getStart<uint8_t>());
+        relocateTombstone(oldBuffer, relocator);
 }
 
 /**
@@ -2269,9 +2214,9 @@ MasterService::checkObjectLiveness(Buffer& objectBuffer)
  *      newReference wasn't needed and both the old object and the new copy
  *      may be immediately deleted.
  */
-bool
+void
 MasterService::relocateObject(Buffer& oldBuffer,
-                              HashTable::Reference newReference)
+                              LogCleaner::Relocator& relocator)
 {
     Key key(LOG_ENTRY_TYPE_OBJ, oldBuffer);
 
@@ -2282,7 +2227,7 @@ MasterService::relocateObject(Buffer& oldBuffer,
         // That tablet doesn't exist on this server anymore.
         // Just remove the hash table entry, if it exists.
         objectMap->remove(key);
-        return false;
+        return;
     }
 
     bool keepNewObject = false;
@@ -2294,8 +2239,13 @@ MasterService::relocateObject(Buffer& oldBuffer,
 
         keepNewObject = (currentBuffer.getStart<uint8_t>() ==
                          oldBuffer.getStart<uint8_t>());
-        if (keepNewObject)
-            objectMap->replace(key, newReference);
+        if (keepNewObject) {
+            // Try to relocate it. If it fails, just return. The cleaner will
+            // allocate more memory and retry.
+            if (!relocator.append(LOG_ENTRY_TYPE_OBJ, oldBuffer, getObjectTimestamp(oldBuffer)))
+                return;
+            objectMap->replace(key, relocator.getNewReference());
+        }
     }
 
     // Update table statistics.
@@ -2303,8 +2253,6 @@ MasterService::relocateObject(Buffer& oldBuffer,
         table->objectCount--;
         table->objectBytes -= oldBuffer.getTotalLength();
     }
-
-    return keepNewObject;
 }
 
 /**
@@ -2323,23 +2271,6 @@ MasterService::getObjectTimestamp(Buffer& buffer)
 {
     Object object(buffer);
     return object.getTimestamp();
-}
-
-/**
- * Determine whether or not a tombstone is still alive (i.e. it references
- * a segment that still exists). If so, the cleaner must perpetuate it. If
- * not, it can be safely discarded.
- *
- * \param buffer
- *      LogEntryHandle to the object whose liveness is being queried.
- * \return
- *      True if the object is still alive, else false.
- */
-bool
-MasterService::checkTombstoneLiveness(Buffer& buffer)
-{
-    ObjectTombstone tomb(buffer);
-    return log->containsSegment(tomb.getSegmentId());
 }
 
 /**
@@ -2363,16 +2294,21 @@ MasterService::checkTombstoneLiveness(Buffer& buffer)
  *      False indicates that newReference wasn't needed (because the pointed-to
  *      object doesn't exist on backups anymore) and can be immediately deleted.
  */
-bool
+void
 MasterService::relocateTombstone(Buffer& oldBuffer,
-                                 HashTable::Reference newReference)
+                                 LogCleaner::Relocator& relocator)
 {
     ObjectTombstone tomb(oldBuffer);
 
-    // See if the object this tombstone refers to is still in the log->
+    // See if the object this tombstone refers to is still in the log.
     bool keepNewTomb = log->containsSegment(tomb.getSegmentId());
 
-    if (!keepNewTomb) {
+    if (keepNewTomb) {
+       // Try to relocate it. If it fails, just return. The cleaner will
+       // allocate more memory and retry.
+       if (!relocator.append(LOG_ENTRY_TYPE_OBJTOMB, oldBuffer, getTombstoneTimestamp(oldBuffer)))
+           return;
+    } else {
         Key key(LOG_ENTRY_TYPE_OBJTOMB, oldBuffer);
         Table* table = getTable(key);
         if (table != NULL) {
@@ -2380,8 +2316,6 @@ MasterService::relocateTombstone(Buffer& oldBuffer,
             table->tombstoneBytes -= oldBuffer.getTotalLength();
         }
     }
-
-    return keepNewTomb;
 }
 
 /**
