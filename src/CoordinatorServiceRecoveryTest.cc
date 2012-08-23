@@ -20,14 +20,14 @@
 
 namespace RAMCloud {
 
-class CoordinatorServerRecoveryTest : public ::testing::Test {
+class CoordinatorServiceRecoveryTest : public ::testing::Test {
   public:
     Context context;
     MockCluster cluster;
     CoordinatorServiceRecovery* coordRecovery;
     LogCabinHelper* logCabinHelper;
 
-    CoordinatorServerRecoveryTest()
+    CoordinatorServiceRecoveryTest()
         : context()
         , cluster(context)
         , coordRecovery()
@@ -39,12 +39,12 @@ class CoordinatorServerRecoveryTest : public ::testing::Test {
         logCabinHelper = coordRecovery->service.logCabinHelper.get();
     }
 
-    ~CoordinatorServerRecoveryTest() {
+    ~CoordinatorServiceRecoveryTest() {
         // Finish all pending ServerList updates before destroying cluster.
         cluster.syncCoordinatorServerList();
     }
 
-    DISALLOW_COPY_AND_ASSIGN(CoordinatorServerRecoveryTest);
+    DISALLOW_COPY_AND_ASSIGN(CoordinatorServiceRecoveryTest);
 };
 
 namespace {
@@ -53,7 +53,7 @@ bool replayFilter(string s) {
 }
 }
 
-TEST_F(CoordinatorServerRecoveryTest, replay_basic) {
+TEST_F(CoordinatorServiceRecoveryTest, replay_basic) {
     ProtoBuf::ServerInformation serverInfo;
     serverInfo.set_entry_type("ServerEnlisting");
     serverInfo.set_server_id(ServerId(1, 0).getId());
@@ -87,7 +87,7 @@ TEST_F(CoordinatorServerRecoveryTest, replay_basic) {
               TestLog::get());
 }
 
-TEST_F(CoordinatorServerRecoveryTest, replay_error) {
+TEST_F(CoordinatorServiceRecoveryTest, replay_error) {
     ProtoBuf::EntryType dummyEntry;
     dummyEntry.set_entry_type("UnrecognizedEntryType");
     logCabinHelper->appendProtoBuf(dummyEntry);
