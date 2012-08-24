@@ -317,7 +317,7 @@ class ReplicatedSegment : public Task {
     void close();
     bool handleBackupFailure(ServerId failedId)
         __attribute__((warn_unused_result));
-    void sync(uint32_t offset);
+    void sync(uint32_t offset = ~0u);
 
   PRIVATE:
     friend class ReplicaManager;

@@ -199,10 +199,8 @@ ReplicatedSegment::close()
     // getCommitted().bytes == queued.bytes.
     Segment::OpaqueFooterEntry footerEntry;
     uint32_t appendedBytes = segment->getAppendedLength(footerEntry);
-    if (appendedBytes > queued.bytes) {
-        queued.bytes = appendedBytes;
-        queuedFooterEntry = footerEntry;
-    }
+    queued.bytes = appendedBytes;
+    queuedFooterEntry = footerEntry;
     schedule();
 
     LOG(DEBUG, "Segment %lu closed (length %d)", segmentId, queued.bytes);
@@ -276,10 +274,15 @@ ReplicatedSegment::handleBackupFailure(ServerId failedId)
 /**
  * Wait for the durable replication (meaning at least durably buffered on
  * backups) of data starting at the beginning of the segment up through \a
- * offset bytes (non-inclusive).  Also implies the data will be recovered in
- * the case that the master crashes (provided warnings on
- * ReplicatedSegment::close are obeyed).  Note, this method can wait forever if
- * \a offset bytes are never enqueued for replication.
+ * offset bytes (non-inclusive). If \a offset is not provided wait for all
+ * enqueued data AND closing flag to made durable on backups.
+ * Using the no-arg form is the only way to safely wait for a closed segment
+ * to be fully replicated.
+ * After return the data will be recovered in the case that the master crashes
+ * (provided warnings on ReplicatedSegment::close are obeyed). Note,
+ * this method can wait forever if \a offset bytes are never enqueued
+ * for replication (or if no \a offset is provided and close() is never
+ * called).
  *
  * This must be called after any openSegment() calls where the operation must
  * be immediately durable (though, keep in mind, host failures could have
@@ -305,7 +308,9 @@ ReplicatedSegment::handleBackupFailure(ServerId failedId)
  *
  * \param offset
  *      The number of bytes of the segment that must be replicated before the
- *      call will return.
+ *      call will return. If offset is not provided then the call will only
+ *      return when all enqueued data has been synced including the
+ *      closed flag.
  */
 void
 ReplicatedSegment::sync(uint32_t offset)
@@ -324,8 +329,15 @@ ReplicatedSegment::sync(uint32_t offset)
     // replicas have been shot down by setting the minOpenSegmentId.
     // Once this flag is cleared those conditions have been met and
     // it is safe to use the usual definition.
-    if (!recoveringFromLostOpenReplicas && getCommitted().bytes >= offset)
-        return;
+    if (!recoveringFromLostOpenReplicas) {
+        if (offset == ~0u) {
+            if (getCommitted().close)
+                return;
+        } else {
+            if (getCommitted().bytes >= offset)
+                return;
+        }
+    }
 
     Segment::OpaqueFooterEntry footerEntry;
     uint32_t appendedBytes = segment->getAppendedLength(footerEntry);
@@ -338,8 +350,15 @@ ReplicatedSegment::sync(uint32_t offset)
     uint64_t syncStartTicks = Cycles::rdtsc();
     while (true) {
         taskQueue.performTask();
-        if (!recoveringFromLostOpenReplicas && getCommitted().bytes >= offset)
-            return;
+        if (!recoveringFromLostOpenReplicas) {
+            if (offset == ~0u) {
+                if (getCommitted().close)
+                    return;
+            } else {
+                if (getCommitted().bytes >= offset)
+                    return;
+            }
+        }
         auto waited = Cycles::toNanoseconds(Cycles::rdtsc() - syncStartTicks);
         if (waited > 1000000000lu) {
             LOG(WARNING, "Log write sync has taken over 1s; seems to be stuck");

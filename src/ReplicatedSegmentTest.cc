@@ -279,6 +279,27 @@ TEST_F(ReplicatedSegmentTest, close) {
     reset();
 }
 
+TEST_F(ReplicatedSegmentTest, closeNewFooterButNoLengthChange) {
+    transport.setInput("0 0"); // first replica open/write
+    transport.setInput("0 0"); // first replica open/write
+    segment->sync(openLen);
+    Segment::OpaqueFooterEntry footerBeforeClose;
+    footerBeforeClose = segment->queuedFooterEntry;
+    EXPECT_FALSE(segment->queuedFooterEntry.footer.closed);
+    EXPECT_FALSE(segment->isScheduled());
+
+    createSegment->logSegment.closed = false;
+    createSegment->logSegment.close();
+    segment->close();
+    EXPECT_TRUE(segment->isScheduled());
+    ASSERT_FALSE(taskQueue.isIdle());
+    EXPECT_EQ(segment, taskQueue.tasks.front());
+    EXPECT_TRUE(segment->queuedFooterEntry.footer.closed);
+    EXPECT_NE(0, memcmp(&segment->queuedFooterEntry,
+                        &footerBeforeClose, sizeof(footerBeforeClose)));
+    reset();
+}
+
 TEST_F(ReplicatedSegmentTest, handleBackupFailureWhileOpen) {
     EXPECT_FALSE(segment->handleBackupFailure({0, 0}));
     foreach (auto& replica, segment->replicas)
@@ -382,6 +403,22 @@ TEST_F(ReplicatedSegmentTest, sync) {
                  999, 888, 10, 10, Wr::NONE, false, true, footerEntry},
                 "klmnopqrst ", 10));
     EXPECT_EQ(openLen + 10, segment->getCommitted().bytes);
+}
+
+TEST_F(ReplicatedSegmentTest, syncNoArgs) {
+    transport.setInput("0 0"); // opening write
+    transport.setInput("0 0"); // opening write
+    segment->sync(openLen);
+    EXPECT_EQ(openLen, segment->getCommitted().bytes);
+    EXPECT_FALSE(segment->getCommitted().close);
+    EXPECT_TRUE(segment->isSynced());
+    transport.setInput("0 0"); // closing write
+    transport.setInput("0 0"); // closing write
+    segment->close();
+    segment->sync();
+    EXPECT_EQ(openLen, segment->getCommitted().bytes);
+    EXPECT_TRUE(segment->getCommitted().close);
+    EXPECT_TRUE(segment->isSynced());
 }
 
 TEST_F(ReplicatedSegmentTest, syncDoubleCheckCrossSegmentOrderingConstraints) {
