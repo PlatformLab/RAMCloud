@@ -236,12 +236,8 @@ FailureDetector::checkForStaleServerList()
             "Requesting new list push! Timeout after %lu us.",
             currentVersion, staleServerListVersion,
             Cycles::toNanoseconds(deltaTicks) / 1000);
-        try {
-            CoordinatorClient::sendServerList(context, ourServerId);
-            staleServerListSuspected = false;
-        } catch (TransportException &te) {
-            LOG(WARNING, "Request to coordinator failed: %s", te.what());
-        }
+        CoordinatorClient::sendServerList(context, ourServerId);
+        staleServerListSuspected = false;
     }
 }
 

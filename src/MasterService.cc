@@ -1439,23 +1439,10 @@ MasterService::recover(ServerId masterId,
                     context.serverList->toString(replica.backupId).c_str(),
                     replica.segmentId,
                     &task - &tasks[0]);
-                try {
-                    task.construct(context, masterId, partitionId, replica);
-                    replica.state = Replica::State::WAITING;
-                    runningSet.insert(replica.segmentId);
-                    ++metrics->master.segmentReadCount;
-                } catch (const TransportException& e) {
-                    LOG(WARNING, "Couldn't contact %s, trying next backup; "
-                        "failure was: %s",
-                        context.serverList->toString(replica.backupId).c_str(),
-                        e.str().c_str());
-                    replica.state = Replica::State::FAILED;
-                } catch (const ServerListException& e) {
-                    LOG(WARNING, "No record of backup %s, "
-                        "trying next backup",
-                        replica.backupId.toString().c_str());
-                    replica.state = Replica::State::FAILED;
-                }
+                task.construct(context, masterId, partitionId, replica);
+                replica.state = Replica::State::WAITING;
+                runningSet.insert(replica.segmentId);
+                ++metrics->master.segmentReadCount;
             }
           outOfHosts:
             if (!task)

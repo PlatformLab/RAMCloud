@@ -48,6 +48,9 @@ Syscall* TcpTransport::sys = &defaultSyscall;
  *      RPC requests as well as make outgoing requests; this parameter
  *      specifies the (local) address on which to listen for connections.
  *      If NULL this transport will be used only for outgoing requests.
+ *
+ * \throw TransportException
+ *      There was a problem that prevented us from creating the transport.
  */
 TcpTransport::TcpTransport(Context& context,
         const ServiceLocator* serviceLocator)
@@ -315,10 +318,6 @@ TcpTransport::ServerSocketHandler::handleFileEvent(int events)
                 socket->bytesLeftToSend = -1;
             }
         }
-    } catch (TcpTransportEof& e) {
-        // Close the socket in order to prevent an infinite loop of
-        // calls to this method.
-        transport.closeSocket(fd);
     } catch (TransportException& e) {
         LOG(ERROR, "TcpTransport::ServerSocketHandler closing client "
                 "connection: %s", e.message.c_str());
@@ -434,8 +433,6 @@ TcpTransport::sendMessage(int fd, uint64_t nonce, Buffer* payload,
  *
  * \throw TransportException
  *      An I/O error occurred.
- * \throw TcpTransportEof
- *      The other side closed the connection.
  */
 
 ssize_t
@@ -445,7 +442,7 @@ TcpTransport::recvCarefully(int fd, void* buffer, size_t length) {
         return actual;
     }
     if (actual == 0) {
-        throw TcpTransportEof(HERE);
+        throw TransportException(HERE, "session closed by other end");
     }
     if ((errno == EAGAIN) || (errno == EWOULDBLOCK)) {
         return 0;
@@ -485,8 +482,6 @@ TcpTransport::IncomingMessage::IncomingMessage(Buffer* buffer,
  *
  * \throw TransportException
  *      An I/O error occurred.
- * \throw TcpTransportEof
- *      The other side closed the connection.
  */
 
 bool
@@ -560,6 +555,9 @@ TcpTransport::IncomingMessage::readMessage(int fd) {
  *      If there is an active RPC and we can't get any signs of life out
  *      of the server within this many milliseconds then the session will
  *      be aborted.  0 means we get to pick a reasonable default.
+ *
+ * \throw TransportException
+ *      There was a problem that prevented us from creating the session.
  */
 TcpTransport::TcpSession::TcpSession(TcpTransport& transport,
         const ServiceLocator& serviceLocator,
@@ -797,15 +795,9 @@ TcpTransport::ClientSocketHandler::handleFileEvent(int events)
             }
             setEvents(Dispatch::FileEvent::READABLE);
         }
-    } catch (TcpTransportEof& e) {
-        // Close the session's socket in order to prevent an infinite loop of
-        // calls to this method.
-        LOG(NOTICE, "server %s closed socket",
-                session.getServiceLocator().c_str());
-        session.abort();
     } catch (TransportException& e) {
-        LOG(ERROR, "TcpTransport::ClientSocketHandler closing session "
-                "socket: %s", e.message.c_str());
+        LOG(ERROR, "TcpTransport::ClientSocketHandler aborting session: %s",
+                e.message.c_str());
         session.abort();
     }
 }

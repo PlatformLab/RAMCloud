@@ -194,15 +194,6 @@ class TcpTransport : public Transport {
             int bytesToSend);
 
     /**
-     * An exception that is thrown when a socket has been closed by the peer.
-     */
-    class TcpTransportEof : public TransportException {
-      public:
-        explicit TcpTransportEof(const CodeLocation& where)
-            : TransportException(where) {}
-    };
-
-    /**
      * An event handler that will accept connections on a socket.
      */
     class AcceptHandler : public Dispatch::File {
@@ -281,7 +272,8 @@ class TcpTransport : public Transport {
         IpAddress address;        /// Server to which requests will be sent.
         int fd;                   /// File descriptor for the socket that
                                   /// connects to address  -1 means no socket
-                                  /// open.
+                                  /// open (the socket was aborted because of
+                                  /// an error).
         uint64_t serial;          /// Used to generate nonces for RPCs: starts
                                   /// at 1 and increments for each RPC.
 

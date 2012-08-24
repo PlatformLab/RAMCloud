@@ -504,13 +504,8 @@ ReplicatedSegment::performFree(Replica& replica)
             return;
         } else {
             // Issue a free rpc for this replica, reschedule to wait on it.
-            try {
-                replica.freeRpc.construct(context, replica.backupId,
-                                          masterId, segmentId);
-            } catch (const TransportException& e) {
-                // Ignore the exception and retry; we'll be interrupted by
-                // changes to the server list if the backup is down.
-            }
+            replica.freeRpc.construct(context, replica.backupId,
+                                      masterId, segmentId);
             schedule();
             return;
         }
@@ -633,24 +628,13 @@ ReplicatedSegment::performWrite(Replica& replica)
 
             TEST_LOG("Sending open to backup %s",
                      replica.backupId.toString().c_str());
-            try {
-                replica.writeRpc.construct(context, replica.backupId,
-                                           masterId, segmentId, segment, 0,
-                                           openLen, &openingWriteFooterEntry,
-                                           flags, replica.replicateAtomically);
-                ++writeRpcsInFlight;
-                replica.sent.open = true;
-                replica.sent.bytes = openLen;
-            } catch (const TransportException& e) {
-                // Ignore the exception and retry; we'll be interrupted by
-                // changes to the server list if the backup is down.
-                static uint64_t count = 0;
-                if (BitOps::isPowerOfTwo(++count))
-                    LOG(DEBUG, "Cannot create session for write to backup %s, "
-                        "perhaps the backup has crashed; retrying until "
-                        "coordinator tells us it is gone.",
-                        replica.backupId.toString().c_str());
-            }
+            replica.writeRpc.construct(context, replica.backupId,
+                                       masterId, segmentId, segment, 0,
+                                       openLen, &openingWriteFooterEntry,
+                                       flags, replica.replicateAtomically);
+            ++writeRpcsInFlight;
+            replica.sent.open = true;
+            replica.sent.bytes = openLen;
             schedule();
             return;
         }
@@ -713,24 +697,13 @@ ReplicatedSegment::performWrite(Replica& replica)
 
             TEST_LOG("Sending write to backup %s",
                      replica.backupId.toString().c_str());
-            try {
-                replica.writeRpc.construct(context, replica.backupId, masterId,
-                                           segmentId, segment, offset, length,
-                                           footerEntryToSend,
-                                           flags, replica.replicateAtomically);
-                ++writeRpcsInFlight;
-                replica.sent.bytes += length;
-                replica.sent.close = (flags == WireFormat::BackupWrite::CLOSE);
-            } catch (const TransportException& e) {
-                // Ignore the exception and retry; we'll be interrupted by
-                // changes to the server list if the backup is down.
-                static uint64_t count = 0;
-                if (BitOps::isPowerOfTwo(++count))
-                    LOG(DEBUG, "Cannot create session for write to backup %s, "
-                        "perhaps the backup has crashed; retrying until "
-                        "coordinator tells us it is gone. [%lu]",
-                        replica.backupId.toString().c_str(), count);
-            }
+            replica.writeRpc.construct(context, replica.backupId, masterId,
+                                       segmentId, segment, offset, length,
+                                       footerEntryToSend,
+                                       flags, replica.replicateAtomically);
+            ++writeRpcsInFlight;
+            replica.sent.bytes += length;
+            replica.sent.close = (flags == WireFormat::BackupWrite::CLOSE);
             schedule();
             return;
         } else {

@@ -147,14 +147,8 @@ ObjectFinder::lookupTablet(uint64_t table, HashType keyHash)
             throw TableDoesntExistException(HERE);
         }
         refresh_and_retry:
-            try {
-                tabletMapFetcher->getTabletMap(tabletMap);
-                haveRefreshed = true;
-            } catch (const TransportException& e) {
-                LOG(WARNING, "Couldn't get tablet map from coordinator; "
-                    "retrying: %s", e.what());
-                usleep(10000);
-            }
+        tabletMapFetcher->getTabletMap(tabletMap);
+        haveRefreshed = true;
     }
 }
 
@@ -177,13 +171,7 @@ ObjectFinder::waitForTabletDown()
             }
         }
         usleep(200);
-        try {
-            tabletMapFetcher->getTabletMap(tabletMap);
-        } catch (const TransportException& e) {
-            LOG(WARNING, "Couldn't get tablet map from coordinator; "
-                "retrying: %s", e.what());
-            usleep(10000);
-        }
+        tabletMapFetcher->getTabletMap(tabletMap);
     }
 }
 
@@ -211,13 +199,7 @@ ObjectFinder::waitForAllTabletsNormal(uint64_t timeoutNs)
         if (allNormal && tabletMap.tablet_size() > 0)
             return;
         usleep(200);
-        try {
-            tabletMapFetcher->getTabletMap(tabletMap);
-        } catch (const TransportException& e) {
-            LOG(WARNING, "Couldn't get tablet map from coordinator; "
-                "retrying: %s", e.what());
-            usleep(10000);
-        }
+        tabletMapFetcher->getTabletMap(tabletMap);
     }
 }
 

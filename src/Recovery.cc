@@ -218,18 +218,8 @@ BackupStartTask::send()
     LOG(DEBUG, "Starting startReadingData on backup %s",
         backupId.toString().c_str());
     if (!testingCallback) {
-        try {
-            rpc.construct(recovery->context, backupId, crashedMasterId,
-                          partitions);
-            return;
-        } catch (const TransportException& e) {
-            LOG(WARNING, "Couldn't contact backup %s to start recovery: %s",
-                backupId.toString().c_str(), e.what());
-        } catch (const ClientException& e) {
-            LOG(WARNING, "Couldn't contact backup %s to start recovery: %s",
-                backupId.toString().c_str(), e.what());
-        }
-        done = true;
+        rpc.construct(recovery->context, backupId, crashedMasterId,
+                        partitions);
     } else {
         testingCallback->backupStartTaskSend(result);
     }
@@ -623,40 +613,29 @@ struct MasterStartTask {
             "partition %d", recovery.recoveryId, serverId.toString().c_str(),
             partitionId);
         (*recovery.tracker)[serverId] = &recovery;
-        try {
-            if (!testingCallback) {
-                rpc.construct(recovery.context,
-                              serverId,
-                              recovery.recoveryId,
-                              recovery.crashedServerId,
-                              recovery.testingFailRecoveryMasters > 0
-                                  ? ~0u : partitionId,
-                              tabletsToRecover,
-                              replicaMap.data(),
-                              downCast<uint32_t>(replicaMap.size()));
-                if (recovery.testingFailRecoveryMasters > 0) {
-                    LOG(NOTICE, "Told recovery master %s to kill itself",
-                        serverId.toString().c_str());
-                    --recovery.testingFailRecoveryMasters;
-                }
-            } else {
-                testingCallback->masterStartTaskSend(recovery.recoveryId,
-                                                     recovery.crashedServerId,
-                                                     partitionId,
-                                                     tabletsToRecover,
-                                                     replicaMap.data(),
-                                                     replicaMap.size());
+        if (!testingCallback) {
+            rpc.construct(recovery.context,
+                          serverId,
+                          recovery.recoveryId,
+                          recovery.crashedServerId,
+                          recovery.testingFailRecoveryMasters > 0
+                              ? ~0u : partitionId,
+                          tabletsToRecover,
+                          replicaMap.data(),
+                          downCast<uint32_t>(replicaMap.size()));
+            if (recovery.testingFailRecoveryMasters > 0) {
+                LOG(NOTICE, "Told recovery master %s to kill itself",
+                    serverId.toString().c_str());
+                --recovery.testingFailRecoveryMasters;
             }
-            return;
-        } catch (const TransportException& e) {
-            LOG(WARNING, "Couldn't contact server %s to start recovery: %s",
-                serverId.toString().c_str(), e.what());
-        } catch (const ClientException& e) {
-            LOG(WARNING, "Couldn't contact server %s to start recovery: %s",
-                serverId.toString().c_str(), e.what());
+        } else {
+            testingCallback->masterStartTaskSend(recovery.recoveryId,
+                                                 recovery.crashedServerId,
+                                                 partitionId,
+                                                 tabletsToRecover,
+                                                 replicaMap.data(),
+                                                 replicaMap.size());
         }
-        recovery.recoveryMasterFinished(serverId, false);
-        done = true;
     }
     void wait() {
         try {
@@ -851,18 +830,7 @@ struct BackupEndTask {
             done = true;
             return;
         }
-        try {
-            rpc.construct(recovery.context, serverId, crashedServerId);
-            return;
-        } catch (const TransportException& e) {
-            LOG(DEBUG, "recoveryComplete failed on %s, ignoring; "
-                "failure was: %s", serverId.toString().c_str(), e.what());
-        } catch (const ClientException& e) {
-            LOG(DEBUG, "recoveryComplete failed on %s, ignoring; "
-                "failure was: %s", serverId.toString().c_str(), e.what());
-        }
-        rpc.destroy();
-        done = true;
+        rpc.construct(recovery.context, serverId, crashedServerId);
     }
     void wait() {
         if (!rpc)

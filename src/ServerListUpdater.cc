@@ -311,7 +311,7 @@ ServerListUpdater::sendMembershipUpdate(
     if (stalled < timeoutNs) {
         try {
             succeeded = rpc.wait();
-        } catch (const TransportException& e) {}
+        } catch (const ServerDoesntExistException& e) {}
     } else {
         rpc.cancel();
         LOG(NOTICE, "Failed to send cluster membership update to %s",
@@ -341,7 +341,7 @@ ServerListUpdater::sendMembershipUpdate(
     if (stalled < timeoutNs) {
         try {
             rpc2.wait();
-        } catch (const TransportException& e) {}
+        } catch (const ServerDoesntExistException& e) {}
     } else {
         rpc2.cancel();
         LOG(NOTICE, "Failed to send full cluster server list to %s "

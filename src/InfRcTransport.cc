@@ -313,6 +313,9 @@ InfRcTransport<Infiniband>::setNonBlocking(int fd)
  *      If there is an active RPC and we can't get any signs of life out
  *      of the server within this many milliseconds then the session will
  *      be aborted.  0 means we get to pick a reasonable default.
+ *
+ * \throw TransportException
+ *      There was a problem that prevented us from creating the session.
  */
 template<typename Infiniband>
 InfRcTransport<Infiniband>::InfRcSession::InfRcSession(
@@ -541,6 +544,9 @@ InfRcTransport<Infiniband>::clientTryExchangeQueuePairs(struct sockaddr_in *sin,
  * allocates a QueuePair and sends the necessary tuple to the
  * server to begin the handshake. The server then replies with its
  * QueuePair tuple information. This is all done over IP/UDP.
+ *
+ * \throw TransportException
+ *      There was a problem that prevented us from creating the session.
  */
 template<typename Infiniband>
 typename Infiniband::QueuePair*
@@ -616,8 +622,8 @@ InfRcTransport<Infiniband>::ServerConnectHandler::handleFileEvent(int events)
     if (len <= -1) {
         if (errno == EAGAIN)
             return;
-        LOG(ERROR, "recvfrom failed");
-        throw TransportException(HERE, "recvfrom failed");
+        LOG(ERROR, "recvfrom failed: %s", strerror(errno));
+        return;
     } else if (len != sizeof(incomingQpt)) {
         LOG(WARNING, "recvfrom got a strange incoming size: %Zd", len);
         return;
@@ -793,7 +799,7 @@ template<typename Infiniband>
 uint32_t
 InfRcTransport<Infiniband>::getMaxRpcSize() const
 {
-    return MAX_RPC_SIZE;
+    return MAX_RPC_LEN;
 }
 
 

@@ -495,10 +495,10 @@ TEST_F(TcpTransportTest, recvCarefully_ioErrors) {
     sys->recvEof = true;
     try {
         TcpTransport::recvCarefully(2, NULL, 100);
-    } catch (TcpTransport::TcpTransportEof& e) {
-        message = "eof";
+    } catch (TransportException& e) {
+        message = e.message;
     }
-    EXPECT_EQ("eof", message);
+    EXPECT_EQ("session closed by other end", message);
     sys->recvEof = false;
     sys->recvErrno = EAGAIN;
     EXPECT_EQ(0, TcpTransport::recvCarefully(2, NULL, 100));
@@ -973,7 +973,7 @@ TEST_F(TcpTransportTest, ClientSocketHandler_ioError) {
     rawSession->clientIoHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     EXPECT_EQ(-1, rawSession->fd);
     EXPECT_EQ("handleFileEvent: TcpTransport::ClientSocketHandler "
-            "closing session socket: I/O read error in TcpTransport: "
+            "aborting session: I/O read error in TcpTransport: "
             "Operation not permitted", TestLog::get());
     string message("no exception");
     EXPECT_STREQ("completed: 0, failed: 1", rpc1.getState());
