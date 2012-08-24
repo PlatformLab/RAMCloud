@@ -19,6 +19,7 @@
 #include "Buffer.h"
 #include "HashTable.h"
 #include "LogCleaner.h"
+#include "LogEntryRelocator.h"
 #include "LogEntryTypes.h"
 
 namespace RAMCloud {
@@ -54,7 +55,7 @@ class LogEntryHandlers {
      */
     virtual void relocate(LogEntryType type,
                           Buffer& oldBuffer,
-                          LogCleaner::Relocator& relocator) = 0;
+                          LogEntryRelocator& relocator) = 0;
 };
 
 } // namespace

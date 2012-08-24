@@ -2183,7 +2183,7 @@ MasterService::getTimestamp(LogEntryType type, Buffer& buffer)
 void
 MasterService::relocate(LogEntryType type,
                         Buffer& oldBuffer,
-                        LogCleaner::Relocator& relocator)
+                        LogEntryRelocator& relocator)
 {
     if (type == LOG_ENTRY_TYPE_OBJ)
         relocateObject(oldBuffer, relocator);
@@ -2216,7 +2216,7 @@ MasterService::relocate(LogEntryType type,
  */
 void
 MasterService::relocateObject(Buffer& oldBuffer,
-                              LogCleaner::Relocator& relocator)
+                              LogEntryRelocator& relocator)
 {
     Key key(LOG_ENTRY_TYPE_OBJ, oldBuffer);
 
@@ -2296,7 +2296,7 @@ MasterService::getObjectTimestamp(Buffer& buffer)
  */
 void
 MasterService::relocateTombstone(Buffer& oldBuffer,
-                                 LogCleaner::Relocator& relocator)
+                                 LogEntryRelocator& relocator)
 {
     ObjectTombstone tomb(oldBuffer);
 

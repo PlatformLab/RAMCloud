@@ -58,6 +58,7 @@ LogCleaner::LogCleaner(Context& context,
       candidates(),
       segletSize(segmentManager.getSegletSize()),
       segmentSize(segmentManager.getSegmentSize()),
+      inMemoryMetrics(),
       onDiskMetrics(),
       threadShouldExit(false),
       thread()
@@ -131,8 +132,10 @@ LogCleaner::dumpStats()
     fprintf(stderr, "  Avg cleaned seg util: %.3f%%\n", onDiskMetrics.getAverageCleanedSegmentUtilization());
     fprintf(stderr, "  Total time: %.3f ms\n", Cycles::toSeconds(onDiskMetrics.totalTicks) * 1000);
     fprintf(stderr, "   Total GSTC: %.3f ms\n", Cycles::toSeconds(onDiskMetrics.getSegmentsToCleanTicks) * 1000);
-    fprintf(stderr, "   Total GSLE: %.3f ms\n", Cycles::toSeconds(onDiskMetrics.getSortedLiveEntriesTicks) * 1000);
+    fprintf(stderr, "   Total GSLE: %.3f ms\n", Cycles::toSeconds(onDiskMetrics.getSortedEntriesTicks) * 1000);
     fprintf(stderr, "   Total RLE: %.3f ms\n", Cycles::toSeconds(onDiskMetrics.relocateLiveEntriesTicks) * 1000);
+    fprintf(stderr, "     Relocs: %.3f ms (avg %.3f us)\n", Cycles::toSeconds(onDiskMetrics.relocationCallbackTicks) * 1000, Cycles::toSeconds(onDiskMetrics.relocationCallbackTicks) * 1.0e6 / static_cast<double>(onDiskMetrics.totalRelocationCallbacks));
+    fprintf(stderr, "       Appends: %.3f ms (avg %.3f us)\n", Cycles::toSeconds(onDiskMetrics.relocationAppendTicks) * 1000, Cycles::toSeconds(onDiskMetrics.relocationAppendTicks) * 1.0e6 / static_cast<double>(onDiskMetrics.totalRelocationAppends));
     fprintf(stderr, "   Total CC: %.3f ms\n", Cycles::toSeconds(onDiskMetrics.cleaningCompleteTicks) * 1000);
     fprintf(stderr, "  %.2f MB freed/sec (memory)\n", static_cast<double>(onDiskMetrics.totalMemoryBytesFreed) / Cycles::toSeconds(onDiskMetrics.totalTicks) / 1024 / 1024); 
     fprintf(stderr, "  %.2f MB freed/sec (disk)\n", static_cast<double>(onDiskMetrics.totalDiskBytesFreed) / Cycles::toSeconds(onDiskMetrics.totalTicks) / 1024 / 1024); 
@@ -193,9 +196,7 @@ LogCleaner::doMemoryCleaning()
         Buffer buffer;
         it.appendToBuffer(buffer);
 
-        Relocator relocator(survivor, buffer.getTotalLength());
-        entryHandlers.relocate(type, buffer, relocator);
-        if (relocator.failed())
+        if (!relocateEntry(type, buffer, survivor, inMemoryMetrics))
             throw FatalError(HERE, "Entry didn't fit into survivor!");
     }
 
@@ -244,7 +245,7 @@ LogCleaner::doDiskCleaning()
     // Extract the currently live entries of the segments we're cleaning and
     // sort them by age.
     LiveEntryVector liveEntries;
-    getSortedLiveEntries(segmentsToClean, liveEntries);
+    getSortedEntries(segmentsToClean, liveEntries);
 
     // Relocate the live entries to survivor segments.
     uint32_t segletsAfter, segmentsAfter;
@@ -457,10 +458,10 @@ LogCleaner::getSegmentsToClean(LogSegmentVector& outSegmentsToClean,
  *      Vector containing sorted live entries in the segment.
  */
 void
-LogCleaner::getSortedLiveEntries(LogSegmentVector& segmentsToClean,
-                                 LiveEntryVector& outLiveEntries)
+LogCleaner::getSortedEntries(LogSegmentVector& segmentsToClean,
+                             LiveEntryVector& outLiveEntries)
 {
-    CycleCounter<uint64_t> _(&onDiskMetrics.getSortedLiveEntriesTicks);
+    CycleCounter<uint64_t> _(&onDiskMetrics.getSortedEntriesTicks);
 
     foreach (LogSegment* segment, segmentsToClean) {
         onDiskMetrics.totalBytesAllocatedInCleanedSegments +=
@@ -484,6 +485,15 @@ LogCleaner::getSortedLiveEntries(LogSegmentVector& segmentsToClean,
     }
 
     std::sort(outLiveEntries.begin(), outLiveEntries.end(), TimestampSorter());
+}
+
+void
+LogCleaner::closeSurvivor(LogSegment* survivor)
+{
+    onDiskMetrics.totalBytesAppendedToSurvivors +=
+        survivor->getAppendedLength();
+    survivor->close();
+    // tell RS to start syncing it, but do so without blocking
 }
 
 /**
@@ -516,32 +526,20 @@ LogCleaner::relocateLiveEntries(LiveEntryVector& liveEntries,
         Buffer buffer;
         LogEntryType type = entry.segment->getEntry(entry.offset, buffer);
 
-        Relocator relocator1(survivor, buffer.getTotalLength());
-        entryHandlers.relocate(type, buffer, relocator1);
-        if (relocator1.failed()) {
-            if (survivor != NULL) {
-                onDiskMetrics.totalBytesAppendedToSurvivors +=
-                    survivor->getAppendedLength();
-                survivor->close();
-                // tell RS to start syncing it, but do so without blocking
-            }
+        if (!relocateEntry(type, buffer, survivor, onDiskMetrics)) {
+            if (survivor != NULL)
+                closeSurvivor(survivor);
 
             survivor = segmentManager.allocSurvivor(1 /* XXX */);
             survivors.push_back(survivor);
 
-            Relocator relocator2(survivor, buffer.getTotalLength());
-            entryHandlers.relocate(type, buffer, relocator2);
-            if (relocator2.failed())
+            if (!relocateEntry(type, buffer, survivor, onDiskMetrics))
                 throw FatalError(HERE, "Entry didn't fit into empty survivor!");
         }
     }
 
-    if (survivor != NULL) {
-        onDiskMetrics.totalBytesAppendedToSurvivors +=
-            survivor->getAppendedLength();
-        survivor->close();
-        // tell RS to start syncing without blocking
-    }
+    if (survivor != NULL)
+        closeSurvivor(survivor);
 
     uint32_t survivorSegletsUsed = 0;
     foreach (survivor, survivors) {

@@ -29,7 +29,29 @@ namespace LogCleanerMetrics {
  */
 class InMemory {
   public:
+    InMemory()
+        : totalRelocationCallbacks(0),
+          totalRelocationAppends(0),
+          relocationCallbackTicks(0),
+          relocationAppendTicks(0)
+    {
+    }
 
+    /// Total number of times the entry relocation handler was called.
+    uint64_t totalRelocationCallbacks;
+
+    /// Total number of successful appends done in relocating a live object.
+    /// Appends that weren't successful due to insufficient space would have
+    /// bailed quickly and been retried after allocating a new survivor segment.
+    uint64_t totalRelocationAppends;
+
+    /// Total number of cpu cycles spent in the relocation callback. Note that
+    /// this will include time spent appending to the survivor segment if the
+    /// entry needed to be relocated.
+    uint64_t relocationCallbackTicks;
+
+    /// Total number of cpu cycles spent appending relocated entries.
+    uint64_t relocationAppendTicks;
 };
 
 /**
@@ -42,11 +64,15 @@ class OnDisk {
           totalMemoryBytesFreed(0),
           totalDiskBytesFreed(0),
           totalBytesAllocatedInCleanedSegments(0),
+          totalRelocationCallbacks(0),
+          totalRelocationAppends(0),
           totalTicks(0),
           getSegmentsToCleanTicks(0),
-          getSortedLiveEntriesTicks(0),
+          getSortedEntriesTicks(0),
           relocateLiveEntriesTicks(0),
-          cleaningCompleteTicks(0)
+          cleaningCompleteTicks(0),
+          relocationCallbackTicks(0),
+          relocationAppendTicks(0)
     {
     }
 
@@ -83,20 +109,36 @@ class OnDisk {
     /// Total number of bytes allocated to segments that were cleaned.
     uint64_t totalBytesAllocatedInCleanedSegments;
 
+    /// Total number of times the entry relocation handler was called.
+    uint64_t totalRelocationCallbacks;
+
+    /// Total number of successful appends done in relocating a live object.
+    /// Appends that weren't successful due to insufficient space would have
+    /// bailed quickly and been retried after allocating a new survivor segment.
+    uint64_t totalRelocationAppends;
+
     /// Total number of cpu cycles spent in doDiskCleaning().
     uint64_t totalTicks;
 
     /// Total number of cpu cycles spent in getSegmentsToClean().
     uint64_t getSegmentsToCleanTicks;
 
-    /// Total number of cpu cycles spent in getSortedLiveEntries().
-    uint64_t getSortedLiveEntriesTicks;
+    /// Total number of cpu cycles spent in getSortedEntries().
+    uint64_t getSortedEntriesTicks;
 
     /// Total number of cpu cycles spent in relocateLiveEntries().
     uint64_t relocateLiveEntriesTicks;
 
     /// Total number of cpu cycles spent in SegmentManager::cleaningComplete().
     uint64_t cleaningCompleteTicks;
+
+    /// Total number of cpu cycles spent in the relocation callback. Note that
+    /// this will include time spent appending to the survivor segment if the
+    /// entry needed to be relocated.
+    uint64_t relocationCallbackTicks;
+
+    /// Total number of cpu cycles spent appending relocated entries.
+    uint64_t relocationAppendTicks;
 };
 
 } // namespace LogCleanerMetrics

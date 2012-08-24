@@ -58,7 +58,7 @@ class MasterService : public Service, LogEntryHandlers {
     uint32_t getTimestamp(LogEntryType type, Buffer& buffer);
     void relocate(LogEntryType type,
                   Buffer& oldBuffer,
-                  LogCleaner::Relocator& relocator);
+                  LogEntryRelocator& relocator);
 
   PRIVATE:
     /**
@@ -288,11 +288,11 @@ class MasterService : public Service, LogEntryHandlers {
         __attribute__((warn_unused_result));
     bool checkObjectLiveness(Buffer& buffer);
     void relocateObject(Buffer& oldBuffer,
-                        LogCleaner::Relocator& relocator);
+                        LogEntryRelocator& relocator);
     uint32_t getObjectTimestamp(Buffer& buffer);
     bool checkTombstoneLiveness(Buffer& buffer);
     void relocateTombstone(Buffer& oldBuffer,
-                           LogCleaner::Relocator& relocator); 
+                           LogEntryRelocator& relocator); 
     uint32_t getTombstoneTimestamp(Buffer& buffer);
     Status storeObject(Key& key,
                        const RejectRules* rejectRules,
