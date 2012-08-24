@@ -38,7 +38,12 @@ CoordinatorServiceRecovery::replay(bool testing)
     // Get all the entries appended to the log.
     // TODO(ankitak): After ongaro has added curser API to LogCabin,
     // use that to read in one entry at a time.
-    vector<Entry> entriesRead = service.logCabinLog->read(0);
+
+    // Also, since LogCabin doesn't have a log cleaner yet, a read()
+    // returns all entries, including those that were invalidated.
+    // Thus, use the temporary workaround function,
+    // LogCabinHelper::readValidEntries() that returns only valid entries.
+    vector<Entry> entriesRead = service.logCabinHelper->readValidEntries();
 
     for (vector<Entry>::iterator it = entriesRead.begin();
             it < entriesRead.end(); it++) {
