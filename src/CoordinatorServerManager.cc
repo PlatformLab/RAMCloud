@@ -190,7 +190,7 @@ CoordinatorServerManager::EnlistServer::complete(EntryId entryId)
     state.set_service_locator(string(serviceLocator));
 
     EntryId newEntryId = manager.service.logCabinHelper->appendProtoBuf(
-        state, vector<EntryId>(entryId));
+        state, vector<EntryId>({entryId}));
     manager.service.serverList.addServerInfoLogId(newServerId, newEntryId);
     LOG(DEBUG, "LogCabin: ServerEnlisted entryId: %lu", newEntryId);
 

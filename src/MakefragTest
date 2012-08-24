@@ -42,6 +42,7 @@ TESTS_SRCFILES := \
 		  src/InitializeTest.cc \
 		  src/IpAddressTest.cc \
 		  src/KeyTest.cc \
+		  src/LogCabinHelperTest.cc \
 		  src/LogCleanerTest.cc \
 		  src/LogDigestTest.cc \
 		  src/LoggerTest.cc \
