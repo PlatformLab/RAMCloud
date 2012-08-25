@@ -513,7 +513,9 @@ TEST_F(TcpTransportTest, recvCarefully_ioErrors) {
             "Operation not permitted", message);
 }
 
-TEST_F(TcpTransportTest, readMessage_receiveHeaderInPieces) {
+// (IncomingMessage::cancel is tested by cancelRequest tests below.)
+
+TEST_F(TcpTransportTest, IncomingMessage_readMessage_receiveHeaderInPieces) {
     int fd = connectToServer(locator);
     server.acceptHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
@@ -540,7 +542,7 @@ TEST_F(TcpTransportTest, readMessage_receiveHeaderInPieces) {
     close(fd);
 }
 
-TEST_F(TcpTransportTest, readMessage_messageTooLong) {
+TEST_F(TcpTransportTest, IncomingMessage_readMessage_messageTooLong) {
     int fd = connectToServer(locator);
     server.acceptHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
@@ -558,7 +560,7 @@ TEST_F(TcpTransportTest, readMessage_messageTooLong) {
     close(fd);
 }
 
-TEST_F(TcpTransportTest, readMessage_getBufferFromSession) {
+TEST_F(TcpTransportTest, IncomingMessage_readMessage_getBufferFromSession) {
     // This test is a bit goofy, and that we set up a server, then
     // initialize the IncomingMessage to receive a client-side reply.
     int fd = connectToServer(locator);
@@ -581,7 +583,7 @@ TEST_F(TcpTransportTest, readMessage_getBufferFromSession) {
     close(fd);
 }
 
-TEST_F(TcpTransportTest, readMessage_findRpcReturnsNull) {
+TEST_F(TcpTransportTest, IncomingMessage_readMessage_findRpcReturnsNull) {
     int fd = connectToServer(locator);
     server.acceptHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
@@ -596,7 +598,7 @@ TEST_F(TcpTransportTest, readMessage_findRpcReturnsNull) {
     close(fd);
 }
 
-TEST_F(TcpTransportTest, readMessage_receiveBodyInPieces) {
+TEST_F(TcpTransportTest, IncomingMessage_readMessage_receiveBodyInPieces) {
     int fd = connectToServer(locator);
     server.acceptHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
@@ -624,7 +626,7 @@ TEST_F(TcpTransportTest, readMessage_receiveBodyInPieces) {
     close(fd);
 }
 
-TEST_F(TcpTransportTest, readMessage_discardExtraneousBytes) {
+TEST_F(TcpTransportTest, IncomingMessage_readMessage_discardExtraneousBytes) {
     int fd = connectToServer(locator);
     server.acceptHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
@@ -725,6 +727,49 @@ TEST_F(TcpTransportTest, TcpSession_cancelRequest_waitingForResponse) {
             rawSession->rpcsWaitingForResponse.front().request));
     session->cancelRequest(&rpc1);
     EXPECT_EQ(0U, rawSession->rpcsWaitingForResponse.size());
+}
+
+TEST_F(TcpTransportTest, TcpSession_cancelRequest_responsePartiallyReceived) {
+    // Make sure that if an RPC is canceled part-way through receiving
+    // its response, the response buffer is not accessed after cancelRequest
+    // returns.
+    Transport::SessionRef session = client.getSession(locator);
+    TcpTransport::TcpSession* rawSession =
+            reinterpret_cast<TcpTransport::TcpSession*>(session.get());
+
+    // Send a request and receive it on the server.
+    MockWrapper rpc("request1");
+    session->sendRequest(&rpc.request, &rpc.response, &rpc);
+    TcpTransport::TcpServerRpc* serverRpc =
+            static_cast<TcpTransport::TcpServerRpc*>(
+            serviceManager->waitForRpc(1.0));
+    EXPECT_TRUE(serverRpc != NULL);
+    TcpTransport::TcpClientRpc* clientRpc =
+            &(rawSession->rpcsWaitingForResponse.front());
+    EXPECT_EQ(&rpc, clientRpc->notifier);
+
+    // Reply in two messages, calling cancelRequest in-between the two.
+    TcpTransport::Header header;
+    header.nonce = clientRpc->nonce;
+    header.len = 21;
+    write(serverRpc->fd, &header, sizeof(header));
+    write(serverRpc->fd, "First part", 10);
+    int readEvent = Dispatch::FileEvent::READABLE;
+    rawSession->clientIoHandler->handleFileEvent(readEvent);
+    EXPECT_EQ(21U, rpc.response.getTotalLength());
+    // The second part of the buffer is uninitialized, so store
+    // something predictable there to simplify assertion checking.
+    void *garbage;
+    rpc.response.peek(10, const_cast<const void**>(&garbage));
+    memcpy(garbage, "-------------", 11);
+    EXPECT_EQ("First part-----------", TestUtil::toString(&rpc.response));
+    session->cancelRequest(&rpc);
+    EXPECT_TRUE(rawSession->current == NULL);
+    write(serverRpc->fd, "Second part", 11);
+    rawSession->clientIoHandler->handleFileEvent(readEvent);
+    EXPECT_EQ("First part-----------", TestUtil::toString(&rpc.response));
+    server.serverRpcPool.destroy(
+        static_cast<TcpTransport::TcpServerRpc*>(serverRpc));
 }
 
 TEST_F(TcpTransportTest, TcpSession_cancelRequest_waitingToSend) {

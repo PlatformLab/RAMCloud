@@ -85,6 +85,7 @@ class TcpTransport : public Transport {
         friend class TcpServerRpc;
       public:
         IncomingMessage(Buffer* buffer, TcpSession* session);
+        void cancel();
         bool readMessage(int fd);
       PRIVATE:
         Header header;
@@ -105,8 +106,9 @@ class TcpTransport : public Transport {
         uint32_t messageLength;
 
         /// Buffer in which incoming message will be stored (not including
-        /// transport-specific header).  NULL means the message will be
-        /// discarded.
+        /// transport-specific header); NULL means we haven't yet started
+        /// reading the response, or else the RPC was canceled after we
+        /// started reading the response.
         Buffer* buffer;
 
         /// Session that will find the buffer to use for this message once

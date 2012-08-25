@@ -471,6 +471,18 @@ TcpTransport::IncomingMessage::IncomingMessage(Buffer* buffer,
 }
 
 /**
+ * This method is invoked to cancel the receipt of a message in progress.
+ * Once this method returns, we will still finish reading the message
+ * (don't want to leave unread bytes in the socket), but the contents
+ * will be discarded.
+ */
+void
+TcpTransport::IncomingMessage::cancel() {
+    buffer = NULL;
+    messageLength = 0;
+}
+
+/**
  * Attempt to read part or all of a message from an open socket.
  *
  * \param fd
@@ -627,6 +639,13 @@ TcpTransport::TcpSession::cancelRequest(RpcNotifier* notifier)
                     rpcsWaitingForResponse.iterator_to(rpc));
             transport.clientRpcPool.destroy(&rpc);
             alarm.rpcFinished();
+
+            // If we have started reading the response message,
+            // cancel that also.
+            if (&rpc == current) {
+                message->cancel();
+                current = NULL;
+            }
             return;
         }
     }
