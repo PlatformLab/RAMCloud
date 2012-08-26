@@ -50,7 +50,7 @@ TEST_F(WireFormatTest, opcodeSymbol_integer) {
             WireFormat::ILLEGAL_RPC_TYPE));
 
     // Test out-of-range values.
-    EXPECT_STREQ("unknown(53)", WireFormat::opcodeSymbol(
+    EXPECT_STREQ("unknown(54)", WireFormat::opcodeSymbol(
             WireFormat::ILLEGAL_RPC_TYPE+1));
 
     // Make sure the next-to-last value is defined (this will fail if

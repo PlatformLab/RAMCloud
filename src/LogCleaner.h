@@ -33,6 +33,8 @@
 
 namespace RAMCloud {
 
+class ServerConfig;
+
 /**
  * The LogCleaner defragments a Log's closed segments, writing out any live
  * data to new "survivor" segments and reclaiming space used by dead log
@@ -57,10 +59,10 @@ namespace RAMCloud {
 class LogCleaner {
   public:
     LogCleaner(Context& context,
+               const ServerConfig& config,
                SegmentManager& segmentManager,
                ReplicaManager& replicaManager,
-               LogEntryHandlers& entryHandlers,
-               uint32_t writeCostThreshold);
+               LogEntryHandlers& entryHandlers);
     ~LogCleaner();
     void start();
     void stop();
@@ -132,7 +134,7 @@ class LogCleaner {
      * that will quickly decay and those that will last long into different
      * segments, which in turn makes cleaning more efficient.
      */
-    class TimestampSorter {
+    class TimestampComparer {
       public:
         bool
         operator()(const LiveEntry& a, const LiveEntry& b)
@@ -146,8 +148,10 @@ void dumpStats(); //XXX
     double doMemoryCleaning();
     void doDiskCleaning();
     LogSegment* getSegmentToCompact(uint32_t& outFreeableSeglets);
+    void sortSegmentsByCostBenefit(LogSegmentVector& segments);
     void getSegmentsToClean(LogSegmentVector& outSegmentsToClean,
                             uint32_t& outTotalSeglets);
+    void sortEntriesByTimestamp(LiveEntryVector& entries);
     void getSortedEntries(LogSegmentVector& segmentsToClean,
                           LiveEntryVector& outLiveEntries);
     void relocateLiveEntries(LiveEntryVector& liveEntries,
@@ -200,6 +204,10 @@ void dumpStats(); //XXX
     /// not free up tombstones and can become very expensive before we run out
     /// of disk space and fire up the disk cleaner.
     double writeCostThreshold;
+
+    /// If true, the in-memory cleaner will never be run. Instead, the disk
+    /// cleaner will run in its place.
+    bool disableInMemoryCleaning;
 
     /// Closed log segments that are candidates for cleaning. Before each
     /// cleaning pass this list will be updated from the SegmentManager with

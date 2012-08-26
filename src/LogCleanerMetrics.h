@@ -63,12 +63,15 @@ class OnDisk {
         : totalBytesAppendedToSurvivors(0),
           totalMemoryBytesFreed(0),
           totalDiskBytesFreed(0),
-          totalBytesAllocatedInCleanedSegments(0),
+          totalMemoryBytesInCleanedSegments(0),
+          totalDiskBytesInCleanedSegments(0),
           totalRelocationCallbacks(0),
           totalRelocationAppends(0),
           totalTicks(0),
           getSegmentsToCleanTicks(0),
+          costBenefitSortTicks(0),
           getSortedEntriesTicks(0),
+          timestampSortTicks(0),
           relocateLiveEntriesTicks(0),
           cleaningCompleteTicks(0),
           relocationCallbackTicks(0),
@@ -91,10 +94,17 @@ class OnDisk {
     }
 
     double
-    getAverageCleanedSegmentUtilization()
+    getAverageCleanedSegmentMemoryUtilization()
     {
         return 100 * static_cast<double>(totalBytesAppendedToSurvivors) /
-                     static_cast<double>(totalBytesAllocatedInCleanedSegments);
+                     static_cast<double>(totalMemoryBytesInCleanedSegments);
+    }
+
+    double
+    getAverageCleanedSegmentDiskUtilization()
+    {
+        return 100 * static_cast<double>(totalBytesAppendedToSurvivors) /
+                     static_cast<double>(totalDiskBytesInCleanedSegments);
     }
 
     /// Total number of bytes appended to survivor segments.
@@ -106,8 +116,13 @@ class OnDisk {
     /// Total number of bytes freed on disk by cleaning (net gain).
     uint64_t totalDiskBytesFreed;
 
-    /// Total number of bytes allocated to segments that were cleaned.
-    uint64_t totalBytesAllocatedInCleanedSegments;
+    /// Total number of bytes allocated to segments that were cleaned. This is
+    /// the amount of space in memory only.
+    uint64_t totalMemoryBytesInCleanedSegments;
+
+    /// Total number of bytes on disk for segments that were cleaned. This is
+    /// equal to the number of segments cleaned times the segment size.
+    uint64_t totalDiskBytesInCleanedSegments;
 
     /// Total number of times the entry relocation handler was called.
     uint64_t totalRelocationCallbacks;
@@ -123,8 +138,16 @@ class OnDisk {
     /// Total number of cpu cycles spent in getSegmentsToClean().
     uint64_t getSegmentsToCleanTicks;
 
+    /// Total number of cpu cycles spent sorting candidate segments by best
+    /// cost-benefit.
+    uint64_t costBenefitSortTicks;
+
     /// Total number of cpu cycles spent in getSortedEntries().
     uint64_t getSortedEntriesTicks;
+
+    /// Total number of cpu cycles spent sorting entries from segments being
+    /// cleaned according to their timestamp.
+    uint64_t timestampSortTicks;
 
     /// Total number of cpu cycles spent in relocateLiveEntries().
     uint64_t relocateLiveEntriesTicks;

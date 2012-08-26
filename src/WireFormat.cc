@@ -95,6 +95,7 @@ opcodeSymbol(uint32_t opcode)
         case SPLIT_TABLET:               return "SPLIT_TABLET";
         case GET_SERVER_STATISTICS:      return "GET_SERVER_STATISTICS";
         case SET_RUNTIME_OPTION:         return "SET_RUNTIME_OPTION";
+        case GET_SERVER_CONFIG:          return "GET_SERVER_CONFIG";
         case ILLEGAL_RPC_TYPE:           return "ILLEGAL_RPC_TYPE";
     }
 

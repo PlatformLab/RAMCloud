@@ -24,6 +24,7 @@
 #include "MembershipService.h"
 #include "ProtoBuf.h"
 #include "ServerId.h"
+#include "ServerConfig.pb.h"
 #include "ServerList.pb.h"
 #include "ShortMacros.h"
 
@@ -34,9 +35,11 @@ namespace RAMCloud {
  * per server.
  */
 MembershipService::MembershipService(ServerId& ourServerId,
-                                     ServerList& serverList)
+                                     ServerList& serverList,
+                                     const ServerConfig& serverConfig)
     : serverId(ourServerId),
-      serverList(serverList)
+      serverList(serverList),
+      serverConfig(serverConfig)
 {
     // The coordinator will push the server list to us once we've
     // enlisted.
@@ -49,6 +52,10 @@ void
 MembershipService::dispatch(WireFormat::Opcode opcode, Rpc& rpc)
 {
     switch (opcode) {
+    case WireFormat::GetServerConfig::opcode:
+        callHandler<WireFormat::GetServerConfig, MembershipService,
+            &MembershipService::getServerConfig>(rpc);
+        break;
     case WireFormat::GetServerId::opcode:
         callHandler<WireFormat::GetServerId, MembershipService,
             &MembershipService::getServerId>(rpc);
@@ -67,7 +74,29 @@ MembershipService::dispatch(WireFormat::Opcode opcode, Rpc& rpc)
 }
 
 /**
- * Top-level service method to handle the REPLACE_SERVER_LIST request.
+ * Top-level service method to handle the GET_SERVER_CONFIG request.
+ *
+ * Yes, this is out of place in the membership service, but it needs to be
+ * handled by a service that will always be present and it seems silly to
+ * introduce one for a single RPC. If there are others, perhaps we will
+ * want a generic server information service.
+ *
+ * \copydetails Service::ping
+ */
+void
+MembershipService::getServerConfig(
+    const WireFormat::GetServerConfig::Request& reqHdr,
+    WireFormat::GetServerConfig::Response& respHdr,
+    Rpc& rpc)
+{
+    ProtoBuf::ServerConfig serverConfigBuf;
+    serverConfig.serialize(serverConfigBuf);
+    respHdr.serverConfigLength = ProtoBuf::serializeToResponse(rpc.replyPayload,
+                                                               serverConfigBuf);
+}
+
+/**
+ * Top-level service method to handle the GET_SERVER_ID request.
  *
  * \copydetails Service::ping
  */

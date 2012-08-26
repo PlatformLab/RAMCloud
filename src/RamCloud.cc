@@ -453,6 +453,79 @@ GetMetricsLocatorRpc::wait()
 }
 
 /**
+ * Retreive a server's runtime configuration.
+ *
+ * \param serviceLocator
+ *      Selects the server, whose configuration should be retrieved.
+ * \param[out] serverConfig
+ *      This protocol buffer is filled in with the server's configuration.
+ *
+ * \throw TransportException
+ *       Thrown if an unrecoverable error occurred while communicating with
+ *       the target server.
+ */
+void
+RamCloud::getServerConfig(const char* serviceLocator,
+                          ProtoBuf::ServerConfig& serverConfig)
+{
+    GetServerConfigRpc rpc(*this, serviceLocator);
+    rpc.wait(serverConfig);
+}
+
+/**
+ * Constructor for GetServerConfigRpc: initiates an RPC in the same way as
+ * #RamCloud::getServerConfig, but returns once the RPC has been initiated,
+ * without waiting for it to complete.
+ *
+ * \param ramcloud
+ *      The RAMCloud object that governs this RPC.
+ * \param serviceLocator
+ *      Selects the server, whose configuration should be retrieved.
+ */
+GetServerConfigRpc::GetServerConfigRpc(RamCloud& ramcloud,
+                                       const char* serviceLocator)
+    : RpcWrapper(sizeof(WireFormat::GetServerConfig::Response))
+    , ramcloud(ramcloud)
+{
+    try {
+        session = ramcloud.clientContext.transportManager->getSession(
+                serviceLocator);
+    } catch (const TransportException& e) {
+        session = FailSession::get();
+    }
+    allocHeader<WireFormat::GetServerConfig>();
+    send();
+}
+
+/**
+ * Wait for a getServerConfig RPC to complete, and return the same results as
+ * #RamCloud::getServerConfig.
+ *
+ * \param[out] serverConfig
+ *      This protocol buffer is filled in with the server's configuration.
+ *
+ * \throw TransportException
+ *       Thrown if an unrecoverable error occurred while communicating with
+ *       the target server.
+ */
+void
+GetServerConfigRpc::wait(ProtoBuf::ServerConfig& serverConfig)
+{
+    waitInternal(*ramcloud.clientContext.dispatch);
+    if (getState() != RpcState::FINISHED) {
+        throw TransportException(HERE);
+    }
+    const WireFormat::GetServerConfig::Response& respHdr(
+            getResponseHeader<WireFormat::GetServerConfig>());
+
+    if (respHdr.common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr.common.status);
+
+    ProtoBuf::parseFromResponse(*response, sizeof(respHdr),
+        respHdr.serverConfigLength, serverConfig);
+}
+
+/**
  * Retrieve server statistics from a given server.
  *
  * \param serviceLocator

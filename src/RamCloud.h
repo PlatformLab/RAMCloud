@@ -22,6 +22,7 @@
 #include "ObjectFinder.h"
 #include "ObjectRpcWrapper.h"
 #include "ServerMetrics.h"
+#include "ServerConfig.pb.h"
 
 namespace RAMCloud {
 class MultiReadObject;
@@ -45,6 +46,8 @@ class RamCloud {
     ServerMetrics getMetrics(uint64_t tableId, const void* key,
             uint16_t keyLength);
     ServerMetrics getMetrics(const char* serviceLocator);
+    void getServerConfig(const char* serviceLocator,
+            ProtoBuf::ServerConfig& serverConfig);
     void getServerStatistics(const char* serviceLocator,
             ProtoBuf::ServerStatistics& serverStats);
     string* getServiceLocator();
@@ -269,6 +272,21 @@ class GetMetricsLocatorRpc : public RpcWrapper {
   PRIVATE:
     RamCloud& ramcloud;
     DISALLOW_COPY_AND_ASSIGN(GetMetricsLocatorRpc);
+};
+
+/**
+ * Encapsulates the state of a RamCloud::getServerConfig operation,
+ * allowing it to execute asynchronously.
+ */
+class GetServerConfigRpc : public RpcWrapper {
+  public:
+    GetServerConfigRpc(RamCloud& ramcloud, const char* serviceLocator);
+    ~GetServerConfigRpc() {}
+    void wait(ProtoBuf::ServerConfig& serverConfig);
+
+  PRIVATE:
+    RamCloud& ramcloud;
+    DISALLOW_COPY_AND_ASSIGN(GetServerConfigRpc);
 };
 
 /**

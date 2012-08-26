@@ -23,6 +23,8 @@
 
 namespace RAMCloud {
 
+class ServerConfig;
+
 /**
  * This class manages the allocation of all seglets in a server. For more
  * details on the purposes of seglets, see the Seglet and Segment classes.
@@ -65,8 +67,7 @@ class SegletAllocator {
         DEFAULT
     };
 
-    SegletAllocator(uint64_t totalBytes,
-                    uint32_t segletSize = Seglet::DEFAULT_SEGLET_SIZE);
+    SegletAllocator(const ServerConfig& config);
     ~SegletAllocator();
     bool alloc(AllocationType type,
                uint32_t count,

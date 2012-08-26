@@ -109,9 +109,9 @@ MasterService::MasterService(Context& context,
     , serverId()
     , bytesWritten(0)
     , replicaManager(context, serverId, config.master.numReplicas)
-    , allocator(config.master.logBytes, config.segletSize)
-    , segmentManager(context, config.segmentSize, serverId,
-                     allocator, replicaManager, 2.0)
+    , allocator(config)
+    , segmentManager(context, config, serverId,
+                     allocator, replicaManager)
     , log(NULL)
     , keyComparer(NULL)
     , objectMap(NULL)
@@ -235,7 +235,7 @@ MasterService::init(ServerId id)
     LOG(NOTICE, "My server ID is %lu", serverId.getId());
     metrics->serverId = serverId.getId();
 
-    log = new Log(context, *this, segmentManager, replicaManager);
+    log = new Log(context, config, *this, segmentManager, replicaManager);
     keyComparer = new LogKeyComparer(*log);
     objectMap = new HashTable(config.master.hashTableBytes /
         HashTable::bytesPerCacheLine(), *keyComparer);

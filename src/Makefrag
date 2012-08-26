@@ -108,6 +108,7 @@ SHARED_SRCFILES := \
 		   $(INFINIBAND_SRCFILES) \
 		   $(OBJDIR)/EnumerationIterator.pb.cc \
 		   $(OBJDIR)/MetricList.pb.cc \
+		   $(OBJDIR)/ServerConfig.pb.cc \
 		   $(OBJDIR)/ServerList.pb.cc \
 		   $(OBJDIR)/ServerStatistics.pb.cc \
 		   $(OBJDIR)/Tablets.pb.cc \

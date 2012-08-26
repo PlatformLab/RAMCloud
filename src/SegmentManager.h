@@ -69,11 +69,10 @@ class SegmentManager {
     class Allocator;
 
     SegmentManager(Context& context,
-                   uint32_t segmentSize,
+                   const ServerConfig& config,
                    ServerId& logId,
                    SegletAllocator& allocator,
-                   ReplicaManager& replicaManager,
-                   double diskExpansionFactor);
+                   ReplicaManager& replicaManager);
     ~SegmentManager();
     LogSegment* allocHead(bool mustNotFail);
     LogSegment* allocSurvivor(uint64_t headSegmentIdDuringCleaning);

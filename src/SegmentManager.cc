@@ -19,6 +19,7 @@
 #include "ShortMacros.h"
 #include "SegletAllocator.h"
 #include "SegmentManager.h"
+#include "ServerConfig.h"
 #include "ServerRpcPool.h"
 
 namespace RAMCloud {
@@ -28,41 +29,33 @@ namespace RAMCloud {
  *
  * \param context
  *      The RAMCloud context this will run under.
+ * \param config 
+ *      Server runtime configuration options, including the size of each segment
+ *      and the disk expansion factor.
  * \param logId
  *      Identifier of the log this object will manage. Used to stamp segments
  *      so they can be later identified on backups.
- * \param segmentSize
- *      Size of segments in bytes. This must be an integer multiple of the size
- *      of seglets the allocator provides.
  * \param allocator
  *      SegletAllocator to use to allocate memory from when constructing new log
  *      segments.
  * \param replicaManager
  *      The replica manager that will handle replication of segments this class
  *      allocates.
- * \param diskExpansionFactor
- *      Multiplication factor that determines how much extra space (if any) will
- *      be allocated on backups. This is a real number greater than of equal to
- *      1.0. For example, a factor of 2 would mean that up to twice the amount
- *      of storage in the master's DRAM will be allocated on backup disks. In
- *      conjunction with in-memory cleaning, this drives down cleaning costs.
- *      Factors larger than 2 or 3 will likely have quickly diminishing returns.
  */
 SegmentManager::SegmentManager(Context& context,
-                               uint32_t segmentSize,
+                               const ServerConfig& config,
                                ServerId& logId,
                                SegletAllocator& allocator,
-                               ReplicaManager& replicaManager,
-                               double diskExpansionFactor)
+                               ReplicaManager& replicaManager)
     : context(context),
-      segmentSize(segmentSize),
+      segmentSize(config.segmentSize),
       logId(logId),
       allocator(allocator),
       replicaManager(replicaManager),
       segletsPerSegment(segmentSize / allocator.getSegletSize()),
       maxSegments(static_cast<uint32_t>(static_cast<double>(
         allocator.getTotalCount() / segletsPerSegment)
-          * diskExpansionFactor)),
+          * config.master.diskExpansionFactor)),
       segments(NULL),
       states(NULL),
       freeEmergencyHeadSlots(),
@@ -80,7 +73,7 @@ SegmentManager::SegmentManager(Context& context,
     if ((segmentSize % allocator.getSegletSize()) != 0)
         throw SegmentManagerException(HERE, "segmentSize % segletSize != 0");
 
-    if (diskExpansionFactor < 1.0)
+    if (config.master.diskExpansionFactor < 1.0)
         throw SegmentManagerException(HERE, "diskExpansionFactor not >= 1.0");
 
     if (!allocator.initializeEmergencyHeadReserve(2 * segletsPerSegment))

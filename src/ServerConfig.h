@@ -22,6 +22,8 @@
 #include "ServiceMask.h"
 #include "HashTable.h"
 
+#include "ServerConfig.pb.h"
+
 namespace RAMCloud {
 
 /**
@@ -34,6 +36,10 @@ namespace RAMCloud {
  *
  * Instances for unit-testing are created using the forTesting() static method
  * which tries to provide some sane defaults for testing.
+ *
+ * A protocol buffer containing all of the same fields is used to serialize a
+ * configuration and return it to curious client machines. Whenever parameters
+ * are added to or removed from this file, please update ServerConfig.proto.
  */
 struct ServerConfig {
   private:
@@ -108,6 +114,32 @@ struct ServerConfig {
         return {};
     }
 
+    /**
+     * Serialize this ServerConfiguration to the given protocol buffer. This is
+     * typically used to peek at a running server's configuration from a remote
+     * machine.
+     */
+    void
+    serialize(ProtoBuf::ServerConfig& config) const
+    {
+        config.set_coordinator_locator(coordinatorLocator);
+        config.set_local_locator(coordinatorLocator);
+        config.set_cluster_name(clusterName);
+        config.set_services(services.toString());
+        config.set_detect_failures(detectFailures);
+        config.set_pin_memory(pinMemory);
+        config.set_segment_size(segmentSize);
+        config.set_seglet_size(segletSize);
+        config.set_max_object_data_size(maxObjectDataSize);
+        config.set_max_object_key_size(maxObjectKeySize);
+
+        if (services.has(WireFormat::MASTER_SERVICE))
+            master.serialize(*config.mutable_master());
+
+        if (services.has(WireFormat::BACKUP_SERVICE))
+            backup.serialize(*config.mutable_backup());
+    }
+
     /// A locator the server can use to contact the cluster coordinator.
     string coordinatorLocator;
 
@@ -180,6 +212,9 @@ struct ServerConfig {
             : logBytes(32 * 1024 * 1024)
             , hashTableBytes(1 * 1024 * 1024)
             , disableLogCleaner(true)
+            , disableInMemoryCleaning(true)
+            , diskExpansionFactor(1.0)
+            , cleanerWriteCostThreshold(0)
             , numReplicas(0)
         {}
 
@@ -192,8 +227,26 @@ struct ServerConfig {
             : logBytes()
             , hashTableBytes()
             , disableLogCleaner()
+            , disableInMemoryCleaning()
+            , diskExpansionFactor()
+            , cleanerWriteCostThreshold()
             , numReplicas()
         {}
+
+        /**
+         * Serialize this master configuration to the provided protocol buffer.
+         */
+        void
+        serialize(ProtoBuf::ServerConfig_Master& config) const
+        {
+            config.set_log_bytes(logBytes);
+            config.set_hash_table_bytes(hashTableBytes);
+            config.set_disable_log_cleaner(disableLogCleaner);
+            config.set_disable_in_memory_cleaning(disableInMemoryCleaning);
+            config.set_backup_disk_expansion_factor(diskExpansionFactor);
+            config.set_cleaner_write_cost_threshold(cleanerWriteCostThreshold);
+            config.set_num_replicas(numReplicas);
+        }
 
         /// Total number bytes to use for the in-memory Log.
         uint64_t logBytes;
@@ -203,6 +256,20 @@ struct ServerConfig {
 
         /// If true, disable the log cleaner entirely.
         bool disableLogCleaner;
+
+        /// If true, the cleaner will not compact in memory and always cleans
+        /// on both in memory and on disk.
+        bool disableInMemoryCleaning;
+
+        /// Specifies how many segments may be allocated on backup disks beyond
+        /// the server's memory capacity. For instance, a value of 2.0 means
+        /// that for every full segment's worth of space in the server's memory,
+        /// we may allocate two segments on backup disks.
+        double diskExpansionFactor;
+
+        /// If in-memory cleaning is enabled, this specifies the balance between
+        /// in-memory and disk cleaning.
+        uint32_t cleanerWriteCostThreshold;
 
         /// Number of replicas to keep per segment stored on backups.
         uint32_t numReplicas;
@@ -239,6 +306,21 @@ struct ServerConfig {
             , strategy(1)
             , mockSpeed(0)
         {}
+
+        /**
+         * Serialize this backup configuration to the provided protocol buffer.
+         */
+        void
+        serialize(ProtoBuf::ServerConfig_Backup& config) const
+        {
+            config.set_gc(gc);
+            config.set_in_memory(inMemory);
+            config.set_num_segment_frames(numSegmentFrames);
+            if (!inMemory)
+                config.set_file(file);
+            config.set_strategy(strategy);
+            config.set_mock_speed(mockSpeed);
+        }
 
         /**
          * Whether the BackupService should periodically try to free replicas

@@ -15,6 +15,7 @@
 
 #include "Common.h"
 #include "SegletAllocator.h"
+#include "ServerConfig.h"
 #include "ShortMacros.h"
 
 namespace RAMCloud {
@@ -24,21 +25,20 @@ namespace RAMCloud {
  * and chopping it up into individual seglets of the specified size. All
  * seglets will be placed in the lowest priority "default" pool.
  *
- * \param totalBytes
- *      Total number of bytes to allocate to seglets.
- * \param segletSize
- *      The size of each seglet in bytes.
+ * \param config
+ *      Server runtime configuration, specifying various parameters like
+ *      seglet size and bytes to allocate for seglets.
  *
  */
-SegletAllocator::SegletAllocator(uint64_t totalBytes, uint32_t segletSize)
-    : segletSize(segletSize),
+SegletAllocator::SegletAllocator(const ServerConfig& config)
+    : segletSize(config.segletSize),
       lock(),
       emergencyHeadPool(),
       emergencyHeadPoolReserve(0),
       cleanerPool(),
       cleanerPoolReserve(0),
       defaultPool(),
-      block(totalBytes)
+      block(config.master.logBytes)
 {
     uint8_t* segletBlock = block.get();
     for (size_t i = 0; i < (block.length / segletSize); i++) {

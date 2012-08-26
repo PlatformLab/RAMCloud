@@ -23,6 +23,7 @@
 #include "ShortMacros.h"
 #include "Segment.h"
 #include "SegmentIterator.h"
+#include "ServerConfig.h"
 #include "WallTime.h"
 
 namespace RAMCloud {
@@ -46,18 +47,19 @@ namespace RAMCloud {
  *      tombstone space by cleaning disk segments.
  */
 LogCleaner::LogCleaner(Context& context,
+                       const ServerConfig& config,
                        SegmentManager& segmentManager,
                        ReplicaManager& replicaManager,
-                       LogEntryHandlers& entryHandlers,
-                       uint32_t writeCostThreshold)
+                       LogEntryHandlers& entryHandlers)
     : context(context),
       segmentManager(segmentManager),
       replicaManager(replicaManager),
       entryHandlers(entryHandlers),
-      writeCostThreshold(writeCostThreshold),
+      writeCostThreshold(config.master.cleanerWriteCostThreshold),
+      disableInMemoryCleaning(config.master.disableInMemoryCleaning),
       candidates(),
-      segletSize(segmentManager.getSegletSize()),
-      segmentSize(segmentManager.getSegmentSize()),
+      segletSize(config.segletSize),
+      segmentSize(config.segmentSize),
       inMemoryMetrics(),
       onDiskMetrics(),
       threadShouldExit(false),
@@ -129,16 +131,23 @@ LogCleaner::dumpStats()
     fprintf(stderr, "=== CLEANING PASS %d ===\n", pass++);
     fprintf(stderr, "  Avg Mem WC: %.3f\n", onDiskMetrics.getAverageMemoryWriteCost());
     fprintf(stderr, "  Avg Disk WC: %.3f\n", onDiskMetrics.getAverageDiskWriteCost());
-    fprintf(stderr, "  Avg cleaned seg util: %.3f%%\n", onDiskMetrics.getAverageCleanedSegmentUtilization());
+    fprintf(stderr, "  Avg cleaned seg util: %.3f%% mem, %.3f%% disk\n",
+        onDiskMetrics.getAverageCleanedSegmentMemoryUtilization(),
+        onDiskMetrics.getAverageCleanedSegmentDiskUtilization());
     fprintf(stderr, "  Total time: %.3f ms\n", Cycles::toSeconds(onDiskMetrics.totalTicks) * 1000);
     fprintf(stderr, "   Total GSTC: %.3f ms\n", Cycles::toSeconds(onDiskMetrics.getSegmentsToCleanTicks) * 1000);
+    fprintf(stderr, "     Sort: %.3f ms\n", Cycles::toSeconds(onDiskMetrics.costBenefitSortTicks) * 1000);
     fprintf(stderr, "   Total GSLE: %.3f ms\n", Cycles::toSeconds(onDiskMetrics.getSortedEntriesTicks) * 1000);
+    fprintf(stderr, "     Sort: %.3f ms\n", Cycles::toSeconds(onDiskMetrics.timestampSortTicks) * 1000);
     fprintf(stderr, "   Total RLE: %.3f ms\n", Cycles::toSeconds(onDiskMetrics.relocateLiveEntriesTicks) * 1000);
     fprintf(stderr, "     Relocs: %.3f ms (avg %.3f us)\n", Cycles::toSeconds(onDiskMetrics.relocationCallbackTicks) * 1000, Cycles::toSeconds(onDiskMetrics.relocationCallbackTicks) * 1.0e6 / static_cast<double>(onDiskMetrics.totalRelocationCallbacks));
     fprintf(stderr, "       Appends: %.3f ms (avg %.3f us)\n", Cycles::toSeconds(onDiskMetrics.relocationAppendTicks) * 1000, Cycles::toSeconds(onDiskMetrics.relocationAppendTicks) * 1.0e6 / static_cast<double>(onDiskMetrics.totalRelocationAppends));
     fprintf(stderr, "   Total CC: %.3f ms\n", Cycles::toSeconds(onDiskMetrics.cleaningCompleteTicks) * 1000);
     fprintf(stderr, "  %.2f MB freed/sec (memory)\n", static_cast<double>(onDiskMetrics.totalMemoryBytesFreed) / Cycles::toSeconds(onDiskMetrics.totalTicks) / 1024 / 1024); 
     fprintf(stderr, "  %.2f MB freed/sec (disk)\n", static_cast<double>(onDiskMetrics.totalDiskBytesFreed) / Cycles::toSeconds(onDiskMetrics.totalTicks) / 1024 / 1024); 
+
+    fprintf(stderr, "-=- MEMORY CLEANER METRICS -=-\n");
+
 }
 
 /**
@@ -154,22 +163,27 @@ LogCleaner::doWork()
     segmentManager.cleanableSegments(candidates);
 
     // Perform memory and disk cleaning, if needed.
-    double writeCost = 0;
-
-    if (segmentManager.getMemoryUtilization() >= MIN_MEMORY_UTILIZATION) {
-        writeCost = doMemoryCleaning();
+    bool mustCleanOnDisk = false;
+    int memoryUse = segmentManager.getMemoryUtilization();
+    if (memoryUse >= MIN_MEMORY_UTILIZATION) {
+        if (disableInMemoryCleaning) {
+            mustCleanOnDisk = true;
+        } else {
+            double writeCost = doMemoryCleaning();
+            mustCleanOnDisk = (writeCost > writeCostThreshold);
+        }
     }
 
-    if (writeCost > writeCostThreshold ||
-      segmentManager.getSegmentUtilization() >= MIN_DISK_UTILIZATION) {
+    int diskUse = segmentManager.getSegmentUtilization();
+    if (mustCleanOnDisk || diskUse >= MIN_DISK_UTILIZATION) {
         doDiskCleaning();
 dumpStats();
     }
 
-    if (segmentManager.getMemoryUtilization() < MIN_MEMORY_UTILIZATION &&
-      segmentManager.getSegmentUtilization() < MIN_DISK_UTILIZATION) {
+    memoryUse = segmentManager.getMemoryUtilization();
+    diskUse = segmentManager.getSegmentUtilization();
+    if (memoryUse < MIN_MEMORY_UTILIZATION && diskUse < MIN_DISK_UTILIZATION)
         usleep(POLL_USEC);
-    }
 }
 
 /**
@@ -231,16 +245,16 @@ LogCleaner::doDiskCleaning()
 {
     CycleCounter<uint64_t> _(&onDiskMetrics.totalTicks);
 
+    uint32_t segletsBefore, segletsAfter;
+    uint32_t segmentsBefore, segmentsAfter;
+
     // Obtain the segments we'll clean in this pass. We're guaranteed to have
     // the resources to clean what's returned.
     LogSegmentVector segmentsToClean;
-    uint32_t segletsBefore;
     getSegmentsToClean(segmentsToClean, segletsBefore);
 
     if (segmentsToClean.size() == 0)
         return;
-
-    uint32_t segmentsBefore = downCast<uint32_t>(segmentsToClean.size());
 
     // Extract the currently live entries of the segments we're cleaning and
     // sort them by age.
@@ -248,11 +262,11 @@ LogCleaner::doDiskCleaning()
     getSortedEntries(segmentsToClean, liveEntries);
 
     // Relocate the live entries to survivor segments.
-    uint32_t segletsAfter, segmentsAfter;
     relocateLiveEntries(liveEntries, segletsAfter, segmentsAfter);
 
-    assert(segletsBefore <= segletsAfter);
-    assert(segmentsBefore <= segmentsAfter);
+    segmentsBefore = downCast<uint32_t>(segmentsToClean.size());
+    assert(segletsBefore >= segletsAfter);
+    assert(segmentsBefore >= segmentsAfter);
 
     onDiskMetrics.totalMemoryBytesFreed +=
         (segletsBefore - segletsAfter) * segletSize;
@@ -380,6 +394,19 @@ class CostBenefitComparer {
     uint64_t version;
 };
 
+void
+LogCleaner::sortSegmentsByCostBenefit(LogSegmentVector& segments)
+{
+    CycleCounter<uint64_t> _(&onDiskMetrics.costBenefitSortTicks);
+
+    // Sort segments so that the best candidates are at the front of the vector.
+    // We could probably use a heap instead and go a little faster, but it's not
+    // easy to say how many top candidates we'd want to track in the heap since
+    // they could each have significantly different numbers of seglets.
+    std::sort(segments.begin(), segments.end(), CostBenefitComparer());
+
+}
+
 /**
  * Compute the best segments to clean on disk and return a set of them that we
  * are guaranteed to be able to clean while consuming no more space in memory
@@ -397,11 +424,7 @@ LogCleaner::getSegmentsToClean(LogSegmentVector& outSegmentsToClean,
 {
     CycleCounter<uint64_t> _(&onDiskMetrics.getSegmentsToCleanTicks);
 
-    // Sort segments so that the best candidates are at the front of the vector.
-    // We could probably use a heap instead and go a little faster, but it's not
-    // easy to say how many top candidates we'd want to track in the heap since
-    // they could each have significantly different numbers of seglets.
-    std::sort(candidates.begin(), candidates.end(), CostBenefitComparer());
+    sortSegmentsByCostBenefit(candidates);
 
     uint32_t totalSeglets = 0;
     uint64_t totalLiveBytes = 0;
@@ -438,6 +461,13 @@ LogCleaner::getSegmentsToClean(LogSegmentVector& outSegmentsToClean,
     outTotalSeglets = totalSeglets;
 }
 
+void
+LogCleaner::sortEntriesByTimestamp(LiveEntryVector& entries)
+{
+    CycleCounter<uint64_t> _(&onDiskMetrics.timestampSortTicks);
+    std::sort(entries.begin(), entries.end(), TimestampComparer());
+}
+
 /**
  * Extract a list of entries from the given segments we're going to clean and
  * sort them by age.
@@ -464,8 +494,9 @@ LogCleaner::getSortedEntries(LogSegmentVector& segmentsToClean,
     CycleCounter<uint64_t> _(&onDiskMetrics.getSortedEntriesTicks);
 
     foreach (LogSegment* segment, segmentsToClean) {
-        onDiskMetrics.totalBytesAllocatedInCleanedSegments +=
+        onDiskMetrics.totalMemoryBytesInCleanedSegments +=
             segment->getSegletsAllocated() * segletSize;
+        onDiskMetrics.totalDiskBytesInCleanedSegments += segmentSize;
 
         for (SegmentIterator it(*segment); !it.isDone(); it.next()) {
             LogEntryType type = it.getType();
@@ -484,7 +515,7 @@ LogCleaner::getSortedEntries(LogSegmentVector& segmentsToClean,
 #endif
     }
 
-    std::sort(outLiveEntries.begin(), outLiveEntries.end(), TimestampSorter());
+    sortEntriesByTimestamp(outLiveEntries);
 }
 
 void

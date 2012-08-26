@@ -33,6 +33,8 @@
 
 namespace RAMCloud {
 
+class ServerConfig;
+
 /**
  * An exception that is thrown when the Log class is provided invalid
  * method arguments.
@@ -113,6 +115,7 @@ class Log {
     };
 
     Log(Context& context,
+        const ServerConfig& config,
         LogEntryHandlers& entryHandlers,
         SegmentManager& segmentManager,
         ReplicaManager& replicaManager);

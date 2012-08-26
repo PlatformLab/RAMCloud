@@ -110,7 +110,8 @@ enum Opcode {
     SPLIT_TABLET            = 49,
     GET_SERVER_STATISTICS   = 50,
     SET_RUNTIME_OPTION      = 51,
-    ILLEGAL_RPC_TYPE        = 52,  // 1 + the highest legitimate Opcode
+    GET_SERVER_CONFIG       = 52,
+    ILLEGAL_RPC_TYPE        = 53,  // 1 + the highest legitimate Opcode
 };
 
 /**
@@ -467,6 +468,20 @@ struct GetMetrics {
                                    // header.
         // Variable-length byte string containing ProtoBuf::MetricList
         // follows.
+    } __attribute__((packed));
+};
+
+struct GetServerConfig {
+    static const Opcode opcode = GET_SERVER_CONFIG;
+    static const ServiceType service = MEMBERSHIP_SERVICE;
+    struct Request {
+        RequestCommon common;
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+        uint32_t serverConfigLength;   // Number of bytes in the server config
+                                       // protocol buffer immediately follow-
+                                       // ing this header.
     } __attribute__((packed));
 };
 

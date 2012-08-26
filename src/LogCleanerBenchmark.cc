@@ -34,6 +34,7 @@
 #include "Segment.h"
 #include "Tub.h"
 
+#include "ServerConfig.pb.h"
 //#include "LogStatistics.pb.h"
 
 namespace RAMCloud {
@@ -208,31 +209,35 @@ class Distribution {
      * given length.
      */
     uint64_t
-    objectsNeeded(uint64_t logSize, int utilization, uint32_t objectLength)
+    objectsNeeded(uint64_t logSize,
+                  int utilization,
+                  uint16_t keyLength,
+                  uint32_t dataLength)
     {
-        return logSize * utilization / 100 / objectLengthInLog(objectLength);
+        return logSize * utilization / 100 /
+            objectLengthInLog(keyLength, dataLength);
     }
 
     /**
      * Compute the total length of an object when stored in the log. This simply
-     * adds the amount of metadata to the object data length.
+     * adds the amount of metadata to the object key and data lengths.
      */
     uint32_t
-    objectLengthInLog(uint32_t objectLength) 
+    objectLengthInLog(uint16_t keyLength, uint32_t dataLength)
     {
         uint32_t metaDataLength = 0;
 
         // XXX- Seriously? How lazy is this?
-        if (objectLength < 256)
+        if (dataLength < 256)
             metaDataLength = 26 + 1 + 1;
-        else if (objectLength < 65536)
+        else if (dataLength < 65536)
             metaDataLength = 26 + 1 + 2;
-        else if (objectLength < 16777216)
+        else if (dataLength < 16777216)
             metaDataLength = 26 + 1 + 3;
         else
             metaDataLength = 26 + 1 + 4;
 
-        return objectLength + metaDataLength;
+        return dataLength + keyLength + metaDataLength;
     }
 
     /**
@@ -249,7 +254,8 @@ class Distribution {
 
 /**
  * The uniform distribution allocates enough keys to fill the log to the desired
- * utilization and then chooses a key at random at each next step.
+ * utilization and then chooses a key at random at each next step (after first
+ * pre-filling the log to the desired utilization with unique keys).
  */
 class UniformDistribution : public Distribution {
   public:
@@ -269,8 +275,8 @@ class UniformDistribution : public Distribution {
                         uint32_t objectLength,
                         int fillCount)
         : objectLength(objectLength),
-          maxObjectId(objectsNeeded(logSize, utilization, objectLength)),
-          maximumObjects(objectsNeeded(logSize, 100, objectLength) * fillCount),
+          maxObjectId(objectsNeeded(logSize, utilization, 8, objectLength)),
+          maximumObjects(maxObjectId * fillCount),
           objectCount(0),
           key(0),
           data(NULL)
@@ -342,17 +348,19 @@ class UniformDistribution : public Distribution {
 
 /**
  * The hot-and-cold distribution allocates enough keys to fill the log to the
- * desired utilization and then chooses a key randomly from one or two pools.
+ * desired utilization and then chooses a key randomly from one or two pools
+ * (after pre-filling the log with unique keys first).
+ *
  * The first pool is the "hot" pool, which has a higher probability of being
  * chosen. The "cold" pool has a lower probability of being chosen.
  *
  * The two pools may be of different size. For instance, LFS often used the
  * "hot-and-cold 90->10" distribution, which means 90% of writes were to objects
- * in the hot pooling that corresponded to only 10% of the keys. In other words,
+ * in the hot pool that corresponded to only 10% of the keys. In other words,
  * 10% of the objects got 90% of the writes. The other 90% of the data was cold,
  * receiving only 10% of the writes.
  *
- * Both the 90% and 10% parameters above are configurable in this class.
+ * Both the 90% and 10% parameters above are configurable.
  */
 class HotAndColdDistribution : public Distribution {
   public:
@@ -365,8 +373,8 @@ class HotAndColdDistribution : public Distribution {
         : hotDataAccessPercentage(hotDataAccessPercentage),
           hotDataSpacePercentage(hotDataSpacePercentage),
           objectLength(objectLength),
-          maxObjectId(objectsNeeded(logSize, utilization, objectLength)),
-          maximumObjects(objectsNeeded(logSize, 100, objectLength) * fillCount),
+          maxObjectId(objectsNeeded(logSize, utilization, 8, objectLength)),
+          maximumObjects(maxObjectId * fillCount),
           objectCount(0),
           key(0),
           data(NULL)
@@ -467,10 +475,16 @@ class Benchmark {
           totalObjectsWritten(0),
           totalBytesWritten(0),
           start(0),
-          lastOutputUpdateTsc(0)
+          lastOutputUpdateTsc(0),
+          serverConfig()
     {
         ramcloud.createTable(table.c_str());
         tableId = ramcloud.getTableId(table.c_str());
+
+        string locator =
+            ramcloud.objectFinder.lookupTablet(tableId, 0).service_locator();
+        ramcloud.getServerConfig(locator.c_str(), serverConfig);
+        fprintf(stderr, serverConfig.DebugString().c_str());
     }
 
     void
@@ -558,6 +572,9 @@ class Benchmark {
 
     /// Cycle counter of last statistics update dumped to screen.
     uint64_t lastOutputUpdateTsc;
+
+    /// Configuration information for the server we're benchmarking.
+    ProtoBuf::ServerConfig serverConfig;
 
     DISALLOW_COPY_AND_ASSIGN(Benchmark);
 };
@@ -656,7 +673,7 @@ try
     // Get server parameters...
     // Perhaps this (and creating the distribution?) should be pushed into Benchmark.
 
-    uint32_t logSize = 190;
+    uint64_t logSize = 4898;
     Distribution* distribution = NULL;
     if (distributionName == "uniform") {
         distribution = new UniformDistribution(logSize * 1024 * 1024,

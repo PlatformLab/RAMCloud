@@ -49,6 +49,7 @@ namespace RAMCloud {
  *      Segments durable.
  */
 Log::Log(Context& context,
+         const ServerConfig& config,
          LogEntryHandlers& entryHandlers,
          SegmentManager& segmentManager,
          ReplicaManager& replicaManager)
@@ -56,7 +57,7 @@ Log::Log(Context& context,
       entryHandlers(entryHandlers),
       segmentManager(segmentManager),
       replicaManager(replicaManager),
-      cleaner(context, segmentManager, replicaManager, entryHandlers, 4),
+      cleaner(context, config, segmentManager, replicaManager, entryHandlers),
       head(NULL),
       appendLock()
 {
