@@ -108,6 +108,9 @@ class MasterService : public Service, LogEntryHandlers {
     void enumeration(const WireFormat::Enumerate::Request& reqHdr,
                      WireFormat::Enumerate::Response& respHdr,
                      Rpc& rpc);
+    void getLogMetrics(const WireFormat::GetLogMetrics::Request& reqHdr,
+                       WireFormat::GetLogMetrics::Response& respHdr,
+                       Rpc& rpc);
     void fillWithTestData(const WireFormat::FillWithTestData::Request& reqHdr,
                           WireFormat::FillWithTestData::Response& respHdr,
                           Rpc& rpc);

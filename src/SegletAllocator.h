@@ -21,6 +21,8 @@
 #include "Seglet.h"
 #include "SpinLock.h"
 
+#include "LogMetrics.pb.h"
+
 namespace RAMCloud {
 
 class ServerConfig;
@@ -69,6 +71,7 @@ class SegletAllocator {
 
     SegletAllocator(const ServerConfig& config);
     ~SegletAllocator();
+    void getMetrics(ProtoBuf::LogMetrics_SegletMetrics& m);
     bool alloc(AllocationType type,
                uint32_t count,
                vector<Seglet*>& outSeglets);

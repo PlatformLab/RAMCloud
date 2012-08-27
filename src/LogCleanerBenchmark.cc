@@ -34,8 +34,8 @@
 #include "Segment.h"
 #include "Tub.h"
 
+#include "LogMetrics.pb.h"
 #include "ServerConfig.pb.h"
-//#include "LogStatistics.pb.h"
 
 namespace RAMCloud {
 
@@ -485,6 +485,10 @@ class Benchmark {
             ramcloud.objectFinder.lookupTablet(tableId, 0).service_locator();
         ramcloud.getServerConfig(locator.c_str(), serverConfig);
         fprintf(stderr, serverConfig.DebugString().c_str());
+
+        ProtoBuf::LogMetrics logMetrics;
+        ramcloud.getLogMetrics(locator.c_str(), logMetrics);
+        fprintf(stderr, logMetrics.DebugString().c_str());
     }
 
     void

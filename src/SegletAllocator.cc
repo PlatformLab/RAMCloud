@@ -71,6 +71,27 @@ SegletAllocator::~SegletAllocator()
 }
 
 /**
+ * Populate the given protocol buffer with various metrics about the segments
+ * we're managing.
+ */
+void
+SegletAllocator::getMetrics(ProtoBuf::LogMetrics_SegletMetrics& m)
+{
+    // .size() methods on vectors are not necessarily thread-safe.
+    std::lock_guard<SpinLock> guard(lock);
+
+    m.set_total_seglets(getTotalCount());
+    m.set_total_usable_seglets(getTotalCount() -
+                               emergencyHeadPoolReserve -
+                               cleanerPoolReserve);
+    m.set_emergency_head_pool_reserve(emergencyHeadPoolReserve);
+    m.set_emergency_head_pool_count(emergencyHeadPool.size());
+    m.set_cleaner_pool_reserve(cleanerPoolReserve);
+    m.set_cleaner_pool_count(cleanerPool.size());
+    m.set_default_pool_count(defaultPool.size());
+}
+
+/**
  * Allocate and return the given number of seglets from a pool designated by
  * the way purpose for which the seglets will be used.
  *

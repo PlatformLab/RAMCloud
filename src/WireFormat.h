@@ -111,7 +111,8 @@ enum Opcode {
     GET_SERVER_STATISTICS   = 50,
     SET_RUNTIME_OPTION      = 51,
     GET_SERVER_CONFIG       = 52,
-    ILLEGAL_RPC_TYPE        = 53,  // 1 + the highest legitimate Opcode
+    GET_LOG_METRICS         = 53,
+    ILLEGAL_RPC_TYPE        = 54,  // 1 + the highest legitimate Opcode
 };
 
 /**
@@ -451,6 +452,20 @@ struct GetHeadOfLog {
         ResponseCommon common;
         uint64_t headSegmentId;     // ID of head segment in the log.
         uint32_t headSegmentOffset; // Byte offset of head within the segment.
+    } __attribute__((packed));
+};
+
+struct GetLogMetrics {
+    static const Opcode opcode = GET_LOG_METRICS;
+    static const ServiceType service = MASTER_SERVICE;
+    struct Request {
+        RequestCommon common;
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+        uint32_t logMetricsLength; // Number of bytes in the log metrics
+                                   // protocol buffer immediately follow-
+                                   // ing this header.
     } __attribute__((packed));
 };
 

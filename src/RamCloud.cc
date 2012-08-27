@@ -301,6 +301,79 @@ EnumerateTableRpc::wait(Buffer& state)
 }
 
 /**
+ * Retrieve various metrics from a master server's log module.
+ *
+ * \param serviceLocator
+ *      Selects the server, whose log metrics should be retrieved.
+ * \param[out] logMetrics
+ *      This protocol buffer is filled in with the server's log metrics.
+ *
+ * \throw TransportException
+ *       Thrown if an unrecoverable error occurred while communicating with
+ *       the target server.
+ */
+void
+RamCloud::getLogMetrics(const char* serviceLocator,
+                        ProtoBuf::LogMetrics& logMetrics)
+{
+    GetLogMetricsRpc rpc(*this, serviceLocator);
+    rpc.wait(logMetrics);
+}
+
+/**
+ * Constructor for GetLogMetricsRpc: initiates an RPC in the same way as
+ * #RamCloud::getLogMetrics, but returns once the RPC has been initiated,
+ * without waiting for it to complete.
+ *
+ * \param ramcloud
+ *      The RAMCloud object that governs this RPC.
+ * \param serviceLocator
+ *      Selects the server, whose configuration should be retrieved.
+ */
+GetLogMetricsRpc::GetLogMetricsRpc(RamCloud& ramcloud,
+                                     const char* serviceLocator)
+    : RpcWrapper(sizeof(WireFormat::GetLogMetrics::Response))
+    , ramcloud(ramcloud)
+{
+    try {
+        session = ramcloud.clientContext.transportManager->getSession(
+                serviceLocator);
+    } catch (const TransportException& e) {
+        session = FailSession::get();
+    }
+    allocHeader<WireFormat::GetLogMetrics>();
+    send();
+}
+
+/**
+ * Wait for a getLogMetrics RPC to complete, and return the same results as
+ * #RamCloud::getLogMetrics.
+ *
+ * \param[out] logMetrics
+ *      This protocol buffer is filled in with the server's log metrics.
+ *
+ * \throw TransportException
+ *       Thrown if an unrecoverable error occurred while communicating with
+ *       the target server.
+ */
+void
+GetLogMetricsRpc::wait(ProtoBuf::LogMetrics& logMetrics)
+{
+    waitInternal(*ramcloud.clientContext.dispatch);
+    if (getState() != RpcState::FINISHED) {
+        throw TransportException(HERE);
+    }
+    const WireFormat::GetLogMetrics::Response& respHdr(
+            getResponseHeader<WireFormat::GetLogMetrics>());
+
+    if (respHdr.common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr.common.status);
+
+    ProtoBuf::parseFromResponse(*response, sizeof(respHdr),
+        respHdr.logMetricsLength, logMetrics);
+}
+
+/**
  * Retrieve performance counters from the server that stores a particular
  * object.
  *
@@ -453,7 +526,7 @@ GetMetricsLocatorRpc::wait()
 }
 
 /**
- * Retreive a server's runtime configuration.
+ * Retrieve a server's runtime configuration.
  *
  * \param serviceLocator
  *      Selects the server, whose configuration should be retrieved.

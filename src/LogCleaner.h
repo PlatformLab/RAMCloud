@@ -19,8 +19,6 @@
 #include <thread>
 #include <vector>
 
-//#include "LogStatistics.pb.h"
-
 #include "Common.h"
 #include "HashTable.h"
 #include "Segment.h"
@@ -30,6 +28,8 @@
 #include "LogSegment.h"
 #include "SegmentManager.h"
 #include "ReplicaManager.h"
+
+#include "LogMetrics.pb.h"
 
 namespace RAMCloud {
 
@@ -66,9 +66,7 @@ class LogCleaner {
     ~LogCleaner();
     void start();
     void stop();
-    void statistics(/*ProtoBuf::LogStatistics& logStats*/) const
-    {
-    }
+    void getMetrics(ProtoBuf::LogMetrics_CleanerMetrics& m);
 
   PRIVATE:
     /// If no cleaning work had to be done the last time we checked, sleep for

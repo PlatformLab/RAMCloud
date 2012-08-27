@@ -1,4 +1,4 @@
-/* Copyright (c) 2009, 2010 Stanford University
+/* Copyright (c) 2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,9 +16,9 @@
 #ifndef RAMCLOUD_LOGCLEANERMETRICS_H
 #define RAMCLOUD_LOGCLEANERMETRICS_H
 
-//#include "LogStatistics.pb.h"
-
 #include "Common.h"
+
+#include "LogMetrics.pb.h"
 
 namespace RAMCloud {
 
@@ -29,12 +29,31 @@ namespace LogCleanerMetrics {
  */
 class InMemory {
   public:
+    /**
+     * Construct a new InMemory metrics object with all counters zeroed.
+     */
     InMemory()
         : totalRelocationCallbacks(0),
           totalRelocationAppends(0),
           relocationCallbackTicks(0),
           relocationAppendTicks(0)
     {
+    }
+
+    /**
+     * Serialize the metrics in this class to the given protocol buffer so we
+     * can ship it to another machine.
+     *
+     * \param[out] m
+     *      The protocol buffer to fill in.
+     */
+    void
+    serialize(ProtoBuf::LogMetrics_CleanerMetrics_InMemoryMetrics& m) const
+    {
+        m.set_total_relocation_callbacks(totalRelocationCallbacks);
+        m.set_total_relocation_appends(totalRelocationAppends);
+        m.set_relocation_callback_ticks(relocationCallbackTicks);
+        m.set_relocation_append_ticks(relocationAppendTicks);
     }
 
     /// Total number of times the entry relocation handler was called.
@@ -59,6 +78,9 @@ class InMemory {
  */
 class OnDisk {
   public:
+    /**
+     * Construct a new OnDisk metrics object with all counters zeroed.
+     */
     OnDisk()
         : totalBytesAppendedToSurvivors(0),
           totalMemoryBytesFreed(0),
@@ -77,6 +99,36 @@ class OnDisk {
           relocationCallbackTicks(0),
           relocationAppendTicks(0)
     {
+    }
+
+    /**
+     * Serialize the metrics in this class to the given protocol buffer so we
+     * can ship it to another machine.
+     *
+     * \param[out] m
+     *      The protocol buffer to fill in.
+     */
+    void
+    serialize(ProtoBuf::LogMetrics_CleanerMetrics_OnDiskMetrics& m) const
+    {
+        m.set_total_bytes_appended_to_survivors(totalBytesAppendedToSurvivors);
+        m.set_total_memory_bytes_freed(totalMemoryBytesFreed);
+        m.set_total_disk_bytes_freed(totalDiskBytesFreed);
+        m.set_total_memory_bytes_in_cleaned_segments(
+            totalMemoryBytesInCleanedSegments);
+        m.set_total_disk_bytes_in_cleaned_segments(
+            totalDiskBytesInCleanedSegments);
+        m.set_total_relocation_callbacks(totalRelocationCallbacks);
+        m.set_total_relocation_appends(totalRelocationAppends);
+        m.set_total_ticks(totalTicks);
+        m.set_get_segments_to_clean_ticks(getSegmentsToCleanTicks); 
+        m.set_cost_benefit_sort_ticks(costBenefitSortTicks);
+        m.set_get_sorted_entries_ticks(getSortedEntriesTicks);
+        m.set_timestamp_sort_ticks(timestampSortTicks);
+        m.set_relocate_live_entries_ticks(relocateLiveEntriesTicks);
+        m.set_cleaning_complete_ticks(cleaningCompleteTicks);
+        m.set_relocation_callback_ticks(relocationCallbackTicks);
+        m.set_relocation_append_ticks(relocationAppendTicks);
     }
 
     double

@@ -107,6 +107,7 @@ SHARED_SRCFILES := \
 		   src/WireFormat.cc \
 		   $(INFINIBAND_SRCFILES) \
 		   $(OBJDIR)/EnumerationIterator.pb.cc \
+		   $(OBJDIR)/LogMetrics.pb.cc \
 		   $(OBJDIR)/MetricList.pb.cc \
 		   $(OBJDIR)/ServerConfig.pb.cc \
 		   $(OBJDIR)/ServerList.pb.cc \

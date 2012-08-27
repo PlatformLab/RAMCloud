@@ -22,6 +22,8 @@
 #include "ObjectFinder.h"
 #include "ObjectRpcWrapper.h"
 #include "ServerMetrics.h"
+
+#include "LogMetrics.pb.h"
 #include "ServerConfig.pb.h"
 
 namespace RAMCloud {
@@ -43,6 +45,8 @@ class RamCloud {
     void dropTable(const char* name);
     uint64_t enumerateTable(uint64_t tableId, uint64_t tabletFirstHash,
          Buffer& state, Buffer& objects);
+    void getLogMetrics(const char* serviceLocator,
+                       ProtoBuf::LogMetrics& logMetrics);
     ServerMetrics getMetrics(uint64_t tableId, const void* key,
             uint16_t keyLength);
     ServerMetrics getMetrics(const char* serviceLocator);
@@ -242,6 +246,21 @@ class FillWithTestDataRpc : public ObjectRpcWrapper {
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(FillWithTestDataRpc);
+};
+
+/**
+ * Encapsulates the state of a RamCloud::getLogMetrics operation,
+ * allowing it to execute asynchronously.
+ */
+class GetLogMetricsRpc: public RpcWrapper {
+  public:
+    GetLogMetricsRpc(RamCloud& ramcloud, const char* serviceLocator);
+    ~GetLogMetricsRpc() {}
+    void wait(ProtoBuf::LogMetrics& logMetrics);
+
+  PRIVATE:
+    RamCloud& ramcloud;
+    DISALLOW_COPY_AND_ASSIGN(GetLogMetricsRpc);
 };
 
 /**

@@ -113,6 +113,25 @@ SegmentManager::~SegmentManager()
 }
 
 /**
+ * Populate the given protocol buffer with various metrics about the segments
+ * we're managing.
+ */
+void
+SegmentManager::getMetrics(ProtoBuf::LogMetrics_SegmentMetrics& m)
+{
+}
+
+/**
+ * Return the allocator that is being used to provide backing memory to segments
+ * this module is managing.
+ */
+SegletAllocator&
+SegmentManager::getAllocator() const
+{
+    return allocator;
+}
+
+/**
  * Allocate a new segment that will serve as the head of the log. The segment
  * manager will handle the transition between the previous and next log head,
  * as well as write a segment header and the log digest. These entries will also
@@ -478,28 +497,6 @@ SegmentManager::doesIdExist(uint64_t id)
 }
 
 /**
- * Return the total number of allocated segments in the system.
- */
-uint32_t
-SegmentManager::getAllocatedSegmentCount()
-{
-    Lock guard(lock);
-    return downCast<uint32_t>(allSegments.size());
-}
-
-/**
- * Return the total number of free segments in the system. This does not include
- * ones reserved for special purposes like log cleaning.
- */
-size_t
-SegmentManager::getFreeSegmentCount()
-{
-    Lock guard(lock);
-    return allocator.getFreeCount(SegletAllocator::DEFAULT) /
-           (segmentSize / allocator.getSegletSize());
-}
-
-/**
  * Return the number of free survivor segments left in the reserve. The caller
  * may subsequently call allocSurvivor() this many times with a guarantee that
  * a survivor segment will be returned.
@@ -529,37 +526,6 @@ SegmentManager::getSegmentUtilization()
                                  survivorSlotsReserved;
     return downCast<int>(100 * (maxUsableSegments - freeSlots.size()) /
         maxUsableSegments);
-}
-
-/**
- * Return the percentage of log memory in use. This does not include segments
- * reserved for the cleaner or for emergency heads; it only takes into account
- * segments usable for storing new log data. The value returned is in the range
- * [0, 100].
- */
-int
-SegmentManager::getMemoryUtilization()
-{
-    return allocator.getMemoryUtilization();
-}
-
-/**
- * Return the size of each seglet in bytes. Segments are composed of multiple
- * seglets.
- */
-uint32_t
-SegmentManager::getSegletSize()
-{
-    return allocator.getSegletSize();
-}
-
-/**
- * Return the size of each full segment in bytes.
- */
-uint32_t
-SegmentManager::getSegmentSize()
-{
-    return segmentSize;
 }
 
 /******************************************************************************

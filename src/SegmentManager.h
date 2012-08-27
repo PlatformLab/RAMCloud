@@ -28,6 +28,8 @@
 #include "SpinLock.h"
 #include "Tub.h"
 
+#include "LogMetrics.pb.h"
+
 namespace RAMCloud {
 
 /**
@@ -74,6 +76,8 @@ class SegmentManager {
                    SegletAllocator& allocator,
                    ReplicaManager& replicaManager);
     ~SegmentManager();
+    void getMetrics(ProtoBuf::LogMetrics_SegmentMetrics& m);
+    SegletAllocator& getAllocator() const;
     LogSegment* allocHead(bool mustNotFail);
     LogSegment* allocSurvivor(uint64_t headSegmentIdDuringCleaning);
     LogSegment* allocSurvivor(LogSegment* replacing);
@@ -86,13 +90,8 @@ class SegmentManager {
     bool initializeSurvivorReserve(uint32_t numSegments);
     LogSegment& operator[](uint32_t slot);
     bool doesIdExist(uint64_t id);
-    uint32_t getAllocatedSegmentCount();
-    size_t getFreeSegmentCount();
     size_t getFreeSurvivorCount();
     int getSegmentUtilization();
-    int getMemoryUtilization();
-    uint32_t getSegletSize();
-    uint32_t getSegmentSize();
 
   PRIVATE:
     /**

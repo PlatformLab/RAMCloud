@@ -90,6 +90,20 @@ Log::disableCleaner()
 }
 
 /**
+ * Populate the given protocol buffer with various log metrics.
+ *
+ * \param[out] metrics
+ *      The protocol buffer to fill with metrics.
+ */
+void
+Log::getMetrics(ProtoBuf::LogMetrics& metrics)
+{
+    cleaner.getMetrics(*metrics.mutable_cleaner_metrics());
+    segmentManager.getMetrics(*metrics.mutable_segment_metrics());
+    segmentManager.getAllocator().getMetrics(*metrics.mutable_seglet_metrics());
+}
+
+/**
  * Append a typed entry to the log by coping in the data. Entries are binary
  * blobs described by a simple <type, length> tuple.
  *

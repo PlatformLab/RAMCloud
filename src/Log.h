@@ -31,6 +31,8 @@
 #include "ReplicaManager.h"
 #include "HashTable.h"
 
+#include "LogMetrics.pb.h"
+
 namespace RAMCloud {
 
 class ServerConfig;
@@ -123,6 +125,7 @@ class Log {
 
     void enableCleaner();
     void disableCleaner();
+    void getMetrics(ProtoBuf::LogMetrics& metrics);
     bool append(LogEntryType type,
                 Buffer& buffer,
                 uint32_t offset,

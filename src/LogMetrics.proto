@@ -1,0 +1,108 @@
+/* Copyright (c) 2012 Stanford University
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR(S) DISCLAIM ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL AUTHORS BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+
+package RAMCloud.ProtoBuf;
+
+/// Various metrics regarding log space usage and cleaner performance. These
+/// fields are accumulated from a number of classes, including Log, LogCleaner,
+/// LogSegment, SegletAllocator, and SegmentManager.
+///
+/// Clients can query a server's log for these metrics in order to observe what
+/// sort of load it's under and how it's performing.
+message LogMetrics {
+
+    /// Log metrics related to cleaning. Filled in by the LogCleaner class.
+    message CleanerMetrics {
+        /// The following are compile-time constants. See LogCleaner.h for
+        /// details on their meaning.
+        required fixed32 poll_usec = 1;
+        required fixed32 max_cleanable_memory_utilization = 2;
+        required fixed32 live_segments_per_disk_pass = 3;
+        required fixed32 survivor_segments_to_reserve = 4;
+        required fixed32 min_memory_utilization = 5;
+        required fixed32 min_disk_utilization = 6;
+
+        /// Serialized form of LogCleanerMetrics::InMemory. See the C++ class
+        /// documentation for details.
+        message InMemoryMetrics {
+            required fixed64 total_relocation_callbacks = 1;
+            required fixed64 total_relocation_appends = 2;
+            required fixed64 relocation_callback_ticks = 3;
+            required fixed64 relocation_append_ticks = 4;
+        }
+        required InMemoryMetrics in_memory_metrics = 7;
+
+        /// Serialized form of LogCleanerMetrics::OnDiskMetrics. See the C++
+        /// class documentation for details.
+        message OnDiskMetrics {
+            required fixed64 total_bytes_appended_to_survivors = 1;
+            required fixed64 total_memory_bytes_freed = 2;
+            required fixed64 total_disk_bytes_freed = 3;
+            required fixed64 total_memory_bytes_in_cleaned_segments = 4;
+            required fixed64 total_disk_bytes_in_cleaned_segments = 5;
+            required fixed64 total_relocation_callbacks = 6;
+            required fixed64 total_relocation_appends = 7;
+            required fixed64 total_ticks = 8;
+            required fixed64 get_segments_to_clean_ticks = 9;
+            required fixed64 cost_benefit_sort_ticks = 10;
+            required fixed64 get_sorted_entries_ticks = 11;
+            required fixed64 timestamp_sort_ticks = 12;
+            required fixed64 relocate_live_entries_ticks = 13;
+            required fixed64 cleaning_complete_ticks = 14;
+            required fixed64 relocation_callback_ticks = 15;
+            required fixed64 relocation_append_ticks = 16;
+        }
+        required OnDiskMetrics on_disk_metrics = 8;
+    }
+    required CleanerMetrics cleaner_metrics = 1;
+
+    /// Log metrics related to allocation of seglets to in-memory segments.
+    /// Filled in by the SegletAllocator class.
+    message SegletMetrics {
+        /// Total number of seglets in the system, including reserves.
+        required fixed64 total_seglets = 1;
+
+        /// Total number of seglets usable for storing data via log appends.
+        required fixed64 total_usable_seglets = 2;
+
+        /// Number of seglets reserved for emergency head segments. These allow
+        /// the cleaner to issue a new digest and free space even when under
+        /// heavy memory pressure.
+        required fixed64 emergency_head_pool_reserve = 3;
+
+        /// Number of seglets left in the emergency head reserve. If less than
+        /// the reserve amount, one or more emergency heads must currently be
+        /// allocated.
+        required fixed64 emergency_head_pool_count = 4;
+
+        /// Number of seglets reserved for the log cleaner.
+        required fixed64 cleaner_pool_reserve = 5;
+
+        /// Number of seglets left in the cleaner reserve. If less than the
+        /// reserve amount, some are currently allocated for cleaning.
+        required fixed64 cleaner_pool_count = 6;
+
+        /// Number of seglets available for storing data in new head segments.
+        required fixed64 default_pool_count = 7;
+    }
+    required SegletMetrics seglet_metrics = 2;
+
+    /// Log metrics related to allocated segments, both in memory and on disk.
+    /// Filled in by the SegmentManager class.
+    message SegmentMetrics {
+
+    }
+    required SegmentMetrics segment_metrics = 3;
+}

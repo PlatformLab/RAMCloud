@@ -160,6 +160,10 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc& rpc)
             callHandler<WireFormat::FillWithTestData, MasterService,
                         &MasterService::fillWithTestData>(rpc);
             break;
+        case WireFormat::GetLogMetrics::opcode:
+            callHandler<WireFormat::GetLogMetrics, MasterService,
+                        &MasterService::getLogMetrics>(rpc);
+            break;
         case WireFormat::Increment::opcode:
             callHandler<WireFormat::Increment, MasterService,
                         &MasterService::increment>(rpc);
@@ -299,6 +303,24 @@ MasterService::enumeration(const WireFormat::Enumerate::Request& reqHdr,
     // Add new iterator to the end of the response.
     uint32_t iteratorBytes = iter.serialize(rpc.replyPayload);
     respHdr.iteratorBytes = iteratorBytes;
+}
+
+/**
+ * Obtain various metrics from the log and return to the caller. Used to
+ * remotely monitor the log's utilization and performance.
+ *
+ * \copydetails Service::ping
+ */
+void
+MasterService::getLogMetrics(
+    const WireFormat::GetLogMetrics::Request& reqHdr,
+    WireFormat::GetLogMetrics::Response& respHdr,
+    Rpc& rpc)
+{
+    ProtoBuf::LogMetrics logMetrics;
+    log->getMetrics(logMetrics);
+    respHdr.logMetricsLength = ProtoBuf::serializeToResponse(rpc.replyPayload,
+                                                             logMetrics);
 }
 
 /**

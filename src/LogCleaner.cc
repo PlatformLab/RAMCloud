@@ -104,6 +104,27 @@ LogCleaner::stop()
 }
 
 /**
+ * Fill in the provided protocol buffer with metrics, giving other modules and
+ * servers insight into what's happening in the cleaner.
+ */
+void
+LogCleaner::getMetrics(ProtoBuf::LogMetrics_CleanerMetrics& m)
+{
+    m.set_poll_usec(POLL_USEC);
+    m.set_max_cleanable_memory_utilization(MAX_CLEANABLE_MEMORY_UTILIZATION);
+    m.set_live_segments_per_disk_pass(MAX_LIVE_SEGMENTS_PER_DISK_PASS);
+    m.set_survivor_segments_to_reserve(SURVIVOR_SEGMENTS_TO_RESERVE);
+    m.set_min_memory_utilization(MIN_MEMORY_UTILIZATION);
+    m.set_min_disk_utilization(MIN_DISK_UTILIZATION);
+    inMemoryMetrics.serialize(*m.mutable_in_memory_metrics());
+    onDiskMetrics.serialize(*m.mutable_on_disk_metrics());
+}
+
+/******************************************************************************
+ * PRIVATE METHODS
+ ******************************************************************************/
+
+/**
  * Static entry point for the cleaner thread. This is invoked via the
  * std::thread() constructor. This thread performs continuous cleaning on an
  * as-needed basis.
@@ -164,7 +185,7 @@ LogCleaner::doWork()
 
     // Perform memory and disk cleaning, if needed.
     bool mustCleanOnDisk = false;
-    int memoryUse = segmentManager.getMemoryUtilization();
+    int memoryUse = segmentManager.getAllocator().getMemoryUtilization();
     if (memoryUse >= MIN_MEMORY_UTILIZATION) {
         if (disableInMemoryCleaning) {
             mustCleanOnDisk = true;
@@ -180,7 +201,7 @@ LogCleaner::doWork()
 dumpStats();
     }
 
-    memoryUse = segmentManager.getMemoryUtilization();
+    memoryUse = segmentManager.getAllocator().getMemoryUtilization();
     diskUse = segmentManager.getSegmentUtilization();
     if (memoryUse < MIN_MEMORY_UTILIZATION && diskUse < MIN_DISK_UTILIZATION)
         usleep(POLL_USEC);
@@ -428,8 +449,7 @@ LogCleaner::getSegmentsToClean(LogSegmentVector& outSegmentsToClean,
 
     uint32_t totalSeglets = 0;
     uint64_t totalLiveBytes = 0;
-    uint64_t maximumLiveBytes = MAX_LIVE_SEGMENTS_PER_DISK_PASS *
-                                segmentManager.getSegmentSize();
+    uint64_t maximumLiveBytes = MAX_LIVE_SEGMENTS_PER_DISK_PASS * segmentSize;
     vector<size_t> chosenIndices;
 
     for (size_t i = 0; i < candidates.size(); i++) {
