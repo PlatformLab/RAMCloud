@@ -41,7 +41,7 @@ namespace RAMCloud {
  */
 class CoordinatorService : public Service {
   public:
-    explicit CoordinatorService(Context& context,
+    explicit CoordinatorService(Context* context,
                                 string LogCabinLocator = "testing");
     ~CoordinatorService();
     void dispatch(WireFormat::Opcode opcode,
@@ -98,7 +98,7 @@ class CoordinatorService : public Service {
     /**
      * Shared RAMCloud information.
      */
-    Context& context;
+    Context* context;
 
   public:
     /**

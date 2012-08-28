@@ -36,7 +36,7 @@ struct BindTransport : public Transport {
         Service* services[WireFormat::INVALID_SERVICE];
     };
 
-    explicit BindTransport(Context& context, Service* service = NULL)
+    explicit BindTransport(Context* context, Service* service = NULL)
         : context(context), services(), abortCounter(0), errorMessage()
     {
         if (service)
@@ -67,7 +67,7 @@ struct BindTransport : public Transport {
 
     Transport::SessionRef
     getSession() {
-        return context.transportManager->getSession("mock:");
+        return context->transportManager->getSession("mock:");
     }
 
     struct BindServerRpc : public ServerRpc {
@@ -152,7 +152,7 @@ struct BindTransport : public Transport {
     };
 
     // Shared RAMCloud information.
-    Context& context;
+    Context* context;
 
     typedef std::map<const string, ServiceArray> ServiceMap;
     ServiceMap services;

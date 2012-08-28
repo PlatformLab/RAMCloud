@@ -52,7 +52,7 @@ class MinOpenSegmentId : public Task {
      *      The ServerId of the master whose minOpenSegmentId is to be updated
      *      on the coordinator.
      */
-    MinOpenSegmentId(Context& context,
+    MinOpenSegmentId(Context* context,
                      TaskQueue* taskQueue,
                      const ServerId* serverId)
         : Task(*taskQueue)
@@ -111,14 +111,14 @@ class MinOpenSegmentId : public Task {
 #ifdef TESTING
         // When running tests, if there does not seem to be a coordinator
         // present, then just skip the call.
-        if (context.coordinatorSession->getLocation().empty()) {
+        if (context->coordinatorSession->getLocation().empty()) {
             current = requested;
             return;
         }
 #endif
         if (!rpc) {
             if (current != requested) {
-                rpc.construct(&context, *serverId, requested);
+                rpc.construct(context, *serverId, requested);
                 sent = requested;
             }
         } else {
@@ -139,7 +139,7 @@ class MinOpenSegmentId : public Task {
     /**
      * Shared RAMCloud information.
      */
-    Context& context;
+    Context* context;
 
     /**
      * Complete unholy garbage.  This has to be a pointer because the reference

@@ -39,7 +39,7 @@ namespace RAMCloud {
 class TcpTransport : public Transport {
   public:
 
-    explicit TcpTransport(Context& context,
+    explicit TcpTransport(Context* context,
             const ServiceLocator* serviceLocator = NULL);
     ~TcpTransport();
     SessionRef getSession(const ServiceLocator& serviceLocator,
@@ -265,7 +265,7 @@ class TcpTransport : public Transport {
             rpcsWaitingToSend(), bytesLeftToSend(0),
             rpcsWaitingForResponse(), current(NULL),
             message(), clientIoHandler(),
-            alarm(*transport.context.sessionAlarmTimer, *this, 0) { }
+            alarm(*transport.context->sessionAlarmTimer, *this, 0) { }
 #endif
         void close();
         static void tryReadReply(int fd, int16_t event, void *arg);
@@ -308,7 +308,7 @@ class TcpTransport : public Transport {
     static Syscall* sys;
 
     /// Shared RAMCloud information.
-    Context& context;
+    Context* context;
 
     /// Service locator used to open server socket (empty string if this
     /// isn't a server). May differ from what was passed to the constructor

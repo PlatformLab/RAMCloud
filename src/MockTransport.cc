@@ -27,7 +27,7 @@ uint32_t RAMCloud::MockTransport::sessionDeleteCount = 0;
 /**
  * Construct a MockTransport.
  */
-MockTransport::MockTransport(Context& context,
+MockTransport::MockTransport(Context* context,
                              const ServiceLocator *serviceLocator)
             : context(context)
             , outputLog()

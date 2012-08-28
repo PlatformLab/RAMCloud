@@ -26,7 +26,7 @@ namespace RAMCloud {
  */
 class MockFastTransport : public FastTransport {
   public:
-    explicit MockFastTransport(Context& context, Driver *driver)
+    explicit MockFastTransport(Context* context, Driver *driver)
             : FastTransport(context, driver), packetData(), sender(NULL) { }
     ~MockFastTransport() {
         delete sender;

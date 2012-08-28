@@ -119,7 +119,7 @@ class Recovery : public Task {
         virtual void destroyAndFreeRecovery(Recovery* recovery) {}
         virtual ~Owner() {}
     };
-    Recovery(Context& context,
+    Recovery(Context* context,
              TaskQueue& taskQueue,
              TabletMap* tabletMap,
              RecoveryTracker* tracker,
@@ -136,7 +136,7 @@ class Recovery : public Task {
     uint64_t getRecoveryId() const;
 
     /// Shared RAMCloud information.
-    Context& context;
+    Context* context;
 
     /// The id of the crashed master which is being recovered.
     const ServerId crashedServerId;

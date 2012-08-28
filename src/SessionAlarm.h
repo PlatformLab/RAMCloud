@@ -91,7 +91,7 @@ class SessionAlarm {
  */
 class SessionAlarmTimer: public Dispatch::Timer {
   public:
-    explicit SessionAlarmTimer(Context& context);
+    explicit SessionAlarmTimer(Context* context);
     ~SessionAlarmTimer();
     void handleTimerEvent();
 
@@ -101,17 +101,17 @@ class SessionAlarmTimer: public Dispatch::Timer {
     /// server id; all we have is an open session.
     class PingRpc : public RpcWrapper {
       public:
-        PingRpc(Context& context, Transport::SessionRef session);
+        PingRpc(Context* context, Transport::SessionRef session);
         ~PingRpc() {}
         bool succeeded();
 
       PRIVATE:
-        Context& context;
+        Context* context;
         DISALLOW_COPY_AND_ASSIGN(PingRpc);
     };
 
     /// Shared RAMCloud information.
-    Context& context;
+    Context* context;
 
     /// Holds all of the SessionAlarms with nonzero \c outstandingRpcs.
     /// The order of entries is irrelevant.

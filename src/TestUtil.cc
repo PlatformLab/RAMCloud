@@ -457,10 +457,10 @@ const char *TestUtil::getStatus(Buffer* buffer)
  *      false if it doesn't.
  */
 bool
-TestUtil::waitForRpc(Context& context, MockWrapper& wrapper, int ms)
+TestUtil::waitForRpc(Context* context, MockWrapper& wrapper, int ms)
 {
     for (int i = 0; i < ms; i++) {
-        context.dispatch->poll();
+        context->dispatch->poll();
         if (wrapper.completedCount || wrapper.failedCount)
             return true;
         usleep(1000);

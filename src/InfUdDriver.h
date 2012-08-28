@@ -49,7 +49,7 @@ class InfUdDriver : public Driver {
     typedef typename Infiniband::RegisteredBuffers RegisteredBuffers;
 
   public:
-    explicit InfUdDriver(Context& context,
+    explicit InfUdDriver(Context* context,
                          const ServiceLocator* localServiceLocator,
                          bool ethernet);
     virtual ~InfUdDriver();
@@ -109,7 +109,7 @@ class InfUdDriver : public Driver {
     };
 
     /// Shared RAMCloud information.
-    Context &context;
+    Context* context;
 
     /// See #infiniband.
     Tub<Infiniband> realInfiniband;
@@ -161,8 +161,8 @@ class InfUdDriver : public Driver {
      */
     class Poller : public Dispatch::Poller {
       public:
-        explicit Poller(Context& context, InfUdDriver* driver)
-            : Dispatch::Poller(*context.dispatch)
+        explicit Poller(Context* context, InfUdDriver* driver)
+            : Dispatch::Poller(*context->dispatch)
             , driver(driver) { }
         virtual void poll();
       private:

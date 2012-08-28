@@ -107,7 +107,7 @@ ObjectRpcWrapper::handleTransportError()
     // to this session, and related to the object mapping for our object.
     // Then retry.
     if (session.get() != NULL) {
-        ramcloud->clientContext.transportManager->flushSession(
+        ramcloud->clientContext->transportManager->flushSession(
                 session->getServiceLocator().c_str());
         session = NULL;
     }

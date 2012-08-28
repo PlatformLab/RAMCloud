@@ -40,7 +40,7 @@ class MultiReadTest : public ::testing::Test {
   public:
     MultiReadTest()
         : context()
-        , cluster(context)
+        , cluster(&context)
         , ramcloud()
         , tableId1(-1)
         , tableId2(-2)
@@ -70,7 +70,7 @@ class MultiReadTest : public ::testing::Test {
                            WireFormat::PING_SERVICE};
         config.localLocator = "mock:host=master3";
         cluster.addServer(config);
-        ramcloud.construct(context, "mock:host=coordinator");
+        ramcloud.construct(&context, "mock:host=coordinator");
 
         // Write some test data to the servers.
         tableId1 = ramcloud->createTable("table1");
@@ -85,13 +85,13 @@ class MultiReadTest : public ::testing::Test {
 
         // Get pointers to the master sessions.
         Transport::SessionRef session =
-                ramcloud->clientContext.transportManager->getSession(
+                ramcloud->clientContext->transportManager->getSession(
                 "mock:host=master1");
         session1 = static_cast<BindTransport::BindSession*>(session.get());
-        session = ramcloud->clientContext.transportManager->getSession(
+        session = ramcloud->clientContext->transportManager->getSession(
                 "mock:host=master2");
         session2 = static_cast<BindTransport::BindSession*>(session.get());
-        session = ramcloud->clientContext.transportManager->getSession(
+        session = ramcloud->clientContext->transportManager->getSession(
                 "mock:host=master3");
         session3 = static_cast<BindTransport::BindSession*>(session.get());
 

@@ -32,12 +32,12 @@ class MinOpenSegmentIdTest : public ::testing::Test {
 
     MinOpenSegmentIdTest()
         : context()
-        , cluster(context)
+        , cluster(&context)
         , service(cluster.coordinator.get())
         , serverId()
         , taskQueue()
-        , min(context, &taskQueue, &serverId)
-        , serverList(service->context.coordinatorServerList)
+        , min(&context, &taskQueue, &serverId)
+        , serverList(service->context->coordinatorServerList)
     {
         ServerConfig config = ServerConfig::forTesting();
         config.services = {WireFormat::MASTER_SERVICE};

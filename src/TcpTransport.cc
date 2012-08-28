@@ -52,7 +52,7 @@ Syscall* TcpTransport::sys = &defaultSyscall;
  * \throw TransportException
  *      There was a problem that prevented us from creating the transport.
  */
-TcpTransport::TcpTransport(Context& context,
+TcpTransport::TcpTransport(Context* context,
         const ServiceLocator* serviceLocator)
     : context(context)
     , locatorString()
@@ -179,7 +179,7 @@ TcpTransport::Socket::~Socket() {
  *      The TcpTransport that manages this socket.
  */
 TcpTransport::AcceptHandler::AcceptHandler(int fd, TcpTransport& transport)
-    : Dispatch::File(*transport.context.dispatch, fd,
+    : Dispatch::File(*transport.context->dispatch, fd,
             Dispatch::FileEvent::READABLE)
     , transport(transport)
 {
@@ -260,7 +260,7 @@ TcpTransport::AcceptHandler::handleFileEvent(int events)
 TcpTransport::ServerSocketHandler::ServerSocketHandler(int fd,
                                                        TcpTransport& transport,
                                                        Socket* socket)
-    : Dispatch::File(*transport.context.dispatch, fd,
+    : Dispatch::File(*transport.context->dispatch, fd,
                      Dispatch::FileEvent::READABLE)
     , fd(fd)
     , transport(transport)
@@ -295,7 +295,7 @@ TcpTransport::ServerSocketHandler::handleFileEvent(int events)
                 // The incoming request is complete; pass it off for servicing.
                 TcpServerRpc *rpc = socket->rpc;
                 socket->rpc = NULL;
-                transport.context.serviceManager->handleRpc(rpc);
+                transport.context->serviceManager->handleRpc(rpc);
             }
         }
         if (events & Dispatch::FileEvent::WRITABLE) {
@@ -583,7 +583,7 @@ TcpTransport::TcpSession::TcpSession(TcpTransport& transport,
     , current(NULL)
     , message()
     , clientIoHandler()
-    , alarm(*transport.context.sessionAlarmTimer, *this,
+    , alarm(*transport.context->sessionAlarmTimer, *this,
             (timeoutMs != 0) ? timeoutMs : DEFAULT_TIMEOUT_MS)
 {
     setServiceLocator(serviceLocator.getOriginalString());
@@ -607,7 +607,7 @@ TcpTransport::TcpSession::TcpSession(TcpTransport& transport,
     }
 
     /// Arrange for notification whenever the server sends us data.
-    Dispatch::Lock lock(transport.context.dispatch);
+    Dispatch::Lock lock(transport.context->dispatch);
     clientIoHandler.construct(fd, *this);
     message.construct(static_cast<Buffer*>(NULL), this);
 }
@@ -683,7 +683,7 @@ TcpTransport::TcpSession::close()
         transport.clientRpcPool.destroy(&rpc);
     }
     if (clientIoHandler) {
-        Dispatch::Lock lock(transport.context.dispatch);
+        Dispatch::Lock lock(transport.context->dispatch);
         clientIoHandler.destroy();
     }
 }
@@ -760,7 +760,7 @@ TcpTransport::TcpSession::sendRequest(Buffer* request, Buffer* response,
  */
 TcpTransport::ClientSocketHandler::ClientSocketHandler(int fd,
         TcpSession& session)
-    : Dispatch::File(*session.transport.context.dispatch, fd,
+    : Dispatch::File(*session.transport.context->dispatch, fd,
                      Dispatch::FileEvent::READABLE)
     , fd(fd)
     , session(session)

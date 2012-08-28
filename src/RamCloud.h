@@ -81,7 +81,7 @@ class RamCloud {
             uint64_t* version = NULL, bool async = false);
 
     explicit RamCloud(const char* serviceLocator);
-    RamCloud(Context& context, const char* serviceLocator);
+    RamCloud(Context* context, const char* serviceLocator);
 
   PRIVATE:
     /**
@@ -101,7 +101,7 @@ class RamCloud {
      * clients that want to provide their own context that they've mucked with,
      * this refers to an externally defined context.
      */
-    Context& clientContext;
+    Context* clientContext;
 
     /**
      * Status returned from the most recent RPC.  Warning: as of 7/2012 this
@@ -235,7 +235,7 @@ class FillWithTestDataRpc : public ObjectRpcWrapper {
             uint16_t keyLength, uint32_t numObjects, uint32_t objectSize);
     ~FillWithTestDataRpc() {}
     /// \copydoc RpcWrapper::docForWait
-    void wait() {simpleWait(ramcloud->clientContext.dispatch);}
+    void wait() {simpleWait(ramcloud->clientContext->dispatch);}
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(FillWithTestDataRpc);
@@ -329,7 +329,7 @@ class KillRpc : public ObjectRpcWrapper {
             uint16_t keyLength);
     ~KillRpc() {}
     /// \copydoc RpcWrapper::docForWait
-    void wait() {simpleWait(ramcloud->clientContext.dispatch);}
+    void wait() {simpleWait(ramcloud->clientContext->dispatch);}
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(KillRpc);
@@ -346,7 +346,7 @@ class MigrateTabletRpc : public ObjectRpcWrapper {
             ServerId newMasterOwnerId);
     ~MigrateTabletRpc() {}
     /// \copydoc RpcWrapper::docForWait
-    void wait() {simpleWait(ramcloud->clientContext.dispatch);}
+    void wait() {simpleWait(ramcloud->clientContext->dispatch);}
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(MigrateTabletRpc);

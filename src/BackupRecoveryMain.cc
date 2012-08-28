@@ -64,7 +64,7 @@ try
     const string& coordinatorLocator =
         optionParser.options.getCoordinatorLocator();
     LOG(NOTICE, "client: Connecting to %s", coordinatorLocator.c_str());
-    RamCloud client(context, coordinatorLocator.c_str());
+    RamCloud client(&context, coordinatorLocator.c_str());
 
     client.createTable("mainTable");
     uint64_t table = client.getTableId("mainTable");

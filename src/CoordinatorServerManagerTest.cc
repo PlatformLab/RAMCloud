@@ -41,7 +41,7 @@ class CoordinatorServerManagerTest : public ::testing::Test {
 
     CoordinatorServerManagerTest()
         : context()
-        , cluster(context)
+        , cluster(&context)
         , ramcloud()
         , serverManager()
         , master()
@@ -63,7 +63,7 @@ class CoordinatorServerManagerTest : public ::testing::Test {
         master = masterServer->master.get();
         masterServerId = masterServer->serverId;
 
-        ramcloud.construct(context, "mock:host=coordinator");
+        ramcloud.construct(&context, "mock:host=coordinator");
 
         serverList = &(serverManager->service.serverList);
         logCabinHelper = serverManager->service.logCabinHelper.get();
@@ -550,7 +550,7 @@ TEST_F(CoordinatorServerManagerTest, verifyServerFailure) {
     EXPECT_FALSE(serverManager->verifyServerFailure(masterServerId));
 
     // Case 2: server incommunicado.
-    MockTransport mockTransport(context);
+    MockTransport mockTransport(&context);
     context.transportManager->registerMock(&mockTransport, "mock2");
     ServerId deadId = serverList->generateUniqueId();
     serverList->add(deadId, "mock2:", {WireFormat::PING_SERVICE}, 100);

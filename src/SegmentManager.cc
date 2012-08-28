@@ -43,7 +43,7 @@ namespace RAMCloud {
  *      conjunction with in-memory cleaning, this drives down cleaning costs.
  *      Factors larger than 2 or 3 will likely have quickly diminishing returns.
  */
-SegmentManager::SegmentManager(Context& context,
+SegmentManager::SegmentManager(Context* context,
                                ServerId& logId,
                                Allocator& allocator,
                                ReplicaManager& replicaManager,
@@ -76,7 +76,7 @@ SegmentManager::SegmentManager(Context& context,
         freeSlots.push_back(i);
 
     // TODO(anyone): Get this hack out of here.
-    context.transportManager->registerMemory(
+    context->transportManager->registerMemory(
         const_cast<void*>(allocator.getBaseAddress()),
         allocator.getTotalBytes());
 }

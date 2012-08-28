@@ -45,7 +45,7 @@ class RpcWrapperTest : public ::testing::Test {
     RpcWrapperTest()
         : context()
         , locator("test:server=1")
-        , transport(context)
+        , transport(&context)
         , session(transport.getSession(locator))
     {}
 

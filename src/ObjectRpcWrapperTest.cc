@@ -52,7 +52,7 @@ class ObjectRpcWrapperTest : public ::testing::Test {
     {
         ramcloud.objectFinder.tabletMapFetcher.reset(
                 new ObjRpcWrapperRefresher);
-        ramcloud.clientContext.transportManager->registerMock(&transport);
+        ramcloud.clientContext->transportManager->registerMock(&transport);
     }
 
     ~ObjectRpcWrapperTest()

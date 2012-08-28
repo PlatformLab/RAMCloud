@@ -43,7 +43,7 @@ namespace RAMCloud {
  */
 class ServerList : public AbstractServerList {
   PUBLIC:
-    explicit ServerList(Context& context);
+    explicit ServerList(Context* context);
     ~ServerList();
 
     ServerId operator[](uint32_t indexNumber);

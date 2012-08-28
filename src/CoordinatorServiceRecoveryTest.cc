@@ -29,7 +29,7 @@ class CoordinatorServiceRecoveryTest : public ::testing::Test {
 
     CoordinatorServiceRecoveryTest()
         : context()
-        , cluster(context)
+        , cluster(&context)
         , coordRecovery()
         , logCabinHelper()
     {

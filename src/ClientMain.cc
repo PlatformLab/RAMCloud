@@ -94,7 +94,7 @@ try
     LOG(NOTICE, "client: Connecting to %s",
         optionParser.options.getCoordinatorLocator().c_str());
 
-    RamCloud client(context,
+    RamCloud client(&context,
                     optionParser.options.getCoordinatorLocator().c_str());
 
     b = Cycles::rdtsc();

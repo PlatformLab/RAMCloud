@@ -117,7 +117,7 @@ namespace RAMCloud {
  *      the transport will be configured for client use only.
  */
 template<typename Infiniband>
-InfRcTransport<Infiniband>::InfRcTransport(Context& context,
+InfRcTransport<Infiniband>::InfRcTransport(Context* context,
                                            const ServiceLocator *sl)
     : context(context)
     , realInfiniband()
@@ -322,7 +322,7 @@ InfRcTransport<Infiniband>::InfRcSession::InfRcSession(
     InfRcTransport *transport, const ServiceLocator& sl, uint32_t timeoutMs)
     : transport(transport)
     , qp(NULL)
-    , alarm(*transport->context.sessionAlarmTimer, *this,
+    , alarm(*transport->context->sessionAlarmTimer, *this,
             (timeoutMs != 0) ? timeoutMs : DEFAULT_TIMEOUT_MS)
 {
     setServiceLocator(sl.getOriginalString());
@@ -532,7 +532,7 @@ InfRcTransport<Infiniband>::clientTryExchangeQueuePairs(struct sockaddr_in *sin,
         // We need to call the dispatcher in order to let other event handlers
         // run (this is particularly important if the server we are trying to
         // connect to is us).
-        Dispatch& dispatch = *context.dispatch;
+        Dispatch& dispatch = *context->dispatch;
         if (dispatch.isDispatchThread()) {
             dispatch.poll();
         }
@@ -1132,7 +1132,7 @@ InfRcTransport<Infiniband>::Poller::poll()
                     bd->buffer + sizeof32(header),
                     len, t, t->serverSrq, bd);
             }
-            t->context.serviceManager->handleRpc(r);
+            t->context->serviceManager->handleRpc(r);
             ++metrics->transport.receive.messageCount;
             ++metrics->transport.receive.packetCount;
             metrics->transport.receive.iovecCount +=

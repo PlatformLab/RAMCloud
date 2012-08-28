@@ -24,8 +24,8 @@ namespace RAMCloud {
 // The following class is used for testing.
 class AlarmSession : public Transport::Session {
   public:
-    Context& context;
-    explicit AlarmSession(Context& context)
+    Context* context;
+    explicit AlarmSession(Context* context)
         : context(context), notifiers(), alarm(NULL)
     {
         setServiceLocator("test:alarm");
@@ -102,11 +102,11 @@ class SessionAlarmTest : public ::testing::Test {
 
     SessionAlarmTest()
         : context()
-        , timer(context)
+        , timer(&context)
         , session()
         , sessionRef()
     {
-        session = new AlarmSession(context);
+        session = new AlarmSession(&context);
         sessionRef = session;
         AlarmSession::log.clear();
     }
@@ -219,7 +219,7 @@ TEST_F(SessionAlarmTest, rpcFinished_removeFromActiveAlarms) {
 
 TEST_F(SessionAlarmTimerTest, destructor) {
     Tub<SessionAlarmTimer> timer2;
-    timer2.construct(context);
+    timer2.construct(&context);
     SessionAlarm alarm1(*timer2, *session, 0);
     alarm1.rpcStarted();
     alarm1.rpcStarted();
@@ -273,13 +273,13 @@ TEST_F(SessionAlarmTest, handleTimerEvent_cleanupPings) {
     session->alarm = &alarm1;
     alarm1.rpcStarted();
 
-    AlarmSession* session2 = new AlarmSession(context);
+    AlarmSession* session2 = new AlarmSession(&context);
     Transport::SessionRef ref2 = session2;
     SessionAlarm alarm2(timer, *session2, 0);
     session2->alarm = &alarm2;
     alarm2.rpcStarted();
 
-    AlarmSession* session3 = new AlarmSession(context);
+    AlarmSession* session3 = new AlarmSession(&context);
     Transport::SessionRef ref3 = session3;
     SessionAlarm alarm3(timer, *session3, 0);
     session3->alarm = &alarm3;

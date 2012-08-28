@@ -310,7 +310,7 @@ BackupService::IoScheduler::doStore(BackupReplica& replica) const
  *      The size of segments stored on masters and in the backup's storage.
  */
 BackupService::RecoverySegmentBuilder::RecoverySegmentBuilder(
-        Context& context,
+        Context* context,
         const vector<BackupReplica*>& replicas,
         const ProtoBuf::Tablets& partitions,
         Atomic<int>& recoveryThreadCount,
@@ -475,8 +475,8 @@ BackupService::GarbageCollectReplicasFoundOnStorageTask::
     // Due to RAM-447 it is a bit tricky to decipher when a server is in
     // crashed status. It is done here outside the context of the
     // ServerDoesntExistException because of that bug.
-    if (service.context.serverList->contains(masterId) &&
-        !service.context.serverList->isUp(masterId))
+    if (service.context->serverList->contains(masterId) &&
+        !service.context->serverList->isUp(masterId))
     {
         // In the server list but not up implies crashed.
         // Since server has crashed just let
@@ -514,7 +514,7 @@ BackupService::GarbageCollectReplicasFoundOnStorageTask::
             }
         }
     } else {
-        rpc.construct(&service.context, masterId, service.serverId, segmentId);
+        rpc.construct(service.context, masterId, service.serverId, segmentId);
     }
     return false;
 }
@@ -600,7 +600,7 @@ BackupService::GarbageCollectDownServerTask::performTask()
  *      Settings for this instance. The caller guarantees that config will
  *      exist for the duration of this BackupService's lifetime.
  */
-BackupService::BackupService(Context& context,
+BackupService::BackupService(Context* context,
                              const ServerConfig& config)
     : context(context)
     , mutex()

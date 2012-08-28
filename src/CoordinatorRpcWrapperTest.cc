@@ -28,7 +28,7 @@ class CoordinatorRpcWrapperTest : public ::testing::Test {
 
     CoordinatorRpcWrapperTest()
         : context()
-        , transport(context)
+        , transport(&context)
     {
         context.transportManager->registerMock(&transport);
         context.coordinatorSession->setLocation("mock:");

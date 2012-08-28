@@ -1779,7 +1779,7 @@ try
         exit(1);
     }
 
-    RamCloud r(context, coordinatorLocator.c_str());
+    RamCloud r(&context, coordinatorLocator.c_str());
     cluster = &r;
     cluster->createTable("data");
     dataTable = cluster->getTableId("data");

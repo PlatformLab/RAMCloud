@@ -39,10 +39,10 @@ class MembershipServiceTest : public ::testing::Test {
     MembershipServiceTest()
         : context()
         , serverId(99, 2)
-        , serverList(context)
+        , serverList(&context)
         , service(serverId, serverList)
-        , transport(context)
-        , mockRegistrar(context, transport)
+        , transport(&context)
+        , mockRegistrar(&context, transport)
     {
         transport.addService(service, "mock:host=member",
                              WireFormat::MEMBERSHIP_SERVICE);
@@ -63,7 +63,7 @@ TEST_F(MembershipServiceTest, setServerList) {
     // Create a temporary coordinator server list (with its own context)
     // to use as a source for update information.
     Context context2;
-    CoordinatorServerList source(context2);
+    CoordinatorServerList source(&context2);
     ServerId id1 = source.generateUniqueId();
     source.add(id1, "mock:host=55", {WireFormat::MASTER_SERVICE,
             WireFormat::PING_SERVICE}, 100);
@@ -92,7 +92,7 @@ TEST_F(MembershipServiceTest, updateServerList) {
     // Create a temporary coordinator server list (with its own context)
     // to use as a source for update information.
     Context context2;
-    CoordinatorServerList source(context2);
+    CoordinatorServerList source(&context2);
     ProtoBuf::ServerList& updates = source.updates;
     ServerId id1 = source.generateUniqueId();
     source.add(lock, id1, "mock:host=55",

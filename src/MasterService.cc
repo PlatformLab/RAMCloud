@@ -102,7 +102,7 @@ MasterService::Replica::Replica(uint64_t backupId, uint64_t segmentId,
  *      Contains various parameters that configure the operation of
  *      this server.
  */
-MasterService::MasterService(Context& context,
+MasterService::MasterService(Context* context,
                              const ServerConfig& config)
     : context(context)
     , config(config)
@@ -826,13 +826,13 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request& reqHdr,
     // TODO(rumble/slaughter) add method to query for # objs, # bytes in a
     // range in order for this to really work, we'll need to split on a bucket
     // boundary. Otherwise we can't tell where bytes are in the chosen range.
-    MasterClient::prepForMigration(&context, newOwnerMasterId, tableId,
+    MasterClient::prepForMigration(context, newOwnerMasterId, tableId,
                                    firstKeyHash, lastKeyHash, 0, 0);
 
     LOG(NOTICE, "Migrating tablet (id %lu, first %lu, last %lu) to "
         "ServerId %s (\"%s\")", tableId, firstKeyHash, lastKeyHash,
         newOwnerMasterId.toString().c_str(),
-        context.serverList->getLocator(newOwnerMasterId));
+        context->serverList->getLocator(newOwnerMasterId));
 
     // We'll send over objects in Segment containers for better network
     // efficiency and convenience.
@@ -902,7 +902,7 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request& reqHdr,
         if (!transferSeg->append(type, buffer)) {
             transferSeg->close();
             LOG(DEBUG, "Sending migration segment");
-            MasterClient::receiveMigrationData(&context, newOwnerMasterId,
+            MasterClient::receiveMigrationData(context, newOwnerMasterId,
                 tableId, firstKeyHash, transferSeg.get());
 
             transferSeg.destroy();
@@ -922,7 +922,7 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request& reqHdr,
     if (transferSeg) {
         transferSeg->close();
         LOG(DEBUG, "Sending last migration segment");
-        MasterClient::receiveMigrationData(&context, newOwnerMasterId,
+        MasterClient::receiveMigrationData(context, newOwnerMasterId,
             tableId, firstKeyHash, transferSeg.get());
         transferSeg.destroy();
     }
@@ -931,7 +931,7 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request& reqHdr,
     // the tablet. If this succeeds, we are free to drop the tablet. The
     // data is all on the other machine and the coordinator knows to use it
     // for any recoveries.
-    CoordinatorClient::reassignTabletOwnership(&context,
+    CoordinatorClient::reassignTabletOwnership(context,
         tableId, firstKeyHash, lastKeyHash, newOwnerMasterId);
 
     LOG(NOTICE, "Tablet migration succeeded. Sent %lu objects and %lu "
@@ -1053,7 +1053,7 @@ class RemoveTombstonePoller : public Dispatch::Poller {
      *      The HashTable which will be purged of tombstones.
      */
     RemoveTombstonePoller(MasterService& masterService, HashTable& objectMap)
-        : Dispatch::Poller(*masterService.context.dispatch)
+        : Dispatch::Poller(*masterService.context->dispatch)
         , currentBucket(0)
         , masterService(masterService)
         , objectMap(objectMap)
@@ -1071,7 +1071,7 @@ class RemoveTombstonePoller : public Dispatch::Poller {
         // This method runs in the dispatch thread, so it isn't safe to
         // manipulate any of the objectMap state if any RPCs are currently
         // executing.
-        if (!masterService.context.serviceManager->idle())
+        if (!masterService.context->serviceManager->idle())
             return;
         objectMap.forEachInBucket(
             recoveryCleanup, &masterService, currentBucket);
@@ -1107,7 +1107,7 @@ MasterService::removeTombstones()
     // Asynchronous tombstone removal raises hell in unit tests.
     objectMap->forEach(recoveryCleanup, this);
 #else
-    Dispatch::Lock lock(context.dispatch);
+    Dispatch::Lock lock(context->dispatch);
     new RemoveTombstonePoller(*this, *objectMap);
 #endif
 }
@@ -1119,7 +1119,7 @@ namespace MasterServiceInternal {
  */
 class RecoveryTask {
   PUBLIC:
-    RecoveryTask(Context& context,
+    RecoveryTask(Context* context,
                  ServerId masterId,
                  uint64_t partitionId,
                  MasterService::Replica& replica)
@@ -1131,7 +1131,7 @@ class RecoveryTask {
         , startTime(Cycles::rdtsc())
         , rpc()
     {
-        rpc.construct(&context, replica.backupId, masterId, replica.segmentId,
+        rpc.construct(context, replica.backupId, masterId, replica.segmentId,
                       partitionId, &response);
     }
     ~RecoveryTask()
@@ -1139,16 +1139,16 @@ class RecoveryTask {
         if (rpc && !rpc->isReady()) {
             LOG(WARNING, "Task destroyed while RPC active: segment %lu, "
                     "server %s", replica.segmentId,
-                    context.serverList->toString(replica.backupId).c_str());
+                    context->serverList->toString(replica.backupId).c_str());
         }
     }
     void resend() {
         LOG(DEBUG, "Resend %lu", replica.segmentId);
         response.reset();
-        rpc.construct(&context, replica.backupId, masterId, replica.segmentId,
+        rpc.construct(context, replica.backupId, masterId, replica.segmentId,
                       partitionId, &response);
     }
-    Context& context;
+    Context* context;
     ServerId masterId;
     uint64_t partitionId;
     MasterService::Replica& replica;
@@ -1317,7 +1317,7 @@ MasterService::recover(ServerId masterId,
             auto& replica = *replicaIt;
             LOG(DEBUG, "Starting getRecoveryData from %s for segment %lu "
                 "on channel %ld (initial round of RPCs)",
-                context.serverList->toString(replica.backupId).c_str(),
+                context->serverList->toString(replica.backupId).c_str(),
                 replica.segmentId,
                 &task - &tasks[0]);
             task.construct(context, masterId, partitionId,
@@ -1356,7 +1356,7 @@ MasterService::recover(ServerId masterId,
             readStallTicks.destroy();
             LOG(DEBUG, "Waiting on recovery data for segment %lu from %s",
                 task->replica.segmentId,
-                context.serverList->toString(task->replica.backupId).c_str());
+                context->serverList->toString(task->replica.backupId).c_str());
             try {
                 task->rpc->wait();
                 uint64_t grdTime = Cycles::rdtsc() - task->startTime;
@@ -1369,7 +1369,7 @@ MasterService::recover(ServerId masterId,
                 }
                 LOG(DEBUG, "Got getRecoveryData response from %s, took %.1f us "
                     "on channel %ld",
-                    context.serverList->toString(
+                    context->serverList->toString(
                         task->replica.backupId).c_str(),
                     Cycles::toSeconds(grdTime)*1e06,
                     &task - &tasks[0]);
@@ -1387,7 +1387,7 @@ MasterService::recover(ServerId masterId,
                 runningSet.erase(task->replica.segmentId);
                 // Mark this and any other entries for this segment as OK.
                 LOG(DEBUG, "Checking %s off the list for %lu",
-                    context.serverList->toString(
+                    context->serverList->toString(
                         task->replica.backupId).c_str(),
                     task->replica.segmentId);
                 task->replica.state = Replica::State::OK;
@@ -1395,7 +1395,7 @@ MasterService::recover(ServerId masterId,
                                         task->replica.segmentId)) {
                     Replica& otherReplica = *it.second;
                     LOG(DEBUG, "Checking %s off the list for %lu",
-                        context.serverList->toString(
+                        context->serverList->toString(
                             otherReplica.backupId).c_str(),
                         otherReplica.segmentId);
                     otherReplica.state = Replica::State::OK;
@@ -1408,7 +1408,7 @@ MasterService::recover(ServerId masterId,
             } catch (const ClientException& e) {
                 LOG(WARNING, "getRecoveryData failed on %s, "
                     "trying next backup; failure was: %s",
-                    context.serverList->toString(
+                    context->serverList->toString(
                         task->replica.backupId).c_str(),
                     e.str().c_str());
                 task->replica.state = Replica::State::FAILED;
@@ -1436,7 +1436,7 @@ MasterService::recover(ServerId masterId,
                 Replica& replica = *replicaIt;
                 LOG(DEBUG, "Starting getRecoveryData from %s for segment %lu "
                     "on channel %ld (after RPC completion)",
-                    context.serverList->toString(replica.backupId).c_str(),
+                    context->serverList->toString(replica.backupId).c_str(),
                     replica.segmentId,
                     &task - &tasks[0]);
                 task.construct(context, masterId, partitionId, replica);
@@ -1611,7 +1611,7 @@ MasterService::recover(const WireFormat::Recover::Request& reqHdr,
         tablet.set_ctime_log_head_offset(headOfLog.getSegmentOffset());
     }
     LOG(NOTICE, "Reporting completion of recovery %lu", reqHdr.recoveryId);
-    CoordinatorClient::recoveryMasterFinished(&context, recoveryId,
+    CoordinatorClient::recoveryMasterFinished(context, recoveryId,
                                               serverId, &recoveryTablets,
                                               successful);
 
@@ -2441,11 +2441,11 @@ MasterService::storeObject(Key& key,
         anyWrites = true;
 
         // Empty coordinator locator means we're in test mode, so skip this.
-        if (!context.coordinatorSession->getLocation().empty()) {
+        if (!context->coordinatorSession->getLocation().empty()) {
             ProtoBuf::ServerList backups;
-            CoordinatorClient::getBackupList(&context, &backups);
+            CoordinatorClient::getBackupList(context, &backups);
             TransportManager& transportManager =
-                *context.transportManager;
+                *context->transportManager;
             foreach(auto& backup, backups.server())
                 transportManager.getSession(backup.service_locator().c_str());
         }

@@ -33,7 +33,7 @@ main(int argc, char *argv[])
     using namespace RAMCloud;
     string localLocator("???");
     Context context(true);
-    CoordinatorServerList serverList(context);
+    CoordinatorServerList serverList(&context);
     try {
         OptionParser optionParser(OptionsDescription("Coordinator"),
                                   argc, argv);
@@ -55,10 +55,10 @@ main(int argc, char *argv[])
         localLocator = context.transportManager->
                                 getListeningLocatorsString();
         LOG(NOTICE, "coordinator: Listening on %s", localLocator.c_str());
-        CoordinatorService coordinatorService(context);
+        CoordinatorService coordinatorService(&context);
         context.serviceManager->addService(coordinatorService,
                                            WireFormat::COORDINATOR_SERVICE);
-        PingService pingService(context);
+        PingService pingService(&context);
         context.serviceManager->addService(pingService,
                                            WireFormat::PING_SERVICE);
         Dispatch& dispatch = *context.dispatch;

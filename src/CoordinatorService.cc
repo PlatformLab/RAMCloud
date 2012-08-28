@@ -26,9 +26,9 @@
 
 namespace RAMCloud {
 
-CoordinatorService::CoordinatorService(Context& context, string LogCabinLocator)
+CoordinatorService::CoordinatorService(Context* context, string LogCabinLocator)
     : context(context)
-    , serverList(*context.coordinatorServerList)
+    , serverList(*context->coordinatorServerList)
     , tabletMap()
     , tables()
     , nextTableId(0)
@@ -172,7 +172,7 @@ CoordinatorService::createTable(const WireFormat::CreateTable::Request& reqHdr,
             }
         }
         // Get current log head. Only entries >= this can be part of the tablet.
-        Log::Position headOfLog = MasterClient::getHeadOfLog(&context,
+        Log::Position headOfLog = MasterClient::getHeadOfLog(context,
                                                              master.serverId);
 
         // Create tablet map entry.
@@ -180,7 +180,7 @@ CoordinatorService::createTable(const WireFormat::CreateTable::Request& reqHdr,
                              master.serverId, Tablet::NORMAL, headOfLog});
 
         // Inform the master.
-        MasterClient::takeTabletOwnership(&context, master.serverId, tableId,
+        MasterClient::takeTabletOwnership(context, master.serverId, tableId,
                                           firstKeyHash, lastKeyHash);
 
         LOG(DEBUG, "Created table '%s' with id %lu and a span %u on master %s",
@@ -210,7 +210,7 @@ CoordinatorService::dropTable(const WireFormat::DropTable::Request& reqHdr,
     tables.erase(it);
     vector<Tablet> removed = tabletMap.removeTabletsForTable(tableId);
     foreach (const auto& tablet, removed) {
-            MasterClient::dropTabletOwnership(&context,
+            MasterClient::dropTabletOwnership(context,
                                               tablet.serverId,
                                               tableId,
                                               tablet.startKeyHash,
@@ -258,7 +258,7 @@ CoordinatorService::splitTablet(const WireFormat::SplitTablet::Request& reqHdr,
     }
 
     // Tell the master to split the tablet
-    MasterClient::splitMasterTablet(&context, serverId, tableId,
+    MasterClient::splitMasterTablet(context, serverId, tableId,
                                     reqHdr.firstKeyHash, reqHdr.lastKeyHash,
                                     reqHdr.splitKeyHash);
 
@@ -401,7 +401,7 @@ CoordinatorService::quiesce(const WireFormat::BackupQuiesce::Request& reqHdr,
 {
     for (size_t i = 0; i < serverList.size(); i++) {
         if (serverList[i] && serverList[i]->isBackup()) {
-            BackupClient::quiesce(&context, serverList[i]->serverId);
+            BackupClient::quiesce(context, serverList[i]->serverId);
         }
     }
 }
@@ -450,7 +450,7 @@ CoordinatorService::reassignTabletOwnership(
 
     // Get current head of log to preclude all previous data in the log
     // from being considered part of this tablet.
-    Log::Position headOfLog = MasterClient::getHeadOfLog(&context, newOwner);
+    Log::Position headOfLog = MasterClient::getHeadOfLog(context, newOwner);
 
     try {
         tabletMap.modifyTablet(reqHdr.tableId, reqHdr.firstKeyHash,
@@ -475,7 +475,7 @@ CoordinatorService::reassignTabletOwnership(
     //      get stuck in limbo. What should we do? Retry? Fail the
     //      server and recover it? Can't return to the old master if we
     //      reply early...
-    MasterClient::takeTabletOwnership(&context, newOwner, reqHdr.tableId,
+    MasterClient::takeTabletOwnership(context, newOwner, reqHdr.tableId,
                                      reqHdr.firstKeyHash, reqHdr.lastKeyHash);
 }
 

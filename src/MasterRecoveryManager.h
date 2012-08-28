@@ -50,7 +50,7 @@ class MasterRecoveryManager : public Recovery::Owner
                             , public ServerTracker<Recovery>::Callback
 {
   PUBLIC:
-    MasterRecoveryManager(Context& context,
+    MasterRecoveryManager(Context* context,
                           TabletMap& tabletMap,
                           RuntimeOptions* runtimeOptions);
     ~MasterRecoveryManager();
@@ -73,7 +73,7 @@ class MasterRecoveryManager : public Recovery::Owner
     void main();
 
     /// Shared RAMCloud information.
-    Context& context;
+    Context* context;
 
     /// Authoritative information about tablets and their mapping to servers.
     TabletMap& tabletMap;

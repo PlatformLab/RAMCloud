@@ -40,8 +40,8 @@ class TcpTransportTest : public ::testing::Test {
             , sys(NULL)
             , savedSyscall(NULL)
             , logEnabler(NULL)
-            , server(context, &locator)
-            , client(context)
+            , server(&context, &locator)
+            , client(&context)
     {
         sys = new MockSyscall();
         savedSyscall = TcpTransport::sys;
@@ -56,7 +56,7 @@ class TcpTransportTest : public ::testing::Test {
     string catchConstruct(ServiceLocator* locator) {
         string message("no exception");
         try {
-            TcpTransport server2(context, locator);
+            TcpTransport server2(&context, locator);
         } catch (TransportException& e) {
             message = e.message;
         }
@@ -131,7 +131,7 @@ TEST_F(TcpTransportTest, sanityCheck) {
     // Receive the responses in the client.
     EXPECT_STREQ("completed: 0, failed: 0", rpc1.getState());
     EXPECT_STREQ("completed: 0, failed: 0", rpc2.getState());
-    EXPECT_TRUE(TestUtil::waitForRpc(context, rpc1));
+    EXPECT_TRUE(TestUtil::waitForRpc(&context, rpc1));
     EXPECT_STREQ("completed: 1, failed: 0", rpc1.getState());
     EXPECT_STREQ("completed: 1, failed: 0", rpc2.getState());
 }
@@ -178,8 +178,8 @@ TEST_F(TcpTransportTest, destructor) {
     // Connect 2 clients to 1 server, then delete them all and make
     // sure that all of the sockets get closed.
     ServiceLocator locator("tcp+ip:host=localhost,port=11001");
-    TcpTransport* server = new TcpTransport(context, &locator);
-    TcpTransport* client = new TcpTransport(context);
+    TcpTransport* server = new TcpTransport(&context, &locator);
+    TcpTransport* client = new TcpTransport(&context);
     Transport::SessionRef session1 = client->getSession(locator);
     Transport::SessionRef session2 = client->getSession(locator);
 
@@ -197,8 +197,8 @@ TEST_F(TcpTransportTest, destructor) {
     serverRpc1->sendReply();
     serverRpc2->replyPayload.fillFromString("reply2");
     serverRpc2->sendReply();
-    EXPECT_TRUE(TestUtil::waitForRpc(context, rpc1));
-    EXPECT_TRUE(TestUtil::waitForRpc(context, rpc2));
+    EXPECT_TRUE(TestUtil::waitForRpc(&context, rpc1));
+    EXPECT_TRUE(TestUtil::waitForRpc(&context, rpc2));
     EXPECT_EQ("reply1/0", TestUtil::toString(&rpc1.response));
     EXPECT_EQ("reply2/0", TestUtil::toString(&rpc2.response));
 
@@ -343,11 +343,11 @@ TEST_F(TcpTransportTest, ServerSocketHandler_handleFileEvent_writes) {
     serverRpc->sendReply();
 
     // Receive and check replies.
-    EXPECT_TRUE(TestUtil::waitForRpc(context, rpc1));
+    EXPECT_TRUE(TestUtil::waitForRpc(&context, rpc1));
     EXPECT_EQ("ok", TestUtil::checkLargeBuffer(&rpc1.response, 199999));
-    EXPECT_TRUE(TestUtil::waitForRpc(context, rpc2));
+    EXPECT_TRUE(TestUtil::waitForRpc(&context, rpc2));
     EXPECT_EQ("response2/0", TestUtil::toString(&rpc2.response));
-    EXPECT_TRUE(TestUtil::waitForRpc(context, rpc3));
+    EXPECT_TRUE(TestUtil::waitForRpc(&context, rpc3));
     EXPECT_EQ("response3/0", TestUtil::toString(&rpc3.response));
     EXPECT_EQ("~TcpServerRpc: deleted | ~TcpServerRpc: deleted "
             "| ~TcpServerRpc: deleted", TestLog::get());
@@ -459,7 +459,7 @@ TEST_F(TcpTransportTest, sendMessage_largeBuffer) {
     TestUtil::fillLargeBuffer(&serverRpc->replyPayload, 350000);
     TcpTransport::messageChunks = 0;
     serverRpc->sendReply();
-    EXPECT_TRUE(TestUtil::waitForRpc(context, rpc));
+    EXPECT_TRUE(TestUtil::waitForRpc(&context, rpc));
     EXPECT_GT(TcpTransport::messageChunks, 0)
         << "The message fit in one chunk. You may have to increase the size "
            "of the message for this test to be effective.";
@@ -935,7 +935,7 @@ TEST_F(TcpTransportTest, ClientSocketHandler_handleFileEvent_readResponse) {
     // cleaned up.
     EXPECT_EQ(1U, rawSession->rpcsWaitingForResponse.size());
     serverRpc->sendReply();
-    EXPECT_TRUE(TestUtil::waitForRpc(context, rpc1));
+    EXPECT_TRUE(TestUtil::waitForRpc(&context, rpc1));
     EXPECT_EQ("response1/0", TestUtil::toString(&rpc1.response));
     EXPECT_TRUE(rawSession->current == NULL);
     EXPECT_STREQ("completed: 1, failed: 0", rpc1.getState());
@@ -1066,10 +1066,10 @@ TEST_F(TcpTransportTest, sendReply_fdReused) {
     // Attempt to send a reply, and make sure that it doesn't
     // accidentally get sent to the wrong request.
     serverRpc1->sendReply();
-    EXPECT_FALSE(TestUtil::waitForRpc(context, rpc2, 5));
+    EXPECT_FALSE(TestUtil::waitForRpc(&context, rpc2, 5));
 
     serverRpc2->sendReply();
-    EXPECT_TRUE(TestUtil::waitForRpc(context, rpc2));
+    EXPECT_TRUE(TestUtil::waitForRpc(&context, rpc2));
 }
 
 TEST_F(TcpTransportTest, sendReply) {
@@ -1111,11 +1111,11 @@ TEST_F(TcpTransportTest, sendReply) {
     TestLog::reset();
 
     // Make sure the responses eventually get through.
-    EXPECT_TRUE(TestUtil::waitForRpc(context, rpc1));
+    EXPECT_TRUE(TestUtil::waitForRpc(&context, rpc1));
     EXPECT_EQ("response1/0", TestUtil::toString(&rpc1.response));
-    EXPECT_TRUE(TestUtil::waitForRpc(context, rpc2));
+    EXPECT_TRUE(TestUtil::waitForRpc(&context, rpc2));
     EXPECT_EQ("ok", TestUtil::checkLargeBuffer(&rpc2.response, 200000));
-    EXPECT_TRUE(TestUtil::waitForRpc(context, rpc3));
+    EXPECT_TRUE(TestUtil::waitForRpc(&context, rpc3));
     EXPECT_EQ("response3/0", TestUtil::toString(&rpc3.response));
     EXPECT_EQ("~TcpServerRpc: deleted | ~TcpServerRpc: deleted",
             TestLog::get());
@@ -1135,7 +1135,7 @@ TEST_F(TcpTransportTest, sessionAlarm) {
     Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
     serverRpc->replyPayload.fillFromString("response1");
     serverRpc->sendReply();
-    EXPECT_TRUE(TestUtil::waitForRpc(context, rpc1));
+    EXPECT_TRUE(TestUtil::waitForRpc(&context, rpc1));
     for (int i = 0; i < 20; i++) {
         context.sessionAlarmTimer->handleTimerEvent();
     }
@@ -1163,7 +1163,7 @@ TEST_F(TcpTransportTest, TcpServerRpc_getClientServiceLocator) {
         "tcp:host=127\\.0\\.0\\.1,port=[0-9][0-9]*",
         serverRpc->getClientServiceLocator()));
     serverRpc->sendReply();
-    EXPECT_TRUE(TestUtil::waitForRpc(context, rpc1));
+    EXPECT_TRUE(TestUtil::waitForRpc(&context, rpc1));
 }
 
 }  // namespace RAMCloud

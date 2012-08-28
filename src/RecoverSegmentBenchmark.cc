@@ -33,7 +33,7 @@ class RecoverSegmentBenchmark {
         int numSegments)
         : context()
         , config(ServerConfig::forTesting())
-        , serverList(context)
+        , serverList(&context)
         , service(NULL)
     {
         config.localLocator = "bogus";
@@ -41,7 +41,7 @@ class RecoverSegmentBenchmark {
         config.setLogAndHashTableSize(logSize, hashTableSize);
         config.services = {WireFormat::MASTER_SERVICE};
         config.master.numReplicas = 0;
-        service = new MasterService(context, config);
+        service = new MasterService(&context, config);
         service->serverId = ServerId(1, 0);
     }
 

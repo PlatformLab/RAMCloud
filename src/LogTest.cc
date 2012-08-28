@@ -50,12 +50,12 @@ class LogTest : public ::testing::Test {
     LogTest()
         : context(),
           serverId(ServerId(57, 0)),
-          serverList(context),
-          replicaManager(context, serverId, 0),
+          serverList(&context),
+          replicaManager(&context, serverId, 0),
           allocator(4 * 8192, 8192, 8192),
-          segmentManager(context, serverId, allocator, replicaManager, 1.0),
+          segmentManager(&context, serverId, allocator, replicaManager, 1.0),
           entryHandlers(),
-          l(context, entryHandlers, segmentManager, replicaManager, true)
+          l(&context, entryHandlers, segmentManager, replicaManager, true)
     {
         l.sync();
     }
@@ -66,14 +66,14 @@ class LogTest : public ::testing::Test {
 
 TEST_F(LogTest, constructor_cleaner)
 {
-    Log l2(context, entryHandlers, segmentManager, replicaManager, false);
+    Log l2(&context, entryHandlers, segmentManager, replicaManager, false);
     EXPECT_EQ(static_cast<LogSegment*>(NULL), l2.head);
     EXPECT_TRUE(l2.cleaner);
 }
 
 TEST_F(LogTest, constructor_noCleaner)
 {
-    Log l2(context, entryHandlers, segmentManager, replicaManager, true);
+    Log l2(&context, entryHandlers, segmentManager, replicaManager, true);
     EXPECT_EQ(static_cast<LogSegment*>(NULL), l2.head);
     EXPECT_FALSE(l2.cleaner);
 }
@@ -155,7 +155,7 @@ TEST_F(LogTest, sync) {
 
 TEST_F(LogTest, getHeadPosition) {
     // unsynced should return <0, 0>...
-    Log l2(context, entryHandlers, segmentManager, replicaManager, true);
+    Log l2(&context, entryHandlers, segmentManager, replicaManager, true);
     EXPECT_EQ(Log::Position(0, 0), l2.getHeadPosition());
 
     // synced returns something else...

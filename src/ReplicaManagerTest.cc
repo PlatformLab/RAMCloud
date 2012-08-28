@@ -35,8 +35,8 @@ struct ReplicaManagerTest : public ::testing::Test {
 
     ReplicaManagerTest()
         : context()
-        , serverList(context)
-        , cluster(context)
+        , serverList(&context)
+        , cluster(&context)
         , segmentSize(1 << 16)
         , mgr()
         , serverId(99, 0)
@@ -56,7 +56,7 @@ struct ReplicaManagerTest : public ::testing::Test {
         config.localLocator = "mock:host=backup2";
         backup2Id = addToServerList(cluster.addServer(config));
 
-        mgr.construct(context, serverId, 2);
+        mgr.construct(&context, serverId, 2);
         serverId = CoordinatorClient::enlistServer(&context, {},
             {WireFormat::MASTER_SERVICE}, "", 0 , 0);
     }
@@ -288,9 +288,9 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
 
     const uint64_t logSegs = 4;
     SegmentManager::Allocator allocator(logSegs * 8192, 8192, 8192);
-    SegmentManager segmentManager(context, serverId, allocator, *mgr, 1.0);
+    SegmentManager segmentManager(&context, serverId, allocator, *mgr, 1.0);
     DoNothingHandlers entryHandlers;
-    Log log(context, entryHandlers, segmentManager, *mgr, true);
+    Log log(&context, entryHandlers, segmentManager, *mgr, true);
     log.sync();
 
     // Set up the scenario:
@@ -323,7 +323,7 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
     EXPECT_FALSE(mgr->isIdle());
 
     TestLog::Enable _(filter);
-    BackupFailureMonitor failureMonitor(context, mgr.get());
+    BackupFailureMonitor failureMonitor(&context, mgr.get());
     failureMonitor.start(&log);
     serverList.remove(backup1Id);
 
@@ -434,7 +434,7 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
     EXPECT_EQ(2u, log.head->id);
     // Make sure the minOpenSegmentId was updated.
     EXPECT_EQ(2u,
-        cluster.coordinator->context.coordinatorServerList->at(
+        cluster.coordinator->context->coordinatorServerList->at(
         serverId).minOpenSegmentId);
 }
 

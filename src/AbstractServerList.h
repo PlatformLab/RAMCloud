@@ -196,7 +196,7 @@ class ServerTrackerInterface;
  */
 class AbstractServerList {
   PUBLIC:
-    explicit AbstractServerList(Context& context);
+    explicit AbstractServerList(Context* context);
     virtual ~AbstractServerList();
 
     virtual bool contains(ServerId id);
@@ -243,7 +243,7 @@ class AbstractServerList {
     virtual size_t isize() const = 0;
 
     /// Shared RAMCloud information.
-    Context& context;
+    Context* context;
 
     /// Used to detect when the AbstractServerList has entered its destruction
     /// phase and will no longer accept new trackers.
@@ -274,6 +274,7 @@ class AbstractServerList {
     friend class TransportManager;       // (so it can set skipServerIdCheck)
 
     typedef std::lock_guard<std::mutex> Lock;
+    DISALLOW_COPY_AND_ASSIGN(AbstractServerList);
 };
 
 } //namespace RAMCloud

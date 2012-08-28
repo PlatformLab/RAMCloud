@@ -39,7 +39,7 @@ class CoordinatorServerList;
 
 class ServerListUpdater {
   PUBLIC:
-    ServerListUpdater(Context& context, CoordinatorServerList& parent);
+    ServerListUpdater(Context* context, CoordinatorServerList& parent);
     ~ServerListUpdater();
 
     void start();
@@ -101,7 +101,7 @@ class ServerListUpdater {
     CoordinatorServerList& parent;
 
     /// Shared RAMCloud information.
-    Context& context;
+    Context* context;
 
     /// Signals when queue status changes
     /// (more work added/is newly empty/stopped)
@@ -128,6 +128,8 @@ class ServerListUpdater {
     /// and therefore exit the updater thread. Do NOT set this manually,
     /// use halt().
     bool stop;
+
+    DISALLOW_COPY_AND_ASSIGN(ServerListUpdater);
 };
 } // namespace RAMCloud
 

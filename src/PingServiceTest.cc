@@ -38,10 +38,10 @@ class PingServiceTest : public ::testing::Test {
 
     PingServiceTest()
         : context()
-        , serverList(context)
-        , transport(context)
-        , mockRegistrar(context, transport)
-        , pingService(context)
+        , serverList(&context)
+        , transport(&context)
+        , mockRegistrar(&context, transport)
+        , pingService(&context)
         , serverId(1, 3)
     {
         transport.addService(pingService, "mock:host=ping",
@@ -70,7 +70,7 @@ TEST_F(PingServiceTest, ping_basics) {
 TEST_F(PingServiceTest, ping_wait_timeout) {
     TestLog::Enable _;
     ServerId serverId2(2, 3);
-    MockTransport mockTransport(context);
+    MockTransport mockTransport(&context);
     context.transportManager->registerMock(&mockTransport, "mock2");
     serverList.add(serverId2, "mock2:", {WireFormat::PING_SERVICE}, 100);
     PingRpc rpc(&context, serverId2, ServerId());
@@ -90,7 +90,7 @@ static void pingThread(PingRpc* rpc, uint64_t* result) {
 TEST_F(PingServiceTest, ping_wait_serverGoesAway) {
     TestLog::Enable _;
     ServerId serverId2(2, 3);
-    MockTransport mockTransport(context);
+    MockTransport mockTransport(&context);
     context.transportManager->registerMock(&mockTransport, "mock2");
     serverList.add(serverId2, "mock2:", {WireFormat::PING_SERVICE}, 100);
 
@@ -123,7 +123,7 @@ TEST_F(PingServiceTest, proxyPing_basics) {
 TEST_F(PingServiceTest, proxyPing_timeout) {
     // Test the situation where the target times out.
     ServerId targetId(2, 3);
-    MockTransport mockTransport(context);
+    MockTransport mockTransport(&context);
     context.transportManager->registerMock(&mockTransport, "mock2");
     serverList.add(targetId, "mock2:", {WireFormat::PING_SERVICE}, 100);
     uint64_t start = Cycles::rdtsc();

@@ -32,7 +32,7 @@ class MockClusterTest : public ::testing::Test {
         , cluster()
         , config(ServerConfig::forTesting())
     {
-        cluster.construct(context);
+        cluster.construct(&context);
     }
 
     DISALLOW_COPY_AND_ASSIGN(MockClusterTest);

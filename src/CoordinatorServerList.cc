@@ -29,7 +29,7 @@ namespace RAMCloud {
  *      will modify \c context so that its \c serverList and
  *      \c coordinatorServerList members refer to this object.
  */
-CoordinatorServerList::CoordinatorServerList(Context& context)
+CoordinatorServerList::CoordinatorServerList(Context* context)
     : AbstractServerList(context)
     , updater(context, *this)
     , serverList()
@@ -37,7 +37,7 @@ CoordinatorServerList::CoordinatorServerList(Context& context)
     , numberOfBackups(0)
     , updates()
 {
-    context.coordinatorServerList = this;
+    context->coordinatorServerList = this;
     updater.start();
 }
 

@@ -31,7 +31,7 @@ namespace RAMCloud {
  *      to have associated a serverList with this context; if not, this service
  *      will not return a valid ServerList version in response to pings.
  */
-PingService::PingService(Context& context)
+PingService::PingService(Context* context)
     : context(context)
     , ignoreKill(false)
 {
@@ -72,8 +72,8 @@ PingService::ping(const WireFormat::Ping::Request& reqHdr,
             ServerId(reqHdr.callerId).toString().c_str());
     }
     respHdr.serverListVersion = 0;
-    if (context.serverList != NULL)
-        respHdr.serverListVersion = context.serverList->getVersion();
+    if (context->serverList != NULL)
+        respHdr.serverListVersion = context->serverList->getVersion();
 }
 
 /**
@@ -87,7 +87,7 @@ PingService::proxyPing(const WireFormat::ProxyPing::Request& reqHdr,
              Rpc& rpc)
 {
     uint64_t start = Cycles::rdtsc();
-    PingRpc pingRpc(&context, ServerId(reqHdr.serverId), ServerId());
+    PingRpc pingRpc(context, ServerId(reqHdr.serverId), ServerId());
     respHdr.replyNanoseconds = ~0UL;
     if (pingRpc.wait(reqHdr.timeoutNanoseconds) != ~0UL) {
         respHdr.replyNanoseconds = Cycles::toNanoseconds(

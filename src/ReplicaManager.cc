@@ -36,7 +36,7 @@ namespace RAMCloud {
  * \param numReplicas
  *      Number replicas to keep of each segment.
  */
-ReplicaManager::ReplicaManager(Context& context,
+ReplicaManager::ReplicaManager(Context* context,
                                const ServerId& masterId,
                                uint32_t numReplicas)
     : context(context)

@@ -29,7 +29,7 @@ class LogCabinHelperTest : public ::testing::Test {
 
     LogCabinHelperTest()
         : context()
-        , cluster(context)
+        , cluster(&context)
         , logCabinHelper()
         , logCabinLog()
     {

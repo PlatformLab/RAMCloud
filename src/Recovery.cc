@@ -56,7 +56,7 @@ namespace RAMCloud {
  *      not eligible to be used for recovery (both for log digest and
  *      object data purposes).
  */
-Recovery::Recovery(Context& context,
+Recovery::Recovery(Context* context,
                    TaskQueue& taskQueue,
                    TabletMap* tabletMap,
                    RecoveryTracker* tracker,
@@ -218,7 +218,7 @@ BackupStartTask::send()
     LOG(DEBUG, "Starting startReadingData on backup %s",
         backupId.toString().c_str());
     if (!testingCallback) {
-        rpc.construct(&recovery->context, backupId, crashedMasterId,
+        rpc.construct(recovery->context, backupId, crashedMasterId,
                       &partitions);
     } else {
         testingCallback->backupStartTaskSend(result);
@@ -614,7 +614,7 @@ struct MasterStartTask {
             partitionId);
         (*recovery.tracker)[serverId] = &recovery;
         if (!testingCallback) {
-            rpc.construct(&recovery.context,
+            rpc.construct(recovery.context,
                           serverId,
                           recovery.recoveryId,
                           recovery.crashedServerId,
@@ -830,7 +830,7 @@ struct BackupEndTask {
             done = true;
             return;
         }
-        rpc.construct(&recovery.context, serverId, crashedServerId);
+        rpc.construct(recovery.context, serverId, crashedServerId);
     }
     void wait() {
         if (!rpc)

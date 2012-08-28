@@ -27,7 +27,7 @@ namespace RAMCloud {
  * \param context
  *      Overall information about the RAMCloud server
  */
-AbstractServerList::AbstractServerList(Context& context)
+AbstractServerList::AbstractServerList(Context* context)
     : context(context)
     , isBeingDestroyed(false)
     , version(0)
@@ -35,7 +35,7 @@ AbstractServerList::AbstractServerList(Context& context)
     , mutex()
     , skipServerIdCheck(false)
 {
-    context.serverList = this;
+    context->serverList = this;
 }
 
 /**
@@ -124,10 +124,10 @@ AbstractServerList::getSession(ServerId id)
     // No cached session. Open a new session and send a brief request to
     // the server to verify that it has the expected identifier.
     Transport::SessionRef session =
-            context.transportManager->openSession(locator);
+            context->transportManager->openSession(locator);
     if (!skipServerIdCheck) {
         try {
-            ServerId actualId = MembershipClient::getServerId(&context,
+            ServerId actualId = MembershipClient::getServerId(context,
                     session);
             if (id != actualId) {
                 RAMCLOUD_LOG(DEBUG, "Expected ServerId %s for \"%s\", "

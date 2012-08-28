@@ -127,7 +127,7 @@ SessionAlarm::rpcFinished()
  * \param session
  *      Send the ping on this session.
  */
-SessionAlarmTimer::PingRpc::PingRpc(Context& context,
+SessionAlarmTimer::PingRpc::PingRpc(Context* context,
         Transport::SessionRef session)
     : RpcWrapper(sizeof(WireFormat::Ping::Response))
     , context(context)
@@ -150,8 +150,8 @@ SessionAlarmTimer::PingRpc::succeeded()
 /**
  * Constructor for SessionAlarmTimer objects.
  */
-SessionAlarmTimer::SessionAlarmTimer(Context& context)
-    : Dispatch::Timer(*context.dispatch)
+SessionAlarmTimer::SessionAlarmTimer(Context* context)
+    : Dispatch::Timer(*context->dispatch)
     , context(context)
     , activeAlarms()
     , timerIntervalTicks(Cycles::fromNanoseconds(TIMER_INTERVAL_MS * 1000000))

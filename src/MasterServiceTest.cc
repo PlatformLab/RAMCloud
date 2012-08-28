@@ -83,8 +83,8 @@ class MasterServiceTest : public ::testing::Test {
     // to provide a fixture with a different value.
     explicit MasterServiceTest(uint32_t segmentSize = 256 * 1024)
         : context()
-        , serverList(context)
-        , cluster(context)
+        , serverList(&context)
+        , cluster(&context)
         , ramcloud()
         , backup1Config(ServerConfig::forTesting())
         , backup1Id()
@@ -112,7 +112,7 @@ class MasterServiceTest : public ::testing::Test {
         service = masterServer->master.get();
         service->log->sync();
 
-        ramcloud.construct(context, "mock:host=coordinator");
+        ramcloud.construct(&context, "mock:host=coordinator");
         ramcloud->objectFinder.tabletMapFetcher.reset(
                 new MasterServiceRefresher);
 
@@ -181,7 +181,7 @@ class MasterServiceTest : public ::testing::Test {
     // Write a segment containing nothing but a header to a backup. This is used
     // to test fetching of recovery segments in various tests.
     static void
-    writeRecoverableSegment(Context& context,
+    writeRecoverableSegment(Context* context,
                             ReplicaManager& mgr,
                             ServerId serverId,
                             uint64_t logId,
@@ -454,7 +454,7 @@ TEST_F(MasterServiceTest, multiRead_unknownTable) {
 
     // Check the status in the response message.
     Transport::SessionRef session =
-            ramcloud->clientContext.transportManager->getSession(
+            ramcloud->clientContext->transportManager->getSession(
             "mock:host=master");
     BindTransport::BindSession* rawSession =
             static_cast<BindTransport::BindSession*>(session.get());
@@ -516,8 +516,8 @@ TEST_F(MasterServiceTest, recover_basics) {
                        server->config.services, 100);
     }
 
-    ReplicaManager mgr(context, serverId, 1);
-    writeRecoverableSegment(context, mgr, serverId, 123, 87);
+    ReplicaManager mgr(&context, serverId, 1);
+    writeRecoverableSegment(&context, mgr, serverId, 123, 87);
 
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
@@ -607,8 +607,8 @@ TEST_F(MasterServiceTest, recover) {
                        server->config.services, 100);
     }
 
-    ReplicaManager mgr(context, serverId, 1);
-    writeRecoverableSegment(context, mgr, serverId, 123, 88);
+    ReplicaManager mgr(&context, serverId, 1);
+    writeRecoverableSegment(&context, mgr, serverId, 123, 88);
 
     ServerConfig backup2Config = backup1Config;
     backup2Config.localLocator = "mock:host=backup2";
@@ -1936,7 +1936,7 @@ class MasterRecoverTest : public ::testing::Test {
     public:
     MasterRecoverTest()
         : context()
-        , cluster(context)
+        , cluster(&context)
         , segmentSize(1 << 16) // Smaller than usual to make tests faster.
         , segmentFrames(3)     // Master's log uses one when constructed.
         , backup1Id()
@@ -2010,16 +2010,16 @@ TEST_F(MasterRecoverTest, recover) {
     // Create a separate fake "server" (private context and serverList) and
     // use it to replicate 2 segments worth of data on a single backup.
     Context context2;
-    ServerList serverList2(context2);
+    ServerList serverList2(&context2);
     context2.transportManager->registerMock(&cluster.transport);
     serverList2.add(backup1Id, "mock:host=backup1",
                    {WireFormat::BACKUP_SERVICE,
                     WireFormat::MEMBERSHIP_SERVICE},
                    100);
     ServerId serverId(99, 0);
-    ReplicaManager mgr(context2, serverId, 1);
-    MasterServiceTest::writeRecoverableSegment(context, mgr, serverId, 99, 87);
-    MasterServiceTest::writeRecoverableSegment(context, mgr, serverId, 99, 88);
+    ReplicaManager mgr(&context2, serverId, 1);
+    MasterServiceTest::writeRecoverableSegment(&context, mgr, serverId, 99, 87);
+    MasterServiceTest::writeRecoverableSegment(&context, mgr, serverId, 99, 88);
 
     // Now run recovery, as if the fake server failed.
     ProtoBuf::Tablets tablets;

@@ -32,13 +32,13 @@ class ClusterMetricsTest : public ::testing::Test {
 
 TEST_F(ClusterMetricsTest, load) {
     Context context;
-    MockCluster cluster(context);
+    MockCluster cluster(&context);
 
-    PingService pingforCoordinator(context);
+    PingService pingforCoordinator(&context);
     cluster.transport.addService(pingforCoordinator, "mock:host=coordinator",
             WireFormat::PING_SERVICE);
 
-    RamCloud ramcloud(context, "mock:host=coordinator");
+    RamCloud ramcloud(&context, "mock:host=coordinator");
 
     // Create two servers (faked with ping).
     ServerConfig ping1Config = ServerConfig::forTesting();

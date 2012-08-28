@@ -150,7 +150,7 @@ class Log {
         std::pair<uint64_t, uint32_t> pos;
     };
 
-    Log(Context& context,
+    Log(Context* context,
         EntryHandlers& entryHandlers,
         SegmentManager& segmentManager,
         ReplicaManager& replicaManager,
@@ -189,7 +189,7 @@ class Log {
     uint32_t referenceToOffset(HashTable::Reference reference);
 
     /// Shared RAMCloud information.
-    Context& context;
+    Context* context;
 
     /// Various handlers for entries appended to this log. Used to obtain
     /// timestamps, check liveness, and notify of entry relocation during

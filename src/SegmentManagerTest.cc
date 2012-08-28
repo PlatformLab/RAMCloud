@@ -37,10 +37,10 @@ class SegmentManagerTest : public ::testing::Test {
     SegmentManagerTest()
         : context(),
           serverId(ServerId(57, 0)),
-          serverList(context),
-          replicaManager(context, serverId, 0),
+          serverList(&context),
+          replicaManager(&context, serverId, 0),
           allocator(4 * 8192, 8192, 8192),
-          segmentManager(context, serverId, allocator, replicaManager, 1.0)
+          segmentManager(&context, serverId, allocator, replicaManager, 1.0)
     {
     }
 
@@ -50,7 +50,7 @@ class SegmentManagerTest : public ::testing::Test {
 
 TEST_F(SegmentManagerTest, constructor)
 {
-    EXPECT_THROW(SegmentManager(context,
+    EXPECT_THROW(SegmentManager(&context,
                                 serverId,
                                 allocator,
                                 replicaManager,
@@ -66,7 +66,7 @@ TEST_F(SegmentManagerTest, constructor)
 
 TEST_F(SegmentManagerTest, destructor) {
     Tub<SegmentManager> mgr;
-    mgr.construct(context, serverId, allocator, replicaManager, 1);
+    mgr.construct(&context, serverId, allocator, replicaManager, 1);
     EXPECT_EQ(4U, allocator.getFreeSegmentCount());
     mgr->allocHead();
     mgr->allocHead();

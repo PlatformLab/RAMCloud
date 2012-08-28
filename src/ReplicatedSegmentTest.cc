@@ -100,7 +100,7 @@ struct ReplicatedSegmentTest : public ::testing::Test {
                 operator new(ReplicatedSegment::sizeOf(numReplicas));
             logSegment.tail = test->openLen; // open queued
             segment.reset(
-                new(segMem) ReplicatedSegment(test->context,
+                new(segMem) ReplicatedSegment(&test->context,
                                               test->taskQueue,
                                               test->backupSelector,
                                               test->deleter,
@@ -152,20 +152,20 @@ struct ReplicatedSegmentTest : public ::testing::Test {
     ReplicatedSegmentTest()
         : context()
         , taskQueue()
-        , serverList(context)
+        , serverList(&context)
         , deleter()
         , writeRpcsInFlight(0)
         , dataMutex()
         , masterId(999, 0)
         , segmentId(888)
-        , minOpenSegmentId(context, &taskQueue, &masterId)
+        , minOpenSegmentId(&context, &taskQueue, &masterId)
         , data()
         , logSegment()
         , openLen(10)
         , numReplicas(2)
         , backupSelector(numReplicas)
-        , transport(context)
-        , mockRegistrar(context, transport)
+        , transport(&context)
+        , mockRegistrar(&context, transport)
         , createSegment(NULL)
         , segment(NULL)
         , backupId1(0, 0)

@@ -192,7 +192,7 @@ MultiRead::wait()
     // so we just busy-wait here. When invoked on RAMCloud clients we're in
     // the dispatch thread so we have to invoke the dispatcher while waiting.
     bool isDispatchThread =
-            ramcloud->clientContext.dispatch->isDispatchThread();
+            ramcloud->clientContext->dispatch->isDispatchThread();
 
     while (true) {
         if (canceled)
@@ -200,7 +200,7 @@ MultiRead::wait()
         if (isReady())
             return;
         if (isDispatchThread)
-            ramcloud->clientContext.dispatch->poll();
+            ramcloud->clientContext->dispatch->poll();
     }
 }
 
@@ -321,7 +321,7 @@ MultiRead::PartRpc::handleTransportError()
     // to this session, and related to the object mappings.  The objects
     // will all be retried when \c finish is called.
     if (session.get() != NULL) {
-        ramcloud->clientContext.transportManager->flushSession(
+        ramcloud->clientContext->transportManager->flushSession(
                 session->getServiceLocator().c_str());
         session = NULL;
     }

@@ -109,7 +109,7 @@ class CoordinatorServerList : public AbstractServerList{
          LogCabin::Client::EntryId serverUpdateLogId;
     };
 
-    explicit CoordinatorServerList(Context& context);
+    explicit CoordinatorServerList(Context* context);
     ~CoordinatorServerList();
     void add(ServerId serverId, string serviceLocator,
              ServiceMask serviceMask, uint32_t readSpeed);

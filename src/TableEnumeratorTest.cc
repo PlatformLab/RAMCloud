@@ -29,8 +29,8 @@ class TableEnumeratorTest : public ::testing::Test {
   public:
     TableEnumeratorTest()
         : context()
-        , cluster(context)
-        , ramcloud(context, "mock:host=coordinator")
+        , cluster(&context)
+        , ramcloud(&context, "mock:host=coordinator")
         , tableId1(-1)
     {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);

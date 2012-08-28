@@ -52,11 +52,11 @@ class UdpDriverTest : public ::testing::Test {
         exceptionMessage = "no exception";
         serverLocator = new ServiceLocator("udp: host=localhost, port=8100");
         serverAddress = new IpAddress(*serverLocator);
-        server = new UdpDriver(context, serverLocator);
-        client = new UdpDriver(context);
+        server = new UdpDriver(&context, serverLocator);
+        client = new UdpDriver(&context);
         logEnabler = new TestLog::Enable();
-        clientTransport = new MockFastTransport(context, client);
-        serverTransport = new MockFastTransport(context, server);
+        clientTransport = new MockFastTransport(&context, client);
+        serverTransport = new MockFastTransport(&context, server);
     }
 
     ~UdpDriverTest() {
@@ -133,7 +133,7 @@ TEST_F(UdpDriverTest, basics) {
 TEST_F(UdpDriverTest, constructor_errorInSocketCall) {
     sys->socketErrno = EPERM;
     try {
-        UdpDriver server2(context, serverLocator);
+        UdpDriver server2(&context, serverLocator);
     } catch (DriverException& e) {
         exceptionMessage = e.message;
     }
@@ -143,7 +143,7 @@ TEST_F(UdpDriverTest, constructor_errorInSocketCall) {
 
 TEST_F(UdpDriverTest, constructor_socketInUse) {
     try {
-        UdpDriver server2(context, serverLocator);
+        UdpDriver server2(&context, serverLocator);
     } catch (DriverException& e) {
         exceptionMessage = e.message;
     }
@@ -158,8 +158,8 @@ TEST_F(UdpDriverTest, destructor_closeSocket) {
     delete serverTransport;
     serverTransport = NULL;
     try {
-        server = new UdpDriver(context, serverLocator);
-        serverTransport = new MockFastTransport(context, server);
+        server = new UdpDriver(&context, serverLocator);
+        serverTransport = new MockFastTransport(&context, server);
     } catch (DriverException& e) {
         exceptionMessage = e.message;
     }

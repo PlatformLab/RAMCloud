@@ -64,7 +64,7 @@ class BaseBackupSelector {
 class BackupSelector : public BaseBackupSelector {
   PUBLIC:
 
-    explicit BackupSelector(Context& context);
+    explicit BackupSelector(Context* context);
     ServerId selectPrimary(uint32_t numBackups, const ServerId backupIds[]);
     ServerId selectSecondary(uint32_t numBackups, const ServerId backupIds[]);
 

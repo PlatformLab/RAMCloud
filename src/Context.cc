@@ -78,10 +78,10 @@ Context::Context(bool hasDedicatedDispatchThread)
 #if TESTING
         mockContextMember2 = new MockContextMember(2);
 #endif
-        transportManager = new TransportManager(*this);
-        serviceManager = new ServiceManager(*this);
-        sessionAlarmTimer = new SessionAlarmTimer(*this);
-        coordinatorSession = new CoordinatorSession(*this);
+        transportManager = new TransportManager(this);
+        serviceManager = new ServiceManager(this);
+        sessionAlarmTimer = new SessionAlarmTimer(this);
+        coordinatorSession = new CoordinatorSession(this);
     } catch (...) {
         destroy();
         throw;

@@ -36,7 +36,7 @@ namespace RAMCloud {
 static struct TcpTransportFactory : public TransportFactory {
     TcpTransportFactory()
         : TransportFactory("kernelTcp", "tcp") {}
-    Transport* createTransport(Context& context,
+    Transport* createTransport(Context* context,
             const ServiceLocator* localServiceLocator) {
         return new TcpTransport(context, localServiceLocator);
     }
@@ -45,7 +45,7 @@ static struct TcpTransportFactory : public TransportFactory {
 static struct FastUdpTransportFactory : public TransportFactory {
     FastUdpTransportFactory()
         : TransportFactory("fast+kernelUdp", "fast+udp") {}
-    Transport* createTransport(Context& context,
+    Transport* createTransport(Context* context,
             const ServiceLocator* localServiceLocator) {
         return new FastTransport(context,
                 new UdpDriver(context, localServiceLocator));
@@ -56,7 +56,7 @@ static struct FastUdpTransportFactory : public TransportFactory {
 static struct FastInfUdTransportFactory : public TransportFactory {
     FastInfUdTransportFactory()
         : TransportFactory("fast+infinibandud", "fast+infud") {}
-    Transport* createTransport(Context& context,
+    Transport* createTransport(Context* context,
             const ServiceLocator* localServiceLocator) {
         return new FastTransport(context,
                 new InfUdDriver<>(context, localServiceLocator, false));
@@ -66,7 +66,7 @@ static struct FastInfUdTransportFactory : public TransportFactory {
 static struct FastInfEthTransportFactory : public TransportFactory {
     FastInfEthTransportFactory()
         : TransportFactory("fast+infinibandethernet", "fast+infeth") {}
-    Transport* createTransport(Context& context,
+    Transport* createTransport(Context* context,
             const ServiceLocator* localServiceLocator) {
         return new FastTransport(context,
                 new InfUdDriver<>(context, localServiceLocator, true));
@@ -76,14 +76,14 @@ static struct FastInfEthTransportFactory : public TransportFactory {
 static struct InfRcTransportFactory : public TransportFactory {
     InfRcTransportFactory()
         : TransportFactory("infinibandrc", "infrc") {}
-    Transport* createTransport(Context& context,
+    Transport* createTransport(Context* context,
             const ServiceLocator* localServiceLocator) {
         return new InfRcTransport<>(context, localServiceLocator);
     }
 } infRcTransportFactory;
 #endif
 
-TransportManager::TransportManager(Context& context)
+TransportManager::TransportManager(Context* context)
     : context(context)
     , isServer(false)
     , transportFactories()
@@ -135,7 +135,7 @@ void
 TransportManager::initialize(const char* localServiceLocator)
 {
     isServer = true;
-    Dispatch::Lock lock(context.dispatch);
+    Dispatch::Lock lock(context->dispatch);
     std::vector<ServiceLocator> locators =
             ServiceLocator::parseServiceLocators(localServiceLocator);
 
@@ -327,7 +327,7 @@ TransportManager::openSessionInternal(const char* serviceLocator)
                 // transport may depend on physical devices that don't
                 // exist on this machine).
                 try {
-                    Dispatch::Lock lock(context.dispatch);
+                    Dispatch::Lock lock(context->dispatch);
                     transports[i] = factory->createTransport(context, NULL);
                     for (uint32_t j = 0; j < registeredBases.size(); j++) {
                         transports[i]->registerMemory(registeredBases[j],
@@ -379,7 +379,7 @@ TransportManager::openSessionInternal(const char* serviceLocator)
 void
 TransportManager::registerMemory(void* base, size_t bytes)
 {
-    Dispatch::Lock lock(context.dispatch);
+    Dispatch::Lock lock(context->dispatch);
     foreach (auto transport, transports) {
         if (transport != NULL)
             transport->registerMemory(base, bytes);
@@ -405,7 +405,7 @@ void TransportManager::setTimeout(uint32_t timeoutMs)
 void
 TransportManager::dumpStats()
 {
-    Dispatch::Lock lock(context.dispatch);
+    Dispatch::Lock lock(context->dispatch);
     foreach (auto transport, transports) {
         if (transport != NULL)
             transport->dumpStats();
@@ -418,7 +418,7 @@ TransportManager::dumpStats()
 void
 TransportManager::dumpTransportFactories()
 {
-    Dispatch::Lock lock(context.dispatch);
+    Dispatch::Lock lock(context->dispatch);
     LOG(NOTICE, "The following transport factories are known:");
     uint32_t i = 0;
     foreach (auto factory, transportFactories) {

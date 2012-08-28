@@ -51,7 +51,7 @@ namespace RAMCloud {
  *      If true, do not do any cleaning. This will keep the log from garbage
  *      collecting freed space. It will eventually run out of memory forever.
  */
-Log::Log(Context& context,
+Log::Log(Context* context,
          EntryHandlers& entryHandlers,
          SegmentManager& segmentManager,
          ReplicaManager& replicaManager,

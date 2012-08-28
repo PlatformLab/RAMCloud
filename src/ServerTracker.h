@@ -123,7 +123,7 @@ class ServerTracker : public ServerTrackerInterface {
      *      If the context has no serverList (for testing only) then
      *      no updating will occur.
      */
-    explicit ServerTracker(Context& context)
+    explicit ServerTracker(Context* context)
         : ServerTrackerInterface()
         , context(context)
         , parent(NULL)
@@ -134,8 +134,8 @@ class ServerTracker : public ServerTrackerInterface {
         , numberOfServers(0)
         , testing_avoidGetChangeAssertion(false)
     {
-        if (context.serverList != NULL)
-            context.serverList->registerTracker(*this);
+        if (context->serverList != NULL)
+            context->serverList->registerTracker(*this);
     }
 
     /**
@@ -152,7 +152,7 @@ class ServerTracker : public ServerTrackerInterface {
      *      hold up delivery of the same or future events to other
      *      ServerTrackers.
      */
-    explicit ServerTracker(Context& context,
+    explicit ServerTracker(Context* context,
                            Callback* eventCallback)
         : ServerTrackerInterface()
         , context(context)
@@ -164,7 +164,7 @@ class ServerTracker : public ServerTrackerInterface {
         , numberOfServers(0)
         , testing_avoidGetChangeAssertion(false)
     {
-        context.serverList->registerTracker(*this);
+        context->serverList->registerTracker(*this);
     }
 
     /**
@@ -639,11 +639,11 @@ class ServerTracker : public ServerTrackerInterface {
     };
 
     /// Shared RAMCloud information.
-    Context& context;
+    Context* context;
 
     /// CoordinatorServerList/ServerList from which this tracker is registered
     /// gets all the updates, NULL if unregistered.  We use this variable
-    /// internally instead of context.serverList, because this variable will be
+    /// internally instead of context->serverList, because this variable will be
     /// NULLified if the parent server list goes away, and that's important for
     /// us to know.
     AbstractServerList* parent;

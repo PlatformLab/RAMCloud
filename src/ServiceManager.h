@@ -33,7 +33,7 @@ namespace RAMCloud {
  */
 class ServiceManager : Dispatch::Poller {
   public:
-    explicit ServiceManager(Context &context);
+    explicit ServiceManager(Context* context);
     ~ServiceManager();
 
     void addService(Service& service, WireFormat::ServiceType type);
@@ -56,7 +56,7 @@ class ServiceManager : Dispatch::Poller {
     static void workerMain(Worker* worker);
 
     /// Shared RAMCloud information.
-    Context &context;
+    Context* context;
 
     // Contains one entry for each possible RpcService value, which is used
     // to dispatch requests to the service associated with that RpcService
@@ -117,7 +117,7 @@ class ServiceManager : Dispatch::Poller {
      */
     class WorkerSession : public Transport::Session {
       public:
-        explicit WorkerSession(Context& context,
+        explicit WorkerSession(Context* context,
                 Transport::SessionRef wrapped);
         ~WorkerSession() {}
         virtual void abort();
@@ -128,7 +128,7 @@ class ServiceManager : Dispatch::Poller {
         virtual void sendRequest(Buffer* request, Buffer* response,
                 Transport::RpcNotifier* notifier);
       PRIVATE:
-        Context &context;              /// Global RAMCloud state.
+        Context* context;              /// Global RAMCloud state.
         Transport::SessionRef wrapped; /// sendRequest calls must be forwarded
                                        /// to this underlying object.
         DISALLOW_COPY_AND_ASSIGN(WorkerSession);
@@ -150,7 +150,7 @@ class Worker {
     void sendReply();
 
   PRIVATE:
-    Context& context;                  /// Shared RAMCloud information.
+    Context* context;                  /// Shared RAMCloud information.
     ServiceManager::ServiceInfo *serviceInfo;
                                        /// Service for the last request
                                        /// executed by this worker.
@@ -200,7 +200,7 @@ class Worker {
     bool exited;                       /// True means the worker is no longer
                                        /// running.
 
-    explicit Worker(Context& context)
+    explicit Worker(Context* context)
         : context(context), serviceInfo(NULL), thread(), rpc(NULL),
           busyIndex(-1), state(POLLING), exited(false) {}
     void exit();

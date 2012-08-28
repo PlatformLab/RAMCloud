@@ -44,7 +44,7 @@ namespace RAMCloud {
  *      the in-memory cleaner should do on its own before trying to free up
  *      tombstone space by cleaning disk segments.
  */
-LogCleaner::LogCleaner(Context& context,
+LogCleaner::LogCleaner(Context* context,
                        SegmentManager& segmentManager,
                        ReplicaManager& replicaManager,
                        uint32_t writeCostThreshold)

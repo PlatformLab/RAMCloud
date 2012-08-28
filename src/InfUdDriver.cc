@@ -55,7 +55,7 @@ namespace RAMCloud {
  *      Whether to use the Ethernet port.
  */
 template<typename Infiniband>
-InfUdDriver<Infiniband>::InfUdDriver(Context& context,
+InfUdDriver<Infiniband>::InfUdDriver(Context* context,
                                      const ServiceLocator *sl,
                                      bool ethernet)
     : context(context)
@@ -260,7 +260,7 @@ InfUdDriver<Infiniband>::release(char *payload)
 {
     // Must sync with the dispatch thread, since this method could potentially
     // be invoked in a worker.
-    Dispatch::Lock _(context.dispatch);
+    Dispatch::Lock _(context->dispatch);
 
     // Note: the payload is actually contained in a PacketBuf structure,
     // which we return to a pool for reuse later.
@@ -330,7 +330,7 @@ template<typename Infiniband>
 void
 InfUdDriver<Infiniband>::Poller::poll()
 {
-    assert(driver->context.dispatch->isDispatchThread());
+    assert(driver->context->dispatch->isDispatchThread());
 
     PacketBuf* buffer = driver->packetBufPool.construct();
     BufferDescriptor* bd = NULL;

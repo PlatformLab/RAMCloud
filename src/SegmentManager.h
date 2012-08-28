@@ -68,7 +68,7 @@ class SegmentManager {
     // Defined after this class.
     class Allocator;
 
-    SegmentManager(Context& context,
+    SegmentManager(Context* context,
                    ServerId& logId,
                    Allocator& allocator,
                    ReplicaManager& replicaManager,
@@ -173,8 +173,8 @@ class SegmentManager {
     void free(LogSegment* s);
     void freeUnreferencedSegments();
 
-    /// The pervasive RAMCloud context.
-    Context& context;
+    /// The pervasive RAMCloud context->
+    Context* context;
 
     /// ServerId this log will be tagged with (for example, in SegmentHeader
     /// structures).

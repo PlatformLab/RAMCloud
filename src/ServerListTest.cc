@@ -27,7 +27,7 @@ static std::queue<ServerTracker<int>::ServerChange> changes;
 
 class MockServerTracker : public ServerTracker<int> {
   public:
-    explicit MockServerTracker(Context& context): ServerTracker<int>(context) {}
+    explicit MockServerTracker(Context* context): ServerTracker<int>(context) {}
     void enqueueChange(const ServerDetails& server, ServerChangeEvent event)
     {
         __ServerListTest__::changes.push({server, event});
@@ -43,8 +43,8 @@ class ServerListTest : public ::testing::Test {
 
     ServerListTest()
         : context(),
-          sl(context),
-          tr(context)
+          sl(&context),
+          tr(&context)
     {
         while (!changes.empty())
             changes.pop();

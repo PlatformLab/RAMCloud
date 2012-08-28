@@ -33,7 +33,7 @@ namespace RAMCloud {
  *      ReplicaManager::handleBackupFailures()). Can be NULL for testing,
  *      in which case no action will be taken on backup failures.
  */
-BackupFailureMonitor::BackupFailureMonitor(Context& context,
+BackupFailureMonitor::BackupFailureMonitor(Context* context,
                                            ReplicaManager* replicaManager)
     : replicaManager(replicaManager)
     , log(NULL)

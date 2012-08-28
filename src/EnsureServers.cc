@@ -81,7 +81,7 @@ try
     int actualMasters = -1;
     int actualBackups = -1;
     int actualServers = -1;
-    RamCloud ramcloud(context,
+    RamCloud ramcloud(&context,
                       optionParser.options.getCoordinatorLocator().c_str());
     do {
         ProtoBuf::ServerList serverList;

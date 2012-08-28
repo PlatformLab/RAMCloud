@@ -328,7 +328,7 @@ class ReplicatedSegment : public Task {
      */
     enum { MAX_WRITE_RPCS_IN_FLIGHT = 4 };
 
-    ReplicatedSegment(Context& context,
+    ReplicatedSegment(Context* context,
                       TaskQueue& taskQueue,
                       BaseBackupSelector& backupSelector,
                       Deleter& deleter,
@@ -377,7 +377,7 @@ class ReplicatedSegment : public Task {
 
 // - member variables -
     /// Shared RAMCloud information.
-    Context& context;
+    Context* context;
 
     /// Used to choose where to store replicas. Shared among ReplicatedSegments.
     BaseBackupSelector& backupSelector;

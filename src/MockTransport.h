@@ -32,7 +32,7 @@ namespace RAMCloud {
  */
 class MockTransport : public Transport {
   public:
-    explicit MockTransport(Context& context,
+    explicit MockTransport(Context* context,
                            const ServiceLocator *serviceLocator = NULL);
     virtual ~MockTransport() { }
     virtual string getServiceLocator();
@@ -170,7 +170,7 @@ class MockTransport : public Transport {
     /**
      * Shared RAMCloud information.
      */
-    Context& context;
+    Context* context;
 
     /**
      * Records information from each call to sendRequest and other methods.

@@ -125,9 +125,9 @@ class ServerRpcPool {
      *      dispatcher.
      */
     static uint64_t
-    getEarliestOutstandingEpoch(Context& context)
+    getEarliestOutstandingEpoch(Context* context)
     {
-        Dispatch::Lock lock(context.dispatch);
+        Dispatch::Lock lock(context->dispatch);
         uint64_t earliest = -1;
 
         ServerRpcPoolInternal::ServerRpcList::iterator it =

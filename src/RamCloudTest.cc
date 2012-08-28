@@ -34,7 +34,7 @@ class RamCloudTest : public ::testing::Test {
   public:
     RamCloudTest()
         : context()
-        , cluster(context)
+        , cluster(&context)
         , ramcloud()
         , tableId1(-1)
         , tableId2(-2)
@@ -56,7 +56,7 @@ class RamCloudTest : public ::testing::Test {
         config.localLocator = "mock:host=ping1";
         cluster.addServer(config);
 
-        ramcloud.construct(context, "mock:host=coordinator");
+        ramcloud.construct(&context, "mock:host=coordinator");
         tableId1 = ramcloud->createTable("table1");
         tableId2 = ramcloud->createTable("table2");
         tableId3 = ramcloud->createTable("table3", 4);

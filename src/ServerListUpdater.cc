@@ -39,7 +39,7 @@ namespace RAMCloud {
  * \param parent
  *      The CoordinatorServerList instance that spawned this updater.
  */
-ServerListUpdater::ServerListUpdater(Context& context,
+ServerListUpdater::ServerListUpdater(Context* context,
         CoordinatorServerList& parent)
     : parent(parent)
     , context(context)
@@ -260,7 +260,7 @@ ServerListUpdater::handleRequest(Message& msg) {
                 case FULL_LIST:
                     LOG(DEBUG, "Sending server list to server id %s as "
                             "requested", id.toString().c_str());
-                    MembershipClient::setServerList(&context, id, &msg.update);
+                    MembershipClient::setServerList(context, id, &msg.update);
                     break;
                 default:
                     LOG(NOTICE, "A malformed opcode was found in the "
@@ -300,7 +300,7 @@ ServerListUpdater::sendMembershipUpdate(
         ProtoBuf::ServerList& update,
         Tub<ProtoBuf::ServerList>& serializedServerList)
 {
-    UpdateServerListRpc rpc(&context, id, &update);
+    UpdateServerListRpc rpc(context, id, &update);
 
     bool succeeded = false;
     uint64_t start = Cycles::rdtsc();
@@ -332,7 +332,7 @@ ServerListUpdater::sendMembershipUpdate(
         serializedServerList.construct();
         parent.serialize(*serializedServerList);
     }
-    SetServerListRpc rpc2(&context, id,
+    SetServerListRpc rpc2(context, id,
                          serializedServerList.get());
     start = Cycles::rdtsc();
     stalled = 0;

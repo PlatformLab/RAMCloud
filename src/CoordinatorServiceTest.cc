@@ -39,7 +39,7 @@ class CoordinatorServiceTest : public ::testing::Test {
     CoordinatorServiceTest()
         : context()
         , masterConfig(ServerConfig::forTesting())
-        , cluster(context)
+        , cluster(&context)
         , ramcloud()
         , service()
         , master()
@@ -58,7 +58,7 @@ class CoordinatorServiceTest : public ::testing::Test {
         master->log->sync();
         masterServerId = masterServer->serverId;
 
-        ramcloud.construct(context, "mock:host=coordinator");
+        ramcloud.construct(&context, "mock:host=coordinator");
     }
 
     // Generate a string containing all of the service locators in a
@@ -407,7 +407,7 @@ TEST_F(CoordinatorServiceTest, setRuntimeOption) {
 
 TEST_F(CoordinatorServiceTest, setMinOpenSegmentId) {
     CoordinatorClient::setMinOpenSegmentId(&context, masterServerId, 10);
-    EXPECT_EQ(10u, service->context.coordinatorServerList->at(
+    EXPECT_EQ(10u, service->context->coordinatorServerList->at(
             masterServerId).minOpenSegmentId);
 }
 

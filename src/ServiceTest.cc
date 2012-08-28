@@ -35,7 +35,7 @@ class ServiceTest : public ::testing::Test {
         , service()
         , request()
         , response()
-        , worker(context)
+        , worker(&context)
         , rpc(&worker, request, response)
     {
         TestLog::enable();
@@ -155,7 +155,7 @@ TEST_F(ServiceTest, sendReply) {
     service.gate = -1;
     service.sendReply = true;
     Context context;
-    MockTransport transport(context);
+    MockTransport transport(&context);
     ServiceManager* manager = context.serviceManager;
     manager->addService(service, WireFormat::BACKUP_SERVICE);
     MockTransport::MockServerRpc* rpc = new MockTransport::MockServerRpc(

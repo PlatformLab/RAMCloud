@@ -32,8 +32,8 @@ class ServerIdRpcWrapperTest : public ::testing::Test {
 
     ServerIdRpcWrapperTest()
         : context()
-        , serverList(context)
-        , transport(context)
+        , serverList(&context)
+        , transport(&context)
         , id(1, 0)
         , coordId()
     {

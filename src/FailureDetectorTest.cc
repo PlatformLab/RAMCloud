@@ -44,16 +44,16 @@ class FailureDetectorTest : public ::testing::Test {
 
     FailureDetectorTest()
         : context(),
-          serverList(context),
+          serverList(&context),
           logEnabler(),
-          mockTransport(context),
-          coordTransport(context),
+          mockTransport(&context),
+          coordTransport(&context),
           fd(NULL)
     {
         context.transportManager->registerMock(&mockTransport, "mock");
         context.transportManager->registerMock(&coordTransport, "coord");
         context.coordinatorSession->setLocation("coord:");
-        fd = new FailureDetector(context, ServerId(57, 27342));
+        fd = new FailureDetector(&context, ServerId(57, 27342));
     }
 
     ~FailureDetectorTest()

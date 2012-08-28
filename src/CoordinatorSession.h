@@ -28,7 +28,7 @@ namespace RAMCloud {
  */
 class CoordinatorSession {
   public:
-    explicit CoordinatorSession(Context& context);
+    explicit CoordinatorSession(Context* context);
     ~CoordinatorSession();
 
     void flush();
@@ -41,7 +41,7 @@ class CoordinatorSession {
     SpinLock mutex;
 
     /// Shared RAMCloud information.
-    Context& context;
+    Context* context;
 
     /// Describes how to find the coordinator. Currently this is a
     /// service locator string.

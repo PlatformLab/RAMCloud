@@ -32,9 +32,9 @@ struct MasterRecoveryManagerTest : public ::testing::Test {
 
     MasterRecoveryManagerTest()
         : context()
-        , serverList(context)
+        , serverList(&context)
         , tabletMap()
-        , mgr(context, tabletMap, NULL)
+        , mgr(&context, tabletMap, NULL)
     {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
     }
@@ -122,7 +122,7 @@ TEST_F(MasterRecoveryManagerTest, startMasterRecovery) {
 
 TEST_F(MasterRecoveryManagerTest, destroyAndFreeRecovery) {
     std::unique_ptr<Recovery> recovery{
-        new Recovery(context, mgr.taskQueue, &tabletMap, &mgr.tracker, &mgr,
+        new Recovery(&context, mgr.taskQueue, &tabletMap, &mgr.tracker, &mgr,
                      {1, 0}, 0lu)};
     mgr.activeRecoveries[recovery->recoveryId] = recovery.get();
     mgr.destroyAndFreeRecovery(recovery.get());
@@ -137,7 +137,7 @@ TEST_F(MasterRecoveryManagerTest, trackerChangesEnqueued) {
     // Create a recovery which has serverId as a recovery master, make
     // sure it gets informed if serverId crashes.
     std::unique_ptr<Recovery> recovery{
-        new Recovery(context, mgr.taskQueue, &tabletMap, &mgr.tracker, &mgr,
+        new Recovery(&context, mgr.taskQueue, &tabletMap, &mgr.tracker, &mgr,
                      {1, 0},  0lu)};
     recovery->numPartitions = 2;
     mgr.tracker[ServerId(1, 0)] = recovery.get();
@@ -152,7 +152,7 @@ TEST_F(MasterRecoveryManagerTest, recoveryFinished) {
     EXPECT_EQ(0lu, serverList.version);
     addMaster();
     EXPECT_EQ(1lu, serverList.version);
-    Recovery recovery(context, mgr.taskQueue, &tabletMap, &mgr.tracker,
+    Recovery recovery(&context, mgr.taskQueue, &tabletMap, &mgr.tracker,
                       NULL, {1, 0}, 0lu);
     recovery.status = Recovery::BROADCAST_RECOVERY_COMPLETE;
     ASSERT_EQ(0lu, mgr.taskQueue.outstandingTasks());
@@ -169,7 +169,7 @@ TEST_F(MasterRecoveryManagerTest, recoveryFinishedUnsuccessful) {
     EXPECT_EQ(0lu, serverList.version);
     addMaster();
     EXPECT_EQ(1lu, serverList.version);
-    Recovery recovery(context, mgr.taskQueue, &tabletMap, &mgr.tracker,
+    Recovery recovery(&context, mgr.taskQueue, &tabletMap, &mgr.tracker,
                       NULL, {1, 0},  0lu);
     ASSERT_EQ(0lu, mgr.taskQueue.outstandingTasks());
     EXPECT_EQ(1lu, serverList.version);
@@ -202,7 +202,7 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
     EXPECT_EQ(3lu, serverList.version);
 
     std::unique_ptr<Recovery> recovery{
-        new Recovery(context, mgr.taskQueue, &tabletMap, &mgr.tracker, &mgr,
+        new Recovery(&context, mgr.taskQueue, &tabletMap, &mgr.tracker, &mgr,
                      crashedServerId,  0lu)};
     recovery->numPartitions = 1;
     mgr.activeRecoveries[recovery->recoveryId] = recovery.get();
@@ -251,7 +251,7 @@ TEST_F(MasterRecoveryManagerTest,
     addMaster(); // Recovery master.
 
     std::unique_ptr<Recovery> recovery{
-        new Recovery(context, mgr.taskQueue, &tabletMap, &mgr.tracker, &mgr,
+        new Recovery(&context, mgr.taskQueue, &tabletMap, &mgr.tracker, &mgr,
                      crashedServerId, 0lu)};
     recovery->numPartitions = 1;
     mgr.activeRecoveries[recovery->recoveryId] = recovery.get();

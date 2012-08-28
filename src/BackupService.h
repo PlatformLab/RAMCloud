@@ -224,16 +224,34 @@ class BackupService : public Service
     class RecoverySegmentBuilder
     {
       public:
-        RecoverySegmentBuilder(Context& context,
+        RecoverySegmentBuilder(Context* context,
                                const vector<BackupReplica*>& replicas,
                                const ProtoBuf::Tablets& partitions,
                                Atomic<int>& recoveryThreadCount,
                                uint32_t segmentSize);
+        RecoverySegmentBuilder(const RecoverySegmentBuilder& src)
+            : context(src.context)
+            , replicas(src.replicas)
+            , partitions(src.partitions)
+            , recoveryThreadCount(src.recoveryThreadCount)
+            , segmentSize(src.segmentSize)
+        {}
+        RecoverySegmentBuilder& operator=(const RecoverySegmentBuilder& src)
+        {
+            if (this != &src) {
+                context = src.context;
+                replicas = src.replicas;
+                partitions = src.partitions;
+                recoveryThreadCount = src.recoveryThreadCount;
+                segmentSize = src.segmentSize;
+            }
+            return *this;
+        }
         void operator()();
 
       private:
         /// The context in which the thread will execute.
-        Context& context;
+        Context* context;
 
         /**
          * The BackupReplicas that will be loaded from disk (asynchronously)
@@ -243,19 +261,19 @@ class BackupService : public Service
          * All public methods of BackupReplica obey this mutex ensuring
          * thread safety.
          */
-        const vector<BackupReplica*> replicas;
+        vector<BackupReplica*> replicas;
 
-        /// Copy of the partitions use to split out the recovery segments.
-        const ProtoBuf::Tablets partitions;
+        /// Copy of the partitions used to split out the recovery segments.
+        ProtoBuf::Tablets partitions;
 
         Atomic<int>& recoveryThreadCount;
 
         /// The uniform size of each segment this backup deals with.
-        const uint32_t segmentSize;
+        uint32_t segmentSize;
     };
 
   public:
-    BackupService(Context& context, const ServerConfig& config);
+    BackupService(Context* context, const ServerConfig& config);
     virtual ~BackupService();
     void benchmark(uint32_t& readSpeed, uint32_t& writeSpeed);
     void dispatch(WireFormat::Opcode opcode, Rpc& rpc);
@@ -297,7 +315,7 @@ class BackupService : public Service
     /**
      * Shared RAMCloud information.
      */
-    Context& context;
+    Context* context;
 
     /**
      * Provides mutual exclusion between handling RPCs and garbage collector.

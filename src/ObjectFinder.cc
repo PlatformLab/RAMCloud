@@ -28,15 +28,17 @@ namespace {
  */
 class RealTabletMapFetcher : public ObjectFinder::TabletMapFetcher {
   public:
-    explicit RealTabletMapFetcher(Context& context)
+    explicit RealTabletMapFetcher(Context* context)
         : context(context)
     {
     }
     void getTabletMap(ProtoBuf::Tablets& tabletMap) {
-        CoordinatorClient::getTabletMap(&context, &tabletMap);
+        CoordinatorClient::getTabletMap(context, &tabletMap);
     }
   private:
-    Context& context;
+    Context* context;
+
+    DISALLOW_COPY_AND_ASSIGN(RealTabletMapFetcher);
 };
 
 } // anonymous namespace
@@ -46,7 +48,7 @@ class RealTabletMapFetcher : public ObjectFinder::TabletMapFetcher {
  * \param context
  *      Overall information about this client.
  */
-ObjectFinder::ObjectFinder(Context& context)
+ObjectFinder::ObjectFinder(Context* context)
     : context(context)
     , tabletMap()
     , tabletMapFetcher(new RealTabletMapFetcher(context))
@@ -92,7 +94,7 @@ ObjectFinder::lookup(uint64_t table, const void* key, uint16_t keyLength) {
 Transport::SessionRef
 ObjectFinder::lookup(uint64_t table, HashType keyHash)
 {
-    return context.transportManager->getSession(
+    return context->transportManager->getSession(
                 lookupTablet(table, keyHash).service_locator().c_str());
 }
 

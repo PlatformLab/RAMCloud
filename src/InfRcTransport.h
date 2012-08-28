@@ -64,7 +64,7 @@ class InfRcTransport : public Transport {
     typedef typename Infiniband::RegisteredBuffers RegisteredBuffers;
 
   public:
-    explicit InfRcTransport(Context& context, const ServiceLocator* sl = NULL);
+    explicit InfRcTransport(Context* context, const ServiceLocator* sl = NULL);
     ~InfRcTransport();
     SessionRef getSession(const ServiceLocator& sl, uint32_t timeoutMs = 0) {
         return new InfRcSession(this, sl, timeoutMs);
@@ -247,7 +247,7 @@ class InfRcTransport : public Transport {
                                            uint32_t usTimeout);
 
     /// Shared RAMCloud information.
-    Context &context;
+    Context* context;
 
     /// See #infiniband.
     Tub<Infiniband> realInfiniband;
@@ -319,7 +319,7 @@ class InfRcTransport : public Transport {
     class Poller : public Dispatch::Poller {
       public:
         explicit Poller(InfRcTransport* transport)
-            : Dispatch::Poller(*transport->context.dispatch)
+            : Dispatch::Poller(*transport->context->dispatch)
             , transport(transport) {}
         virtual void poll();
 
@@ -337,7 +337,7 @@ class InfRcTransport : public Transport {
     class ServerConnectHandler : public Dispatch::File {
       public:
         ServerConnectHandler(int fd, InfRcTransport* transport)
-            : Dispatch::File(*transport->context.dispatch, fd,
+            : Dispatch::File(*transport->context->dispatch, fd,
                              Dispatch::FileEvent::READABLE)
             , fd(fd)
             , transport(transport) { }

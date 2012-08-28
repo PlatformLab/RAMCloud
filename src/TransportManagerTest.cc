@@ -32,21 +32,21 @@ class TransportManagerTest : public ::testing::Test {
 
     TransportManagerTest()
         : context()
-        , manager(context)
+        , manager(&context)
     {}
     DISALLOW_COPY_AND_ASSIGN(TransportManagerTest);
 };
 
 TEST_F(TransportManagerTest, initialize) {
-    MockTransportFactory mockTransportFactory(context, NULL, "mock");
-    MockTransportFactory fooTransportFactory(context, NULL, "foo");
+    MockTransportFactory mockTransportFactory(&context, NULL, "mock");
+    MockTransportFactory fooTransportFactory(&context, NULL, "foo");
 
     // If "mockThrow:" is _not_ in the service locator, that should be
     // caught and the transport ignored. If it is, then any exception
     // is an error and should propagate up.
     static struct MockThrowTransportFactory : public TransportFactory {
         MockThrowTransportFactory() : TransportFactory("mockThrow") {}
-        Transport* createTransport(Context& context,
+        Transport* createTransport(Context* context,
                 const ServiceLocator* local) {
             throw TransportException(HERE, "boom!");
         }
@@ -71,9 +71,9 @@ TEST_F(TransportManagerTest, initialize_emptyLocator) {
 }
 
 TEST_F(TransportManagerTest, initialize_transportEmptyLocator) {
-    MockTransport* t = new MockTransport(context);
+    MockTransport* t = new MockTransport(&context);
     t->locatorString = "";
-    MockTransportFactory mockTransportFactory(context, t, "mock");
+    MockTransportFactory mockTransportFactory(&context, t, "mock");
 
     manager.transportFactories.clear();
     manager.transportFactories.push_back(&mockTransportFactory);
@@ -86,7 +86,7 @@ TEST_F(TransportManagerTest, initialize_noListeningTransports) {
 
 TEST_F(TransportManagerTest, initialize_registerExistingMemory) {
     TestLog::Enable _;
-    MockTransportFactory mockTransportFactory(context, NULL, "mock");
+    MockTransportFactory mockTransportFactory(&context, NULL, "mock");
     manager.transportFactories.clear();  /* Speeds up initialization. */
     manager.transportFactories.push_back(&mockTransportFactory);
     manager.transports.resize(1, NULL);
@@ -99,7 +99,7 @@ TEST_F(TransportManagerTest, initialize_registerExistingMemory) {
 }
 
 TEST_F(TransportManagerTest, flushSession) {
-    MockTransport transport(context);
+    MockTransport transport(&context);
     manager.registerMock(&transport);
     manager.getSession("foo:;mock:");
     MockTransport::sessionDeleteCount = 0;
@@ -237,10 +237,10 @@ TEST_F(TransportManagerTest, openSession_succeedAfterFailure) {
 TEST_F(TransportManagerTest, registerMemory) {
     TestLog::Enable _;
     ServiceLocator s1("mock1:");
-    MockTransport t1(context, &s1);
+    MockTransport t1(&context, &s1);
     manager.registerMock(&t1, "mock1");
     ServiceLocator s2("mock2:");
-    MockTransport t2(context, &s2);
+    MockTransport t2(&context, &s2);
     manager.registerMock(&t2, "mock2");
     Transport::SessionRef session1(manager.getSession("mock1:"));
     EXPECT_EQ("", TestLog::get());

@@ -27,7 +27,7 @@ namespace __AbstractServerListTest__ {
 static std::queue<ServerTracker<int>::ServerChange> changes;
 
 struct MockServerTracker : public ServerTracker<int> {
-    explicit MockServerTracker(Context& context) : ServerTracker<int>(context)
+    explicit MockServerTracker(Context* context) : ServerTracker<int>(context)
     {
     }
     void enqueueChange(const ServerDetails& server, ServerChangeEvent event)
@@ -41,7 +41,7 @@ class AbstractServerListSubClass : public AbstractServerList {
   PUBLIC:
     std::vector<ServerDetails> servers;
 
-    explicit AbstractServerListSubClass(Context& context)
+    explicit AbstractServerListSubClass(Context* context)
         : AbstractServerList(context)
         , servers()
     {
@@ -115,8 +115,8 @@ class AbstractServerListTest : public ::testing::Test {
 
     AbstractServerListTest()
         : context()
-        , sl(context)
-        , tr(context)
+        , sl(&context)
+        , tr(&context)
     {
         while (!changes.empty())
             changes.pop();
@@ -126,13 +126,13 @@ class AbstractServerListTest : public ::testing::Test {
 
 TEST_F(AbstractServerListTest, constructor) {
     Context context;
-    AbstractServerListSubClass sl(context);
+    AbstractServerListSubClass sl(&context);
     EXPECT_EQ(0UL, sl.getVersion());
 }
 
 TEST_F(AbstractServerListTest, destructor) {
-    auto* sl = new AbstractServerListSubClass(context);
-    MockServerTracker tr(context);
+    auto* sl = new AbstractServerListSubClass(&context);
+    MockServerTracker tr(&context);
     EXPECT_EQ(sl, tr.parent);
 
     delete sl;
@@ -162,7 +162,7 @@ TEST_F(AbstractServerListTest, isUp) {
 
 TEST_F(AbstractServerListTest, getSession_basics) {
     sl.skipServerIdCheck = true;
-    MockTransport transport(context);
+    MockTransport transport(&context);
     context.transportManager->registerMock(&transport);
 
     ServerId& id1 = sl.add("mock:id=1", ServerStatus::UP);
@@ -179,7 +179,7 @@ TEST_F(AbstractServerListTest, getSession_bogusId) {
 }
 TEST_F(AbstractServerListTest, getSession_serverIdDoesntMatch) {
     TestLog::Enable _;
-    MockTransport transport(context);
+    MockTransport transport(&context);
     context.transportManager->registerMock(&transport);
     sl.skipServerIdCheck = false;
     transport.setInput("0 6 7");
@@ -190,7 +190,7 @@ TEST_F(AbstractServerListTest, getSession_serverIdDoesntMatch) {
 }
 TEST_F(AbstractServerListTest, getSession_transportErrorCheckingId) {
     TestLog::Enable _;
-    MockTransport transport(context);
+    MockTransport transport(&context);
     context.transportManager->registerMock(&transport);
     sl.skipServerIdCheck = false;
     transport.setInput(NULL);
@@ -202,7 +202,7 @@ TEST_F(AbstractServerListTest, getSession_transportErrorCheckingId) {
 }
 TEST_F(AbstractServerListTest, getSession_successfulServerIdCheck) {
     TestLog::Enable _;
-    MockTransport transport(context);
+    MockTransport transport(&context);
     context.transportManager->registerMock(&transport);
     sl.skipServerIdCheck = false;
     transport.setInput("0 0 0");
@@ -219,7 +219,7 @@ static void testGetSessionThread(AbstractServerListSubClass* sl,
 
 TEST_F(AbstractServerListTest, getSession_serverDisappearsDuringCheck) {
     TestLog::Enable _;
-    MockTransport transport(context);
+    MockTransport transport(&context);
     context.transportManager->registerMock(&transport);
     sl.skipServerIdCheck = false;
     ServerId& id1 = sl.add("mock:id=1", ServerStatus::UP);
@@ -252,7 +252,7 @@ TEST_F(AbstractServerListTest, getSession_serverDisappearsDuringCheck) {
 }
 TEST_F(AbstractServerListTest, getSession_sessionSetDuringCheck) {
     TestLog::Enable _;
-    MockTransport transport(context);
+    MockTransport transport(&context);
     context.transportManager->registerMock(&transport);
     sl.skipServerIdCheck = false;
     ServerId& id1 = sl.add("mock:id=1", ServerStatus::UP);
@@ -286,7 +286,7 @@ TEST_F(AbstractServerListTest, getSession_sessionSetDuringCheck) {
 }
 
 TEST_F(AbstractServerListTest, flushSession) {
-    MockTransport transport(context);
+    MockTransport transport(&context);
     context.transportManager->registerMock(&transport);
 
     ServerId& id = sl.add("mock:id=1", ServerStatus::UP);

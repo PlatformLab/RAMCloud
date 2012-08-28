@@ -53,7 +53,7 @@ namespace RAMCloud {
  */
 class LogCleaner {
   public:
-    LogCleaner(Context& context,
+    LogCleaner(Context* context,
                SegmentManager& segmentManager,
                ReplicaManager& replicaManager,
                uint32_t writeCostThreshold);

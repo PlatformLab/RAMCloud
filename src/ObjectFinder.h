@@ -35,7 +35,7 @@ class ObjectFinder {
   public:
     class TabletMapFetcher; // forward declaration, see full declaration below
 
-    explicit ObjectFinder(Context& context);
+    explicit ObjectFinder(Context* context);
 
     Transport::SessionRef lookup(uint64_t table, const void* key,
                                  uint16_t keyLength);
@@ -59,7 +59,7 @@ class ObjectFinder {
     /**
      * Shared RAMCloud information.
      */
-    Context& context;
+    Context* context;
 
     /**
      * A cache of the coordinator's tablet map.

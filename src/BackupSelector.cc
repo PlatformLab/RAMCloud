@@ -46,7 +46,7 @@ BackupStats::getExpectedReadMs() {
  *      Overall information about this RAMCloud server; used to register
  *      #tracker with this server's ServerList.
  */
-BackupSelector::BackupSelector(Context& context)
+BackupSelector::BackupSelector(Context* context)
     : tracker(context)
 {
 }

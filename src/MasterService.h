@@ -47,7 +47,7 @@ class RecoveryTask;
  */
 class MasterService : public Service, Log::EntryHandlers {
   public:
-    MasterService(Context& context,
+    MasterService(Context* context,
                   const ServerConfig& config);
     virtual ~MasterService();
     void init(ServerId id);
@@ -170,7 +170,7 @@ class MasterService : public Service, Log::EntryHandlers {
 
   public:
     /// Shared RAMCloud information.
-    Context& context;
+    Context* context;
 
     const ServerConfig& config;
 

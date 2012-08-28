@@ -269,7 +269,7 @@ using namespace MasterRecoveryManagerInternal; // NOLINT
  *      Configuration options which are stored by the coordinator.
  *      May be NULL for testing.
  */
-MasterRecoveryManager::MasterRecoveryManager(Context& context,
+MasterRecoveryManager::MasterRecoveryManager(Context* context,
                                              TabletMap& tabletMap,
                                              RuntimeOptions* runtimeOptions)
     : context(context)
@@ -342,7 +342,7 @@ MasterRecoveryManager::startMasterRecovery(ServerId crashedServerId)
 
     try {
         CoordinatorServerList::Entry server =
-            context.coordinatorServerList->at(crashedServerId);
+            context->coordinatorServerList->at(crashedServerId);
         LOG(NOTICE, "Scheduling recovery of master %s",
             crashedServerId.toString().c_str());
 
@@ -483,7 +483,7 @@ MasterRecoveryManager::recoveryFinished(Recovery* recovery)
         // to take care of this for us automatically. So we can just
         // do the remove.
         try {
-            context.coordinatorServerList->remove(recovery->crashedServerId);
+            context->coordinatorServerList->remove(recovery->crashedServerId);
         } catch (const Exception& e) {
             // Server may have already been removed from the list
             // because of an earlier recovery.

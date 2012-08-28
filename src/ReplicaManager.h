@@ -64,7 +64,7 @@ class ReplicaManager
   PUBLIC:
     typedef std::lock_guard<std::mutex> Lock;
 
-    ReplicaManager(Context& context,
+    ReplicaManager(Context* context,
                    const ServerId& masterId,
                    uint32_t numReplicas);
     ~ReplicaManager();
@@ -87,7 +87,7 @@ class ReplicaManager
         __attribute__((warn_unused_result));
 
     /// Shared RAMCloud information.
-    Context& context;
+    Context* context;
 
   PUBLIC:
     /// Number replicas to keep of each segment.

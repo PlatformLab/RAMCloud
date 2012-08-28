@@ -46,15 +46,15 @@ class ServerListUpdaterTest : public ::testing::Test {
 
     ServerListUpdaterTest()
         : context()
-        , csl(context)
-        , updater(context, csl)
+        , csl(&context)
+        , updater(&context, csl)
         , id1()
         , id2()
         , psl1()
         , psl2()
         , msg(ServerListUpdater::Opcode::STOP)
-        , transport(context)
-        , registrar(context, transport)
+        , transport(&context)
+        , registrar(&context, transport)
     {
         csl.updater.halt();
         psl1.set_version_number(4);

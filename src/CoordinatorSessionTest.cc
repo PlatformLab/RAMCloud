@@ -26,7 +26,7 @@ class CoordinatorSessionTest : public ::testing::Test {
 
     CoordinatorSessionTest()
         : context()
-        , transport(context)
+        , transport(&context)
     {
         context.transportManager->registerMock(&transport);
     }
@@ -40,7 +40,7 @@ class CoordinatorSessionTest : public ::testing::Test {
 
 // The following test covers most of the functionality of this class.
 TEST_F(CoordinatorSessionTest, basics) {
-    CoordinatorSession cs(context);
+    CoordinatorSession cs(&context);
     cs.setLocation("mock:");
     EXPECT_TRUE(cs.getSession() != NULL);
     EXPECT_EQ(1U, transport.sessionCreateCount);
@@ -53,7 +53,7 @@ TEST_F(CoordinatorSessionTest, basics) {
 }
 
 TEST_F(CoordinatorSessionTest, getSession_noLocator) {
-    CoordinatorSession cs(context);
+    CoordinatorSession cs(&context);
     string message = "no exception";
     try {
         cs.getSession();
@@ -66,7 +66,7 @@ TEST_F(CoordinatorSessionTest, getSession_noLocator) {
 
 TEST_F(CoordinatorSessionTest, getSession_cantOpenSession) {
     TestLog::Enable _;
-    CoordinatorSession cs(context);
+    CoordinatorSession cs(&context);
     string message = "no exception";
     cs.setLocation("mock:host=error");
     EXPECT_EQ(cs.getSession(), FailSession::get());

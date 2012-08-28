@@ -50,12 +50,12 @@ class BackupServiceTest : public ::testing::Test {
         , server()
         , backup()
         , oldUmask(umask(0))
-        , serverList(context)
+        , serverList(&context)
         , backupId(5, 0)
     {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
 
-        cluster.construct(context);
+        cluster.construct(&context);
         config.services = {WireFormat::BACKUP_SERVICE};
         config.backup.numSegmentFrames = 5;
         server = cluster->addServer(config);
@@ -639,7 +639,7 @@ TEST_F(BackupServiceTest, recoverySegmentBuilder) {
     ProtoBuf::Tablets partitions;
     createTabletList(partitions);
     Atomic<int> recoveryThreadCount{0};
-    BackupService::RecoverySegmentBuilder builder(context,
+    BackupService::RecoverySegmentBuilder builder(&context,
                                                   toBuild,
                                                   partitions,
                                                   recoveryThreadCount,
@@ -1314,7 +1314,7 @@ TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask) {
     cluster->transport.addService(master, "mock:host=m",
                                   WireFormat::MASTER_SERVICE);
     ServerList* backupServerList = static_cast<ServerList*>(
-        backup->context.serverList);
+        backup->context->serverList);
     backupServerList->add({13, 0}, "mock:host=m", {}, 100);
     serverList.add({13, 0}, "mock:host=m", {}, 100);
 

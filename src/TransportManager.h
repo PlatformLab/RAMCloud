@@ -44,7 +44,7 @@ class TransportFactory;
  */
 class TransportManager {
   public:
-    explicit TransportManager(Context& context);
+    explicit TransportManager(Context* context);
     ~TransportManager();
     void initialize(const char* serviceLocator);
     void flushSession(const char* serviceLocator);
@@ -76,8 +76,8 @@ class TransportManager {
 
         // Skip RPCs to verify server ids: this makes tests much simpler,
         // and individual tests can restore normal behavior if they need it.
-        if (context.serverList != NULL)
-            context.serverList->skipServerIdCheck = true;
+        if (context->serverList != NULL)
+            context->serverList->skipServerIdCheck = true;
     }
 
     /**
@@ -93,15 +93,16 @@ class TransportManager {
     }
 
     struct MockRegistrar {
-        Context& context;
-        explicit MockRegistrar(Context& context, Transport& transport)
+        Context* context;
+        explicit MockRegistrar(Context* context, Transport& transport)
             : context(context)
         {
-            context.transportManager->registerMock(&transport);
+            context->transportManager->registerMock(&transport);
         }
         ~MockRegistrar() {
-            context.transportManager->unregisterMock();
+            context->transportManager->unregisterMock();
         }
+        DISALLOW_COPY_AND_ASSIGN(MockRegistrar);
     };
 #endif
 
@@ -111,7 +112,7 @@ class TransportManager {
     /**
      * Shared RAMCloud information.
      */
-    Context &context;
+    Context* context;
 
     /**
      * True means this is a server application, false means this is a client only.

@@ -137,7 +137,7 @@ TEST_F(TabletMapTest, removeTabletsForTable) {
 }
 
 TEST_F(TabletMapTest, serialize) {
-    CoordinatorServerList serverList(context);
+    CoordinatorServerList serverList(&context);
     ServerId id1 = serverList.generateUniqueId();
     serverList.add(id1, "mock:host=one", {WireFormat::MASTER_SERVICE}, 1);
     ServerId id2 = serverList.generateUniqueId();

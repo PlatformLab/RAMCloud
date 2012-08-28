@@ -27,7 +27,7 @@ namespace RAMCloud {
 
 namespace {
 struct MockServerTracker : public ServerTracker<int> {
-    explicit MockServerTracker(Context& context)
+    explicit MockServerTracker(Context* context)
             : ServerTracker<int>(context)
             , changes() {}
     void enqueueChange(const ServerDetails& server, ServerChangeEvent event)
@@ -48,8 +48,8 @@ class CoordinatorServerListTest : public ::testing::Test {
 
     CoordinatorServerListTest()
         : context()
-        , sl(context)
-        , tr(context)
+        , sl(&context)
+        , tr(&context)
         , mutex()
     {
     }
@@ -419,8 +419,8 @@ bool statusFilter(string s) {
 }
 
 TEST_F(CoordinatorServerListTest, sendMembershipUpdate) {
-    MockTransport transport(context);
-    TransportManager::MockRegistrar _(context, transport);
+    MockTransport transport(&context);
+    TransportManager::MockRegistrar _(&context, transport);
     ProtoBuf::ServerList& update = sl.updates;
 
     // Used for internal calls that don't call sendMembersShipUpdates

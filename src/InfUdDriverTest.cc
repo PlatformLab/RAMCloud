@@ -53,11 +53,11 @@ TEST_F(InfUdDriverTest, basics) {
     // driver.
     ServiceLocator serverLocator("fast+infud:");
     InfUdDriver<RealInfiniband> *server =
-            new InfUdDriver<RealInfiniband>(context, &serverLocator, false);
-    MockFastTransport serverTransport(context, server);
+            new InfUdDriver<RealInfiniband>(&context, &serverLocator, false);
+    MockFastTransport serverTransport(&context, server);
     InfUdDriver<RealInfiniband> *client =
-            new InfUdDriver<RealInfiniband>(context, NULL, false);
-    MockFastTransport clientTransport(context, client);
+            new InfUdDriver<RealInfiniband>(&context, NULL, false);
+    MockFastTransport clientTransport(&context, client);
     Driver::Address* serverAddress =
             client->newAddress(ServiceLocator(server->getServiceLocator()));
 
