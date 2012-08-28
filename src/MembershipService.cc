@@ -100,8 +100,8 @@ MembershipService::setServerList(
     Rpc& rpc)
 {
     ProtoBuf::ServerList list;
-    ProtoBuf::parseFromRequest(rpc.requestPayload, sizeof(reqHdr),
-                               reqHdr.serverListLength, list);
+    ProtoBuf::parseFromRequest(&rpc.requestPayload, sizeof(reqHdr),
+                               reqHdr.serverListLength, &list);
 
     serverList.applyFullList(list);
 }
@@ -118,8 +118,8 @@ MembershipService::updateServerList(
         Rpc& rpc)
 {
     ProtoBuf::ServerList update;
-    ProtoBuf::parseFromRequest(rpc.requestPayload, sizeof(reqHdr),
-                               reqHdr.serverListLength, update);
+    ProtoBuf::parseFromRequest(&rpc.requestPayload, sizeof(reqHdr),
+                               reqHdr.serverListLength, &update);
 
     LOG(NOTICE, "Got server list update (version number %lu)",
         update.version_number());

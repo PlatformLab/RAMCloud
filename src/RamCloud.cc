@@ -81,7 +81,7 @@ RamCloud::RamCloud(Context& context, const char* serviceLocator)
 uint64_t
 RamCloud::createTable(const char* name, uint32_t serverSpan)
 {
-    CreateTableRpc rpc(*this, name, serverSpan);
+    CreateTableRpc rpc(this, name, serverSpan);
     return rpc.wait();
 }
 
@@ -98,16 +98,16 @@ RamCloud::createTable(const char* name, uint32_t serverSpan)
  *      The number of servers across which this table will be divided
  *      (defaults to 1).
  */
-CreateTableRpc::CreateTableRpc(RamCloud& ramcloud,
+CreateTableRpc::CreateTableRpc(RamCloud* ramcloud,
         const char* name, uint32_t serverSpan)
-    : CoordinatorRpcWrapper(ramcloud.clientContext,
+    : CoordinatorRpcWrapper(&ramcloud->clientContext,
             sizeof(WireFormat::CreateTable::Response))
 {
     uint32_t length = downCast<uint32_t>(strlen(name) + 1);
-    WireFormat::CreateTable::Request& reqHdr(
+    WireFormat::CreateTable::Request* reqHdr(
             allocHeader<WireFormat::CreateTable>());
-    reqHdr.nameLength = length;
-    reqHdr.serverSpan = serverSpan;
+    reqHdr->nameLength = length;
+    reqHdr->serverSpan = serverSpan;
     memcpy(new(&request, APPEND) char[length], name, length);
     send();
 }
@@ -122,12 +122,12 @@ CreateTableRpc::CreateTableRpc(RamCloud& ramcloud,
 uint64_t
 CreateTableRpc::wait()
 {
-    waitInternal(*context.dispatch);
-    const WireFormat::CreateTable::Response& respHdr(
+    waitInternal(context->dispatch);
+    const WireFormat::CreateTable::Response* respHdr(
             getResponseHeader<WireFormat::CreateTable>());
-    if (respHdr.common.status != STATUS_OK)
-        ClientException::throwException(HERE, respHdr.common.status);
-    return respHdr.tableId;
+    if (respHdr->common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr->common.status);
+    return respHdr->tableId;
 }
 
 /**
@@ -144,7 +144,7 @@ CreateTableRpc::wait()
 void
 RamCloud::dropTable(const char* name)
 {
-    DropTableRpc rpc(*this, name);
+    DropTableRpc rpc(this, name);
     rpc.wait();
 }
 
@@ -158,15 +158,15 @@ RamCloud::dropTable(const char* name)
  * \param name
  *      Name of the table to delete (NULL-terminated string).
  */
-DropTableRpc::DropTableRpc(RamCloud& ramcloud,
+DropTableRpc::DropTableRpc(RamCloud* ramcloud,
         const char* name)
-    : CoordinatorRpcWrapper(ramcloud.clientContext,
+    : CoordinatorRpcWrapper(&ramcloud->clientContext,
             sizeof(WireFormat::DropTable::Response))
 {
     uint32_t length = downCast<uint32_t>(strlen(name) + 1);
-    WireFormat::DropTable::Request& reqHdr(
+    WireFormat::DropTable::Request* reqHdr(
             allocHeader<WireFormat::DropTable>());
-    reqHdr.nameLength = length;
+    reqHdr->nameLength = length;
     memcpy(new(&request, APPEND) char[length], name, length);
     send();
 }
@@ -211,7 +211,7 @@ uint64_t
 RamCloud::enumerateTable(uint64_t tableId, uint64_t tabletFirstHash,
         Buffer& state, Buffer& objects)
 {
-    EnumerateTableRpc rpc(*this, tableId, tabletFirstHash, state, objects);
+    EnumerateTableRpc rpc(this, tableId, tabletFirstHash, state, objects);
     return rpc.wait(state);
 }
 
@@ -238,16 +238,16 @@ RamCloud::enumerateTable(uint64_t tableId, uint64_t tabletFirstHash,
  *      After a successful return, this buffer will contain zero or
  *      more objects from the requested tablet.
  */
-EnumerateTableRpc::EnumerateTableRpc(RamCloud& ramcloud, uint64_t tableId,
+EnumerateTableRpc::EnumerateTableRpc(RamCloud* ramcloud, uint64_t tableId,
         uint64_t tabletFirstHash, Buffer& state, Buffer& objects)
     : ObjectRpcWrapper(ramcloud, tableId, tabletFirstHash,
             sizeof(WireFormat::Enumerate::Response), &objects)
 {
-    WireFormat::Enumerate::Request& reqHdr(
+    WireFormat::Enumerate::Request* reqHdr(
             allocHeader<WireFormat::Enumerate>());
-    reqHdr.tableId = tableId;
-    reqHdr.tabletFirstHash = tabletFirstHash;
-    reqHdr.iteratorBytes = state.getTotalLength();
+    reqHdr->tableId = tableId;
+    reqHdr->tabletFirstHash = tabletFirstHash;
+    reqHdr->iteratorBytes = state.getTotalLength();
     for (Buffer::Iterator it(state); !it.isDone(); it.next())
         Buffer::Chunk::appendToBuffer(&request, it.getData(),
                 it.getLength());
@@ -278,24 +278,24 @@ EnumerateTableRpc::EnumerateTableRpc(RamCloud& ramcloud, uint64_t tableId,
 uint64_t
 EnumerateTableRpc::wait(Buffer& state)
 {
-    simpleWait(*ramcloud.clientContext.dispatch);
-    const WireFormat::Enumerate::Response& respHdr(
+    simpleWait(ramcloud->clientContext.dispatch);
+    const WireFormat::Enumerate::Response* respHdr(
             getResponseHeader<WireFormat::Enumerate>());
-    uint64_t result = respHdr.tabletFirstHash;
+    uint64_t result = respHdr->tabletFirstHash;
 
     // Copy iterator from response into nextIter buffer.
-    uint32_t iteratorBytes = respHdr.iteratorBytes;
+    uint32_t iteratorBytes = respHdr->iteratorBytes;
     state.reset();
-    response->copy(downCast<uint32_t>(sizeof(respHdr) + respHdr.payloadBytes),
+    response->copy(downCast<uint32_t>(sizeof(*respHdr) + respHdr->payloadBytes),
             iteratorBytes, new(&state, APPEND) char[iteratorBytes]);
 
     // Truncate the front and back of the response buffer, leaving just the
     // objects (the response buffer is the \c objects argument from
     // the constructor).
-    assert(response->getTotalLength() == sizeof(respHdr) +
-            respHdr.iteratorBytes + respHdr.payloadBytes);
-    response->truncateFront(sizeof(respHdr));
-    response->truncateEnd(respHdr.iteratorBytes);
+    assert(response->getTotalLength() == sizeof(*respHdr) +
+            respHdr->iteratorBytes + respHdr->payloadBytes);
+    response->truncateFront(sizeof(*respHdr));
+    response->truncateEnd(respHdr->iteratorBytes);
 
     return result;
 }
@@ -321,7 +321,7 @@ EnumerateTableRpc::wait(Buffer& state)
 ServerMetrics
 RamCloud::getMetrics(uint64_t tableId, const void* key, uint16_t keyLength)
 {
-    GetMetricsRpc rpc(*this, tableId, key, keyLength);
+    GetMetricsRpc rpc(this, tableId, key, keyLength);
     return rpc.wait();
 }
 
@@ -342,7 +342,7 @@ RamCloud::getMetrics(uint64_t tableId, const void* key, uint16_t keyLength)
  * \param keyLength
  *      Size in bytes of the key.
  */
-GetMetricsRpc::GetMetricsRpc(RamCloud& ramcloud, uint64_t tableId,
+GetMetricsRpc::GetMetricsRpc(RamCloud* ramcloud, uint64_t tableId,
         const void* key, uint16_t keyLength)
     : ObjectRpcWrapper(ramcloud, tableId, key, keyLength,
             sizeof(WireFormat::GetMetrics::Response))
@@ -362,15 +362,15 @@ GetMetricsRpc::GetMetricsRpc(RamCloud& ramcloud, uint64_t tableId,
 ServerMetrics
 GetMetricsRpc::wait()
 {
-    waitInternal(*ramcloud.clientContext.dispatch);
-    const WireFormat::GetMetrics::Response& respHdr(
+    waitInternal(ramcloud->clientContext.dispatch);
+    const WireFormat::GetMetrics::Response* respHdr(
             getResponseHeader<WireFormat::GetMetrics>());
 
-    if (respHdr.common.status != STATUS_OK)
-        ClientException::throwException(HERE, respHdr.common.status);
+    if (respHdr->common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr->common.status);
 
-    response->truncateFront(sizeof(respHdr));
-    assert(respHdr.messageLength == response->getTotalLength());
+    response->truncateFront(sizeof(*respHdr));
+    assert(respHdr->messageLength == response->getTotalLength());
     ServerMetrics metrics;
     metrics.load(*response);
     return metrics;
@@ -392,7 +392,7 @@ GetMetricsRpc::wait()
 ServerMetrics
 RamCloud::getMetrics(const char* serviceLocator)
 {
-    GetMetricsLocatorRpc rpc(*this, serviceLocator);
+    GetMetricsLocatorRpc rpc(this, serviceLocator);
     return rpc.wait();
 }
 
@@ -406,13 +406,13 @@ RamCloud::getMetrics(const char* serviceLocator)
  * \param serviceLocator
  *      Selects the server from which metrics should be retrieved.
  */
-GetMetricsLocatorRpc::GetMetricsLocatorRpc(RamCloud& ramcloud,
+GetMetricsLocatorRpc::GetMetricsLocatorRpc(RamCloud* ramcloud,
         const char* serviceLocator)
     : RpcWrapper(sizeof(WireFormat::GetMetrics::Response))
     , ramcloud(ramcloud)
 {
     try {
-        session = ramcloud.clientContext.transportManager->getSession(
+        session = ramcloud->clientContext.transportManager->getSession(
                 serviceLocator);
     } catch (const TransportException& e) {
         session = FailSession::get();
@@ -435,18 +435,18 @@ GetMetricsLocatorRpc::GetMetricsLocatorRpc(RamCloud& ramcloud,
 ServerMetrics
 GetMetricsLocatorRpc::wait()
 {
-    waitInternal(*ramcloud.clientContext.dispatch);
+    waitInternal(ramcloud->clientContext.dispatch);
     if (getState() != RpcState::FINISHED) {
         throw TransportException(HERE);
     }
-    const WireFormat::GetMetrics::Response& respHdr(
+    const WireFormat::GetMetrics::Response* respHdr(
             getResponseHeader<WireFormat::GetMetrics>());
 
-    if (respHdr.common.status != STATUS_OK)
-        ClientException::throwException(HERE, respHdr.common.status);
+    if (respHdr->common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr->common.status);
 
-    response->truncateFront(sizeof(respHdr));
-    assert(respHdr.messageLength == response->getTotalLength());
+    response->truncateFront(sizeof(*respHdr));
+    assert(respHdr->messageLength == response->getTotalLength());
     ServerMetrics metrics;
     metrics.load(*response);
     return metrics;
@@ -471,7 +471,7 @@ void
 RamCloud::getServerStatistics(const char* serviceLocator,
         ProtoBuf::ServerStatistics& serverStats)
 {
-    GetServerStatisticsRpc rpc(*this, serviceLocator);
+    GetServerStatisticsRpc rpc(this, serviceLocator);
     rpc.wait(serverStats);
 }
 
@@ -485,13 +485,13 @@ RamCloud::getServerStatistics(const char* serviceLocator,
  * \param serviceLocator
  *      Selects the server from which server statistics should be retrieved.
  */
-GetServerStatisticsRpc::GetServerStatisticsRpc(RamCloud& ramcloud,
+GetServerStatisticsRpc::GetServerStatisticsRpc(RamCloud* ramcloud,
         const char* serviceLocator)
     : RpcWrapper(sizeof(WireFormat::GetServerStatistics::Response))
     , ramcloud(ramcloud)
 {
     try {
-        session = ramcloud.clientContext.transportManager->getSession(
+        session = ramcloud->clientContext.transportManager->getSession(
                 serviceLocator);
     } catch (const TransportException& e) {
         session = FailSession::get();
@@ -514,18 +514,18 @@ GetServerStatisticsRpc::GetServerStatisticsRpc(RamCloud& ramcloud,
 void
 GetServerStatisticsRpc::wait(ProtoBuf::ServerStatistics& serverStats)
 {
-    waitInternal(*ramcloud.clientContext.dispatch);
+    waitInternal(ramcloud->clientContext.dispatch);
     if (getState() != RpcState::FINISHED) {
         throw TransportException(HERE);
     }
-    const WireFormat::GetServerStatistics::Response& respHdr(
+    const WireFormat::GetServerStatistics::Response* respHdr(
             getResponseHeader<WireFormat::GetServerStatistics>());
 
-    if (respHdr.common.status != STATUS_OK)
-        ClientException::throwException(HERE, respHdr.common.status);
+    if (respHdr->common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr->common.status);
 
-    ProtoBuf::parseFromResponse(*response, sizeof(respHdr),
-        respHdr.serverStatsLength, serverStats);
+    ProtoBuf::parseFromResponse(response, sizeof(*respHdr),
+        respHdr->serverStatsLength, &serverStats);
 }
 
 /**
@@ -554,7 +554,7 @@ RamCloud::getServiceLocator()
 uint64_t
 RamCloud::getTableId(const char* name)
 {
-    GetTableIdRpc rpc(*this, name);
+    GetTableIdRpc rpc(this, name);
     return rpc.wait();
 }
 
@@ -568,15 +568,15 @@ RamCloud::getTableId(const char* name)
  * \param name
  *      Name of the desired table (NULL-terminated string).
  */
-GetTableIdRpc::GetTableIdRpc(RamCloud& ramcloud,
+GetTableIdRpc::GetTableIdRpc(RamCloud* ramcloud,
         const char* name)
-    : CoordinatorRpcWrapper(ramcloud.clientContext,
+    : CoordinatorRpcWrapper(&ramcloud->clientContext,
             sizeof(WireFormat::CreateTable::Response))
 {
     uint32_t length = downCast<uint32_t>(strlen(name) + 1);
-    WireFormat::GetTableId::Request& reqHdr(
+    WireFormat::GetTableId::Request* reqHdr(
             allocHeader<WireFormat::GetTableId>());
-    reqHdr.nameLength = length;
+    reqHdr->nameLength = length;
     memcpy(new(&request, APPEND) char[length], name, length);
     send();
 }
@@ -593,12 +593,12 @@ GetTableIdRpc::GetTableIdRpc(RamCloud& ramcloud,
 uint64_t
 GetTableIdRpc::wait()
 {
-    waitInternal(*context.dispatch);
-    const WireFormat::GetTableId::Response& respHdr(
+    waitInternal(context->dispatch);
+    const WireFormat::GetTableId::Response* respHdr(
             getResponseHeader<WireFormat::GetTableId>());
-    if (respHdr.common.status != STATUS_OK)
-        ClientException::throwException(HERE, respHdr.common.status);
-    return respHdr.tableId;
+    if (respHdr->common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr->common.status);
+    return respHdr->tableId;
 }
 
 /**
@@ -635,7 +635,7 @@ RamCloud::increment(uint64_t tableId, const void* key, uint16_t keyLength,
         int64_t incrementValue, const RejectRules* rejectRules,
         uint64_t* version)
 {
-    IncrementRpc rpc(*this, tableId, key, keyLength, incrementValue,
+    IncrementRpc rpc(this, tableId, key, keyLength, incrementValue,
             rejectRules);
     return rpc.wait(version);
 }
@@ -664,18 +664,18 @@ RamCloud::increment(uint64_t tableId, const void* key, uint16_t keyLength,
  *      If non-NULL, specifies conditions under which the increment
  *      should be aborted with an error.
  */
-IncrementRpc::IncrementRpc(RamCloud& ramcloud, uint64_t tableId,
+IncrementRpc::IncrementRpc(RamCloud* ramcloud, uint64_t tableId,
         const void* key, uint16_t keyLength, int64_t incrementValue,
         const RejectRules* rejectRules)
     : ObjectRpcWrapper(ramcloud, tableId, key, keyLength,
             sizeof(WireFormat::Increment::Response))
 {
-    WireFormat::Increment::Request& reqHdr(
+    WireFormat::Increment::Request* reqHdr(
             allocHeader<WireFormat::Increment>());
-    reqHdr.tableId = tableId;
-    reqHdr.keyLength = keyLength;
-    reqHdr.incrementValue = incrementValue;
-    reqHdr.rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
+    reqHdr->tableId = tableId;
+    reqHdr->keyLength = keyLength;
+    reqHdr->incrementValue = incrementValue;
+    reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
     Buffer::Chunk::appendToBuffer(&request, key, keyLength);
     send();
 }
@@ -691,15 +691,15 @@ IncrementRpc::IncrementRpc(RamCloud& ramcloud, uint64_t tableId,
 int64_t
 IncrementRpc::wait(uint64_t* version)
 {
-    waitInternal(*ramcloud.clientContext.dispatch);
-    const WireFormat::Increment::Response& respHdr(
+    waitInternal(ramcloud->clientContext.dispatch);
+    const WireFormat::Increment::Response* respHdr(
             getResponseHeader<WireFormat::Increment>());
     if (version != NULL)
-        *version = respHdr.version;
+        *version = respHdr->version;
 
-    if (respHdr.common.status != STATUS_OK)
-        ClientException::throwException(HERE, respHdr.common.status);
-    return respHdr.newValue;
+    if (respHdr->common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr->common.status);
+    return respHdr->newValue;
 }
 
 /**
@@ -719,7 +719,7 @@ void
 RamCloud::migrateTablet(uint64_t tableId, uint64_t firstKeyHash,
         uint64_t lastKeyHash, ServerId newOwnerMasterId)
 {
-    MigrateTabletRpc rpc(*this, tableId, firstKeyHash, lastKeyHash,
+    MigrateTabletRpc rpc(this, tableId, firstKeyHash, lastKeyHash,
             newOwnerMasterId);
     rpc.wait();
 }
@@ -740,18 +740,18 @@ RamCloud::migrateTablet(uint64_t tableId, uint64_t firstKeyHash,
  * \param newOwnerMasterId
  *      ServerId of the node to which the tablet should be migrated.
  */
-MigrateTabletRpc::MigrateTabletRpc(RamCloud& ramcloud, uint64_t tableId,
+MigrateTabletRpc::MigrateTabletRpc(RamCloud* ramcloud, uint64_t tableId,
         uint64_t firstKeyHash, uint64_t lastKeyHash,
         ServerId newOwnerMasterId)
     : ObjectRpcWrapper(ramcloud, tableId, firstKeyHash,
             sizeof(WireFormat::MigrateTablet::Response))
 {
-    WireFormat::MigrateTablet::Request& reqHdr(
+    WireFormat::MigrateTablet::Request* reqHdr(
             allocHeader<WireFormat::MigrateTablet>());
-    reqHdr.tableId = tableId;
-    reqHdr.firstKeyHash = firstKeyHash;
-    reqHdr.lastKeyHash = lastKeyHash;
-    reqHdr.newOwnerMasterId = newOwnerMasterId.getId();
+    reqHdr->tableId = tableId;
+    reqHdr->firstKeyHash = firstKeyHash;
+    reqHdr->lastKeyHash = lastKeyHash;
+    reqHdr->newOwnerMasterId = newOwnerMasterId.getId();
     send();
 }
 
@@ -773,7 +773,7 @@ MigrateTabletRpc::MigrateTabletRpc(RamCloud& ramcloud, uint64_t tableId,
 void
 RamCloud::multiRead(MultiReadObject* requests[], uint32_t numRequests)
 {
-    MultiRead request(*this, requests, numRequests);
+    MultiRead request(this, requests, numRequests);
     request.wait();
 }
 
@@ -786,7 +786,7 @@ RamCloud::multiRead(MultiReadObject* requests[], uint32_t numRequests)
 void
 RamCloud::quiesce()
 {
-    QuiesceRpc rpc(*this);
+    QuiesceRpc rpc(this);
     rpc.wait();
 }
 
@@ -798,16 +798,16 @@ RamCloud::quiesce()
  * \param ramcloud
  *      The RAMCloud object that governs this RPC.
  */
-QuiesceRpc::QuiesceRpc(RamCloud& ramcloud)
-    : CoordinatorRpcWrapper(ramcloud.clientContext,
+QuiesceRpc::QuiesceRpc(RamCloud* ramcloud)
+    : CoordinatorRpcWrapper(&ramcloud->clientContext,
             sizeof(WireFormat::BackupQuiesce::Response))
 {
-    WireFormat::BackupQuiesce::Request& reqHdr(
+    WireFormat::BackupQuiesce::Request* reqHdr(
             allocHeader<WireFormat::BackupQuiesce>());
     // By default this RPC is sent to the backup service; retarget it
     // for the coordinator service (which will forward it on to all
     // backups).
-    reqHdr.common.service = WireFormat::COORDINATOR_SERVICE;
+    reqHdr->common.service = WireFormat::COORDINATOR_SERVICE;
     send();
 }
 
@@ -838,7 +838,7 @@ RamCloud::read(uint64_t tableId, const void* key, uint16_t keyLength,
                    Buffer* value, const RejectRules* rejectRules,
                    uint64_t* version)
 {
-    ReadRpc rpc(*this, tableId, key, keyLength, value, rejectRules);
+    ReadRpc rpc(this, tableId, key, keyLength, value, rejectRules);
     rpc.wait(version);
 }
 
@@ -866,17 +866,17 @@ RamCloud::read(uint64_t tableId, const void* key, uint16_t keyLength,
  *      If non-NULL, specifies conditions under which the read
  *      should be aborted with an error.
  */
-ReadRpc::ReadRpc(RamCloud& ramcloud, uint64_t tableId,
+ReadRpc::ReadRpc(RamCloud* ramcloud, uint64_t tableId,
         const void* key, uint16_t keyLength, Buffer* value,
         const RejectRules* rejectRules)
     : ObjectRpcWrapper(ramcloud, tableId, key, keyLength,
             sizeof(WireFormat::Read::Response), value)
 {
     value->reset();
-    WireFormat::Read::Request& reqHdr(allocHeader<WireFormat::Read>());
-    reqHdr.tableId = tableId;
-    reqHdr.keyLength = keyLength;
-    reqHdr.rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
+    WireFormat::Read::Request* reqHdr(allocHeader<WireFormat::Read>());
+    reqHdr->tableId = tableId;
+    reqHdr->keyLength = keyLength;
+    reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
     Buffer::Chunk::appendToBuffer(&request, key, keyLength);
     send();
 }
@@ -891,19 +891,19 @@ ReadRpc::ReadRpc(RamCloud& ramcloud, uint64_t tableId,
 void
 ReadRpc::wait(uint64_t* version)
 {
-    waitInternal(*ramcloud.clientContext.dispatch);
-    const WireFormat::Read::Response& respHdr(
+    waitInternal(ramcloud->clientContext.dispatch);
+    const WireFormat::Read::Response* respHdr(
             getResponseHeader<WireFormat::Read>());
     if (version != NULL)
-        *version = respHdr.version;
+        *version = respHdr->version;
 
     // Truncate the response Buffer so that it consists of nothing
     // but the object data.
-    response->truncateFront(sizeof(respHdr));
-    assert(respHdr.length == response->getTotalLength());
+    response->truncateFront(sizeof(*respHdr));
+    assert(respHdr->length == response->getTotalLength());
 
-    if (respHdr.common.status != STATUS_OK)
-        ClientException::throwException(HERE, respHdr.common.status);
+    if (respHdr->common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr->common.status);
 }
 
 /**
@@ -932,7 +932,7 @@ void
 RamCloud::remove(uint64_t tableId, const void* key, uint16_t keyLength,
         const RejectRules* rejectRules, uint64_t* version)
 {
-    RemoveRpc rpc(*this, tableId, key, keyLength, rejectRules);
+    RemoveRpc rpc(this, tableId, key, keyLength, rejectRules);
     rpc.wait(version);
 }
 
@@ -957,15 +957,15 @@ RamCloud::remove(uint64_t tableId, const void* key, uint16_t keyLength,
  *      If non-NULL, specifies conditions under which the delete
  *      should be aborted with an error.
  */
-RemoveRpc::RemoveRpc(RamCloud& ramcloud, uint64_t tableId,
+RemoveRpc::RemoveRpc(RamCloud* ramcloud, uint64_t tableId,
         const void* key, uint16_t keyLength, const RejectRules* rejectRules)
     : ObjectRpcWrapper(ramcloud, tableId, key, keyLength,
             sizeof(WireFormat::Remove::Response))
 {
-    WireFormat::Remove::Request& reqHdr(allocHeader<WireFormat::Remove>());
-    reqHdr.tableId = tableId;
-    reqHdr.keyLength = keyLength;
-    reqHdr.rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
+    WireFormat::Remove::Request* reqHdr(allocHeader<WireFormat::Remove>());
+    reqHdr->tableId = tableId;
+    reqHdr->keyLength = keyLength;
+    reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
     Buffer::Chunk::appendToBuffer(&request, key, keyLength);
     send();
 }
@@ -981,14 +981,14 @@ RemoveRpc::RemoveRpc(RamCloud& ramcloud, uint64_t tableId,
 void
 RemoveRpc::wait(uint64_t* version)
 {
-    waitInternal(*ramcloud.clientContext.dispatch);
-    const WireFormat::Remove::Response& respHdr(
+    waitInternal(ramcloud->clientContext.dispatch);
+    const WireFormat::Remove::Response* respHdr(
             getResponseHeader<WireFormat::Remove>());
     if (version != NULL)
-        *version = respHdr.version;
+        *version = respHdr->version;
 
-    if (respHdr.common.status != STATUS_OK)
-        ClientException::throwException(HERE, respHdr.common.status);
+    if (respHdr->common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr->common.status);
 }
 
 /**
@@ -1015,7 +1015,7 @@ void
 RamCloud::splitTablet(const char* name, uint64_t firstKeyHash,
         uint64_t lastKeyHash, uint64_t splitKeyHash)
 {
-    SplitTabletRpc rpc(*this, name, firstKeyHash, lastKeyHash, splitKeyHash);
+    SplitTabletRpc rpc(this, name, firstKeyHash, lastKeyHash, splitKeyHash);
     rpc.wait();
 }
 
@@ -1038,19 +1038,19 @@ RamCloud::splitTablet(const char* name, uint64_t firstKeyHash,
  *      this will belong to one tablet, and all key hashes >= this
  *      will belong to the other.
  */
-SplitTabletRpc::SplitTabletRpc(RamCloud& ramcloud,
+SplitTabletRpc::SplitTabletRpc(RamCloud* ramcloud,
         const char* name, uint64_t firstKeyHash,
         uint64_t lastKeyHash, uint64_t splitKeyHash)
-    : CoordinatorRpcWrapper(ramcloud.clientContext,
+    : CoordinatorRpcWrapper(&ramcloud->clientContext,
             sizeof(WireFormat::SplitTablet::Response))
 {
     uint32_t length = downCast<uint32_t>(strlen(name) + 1);
-    WireFormat::SplitTablet::Request& reqHdr(
+    WireFormat::SplitTablet::Request* reqHdr(
             allocHeader<WireFormat::SplitTablet>());
-    reqHdr.nameLength = length;
-    reqHdr.firstKeyHash = firstKeyHash;
-    reqHdr.lastKeyHash = lastKeyHash;
-    reqHdr.splitKeyHash = splitKeyHash;
+    reqHdr->nameLength = length;
+    reqHdr->firstKeyHash = firstKeyHash;
+    reqHdr->lastKeyHash = lastKeyHash;
+    reqHdr->splitKeyHash = splitKeyHash;
     memcpy(new(&request, APPEND) char[length], name, length);
     send();
 }
@@ -1085,7 +1085,7 @@ void
 RamCloud::testingFill(uint64_t tableId, const void* key, uint16_t keyLength,
                       uint32_t numObjects, uint32_t objectSize)
 {
-    FillWithTestDataRpc rpc(*this, tableId, key, keyLength, numObjects,
+    FillWithTestDataRpc rpc(this, tableId, key, keyLength, numObjects,
             objectSize);
     rpc.wait();
 }
@@ -1113,16 +1113,16 @@ RamCloud::testingFill(uint64_t tableId, const void* key, uint16_t keyLength,
  *      key (the keys are ASCII strings starting with "0" and increasing
  *      numerically in each table).
  */
-FillWithTestDataRpc::FillWithTestDataRpc(RamCloud& ramcloud,
+FillWithTestDataRpc::FillWithTestDataRpc(RamCloud* ramcloud,
         uint64_t tableId, const void* key, uint16_t keyLength,
         uint32_t numObjects, uint32_t objectSize)
     : ObjectRpcWrapper(ramcloud, tableId, key, keyLength,
             sizeof(WireFormat::FillWithTestData::Response))
 {
-    WireFormat::FillWithTestData::Request& reqHdr(
+    WireFormat::FillWithTestData::Request* reqHdr(
             allocHeader<WireFormat::FillWithTestData>());
-    reqHdr.numObjects = numObjects;
-    reqHdr.objectSize = objectSize;
+    reqHdr->numObjects = numObjects;
+    reqHdr->objectSize = objectSize;
     send();
 }
 
@@ -1175,7 +1175,7 @@ RamCloud::testingGetServiceLocator(uint64_t tableId,
 void
 RamCloud::testingKill(uint64_t tableId, const void* key, uint16_t keyLength)
 {
-    KillRpc rpc(*this, tableId, key, keyLength);
+    KillRpc rpc(this, tableId, key, keyLength);
     objectFinder.waitForTabletDown();
 }
 
@@ -1197,7 +1197,7 @@ RamCloud::testingKill(uint64_t tableId, const void* key, uint16_t keyLength)
  * \param keyLength
  *      Size in bytes of the key.
  */
-KillRpc::KillRpc(RamCloud& ramcloud, uint64_t tableId,
+KillRpc::KillRpc(RamCloud* ramcloud, uint64_t tableId,
         const void* key, uint16_t keyLength)
     : ObjectRpcWrapper(ramcloud, tableId, key, keyLength,
             sizeof(WireFormat::Kill::Response))
@@ -1223,7 +1223,7 @@ KillRpc::KillRpc(RamCloud& ramcloud, uint64_t tableId,
 void
 RamCloud::testingSetRuntimeOption(const char* option, const char* value)
 {
-    SetRuntimeOptionRpc rpc(*this, option, value);
+    SetRuntimeOptionRpc rpc(this, option, value);
     rpc.wait();
 }
 
@@ -1245,17 +1245,17 @@ RamCloud::testingSetRuntimeOption(const char* option, const char* value)
  *      separated by spaces (e.g. "1 2 3", "first second"). See RuntimeOptions
  *      for more information.
  */
-SetRuntimeOptionRpc::SetRuntimeOptionRpc(RamCloud& ramcloud,
+SetRuntimeOptionRpc::SetRuntimeOptionRpc(RamCloud* ramcloud,
         const char* option, const char* value)
-    : CoordinatorRpcWrapper(ramcloud.clientContext,
+    : CoordinatorRpcWrapper(&ramcloud->clientContext,
             sizeof(WireFormat::SetRuntimeOption::Response))
 {
-    WireFormat::SetRuntimeOption::Request& reqHdr(
+    WireFormat::SetRuntimeOption::Request* reqHdr(
             allocHeader<WireFormat::SetRuntimeOption>());
-    reqHdr.optionLength = downCast<uint32_t>(strlen(option) + 1);
-    reqHdr.valueLength = downCast<uint32_t>(strlen(value) + 1);
-    Buffer::Chunk::appendToBuffer(&request, option, reqHdr.optionLength);
-    Buffer::Chunk::appendToBuffer(&request, value, reqHdr.valueLength);
+    reqHdr->optionLength = downCast<uint32_t>(strlen(option) + 1);
+    reqHdr->valueLength = downCast<uint32_t>(strlen(value) + 1);
+    Buffer::Chunk::appendToBuffer(&request, option, reqHdr->optionLength);
+    Buffer::Chunk::appendToBuffer(&request, value, reqHdr->valueLength);
     send();
 }
 
@@ -1308,7 +1308,7 @@ RamCloud::write(uint64_t tableId, const void* key, uint16_t keyLength,
         const void* buf, uint32_t length, const RejectRules* rejectRules,
         uint64_t* version, bool async)
 {
-    WriteRpc rpc(*this, tableId, key, keyLength, buf, length, rejectRules,
+    WriteRpc rpc(this, tableId, key, keyLength, buf, length, rejectRules,
             async);
     rpc.wait(version);
 }
@@ -1350,7 +1350,7 @@ RamCloud::write(uint64_t tableId, const void* key, uint16_t keyLength,
         const char* value, const RejectRules* rejectRules, uint64_t* version,
         bool async)
 {
-    WriteRpc rpc(*this, tableId, key, keyLength, value,
+    WriteRpc rpc(this, tableId, key, keyLength, value,
             downCast<uint32_t>(strlen(value)), rejectRules, async);
     rpc.wait(version);
 }
@@ -1384,18 +1384,18 @@ RamCloud::write(uint64_t tableId, const void* key, uint16_t keyLength,
  *      If true, the new object will not be immediately replicated to backups.
  *      Data loss may occur!
  */
-WriteRpc::WriteRpc(RamCloud& ramcloud, uint64_t tableId,
+WriteRpc::WriteRpc(RamCloud* ramcloud, uint64_t tableId,
         const void* key, uint16_t keyLength, const void* buf, uint32_t length,
         const RejectRules* rejectRules, bool async)
     : ObjectRpcWrapper(ramcloud, tableId, key, keyLength,
             sizeof(WireFormat::Write::Response))
 {
-    WireFormat::Write::Request& reqHdr(allocHeader<WireFormat::Write>());
-    reqHdr.tableId = tableId;
-    reqHdr.keyLength = keyLength;
-    reqHdr.length = length;
-    reqHdr.rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
-    reqHdr.async = async;
+    WireFormat::Write::Request* reqHdr(allocHeader<WireFormat::Write>());
+    reqHdr->tableId = tableId;
+    reqHdr->keyLength = keyLength;
+    reqHdr->length = length;
+    reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
+    reqHdr->async = async;
     Buffer::Chunk::appendToBuffer(&request, key, keyLength);
     Buffer::Chunk::appendToBuffer(&request, buf, length);
     send();
@@ -1412,14 +1412,14 @@ WriteRpc::WriteRpc(RamCloud& ramcloud, uint64_t tableId,
 void
 WriteRpc::wait(uint64_t* version)
 {
-    waitInternal(*ramcloud.clientContext.dispatch);
-    const WireFormat::Write::Response& respHdr(
+    waitInternal(ramcloud->clientContext.dispatch);
+    const WireFormat::Write::Response* respHdr(
             getResponseHeader<WireFormat::Write>());
     if (version != NULL)
-        *version = respHdr.version;
+        *version = respHdr->version;
 
-    if (respHdr.common.status != STATUS_OK)
-        ClientException::throwException(HERE, respHdr.common.status);
+    if (respHdr->common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr->common.status);
 }
 
 }  // namespace RAMCloud

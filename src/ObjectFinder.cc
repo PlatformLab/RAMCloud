@@ -33,7 +33,7 @@ class RealTabletMapFetcher : public ObjectFinder::TabletMapFetcher {
     {
     }
     void getTabletMap(ProtoBuf::Tablets& tabletMap) {
-        CoordinatorClient::getTabletMap(context, tabletMap);
+        CoordinatorClient::getTabletMap(&context, &tabletMap);
     }
   private:
     Context& context;

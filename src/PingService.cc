@@ -87,7 +87,7 @@ PingService::proxyPing(const WireFormat::ProxyPing::Request& reqHdr,
              Rpc& rpc)
 {
     uint64_t start = Cycles::rdtsc();
-    PingRpc pingRpc(context, ServerId(reqHdr.serverId), ServerId());
+    PingRpc pingRpc(&context, ServerId(reqHdr.serverId), ServerId());
     respHdr.replyNanoseconds = ~0UL;
     if (pingRpc.wait(reqHdr.timeoutNanoseconds) != ~0UL) {
         respHdr.replyNanoseconds = Cycles::toNanoseconds(

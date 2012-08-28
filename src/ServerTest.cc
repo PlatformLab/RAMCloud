@@ -58,7 +58,7 @@ TEST_F(ServerTest, startForTesting) {
     TestLog::Enable _;
     server->startForTesting(cluster.transport);
     cluster.syncCoordinatorServerList();
-    PingClient::ping(context, server->serverId, ServerId());
+    PingClient::ping(&context, server->serverId, ServerId());
 }
 
 // run is too much of a pain to and not that interesting.
@@ -108,7 +108,7 @@ TEST_F(ServerTest, enlist) {
     EXPECT_TRUE(server->backup->serverId.isValid());
 
     ProtoBuf::ServerList serverList;
-    CoordinatorClient::getServerList(context, serverList);
+    CoordinatorClient::getServerList(&context, &serverList);
     EXPECT_EQ(1, serverList.server_size());
     auto mask = config.services.serialize();
     EXPECT_EQ(config.localLocator, serverList.server(0).service_locator());

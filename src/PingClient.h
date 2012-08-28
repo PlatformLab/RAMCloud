@@ -30,9 +30,9 @@ namespace RAMCloud {
  */
 class PingClient {
   public:
-    static uint64_t ping(Context& context, ServerId targetId,
+    static uint64_t ping(Context* context, ServerId targetId,
             ServerId callerId = ServerId());
-    static uint64_t proxyPing(Context& context, ServerId proxyId,
+    static uint64_t proxyPing(Context* context, ServerId proxyId,
             ServerId targetId, uint64_t timeoutNanoseconds);
 
   private:
@@ -45,7 +45,7 @@ class PingClient {
  */
 class PingRpc : public ServerIdRpcWrapper {
     public:
-    PingRpc(Context& context, ServerId targetId,
+    PingRpc(Context* context, ServerId targetId,
             ServerId callerId = ServerId());
     ~PingRpc() {}
     uint64_t wait();
@@ -61,7 +61,7 @@ class PingRpc : public ServerIdRpcWrapper {
  */
 class ProxyPingRpc : public ServerIdRpcWrapper {
     public:
-    ProxyPingRpc(Context& context, ServerId proxyId, ServerId targetId,
+    ProxyPingRpc(Context* context, ServerId proxyId, ServerId targetId,
             uint64_t timeoutNanoseconds);
     ~ProxyPingRpc() {}
     uint64_t wait();

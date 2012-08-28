@@ -57,7 +57,7 @@ struct ReplicaManagerTest : public ::testing::Test {
         backup2Id = addToServerList(cluster.addServer(config));
 
         mgr.construct(context, serverId, 2);
-        serverId = CoordinatorClient::enlistServer(context, {},
+        serverId = CoordinatorClient::enlistServer(&context, {},
             {WireFormat::MASTER_SERVICE}, "", 0 , 0);
     }
 
@@ -179,10 +179,10 @@ TEST_F(ReplicaManagerTest, writeSegment) {
         foreach (auto& replica, segment.replicas) {
             ASSERT_TRUE(replica.isActive);
             Buffer resp;
-            BackupClient::startReadingData(context, replica.backupId,
-                                           serverId, will);
-            BackupClient::getRecoveryData(context, replica.backupId,
-                                          serverId, 88, 0, resp);
+            BackupClient::startReadingData(&context, replica.backupId,
+                                           serverId, &will);
+            BackupClient::getRecoveryData(&context, replica.backupId,
+                                          serverId, 88, 0, &resp);
             ASSERT_NE(0U, resp.totalLength);
 
             SegmentIterator it(resp.getRange(0, resp.getTotalLength()),

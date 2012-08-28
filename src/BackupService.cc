@@ -514,7 +514,7 @@ BackupService::GarbageCollectReplicasFoundOnStorageTask::
             }
         }
     } else {
-        rpc.construct(service.context, masterId, service.serverId, segmentId);
+        rpc.construct(&service.context, masterId, service.serverId, segmentId);
     }
     return false;
 }
@@ -1164,8 +1164,8 @@ BackupService::startReadingData(
     metrics->backup.storageType = static_cast<uint64_t>(storage->storageType);
 
     ProtoBuf::Tablets partitions;
-    ProtoBuf::parseFromResponse(rpc.requestPayload, sizeof(reqHdr),
-                                reqHdr.partitionsLength, partitions);
+    ProtoBuf::parseFromResponse(&rpc.requestPayload, sizeof(reqHdr),
+                                reqHdr.partitionsLength, &partitions);
     LOG(DEBUG, "Backup preparing for recovery of crashed server %s; "
         "loading replicas and filtering them according to the following "
         "partitions:\n%s",

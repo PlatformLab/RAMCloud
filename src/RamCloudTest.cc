@@ -303,7 +303,7 @@ TEST_F(RamCloudTest, testingKill) {
     cluster.servers[0]->ping->ignoreKill = true;
     // Create the RPC object directly rather than calling testingKill
     // (testingKill would hang in objectFinder.waitForTabletDown).
-    KillRpc rpc(*ramcloud, tableId1, "0", 1);
+    KillRpc rpc(ramcloud.get(), tableId1, "0", 1);
     EXPECT_EQ("kill: Server remotely told to kill itself.", TestLog::get());
 }
 

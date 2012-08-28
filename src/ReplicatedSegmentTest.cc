@@ -771,7 +771,7 @@ TEST_F(ReplicatedSegmentTest, performFreeRpcIsReady) {
 
     segment->freeQueued = true;
     segment->replicas[0].start(backupId1);
-    segment->replicas[0].freeRpc.construct(context, backupId1,
+    segment->replicas[0].freeRpc.construct(&context, backupId1,
                                            masterId, segmentId);
     EXPECT_STREQ("sendRequest: 0x1001c 999 0 888 0",
                  transport.outputLog.c_str());
@@ -786,7 +786,7 @@ TEST_F(ReplicatedSegmentTest, performFreeRpcFailed) {
 
     segment->freeQueued = true;
     segment->replicas[0].start({99, 99});
-    segment->replicas[0].freeRpc.construct(context, ServerId(99, 99),
+    segment->replicas[0].freeRpc.construct(&context, ServerId(99, 99),
                                            masterId, segmentId);
     TestLog::Enable _;
     segment->performFree(segment->replicas[0]);

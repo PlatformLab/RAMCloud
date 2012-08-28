@@ -213,7 +213,7 @@ Server::enlist(ServerId replacingId)
     // to rpc dispatch. This reduces the window of being unavailable to
     // service rpcs after enlisting with the coordinator (which can
     // lead to session open timeouts).
-    serverId = CoordinatorClient::enlistServer(context, replacingId,
+    serverId = CoordinatorClient::enlistServer(&context, replacingId,
             config.services, config.localLocator, backupReadSpeed,
             backupWriteSpeed);
 

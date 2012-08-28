@@ -32,7 +32,7 @@ namespace RAMCloud {
  */
 class MultiRead {
   public:
-    MultiRead(RamCloud& ramcloud, MultiReadObject* requests[],
+    MultiRead(RamCloud* ramcloud, MultiReadObject* requests[],
             uint32_t numRequests);
     ~MultiRead() {}
     void cancel();
@@ -50,14 +50,14 @@ class MultiRead {
     class PartRpc : public RpcWrapper {
         friend class MultiRead;
       public:
-        PartRpc(RamCloud& ramcloud, Transport::SessionRef session);
+        PartRpc(RamCloud* ramcloud, Transport::SessionRef session);
         ~PartRpc() {}
         void finish();
         bool handleTransportError();
         void send();
 
         /// Overall client state information.
-        RamCloud& ramcloud;
+        RamCloud* ramcloud;
 
         /// Session that will be used to transmit the RPC.
         Transport::SessionRef session;
@@ -72,13 +72,13 @@ class MultiRead {
         MultiReadObject* requests[MAX_OBJECTS_PER_RPC];
 
         /// Header for the RPC (used to update count as objects are added).
-        WireFormat::MultiRead::Request& reqHdr;
+        WireFormat::MultiRead::Request* reqHdr;
 
         DISALLOW_COPY_AND_ASSIGN(PartRpc);
     };
 
     /// Overall client state information.
-    RamCloud& ramcloud;
+    RamCloud* ramcloud;
 
     /// Copy of constructor argument containing information about
     /// desired objects.

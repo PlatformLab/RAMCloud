@@ -403,8 +403,8 @@ MasterService::getServerStatistics(
         *serverStats.add_tabletentry() = table->statEntry;
     }
 
-    respHdr.serverStatsLength = serializeToResponse(rpc.replyPayload,
-                                                    serverStats);
+    respHdr.serverStatsLength = serializeToResponse(&rpc.replyPayload,
+                                                    &serverStats);
 }
 
 /**
@@ -826,7 +826,7 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request& reqHdr,
     // TODO(rumble/slaughter) add method to query for # objs, # bytes in a
     // range in order for this to really work, we'll need to split on a bucket
     // boundary. Otherwise we can't tell where bytes are in the chosen range.
-    MasterClient::prepForMigration(context, newOwnerMasterId, tableId,
+    MasterClient::prepForMigration(&context, newOwnerMasterId, tableId,
                                    firstKeyHash, lastKeyHash, 0, 0);
 
     LOG(NOTICE, "Migrating tablet (id %lu, first %lu, last %lu) to "
@@ -902,8 +902,8 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request& reqHdr,
         if (!transferSeg->append(type, buffer)) {
             transferSeg->close();
             LOG(DEBUG, "Sending migration segment");
-            MasterClient::receiveMigrationData(context, newOwnerMasterId,
-                tableId, firstKeyHash, *transferSeg);
+            MasterClient::receiveMigrationData(&context, newOwnerMasterId,
+                tableId, firstKeyHash, transferSeg.get());
 
             transferSeg.destroy();
             transferSeg.construct();
@@ -922,8 +922,8 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request& reqHdr,
     if (transferSeg) {
         transferSeg->close();
         LOG(DEBUG, "Sending last migration segment");
-        MasterClient::receiveMigrationData(context, newOwnerMasterId,
-            tableId, firstKeyHash, *transferSeg);
+        MasterClient::receiveMigrationData(&context, newOwnerMasterId,
+            tableId, firstKeyHash, transferSeg.get());
         transferSeg.destroy();
     }
 
@@ -931,7 +931,7 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request& reqHdr,
     // the tablet. If this succeeds, we are free to drop the tablet. The
     // data is all on the other machine and the coordinator knows to use it
     // for any recoveries.
-    CoordinatorClient::reassignTabletOwnership(context,
+    CoordinatorClient::reassignTabletOwnership(&context,
         tableId, firstKeyHash, lastKeyHash, newOwnerMasterId);
 
     LOG(NOTICE, "Tablet migration succeeded. Sent %lu objects and %lu "
@@ -1131,8 +1131,8 @@ class RecoveryTask {
         , startTime(Cycles::rdtsc())
         , rpc()
     {
-        rpc.construct(context, replica.backupId, masterId, replica.segmentId,
-                      partitionId, response);
+        rpc.construct(&context, replica.backupId, masterId, replica.segmentId,
+                      partitionId, &response);
     }
     ~RecoveryTask()
     {
@@ -1145,8 +1145,8 @@ class RecoveryTask {
     void resend() {
         LOG(DEBUG, "Resend %lu", replica.segmentId);
         response.reset();
-        rpc.construct(context, replica.backupId, masterId, replica.segmentId,
-                      partitionId, response);
+        rpc.construct(&context, replica.backupId, masterId, replica.segmentId,
+                      partitionId, &response);
     }
     Context& context;
     ServerId masterId;
@@ -1537,8 +1537,8 @@ MasterService::recover(const WireFormat::Recover::Request& reqHdr,
     if (partitionId == ~0u)
         DIE("Recovery master got super secret partition id; killing self.");
     ProtoBuf::Tablets recoveryTablets;
-    ProtoBuf::parseFromResponse(rpc.requestPayload, sizeof(reqHdr),
-                                reqHdr.tabletsLength, recoveryTablets);
+    ProtoBuf::parseFromResponse(&rpc.requestPayload, sizeof(reqHdr),
+                                reqHdr.tabletsLength, &recoveryTablets);
 
     uint32_t offset = sizeof32(reqHdr) + reqHdr.tabletsLength;
     vector<Replica> replicas;
@@ -1611,8 +1611,8 @@ MasterService::recover(const WireFormat::Recover::Request& reqHdr,
         tablet.set_ctime_log_head_offset(headOfLog.getSegmentOffset());
     }
     LOG(NOTICE, "Reporting completion of recovery %lu", reqHdr.recoveryId);
-    CoordinatorClient::recoveryMasterFinished(context, recoveryId,
-                                              serverId, recoveryTablets,
+    CoordinatorClient::recoveryMasterFinished(&context, recoveryId,
+                                              serverId, &recoveryTablets,
                                               successful);
 
     // TODO(stutsman) Delete tablets if recoveryMasterFinished returns
@@ -2443,7 +2443,7 @@ MasterService::storeObject(Key& key,
         // Empty coordinator locator means we're in test mode, so skip this.
         if (!context.coordinatorSession->getLocation().empty()) {
             ProtoBuf::ServerList backups;
-            CoordinatorClient::getBackupList(context, backups);
+            CoordinatorClient::getBackupList(&context, &backups);
             TransportManager& transportManager =
                 *context.transportManager;
             foreach(auto& backup, backups.server())

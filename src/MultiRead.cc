@@ -32,7 +32,7 @@ namespace RAMCloud {
  * \param numRequests
  *      Number of elements in \c requests.
  */
-MultiRead::MultiRead(RamCloud& ramcloud, MultiReadObject* requests[],
+MultiRead::MultiRead(RamCloud* ramcloud, MultiReadObject* requests[],
         uint32_t numRequests)
     : ramcloud(ramcloud)
     , requests(requests)
@@ -130,7 +130,7 @@ MultiRead::startRpcs()
         }
         Transport::SessionRef session;
         try {
-            session = ramcloud.objectFinder.lookup(request.tableId,
+            session = ramcloud->objectFinder.lookup(request.tableId,
                     request.key, request.keyLength);
         }
         catch (TableDoesntExistException &e) {
@@ -149,7 +149,7 @@ MultiRead::startRpcs()
                 rpc.construct(ramcloud, session);
             }
             if (rpc->session == session) {
-                if ((rpc->reqHdr.count < PartRpc::MAX_OBJECTS_PER_RPC)
+                if ((rpc->reqHdr->count < PartRpc::MAX_OBJECTS_PER_RPC)
                         && (rpc->state == RpcWrapper::RpcState::NOT_STARTED)) {
                     // Add the current object to the list of those being
                     // fetched by this RPC.
@@ -158,8 +158,8 @@ MultiRead::startRpcs()
                             request.tableId, request.keyLength);
                     Buffer::Chunk::appendToBuffer(&rpc->request, request.key,
                             request.keyLength);
-                    rpc->requests[rpc->reqHdr.count] = &request;
-                    rpc->reqHdr.count++;
+                    rpc->requests[rpc->reqHdr->count] = &request;
+                    rpc->reqHdr->count++;
                     request.status = UNDERWAY;
                 }
                 break;
@@ -192,7 +192,7 @@ MultiRead::wait()
     // so we just busy-wait here. When invoked on RAMCloud clients we're in
     // the dispatch thread so we have to invoke the dispatcher while waiting.
     bool isDispatchThread =
-            ramcloud.clientContext.dispatch->isDispatchThread();
+            ramcloud->clientContext.dispatch->isDispatchThread();
 
     while (true) {
         if (canceled)
@@ -200,7 +200,7 @@ MultiRead::wait()
         if (isReady())
             return;
         if (isDispatchThread)
-            ramcloud.clientContext.dispatch->poll();
+            ramcloud->clientContext.dispatch->poll();
     }
 }
 
@@ -212,7 +212,7 @@ MultiRead::wait()
  * \param session
  *      Session on which this RPC will eventually be sent.
  */
-MultiRead::PartRpc::PartRpc(RamCloud& ramcloud,
+MultiRead::PartRpc::PartRpc(RamCloud* ramcloud,
         Transport::SessionRef session)
     : RpcWrapper(sizeof(WireFormat::MultiRead::Response))
     , ramcloud(ramcloud)
@@ -220,7 +220,7 @@ MultiRead::PartRpc::PartRpc(RamCloud& ramcloud,
     , requests()
     , reqHdr(allocHeader<WireFormat::MultiRead>())
 {
-    reqHdr.count = 0;
+    reqHdr->count = 0;
 }
 
 /**
@@ -238,7 +238,7 @@ MultiRead::PartRpc::finish()
     if (getState() != FINISHED) {
         // Transport error or canceled; just reset state so that all of
         // the objects will be retried.
-        for (i = 0; i < reqHdr.count; i++) {
+        for (i = 0; i < reqHdr->count; i++) {
             requests[i]->status = STATUS_OK;
         }
     }
@@ -251,7 +251,7 @@ MultiRead::PartRpc::finish()
     // to handle situations where the response is too short.  This can
     // happen legitimately if the server ran out of room in the response
     // buffer.
-    for (i = 0; i < reqHdr.count; i++) {
+    for (i = 0; i < reqHdr->count; i++) {
         MultiReadObject& request = *requests[i];
         const Status* status = response->getOffset<Status>(respOffset);
         if (status == NULL) {
@@ -297,7 +297,7 @@ MultiRead::PartRpc::finish()
                             reinterpret_cast<const char*>(request.key));
                     messageLogged = true;
                 }
-                ramcloud.objectFinder.flush();
+                ramcloud->objectFinder.flush();
                 request.status = STATUS_OK;
             }
         }
@@ -308,7 +308,7 @@ MultiRead::PartRpc::finish()
     // currently processed, reset their statuses to indicate that these
     // objects need to be fetched again.
 
-    for ( ; i < reqHdr.count; i++) {
+    for ( ; i < reqHdr->count; i++) {
         requests[i]->status = STATUS_OK;
     }
 }
@@ -321,11 +321,11 @@ MultiRead::PartRpc::handleTransportError()
     // to this session, and related to the object mappings.  The objects
     // will all be retried when \c finish is called.
     if (session.get() != NULL) {
-        ramcloud.clientContext.transportManager->flushSession(
+        ramcloud->clientContext.transportManager->flushSession(
                 session->getServiceLocator().c_str());
         session = NULL;
     }
-    ramcloud.objectFinder.flush();
+    ramcloud->objectFinder.flush();
     return true;
 }
 

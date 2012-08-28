@@ -40,7 +40,7 @@ class MockClusterTest : public ::testing::Test {
 
 TEST_F(MockClusterTest, constructor) {
     ProtoBuf::ServerList serverList;
-    CoordinatorClient::getServerList(context, serverList);
+    CoordinatorClient::getServerList(&context, &serverList);
     EXPECT_EQ(0, serverList.server_size());
 }
 
@@ -68,7 +68,7 @@ TEST_F(MockClusterTest, addServer) {
     EXPECT_FALSE(server->ping);
     EXPECT_EQ(1u, cluster->servers.size());
     Segment segment;
-    BackupClient::writeSegment(context, server->serverId, {99, 0},
+    BackupClient::writeSegment(&context, server->serverId, {99, 0},
                                100, &segment, 0, 0, {},
                                WireFormat::BackupWrite::OPEN);
     server = cluster->addServer(config);

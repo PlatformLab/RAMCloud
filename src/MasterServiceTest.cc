@@ -251,7 +251,7 @@ TEST_F(MasterServiceTest, enumeration_basics) {
     ramcloud->write(0, "1", 1, "ghijkl", 6, NULL, &version1, false);
     Buffer iter, nextIter, finalIter, objects;
     uint64_t nextTabletStartHash;
-    EnumerateTableRpc rpc(*ramcloud, 0, 0, iter, objects);
+    EnumerateTableRpc rpc(ramcloud.get(), 0, 0, iter, objects);
     nextTabletStartHash = rpc.wait(nextIter);
     EXPECT_EQ(0U, nextTabletStartHash);
     EXPECT_EQ(74U, objects.getTotalLength());
@@ -284,7 +284,7 @@ TEST_F(MasterServiceTest, enumeration_basics) {
 
     // We don't actually care about the contents of the iterator as
     // long as we get back 0 objects on the second call.
-    EnumerateTableRpc rpc2(*ramcloud, 0, nextTabletStartHash, nextIter,
+    EnumerateTableRpc rpc2(ramcloud.get(), 0, nextTabletStartHash, nextIter,
                             objects);
     nextTabletStartHash = rpc2.wait(finalIter);
     EXPECT_EQ(0U, nextTabletStartHash);
@@ -294,7 +294,7 @@ TEST_F(MasterServiceTest, enumeration_basics) {
 TEST_F(MasterServiceTest, enumeration_tabletNotOnServer) {
     TestLog::Enable _;
     Buffer iter, nextIter, objects;
-    EnumerateTableRpc rpc(*ramcloud, 99, 0, iter, objects);
+    EnumerateTableRpc rpc(ramcloud.get(), 99, 0, iter, objects);
     EXPECT_THROW(rpc.wait(nextIter), TableDoesntExistException);
     EXPECT_EQ("checkStatus: Server mock:host=master "
               "doesn't store <99, 0x0>; refreshing object map | "
@@ -325,7 +325,7 @@ TEST_F(MasterServiceTest, enumeration_mergeTablet) {
         service->objectMap->getNumBuckets()*3/5, 0U);
     initialIter.push(preMergeConfiguration);
     initialIter.serialize(iter);
-    EnumerateTableRpc rpc(*ramcloud, 0, 0, iter, objects);
+    EnumerateTableRpc rpc(ramcloud.get(), 0, 0, iter, objects);
     nextTabletStartHash = rpc.wait(nextIter);
     EXPECT_EQ(0U, nextTabletStartHash);
     EXPECT_EQ(42U, objects.getTotalLength());
@@ -349,7 +349,7 @@ TEST_F(MasterServiceTest, enumeration_mergeTablet) {
 
     // We don't actually care about the contents of the iterator as
     // long as we get back 0 objects on the second call.
-    EnumerateTableRpc rpc2(*ramcloud, 0, 0, nextIter, objects);
+    EnumerateTableRpc rpc2(ramcloud.get(), 0, 0, nextIter, objects);
     rpc2.wait(finalIter);
     EXPECT_EQ(0U, nextTabletStartHash);
     EXPECT_EQ(0U, objects.getTotalLength());
@@ -426,7 +426,7 @@ TEST_F(MasterServiceTest, multiRead_bufferSizeExceeded) {
     MultiReadObject object1(tableId1, "0", 1, &value1);
     MultiReadObject object2(tableId1, "1", 1, &value2);
     MultiReadObject* requests[] = {&object1, &object2};
-    MultiRead request(*ramcloud, requests, 2);
+    MultiRead request(ramcloud.get(), requests, 2);
 
     // The first try will return only the first object.
     EXPECT_FALSE(request.isReady());
@@ -450,7 +450,7 @@ TEST_F(MasterServiceTest, multiRead_unknownTable) {
     Tub<Buffer> value;
     MultiReadObject request(99, "bogus", 5, &value);
     MultiReadObject* requests[] = {&request};
-    MultiRead op(*ramcloud, requests, 1);
+    MultiRead op(ramcloud.get(), requests, 1);
 
     // Check the status in the response message.
     Transport::SessionRef session =
@@ -503,10 +503,10 @@ TEST_F(MasterServiceTest, detectSegmentRecoveryFailure_failure) {
 
 TEST_F(MasterServiceTest, getHeadOfLog) {
     EXPECT_EQ(Log::Position(0, 48),
-              MasterClient::getHeadOfLog(context, masterServer->serverId));
+              MasterClient::getHeadOfLog(&context, masterServer->serverId));
     ramcloud->write(0, "0", 1, "abcdef", 6);
     EXPECT_EQ(Log::Position(0, 83),
-              MasterClient::getHeadOfLog(context, masterServer->serverId));
+              MasterClient::getHeadOfLog(&context, masterServer->serverId));
 }
 
 TEST_F(MasterServiceTest, recover_basics) {
@@ -521,7 +521,8 @@ TEST_F(MasterServiceTest, recover_basics) {
 
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
-    BackupClient::startReadingData(context, backup1Id, ServerId(123), tablets);
+    BackupClient::startReadingData(&context, backup1Id, ServerId(123),
+                                   &tablets);
 
     ProtoBuf::ServerList backups;
     WireFormat::Recover::Replica replicas[] = {
@@ -529,8 +530,8 @@ TEST_F(MasterServiceTest, recover_basics) {
     };
 
     TestLog::Enable __(&recoverSegmentFilter);
-    MasterClient::recover(context, masterServer->serverId, 10lu,
-                          ServerId(123), 0, tablets, replicas,
+    MasterClient::recover(&context, masterServer->serverId, 10lu,
+                          ServerId(123), 0, &tablets, replicas,
                           arrayLength(replicas));
 
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
@@ -615,7 +616,8 @@ TEST_F(MasterServiceTest, recover) {
 
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
-    BackupClient::startReadingData(context, backup1Id, ServerId(123), tablets);
+    BackupClient::startReadingData(&context, backup1Id, ServerId(123),
+                                   &tablets);
 
     vector<MasterService::Replica> replicas {
         // Started in initial round of RPCs - eventually fails
@@ -734,8 +736,8 @@ TEST_F(MasterServiceTest, recover_ctimeUpdateIssued) {
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
     WireFormat::Recover::Replica replicas[] = {};
-    MasterClient::recover(context, masterServer->serverId, 10lu,
-                          ServerId(123), 0, tablets, replicas, 0);
+    MasterClient::recover(&context, masterServer->serverId, 10lu,
+                          ServerId(123), 0, &tablets, replicas, 0);
 
     EXPECT_TRUE(StringUtil::startsWith(TestLog::get(),
         "recoveryMasterFinished: called by masterId 2.0 with 4 tablets | "
@@ -766,8 +768,8 @@ TEST_F(MasterServiceTest, recover_unsuccessful) {
         // Bad ServerId, should cause recovery to fail.
         {1004, 92},
     };
-    MasterClient::recover(context, masterServer->serverId, 10lu, {123, 0},
-                          0, tablets, replicas, 1);
+    MasterClient::recover(&context, masterServer->serverId, 10lu, {123, 0},
+                          0, &tablets, replicas, 1);
 
     string log = TestLog::get();
     log = log.substr(log.rfind("recover:"));
@@ -1081,7 +1083,7 @@ TEST_F(MasterServiceTest, GetServerStatistics) {
               "end_key_hash: 18446744073709551615 number_read_and_writes: 4 }",
               serverStats.ShortDebugString());
 
-    MasterClient::splitMasterTablet(context, masterServer->serverId, 0,
+    MasterClient::splitMasterTablet(&context, masterServer->serverId, 0,
                                     0, ~0UL, (~0UL/2));
     ramcloud->getServerStatistics("mock:host=master", serverStats);
     EXPECT_EQ("tabletentry { table_id: 0 "
@@ -1095,7 +1097,7 @@ TEST_F(MasterServiceTest, GetServerStatistics) {
 
 TEST_F(MasterServiceTest, splitMasterTablet) {
 
-    MasterClient::splitMasterTablet(context, masterServer->serverId, 0,
+    MasterClient::splitMasterTablet(&context, masterServer->serverId, 0,
                                     0, ~0UL, (~0UL/2));
     EXPECT_TRUE(TestUtil::matchesPosixRegex("tablet { table_id: 0 "
               "start_key_hash: 0 "
@@ -1114,16 +1116,16 @@ dropTabletOwnership_filter(string s)
 TEST_F(MasterServiceTest, dropTabletOwnership) {
     TestLog::Enable _(dropTabletOwnership_filter);
 
-    EXPECT_THROW(MasterClient::dropTabletOwnership(context,
+    EXPECT_THROW(MasterClient::dropTabletOwnership(&context,
         masterServer-> serverId, 1, 1, 1), ClientException);
     EXPECT_EQ("dropTabletOwnership: Could not drop ownership on unknown "
         "tablet (1, range [1,1])!", TestLog::get());
 
     TestLog::reset();
 
-    MasterClient::takeTabletOwnership(context, masterServer->serverId,
+    MasterClient::takeTabletOwnership(&context, masterServer->serverId,
         1, 1, 1);
-    MasterClient::dropTabletOwnership(context, masterServer-> serverId,
+    MasterClient::dropTabletOwnership(&context, masterServer-> serverId,
         1, 1, 1);
     EXPECT_EQ("dropTabletOwnership: Dropping ownership of tablet "
         "(1, range [1,1])", TestLog::get());
@@ -1172,11 +1174,11 @@ TEST_F(MasterServiceTest, takeTabletOwnership_newTablet) {
     }
 
     { // set t2, t2b, and t3 through client
-        MasterClient::takeTabletOwnership(context, masterServer->serverId,
+        MasterClient::takeTabletOwnership(&context, masterServer->serverId,
             2, 2, 3);
-        MasterClient::takeTabletOwnership(context, masterServer->serverId,
+        MasterClient::takeTabletOwnership(&context, masterServer->serverId,
             2, 4, 5);
-        MasterClient::takeTabletOwnership(context, masterServer->serverId,
+        MasterClient::takeTabletOwnership(&context, masterServer->serverId,
             3, 0, 1);
 
         EXPECT_EQ(format(
@@ -1209,7 +1211,7 @@ TEST_F(MasterServiceTest, takeTabletOwnership_newTablet) {
 
     // Test assigning ownership of an already-owned tablet.
     {
-        MasterClient::takeTabletOwnership(context, masterServer->serverId,
+        MasterClient::takeTabletOwnership(&context, masterServer->serverId,
             2, 2, 3);
         EXPECT_EQ("takeTabletOwnership: Taking ownership of existing tablet "
             "(2, range [2,3]) in state 0 | takeTabletOwnership: Taking "
@@ -1222,7 +1224,7 @@ TEST_F(MasterServiceTest, takeTabletOwnership_newTablet) {
     // Test partially overlapping sanity check. The coordinator should
     // know better, but I'd rather be safe sorry...
     {
-        EXPECT_THROW(MasterClient::takeTabletOwnership(context,
+        EXPECT_THROW(MasterClient::takeTabletOwnership(&context,
             masterServer->serverId, 2, 2, 2), ClientException);
         EXPECT_EQ("takeTabletOwnership: Tablet being assigned (2, range [2,2]) "
             "partially overlaps an existing tablet!", TestLog::get());
@@ -1240,7 +1242,8 @@ TEST_F(MasterServiceTest, takeTabletOwnership_migratingTablet) {
     tab.set_state(ProtoBuf::Tablets_Tablet_State_RECOVERING);
     tab.set_user_data(reinterpret_cast<uint64_t>(new Table(1 , 0 , 5)));
 
-    MasterClient::takeTabletOwnership(context, masterServer->serverId, 1, 0, 5);
+    MasterClient::takeTabletOwnership(&context, masterServer->serverId,
+                                      1, 0, 5);
 
     EXPECT_EQ(
         "takeTabletOwnership: Taking ownership of existing tablet "
@@ -1263,23 +1266,23 @@ TEST_F(MasterServiceTest, prepForMigration) {
     TestLog::Enable _(prepForMigrationFilter);
 
     // Overlap
-    EXPECT_THROW(MasterClient::prepForMigration(context,
+    EXPECT_THROW(MasterClient::prepForMigration(&context,
                                                 masterServer->serverId,
                                                 5, 27, 873, 0, 0),
         ObjectExistsException);
     EXPECT_EQ("prepForMigration: already have tablet in range "
         "[27, 873] for tableId 5", TestLog::get());
-    EXPECT_THROW(MasterClient::prepForMigration(context,
+    EXPECT_THROW(MasterClient::prepForMigration(&context,
                                                 masterServer->serverId,
                                                 5, 0, 27, 0, 0),
         ObjectExistsException);
-    EXPECT_THROW(MasterClient::prepForMigration(context,
+    EXPECT_THROW(MasterClient::prepForMigration(&context,
                                                 masterServer->serverId,
                                                 5, 873, 82743, 0, 0),
         ObjectExistsException);
 
     TestLog::reset();
-    MasterClient::prepForMigration(context, masterServer->serverId,
+    MasterClient::prepForMigration(&context, masterServer->serverId,
                                    5, 1000, 2000, 0, 0);
     int i = service->tablets.tablet_size() - 1;
     EXPECT_EQ(5U, service->tablets.tablet(i).table_id());
@@ -1390,26 +1393,26 @@ receiveMigrationDataFilter(string s)
 TEST_F(MasterServiceTest, receiveMigrationData) {
     Segment s;
 
-    MasterClient::prepForMigration(context, masterServer->serverId,
+    MasterClient::prepForMigration(&context, masterServer->serverId,
                                    5, 1000, 2000, 0, 0);
 
     TestLog::Enable _(receiveMigrationDataFilter);
 
-    EXPECT_THROW(MasterClient::receiveMigrationData(context,
+    EXPECT_THROW(MasterClient::receiveMigrationData(&context,
                                                     masterServer->serverId,
-                                                    6, 0, s),
+                                                    6, 0, &s),
         UnknownTabletException);
     EXPECT_EQ("receiveMigrationData: migration data received for "
         "unknown tablet 6, firstKeyHash 0", TestLog::get());
-    EXPECT_THROW(MasterClient::receiveMigrationData(context,
+    EXPECT_THROW(MasterClient::receiveMigrationData(&context,
                                                     masterServer->serverId,
-                                                    5, 0, s),
+                                                    5, 0, &s),
         UnknownTabletException);
 
     TestLog::reset();
-    EXPECT_THROW(MasterClient::receiveMigrationData(context,
+    EXPECT_THROW(MasterClient::receiveMigrationData(&context,
                                                     masterServer->serverId,
-                                                    0, 0, s),
+                                                    0, 0, &s),
         InternalError);
     EXPECT_EQ("receiveMigrationData: migration data received for tablet "
         "not in the RECOVERING state (state = NORMAL)!", TestLog::get());
@@ -1423,8 +1426,8 @@ TEST_F(MasterServiceTest, receiveMigrationData) {
     s.append(LOG_ENTRY_TYPE_OBJ, buffer);
     s.close();
 
-    MasterClient::receiveMigrationData(context, masterServer->serverId,
-                                       5, 1000, s);
+    MasterClient::receiveMigrationData(&context, masterServer->serverId,
+                                       5, 1000, &s);
 
     LogEntryType logType;
     Buffer logBuffer;
@@ -2022,12 +2025,12 @@ TEST_F(MasterRecoverTest, recover) {
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
     {
-        BackupClient::startReadingData(context, backup1Id, ServerId(99),
-                                       tablets);
+        BackupClient::startReadingData(&context, backup1Id, ServerId(99),
+                                       &tablets);
     }
     {
-        BackupClient::startReadingData(context, backup2Id, ServerId(99),
-                                       tablets);
+        BackupClient::startReadingData(&context, backup2Id, ServerId(99),
+                                       &tablets);
     }
 
     vector<MasterService::Replica> replicas {

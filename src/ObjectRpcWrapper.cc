@@ -42,7 +42,7 @@ namespace RAMCloud {
  *      Optional client-supplied buffer to use for the RPC's response;
  *      if NULL then we use a built-in buffer.
  */
-ObjectRpcWrapper::ObjectRpcWrapper(RamCloud& ramcloud, uint64_t tableId,
+ObjectRpcWrapper::ObjectRpcWrapper(RamCloud* ramcloud, uint64_t tableId,
         const void* key, uint16_t keyLength, uint32_t responseHeaderLength,
         Buffer* response)
     : RpcWrapper(responseHeaderLength, response)
@@ -72,7 +72,7 @@ ObjectRpcWrapper::ObjectRpcWrapper(RamCloud& ramcloud, uint64_t tableId,
  *      Optional client-supplied buffer to use for the RPC's response;
  *      if NULL then we use a built-in buffer.
  */
-ObjectRpcWrapper::ObjectRpcWrapper(RamCloud& ramcloud, uint64_t tableId,
+ObjectRpcWrapper::ObjectRpcWrapper(RamCloud* ramcloud, uint64_t tableId,
         uint64_t keyHash, uint32_t responseHeaderLength, Buffer* response)
     : RpcWrapper(responseHeaderLength, response)
     , ramcloud(ramcloud)
@@ -92,7 +92,7 @@ ObjectRpcWrapper::checkStatus()
                 "refreshing object map",
                 session->getServiceLocator().c_str(),
                 tableId, keyHash);
-        ramcloud.objectFinder.flush();
+        ramcloud->objectFinder.flush();
         send();
         return false;
     }
@@ -107,11 +107,11 @@ ObjectRpcWrapper::handleTransportError()
     // to this session, and related to the object mapping for our object.
     // Then retry.
     if (session.get() != NULL) {
-        ramcloud.clientContext.transportManager->flushSession(
+        ramcloud->clientContext.transportManager->flushSession(
                 session->getServiceLocator().c_str());
         session = NULL;
     }
-    ramcloud.objectFinder.flush();
+    ramcloud->objectFinder.flush();
     send();
     return false;
 }
@@ -120,7 +120,7 @@ ObjectRpcWrapper::handleTransportError()
 void
 ObjectRpcWrapper::send()
 {
-    session = ramcloud.objectFinder.lookup(tableId, keyHash);
+    session = ramcloud->objectFinder.lookup(tableId, keyHash);
     state = IN_PROGRESS;
     session->sendRequest(&request, response, this);
 }

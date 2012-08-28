@@ -35,7 +35,7 @@ namespace RAMCloud {
  */
 class AssignGroupRpc : public ServerIdRpcWrapper {
   public:
-    AssignGroupRpc(Context& context, ServerId backupId,
+    AssignGroupRpc(Context* context, ServerId backupId,
             uint64_t replicationId, uint32_t numReplicas,
             const ServerId* replicationGroupIds);
     ~AssignGroupRpc() {}
@@ -52,7 +52,7 @@ class AssignGroupRpc : public ServerIdRpcWrapper {
  */
 class FreeSegmentRpc : public ServerIdRpcWrapper {
   public:
-    FreeSegmentRpc(Context& context, ServerId backupId, ServerId masterId,
+    FreeSegmentRpc(Context* context, ServerId backupId, ServerId masterId,
             uint64_t segmentId);
     ~FreeSegmentRpc() {}
     /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
@@ -68,9 +68,9 @@ class FreeSegmentRpc : public ServerIdRpcWrapper {
  */
 class GetRecoveryDataRpc : public ServerIdRpcWrapper {
   public:
-    GetRecoveryDataRpc(Context& context, ServerId backupId,
+    GetRecoveryDataRpc(Context* context, ServerId backupId,
             ServerId masterId, uint64_t segmentId, uint64_t partitionId,
-            Buffer& responseBuffer);
+            Buffer* responseBuffer);
     ~GetRecoveryDataRpc() {}
     void wait();
 
@@ -86,7 +86,7 @@ class GetRecoveryDataRpc : public ServerIdRpcWrapper {
  */
 class BackupQuiesceRpc : public ServerIdRpcWrapper {
   public:
-    BackupQuiesceRpc(Context& context, ServerId backupId);
+    BackupQuiesceRpc(Context* context, ServerId backupId);
     ~BackupQuiesceRpc() {}
     /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
     void wait() {waitAndCheckErrors();}
@@ -101,7 +101,7 @@ class BackupQuiesceRpc : public ServerIdRpcWrapper {
  */
 class RecoveryCompleteRpc : public ServerIdRpcWrapper {
   public:
-    RecoveryCompleteRpc(Context& context, ServerId backupId,
+    RecoveryCompleteRpc(Context* context, ServerId backupId,
             ServerId masterId);
     ~RecoveryCompleteRpc() {}
     /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
@@ -163,8 +163,8 @@ class StartReadingDataRpc : public ServerIdRpcWrapper {
         DISALLOW_COPY_AND_ASSIGN(Result);
     };
 
-    StartReadingDataRpc(Context& context, ServerId backupId,
-            ServerId masterId, const ProtoBuf::Tablets& partitions);
+    StartReadingDataRpc(Context* context, ServerId backupId,
+            ServerId masterId, const ProtoBuf::Tablets* partitions);
     ~StartReadingDataRpc() {}
     Result wait();
 
@@ -178,7 +178,7 @@ class StartReadingDataRpc : public ServerIdRpcWrapper {
  */
 class WriteSegmentRpc : public ServerIdRpcWrapper {
   public:
-    WriteSegmentRpc(Context& context, ServerId backupId,
+    WriteSegmentRpc(Context* context, ServerId backupId,
                     ServerId masterId, uint64_t segmentId,
                     const Segment* segment, uint32_t offset, uint32_t length,
                     const Segment::OpaqueFooterEntry* footerEntry,
@@ -197,21 +197,21 @@ class WriteSegmentRpc : public ServerIdRpcWrapper {
  */
 class BackupClient {
   public:
-    static void assignGroup(Context& context, ServerId backupId,
+    static void assignGroup(Context* context, ServerId backupId,
             uint64_t replicationId, uint32_t numReplicas,
             const ServerId* replicationGroupIds);
-    static void freeSegment(Context& context, ServerId backupId,
+    static void freeSegment(Context* context, ServerId backupId,
             ServerId masterId, uint64_t segmentId);
-    static void getRecoveryData(Context& context, ServerId backupId,
+    static void getRecoveryData(Context* context, ServerId backupId,
             ServerId masterId, uint64_t segmentId, uint64_t partitionId,
-            Buffer& response);
-    static void quiesce(Context& context, ServerId backupId);
-    static void recoveryComplete(Context& context, ServerId backupId,
+            Buffer* response);
+    static void quiesce(Context* context, ServerId backupId);
+    static void recoveryComplete(Context* context, ServerId backupId,
             ServerId masterId);
-    static StartReadingDataRpc::Result startReadingData(Context& context,
+    static StartReadingDataRpc::Result startReadingData(Context* context,
             ServerId backupId, ServerId masterId,
-            const ProtoBuf::Tablets& partitions);
-    static vector<ServerId> writeSegment(Context& context, ServerId backupId,
+            const ProtoBuf::Tablets* partitions);
+    static vector<ServerId> writeSegment(Context* context, ServerId backupId,
             ServerId masterId, uint64_t segmentId, const Segment* segment,
             uint32_t offset, uint32_t length,
             const Segment::OpaqueFooterEntry* footerEntry,

@@ -56,13 +56,13 @@ class PingServiceTest : public ::testing::Test {
 TEST_F(PingServiceTest, ping_basics) {
     TestLog::Enable _;
     EXPECT_EQ(0UL,
-              PingClient::ping(context, serverId, ServerId()));
+              PingClient::ping(&context, serverId, ServerId()));
     EXPECT_EQ("ping: Received ping request from unknown endpoint "
               "(perhaps the coordinator or a client)",
               TestLog::get());
     TestLog::reset();
     EXPECT_EQ(0UL,
-              PingClient::ping(context, serverId, ServerId(99)));
+              PingClient::ping(&context, serverId, ServerId(99)));
     EXPECT_EQ("ping: Received ping request from server 99.0",
               TestLog::get());
 }
@@ -73,7 +73,7 @@ TEST_F(PingServiceTest, ping_wait_timeout) {
     MockTransport mockTransport(context);
     context.transportManager->registerMock(&mockTransport, "mock2");
     serverList.add(serverId2, "mock2:", {WireFormat::PING_SERVICE}, 100);
-    PingRpc rpc(context, serverId2, ServerId());
+    PingRpc rpc(&context, serverId2, ServerId());
     uint64_t start = Cycles::rdtsc();
     EXPECT_EQ(~0LU, rpc.wait(1000000));
     EXPECT_EQ("wait: timeout", TestLog::get());
@@ -95,7 +95,7 @@ TEST_F(PingServiceTest, ping_wait_serverGoesAway) {
     serverList.add(serverId2, "mock2:", {WireFormat::PING_SERVICE}, 100);
 
     uint64_t result = 0;
-    PingRpc rpc(context, serverId2, ServerId());
+    PingRpc rpc(&context, serverId2, ServerId());
     std::thread thread(pingThread, &rpc, &result);
     usleep(100);
     EXPECT_EQ(0LU, result);
@@ -116,7 +116,7 @@ TEST_F(PingServiceTest, ping_wait_serverGoesAway) {
 }
 
 TEST_F(PingServiceTest, proxyPing_basics) {
-    uint64_t ns = PingClient::proxyPing(context, serverId, serverId, 100000);
+    uint64_t ns = PingClient::proxyPing(&context, serverId, serverId, 100000);
     EXPECT_NE(-1U, ns);
     EXPECT_LT(10U, ns);
 }
@@ -128,7 +128,7 @@ TEST_F(PingServiceTest, proxyPing_timeout) {
     serverList.add(targetId, "mock2:", {WireFormat::PING_SERVICE}, 100);
     uint64_t start = Cycles::rdtsc();
     EXPECT_EQ(0xffffffffffffffffU,
-              PingClient::proxyPing(context, serverId, targetId, 1000000));
+              PingClient::proxyPing(&context, serverId, targetId, 1000000));
     double elapsedMicros = 1e06* Cycles::toSeconds(Cycles::rdtsc() - start);
     EXPECT_GE(elapsedMicros, 1000.0);
     EXPECT_LE(elapsedMicros, 2000.0);

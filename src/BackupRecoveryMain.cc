@@ -110,7 +110,7 @@ try
     LOG(NOTICE, "Killing %s", session->getServiceLocator().c_str());
 
     CycleCounter<> backupRecoveryCycles;
-    KillRpc killOp(client, lastBackupTable, "0", 1);
+    KillRpc killOp(&client, lastBackupTable, "0", 1);
 
     // Ensure recovery of the master portion completed.
     client.objectFinder.waitForTabletDown();

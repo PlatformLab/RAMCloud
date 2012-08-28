@@ -134,7 +134,7 @@ TEST_F(SessionAlarmTest, basics) {
     double desired = .035;
     for (int i = 0; i < 10; i++) {
         AlarmSession::log.clear();
-        GetServerIdRpc rpc(context, sessionRef);
+        GetServerIdRpc rpc(&context, sessionRef);
         uint64_t start = Cycles::rdtsc();
         while (!rpc.isReady()) {
             elapsed = Cycles::toSeconds(Cycles::rdtsc() - start);

@@ -120,7 +120,7 @@ class MultiReadTest : public ::testing::Test {
             if (request.rpcs[i]) {
                 result.append(format("%s(%d)",
                     request.rpcs[i]->session->getServiceLocator().c_str(),
-                    request.rpcs[i]->reqHdr.count));
+                    request.rpcs[i]->reqHdr->count));
             } else {
                 result.append("-");
             }
@@ -162,7 +162,7 @@ TEST_F(MultiReadTest, cancel) {
     MultiReadObject* requests[] = {&objects[0], &objects[1], &objects[4]};
     session1->dontNotify = true;
 
-    MultiRead request(*ramcloud, requests, 3);
+    MultiRead request(ramcloud.get(), requests, 3);
     EXPECT_EQ("mock:host=master1(2) mock:host=master3(1)",
             rpcStatus(request));
     request.cancel();
@@ -176,7 +176,7 @@ TEST_F(MultiReadTest, isReady) {
     session3->dontNotify = true;
 
     // Launch RPCs, let one of them finish.
-    MultiRead request(*ramcloud, requests, 4);
+    MultiRead request(ramcloud.get(), requests, 4);
     EXPECT_EQ("mock:host=master1(2) mock:host=master2(1)",
             rpcStatus(request));
     EXPECT_FALSE(request.isReady());
@@ -204,7 +204,7 @@ TEST_F(MultiReadTest, isReady) {
 
 TEST_F(MultiReadTest, startRpcs_skipFinishedOrFailed) {
     MultiReadObject* requests[] = {&objects[0], &objects[1], &objects[5]};
-    MultiRead request(*ramcloud, requests, 3);
+    MultiRead request(ramcloud.get(), requests, 3);
     EXPECT_TRUE(request.isReady());
     EXPECT_TRUE(request.startRpcs());
     EXPECT_EQ("- -", rpcStatus(request));
@@ -213,7 +213,7 @@ TEST_F(MultiReadTest, startRpcs_tableDoesntExist) {
     Tub<Buffer> value;
     MultiReadObject object(tableId3+1, "bogus", 5, &value);
     MultiReadObject* requests[] = {&object};
-    MultiRead request(*ramcloud, requests, 1);
+    MultiRead request(ramcloud.get(), requests, 1);
     EXPECT_TRUE(request.isReady());
     EXPECT_STREQ("STATUS_TABLE_DOESNT_EXIST", statusToSymbol(object.status));
     EXPECT_EQ("uninitialized", bufferString(value));
@@ -223,7 +223,7 @@ TEST_F(MultiReadTest, startRpcs_noAvailableRpc) {
 
     // During the first call, the last object can't be sent because all
     // RPC slots are in use and its session doesn't match.
-    MultiRead request(*ramcloud, requests, 3);
+    MultiRead request(ramcloud.get(), requests, 3);
     EXPECT_EQ("mock:host=master1(1) mock:host=master2(1)",
             rpcStatus(request));
 
@@ -250,7 +250,7 @@ TEST_F(MultiReadTest, startRpcs_tooManyObjectsForOneRpc) {
             &object4, &object5};
 
     // Not enough space in RPC to send all requests in the first RPC.
-    MultiRead request(*ramcloud, requests, 5);
+    MultiRead request(ramcloud.get(), requests, 5);
     EXPECT_EQ("mock:host=master1(3) -", rpcStatus(request));
 
     // During the second call, still no space (first call
@@ -278,7 +278,7 @@ TEST_F(MultiReadTest, wait) {
     TestLog::Enable _;
     MultiReadObject* requests[] = {&objects[0]};
     session1->dontNotify = true;
-    MultiRead request(*ramcloud, requests, 1);
+    MultiRead request(ramcloud.get(), requests, 1);
     std::thread thread(multiReadWaitThread, &request);
     usleep(1000);
     EXPECT_EQ("", TestLog::get());
@@ -299,7 +299,7 @@ TEST_F(MultiReadTest, wait_canceled) {
     MultiReadObject* requests[] = {&objects[0]};
     session1->dontNotify = true;
 
-    MultiRead request(*ramcloud, requests, 1);
+    MultiRead request(ramcloud.get(), requests, 1);
     EXPECT_EQ("mock:host=master1(1) -", rpcStatus(request));
     request.cancel();
     string message = "no exception";
@@ -315,7 +315,7 @@ TEST_F(MultiReadTest, wait_canceled) {
 TEST_F(MultiReadTest, PartRpc_finish_transportError) {
     MultiReadObject* requests[] = {&objects[0], &objects[1]};
     session1->dontNotify = true;
-    MultiRead request(*ramcloud, requests, 2);
+    MultiRead request(ramcloud.get(), requests, 2);
     EXPECT_EQ("mock:host=master1(2) -", rpcStatus(request));
     EXPECT_STREQ("STATUS_UNKNOWN", statusToSymbol(objects[0].status));
     EXPECT_STREQ("STATUS_UNKNOWN", statusToSymbol(objects[1].status));
@@ -334,7 +334,7 @@ TEST_F(MultiReadTest, PartRpc_finish_shortResponse) {
     TestLog::Enable _;
     MultiReadObject* requests[] = {&objects[0], &objects[1]};
     session1->dontNotify = true;
-    MultiRead request(*ramcloud, requests, 2);
+    MultiRead request(ramcloud.get(), requests, 2);
     EXPECT_EQ("mock:host=master1(2) -", rpcStatus(request));
 
     // Can't read status from response.
@@ -375,7 +375,7 @@ TEST_F(MultiReadTest, PartRpc_unknownTable) {
     MultiReadObject* requests[] = {&objects[0], &objects[1],
             &objects[2]};
     session1->dontNotify = true;
-    MultiRead request(*ramcloud, requests, 3);
+    MultiRead request(ramcloud.get(), requests, 3);
     EXPECT_EQ("mock:host=master1(3) -", rpcStatus(request));
 
     // Modify the response to reject all objects.
@@ -407,7 +407,7 @@ TEST_F(MultiReadTest, PartRpc_handleTransportError) {
     TestLog::Enable _;
     MultiReadObject* requests[] = {&objects[0]};
     session1->dontNotify = true;
-    MultiRead request(*ramcloud, requests, 1);
+    MultiRead request(ramcloud.get(), requests, 1);
     EXPECT_EQ("mock:host=master1(1) -", rpcStatus(request));
     session1->lastNotifier->failed();
     request.wait();

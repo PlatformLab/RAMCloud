@@ -42,7 +42,7 @@ bool ServerIdRpcWrapper::convertExceptionsToDoesntExist = false;
  *      Optional client-supplied buffer to use for the RPC's response;
  *      if NULL then we use a built-in buffer.
  */
-ServerIdRpcWrapper::ServerIdRpcWrapper(Context& context, ServerId id,
+ServerIdRpcWrapper::ServerIdRpcWrapper(Context* context, ServerId id,
         uint32_t responseHeaderLength, Buffer* response)
     : RpcWrapper(responseHeaderLength, response)
     , context(context)
@@ -69,8 +69,8 @@ ServerIdRpcWrapper::handleTransportError()
         // would occur during testing otherwise).
         return true;
     }
-    context.serverList->flushSession(id);
-    if (!context.serverList->isUp(id)) {
+    context->serverList->flushSession(id);
+    if (!context->serverList->isUp(id)) {
         serverDown = true;
         return true;
     }
@@ -82,8 +82,8 @@ ServerIdRpcWrapper::handleTransportError()
 void
 ServerIdRpcWrapper::send()
 {
-    assert(context.serverList != NULL);
-    session = context.serverList->getSession(id);
+    assert(context->serverList != NULL);
+    session = context->serverList->getSession(id);
     state = IN_PROGRESS;
     session->sendRequest(&request, response, this);
 }
@@ -101,7 +101,7 @@ ServerIdRpcWrapper::waitAndCheckErrors()
     // Note: this method is a generic shared version for RPCs that don't
     // return results and don't need to do any processing of the response
     // packet except checking for errors.
-    waitInternal(*context.dispatch);
+    waitInternal(context->dispatch);
     if (serverDown) {
         throw ServerDoesntExistException(HERE);
     }

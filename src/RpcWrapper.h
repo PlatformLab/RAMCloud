@@ -87,17 +87,20 @@ class RpcWrapper : public Transport::RpcNotifier {
      * \tparam RpcType
      *      A type from WireFormat, such as WireFormat::Read; determines
      *      the type of the return value and the size of the header.
+     *
+     * \return
+     *      An RPC-specific request header.
      */
     template <typename RpcType>
-    typename RpcType::Request&
+    typename RpcType::Request*
     allocHeader()
     {
         assert(request.getTotalLength() == 0);
-        typename RpcType::Request& reqHdr(
-                *new(&request, APPEND) typename RpcType::Request);
-        memset(&reqHdr, 0, sizeof(reqHdr));
-        reqHdr.common.opcode = RpcType::opcode;
-        reqHdr.common.service = RpcType::service;
+        typename RpcType::Request* reqHdr =
+                new(&request, APPEND) typename RpcType::Request;
+        memset(reqHdr, 0, sizeof(reqHdr));
+        reqHdr->common.opcode = RpcType::opcode;
+        reqHdr->common.service = RpcType::service;
         return reqHdr;
     }
 
@@ -121,15 +124,15 @@ class RpcWrapper : public Transport::RpcNotifier {
      *      A type from WireFormat, such as WireFormat::Read; determines
      *      the type of the result.
      * \return
-     *      A reference to an RPC-specific response header.
+     *      An RPC-specific response header.
      */
     template <typename RpcType>
-    const typename RpcType::Response&
+    const typename RpcType::Response*
     getResponseHeader()
     {
         assert(responseHeader != NULL);
         assert(responseHeaderLength >= sizeof(typename RpcType::Response));
-        return *reinterpret_cast<const typename RpcType::Response*>(
+        return reinterpret_cast<const typename RpcType::Response*>(
                 responseHeader);
     }
 
@@ -150,9 +153,9 @@ class RpcWrapper : public Transport::RpcNotifier {
     virtual bool handleTransportError();
     void retry(uint64_t microseconds);
     virtual void send();
-    void simpleWait(Dispatch& dispatch);
+    void simpleWait(Dispatch* dispatch);
     const char* stateString();
-    bool waitInternal(Dispatch& dispatch, uint64_t abortTime = ~0UL);
+    bool waitInternal(Dispatch* dispatch, uint64_t abortTime = ~0UL);
 
     /// Request and response messages.  In some cases the response buffer
     /// is provided by the wrapper (e.g., for reads); if not, response refers

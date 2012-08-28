@@ -61,7 +61,7 @@ EnumerationIterator::EnumerationIterator(Buffer& buffer,
     : frames()
 {
     ProtoBuf::EnumerationIterator message;
-    ProtoBuf::parseFromRequest(buffer, offset, length, message);
+    ProtoBuf::parseFromRequest(&buffer, offset, length, &message);
     foreach(const auto& frame, message.frames()) {
         frames.push_back(Frame(
             frame.tablet_start_hash(), frame.tablet_end_hash(),
@@ -158,7 +158,7 @@ EnumerationIterator::serialize(Buffer& buffer)
         part.set_bucket_index(frame.bucketIndex);
         part.set_bucket_next_hash(frame.bucketNextHash);
     }
-    ProtoBuf::serializeToResponse(buffer, message);
+    ProtoBuf::serializeToResponse(&buffer, &message);
 
     return buffer.getTotalLength() - offsetAtStart;
 }

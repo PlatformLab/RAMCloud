@@ -85,7 +85,7 @@ try
                       optionParser.options.getCoordinatorLocator().c_str());
     do {
         ProtoBuf::ServerList serverList;
-        CoordinatorClient::getServerList(context, serverList);
+        CoordinatorClient::getServerList(&context, &serverList);
         actualServers = serverList.server_size();
         countServices(serverList, actualMasters, actualBackups);
         LOG(DEBUG, "found %d masters, %d backups (in %d servers)",

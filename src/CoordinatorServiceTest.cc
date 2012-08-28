@@ -267,7 +267,7 @@ TEST_F(CoordinatorServiceTest, getServerList) {
                              WireFormat::PING_SERVICE};
     cluster.addServer(backupConfig);
     ProtoBuf::ServerList list;
-    CoordinatorClient::getServerList(context, list);
+    CoordinatorClient::getServerList(&context, &list);
     EXPECT_EQ("mock:host=master mock:host=master2 mock:host=backup1",
             getLocators(list));
 }
@@ -285,7 +285,7 @@ TEST_F(CoordinatorServiceTest, getServerList_backups) {
                              WireFormat::PING_SERVICE};
     cluster.addServer(backupConfig);
     ProtoBuf::ServerList list;
-    CoordinatorClient::getBackupList(context, list);
+    CoordinatorClient::getBackupList(&context, &list);
     EXPECT_EQ("mock:host=master2 mock:host=backup1",
             getLocators(list));
 }
@@ -303,7 +303,7 @@ TEST_F(CoordinatorServiceTest, getServerList_masters) {
                              WireFormat::PING_SERVICE};
     cluster.addServer(backupConfig);
     ProtoBuf::ServerList list;
-    CoordinatorClient::getMasterList(context, list);
+    CoordinatorClient::getMasterList(&context, &list);
     EXPECT_EQ("mock:host=master mock:host=master2",
             getLocators(list));
 }
@@ -311,7 +311,7 @@ TEST_F(CoordinatorServiceTest, getServerList_masters) {
 TEST_F(CoordinatorServiceTest, getTabletMap) {
     ramcloud->createTable("foo");
     ProtoBuf::Tablets tabletMap;
-    CoordinatorClient::getTabletMap(context, tabletMap);
+    CoordinatorClient::getTabletMap(&context, &tabletMap);
     EXPECT_EQ("tablet { table_id: 0 start_key_hash: 0 "
               "end_key_hash: 18446744073709551615 "
               "state: NORMAL server_id: 1 "
@@ -352,7 +352,7 @@ TEST_F(CoordinatorServiceTest, reassignTabletOwnership) {
 
     TestLog::Enable _(reassignTabletOwnershipFilter);
 
-    EXPECT_THROW(CoordinatorClient::reassignTabletOwnership(context,
+    EXPECT_THROW(CoordinatorClient::reassignTabletOwnership(&context,
         0, 0, -1, ServerId(472, 2)), ServerDoesntExistException);
     EXPECT_EQ("reassignTabletOwnership: Server id 472.2 does not exist! "
         "Cannot reassign ownership of tablet 0, range "
@@ -361,7 +361,7 @@ TEST_F(CoordinatorServiceTest, reassignTabletOwnership) {
     EXPECT_EQ(0, master2->master->tablets.tablet_size());
 
     TestLog::reset();
-    EXPECT_THROW(CoordinatorClient::reassignTabletOwnership(context,
+    EXPECT_THROW(CoordinatorClient::reassignTabletOwnership(&context,
         0, 0, 57, master2->serverId), TableDoesntExistException);
     EXPECT_EQ("reassignTabletOwnership: Could not reassign tablet 0, "
         "range [0, 57]: not found!", TestLog::get());
@@ -369,7 +369,7 @@ TEST_F(CoordinatorServiceTest, reassignTabletOwnership) {
     EXPECT_EQ(0, master2->master->tablets.tablet_size());
 
     TestLog::reset();
-    CoordinatorClient::reassignTabletOwnership(context, 0, 0, -1,
+    CoordinatorClient::reassignTabletOwnership(&context, 0, 0, -1,
         master2->serverId);
     EXPECT_EQ("reassignTabletOwnership: Reassigning tablet 0, range "
         "[0, 18446744073709551615] from server id 1.0 to server id 2.0.",
@@ -388,7 +388,7 @@ TEST_F(CoordinatorServiceTest, sendServerList) {
     config.services = {WireFormat::MEMBERSHIP_SERVICE};
     ServerId id = cluster.addServer(config)->serverId;
     TestLog::Enable _;
-    CoordinatorClient::sendServerList(context, id);
+    CoordinatorClient::sendServerList(&context, id);
     cluster.syncCoordinatorServerList();
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
             "Sending server list to server id 2", TestLog::get()));
@@ -406,7 +406,7 @@ TEST_F(CoordinatorServiceTest, setRuntimeOption) {
 }
 
 TEST_F(CoordinatorServiceTest, setMinOpenSegmentId) {
-    CoordinatorClient::setMinOpenSegmentId(context, masterServerId, 10);
+    CoordinatorClient::setMinOpenSegmentId(&context, masterServerId, 10);
     EXPECT_EQ(10u, service->context.coordinatorServerList->at(
             masterServerId).minOpenSegmentId);
 }
@@ -414,7 +414,7 @@ TEST_F(CoordinatorServiceTest, setMinOpenSegmentId) {
 TEST_F(CoordinatorServiceTest, setMinOpenSegmentId_noSuchServer) {
     string message = "no exception";
     try {
-        CoordinatorClient::setMinOpenSegmentId(context, ServerId{999, 999},
+        CoordinatorClient::setMinOpenSegmentId(&context, ServerId{999, 999},
                                                10);
     }
     catch (const ServerDoesntExistException& e) {

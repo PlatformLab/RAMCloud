@@ -218,8 +218,8 @@ BackupStartTask::send()
     LOG(DEBUG, "Starting startReadingData on backup %s",
         backupId.toString().c_str());
     if (!testingCallback) {
-        rpc.construct(recovery->context, backupId, crashedMasterId,
-                        partitions);
+        rpc.construct(&recovery->context, backupId, crashedMasterId,
+                      &partitions);
     } else {
         testingCallback->backupStartTaskSend(result);
     }
@@ -614,13 +614,13 @@ struct MasterStartTask {
             partitionId);
         (*recovery.tracker)[serverId] = &recovery;
         if (!testingCallback) {
-            rpc.construct(recovery.context,
+            rpc.construct(&recovery.context,
                           serverId,
                           recovery.recoveryId,
                           recovery.crashedServerId,
                           recovery.testingFailRecoveryMasters > 0
                               ? ~0u : partitionId,
-                          tabletsToRecover,
+                          &tabletsToRecover,
                           replicaMap.data(),
                           downCast<uint32_t>(replicaMap.size()));
             if (recovery.testingFailRecoveryMasters > 0) {
@@ -830,7 +830,7 @@ struct BackupEndTask {
             done = true;
             return;
         }
-        rpc.construct(recovery.context, serverId, crashedServerId);
+        rpc.construct(&recovery.context, serverId, crashedServerId);
     }
     void wait() {
         if (!rpc)

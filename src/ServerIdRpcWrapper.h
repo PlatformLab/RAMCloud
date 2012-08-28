@@ -31,7 +31,7 @@ class RamCloud;
  */
 class ServerIdRpcWrapper : public RpcWrapper {
   public:
-    explicit ServerIdRpcWrapper(Context& context, ServerId id,
+    explicit ServerIdRpcWrapper(Context* context, ServerId id,
             uint32_t responseHeaderLength, Buffer* response = NULL);
 
     /**
@@ -45,7 +45,7 @@ class ServerIdRpcWrapper : public RpcWrapper {
     void waitAndCheckErrors();
 
     /// Shared RAMCloud information.
-    Context& context;
+    Context* context;
 
     /// Target server.
     ServerId id;

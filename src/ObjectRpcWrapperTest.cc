@@ -64,7 +64,7 @@ class ObjectRpcWrapperTest : public ::testing::Test {
 
 TEST_F(ObjectRpcWrapperTest, checkStatus_unknownTablet) {
     TestLog::Enable _;
-    ObjectRpcWrapper wrapper(ramcloud, 10, "abc", 3, 4);
+    ObjectRpcWrapper wrapper(&ramcloud, 10, "abc", 3, 4);
     wrapper.request.fillFromString("100");
     wrapper.send();
     EXPECT_EQ("mock:refresh=1", wrapper.session->getServiceLocator());
@@ -82,7 +82,7 @@ TEST_F(ObjectRpcWrapperTest, checkStatus_unknownTablet) {
 
 TEST_F(ObjectRpcWrapperTest, checkStatus_otherError) {
     TestLog::Enable _;
-    ObjectRpcWrapper wrapper(ramcloud, 10, "abc", 3, 4);
+    ObjectRpcWrapper wrapper(&ramcloud, 10, "abc", 3, 4);
     wrapper.request.fillFromString("100");
     wrapper.send();
     (new(wrapper.response, APPEND) WireFormat::ResponseCommon)->status =
@@ -96,7 +96,7 @@ TEST_F(ObjectRpcWrapperTest, checkStatus_otherError) {
 
 TEST_F(ObjectRpcWrapperTest, handleTransportError) {
     TestLog::Enable _;
-    ObjectRpcWrapper wrapper(ramcloud, 10, "abc", 3, 4);
+    ObjectRpcWrapper wrapper(&ramcloud, 10, "abc", 3, 4);
     wrapper.request.fillFromString("100");
     wrapper.send();
     EXPECT_EQ("mock:refresh=1", wrapper.session->getServiceLocator());
@@ -109,7 +109,7 @@ TEST_F(ObjectRpcWrapperTest, handleTransportError) {
 }
 
 TEST_F(ObjectRpcWrapperTest, send) {
-    ObjectRpcWrapper wrapper(ramcloud, 10, "abc", 3, 4);
+    ObjectRpcWrapper wrapper(&ramcloud, 10, "abc", 3, 4);
     wrapper.request.fillFromString("100");
     wrapper.send();
     EXPECT_STREQ("IN_PROGRESS", wrapper.stateString());

@@ -55,7 +55,7 @@ class MembershipServiceTest : public ::testing::Test {
 
 TEST_F(MembershipServiceTest, getServerId) {
     serverId = ServerId(523, 234);
-    EXPECT_EQ(ServerId(523, 234), MembershipClient::getServerId(context,
+    EXPECT_EQ(ServerId(523, 234), MembershipClient::getServerId(&context,
         context.transportManager->getSession("mock:host=member")));
 }
 
@@ -76,7 +76,7 @@ TEST_F(MembershipServiceTest, setServerList) {
     ProtoBuf::ServerList fullList;
     source.serialize(fullList);
 
-    MembershipClient::setServerList(context, serverId, fullList);
+    MembershipClient::setServerList(&context, serverId, &fullList);
     EXPECT_STREQ("mock:host=55", serverList.getLocator(id1));
     EXPECT_STREQ("mock:host=56", serverList.getLocator(id2));
     EXPECT_STREQ("mock:host=57", serverList.getLocator(id3));
@@ -102,7 +102,7 @@ TEST_F(MembershipServiceTest, updateServerList) {
             {WireFormat::MASTER_SERVICE, WireFormat::PING_SERVICE}, 100);
     updates.set_version_number(1);
 
-    MembershipClient::updateServerList(context, serverId, updates);
+    MembershipClient::updateServerList(&context, serverId, &updates);
     EXPECT_STREQ("mock:host=55", serverList.getLocator(id1));
     EXPECT_STREQ("mock:host=56", serverList.getLocator(id2));
     EXPECT_TRUE(serverList.contains(serverId));

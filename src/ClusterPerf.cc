@@ -1223,7 +1223,7 @@ readAllToAll()
 
                 Buffer result;
                 uint64_t startCycles = Cycles::rdtsc();
-                ReadRpc read(*cluster, tableId, key, keyLength, &result);
+                ReadRpc read(cluster, tableId, key, keyLength, &result);
                 while (!read.isReady()) {
                     context.dispatch->poll();
                     double secsWaiting =
@@ -1261,7 +1261,7 @@ readAllToAll()
         uint64_t tableId = tableIds[i];
         Buffer result;
         uint64_t startCycles = Cycles::rdtsc();
-        ReadRpc read(*cluster, tableId, key, keyLength, &result);
+        ReadRpc read(cluster, tableId, key, keyLength, &result);
         while (!read.isReady()) {
             context.dispatch->poll();
             if (Cycles::toSeconds(Cycles::rdtsc() - startCycles) > 1.0) {

@@ -44,7 +44,7 @@ namespace RAMCloud {
  *      if it ever existed, it has since crashed.
  */ 
 uint64_t
-PingClient::ping(Context& context, ServerId targetId, ServerId callerId)
+PingClient::ping(Context* context, ServerId targetId, ServerId callerId)
 {
     PingRpc rpc(context, targetId, callerId);
     return rpc.wait();
@@ -64,13 +64,13 @@ PingClient::ping(Context& context, ServerId targetId, ServerId callerId)
  *      Used on the pingee side for debug logging.
  *      Clients and coordinators should use an invalid ServerId (ServerID()).
  */
-PingRpc::PingRpc(Context& context, ServerId targetId, ServerId callerId)
+PingRpc::PingRpc(Context* context, ServerId targetId, ServerId callerId)
     : ServerIdRpcWrapper(context, targetId,
             sizeof(WireFormat::Ping::Response))
 {
-    WireFormat::Ping::Request& reqHdr(
+    WireFormat::Ping::Request* reqHdr(
             allocHeader<WireFormat::Ping>());
-    reqHdr.callerId = callerId.getId();
+    reqHdr->callerId = callerId.getId();
     send();
 }
 
@@ -89,9 +89,9 @@ uint64_t
 PingRpc::wait()
 {
     waitAndCheckErrors();
-    const WireFormat::Ping::Response& respHdr(
+    const WireFormat::Ping::Response* respHdr(
             getResponseHeader<WireFormat::Ping>());
-    return respHdr.serverListVersion;
+    return respHdr->serverListVersion;
 }
 
 /**
@@ -116,7 +116,7 @@ PingRpc::wait(uint64_t timeoutNanoseconds)
 {
     uint64_t abortTime = Cycles::rdtsc() +
             Cycles::fromNanoseconds(timeoutNanoseconds);
-    if (!waitInternal(*context.dispatch, abortTime)) {
+    if (!waitInternal(context->dispatch, abortTime)) {
         TEST_LOG("timeout");
         return ~0UL;
     }
@@ -126,9 +126,9 @@ PingRpc::wait(uint64_t timeoutNanoseconds)
     }
     if (responseHeader->status != STATUS_OK)
         ClientException::throwException(HERE, responseHeader->status);
-    const WireFormat::Ping::Response& respHdr(
+    const WireFormat::Ping::Response* respHdr(
             getResponseHeader<WireFormat::Ping>());
-    return respHdr.serverListVersion;
+    return respHdr->serverListVersion;
 }
 
 /**
@@ -156,7 +156,7 @@ PingRpc::wait(uint64_t timeoutNanoseconds)
  *      existed, it has since crashed.
  */ 
 uint64_t
-PingClient::proxyPing(Context& context, ServerId proxyId, ServerId targetId,
+PingClient::proxyPing(Context* context, ServerId proxyId, ServerId targetId,
         uint64_t timeoutNanoseconds)
 {
     ProxyPingRpc rpc(context, proxyId, targetId, timeoutNanoseconds);
@@ -179,15 +179,15 @@ PingClient::proxyPing(Context& context, ServerId proxyId, ServerId targetId,
  *      The maximum amount of time (in nanoseconds) that \a proxyId
  *      will wait for \a targetId to respond.
  */
-ProxyPingRpc::ProxyPingRpc(Context& context, ServerId proxyId,
+ProxyPingRpc::ProxyPingRpc(Context* context, ServerId proxyId,
         ServerId targetId, uint64_t timeoutNanoseconds)
     : ServerIdRpcWrapper(context, proxyId,
             sizeof(WireFormat::ProxyPing::Response))
 {
-    WireFormat::ProxyPing::Request& reqHdr(
+    WireFormat::ProxyPing::Request* reqHdr(
             allocHeader<WireFormat::ProxyPing>());
-    reqHdr.serverId = targetId.getId();
-    reqHdr.timeoutNanoseconds = timeoutNanoseconds;
+    reqHdr->serverId = targetId.getId();
+    reqHdr->timeoutNanoseconds = timeoutNanoseconds;
     send();
 }
 
@@ -207,9 +207,9 @@ uint64_t
 ProxyPingRpc::wait()
 {
     waitAndCheckErrors();
-    const WireFormat::ProxyPing::Response& respHdr(
+    const WireFormat::ProxyPing::Response* respHdr(
             getResponseHeader<WireFormat::ProxyPing>());
-    return respHdr.replyNanoseconds;
+    return respHdr->replyNanoseconds;
 }
 
 }  // namespace RAMCloud

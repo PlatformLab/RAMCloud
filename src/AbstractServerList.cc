@@ -127,7 +127,7 @@ AbstractServerList::getSession(ServerId id)
             context.transportManager->openSession(locator);
     if (!skipServerIdCheck) {
         try {
-            ServerId actualId = MembershipClient::getServerId(context,
+            ServerId actualId = MembershipClient::getServerId(&context,
                     session);
             if (id != actualId) {
                 RAMCLOUD_LOG(DEBUG, "Expected ServerId %s for \"%s\", "

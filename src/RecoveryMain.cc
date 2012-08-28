@@ -283,7 +283,7 @@ try
                     memcpy(new(&writeVal, APPEND) char[objectDataSize],
                             chunk, objectDataSize);
                 }
-                writeRpc.construct(client,
+                writeRpc.construct(&client,
                                    static_cast<uint32_t>(tables[t]),
                                    key.c_str(),
                                    keyLength,

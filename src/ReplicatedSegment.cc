@@ -504,7 +504,7 @@ ReplicatedSegment::performFree(Replica& replica)
             return;
         } else {
             // Issue a free rpc for this replica, reschedule to wait on it.
-            replica.freeRpc.construct(context, replica.backupId,
+            replica.freeRpc.construct(&context, replica.backupId,
                                       masterId, segmentId);
             schedule();
             return;
@@ -628,7 +628,7 @@ ReplicatedSegment::performWrite(Replica& replica)
 
             TEST_LOG("Sending open to backup %s",
                      replica.backupId.toString().c_str());
-            replica.writeRpc.construct(context, replica.backupId,
+            replica.writeRpc.construct(&context, replica.backupId,
                                        masterId, segmentId, segment, 0,
                                        openLen, &openingWriteFooterEntry,
                                        flags, replica.replicateAtomically);
@@ -697,7 +697,7 @@ ReplicatedSegment::performWrite(Replica& replica)
 
             TEST_LOG("Sending write to backup %s",
                      replica.backupId.toString().c_str());
-            replica.writeRpc.construct(context, replica.backupId, masterId,
+            replica.writeRpc.construct(&context, replica.backupId, masterId,
                                        segmentId, segment, offset, length,
                                        footerEntryToSend,
                                        flags, replica.replicateAtomically);

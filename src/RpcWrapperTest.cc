@@ -246,7 +246,7 @@ TEST_F(RpcWrapperTest, simpleWait_success) {
     (new(wrapper.response, APPEND) WireFormat::ResponseCommon)->status =
             STATUS_OK;
     wrapper.state = RpcWrapper::RpcState::FINISHED;
-    wrapper.simpleWait(*context.dispatch);
+    wrapper.simpleWait(context.dispatch);
 }
 
 TEST_F(RpcWrapperTest, simpleWait_errorStatus) {
@@ -259,7 +259,7 @@ TEST_F(RpcWrapperTest, simpleWait_errorStatus) {
     wrapper.state = RpcWrapper::RpcState::FINISHED;
     string message = "no exception";
     try {
-        wrapper.simpleWait(*context.dispatch);
+        wrapper.simpleWait(context.dispatch);
     }
     catch (ClientException& e) {
         message = e.toSymbol();
@@ -273,7 +273,7 @@ TEST_F(RpcWrapperTest, waitInternal_timeout) {
     wrapper.session = session;
     wrapper.send();
     uint64_t start = Cycles::rdtsc();
-    EXPECT_FALSE(wrapper.waitInternal(*context.dispatch,
+    EXPECT_FALSE(wrapper.waitInternal(context.dispatch,
             start + Cycles::fromSeconds(100e-06)));
     double elapsed = 1e06 * Cycles::toSeconds(Cycles::rdtsc() - start);
     EXPECT_LE(100.0, elapsed);
@@ -282,7 +282,7 @@ TEST_F(RpcWrapperTest, waitInternal_timeout) {
 
 // Helper function that runs in a separate thread for the following tess.
 static void waitTestThread(Dispatch* dispatch, RpcWrapper* wrapper) {
-    wrapper->waitInternal(*dispatch);
+    wrapper->waitInternal(dispatch);
     TEST_LOG("wrapper finished");
 }
 
@@ -313,7 +313,7 @@ TEST_F(RpcWrapperTest, waitInternal_canceled) {
     wrapper.state = RpcWrapper::RpcState::CANCELED;
     string message = "no exception";
     try {
-        EXPECT_TRUE(wrapper.waitInternal(*context.dispatch));
+        EXPECT_TRUE(wrapper.waitInternal(context.dispatch));
     }
     catch (RpcCanceledException& e) {
         message = "RpcCanceledException";
@@ -328,7 +328,7 @@ TEST_F(RpcWrapperTest, waitInternal_simpleSuccess) {
     wrapper.send();
     setStatus(wrapper.response, Status::STATUS_OK);
     wrapper.completed();
-    EXPECT_TRUE(wrapper.waitInternal(*context.dispatch));
+    EXPECT_TRUE(wrapper.waitInternal(context.dispatch));
 }
 
 }  // namespace RAMCloud

@@ -118,7 +118,7 @@ class MinOpenSegmentId : public Task {
 #endif
         if (!rpc) {
             if (current != requested) {
-                rpc.construct(context, *serverId, requested);
+                rpc.construct(&context, *serverId, requested);
                 sent = requested;
             }
         } else {

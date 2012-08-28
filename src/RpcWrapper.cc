@@ -274,7 +274,7 @@ RpcWrapper::send()
  *      Dispatch to use for polling while waiting.
  */
 void
-RpcWrapper::simpleWait(Dispatch& dispatch)
+RpcWrapper::simpleWait(Dispatch* dispatch)
 {
     waitInternal(dispatch);
     if (responseHeader->status != STATUS_OK)
@@ -326,17 +326,17 @@ RpcWrapper::stateString() {
  *      to wait for it.
  */
 bool
-RpcWrapper::waitInternal(Dispatch& dispatch, uint64_t abortTime)
+RpcWrapper::waitInternal(Dispatch* dispatch, uint64_t abortTime)
 {
     // When invoked in RAMCloud servers there is a separate dispatch thread,
     // so we just busy-wait here. When invoked on RAMCloud clients we're in
     // the dispatch thread so we have to invoke the dispatcher while waiting.
-    bool isDispatchThread = dispatch.isDispatchThread();
+    bool isDispatchThread = dispatch->isDispatchThread();
 
     while (!isReady()) {
         if (isDispatchThread)
-            dispatch.poll();
-        if (dispatch.currentTime > abortTime)
+            dispatch->poll();
+        if (dispatch->currentTime > abortTime)
             return false;
     }
     if (getState() == CANCELED)

@@ -152,13 +152,13 @@ FailureDetector::pingRandomServer()
         LOG(DEBUG, "Sending ping to server %s (%s)", pingee.toString().c_str(),
             locator.c_str());
         uint64_t start = Cycles::rdtsc();
-        PingRpc rpc(context, pingee, ourServerId);
+        PingRpc rpc(&context, pingee, ourServerId);
         serverListVersion = rpc.wait(TIMEOUT_USECS *1000);
         if (serverListVersion == ~0LU) {
             // Server appears to have crashed; notify the coordinator.
             LOG(WARNING, "Ping timeout to server id %s (locator \"%s\")",
                 pingee.toString().c_str(), locator.c_str());
-            CoordinatorClient::hintServerDown(context, pingee);
+            CoordinatorClient::hintServerDown(&context, pingee);
             return;
         }
         LOG(DEBUG, "Ping succeeded to server %s (%s) in %.1f us",
@@ -236,7 +236,7 @@ FailureDetector::checkForStaleServerList()
             "Requesting new list push! Timeout after %lu us.",
             currentVersion, staleServerListVersion,
             Cycles::toNanoseconds(deltaTicks) / 1000);
-        CoordinatorClient::sendServerList(context, ourServerId);
+        CoordinatorClient::sendServerList(&context, ourServerId);
         staleServerListSuspected = false;
     }
 }
