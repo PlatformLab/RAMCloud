@@ -99,7 +99,7 @@ DropTabletOwnershipRpc::DropTabletOwnershipRpc(Context* context,
  *      that does not yet contain data (i.e., any future data accepted by
  *      \a serverId will have a log position at least this high).
  *
- * \throw ServerDoesntExistException
+ * \throw ServerNotUpException
  *      The intended server for this RPC is not part of the cluster;
  *      if it ever existed, it has since crashed.
  */
@@ -136,7 +136,7 @@ GetHeadOfLogRpc::GetHeadOfLogRpc(Context* context, ServerId serverId)
  *      log that does not yet contain data (i.e., any future data accepted by
  *      the respondent will have a log position at least this high).
  *
- * \throw ServerDoesntExistException
+ * \throw ServerNotUpException
  *      The intended server for this RPC is not part of the cluster;
  *      if it ever existed, it has since crashed.
  */
@@ -227,7 +227,7 @@ IsReplicaNeededRpc::IsReplicaNeededRpc(Context* context, ServerId serverId,
  *      replica (it could be needed for crash recovery in the future). False means
  *      the replica is no longer needed, so the backup can reclaim its space.
  *
- * \throw ServerDoesntExistException
+ * \throw ServerNotUpException
  *      The target server for this RPC is not part of the cluster;
  *      if it ever existed, it has since crashed.
  */

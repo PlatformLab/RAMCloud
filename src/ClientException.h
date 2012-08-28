@@ -152,8 +152,8 @@ DEFINE_EXCEPTION(ServiceNotAvailableException,
 DEFINE_EXCEPTION(TimeoutException,
                  STATUS_TIMEOUT,
                  ClientException)
-DEFINE_EXCEPTION(ServerDoesntExistException,
-                 STATUS_SERVER_DOESNT_EXIST,
+DEFINE_EXCEPTION(ServerNotUpException,
+                 STATUS_SERVER_NOT_UP,
                  ClientException)
 DEFINE_EXCEPTION(InvalidObjectException,
                  STATUS_INVALID_OBJECT,

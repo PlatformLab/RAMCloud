@@ -479,12 +479,12 @@ ReplicatedSegment::performFree(Replica& replica)
             // Request is finished, clean up the state.
             try {
                 replica.freeRpc->wait();
-            } catch (const ServerDoesntExistException& e) {
+            } catch (const ServerNotUpException& e) {
                 // If the backup is already out of the cluster the master's
                 // job is done. If the replica is found on storage when the
                 // process restarts on that server it will be the job of the
                 // backup's replica garbage collector to free it.
-                TEST_LOG("ServerDoesntExistException thrown");
+                TEST_LOG("ServerNotUpException thrown");
             }
             replica.reset();
             // Free completed, no need to reschedule.
@@ -582,7 +582,7 @@ ReplicatedSegment::performWrite(Replica& replica)
                     // Don't poke at potentially non-existent segments later.
                     followingSegment = NULL;
                 }
-            } catch (const ServerDoesntExistException& e) {
+            } catch (const ServerNotUpException& e) {
                 // Retry; wait for BackupFailureMonitor to call
                 // handleBackupFailure to reset the replica and break this
                 // loop.

@@ -105,7 +105,7 @@ GetServerIdRpc::wait()
  * \param list
  *      The complete server list representing all cluster membership.
  *
- * \throw ServerDoesntExistException
+ * \throw ServerNotUpException
  *      The intended server for this RPC is not part of the cluster;
  *      if it ever existed, it has since crashed.
  */ 
@@ -156,7 +156,7 @@ SetServerListRpc::SetServerListRpc(Context* context, ServerId serverId,
  *      the update not matching what was expected (i.e. the server lost an
  *      update at some point).
  *
- * \throw ServerDoesntExistException
+ * \throw ServerNotUpException
  *      The intended server for this RPC is not part of the cluster;
  *      if it ever existed, it has since crashed.
  */ 
@@ -201,7 +201,7 @@ UpdateServerListRpc::UpdateServerListRpc(Context* context, ServerId serverId,
  *      the update not matching what was expected (i.e. the server lost an
  *      update at some point).
  *
- * \throw ServerDoesntExistException
+ * \throw ServerNotUpException
  *      The target server for this RPC is not part of the cluster;
  *      if it ever existed, it has since crashed.
  */

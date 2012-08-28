@@ -91,7 +91,7 @@ ServerIdRpcWrapper::send()
 /**
  * Wait for the RPC to complete, and throw exceptions for any errors.
  *
- * \throw ServerDoesntExistException
+ * \throw ServerNotUpException
  *      The intended server for this RPC is not part of the cluster;
  *      if it ever existed, it has since crashed.
  */
@@ -103,7 +103,7 @@ ServerIdRpcWrapper::waitAndCheckErrors()
     // packet except checking for errors.
     waitInternal(context->dispatch);
     if (serverDown) {
-        throw ServerDoesntExistException(HERE);
+        throw ServerNotUpException(HERE);
     }
     if (responseHeader->status != STATUS_OK)
         ClientException::throwException(HERE, responseHeader->status);

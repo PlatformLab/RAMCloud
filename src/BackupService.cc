@@ -474,7 +474,7 @@ BackupService::GarbageCollectReplicasFoundOnStorageTask::
 
     // Due to RAM-447 it is a bit tricky to decipher when a server is in
     // crashed status. It is done here outside the context of the
-    // ServerDoesntExistException because of that bug.
+    // ServerNotUpException because of that bug.
     if (service.context->serverList->contains(masterId) &&
         !service.context->serverList->isUp(masterId))
     {
@@ -494,7 +494,7 @@ BackupService::GarbageCollectReplicasFoundOnStorageTask::
             bool needed = true;
             try {
                 needed = rpc->wait();
-            } catch (const ServerDoesntExistException& e) {
+            } catch (const ServerNotUpException& e) {
                 needed = false;
                 LOG(DEBUG, "Server %s marked down; cluster has recovered "
                     "from its failure", masterId.toString().c_str());

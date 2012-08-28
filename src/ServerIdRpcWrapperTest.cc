@@ -126,10 +126,10 @@ TEST_F(ServerIdRpcWrapperTest, waitAndCheckErrors_serverDoesntExist) {
     try {
         wrapper.waitAndCheckErrors();
     }
-    catch (ServerDoesntExistException& e) {
-        message = "ServerDoesntExistException";
+    catch (ServerNotUpException& e) {
+        message = "ServerNotUpException";
     }
-    EXPECT_EQ("ServerDoesntExistException", message);
+    EXPECT_EQ("ServerNotUpException", message);
 }
 
 TEST_F(ServerIdRpcWrapperTest, waitAndCheckErrors_errorStatus) {

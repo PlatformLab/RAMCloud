@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -109,8 +109,8 @@ ClientException::throwException(const CodeLocation& where, Status status)
             throw ServiceNotAvailableException(where);
         case STATUS_TIMEOUT:
             throw TimeoutException(where);
-        case STATUS_SERVER_DOESNT_EXIST:
-            throw ServerDoesntExistException(where);
+        case STATUS_SERVER_NOT_UP:
+            throw ServerNotUpException(where);
          case STATUS_INVALID_OBJECT:
             throw InvalidObjectException(where);
         case STATUS_TABLET_DOESNT_EXIST:

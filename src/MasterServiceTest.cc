@@ -598,7 +598,7 @@ TEST_F(MasterServiceTest, removeIfFromUnknownTablet) {
   *    if the earlier RPC fails.
   * 4) Ensures that if an RPC succeeds for one copy of a segment other
   *    RPCs for that segment don't occur.
-  * 5) ServerDoesntExistExceptions are deferred until the RPC is waited on.
+  * 5) ServerNotUpExceptions are deferred until the RPC is waited on.
   */
 TEST_F(MasterServiceTest, recover) {
     ServerId serverId(123, 0);

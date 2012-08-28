@@ -267,7 +267,7 @@ ServerListUpdater::handleRequest(Message& msg) {
                             "msgQueue: %d", msg.opcode);
                 continue;
             }
-        } catch (const ServerDoesntExistException& e) {
+        } catch (const ServerNotUpException& e) {
             // Log but fail quietly otherwise since there's nothing we can do.
             LOG(NOTICE, "Async sendUpdate to %s occured after it was "
                     "removed/downed in the CoordinatorServerList.",
@@ -291,7 +291,7 @@ ServerListUpdater::handleRequest(Message& msg) {
  * the tub is empty, it will be generated/serialized else its contents will be
  * reused.
  *
- * \throw ServerDoesntExistException
+ * \throw ServerNotUpException
  *      The intended serverId for this update is no longer a part of the cluster
  */
 void
@@ -311,7 +311,7 @@ ServerListUpdater::sendMembershipUpdate(
     if (stalled < timeoutNs) {
         try {
             succeeded = rpc.wait();
-        } catch (const ServerDoesntExistException& e) {}
+        } catch (const ServerNotUpException& e) {}
     } else {
         rpc.cancel();
         LOG(NOTICE, "Failed to send cluster membership update to %s",
@@ -341,7 +341,7 @@ ServerListUpdater::sendMembershipUpdate(
     if (stalled < timeoutNs) {
         try {
             rpc2.wait();
-        } catch (const ServerDoesntExistException& e) {}
+        } catch (const ServerNotUpException& e) {}
     } else {
         rpc2.cancel();
         LOG(NOTICE, "Failed to send full cluster server list to %s "

@@ -202,7 +202,7 @@ GetRecoveryDataRpc::GetRecoveryDataRpc(Context* context, ServerId backupId,
  * Wait for a getRecoveryData RPC to complete, and throw exceptions for
  * any errors.
  *
- * \throw ServerDoesntExistException
+ * \throw ServerNotUpException
  *      The intended server for this RPC is not part of the cluster;
  *      if it ever existed, it has since crashed.
  */
@@ -355,7 +355,7 @@ StartReadingDataRpc::StartReadingDataRpc(Context* context, ServerId backupId,
  *      The return value is an object that describes all of the segment
  *      replicas stored on \a backupId for \a masterId.
  *
- * \throw ServerDoesntExistException
+ * \throw ServerNotUpException
  *      The intended server for this RPC is not part of the cluster;
  *      if it ever existed, it has since crashed.
  */
@@ -595,7 +595,7 @@ WriteSegmentRpc::WriteSegmentRpc(Context* context,
  *      replicated to this group of backups).  The list includes
  *      the backup that handled this RPC.
  *
- * \throw ServerDoesntExistException
+ * \throw ServerNotUpException
  *      The intended server for this RPC is not part of the cluster;
  *      if it ever existed, it has since crashed.
  */

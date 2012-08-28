@@ -283,7 +283,7 @@ BackupStartTask::wait()
     try {
         if (!testingCallback)
             result = rpc->wait();
-    } catch (const ServerDoesntExistException& e) {
+    } catch (const ServerNotUpException& e) {
         LOG(WARNING, "Couldn't contact %s; server no longer in server list",
             backupId.toString().c_str());
         // Leave empty result as if the backup has no replicas.
@@ -643,7 +643,7 @@ struct MasterStartTask {
                 rpc->wait();
             done = true;
             return;
-        } catch (const ServerDoesntExistException& e) {
+        } catch (const ServerNotUpException& e) {
             LOG(WARNING, "Couldn't contact server %s to start recovery: %s",
                 serverId.toString().c_str(), e.what());
         } catch (const ClientException& e) {
@@ -837,7 +837,7 @@ struct BackupEndTask {
             return;
         try {
             rpc->wait();
-        } catch (const ServerDoesntExistException& e) {
+        } catch (const ServerNotUpException& e) {
             LOG(DEBUG, "recoveryComplete failed on %s, ignoring; "
                 "server no longer in the servers list",
                 serverId.toString().c_str());

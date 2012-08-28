@@ -1400,7 +1400,7 @@ MasterService::recover(ServerId masterId,
                         otherReplica.segmentId);
                     otherReplica.state = Replica::State::OK;
                 }
-            } catch (const ServerDoesntExistException& e) {
+            } catch (const ServerNotUpException& e) {
                 LOG(WARNING, "No record of backup %s, trying next backup",
                     task->replica.backupId.toString().c_str());
                 task->replica.state = Replica::State::FAILED;

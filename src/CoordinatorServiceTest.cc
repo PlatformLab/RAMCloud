@@ -353,8 +353,8 @@ TEST_F(CoordinatorServiceTest, reassignTabletOwnership) {
     TestLog::Enable _(reassignTabletOwnershipFilter);
 
     EXPECT_THROW(CoordinatorClient::reassignTabletOwnership(&context,
-        0, 0, -1, ServerId(472, 2)), ServerDoesntExistException);
-    EXPECT_EQ("reassignTabletOwnership: Server id 472.2 does not exist! "
+        0, 0, -1, ServerId(472, 2)), ServerNotUpException);
+    EXPECT_EQ("reassignTabletOwnership: Server id 472.2 is not up! "
         "Cannot reassign ownership of tablet 0, range "
         "[0, 18446744073709551615]!", TestLog::get());
     EXPECT_EQ(1, master->tablets.tablet_size());
@@ -417,10 +417,10 @@ TEST_F(CoordinatorServiceTest, setMinOpenSegmentId_noSuchServer) {
         CoordinatorClient::setMinOpenSegmentId(&context, ServerId{999, 999},
                                                10);
     }
-    catch (const ServerDoesntExistException& e) {
+    catch (const ServerNotUpException& e) {
         message = e.toSymbol();
     }
-    EXPECT_EQ("STATUS_SERVER_DOESNT_EXIST", message);
+    EXPECT_EQ("STATUS_SERVER_NOT_UP", message);
 }
 
 }  // namespace RAMCloud

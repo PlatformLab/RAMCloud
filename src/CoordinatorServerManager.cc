@@ -71,7 +71,7 @@ CoordinatorServerManager::assignReplicationGroup(
                 static_cast<uint32_t>(replicationGroupIds.size()),
                 &replicationGroupIds[0]);
 #endif
-        } catch (const ServerDoesntExistException& e) {
+        } catch (const ServerNotUpException& e) {
             return false;
         }
     }

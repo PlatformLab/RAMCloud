@@ -39,7 +39,7 @@ namespace RAMCloud {
  *      If \a serverId had a server list, then its version number is returned;
  *      otherwise zero is returned.
  *
- * \throw ServerDoesntExistException
+ * \throw ServerNotUpException
  *      The intended server for this RPC is not part of the cluster;
  *      if it ever existed, it has since crashed.
  */ 
@@ -81,7 +81,7 @@ PingRpc::PingRpc(Context* context, ServerId targetId, ServerId callerId)
  *      If the target server had a server list, then its version number
  *      is returned; otherwise zero is returned.
  *
- * \throw ServerDoesntExistException
+ * \throw ServerNotUpException
  *      The target server for this RPC is not part of the cluster;
  *      if it ever existed, it has since crashed.
  */
@@ -106,7 +106,7 @@ PingRpc::wait()
  *      If no response was received within \c timeoutNanoseconds, or if
  *      we reach a point where the target server is no longer part of the
  *      cluster, then all ones is returned (note: this method will not
- *      throw ServerDoesntExistsException). If the target server responds
+ *      throw ServerNotUpException). If the target server responds
  *      and it has a server list, then the version number for its server
  *      list is returned. If the server responded but has no server list,
  *      then zero is returned.
@@ -151,7 +151,7 @@ PingRpc::wait(uint64_t timeoutNanoseconds)
  *      request from \a proxyId.  If no response was received within
  *      \a timeoutNanoseconds, then all ones is returned.
  *
- * \throw ServerDoesntExistException
+ * \throw ServerNotUpException
  *      Generated if \a proxyId is not part of the cluster; if it ever
  *      existed, it has since crashed.
  */ 
@@ -199,7 +199,7 @@ ProxyPingRpc::ProxyPingRpc(Context* context, ServerId proxyId,
  *      request.  If the proxy didn't receive a response within the timeout
  *      period, then all ones is returned.
  *
- * \throw ServerDoesntExistException
+ * \throw ServerNotUpException
  *      The target server for this RPC is not part of the cluster;
  *      if it ever existed, it has since crashed.
  */

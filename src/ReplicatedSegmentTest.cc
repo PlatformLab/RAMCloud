@@ -790,7 +790,7 @@ TEST_F(ReplicatedSegmentTest, performFreeRpcFailed) {
                                            masterId, segmentId);
     TestLog::Enable _;
     segment->performFree(segment->replicas[0]);
-    EXPECT_EQ("performFree: ServerDoesntExistException thrown", TestLog::get());
+    EXPECT_EQ("performFree: ServerNotUpException thrown", TestLog::get());
     EXPECT_TRUE(segment->freeQueued);
     EXPECT_FALSE(segment->isScheduled());
     ASSERT_FALSE(segment->replicas[0].isActive);

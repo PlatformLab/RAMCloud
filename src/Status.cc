@@ -42,7 +42,7 @@ static const char* messages[] = {
     "retry",                                     // RETRY
     "service not available",                     // SERVICE_NOT_AVAILABLE
     "operation took too long",                   // STATUS_TIMEOUT
-    "server doesn't exist",                      // SERVER_DOESNT_EXIST
+    "server doesn't exist",                      // SERVER_NOT_UP
     "internal RAMCloud error",                   // STATUS_INTERNAL_ERROR
     "object is invalid for the chosen operation",// STATUS_INVALID_OBJECT
     "tablet doesn't exist",                      // STATUS_TABLET_DOESNT_EXIST
@@ -71,7 +71,7 @@ static const char* symbols[] = {
     "STATUS_RETRY",
     "STATUS_SERVICE_NOT_AVAILABLE",
     "STATUS_TIMEOUT",
-    "STATUS_SERVER_DOESNT_EXIST",
+    "STATUS_SERVER_NOT_UP",
     "STATUS_INTERNAL_ERROR",
     "STATUS_INVALID_OBJECT",
     "STATUS_TABLET_DOESNT_EXIST",

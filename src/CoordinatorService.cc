@@ -420,12 +420,12 @@ CoordinatorService::reassignTabletOwnership(
     Rpc& rpc)
 {
     ServerId newOwner(reqHdr.newOwnerId);
-    if (!serverList.contains(newOwner)) {
-        LOG(WARNING, "Server id %s does not exist! Cannot reassign "
+    if (!serverList.isUp(newOwner)) {
+        LOG(WARNING, "Server id %s is not up! Cannot reassign "
             "ownership of tablet %lu, range [%lu, %lu]!",
             newOwner.toString().c_str(), reqHdr.tableId,
             reqHdr.firstKeyHash, reqHdr.lastKeyHash);
-        respHdr.common.status = STATUS_SERVER_DOESNT_EXIST;
+        respHdr.common.status = STATUS_SERVER_NOT_UP;
         return;
     }
 
@@ -555,7 +555,7 @@ CoordinatorService::setMinOpenSegmentId(
     } catch (const ServerListException& e) {
         LOG(WARNING, "setMinOpenSegmentId server doesn't exist: %s",
             serverId.toString().c_str());
-        respHdr.common.status = STATUS_SERVER_DOESNT_EXIST;
+        respHdr.common.status = STATUS_SERVER_NOT_UP;
         return;
     }
 }
