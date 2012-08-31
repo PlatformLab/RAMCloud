@@ -57,24 +57,6 @@ class SingleFileStorageTest : public ::testing::Test {
         umask(oldUmask);
     }
 
-#if 0
-    /**
-     * Places data in an aligned buffer before saving it in order to make it
-     * work with test cases that use O_DIRECT.
-     */
-    void writeSegment(uint64_t masterId, uint64_t segmentId, const char* data)
-    {
-        std::unique_ptr<char, void (*)(void*)> block( // NOLINT
-            static_cast<char*>(Memory::xmemalign(HERE,
-                               segmentSize,
-                               segmentSize)), std::free);
-        memcpy(block.get(), data, segmentSize);
-        std::unique_ptr<BackupStorage::Frame>
-            frame(storage->allocate());
-        storage->putSegment(frame.get(), block.get());
-    }
-#endif
-
     DISALLOW_COPY_AND_ASSIGN(SingleFileStorageTest);
 };
 
@@ -495,56 +477,20 @@ TEST_F(SingleFileStorageTest, open_noFreeFrames) {
                  BackupStorageException);
 }
 
-#if 0
-TEST_F(SingleFileStorageTest, getAllHeadersAndFooters) {
-    /*
-     * Setups with O_DIRECT must be at least block sized (512 on most
-     * filesystems).  Any test involving O_DIRECT is going to be slow.
-     * (100 ms or more just for single block-sized segments)
-     */
-    struct {
-        uint32_t segmentSize;
-        int openFlags;
-    } setups[] {
-        { 8, 0 },
-        { 512, O_DIRECT | O_SYNC },
-        // { 1 << 23, O_DIRECT | O_SYNC }, // Standard seg size, takes 500 ms.
-        { ~0u, 0 }
-    };
-
-    segmentFrames = 4;
-    for (auto* setup = &setups[0]; setup->segmentSize != ~0u; ++setup) {
-        segmentSize = setup->segmentSize;
-        storage.construct(segmentSize, segmentFrames, path, setup->openFlags);
-
-        char buf[setup->segmentSize];
-        memset(buf, 'q', sizeof(buf));
-        buf[0] = '0';
-        buf[setup->segmentSize - 1] = 'a';
-        writeSegment(99, 0, buf);
-        buf[0] = '1';
-        buf[setup->segmentSize - 1] = 'b';
-        writeSegment(99, 1, buf);
-        buf[0] = '2';
-        buf[setup->segmentSize - 1] = 'c';
-        writeSegment(99, 2, buf);
-        buf[0] = '3';
-        buf[setup->segmentSize - 1] = 'd';
-        writeSegment(99, 3, buf);
-
-        storage.construct(segmentSize, segmentFrames, path, setup->openFlags);
-
-        const size_t headerSize = 2;
-        const size_t footerSize = 3;
-        std::unique_ptr<char[]> entries(
-            storage->getAllHeadersAndFooters(headerSize, footerSize));
-        char* p = entries.get();
-
-        const size_t totalSize = (headerSize + footerSize) * segmentFrames;
-        EXPECT_EQ(0, memcmp(p, "0qqqa1qqqb2qqqc3qqqd", totalSize));
-    }
+TEST_F(SingleFileStorageTest, loadAllMetadata) {
+    uint8_t ones[storage->getMetadataSize()];
+    memset(ones, 0xff, sizeof(ones));
+    Frame* frame = storage->open(true);
+    Buffer empty;
+    frame->append(empty, 0, 0, 0, ones, sizeof(ones));
+    const uint8_t *metadata = static_cast<const uint8_t*>(frame->getMetadata());
+    EXPECT_EQ(uint8_t(0xff), metadata[0]);
+    frame->free();
+    auto frames = storage->loadAllMetadata();
+    EXPECT_EQ(uint8_t(0), metadata[0]);
+    EXPECT_EQ(metadata, frames[0]->getMetadata());
+    EXPECT_EQ(storage->frames.size(), frames.size());
 }
-#endif
 
 TEST_F(SingleFileStorageTest, resetSuperblock) {
     for (uint32_t expectedVersion = 1; expectedVersion < 3; ++expectedVersion) {
@@ -560,6 +506,47 @@ TEST_F(SingleFileStorageTest, resetSuperblock) {
             EXPECT_EQ(1u, storage->lastSuperblockFrame);
         }
     }
+}
+
+struct WaitForQuiesce {
+    WaitForQuiesce(SingleFileStorage& storage)
+        : storage(storage)
+    {}
+    void operator()() {
+        RAMCLOUD_TEST_LOG("about to start");
+        storage.quiesce();
+    }
+    SingleFileStorage& storage;
+};
+
+TEST_F(SingleFileStorageTest, quiesce)
+{
+    storage->ioQueue.halt();
+    Frame* frame = storage->open(false);
+    frame->append(testSource, 0, testSource.getTotalLength(),
+                  0, test, testLength + 1);
+    WaitForQuiesce waitForQuiesce(*storage);
+    TestLog::Enable _;
+    std::thread thread(waitForQuiesce);
+    while (TestLog::get() == "");
+    storage->ioQueue.start();
+    thread.join();
+}
+
+TEST_F(SingleFileStorageTest, fry)
+{
+    Frame::testingSkipRealIo = false;
+    uint8_t ones[storage->getMetadataSize()];
+    memset(ones, 0xff, sizeof(ones));
+    Frame* frame = storage->open(true);
+    Buffer empty;
+    frame->append(empty, 0, 0, 0, ones, sizeof(ones));
+    frame->loadMetadata();
+    const uint8_t *metadata = static_cast<const uint8_t*>(frame->getMetadata());
+    EXPECT_EQ(uint8_t(0xff), metadata[0]);
+    storage->fry();
+    frame->loadMetadata();
+    EXPECT_EQ(uint8_t(0), metadata[0]);
 }
 
 TEST_F(SingleFileStorageTest, loadSuperblockBothEqual) {

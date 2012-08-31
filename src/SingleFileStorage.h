@@ -54,7 +54,7 @@ class SingleFileStorage : public BackupStorage {
         ~Frame();
 
         void loadMetadata();
-        void* getMetadata();
+        const void* getMetadata();
 
         void startLoading();
         bool isLoaded();
@@ -172,12 +172,14 @@ class SingleFileStorage : public BackupStorage {
 
     Frame* open(bool sync);
     pair<uint32_t, uint32_t> benchmark(BackupStrategy backupStrategy);
-    void loadAllMetadata();
+    size_t getMetadataSize();
+    std::vector<BackupStorage::Frame*> loadAllMetadata();
     void resetSuperblock(ServerId serverId,
                                  const string& clusterName,
                                  uint32_t frameSkipMask = 0);
     Superblock loadSuperblock();
     void quiesce();
+    void fry();
 
     /**
      * Intermnal use only; block size of storage. Needed to deal

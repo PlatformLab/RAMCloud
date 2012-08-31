@@ -24,13 +24,11 @@
 #include "SegmentIterator.h"
 #include "Server.h"
 #include "Key.h"
+#include "SingleFileStorage.h"
 #include "ShortMacros.h"
 #include "StringUtil.h"
 
 namespace RAMCloud {
-/**
- * Unit tests for BackupService.
- */
 
 class BackupServiceTest : public ::testing::Test {
   public:
@@ -254,18 +252,6 @@ class BackupServiceTest : public ::testing::Test {
 };
 
 
-struct TempCleanup {
-    string path;
-    explicit TempCleanup(string path) : path(path) {}
-    ~TempCleanup() {
-        int r = unlink(path.c_str());
-        if (r == -1) {
-            DIE("Unit test left garbage tmp file around %s: %s",
-                path.c_str(), strerror(errno));
-        }
-    }
-};
-
 namespace {
 bool constructFilter(string s) {
     return s == "BackupService" || s == "init";
@@ -275,9 +261,8 @@ bool constructFilter(string s) {
 TEST_F(BackupServiceTest, constructorNoReuseReplicas) {
     config.backup.inMemory = false;
     config.clusterName = "testing";
-    config.backup.file = "/tmp/ramcloud-backup-storage-test-delete-this";
+    config.backup.file = ""; // use auto-generated testing name.
 
-    TempCleanup __(config.backup.file);
     cluster->addServer(config);
 
     config.clusterName = "__unnamed__";
@@ -297,9 +282,8 @@ TEST_F(BackupServiceTest, constructorNoReuseReplicas) {
 TEST_F(BackupServiceTest, constructorDestroyConfusingReplicas) {
     config.backup.inMemory = false;
     config.clusterName = "__unnamed__";
-    config.backup.file = "/tmp/ramcloud-backup-storage-test-delete-this";
+    config.backup.file = ""; // use auto-generated testing name.
 
-    TempCleanup __(config.backup.file);
     cluster->addServer(config);
 
     config.clusterName = "testing";
@@ -322,10 +306,16 @@ TEST_F(BackupServiceTest, constructorReuseReplicas)
 {
     config.backup.inMemory = false;
     config.clusterName = "testing";
-    config.backup.file = "/tmp/ramcloud-backup-storage-test-delete-this";
+    config.backup.file = ""; // use auto-generated testing name.
 
-    TempCleanup __(config.backup.file);
-    cluster->addServer(config);
+    Server* server = cluster->addServer(config);
+    BackupService* backup = server->backup.get();
+
+    SingleFileStorage* storage =
+        static_cast<SingleFileStorage*>(backup->storage.get());
+    // Use same auto-generated testing name as above.
+    // Will cause double unlink from file system. Meh.
+    config.backup.file = string(storage->tempFilePath);
 
     TestLog::Enable _(constructFilter);
     cluster->addServer(config);
@@ -580,35 +570,6 @@ TEST_F(BackupServiceTest, getRecoveryData_notRecovered) {
         BackupBadSegmentIdException);
 }
 
-#if 0
-TEST_F(BackupServiceTest, killAllStorage)
-{
-    // XXX Rewrite
-    const char* path = "/tmp/ramcloud-backup-storage-test-delete-this";
-    TempCleanup __(path);
-    ServerConfig config = ServerConfig::forTesting();
-    config.backup.inMemory = false;
-    config.segmentSize = 4096;
-    config.backup.numSegmentFrames = 6;
-    config.backup.file = path;
-    config.services = {WireFormat::BACKUP_SERVICE};
-
-    config.clusterName = "old";
-    cluster->addServer(config);
-
-    config.clusterName = "new";
-    BackupService* backup = cluster->addServer(config)->backup.get();
-    std::unique_ptr<BackupStorage::Frame>
-        handle(backup->storage->associate(0));
-    Memory::unique_ptr_free segment(
-        Memory::xmemalign(HERE, getpagesize(),
-                          config.segmentSize),
-        std::free);
-    auto buffers = handle->load();
-    EXPECT_EQ(0, memcmp("\0DIE", buffers.second, 4));
-}
-#endif
-
 TEST_F(BackupServiceTest, recoverySegmentBuilder) {
     Context context;
     openSegment(ServerId(99, 0), 87);
@@ -683,154 +644,93 @@ TEST_F(BackupServiceTest, recoverySegmentBuilder) {
     }
 }
 
-namespace {
-bool restartFilter(string s) {
-    return s == "restartFromStorage";
-}
-}
-
-#if 0
-// We can't do this anymore. This file can't just fake up entries. For one, it's
-// hard because the length fields aren't part of the Segment::EntryHeader
-// anymore. More importantly, however, it shouldn't be reaching into segment
-// internals. I think this might need to just build temporary segments instead.
 TEST_F(BackupServiceTest, restartFromStorage)
 {
-    const char* path = "/tmp/ramcloud-backup-storage-test-delete-this";
-    int fd = -1;
-    void* file = NULL;
     ServerConfig config = ServerConfig::forTesting();
     config.backup.inMemory = false;
     config.segmentSize = 4096;
     config.backup.numSegmentFrames = 6;
-    config.backup.file = path;
+    config.backup.file = ""; // use auto-generated testing name.
     config.services = {WireFormat::BACKUP_SERVICE};
     config.clusterName = "testing";
-    // Space for superblock images and then segment frames.
-    const size_t superblockSize = 2 * SingleFileStorage::BLOCK_SIZE;
-    const size_t fileSize = superblockSize +
-                            config.segmentSize * config.backup.numSegmentFrames;
 
-    try {
-    fd = open(path, O_CREAT | O_RDWR, 0666);
-    ASSERT_NE(-1, fd);
-    ASSERT_NE(-1, ftruncate(fd, fileSize));
-    file = mmap(NULL, fileSize, PROT_READ | PROT_WRITE, MAP_SHARED,
-                fd, 0);
-    ASSERT_NE(MAP_FAILED, file);
-    ASSERT_NE(-1, close(fd));
-
-    typedef char* b;
-
-    BackupStorage::Superblock superblock(0, {99, 0}, "testing");
-    memcpy(file, &superblock, sizeof(superblock));
-    Crc32C crc;
-    crc.update(&superblock, sizeof(superblock));
-    auto checksum = crc.getResult();
-    memcpy(b(file) + sizeof(superblock), &checksum, sizeof(checksum));
-
-    for (uint32_t frame = 0; frame < config.backup.numSegmentFrames; ++frame) {
-        SegmentHeader header{70 + (frame % 2), 88, config.segmentSize,
-            Segment::INVALID_SEGMENT_ID};
-        Segment::EntryHeader headerEntry(LOG_ENTRY_TYPE_SEGHEADER,
-                                         sizeof(header));
-        SegmentFooter footer{0xcafebabe};
-        Segment::EntryHeader certificate(LOG_ENTRY_TYPE_SEGFOOTER,
-                                         sizeof(footer));
-
-        bool close = true;
-
-        // Set up various weird scenarios for each segment frame.
-        switch (frame) {
-        case 0:
-            // Normal header and footer for a closed segment.
-            break;
-        case 1:
-            // Normal header, no footer (open).
-            header.segmentId = 89;
-            close = false;
-            break;
-        case 2:
-            // Bad entry type for header.
-            headerEntry.type = 'q';
-            header.segmentId = 90;
-            close = true;
-            break;
-        case 3:
-            // Bad entry length for header.
-            headerEntry.length = 999;
-            header.segmentId = 91;
-            close = true;
-            break;
-        case 4:
-            // Bad entry type for footer.
-            certificate.type = 'q';
-            header.segmentId = 92;
-            close = true;
-            break;
-        case 5:
-            // Bad entry length for footer.
-            certificate.length = 999;
-            header.segmentId = 93;
-            close = true;
-            break;
-        default:
-            FAIL();
-        };
-
-        off_t offset = superblockSize;
-        offset += frame * config.segmentSize;
-        memcpy(b(file) + offset, &headerEntry, sizeof(headerEntry));
-        offset += sizeof(headerEntry);
-        memcpy(b(file) + offset, &header, sizeof(header));
-        offset += sizeof(header);
-
-        if (close) {
-            offset = superblockSize;
-            offset += (frame + 1) * config.segmentSize -
-                sizeof(certificate) - sizeof(footer);
-            memcpy(b(file) + offset, &certificate, sizeof(certificate));
-            offset += sizeof(certificate);
-            memcpy(b(file) + offset, &footer, sizeof(footer));
-            offset += sizeof(footer);
-        }
-    }
-
-    ASSERT_NE(-1, munmap(file, fileSize));
-
-    TestLog::Enable _(restartFilter);
-    BackupService* backup = cluster->addServer(config)->backup.get();
-    EXPECT_EQ(ServerId(99, 0), backup->getFormerServerId());
-    EXPECT_NE(string::npos, TestLog::get().find(
-        "restartFromStorage: Found stored replica <70,88> on backup storage "
-            "in frame 0 which was closed | "
-        "restartFromStorage: Found stored replica <71,89> on backup storage "
-            "in frame 1 which was open | "
-        "restartFromStorage: Log entry type for header does not match in "
-            "frame 2 | "
-        "restartFromStorage: Unexpected log entry length while reading "
-            "segment replica header from backup storage, discarding replica, "
-            "(expected length 28, stored length 999) | "
-        "restartFromStorage: Found stored replica <70,92> on backup storage "
-            "in frame 4 which was open | "
-        "restartFromStorage: Found stored replica <71,93> on backup storage "
-            "in frame 5 which was open"));
-
-    EXPECT_TRUE(backup->findBackupReplica({70, 0}, 88));
-    EXPECT_TRUE(backup->findBackupReplica({71, 0}, 89));
-    EXPECT_FALSE(backup->findBackupReplica({70, 0}, 90));
-    EXPECT_FALSE(backup->findBackupReplica({71, 0}, 91));
-    EXPECT_TRUE(backup->findBackupReplica({70, 0}, 92));
-    EXPECT_TRUE(backup->findBackupReplica({71, 0}, 93));
-
+    server = cluster->addServer(config);
+    backup = server->backup.get();
     SingleFileStorage* storage =
         static_cast<SingleFileStorage*>(backup->storage.get());
+
+    Buffer empty;
+    Segment::Certificate certificate;
+    Tub<BackupReplicaMetadata> metadata;
+    { // closed
+        metadata.construct(certificate,
+                           70, 88,
+                           config.segmentSize,
+                           true);
+        BackupStorage::Frame* frame = storage->open(true);
+        frame->append(empty, 0, 0, 0, &metadata, sizeof(metadata));
+    }
+    { // open
+        metadata.construct(certificate,
+                           70, 89,
+                           config.segmentSize,
+                           false);
+        BackupStorage::Frame* frame = storage->open(true);
+        frame->append(empty, 0, 0, 0, &metadata, sizeof(metadata));
+    }
+    { // bad checksum
+        metadata.construct(certificate,
+                           70, 90,
+                           config.segmentSize,
+                           true);
+        metadata->checksum = 0;
+        BackupStorage::Frame* frame = storage->open(true);
+        frame->append(empty, 0, 0, 0, &metadata, sizeof(metadata));
+    }
+    { // bad segment capacity
+        metadata.construct(certificate,
+                           70, 91,
+                           config.segmentSize,
+                           true);
+        metadata->checksum = 0;
+        BackupStorage::Frame* frame = storage->open(true);
+        frame->append(empty, 0, 0, 0, &metadata, sizeof(metadata));
+    }
+    { // closed, different master
+        metadata.construct(certificate,
+                           71, 89,
+                           config.segmentSize,
+                           false);
+        BackupStorage::Frame* frame = storage->open(true);
+        frame->append(empty, 0, 0, 0, &metadata, sizeof(metadata));
+    }
+    foreach (auto& frame, storage->frames)
+        frame.free();
+ 
+    TestLog::Enable _;
+    backup->restartFromStorage();
+
+    EXPECT_TRUE(backup->findBackupReplica({70, 0}, 88));
+    EXPECT_TRUE(backup->findBackupReplica({70, 0}, 89));
+    EXPECT_FALSE(backup->findBackupReplica({70, 0}, 90));
+    EXPECT_FALSE(backup->findBackupReplica({70, 0}, 91));
+    EXPECT_TRUE(backup->findBackupReplica({71, 0}, 89));
+
     EXPECT_FALSE(storage->freeMap.test(0));
     EXPECT_FALSE(storage->freeMap.test(1));
     EXPECT_TRUE(storage->freeMap.test(2));
     EXPECT_TRUE(storage->freeMap.test(3));
     EXPECT_FALSE(storage->freeMap.test(4));
-    EXPECT_FALSE(storage->freeMap.test(5));
+
+    EXPECT_TRUE(StringUtil::contains(TestLog::get(),
+        "restartFromStorage: Found stored replica <70.0,88> "
+        "on backup storage in frame which was closed"));
+    EXPECT_TRUE(StringUtil::contains(TestLog::get(),
+        "restartFromStorage: Found stored replica <70.0,89> "
+        "on backup storage in frame which was open"));
+    EXPECT_TRUE(StringUtil::contains(TestLog::get(),
+        "restartFromStorage: Found stored replica <71.0,89> "
+        "on backup storage in frame which was open"));
 
     EXPECT_EQ(2lu, backup->gcTaskQueue.outstandingTasks());
     // Because config.backup.gc is false these tasks delete themselves
@@ -838,18 +738,8 @@ TEST_F(BackupServiceTest, restartFromStorage)
     backup->gcTaskQueue.performTask();
     backup->gcTaskQueue.performTask();
     EXPECT_EQ(0lu, backup->gcTaskQueue.outstandingTasks());
-
-    } catch (...) {
-        close(fd);
-        munmap(file, fileSize);
-        cluster.destroy();
-        unlink(path);
-        throw;
-    }
-    cluster.destroy();
-    unlink(path);
 }
-#endif
+
 TEST_F(BackupServiceTest, startReadingData) {
     MockRandom _(1);
     openSegment(ServerId(99, 0), 88);
@@ -1086,27 +976,16 @@ TEST_F(BackupServiceTest, writeSegment_badOffsetPlusLength) {
         BackupSegmentOverflowException);
 }
 
-// XXX
-#if 0
 TEST_F(BackupServiceTest, writeSegment_closeSegment) {
     openSegment(ServerId(99, 0), 88);
     writeRawString({99, 0}, 88, 10, "test");
     // loop to test for idempotence
     for (int i = 0; i > 2; ++i) {
         closeSegment(ServerId(99, 0), 88);
-        BackupReplica &replica =
-            *backup->findBackupReplica(ServerId(99, 0), 88);
-        char* storageAddress =
-            static_cast<InMemoryStorage::Frame*>(replica.storageFrame)->
-                getAddress();
-        {
-            BackupReplica::Lock lock(replica.mutex);
-            while (replica.segment)
-                replica.condition.wait(lock);
-        }
-        EXPECT_TRUE(NULL != storageAddress);
-        EXPECT_EQ("test", &storageAddress[10]);
-        EXPECT_TRUE(NULL == static_cast<void*>(replica.segment));
+        BackupReplica* replica =
+            backup->findBackupReplica(ServerId(99, 0), 88);
+        const char* replicaData = static_cast<const char*>(replica->frame->load());
+        EXPECT_STREQ("test", &replicaData[10]);
     }
 }
 
@@ -1117,20 +996,15 @@ TEST_F(BackupServiceTest, writeSegment_closeSegmentSegmentNotOpen) {
 
 TEST_F(BackupServiceTest, writeSegment_openSegment) {
     // loop to test for idempotence
+    BackupReplica* replica = NULL;
     for (int i = 0; i < 2; ++i) {
         openSegment(ServerId(99, 0), 88);
-        BackupReplica &replica =
-            *backup->findBackupReplica(ServerId(99, 0), 88);
-        EXPECT_TRUE(NULL != replica.segment);
-        EXPECT_EQ(0, *replica.segment);
-        EXPECT_TRUE(replica.primary);
-        char* address =
-            static_cast<InMemoryStorage::Frame*>(replica.storageFrame)->
-                getAddress();
-        EXPECT_TRUE(NULL != address);
+        replica = backup->findBackupReplica(ServerId(99, 0), 88);
+        EXPECT_TRUE(replica->primary);
     }
+    const char* replicaData = static_cast<const char*>(replica->frame->load());
+    EXPECT_EQ(0, *replicaData);
 }
-#endif
 
 TEST_F(BackupServiceTest, writeSegment_openSegmentSecondary) {
     openSegment(ServerId(99, 0), 88, false);

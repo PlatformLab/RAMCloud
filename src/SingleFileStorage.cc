@@ -100,6 +100,9 @@ SingleFileStorage::Frame::loadMetadata()
 
 /**
  * Return a pointer to the most recently appended metadata for this frame.
+ * The first #METADATA_SIZE bytes of the returned pointers are valid, though
+ * it may or may not contain valid or meaningful (or even consistent with the
+ * replica) metadata.
  * Warning: Concurrent calls to append modify the metadata that the return
  * of this method points to. In practice it should only be called when the
  * frame isn't accepting appends (either it was just constructed or one of 
@@ -107,7 +110,7 @@ SingleFileStorage::Frame::loadMetadata()
  * backup restart and master recovery to extract details about the replica
  * in this frame without loading the frame.
  */
-void*
+const void*
 SingleFileStorage::Frame::getMetadata()
 {
     return appendedMetadata.get();
@@ -620,7 +623,7 @@ SingleFileStorage::SingleFileStorage(size_t segmentSize,
 
     freeMap.set();
 
-    if (filePath == NULL) {
+    if (filePath == NULL || filePath[0] == '\0') {
         tempFilePath =
             strdup("/tmp/ramcloud-backup-storage-test-delete-this-XXXXXX");
         fd = ::mkostemp(tempFilePath,
@@ -667,6 +670,7 @@ SingleFileStorage::~SingleFileStorage()
     if (tempFilePath) {
         unlink(tempFilePath);
         ::free(tempFilePath);
+        tempFilePath = NULL;
     }
 }
 
@@ -728,139 +732,44 @@ SingleFileStorage::benchmark(BackupStrategy backupStrategy)
     return r;
 }
 
-// XXX
-void
+/**
+ * Returns the maximum number of bytes of metadata that can be stored
+ * which each append(). Also, how many bytes of getMetadata() are safe
+ * for access after getMetadata() calls, though returned data may or may
+ * not contain valid or meaningful (or even consistent with the
+ * replica) metadata.
+ */
+size_t
+SingleFileStorage::getMetadataSize()
+{
+    return METADATA_SIZE;
+}
+
+/**
+ * Marks ALL storage frames as allocated and blows away any in-memory copies
+ * of metadata. This should only be performed at backup startup. The caller is
+ * reponsible for freeing the frames if the metadata indicates the replica
+ * data stored there isn't useful.
+ *
+ * \return
+ *      Pointer to every frame which has various uses depending on the
+ *      metadata that is found in that frame. BackupService code is expected
+ *      to examine the metadata and either free the frame or take note of the
+ *      metadata in the frame for potential use in future recoveries.
+ */
+std::vector<BackupStorage::Frame*>
 SingleFileStorage::loadAllMetadata()
 {
-    // XXX: Not quite done yet, need a way for higher level code to use.
-    foreach (auto& frame, frames)
+    std::vector<BackupStorage::Frame*> ret;
+    ret.reserve(frames.size());
+    foreach (auto& frame, frames) {
         frame.loadMetadata();
-}
-
-#if 0
-/**
- * Fetch the starting and ending bytes from each segment frame.
- * Since segments align their header and footer entries to the
- * beginning and end this method can be used to fetch all the
- * locations where the entries would reside (note returned locations
- * don't necessarily contain valid segment data).
- *
- * \param headerSize
- *      Bytes from the beginning of each segment frame to return; the
- *      starting \a headerSize bytes from each segment frame start at
- *      f * (headerSize + footerSize) for f = 0 to #frameCount - 1
- *      in the returned result.
- * \param footerSize
- *      Bytes from the end of each segment frame to return; the
- *      ending \a footerSize bytes from each segment frame start at
- *      f * (headerSize + footerSize) + headerSize for f = 0 to
- *      #frameCount - 1 in the returned result.
- * \return
- *      An array of bytes of back-to-back entries of alternating
- *      size (first \a headerSize, then \a footerSize, repeated
- *      #frameCount times).
- */
-std::unique_ptr<char[]>
-SingleFileStorage::getAllHeadersAndFooters(size_t headerSize,
-                                           size_t footerSize)
-{
-    typedef char* bytePtr;
-
-    size_t headerBlockSize;
-    size_t footerBlockSize;
-    if (openFlags & O_DIRECT) {
-        headerBlockSize = ((headerSize + BLOCK_SIZE - 1) / BLOCK_SIZE) *
-                                BLOCK_SIZE;
-        footerBlockSize = ((footerSize + BLOCK_SIZE - 1) / BLOCK_SIZE) *
-                                BLOCK_SIZE;
-    } else {
-        headerBlockSize = headerSize;
-        footerBlockSize = footerSize;
+        assert(freeMap[frame.frameIndex] == 1);
+        freeMap[frame.frameIndex] = 0;
+        ret.push_back(&frame);
     }
-    const size_t totalBytes = (footerSize + headerSize) * frameCount;
-    Memory::unique_ptr_free blocks(
-        Memory::xmemalign(HERE, getpagesize(),
-                          headerBlockSize + footerBlockSize),
-        std::free);
-
-    std::unique_ptr<char[]> results(new char[totalBytes]);
-    char* nextResult = results.get();
-
-    off_t offset;
-    ssize_t r;
-
-    // Read the first header.
-    offset = offsetOfSegmentFrame(0);
-    r = pread(fd, blocks.get(), headerBlockSize, offset);
-    if (r != ssize_t(headerBlockSize)) {
-        LOG(ERROR, "Couldn't read the first header of storage.");
-        throw BackupStorageException(HERE, errno);
-    }
-    memcpy(nextResult, blocks.get(), headerSize);
-    nextResult += headerSize;
-
-    // Read the footer and the following header in 1 combined IO.
-    const void* startOfHeader = bytePtr(blocks.get()) + footerBlockSize;
-    for (uint32_t frame = 1; frame < frameCount; ++frame) {
-        off_t offset = offsetOfSegmentFrame(frame) - footerBlockSize;
-        ssize_t r = pread(fd, blocks.get(),
-                          footerBlockSize + headerBlockSize, offset);
-        if (r != ssize_t(footerBlockSize + headerBlockSize)) {
-            LOG(ERROR, "Couldn't read header from frame %u and the footer from "
-                "frame %u of storage.", frame, frame + 1);
-            throw BackupStorageException(HERE, errno);
-        }
-        memcpy(nextResult,
-               bytePtr(startOfHeader) - footerSize,
-               footerSize + headerSize);
-        nextResult += footerSize + headerSize;
-    }
-
-    // Read the last footer.
-    offset = offsetOfSegmentFrame(frameCount) - footerBlockSize;
-    r = pread(fd, blocks.get(), footerBlockSize, offset);
-    if (r != ssize_t(footerBlockSize)) {
-        LOG(ERROR, "Couldn't read the last footer of storage.");
-        throw BackupStorageException(HERE, errno);
-    }
-    memcpy(nextResult,
-           bytePtr(blocks.get()) + footerBlockSize - footerSize,
-           footerSize);
-    nextResult += footerSize;
-
-    return results;
+    return ret;
 }
-
-// See BackupStorage::getSegment().
-// NOTE: This must remain thread-safe, so be careful about adding
-// access to other resources.
-void
-SingleFileStorage::getSegment(const BackupStorage::Frame* frame,
-                              char* segment) const
-{
-    uint32_t sourceSegmentFrame =
-        static_cast<const Frame*>(frame)->getSegmentFrame();
-    off_t offset = offsetOfSegmentFrame(sourceSegmentFrame);
-    ssize_t r = pread(fd, segment, segmentSize, offset);
-    if (r != static_cast<ssize_t>(segmentSize))
-        throw BackupStorageException(HERE, errno);
-}
-
-// See BackupStorage::putSegment().
-// NOTE: This must remain thread-safe, so be careful about adding
-// access to other resources.
-void
-SingleFileStorage::putSegment(const BackupStorage::Frame* frame,
-                              const char* segment) const
-{
-    uint32_t targetSegmentFrame =
-        static_cast<const Frame*>(frame)->getSegmentFrame();
-    off_t offset = offsetOfSegmentFrame(targetSegmentFrame);
-    ssize_t r = pwrite(fd, segment, segmentSize, offset);
-    if (r != static_cast<ssize_t>(segmentSize))
-        throw BackupStorageException(HERE, errno);
-}
-#endif
 
 /**
  * Overwrite the on-storage superblock with new information that future
@@ -1019,6 +928,28 @@ SingleFileStorage::quiesce()
                 start = Cycles::rdtsc();
             }
         }
+    }
+}
+
+/**
+ * Scribble on all the metadata blocks of all the storage frames to prevent
+ * what is already on disk from being reused in future runs.
+ * Only safe immedately after this class is instantiated, before it is used
+ * to allocate or perform operations on frames.
+ * Called whenever the cluster name changes from what is stored in
+ * the superblock to prevent replicas already on storage from getting
+ * confused for ones written by the starting up backup process.
+ */
+void
+SingleFileStorage::fry()
+{
+    Buffer empty;
+    uint8_t zeroes[getMetadataSize()];
+    memset(zeroes, 0, sizeof(zeroes));
+    foreach (auto& frame, frames) {
+        frame.open(true);
+        frame.append(empty, 0, 0, 0, zeroes, sizeof(zeroes));
+        frame.free();
     }
 }
 

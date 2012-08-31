@@ -52,7 +52,7 @@ class InMemoryStorage : public BackupStorage {
         Frame(InMemoryStorage* storage, size_t frameIndex);
 
         void loadMetadata();
-        void* getMetadata();
+        const void* getMetadata();
 
         void startLoading();
         bool isLoaded();
@@ -120,12 +120,14 @@ class InMemoryStorage : public BackupStorage {
                     size_t frameCount);
 
     Frame* open(bool sync);
-    void loadAllMetadata();
+    size_t getMetadataSize();
+    std::vector<BackupStorage::Frame*> loadAllMetadata();
     void resetSuperblock(ServerId serverId,
                          const string& clusterName,
                          uint32_t frameSkipMask = 0);
     Superblock loadSuperblock();
     void quiesce();
+    void fry();
 
   PRIVATE:
     /// Maximum size of metadata for each frame.

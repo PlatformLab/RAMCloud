@@ -17,7 +17,6 @@
 #include "Object.h"
 #include "SegmentIterator.h"
 #include "ShortMacros.h"
-#include "Util.h" // XXX
 
 namespace RAMCloud {
 
@@ -59,8 +58,6 @@ BackupReplica::BackupReplica(BackupStorage& storage,
 {
 }
 
-// XXX
-#if 0
 /**
  * Construct a BackupReplica to manage a replica which already has an
  * existing representation on storage.
@@ -73,21 +70,21 @@ BackupReplica::BackupReplica(BackupStorage& storage,
  *      The segment id of the segment being managed.
  * \param segmentSize
  *      The number of bytes contained in this segment.
- * \param segmentFrame
- *      The segment frame number this replica's representation is in.  This
+ * \param frame
+ *      BackupStorage::Frame this replica's representation is in. This
  *      reassociates it with that representation so operations to this
  *      instance affect that segment frame.
  * \param isClosed
- *      Whether the on-storage replica indicates a closed or open status.
- *      This instance will reflect that status.  If this is true the
- *      segment is retreived from storage to simplify some legacy code
- *      that assumes open replicas reside in memory.
+ *      Whether the on-storage replica metadata indicates a closed or
+ *      open status. This instance will reflect that status. If this is
+ *      true the segment is retreived from storage to simplify some
+ *      code that assumes open replicas reside in memory.
  */
 BackupReplica::BackupReplica(BackupStorage& storage,
                              ServerId masterId,
                              uint64_t segmentId,
                              uint32_t segmentSize,
-                             uint32_t segmentFrame,
+                             BackupStorage::Frame* frame,
                              bool isClosed)
     : masterId(masterId)
     , primary(false)
@@ -99,32 +96,21 @@ BackupReplica::BackupReplica(BackupStorage& storage,
     , recoverySegments(NULL)
     , recoverySegmentsLength()
     , rightmostWrittenOffset(0)
-    , segment()
     , segmentSize(segmentSize)
     , state(isClosed ? CLOSED : OPEN)
-    , frame()
+    , frame(frame)
     , storage(storage)
 {
-    // XXX: Busted, but only called by restart
-    frame = storage.associate(segmentFrame);
-    if (state == OPEN) {
-        auto buffers = frame->load();
-        segment = buffers.first;
-        // There is some disagreement between the masters and backups about
-        // the meaning of "open".  In a few places the backup code assumes
-        // open replicas must be in memory.  For now its easiest just to
-        // make sure that is the case, so on cold start we have to reload
-        // open replicas into ram.
-    }
+    if (state == OPEN)
+        frame->load();
 
     // TODO(stutsman): Claim this replica is the longest if it was closed
-    // and the shortest if it was open.  This field should go away soon, but
+    // and the shortest if it was open. This field should go away soon, but
     // this should make it so that replicas from backups that haven't crashed
     // are preferred over this one.
     if (state == CLOSED)
         rightmostWrittenOffset = BYTES_WRITTEN_CLOSED;
 }
-#endif
 
 /**
  * Store any open segments to storage and then release all resources
@@ -405,9 +391,11 @@ BackupReplica::buildRecoverySegments(const ProtoBuf::Tablets& partitions)
         return;
     }
 
+    // No need to check integrity or which segment it is for. That is
+    // checked on startup and then taken care of by construction.
+    const BackupReplicaMetadata* metadata =
+        reinterpret_cast<const BackupReplicaMetadata*>(frame->getMetadata());
     void* segment = frame->load();
-    Segment::Certificate* certificate =
-        reinterpret_cast<Segment::Certificate*>(frame->getMetadata());
 
     uint64_t start = Cycles::rdtsc();
 
@@ -427,23 +415,10 @@ BackupReplica::buildRecoverySegments(const ProtoBuf::Tablets& partitions)
 
     try {
         const SegmentHeader* header = NULL;
-        SegmentIterator it(segment, segmentSize, *certificate);
+        SegmentIterator it(segment, segmentSize, metadata->getCertificate());
         it.checkMetadataIntegrity();
         for (; !it.isDone(); it.next()) {
             LogEntryType type = it.getType();
-
-            // XXX: Hack: put the right logic here once metadata blocks work.
-            if (type == LOG_ENTRY_TYPE_INVALID ||
-                type >= TOTAL_LOG_ENTRY_TYPES)
-            {
-                break;
-            }
-
-            // XXX
-            if (type == LOG_ENTRY_TYPE_SEGFOOTER) {
-                LOG(ERROR, "Footer in the segment. Shouldn't happen anymore");
-                continue;
-            }
 
             if (type == LOG_ENTRY_TYPE_SEGHEADER) {
                 Buffer buffer;
@@ -647,10 +622,16 @@ BackupReplica::startLoading()
  *      Bytes to copy to the frame starting at \a sourceOffset in \a source.
  * \param destinationOffset
  *      Offset into the replica where the source data should be copied.
- * \param metadata
- *      Metadata which should be written to storage immediately after the data
- *      appended is written. May be NULL if there is no updated metadata to
- *      commit to storage along with this data.
+ * \param certificate
+ *      Written as part of the metadata for this replica. Used
+ *      during recovery to determine how much of the replica contains valid
+ *      data and to verify the integrity of the segment metadata. This may
+ *      be NULL which has two ramifications. First, the data included in
+ *      this write will not be recovered (or, is not durable) until the
+ *      after the next write which includes a certificate. Second, the
+ *      most recently appended certificate will be used during recovery,
+ *      which means only data covered by that certificate will be recovered
+ *      regardless of how much has been transmitted to the backup.
  * \param metadataLength
  *      Bytes of metadata pointed to by \a metadata. Ignored if \a metadata
  *      is NULL.
@@ -660,14 +641,19 @@ BackupReplica::append(Buffer& source,
                       size_t sourceOffset,
                       size_t length,
                       size_t destinationOffset,
-                      const void* metadata,
-                      size_t metadataLength)
+                      const Segment::Certificate* certificate)
 {
     Lock lock(mutex);
     assert(state == OPEN);
-    // XXX: Need more than just footer entry here.
-    frame->append(source, sourceOffset, length, destinationOffset,
-                  metadata, metadataLength);
+    if (certificate) {
+        BackupReplicaMetadata metadata(*certificate,
+                                       masterId.getId(), segmentId,
+                                       segmentSize, false);
+        frame->append(source, sourceOffset, length, destinationOffset,
+                      &metadata, sizeof(metadata));
+    } else {
+        frame->append(source, sourceOffset, length, destinationOffset, NULL, 0);
+    }
     rightmostWrittenOffset =
         std::max(rightmostWrittenOffset,
                  downCast<uint32_t>(destinationOffset + length));
@@ -690,24 +676,21 @@ BackupReplica::getLogDigest(Buffer* digestBuffer)
     if (!isOpen())
         return false;
 
+    // No need to check integrity or which segment it is for. That is
+    // checked on startup and then taken care of by construction.
+    const BackupReplicaMetadata* metadata =
+        reinterpret_cast<const BackupReplicaMetadata*>(frame->getMetadata());
     // This should never block since getLogDigest is only called for open
     // segments which we always keep in memory.
     void* replicaData = frame->load();
-    Segment::Certificate* certificate =
-        reinterpret_cast<Segment::Certificate*>(frame->getMetadata());
 
     // If the Segment is malformed somehow, just ignore it. The
     // coordinator will have to deal.
     try {
-        SegmentIterator it(replicaData, segmentSize, *certificate);
+        SegmentIterator it(replicaData, segmentSize,
+                           metadata->getCertificate());
         it.checkMetadataIntegrity();
         while (!it.isDone()) {
-            // XXX: Hack until certificates work.
-            if (it.getType() == LOG_ENTRY_TYPE_INVALID ||
-                it.getType() >= TOTAL_LOG_ENTRY_TYPES)
-            {
-                break;
-            }
             if (it.getType() == LOG_ENTRY_TYPE_LOGDIGEST) {
                 if (digestBuffer != NULL)
                     it.appendToBuffer(*digestBuffer);

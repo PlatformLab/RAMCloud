@@ -390,6 +390,8 @@ BackupService::BackupService(Context* context,
                                             config.backup.file.c_str(),
                                             O_DIRECT | O_SYNC));
     }
+    if (storage->getMetadataSize() < sizeof(BackupReplicaMetadata))
+        DIE("Storage metadata block too small to hold BackupReplicaMetadata");
 
     recoveryTicks.construct(); // make unit tests happy
 
@@ -417,7 +419,7 @@ BackupService::BackupService(Context* context,
                 "('%s'). Scribbling storage to ensure any stale replicas left "
                 "behind by old backups aren't used by future backups",
                 superblock.getClusterName());
-            killAllStorage();
+            storage->fry();
         }
     }
 }
@@ -703,35 +705,6 @@ BackupService::init(ServerId id)
 }
 
 /**
- * Scribble a bit over all the headers of all the segment frames to prevent
- * what is already on disk from being reused in future runs.
- * This is called whenever the user requests to not use the stored segment
- * frames.  Not doing this could yield interesting surprises to the user.
- * For example, one might find replicas for the same segment id with
- * different contents during future runs.
- */
-void
-BackupService::killAllStorage()
-{
-// XXX Rewrite
-#if 0
-    CycleCounter<> killTime;
-    for (uint32_t frame = 0; frame < config.backup.numSegmentFrames; ++frame) {
-        // XXX: Doesn't work anymore? Do we care?
-        std::unique_ptr<BackupStorage::Frame>
-            handle(storage->associate(frame));
-        if (handle) {
-            handle->free();
-            handle.release();
-        }
-    }
-
-    LOG(NOTICE, "On-storage replica destroyed: %f ms",
-        1000. * Cycles::toSeconds(killTime.stop()));
-#endif
-}
-
-/**
  * Flush all data to storage.
  * Returns once all dirty buffers have been written to storage.
  * \param reqHdr
@@ -773,115 +746,65 @@ BackupService::recoveryComplete(
 
 /**
  * Scans storage to find replicas left behind by former backups and
- * incorporates them into this backup.  This should only be called before
+ * incorporates them into this backup. This should only be called before
  * the backup has serviced any requests.
  *
- * Only replica headers and footers are scanned.  Any replica with a valid
- * header but no discernable footer is included and considered open.  If a
- * header is found and a reasonable footer then the segment is considered
- * closed.  At some point backups will want to write a checksum even for open
- * segments so we'll need some changes to the logic of this method to deal
- * with that.  Also, at that point we should augment the checksum to cover
- * the log entry type of the footer as well.
+ * Only replica metadata is scanned. It is possible that the actual replica
+ * data found on storage during recovery is inconsistent with the metadata
+ * scanned here at startup. Recovery must correctly deal with such
+ * inconsistencies.
  */
 void
 BackupService::restartFromStorage()
 {
     CycleCounter<> restartTime;
 
-    // XXX: storage->loadAllMetadata();
-    // XXX: Take a GOOD look at the old code for this to make sure all
-    // cases are handled.
-    return;
-#if 0
-    struct HeaderAndFooter {
-        SegmentEntry headerEntry;
-        SegmentHeader header;
-        SegmentEntry footerEntry;
-        SegmentFooter footer;
-    } __attribute__ ((packed));
-    assert(sizeof(HeaderAndFooter) ==
-           2 * sizeof(SegmentEntry) +
-           sizeof(SegmentHeader) +
-           sizeof(SegmentFooter));
-
-    std::unique_ptr<char[]> allHeadersAndFooters =
-        storage->getAllHeadersAndFooters(
-            sizeof(SegmentEntry) + sizeof(SegmentHeader),
-            sizeof(SegmentEntry) + sizeof(SegmentFooter));
-
-    if (!allHeadersAndFooters) {
-        LOG(NOTICE, "Selected backup storage does not support restart of "
-            "backups, continuing as an empty backup");
-        return;
-    }
-
-    const HeaderAndFooter* entries =
-        reinterpret_cast<const HeaderAndFooter*>(allHeadersAndFooters.get());
-
-    // Keeps track of which task is garbage collecting replicas for each
-    // masterId.
     std::unordered_map<ServerId, GarbageCollectReplicasFoundOnStorageTask*>
         gcTasks;
 
-    for (uint32_t frame = 0; frame < config.backup.numSegmentFrames; ++frame) {
-        auto& entry = entries[frame];
-        // Check header.
-        if (entry.headerEntry.type != LOG_ENTRY_TYPE_SEGHEADER) {
-            TEST_LOG("Log entry type for header does not match in frame %u",
-                     frame);
+    std::vector<BackupStorage::Frame*> frames = storage->loadAllMetadata();
+    foreach (BackupStorage::Frame* frame, frames) {
+        const BackupReplicaMetadata* metadata =
+            static_cast<const BackupReplicaMetadata*>(frame->getMetadata());
+        if (!metadata->checkIntegrity()) {
+            frame->free();
             continue;
         }
-        if (entry.headerEntry.length != sizeof32(SegmentHeader)) {
-            LOG(WARNING, "Unexpected log entry length while reading segment "
-                "replica header from backup storage, discarding replica, "
-                "(expected length %lu, stored length %u)",
-                sizeof(SegmentHeader), entry.headerEntry.length);
-            continue;
-        }
-        if (entry.header.segmentCapacity != segmentSize) {
-            LOG(ERROR, "An on-storage segment header indicates a different "
+        if (metadata->getSegmentCapacity() != segmentSize) {
+            LOG(ERROR, "On-storage replica metadata indicates a different "
                 "segment size than the backup service was told to use; "
                 "ignoring the problem; note ANY call to open a segment "
                 "on this backup could cause the overwrite of your strangely "
                 "sized replicas.");
+            frame->free();
+            continue;
         }
-
-        const uint64_t logId = entry.header.logId;
-        const uint64_t segmentId = entry.header.segmentId;
-        // Check footer.
-        bool wasClosedOnStorage = false;
-        if (entry.footerEntry.type == LOG_ENTRY_TYPE_SEGFOOTER &&
-            entry.footerEntry.length == sizeof(SegmentFooter)) {
-            wasClosedOnStorage = true;
-        }
-        // TODO(stutsman): Eventually will need open segment checksums.
+        const ServerId masterId(metadata->getLogId());
         LOG(DEBUG, "Found stored replica <%s,%lu> on backup storage in "
-                   "frame %u which was %s",
-            ServerId(entry.header.logId).toString().c_str(),
-            entry.header.segmentId, frame,
-            wasClosedOnStorage ? "closed" : "open");
+                   "frame which was %s",
+            masterId.toString().c_str(),
+            metadata->getSegmentId(), metadata->isClosed() ? "closed" : "open");
 
-        // Add this replica to metadata.
-        const ServerId masterId(logId);
-        auto* replica = new BackupReplica(*storage, pool, ioScheduler,
-                               masterId, segmentId, segmentSize,
-                               frame, wasClosedOnStorage);
-        segments[MasterSegmentIdPair(masterId, segmentId)] = replica;
+        // Add this replica to backup's metadata structures.
+        auto* replica = new BackupReplica(*storage,
+                                          masterId, metadata->getSegmentId(),
+                                          segmentSize,
+                                          frame, metadata->isClosed());
+        segments[MasterSegmentIdPair(masterId, metadata->getSegmentId())] =
+            replica;
         if (gcTasks.find(masterId) == gcTasks.end()) {
             gcTasks[masterId] =
                 new GarbageCollectReplicasFoundOnStorageTask(*this, masterId);
         }
-        gcTasks[masterId]->addSegmentId(segmentId);
+        gcTasks[masterId]->addSegmentId(metadata->getSegmentId());
     }
 
     // Kick off the garbage collection for replicas stored on disk.
     foreach (const auto& value, gcTasks)
         value.second->schedule();
 
-    LOG(NOTICE, "Replica information retreived from storage: %f ms",
+    LOG(NOTICE, "Replica information retrieved from storage: %f ms",
         1000. * Cycles::toSeconds(restartTime.stop()));
-#endif
 }
 
 /**
@@ -1010,7 +933,6 @@ BackupService::startReadingData(
     if (allRecovered)
         return;
 
-#ifndef SINGLE_THREADED_BACKUP
     RecoverySegmentBuilder builder(context,
                                    primarySegments,
                                    partitions,
@@ -1021,7 +943,6 @@ BackupService::startReadingData(
     builderThread.detach();
     LOG(DEBUG, "Kicked off building recovery segments; "
                "main thread going back to dispatching requests");
-#endif
 }
 
 /**
@@ -1093,11 +1014,7 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request& reqHdr,
 
     // Perform open, if any.
     if ((reqHdr.flags & WireFormat::BackupWrite::OPEN)) {
-#ifdef SINGLE_THREADED_BACKUP
-        bool primary = false;
-#else
         bool primary = reqHdr.flags & WireFormat::BackupWrite::PRIMARY;
-#endif
         if (primary) {
             uint32_t numReplicas = downCast<uint32_t>(
                 replicationGroup.size());
@@ -1161,8 +1078,7 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request& reqHdr,
                                                 &reqHdr.certificate : NULL;
             replica->append(rpc.requestPayload, sizeof(reqHdr),
                             reqHdr.length, reqHdr.offset,
-                            static_cast<const void*>(certificate),
-                            sizeof(*certificate));
+                            certificate);
         }
         metrics->backup.writeCopyBytes += reqHdr.length;
         bytesWritten += reqHdr.length;

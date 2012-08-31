@@ -121,16 +121,6 @@ class BackupStorage {
         ServerId getServerId() { return ServerId(serverId); }
     } __attribute__((packed));
 
-    virtual void resetSuperblock(ServerId serverId,
-                                 const string& clusterName,
-                                 uint32_t frameSkipMask = 0) = 0;
-    virtual Superblock loadSuperblock() = 0;
-    virtual void quiesce() = 0;
-
-    virtual ~BackupStorage() {}
-
-    virtual pair<uint32_t, uint32_t> benchmark(BackupStrategy backupStrategy);
-
     /**
      * An opaque frame used to access a stored segment. All concrete
      * implementations of BackupStorage will subclass this to contain the
@@ -138,8 +128,9 @@ class BackupStorage {
      */
     class Frame {
       PUBLIC:
+        // XXX: All these need docs.
         virtual void loadMetadata() = 0;
-        virtual void* getMetadata() = 0;
+        virtual const void* getMetadata() = 0;
 
         virtual void startLoading() = 0;
         virtual bool isLoaded() = 0;
@@ -166,14 +157,26 @@ class BackupStorage {
       DISALLOW_COPY_AND_ASSIGN(Frame);
     };
 
-    /// See #storageType.
-    enum class Type { UNKNOWN = 0, MEMORY = 1, DISK = 2 };
+    virtual ~BackupStorage() {}
 
+    // XXX: All these need docs.
     /**
      * Set aside storage for a specific segment and give a frame back
      * for working with that storage.
      */
     virtual Frame* open(bool sync) = 0;
+    virtual pair<uint32_t, uint32_t> benchmark(BackupStrategy backupStrategy);
+    virtual size_t getMetadataSize() = 0;
+    virtual std::vector<Frame*> loadAllMetadata() = 0;
+    virtual void resetSuperblock(ServerId serverId,
+                                 const string& clusterName,
+                                 uint32_t frameSkipMask = 0) = 0;
+    virtual Superblock loadSuperblock() = 0;
+    virtual void quiesce() = 0;
+    virtual void fry() = 0;
+
+    /// See #storageType.
+    enum class Type { UNKNOWN = 0, MEMORY = 1, DISK = 2 };
 
   PROTECTED:
     /**

@@ -62,4 +62,6 @@ TEST_F(InMemoryStorageTest, open) {
     EXPECT_EQ(0U, frame->frameIndex);
 }
 
+// XXX: unit test loadAllMetadata.
+
 } // namespace RAMCloud

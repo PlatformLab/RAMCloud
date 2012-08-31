@@ -63,14 +63,16 @@ class BackupReplica {
     };
 
     BackupReplica(BackupStorage& storage,
-                ServerId masterId, uint64_t segmentId,
-                uint32_t segmentSize, bool primary);
-// XXX
-#if 0
+                  ServerId masterId,
+                  uint64_t segmentId,
+                  uint32_t segmentSize,
+                  bool primary);
     BackupReplica(BackupStorage& storage,
-                ServerId masterId, uint64_t segmentId,
-                uint32_t segmentSize, uint32_t segmentFrame, bool isClosed);
-#endif
+                  ServerId masterId,
+                  uint64_t segmentId,
+                  uint32_t segmentSize,
+                  BackupStorage::Frame* frame,
+                  bool isClosed);
     ~BackupReplica();
     Status appendRecoverySegment(uint64_t partitionId, Buffer* buffer,
                                  Segment::Certificate* certificate);
@@ -109,8 +111,7 @@ class BackupReplica {
                 size_t sourceOffset,
                 size_t length,
                 size_t destinationOffset,
-                const void* metadata,
-                size_t metadataLength);
+                const Segment::Certificate* certificate);
     bool getLogDigest(Buffer* digestBuffer);
 
     /// The id of the master from which this segment came.
@@ -189,6 +190,108 @@ class BackupReplica {
 
     DISALLOW_COPY_AND_ASSIGN(BackupReplica);
 };
+
+/**
+ * Metadata stored along with each replica on storage.
+ * Contains the information needed to check the integrity of the
+ * metadata block itself and the metadata inside the replica data
+ * as well as any details needed about the replica during recovery
+ * and after backups restart.
+ */
+class BackupReplicaMetadata {
+  PUBLIC:
+    /**
+     * Create metadata and seal it with a checksum.
+     * See below for the meaning of each of the fields.
+     */
+    BackupReplicaMetadata(const Segment::Certificate& certificate,
+                          uint64_t logId,
+                          uint64_t segmentId,
+                          uint32_t segmentCapacity,
+                          bool closed)
+        : certificate(certificate)
+        , logId(logId)
+        , segmentId(segmentId)
+        , segmentCapacity(segmentCapacity)
+        , closed(closed)
+        , checksum()
+    {
+        Crc32C calculatedChecksum;
+        calculatedChecksum.update(this,
+                                  sizeof(*this) - sizeof(checksum));
+        checksum = calculatedChecksum.getResult();
+    }
+
+    // Accessors for the fields defined below.
+    Segment::Certificate getCertificate() const { return certificate; }
+    uint64_t getLogId() const { return logId; }
+    uint64_t getSegmentId() const { return segmentId; }
+    uint32_t getSegmentCapacity() const { return segmentCapacity; }
+    bool isClosed() const { return closed; }
+
+    /**
+     * Checksum the fields of this metadata and compare them to the
+     * checksum that are stored are part of the metadata. Used to
+     * ensure the fields weren't corrupted on storage. Only used
+     * on backup startup, which is the only time metadata is ever
+     * loaded from storage.
+     */
+    bool checkIntegrity() const {
+        Crc32C calculatedChecksum;
+        calculatedChecksum.update(this,
+                                  sizeof(*this) - sizeof(checksum));
+        return calculatedChecksum.getResult() == checksum;
+    }
+  PRIVATE:
+    /**
+     * Used to check the integrity of the replica stored in the same
+     * storage frame as this metadata. Supplied by masters on calls
+     * to append data to replicas.
+     */
+    Segment::Certificate certificate;
+
+    /**
+     * Particular log the replica stored in the same storage frame
+     * as this metadata is part of. Used to restart to take
+     * inventory of which replicas are (likely) on storage and
+     * will be available for recoveries.
+     */
+    uint64_t logId;
+
+    /**
+     * Particular segment the replica stored in the same storage frame
+     * as this metadata is a replica of. Used to restart to take
+     * inventory of which replicas are (likely) on storage and
+     * will be available for recoveries.
+     */
+    uint64_t segmentId;
+
+    /**
+     * Size of the associated replica on storage. Used to ensure that
+     * if metadata is somehow found on disk after restarting a
+     * backup with a different segment size the replica isn't used.
+     */
+    uint32_t segmentCapacity;
+
+    /**
+     * Whether the replica on disk was closed by the master which
+     * created it. Only has meaning to higher level recovery code
+     * which uses it to preserve consistency properties of a
+     * master's replicated log.
+     */
+    bool closed;
+
+    /**
+     * Checksum of all the above fields. Must come last in the class.
+     * Populated on construction; can be checked with checkIntegrity().
+     * Protects the fields of this structure from corruption on/by
+     * storage.
+     */
+    Crc32C::ResultType checksum;
+} __attribute__((packed));
+// Substitute for std::is_trivially_copyable until we have real C++11.
+static_assert(sizeof(BackupReplicaMetadata) == 33,
+              "Unexpected padding in BackupReplicaMetadata");
 
 } // namespace RAMCloud
 

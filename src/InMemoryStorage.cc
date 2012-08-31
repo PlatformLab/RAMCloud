@@ -55,7 +55,7 @@ InMemoryStorage::Frame::loadMetadata()
  * backup restart and master recovery to extract details about the replica
  * in this frame without loading the frame.
  */
-void*
+const void*
 InMemoryStorage::Frame::getMetadata()
 {
     return metadata.get();
@@ -294,11 +294,42 @@ InMemoryStorage::open(bool sync)
 }
 
 /**
- * No-op for InMemoryStorage.
+ * Returns the maximum number of bytes of metadata that can be stored
+ * which each append(). Also, how many bytes of getMetadata() are safe
+ * for access after getMetadata() calls, though returned data may or may
+ * not contain valid or meaningful (or even consistent with the
+ * replica) metadata.
  */
-void
+size_t
+InMemoryStorage::getMetadataSize()
+{
+    return METADATA_SIZE;
+}
+
+/**
+ * Marks ALL storage frames as allocated and blows away any in-memory copies
+ * of metadata. This should only be performed at backup startup. The caller is
+ * reponsible for freeing the frames if the metadata indicates the replica
+ * data stored there isn't useful.
+ *
+ * \return
+ *      Pointer to every frame which has various uses depending on the
+ *      metadata that is found in that frame. BackupService code is expected
+ *      to examine the metadata and either free the frame or take note of the
+ *      metadata in the frame for potential use in future recoveries.
+ */
+std::vector<BackupStorage::Frame*>
 InMemoryStorage::loadAllMetadata()
 {
+    std::vector<BackupStorage::Frame*> ret;
+    ret.reserve(frames.size());
+    foreach (auto& frame, frames) {
+        frame.loadMetadata();
+        assert(freeMap[frame.frameIndex] == 1);
+        freeMap[frame.frameIndex] = 0;
+        ret.push_back(&frame);
+    }
+    return ret;
 }
 
 /**
@@ -325,6 +356,14 @@ InMemoryStorage::loadSuperblock()
  */
 void
 InMemoryStorage::quiesce()
+{
+}
+
+/**
+ * No-op for InMemoryStorage.
+ */
+void
+InMemoryStorage::fry()
 {
 }
 
