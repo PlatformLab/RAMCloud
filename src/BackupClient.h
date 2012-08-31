@@ -68,11 +68,15 @@ class FreeSegmentRpc : public ServerIdRpcWrapper {
  */
 class GetRecoveryDataRpc : public ServerIdRpcWrapper {
   public:
-    GetRecoveryDataRpc(Context* context, ServerId backupId,
-            ServerId masterId, uint64_t segmentId, uint64_t partitionId,
-            Buffer* responseBuffer);
+    GetRecoveryDataRpc(Context* context,
+                       uint64_t recoveryId,
+                       ServerId backupId,
+                       ServerId masterId,
+                       uint64_t segmentId,
+                       uint64_t partitionId,
+                       Buffer* responseBuffer);
     ~GetRecoveryDataRpc() {}
-    void wait();
+    Segment::Certificate wait();
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(GetRecoveryDataRpc);
@@ -181,8 +185,8 @@ class WriteSegmentRpc : public ServerIdRpcWrapper {
     WriteSegmentRpc(Context* context, ServerId backupId,
                     ServerId masterId, uint64_t segmentId,
                     const Segment* segment, uint32_t offset, uint32_t length,
-                    const Segment::OpaqueFooterEntry* footerEntry,
-                    WireFormat::BackupWrite::Flags flags, bool atomic);
+                    const Segment::Certificate* certificate,
+                    WireFormat::BackupWrite::Flags flags);
     ~WriteSegmentRpc() {}
     vector<ServerId> wait();
 
@@ -202,9 +206,13 @@ class BackupClient {
             const ServerId* replicationGroupIds);
     static void freeSegment(Context* context, ServerId backupId,
             ServerId masterId, uint64_t segmentId);
-    static void getRecoveryData(Context* context, ServerId backupId,
-            ServerId masterId, uint64_t segmentId, uint64_t partitionId,
-            Buffer* response);
+    static Segment::Certificate getRecoveryData(Context* context,
+                                                uint64_t recoveryId,
+                                                ServerId backupId,
+                                                ServerId masterId,
+                                                uint64_t segmentId,
+                                                uint64_t partitionId,
+                                                Buffer* response);
     static void quiesce(Context* context, ServerId backupId);
     static void recoveryComplete(Context* context, ServerId backupId,
             ServerId masterId);
@@ -214,10 +222,9 @@ class BackupClient {
     static vector<ServerId> writeSegment(Context* context, ServerId backupId,
             ServerId masterId, uint64_t segmentId, const Segment* segment,
             uint32_t offset, uint32_t length,
-            const Segment::OpaqueFooterEntry* footerEntry,
+            const Segment::Certificate* certificate,
             WireFormat::BackupWrite::Flags flags =
-                                        WireFormat::BackupWrite::NONE,
-            bool atomic = false);
+                                        WireFormat::BackupWrite::NONE);
 
   private:
     BackupClient();

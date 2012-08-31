@@ -238,7 +238,7 @@ Log::sync()
             throw FatalError(HERE, "Could not allocate initial head segment");
     }
 
-    Segment::OpaqueFooterEntry unused;
+    Segment::Certificate unused;
     head->replicatedSegment->sync(head->getAppendedLength(unused));
     TEST_LOG("log synced");
 }
@@ -264,7 +264,7 @@ Log::getHeadPosition()
         return { 0, 0 };
     }
 
-    Segment::OpaqueFooterEntry unused;
+    Segment::Certificate unused;
     return { head->id, head->getAppendedLength(unused) };
 }
 

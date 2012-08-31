@@ -999,8 +999,9 @@ MasterService::receiveMigrationData(
         respHdr.common.status = STATUS_REQUEST_FORMAT_ERROR;
         return;
     }
-    const void* segmentMemory = rpc.requestPayload.getStart<const void*>();
-    recoverSegment(-1, segmentMemory, segmentBytes);
+    // XXX: Need certificate.
+    //const void* segmentMemory = rpc.requestPayload.getStart<const void*>();
+    //recoverSegment(-1, segmentMemory, segmentBytes);
 
     // TODO(rumble/slaughter) what about tablet version numbers?
     //          - need to be made per-server now, no? then take max of two?
@@ -1120,10 +1121,12 @@ namespace MasterServiceInternal {
 class RecoveryTask {
   PUBLIC:
     RecoveryTask(Context* context,
+                 uint64_t recoveryId,
                  ServerId masterId,
                  uint64_t partitionId,
                  MasterService::Replica& replica)
         : context(context)
+        , recoveryId(recoveryId)
         , masterId(masterId)
         , partitionId(partitionId)
         , replica(replica)
@@ -1131,7 +1134,8 @@ class RecoveryTask {
         , startTime(Cycles::rdtsc())
         , rpc()
     {
-        rpc.construct(context, replica.backupId, masterId, replica.segmentId,
+        rpc.construct(context, recoveryId,
+                      replica.backupId, masterId, replica.segmentId,
                       partitionId, &response);
     }
     ~RecoveryTask()
@@ -1145,10 +1149,12 @@ class RecoveryTask {
     void resend() {
         LOG(DEBUG, "Resend %lu", replica.segmentId);
         response.reset();
-        rpc.construct(context, replica.backupId, masterId, replica.segmentId,
+        rpc.construct(context, recoveryId,
+                      replica.backupId, masterId, replica.segmentId,
                       partitionId, &response);
     }
     Context* context;
+    uint64_t recoveryId;
     ServerId masterId;
     uint64_t partitionId;
     MasterService::Replica& replica;
@@ -1243,7 +1249,8 @@ MasterService::detectSegmentRecoveryFailure(
  *      a valid replacement for the crashed master.
  */
 void
-MasterService::recover(ServerId masterId,
+MasterService::recover(uint64_t recoveryId,
+                       ServerId masterId,
                        uint64_t partitionId,
                        vector<Replica>& replicas)
 {
@@ -1320,7 +1327,7 @@ MasterService::recover(ServerId masterId,
                 context->serverList->toString(replica.backupId).c_str(),
                 replica.segmentId,
                 &task - &tasks[0]);
-            task.construct(context, masterId, partitionId,
+            task.construct(context, recoveryId, masterId, partitionId,
                            replica);
             replica.state = Replica::State::WAITING;
             runningSet.insert(replica.segmentId);
@@ -1358,7 +1365,7 @@ MasterService::recover(ServerId masterId,
                 task->replica.segmentId,
                 context->serverList->toString(task->replica.backupId).c_str());
             try {
-                task->rpc->wait();
+                Segment::Certificate certificate = task->rpc->wait();
                 uint64_t grdTime = Cycles::rdtsc() - task->startTime;
                 metrics->master.segmentReadTicks += grdTime;
 
@@ -1381,7 +1388,7 @@ MasterService::recover(ServerId masterId,
                 uint64_t startUseful = Cycles::rdtsc();
                 recoverSegment(task->replica.segmentId,
                                task->response.getRange(0, responseLen),
-                               responseLen);
+                               responseLen, certificate);
                 usefulTime += Cycles::rdtsc() - startUseful;
 
                 runningSet.erase(task->replica.segmentId);
@@ -1439,7 +1446,8 @@ MasterService::recover(ServerId masterId,
                     context->serverList->toString(replica.backupId).c_str(),
                     replica.segmentId,
                     &task - &tasks[0]);
-                task.construct(context, masterId, partitionId, replica);
+                task.construct(context, recoveryId,
+                               masterId, partitionId, replica);
                 replica.state = Replica::State::WAITING;
                 runningSet.insert(replica.segmentId);
                 ++metrics->master.segmentReadCount;
@@ -1581,7 +1589,7 @@ MasterService::recover(const WireFormat::Recover::Request& reqHdr,
     // Recover Segments, firing MasterService::recoverSegment for each one.
     bool successful = false;
     try {
-        recover(crashedServerId, partitionId, replicas);
+        recover(recoveryId, crashedServerId, partitionId, replicas);
         successful = true;
     } catch (const SegmentRecoveryFailedException& e) {
         // Recovery wasn't successful.
@@ -1691,14 +1699,17 @@ MasterService::recoverSegmentPrefetcher(SegmentIterator& it)
  */
 void
 MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
-                              uint32_t bufferLength)
+                              uint32_t bufferLength,
+                              const Segment::Certificate& certificate)
 {
     uint64_t startReplicationTicks = metrics->master.replicaManagerTicks;
     LOG(DEBUG, "recoverSegment %lu, ...", segmentId);
     CycleCounter<RawMetric> _(&metrics->master.recoverSegmentTicks);
 
-    SegmentIterator it(buffer, bufferLength);
-    SegmentIterator prefetch(buffer, bufferLength);
+    SegmentIterator it(buffer, bufferLength, certificate);
+    it.checkMetadataIntegrity();
+    SegmentIterator prefetch(buffer, bufferLength, certificate);
+    // No need to check integrity for the prefetch iterator. Covered above.
 
     uint64_t bytesIterated = 0;
     while (!it.isDone()) {

@@ -90,9 +90,9 @@ ReplicatedSegment::ReplicatedSegment(Context* context,
     , segmentId(segmentId)
     , maxBytesPerWriteRpc(maxBytesPerWriteRpc)
     , queued(true, 0, false)
-    , queuedFooterEntry()
+    , queuedCertificate()
     , openLen(0)
-    , openingWriteFooterEntry()
+    , openingWriteCertificate()
     , freeQueued(false)
     , followingSegment(NULL)
     , precedingSegmentCloseCommitted(true)
@@ -101,9 +101,9 @@ ReplicatedSegment::ReplicatedSegment(Context* context,
     , listEntries()
     , replicas(numReplicas)
 {
-    openLen = segment->getAppendedLength(openingWriteFooterEntry);
+    openLen = segment->getAppendedLength(openingWriteCertificate);
     queued.bytes = openLen;
-    queuedFooterEntry = openingWriteFooterEntry;
+    queuedCertificate = openingWriteCertificate;
     schedule(); // schedule to replicate the opening data
 }
 
@@ -169,7 +169,7 @@ ReplicatedSegment::free()
 bool
 ReplicatedSegment::isSynced() const
 {
-    Segment::OpaqueFooterEntry unused;
+    Segment::Certificate unused;
     uint32_t appendedBytes = segment->getAppendedLength(unused);
     if (queued.bytes != appendedBytes)
         return false;
@@ -197,10 +197,10 @@ ReplicatedSegment::close()
     // It is necessary to update queued.bytes here because the segment believes
     // it has fully replicated all data when queued.close and
     // getCommitted().bytes == queued.bytes.
-    Segment::OpaqueFooterEntry footerEntry;
-    uint32_t appendedBytes = segment->getAppendedLength(footerEntry);
+    Segment::Certificate certficate;
+    uint32_t appendedBytes = segment->getAppendedLength(certficate);
     queued.bytes = appendedBytes;
-    queuedFooterEntry = footerEntry;
+    queuedCertificate = certficate;
     schedule();
 
     LOG(DEBUG, "Segment %lu closed (length %d)", segmentId, queued.bytes);
@@ -298,13 +298,13 @@ ReplicatedSegment::handleBackupFailure(ServerId failedId)
  * 2) #syncMutex chooses just one thread at a time to attempt to sync all
  *    the data found in the segment immediately after it acquires the locks.
  *    This is important because it prevents repeated calls to
- *    segment->getAppendedLength(). Repeated calls could "push out" the
- *    offset of the next footer to be sent to the backups. Then, since there is
- *    a limit the size of write rpcs, it is possible that several back-to-back
- *    rpcs wouldn't include a footer. Some sync()s could have to wait for
- *    several round trips while they wait for the next footer to be sent out
- *    before they are considered committed and safe for acknowledgement to
- *    clients.
+ *    segment->getAppendedLength(). Repeated calls could "stretch out" the
+ *    offset of the next certificate to be sent to the backups. Then, since
+ *    there is a limit the size of write rpcs, it is possible that several
+ *    back-to-back rpcs wouldn't include a certificate. Some sync()s could
+ *    have to wait for several round trips while they wait for the next
+ *    certificate to be sent out before they are considered committed and safe
+ *    for acknowledgement to clients.
  *
  * \param offset
  *      The number of bytes of the segment that must be replicated before the
@@ -339,11 +339,11 @@ ReplicatedSegment::sync(uint32_t offset)
         }
     }
 
-    Segment::OpaqueFooterEntry footerEntry;
-    uint32_t appendedBytes = segment->getAppendedLength(footerEntry);
+    Segment::Certificate certficate;
+    uint32_t appendedBytes = segment->getAppendedLength(certficate);
     if (appendedBytes > queued.bytes) {
         queued.bytes = appendedBytes;
-        queuedFooterEntry = footerEntry;
+        queuedCertificate = certficate;
         schedule();
     }
 
@@ -569,7 +569,7 @@ ReplicatedSegment::performWrite(Replica& replica)
                 replica.writeRpc->wait();
                 replica.acked = replica.sent;
                 if (replica.acked == queued || replica.acked.bytes == openLen) {
-                    // committed advances whenever a footer was sent.
+                    // #committed advances whenever a certificate was sent.
                     // Which happens in two cases:
                     // a) all the queued data was acked or
                     // b) the opening write was acked
@@ -628,10 +628,11 @@ ReplicatedSegment::performWrite(Replica& replica)
 
             TEST_LOG("Sending open to backup %s",
                      replica.backupId.toString().c_str());
+            // XXX: Fix atomic replication.
             replica.writeRpc.construct(context, replica.backupId,
                                        masterId, segmentId, segment, 0,
-                                       openLen, &openingWriteFooterEntry,
-                                       flags, replica.replicateAtomically);
+                                       openLen, &openingWriteCertificate,
+                                       flags);
             ++writeRpcsInFlight;
             replica.sent.open = true;
             replica.sent.bytes = openLen;
@@ -658,7 +659,7 @@ ReplicatedSegment::performWrite(Replica& replica)
 
             uint32_t offset = replica.sent.bytes;
             uint32_t length = queued.bytes - offset;
-            Segment::OpaqueFooterEntry* footerEntryToSend = &queuedFooterEntry;
+            Segment::Certificate* certficateToSend = &queuedCertificate;
 
             bool sendClose = queued.close && (offset + length) == queued.bytes;
             WireFormat::BackupWrite::Flags flags =
@@ -670,7 +671,7 @@ ReplicatedSegment::performWrite(Replica& replica)
             if (length > maxBytesPerWriteRpc) {
                 length = maxBytesPerWriteRpc;
                 flags = WireFormat::BackupWrite::NONE;
-                footerEntryToSend = NULL;
+                certficateToSend = NULL;
             }
 
             if (flags == WireFormat::BackupWrite::CLOSE &&
@@ -697,10 +698,11 @@ ReplicatedSegment::performWrite(Replica& replica)
 
             TEST_LOG("Sending write to backup %s",
                      replica.backupId.toString().c_str());
+            // XXX: Fix atomic replication.
             replica.writeRpc.construct(context, replica.backupId, masterId,
                                        segmentId, segment, offset, length,
-                                       footerEntryToSend,
-                                       flags, replica.replicateAtomically);
+                                       certficateToSend,
+                                       flags);
             ++writeRpcsInFlight;
             replica.sent.bytes += length;
             replica.sent.close = (flags == WireFormat::BackupWrite::CLOSE);

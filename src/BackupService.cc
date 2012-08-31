@@ -670,7 +670,8 @@ BackupService::getRecoveryData(
     }
 
     Status status = replica->appendRecoverySegment(reqHdr.partitionId,
-                                                rpc.replyPayload);
+                                                   &rpc.replyPayload,
+                                                   &respHdr.certificate);
     if (status != STATUS_OK) {
         respHdr.common.status = status;
         return;
@@ -788,9 +789,9 @@ BackupService::restartFromStorage()
 {
     CycleCounter<> restartTime;
 
-// This is all broken. BackupService should not dig so deeply into the internals
-// of segments.
     // XXX: storage->loadAllMetadata();
+    // XXX: Take a GOOD look at the old code for this to make sure all
+    // cases are handled.
     return;
 #if 0
     struct HeaderAndFooter {
@@ -1156,12 +1157,12 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request& reqHdr,
 
         {
             CycleCounter<RawMetric> __(&metrics->backup.writeCopyTicks);
-            auto* footerEntry = reqHdr.footerIncluded ?
-                                                &reqHdr.footerEntry : NULL;
+            auto* certificate = reqHdr.certificateIncluded ?
+                                                &reqHdr.certificate : NULL;
             replica->append(rpc.requestPayload, sizeof(reqHdr),
                             reqHdr.length, reqHdr.offset,
-                            static_cast<const void*>(footerEntry),
-                            sizeof(*footerEntry));
+                            static_cast<const void*>(certificate),
+                            sizeof(*certificate));
         }
         metrics->backup.writeCopyBytes += reqHdr.length;
         bytesWritten += reqHdr.length;

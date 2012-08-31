@@ -260,15 +260,15 @@ class ReplicatedSegment : public Task {
         ServerId backupId;
 
         /**
-         * Tracks how much of a replica is durably stored on a backup and
-         * will be available during master recovery if the backup is
-         * available at the time of recovery. Not all data acked as
-         * received by a backup is committed. Some backup rpcs may
-         * be sent without a footer (if the data is too large to send in a
-         * single rpc). In such a case the data in that rpc will not be
-         * part of a recovery even if it is acknowledged by the backup.
-         * It only becomes committed when some subsequent provides a
-         * new footer for the segment.
+         * Tracks how much of a replica is durably stored on a backup and will
+         * be available during master recovery if the backup is available at
+         * the time of recovery. Not all data acked as received by a backup is
+         * committed. Some backup rpcs may be sent without a certificate (if
+         * the data is too large to send in a single rpc or if the replica is
+         * being created atomically). In such a case the data in that rpc will
+         * not be part of a recovery even if it is acknowledged by the backup.
+         * It only becomes committed when some subsequent provides a new
+         * certificate for the segment.
          */
         Progress committed;
 
@@ -454,19 +454,19 @@ class ReplicatedSegment : public Task {
     Progress queued;
 
     /**
-     * Footer log entry provided by the #segment which is being replicated that
-     * must be stamped on the end (at #queued.bytes) of the replicas in
-     * storage. During recovery this footer is used to detect corruption and so
-     * must be in place for updates to replicas to be considered durable. If
-     * replica manager cannot send all the data ready to be replicated in the
-     * next rpc (that is, when #queued.bytes - #acked.bytes >
-     * maxBytesPerWriteRpc) it will not send a footer with the write. When
-     * this happens the backup ensures the most recently transmitted footer is
-     * used if the replica is closed or recovered in a way such that all
-     * non-footered writes sent since the last footered write will be
-     * atomically undone.
+     * Provided by the #segment which is being replicated that must be stored
+     * along with the replica in storage. During recovery this certificate is
+     * used to determine how much of the replica is valid and to detect
+     * corruption. Therefore, it must be in place for updates to replicas to be
+     * considered durable. If replica manager cannot send all the data ready to
+     * be replicated in the next rpc (that is, when #queued.bytes -
+     * #acked.bytes > maxBytesPerWriteRpc) it will not send a certificate with
+     * the write. When this happens the backup ensures the most recently
+     * transmitted certificate is used if the replica is closed or recovered in
+     * a way such that all writes not covered by the certificate (since the
+     * last write containing a certificate) will be atomically undone.
      */
-    Segment::OpaqueFooterEntry queuedFooterEntry;
+    Segment::Certificate queuedCertificate;
 
     /**
      * Bytes to send atomically to backups with the opening backup write rpc.
@@ -475,14 +475,14 @@ class ReplicatedSegment : public Task {
     uint32_t openLen;
 
     /**
-     * Similar to #queuedFooterEntry, except it is the footer just for the
+     * Similar to #queuedCertificate, except it is the certificate just for the
      * data sent to the backup with the opening write. Must be kept separately
-     * because new data with new footers can be queued for replication before
-     * the opening write has been sent but the opening write must be sent
-     * without any object data (due to the no-write-before-preceding-close
+     * because new data with new certificate can be queued for replication
+     * before the opening write has been sent but the opening write must be
+     * sent without any object data (due to the no-write-before-preceding-close
      * rule).
      */
-    Segment::OpaqueFooterEntry openingWriteFooterEntry;
+    Segment::Certificate openingWriteCertificate;
 
     /// True if all known replicas of this segment should be freed on backups.
     bool freeQueued;

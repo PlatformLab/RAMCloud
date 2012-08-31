@@ -139,6 +139,11 @@ FreeSegmentRpc::FreeSegmentRpc(Context* context, ServerId backupId,
  *
  * \param context
  *      Overall information about this RAMCloud server.
+ * \param recoveryId
+ *      Which recovery this master is requesting a recovery segment for.
+ *      Recovery segments may be partitioned differently for different
+ *      recoveries even for the same master. This prevents accidental
+ *      use of mispartitioned segments.
  * \param backupId
  *      Identifies a particular backup, which is believed to hold a
  *      replica of the desired segment.
@@ -153,14 +158,18 @@ FreeSegmentRpc::FreeSegmentRpc(Context* context, ServerId backupId,
  *      The objects matching the above parameters will be returned in this
  *      buffer, organized as a Segment.
  */
-void
-BackupClient::getRecoveryData(Context* context, ServerId backupId,
-        ServerId masterId, uint64_t segmentId, uint64_t partitionId,
-        Buffer* response)
+Segment::Certificate
+BackupClient::getRecoveryData(Context* context,
+                              uint64_t recoveryId,
+                              ServerId backupId,
+                              ServerId masterId,
+                              uint64_t segmentId,
+                              uint64_t partitionId,
+                              Buffer* response)
 {
-    GetRecoveryDataRpc rpc(context, backupId, masterId, segmentId,
-            partitionId, response);
-    rpc.wait();
+    GetRecoveryDataRpc rpc(context, recoveryId, backupId, masterId, segmentId,
+                           partitionId, response);
+    return rpc.wait();
 }
 
 /**
@@ -170,6 +179,11 @@ BackupClient::getRecoveryData(Context* context, ServerId backupId,
  *
  * \param context
  *      Overall information about this RAMCloud server.
+ * \param recoveryId
+ *      Which recovery this master is requesting a recovery segment for.
+ *      Recovery segments may be partitioned differently for different
+ *      recoveries even for the same master. This prevents accidental
+ *      use of mispartitioned segments.
  * \param backupId
  *      Identifies a particular backup, which is believed to hold a
  *      replica of the desired segment.
@@ -184,14 +198,19 @@ BackupClient::getRecoveryData(Context* context, ServerId backupId,
  *      The objects matching the above parameters will be returned in this
  *      buffer, organized as a Segment.
  */
-GetRecoveryDataRpc::GetRecoveryDataRpc(Context* context, ServerId backupId,
-        ServerId masterId, uint64_t segmentId, uint64_t partitionId,
-        Buffer* response)
+GetRecoveryDataRpc::GetRecoveryDataRpc(Context* context,
+                                       uint64_t recoveryId,
+                                       ServerId backupId,
+                                       ServerId masterId,
+                                       uint64_t segmentId,
+                                       uint64_t partitionId,
+                                       Buffer* response)
     : ServerIdRpcWrapper(context, backupId,
             sizeof(WireFormat::BackupGetRecoveryData::Response), response)
 {
     WireFormat::BackupGetRecoveryData::Request* reqHdr(
             allocHeader<WireFormat::BackupGetRecoveryData>());
+    reqHdr->recoveryId = recoveryId;
     reqHdr->masterId = masterId.getId();
     reqHdr->segmentId = segmentId;
     reqHdr->partitionId = partitionId;
@@ -202,16 +221,28 @@ GetRecoveryDataRpc::GetRecoveryDataRpc(Context* context, ServerId backupId,
  * Wait for a getRecoveryData RPC to complete, and throw exceptions for
  * any errors.
  *
+ * \return
+ *      Certificate for the recovery segment which was populated
+ *      into the response Buffer given at the start of this rpc call.
+ *      Passed to SegmentIterator to verify the metadata integrity of the
+ *      recovery segment and iterate its contents.
  * \throw ServerNotUpException
  *      The intended server for this RPC is not part of the cluster;
  *      if it ever existed, it has since crashed.
  */
-void
+Segment::Certificate
 GetRecoveryDataRpc::wait()
 {
     waitAndCheckErrors();
+    const WireFormat::BackupGetRecoveryData::Response* respHdr(
+            getResponseHeader<WireFormat::BackupGetRecoveryData>());
+    Segment::Certificate certificate = respHdr->certificate;
+
+    // respHdr off limits.
     response->truncateFront(sizeof(
             WireFormat::BackupGetRecoveryData::Response));
+
+    return certificate;
 }
 
 /**
@@ -452,36 +483,19 @@ StartReadingDataRpc::Result::operator=(Result&& other)
  *      The position in the segment where this data will be placed.
  * \param length
  *      The length in bytes of the data to write.
+ * \param certificate
+ *      Backups write this as part of their metadata for the segment.  Used
+ *      during recovery to determine how much of the segment contains valid
+ *      data and to verify the integrity of the segment metadata. This may
+ *      be NULL which has two ramifications. First, the data included in
+ *      this write will not be recovered (or, is not durable) until the
+ *      after the next write which includes a certificate.  Second, the
+ *      most recently transmitted certificate will be used during recovery,
+ *      which means only data covered by that certificate will be recovered
+ *      regardless of how much has been transmitted to the backup.
  * \param flags
  *      Whether the write should open or close the segment or both or
  *      neither.  Defaults to neither.
- * \param footerEntry
- *      Footer which should follow the data included in this write. Should
- *      contain a valid footer for the segment as written up through this
- *      write. Backups write this footer following the data and at the end
- *      of the segment. This may be NULL which has two ramifications. First,
- *      the data included in this write will not be recovered (or, is not
- *      durable) until the after the next write which includes a footer.
- *      Second, the most recently transmitted footer will be written
- *      to storage if the segment is closed or recovered precisely where
- *      it would have been regardless of subsequent footerless writes. That
- *      is, the backup will plop a footer right on top of any footerless
- *      writes which hadn't yet been followed by a footered write,
- *      which effectively strikes them from storage during recovery.
- * \param atomic
- *      If true then this replica is considered invalid until a closing
- *      write (or subsequent call to write with \a atomic set to false).
- *      This means that the data will never be written to disk and will
- *      not be reported to or used in recoveries unless the replica is
- *      closed.  This allows masters to create replicas of segments
- *      without the threat that they'll be detected as the head of the
- *      log.  Each value of \a atomic for each write call overrides the
- *      last, so in order to atomically write an entire segment all
- *      writes must have \a atomic set to true (though, it is
- *      irrelvant for the last, closing write).  A call with atomic
- *      set to false will make that replica available for normal
- *      treatment as an open segment.
- *
  * \return
  *      A vector describing the replication group for the backup
  *      that handled the RPC (secondary replicas will then be
@@ -496,12 +510,11 @@ BackupClient::writeSegment(Context* context,
                            const Segment* segment,
                            uint32_t offset,
                            uint32_t length,
-                           const Segment::OpaqueFooterEntry* footerEntry,
-                           WireFormat::BackupWrite::Flags flags,
-                           bool atomic)
+                           const Segment::Certificate* certificate,
+                           WireFormat::BackupWrite::Flags flags)
 {
     WriteSegmentRpc rpc(context, backupId, masterId, segmentId, segment, offset,
-                        length, footerEntry, flags, atomic);
+                        length, certificate, flags);
     return rpc.wait();
 }
 
@@ -529,32 +542,16 @@ BackupClient::writeSegment(Context* context,
  * \param flags
  *      Whether the write should open or close the segment or both or
  *      neither.  Defaults to neither.
- * \param footerEntry
- *      Footer which should follow the data included in this write. Should
- *      contain a valid footer for the segment as written up through this
- *      write. Backups write this footer following the data and at the end
- *      of the segment. This may be NULL which has two ramifications. First,
- *      the data included in this write will not be recovered (or, is not
- *      durable) until the after the next write which includes a footer.
- *      Second, the most recently transmitted footer will be written
- *      to storage if the segment is closed or recovered precisely where
- *      it would have been regardless of subsequent footerless writes. That
- *      is, the backup will plop a footer right on top of any footerless
- *      writes which hadn't yet been followed by a footered write,
- *      which effectively strikes them from storage during recovery.
- * \param atomic
- *      If true then this replica is considered invalid until a closing
- *      write (or subsequent call to write with \a atomic set to false).
- *      This means that the data will never be written to disk and will
- *      not be reported to or used in recoveries unless the replica is
- *      closed.  This allows masters to create replicas of segments
- *      without the threat that they'll be detected as the head of the
- *      log.  Each value of \a atomic for each write call overrides the
- *      last, so in order to atomically write an entire segment all
- *      writes must have \a atomic set to true (though, it is
- *      irrelvant for the last, closing write).  A call with atomic
- *      set to false will make that replica available for normal
- *      treatment as an open segment.
+ * \param certificate
+ *      Backups write this as part of their metadata for the segment.  Used
+ *      during recovery to determine how much of the segment contains valid
+ *      data and to verify the integrity of the segment metadata. This may
+ *      be NULL which has two ramifications. First, the data included in
+ *      this write will not be recovered (or, is not durable) until the
+ *      after the next write which includes a certificate.  Second, the
+ *      most recently transmitted certificate will be used during recovery,
+ *      which means only data covered by that certificate will be recovered
+ *      regardless of how much has been transmitted to the backup.
  */
 WriteSegmentRpc::WriteSegmentRpc(Context* context,
                                  ServerId backupId,
@@ -563,9 +560,8 @@ WriteSegmentRpc::WriteSegmentRpc(Context* context,
                                  const Segment* segment,
                                  uint32_t offset,
                                  uint32_t length,
-                                 const Segment::OpaqueFooterEntry* footerEntry,
-                                 WireFormat::BackupWrite::Flags flags,
-                                 bool atomic)
+                                 const Segment::Certificate* certificate,
+                                 WireFormat::BackupWrite::Flags flags)
     : ServerIdRpcWrapper(context, backupId,
                          sizeof(WireFormat::BackupWrite::Response))
 {
@@ -575,13 +571,12 @@ WriteSegmentRpc::WriteSegmentRpc(Context* context,
     reqHdr->segmentId = segmentId;
     reqHdr->offset = offset;
     reqHdr->length = length;
-    reqHdr->footerIncluded = (footerEntry != NULL);
-    if (reqHdr->footerIncluded)
-        reqHdr->footerEntry = *footerEntry;
+    reqHdr->certificateIncluded = (certificate != NULL);
+    if (reqHdr->certificateIncluded)
+        reqHdr->certificate = *certificate;
     else
-        reqHdr->footerEntry = Segment::OpaqueFooterEntry();
+        reqHdr->certificate = Segment::Certificate();
     reqHdr->flags = flags;
-    reqHdr->atomic = atomic;
     segment->appendToBuffer(request, offset, length);
     send();
 }

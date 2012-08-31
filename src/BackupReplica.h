@@ -72,7 +72,8 @@ class BackupReplica {
                 uint32_t segmentSize, uint32_t segmentFrame, bool isClosed);
 #endif
     ~BackupReplica();
-    Status appendRecoverySegment(uint64_t partitionId, Buffer& buffer)
+    Status appendRecoverySegment(uint64_t partitionId, Buffer* buffer,
+                                 Segment::Certificate* certificate);
         __attribute__((warn_unused_result));
     void buildRecoverySegments(const ProtoBuf::Tablets& partitions);
     void close();

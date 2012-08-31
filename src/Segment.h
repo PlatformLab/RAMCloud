@@ -175,62 +175,46 @@ class Segment {
     static_assert(sizeof(EntryHeader) == 1,
                   "Unexpected padding in Segment::EntryHeader");
 
+  public:
     /**
-     * Each segment's very last entry is a Footer. The footer denotes the end
-     * of the segment and contains a checksum for checking segment metadata
-     * integrity.
+     * Indicates which porition of a segment contains valid data and
+     * information to verify the integrity of the metadata of the segment.
+     * Segments return these opaque certificates on calls to
+     * getAppendedLength(). Calling checkMetadataIntegrity() with a certificate
+     * guarantees (with some probability) the segment metadata hasn't been
+     * corrupted and is iterable through the length given in the certificate.
+     * This is used by SegmentIterators to ensure the portion of the segment
+     * they intend to iterate across is intact. ReplicaManager transmits
+     * certificates to backups along with segment data which backups store
+     * for when the segment data is used during recovery. Because only the
+     * portion of the segment that is covered by the certificate is used,
+     * the certificate acts as a way to atomically commit segment data to
+     * backups.
+     *
+     * Absolutely no code outside of the Segment and SegmentIterator class
+     * need to understand the internals and shouldn't attempt to use
+     * certificates other than through the SegmentIterator or Segment code.
      */
-    class Footer {
+    class Certificate {
       public:
-        Footer(bool closed, Crc32C segmentChecksum)
-            : closed(closed),
-              checksum()
-        {
-            segmentChecksum.update(this,
-                sizeof(*this) - sizeof(Crc32C::ResultType));
-            checksum = segmentChecksum.getResult();
-        }
-
-        /// If true, this segment was closed by the log and therefore could
-        /// not be the head of the log.
-        bool closed;
+        Certificate()
+            : segmentLength()
+            , checksum()
+        {}
+      PRIVATE:
+        /// Bytes in the associated segment that #checksum covers. Determines
+        /// how much of the segment should be checked for integrity and how
+        /// much of a segment should be iterated over for SegmentIterator.
+        uint32_t segmentLength;
 
         /// Checksum covering all metadata in the segment, including fields
         /// above in this struct.
         Crc32C::ResultType checksum;
+        friend class Segment;
+        friend class SegmentIterator;
     } __attribute__((__packed__));
-    static_assert(sizeof(Footer) == 5, "Unexpected padding in Segment::Footer");
-
-  public:
-    /**
-     * Segment footer prefixed with the necessary metadata to make a full and
-     * properly-formatted segment entry. This special case exists because such
-     * entries are given by value to the ReplicaManager during getAppendedLength()
-     * calls. This is so the ReplicaManager can send a correct footer along with
-     * each write call, while allowing the master to overwrite the footer in its
-     * copy of the segment during writes that are concurrent with the replication.
-     *
-     * This structure is opaque because no code outside of the Segment class should
-     * need to understand the internals. The replication/backup modules need only
-     * know that this blob should be placed immediately after any backed up segment
-     * data.
-     */
-    class OpaqueFooterEntry {
-      public:
-        OpaqueFooterEntry()
-            : entryHeader(LOG_ENTRY_TYPE_INVALID, 0),
-              length(0),
-              footer(false, Crc32C())
-        {
-        }
-      PRIVATE:                      // Just to be very explicit. Do not touch.
-        EntryHeader entryHeader;
-        uint8_t length;
-        Footer footer;
-    } __attribute__((__packed__));
-    static_assert(sizeof(OpaqueFooterEntry) ==
-        (sizeof(EntryHeader) + 1 + sizeof(Footer)),
-        "Unexpected padding in Segment::OpaqueFooterEntry");
+    static_assert(sizeof(Certificate) == 8,
+                  "Unexpected padding in Segment::Certificate");
 
     Segment();
     explicit Segment(Allocator& allocator);
@@ -255,10 +239,10 @@ class Segment {
                             uint32_t length) const;
     uint32_t appendToBuffer(Buffer& buffer);
     LogEntryType getEntry(uint32_t offset, Buffer& buffer);
-    uint32_t getAppendedLength(OpaqueFooterEntry& footerEntry) const;
+    uint32_t getAppendedLength(Certificate& certificate) const;
     uint32_t getSegletsAllocated();
     uint32_t getSegletsNeeded();
-    bool checkMetadataIntegrity();
+    bool checkMetadataIntegrity(const Certificate& certificate);
 
   PRIVATE:
     /**
@@ -288,7 +272,6 @@ class Segment {
 
     typedef std::vector<void*> SegletVector;
 
-    void appendFooter();
     const EntryHeader* getEntryHeader(uint32_t offset);
     void getEntryInfo(uint32_t offset,
                       LogEntryType& outType,
@@ -331,14 +314,10 @@ class Segment {
     uint32_t bytesFreed;
 
     /// Latest Segment checksum (crc32c). This is a checksum of all metadata
-    /// in the Segment (that is, every Segment::Entry, ::Header, and ::Footer).
+    /// in the Segment (that is, every Segment::Entry and ::Header).
     /// Any user data that is stored in the Segment is unprotected. Integrity
-    /// is their responsibility.
+    /// is their responsibility. Used to generate Segment::Certificates.
     Crc32C checksum;
-
-    /// Temporary nonsense to make horrible unit tests that abuse segments in
-    /// weird ways work.
-    OpaqueFooterEntry currentFooter;
 
     friend class SegmentIterator;
 

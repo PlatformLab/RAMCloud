@@ -28,22 +28,24 @@ class SegmentIteratorTest : public ::testing::Test {
   public:
     SegmentIteratorTest()
         : s()
+        , certificate()
     {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
+        s.getAppendedLength(certificate);
     }
 
     Segment s;
+    Segment::Certificate certificate;
 
     DISALLOW_COPY_AND_ASSIGN(SegmentIteratorTest);
 };
 
 TEST_F(SegmentIteratorTest, constructor_fromSegment_empty) {
-    EXPECT_NO_THROW(SegmentIterator(s));
-
     SegmentIterator it(s);
+    EXPECT_EQ(0u, it.certificate.segmentLength);
+    EXPECT_EQ(0x48674bc7u, it.certificate.checksum);
+    EXPECT_NO_THROW(it.checkMetadataIntegrity());
     EXPECT_TRUE(it.isDone());
-    EXPECT_EQ(LOG_ENTRY_TYPE_SEGFOOTER, it.getType());
-    EXPECT_EQ(sizeof(Segment::Footer), it.getLength());
 }
 
 TEST_F(SegmentIteratorTest, constructor_fromSegment_nonEmpty) {
@@ -56,13 +58,19 @@ TEST_F(SegmentIteratorTest, constructor_fromSegment_nonEmpty) {
 
     it.next();
     EXPECT_TRUE(it.isDone());
-    EXPECT_EQ(LOG_ENTRY_TYPE_SEGFOOTER, it.getType());
 }
 
 TEST_F(SegmentIteratorTest, constructor_fromBuffer) {
     char buf[8192];
-    EXPECT_THROW(SegmentIterator(buf, 0), SegmentIteratorException);
-    EXPECT_THROW(SegmentIterator(buf, sizeof(buf)), SegmentIteratorException);
+    {
+        SegmentIterator it(buf, 0, Segment::Certificate());
+        EXPECT_THROW(it.checkMetadataIntegrity(),
+                     SegmentIteratorException);
+    }
+    {
+        SegmentIterator it(buf, 0, certificate);
+        EXPECT_NO_THROW(it.checkMetadataIntegrity());
+    }
 
     s.append(LOG_ENTRY_TYPE_OBJ, "hi", 2);
 
@@ -70,24 +78,38 @@ TEST_F(SegmentIteratorTest, constructor_fromBuffer) {
     s.appendToBuffer(buffer);
     buffer.copy(0, buffer.getTotalLength(), buf);
 
-    EXPECT_NO_THROW(SegmentIterator(buf, buffer.getTotalLength()));
-    EXPECT_NO_THROW(SegmentIterator(buf, sizeof(buf)));
-
-    SegmentIterator it(s);
-    EXPECT_FALSE(it.isDone());
-    EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, it.getType());
-    EXPECT_EQ(2U, it.getLength());
-
-    it.next();
-    EXPECT_TRUE(it.isDone());
-    EXPECT_EQ(LOG_ENTRY_TYPE_SEGFOOTER, it.getType());
+    {
+        SegmentIterator it(buf, buffer.getTotalLength(), certificate);
+        EXPECT_NO_THROW(it.checkMetadataIntegrity());
+        EXPECT_TRUE(it.isDone());
+    }
+    {
+        s.getAppendedLength(certificate);
+        SegmentIterator it(buf, buffer.getTotalLength(), certificate);
+        EXPECT_NO_THROW(it.checkMetadataIntegrity());
+        EXPECT_FALSE(it.isDone());
+        EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, it.getType());
+        EXPECT_EQ(2U, it.getLength());
+        it.next();
+        EXPECT_TRUE(it.isDone());
+    }
+    {
+        s.getAppendedLength(certificate);
+        SegmentIterator it(buf, sizeof(buf), certificate);
+        EXPECT_NO_THROW(it.checkMetadataIntegrity());
+        EXPECT_FALSE(it.isDone());
+        EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, it.getType());
+        EXPECT_EQ(2U, it.getLength());
+        it.next();
+        EXPECT_TRUE(it.isDone());
+    }
 }
 
 TEST_F(SegmentIteratorTest, isDone) {
     EXPECT_TRUE(SegmentIterator(s).isDone());
 
-    SegmentIterator it(s);
     s.append(LOG_ENTRY_TYPE_OBJ, "yo", 3);
+    SegmentIterator it(s);
     EXPECT_FALSE(it.isDone());
     it.next();
     EXPECT_TRUE(it.isDone());
@@ -118,29 +140,26 @@ TEST_F(SegmentIteratorTest, next) {
 }
 
 TEST_F(SegmentIteratorTest, getType) {
-    SegmentIterator it(s);
-    EXPECT_EQ(LOG_ENTRY_TYPE_SEGFOOTER, it.getType());
-
     s.append(LOG_ENTRY_TYPE_OBJ, "hi", 3);
+    s.append(LOG_ENTRY_TYPE_OBJTOMB, "hi", 3);
     // first iterator is no longer valid
 
-    SegmentIterator it2(s);
-    EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, it2.getType());
-    it2.next();
-    EXPECT_EQ(LOG_ENTRY_TYPE_SEGFOOTER, it2.getType());
+    SegmentIterator it(s);
+    EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, it.getType());
+    it.next();
+    EXPECT_EQ(LOG_ENTRY_TYPE_OBJTOMB, it.getType());
+    it.next();
 }
 
 TEST_F(SegmentIteratorTest, getLength) {
-    SegmentIterator it(s);
-    EXPECT_EQ(5U, it.getLength());
-
     s.append(LOG_ENTRY_TYPE_OBJ, "hi", 3);
+    s.append(LOG_ENTRY_TYPE_OBJTOMB, "hihi", 5);
     // first iterator is no longer valid
 
-    SegmentIterator it2(s);
-    EXPECT_EQ(3U, it2.getLength());
-    it2.next();
-    EXPECT_EQ(5U, it2.getLength());
+    SegmentIterator it(s);
+    EXPECT_EQ(3U, it.getLength());
+    it.next();
+    EXPECT_EQ(5U, it.getLength());
 }
 
 TEST_F(SegmentIteratorTest, appendToBuffer) {

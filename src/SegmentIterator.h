@@ -46,7 +46,8 @@ class SegmentIterator {
   public:
     SegmentIterator();
     explicit SegmentIterator(Segment& segment);
-    SegmentIterator(const void* buffer, uint32_t length);
+    SegmentIterator(const void* buffer, uint32_t length,
+                    const Segment::Certificate& certificate);
     VIRTUAL_FOR_TESTING ~SegmentIterator();
     VIRTUAL_FOR_TESTING bool isDone();
     VIRTUAL_FOR_TESTING void next();
@@ -55,6 +56,7 @@ class SegmentIterator {
     VIRTUAL_FOR_TESTING uint32_t getOffset();
     VIRTUAL_FOR_TESTING uint32_t appendToBuffer(Buffer& buffer);
     VIRTUAL_FOR_TESTING uint32_t setBufferTo(Buffer& buffer);
+    VIRTUAL_FOR_TESTING void checkMetadataIntegrity();
 
   PRIVATE:
     /// If the constructor was called on a void pointer, we'll create a wrapper
@@ -65,6 +67,14 @@ class SegmentIterator {
     /// segment object passed in to the constructor, or wrapperSegment above if
     /// we're iterating over a void buffer.
     Segment* segment;
+
+    /// Indicates which porition of a segment contains valid data (and should
+    /// be iterated over) and information to verify the integrity of the
+    /// metadata of the segment.
+    /// checkMetadataIntegrity() must be called explicitly before iterating
+    /// over the segment, otherwise, only the length is used from the
+    /// certificate and the metadata of the segment is trusted.
+    Segment::Certificate certificate;
 
     /// Current offset into the segment. This points to the entry we're on and
     /// will use in the getType, getLength, appendToBuffer, etc. calls.

@@ -154,8 +154,10 @@ class MasterService : public Service, Log::EntryHandlers {
                  Rpc& rpc);
     void recoverSegmentPrefetcher(SegmentIterator& i);
     void recoverSegment(uint64_t segmentId, const void *buffer,
-                        uint32_t bufferLength);
-    void recover(ServerId masterId,
+                        uint32_t bufferLength,
+                        const Segment::Certificate& certificate);
+    void recover(uint64_t recoveryId,
+                 ServerId masterId,
                  uint64_t partitionId,
                  vector<Replica>& replicas);
     void remove(const WireFormat::Remove::Request& reqHdr,

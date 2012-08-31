@@ -155,10 +155,14 @@ BackupReplica::~BackupReplica()
  *
  * \param partitionId
  *      The partition id corresponding to the tablet ranges of the recovery
- *      segment to append to #buffer.
+ *      segment to append to \a buffer.
  * \param[out] buffer
  *      A buffer which onto which the requested recovery segment will be
  *      appended.
+ * \param[out] certificate
+ *      Certificate for the recovery segment returned in \a buffer. Used by
+ *      recovery masters to check the integrity of the metadata of the
+ *      returned recovery segment and to iterate over it.
  * \return
  *      Status code: STATUS_OK if the recovery segment was appended,
  *      STATUS_RETRY if the caller should try again later.
@@ -171,7 +175,9 @@ BackupReplica::~BackupReplica()
  *      recover.
  */
 Status
-BackupReplica::appendRecoverySegment(uint64_t partitionId, Buffer& buffer)
+BackupReplica::appendRecoverySegment(uint64_t partitionId,
+                                     Buffer* buffer,
+                                     Segment::Certificate* certificate)
 {
     Lock lock(mutex, std::try_to_lock_t());
     if (!lock.owns_lock()) {
@@ -223,7 +229,8 @@ BackupReplica::appendRecoverySegment(uint64_t partitionId, Buffer& buffer)
         throw BackupBadSegmentIdException(HERE);
     }
 
-    recoverySegments[partitionId].appendToBuffer(buffer);
+    recoverySegments[partitionId].appendToBuffer(*buffer);
+    recoverySegments[partitionId].getAppendedLength(*certificate);
 
     LOG(DEBUG, "appendRecoverySegment <%s,%lu>", masterId.toString().c_str(),
         segmentId);
@@ -399,9 +406,8 @@ BackupReplica::buildRecoverySegments(const ProtoBuf::Tablets& partitions)
     }
 
     void* segment = frame->load();
-    void* metadata = frame->getMetadata();
-    LOG(ERROR, "Metadata dump:\n%s", Util::hexDump(metadata, 512).c_str());
-    // XXX Metadata looking good. Just need alt constructor for Iterator, etc.
+    Segment::Certificate* certificate =
+        reinterpret_cast<Segment::Certificate*>(frame->getMetadata());
 
     uint64_t start = Cycles::rdtsc();
 
@@ -421,10 +427,9 @@ BackupReplica::buildRecoverySegments(const ProtoBuf::Tablets& partitions)
 
     try {
         const SegmentHeader* header = NULL;
-        for (SegmentIterator it(segment, segmentSize);
-             !it.isDone();
-             it.next())
-        {
+        SegmentIterator it(segment, segmentSize, *certificate);
+        it.checkMetadataIntegrity();
+        for (; !it.isDone(); it.next()) {
             LogEntryType type = it.getType();
 
             // XXX: Hack: put the right logic here once metadata blocks work.
@@ -477,7 +482,7 @@ BackupReplica::buildRecoverySegments(const ProtoBuf::Tablets& partitions)
         }
 #if TESTING
         for (uint64_t i = 0; i < recoverySegmentsLength; ++i) {
-            Segment::OpaqueFooterEntry unused;
+            Segment::Certificate unused;
             LOG(DEBUG, "Recovery segment for <%s,%lu> partition %lu is %u B",
                 masterId.toString().c_str(), segmentId, i,
                  recoverySegments[i].getAppendedLength(unused));
@@ -688,12 +693,14 @@ BackupReplica::getLogDigest(Buffer* digestBuffer)
     // This should never block since getLogDigest is only called for open
     // segments which we always keep in memory.
     void* replicaData = frame->load();
-    // XXX: Will need the certificate here as well.
+    Segment::Certificate* certificate =
+        reinterpret_cast<Segment::Certificate*>(frame->getMetadata());
 
     // If the Segment is malformed somehow, just ignore it. The
     // coordinator will have to deal.
     try {
-        SegmentIterator it(replicaData, segmentSize);
+        SegmentIterator it(replicaData, segmentSize, *certificate);
+        it.checkMetadataIntegrity();
         while (!it.isDone()) {
             // XXX: Hack until certificates work.
             if (it.getType() == LOG_ENTRY_TYPE_INVALID ||

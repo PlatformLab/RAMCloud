@@ -181,12 +181,28 @@ struct BackupGetRecoveryData {
     static const ServiceType service = BACKUP_SERVICE;
     struct Request {
         RequestCommon common;
+        uint64_t recoveryId;    ///< Identifies the recovery for which the
+                                ///< recovery segment is requested.
         uint64_t masterId;      ///< Server Id from whom the request is coming.
         uint64_t segmentId;     ///< Target segment to get data from.
         uint64_t partitionId;   ///< Partition id of :ecovery segment to fetch.
     } __attribute__((packed));
     struct Response {
+        Response()
+            : common()
+            , certificate()
+        {}
+        Response(const ResponseCommon& common,
+                 const Segment::Certificate& certificate)
+            : common(common)
+            , certificate(certificate)
+        {}
         ResponseCommon common;
+        Segment::Certificate certificate; ///< Certificate for the segment
+                                          ///< which follows this fields in
+                                          ///< the response field. Used by
+                                          ///< master to iterate over the
+                                          ///< segment.
     } __attribute__((packed));
 };
 
@@ -274,28 +290,25 @@ struct BackupWrite {
             , offset()
             , length()
             , flags()
-            , atomic()
-            , footerIncluded()
-            , footerEntry()
+            , certificateIncluded()
+            , certificate()
         {}
-        Request(RequestCommon common,
+        Request(const RequestCommon& common,
                 uint64_t masterId,
                 uint64_t segmentId,
                 uint32_t offset,
                 uint32_t length,
                 uint8_t flags,
-                bool atomic,
-                bool footerIncluded,
-                Segment::OpaqueFooterEntry footerEntry)
+                bool certificateIncluded,
+                const Segment::Certificate& certificate)
             : common(common)
             , masterId(masterId)
             , segmentId(segmentId)
             , offset(offset)
             , length(length)
             , flags(flags)
-            , atomic(atomic)
-            , footerIncluded(footerIncluded)
-            , footerEntry(footerEntry)
+            , certificateIncluded(certificateIncluded)
+            , certificate(certificate)
         {}
         RequestCommon common;
         uint64_t masterId;        ///< Server from whom the request is coming.
@@ -303,15 +316,14 @@ struct BackupWrite {
         uint32_t offset;          ///< Offset into this segment to write at.
         uint32_t length;          ///< Number of bytes to write.
         uint8_t flags;            ///< If open or close request.
-        bool atomic;              ///< If true replica isn't valid until close.
-        bool footerIncluded;      ///< If false #footer is undefined, if true
-                                  ///< then it includes a valid footer that
-                                  ///< should be placed in the segment after
-                                  ///< the data from this write.
-        Segment::OpaqueFooterEntry footerEntry; ///< Footer which should be
-                                                ///< written to storage
-                                                ///< following the data included
-                                                ///< in this rpc.
+        bool certificateIncluded; ///< If false #certificate is undefined, if
+                                  ///< true then it includes a valid certificate
+                                  ///< that should be placed in the segment
+                                  ///< after the data from this write.
+        Segment::Certificate certificate; ///< Certificate which should be
+                                          ///< written to storage
+                                          ///< following the data included
+                                          ///< in this rpc.
         // Opaque byte string follows with data to write.
     } __attribute__((packed));
     struct Response {

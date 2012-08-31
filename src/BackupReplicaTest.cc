@@ -29,6 +29,7 @@ class BackupReplicaTest : public ::testing::Test {
         , storage{segmentSize, 2}
         , info{storage, ServerId(99, 0), 88, segmentSize, true}
     {
+        Logger::get().setLogLevels(SILENT_LOG_LEVEL);
     }
 
     /**
@@ -112,10 +113,10 @@ TEST_F(BackupReplicaTest, appendRecoverySegment) {
 
     segment.close();
     Buffer src;
-    Segment::OpaqueFooterEntry footerEntry;
-    uint32_t appendedBytes = segment.getAppendedLength(footerEntry);
+    Segment::Certificate certificate;
+    uint32_t appendedBytes = segment.getAppendedLength(certificate);
     segment.appendToBuffer(src, 0, appendedBytes);
-    info.append(src, 0, appendedBytes, 0, &footerEntry, sizeof(footerEntry));
+    info.append(src, 0, appendedBytes, 0, &certificate, sizeof(certificate));
     info.close();
     info.setRecovering();
     info.startLoading();
@@ -125,10 +126,12 @@ TEST_F(BackupReplicaTest, appendRecoverySegment) {
     info.buildRecoverySegments(partitions);
 
     Buffer buffer;
-    Status status = info.appendRecoverySegment(0, buffer);
+    Status status = info.appendRecoverySegment(0, &buffer, &certificate);
     ASSERT_EQ(STATUS_OK, status);
+    EXPECT_EQ(30u, certificate.segmentLength);
+    EXPECT_EQ(0x12f3a30bu, certificate.checksum);
     SegmentIterator it(buffer.getRange(0, buffer.getTotalLength()),
-                               buffer.getTotalLength());
+                                       buffer.getTotalLength(), certificate);
     EXPECT_FALSE(it.isDone());
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, it.getType());
     EXPECT_EQ(28U, it.getLength());
@@ -149,10 +152,10 @@ TEST_F(BackupReplicaTest, appendRecoverySegmentSecondarySegment) {
 
     segment.close();
     Buffer src;
-    Segment::OpaqueFooterEntry footerEntry;
-    uint32_t appendedBytes = segment.getAppendedLength(footerEntry);
+    Segment::Certificate certificate;
+    uint32_t appendedBytes = segment.getAppendedLength(certificate);
     segment.appendToBuffer(src, 0, appendedBytes);
-    info.append(src, 0, appendedBytes, 0, &footerEntry, sizeof(footerEntry));
+    info.append(src, 0, appendedBytes, 0, &certificate, sizeof(certificate));
     info.close();
 
     ProtoBuf::Tablets partitions;
@@ -161,7 +164,7 @@ TEST_F(BackupReplicaTest, appendRecoverySegmentSecondarySegment) {
 
     Buffer buffer;
     while (true) {
-        Status status = info.appendRecoverySegment(0, buffer);
+        Status status = info.appendRecoverySegment(0, &buffer, &certificate);
         if (status == STATUS_RETRY) {
             buffer.reset();
             continue;
@@ -171,7 +174,7 @@ TEST_F(BackupReplicaTest, appendRecoverySegmentSecondarySegment) {
     }
     buffer.reset();
     while (true) {
-        Status status = info.appendRecoverySegment(0, buffer);
+        Status status = info.appendRecoverySegment(0, &buffer, &certificate);
         if (status == STATUS_RETRY) {
             buffer.reset();
             continue;
@@ -179,8 +182,11 @@ TEST_F(BackupReplicaTest, appendRecoverySegmentSecondarySegment) {
         ASSERT_EQ(status, STATUS_OK);
         break;
     }
+    EXPECT_EQ(30u, certificate.segmentLength);
+    EXPECT_EQ(0x12f3a30bu, certificate.checksum);
     SegmentIterator it(buffer.getRange(0, buffer.getTotalLength()),
-                               buffer.getTotalLength());
+                        buffer.getTotalLength(),
+                        certificate);
     EXPECT_FALSE(it.isDone());
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, it.getType());
     EXPECT_EQ(28U, it.getLength());
@@ -190,12 +196,10 @@ TEST_F(BackupReplicaTest, appendRecoverySegmentSecondarySegment) {
 }
 
 TEST_F(BackupReplicaTest, appendRecoverySegmentMalformedSegment) {
-    TestLog::Enable _;
     info.open(false);
     Buffer src;
     src.appendTo("garbage", 7);
-    Segment::OpaqueFooterEntry footerEntry;
-    info.append(src, 0, 7, 0, &footerEntry, sizeof(footerEntry));
+    info.append(src, 0, 7, 0, NULL, 0);
     info.setRecovering();
     info.startLoading();
 
@@ -204,15 +208,18 @@ TEST_F(BackupReplicaTest, appendRecoverySegmentMalformedSegment) {
     info.buildRecoverySegments(partitions);
 
     Buffer buffer;
-    EXPECT_THROW(IGNORE_RESULT(info.appendRecoverySegment(0, buffer)),
+    Segment::Certificate certificate;
+    EXPECT_THROW(
+        IGNORE_RESULT(info.appendRecoverySegment(0, &buffer, &certificate)),
                  SegmentRecoveryFailedException);
 }
 
 TEST_F(BackupReplicaTest, appendRecoverySegmentNotYetRecovered) {
     Buffer buffer;
     TestLog::Enable _;
-    Status status;
-    EXPECT_THROW(status = info.appendRecoverySegment(0, buffer),
+    Segment::Certificate certificate;
+    EXPECT_THROW(
+        IGNORE_RESULT(info.appendRecoverySegment(0, &buffer, &certificate)),
                  BackupBadSegmentIdException);
     EXPECT_EQ("appendRecoverySegment: Asked for segment <99.0,88> which isn't "
               "recovering", TestLog::get());
@@ -223,10 +230,10 @@ TEST_F(BackupReplicaTest, appendRecoverySegmentPartitionOutOfBounds) {
     Segment segment;
     segment.close();
     Buffer src;
-    Segment::OpaqueFooterEntry footerEntry;
-    uint32_t appendedBytes = segment.getAppendedLength(footerEntry);
+    Segment::Certificate certificate;
+    uint32_t appendedBytes = segment.getAppendedLength(certificate);
     segment.appendToBuffer(src, 0, appendedBytes);
-    info.append(src, 0, appendedBytes, 0, &footerEntry, sizeof(footerEntry));
+    info.append(src, 0, appendedBytes, 0, &certificate, sizeof(certificate));
     info.close();
     info.setRecovering();
     info.startLoading();
@@ -237,7 +244,8 @@ TEST_F(BackupReplicaTest, appendRecoverySegmentPartitionOutOfBounds) {
     EXPECT_EQ(0u, info.recoverySegmentsLength);
     Buffer buffer;
     TestLog::Enable _;
-    EXPECT_THROW(IGNORE_RESULT(info.appendRecoverySegment(0, buffer)),
+    EXPECT_THROW(
+        IGNORE_RESULT(info.appendRecoverySegment(0, &buffer, &certificate)),
                  BackupBadSegmentIdException);
     EXPECT_EQ("appendRecoverySegment: Asked for recovery segment 0 from "
               "segment <99.0,88> but there are only 0 partitions",
@@ -381,10 +389,10 @@ TEST_F(BackupReplicaTest, buildRecoverySegment) {
 
     segment.close();
     Buffer src;
-    Segment::OpaqueFooterEntry footerEntry;
-    uint32_t appendedBytes = segment.getAppendedLength(footerEntry);
+    Segment::Certificate certificate;
+    uint32_t appendedBytes = segment.getAppendedLength(certificate);
     segment.appendToBuffer(src, 0, appendedBytes);
-    info.write(src, 0, appendedBytes, 0, &footerEntry, true);
+    info.write(src, 0, appendedBytes, 0, &certificate, true);
     info.close();
     info.setRecovering();
     info.startLoading();
@@ -408,7 +416,6 @@ TEST_F(BackupReplicaTest, buildRecoverySegment) {
 }
 
 TEST_F(BackupReplicaTest, buildRecoverySegmentMalformedSegment) {
-    TestLog::Enable _;
     info.open();
     memcpy(info.segment, "garbage", 7);
     info.setRecovering();
@@ -428,10 +435,10 @@ TEST_F(BackupReplicaTest, buildRecoverySegmentNoTablets) {
     Segment segment;
     segment.close();
     Buffer src;
-    Segment::OpaqueFooterEntry footerEntry;
-    uint32_t appendedBytes = segment.getAppendedLength(footerEntry);
+    Segment::Certificate certificate;
+    uint32_t appendedBytes = segment.getAppendedLength(certificate);
     segment.appendToBuffer(src, 0, appendedBytes);
-    info.write(src, 0, appendedBytes, 0, &footerEntry, true);
+    info.write(src, 0, appendedBytes, 0, &certificate, true);
     info.setRecovering();
     info.startLoading();
     info.buildRecoverySegments(ProtoBuf::Tablets());
@@ -448,8 +455,8 @@ TEST_F(BackupReplicaTest, close) {
     uint32_t bytesToCopy = downCast<uint32_t>(strlen(magic)) - 1;
     Buffer src;
     Buffer::Chunk::appendToBuffer(&src, magic, bytesToCopy);
-    SegmentFooterEntry footerEntry;
-    info.write(src, 0, bytesToCopy, 0, &footerEntry, false);
+    SegmentFooterEntry certificate;
+    info.write(src, 0, bytesToCopy, 0, &certificate, false);
 
     info.close();
     EXPECT_EQ(BackupReplica::CLOSED, info.state);
@@ -469,19 +476,19 @@ TEST_F(BackupReplicaTest, closeWriteFooterEntry) {
     Buffer src;
     const char message[] = "this is a test";
     Buffer::Chunk::appendToBuffer(&src, message, arrayLength(message));
-    SegmentFooterEntry footerEntry(0x1234abcdu);
-    info.write(src, 10, 4, 1, &footerEntry, true);
+    SegmentFooterEntry certificate(0x1234abcdu);
+    info.write(src, 10, 4, 1, &certificate, true);
     // Footer isn't there yet, stored off to the side.
     EXPECT_NE(0, memcmp(info.segment + info.footerOffset,
-                        &footerEntry, sizeof(footerEntry)));
+                        &certificate, sizeof(certificate)));
     info.close();
     // Footer plopped down correctly.
     EXPECT_EQ(0, memcmp(info.segment, "\0test", 5));
     EXPECT_EQ(0, memcmp(info.segment + info.footerOffset,
-                        &footerEntry, sizeof(footerEntry)));
+                        &certificate, sizeof(certificate)));
     // Ensure the segment-end-aligned footer is also written out.
-    EXPECT_EQ(0, memcmp(info.segment + segmentSize - sizeof(footerEntry),
-                        &footerEntry, sizeof(footerEntry)));
+    EXPECT_EQ(0, memcmp(info.segment + segmentSize - sizeof(certificate),
+                        &certificate, sizeof(certificate)));
 }
 
 TEST_F(BackupReplicaTest, closeWhileNotOpen) {
@@ -532,21 +539,21 @@ TEST_F(BackupReplicaTest, setRecoveringNoArgsWriteFooterEntry) {
     Buffer src;
     const char message[] = "this is a test";
     Buffer::Chunk::appendToBuffer(&src, message, arrayLength(message));
-    SegmentFooterEntry footerEntry(0x1234abcdu);
-    info.write(src, 10, 4, 1, &footerEntry, true);
+    SegmentFooterEntry certificate(0x1234abcdu);
+    info.write(src, 10, 4, 1, &certificate, true);
     // Footer isn't there yet, stored off to the side.
     EXPECT_NE(0, memcmp(info.segment + info.footerOffset,
-                        &footerEntry, sizeof(footerEntry)));
+                        &certificate, sizeof(certificate)));
 
     EXPECT_FALSE(info.setRecovering());
     EXPECT_EQ(BackupReplica::RECOVERING, info.state);
     // Footer plopped down correctly.
     EXPECT_EQ(0, memcmp(info.segment, "\0test", 5));
     EXPECT_EQ(0, memcmp(info.segment + info.footerOffset,
-                        &footerEntry, sizeof(footerEntry)));
+                        &certificate, sizeof(certificate)));
     // Ensure the segment-end-aligned footer is also written out.
-    EXPECT_EQ(0, memcmp(info.segment + segmentSize - sizeof(footerEntry),
-                        &footerEntry, sizeof(footerEntry)));
+    EXPECT_EQ(0, memcmp(info.segment + segmentSize - sizeof(certificate),
+                        &certificate, sizeof(certificate)));
     EXPECT_TRUE(info.setRecovering());
 }
 
@@ -556,11 +563,11 @@ TEST_F(BackupReplicaTest, setRecoveringArgsWriteFooterEntry) {
     Buffer src;
     const char message[] = "this is a test";
     Buffer::Chunk::appendToBuffer(&src, message, arrayLength(message));
-    SegmentFooterEntry footerEntry(0x1234abcdu);
-    info.write(src, 10, 4, 1, &footerEntry, true);
+    SegmentFooterEntry certificate(0x1234abcdu);
+    info.write(src, 10, 4, 1, &certificate, true);
     // Footer isn't there yet, stored off to the side.
     EXPECT_NE(0, memcmp(info.segment + info.footerOffset,
-                        &footerEntry, sizeof(footerEntry)));
+                        &certificate, sizeof(certificate)));
 
     ProtoBuf::Tablets tablets;
     EXPECT_FALSE(info.setRecovering(tablets));
@@ -568,10 +575,10 @@ TEST_F(BackupReplicaTest, setRecoveringArgsWriteFooterEntry) {
     // Footer plopped down correctly.
     EXPECT_EQ(0, memcmp(info.segment, "\0test", 5));
     EXPECT_EQ(0, memcmp(info.segment + info.footerOffset,
-                        &footerEntry, sizeof(footerEntry)));
+                        &certificate, sizeof(certificate)));
     // Ensure the segment-end-aligned footer is also written out.
-    EXPECT_EQ(0, memcmp(info.segment + segmentSize - sizeof(footerEntry),
-                        &footerEntry, sizeof(footerEntry)));
+    EXPECT_EQ(0, memcmp(info.segment + segmentSize - sizeof(certificate),
+                        &certificate, sizeof(certificate)));
     ASSERT_TRUE(info.recoveryPartitions);
     EXPECT_EQ(0, info.recoveryPartitions->tablet_size());
 
@@ -594,13 +601,13 @@ TEST_F(BackupReplicaTest, write) {
     Buffer src;
     const char message[] = "this is a test";
     Buffer::Chunk::appendToBuffer(&src, message, arrayLength(message));
-    SegmentFooterEntry footerEntry(0x1234abcdu);
-    info.write(src, 10, 4, 1, &footerEntry, true);
+    SegmentFooterEntry certificate(0x1234abcdu);
+    info.write(src, 10, 4, 1, &certificate, true);
     EXPECT_EQ(0, memcmp(info.segment, "\0test", 5));
     EXPECT_EQ(5lu, info.footerOffset);
     // Footer isn't there yet, stored off to the side.
     EXPECT_NE(0, memcmp(info.segment + info.footerOffset,
-                        &footerEntry, sizeof(footerEntry)));
+                        &certificate, sizeof(certificate)));
 }
 
 TEST_F(BackupReplicaTest, writeNonMonotonicFooterOffset) {
@@ -608,12 +615,12 @@ TEST_F(BackupReplicaTest, writeNonMonotonicFooterOffset) {
     Buffer src;
     const char message[] = "this is a test";
     Buffer::Chunk::appendToBuffer(&src, message, arrayLength(message));
-    SegmentFooterEntry footerEntry(0x1234abcdu);
-    info.write(src, 10, 4, 0, &footerEntry, true);
-    info.write(src, 10, 4, 0, &footerEntry, true);
-    info.write(src, 10, 4, 1, &footerEntry, true);
+    SegmentFooterEntry certificate(0x1234abcdu);
+    info.write(src, 10, 4, 0, &certificate, true);
+    info.write(src, 10, 4, 0, &certificate, true);
+    info.write(src, 10, 4, 1, &certificate, true);
     TestLog::Enable _;
-    EXPECT_THROW(info.write(src, 10, 4, 0, &footerEntry, true),
+    EXPECT_THROW(info.write(src, 10, 4, 0, &certificate, true),
                  BackupSegmentOverflowException);
     EXPECT_EQ(
         "write: Write to <99,88> included a footer which was requested "
@@ -624,11 +631,11 @@ TEST_F(BackupReplicaTest, writeNonMonotonicFooterOffset) {
 TEST_F(BackupReplicaTest, writeInsufficientSpaceForFooters) {
     info.open();
     Buffer src;
-    SegmentFooterEntry footerEntry(0x1234abcdu);
-    uint32_t offset = info.segmentSize - (2 * sizeof32(footerEntry));
+    SegmentFooterEntry certificate(0x1234abcdu);
+    uint32_t offset = info.segmentSize - (2 * sizeof32(certificate));
     TestLog::Enable _;
-    info.write(src, 0, 0, offset, &footerEntry, true);
-    EXPECT_THROW(info.write(src, 0, 0, offset + 1, &footerEntry, true),
+    info.write(src, 0, 0, offset, &certificate, true);
+    EXPECT_THROW(info.write(src, 0, 0, offset + 1, &certificate, true),
                  BackupSegmentOverflowException);
     EXPECT_EQ(
         "write: Write to <99,88> included a footer which was requested to be "

@@ -53,7 +53,7 @@ class BackupServiceTest : public ::testing::Test {
         , serverList(&context)
         , backupId(5, 0)
     {
-        //Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
+        Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
 
         cluster.construct(&context);
         config.services = {WireFormat::BACKUP_SERVICE};
@@ -76,19 +76,18 @@ class BackupServiceTest : public ::testing::Test {
         Segment segment;
         BackupClient::writeSegment(&context, backupId, masterId, segmentId,
                                    &segment, 0, 0, {},
-                                   WireFormat::BackupWrite::CLOSE, false);
+                                   WireFormat::BackupWrite::CLOSE);
     }
 
     vector<ServerId>
-    openSegment(ServerId masterId, uint64_t segmentId, bool primary = true,
-                bool atomic = false)
+    openSegment(ServerId masterId, uint64_t segmentId, bool primary = true)
     {
         Segment segment;
         auto flags = primary ? WireFormat::BackupWrite::OPENPRIMARY
                              : WireFormat::BackupWrite::OPEN;
         return BackupClient::writeSegment(&context, backupId, masterId,
                                           segmentId, &segment, 0, 0, {},
-                                          flags, atomic);
+                                          flags);
     }
 
     /**
@@ -100,8 +99,7 @@ class BackupServiceTest : public ::testing::Test {
     writeRawString(ServerId masterId, uint64_t segmentId,
                    uint32_t offset, const string& s,
                    WireFormat::BackupWrite::Flags flags =
-                   WireFormat::BackupWrite::NONE,
-                   bool atomic = false)
+                   WireFormat::BackupWrite::NONE)
     {
         Segment segment;
         segment.copyIn(offset, s.c_str(), downCast<uint32_t>(s.length()));
@@ -109,7 +107,7 @@ class BackupServiceTest : public ::testing::Test {
                                    &segment,
                                    offset,
                                    uint32_t(s.length() + 1), {},
-                                   flags, atomic);
+                                   flags);
     }
 
     /**
@@ -121,15 +119,15 @@ class BackupServiceTest : public ::testing::Test {
     appendEntry(Segment& segment, ServerId masterId, uint64_t segmentId,
                 LogEntryType type, const void *data, uint32_t bytes)
     {
-        Segment::OpaqueFooterEntry footerEntry;
-        uint32_t before = segment.getAppendedLength(footerEntry);
+        Segment::Certificate certificate;
+        uint32_t before = segment.getAppendedLength(certificate);
         segment.append(type, data, bytes);
-        uint32_t after = segment.getAppendedLength(footerEntry);
+        uint32_t after = segment.getAppendedLength(certificate);
 
         BackupClient::writeSegment(&context, backupId, masterId, segmentId,
                                    &segment,
                                    before,
-                                   after - before, &footerEntry);
+                                   after - before, &certificate);
     }
 
     /**
@@ -230,7 +228,7 @@ class BackupServiceTest : public ::testing::Test {
     // with a LogDigest containing the given IDs.
     void
     writeDigestedSegment(ServerId masterId, uint64_t segmentId,
-        vector<uint64_t> digestIds, bool atomic = false)
+        vector<uint64_t> digestIds)
     {
         LogDigest digest;
         for (uint32_t i = 0; i < digestIds.size(); i++)
@@ -243,12 +241,12 @@ class BackupServiceTest : public ::testing::Test {
 
         Buffer buffer;
         s.appendToBuffer(buffer);
-        Segment::OpaqueFooterEntry footerEntry;
-        uint32_t appendedBytes = s.getAppendedLength(footerEntry);
+        Segment::Certificate certificate;
+        uint32_t appendedBytes = s.getAppendedLength(certificate);
         BackupClient::writeSegment(&context, backupId, masterId,
                                    segmentId, &s, 0, appendedBytes,
-                                   &footerEntry,
-                                   WireFormat::BackupWrite::NONE, atomic);
+                                   &certificate,
+                                   WireFormat::BackupWrite::NONE);
     }
 
   private:
@@ -425,12 +423,13 @@ TEST_F(BackupServiceTest, getRecoveryData) {
                                    &tablets);
 
     Buffer response;
-    BackupClient::getRecoveryData(&context, backupId, ServerId(99, 0),
-                                  88, 0, &response);
+    Segment::Certificate certificate =
+        BackupClient::getRecoveryData(&context, 0lu, backupId, ServerId(99, 0),
+                                      88, 0, &response);
 
-    SegmentIterator it(
-        response.getRange(0, response.getTotalLength()),
-        response.getTotalLength());
+    SegmentIterator it(response.getRange(0, response.getTotalLength()),
+                       response.getTotalLength(),
+                       certificate);
 
     {
         Buffer b;
@@ -486,12 +485,14 @@ TEST_F(BackupServiceTest, getRecoveryData_moreThanOneSegmentStored) {
     openSegment(ServerId(99, 0), 87);
     Segment seg87;
     appendHeader(seg87, ServerId(99, 0), 87);
+    // Will be in partition 0.
     appendObject(seg87, ServerId(99, 0), 87, "test1", 6, 123, "9", 1);
     closeSegment(ServerId(99, 0), 87);
 
     openSegment(ServerId(99, 0), 88);
     Segment seg88;
     appendHeader(seg88, ServerId(99, 0), 88);
+    // Will be in partition 0.
     appendObject(seg88, ServerId(99, 0), 88, "test2", 6, 123, "10", 2);
     closeSegment(ServerId(99, 0), 88);
 
@@ -503,11 +504,13 @@ TEST_F(BackupServiceTest, getRecoveryData_moreThanOneSegmentStored) {
 
     {
         Buffer response;
-        BackupClient::getRecoveryData(&context, backupId, ServerId(99, 0),
-                                      88, 0, &response);
-        SegmentIterator it(
-            response.getRange(0, response.getTotalLength()),
-            response.getTotalLength());
+        Segment::Certificate certificate =
+            BackupClient::getRecoveryData(&context, 0lu,
+                                          backupId, ServerId(99, 0),
+                                          88, 0, &response);
+        SegmentIterator it(response.getRange(0, response.getTotalLength()),
+                           response.getTotalLength(),
+                           certificate);
         EXPECT_FALSE(it.isDone());
         EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, it.getType());
 
@@ -522,10 +525,14 @@ TEST_F(BackupServiceTest, getRecoveryData_moreThanOneSegmentStored) {
     }
     {
         Buffer response;
-        SegmentIterator it(
-            response.getRange(0, response.getTotalLength()),
-            response.getTotalLength());
-        EXPECT_FALSE(it.isDone());
+        Segment::Certificate certificate =
+            BackupClient::getRecoveryData(&context, 0lu,
+                                          backupId, ServerId(99, 0),
+                                          87, 0, &response);
+        SegmentIterator it(response.getRange(0, response.getTotalLength()),
+                           response.getTotalLength(),
+                           certificate);
+        ASSERT_FALSE(it.isDone());
         EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, it.getType());
 
         Buffer b;
@@ -553,7 +560,8 @@ TEST_F(BackupServiceTest, getRecoveryData_malformedSegment) {
     while (true) {
         Buffer response;
         EXPECT_THROW(
-            BackupClient::getRecoveryData(&context, backupId, ServerId(99, 0),
+            BackupClient::getRecoveryData(&context, 0lu,
+                                          backupId, ServerId(99, 0),
                                           88, 0, &response),
             SegmentRecoveryFailedException);
         break;
@@ -567,15 +575,15 @@ TEST_F(BackupServiceTest, getRecoveryData_notRecovered) {
     appendObject(s, ServerId(99, 0), 88, "test2", 6, 123, "10", 2);
     Buffer response;
     EXPECT_THROW(
-        BackupClient::getRecoveryData(&context, backupId, ServerId(99, 0),
+        BackupClient::getRecoveryData(&context, 0lu, backupId, ServerId(99, 0),
                                       88, 0, &response),
         BackupBadSegmentIdException);
 }
 
-// XXX Rewrite
 #if 0
 TEST_F(BackupServiceTest, killAllStorage)
 {
+    // XXX Rewrite
     const char* path = "/tmp/ramcloud-backup-storage-test-delete-this";
     TempCleanup __(path);
     ServerConfig config = ServerConfig::forTesting();
@@ -727,7 +735,7 @@ TEST_F(BackupServiceTest, restartFromStorage)
         Segment::EntryHeader headerEntry(LOG_ENTRY_TYPE_SEGHEADER,
                                          sizeof(header));
         SegmentFooter footer{0xcafebabe};
-        Segment::EntryHeader footerEntry(LOG_ENTRY_TYPE_SEGFOOTER,
+        Segment::EntryHeader certificate(LOG_ENTRY_TYPE_SEGFOOTER,
                                          sizeof(footer));
 
         bool close = true;
@@ -756,13 +764,13 @@ TEST_F(BackupServiceTest, restartFromStorage)
             break;
         case 4:
             // Bad entry type for footer.
-            footerEntry.type = 'q';
+            certificate.type = 'q';
             header.segmentId = 92;
             close = true;
             break;
         case 5:
             // Bad entry length for footer.
-            footerEntry.length = 999;
+            certificate.length = 999;
             header.segmentId = 93;
             close = true;
             break;
@@ -780,9 +788,9 @@ TEST_F(BackupServiceTest, restartFromStorage)
         if (close) {
             offset = superblockSize;
             offset += (frame + 1) * config.segmentSize -
-                sizeof(footerEntry) - sizeof(footer);
-            memcpy(b(file) + offset, &footerEntry, sizeof(footerEntry));
-            offset += sizeof(footerEntry);
+                sizeof(certificate) - sizeof(footer);
+            memcpy(b(file) + offset, &certificate, sizeof(certificate));
+            offset += sizeof(certificate);
             memcpy(b(file) + offset, &footer, sizeof(footer));
             offset += sizeof(footer);
         }
@@ -857,7 +865,7 @@ TEST_F(BackupServiceTest, startReadingData) {
                                        &tablets);
     EXPECT_EQ(4u, result.segmentIdAndLength.size());
 
-    Segment::OpaqueFooterEntry unused;
+    Segment::Certificate unused;
     EXPECT_EQ(88U, result.segmentIdAndLength[0].first);
     EXPECT_EQ(s.getAppendedLength(unused), result.segmentIdAndLength[0].second);
     {

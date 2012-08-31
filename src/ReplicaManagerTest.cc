@@ -181,12 +181,13 @@ TEST_F(ReplicaManagerTest, writeSegment) {
             Buffer resp;
             BackupClient::startReadingData(&context, replica.backupId,
                                            serverId, &will);
-            BackupClient::getRecoveryData(&context, replica.backupId,
-                                          serverId, 88, 0, &resp);
+            Segment::Certificate certificate =
+                BackupClient::getRecoveryData(&context, 0lu, replica.backupId,
+                                              serverId, 88, 0, &resp);
             ASSERT_NE(0U, resp.totalLength);
 
             SegmentIterator it(resp.getRange(0, resp.getTotalLength()),
-                               resp.getTotalLength());
+                               resp.getTotalLength(), certificate);
             EXPECT_FALSE(it.isDone());
             EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, it.getType());
             EXPECT_EQ(Object::getSerializedLength(2, 0), it.getLength());
