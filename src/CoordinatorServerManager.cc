@@ -137,7 +137,6 @@ CoordinatorServerManager::EnlistServer::execute()
     state.set_server_id(newServerId.getId());
     state.set_service_mask(serviceMask.serialize());
     state.set_read_speed(readSpeed);
-    state.set_write_speed(writeSpeed);
     state.set_service_locator(string(serviceLocator));
 
     EntryId entryId =
@@ -176,8 +175,8 @@ CoordinatorServerManager::EnlistServer::complete(EntryId entryId)
         manager.sendServerList(newServerId);
 
     if (entry.isBackup()) {
-        LOG(DEBUG, "Backup at id %s has %u MB/s read %u MB/s write",
-            newServerId.toString().c_str(), readSpeed, writeSpeed);
+        LOG(DEBUG, "Backup at id %s has %u MB/s read",
+            newServerId.toString().c_str(), readSpeed);
         manager.createReplicationGroup();
     }
 
@@ -186,7 +185,6 @@ CoordinatorServerManager::EnlistServer::complete(EntryId entryId)
     state.set_server_id(newServerId.getId());
     state.set_service_mask(serviceMask.serialize());
     state.set_read_speed(readSpeed);
-    state.set_write_speed(writeSpeed);
     state.set_service_locator(string(serviceLocator));
 
     EntryId newEntryId = manager.service.logCabinHelper->appendProtoBuf(
@@ -207,8 +205,6 @@ CoordinatorServerManager::EnlistServer::complete(EntryId entryId)
  *      Services supported by the enlisting server.
  * \param readSpeed
  *      Read speed of the enlisting server.
- * \param writeSpeed
- *      Write speed of the enlisting server.
  * \param serviceLocator
  *      Service Locator of the enlisting server.
  *
@@ -218,7 +214,7 @@ CoordinatorServerManager::EnlistServer::complete(EntryId entryId)
 ServerId
 CoordinatorServerManager::enlistServer(
     ServerId replacesId, ServiceMask serviceMask, const uint32_t readSpeed,
-    const uint32_t writeSpeed,  const char* serviceLocator)
+    const char* serviceLocator)
 {
     Lock _(mutex);
 
@@ -238,7 +234,7 @@ CoordinatorServerManager::enlistServer(
 
     ServerId newServerId =
         EnlistServer(*this, ServerId(), serviceMask,
-                     readSpeed, writeSpeed, serviceLocator).execute();
+                     readSpeed, serviceLocator).execute();
 
     if (replacesId.isValid()) {
         LOG(NOTICE, "Newly enlisted server %s replaces server %s",
@@ -267,7 +263,6 @@ CoordinatorServerManager::enlistServerRecover(
                  ServerId(state->server_id()),
                  ServiceMask::deserialize(state->service_mask()),
                  state->read_speed(),
-                 state->write_speed(),
                  state->service_locator().c_str()).complete(entryId);
 }
 

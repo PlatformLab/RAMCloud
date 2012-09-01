@@ -395,7 +395,6 @@ struct EnlistServer {
         SerializedServiceMask serviceMask; ///< Which services are available
                                            ///< on the enlisting server.
         uint32_t readSpeed;                /// MB/s read speed if a BACKUP
-        uint32_t writeSpeed;               /// MB/s write speed if a BACKUP
         /// Number of bytes in the serviceLocator, including terminating NULL
         /// character.  The bytes of the service locator follow immediately
         /// after this header.

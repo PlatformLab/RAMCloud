@@ -371,7 +371,7 @@ BackupService::BackupService(Context* context,
     , segments()
     , segmentSize(config.segmentSize)
     , storage()
-    , storageBenchmarkResults()
+    , readSpeed()
     , bytesWritten(0)
     , initCalled(false)
     , replicationId(0)
@@ -392,6 +392,8 @@ BackupService::BackupService(Context* context,
     }
     if (storage->getMetadataSize() < sizeof(BackupReplicaMetadata))
         DIE("Storage metadata block too small to hold BackupReplicaMetadata");
+
+    benchmark();
 
     recoveryTicks.construct(); // make unit tests happy
 
@@ -482,21 +484,23 @@ BackupService::getServerId() const
 
 /**
  * Perform an initial benchmark of the storage system. This is later passed to
- * the coordinator during init() so that masters can intelligently select
+ * the coordinator during enlistment so that masters can intelligently select
  * backups.
  *
- * This is not part of the constructor because we don't want the benchmark
- * running during unit tests. It's not part of init() because that method must
- * be fast (right now, as soon as init runs for some service, clients can start
- * accessing the service; however, the dispatch loop won't run until init
- * completes for all services).
+ * Benchmark is not run during unit if tests config.backup.mockSpeed is not 0.
+ * It is not run as part of init() because that method must be fast (right now,
+ * as soon as enlistment completes runs for some service, clients can start
+ * accessing the service).
  */
 void
-BackupService::benchmark(uint32_t& readSpeed, uint32_t& writeSpeed) {
-    auto strategy = static_cast<BackupStrategy>(config.backup.strategy);
-    storageBenchmarkResults = storage->benchmark(strategy);
-    readSpeed = storageBenchmarkResults.first;
-    writeSpeed = storageBenchmarkResults.second;
+BackupService::benchmark()
+{
+    if (config.backup.mockSpeed == 0) {
+        auto strategy = static_cast<BackupStrategy>(config.backup.strategy);
+        readSpeed = storage->benchmark(strategy);
+    } else {
+        readSpeed = config.backup.mockSpeed;
+    }
 }
 
 // See Server::dispatch.

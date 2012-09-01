@@ -724,7 +724,7 @@ SingleFileStorage::open(bool sync)
  * This allows benchmark to be called without
  * wasting early segment frames on the disk which may be faster.
  */
-pair<uint32_t, uint32_t>
+uint32_t
 SingleFileStorage::benchmark(BackupStrategy backupStrategy)
 {
     auto r = BackupStorage::benchmark(backupStrategy);

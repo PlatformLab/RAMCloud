@@ -74,13 +74,6 @@ class Server {
     uint32_t backupReadSpeed;
 
     /**
-     * Write speed of the local backup's storage in MB/s.  Measured
-     * startForTesting() used in run() during server enlistment unless
-     * config.backup.mockSpeed is non-zero.
-     */
-    uint32_t backupWriteSpeed;
-
-    /**
      * The id of this server.  This id only becomes valid during run() or after
      * startForTesting() when the server enlists with the coordinator and
      * receives its cluster server id.

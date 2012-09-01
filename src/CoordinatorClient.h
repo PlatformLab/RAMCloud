@@ -38,7 +38,7 @@ class CoordinatorClient {
   public:
     static ServerId enlistServer(Context* context, ServerId replacesId,
             ServiceMask serviceMask, string localServiceLocator,
-            uint32_t readSpeed = 0, uint32_t writeSpeed = 0);
+            uint32_t readSpeed);
     static void getBackupList(Context* context,
             ProtoBuf::ServerList* serverList);
     static void getMasterList(Context* context,
@@ -70,7 +70,7 @@ class EnlistServerRpc : public CoordinatorRpcWrapper {
     public:
     EnlistServerRpc(Context* context, ServerId replacesId,
             ServiceMask serviceMask, string localServiceLocator,
-            uint32_t readSpeed = 0, uint32_t writeSpeed = 0);
+            uint32_t readSpeed);
     ~EnlistServerRpc() {}
     ServerId wait();
 

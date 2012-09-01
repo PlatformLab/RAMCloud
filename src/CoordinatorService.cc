@@ -300,12 +300,11 @@ CoordinatorService::enlistServer(
     ServerId replacesId = ServerId(reqHdr.replacesId);
     ServiceMask serviceMask = ServiceMask::deserialize(reqHdr.serviceMask);
     const uint32_t readSpeed = reqHdr.readSpeed;
-    const uint32_t writeSpeed = reqHdr.writeSpeed;
     const char* serviceLocator = getString(rpc.requestPayload, sizeof(reqHdr),
                                            reqHdr.serviceLocatorLength);
 
     ServerId newServerId = serverManager.enlistServer(
-        replacesId, serviceMask, readSpeed, writeSpeed,
+        replacesId, serviceMask, readSpeed,
         serviceLocator);
 
     respHdr.serverId = newServerId.getId();

@@ -39,19 +39,16 @@ namespace RAMCloud {
  * \param readSpeed
  *      Read speed of the backup in MB/s if serviceMask includes BACKUP,
  *      otherwise ignored.
- * \param writeSpeed
- *      Write speed of the backup in MB/s if serviceMask includes BACKUP,
- *      otherwise ignored.
  * \return
  *      A ServerId guaranteed never to have been used before.
  */
 ServerId
 CoordinatorClient::enlistServer(Context* context, ServerId replacesId,
         ServiceMask serviceMask, string localServiceLocator,
-        uint32_t readSpeed, uint32_t writeSpeed)
+        uint32_t readSpeed)
 {
     EnlistServerRpc rpc(context, replacesId, serviceMask, localServiceLocator,
-            readSpeed, writeSpeed);
+            readSpeed);
     return rpc.wait();
 }
 
@@ -75,15 +72,12 @@ CoordinatorClient::enlistServer(Context* context, ServerId replacesId,
  * \param readSpeed
  *      Read speed of the backup in MB/s if serviceMask includes BACKUP,
  *      otherwise ignored.
- * \param writeSpeed
- *      Write speed of the backup in MB/s if serviceMask includes BACKUP,
- *      otherwise ignored.
  * \return
  *      A ServerId guaranteed never to have been used before.
  */
 EnlistServerRpc::EnlistServerRpc(Context* context,
         ServerId replacesId, ServiceMask serviceMask,
-        string localServiceLocator, uint32_t readSpeed, uint32_t writeSpeed)
+        string localServiceLocator, uint32_t readSpeed)
     : CoordinatorRpcWrapper(context,
             sizeof(WireFormat::EnlistServer::Response))
 {
@@ -92,7 +86,6 @@ EnlistServerRpc::EnlistServerRpc(Context* context,
     reqHdr->replacesId = replacesId.getId();
     reqHdr->serviceMask = serviceMask.serialize();
     reqHdr->readSpeed = readSpeed;
-    reqHdr->writeSpeed = writeSpeed;
     reqHdr->serviceLocatorLength =
         downCast<uint32_t>(localServiceLocator.length() + 1);
     strncpy(new(&request, APPEND) char[reqHdr->serviceLocatorLength],

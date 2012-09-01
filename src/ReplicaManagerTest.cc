@@ -58,7 +58,7 @@ struct ReplicaManagerTest : public ::testing::Test {
 
         mgr.construct(&context, serverId, 2);
         serverId = CoordinatorClient::enlistServer(&context, {},
-            {WireFormat::MASTER_SERVICE}, "", 0 , 0);
+            {WireFormat::MASTER_SERVICE}, "", 0);
     }
 
     ServerId addToServerList(Server* server)

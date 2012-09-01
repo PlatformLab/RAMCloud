@@ -165,7 +165,7 @@ class BackupStorage {
      * for working with that storage.
      */
     virtual Frame* open(bool sync) = 0;
-    virtual pair<uint32_t, uint32_t> benchmark(BackupStrategy backupStrategy);
+    virtual uint32_t benchmark(BackupStrategy backupStrategy);
     virtual size_t getMetadataSize() = 0;
     virtual std::vector<Frame*> loadAllMetadata() = 0;
     virtual void resetSuperblock(ServerId serverId,

@@ -165,7 +165,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServer) {
     EXPECT_EQ(1U, master->serverId.getId());
     EXPECT_EQ(ServerId(2, 0),
         serverManager->enlistServer({}, {WireFormat::BACKUP_SERVICE},
-                                    0, 0, "mock:host=backup"));
+                                    0, "mock:host=backup"));
 
     ProtoBuf::ServerList masterList;
     serverList->serialize(masterList, {WireFormat::MASTER_SERVICE});
@@ -200,7 +200,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServer_ReplaceAMaster) {
     EXPECT_EQ(ServerId(2, 0),
         serverManager->enlistServer(masterServerId,
                                     {WireFormat::BACKUP_SERVICE},
-                                    0, 0, "mock:host=backup"));
+                                    0, "mock:host=backup"));
     EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1.0 | "
               "startMasterRecovery: Recovery crashedServerId: 1.0",
               TestLog::get());
@@ -221,7 +221,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServer_ReplaceANonMaster) {
     TestLog::Enable _(startMasterRecoveryFilter);
     EXPECT_EQ(ServerId(2, 1),
         serverManager->enlistServer(replacesId, {WireFormat::BACKUP_SERVICE},
-                                    0, 0, "mock:host=backup2"));
+                                    0, "mock:host=backup2"));
     EXPECT_EQ("startMasterRecovery: Server 2.0 crashed, but it had no tablets",
               TestLog::get());
     EXPECT_FALSE(serverList->contains(replacesId));
@@ -237,7 +237,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServer_LogCabin) {
     EXPECT_EQ(ServerId(2, 0),
         serverManager->enlistServer(masterServerId,
                                     {WireFormat::BACKUP_SERVICE},
-                                    0, 0, "mock:host=backup"));
+                                    0, "mock:host=backup"));
 
     vector<Entry> entriesRead = logCabinLog->read(0);
     string searchString;
@@ -249,7 +249,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServer_LogCabin) {
             entriesRead[findEntryId(searchString)], readState);
     EXPECT_EQ("entry_type: \"ServerEnlisting\"\n"
               "server_id: 2\nservice_mask: 2\n"
-              "read_speed: 0\nwrite_speed: 0\n"
+              "read_speed: 0\n"
               "service_locator: \"mock:host=backup\"\n",
               readState.DebugString());
 
@@ -260,7 +260,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServer_LogCabin) {
             entriesRead[findEntryId(searchString)], readInfo);
     EXPECT_EQ("entry_type: \"ServerEnlisted\"\n"
               "server_id: 2\nservice_mask: 2\n"
-              "read_speed: 0\nwrite_speed: 0\n"
+              "read_speed: 0\n"
               "service_locator: \"mock:host=backup\"\n",
               readInfo.DebugString());
 }
@@ -280,7 +280,6 @@ TEST_F(CoordinatorServerManagerTest, enlistServerRecover) {
     state.set_service_mask(
         ServiceMask({WireFormat::BACKUP_SERVICE}).serialize());
     state.set_read_speed(0);
-    state.set_write_speed(0);
     state.set_service_locator("mock:host=backup");
 
     EntryId entryId = logCabinHelper->appendProtoBuf(state);
@@ -295,7 +294,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServerRecover) {
     EXPECT_EQ(
         format("complete: Enlisting new server at mock:host=backup "
                "(server id 2.0) supporting services: BACKUP_SERVICE | "
-               "complete: Backup at id 2.0 has 0 MB/s read 0 MB/s write | "
+               "complete: Backup at id 2.0 has 0 MB/s read | "
                "complete: LogCabin: ServerEnlisted entryId: %lu",
                findEntryId(searchString)),
         TestLog::get());
@@ -327,7 +326,6 @@ TEST_F(CoordinatorServerManagerTest, enlistedServerRecover) {
     state.set_service_mask(
         ServiceMask({WireFormat::BACKUP_SERVICE}).serialize());
     state.set_read_speed(0);
-    state.set_write_speed(0);
     state.set_service_locator("mock:host=backup");
 
     EntryId entryId = logCabinHelper->appendProtoBuf(state);
@@ -432,7 +430,7 @@ TEST_F(CoordinatorServerManagerTest, sendServerList_main) {
 TEST_F(CoordinatorServerManagerTest, serverDown_backup) {
     ServerId id =
         serverManager->enlistServer({}, {WireFormat::BACKUP_SERVICE},
-                                    0, 0, "mock:host=backup");
+                                    0, "mock:host=backup");
     EXPECT_EQ(1U, serverManager->service.serverList.backupCount());
     serverManager->forceServerDownForTesting = true;
     serverManager->serverDown(id);

@@ -154,11 +154,12 @@ class BackupService : public Service
 
     BackupService(Context* context, const ServerConfig& config);
     virtual ~BackupService();
-    void benchmark(uint32_t& readSpeed, uint32_t& writeSpeed);
+    void benchmark();
     void dispatch(WireFormat::Opcode opcode, Rpc& rpc);
     ServerId getFormerServerId() const;
     ServerId getServerId() const;
     void init(ServerId id);
+    uint32_t getReadSpeed() { return readSpeed; }
 
   PRIVATE:
     void assignGroup(const WireFormat::BackupAssignGroup::Request& reqHdr,
@@ -264,8 +265,8 @@ class BackupService : public Service
     /// The storage backend where closed segments are to be placed.
     std::unique_ptr<BackupStorage> storage;
 
-    /// The results of storage.benchmark().
-    pair<uint32_t, uint32_t> storageBenchmarkResults;
+    /// The results of storage.benchmark() in MB/s.
+    uint32_t readSpeed;
 
     /// For unit testing.
     uint64_t bytesWritten;

@@ -60,7 +60,6 @@ TEST_F(CoordinatorServiceRecoveryTest, replay_basic) {
     serverInfo.set_service_mask(
             ServiceMask({WireFormat::MASTER_SERVICE}).serialize());
     serverInfo.set_read_speed(0);
-    serverInfo.set_write_speed(0);
     serverInfo.set_service_locator("mock:host=master");
     logCabinHelper->appendProtoBuf(serverInfo);
 

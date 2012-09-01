@@ -55,7 +55,7 @@ class CoordinatorServerManager {
     void createReplicationGroup();
     ServerId enlistServer(ServerId replacesId,
                           ServiceMask serviceMask,
-                          const uint32_t readSpeed, const uint32_t writeSpeed,
+                          const uint32_t readSpeed,
                           const char* serviceLocator);
     void enlistServerRecover(ProtoBuf::ServerInformation* state,
                              EntryId entryId);
@@ -84,13 +84,12 @@ class CoordinatorServerManager {
           EnlistServer(CoordinatorServerManager &manager,
                        ServerId newServerId,
                        ServiceMask serviceMask,
-                       const uint32_t readSpeed,
-                       const uint32_t writeSpeed,
+                       uint32_t readSpeed,
                        const char* serviceLocator)
               : manager(manager),
                 newServerId(newServerId),
                 serviceMask(serviceMask),
-                readSpeed(readSpeed), writeSpeed(writeSpeed),
+                readSpeed(readSpeed),
                 serviceLocator(serviceLocator) {}
           ServerId execute();
           ServerId complete(EntryId entryId);
@@ -111,13 +110,9 @@ class CoordinatorServerManager {
     	   */
           ServiceMask serviceMask;
           /**
-    	   * Read speed of the enlisting server.
+           * Read speed of the enlisting server in MB/s.
     	   */
           const uint32_t readSpeed;
-    	  /**
-    	   * Write speed of the enlisting server.
-    	   */
-          const uint32_t writeSpeed;
     	  /**
     	   * Service Locator of the enlisting server.
     	   */

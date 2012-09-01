@@ -171,7 +171,7 @@ class SingleFileStorage : public BackupStorage {
     ~SingleFileStorage();
 
     Frame* open(bool sync);
-    pair<uint32_t, uint32_t> benchmark(BackupStrategy backupStrategy);
+    uint32_t benchmark(BackupStrategy backupStrategy);
     size_t getMetadataSize();
     std::vector<BackupStorage::Frame*> loadAllMetadata();
     void resetSuperblock(ServerId serverId,
