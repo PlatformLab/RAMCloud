@@ -100,7 +100,7 @@ SingleFileStorage::Frame::loadMetadata()
 
 /**
  * Return a pointer to the most recently appended metadata for this frame.
- * The first #METADATA_SIZE bytes of the returned pointers are valid, though
+ * The first getMetadataSize() bytes of the returned pointers are valid, though
  * it may or may not contain valid or meaningful (or even consistent with the
  * replica) metadata.
  * Warning: Concurrent calls to append modify the metadata that the return
