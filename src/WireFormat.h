@@ -768,11 +768,23 @@ struct ReceiveMigrationData {
     static const Opcode opcode = RECEIVE_MIGRATION_DATA;
     static const ServiceType service = MASTER_SERVICE;
     struct Request {
+        Request()
+            : common()
+            , tableId()
+            , firstKeyHash()
+            , segmentBytes()
+            , certificate()
+        {}
         RequestCommon common;
         uint64_t tableId;           // Id of the table this data belongs to.
         uint64_t firstKeyHash;      // Start of the tablet range for the data.
         uint32_t segmentBytes;      // Length of the Segment containing migrated
                                     // data immediately following this header.
+        Segment::Certificate certificate; // Certificate for the segment
+                                          // which follows this fields in
+                                          // the response field. Used by
+                                          // master to iterate over the
+                                          // segment.
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;

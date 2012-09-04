@@ -991,6 +991,7 @@ MasterService::receiveMigrationData(
     LOG(NOTICE, "RECEIVED MIGRATION DATA (tbl %lu, fk %lu, bytes %u)!\n",
         tableId, firstKeyHash, segmentBytes);
 
+    Segment::Certificate certificate = reqHdr.certificate;
     rpc.requestPayload.truncateFront(sizeof(reqHdr));
     if (rpc.requestPayload.getTotalLength() != segmentBytes) {
         LOG(ERROR, "RPC size (%u) does not match advertised length (%u)",
@@ -999,9 +1000,8 @@ MasterService::receiveMigrationData(
         respHdr.common.status = STATUS_REQUEST_FORMAT_ERROR;
         return;
     }
-    // XXX: Need certificate.
-    //const void* segmentMemory = rpc.requestPayload.getStart<const void*>();
-    //recoverSegment(-1, segmentMemory, segmentBytes);
+    const void* segmentMemory = rpc.requestPayload.getStart<const void*>();
+    recoverSegment(-1, segmentMemory, segmentBytes, certificate);
 
     // TODO(rumble/slaughter) what about tablet version numbers?
     //          - need to be made per-server now, no? then take max of two?

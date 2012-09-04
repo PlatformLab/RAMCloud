@@ -1380,14 +1380,12 @@ TEST_F(MasterServiceTest, migrateTablet_movingData) {
         "and 0 tombstones. 35 bytes in total.", TestLog::get());
 }
 
-#if 0
 static bool
 receiveMigrationDataFilter(string s)
 {
     return s == "receiveMigrationData";
 }
 
-// XXX - Decide what to do with migrate. It needs a certificate.
 TEST_F(MasterServiceTest, receiveMigrationData) {
     Segment s;
 
@@ -1437,7 +1435,6 @@ TEST_F(MasterServiceTest, receiveMigrationData) {
                         "watch out for the migrant object",
                         32));
 }
-#endif
 
 TEST_F(MasterServiceTest, write_basics) {
     Buffer value;
