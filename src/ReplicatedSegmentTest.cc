@@ -562,20 +562,23 @@ TEST_F(ReplicatedSegmentTest, syncRecoveringFromLostOpenReplicas) {
               "complete on segment 888",
               TestLog::get());
     // Three rpcs are sent out to rereplicate the lost replica.
-    // Notice weird "atomic" write flags two of them (high-order bits
-    // glommed together with the flags field).
+    // Notice the opening write doesn't include a certificate because the
+    // replica should only be committed when it has been fully caught-up
+    // with the master's copy. It does this by withholding the certificate
+    // needed to iterate over the replica until the master is ready to
+    // commit the whole thing.
     Segment::Certificate certificate;
-    createSegment->logSegment.getAppendedLength(certificate);
-    // Opening primary write, marked atomic.
+    // Opening primary write, no certificate
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 0, 10, Wr::OPENPRIMARY, true, certificate},
+                 999, 888, 0, 10, Wr::OPENPRIMARY, false, certificate},
                 "abcdefghij", 10));
-    // Closing write to non-crashed replica, no atomic marker.
+    createSegment->logSegment.getAppendedLength(certificate);
+    // Closing write to non-crashed replica, includes certificate.
     EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
                  999, 888, 10, 0, Wr::CLOSE, true, certificate}));
-    // Closing write, marked atomic.
+    // Closing write, includes certificate.
     EXPECT_TRUE(transport.outputMatches(2, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
                  999, 888, 10, 0, Wr::CLOSE, true, certificate}));
@@ -717,12 +720,13 @@ TEST_F(ReplicatedSegmentTest, performTaskRecoveringFromLostOpenReplicas) {
 
     // Reap the remaining outstanding write, send the new atomic open on the
     // originally failed replica (original outstanding rpc should be canceled).
+    // It is atomic by virtue that it doesn't include the certificate needed
+    // to read the replica data back later.
     taskQueue.performTask();
     Segment::Certificate certificate;
-    createSegment->logSegment.getAppendedLength(certificate);
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 0, 10, Wr::OPENPRIMARY, true, certificate},
+                 999, 888, 0, 10, Wr::OPENPRIMARY, false, certificate},
                 "abcdefghij", 10));
     transport.clearOutput();
 
@@ -731,6 +735,7 @@ TEST_F(ReplicatedSegmentTest, performTaskRecoveringFromLostOpenReplicas) {
 
     segment->close();
 
+    createSegment->logSegment.getAppendedLength(certificate);
     taskQueue.performTask(); // send closes
     // Atomic close.
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,

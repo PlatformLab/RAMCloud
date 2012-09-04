@@ -626,12 +626,18 @@ ReplicatedSegment::performWrite(Replica& replica)
             if (replicaIsPrimary(replica))
                 flags = WireFormat::BackupWrite::OPENPRIMARY;
 
+            // If segment is being re-replicated don't send the certificate
+            // for the opening write; the replica should atomically commit when
+            // it has been fully caught up.
+            Segment::Certificate* certificateToSend = &openingWriteCertificate;
+            if (replica.replicateAtomically)
+                certificateToSend = NULL;
+
             TEST_LOG("Sending open to backup %s",
                      replica.backupId.toString().c_str());
-            // XXX: Fix atomic replication.
             replica.writeRpc.construct(context, replica.backupId,
                                        masterId, segmentId, segment, 0,
-                                       openLen, &openingWriteCertificate,
+                                       openLen, certificateToSend,
                                        flags);
             ++writeRpcsInFlight;
             replica.sent.open = true;
@@ -698,7 +704,6 @@ ReplicatedSegment::performWrite(Replica& replica)
 
             TEST_LOG("Sending write to backup %s",
                      replica.backupId.toString().c_str());
-            // XXX: Fix atomic replication.
             replica.writeRpc.construct(context, replica.backupId, masterId,
                                        segmentId, segment, offset, length,
                                        certficateToSend,
