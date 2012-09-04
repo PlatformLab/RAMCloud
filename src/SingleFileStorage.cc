@@ -23,8 +23,10 @@
 #include "Buffer.h"
 #include "Crc32C.h"
 #include "ClientException.h"
+#include "CycleCounter.h"
 #include "Cycles.h"
 #include "Memory.h"
+#include "RawMetrics.h"
 #include "ShortMacros.h"
 
 namespace RAMCloud {
@@ -475,6 +477,9 @@ SingleFileStorage::Frame::performRead(Lock& lock)
     if (testingSkipRealIo) {
         TEST_LOG("count %lu offset %lu", storage->segmentSize, frameStart);
     } else {
+        CycleCounter<RawMetric> _(&metrics->backup.storageReadTicks);
+        ++metrics->backup.storageReadCount;
+        metrics->backup.storageReadBytes += storage->segmentSize;
         // Lock released during this call; assume any field could have changed.
         unlockedRead(lock, storage->fd,
                      buffer.get(), storage->segmentSize, frameStart);
@@ -522,6 +527,9 @@ SingleFileStorage::Frame::performWrite(Lock& lock)
                  startOfFirstDirtyBlock, dirtyLength,
                  frameStart + startOfFirstDirtyBlock, metadataStart);
     } else {
+        CycleCounter<RawMetric> _(&metrics->backup.storageWriteTicks);
+        ++metrics->backup.storageWriteCount;
+        metrics->backup.storageWriteBytes += dirtyLength;
         // Lock released during this call; assume any field could have changed.
         unlockedWrite(lock, storage->fd,
                       firstDirtyBlock, dirtyLength,

@@ -644,13 +644,10 @@ def makeReport(data):
                  'rpc.backupStartReadingDataTicks')
     backup_ticks('write RPC',
                  'rpc.backupWriteTicks')
-    backup_ticks('Open segment memset',
-                 'backup.writeClearTicks')
     backup_ticks('Write copy',
                  'backup.writeCopyTicks')
     backupSection.ms('Other write RPC',
         on_backups(lambda b: (b.rpc.backupWriteTicks -
-                              b.backup.writeClearTicks -
                               b.backup.writeCopyTicks) /
                              b.clockFrequency),
         total=recoveryTime)
@@ -697,13 +694,12 @@ def makeReport(data):
              for b in backups])),
         unit='ms avg')
 
-    # XXX
-    #efficiencySection.line('Filtering a segment',
-    #    sum([b.backup.filterTicks / b.clockFrequency * 1000
-    #         for b in backups]) /
-    #    sum([b.backup.storageReadCount
-    #         for b in backups]),
-    #    unit='ms avg')
+    efficiencySection.line('Filtering a segment',
+        sum([b.backup.filterTicks / b.clockFrequency * 1000
+             for b in backups]) /
+        sum([b.backup.storageReadCount
+             for b in backups]),
+        unit='ms avg')
 
     efficiencySection.line('Memory bandwidth (backup copies)',
         on_backups(lambda b: (
