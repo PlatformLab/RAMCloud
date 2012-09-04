@@ -190,10 +190,12 @@ class BackupReplica {
 
 /**
  * Metadata stored along with each replica on storage.
- * Contains the information needed to check the integrity of the
- * metadata block itself and the metadata inside the replica data
- * as well as any details needed about the replica during recovery
- * and after backups restart.
+ * Contains:
+ *  1) A checksum to check the integrity of the fields of this struct.
+ *  2) A certificate which is used to check the integrity of the internal
+ *     log entry metadata in the replica associated with this metadata struct.
+ *  3) Any details needed about the replica during master recovery (even across
+ *     restart).
  */
 class BackupReplicaMetadata {
   PUBLIC:
@@ -228,7 +230,7 @@ class BackupReplicaMetadata {
 
     /**
      * Checksum the fields of this metadata and compare them to the
-     * checksum that are stored are part of the metadata. Used to
+     * checksum that is stored are part of the metadata. Used to
      * ensure the fields weren't corrupted on storage. Only used
      * on backup startup, which is the only time metadata is ever
      * loaded from storage.
@@ -239,6 +241,7 @@ class BackupReplicaMetadata {
                                   sizeof(*this) - sizeof(checksum));
         return calculatedChecksum.getResult() == checksum;
     }
+
   PRIVATE:
     /**
      * Used to check the integrity of the replica stored in the same

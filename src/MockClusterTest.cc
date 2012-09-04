@@ -32,6 +32,7 @@ class MockClusterTest : public ::testing::Test {
         , cluster()
         , config(ServerConfig::forTesting())
     {
+        Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
         cluster.construct(&context);
     }
 

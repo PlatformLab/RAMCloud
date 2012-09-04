@@ -121,14 +121,11 @@ BackupReplica::~BackupReplica()
     Lock lock(mutex);
 
     if (state == OPEN) {
-        LOG(NOTICE, "Backup shutting down with open segment <%s,%lu>, "
-            "closing out to storage", masterId.toString().c_str(),
+        LOG(WARNING, "Backup shutting down with open segment <%s,%lu>",
+            masterId.toString().c_str(),
             segmentId);
         state = CLOSED;
-        CycleCounter<RawMetric> _(&metrics->backup.storageWriteTicks);
-        ++metrics->backup.storageWriteCount;
-        metrics->backup.storageWriteBytes += segmentSize;
-        // XXX: frame->sync();
+        // May want to add a sync() of some kind here for safe shutdowns.
     }
     if (isRecovered())
         delete[] recoverySegments;
@@ -408,11 +405,13 @@ BackupReplica::buildRecoverySegments(const ProtoBuf::Tablets& partitions)
             if (type == LOG_ENTRY_TYPE_OBJ) {
                 Object object(buffer);
                 tableId = object.getTableId();
-                keyHash = Key::getHash(tableId, object.getKey(), object.getKeyLength());
+                keyHash = Key::getHash(tableId,
+                                       object.getKey(), object.getKeyLength());
             } else { // LOG_ENTRY_TYPE_OBJTOMB:
                 ObjectTombstone tomb(buffer);
                 tableId = tomb.getTableId();
-                keyHash = Key::getHash(tableId, tomb.getKey(), tomb.getKeyLength());
+                keyHash = Key::getHash(tableId,
+                                       tomb.getKey(), tomb.getKeyLength());
             }
 
             // find out which partition this entry belongs in
@@ -612,9 +611,6 @@ BackupReplica::startLoading()
  *      most recently appended certificate will be used during recovery,
  *      which means only data covered by that certificate will be recovered
  *      regardless of how much has been transmitted to the backup.
- * \param metadataLength
- *      Bytes of metadata pointed to by \a metadata. Ignored if \a metadata
- *      is NULL.
  */
 void
 BackupReplica::append(Buffer& source,

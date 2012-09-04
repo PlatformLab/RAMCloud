@@ -706,7 +706,7 @@ TEST_F(BackupServiceTest, restartFromStorage)
     }
     foreach (auto& frame, storage->frames)
         frame.free();
- 
+
     TestLog::Enable _;
     backup->restartFromStorage();
 
@@ -984,7 +984,8 @@ TEST_F(BackupServiceTest, writeSegment_closeSegment) {
         closeSegment(ServerId(99, 0), 88);
         BackupReplica* replica =
             backup->findBackupReplica(ServerId(99, 0), 88);
-        const char* replicaData = static_cast<const char*>(replica->frame->load());
+        const char* replicaData =
+            static_cast<const char*>(replica->frame->load());
         EXPECT_STREQ("test", &replicaData[10]);
     }
 }

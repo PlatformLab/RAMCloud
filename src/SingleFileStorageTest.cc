@@ -509,7 +509,7 @@ TEST_F(SingleFileStorageTest, resetSuperblock) {
 }
 
 struct WaitForQuiesce {
-    WaitForQuiesce(SingleFileStorage& storage)
+    explicit WaitForQuiesce(SingleFileStorage& storage)
         : storage(storage)
     {}
     void operator()() {

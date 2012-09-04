@@ -168,7 +168,7 @@ class BackupStorage {
          * the replica in this frame without loading the frame.
          */
         virtual const void* getMetadata() = 0;
- 
+
         /**
          * Start loading the replica in this frame from storage without
          * blocking. Use load() to wait for the load to complete and to
@@ -188,14 +188,15 @@ class BackupStorage {
         virtual bool isLoaded() = 0;
 
         /**
-         * Return a pointer to the replica data for recovery. If needed, the replica is
-         * loaded from storage into memory. If the replica is already in memory a load
-         * from storage is avoided. If the replica buffer is dirty this call blocks until
-         * all data has been flushed to storage to ensure that recoveries only use durable
-         * data.
+         * Return a pointer to the replica data for recovery. If needed, the
+         * replica is loaded from storage into memory. If the replica is
+         * already in memory a load from storage is avoided. If the replica
+         * buffer is dirty this call blocks until all data has been flushed to
+         * storage to ensure that recoveries only use durable data.
          *
-         * After this call the start of new appends to this frame are rejected until
-         * this frame is recycled for use with another replica (via open()).
+         * After this call the start of new appends to this frame are rejected
+         * until this frame is recycled for use with another replica (via
+         * open()).
          */
         virtual void* load() = 0;
 
@@ -206,28 +207,29 @@ class BackupStorage {
          * Writes data and metadata to storage asynchronously if #sync is false.
          * Writes data and metadata to storage synchronously if #sync is true.
          *
-         * Idempotence: the caller must guarantee duplicated calls provide identical
-         * arguments.
+         * Idempotence: the caller must guarantee duplicated calls provide
+         * identical arguments.
          *
-         * append() after a load() or a close() throws an exception to
-         * the master performing the append since it is either an error by the master
-         * or the master has crashed.
+         * append() after a load() or a close() throws an exception to the
+         * master performing the append since it is either an error by the
+         * master or the master has crashed.
          *
          * \param source
          *      Buffer contained the data to be copied into the frame.
          * \param sourceOffset
          *      Offset into \a source where data should be copied from.
          * \param length
-         *      Bytes to copy to the frame starting at \a sourceOffset in \a source.
+         *      Bytes to copy to the frame starting at \a sourceOffset in \a
+         *      source.
          * \param destinationOffset
          *      Offset into the frame where the source data should be copied.
          * \param metadata
-         *      Metadata which should be written to storage immediately after the data
-         *      appended is written. May be NULL if there is no updated metadata to
-         *      commit to storage along with this data.
+         *      Metadata which should be written to storage immediately after
+         *      the data appended is written. May be NULL if there is no
+         *      updated metadata to commit to storage along with this data.
          * \param metadataLength
-         *      Bytes of metadata pointed to by \a metadata. Ignored if \a metadata
-         *      is NULL.
+         *      Bytes of metadata pointed to by \a metadata. Ignored if \a
+         *      metadata is NULL.
          */
         virtual void append(Buffer& source,
                             size_t sourceOffset,
@@ -238,23 +240,25 @@ class BackupStorage {
 
         /**
          * Mark this frame as closed. Once all data has been flushed to storage
-         * in-memory buffers for this frame will be released. For synchronous mode the
-         * caller must guarantee that there are no ongoing calls to append() for this
-         * frame. Close is idempotent. Calls to close after a call to load() throw
-         * BackupBadSegmentIdException which should kill the calling master; in this
-         * case recovery has already started for them so they are likely already dead.
+         * in-memory buffers for this frame will be released. For synchronous
+         * mode the caller must guarantee that there are no ongoing calls to
+         * append() for this frame. Close is idempotent. Calls to close after a
+         * call to load() throw BackupBadSegmentIdException which should kill
+         * the calling master; in this case recovery has already started for
+         * them so they are likely already dead.
          */
         virtual void close() = 0;
 
         /**
-         * Make this frame available for reuse; data previously stored in this frame
-         * may or may not be part of future recoveries. It does not modify storage,
-         * only in-memory bookkeeping structures, so a previously freed frame will not
-         * be free on restart until higher-level backup code explicitly free them after
-         * it determines it is not needed. May block until any currently ongoing IO
-         * operation for the completes.
-         * IMPORTANT: the frame pointer given by BackupStorage::open is no longer valid
-         * after this call. The caller must take care not to use it.
+         * Make this frame available for reuse; data previously stored in this
+         * frame may or may not be part of future recoveries. It does not
+         * modify storage, only in-memory bookkeeping structures, so a
+         * previously freed frame will not be free on restart until
+         * higher-level backup code explicitly free them after it determines it
+         * is not needed. May block until any currently ongoing IO operation
+         * for the completes. IMPORTANT: the frame pointer given by
+         * BackupStorage::open is no longer valid after this call. The caller
+         * must take care not to use it.
          */
         virtual void free() = 0;
         virtual ~Frame() {}
@@ -265,28 +269,29 @@ class BackupStorage {
     virtual ~BackupStorage() {}
 
     /**
-     * Allocate a frame on storage, resetting its state to accept appends for a new
-     * replica. Open is not synchronous itself. Even after return from open() if
-     * this backup crashes it may find the replica which was formerly stored in
-     * this frame or metadata for the former replica and data for the newly open
-     * replica. Recovery is expected to address these consistency issues with the
-     * checksums.
+     * Allocate a frame on storage, resetting its state to accept appends for a
+     * new replica. Open is not synchronous itself. Even after return from
+     * open() if this backup crashes it may find the replica which was formerly
+     * stored in this frame or metadata for the former replica and data for the
+     * newly open replica. Recovery is expected to address these consistency
+     * issues with the checksums.
      *
      * This call is NOT idempotent since it allocates and return resources to
      * the caller. The caller must take care not to lose frames. Any returned
      * frame which is not freed may be leaked until the backup (or the creating
-     * master crashes). For example, the BackupService will need to guarantee that
-     * any returned frame is associated with a particular replica and that future
-     * RPCs requesting the creation of that replica reuse the returned frame.
+     * master crashes). For example, the BackupService will need to guarantee
+     * that any returned frame is associated with a particular replica and that
+     * future RPCs requesting the creation of that replica reuse the returned
+     * frame.
      *
      * \param sync
-     *      Only return from append() calls when all enqueued data and the  most
+     *      Only return from append() calls when all enqueued data and the most
      *      recently enqueued metadata are durable on storage.
      * \return
-     *      Pointer to a frame through which handles all IO for a single replica.
-     *      Valid until Frame::free() is called on the returned pointer after
-     *      which point future calls to open() can reuse that frame for other
-     *      replicas.
+     *      Pointer to a frame through which handles all IO for a single
+     *      replica.  Valid until Frame::free() is called on the returned
+     *      pointer after which point future calls to open() can reuse that
+     *      frame for other replicas.
      */
     virtual Frame* open(bool sync) = 0;
     virtual uint32_t benchmark(BackupStrategy backupStrategy);
@@ -302,16 +307,17 @@ class BackupStorage {
     virtual size_t getMetadataSize() = 0;
 
     /**
-     * Marks ALL storage frames as allocated and blows away any in-memory copies
-     * of metadata. This should only be performed at backup startup. The caller is
-     * reponsible for freeing the frames if the metadata indicates the replica
-     * data stored there isn't useful.
+     * Marks ALL storage frames as allocated and blows away any in-memory
+     * copies of metadata. This should only be performed at backup startup. The
+     * caller is reponsible for freeing the frames if the metadata indicates
+     * the replica data stored there isn't useful.
      *
      * \return
      *      Pointer to every frame which has various uses depending on the
-     *      metadata that is found in that frame. BackupService code is expected
-     *      to examine the metadata and either free the frame or take note of the
-     *      metadata in the frame for potential use in future recoveries.
+     *      metadata that is found in that frame. BackupService code is
+     *      expected to examine the metadata and either free the frame or take
+     *      note of the metadata in the frame for potential use in future
+     *      recoveries.
      */
     virtual std::vector<Frame*> loadAllMetadata() = 0;
 

@@ -52,17 +52,6 @@ class BackupReplicaTest : public ::testing::Test {
     BackupReplica info;
 };
 
-TEST_F(BackupReplicaTest, destructor) {
-    TestLog::Enable _;
-    {
-        // Normal replica.
-        BackupReplica info{storage, ServerId(99, 0), 88, segmentSize, true};
-        info.open(false);
-    }
-    EXPECT_EQ("~BackupReplica: Backup shutting down with open segment "
-              "<99.0,88>, closing out to storage", TestLog::get());
-}
-
 TEST_F(BackupReplicaTest, destructorLoading) {
     {
         BackupReplica info{storage, ServerId(99, 0), 88, segmentSize, true};

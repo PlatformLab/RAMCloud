@@ -1234,6 +1234,8 @@ MasterService::detectSegmentRecoveryFailure(
  * formerly belonging to a crashed master which is being recovered and pass
  * them to the recovery master to have them replayed.
  *
+ * \param recoveryId
+ *      Id of the recovery this recovery master was performing.
  * \param masterId
  *      The id of the crashed master for which recoveryMaster will be taking
  *      over ownership of tablets.
@@ -1696,6 +1698,11 @@ MasterService::recoverSegmentPrefetcher(SegmentIterator& it)
  *      will be responsible for after the recovery completes.
  * \param bufferLength
  *      Length of the buffer in bytes.
+ * \param certificate
+ *      Certificate to use when iterating over the recovery segment. Provided
+ *      by the backup along with the recovery segment. Used determine how much
+ *      of the segment contains valid data and to verify the integrity of the
+ *      segment metadata.
  */
 void
 MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
