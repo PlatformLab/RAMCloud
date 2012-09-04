@@ -168,7 +168,7 @@ TEST_P(SegmentTest, append_whiteBox) {
     Segment::Certificate certificate;
     EXPECT_EQ(4U, s.getAppendedLength(certificate));
     EXPECT_EQ(4u, certificate.segmentLength);
-    EXPECT_EQ(0x689659fbu, certificate.checksum);
+    EXPECT_EQ(0x87a632e2u, certificate.checksum);
 
     Buffer buffer;
     s.appendToBuffer(buffer);
@@ -266,7 +266,7 @@ TEST_P(SegmentTest, getAppendedLength) {
     s.append(LOG_ENTRY_TYPE_OBJ, "yo!", 3);
     EXPECT_EQ(5lu, s.getAppendedLength(certificate));
     EXPECT_EQ(5lu, certificate.segmentLength);
-    EXPECT_EQ(0x8dc29ceflu, certificate.checksum);
+    EXPECT_EQ(0x62f2f7f6u, certificate.checksum);
 }
 
 TEST_P(SegmentTest, getSegletsAllocated) {

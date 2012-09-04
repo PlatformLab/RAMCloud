@@ -129,7 +129,7 @@ TEST_F(BackupReplicaTest, appendRecoverySegment) {
     Status status = info.appendRecoverySegment(0, &buffer, &certificate);
     ASSERT_EQ(STATUS_OK, status);
     EXPECT_EQ(30u, certificate.segmentLength);
-    EXPECT_EQ(0x12f3a30bu, certificate.checksum);
+    EXPECT_EQ(0xfdc3c812u, certificate.checksum);
     SegmentIterator it(buffer.getRange(0, buffer.getTotalLength()),
                                        buffer.getTotalLength(), certificate);
     EXPECT_FALSE(it.isDone());
@@ -183,7 +183,7 @@ TEST_F(BackupReplicaTest, appendRecoverySegmentSecondarySegment) {
         break;
     }
     EXPECT_EQ(30u, certificate.segmentLength);
-    EXPECT_EQ(0x12f3a30bu, certificate.checksum);
+    EXPECT_EQ(0xfdc3c812u, certificate.checksum);
     SegmentIterator it(buffer.getRange(0, buffer.getTotalLength()),
                         buffer.getTotalLength(),
                         certificate);

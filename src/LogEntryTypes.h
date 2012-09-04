@@ -30,9 +30,6 @@ enum LogEntryType {
     /// See LogMetadata.h::SegmentHeader
     LOG_ENTRY_TYPE_SEGHEADER,
 
-    /// See Segment.h::Footer
-    LOG_ENTRY_TYPE_SEGFOOTER,
-
     /// See Object.h::Object
     LOG_ENTRY_TYPE_OBJ,
 

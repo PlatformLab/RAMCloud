@@ -118,7 +118,7 @@ TEST_F(LogTest, append_tooBigToEverFit) {
     EXPECT_THROW(l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true),
         FatalError);
     EXPECT_NE(oldHead, l.head);
-    EXPECT_EQ("append: Entry too big to append to log: 8193 bytes of type 3",
+    EXPECT_EQ("append: Entry too big to append to log: 8193 bytes of type 2",
         TestLog::get());
 }
 
