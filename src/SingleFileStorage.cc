@@ -562,18 +562,9 @@ SingleFileStorage::Frame::isSynced() const
 Memory::unique_ptr_free
 SingleFileStorage::Frame::allocateBuffer()
 {
-    /*
     return {Memory::xmemalign(HERE, getpagesize(),
                               storage->segmentSize + METADATA_SIZE),
             std::free};
-    */
-    // XXX: Only needed until metadata works.
-    Memory::unique_ptr_free buffer{
-        Memory::xmemalign(HERE, getpagesize(),
-                          storage->segmentSize + METADATA_SIZE),
-        std::free};
-    memset(buffer.get(), 0, storage->segmentSize + METADATA_SIZE);
-    return std::move(buffer);
 }
 
 // --- SingleFileStorage ---
