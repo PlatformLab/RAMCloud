@@ -24,16 +24,13 @@ namespace RAMCloud {
 class SegmentIterator;
 
 #if TESTING
-bool isEntryAlive(Log::Position& position,
-                  const SegmentIterator& it,
-                  Buffer& buffer,
+bool isEntryAlive(const Log::Position& position,
                   const ProtoBuf::Tablets::Tablet& tablet,
-                  SegmentHeader& header);
-Tub<uint64_t> whichPartition(Log::Position& position,
-                             const SegmentIterator& it,
-                             Buffer& buffer,
-                             const ProtoBuf::Tablets& partitions,
-                             SegmentHeader& header);
+                  const SegmentHeader& header);
+const ProtoBuf::Tablets::Tablet*
+    whichPartition(uint64_t tableId,
+                   HashType keyHash,
+                   const ProtoBuf::Tablets& partitions);
 #endif
 
 /**

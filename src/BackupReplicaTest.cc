@@ -252,134 +252,66 @@ TEST_F(BackupReplicaTest, appendRecoverySegmentPartitionOutOfBounds) {
               TestLog::get());
 }
 
-#ifdef XXX
-class MockSegmentIterator : public SegmentIterator {
-  public:
-    MockSegmentIterator(LogEntryType type, Log::Position pos)
-        : SegmentIterator(),
-          type(type),
-          header(),
-          pos(pos)
-    {
-    }
-
-    LogEntryType getType() const { return type; }
-    Log::Position getLogPosition() const { return pos; }
-
-  private:
-    LogEntryType type;
-    Log::Position pos;
-};
-
 TEST_F(BackupReplicaTest, isEntryAlive) {
     ProtoBuf::Tablets partitions;
     createTabletList(partitions);
 
     // Tablet's creation time log position was (12741, 57273)
     const ProtoBuf::Tablets::Tablet& tablet(partitions.tablet(2));
+    Tub<SegmentHeader> header;
 
     // Is a cleaner segment...
-    {
-        MockSegmentIterator it(LOG_ENTRY_TYPE_OBJ,
-                               12742,
-                               Log::Position());
-        EXPECT_TRUE(isEntryAlive(it, tablet));
-    }
-    {
-        MockSegmentIterator it(LOG_ENTRY_TYPE_OBJ,
-                               12740,
-                               Log::Position());
-        EXPECT_FALSE(isEntryAlive(it, tablet));
-    }
-    {
-        MockSegmentIterator it(LOG_ENTRY_TYPE_OBJ,
-                               12741,
-                               Log::Position());
-        EXPECT_FALSE(isEntryAlive(it, tablet));
-    }
+    header.construct(123, 88, 0, 12742);
+    EXPECT_TRUE(isEntryAlive({}, tablet, *header));
+
+    header.construct(123, 88, 0, 12740);
+    EXPECT_FALSE(isEntryAlive({}, tablet, *header));
+
+    header.construct(123, 88, 0, 12741);
+    EXPECT_FALSE(isEntryAlive({}, tablet, *header));
 
     // Is not a cleaner segment...
-    {
-        MockSegmentIterator it(LOG_ENTRY_TYPE_OBJ,
-                               Segment::INVALID_SEGMENT_ID,
-                               Log::Position(12741, 57273));
-        EXPECT_TRUE(isEntryAlive(it, tablet));
-    }
-    {
-        MockSegmentIterator it(LOG_ENTRY_TYPE_OBJ,
-                               Segment::INVALID_SEGMENT_ID,
-                               Log::Position(12741, 57274));
-        EXPECT_TRUE(isEntryAlive(it, tablet));
-    }
-    {
-        MockSegmentIterator it(LOG_ENTRY_TYPE_OBJ,
-                               Segment::INVALID_SEGMENT_ID,
-                               Log::Position(12742, 57273));
-        EXPECT_TRUE(isEntryAlive(it, tablet));
-    }
-    {
-        MockSegmentIterator it(LOG_ENTRY_TYPE_OBJ,
-                               Segment::INVALID_SEGMENT_ID,
-                               Log::Position(12740, 57273));
-        EXPECT_FALSE(isEntryAlive(it, tablet));
-    }
-    {
-        MockSegmentIterator it(LOG_ENTRY_TYPE_OBJ,
-                               Segment::INVALID_SEGMENT_ID,
-                               Log::Position(12741, 57272));
-        EXPECT_FALSE(isEntryAlive(it, tablet));
-    }
+    header.construct(123, 88, 0, uint64_t(Segment::INVALID_SEGMENT_ID));
+    EXPECT_TRUE(isEntryAlive({12741, 57273}, tablet, *header));
+
+    header.construct(123, 88, 0, uint64_t(Segment::INVALID_SEGMENT_ID));
+    EXPECT_TRUE(isEntryAlive({12741, 57274}, tablet, *header));
+
+    header.construct(123, 88, 0, uint64_t(Segment::INVALID_SEGMENT_ID));
+    EXPECT_TRUE(isEntryAlive({12742, 57274}, tablet, *header));
+
+    header.construct(123, 88, 0, uint64_t(Segment::INVALID_SEGMENT_ID));
+    EXPECT_FALSE(isEntryAlive({12740, 57273}, tablet, *header));
+
+    header.construct(123, 88, 0, uint64_t(Segment::INVALID_SEGMENT_ID));
+    EXPECT_FALSE(isEntryAlive({12741, 57272}, tablet, *header));
 }
 
 TEST_F(BackupReplicaTest, whichPartition) {
     ProtoBuf::Tablets partitions;
     createTabletList(partitions);
 
-    info.open();
+    info.open(false);
     Segment segment;
 
-    // Create some test objects with different keys and append to segment.
-    appendObjectNoReplication(segment, NULL, 0, 123, "10", 2);
-    appendObjectNoReplication(segment, NULL, 0, 123, "30", 2);
-    appendObjectNoReplication(segment, NULL, 0, 123, "40", 2);
-    appendObjectNoReplication(segment, NULL, 0, 123, "XX", 2);
-
-    SegmentIterator it(segment);
-
-    it.next();
-    auto r = whichPartition(it, partitions);
+    auto r = whichPartition(123, Key::getHash(123, "10", 2), partitions);
     EXPECT_TRUE(r);
-    EXPECT_EQ(0u, *r);
-
-    it.next();
-    r = whichPartition(it, partitions);
+    EXPECT_EQ(0u, r->user_data());
+    r = whichPartition(123, Key::getHash(123, "30", 2), partitions);
     EXPECT_TRUE(r);
-    EXPECT_EQ(1u, *r);
-
-    it.next();
+    EXPECT_EQ(1u, r->user_data());
     TestLog::Enable _;
-    r = whichPartition(it, partitions);
-    EXPECT_FALSE(r);
-    HashType keyHash = Key::getHash(0, "40", 2);
+    auto hash = Key::getHash(123, "40", 2);
+    r = whichPartition(123, Key::getHash(123, "40", 2), partitions);
     EXPECT_EQ(format("whichPartition: Couldn't place object with "
               "<tableId, keyHash> of <123,%lu> into any "
               "of the given tablets for recovery; hopefully it belonged to "
-              "a deleted tablet or lives in another log now", keyHash),
+              "a deleted tablet or lives in another log now", hash),
               TestLog::get());
-
-    TestLog::reset();
-    it.next();
-    r = whichPartition(it, partitions);
-    EXPECT_FALSE(r);
-
-    keyHash = Key::getHash(0, "XX", 2);
-    EXPECT_EQ(format("whichPartition: Skipping object with <tableId, keyHash> "
-        "of <123,%lu> because it appears to have existed prior to this "
-        "tablet's creation.", keyHash), TestLog::get());
 }
 
 TEST_F(BackupReplicaTest, buildRecoverySegment) {
-    info.open();
+    info.open(false);
     Segment segment;
 
     SegmentHeader header = { 99, 88, segmentSize, Segment::INVALID_SEGMENT_ID };
@@ -392,7 +324,7 @@ TEST_F(BackupReplicaTest, buildRecoverySegment) {
     Segment::Certificate certificate;
     uint32_t appendedBytes = segment.getAppendedLength(certificate);
     segment.appendToBuffer(src, 0, appendedBytes);
-    info.write(src, 0, appendedBytes, 0, &certificate, true);
+    info.append(src, 0, appendedBytes, 0, &certificate);
     info.close();
     info.setRecovering();
     info.startLoading();
@@ -406,18 +338,20 @@ TEST_F(BackupReplicaTest, buildRecoverySegment) {
     TestLog::Enable _;
     info.buildRecoverySegments(partitions);
     EXPECT_EQ("buildRecoverySegments: Recovery segments already built for "
-              "<99,88>", TestLog::get());
+              "<99.0,88>", TestLog::get());
 
     EXPECT_FALSE(info.recoveryException);
     EXPECT_EQ(2u, info.recoverySegmentsLength);
     ASSERT_TRUE(info.recoverySegments);
-    EXPECT_EQ(0U, info.recoverySegments[0].getTotalLength());
-    EXPECT_EQ(0u, info.recoverySegments[1].getTotalLength());
+    EXPECT_EQ(0U, info.recoverySegments[0].getAppendedLength(certificate));
+    EXPECT_EQ(0u, info.recoverySegments[1].getAppendedLength(certificate));
 }
 
 TEST_F(BackupReplicaTest, buildRecoverySegmentMalformedSegment) {
-    info.open();
-    memcpy(info.segment, "garbage", 7);
+    info.open(false);
+    Buffer source;
+    source.appendTo("garbage", 8);
+    info.append(source, 0, 0, 8, NULL);
     info.setRecovering();
     info.startLoading();
 
@@ -431,14 +365,14 @@ TEST_F(BackupReplicaTest, buildRecoverySegmentMalformedSegment) {
 }
 
 TEST_F(BackupReplicaTest, buildRecoverySegmentNoTablets) {
-    info.open();
+    info.open(false);
     Segment segment;
     segment.close();
     Buffer src;
     Segment::Certificate certificate;
     uint32_t appendedBytes = segment.getAppendedLength(certificate);
     segment.appendToBuffer(src, 0, appendedBytes);
-    info.write(src, 0, appendedBytes, 0, &certificate, true);
+    info.append(src, 0, appendedBytes, 0, &certificate);
     info.setRecovering();
     info.startLoading();
     info.buildRecoverySegments(ProtoBuf::Tablets());
@@ -448,27 +382,18 @@ TEST_F(BackupReplicaTest, buildRecoverySegmentNoTablets) {
 }
 
 TEST_F(BackupReplicaTest, close) {
-    info.open();
+    info.open(false);
     EXPECT_EQ(BackupReplica::OPEN, info.state);
-    // The F gets tacked on by close() from the header given during write().
-    const char* magic = "kitties!F";
-    uint32_t bytesToCopy = downCast<uint32_t>(strlen(magic)) - 1;
+    const char magic[] = "kitties!";
+    uint32_t bytesToCopy = sizeof32(magic);
     Buffer src;
     Buffer::Chunk::appendToBuffer(&src, magic, bytesToCopy);
-    SegmentFooterEntry certificate;
-    info.write(src, 0, bytesToCopy, 0, &certificate, false);
+    Segment::Certificate certificate;
+    info.append(src, 0, bytesToCopy, 0, &certificate);
 
     info.close();
-    EXPECT_EQ(BackupReplica::CLOSED, info.state);
-    {
-        // wait for the store op to complete
-        BackupReplica::Lock lock(info.mutex);
-        info.waitForOngoingOps(lock);
-    }
 
-    char seg[segmentSize];
-    storage.getSegment(info.storageFrame, seg);
-    EXPECT_STREQ(magic, seg);
+    EXPECT_STREQ(magic, static_cast<const char*>(info.frame->load()));
 }
 
 TEST_F(BackupReplicaTest, closeWhileNotOpen) {
@@ -476,21 +401,16 @@ TEST_F(BackupReplicaTest, closeWhileNotOpen) {
 }
 
 TEST_F(BackupReplicaTest, free) {
-    info.open();
+    info.open(false);
     info.close();
-    {
-        // wait for the store op to complete
-        BackupReplica::Lock lock(info.mutex);
-        info.waitForOngoingOps(lock);
-    }
-    EXPECT_FALSE(info.inMemory());
+    info.frame->load();
     info.free();
     EXPECT_EQ(BackupReplica::FREED, info.state);
 }
 
 TEST_F(BackupReplicaTest, freeRecoveringSecondary) {
     BackupReplica info{storage, ServerId(99, 0), 88, segmentSize, false};
-    info.open();
+    info.open(false);
     info.close();
     info.setRecovering(ProtoBuf::Tablets());
     info.free();
@@ -498,38 +418,37 @@ TEST_F(BackupReplicaTest, freeRecoveringSecondary) {
 }
 
 TEST_F(BackupReplicaTest, open) {
-    info.open();
-    ASSERT_NE(static_cast<char*>(NULL), info.segment);
-    EXPECT_EQ('\0', info.segment[0]);
-    EXPECT_NE(static_cast<Frame*>(NULL), info.storageFrame);
+    info.open(false);
+    EXPECT_EQ('\0', static_cast<const char*>(info.frame->load())[0]);
+    EXPECT_NE(static_cast<Frame*>(NULL), info.frame);
     EXPECT_EQ(BackupReplica::OPEN, info.state);
 }
 
 TEST_F(BackupReplicaTest, openStorageAllocationFailure) {
     InMemoryStorage storage{segmentSize, 0};
     BackupReplica info{storage, ServerId(99, 0), 88, segmentSize, true};
-    EXPECT_THROW(info.open(), BackupStorageException);
-    ASSERT_EQ(static_cast<char*>(NULL), info.segment);
-    EXPECT_EQ(static_cast<Frame*>(NULL), info.storageFrame);
+    EXPECT_THROW(info.open(false), BackupStorageException);
+    EXPECT_EQ(static_cast<Frame*>(NULL), info.frame);
     EXPECT_EQ(BackupReplica::UNINIT, info.state);
 }
 
 TEST_F(BackupReplicaTest, startLoading) {
-    info.open();
+    info.open(false);
     info.close();
     info.startLoading();
     EXPECT_EQ(BackupReplica::CLOSED, info.state);
 }
 
-TEST_F(BackupReplicaTest, write) {
-    info.open();
+TEST_F(BackupReplicaTest, append) {
+    info.open(false);
     Buffer src;
     const char message[] = "this is a test";
     Buffer::Chunk::appendToBuffer(&src, message, arrayLength(message));
-    SegmentFooterEntry certificate(0x1234abcdu);
-    info.write(src, 10, 4, 1, &certificate, true);
-    EXPECT_EQ(0, memcmp(info.segment, "\0test", 5));
+    Segment::Certificate certificate;
+    certificate.segmentLength = 0x1234u;
+    certificate.checksum = 0xabcdu;
+    info.append(src, 10, 4, 1, &certificate);
+    EXPECT_EQ(0, memcmp(info.frame->load(), "\0test", 5));
 }
-#endif
 
 } // namespace RAMCloud
