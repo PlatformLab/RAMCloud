@@ -192,8 +192,7 @@ class MasterServiceTest : public ::testing::Test {
                              Segment::INVALID_SEGMENT_ID);
         seg.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
         ReplicatedSegment* rs = mgr.allocateHead(segmentId, &seg, NULL);
-        Segment::OpaqueFooterEntry unused;
-        rs->sync(seg.getAppendedLength(unused));
+        rs->sync(seg.getAppendedLength());
     }
 
     void

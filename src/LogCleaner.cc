@@ -221,8 +221,7 @@ LogCleaner::doMemoryCleaning()
         return std::numeric_limits<double>::max();
 
     // Only proceed once we have a survivor segment to work with.
-    while (segmentManager.getFreeSurvivorCount() < 1)
-        usleep(100);
+    waitForAvailableSurvivors(1);
 
     LogSegment* survivor = segmentManager.allocSurvivor(segment);
 
@@ -282,8 +281,19 @@ LogCleaner::doDiskCleaning()
     LiveEntryVector liveEntries;
     getSortedEntries(segmentsToClean, liveEntries);
 
+    uint32_t maxLiveBytes = 0;
+    foreach (LogSegment* segment, segmentsToClean)
+        maxLiveBytes += segment->getLiveBytes();
+    uint64_t bytesBefore = onDiskMetrics.totalBytesAppendedToSurvivors;
+
     // Relocate the live entries to survivor segments.
     relocateLiveEntries(liveEntries, segletsAfter, segmentsAfter);
+
+    // If this doesn't hold, then our statistics are wrong. Perhaps
+    // MasterService is probably issuing a log->free(), but is
+    // leaving a reference in the hash table.
+    assert((onDiskMetrics.totalBytesAppendedToSurvivors - bytesBefore)
+        <= maxLiveBytes);
 
     segmentsBefore = downCast<uint32_t>(segmentsToClean.size());
     assert(segletsBefore >= segletsAfter);
@@ -489,18 +499,8 @@ LogCleaner::sortEntriesByTimestamp(LiveEntryVector& entries)
 }
 
 /**
- * Extract a list of entries from the given segments we're going to clean and
- * sort them by age.
- *
- * TODO(Steve): The two callbacks (checkLiveness and relocate) are the most
- * expensive parts of cleaning. Perhaps we should forget about checkLiveness
- * entirely and just sort all entries (dead or alive). If we're under heavy
- * memory utilization, the majority will be alive anyway, so there's little
- * benefit in sort time. If under lower memory utilisation, we can spend a bit
- * more time sorting. Furthermore, in the old prototype cleaner, at 90% util
- * with 100b objects we'd spend something like 2% of cleaning time sorting
- * and 70+% in callbacks. Doubling or quadrupling sort time for a 30+% reduction
- * in callback time seems like a reasonable trade-off!
+ * Extract a complete list of entries from the given segments we're going to
+ * clean and sort them by age.
  *
  * \param segmentsToClean
  *      Vector containing the segments to extract entries from.
@@ -514,37 +514,31 @@ LogCleaner::getSortedEntries(LogSegmentVector& segmentsToClean,
     CycleCounter<uint64_t> _(&onDiskMetrics.getSortedEntriesTicks);
 
     foreach (LogSegment* segment, segmentsToClean) {
-        onDiskMetrics.totalMemoryBytesInCleanedSegments +=
-            segment->getSegletsAllocated() * segletSize;
-        onDiskMetrics.totalDiskBytesInCleanedSegments += segmentSize;
-
         for (SegmentIterator it(*segment); !it.isDone(); it.next()) {
             LogEntryType type = it.getType();
             Buffer buffer;
             it.appendToBuffer(buffer);
-            outLiveEntries.push_back({ segment, it.getOffset(), entryHandlers.getTimestamp(type, buffer) });
+            uint32_t timestamp = entryHandlers.getTimestamp(type, buffer);
+            outLiveEntries.push_back(
+                LiveEntry(segment, it.getOffset(), timestamp));
         }
-
-#if 0 // this was a nice sanity check. port it over to relocateLiveEntries().
-        uint32_t maxLiveBytes = segment->getLiveBytes();
-        uint32_t totalLiveBytes = 0;
-
-        // If this doesn't hold, then MasterService is probably issuing a
-        // log->free(), but is leaving a reference in the hash table.
-        assert(totalLiveBytes <= maxLiveBytes);
-#endif
     }
 
     sortEntriesByTimestamp(outLiveEntries);
-}
 
-void
-LogCleaner::closeSurvivor(LogSegment* survivor)
-{
-    onDiskMetrics.totalBytesAppendedToSurvivors +=
-        survivor->getAppendedLength();
-    survivor->close();
-    // tell RS to start syncing it, but do so without blocking
+    // TODO(Steve): Push all of this crap into LogCleanerMetrics. It already
+    // knows about the various parts of cleaning, so why not have simple calls
+    // into it at interesting points of cleaning and let it extract the needed
+    // metrics?
+    foreach (LogSegment* segment, segmentsToClean) {
+        onDiskMetrics.totalMemoryBytesInCleanedSegments +=
+            segment->getSegletsAllocated() * segletSize;
+        onDiskMetrics.totalDiskBytesInCleanedSegments += segmentSize;
+        onDiskMetrics.cleanedSegmentMemoryHistogram.storeSample(
+            segment->getMemoryUtilization());
+        onDiskMetrics.cleanedSegmentDiskHistogram.storeSample(
+            segment->getDiskUtilization());
+    }
 }
 
 /**
@@ -567,8 +561,7 @@ LogCleaner::relocateLiveEntries(LiveEntryVector& liveEntries,
     CycleCounter<uint64_t> _(&onDiskMetrics.relocateLiveEntriesTicks);
 
     // Only proceed once our pool of survivor segments is full.
-    while (segmentManager.getFreeSurvivorCount() < SURVIVOR_SEGMENTS_TO_RESERVE)
-        usleep(100);
+    waitForAvailableSurvivors(SURVIVOR_SEGMENTS_TO_RESERVE);
 
     LogSegmentVector survivors;
     LogSegment* survivor = NULL;
@@ -598,11 +591,53 @@ LogCleaner::relocateLiveEntries(LiveEntryVector& liveEntries,
                                              survivor->getSegletsInUse());
         assert(r);
         survivorSegletsUsed += survivor->getSegletsAllocated();
-        // sync the survivor!
+
+        // Ensure the survivor has been synced to backups before proceeding.
+        survivor->replicatedSegment->sync(survivor->getAppendedLength());
     }
 
     outNewSeglets = survivorSegletsUsed;
     outNewSegments = downCast<uint32_t>(survivors.size());
+}
+
+/**
+ * Close a survivor segment we've written data to as part of a disk cleaning
+ * pass and tell the replicaManager to begin flushing it asynchronously to
+ * backups.
+ *
+ * \param survivor
+ *      The new disk segment we've written survivor data to.
+ */
+void
+LogCleaner::closeSurvivor(LogSegment* survivor)
+{
+    onDiskMetrics.totalBytesAppendedToSurvivors +=
+        survivor->getAppendedLength();
+
+    survivor->close();
+
+    // Once the replicatedSegment is told that the segment is closed, it will
+    // begin replicating the contents. By closing survivors as we go, we can
+    // overlap backup writes with filling up new survivors.
+    survivor->replicatedSegment->close();
+}
+
+/**
+ * Wait until the desired number of survivor segments are available for
+ * cleaning. This is necessary to ensure that we have enough space to work
+ * with. A perhaps more elegant alternative would be to make SegmentManager::
+ * allocSurvivor() a blocking call. That way we could overlap some more work
+ * when some, but not all, needed segments are available.
+ *
+ * \param count
+ *      The number of survivor segments we want to have available to us before
+ *      continuing.
+ */
+void
+LogCleaner::waitForAvailableSurvivors(size_t count)
+{
+    while (segmentManager.getFreeSurvivorCount() < count)
+        usleep(100);
 }
 
 } // namespace

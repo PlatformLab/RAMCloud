@@ -173,8 +173,7 @@ ReplicatedSegment::free()
 bool
 ReplicatedSegment::isSynced() const
 {
-    Segment::OpaqueFooterEntry unused;
-    uint32_t appendedBytes = segment->getAppendedLength(unused);
+    uint32_t appendedBytes = segment->getAppendedLength();
     if (queued.bytes != appendedBytes)
         return false;
     return !recoveringFromLostOpenReplicas && (getCommitted() == queued);

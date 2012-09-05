@@ -59,7 +59,8 @@ Log::Log(Context& context,
       replicaManager(replicaManager),
       cleaner(context, config, segmentManager, replicaManager, entryHandlers),
       head(NULL),
-      appendLock()
+      appendLock(),
+      metrics()
 {
 }
 
@@ -96,11 +97,18 @@ Log::disableCleaner()
  *      The protocol buffer to fill with metrics.
  */
 void
-Log::getMetrics(ProtoBuf::LogMetrics& metrics)
+Log::getMetrics(ProtoBuf::LogMetrics& m)
 {
-    cleaner.getMetrics(*metrics.mutable_cleaner_metrics());
-    segmentManager.getMetrics(*metrics.mutable_segment_metrics());
-    segmentManager.getAllocator().getMetrics(*metrics.mutable_seglet_metrics());
+    m.set_ticks_per_second(Cycles::perSecond());
+    m.set_total_append_ticks(metrics.totalAppendTicks);
+    m.set_total_sync_ticks(metrics.totalSyncTicks);
+    m.set_total_no_space_ticks(metrics.totalNoSpaceTicks);
+    m.set_total_bytes_appended(metrics.totalBytesAppended);
+    m.set_total_metadata_bytes_appended(metrics.totalMetadataBytesAppended);
+
+    cleaner.getMetrics(*m.mutable_cleaner_metrics());
+    segmentManager.getMetrics(*m.mutable_segment_metrics());
+    segmentManager.getAllocator().getMetrics(*m.mutable_seglet_metrics());
 }
 
 /**
@@ -136,6 +144,7 @@ Log::append(LogEntryType type,
             HashTable::Reference& outReference)
 {
     Lock lock(appendLock);
+    CycleCounter<uint64_t> _(&metrics.totalAppendTicks);
 
     // This is only possible once after construction.
     if (head == NULL) {
@@ -150,17 +159,18 @@ Log::append(LogEntryType type,
     bool success = head->append(type, buffer, offset, length, segmentOffset);
     if (!success) {
         LogSegment* newHead = segmentManager.allocHead(false);
-        if (newHead == NULL)
-            return false;
+        if (newHead != NULL)
+            head = newHead;
 
-        head = newHead;
-
-        // It's possible that we were allocated an emergency head segment due to
-        // memory pressure. If so, it cannot be appended to. Return failure and
-        // let the client retry. Hopefully the cleaner will free up more memory
-        // soon.
-        if (head->isEmergencyHead)
+        // If we're entirely out of memory or were allocated an emergency head
+        // segment due to memory pressure, we can't service the append. Return
+        // failure and let the client retry. Hopefully the cleaner will free up
+        // more memory soon.
+        if (newHead == NULL || head->isEmergencyHead) {
+            if (!metrics.noSpaceTimer)
+                metrics.noSpaceTimer.construct(&metrics.totalNoSpaceTicks);
             return false;
+        }
 
         bytesUsedBefore = head->getAppendedLength();
         if (!head->append(type, buffer, offset, length, segmentOffset)) {
@@ -173,6 +183,9 @@ Log::append(LogEntryType type,
             throw FatalError(HERE, "Entry too big to append to log");
         }
     }
+
+    if (metrics.noSpaceTimer)
+        metrics.noSpaceTimer.destroy();
 
     if (sync)
         Log::sync();
@@ -187,6 +200,10 @@ Log::append(LogEntryType type,
     uint32_t timestamp = entryHandlers.getTimestamp(type, inLogBuffer);
     head->statistics.increment(head->getAppendedLength() - bytesUsedBefore,
                                timestamp);
+
+    metrics.totalBytesAppended += length;
+    metrics.totalMetadataBytesAppended +=
+        (head->getAppendedLength() - bytesUsedBefore) - length;
 
     return true;
 }
@@ -280,6 +297,8 @@ Log::getEntry(HashTable::Reference reference, Buffer& outBuffer)
 void
 Log::sync()
 {
+    CycleCounter<uint64_t> __(&metrics.totalSyncTicks);
+
     // The only time 'head' should be NULL is after construction and before the
     // initial call to this method. Even if we run out of memory in the future,
     // head will remain valid.
@@ -289,8 +308,7 @@ Log::sync()
             throw FatalError(HERE, "Could not allocate initial head segment");
     }
 
-    Segment::OpaqueFooterEntry unused;
-    head->replicatedSegment->sync(head->getAppendedLength(unused));
+    head->replicatedSegment->sync(head->getAppendedLength());
     TEST_LOG("log synced");
 }
 
@@ -315,8 +333,7 @@ Log::getHeadPosition()
         return { 0, 0 };
     }
 
-    Segment::OpaqueFooterEntry unused;
-    return { head->id, head->getAppendedLength(unused) };
+    return { head->id, head->getAppendedLength() };
 }
 
 /**

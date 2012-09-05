@@ -125,7 +125,7 @@ class Log {
 
     void enableCleaner();
     void disableCleaner();
-    void getMetrics(ProtoBuf::LogMetrics& metrics);
+    void getMetrics(ProtoBuf::LogMetrics& m);
     bool append(LogEntryType type,
                 Buffer& buffer,
                 uint32_t offset,
@@ -191,6 +191,47 @@ class Log {
     /// Lock taken around log append operations. This is currently only used
     /// to delay appends to the log head while migration is underway.
     SpinLock appendLock;
+
+    /// Various event counters and performance measurements taken during log
+    /// operation.
+    class Metrics {
+      public:
+        Metrics() :
+            totalAppendTicks(0),
+            totalSyncTicks(0),
+            totalNoSpaceTicks(0),
+            noSpaceTimer(),
+            totalBytesAppended(0),
+            totalMetadataBytesAppended(0)
+        {
+        }
+
+        /// Total number of cpu cycles spent appending data. Includes any
+        /// synchronous replication time, but does not include waiting for
+        /// the log lock.
+        uint64_t totalAppendTicks;
+
+        /// Total number of cpu cycles spent syncing appended log entries.
+        uint64_t totalSyncTicks;
+
+        /// Total number of ticks spent out of memory and unable to service
+        /// append operations.
+        uint64_t totalNoSpaceTicks;
+
+        /// Timer used to measure how long the log has spent unable to allocate
+        /// memory. Constructed when we transition from being able to append to
+        /// not, and destructed when we can append again.
+        Tub<CycleCounter<uint64_t>> noSpaceTimer;
+
+        /// Total number of useful user bytes appended to the log. This does not
+        /// include any segment metadata.
+        uint64_t totalBytesAppended;
+
+        /// Total number of metadata bytes appended to the log. This, plus the
+        /// #totalBytesAppended value is equal to the grand total of bytes
+        /// appended to the log.
+        uint64_t totalMetadataBytesAppended;
+    } metrics;
 
     friend class LogIterator;
 

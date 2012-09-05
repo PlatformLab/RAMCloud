@@ -96,12 +96,19 @@ Cycles::perSecond()
  * giving the corresponding time in seconds.
  * \param cycles
  *      Difference between the results of two calls to rdtsc.
+ * \param cyclesPerSec
+ *      Optional parameter to specify the frequency of the counter that #cycles
+ *      was taken from. Useful when converting a remote machine's tick counter
+ *      to seconds. The default value of 0 will use the local processor's
+ *      computed counter frequency.
  * \return
  *      The time in seconds corresponding to cycles.
  */
 double
-Cycles::toSeconds(uint64_t cycles)
+Cycles::toSeconds(uint64_t cycles, double cyclesPerSec)
 {
+    if (cyclesPerSec == 0)
+        cyclesPerSec = Cycles::cyclesPerSec;
     return static_cast<double>(cycles)/cyclesPerSec;
 }
 
@@ -110,12 +117,19 @@ Cycles::toSeconds(uint64_t cycles)
  * corresponds to.
  * \param seconds
  *      Time in seconds.
+ * \param cyclesPerSec
+ *      Optional parameter to specify the frequency of the counter that #cycles
+ *      was taken from. Useful when converting a remote machine's tick counter
+ *      to seconds. The default value of 0 will use the local processor's
+ *      computed counter frequency.
  * \return
  *      The approximate number of cycles corresponding to #seconds.
  */
 uint64_t
-Cycles::fromSeconds(double seconds)
+Cycles::fromSeconds(double seconds, double cyclesPerSec)
 {
+    if (cyclesPerSec == 0)
+        cyclesPerSec = Cycles::cyclesPerSec;
     return (uint64_t) (seconds*cyclesPerSec + 0.5);
 }
 
@@ -125,12 +139,19 @@ Cycles::fromSeconds(double seconds)
  * is faster than this method.
  * \param cycles
  *      Difference between the results of two calls to rdtsc.
+ * \param cyclesPerSec
+ *      Optional parameter to specify the frequency of the counter that #cycles
+ *      was taken from. Useful when converting a remote machine's tick counter
+ *      to seconds. The default value of 0 will use the local processor's
+ *      computed counter frequency.
  * \return
  *      The time in nanoseconds corresponding to cycles (rounded).
  */
 uint64_t
-Cycles::toNanoseconds(uint64_t cycles)
+Cycles::toNanoseconds(uint64_t cycles, double cyclesPerSec)
 {
+    if (cyclesPerSec == 0)
+        cyclesPerSec = Cycles::cyclesPerSec;
     return (uint64_t) (1e09*static_cast<double>(cycles)/cyclesPerSec + 0.5);
 }
 
@@ -139,12 +160,19 @@ Cycles::toNanoseconds(uint64_t cycles)
  * cycles for an equivalent time length.
  * \param ns
  *      Number of nanoseconds.
+ * \param cyclesPerSec
+ *      Optional parameter to specify the frequency of the counter that #cycles
+ *      was taken from. Useful when converting a remote machine's tick counter
+ *      to seconds. The default value of 0 will use the local processor's
+ *      computed counter frequency.
  * \return
  *      The approximate number of cycles for the same time length.
  */
 uint64_t
-Cycles::fromNanoseconds(uint64_t ns)
+Cycles::fromNanoseconds(uint64_t ns, double cyclesPerSec)
 {
+    if (cyclesPerSec == 0)
+        cyclesPerSec = Cycles::cyclesPerSec;
     return (uint64_t) (static_cast<double>(ns)*cyclesPerSec/1e09 + 0.5);
 }
 

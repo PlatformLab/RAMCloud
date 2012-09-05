@@ -156,6 +156,7 @@ void dumpStats(); //XXX
                              uint32_t& outNewSeglets,
                              uint32_t& outNewSegments);
     void closeSurvivor(LogSegment* survivor);
+    void waitForAvailableSurvivors(size_t count);
 
     template<typename T>
     bool

@@ -199,8 +199,8 @@ SegmentManager::allocHead(bool mustNotFail)
     if (prevHead != NULL) {
         prevHead->close();
         prevHead->replicatedSegment->close();
-        Segment::OpaqueFooterEntry unused;  // TODO(ryan): Should close be sync?
-        prevHead->replicatedSegment->sync(prevHead->getAppendedLength(unused));
+        // TODO(ryan): Should close be sync?
+        prevHead->replicatedSegment->sync(prevHead->getAppendedLength());
 
         if (prevHead->isEmergencyHead)
             free(prevHead);

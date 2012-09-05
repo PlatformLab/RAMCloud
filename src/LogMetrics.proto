@@ -15,6 +15,8 @@
 
 package RAMCloud.ProtoBuf;
 
+import "Histogram.proto";
+
 /// Various metrics regarding log space usage and cleaner performance. These
 /// fields are accumulated from a number of classes, including Log, LogCleaner,
 /// LogSegment, SegletAllocator, and SegmentManager.
@@ -22,6 +24,17 @@ package RAMCloud.ProtoBuf;
 /// Clients can query a server's log for these metrics in order to observe what
 /// sort of load it's under and how it's performing.
 message LogMetrics {
+    /// Frequency of the server's timestamp counter. Needed to properlyu convert
+    /// the advertised ticks into seconds across machines of different speed.
+    required double ticks_per_second = 1;
+
+    /// The following fields are metrics maintained by the Log class. They're
+    /// documented in the Log::Metrics class.
+    required fixed64 total_append_ticks = 2;
+    required fixed64 total_sync_ticks = 3;
+    required fixed64 total_no_space_ticks = 4;
+    required fixed64 total_bytes_appended = 5;
+    required fixed64 total_metadata_bytes_appended = 6;
 
     /// Log metrics related to cleaning. Filled in by the LogCleaner class.
     message CleanerMetrics {
@@ -63,10 +76,12 @@ message LogMetrics {
             required fixed64 cleaning_complete_ticks = 14;
             required fixed64 relocation_callback_ticks = 15;
             required fixed64 relocation_append_ticks = 16;
+            required Histogram cleaned_segment_memory_histogram = 17;
+            required Histogram cleaned_segment_disk_histogram = 18;
         }
         required OnDiskMetrics on_disk_metrics = 8;
     }
-    required CleanerMetrics cleaner_metrics = 1;
+    required CleanerMetrics cleaner_metrics = 7;
 
     /// Log metrics related to allocation of seglets to in-memory segments.
     /// Filled in by the SegletAllocator class.
@@ -97,12 +112,12 @@ message LogMetrics {
         /// Number of seglets available for storing data in new head segments.
         required fixed64 default_pool_count = 7;
     }
-    required SegletMetrics seglet_metrics = 2;
+    required SegletMetrics seglet_metrics = 8;
 
     /// Log metrics related to allocated segments, both in memory and on disk.
     /// Filled in by the SegmentManager class.
     message SegmentMetrics {
-
+        
     }
-    required SegmentMetrics segment_metrics = 3;
+    required SegmentMetrics segment_metrics = 9;
 }

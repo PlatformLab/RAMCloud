@@ -862,9 +862,8 @@ TEST_F(BackupServiceTest, startReadingData) {
                                        ProtoBuf::Tablets());
     EXPECT_EQ(4u, result.segmentIdAndLength.size());
 
-    Segment::OpaqueFooterEntry unused;
     EXPECT_EQ(88U, result.segmentIdAndLength[0].first);
-    EXPECT_EQ(s.getAppendedLength(unused), result.segmentIdAndLength[0].second);
+    EXPECT_EQ(s.getAppendedLength(), result.segmentIdAndLength[0].second);
     {
         BackupService::SegmentInfo& info =
             *backup->findSegmentInfo(ServerId(99, 0), 88);

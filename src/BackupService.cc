@@ -536,10 +536,9 @@ BackupService::SegmentInfo::buildRecoverySegments(
         }
 #if TESTING
         for (uint64_t i = 0; i < recoverySegmentsLength; ++i) {
-            Segment::OpaqueFooterEntry unused;
             LOG(DEBUG, "Recovery segment for <%lu,%lu> partition %lu is %u B",
                 *masterId, segmentId, i,
-                 recoverySegments[i].getAppendedLength(unused));
+                 recoverySegments[i].getAppendedLength());
         }
 #endif
     } catch (const SegmentIteratorException& e) {

@@ -137,7 +137,6 @@ TEST_P(SegmentTest, append_blackBox) {
 TEST_P(SegmentTest, append_outOfSpace) {
     SegmentAndAllocator segAndAlloc(GetParam());
     Segment& s = *segAndAlloc.segment;
-    Segment::OpaqueFooterEntry unused;
 
     // How many N-length writes can we make to this segment?
     char buf[107];
@@ -152,20 +151,19 @@ TEST_P(SegmentTest, append_outOfSpace) {
 
     EXPECT_EQ(expectedAppends, actualAppends);
     EXPECT_EQ(GetParam()->getSegletsPerSegment(), s.getSegletsAllocated());
-    EXPECT_GE(GetParam()->segmentSize - s.getAppendedLength(unused),
+    EXPECT_GE(GetParam()->segmentSize - s.getAppendedLength(),
         s.bytesNeeded(sizeof(Segment::Footer)));
 }
 
 TEST_P(SegmentTest, append_whiteBox) {
     SegmentAndAllocator segAndAlloc(GetParam());
     Segment& s = *segAndAlloc.segment;
-    Segment::OpaqueFooterEntry unused;
 
     uint32_t offset;
     s.append(LOG_ENTRY_TYPE_OBJ, "hi", 2, offset);
 
     EXPECT_EQ(0U, offset);
-    EXPECT_EQ(4U, s.getAppendedLength(unused));
+    EXPECT_EQ(4U, s.getAppendedLength());
 
     Buffer buffer;
     s.appendToBuffer(buffer);
@@ -195,7 +193,6 @@ TEST_P(SegmentTest, append_differentLengthBytes) {
         { 3, threeByteLengths, arrayLength(threeByteLengths) }
         // 4-byte lengths? Fuhgeddaboudit!
     };
-    Segment::OpaqueFooterEntry unused;
 
     for (uint32_t i = 0; i < unsafeArrayLength(tests); i++) {
         for (uint32_t j = 0; j < tests[i].bytesToAppendLength; j++) {
@@ -207,7 +204,7 @@ TEST_P(SegmentTest, append_differentLengthBytes) {
             s.append(LOG_ENTRY_TYPE_OBJ, buf, length);
             EXPECT_EQ(sizeof(Segment::EntryHeader) +
                         tests[i].expectedLengthBytes + length,
-                      s.getAppendedLength(unused));
+                      s.getAppendedLength());
 
             const Segment::EntryHeader* entryHeader = NULL;
             Buffer buffer;
@@ -293,15 +290,14 @@ TEST_P(SegmentTest, getSegletsAllocated) {
 TEST_P(SegmentTest, appendFooter) {
     SegmentAndAllocator segAndAlloc(GetParam());
     Segment& s = *segAndAlloc.segment;
-    Segment::OpaqueFooterEntry unused;
 
     // Appending the footer shouldn't alter the head or the checksum
     // we've accumulated thus far.
     s.append(LOG_ENTRY_TYPE_OBJ, "blah", 4);
-    uint32_t head = s.getAppendedLength(unused);
+    uint32_t head = s.getAppendedLength();
     Crc32C checksum = s.checksum;
     s.appendFooter();
-    EXPECT_EQ(head, s.getAppendedLength(unused));
+    EXPECT_EQ(head, s.getAppendedLength());
     EXPECT_EQ(checksum.getResult(), s.checksum.getResult());
 }
 

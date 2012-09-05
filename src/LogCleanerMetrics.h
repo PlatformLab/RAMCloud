@@ -17,6 +17,7 @@
 #define RAMCLOUD_LOGCLEANERMETRICS_H
 
 #include "Common.h"
+#include "Histogram.h"
 
 #include "LogMetrics.pb.h"
 
@@ -97,7 +98,9 @@ class OnDisk {
           relocateLiveEntriesTicks(0),
           cleaningCompleteTicks(0),
           relocationCallbackTicks(0),
-          relocationAppendTicks(0)
+          relocationAppendTicks(0),
+          cleanedSegmentMemoryHistogram(101, 1),
+          cleanedSegmentDiskHistogram(101, 1)
     {
     }
 
@@ -129,6 +132,10 @@ class OnDisk {
         m.set_cleaning_complete_ticks(cleaningCompleteTicks);
         m.set_relocation_callback_ticks(relocationCallbackTicks);
         m.set_relocation_append_ticks(relocationAppendTicks);
+        cleanedSegmentMemoryHistogram.serialize(
+            *m.mutable_cleaned_segment_memory_histogram());
+        cleanedSegmentDiskHistogram.serialize(
+            *m.mutable_cleaned_segment_disk_histogram());
     }
 
     double
@@ -214,6 +221,14 @@ class OnDisk {
 
     /// Total number of cpu cycles spent appending relocated entries.
     uint64_t relocationAppendTicks;
+
+    /// Histogram of memory utilizations for segments cleaned on disk.
+    /// This lets us see how frequency we clean segments with varying amounts
+    /// of live data.
+    Histogram cleanedSegmentMemoryHistogram;
+
+    /// Histogram of disk space utilizations for segments cleaned on disk.
+    Histogram cleanedSegmentDiskHistogram;
 };
 
 } // namespace LogCleanerMetrics

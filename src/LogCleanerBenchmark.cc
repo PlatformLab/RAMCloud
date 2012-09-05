@@ -25,6 +25,7 @@
 #include "Common.h"
 
 #include "Context.h"
+#include "Histogram.h"
 #include "MasterService.h"
 #include "MasterClient.h"
 #include "OptionParser.h"
@@ -40,155 +41,16 @@
 namespace RAMCloud {
 
 /**
- * Generic histogram class. XXX document me.
- */
-class Histogram {
-  public:
-    Histogram(uint32_t numBuckets, uint32_t bucketWidth)
-        : numBuckets(numBuckets),
-          bucketWidth(bucketWidth),
-          samples(),
-          totalSamples(0),
-          outliers(0),
-          highestOutlier(0)
-    {
-        samples.resize(numBuckets, 0);
-    }
-
-    void
-    addSample(uint64_t sample)
-    {
-        // round to nearest bucket
-        sample = (sample + (bucketWidth - 1)) / bucketWidth;
-        if (sample < numBuckets) {
-            samples[sample]++;
-        } else {
-            outliers++;
-            if (sample > highestOutlier)
-                highestOutlier = sample;
-        }
-
-        totalSamples++;
-    }
-
-    string
-    toString(bool omitZeros = true)
-    {
-        string s;
-        for (uint32_t i = 0; i < numBuckets; i++) {
-            uint64_t count = samples[i];
-            if (count > 0 || !omitZeros)
-                s += format("  %9u  %12lu\n", i, count);
-        }
-        if (outliers > 0)
-            s += format("  %9d  %12lu\n", -1, outliers);
-        return s;
-    }
-
-    uint64_t
-    getOutliers(uint64_t* outHighestOutlier = NULL)
-    {
-        if (outHighestOutlier != NULL)
-            *outHighestOutlier = highestOutlier;
-        return outliers;
-    }
-
-    uint64_t
-    getTotalSamples()
-    {
-        return totalSamples;
-    }
-
-  PRIVATE:
-    /// The number of buckets in our histogram. Each bucket stores counts for
-    /// samples falling into a particular range, as determined by the buckets'
-    /// width.
-    const uint32_t numBuckets;
-
-    /// The width of each bucket determines which bucket a particular sample
-    /// falls in. The sample is divided by this value and rounded to the nearest
-    /// integer to choose the bucket index.
-    const uint32_t bucketWidth;
-
-    /// The histogram itself as a vector of sample counters, one counter for
-    /// each bucket.
-    vector<uint64_t> samples;
-
-    /// Total number of samples reported to the histogram, including outliers.
-    uint64_t totalSamples;
-
-    /// The number of samples added to the histogram that exceeded the maximum
-    /// bucket index.
-    uint64_t outliers;
-    
-    /// The highest-valued sample that was an outlier.
-    uint64_t highestOutlier;
-};
-
-class ServerConfiguration {
-  public:
-    ServerConfiguration()
-        : logBytes(0),
-          hashTableBuckets(0),
-          replicationFactor(0),
-          writeCostThreshold(0),
-          memoryCleanerEnabled(true),
-          memoryLowWatermark(0),
-          diskLowWatermark(0),
-          diskExpansionFactor(0)
-    {
-    }
-    
-    /// Size of the log in bytes. This does not include space reserved for any
-    /// special purposes, including cleaning.
-    uint64_t logBytes;
-
-    /// Size of the hash table in buckets. Each bucket holds 8 entries. This
-    /// does not include any chaining.
-    uint64_t hashTableBuckets;
-
-    /// The log's replication factor determines the number of time each segment
-    /// is replicated for durability.
-    uint32_t replicationFactor;
-
-    /// The server's configured write cost threshold determines the balance
-    /// between disk and memory cleaning.
-    uint32_t writeCostThreshold;
-
-    /// By default the memory cleaner is enabled, but it may be disabled on the
-    /// commandline to exercize just the disk cleaner itself.
-    bool memoryCleanerEnabled;
-
-    /// The memory utilization percentage at which cleaning will begin. Before
-    /// memory hits this utilization, no cleaning will take place as long as
-    /// backup disk space is free. If the in-memory cleaner is enabled, it
-    /// will run at this utilization until it becomes too costly (as determined
-    /// by the writeCostThreshold). After that, disk cleaning may be used. If
-    /// the memory cleaner is disabled, the disk cleaner will run at this level
-    /// regardless.
-    uint32_t memoryLowWatermark;
-
-    /// The backup disk space utilization percentage at which disk cleaning will
-    /// take place. Disk cleaning may also occur earlier due to memory pressure.
-    uint32_t diskLowWatermark;
-
-    /// The expansion factor determines how many segments may be allocated on
-    /// backup disks. It is at least 1.0. Higher values mean more space may be
-    /// allocated on backups than in main memory.
-    double diskExpansionFactor;
-};
-
-/**
  * Interface definition for Distribution objects.
  *
  * Distributions dictate which objects are written during a benchmark run. This
- * includes specifying the keys that are used, the object data associate with
+ * includes specifying the keys that are used, the object data associated with
  * each key, how many times each object is (over-)written, and in what sequence
  * they're written.
  *
  * Many distributions are simple. For instance, a uniform random distribution
  * with fixed-sized objects would simply choose a random key within a given
- * range (dictated by the log's size and desired memory utilization) and write
+ * range (dictated by the log's size and desired memory utilization) and would
  * specify the same object contents for each key.
  */
 class Distribution {
@@ -197,10 +59,12 @@ class Distribution {
     virtual bool isPrefillDone() = 0;
     virtual bool isDone() = 0;
     virtual void advance() = 0;
-    virtual const void* getKey() = 0;
+    virtual void getKey(void* outKey) = 0;
     virtual uint16_t getKeyLength() = 0;
-    virtual const void* getObject() = 0;
+    virtual uint16_t getMaximumKeyLength() = 0;
+    virtual void getObject(void* outObject) = 0;
     virtual uint32_t getObjectLength() = 0;
+    virtual uint32_t getMaximumObjectLength() = 0;
 
   PROTECTED:
     /**
@@ -278,15 +142,8 @@ class UniformDistribution : public Distribution {
           maxObjectId(objectsNeeded(logSize, utilization, 8, objectLength)),
           maximumObjects(maxObjectId * fillCount),
           objectCount(0),
-          key(0),
-          data(NULL)
+          key(0)
     {
-        data = new uint8_t[objectLength];
-    }
-
-    ~UniformDistribution()
-    {
-        delete[] data;
     }
 
     bool
@@ -311,10 +168,10 @@ class UniformDistribution : public Distribution {
         objectCount++;
     }
 
-    const void*
-    getKey()
+    void 
+    getKey(void* outKey)
     {
-        return &key;
+        *reinterpret_cast<uint64_t*>(outKey) = key;
     }
 
     uint16_t
@@ -323,14 +180,26 @@ class UniformDistribution : public Distribution {
         return sizeof(key);
     }
 
-    const void*
-    getObject()
+    uint16_t
+    getMaximumKeyLength()
     {
-        return data;
+        return sizeof(key);
+    }
+
+    void
+    getObject(void* outObject)
+    {
+        // Do nothing. Content doesn't matter.
     }
 
     uint32_t
     getObjectLength()
+    {
+        return objectLength;
+    }
+
+    uint32_t
+    getMaximumObjectLength()
     {
         return objectLength;
     }
@@ -341,7 +210,6 @@ class UniformDistribution : public Distribution {
     uint64_t maximumObjects;
     uint64_t objectCount;
     uint64_t key;
-    uint8_t* data;
 
     DISALLOW_COPY_AND_ASSIGN(UniformDistribution);
 };
@@ -376,15 +244,8 @@ class HotAndColdDistribution : public Distribution {
           maxObjectId(objectsNeeded(logSize, utilization, 8, objectLength)),
           maximumObjects(maxObjectId * fillCount),
           objectCount(0),
-          key(0),
-          data(NULL)
+          key(0)
     {
-        data = new uint8_t[objectLength];
-    }
-
-    ~HotAndColdDistribution()
-    {
-        delete[] data;
     }
 
     bool
@@ -419,10 +280,10 @@ class HotAndColdDistribution : public Distribution {
         objectCount++;
     }
 
-    const void*
-    getKey()
+    void 
+    getKey(void* outKey)
     {
-        return &key;
+        *reinterpret_cast<uint64_t*>(outKey) = key;
     }
 
     uint16_t
@@ -431,14 +292,26 @@ class HotAndColdDistribution : public Distribution {
         return sizeof(key);
     }
 
-    const void*
-    getObject()
+    uint16_t
+    getMaximumKeyLength()
     {
-        return data;
+        return sizeof(key);
+    }
+
+    void
+    getObject(void* outObject)
+    {
+        // Do nothing. Content doesn't matter.
     }
 
     uint32_t
     getObjectLength()
+    {
+        return objectLength;
+    }
+
+    uint32_t
+    getMaximumObjectLength()
     {
         return objectLength;
     }
@@ -451,7 +324,6 @@ class HotAndColdDistribution : public Distribution {
     uint64_t maximumObjects;
     uint64_t objectCount;
     uint64_t key;
-    uint8_t* data;
 
     DISALLOW_COPY_AND_ASSIGN(HotAndColdDistribution);
 };
@@ -465,52 +337,39 @@ class HotAndColdDistribution : public Distribution {
 class Benchmark {
   public:
     Benchmark(RamCloud& ramcloud,
-              string& table,
+              uint64_t tableId,
+              string serverLocator,
               Distribution& distribution)
         : ramcloud(ramcloud),
-          table(table),
-          tableId(-1),
+          tableId(tableId),
+          serverLocator(serverLocator),
           distribution(distribution),
           latencyHistogram(20 * 1000 * 1000, 1000),     // 20s of 1us buckets
           totalObjectsWritten(0),
           totalBytesWritten(0),
           start(0),
+          stop(0),
           lastOutputUpdateTsc(0),
-          serverConfig()
+          serverConfig(),
+          pipelineMax(1)
     {
-        ramcloud.createTable(table.c_str());
-        tableId = ramcloud.getTableId(table.c_str());
-
-        string locator =
-            ramcloud.objectFinder.lookupTablet(tableId, 0).service_locator();
-        ramcloud.getServerConfig(locator.c_str(), serverConfig);
-        fprintf(stderr, serverConfig.DebugString().c_str());
-
-        ProtoBuf::LogMetrics logMetrics;
-        ramcloud.getLogMetrics(locator.c_str(), logMetrics);
-        fprintf(stderr, logMetrics.DebugString().c_str());
     }
 
     void
     run()
     {
+        if (start != 0)
+            return;
+
         // Pre-fill up to the desired utilization before measuring.
-        while (!distribution.isPrefillDone()) {
-            writeNextObject();
-            distribution.advance();
-        }
+        writeNextObjects(pipelineMax);
 
         start = Cycles::rdtsc();
 
         // Now issue writes until we're done.
-        while (!distribution.isDone()) {
-            uint64_t ticks = writeNextObject();
-            latencyHistogram.addSample(Cycles::toNanoseconds(ticks));
-            distribution.advance();
-            updateOutput();
-        }
+        writeNextObjects(pipelineMax);
 
-        updateOutput();
+        stop = Cycles::rdtsc();
     }
 
   PRIVATE:
@@ -522,39 +381,127 @@ class Benchmark {
                 static_cast<double>(totalBytesWritten) / 1024 / 1024;
             double averageWriteRate = totalMegabytesWritten /
                 Cycles::toSeconds(Cycles::rdtsc() - start);
+            uint64_t averageObjectRate = totalObjectsWritten /
+                static_cast<uint64_t>(Cycles::toSeconds(Cycles::rdtsc() - start));
 
-            fprintf(stderr, "\r %lu objects written (%.2f MB) at average of %.2f MB/s",
-                totalObjectsWritten, totalMegabytesWritten, averageWriteRate);
+            fprintf(stderr, "\r %lu objects written (%.2f MB) at average of %.2f MB/s (%lu objs/s)",
+                totalObjectsWritten, totalMegabytesWritten, averageWriteRate, averageObjectRate);
 
             lastOutputUpdateTsc = Cycles::rdtsc();
+
+ProtoBuf::LogMetrics logMetrics;
+ramcloud.getLogMetrics(serverLocator.c_str(), logMetrics);
+fprintf(stderr, "%s\n", logMetrics.DebugString().c_str());
         }
     }
 
-    uint64_t
-    writeNextObject()
-    {
-        if (distribution.isDone())
-            return 0;
+    /**
+     * This class simply encapulsates an asynchronous RPC sent to the server.
+     * It records the TSC when the RPC was initiated, as well as the key and
+     * object that were transmitted.
+     */
+    class OutstandingWrite {
+      public:         
+        OutstandingWrite(RamCloud& ramcloud, uint64_t tableId,
+                         const void* key, uint16_t keyLength,
+                         const void* object, uint32_t objectLength)
+            : ticks(),
+              rpc(ramcloud, tableId, key, keyLength, object, objectLength),
+              key(key),
+              keyLength(keyLength),
+              object(object),
+              objectLength(objectLength)
+        {
+        }
 
         CycleCounter<uint64_t> ticks;
-        ramcloud.write(tableId,
-                       distribution.getKey(),
-                       distribution.getKeyLength(),
-                       distribution.getObject(),
-                       distribution.getObjectLength());
-        totalObjectsWritten++;
-        totalBytesWritten += distribution.getObjectLength();
-        return ticks.stop();
+        WriteRpc rpc;
+        const void* key;
+        uint16_t keyLength;
+        const void* object;
+        uint32_t objectLength;
+
+        DISALLOW_COPY_AND_ASSIGN(OutstandingWrite);
+    };
+
+    void
+    writeNextObjects(const int pipelined)
+    {
+        Tub<OutstandingWrite> rpcs[pipelined];
+        uint8_t keys[pipelined][distribution.getMaximumKeyLength()];
+        uint8_t objects[pipelined][distribution.getMaximumObjectLength()];
+        bool prefilling = !distribution.isPrefillDone();
+
+        bool isDone = false;
+        while (!isDone) {
+            // While any RPCs can still be sent, send them.
+            bool allRpcsSent = false;
+            for (int i = 0; i < pipelined; i++) { 
+                allRpcsSent = prefilling ? distribution.isPrefillDone() :
+                                           distribution.isDone();
+                if (allRpcsSent)
+                    break;
+
+                if (rpcs[i])
+                    continue;
+
+                uint16_t keyLength = distribution.getKeyLength();
+                uint32_t objectLength = distribution.getObjectLength();
+                distribution.getKey(&keys[i][0]);
+                distribution.getObject(&objects[i][0]);
+
+                rpcs[i].construct(ramcloud, tableId, &keys[i][0], keyLength, &objects[i][0], objectLength);
+
+                distribution.advance();
+            }
+
+            // As long as there are RPCs left outstanding, loop until one has
+            // completed.
+            bool anyRpcsDone = false;
+            int numRpcsLeft = -1;
+            while (!anyRpcsDone && numRpcsLeft != 0) {
+                numRpcsLeft = 0;
+
+                // As a client we need to let the dispatcher run. Calling
+                // isReady() on an RPC doesn't do it (perhaps it should?),
+                // so do so here.
+                ramcloud.clientContext.dispatch->poll();
+
+                for (int i = 0; i < pipelined; i++) {
+                    if (!rpcs[i])
+                        continue;
+
+                    if (!rpcs[i]->rpc.isReady()) {
+                        numRpcsLeft++;
+                        continue;
+                    }
+
+                    if (!prefilling) {
+                        latencyHistogram.storeSample(Cycles::toNanoseconds(rpcs[i]->ticks.stop()));
+                        totalObjectsWritten++;
+                        totalBytesWritten += rpcs[i]->objectLength;
+                    }
+
+                    rpcs[i].destroy();
+                    anyRpcsDone = true;
+                }
+            }
+
+            if (numRpcsLeft == 0 && allRpcsSent)
+                isDone = true;
+
+            updateOutput();
+        }
     }
 
     /// RamCloud object used to access the storage being benchmarked.
     RamCloud& ramcloud;
 
-    /// Name of the table to create/open for storing objects.
-    string table;
-
     /// Identifier of the table objects are written to.
     uint64_t tableId;
+
+    /// ServiceLocator of the server we're benchmarking.
+    string serverLocator;
 
     /// The distribution object provides us with the next object to write,
     /// as well as dictates the object's size and how many total objects to
@@ -574,11 +521,19 @@ class Benchmark {
     /// Cycle counter at the start of the benchmark.
     uint64_t start;
 
+    /// Cycle counter at the end of the benchmark.
+    uint64_t stop;
+
     /// Cycle counter of last statistics update dumped to screen.
     uint64_t lastOutputUpdateTsc;
 
     /// Configuration information for the server we're benchmarking.
     ProtoBuf::ServerConfig serverConfig;
+
+    /// Number of RPCs we'll pipeline to the server before waiting for
+    /// acknowledgements. Setting to 1 essentially does a synchronous RPC for
+    /// each write.
+    const int pipelineMax;
 
     DISALLOW_COPY_AND_ASSIGN(Benchmark);
 };
@@ -676,23 +631,35 @@ try
 
     // Get server parameters...
     // Perhaps this (and creating the distribution?) should be pushed into Benchmark.
+    ramcloud.createTable(tableName.c_str());
+    uint64_t tableId = ramcloud.getTableId(tableName.c_str());
 
-    uint64_t logSize = 4898;
+    string locator =
+        ramcloud.objectFinder.lookupTablet(tableId, 0).service_locator();
+
+    ProtoBuf::ServerConfig serverConfig;
+    ramcloud.getServerConfig(locator.c_str(), serverConfig);
+
+    ProtoBuf::LogMetrics logMetrics;
+    ramcloud.getLogMetrics(locator.c_str(), logMetrics);
+    uint64_t logSize = logMetrics.seglet_metrics().total_usable_seglets() *
+                       serverConfig.seglet_size();
+fprintf(stderr, "Usable log size: %lu MB\n", logSize / 1024 / 1024);
     Distribution* distribution = NULL;
     if (distributionName == "uniform") {
-        distribution = new UniformDistribution(logSize * 1024 * 1024,
+        distribution = new UniformDistribution(logSize,
                                                utilization,
                                                objectSize,
                                                timesToFillLog);
     } else {
-        distribution = new HotAndColdDistribution(logSize * 1024 * 1024,
+        distribution = new HotAndColdDistribution(logSize,
                                                   utilization,
                                                   objectSize,
                                                   timesToFillLog,
                                                   90, 10);
     }
 
-    Benchmark benchmark(ramcloud, tableName, *distribution);
+    Benchmark benchmark(ramcloud, tableId, locator, *distribution);
 
     printf("========== Log Cleaner Benchmark ==========\n");
     benchmark.run();
