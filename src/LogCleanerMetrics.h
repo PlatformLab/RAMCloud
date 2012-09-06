@@ -36,6 +36,12 @@ class InMemory {
     InMemory()
         : totalRelocationCallbacks(0),
           totalRelocationAppends(0),
+          totalBytesFreed(0),
+          totalBytesInCompactedSegments(0),
+          totalBytesAppendedToSurvivors(0),
+          totalTicks(0),
+          getSegmentToCompactTicks(0),
+          waitForFreeSurvivorTicks(0),
           relocationCallbackTicks(0),
           relocationAppendTicks(0)
     {
@@ -53,6 +59,12 @@ class InMemory {
     {
         m.set_total_relocation_callbacks(totalRelocationCallbacks);
         m.set_total_relocation_appends(totalRelocationAppends);
+        m.set_total_bytes_freed(totalBytesFreed);
+        m.set_total_bytes_in_compacted_segments(totalBytesInCompactedSegments);
+        m.set_total_bytes_appended_to_survivors(totalBytesAppendedToSurvivors);
+        m.set_total_ticks(totalTicks);
+        m.set_get_segment_to_compact_ticks(getSegmentToCompactTicks);
+        m.set_wait_for_free_survivor_ticks(waitForFreeSurvivorTicks);
         m.set_relocation_callback_ticks(relocationCallbackTicks);
         m.set_relocation_append_ticks(relocationAppendTicks);
     }
@@ -64,6 +76,27 @@ class InMemory {
     /// Appends that weren't successful due to insufficient space would have
     /// bailed quickly and been retried after allocating a new survivor segment.
     uint64_t totalRelocationAppends;
+
+    /// Total number of bytes freed by compacting segments in memory. This will
+    /// be a multiple of the seglets size.
+    uint64_t totalBytesFreed;
+
+    /// Total number of bytes originally allocated to segments before they were
+    /// compacted in memory. This will be a multiple of the seglet size.
+    uint64_t totalBytesInCompactedSegments;
+
+    /// Total number of bytes appended to survivor segments during compaction.
+    /// In other words, the amount of live data.
+    uint64_t totalBytesAppendedToSurvivors;
+
+    /// Total number of cpu cycles spent in doMemoryCleaning().
+    uint64_t totalTicks;
+    
+    /// Total number of cpu cycles spent choosing a segment to compact.
+    uint64_t getSegmentToCompactTicks;
+
+    /// Total number of cpu cycles spent waiting for a free survivor segment.
+    uint64_t waitForFreeSurvivorTicks;
 
     /// Total number of cpu cycles spent in the relocation callback. Note that
     /// this will include time spent appending to the survivor segment if the
@@ -96,6 +129,7 @@ class OnDisk {
           getSortedEntriesTicks(0),
           timestampSortTicks(0),
           relocateLiveEntriesTicks(0),
+          waitForFreeSurvivorsTicks(0),
           cleaningCompleteTicks(0),
           relocationCallbackTicks(0),
           relocationAppendTicks(0),
@@ -129,6 +163,7 @@ class OnDisk {
         m.set_get_sorted_entries_ticks(getSortedEntriesTicks);
         m.set_timestamp_sort_ticks(timestampSortTicks);
         m.set_relocate_live_entries_ticks(relocateLiveEntriesTicks);
+        m.set_wait_for_free_survivors_ticks(waitForFreeSurvivorsTicks);
         m.set_cleaning_complete_ticks(cleaningCompleteTicks);
         m.set_relocation_callback_ticks(relocationCallbackTicks);
         m.set_relocation_append_ticks(relocationAppendTicks);
@@ -210,6 +245,9 @@ class OnDisk {
 
     /// Total number of cpu cycles spent in relocateLiveEntries().
     uint64_t relocateLiveEntriesTicks;
+
+    /// Total number of cpu cycles waiting for sufficient survivor segments.
+    uint64_t waitForFreeSurvivorsTicks;
 
     /// Total number of cpu cycles spent in SegmentManager::cleaningComplete().
     uint64_t cleaningCompleteTicks;
