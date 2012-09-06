@@ -32,10 +32,27 @@ InMemoryStorage::Frame::Frame(InMemoryStorage* storage, size_t frameIndex)
     , buffer()
     , isOpen()
     , isClosed()
+    , appendedToByCurrentProcess()
     , loadRequested()
     , metadata(new char[METADATA_SIZE])
 {
     memset(metadata.get(), '\0', METADATA_SIZE);
+}
+
+/**
+ * Returns true if append has been called on this frame during the life of this
+ * process; returns false otherwise. This includes across free()/open() cycles.
+ * This is used by the backup replica garbage collector to determine whether it
+ * might have missed a BackupFree rpc from a master, in which case it has to
+ * query the master for the replica status. This is "appended to" rather than
+ * "opened by" because of benchmark(); benchmark "opens" replicas and loads them
+ * but doesn't do any. Masters open and append data in a single rpc, so this
+ * is a fine proxy.
+ */
+bool
+InMemoryStorage::Frame::wasAppendedToByCurrentProcess()
+{
+    return appendedToByCurrentProcess;
 }
 
 /**
@@ -156,6 +173,7 @@ InMemoryStorage::Frame::append(Buffer& source,
         throw BackupSegmentOverflowException(HERE);
     }
 
+    appendedToByCurrentProcess = true;
     source.copy(downCast<uint32_t>(sourceOffset),
                 downCast<uint32_t>(length),
                 static_cast<char*>(buffer.get()) + destinationOffset);
@@ -185,6 +203,7 @@ InMemoryStorage::Frame::close()
 }
 
 /**
+ * Do not call; see BackupStorage::freeFrame().
  * Make this frame available for reuse; data previously stored in this frame
  * may or may not be part of future recoveries.
  */
@@ -206,10 +225,9 @@ InMemoryStorage::Frame::free()
  * frame or metadata for the former replica and data for the newly open replica.
  * Recovery is expected to address these consistency issues with the checksums.
  *
- * Idempotence: caller must guarantee all calls to open() for a single replica
- * provide the same arguments. Duplicate calls to open() are ignored until
- * free() is called. Calling open() after a call to free() will reset this
- * frame for reuse with an new replica.
+ * Idempotence: Duplicate calls to open() are ignored until the frame is freed.
+ * Calling open() after the frame is freed will reset this frame for reuse
+ * with an new replica.
  */
 void
 InMemoryStorage::Frame::open()
@@ -268,12 +286,12 @@ InMemoryStorage::InMemoryStorage(size_t segmentSize,
  *      Ignored for InMemoryStorage. All append() calls store data
  *      synchronously.
  * \return
- *      Pointer to a frame through which handles all IO for a single replica.
- *      Valid until Frame::free() is called on the returned pointer after
- *      which point future calls to open() can reuse that frame for other
- *      replicas.
+ *      Reference to a frame through which handles all IO for a single
+ *      replica. Maintains a reference count; when destroyed if the
+ *      reference count drops to zero the frame will be freed for reuse with
+ *      another replica.
  */
-InMemoryStorage::Frame*
+BackupStorage::FrameRef
 InMemoryStorage::open(bool sync)
 {
     Lock lock(mutex);
@@ -290,7 +308,7 @@ InMemoryStorage::open(bool sync)
     Frame* frame = &frames[frameIndex];
     lock.unlock();
     frame->open();
-    return frame;
+    return {frame, BackupStorage::freeFrame};
 }
 
 /**
@@ -318,16 +336,16 @@ InMemoryStorage::getMetadataSize()
  *      to examine the metadata and either free the frame or take note of the
  *      metadata in the frame for potential use in future recoveries.
  */
-std::vector<BackupStorage::Frame*>
+std::vector<BackupStorage::FrameRef>
 InMemoryStorage::loadAllMetadata()
 {
-    std::vector<BackupStorage::Frame*> ret;
+    std::vector<FrameRef> ret;
     ret.reserve(frames.size());
     foreach (auto& frame, frames) {
         frame.loadMetadata();
         assert(freeMap[frame.frameIndex] == 1);
         freeMap[frame.frameIndex] = 0;
-        ret.push_back(&frame);
+        ret.push_back({&frame, BackupStorage::freeFrame});
     }
     return ret;
 }

@@ -162,7 +162,7 @@ class RecoveryTestCase(ContextManagerTestCase):
         value = self.rc.read(self.table, 'testKey')
         self.assertEqual(('testValue', 1), value)
         value = self.rc.read(table2, 'testKey')
-        self.assertEqual(('testValue2', 1), value)
+        self.assertEqual(('testValue2', 2), value)
 
         self.rc.testing_set_runtime_option('failRecoveryMasters', '2')
         self.rc.testing_kill(0, '0')
@@ -171,7 +171,7 @@ class RecoveryTestCase(ContextManagerTestCase):
         value = self.rc.read(self.table, 'testKey')
         self.assertEqual(('testValue', 1), value)
         value = self.rc.read(table2, 'testKey')
-        self.assertEqual(('testValue2', 1), value)
+        self.assertEqual(('testValue2', 2), value)
 
     @timeout()
     def test_06_one_backup_fails_during_recovery(self):

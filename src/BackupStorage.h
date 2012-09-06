@@ -132,10 +132,11 @@ class BackupStorage {
      * metadata. Frames manage the details of moving replica data to and from
      * storage and manage buffers for doing so as well.
      *
-     * Backups open() frames, append() data, and then close() them. When the
-     * replica is no longer needed free() releases the frame for reuse by
-     * another replica, for which, the same cycle will be repeated.
+     * Backups open frames, append() data, and then close() them.
      * See BackupStorage::open() to allocate and open a Frame.
+     * Backups call open() on their storage instance to get a reference to a
+     * frame. References to frames are counted; when the count drops to zero
+     * the frame will be made available for reuse by another replica.
      *
      * If a master crashes backups use load() to access the replica data for
      * recovery.
@@ -146,12 +147,25 @@ class BackupStorage {
     class Frame {
       PUBLIC:
         /**
+         * Returns true if append has been called on this frame during the life
+         * of this process; returns false otherwise. This includes across
+         * free()/open() cycles. This is used by the backup replica garbage
+         * collector to determine whether it might have missed a BackupFree rpc
+         * from a master, in which case it has to query the master for the
+         * replica status. This is "appended to" rather than "opened by"
+         * because of benchmark(); benchmark "opens" replicas and loads them
+         * but doesn't do any. Masters open and append data in a single rpc, so
+         * this is a fine proxy.
+         */
+        virtual bool wasAppendedToByCurrentProcess() = 0;
+
+        /**
          * Reloads metadata from storage into memory; only used when
          * restarting a backup from storage. After this call returns
          * getMetadata() will return the metadata as found on storage up until
-         * the first call to open() on this frame. This can only be safely
-         * called immediately after frame is constructed (NOT opened), before
-         * any methods are called on it.
+         * the first call to BackupStorage::open() on this frame. This can only
+         * be safely called immediately after frame is constructed (NOT
+         * opened), before any methods are called on it.
          */
         virtual void loadMetadata() = 0;
 
@@ -177,7 +191,7 @@ class BackupStorage {
          *
          * After this call the start of new appends to this frame are rejected
          * until this frame is recycled for use with another replica (via
-         * open()).
+         * BackupStorage::open()).
          */
         virtual void startLoading() = 0;
 
@@ -250,23 +264,36 @@ class BackupStorage {
         virtual void close() = 0;
 
         /**
+         * Do not call this; only called; called via BackupStorage::freeFrame()
+         * which is called when the reference count associated with a frame
+         * drops to zero.
          * Make this frame available for reuse; data previously stored in this
          * frame may or may not be part of future recoveries. It does not
          * modify storage, only in-memory bookkeeping structures, so a
          * previously freed frame will not be free on restart until
          * higher-level backup code explicitly free them after it determines it
          * is not needed. May block until any currently ongoing IO operation
-         * for the completes. IMPORTANT: the frame pointer given by
-         * BackupStorage::open is no longer valid after this call. The caller
-         * must take care not to use it.
+         * for the completes.
          */
         virtual void free() = 0;
+
         virtual ~Frame() {}
         Frame() {}
+
       DISALLOW_COPY_AND_ASSIGN(Frame);
     };
 
     virtual ~BackupStorage() {}
+
+    virtual uint32_t benchmark(BackupStrategy backupStrategy);
+
+    /**
+     * Reference to a frame; when the reference drops to zero
+     * BackupStorage::free() is called to release the frame for reuse with
+     * another replica.
+     */
+    typedef std::shared_ptr<Frame> FrameRef;
+    static void freeFrame(Frame* frame);
 
     /**
      * Allocate a frame on storage, resetting its state to accept appends for a
@@ -288,14 +315,12 @@ class BackupStorage {
      *      Only return from append() calls when all enqueued data and the most
      *      recently enqueued metadata are durable on storage.
      * \return
-     *      Pointer to a frame through which handles all IO for a single
-     *      replica.  Valid until Frame::free() is called on the returned
-     *      pointer after which point future calls to open() can reuse that
-     *      frame for other replicas.
+     *      Reference to a frame through which handles all IO for a single
+     *      replica. Maintains a reference count; when destroyed if the
+     *      reference count drops to zero the frame will be freed for reuse with
+     *      another replica.
      */
-    virtual Frame* open(bool sync) = 0;
-    virtual uint32_t benchmark(BackupStrategy backupStrategy);
-
+    virtual FrameRef open(bool sync) = 0;
 
     /**
      * Returns the maximum number of bytes of metadata that can be stored
@@ -313,13 +338,14 @@ class BackupStorage {
      * the replica data stored there isn't useful.
      *
      * \return
-     *      Pointer to every frame which has various uses depending on the
+     *      Reference to every frame which has various uses depending on the
      *      metadata that is found in that frame. BackupService code is
-     *      expected to examine the metadata and either free the frame or take
-     *      note of the metadata in the frame for potential use in future
-     *      recoveries.
+     *      must take care to hold references to frames which contain valid
+     *      replicas which it may use for recoveries and to destroy all
+     *      references for frames that aren't needed in order to free space
+     *      for storage of new replicas.
      */
-    virtual std::vector<Frame*> loadAllMetadata() = 0;
+    virtual std::vector<FrameRef> loadAllMetadata() = 0;
 
     /**
      * Overwrite the on-storage superblock with new information that future
@@ -398,11 +424,7 @@ class BackupStorage {
      *      The storage type corresponding with the concrete implementation of
      *      this class.
      */
-    explicit BackupStorage(size_t segmentSize, Type storageType)
-        : segmentSize(segmentSize)
-        , storageType(storageType)
-    {
-    }
+    BackupStorage(size_t segmentSize, Type storageType);
 
     /// Maximum length in bytes of a replica.
     size_t segmentSize;

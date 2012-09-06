@@ -179,10 +179,10 @@ TEST_F(ReplicaManagerTest, writeSegment) {
         foreach (auto& replica, segment.replicas) {
             ASSERT_TRUE(replica.isActive);
             Buffer resp;
-            BackupClient::startReadingData(&context, replica.backupId,
+            BackupClient::startReadingData(&context, replica.backupId, 456lu,
                                            serverId, &will);
             Segment::Certificate certificate =
-                BackupClient::getRecoveryData(&context, 0lu, replica.backupId,
+                BackupClient::getRecoveryData(&context, replica.backupId, 456lu,
                                               serverId, 88, 0, &resp);
             ASSERT_NE(0U, resp.totalLength);
 
@@ -429,8 +429,11 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
         // accounts for 2 rpcs, one to each of its replicas.  The other
         // write is to finish the replication of segment 0.
         "performWrite: Sending write to backup 4.0 | "
+        "writeSegment: Closing <3.0,0> | "
         "performWrite: Sending write to backup 2.0 | "
+        "writeSegment: Closing <3.0,1> | "
         "performWrite: Sending write to backup 4.0 | "
+        "writeSegment: Closing <3.0,1> | "
         , TestLog::getUntil("performTask:", curPos, &curPos));
 
     EXPECT_EQ(

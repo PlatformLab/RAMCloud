@@ -53,6 +53,8 @@ class SingleFileStorage : public BackupStorage {
         Frame(SingleFileStorage* storage, size_t frameIndex);
         ~Frame();
 
+        bool wasAppendedToByCurrentProcess();
+
         void loadMetadata();
         const void* getMetadata();
 
@@ -117,6 +119,19 @@ class SingleFileStorage : public BackupStorage {
          */
         bool sync;
 
+        /**
+         * Tracks whether append has been called on this frame during the
+         * life of this process. This includes across free()/open() cycles.
+         * This is used by the backup replica garbage collector to determine
+         * whether it might have missed a BackupFree rpc from a master, in
+         * which case it has to query the master for the replica status.
+         * This is "appended to" rather than "opened by" because of benchmark();
+         * benchmark "opens" replicas and loads them but doesn't do any.
+         * Masters open and append data in a single rpc, so this is a fine
+         * proxy.
+         */
+        bool appendedToByCurrentProcess;
+
         /// Bytes appended to the replica so far.
         size_t appendedLength;
 
@@ -170,10 +185,10 @@ class SingleFileStorage : public BackupStorage {
                       int openFlags = 0);
     ~SingleFileStorage();
 
-    Frame* open(bool sync);
+    FrameRef open(bool sync);
     uint32_t benchmark(BackupStrategy backupStrategy);
     size_t getMetadataSize();
-    std::vector<BackupStorage::Frame*> loadAllMetadata();
+    std::vector<FrameRef> loadAllMetadata();
     void resetSuperblock(ServerId serverId,
                                  const string& clusterName,
                                  uint32_t frameSkipMask = 0);
@@ -255,15 +270,6 @@ class SingleFileStorage : public BackupStorage {
      * instance is destroyed. Useful for testing.
      */
     char* tempFilePath;
-
-    /**
-     * A short segment aligned buffer used for mutilating segment frame
-     * headers on disk.
-     */
-    void* killMessage;
-
-    /// The length killMessage in bytes.
-    uint32_t killMessageLen;
 
     DISALLOW_COPY_AND_ASSIGN(SingleFileStorage);
 };

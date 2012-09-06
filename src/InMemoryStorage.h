@@ -51,6 +51,8 @@ class InMemoryStorage : public BackupStorage {
 
         Frame(InMemoryStorage* storage, size_t frameIndex);
 
+        bool wasAppendedToByCurrentProcess();
+
         void loadMetadata();
         const void* getMetadata();
 
@@ -99,6 +101,19 @@ class InMemoryStorage : public BackupStorage {
         bool isClosed;
 
         /**
+         * Tracks whether append has been called on this frame during the
+         * life of this process. This includes across free()/open() cycles.
+         * This is used by the backup replica garbage collector to determine
+         * whether it might have missed a BackupFree rpc from a master, in
+         * which case it has to query the master for the replica status.
+         * This is "appended to" rather than "opened by" because of benchmark();
+         * benchmark "opens" replicas and loads them but doesn't do any.
+         * Masters open and append data in a single rpc, so this is a fine
+         * proxy.
+         */
+        bool appendedToByCurrentProcess;
+
+        /**
          * True if the replica data has been requested. Only used to reject
          * appends after load requests in InMemoryStorage.
          */
@@ -119,9 +134,9 @@ class InMemoryStorage : public BackupStorage {
     InMemoryStorage(size_t segmentSize,
                     size_t frameCount);
 
-    Frame* open(bool sync);
+    FrameRef open(bool sync);
     size_t getMetadataSize();
-    std::vector<BackupStorage::Frame*> loadAllMetadata();
+    std::vector<FrameRef> loadAllMetadata();
     void resetSuperblock(ServerId serverId,
                          const string& clusterName,
                          uint32_t frameSkipMask = 0);

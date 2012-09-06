@@ -221,6 +221,8 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
     TestLog::Enable _;
     mgr.taskQueue.performTask(); // Do RecoveryMasterFinishedTask.
     EXPECT_EQ(
+        "performTask: Modifying tablet map to set recovery master 2.0 as "
+            "master for 0, 0, 18446744073709551615 | "
         "performTask: Coordinator tabletMap after recovery master 2.0 "
             "finished: "
         "Tablet { tableId: 0 startKeyHash: 0 endKeyHash: 18446744073709551615 "

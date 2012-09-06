@@ -21,6 +21,12 @@ namespace RAMCloud {
 
 // --- BackupStorage ---
 
+BackupStorage::BackupStorage(size_t segmentSize, Type storageType)
+    : segmentSize(segmentSize)
+    , storageType(storageType)
+{
+}
+
 /**
  * Report the read speed of this storage in MB/s.
  *
@@ -32,35 +38,21 @@ BackupStorage::benchmark(BackupStrategy backupStrategy)
 {
     const uint32_t count = 16;
     uint32_t readSpeeds[count];
-    BackupStorage::Frame* frames[count];
+    BackupStorage::FrameRef frames[count];
 
-    try {
-        for (uint32_t i = 0; i < count; ++i)
-            frames[i] = NULL;
-
-        for (uint32_t i = 0; i < count; ++i) {
-            frames[i] = open(true);
-            frames[i]->close();
-        }
-
-        for (uint32_t i = 0; i < count; ++i) {
-            CycleCounter<> counter;
-            frames[i]->load();
-            uint64_t ns = Cycles::toNanoseconds(counter.stop());
-            readSpeeds[i] = downCast<uint32_t>(
-                                segmentSize * 1000UL * 1000 * 1000 /
-                                (1 << 20) / ns);
-        }
-    } catch (...) {
-        for (uint32_t i = 0; i < count; ++i)
-            if (frames[i])
-                frames[i]->free();
-        throw;
+    for (uint32_t i = 0; i < count; ++i) {
+        frames[i] = open(true);
+        frames[i]->close();
     }
 
-    for (uint32_t i = 0; i < count; ++i)
-        frames[i]->free();
-
+    for (uint32_t i = 0; i < count; ++i) {
+        CycleCounter<> counter;
+        frames[i]->load();
+        uint64_t ns = Cycles::toNanoseconds(counter.stop());
+        readSpeeds[i] = downCast<uint32_t>(
+                            segmentSize * 1000UL * 1000 * 1000 /
+                            (1 << 20) / ns);
+    }
     uint32_t minRead = *std::min_element(readSpeeds,
                                          readSpeeds + count);
     uint32_t avgRead = ({
@@ -85,6 +77,17 @@ BackupStorage::benchmark(BackupStrategy backupStrategy)
     } else {
         DIE("Bad BackupStrategy selected");
     }
+}
+
+/**
+ * Release the frame for reuse with another replica.
+ * Called implicitly when the reference count associated with a FrameRef
+ * drops to zero.
+ */
+void
+BackupStorage::freeFrame(Frame* frame)
+{
+    frame->free();
 }
 
 } // namespace RAMCloud

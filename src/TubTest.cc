@@ -60,6 +60,7 @@ TEST(Tub, basics) {
     {
         FooTub fooTub;
         EXPECT_FALSE(fooTub);
+        EXPECT_FALSE(fooTub.get());
         Foo* foo = fooTub.construct(1, 2, 3);
         EXPECT_TRUE(fooTub);
         EXPECT_EQ(1, foo->x);

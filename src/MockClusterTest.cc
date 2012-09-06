@@ -70,8 +70,7 @@ TEST_F(MockClusterTest, addServer) {
     EXPECT_EQ(1u, cluster->servers.size());
     Segment segment;
     BackupClient::writeSegment(&context, server->serverId, {99, 0},
-                               100, &segment, 0, 0, {},
-                               WireFormat::BackupWrite::OPEN);
+                               100, &segment, 0, 0, {}, true, false, false);
     server = cluster->addServer(config);
     EXPECT_EQ(server->config.localLocator, "mock:host=server1");
 }

@@ -62,7 +62,8 @@ class SingleFileStorageTest : public ::testing::Test {
 
 TEST_F(SingleFileStorageTest, Frame_loadMetadata) {
     Frame::testingSkipRealIo = false;
-    Frame* frame = storage->open(true);
+    BackupStorage::FrameRef frameRef = storage->open(true);
+    Frame* frame = static_cast<Frame*>(frameRef.get());
     frame->append(testSource, 0, 0, 0, test, testLength + 1);
     frame->free();
     frame->loadMetadata();
@@ -71,7 +72,8 @@ TEST_F(SingleFileStorageTest, Frame_loadMetadata) {
 }
 
 TEST_F(SingleFileStorageTest, Frame_startLoading) {
-    Frame* frame = storage->open(true);
+    BackupStorage::FrameRef frameRef = storage->open(true);
+    Frame* frame = static_cast<Frame*>(frameRef.get());
     frame->startLoading();
     EXPECT_TRUE(frame->loadRequested);
     EXPECT_FALSE(frame->isScheduled());
@@ -83,7 +85,8 @@ TEST_F(SingleFileStorageTest, Frame_startLoading) {
 
 TEST_F(SingleFileStorageTest, Frame_load) {
     Frame::testingSkipRealIo = false;
-    Frame* frame = storage->open(true);
+    BackupStorage::FrameRef frameRef = storage->open(true);
+    Frame* frame = static_cast<Frame*>(frameRef.get());
     frame->append(testSource, 0, testSource.getTotalLength(),
                   0, test, testLength + 1);
     frame->close();
@@ -106,7 +109,8 @@ TEST_F(SingleFileStorageTest, Frame_loadDirty) {
     // check to pass but be incomplete, but I've flipped it so the if the race
     // doesn't cover the properties I want then it fails. File a bug on it if
     // this test causes issues and I'll try to come up with a compromise.
-    Frame* frame = storage->open(false);
+    BackupStorage::FrameRef frameRef = storage->open(false);
+    Frame* frame = static_cast<Frame*>(frameRef.get());
     frame->append(testSource, 0, testSource.getTotalLength(),
                   0, test, testLength + 1);
     EXPECT_TRUE(frame->buffer);
@@ -130,7 +134,8 @@ TEST_F(SingleFileStorageTest, Frame_loadDirty) {
 
 TEST_F(SingleFileStorageTest, Frame_append) {
     Frame::testingSkipRealIo = false;
-    Frame* frame = storage->open(false);
+    BackupStorage::FrameRef frameRef = storage->open(false);
+    Frame* frame = static_cast<Frame*>(frameRef.get());
     frame->append(testSource, 0, 5, 0, test, testLength + 1);
     while (!frame->isSynced());
 
@@ -149,7 +154,8 @@ TEST_F(SingleFileStorageTest, Frame_append) {
 
 TEST_F(SingleFileStorageTest, Frame_appendSync) {
     Frame::testingSkipRealIo = false;
-    Frame* frame = storage->open(true);
+    BackupStorage::FrameRef frameRef = storage->open(true);
+    Frame* frame = static_cast<Frame*>(frameRef.get());
     frame->append(testSource, 0, 5, 0, test, testLength + 1);
     EXPECT_TRUE(frame->isSynced());
 
@@ -167,7 +173,8 @@ TEST_F(SingleFileStorageTest, Frame_appendSync) {
 }
 
 TEST_F(SingleFileStorageTest, Frame_appendNothingAdded) {
-    Frame* frame = storage->open(false);
+    BackupStorage::FrameRef frameRef = storage->open(false);
+    Frame* frame = static_cast<Frame*>(frameRef.get());
     frame->append(testSource, 0, 0, 0, NULL, 0);
     EXPECT_EQ(0lu, frame->appendedLength);
     EXPECT_EQ(0lu, frame->appendedMetadataVersion);
@@ -175,7 +182,8 @@ TEST_F(SingleFileStorageTest, Frame_appendNothingAdded) {
 }
 
 TEST_F(SingleFileStorageTest, Frame_appendOnlyNewMetadata) {
-    Frame* frame = storage->open(false);
+    BackupStorage::FrameRef frameRef = storage->open(false);
+    Frame* frame = static_cast<Frame*>(frameRef.get());
     storage->ioQueue.halt();
     frame->append(testSource, 0, 0, 0, test, testLength + 1);
     EXPECT_EQ(0lu, frame->appendedLength);
@@ -184,7 +192,8 @@ TEST_F(SingleFileStorageTest, Frame_appendOnlyNewMetadata) {
 }
 
 TEST_F(SingleFileStorageTest, Frame_appendIdempotence) {
-    Frame* frame = storage->open(false);
+    BackupStorage::FrameRef frameRef = storage->open(false);
+    Frame* frame = static_cast<Frame*>(frameRef.get());
     storage->ioQueue.halt();
     frame->append(testSource, 0, 5, 0, test, testLength + 1);
     EXPECT_EQ(5lu, frame->appendedLength);
@@ -203,7 +212,8 @@ TEST_F(SingleFileStorageTest, Frame_appendIdempotence) {
 }
 
 TEST_F(SingleFileStorageTest, Frame_appendNotOpen) {
-    Frame* frame = storage->open(false);
+    BackupStorage::FrameRef frameRef = storage->open(false);
+    Frame* frame = static_cast<Frame*>(frameRef.get());
     frame->append(testSource, 0, 0, 0, NULL, 0);
     frame->close();
     EXPECT_THROW(frame->append(testSource, 0, 0, 0, NULL, 0),
@@ -211,7 +221,8 @@ TEST_F(SingleFileStorageTest, Frame_appendNotOpen) {
 }
 
 TEST_F(SingleFileStorageTest, Frame_appendLoading) {
-    Frame* frame = storage->open(false);
+    BackupStorage::FrameRef frameRef = storage->open(false);
+    Frame* frame = static_cast<Frame*>(frameRef.get());
     frame->append(testSource, 0, 0, 0, NULL, 0);
     frame->load();
     EXPECT_THROW(frame->append(testSource, 0, 0, 0, NULL, 0),
@@ -219,14 +230,16 @@ TEST_F(SingleFileStorageTest, Frame_appendLoading) {
 }
 
 TEST_F(SingleFileStorageTest, Frame_appendOutOfBounds) {
-    Frame* frame = storage->open(false);
+    BackupStorage::FrameRef frameRef = storage->open(false);
+    Frame* frame = static_cast<Frame*>(frameRef.get());
     frame->append(testSource, 0, 1, segmentSize - 1, NULL, 0);
     EXPECT_THROW(frame->append(testSource, 0, 1, segmentSize, NULL, 0),
                  BackupSegmentOverflowException);
 }
 
 TEST_F(SingleFileStorageTest, Frame_appendMetadataTooBig) {
-    Frame* frame = storage->open(false);
+    BackupStorage::FrameRef frameRef = storage->open(false);
+    Frame* frame = static_cast<Frame*>(frameRef.get());
     frame->append(testSource, 0, 0, 0 , NULL, SingleFileStorage::METADATA_SIZE);
     EXPECT_THROW(frame->append(testSource, 0, 0, 0 ,
                                NULL, SingleFileStorage::METADATA_SIZE + 1),
@@ -234,14 +247,16 @@ TEST_F(SingleFileStorageTest, Frame_appendMetadataTooBig) {
 }
 
 TEST_F(SingleFileStorageTest, Frame_close) {
-    Frame* frame = storage->open(false);
+    BackupStorage::FrameRef frameRef = storage->open(false);
+    Frame* frame = static_cast<Frame*>(frameRef.get());
     frame->close();
     EXPECT_FALSE(frame->isOpen);
     EXPECT_TRUE(frame->isClosed);
 }
 
 TEST_F(SingleFileStorageTest, Frame_closeSync) {
-    Frame* frame = storage->open(true);
+    BackupStorage::FrameRef frameRef = storage->open(true);
+    Frame* frame = static_cast<Frame*>(frameRef.get());
     frame->close();
     EXPECT_FALSE(frame->isOpen);
     EXPECT_TRUE(frame->isClosed);
@@ -250,14 +265,16 @@ TEST_F(SingleFileStorageTest, Frame_closeSync) {
 }
 
 TEST_F(SingleFileStorageTest, Frame_closeLoading) {
-    Frame* frame = storage->open(false);
+    BackupStorage::FrameRef frameRef = storage->open(false);
+    Frame* frame = static_cast<Frame*>(frameRef.get());
     frame->load();
     EXPECT_THROW(frame->close(),
                  BackupBadSegmentIdException);
 }
 
 TEST_F(SingleFileStorageTest, Frame_free) {
-    Frame* frame = storage->open(false);
+    BackupStorage::FrameRef frameRef = storage->open(false);
+    Frame* frame = static_cast<Frame*>(frameRef.get());
     frame->free();
 
     EXPECT_EQ(1, storage->freeMap[0]);
@@ -275,7 +292,8 @@ TEST_F(SingleFileStorageTest, Frame_free) {
 }
 
 TEST_F(SingleFileStorageTest, Frame_open) {
-    Frame* frame = storage->open(false);
+    BackupStorage::FrameRef frameRef = storage->open(false);
+    Frame* frame = static_cast<Frame*>(frameRef.get());
     EXPECT_TRUE(frame->buffer);
     EXPECT_TRUE(frame->isOpen);
     EXPECT_FALSE(frame->isClosed);
@@ -299,7 +317,8 @@ TEST_F(SingleFileStorageTest, Frame_open) {
 
 TEST_F(SingleFileStorageTest, Frame_performWrite) {
     storage->ioQueue.halt();
-    Frame* frame = storage->open(false);
+    BackupStorage::FrameRef frameRef = storage->open(false);
+    Frame* frame = static_cast<Frame*>(frameRef.get());
     frame->append(testSource, 0, 5, 0, test, testLength + 1);
     TestLog::Enable _;
     frame->deschedule();
@@ -317,7 +336,8 @@ TEST_F(SingleFileStorageTest, Frame_performWrite) {
 
 TEST_F(SingleFileStorageTest, Frame_performWriteReleasesBufferAtTheRightTimes) {
     storage->ioQueue.halt();
-    Frame* frame = storage->open(false);
+    BackupStorage::FrameRef frameRef = storage->open(false);
+    Frame* frame = static_cast<Frame*>(frameRef.get());
     frame->append(testSource, 0, 5, 0, test, testLength + 1);
     frame->close();
     frame->loadRequested = true;
@@ -336,7 +356,8 @@ TEST_F(SingleFileStorageTest, Frame_performWriteReleasesBufferAtTheRightTimes) {
 
 TEST_F(SingleFileStorageTest, Frame_performWriteLoadWaiting) {
     storage->ioQueue.halt();
-    Frame* frame = storage->open(false);
+    BackupStorage::FrameRef frameRef = storage->open(false);
+    Frame* frame = static_cast<Frame*>(frameRef.get());
     frame->append(testSource, 0, 5, 0, test, testLength + 1);
     frame->startLoading();
     frame->deschedule();
@@ -354,7 +375,8 @@ TEST_F(SingleFileStorageTest, Frame_performWriteSmokeTestOffsets) {
     testSource.appendTo(garbage, sizeof(garbage));
 
     storage->ioQueue.halt();
-    Frame* frame = storage->open(false);
+    BackupStorage::FrameRef frameRef = storage->open(false);
+    Frame* frame = static_cast<Frame*>(frameRef.get());
     TestLog::Enable _;
 
     // Force !isSynced to get performTask() to call performWrite() by
@@ -417,7 +439,8 @@ TEST_F(SingleFileStorageTest, Frame_performWriteSmokeTestOffsets) {
 }
 
 TEST_F(SingleFileStorageTest, Frame_performRead) {
-    Frame* frame = storage->open(false);
+    BackupStorage::FrameRef frameRef = storage->open(false);
+    Frame* frame = static_cast<Frame*>(frameRef.get());
     frame->close();
     storage->ioQueue.halt();
 
@@ -450,20 +473,23 @@ TEST_F(SingleFileStorageTest, openFails) {
 }
 
 TEST_F(SingleFileStorageTest, open) {
-    Frame* frame = storage->open(false);
+    BackupStorage::FrameRef frameRef = storage->open(false);
+    Frame* frame = static_cast<Frame*>(frameRef.get());
     EXPECT_EQ(0, storage->freeMap[0]);
     EXPECT_EQ(0U, frame->frameIndex);
 }
 
 TEST_F(SingleFileStorageTest, open_ensureFifoUse) {
     for (uint32_t f = 0; f < segmentFrames; ++f) {
-        Frame* frame= storage->open(false);
+        BackupStorage::FrameRef frameRef = storage->open(false);
+        Frame* frame = static_cast<Frame*>(frameRef.get());
         EXPECT_EQ(0, storage->freeMap[f]);
         EXPECT_EQ(f, frame->frameIndex);
         frame->free();
     }
 
-    Frame* frame= storage->open(false);
+    BackupStorage::FrameRef frameRef = storage->open(false);
+    Frame* frame = static_cast<Frame*>(frameRef.get());
     EXPECT_EQ(0, storage->freeMap[0]);
     EXPECT_EQ(1, storage->freeMap[1]);
     EXPECT_EQ(0U, frame->frameIndex);
@@ -471,8 +497,9 @@ TEST_F(SingleFileStorageTest, open_ensureFifoUse) {
 }
 
 TEST_F(SingleFileStorageTest, open_noFreeFrames) {
+    std::vector<BackupStorage::FrameRef> frames;
     for (uint32_t f = 0; f < segmentFrames; ++f)
-        storage->open(false);
+        frames.push_back(storage->open(false));
     EXPECT_THROW(storage->open(false),
                  BackupStorageException);
 }
@@ -480,7 +507,8 @@ TEST_F(SingleFileStorageTest, open_noFreeFrames) {
 TEST_F(SingleFileStorageTest, loadAllMetadata) {
     uint8_t ones[storage->getMetadataSize()];
     memset(ones, 0xff, sizeof(ones));
-    Frame* frame = storage->open(true);
+    BackupStorage::FrameRef frameRef = storage->open(true);
+    Frame* frame = static_cast<Frame*>(frameRef.get());
     Buffer empty;
     frame->append(empty, 0, 0, 0, ones, sizeof(ones));
     const uint8_t *metadata = static_cast<const uint8_t*>(frame->getMetadata());
@@ -522,7 +550,8 @@ struct WaitForQuiesce {
 TEST_F(SingleFileStorageTest, quiesce)
 {
     storage->ioQueue.halt();
-    Frame* frame = storage->open(false);
+    BackupStorage::FrameRef frameRef = storage->open(true);
+    Frame* frame = static_cast<Frame*>(frameRef.get());
     frame->append(testSource, 0, testSource.getTotalLength(),
                   0, test, testLength + 1);
     WaitForQuiesce waitForQuiesce(*storage);
@@ -538,7 +567,8 @@ TEST_F(SingleFileStorageTest, fry)
     Frame::testingSkipRealIo = false;
     uint8_t ones[storage->getMetadataSize()];
     memset(ones, 0xff, sizeof(ones));
-    Frame* frame = storage->open(true);
+    BackupStorage::FrameRef frameRef = storage->open(true);
+    Frame* frame = static_cast<Frame*>(frameRef.get());
     Buffer empty;
     frame->append(empty, 0, 0, 0, ones, sizeof(ones));
     frame->loadMetadata();

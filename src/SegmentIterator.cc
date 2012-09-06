@@ -24,6 +24,8 @@ namespace RAMCloud {
  */
 SegmentIterator::SegmentIterator()
     : wrapperSegment(),
+      buffer(NULL),
+      length(0),
       segment(NULL),
       certificate(),
       currentOffset(0),
@@ -51,6 +53,8 @@ SegmentIterator::SegmentIterator()
  */
 SegmentIterator::SegmentIterator(Segment& segment)
     : wrapperSegment(),
+      buffer(NULL),
+      length(0),
       segment(&segment),
       certificate(),
       currentOffset(0),
@@ -86,6 +90,8 @@ SegmentIterator::SegmentIterator(Segment& segment)
 SegmentIterator::SegmentIterator(const void *buffer, uint32_t length,
                                  const Segment::Certificate& certificate)
     : wrapperSegment(),
+      buffer(buffer),
+      length(length),
       segment(NULL),
       certificate(certificate),
       currentOffset(0),
@@ -94,6 +100,41 @@ SegmentIterator::SegmentIterator(const void *buffer, uint32_t length,
 {
     wrapperSegment.construct(buffer, length);
     segment = &*wrapperSegment;
+}
+
+SegmentIterator::SegmentIterator(const SegmentIterator& other)
+    : wrapperSegment(),
+      buffer(other.buffer),
+      length(other.length),
+      segment(other.segment),
+      certificate(other.certificate),
+      currentOffset(other.currentOffset),
+      currentType(other.currentType),
+      currentLength(other.currentLength)
+{
+    if (other.wrapperSegment) {
+        wrapperSegment.construct(buffer, length);
+        segment = wrapperSegment.get();
+    }
+}
+
+SegmentIterator&
+SegmentIterator::operator=(const SegmentIterator& other)
+{
+    if (this == &other)
+        return *this;
+    buffer = other.buffer;
+    length = other.length;
+    segment = other.segment;
+    certificate = other.certificate;
+    currentOffset = other.currentOffset;
+    currentType = other.currentType;
+    currentLength = other.currentLength;
+    if (other.wrapperSegment) {
+        wrapperSegment.construct(buffer, length);
+        segment = wrapperSegment.get();
+    }
+    return *this;
 }
 
 /**

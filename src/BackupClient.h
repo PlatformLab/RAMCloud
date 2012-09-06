@@ -69,8 +69,8 @@ class FreeSegmentRpc : public ServerIdRpcWrapper {
 class GetRecoveryDataRpc : public ServerIdRpcWrapper {
   public:
     GetRecoveryDataRpc(Context* context,
-                       uint64_t recoveryId,
                        ServerId backupId,
+                       uint64_t recoveryId,
                        ServerId masterId,
                        uint64_t segmentId,
                        uint64_t partitionId,
@@ -168,7 +168,8 @@ class StartReadingDataRpc : public ServerIdRpcWrapper {
     };
 
     StartReadingDataRpc(Context* context, ServerId backupId,
-            ServerId masterId, const ProtoBuf::Tablets* partitions);
+                        uint64_t recoveryId, ServerId masterId,
+                        const ProtoBuf::Tablets* partitions);
     ~StartReadingDataRpc() {}
     Result wait();
 
@@ -186,7 +187,7 @@ class WriteSegmentRpc : public ServerIdRpcWrapper {
                     ServerId masterId, uint64_t segmentId,
                     const Segment* segment, uint32_t offset, uint32_t length,
                     const Segment::Certificate* certificate,
-                    WireFormat::BackupWrite::Flags flags);
+                    bool open, bool close, bool primary);
     ~WriteSegmentRpc() {}
     vector<ServerId> wait();
 
@@ -207,8 +208,8 @@ class BackupClient {
     static void freeSegment(Context* context, ServerId backupId,
             ServerId masterId, uint64_t segmentId);
     static Segment::Certificate getRecoveryData(Context* context,
-                                                uint64_t recoveryId,
                                                 ServerId backupId,
+                                                uint64_t recoveryId,
                                                 ServerId masterId,
                                                 uint64_t segmentId,
                                                 uint64_t partitionId,
@@ -217,14 +218,13 @@ class BackupClient {
     static void recoveryComplete(Context* context, ServerId backupId,
             ServerId masterId);
     static StartReadingDataRpc::Result startReadingData(Context* context,
-            ServerId backupId, ServerId masterId,
+            ServerId backupId, uint64_t recoveryId, ServerId masterId,
             const ProtoBuf::Tablets* partitions);
     static vector<ServerId> writeSegment(Context* context, ServerId backupId,
             ServerId masterId, uint64_t segmentId, const Segment* segment,
             uint32_t offset, uint32_t length,
             const Segment::Certificate* certificate,
-            WireFormat::BackupWrite::Flags flags =
-                                        WireFormat::BackupWrite::NONE);
+            bool open, bool close, bool primary);
 
   private:
     BackupClient();

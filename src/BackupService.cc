@@ -13,340 +13,17 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <thread>
-
-#include "BackupReplica.h"
 #include "BackupService.h"
-#include "BackupStorage.h"
 #include "Buffer.h"
 #include "ClientException.h"
 #include "Cycles.h"
 #include "InMemoryStorage.h"
-#include "Log.h"
-#include "LogEntryTypes.h"
-#include "MasterClient.h"
-#include "Object.h"
 #include "ServerConfig.h"
-#include "SegmentIterator.h"
 #include "ShortMacros.h"
 #include "SingleFileStorage.h"
 #include "Status.h"
-#include "TransportManager.h"
 
 namespace RAMCloud {
-
-namespace {
-
-/**
- * The TSC reading at the start of the last recovery.
- * Used to update #RawMetrics.backup.readingDataTicks.
- */
-uint64_t recoveryStart;
-} // anonymous namespace
-
-// --- BackupService::RecoverySegmentBuilder ---
-
-/**
- * Constructs a RecoverySegmentBuilder which handles recovery
- * segment construction for a single recovery.
- * Makes a copy of each of the arguments as a thread local copy
- * for use as the thread runs.
- *
- * \param context
- *      The context in which the new thread will run (same as that of the
- *      parent thread).
- * \param replicas
- *      Pointers to BackupReplica which will be loaded from storage
- *      and split into recovery segments.  Notice, the copy here is
- *      only of the pointer vector and not of the BackupReplica objects.
- *      Sharing of the BackupReplica objects is controlled as described
- *      in RecoverySegmentBuilder::replicas.
- * \param partitions
- *      The partitions among which the segment should be split for recovery.
- * \param recoveryThreadCount
- *      Reference to an atomic count for tracking number of running recoveries.
- * \param segmentSize
- *      The size of segments stored on masters and in the backup's storage.
- */
-BackupService::RecoverySegmentBuilder::RecoverySegmentBuilder(
-        Context* context,
-        const vector<BackupReplica*>& replicas,
-        const ProtoBuf::Tablets& partitions,
-        Atomic<int>& recoveryThreadCount,
-        uint32_t segmentSize)
-    : context(context)
-    , replicas(replicas)
-    , partitions(partitions)
-    , recoveryThreadCount(recoveryThreadCount)
-    , segmentSize(segmentSize)
-{
-}
-
-/**
- * In order, load each of the segments into memory, meanwhile constructing
- * the recovery segments for the previously loaded segment.
- *
- * Notice this runs in a separate thread and maintains exclusive access to the
- * BackupReplica objects using #BackupReplica::mutex.  As
- * the recovery segments for each BackupReplica are constructed ownership of the
- * BackupReplica is released and #BackupReplica::condition is notified to wake
- * up any threads waiting for the recovery segments.
- */
-void
-BackupService::RecoverySegmentBuilder::operator()()
-try {
-    uint64_t startTime = Cycles::rdtsc();
-    ReferenceDecrementer<Atomic<int>> _(recoveryThreadCount);
-    LOG(DEBUG, "Building recovery segments on new thread");
-
-    if (replicas.empty())
-        return;
-
-    BackupReplica* loadingInfo = replicas[0];
-    BackupReplica* buildingInfo = NULL;
-
-    // Bring the first segment into memory
-    loadingInfo->startLoading();
-
-    for (uint32_t i = 1;; i++) {
-        assert(buildingInfo != loadingInfo);
-        buildingInfo = loadingInfo;
-        if (i < replicas.size()) {
-            loadingInfo = replicas[i];
-            LOG(DEBUG, "Starting load of %uth segment (<%s,%lu>)", i,
-                loadingInfo->masterId.toString().c_str(),
-                loadingInfo->segmentId);
-            loadingInfo->startLoading();
-        }
-        buildingInfo->buildRecoverySegments(partitions);
-        LOG(DEBUG, "Done building recovery segments for %uth segment "
-            "(<%s,%lu>)", i - 1,
-            buildingInfo->masterId.toString().c_str(), buildingInfo->segmentId);
-        if (i == replicas.size())
-            break;
-    }
-    LOG(DEBUG, "Done building recovery segments, thread exiting");
-    uint64_t totalTime = Cycles::toNanoseconds(Cycles::rdtsc() - startTime);
-    LOG(DEBUG, "RecoverySegmentBuilder took %lu ms to filter %lu segments "
-               "(%f MB/s)",
-        totalTime / 1000 / 1000,
-        replicas.size(),
-        static_cast<double>(segmentSize * replicas.size() / (1 << 20)) /
-        static_cast<double>(totalTime) / 1e9);
-} catch (const std::exception& e) {
-    LOG(ERROR, "Fatal error in BackupService::RecoverySegmentBuilder: %s",
-        e.what());
-    throw;
-} catch (...) {
-    LOG(ERROR, "Unknown fatal error in BackupService::RecoverySegmentBuilder.");
-    throw;
-}
-
-// --- BackupService::GarbageCollectReplicasFoundOnStorageTask ---
-
-/**
- * Try to garbage collect a replica found on disk until it is finally
- * removed. Usually replicas are freed explicitly by masters, but this
- * doesn't work for cases where the replica was found on disk as part
- * of an old master.
- *
- * This task may generate RPCs to the master to determine the
- * status of the replica which survived on-storage across backup
- * failures.
- *
- * \param service
- *      Backup which is trying to garbage collect the replica.
- * \param masterId
- *      Id of the master which originally created the replica.
- */
-BackupService::
-    GarbageCollectReplicasFoundOnStorageTask::
-    GarbageCollectReplicasFoundOnStorageTask(BackupService& service,
-                                            ServerId masterId)
-    : Task(service.gcTaskQueue)
-    , service(service)
-    , masterId(masterId)
-    , segmentIds()
-    , rpc()
-{
-}
-
-/**
- * Add a segmentId for a replica which should be considered for garbage
- * collection. Garbage collection won't actually start until schedule() is
- * called. All calls to addSegment must precede the call to schedule() the
- * task.
- *
- * \param segmentId
- *      Id of the segment a particular replica is associated with that was
- *      found on disk storage. Once this task is scheduled it will be
- *      considered for garbage collection until freed.
- */
-void
-BackupService::GarbageCollectReplicasFoundOnStorageTask::
-    addSegmentId(uint64_t segmentId)
-{
-    segmentIds.push_back(segmentId);
-}
-
-/**
- * Try to make progress in garbage collecting replicas without blocking.
- * Attempts one replica at a time in order to prevent flooding the
- * master this task is associated with.
- */
-void
-BackupService::GarbageCollectReplicasFoundOnStorageTask::performTask()
-{
-    if (!service.config.backup.gc || segmentIds.empty()) {
-        delete this;
-        return;
-    }
-    uint64_t segmentId = segmentIds.front();
-    bool done = tryToFreeReplica(segmentId);
-    if (done)
-        segmentIds.pop_front();
-    schedule();
-}
-
-/**
- * Only used internally; try to make progress in garbage collecting one replica
- * without blocking.
- *
- * \param segmentId
- *      Id of the segment of the replica which is on the chopping block. Once
- *      a value is passed as \a segmentId that value must be passed on all
- *      subsequent calls until true is returned.
- * \return
- *      True if no additional work is need to free the segment from storage,
- *      false otherwise. See important notes on \a segmentId.
- */
-bool
-BackupService::GarbageCollectReplicasFoundOnStorageTask::
-    tryToFreeReplica(uint64_t segmentId)
-{
-    {
-        BackupService::Lock _(service.mutex);
-        auto* replica = service.findBackupReplica(masterId, segmentId);
-        if (!replica)
-            return true;
-    }
-
-    // Due to RAM-447 it is a bit tricky to decipher when a server is in
-    // crashed status. It is done here outside the context of the
-    // ServerNotUpException because of that bug.
-    if (service.context->serverList->contains(masterId) &&
-        !service.context->serverList->isUp(masterId))
-    {
-        // In the server list but not up implies crashed.
-        // Since server has crashed just let
-        // GarbageCollectDownServerTask free it. It will get
-        // scheduled when master recovery finishes for masterId.
-        LOG(DEBUG, "Server %s marked crashed; waiting for cluster "
-            "to recover from its failure before freeing <%s,%lu>",
-            masterId.toString().c_str(), masterId.toString().c_str(),
-            segmentId);
-        return true;
-    }
-
-    if (rpc) {
-        if (rpc->isReady()) {
-            bool needed = true;
-            try {
-                needed = rpc->wait();
-            } catch (const ServerNotUpException& e) {
-                needed = false;
-                LOG(DEBUG, "Server %s marked down; cluster has recovered "
-                    "from its failure", masterId.toString().c_str());
-            }
-            rpc.destroy();
-            if (!needed) {
-                LOG(DEBUG, "Server has recovered from lost replica; "
-                    "freeing replica for <%s,%lu>",
-                    masterId.toString().c_str(), segmentId);
-                deleteReplica(segmentId);
-                return true;
-            } else {
-                LOG(DEBUG, "Server has not recovered from lost "
-                    "replica; retaining replica for <%s,%lu>; will "
-                    "probe replica status again later",
-                    masterId.toString().c_str(), segmentId);
-            }
-        }
-    } else {
-        rpc.construct(service.context, masterId, service.serverId, segmentId);
-    }
-    return false;
-}
-
-/**
- * Only used internally; safely frees a replica and removes metadata about
- * it from the backup's segments map.
- */
-void
-BackupService::GarbageCollectReplicasFoundOnStorageTask::
-    deleteReplica(uint64_t segmentId)
-{
-    BackupReplica* replica = NULL;
-    {
-        BackupService::Lock _(service.mutex);
-        replica = service.findBackupReplica(masterId, segmentId);
-        if (!replica)
-            return;
-        service.segments.erase({masterId, segmentId});
-    }
-    replica->free();
-    delete replica;
-}
-
-// --- BackupService::GarbageCollectDownServerTask ---
-
-/**
- * Try to garbage collect all replicas stored by a master which is now
- * known to have been completely recovered and removed from the cluster.
- * Usually replicas are freed explicitly by masters, but this
- * doesn't work for cases where the replica was created by a master which
- * has crashed.
- *
- * \param service
- *      Backup trying to garbage collect replicas from some removed master.
- * \param masterId
- *      Id of the master now known to have been removed from the cluster.
- */
-BackupService::
-    GarbageCollectDownServerTask::
-    GarbageCollectDownServerTask(BackupService& service,
-                                 ServerId masterId)
-    : Task(service.gcTaskQueue)
-    , service(service)
-    , masterId(masterId)
-{}
-
-/**
- * Try to make progress in garbage collecting replicas without blocking.
- */
-void
-BackupService::GarbageCollectDownServerTask::performTask()
-{
-    if (!service.config.backup.gc) {
-        delete this;
-        return;
-    }
-    BackupService::Lock _(service.mutex);
-    auto key = MasterSegmentIdPair(masterId, 0lu);
-    auto it = service.segments.upper_bound(key);
-    if (it != service.segments.end() && it->second->masterId == masterId) {
-        LOG(DEBUG, "Server %s marked down; cluster has recovered "
-                "from its failure; freeing replica <%s,%lu>",
-            masterId.toString().c_str(), masterId.toString().c_str(),
-            it->first.segmentId);
-        it->second->free();
-        service.segments.erase(it->first);
-        delete it->second;
-        schedule();
-    } else {
-        delete this;
-    }
-}
 
 // --- BackupService ---
 
@@ -366,11 +43,10 @@ BackupService::BackupService(Context* context,
     , config(config)
     , formerServerId()
     , serverId(0)
-    , recoveryTicks()
-    , recoveryThreadCount{0}
-    , segments()
-    , segmentSize(config.segmentSize)
     , storage()
+    , frames()
+    , recoveries()
+    , segmentSize(config.segmentSize)
     , readSpeed()
     , bytesWritten(0)
     , initCalled(false)
@@ -379,7 +55,7 @@ BackupService::BackupService(Context* context,
     , gcTracker(context, this)
     , gcThread()
     , testingDoNotStartGcThread(false)
-    , gcTaskQueue()
+    , taskQueue()
 {
     if (config.backup.inMemory) {
         storage.reset(new InMemoryStorage(config.segmentSize,
@@ -394,8 +70,6 @@ BackupService::BackupService(Context* context,
         DIE("Storage metadata block too small to hold BackupReplicaMetadata");
 
     benchmark();
-
-    recoveryTicks.construct(); // make unit tests happy
 
     BackupStorage::Superblock superblock = storage->loadSuperblock();
     if (config.clusterName == "__unnamed__") {
@@ -426,37 +100,17 @@ BackupService::BackupService(Context* context,
     }
 }
 
-/**
- * Flush open segments to disk and shutdown.
- */
 BackupService::~BackupService()
 {
     // Stop the garbage collector.
-    gcTaskQueue.halt();
+    taskQueue.halt();
     if (gcThread)
         gcThread->join();
     gcThread.destroy();
 
-    int lastThreadCount = 0;
-    while (recoveryThreadCount > 0) {
-        if (lastThreadCount != recoveryThreadCount) {
-            LOG(DEBUG, "Waiting for recovery threads to terminate before "
-                "deleting BackupService, %d threads "
-                "still running", static_cast<int>(recoveryThreadCount));
-            lastThreadCount = recoveryThreadCount;
-        }
-    }
-    Fence::enter();
-
-    // Clean up any extra BackupReplicas laying around
-    // but don't free them; perhaps we want to load them up
-    // on a cold start.  The replicas destructor will ensure the
-    // segment is properly stored before termination.
-    foreach (const SegmentsMap::value_type& value, segments) {
-        BackupReplica* replica = value.second;
-        delete replica;
-    }
-    segments.clear();
+    // All frames will get free() called on them when there ref count drops
+    // to zero as #frames is destroyed, but since free doesn't modify storage
+    // and rpcs won't be serviced the storage won't be reused, so it is safe.
 }
 
 /**
@@ -580,11 +234,10 @@ BackupService::assignGroup(
 }
 
 /**
- * Removes the specified segment from permanent storage and releases
- * any in memory copy if it exists.
- *
- * After this call completes the segment number segmentId will no longer
- * be in permanent storage and will not be recovered during recovery.
+ * Enqueues the release of the replica for the specified segment from permanent
+ * storage which will allow the storage to be reused. After this call completes
+ * the replica may still be found during subsequent recoveries for the master
+ * which created the replica.
  *
  * This is a no-op if the backup is unaware of this segment.
  *
@@ -604,40 +257,16 @@ BackupService::freeSegment(const WireFormat::BackupFree::Request& reqHdr,
     LOG(DEBUG, "Freeing replica for master %s segment %lu",
         masterId.toString().c_str(), reqHdr.segmentId);
 
-    SegmentsMap::iterator it =
-        segments.find(MasterSegmentIdPair(masterId, reqHdr.segmentId));
-    if (it == segments.end()) {
+    auto it =
+        frames.find(MasterSegmentIdPair(masterId, reqHdr.segmentId));
+    if (it == frames.end()) {
         LOG(WARNING, "Master tried to free non-existent segment: <%s,%lu>",
             masterId.toString().c_str(), reqHdr.segmentId);
         return;
     }
 
-    it->second->free();
-    segments.erase(it);
-    delete it->second;
+    frames.erase(it);
 }
-
-/**
- * Find BackupReplica for a segment or NULL if we don't know about it.
- *
- * \param masterId
- *      The master id of the master of the segment whose info is being sought.
- * \param segmentId
- *      The segment id of the segment whose info is being sought.
- * \return
- *      A pointer to the BackupReplica for the specified segment or NULL if
- *      none exists.
- */
-BackupReplica*
-BackupService::findBackupReplica(ServerId masterId, uint64_t segmentId)
-{
-    SegmentsMap::iterator it =
-        segments.find(MasterSegmentIdPair(masterId, segmentId));
-    if (it == segments.end())
-        return NULL;
-    return it->second;
-}
-
 
 /**
  * Return the data for a particular tablet that was recovered by a call
@@ -663,21 +292,25 @@ BackupService::getRecoveryData(
     WireFormat::BackupGetRecoveryData::Response& respHdr,
     Rpc& rpc)
 {
-    ServerId masterId(reqHdr.masterId);
+    ServerId crashedMasterId(reqHdr.masterId);
     LOG(DEBUG, "getRecoveryData masterId %s, segmentId %lu, partitionId %lu",
-        masterId.toString().c_str(),
+        crashedMasterId.toString().c_str(),
         reqHdr.segmentId, reqHdr.partitionId);
 
-    BackupReplica* replica = findBackupReplica(masterId, reqHdr.segmentId);
-    if (!replica) {
-        LOG(WARNING, "Asked for bad segment <%s,%lu>",
-            masterId.toString().c_str(), reqHdr.segmentId);
+    auto recoveryIt = recoveries.find(crashedMasterId);
+    if (recoveryIt == recoveries.end()) {
+        LOG(WARNING, "Asked for recovery segment for <%s,%lu> but the master "
+            "wasn't under recovery on the backup",
+            crashedMasterId.toString().c_str(), reqHdr.segmentId);
         throw BackupBadSegmentIdException(HERE);
     }
 
-    Status status = replica->appendRecoverySegment(reqHdr.partitionId,
-                                                   &rpc.replyPayload,
-                                                   &respHdr.certificate);
+    Status status =
+        recoveryIt->second->getRecoverySegment(reqHdr.recoveryId,
+                                               reqHdr.segmentId,
+                                               reqHdr.partitionId,
+                                               &rpc.replyPayload,
+                                               &respHdr.certificate);
     if (status != STATUS_OK) {
         respHdr.common.status = status;
         return;
@@ -745,7 +378,6 @@ BackupService::recoveryComplete(
     LOG(DEBUG, "masterID: %s",
         ServerId(reqHdr.masterId).toString().c_str());
     rpc.sendReply();
-    recoveryTicks.destroy();
 }
 
 /**
@@ -766,41 +398,34 @@ BackupService::restartFromStorage()
     std::unordered_map<ServerId, GarbageCollectReplicasFoundOnStorageTask*>
         gcTasks;
 
-    std::vector<BackupStorage::Frame*> frames = storage->loadAllMetadata();
-    foreach (BackupStorage::Frame* frame, frames) {
+    std::vector<BackupStorage::FrameRef> allFrames = storage->loadAllMetadata();
+    foreach (BackupStorage::FrameRef& frame, allFrames) {
         const BackupReplicaMetadata* metadata =
             static_cast<const BackupReplicaMetadata*>(frame->getMetadata());
-        if (!metadata->checkIntegrity()) {
-            frame->free();
+        if (!metadata->checkIntegrity())
             continue;
-        }
-        if (metadata->getSegmentCapacity() != segmentSize) {
+        if (metadata->segmentCapacity != segmentSize) {
             LOG(ERROR, "On-storage replica metadata indicates a different "
                 "segment size than the backup service was told to use; "
                 "ignoring the problem; note ANY call to open a segment "
                 "on this backup could cause the overwrite of your strangely "
                 "sized replicas.");
-            frame->free();
             continue;
         }
-        const ServerId masterId(metadata->getLogId());
+        const ServerId masterId(metadata->logId);
         LOG(DEBUG, "Found stored replica <%s,%lu> on backup storage in "
                    "frame which was %s",
             masterId.toString().c_str(),
-            metadata->getSegmentId(), metadata->isClosed() ? "closed" : "open");
+            metadata->segmentId, metadata->closed ? "closed" : "open");
 
-        // Add this replica to backup's metadata structures.
-        auto* replica = new BackupReplica(*storage,
-                                          masterId, metadata->getSegmentId(),
-                                          segmentSize,
-                                          frame, metadata->isClosed());
-        segments[MasterSegmentIdPair(masterId, metadata->getSegmentId())] =
-            replica;
+        frame->load();
+        frames[MasterSegmentIdPair(masterId, metadata->segmentId)] =
+            frame;
         if (gcTasks.find(masterId) == gcTasks.end()) {
             gcTasks[masterId] =
                 new GarbageCollectReplicasFoundOnStorageTask(*this, masterId);
         }
-        gcTasks[masterId]->addSegmentId(metadata->getSegmentId());
+        gcTasks[masterId]->addSegmentId(metadata->segmentId);
     }
 
     // Kick off the garbage collection for replicas stored on disk.
@@ -831,122 +456,48 @@ BackupService::startReadingData(
         WireFormat::BackupStartReadingData::Response& respHdr,
         Rpc& rpc)
 {
-    recoveryTicks.construct(&metrics->backup.recoveryTicks);
-    recoveryStart = Cycles::rdtsc();
-    metrics->backup.recoveryCount++;
-    metrics->backup.storageType = static_cast<uint64_t>(storage->storageType);
-
+    ServerId crashedMasterId(reqHdr.masterId);
     ProtoBuf::Tablets partitions;
     ProtoBuf::parseFromResponse(&rpc.requestPayload, sizeof(reqHdr),
                                 reqHdr.partitionsLength, &partitions);
-    LOG(DEBUG, "Backup preparing for recovery of crashed server %s; "
-        "loading replicas and filtering them according to the following "
-        "partitions:\n%s",
-        ServerId(reqHdr.masterId).toString().c_str(),
-        partitions.DebugString().c_str());
 
-    uint64_t logDigestLastId = ~0UL;
-    uint32_t logDigestLastLen = 0;
-    Buffer logDigest;
+    bool mustCreateRecovery = false;
+    auto recoveryIt = recoveries.find(crashedMasterId);
+    if (recoveryIt == recoveries.end()) {
+        mustCreateRecovery = true;
+    } else if (recoveryIt->second->getRecoveryId() != reqHdr.recoveryId) {
+        // The old recovery may be in the middle of processing so we can just
+        // delete it outright. Let it know it should schedule itself on the task
+        // queue and should delete itself on the next iteration.
+        LOG(NOTICE, "Got startReadingData for recovery %lu for crashed master "
+            "%s; abandoning existing recovery %lu for that master and starting "
+            "anew.", reqHdr.recoveryId, crashedMasterId.toString().c_str(),
+            recoveryIt->second->getRecoveryId());
+        BackupMasterRecovery* oldRecovery = recoveryIt->second;
+        recoveries.erase(recoveryIt);
+        oldRecovery->free();
+        mustCreateRecovery = true;
+    }
+    BackupMasterRecovery* recovery;
+    if (mustCreateRecovery) {
+        recovery = new BackupMasterRecovery(taskQueue,
+                                            reqHdr.recoveryId,
+                                            crashedMasterId,
+                                            partitions, segmentSize);
+        recoveries[crashedMasterId] = recovery;
+    }
+    recovery = recoveries[crashedMasterId];
 
-    vector<BackupReplica*> primarySegments;
-    vector<BackupReplica*> secondarySegments;
-
-    for (SegmentsMap::iterator it = segments.begin();
-         it != segments.end(); it++)
+    std::vector<BackupStorage::FrameRef> framesForRecovery;
+    for (auto it = frames.lower_bound({crashedMasterId, 0});
+         it != frames.end(); ++it)
     {
-        ServerId masterId = it->first.masterId;
-        BackupReplica* replica = it->second;
-
-        if (*masterId == reqHdr.masterId) {
-            (replica->primary ?
-                primarySegments :
-                secondarySegments).push_back(replica);
-        }
+        if (it->first.masterId != crashedMasterId)
+            break;
+        framesForRecovery.emplace_back(it->second);
     }
-
-    // Shuffle the primary entries, this helps all recovery
-    // masters to stay busy even if the log contains long sequences of
-    // back-to-back segments that only have objects for a particular
-    // partition.  Secondary order is irrelevant.
-    std::random_shuffle(primarySegments.begin(),
-                        primarySegments.end(),
-                        randomNumberGenerator);
-
-    typedef WireFormat::BackupStartReadingData::Replica Replica;
-
-    bool allRecovered = true;
-    foreach (auto replica, primarySegments) {
-        new(&rpc.replyPayload, APPEND) Replica
-            {replica->segmentId, replica->getRightmostWrittenOffset()};
-        LOG(DEBUG, "Crashed master %s had segment %lu (primary) with len %u",
-            replica->masterId.toString().c_str(), replica->segmentId,
-            replica->getRightmostWrittenOffset());
-        bool wasRecovering = replica->setRecovering();
-        allRecovered &= wasRecovering;
-    }
-    foreach (auto replica, secondarySegments) {
-        new(&rpc.replyPayload, APPEND) Replica
-            {replica->segmentId, replica->getRightmostWrittenOffset()};
-        LOG(DEBUG, "Crashed master %s had segment %lu (secondary) with len %u"
-            ", stored partitions for deferred recovery segment construction",
-            replica->masterId.toString().c_str(), replica->segmentId,
-            replica->getRightmostWrittenOffset());
-        bool wasRecovering = replica->setRecovering(partitions);
-        allRecovered &= wasRecovering;
-    }
-    respHdr.segmentIdCount = downCast<uint32_t>(primarySegments.size() +
-                                                secondarySegments.size());
-    respHdr.primarySegmentCount = downCast<uint32_t>(primarySegments.size());
-    LOG(DEBUG, "Sending %u segment ids for this master (%u primary)",
-        respHdr.segmentIdCount, respHdr.primarySegmentCount);
-
-    vector<BackupReplica*> allSegments[2] = {primarySegments,
-                                             secondarySegments};
-    foreach (auto segments, allSegments) {
-        foreach (auto replica, segments) {
-            // Obtain the LogDigest from the lowest Segment Id of any
-            // open replica.
-            if (replica->isOpen() && replica->segmentId <= logDigestLastId) {
-                if (replica->getLogDigest(NULL)) {
-                    logDigest.reset();
-                    replica->getLogDigest(&logDigest);
-                    logDigestLastId = replica->segmentId;
-                    logDigestLastLen = replica->getRightmostWrittenOffset();
-                    LOG(DEBUG, "Segment %lu's LogDigest queued for response",
-                        replica->segmentId);
-                }
-            }
-        }
-    }
-
-    respHdr.digestSegmentId  = logDigestLastId;
-    respHdr.digestSegmentLen = logDigestLastLen;
-    respHdr.digestBytes = logDigest.getTotalLength();
-    if (respHdr.digestBytes > 0) {
-        void* out = new(&rpc.replyPayload, APPEND) char[respHdr.digestBytes];
-        memcpy(out,
-               logDigest.getRange(0, respHdr.digestBytes),
-               respHdr.digestBytes);
-        LOG(DEBUG, "Sent %u bytes of LogDigest to coord", respHdr.digestBytes);
-    }
-
-    rpc.sendReply();
-
-    // Don't spin up a thread if there isn't anything that needs to be built.
-    if (allRecovered)
-        return;
-
-    RecoverySegmentBuilder builder(context,
-                                   primarySegments,
-                                   partitions,
-                                   recoveryThreadCount,
-                                   segmentSize);
-    ++recoveryThreadCount;
-    std::thread builderThread(builder);
-    builderThread.detach();
-    LOG(DEBUG, "Kicked off building recovery segments; "
-               "main thread going back to dispatching requests");
+    recovery->start(framesForRecovery, &rpc.replyPayload, &respHdr);
+    metrics->backup.storageType = uint64_t(storage->storageType);
 }
 
 /**
@@ -993,9 +544,13 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request& reqHdr,
     // The default value for numReplicas is 0.
     respHdr.numReplicas = 0;
 
-    BackupReplica* replica = findBackupReplica(masterId, segmentId);
-    if (replica && !replica->createdByCurrentProcess) {
-        if ((reqHdr.flags & WireFormat::BackupWrite::OPEN)) {
+    auto frameIt = frames.find({masterId, segmentId});
+    BackupStorage::FrameRef frame;
+    if (frameIt != frames.end())
+        frame = frameIt->second;
+
+    if (frame && !frame->wasAppendedToByCurrentProcess()) {
+        if (reqHdr.open) {
             // This can happen if a backup crashes, restarts, reloads a
             // replica from disk, and then the master detects the crash and
             // tries to re-replicate the segment which lost a replica on
@@ -1017,9 +572,8 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request& reqHdr,
     }
 
     // Perform open, if any.
-    if ((reqHdr.flags & WireFormat::BackupWrite::OPEN)) {
-        bool primary = reqHdr.flags & WireFormat::BackupWrite::PRIMARY;
-        if (primary) {
+    if (reqHdr.open) {
+        if (reqHdr.primary) {
             uint32_t numReplicas = downCast<uint32_t>(
                 replicationGroup.size());
             // Respond with the replication group members.
@@ -1034,41 +588,30 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request& reqHdr,
                 }
             }
         }
-        if (!replica) {
+        if (!frame) {
             LOG(DEBUG, "Opening <%s,%lu>", masterId.toString().c_str(),
                 segmentId);
             try {
-                replica = new BackupReplica(*storage,
-                                       masterId,
-                                       segmentId,
-                                       segmentSize,
-                                       primary);
-                segments[MasterSegmentIdPair(masterId, segmentId)] = replica;
-                replica->open(config.backup.sync);
+                frame = storage->open(config.backup.sync);
             } catch (const BackupStorageException& e) {
-                segments.erase(MasterSegmentIdPair(masterId, segmentId));
-                delete replica;
                 LOG(NOTICE, "Master tried to open replica for <%s,%lu> but "
                     "there was a problem allocating storage space; "
                     "rejecting open request: %s", masterId.toString().c_str(),
                     segmentId, e.what());
                 throw BackupOpenRejectedException(HERE);
-            } catch (...) {
-                segments.erase(MasterSegmentIdPair(masterId, segmentId));
-                delete replica;
-                throw;
             }
+            frames[MasterSegmentIdPair(masterId, segmentId)] = frame;
         }
     }
 
     // Perform write.
-    if (!replica) {
+    if (!frame) {
         LOG(WARNING, "Tried write to a replica of segment <%s,%lu> but "
             "no such replica was open on this backup (server id %s)",
             masterId.toString().c_str(), segmentId,
             serverId.toString().c_str());
         throw BackupBadSegmentIdException(HERE);
-    } else if (replica->isOpen()) {
+    } else {
         // Need to check all three conditions because overflow is possible
         // on the addition
         if (reqHdr.length > segmentSize ||
@@ -1078,29 +621,27 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request& reqHdr,
 
         {
             CycleCounter<RawMetric> __(&metrics->backup.writeCopyTicks);
-            auto* certificate = reqHdr.certificateIncluded ?
-                                                &reqHdr.certificate : NULL;
-            replica->append(rpc.requestPayload, sizeof(reqHdr),
-                            reqHdr.length, reqHdr.offset,
-                            certificate);
+            Tub<BackupReplicaMetadata> metadata;
+            if (reqHdr.certificateIncluded) {
+                metadata.construct(reqHdr.certificate,
+                                   masterId.getId(), segmentId,
+                                   segmentSize,
+                                   reqHdr.offset + reqHdr.length,
+                                   reqHdr.close, reqHdr.primary);
+            }
+            frame->append(rpc.requestPayload, sizeof(reqHdr),
+                          reqHdr.length, reqHdr.offset,
+                          metadata.get(), sizeof(*metadata));
         }
         metrics->backup.writeCopyBytes += reqHdr.length;
         bytesWritten += reqHdr.length;
-    } else {
-        if (!(reqHdr.flags & WireFormat::BackupWrite::CLOSE)) {
-            LOG(WARNING, "Tried write to a replica of segment <%s,%lu> but "
-                "the replica was already closed on this backup (server id %s)",
-                masterId.toString().c_str(), segmentId,
-                serverId.toString().c_str());
-            throw BackupBadSegmentIdException(HERE);
-        }
-        LOG(WARNING, "Closing segment write after close, may have been "
-            "a redundant closing write, ignoring");
     }
 
     // Perform close, if any.
-    if (reqHdr.flags & WireFormat::BackupWrite::CLOSE)
-        replica->close();
+    if (reqHdr.close) {
+        LOG(DEBUG, "Closing <%s,%lu>", masterId.toString().c_str(), segmentId);
+        frame->close();
+    }
 }
 
 /**
@@ -1109,7 +650,7 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request& reqHdr,
 void
 BackupService::gcMain()
 try {
-    gcTaskQueue.performTasksUntilHalt();
+    taskQueue.performTasksUntilHalt();
 } catch (const std::exception& e) {
     LOG(ERROR, "Fatal error in BackupService::gcThread: %s", e.what());
     throw;
@@ -1142,6 +683,217 @@ BackupService::trackerChangesEnqueued()
             (new GarbageCollectDownServerTask(*this,
                                               server.serverId))->schedule();
         }
+    }
+}
+
+// --- BackupService::GarbageCollectReplicasFoundOnStorageTask ---
+
+/**
+ * Try to garbage collect a replica found on disk until it is finally
+ * removed. Usually replicas are freed explicitly by masters, but this
+ * doesn't work for cases where the replica was found on disk as part
+ * of an old master.
+ *
+ * This task may generate RPCs to the master to determine the
+ * status of the replica which survived on-storage across backup
+ * failures.
+ *
+ * \param service
+ *      Backup which is trying to garbage collect the replica.
+ * \param masterId
+ *      Id of the master which originally created the replica.
+ */
+BackupService::
+    GarbageCollectReplicasFoundOnStorageTask::
+    GarbageCollectReplicasFoundOnStorageTask(BackupService& service,
+                                            ServerId masterId)
+    : Task(service.taskQueue)
+    , service(service)
+    , masterId(masterId)
+    , segmentIds()
+    , rpc()
+{
+}
+
+/**
+ * Add a segmentId for a replica which should be considered for garbage
+ * collection. Garbage collection won't actually start until schedule() is
+ * called. All calls to addSegment must precede the call to schedule() the
+ * task.
+ *
+ * \param segmentId
+ *      Id of the segment a particular replica is associated with that was
+ *      found on disk storage. Once this task is scheduled it will be
+ *      considered for garbage collection until freed.
+ */
+void
+BackupService::GarbageCollectReplicasFoundOnStorageTask::
+    addSegmentId(uint64_t segmentId)
+{
+    segmentIds.push_back(segmentId);
+}
+
+/**
+ * Try to make progress in garbage collecting replicas without blocking.
+ * Attempts one replica at a time in order to prevent flooding the
+ * master this task is associated with.
+ */
+void
+BackupService::GarbageCollectReplicasFoundOnStorageTask::performTask()
+{
+    if (!service.config.backup.gc || segmentIds.empty()) {
+        delete this;
+        return;
+    }
+    uint64_t segmentId = segmentIds.front();
+    bool done = tryToFreeReplica(segmentId);
+    if (done)
+        segmentIds.pop_front();
+    schedule();
+}
+
+/**
+ * Only used internally; try to make progress in garbage collecting one replica
+ * without blocking.
+ *
+ * \param segmentId
+ *      Id of the segment of the replica which is on the chopping block. Once
+ *      a value is passed as \a segmentId that value must be passed on all
+ *      subsequent calls until true is returned.
+ * \return
+ *      True if no additional work is need to free the segment from storage,
+ *      false otherwise. See important notes on \a segmentId.
+ */
+bool
+BackupService::GarbageCollectReplicasFoundOnStorageTask::
+    tryToFreeReplica(uint64_t segmentId)
+{
+    {
+        BackupService::Lock _(service.mutex);
+        auto frameIt = service.frames.find({masterId, segmentId});
+        if (frameIt == service.frames.end())
+            return true;
+    }
+
+    // Due to RAM-447 it is a bit tricky to decipher when a server is in
+    // crashed status. It is done here outside the context of the
+    // ServerNotUpException because of that bug.
+    if (service.context->serverList->contains(masterId) &&
+        !service.context->serverList->isUp(masterId))
+    {
+        // In the server list but not up implies crashed.
+        // Since server has crashed just let
+        // GarbageCollectDownServerTask free it. It will get
+        // scheduled when master recovery finishes for masterId.
+        LOG(DEBUG, "Server %s marked crashed; waiting for cluster "
+            "to recover from its failure before freeing <%s,%lu>",
+            masterId.toString().c_str(), masterId.toString().c_str(),
+            segmentId);
+        return true;
+    }
+
+    if (rpc) {
+        if (rpc->isReady()) {
+            bool needed = true;
+            try {
+                needed = rpc->wait();
+            } catch (const ServerNotUpException& e) {
+                needed = false;
+                LOG(DEBUG, "Server %s marked down; cluster has recovered "
+                    "from its failure", masterId.toString().c_str());
+            }
+            rpc.destroy();
+            if (!needed) {
+                LOG(DEBUG, "Server has recovered from lost replica; "
+                    "freeing replica for <%s,%lu>",
+                    masterId.toString().c_str(), segmentId);
+                deleteReplica(segmentId);
+                return true;
+            } else {
+                LOG(DEBUG, "Server has not recovered from lost "
+                    "replica; retaining replica for <%s,%lu>; will "
+                    "probe replica status again later",
+                    masterId.toString().c_str(), segmentId);
+            }
+        }
+    } else {
+        rpc.construct(service.context, masterId, service.serverId, segmentId);
+    }
+    return false;
+}
+
+/**
+ * Only used internally; safely frees a replica and removes metadata about
+ * it from the backup's frame map.
+ */
+void
+BackupService::GarbageCollectReplicasFoundOnStorageTask::
+    deleteReplica(uint64_t segmentId)
+{
+    BackupService::Lock _(service.mutex);
+    auto frameIt = service.frames.find({masterId, segmentId});
+    if (frameIt == service.frames.end())
+        return;
+    service.frames.erase(frameIt);
+}
+
+// --- BackupService::GarbageCollectDownServerTask ---
+
+/**
+ * Try to garbage collect all replicas stored by a master which is now
+ * known to have been completely recovered and removed from the cluster.
+ * Usually replicas are freed explicitly by masters, but this
+ * doesn't work for cases where the replica was created by a master which
+ * has crashed.
+ *
+ * \param service
+ *      Backup trying to garbage collect replicas from some removed master.
+ * \param masterId
+ *      Id of the master now known to have been removed from the cluster.
+ */
+BackupService::
+    GarbageCollectDownServerTask::
+    GarbageCollectDownServerTask(BackupService& service,
+                                 ServerId masterId)
+    : Task(service.taskQueue)
+    , service(service)
+    , masterId(masterId)
+{}
+
+/**
+ * Try to free up state that was allocated for the downed master. Includes any
+ * replicas stored by it and any recovery state used to recover it. Doesn't
+ * block.
+ */
+void
+BackupService::GarbageCollectDownServerTask::performTask()
+{
+    BackupService::Lock _(service.mutex);
+    // First, tell any ongoing recoveries for that master to clean up.
+    auto recoveryIt = service.recoveries.find(masterId);
+    if (recoveryIt != service.recoveries.end()) {
+        BackupMasterRecovery* recovery = recoveryIt->second;
+        service.recoveries.erase(recoveryIt);
+        recovery->free();
+    }
+
+    // Then, if replica garbage collection is enabled, clean up replicas stored
+    // for that now irrelevant master.
+    if (!service.config.backup.gc) {
+        delete this;
+        return;
+    }
+    auto key = MasterSegmentIdPair(masterId, 0lu);
+    auto it = service.frames.upper_bound(key);
+    if (it != service.frames.end() && it->first.masterId == masterId) {
+        LOG(DEBUG, "Server %s marked down; cluster has recovered "
+                "from its failure; freeing replica <%s,%lu>",
+            masterId.toString().c_str(), masterId.toString().c_str(),
+            it->first.segmentId);
+        service.frames.erase(it->first);
+        schedule();
+    } else {
+        delete this;
     }
 }
 

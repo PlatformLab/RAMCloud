@@ -139,14 +139,14 @@ FreeSegmentRpc::FreeSegmentRpc(Context* context, ServerId backupId,
  *
  * \param context
  *      Overall information about this RAMCloud server.
+ * \param backupId
+ *      Identifies a particular backup, which is believed to hold a
+ *      replica of the desired segment.
  * \param recoveryId
  *      Which recovery this master is requesting a recovery segment for.
  *      Recovery segments may be partitioned differently for different
  *      recoveries even for the same master. This prevents accidental
  *      use of mispartitioned segments.
- * \param backupId
- *      Identifies a particular backup, which is believed to hold a
- *      replica of the desired segment.
  * \param masterId
  *      The id of the master that created the desired segment.
  * \param segmentId
@@ -160,14 +160,15 @@ FreeSegmentRpc::FreeSegmentRpc(Context* context, ServerId backupId,
  */
 Segment::Certificate
 BackupClient::getRecoveryData(Context* context,
-                              uint64_t recoveryId,
                               ServerId backupId,
+                              uint64_t recoveryId,
                               ServerId masterId,
                               uint64_t segmentId,
                               uint64_t partitionId,
                               Buffer* response)
 {
-    GetRecoveryDataRpc rpc(context, recoveryId, backupId, masterId, segmentId,
+    GetRecoveryDataRpc rpc(context, backupId, recoveryId,
+                           masterId, segmentId,
                            partitionId, response);
     return rpc.wait();
 }
@@ -179,14 +180,14 @@ BackupClient::getRecoveryData(Context* context,
  *
  * \param context
  *      Overall information about this RAMCloud server.
+ * \param backupId
+ *      Identifies a particular backup, which is believed to hold a
+ *      replica of the desired segment.
  * \param recoveryId
  *      Which recovery this master is requesting a recovery segment for.
  *      Recovery segments may be partitioned differently for different
  *      recoveries even for the same master. This prevents accidental
  *      use of mispartitioned segments.
- * \param backupId
- *      Identifies a particular backup, which is believed to hold a
- *      replica of the desired segment.
  * \param masterId
  *      The id of the master that created the desired segment.
  * \param segmentId
@@ -199,8 +200,8 @@ BackupClient::getRecoveryData(Context* context,
  *      buffer, organized as a Segment.
  */
 GetRecoveryDataRpc::GetRecoveryDataRpc(Context* context,
-                                       uint64_t recoveryId,
                                        ServerId backupId,
+                                       uint64_t recoveryId,
                                        ServerId masterId,
                                        uint64_t segmentId,
                                        uint64_t partitionId,
@@ -333,6 +334,11 @@ RecoveryCompleteRpc::RecoveryCompleteRpc(Context* context, ServerId backupId,
  *      Overall information about this RAMCloud server.
  * \param backupId
  *      Backup that will receive this RPC.
+ * \param recoveryId
+ *      which recovery the coordinator is starting.
+ *      recovery segments may be partitioned differently for different
+ *      recoveries even for the same master. this prevents accidental
+ *      use of mispartitioned segments.
  * \param masterId
  *      The id of the master whose data is to be recovered.
  * \param partitions
@@ -344,10 +350,14 @@ RecoveryCompleteRpc::RecoveryCompleteRpc(Context* context, ServerId backupId,
  *      replicas stored on \a backupId for \a masterId.
  */
 StartReadingDataRpc::Result
-BackupClient::startReadingData(Context* context, ServerId backupId,
-        ServerId masterId, const ProtoBuf::Tablets* partitions)
+BackupClient::startReadingData(Context* context,
+                               ServerId backupId,
+                               uint64_t recoveryId,
+                               ServerId masterId,
+                               const ProtoBuf::Tablets* partitions)
 {
-    StartReadingDataRpc rpc(context, backupId, masterId, partitions);
+    StartReadingDataRpc rpc(context, backupId, recoveryId,
+                            masterId, partitions);
     return rpc.wait();
 }
 
@@ -360,19 +370,28 @@ BackupClient::startReadingData(Context* context, ServerId backupId,
  *      Overall information about this RAMCloud server.
  * \param backupId
  *      Backup that will receive this RPC.
+ * \param recoveryId
+ *      which recovery the coordinator is starting.
+ *      recovery segments may be partitioned differently for different
+ *      recoveries even for the same master. this prevents accidental
+ *      use of mispartitioned segments.
  * \param masterId
  *      The id of the master whose data is to be recovered.
  * \param partitions
  *      Describes how the objects belonging to \a masterId are to be divided
  *      into groups for recovery.
  */
-StartReadingDataRpc::StartReadingDataRpc(Context* context, ServerId backupId,
-        ServerId masterId, const ProtoBuf::Tablets* partitions)
+StartReadingDataRpc::StartReadingDataRpc(Context* context,
+                                         ServerId backupId,
+                                         uint64_t recoveryId,
+                                         ServerId masterId,
+                                         const ProtoBuf::Tablets* partitions)
     : ServerIdRpcWrapper(context, backupId,
             sizeof(WireFormat::BackupStartReadingData::Response))
 {
     WireFormat::BackupStartReadingData::Request* reqHdr(
             allocHeader<WireFormat::BackupStartReadingData>());
+    reqHdr->recoveryId = recoveryId;
     reqHdr->masterId = masterId.getId();
     reqHdr->partitionsLength = ProtoBuf::serializeToRequest(&request,
             partitions);
@@ -493,9 +512,23 @@ StartReadingDataRpc::Result::operator=(Result&& other)
  *      most recently transmitted certificate will be used during recovery,
  *      which means only data covered by that certificate will be recovered
  *      regardless of how much has been transmitted to the backup.
- * \param flags
- *      Whether the write should open or close the segment or both or
- *      neither.  Defaults to neither.
+ * \param open
+ *      Whether this write is an opening write to the replica. If so, causes
+ *      the backup to allocate storage space if it hasn't for this replica yet.
+ *      Backups may reject write requests with this flag set.
+ * \param close
+ *      Whether this write is a closing write to the replica. Must be to an
+ *      already opened replica (or one that was opened along with this write).
+ *      Writes to already closed replicas result in a client exception. If this
+ *      client exception is due to a retry request then masters won't ever
+ *      response with the client exception (if the first request was received
+ *      by the backup the master will receive the non-exceptional response and
+ *      drop the exceptional one; if the first request was not received by the
+ *      backup then it will never generate an exception to begin with).
+ * \param primary
+ *      Whether this particular replica should be loaded and filtered at the
+ *      start of master recovery (as opposed to having it loaded and filtered
+ *      on demand. May be reset on each subsequent write.
  * \return
  *      A vector describing the replication group for the backup
  *      that handled the RPC (secondary replicas will then be
@@ -511,10 +544,12 @@ BackupClient::writeSegment(Context* context,
                            uint32_t offset,
                            uint32_t length,
                            const Segment::Certificate* certificate,
-                           WireFormat::BackupWrite::Flags flags)
+                           bool open,
+                           bool close,
+                           bool primary)
 {
     WriteSegmentRpc rpc(context, backupId, masterId, segmentId, segment, offset,
-                        length, certificate, flags);
+                        length, certificate, open, close, primary);
     return rpc.wait();
 }
 
@@ -539,9 +574,6 @@ BackupClient::writeSegment(Context* context,
  *      replicated starts.
  * \param length
  *      The length in bytes of the data to write.
- * \param flags
- *      Whether the write should open or close the segment or both or
- *      neither.  Defaults to neither.
  * \param certificate
  *      Backups write this as part of their metadata for the segment.  Used
  *      during recovery to determine how much of the segment contains valid
@@ -552,6 +584,23 @@ BackupClient::writeSegment(Context* context,
  *      most recently transmitted certificate will be used during recovery,
  *      which means only data covered by that certificate will be recovered
  *      regardless of how much has been transmitted to the backup.
+ * \param open
+ *      Whether this write is an opening write to the replica. If so, causes
+ *      the backup to allocate storage space if it hasn't for this replica yet.
+ *      Backups may reject write requests with this flag set.
+ * \param close
+ *      Whether this write is a closing write to the replica. Must be to an
+ *      already opened replica (or one that was opened along with this write).
+ *      Writes to already closed replicas result in a client exception. If this
+ *      client exception is due to a retry request then masters won't ever
+ *      response with the client exception (if the first request was received
+ *      by the backup the master will receive the non-exceptional response and
+ *      drop the exceptional one; if the first request was not received by the
+ *      backup then it will never generate an exception to begin with).
+ * \param primary
+ *      Whether this particular replica should be loaded and filtered at the
+ *      start of master recovery (as opposed to having it loaded and filtered
+ *      on demand. May be reset on each subsequent write.
  */
 WriteSegmentRpc::WriteSegmentRpc(Context* context,
                                  ServerId backupId,
@@ -561,7 +610,9 @@ WriteSegmentRpc::WriteSegmentRpc(Context* context,
                                  uint32_t offset,
                                  uint32_t length,
                                  const Segment::Certificate* certificate,
-                                 WireFormat::BackupWrite::Flags flags)
+                                 bool open,
+                                 bool close,
+                                 bool primary)
     : ServerIdRpcWrapper(context, backupId,
                          sizeof(WireFormat::BackupWrite::Response))
 {
@@ -576,8 +627,11 @@ WriteSegmentRpc::WriteSegmentRpc(Context* context,
         reqHdr->certificate = *certificate;
     else
         reqHdr->certificate = Segment::Certificate();
-    reqHdr->flags = flags;
-    segment->appendToBuffer(request, offset, length);
+    reqHdr->open = open;
+    reqHdr->close = close;
+    reqHdr->primary = primary;
+    if (segment)
+        segment->appendToBuffer(request, offset, length);
     send();
 }
 

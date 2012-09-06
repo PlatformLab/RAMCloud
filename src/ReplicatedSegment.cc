@@ -627,11 +627,6 @@ ReplicatedSegment::performWrite(Replica& replica)
                 return;
             }
 
-            WireFormat::BackupWrite::Flags flags =
-                WireFormat::BackupWrite::OPEN;
-            if (replicaIsPrimary(replica))
-                flags = WireFormat::BackupWrite::OPENPRIMARY;
-
             // If segment is being re-replicated don't send the certificate
             // for the opening write; the replica should atomically commit when
             // it has been fully caught up.
@@ -644,7 +639,7 @@ ReplicatedSegment::performWrite(Replica& replica)
             replica.writeRpc.construct(context, replica.backupId,
                                        masterId, segmentId, segment, 0,
                                        openLen, certificateToSend,
-                                       flags);
+                                       true, false, replicaIsPrimary(replica));
             ++writeRpcsInFlight;
             replica.sent.open = true;
             replica.sent.bytes = openLen;
@@ -673,20 +668,15 @@ ReplicatedSegment::performWrite(Replica& replica)
             uint32_t length = queued.bytes - offset;
             Segment::Certificate* certficateToSend = &queuedCertificate;
 
-            bool sendClose = queued.close && (offset + length) == queued.bytes;
-            WireFormat::BackupWrite::Flags flags =
-                sendClose ?  WireFormat::BackupWrite::CLOSE :
-                             WireFormat::BackupWrite::NONE;
-
             // Breaks atomicity of log entries, but it could happen anyway
             // if a segment gets partially written to disk.
             if (length > maxBytesPerWriteRpc) {
                 length = maxBytesPerWriteRpc;
-                flags = WireFormat::BackupWrite::NONE;
                 certficateToSend = NULL;
             }
 
-            if (flags == WireFormat::BackupWrite::CLOSE &&
+            bool sendClose = queued.close && (offset + length) == queued.bytes;
+            if (sendClose &&
                 followingSegment &&
                 !followingSegment->getCommitted().open) {
                 TEST_LOG("Cannot close segment %lu until following segment "
@@ -713,10 +703,11 @@ ReplicatedSegment::performWrite(Replica& replica)
             replica.writeRpc.construct(context, replica.backupId, masterId,
                                        segmentId, segment, offset, length,
                                        certficateToSend,
-                                       flags);
+                                       false, sendClose,
+                                       replicaIsPrimary(replica));
             ++writeRpcsInFlight;
             replica.sent.bytes += length;
-            replica.sent.close = (flags == WireFormat::BackupWrite::CLOSE);
+            replica.sent.close = sendClose;
             schedule();
             return;
         } else {

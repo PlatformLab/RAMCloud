@@ -54,6 +54,7 @@ SingleFileStorage::Frame::Frame(SingleFileStorage* storage, size_t frameIndex)
     , isOpen()
     , isClosed()
     , sync()
+    , appendedToByCurrentProcess()
     , appendedLength()
     , committedLength()
     , appendedMetadata(Memory::xmemalign(HERE,
@@ -74,6 +75,22 @@ SingleFileStorage::Frame::Frame(SingleFileStorage* storage, size_t frameIndex)
 SingleFileStorage::Frame::~Frame()
 {
     deschedule();
+}
+
+/**
+ * Returns true if append has been called on this frame during the life of this
+ * process; returns false otherwise. This includes across free()/open() cycles.
+ * This is used by the backup replica garbage collector to determine whether it
+ * might have missed a BackupFree rpc from a master, in which case it has to
+ * query the master for the replica status. This is "appended to" rather than
+ * "opened by" because of benchmark(); benchmark "opens" replicas and loads them
+ * but doesn't do any. Masters open and append data in a single rpc, so this
+ * is a fine proxy.
+ */
+bool
+SingleFileStorage::Frame::wasAppendedToByCurrentProcess()
+{
+    return appendedToByCurrentProcess;
 }
 
 /**
@@ -243,6 +260,7 @@ SingleFileStorage::Frame::append(Buffer& source,
         throw BackupSegmentOverflowException(HERE);
     }
 
+    appendedToByCurrentProcess = true;
     source.copy(downCast<uint32_t>(sourceOffset),
                 downCast<uint32_t>(length),
                 static_cast<char*>(buffer.get()) + destinationOffset);
@@ -290,6 +308,26 @@ SingleFileStorage::Frame::close()
 }
 
 /**
+ * Perform outstanding IO for this frame. Frames prioritize writes over loads
+ * since loads require writes to finish first.
+ */
+void
+SingleFileStorage::Frame::performTask()
+{
+    Lock lock(storage->mutex);
+    performingIo = true;
+    if (!isSynced()) {
+        performWrite(lock);
+    } else if (loadRequested && !buffer) {
+        performRead(lock);
+    }
+    performingIo = false;
+}
+
+// - protected -
+
+/**
+ * Do not call; see BackupStorage::freeFrame().
  * Make this frame available for reuse; data previously stored in this frame
  * may or may not be part of future recoveries. It does not modify storage,
  * only in-memory bookkeeping structures, so a previously freed frame will not
@@ -310,37 +348,7 @@ SingleFileStorage::Frame::free()
     isOpen = false;
     isClosed = false;
 
-    // Code to scratch on metadata blocks in case we want to reduce garbage
-    // collector overhead later. Corresponding test code is commented out as
-    // well. This can be done asynchronously as long at the change to the
-    // freeMap below is moved as well.
-    /*
-    ssize_t r = pwrite(storage->fd,
-                       storage->killMessage, storage->killMessageLen,
-                       storage->offsetOfMetadataFrame(frameIndex));
-    if (r != storage->killMessageLen)
-        throw BackupStorageException(HERE,
-                "Couldn't overwrite stored segment header to free", errno);
-    */
-
     storage->freeMap[frameIndex] = 1;
-}
-
-/**
- * Perform outstanding IO for this frame. Frames prioritize writes over loads
- * since loads require writes to finish first.
- */
-void
-SingleFileStorage::Frame::performTask()
-{
-    Lock lock(storage->mutex);
-    performingIo = true;
-    if (!isSynced()) {
-        performWrite(lock);
-    } else if (loadRequested && !buffer) {
-        performRead(lock);
-    }
-    performingIo = false;
 }
 
 // - private -
@@ -354,7 +362,7 @@ SingleFileStorage::Frame::performTask()
  *
  * Idempotence: caller must guarantee all calls to open() for a single replica
  * provide the same arguments. Duplicate calls to open() are ignored until
- * free() is called. Calling open() after a call to free() will reset this
+ * the frame is freed. Calling open() after in is freed will reset this
  * frame for reuse with an new replica.
  *
  * \param sync
@@ -608,18 +616,7 @@ SingleFileStorage::SingleFileStorage(size_t segmentSize,
     , openFlags(openFlags)
     , fd(-1)
     , tempFilePath()
-    , killMessage()
-    , killMessageLen()
 {
-    const char* killMessageStr = "\0DIE";
-    // Must write block size of larger when O_DIRECT.
-    killMessageLen = BLOCK_SIZE;
-    int r = posix_memalign(&killMessage, killMessageLen, killMessageLen);
-    if (r != 0)
-        throw std::bad_alloc();
-    memset(killMessage, 0, killMessageLen);
-    memcpy(killMessage, killMessageStr, 4);
-
     freeMap.set();
 
     if (filePath == NULL || filePath[0] == '\0') {
@@ -644,7 +641,7 @@ SingleFileStorage::SingleFileStorage(size_t segmentSize,
     // If its a regular file reserve space, otherwise
     // assume its a device and we don't need to bother.
     struct stat st;
-    r = stat(filePath, &st);
+    int r = stat(filePath, &st);
     if (r == -1)
         return;
     if (st.st_mode & S_IFREG)
@@ -664,7 +661,6 @@ SingleFileStorage::~SingleFileStorage()
     int r = close(fd);
     if (r == -1)
         LOG(ERROR, "Couldn't close backup log");
-    std::free(killMessage);
 
     if (tempFilePath) {
         unlink(tempFilePath);
@@ -692,12 +688,12 @@ SingleFileStorage::~SingleFileStorage()
  *      Only return from append() calls when all enqueued data and the  most
  *      recently enqueued metadata are durable on storage.
  * \return
- *      Pointer to a frame through which handles all IO for a single replica.
- *      Valid until Frame::free() is called on the returned pointer after
- *      which point future calls to open() can reuse that frame for other
- *      replicas.
+ *      Reference to a frame through which handles all IO for a single
+ *      replica. Maintains a reference count; when destroyed if the
+ *      reference count drops to zero the frame will be freed for reuse with
+ *      another replica.
  */
-SingleFileStorage::Frame*
+SingleFileStorage::FrameRef
 SingleFileStorage::open(bool sync)
 {
     Lock lock(mutex);
@@ -714,7 +710,7 @@ SingleFileStorage::open(bool sync)
     Frame* frame = &frames[frameIndex];
     lock.unlock();
     frame->open(sync);
-    return frame;
+    return {frame, BackupStorage::freeFrame};
 }
 
 /**
@@ -756,16 +752,16 @@ SingleFileStorage::getMetadataSize()
  *      to examine the metadata and either free the frame or take note of the
  *      metadata in the frame for potential use in future recoveries.
  */
-std::vector<BackupStorage::Frame*>
+std::vector<BackupStorage::FrameRef>
 SingleFileStorage::loadAllMetadata()
 {
-    std::vector<BackupStorage::Frame*> ret;
+    std::vector<FrameRef> ret;
     ret.reserve(frames.size());
     foreach (auto& frame, frames) {
         frame.loadMetadata();
         assert(freeMap[frame.frameIndex] == 1);
         freeMap[frame.frameIndex] = 0;
-        ret.push_back(&frame);
+        ret.push_back({&frame, BackupStorage::freeFrame});
     }
     return ret;
 }

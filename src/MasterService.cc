@@ -1001,7 +1001,9 @@ MasterService::receiveMigrationData(
         return;
     }
     const void* segmentMemory = rpc.requestPayload.getStart<const void*>();
-    recoverSegment(-1, segmentMemory, segmentBytes, certificate);
+    SegmentIterator it(segmentMemory, segmentBytes, certificate);
+    it.checkMetadataIntegrity();
+    recoverSegment(it);
 
     // TODO(rumble/slaughter) what about tablet version numbers?
     //          - need to be made per-server now, no? then take max of two?
@@ -1134,8 +1136,8 @@ class RecoveryTask {
         , startTime(Cycles::rdtsc())
         , rpc()
     {
-        rpc.construct(context, recoveryId,
-                      replica.backupId, masterId, replica.segmentId,
+        rpc.construct(context, replica.backupId,
+                      recoveryId, masterId, replica.segmentId,
                       partitionId, &response);
     }
     ~RecoveryTask()
@@ -1149,8 +1151,8 @@ class RecoveryTask {
     void resend() {
         LOG(DEBUG, "Resend %lu", replica.segmentId);
         response.reset();
-        rpc.construct(context, recoveryId,
-                      replica.backupId, masterId, replica.segmentId,
+        rpc.construct(context, replica.backupId,
+                      recoveryId, masterId, replica.segmentId,
                       partitionId, &response);
     }
     Context* context;
@@ -1388,9 +1390,12 @@ MasterService::recover(uint64_t recoveryId,
                 LOG(DEBUG, "Recovering segment %lu with size %u",
                     task->replica.segmentId, responseLen);
                 uint64_t startUseful = Cycles::rdtsc();
-                recoverSegment(task->replica.segmentId,
-                               task->response.getRange(0, responseLen),
-                               responseLen, certificate);
+                SegmentIterator it(task->response.getRange(0, responseLen),
+                                   responseLen, certificate);
+                it.checkMetadataIntegrity();
+                recoverSegment(it);
+                LOG(DEBUG, "Segment %lu replay complete",
+                    task->replica.segmentId);
                 usefulTime += Cycles::rdtsc() - startUseful;
 
                 runningSet.erase(task->replica.segmentId);
@@ -1409,6 +1414,12 @@ MasterService::recover(uint64_t recoveryId,
                         otherReplica.segmentId);
                     otherReplica.state = Replica::State::OK;
                 }
+            } catch (const SegmentIteratorException& e) {
+                LOG(WARNING, "Recovery segment for segment %lu corrupted; "
+                    "trying next backup: %s", task->replica.segmentId,
+                    e.what());
+                task->replica.state = Replica::State::FAILED;
+                runningSet.erase(task->replica.segmentId);
             } catch (const ServerNotUpException& e) {
                 LOG(WARNING, "No record of backup %s, trying next backup",
                     task->replica.backupId.toString().c_str());
@@ -1545,7 +1556,8 @@ MasterService::recover(const WireFormat::Recover::Request& reqHdr,
     ServerId crashedServerId(reqHdr.crashedServerId);
     uint64_t partitionId = reqHdr.partitionId;
     if (partitionId == ~0u)
-        DIE("Recovery master got super secret partition id; killing self.");
+        DIE("Recovery master %s got super secret partition id; killing self.",
+            serverId.toString().c_str());
     ProtoBuf::Tablets recoveryTablets;
     ProtoBuf::parseFromResponse(&rpc.requestPayload, sizeof(reqHdr),
                                 reqHdr.tabletsLength, &recoveryTablets);
@@ -1687,37 +1699,20 @@ MasterService::recoverSegmentPrefetcher(SegmentIterator& it)
 }
 
 /**
- * Replay a filtered segment from a crashed Master that this Master is taking
+ * Replay a recovery segment from a crashed Master that this Master is taking
  * over for.
  *
- * \param segmentId
- *      The segmentId of the segment as it was in the log of the crashed Master.
- * \param buffer
- *      A pointer to a valid segment which has been pre-filtered of all
- *      objects except those that pertain to the tablet ranges this Master
- *      will be responsible for after the recovery completes.
- * \param bufferLength
- *      Length of the buffer in bytes.
- * \param certificate
- *      Certificate to use when iterating over the recovery segment. Provided
- *      by the backup along with the recovery segment. Used determine how much
- *      of the segment contains valid data and to verify the integrity of the
- *      segment metadata.
+ * \param it
+ *       SegmentIterator which is pointing to the start of the recovery segment
+ *       to be replayed into the log.
  */
 void
-MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
-                              uint32_t bufferLength,
-                              const Segment::Certificate& certificate)
+MasterService::recoverSegment(SegmentIterator& it)
 {
     uint64_t startReplicationTicks = metrics->master.replicaManagerTicks;
-    LOG(DEBUG, "recoverSegment %lu, ...", segmentId);
     CycleCounter<RawMetric> _(&metrics->master.recoverSegmentTicks);
 
-    SegmentIterator it(buffer, bufferLength, certificate);
-    it.checkMetadataIntegrity();
-    SegmentIterator prefetch(buffer, bufferLength, certificate);
-    // No need to check integrity for the prefetch iterator. Covered above.
-
+    SegmentIterator prefetch = it;
     uint64_t bytesIterated = 0;
     while (!it.isDone()) {
         LogEntryType type = it.getType();
@@ -1891,8 +1886,6 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
 
         it.next();
     }
-
-    LOG(DEBUG, "Segment %lu replay complete", segmentId);
     metrics->master.backupInRecoverTicks +=
         metrics->master.replicaManagerTicks - startReplicationTicks;
 }

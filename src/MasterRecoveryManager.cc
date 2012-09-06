@@ -221,6 +221,11 @@ class RecoveryMasterFinishedTask : public Task {
                 // creation of this new tablet assignment. The value is the
                 // position of the head at the very start of recovery.
                 try {
+                    LOG(ERROR, "Modifying tablet map to set recovery master %s "
+                        "as master for %lu, %lu, %lu",
+                        ServerId(tablet.server_id()).toString().c_str(),
+                        tablet.table_id(), tablet.start_key_hash(),
+                        tablet.end_key_hash());
                     mgr.tabletMap.modifyTablet(tablet.table_id(),
                                                tablet.start_key_hash(),
                                                tablet.end_key_hash(),

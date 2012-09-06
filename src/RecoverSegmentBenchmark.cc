@@ -17,6 +17,7 @@
 #include "Cycles.h"
 #include "MasterService.h"
 #include "Memory.h"
+#include "SegmentIterator.h"
 #include "Tablets.pb.h"
 
 namespace RAMCloud {
@@ -96,8 +97,8 @@ class RecoverSegmentBenchmark {
             Segment::Certificate certificate;
             s->getAppendedLength(certificate);
             const void* contigSeg = buffer.getRange(0, buffer.getTotalLength());
-            service->recoverSegment(i, contigSeg, buffer.getTotalLength(),
-                                    certificate);
+            SegmentIterator it(contigSeg, buffer.getTotalLength(), certificate);
+            service->recoverSegment(it);
         }
         uint64_t ticks = Cycles::rdtsc() - before;
 

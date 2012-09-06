@@ -220,8 +220,8 @@ BackupStartTask::send()
     LOG(DEBUG, "Starting startReadingData on backup %s",
         backupId.toString().c_str());
     if (!testingCallback) {
-        rpc.construct(recovery->context, backupId, crashedMasterId,
-                      &partitions);
+        rpc.construct(recovery->context, backupId, recovery->recoveryId,
+                      crashedMasterId, &partitions);
     } else {
         testingCallback->backupStartTaskSend(result);
     }

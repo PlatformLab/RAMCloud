@@ -352,11 +352,11 @@ TEST_F(ReplicatedSegmentTest, sync) {
     createSegment->logSegment.getAppendedLength(certificate);
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 0, 10, Wr::OPENPRIMARY, true, certificate},
+                 999, 888, 0, 10, true, false, true, true, certificate},
                 "abcdefghij", 10));
     EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 0, 10, Wr::OPEN, true, certificate},
+                 999, 888, 0, 10, true, false, false, true, certificate},
                 "abcdefghij", 10));
     transport.clearOutput();
     EXPECT_TRUE(segment->getCommitted().open);
@@ -375,11 +375,12 @@ TEST_F(ReplicatedSegmentTest, sync) {
     createSegment->logSegment.getAppendedLength(certificate);
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 10, Wr::NONE, true, certificate},
+                 999, 888, 10, 10, false, false, true, true, certificate},
                 "klmnopqrst", 10));
     EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 10, Wr::NONE, true, certificate},
+                 999, 888, 10, 10,
+                 false, false, false, true, certificate},
                 "klmnopqrst ", 10));
     EXPECT_EQ(openLen + 10, segment->getCommitted().bytes);
 }
@@ -458,37 +459,41 @@ TEST_F(ReplicatedSegmentTest, syncDoubleCheckCrossSegmentOrderingConstraints) {
 
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 0, 10, Wr::OPENPRIMARY, true,
+                 999, 888, 0, 10, true, false, true, true,
                  segmentOpeningCertificate},
                 "abcdefghij", 10));
     EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 0, 10, Wr::OPEN, true,
+                 999, 888, 0, 10, true, false, false, true,
                  segmentOpeningCertificate},
                 "abcdefghij", 10));
     EXPECT_TRUE(transport.outputMatches(2, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 889, 0, 10, Wr::OPENPRIMARY, true,
+                 999, 889, 0, 10, true, false, true, true,
                  newHeadOpeningCertificate},
                 "abcdefghij", 10));
     EXPECT_TRUE(transport.outputMatches(3, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 889, 0, 10, Wr::OPEN, true,
+                 999, 889, 0, 10, true, false, false, true,
                  newHeadOpeningCertificate},
                 "abcdefghij", 10));
     EXPECT_TRUE(transport.outputMatches(4, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 0, Wr::CLOSE, true, segmentFinalCertificate}));
+                 999, 888, 10, 0, false, true, true, true,
+                 segmentFinalCertificate}));
     EXPECT_TRUE(transport.outputMatches(5, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 0, Wr::CLOSE, true, segmentFinalCertificate}));
+                 999, 888, 10, 0, false, true, false, true,
+                 segmentFinalCertificate}));
     EXPECT_TRUE(transport.outputMatches(6, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 889, 10, 10, Wr::NONE, true, newHeadFinalCertificate},
+                 999, 889, 10, 10, false, false, true, true,
+                 newHeadFinalCertificate},
                 "klmnopqrst", 10));
     EXPECT_TRUE(transport.outputMatches(7, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 889, 10, 10, Wr::NONE, true, newHeadFinalCertificate},
+                 999, 889, 10, 10, false, false, false, true,
+                 newHeadFinalCertificate},
                 "klmnopqrst", 10));
 }
 
@@ -571,17 +576,17 @@ TEST_F(ReplicatedSegmentTest, syncRecoveringFromLostOpenReplicas) {
     // Opening primary write, no certificate
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 0, 10, Wr::OPENPRIMARY, false, certificate},
+                 999, 888, 0, 10, true, false, true, false, certificate},
                 "abcdefghij", 10));
     createSegment->logSegment.getAppendedLength(certificate);
     // Closing write to non-crashed replica, includes certificate.
     EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 0, Wr::CLOSE, true, certificate}));
+                 999, 888, 10, 0, false, true, false, true, certificate}));
     // Closing write, includes certificate.
     EXPECT_TRUE(transport.outputMatches(2, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 0, Wr::CLOSE, true, certificate}));
+                 999, 888, 10, 0, false, true, true, true, certificate}));
     EXPECT_TRUE(segment->getCommitted().close);
     EXPECT_EQ(889lu, minOpenSegmentId.current);
     transport.clearOutput();
@@ -616,12 +621,12 @@ TEST_F(ReplicatedSegmentTest, syncWaitsForCommittedEvenWhenAcked) {
 
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 0, 10, Wr::OPENPRIMARY, true,
+                 999, 888, 0, 10, true, false, true, true,
                  openingCertificate},
                 "abcdefghij", 10));
     EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 0, 10, Wr::OPEN, true,
+                 999, 888, 0, 10, true, false, false, true,
                  openingCertificate},
                 "abcdefghij", 10));
 
@@ -637,19 +642,19 @@ TEST_F(ReplicatedSegmentTest, syncWaitsForCommittedEvenWhenAcked) {
     Segment::Certificate empty;
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 21, Wr::NONE, false, empty},
+                 999, 888, 10, 21, false, false, true, false, empty},
                 "klmnopqrstuvwxyzabcde", 21));
     EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 21, Wr::NONE, false, empty},
+                 999, 888, 10, 21, false, false, false, false, empty},
                 "klmnopqrstuvwxyzabcde", 21));
     EXPECT_TRUE(transport.outputMatches(2, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 31, 1, Wr::CLOSE, true, certificate},
+                 999, 888, 31, 1, false, true, true, true, certificate},
                 "f", 1));
     EXPECT_TRUE(transport.outputMatches(3, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 31, 1, Wr::CLOSE, true, certificate},
+                 999, 888, 31, 1, false, true, false, true, certificate},
                 "f", 1));
 
     EXPECT_EQ(0u, deleter.count);
@@ -726,7 +731,7 @@ TEST_F(ReplicatedSegmentTest, performTaskRecoveringFromLostOpenReplicas) {
     Segment::Certificate certificate;
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 0, 10, Wr::OPENPRIMARY, false, certificate},
+                 999, 888, 0, 10, true, false, true, false, certificate},
                 "abcdefghij", 10));
     transport.clearOutput();
 
@@ -740,11 +745,11 @@ TEST_F(ReplicatedSegmentTest, performTaskRecoveringFromLostOpenReplicas) {
     // Atomic close.
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 0, Wr::CLOSE, true, certificate}));
+                 999, 888, 10, 0, false, true, true, true, certificate}));
     // Normal close.
     EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 0, Wr::CLOSE, true, certificate}));
+                 999, 888, 10, 0, false, true, false, true, certificate}));
     transport.clearOutput();
 
     TestLog::Enable _(filter);
@@ -876,7 +881,8 @@ TEST_F(ReplicatedSegmentTest, performWriteTooManyInFlight) {
     taskQueue.performTask(); // retry writes since a slot freed up
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 10, Wr::NONE, true, openingCertificate},
+                 999, 888, 10, 10, false, false, true, true,
+                 openingCertificate},
                 "klmnopqrst", 10));
     transport.clearOutput();
     EXPECT_EQ(ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT, writeRpcsInFlight);
@@ -890,7 +896,8 @@ TEST_F(ReplicatedSegmentTest, performWriteTooManyInFlight) {
     taskQueue.performTask(); // reap write and send the second replica's rpc
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 10, Wr::NONE, true, openingCertificate},
+                 999, 888, 10, 10, false, false, false,
+                 true, openingCertificate},
                 "klmnopqrst", 10));
     EXPECT_EQ(ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT, writeRpcsInFlight);
     ASSERT_TRUE(segment->replicas[1].isActive);
@@ -931,11 +938,11 @@ TEST_F(ReplicatedSegmentTest, performWriteOpen) {
     createSegment->logSegment.getAppendedLength(certificate);
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 0, 10, Wr::OPENPRIMARY, true, certificate},
+                 999, 888, 0, 10, true, false, true, true, certificate},
                 "abcdefghij", 10));
     EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 0, 10, Wr::OPEN, true, certificate},
+                 999, 888, 0, 10, true, false, false, true, certificate},
                 "abcdefghij", 10));
 
     EXPECT_TRUE(segment->replicas[0].isActive);
@@ -964,7 +971,7 @@ TEST_F(ReplicatedSegmentTest, performWriteOpenTooManyInFlight) {
     createSegment->logSegment.getAppendedLength(certificate);
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 0, 10, Wr::OPENPRIMARY, true, certificate},
+                 999, 888, 0, 10, true, false, true, true, certificate},
                 "abcdefghij", 10));
     EXPECT_EQ(ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT, writeRpcsInFlight);
     ASSERT_TRUE(segment->replicas[0].isActive);
@@ -978,7 +985,7 @@ TEST_F(ReplicatedSegmentTest, performWriteOpenTooManyInFlight) {
     taskQueue.performTask(); // reap write and send the second replica's rpc
     EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 0, 10, Wr::OPEN, true, certificate},
+                 999, 888, 0, 10, true, false, false, true, certificate},
                 "abcdefghij", 10));
     EXPECT_EQ(ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT, writeRpcsInFlight);
     ASSERT_TRUE(segment->replicas[1].isActive);
@@ -1041,11 +1048,11 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
     createSegment->logSegment.getAppendedLength(certificate);
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 0, 10, Wr::OPENPRIMARY, true, certificate},
+                 999, 888, 0, 10, true, false, true, true, certificate},
                 "abcdefghij", 10));
     EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 0, 10, Wr::OPEN, true, certificate},
+                 999, 888, 0, 10, true, false, false, true, certificate},
                 "abcdefghij", 10));
     transport.clearOutput();
     {
@@ -1069,7 +1076,7 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
     taskQueue.performTask();  // resend second open request
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 0, 10, Wr::OPEN, true, certificate},
+                 999, 888, 0, 10, true, false, false, true, certificate},
                 "abcdefghij", 10));
     transport.clearOutput();
     taskQueue.performTask();  // reap second open request
@@ -1080,11 +1087,11 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
     taskQueue.performTask();  // send close requests
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 10, Wr::CLOSE, true, certificate},
+                 999, 888, 10, 10, false, true, true, true, certificate},
                 "klmnopqrst", 10));
     EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 10, Wr::CLOSE, true, certificate},
+                 999, 888, 10, 10, false, true, false, true, certificate},
                 "klmnopqrst", 10));
     transport.clearOutput();
     {
@@ -1109,7 +1116,7 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
     taskQueue.performTask();  // resend first close request
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 10, Wr::CLOSE, true, certificate},
+                 999, 888, 10, 10, false, true, true, true, certificate},
                 "klmnopqrst", 10));
     transport.clearOutput();
     EXPECT_TRUE(segment->isScheduled());
@@ -1143,12 +1150,12 @@ TEST_F(ReplicatedSegmentTest, performWriteMoreToSend) {
 
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 20, Wr::CLOSE, true,
+                 999, 888, 10, 20, false, true, true, true,
                  closingCertificate},
                 "klmnopqrstuvwxyzabcd", 20));
     EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 20, Wr::CLOSE, true,
+                 999, 888, 10, 20, false, true, false, true,
                  closingCertificate},
                 "klmnopqrstuvwxyzabcd", 20));
     EXPECT_TRUE(segment->isScheduled());
@@ -1181,11 +1188,12 @@ TEST_F(ReplicatedSegmentTest, performWriteClosedButLongerThanMaxTxLimit) {
 
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 21, Wr::NONE, false, emptyCertificate},
+                 999, 888, 10, 21, false, false, true, false, emptyCertificate},
                 "klmnopqrstuvwxyzabcde", 21));
     EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 21, Wr::NONE, false, emptyCertificate},
+                 999, 888, 10, 21, false, false, false, false,
+                 emptyCertificate},
                 "klmnopqrstuvwxyzabcde", 21));
     EXPECT_TRUE(segment->isScheduled());
     EXPECT_TRUE(segment->replicas[0].writeRpc);
@@ -1198,11 +1206,11 @@ TEST_F(ReplicatedSegmentTest, performWriteClosedButLongerThanMaxTxLimit) {
 
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 31, 1, Wr::CLOSE, true, certificate},
+                 999, 888, 31, 1, false, true, true, true, certificate},
                 "f", 1));
     EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 31, 1, Wr::CLOSE, true, certificate},
+                 999, 888, 31, 1, false, true, false, true, certificate},
                 "f", 1));
     EXPECT_TRUE(segment->isScheduled());
     EXPECT_TRUE(segment->replicas[0].writeRpc);

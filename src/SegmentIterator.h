@@ -41,6 +41,8 @@ struct SegmentIteratorException : public Exception {
  *
  * Note that the segments being iterated over must not change while the iterator
  * exists, otherwise behaviour is undefined.
+ *
+ * Copy and assignment is defined on SegmentIterators.
  */
 class SegmentIterator {
   public:
@@ -48,6 +50,8 @@ class SegmentIterator {
     explicit SegmentIterator(Segment& segment);
     SegmentIterator(const void* buffer, uint32_t length,
                     const Segment::Certificate& certificate);
+    SegmentIterator(const SegmentIterator& other);
+    SegmentIterator& operator=(const SegmentIterator& other);
     VIRTUAL_FOR_TESTING ~SegmentIterator();
     VIRTUAL_FOR_TESTING bool isDone();
     VIRTUAL_FOR_TESTING void next();
@@ -62,6 +66,14 @@ class SegmentIterator {
     /// If the constructor was called on a void pointer, we'll create a wrapper
     /// segment to access the data in a common way using segment object calls.
     Tub<Segment> wrapperSegment;
+
+    /// Buffer used to construct #wrapperSegment, if any. Only used in copy
+    /// constructor to construct an identical #wrapperSegment if populated.
+    const void* buffer;
+
+    /// Length used to construct #wrapperSegment, if any. Only used in copy
+    /// constructor to construct an identical #wrapperSegment if populated.
+    uint32_t length;
 
     /// Pointer to the segment we're iterating on. This points either to the
     /// segment object passed in to the constructor, or wrapperSegment above if
@@ -87,8 +99,6 @@ class SegmentIterator {
     /// Cache of the length of the entry at currentOffset. Set the first time
     /// getType() is called and destroyed when next() is called.
     Tub<uint32_t> currentLength;
-
-    DISALLOW_COPY_AND_ASSIGN(SegmentIterator);
 };
 
 } // namespace

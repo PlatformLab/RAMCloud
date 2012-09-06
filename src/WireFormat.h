@@ -233,6 +233,9 @@ struct BackupStartReadingData {
     static const ServiceType service = BACKUP_SERVICE;
     struct Request {
         RequestCommon common;
+        uint64_t recoveryId;       ///< Identifies the recovery for which
+                                   ///< information should be returned and
+                                   ///< recovery segments should be built.
         uint64_t masterId;         ///< Server Id from whom the request is
                                    ///< coming.
         uint32_t partitionsLength; ///< Number of bytes in the partition map.
@@ -271,15 +274,6 @@ struct BackupStartReadingData {
 struct BackupWrite {
     static const Opcode opcode = BACKUP_WRITE;
     static const ServiceType service = BACKUP_SERVICE;
-    enum Flags {
-        NONE = 0,
-        OPEN = 1,
-        CLOSE = 2,
-        OPENCLOSE = OPEN | CLOSE,
-        PRIMARY = 4,
-        OPENPRIMARY = OPEN | PRIMARY,
-        OPENCLOSEPRIMARY = OPEN | CLOSE | PRIMARY,
-    };
     struct Request {
         Request()
             : common()
@@ -287,7 +281,9 @@ struct BackupWrite {
             , segmentId()
             , offset()
             , length()
-            , flags()
+            , open()
+            , close()
+            , primary()
             , certificateIncluded()
             , certificate()
         {}
@@ -296,7 +292,9 @@ struct BackupWrite {
                 uint64_t segmentId,
                 uint32_t offset,
                 uint32_t length,
-                uint8_t flags,
+                bool open,
+                bool close,
+                bool primary,
                 bool certificateIncluded,
                 const Segment::Certificate& certificate)
             : common(common)
@@ -304,7 +302,9 @@ struct BackupWrite {
             , segmentId(segmentId)
             , offset(offset)
             , length(length)
-            , flags(flags)
+            , open(open)
+            , close(close)
+            , primary(primary)
             , certificateIncluded(certificateIncluded)
             , certificate(certificate)
         {}
@@ -313,7 +313,11 @@ struct BackupWrite {
         uint64_t segmentId;       ///< Target segment to update.
         uint32_t offset;          ///< Offset into this segment to write at.
         uint32_t length;          ///< Number of bytes to write.
-        uint8_t flags;            ///< If open or close request.
+        bool open;                ///< If open request.
+        bool close;               ///< If close request.
+        bool primary;             ///< If this replica should be considered
+                                  ///< a primary and loaded immediately on
+                                  ///< the start of recovery.
         bool certificateIncluded; ///< If false #certificate is undefined, if
                                   ///< true then it includes a valid certificate
                                   ///< that should be placed in the segment
