@@ -153,7 +153,13 @@ class InfRcTransport : public Transport {
     };
 
     static const uint32_t MAX_SHARED_RX_QUEUE_DEPTH = 32;
-    static const uint32_t MAX_SHARED_RX_SGE_COUNT = 8;
+
+    // Since we always use at most 1 SGE per receive request, there is no need
+    // to set this parameter any higher. In fact, larger values for this
+    // parameter result in increased descriptor size, which means that the
+    // Infiniband controller needs to fetch more data from host memory,
+    // which results in a higher number of on-controller cache misses.
+    static const uint32_t MAX_SHARED_RX_SGE_COUNT = 1;
     static const uint32_t MAX_TX_QUEUE_DEPTH = 16;
     static const uint32_t MAX_TX_SGE_COUNT = 8;
     static const uint32_t QP_EXCHANGE_USEC_TIMEOUT = 50000;
