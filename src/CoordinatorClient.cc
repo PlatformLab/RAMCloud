@@ -23,7 +23,7 @@ namespace RAMCloud {
 /**
  * Servers call this when they come online. This request tells the coordinator
  * that the server is available and can be assigned work.
- * 
+ *
  * \param context
  *      Overall information about the RAMCloud server or client.
  * \param replacesId
@@ -418,42 +418,6 @@ RecoveryMasterFinishedRpc::RecoveryMasterFinishedRpc(Context* context,
     reqHdr->recoveryMasterId = recoveryMasterId.getId();
     reqHdr->tabletsLength = serializeToRequest(&request, tablets);
     reqHdr->successful = successful;
-    send();
-}
-
-/**
- * Asks the coordinator to send a complete server list to the given server.
- *
- * \param context
- *      Overall information about this RAMCloud server.
- * \param destination
- *      ServerId of the server the coordinator should send the list to.
- */
-void
-CoordinatorClient::sendServerList(Context* context, ServerId destination)
-{
-    SendServerListRpc rpc(context, destination);
-    rpc.wait();
-}
-
-/**
- * Constructor for SendServerListRpc: initiates an RPC in the same
- * way as #CoordinatorClient::sendServerList, but returns once the
- * RPC has been initiated, without waiting for it to complete.
- *
- * \param context
- *      Overall information about this RAMCloud server or client.
- * \param destination
- *      ServerId of the server the coordinator should send the list to.
- */
-SendServerListRpc::SendServerListRpc(Context* context,
-        ServerId destination)
-    : CoordinatorRpcWrapper(context,
-            sizeof(WireFormat::SendServerList::Response))
-{
-    WireFormat::SendServerList::Request* reqHdr(
-            allocHeader<WireFormat::SendServerList>());
-    reqHdr->serverId = destination.getId();
     send();
 }
 

@@ -108,19 +108,19 @@ GetServerIdRpc::wait()
  * \throw ServerNotUpException
  *      The intended server for this RPC is not part of the cluster;
  *      if it ever existed, it has since crashed.
- */ 
+ */
 void
-MembershipClient::setServerList(Context* context, ServerId serverId,
+MembershipClient::UpdateServerList(Context* context, ServerId serverId,
         ProtoBuf::ServerList* list)
 {
-    SetServerListRpc rpc(context, serverId, list);
+    UpdateServerListRpc rpc(context, serverId, list);
     return rpc.wait();
 }
 
 /**
- * Constructor for SetServerListRpc: initiates an RPC in the same way as
- * #MembershipClient::setServerList, but returns once the RPC has been initiated,
- * without waiting for it to complete.
+ * Constructor for UpdateServerListRpc: initiates an RPC in the same way as
+ * #MembershipClient::UpdateServerListRpc, but returns once the RPC has been
+ * initiated, without waiting for it to complete.
  *
  * \param context
  *      Overall information about this RAMCloud server.
@@ -129,89 +129,14 @@ MembershipClient::setServerList(Context* context, ServerId serverId,
  * \param list
  *      The complete server list representing all cluster membership.
  */
-SetServerListRpc::SetServerListRpc(Context* context, ServerId serverId,
-        ProtoBuf::ServerList* list)
-    : ServerIdRpcWrapper(context, serverId,
-            sizeof(WireFormat::SetServerList::Response))
-{
-    WireFormat::SetServerList::Request* reqHdr(
-            allocHeader<WireFormat::SetServerList>());
-    reqHdr->serverListLength = serializeToRequest(&request, list);
-    send();
-}
-
-/**
- * Notify a server that other servers have entered or left the cluster.
- *
- * \param context
- *      Overall information about this RAMCloud server.
- * \param serverId
- *      Identifies the server to which this update should be sent.
- * \param changes
- *      Information about changes to the list of servers in the cluster.
- *
- * \return
- *      Returns true if the server successfully applied the update, otherwise
- *      returns false if it could not. Failure is due to the version number of
- *      the update not matching what was expected (i.e. the server lost an
- *      update at some point).
- *
- * \throw ServerNotUpException
- *      The intended server for this RPC is not part of the cluster;
- *      if it ever existed, it has since crashed.
- */ 
-bool
-MembershipClient::updateServerList(Context* context, ServerId serverId,
-        ProtoBuf::ServerList* changes)
-{
-    UpdateServerListRpc rpc(context, serverId, changes);
-    return rpc.wait();
-}
-
-/**
- * Constructor for UpdateServerListRpc: initiates an RPC in the same way as
- * #MembershipClient::updateServerList, but returns once the RPC has been initiated,
- * without waiting for it to complete.
- *
- * \param context
- *      Overall information about this RAMCloud server.
- * \param serverId
- *      Identifies the server to which this update should be sent.
- * \param changes
- *      Information about changes to the list of servers in the cluster.
- */
 UpdateServerListRpc::UpdateServerListRpc(Context* context, ServerId serverId,
-        ProtoBuf::ServerList* changes)
+        ProtoBuf::ServerList* list)
     : ServerIdRpcWrapper(context, serverId,
             sizeof(WireFormat::UpdateServerList::Response))
 {
     WireFormat::UpdateServerList::Request* reqHdr(
             allocHeader<WireFormat::UpdateServerList>());
-    reqHdr->serverListLength = serializeToRequest(&request, changes);
+    reqHdr->serverListLength = serializeToRequest(&request, list);
     send();
 }
-
-/**
- * Wait for an updateServerList RPC to complete, and throw exceptions
- * for any errors.
- *
- * \return
- *      Returns true if the server successfully applied the update, otherwise
- *      returns false if it could not. Failure is due to the version number of
- *      the update not matching what was expected (i.e. the server lost an
- *      update at some point).
- *
- * \throw ServerNotUpException
- *      The target server for this RPC is not part of the cluster;
- *      if it ever existed, it has since crashed.
- */
-bool
-UpdateServerListRpc::wait()
-{
-    waitAndCheckErrors();
-    const WireFormat::UpdateServerList::Response* respHdr(
-            getResponseHeader<WireFormat::UpdateServerList>());
-    return respHdr->lostUpdates == 0;
-}
-
 }  // namespace RAMCloud

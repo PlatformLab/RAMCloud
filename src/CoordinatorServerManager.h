@@ -64,7 +64,6 @@ class CoordinatorServerManager {
     ProtoBuf::ServerList getServerList(ServiceMask serviceMask);
     bool hintServerDown(ServerId serverId);
     void removeReplicationGroup(uint64_t groupId);
-    void sendServerList(ServerId serverId);
     void serverDown(ServerId serverId);
     void serverDownRecover(ProtoBuf::StateServerDown* state,
                            EntryId entryId);
