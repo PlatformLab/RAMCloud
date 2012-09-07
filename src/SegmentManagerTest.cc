@@ -104,6 +104,10 @@ TEST_F(SegmentManagerTest, allocHead) {
     EXPECT_EQ(LOG_ENTRY_TYPE_LOGDIGEST, it.getType());
 
     it.next();
+    EXPECT_FALSE(it.isDone());
+    EXPECT_EQ(LOG_ENTRY_TYPE_SAFEVERSION, it.getType());
+
+    it.next();
     EXPECT_TRUE(it.isDone());
 
     LogSegment* oldHead = head;

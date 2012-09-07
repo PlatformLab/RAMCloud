@@ -205,6 +205,10 @@ master.metric('objectAppendCount',
     'number of objects appended to the log during recovery')
 master.metric('objectDiscardCount',
     'number of objects not appended to the log during recovery')
+master.metric('safeVersionRecoveryCount',
+    'number of safeVersion updates during recovery')
+master.metric('safeVersionNonRecoveryCount',
+    'number of safeVersion discarded during recovery')
 master.metric('tombstoneAppendCount',
     'number of tombstones kept during recovery')
 master.metric('tombstoneDiscardCount',

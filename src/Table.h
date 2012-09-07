@@ -41,34 +41,11 @@ class Table {
           tombstoneCount(0),
           tombstoneBytes(0),
           statEntry(),
-          tableId(tableId),
-          nextVersion(1)
+          tableId(tableId)
     {
         statEntry.set_table_id(tableId);
         statEntry.set_start_key_hash(start_key_hash);
         statEntry.set_end_key_hash(end_key_hash);
-    }
-
-    /**
-     * Increment and return the master vector clock.
-     * \return
-     *      The next version available from the master vector clock.
-     * \see #nextVersion
-     */
-    uint64_t AllocateVersion() {
-        return nextVersion++;
-    }
-
-    /**
-     * Ensure the master master vector clock is at least a certain version.
-     * \param minimum
-     *      The minimum version the master vector clock can be set to after this
-     *      operation.
-     * \see #nextVersion
-     */
-    void RaiseVersion(uint64_t minimum) {
-        if (minimum > nextVersion)
-            nextVersion = minimum;
     }
 
     /**
@@ -90,40 +67,6 @@ class Table {
      * The unique numerical identifier for this table.
      */
     uint64_t tableId;
-
-    /**
-     * The master vector clock for the table.
-     *
-     * \li We guarantee that every distinct blob ever at a particular key
-     * will have a distinct version number, even across generations, so that
-     * they can be uniquely identified across all time with a version number.
-     *
-     * \li We guarantee that version numbers for a particular key
-     * monotonically increase over time, so that comparing two version numbers
-     * tells which one is more recent.
-     *
-     * \li We guarantee that the version number of an object increases by
-     * exactly one when it is updated, so that clients can accurately predict
-     * the version numbers that they will write before the write completes.
-     *
-     * These guarantees are implemented as follows:
-     *
-     * \li #nextVersion, the master vector clock, contains the next available
-     * version number for the table on the master. It is initialized to a small
-     * integer when the table is created and is recoverable after crashes.
-     *
-     * \li When an object is created, its new version number is set to the value
-     * of the master vector clock, and the master vector clock is incremented.
-     * See #AllocateVersion.
-     *
-     * \li When an object is updated, its new version number is set the old
-     * blob's version number plus one.
-     *
-     * \li When an object is deleted, set the master vector clock to the higher
-     * of the master vector clock and the deleted blob's version number plus
-     * one. See #RaiseVersion.
-     */
-    uint64_t nextVersion;
 
     DISALLOW_COPY_AND_ASSIGN(Table);
 };

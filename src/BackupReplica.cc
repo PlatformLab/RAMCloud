@@ -13,6 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <unordered_set>
+
 #include "BackupReplica.h"
 #include "Object.h"
 #include "SegmentIterator.h"
@@ -361,9 +363,15 @@ BackupReplica::buildRecoverySegments(const ProtoBuf::Tablets& partitions)
     recoveryException.reset();
 
     uint32_t partitionCount = 0;
+    // a store for non-duplicated list of partitions for the segment.
+    std::unordered_set<uint64_t> partitionSet;
+
     for (int i = 0; i < partitions.tablet_size(); ++i) {
         partitionCount = std::max(partitionCount,
                   downCast<uint32_t>(partitions.tablet(i).user_data() + 1));
+
+        // Insert the partition ID to partitionSet
+        partitionSet.insert(partitions.tablet(i).user_data());
     }
     LOG(NOTICE, "Building %u recovery segments for segment %lu",
         partitionCount, segmentId);
@@ -386,11 +394,14 @@ BackupReplica::buildRecoverySegments(const ProtoBuf::Tablets& partitions)
                 continue;
             }
 
-            if (type != LOG_ENTRY_TYPE_OBJ && type != LOG_ENTRY_TYPE_OBJTOMB)
+            if (type != LOG_ENTRY_TYPE_OBJ &&
+                type != LOG_ENTRY_TYPE_OBJTOMB &&
+                type != LOG_ENTRY_TYPE_SAFEVERSION)
                 continue;
 
             if (header == NULL) {
-                DIE("Found object or tombstone before header while "
+                DIE("Found object,rtombstone, or safeVersion"
+                    "before header while "
                     "building recovery segments for <%s,%lu>",
                     masterId.toString().c_str(), segmentId);
             }
@@ -399,6 +410,23 @@ BackupReplica::buildRecoverySegments(const ProtoBuf::Tablets& partitions)
             it.appendToBuffer(buffer);
 
             Log::Position position(segmentId, it.getOffset());
+
+            if (type == LOG_ENTRY_TYPE_SAFEVERSION) {
+                // duplicate the entry to all partitions 
+                // for safeVersion recovery
+                foreach (uint64_t partition, partitionSet) {
+                    bool success =
+                            recoverySegments[partition].append(type, buffer);
+                    if (!success) {
+                        LOG(WARNING, "Failed to append safeVersion"
+                            "to masterId,segment,partition=<%s,%lu,%lu>",
+                            masterId.toString().c_str(),
+                            segmentId, partition);
+                        throw Exception(HERE, "catch this and bail");
+                    }
+                }
+                continue;
+            }
 
             uint64_t tableId = -1;
             HashType keyHash = -1;

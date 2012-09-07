@@ -1850,6 +1850,43 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
             } else {
                 ++metrics->master.tombstoneDiscardCount;
             }
+        } else if (type == LOG_ENTRY_TYPE_SAFEVERSION) {
+            // LOG_ENTRY_TYPE_SAFEVERSION is duplicated to all the
+            // partitions in BackupService::buildRecoverySegments()
+            Buffer buffer;
+            it.appendToBuffer(buffer);
+
+            ObjectSafeVersion recoverSafeVer(buffer);
+            uint64_t safeVersion = recoverSafeVer.getSafeVersion();
+
+            bool checksumIsValid = ({
+                CycleCounter<RawMetric> c(&metrics->master.verifyChecksumTicks);
+                recoverSafeVer.checkIntegrity();
+            });
+            if (!checksumIsValid) {
+                LOG(WARNING, "bad objectSafeVer checksum! version: %lu",
+                    safeVersion);
+                // TODO(Stutsman): Should throw and try another segment replica?
+            }
+
+            HashTable::Reference safeVerReference; // store the append output.
+            // not used.
+
+            // Copy SafeVerObject to the recovery segment.
+            // Sync can be delayed, because recovery can be replayed
+            // with the same backup data when the recovery crashes on the way.
+            log->append(LOG_ENTRY_TYPE_SAFEVERSION, buffer, 
+                        false, safeVerReference);
+
+            // recover segmentManager.safeVersion (Master safeVersion)
+            if (segmentManager.raiseSafeVersion(safeVersion)) {
+                // true if log.safeVersion is revised.
+                ++metrics->master.safeVersionRecoveryCount;
+                LOG(NOTICE, "SAFEVERSION %lu recovered", safeVersion);
+            } else {
+                ++metrics->master.safeVersionNonRecoveryCount;
+                LOG(NOTICE, "SAFEVERSION %lu discarded", safeVersion);
+            }
         }
 
         it.next();
@@ -1918,7 +1955,7 @@ MasterService::remove(const WireFormat::Remove::Request& reqHdr,
         return;
     }
 
-    table->RaiseVersion(object.getVersion() + 1);
+    segmentManager.raiseSafeVersion(object.getVersion() + 1);
     log->free(reference);
     objectMap->remove(key);
 }
@@ -2492,7 +2529,7 @@ MasterService::storeObject(Key& key,
     // Existing objects get a bump in version, new objects start from
     // the next version allocated in the table.
     uint64_t newObjectVersion = (currentVersion == VERSION_NONEXISTENT) ?
-        table->AllocateVersion() : currentVersion + 1;
+            segmentManager.allocateVersion(): currentVersion + 1;
 
     Object newObject(key, data, newObjectVersion, WallTime::secondsTimestamp());
 

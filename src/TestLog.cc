@@ -98,6 +98,40 @@ namespace TestLog {
     }
 
     /**
+     * Returns until the matched position of current test log.
+     * If nothing is matched, string with error message is returned.
+     * \param[in]  searchPattern
+     *      Returning string is
+     *      starting at fromPos and ending before the searchPattern.
+     *      If this is "" (null string),
+     *      all the remaining message is returned.
+     * \param[in]  fromPos
+     *      Starting position for pattern matching.
+     * \param[out] nextPos
+     *      Position of 1st character of the matched searchPattern.
+     *      This can be used as next 'fromPos'
+     **/
+    string
+    getUntil(const string searchPattern,
+               const size_t fromPos,
+               size_t& nextPos) {
+        Lock _(mutex);
+        if (searchPattern.empty()) {
+            nextPos = message.length();
+            return message.substr(fromPos, nextPos - fromPos);
+        }
+        // skip the first charactor to avoid matching first word again.
+        nextPos = message.find(searchPattern, fromPos + 1);
+
+        if (nextPos == string::npos) {
+            return "Log::getMatched(): Pattern '"
+                    + searchPattern +
+                    "' not found";
+        };
+        return message.substr(fromPos, nextPos - fromPos);
+    }
+
+    /**
      * Don't call this directly, see RAMCLOUD_TEST_LOG instead.
      *
      * Log a message to the test log for unit testing.

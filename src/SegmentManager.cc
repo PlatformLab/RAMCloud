@@ -14,6 +14,7 @@
  */
 
 #include "Common.h"
+#include "Object.h"
 #include "LogDigest.h"
 #include "LogMetadata.h"
 #include "ShortMacros.h"
@@ -64,7 +65,8 @@ SegmentManager::SegmentManager(Context* context,
       allSegments(),
       segmentsByState(),
       lock(),
-      logIteratorCount(0)
+      logIteratorCount(0),
+      safeVersion(1)
 {
     if (diskExpansionFactor < 1.0)
         throw SegmentManagerException(HERE, "diskExpansionFactor not >= 1.0");
@@ -122,7 +124,7 @@ SegmentManager::allocHead()
 
     writeHeader(newHead, Segment::INVALID_SEGMENT_ID);
     writeDigest(newHead);
-    //writeMaximumVersionNumber(newHead);
+    writeSafeVersion(newHead);
     //writeWill(newHead);
 
     ReplicatedSegment* prevReplicatedSegment = NULL;
@@ -407,6 +409,38 @@ SegmentManager::getSegmentSize()
     return allocator.getSegmentSize();
 }
 
+/**
+ * Return safeVersion for newly allocated object and increment safeVersion for 
+ * next assignment. \see #safeVersion
+ * semantics of version number and the purpose of the safeVersion.
+ * 
+ * In a case, a object is repeatedly removed, recreated, removed, recreated.
+ * safeVersion needs to be incremented in allocateVersion().
+ *
+ * \return
+ *      The next version available from the master vector clock.
+ */
+uint64_t
+SegmentManager::allocateVersion() {
+    return safeVersion++;
+}
+
+/**
+ * Ensure the safeVersion is larger than given number.
+ * Return true if safeVersion is revised.
+ * \param minimum
+ *      The version number to be compared against safeVersion.
+ * \see #safeVersion
+ */
+bool
+SegmentManager::raiseSafeVersion(uint64_t minimum) {
+    if (minimum > safeVersion) {
+        safeVersion = minimum;
+        return true;
+    }
+    return false;
+}
+
 /******************************************************************************
  * PRIVATE METHODS
  ******************************************************************************/
@@ -493,6 +527,32 @@ SegmentManager::writeDigest(LogSegment* head)
     if (!success) {
         throw FatalError(HERE, format("Could not append log digest of %u bytes "
             "to head segment", buffer.getTotalLength()));
+    }
+}
+
+/**
+ * Write the ObjectSafeVersion to the new head of the log.
+ * This method should only be called by allocHead(), since it will
+ * modify segment states in a way that is not idempotent.
+ *
+ * \param head
+ *      Pointer to the segment the ObjectSafeVersion should be written into.
+ *      Generally this is the new head segment.
+ */
+
+void
+SegmentManager::writeSafeVersion(LogSegment* head)
+{
+    // Create Object with segmentManager::safeVersion.
+    ObjectSafeVersion objSafeVer(safeVersion);
+
+    Buffer buffer;
+    buffer.appendTo(&objSafeVer, sizeof(objSafeVer));
+    bool success = head->append(LOG_ENTRY_TYPE_SAFEVERSION, buffer);
+    if (!success) {
+        throw FatalError(HERE,
+                 format("Could not append safeVersion of %u bytes "
+                        "to head segment", buffer.getTotalLength()));
     }
 }
 

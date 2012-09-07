@@ -339,6 +339,10 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
     // Segment 1 which is currently the head, and Segment 2 which will be
     // the successor for Segment 1 which is created as part of the recovery
     // protocol.
+
+    size_t curPos = 0; // Current Pos: given to getUntil() as 2nd arg, and
+    // new pos is returned in 3rd argument.
+
     EXPECT_EQ(
         // The failure is discovered through the tracker, notice that
         // the completion of the test is also checking to make sure that
@@ -357,12 +361,15 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
         "handleBackupFailure: Highest affected segmentId 1 | "
         // Ensure a new log head is allocated.
         "main: Allocating a new log head | "
+        , TestLog::getUntil("allocateSegment:", curPos, curPos));
+
+    EXPECT_EQ(
         // Which provides the required new log digest via open.
         "allocateSegment: Allocating new replicated segment for <3.0,2> | "
         "close: 3.0, 1, 2 | "
         // And which also provides the needed close on the log segment
         // with the lost open replica.
-        "close: Segment 1 closed (length 180) | "
+        "close: Segment 1 closed (length 194) | "
         // Notice the actual close to the backup is delayed because it
         // must wait on a durable open to the new log head.
         "performWrite: Cannot close segment 1 until following segment is "
@@ -372,6 +379,9 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
             "on backup 4.0 | "
         "performWrite: Sending open to backup 4.0 | "
         "writeSegment: Opening <3.0,1> | "
+        , TestLog::getUntil("selectPrimary:", curPos, curPos));
+
+    EXPECT_EQ(
         // Re-replication of Segment 0's lost replica.
         "selectPrimary: Chose server 4.0 with 0 primary replicas and 100 MB/s "
             "disk bandwidth (expected time to read on recovery is 80 ms) | "
@@ -379,6 +389,9 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
             "on backup 4.0 | "
         "performWrite: Sending open to backup 4.0 | "
         "writeSegment: Opening <3.0,0> | "
+        , TestLog::getUntil("selectPrimary:", curPos, curPos));
+
+    EXPECT_EQ(
         // Starting replication of new log head Segment 2.
         "selectPrimary: Chose server 2.0 with 1 primary replicas and 100 MB/s "
             "disk bandwidth (expected time to read on recovery is 160 ms) | "
@@ -395,6 +408,10 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
         "performWrite: Cannot close segment 1 until following segment is "
             "durably open | "
         "performWrite: Sending open to backup 2.0 | "
+        , TestLog::getUntil("writeSegment:", curPos, curPos));
+
+    EXPECT_EQ(
+        // Starting replication of new log head Segment 2.
         "writeSegment: Opening <3.0,2> | "
         "performWrite: Sending open to backup 4.0 | "
         "writeSegment: Opening <3.0,2> | "
@@ -414,6 +431,9 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
         "performWrite: Sending write to backup 4.0 | "
         "performWrite: Sending write to backup 2.0 | "
         "performWrite: Sending write to backup 4.0 | "
+        , TestLog::getUntil("performTask:", curPos, curPos));
+
+    EXPECT_EQ(
         // Update minOpenSegmentId on the coordinator to complete the lost
         // open segment recovery protocol.
         // Happens a few times because the code just polls to keep updating
@@ -429,7 +449,7 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
         "performTask: coordinator minOpenSegmentId for 3.0 updated to 2 | "
         "performTask: minOpenSegmentId ok, lost open replica recovery "
             "complete on segment 1"
-        , TestLog::get());
+        , TestLog::getUntil("", curPos, curPos));
 
     // Make sure it rolled over to a new log head.
     EXPECT_EQ(2u, log.head->id);

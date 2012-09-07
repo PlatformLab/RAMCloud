@@ -89,6 +89,8 @@ class SegmentManager {
     uint32_t getMaximumSegmentCount();
     uint32_t getSegletSize();
     uint32_t getSegmentSize();
+    uint64_t allocateVersion();
+    bool raiseSafeVersion(uint64_t minimum);
 
   PRIVATE:
     /**
@@ -164,6 +166,7 @@ class SegmentManager {
 
     void writeHeader(LogSegment* segment, uint64_t headSegmentIdDuringCleaning);
     void writeDigest(LogSegment* head);
+    void writeSafeVersion(LogSegment* head);
     LogSegment* getHeadSegment();
     void changeState(LogSegment& s, State newState);
     bool mayAlloc(bool forCleaner);
@@ -245,6 +248,49 @@ class SegmentManager {
     /// survivor segments must not be added to the log and cleaned segments
     /// must not be freed.
     int logIteratorCount;
+
+    ///
+    /// Safe version number for a new object in the log.
+    /// Single safeVersion is maintained in each master through recovery.
+    /**
+     * \li We guarantee that every value assigned to a particular key
+     * will have a distinct version number, even if the object is removed
+     * and recreated.
+     *
+     * \li We guarantee that version numbers for a particular key
+     * monotonically increases over time, so that comparing two version numbers
+     * tells which one is more recent.
+     *
+     * \li We guarantee that the version number of an object increases by
+     * exactly one when it is updated, so that clients can accurately predict
+     * the version numbers that they will write before the write completes.
+     *
+     * These guarantees are implemented as follows:
+     *
+     * \li #safeVersion, the safe version number, contains the next available
+     * version number for any new object on the master. It is initialized to
+     * a small integer when the log is created and is recoverable after crashes.
+     *
+     * \li When an object is created, its new version number is set to 
+     * the safeVersion, and the safeVersion
+     * is incremented. See #AllocateVersion.
+     *
+     * \li When an object is updated, its version number is incremented.
+     * Note that its incremented version number does not affect the safeVersion. 
+     *
+     * \li SafeVersion might be behind the version number 
+     * of any particular object.
+     * As far as the object is not removed, its 
+     * version number has no influence of the safeVersion, because the safeVersion
+     * is used to keep the monotonicitiy of the version number of any recreated
+     * object.
+     *
+     * \li When an object is removed, set the safeVersion
+     * to the higher than any version number of the removed
+     * object's version number. See #RaiseSafeVersion.
+     *
+     **/
+    uint64_t safeVersion;
 
     DISALLOW_COPY_AND_ASSIGN(SegmentManager);
 };
