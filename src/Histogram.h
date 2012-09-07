@@ -137,12 +137,12 @@ class Histogram {
      * Return a string representation of the histogram.
      *
      * \param minIncludedCount
-     *      Optional parameter (defaults to 0) dictating how many samples must
+     *      Optional parameter (defaults to 1) dictating how many samples must
      *      have fallen into a bucket to report it. This can be used to suppress
      *      empty buckets, or buckets with few samples.
      */
     string
-    toString(uint64_t minIncludedCount = 0)
+    toString(uint64_t minIncludedCount = 1)
     {
         string s;
         uint64_t totalSamples = getTotalSamples();

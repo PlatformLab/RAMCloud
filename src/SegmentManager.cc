@@ -215,22 +215,30 @@ SegmentManager::allocHead(bool mustNotFail)
  * Allocate a new segment for the cleaner to write survivor data into from a
  * disk cleaning pass.
  *
+ * This method will never return NULL. It will, however, block forever if the
+ * cleaner fails to keep its promise of not using more than it frees.
+ *
  * \param headSegmentIdDuringCleaning
  *      Identifier of the head segment when the current cleaning pass began. Any
  *      data written into this survivor segment must have pre-existed this head
  *      segment.
- *
- * \return
- *      NULL if out of memory, otherwise a pointer to the segment.
  */
 LogSegment*
 SegmentManager::allocSurvivor(uint64_t headSegmentIdDuringCleaning)
 {
-    Lock guard(lock);
+    LogSegment* s = NULL;
 
-    LogSegment* s = alloc(SegletAllocator::CLEANER, nextSegmentId);
-    if (s == NULL)
-        return NULL;
+    while (1) {
+        Lock guard(lock);
+
+        s = alloc(SegletAllocator::CLEANER, nextSegmentId);
+        if (s != NULL)
+            break;
+
+        usleep(10);
+    }
+
+    Lock guard(lock);
 
     nextSegmentId++;
 
@@ -248,15 +256,26 @@ SegmentManager::allocSurvivor(uint64_t headSegmentIdDuringCleaning)
  * same identifier as the original and will replace it in the log. This means
  * that the in-memory copy will differ from those on backup disks and, if a
  * backup failure occurs, some disk backups may have differing copies.
+ *
+ * This method will never return NULL. It will, however, block forever if the
+ * cleaner fails to keep its promise of not using more than it frees.
  */
 LogSegment*
 SegmentManager::allocSurvivor(LogSegment* replacing)
 {
-    Lock guard(lock);
+    LogSegment* s = NULL;
 
-    LogSegment* s = alloc(SegletAllocator::CLEANER, replacing->id);
-    if (s == NULL)
-        return NULL;
+    while (1) {
+        Lock guard(lock);
+
+        s = alloc(SegletAllocator::CLEANER, replacing->id);
+        if (s != NULL)
+            break;
+             
+        usleep(10);
+    }
+
+    Lock guard(lock);
 
     writeHeader(s, replacing->headSegmentIdDuringCleaning);
 

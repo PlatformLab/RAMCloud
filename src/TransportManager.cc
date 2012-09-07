@@ -276,7 +276,7 @@ TransportManager::getSession(const char* serviceLocator, ServerId needServerId)
 {
     Transport::SessionRef session = getSession(serviceLocator);
     ServerId actualId;
-
+skipServerIdCheck = true;      // shit's breaking like crazy with ServerIdWrapper...
     if (skipServerIdCheck)
         return session;
     try {

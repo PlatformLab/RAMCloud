@@ -94,7 +94,7 @@ class LogCleaner {
     /// segment size, maximum entry size, and MAX_LIVE_SEGMENTS_PER_DISK_PASS.
     enum { SURVIVOR_SEGMENTS_TO_RESERVE = 15 };
 
-    /// The minimum amount of memory utilization we will being cleaning at using
+    /// The minimum amount of memory utilization we will begin cleaning at using
     /// the in-memory cleaner.
     enum { MIN_MEMORY_UTILIZATION = 90 };
 
@@ -156,7 +156,7 @@ void dumpStats(); //XXX
                              uint32_t& outNewSeglets,
                              uint32_t& outNewSegments);
     void closeSurvivor(LogSegment* survivor);
-    void waitForAvailableSurvivors(size_t count);
+    void waitForAvailableSurvivors(size_t count, uint64_t& outTicks);
 
     template<typename T>
     bool
@@ -221,6 +221,13 @@ void dumpStats(); //XXX
     /// Size of each full segment in bytes. Used to calculate the amount of
     /// space freed on backup disks.
     uint32_t segmentSize;
+
+    /// Number of cpu cycles spent in the doWork() routine.
+    uint64_t doWorkTicks;
+
+    /// Number of cpu cycles spent sleeping in the doWork() routine because
+    /// memory was not low.
+    uint64_t doWorkSleepTicks;
 
     /// Metrics kept for measuring in-memory cleaning (compaction) performance.
     LogCleanerMetrics::InMemory inMemoryMetrics;

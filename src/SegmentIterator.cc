@@ -57,8 +57,10 @@ SegmentIterator::SegmentIterator(Segment& segment)
       currentType(),
       currentLength()
 {
+#if 0
     if (!segment.checkMetadataIntegrity())
         throw SegmentIteratorException(HERE, "cannot iterate: corrupt segment");
+#endif
 }
 
 /**
@@ -82,6 +84,7 @@ SegmentIterator::SegmentIterator(const void *buffer, uint32_t length)
       currentType(),
       currentLength()
 {
+throw SegmentIteratorException(HERE, "Segments are a little botched. Need to merge with HEAD to get Ryan's certificate fixes. Don't use this constructor!");
     wrapperSegment.construct(buffer, length);
     segment = &*wrapperSegment;
 
@@ -107,6 +110,7 @@ SegmentIterator::~SegmentIterator()
 bool
 SegmentIterator::isDone()
 {
+return currentOffset >= segment->head;
     return getType() == LOG_ENTRY_TYPE_SEGFOOTER;
 }
 
