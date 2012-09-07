@@ -71,6 +71,43 @@ TEST_F(ServerListTest, indexOperator) {
     EXPECT_FALSE(sl[7572].isValid());
 }
 
+TEST_F(ServerListTest, applyServerList) {
+    // Apply Full List
+    TestLog::Enable _;
+    ProtoBuf::ServerList wholeList;
+    wholeList.set_version_number(1);
+    wholeList.set_type(ProtoBuf::ServerList_Type_FULL_LIST);
+    sl.applyFullList(wholeList);
+    EXPECT_EQ("applyFullList: Got complete list of servers containing 0 "
+            "entries (version number 1)", TestLog::get());
+
+    // Apply an update
+    TestLog::reset();
+    ProtoBuf::ServerList updateList;
+    updateList.set_version_number(2);
+    updateList.set_type(ProtoBuf::ServerList_Type_UPDATE);
+    sl.applyServerList(updateList);
+    EXPECT_EQ("applyUpdate: Got server list update (version number 2)",
+            TestLog::get());
+}
+
+TEST_F(ServerListTest, applyServerList_oldVersion) {
+    ProtoBuf::ServerList update;
+    sl.version = 10;
+
+    TestLog::Enable _;
+    update.set_version_number(9);
+    sl.applyServerList(update);
+    EXPECT_EQ("applyServerList: A repeated/old update version 9 was "
+            "sent to a ServerList with version 10.", TestLog::get());
+
+    TestLog::reset();
+    update.set_version_number(10);
+    sl.applyServerList(update);
+    EXPECT_EQ("applyServerList: A repeated/old update version 10 was "
+            "sent to a ServerList with version 10.", TestLog::get());
+}
+
 static bool
 applyFullListFilter(string s)
 {
@@ -89,6 +126,7 @@ TEST_F(ServerListTest, applyFullList_fromEmpty) {
         ({WireFormat::BACKUP_SERVICE}, *ServerId(2, 0), "mock:host=two", 102,
             ServerStatus::CRASHED);
     wholeList.set_version_number(99u);
+    wholeList.set_type(ProtoBuf::ServerList_Type_FULL_LIST);
     sl.applyFullList(wholeList);
 
     EXPECT_EQ(3U, sl.size());       // [0] is reserved
@@ -115,6 +153,7 @@ TEST_F(ServerListTest, applyFullList_overlap) {
         ({WireFormat::MASTER_SERVICE}, *ServerId(4, 0), "mock:host=four", 104,
             ServerStatus::CRASHED);
     initialList.set_version_number(0);
+    initialList.set_type(ProtoBuf::ServerList_Type_FULL_LIST);
     sl.applyFullList(initialList);
 
     // Now issue a new list that partially overlaps.
@@ -134,6 +173,7 @@ TEST_F(ServerListTest, applyFullList_overlap) {
         changes.pop();
 
     TestLog::Enable _(applyFullListFilter);
+    newerList.set_type(ProtoBuf::ServerList_Type_FULL_LIST);
     sl.applyFullList(newerList);
 
     // We should now have (1, 5), (2, 0), and (3, 0) in our list.
@@ -189,7 +229,7 @@ applyUpdateFilter(string s)
     return s == "applyUpdate";
 }
 
-TEST_F(ServerListTest, applyUpdate_normal) {
+TEST_F(ServerListTest, applyUpdate) {
     EXPECT_EQ(0U, sl.size());
     EXPECT_EQ(0U, sl.getVersion());
 
@@ -198,6 +238,7 @@ TEST_F(ServerListTest, applyUpdate_normal) {
     ServerListBuilder{initialList}
         ({WireFormat::MASTER_SERVICE}, *ServerId(1, 0), "mock:host=one");
     initialList.set_version_number(0);
+    initialList.set_type(ProtoBuf::ServerList_Type_FULL_LIST);
     sl.applyFullList(initialList);
 
     TestLog::Enable _(applyUpdateFilter);
@@ -209,7 +250,8 @@ TEST_F(ServerListTest, applyUpdate_normal) {
              ServerStatus::DOWN)
         ({WireFormat::BACKUP_SERVICE}, *ServerId(2, 0), "mock:host=two", 102);
     updateList.set_version_number(1);
-    EXPECT_FALSE(sl.applyUpdate(updateList));
+    updateList.set_type(ProtoBuf::ServerList_Type_UPDATE);
+    EXPECT_TRUE(sl.applyUpdate(updateList));
     EXPECT_FALSE(sl.contains(ServerId(1, 0)));
     EXPECT_STREQ("mock:host=two", sl.getLocator(ServerId(2, 0)));
     EXPECT_EQ(
@@ -227,9 +269,12 @@ TEST_F(ServerListTest, applyUpdate_missedUpdate) {
     ServerListBuilder{updateList}
         ({WireFormat::MASTER_SERVICE}, *ServerId(1, 0), "mock:host=one");
     updateList.set_version_number(57234);
-    EXPECT_TRUE(sl.applyUpdate(updateList));
+    updateList.set_type(ProtoBuf::ServerList_Type_UPDATE);
+    EXPECT_FALSE(sl.applyUpdate(updateList));
     EXPECT_EQ("applyUpdate: Update generation number is 57234, but last "
-        "seen was 0. Something was lost! Grabbing complete list again!",
+        "seen was 0. Something was lost! Shouldn't happen unless there\'s a "
+            "programmer error in the CoordinatorServerList update management "
+            "code.",
         TestLog::get());
 }
 
@@ -244,7 +289,8 @@ TEST_F(ServerListTest, applyUpdate_versionOkButSomethingAmiss) {
         ({WireFormat::MASTER_SERVICE}, *ServerId(1, 0), "mock:host=one", 0,
             ServerStatus::DOWN);
     updateList.set_version_number(1);
-    EXPECT_TRUE(sl.applyUpdate(updateList));
+    updateList.set_type(ProtoBuf::ServerList_Type_UPDATE);
+    EXPECT_FALSE(sl.applyUpdate(updateList));
     EXPECT_EQ("applyUpdate: Got server list update (version number 1) | "
         "applyUpdate:   Cannot remove server id 1.0: The server is not in "
         "our list, despite list version numbers matching (1). Something is "

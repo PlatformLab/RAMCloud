@@ -74,7 +74,7 @@ BackupFailureMonitor::main()
 try {
     ServerDetails server;
     ServerChangeEvent event;
-    while (true) {
+    while (running) {
         {
             Lock lock(mutex);
             // If the replicaManager isn't working and there aren't any

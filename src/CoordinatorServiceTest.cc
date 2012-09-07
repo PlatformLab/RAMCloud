@@ -383,17 +383,6 @@ TEST_F(CoordinatorServiceTest, reassignTabletOwnership) {
     EXPECT_EQ(50U, tablet.ctime.getSegmentOffset());
 }
 
-TEST_F(CoordinatorServiceTest, sendServerList) {
-    ServerConfig config = ServerConfig::forTesting();
-    config.services = {WireFormat::MEMBERSHIP_SERVICE};
-    ServerId id = cluster.addServer(config)->serverId;
-    TestLog::Enable _;
-    CoordinatorClient::sendServerList(&context, id);
-    cluster.syncCoordinatorServerList();
-    EXPECT_TRUE(TestUtil::matchesPosixRegex(
-            "Sending server list to server id 2", TestLog::get()));
-}
-
 TEST_F(CoordinatorServiceTest, setRuntimeOption) {
     ramcloud->testingSetRuntimeOption("failRecoveryMasters", "1 2 3");
     ASSERT_EQ(3u, service->runtimeOptions.failRecoveryMasters.size());

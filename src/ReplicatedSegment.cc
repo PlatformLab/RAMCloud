@@ -551,6 +551,12 @@ ReplicatedSegment::performWrite(Replica& replica)
         } else {
             backupId = backupSelector.selectSecondary(numConflicts, conflicts);
         }
+
+        if (!backupId.isValid()) {
+            schedule();
+            return;
+        }
+
         LOG(DEBUG, "Starting replication of segment %lu replica slot %ld "
             "on backup %s", segmentId, &replica - &replicas[0],
             backupId.toString().c_str());

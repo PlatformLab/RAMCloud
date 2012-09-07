@@ -171,9 +171,6 @@ CoordinatorServerManager::EnlistServer::complete(EntryId entryId)
         "services: %s", serviceLocator, newServerId.toString().c_str(),
         entry.services.toString().c_str());
 
-    if (entry.services.has(WireFormat::MEMBERSHIP_SERVICE))
-        manager.sendServerList(newServerId);
-
     if (entry.isBackup()) {
         LOG(DEBUG, "Backup at id %s has %u MB/s read",
             newServerId.toString().c_str(), readSpeed);
@@ -371,20 +368,6 @@ CoordinatorServerManager::removeReplicationGroup(uint64_t groupId)
             }
         }
     }
-}
-
-/**
- * Push the entire server list to the specified server. This is used to both
- * push the initial list when a server enlists, as well as to push the list
- * again if a server misses any updates and has gone out of sync.
- *
- * \param serverId
- *      ServerId of the server to send the list to.
- */
-void
-CoordinatorServerManager::sendServerList(ServerId serverId)
-{
-    service.serverList.sendServerList(serverId);
 }
 
 /**

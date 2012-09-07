@@ -367,6 +367,7 @@ class ServerTracker : public ServerTrackerInterface {
         if (serverList.size() > 0) {
             for (size_t j = 0; j < serverList.size() * 10; ++j) {
                 size_t i = generateRandom() % serverList.size();
+
                 if (i != lastRemovedIndex &&
                     serverList[i].server.serverId.isValid() &&
                     serverList[i].server.status == ServerStatus::UP &&

@@ -53,7 +53,7 @@ struct MasterRecoveryManagerTest : public ::testing::Test {
         ServerId serverId = serverList.generateUniqueId();
         serverList.add(serverId, "fake-locator",
             {WireFormat::MASTER_SERVICE}, 0);
-        serverList.updates.Clear(); // prevents cross contamination
+        serverList.update.Clear(); // prevents cross contamination
         while (!mgr.taskQueue.isIdle())
             mgr.taskQueue.performTask();
         return serverId;
@@ -71,7 +71,7 @@ struct MasterRecoveryManagerTest : public ::testing::Test {
      */
     void crashServer(ServerId crashedServerId) {
         serverList.crashed(crashedServerId);
-        serverList.updates.Clear(); // prevents cross contamination
+        serverList.update.Clear(); // prevents cross contamination
         while (!mgr.taskQueue.isIdle())
             mgr.taskQueue.performTask();
     }

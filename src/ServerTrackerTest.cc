@@ -131,6 +131,7 @@ TEST_F(ServerTrackerTest, fireCallback) {
         ({WireFormat::MASTER_SERVICE}, *ServerId(1, 5),
          "mock:host=oneBeta", 101);
     update.set_version_number(2);
+    update.set_type(ProtoBuf::ServerList_Type_UPDATE);
     TestLog::Enable _;
     sl.applyUpdate(update);
     EXPECT_EQ(2, callback.callbacksFired);
@@ -154,6 +155,7 @@ TEST_F(ServerTrackerTest, fireCallback) {
         ({WireFormat::MASTER_SERVICE}, *ServerId(1, 6),
          "mock:host=oneBeta", 101);
     update2.set_version_number(3);
+    update2.set_type(ProtoBuf::ServerList_Type_UPDATE);
     sl.applyUpdate(update2);
     // Make sure the normal cb got called.
     EXPECT_EQ(1, countCb.callbacksFired);

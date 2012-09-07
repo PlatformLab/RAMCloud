@@ -35,8 +35,6 @@ struct BackupSelectorTest : public ::testing::Test {
         , cluster(&context)
         , selector()
     {
-        Logger::get().setLogLevels(SILENT_LOG_LEVEL);
-
         ServerConfig config = ServerConfig::forTesting();
         config.services = {WireFormat::MASTER_SERVICE,
                            WireFormat::MEMBERSHIP_SERVICE};
@@ -103,6 +101,7 @@ struct BackgroundEnlistBackup {
 };
 
 TEST_F(BackupSelectorTest, selectPrimaryNoHosts) {
+    Logger::get().setLogLevels(SILENT_LOG_LEVEL);
     // Check to make sure the server waits on server list updates from the
     // coordinator.
     BackgroundEnlistBackup enlist(&context);

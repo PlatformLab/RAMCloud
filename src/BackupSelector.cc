@@ -54,7 +54,8 @@ BackupSelector::BackupSelector(Context* context)
 /**
  * From a set of 5 backups that does not conflict with an existing set of
  * backups choose the one that will minimize expected time to read replicas
- * from disk in the case that this master should crash.
+ * from disk in the case that this master should crash. The ServerId returned
+ * is !isValid() if there are no machines to selectSecondary() from.
  * \param numBackups
  *      The number of entries in the \a backupIds array.
  * \param backupIds
@@ -67,8 +68,14 @@ BackupSelector::selectPrimary(uint32_t numBackups,
                               const ServerId backupIds[])
 {
     ServerId primary = selectSecondary(numBackups, backupIds);
+    if (!primary.isValid())
+        return primary;
+
     for (uint32_t i = 0; i < 5 - 1; ++i) {
         ServerId candidate = selectSecondary(numBackups, backupIds);
+        if (!candidate.isValid())
+            break;
+
         if (tracker[primary]->getExpectedReadMs() >
             tracker[candidate]->getExpectedReadMs()) {
             primary = candidate;
@@ -86,7 +93,8 @@ BackupSelector::selectPrimary(uint32_t numBackups,
 
 /**
  * Choose a random backup that does not conflict with an existing set of
- * backups.
+ * backups. The ServerId will be invalid if there are no more machines to
+ * choose from.
  * \param numBackups
  *      The number of entries in the \a backupIds array.
  * \param backupIds
@@ -108,11 +116,11 @@ BackupSelector::selectSecondary(uint32_t numBackups,
             return id;
         }
         auto waited = Cycles::toNanoseconds(Cycles::rdtsc() - startTicks);
-        if (waited > 1000000000lu) {
+        if (waited > 20000000lu) {
             LOG(WARNING, "BackupSelector could not find a suitable server in "
-                "the last 1s; seems to be stuck; waiting for the coordinator "
+                "the last 20ms; seems to be stuck; waiting for the coordinator "
                 "to notify this master of newly enlisted backups");
-            startTicks = Cycles::rdtsc();
+            return ServerId(/* Invalid */);
         }
     }
 }

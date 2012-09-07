@@ -91,9 +91,7 @@ enum Opcode {
     BACKUP_WRITE            = 32,
     BACKUP_RECOVERYCOMPLETE = 33,
     BACKUP_QUIESCE          = 34,
-    SET_SERVER_LIST         = 35,
-    UPDATE_SERVER_LIST      = 36,
-    SEND_SERVER_LIST        = 37,
+    UPDATE_SERVER_LIST         = 35,
     GET_SERVER_ID           = 38,
     DROP_TABLET_OWNERSHIP   = 39,
     TAKE_TABLET_OWNERSHIP   = 40,
@@ -864,19 +862,6 @@ struct Remove {
     } __attribute__((packed));
 };
 
-struct SendServerList {
-    static const Opcode opcode = SEND_SERVER_LIST;
-    static const ServiceType service = COORDINATOR_SERVICE;
-    struct Request {
-        RequestCommon common;
-        uint64_t serverId;         // ServerId the coordinator should send
-                                   // the list to.
-    } __attribute__((packed));
-    struct Response {
-        ResponseCommon common;
-    } __attribute__((packed));
-};
-
 struct SetMinOpenSegmentId {
     static const Opcode opcode = SET_MIN_OPEN_SEGMENT_ID;
     static const ServiceType service = COORDINATOR_SERVICE;
@@ -912,8 +897,9 @@ struct SetRuntimeOption {
     } __attribute__((packed));
 };
 
-struct SetServerList {
-    static const Opcode opcode = SET_SERVER_LIST;
+
+struct UpdateServerList {
+    static const Opcode opcode = UPDATE_SERVER_LIST;
     static const ServiceType service = MEMBERSHIP_SERVICE;
     struct Request {
         RequestCommon common;
@@ -980,25 +966,6 @@ struct TakeTabletOwnership {
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
-    } __attribute__((packed));
-};
-
-struct UpdateServerList {
-    static const Opcode opcode = UPDATE_SERVER_LIST;
-    static const ServiceType service = MEMBERSHIP_SERVICE;
-    struct Request {
-        RequestCommon common;
-        uint32_t serverListLength; // Number of bytes in the server list.
-                                   // The bytes of the server list follow
-                                   // immediately after this header. See
-                                   // ProtoBuf::ServerList.
-    } __attribute__((packed));
-    struct Response {
-        ResponseCommon common;
-        uint8_t lostUpdates;       // If non-zero, the server was missing
-                                   // one or more previous updates and
-                                   // would like the entire list to be
-                                   // sent again.
     } __attribute__((packed));
 };
 

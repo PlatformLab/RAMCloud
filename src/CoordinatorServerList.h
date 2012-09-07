@@ -16,19 +16,19 @@
 #ifndef RAMCLOUD_COORDINATORSERVERLIST_H
 #define RAMCLOUD_COORDINATORSERVERLIST_H
 
+
+#include <Client/Client.h>
+#include <deque>
+
 #include "ServerList.pb.h"
 
 #include "AbstractServerList.h"
+#include "MembershipClient.h"
 #include "ServiceMask.h"
 #include "ServerId.h"
-#include "ServerListUpdater.h"
 #include "Tub.h"
 
 namespace RAMCloud {
-
-/// Forward Declaration
-class ServerListUpdater;
-
 /**
  * A CoordinatorServerList allocates ServerIds and holds Coordinator
  * state associated with live servers. It is closely related to the
@@ -40,7 +40,7 @@ class ServerListUpdater;
  * Additionally, this class contains the logic to propagate membership updates
  * (add/crashed/remove) and send the full list to ServerIds on the list.
  * Add/Crashed/Removes statuses are buffered into an internally managed
- * Protobuf until sendMembershipUpdate() is called, which will flush the buffer.
+ * Protobuf until commitUpdate() is called, which will finalize the update.
  * The updates are done asynchronously from the CoordinatorServerList call
  * thread. sync() can be called to force a synchronization point.
  *
@@ -97,8 +97,20 @@ class CoordinatorServerList : public AbstractServerList{
         uint64_t replicationId;
 
         /**
+         * The last version of the ServerList that was successfully received
+         * by this server. A value of 0 indicates that a server list was
+         * never sent.
+         */
+        uint64_t serverListVersion;
+
+        /**
+         * Marks whether the entry is being sent server list update rpcs or not.
+         */
+        bool isBeingUpdated;
+
+        /**
          * Entry id corresponding to entry in LogCabin log that has
-         * intial information for this server.
+         * initial information for this server.
          */
          LogCabin::Client::EntryId serverInfoLogId;
 
@@ -114,8 +126,8 @@ class CoordinatorServerList : public AbstractServerList{
     void add(ServerId serverId, string serviceLocator,
              ServiceMask serviceMask, uint32_t readSpeed);
     void crashed(ServerId serverId);
-    ServerId generateUniqueId();
     void remove(ServerId serverId);
+    ServerId generateUniqueId();
 
     void setMinOpenSegmentId(ServerId serverId, uint64_t segmentId);
     void setReplicationId(ServerId serverId, uint64_t segmentId);
@@ -131,9 +143,6 @@ class CoordinatorServerList : public AbstractServerList{
     void serialize(ProtoBuf::ServerList& protoBuf) const;
     void serialize(ProtoBuf::ServerList& protobuf,
                    ServiceMask services) const;
-
-    void sendServerList(ServerId& serverId);
-    void sync();
 
     void addServerInfoLogId(ServerId serverId,
                             LogCabin::Client::EntryId entryId);
@@ -170,19 +179,87 @@ class CoordinatorServerList : public AbstractServerList{
         Tub<Entry> entry;
     };
 
+    /**
+     * Information needed to handle an async server list RPC and call back.
+     */
+    struct UpdateSlot {
+        UpdateSlot()
+            : startCycle()
+            , serverId()
+            , originalVersion()
+            , protobuf()
+            , rpc()
+        {
+        }
+
+        /// Cycle at which the update Rpc was started
+        uint64_t startCycle;
+
+        /// Intended recipient of the update
+        ServerId serverId;
+
+        /// Server List version of the recipient before update
+        uint64_t originalVersion;
+
+        /// Update to send out (can be full list or partial membership update)
+        ProtoBuf::ServerList protobuf;
+
+        /// Actual Rpc
+        Tub<UpdateServerListRpc> rpc;
+
+        DISALLOW_COPY_AND_ASSIGN(UpdateSlot);
+    };
+
+    /**
+     * State of partial scans through the server list to find updates.
+     * Modifying these fields can break search heuristics and cause
+     * \a deadlock.
+     */
+    struct ScanMetadata {
+        /**
+         * Indicates that no updates were found in the last scan.
+         * Only hasUpdates() should toggle this field to true, but
+         * it is safe to toggle false by other entities. It is used
+         * to skip scans through the server list.
+         */
+        bool noUpdatesFound;
+
+        /**
+         * The index that the server list left off on during
+         * its last scan for entries to update.
+         */
+        size_t searchIndex;
+
+        /**
+         * Minimum version of all the entry server list versions that have
+         * been encountered thus far in the scan.
+         */
+        uint64_t minVersion;
+    };
+
+    /// Functions related to modifying the server list
     void add(Lock& lock, ServerId serverId, string serviceLocator,
              ServiceMask serviceMask, uint32_t readSpeed);
     void crashed(const Lock& lock, ServerId serverId);
     void remove(Lock& lock, ServerId serverId);
-    void sendMembershipUpdate(ServerId excludeServerId);
     uint32_t firstFreeIndex();
     const Entry& getReferenceFromServerId(const ServerId& serverId) const;
     void serialize(const Lock& lock, ProtoBuf::ServerList& protoBuf) const;
     void serialize(const Lock& lock, ProtoBuf::ServerList& protobuf,
                    ServiceMask services) const;
 
-     /// Used to propagate ServerList changes in the background.
-    ServerListUpdater updater;
+    /// Functions related to keeping the cluster up-to-date
+    bool isClusterUpToDate(const Lock& lock);
+    void commitUpdate(const Lock& lock);
+    void pruneUpdates(const Lock& lock, uint64_t version);
+    void startUpdater();
+    void haltUpdater();
+    void updateLoop();
+    void sync();
+    bool dispatchRpc(UpdateSlot& update);
+    bool hasUpdates(const Lock& lock);
+    bool loadNextUpdate(UpdateSlot& updateRequest);
+    void updateEntryVersion(ServerId serverId, uint64_t version);
 
     /// Slots in the server list.
     std::vector<GenerationNumberEntryPair> serverList;
@@ -193,21 +270,61 @@ class CoordinatorServerList : public AbstractServerList{
     /// Number of backups in the server list.
     uint32_t numberOfBackups;
 
+    /// max number of concurrent update Rpcs that can be issued
+    uint32_t concurrentRPCs;
+
+    /// Timeout for the rpcs in nanoseconds before they are cancel()ed
+    uint64_t rpcTimeoutNs;
+
+    /**
+     * Indicates that the updateLoop() method should return and
+     *therefore exit the updater thread. Do NOT set this manually,
+     * use haltUpdater() and startUpdater().
+     */
+    bool stopUpdater;
+
+    /// Metadata from previous partial scan through server list to find updates
+    ScanMetadata lastScan;
+
     /**
      * Stores add/remove/crashed updates to server list until a
-     * sendMembershipUpdate call which will update the version number, enqueue
-     * a copy to the BackgroundUpdater work queue and clear() this entry.
+     * commitUpdate call which will update the version number, enqueue
+     * a copy to the updates list and clear() this entry.
+     *
      * \a update can contain remove, crash, and add notifications,
      * but removals/crashes must precede additions in the update to ensure
      * ordering guarantees about notifications related to servers which
      * re-enlist.  For now, this means calls to remove() and crashed() must
      * proceed call to add() if they have a common \a update.
      */
-    ProtoBuf::ServerList updates;
+    ProtoBuf::ServerList update;
+
+    /**
+     * Past updates that lead up to the \a version. This does not contain
+     * all the updates created, only the ones needed by the servers
+     * currently in the server list. Older updates are pruned.
+     */
+    std::deque<ProtoBuf::ServerList> updates;
+
+    /**
+     * Triggered when the server list is detected to be out of date or
+     * when the stop is toggled (to start/stop the updater thread).
+     */
+    std::condition_variable hasUpdatesOrStop;
+
+    /**
+     * Triggered when all the servers (that can accept updates) in the
+     * server list have the most recent version of the server list. This
+     * used to notify entities that want to know when all the server list
+     * updates have been pushed to the entire cluster.
+     */
+    std::condition_variable listUpToDate;
+
+    /// Thread that runs in the background to send out updates.
+    Tub<std::thread> thread;
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorServerList);
 };
-
 } // namespace RAMCloud
 
 #endif // !RAMCLOUD_COORDINATORSERVERLIST_H

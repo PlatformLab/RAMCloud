@@ -102,10 +102,6 @@ CoordinatorService::dispatch(WireFormat::Opcode opcode,
             callHandler<WireFormat::BackupQuiesce, CoordinatorService,
                         &CoordinatorService::quiesce>(rpc);
             break;
-        case WireFormat::SendServerList::opcode:
-            callHandler<WireFormat::SendServerList, CoordinatorService,
-                        &CoordinatorService::sendServerList>(rpc);
-            break;
         case WireFormat::SetRuntimeOption::opcode:
             callHandler<WireFormat::SetRuntimeOption, CoordinatorService,
                         &CoordinatorService::setRuntimeOption>(rpc);
@@ -476,27 +472,6 @@ CoordinatorService::reassignTabletOwnership(
     //      reply early...
     MasterClient::takeTabletOwnership(context, newOwner, reqHdr.tableId,
                                      reqHdr.firstKeyHash, reqHdr.lastKeyHash);
-}
-
-/**
- * Handle the SEND_SERVER_LIST RPC.
- *
- * The Coordinator always pushes server lists and their updates. If a server's
- * FailureDetector determines that the list is out of date, it issues an RPC
- * here to request that we re-send the list.
- *
- * \copydetails Service::ping
- */
-void
-CoordinatorService::sendServerList(
-    const WireFormat::SendServerList::Request& reqHdr,
-    WireFormat::SendServerList::Response& respHdr,
-    Rpc& rpc)
-{
-    ServerId id(reqHdr.serverId);
-    rpc.sendReply();
-
-    serverManager.sendServerList(id);
 }
 
 /**
