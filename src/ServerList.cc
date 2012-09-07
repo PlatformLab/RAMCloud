@@ -94,11 +94,62 @@ ServerList::operator[](uint32_t index)
 }
 
 /**
- * Given a complete server list from the coordinator reconcile the list with
- * the local server list so they are consistent.  In addition, all registered
- * trackers will receive notification of all events related to servers they
- * are aware of along with notifications for any new servers in the updated
- * list.
+ * Apply a server list from the coordinator to the local server list so they
+ * are consistent.  In addition, all registered  trackers will receive
+ * notification of all events related to servers they are aware of along with
+ * notifications for any new servers in the updated list.
+ *
+ * Outdated/repeated updates are ignored.
+ *
+ * \param list
+ *      A complete snapshot of the coordinator's server list.
+ */
+void
+ServerList::applyServerList(const ProtoBuf::ServerList& list)
+{
+    // Ignore older updates
+    if (list.version_number() <= version) {
+        LOG(NOTICE, "A repeated/old update version %lu was sent to "
+                "a ServerList with version %lu.",
+                list.version_number(), version);
+        return;
+    }
+
+    /*
+     * This is a demultiplexer for ProtoBuf::Serverlists; Since ServerList
+     * membership updates and full list updates have very similar structures
+     * their RPCs and ProtoBufs have been combined into one, yet the
+     * semantics are different. Therefore, this switch is used to
+     * demux the message.
+     */
+    switch (list.type()) {
+        case ProtoBuf::ServerList_Type_UPDATE:
+            /*
+             * applyUpdate() can only fail if an update was missed which
+             * should be impossible unless there was a programmer error in
+             * the CoordinatorServerList update management code.
+             */
+            if (!applyUpdate(list)) {
+                DIE("Server List Update failed got update version %lu, but "
+                        "expected %lu", list.version_number(), version + 1);
+            }
+            break;
+        case ProtoBuf::ServerList_Type_FULL_LIST:
+            applyFullList(list);
+            break;
+    }
+}
+
+//////////////////////////////////////////////////////////////////////
+// ServerList - Private Methods
+//////////////////////////////////////////////////////////////////////
+
+/**
+ * Internal call to apply a full list ProtoBuf from the coordinator. This
+ * should only be invoked by applyServerList(). Trakers will be notified of
+ * changes to the local server list.
+ *
+ * See applyServerList() docs for more details.
  *
  * \param list
  *      A complete snapshot of the coordinator's server list.
@@ -107,6 +158,7 @@ void
 ServerList::applyFullList(const ProtoBuf::ServerList& list)
 {
     Lock lock(mutex);
+    assert(list.type() == ProtoBuf::ServerList_Type_FULL_LIST);
 
     LOG(NOTICE, "Got complete list of servers containing %d entries (version "
         "number %lu)", list.server_size(), list.version_number());
@@ -170,29 +222,31 @@ ServerList::applyFullList(const ProtoBuf::ServerList& list)
 }
 
 /**
- * Apply a server list update from the coordinator to  the local server list
- * so they are consistent.  In addition, all registered  trackers will receive
- * notification of all events related to servers they  are aware of along with
- * notifications for any new servers in the updated list.
+ * Applies coordinator server list updates to the local server list. Trackers
+ * will be notified. This should only be invoked by applyServerList().
+ *
+ * See applyServerList() docs for more details.
  *
  * \param update
  *      A complete snapshot of the coordinator's server list.
  * \return
- *      True if updates were lost and a full server list should be requested
- *      from the coordinator, or false if \a update was applied successfully.
+ *      false if updates were lost from the coordinator, or
+ *      true if \a update was applied successfully.
  */
 bool
 ServerList::applyUpdate(const ProtoBuf::ServerList& update)
 {
     Lock lock(mutex);
+    assert(update.type() == ProtoBuf::ServerList_Type_UPDATE);
 
     // If this isn't the next expected update, request that the entire list
     // be pushed again.
     if (update.version_number() != (version + 1)) {
         LOG(NOTICE, "Update generation number is %lu, but last seen was %lu. "
-            "Something was lost! Grabbing complete list again!",
+            "Something was lost! Shouldn't happen unless there\'s a programmer "
+            "error in the CoordinatorServerList update management code.",
             update.version_number(), version);
-        return true;
+        return false;
     }
 
     LOG(NOTICE, "Got server list update (version number %lu)",
@@ -219,7 +273,7 @@ ServerList::applyUpdate(const ProtoBuf::ServerList& update)
                     "(%lu). Something is screwed up! Requesting the entire "
                     "list again.", id.toString().c_str(),
                     update.version_number());
-                return true;
+                return false;
             }
 
             LOG(NOTICE, "  Marking server id %s as crashed",
@@ -232,7 +286,7 @@ ServerList::applyUpdate(const ProtoBuf::ServerList& update)
                     "(%lu). Something is screwed up! Requesting the entire "
                     "list again.", id.toString().c_str(),
                     update.version_number());
-                return true;
+                return false;
             }
 
             LOG(NOTICE, "  Removing server id %s", id.toString().c_str());
@@ -245,12 +299,9 @@ ServerList::applyUpdate(const ProtoBuf::ServerList& update)
     foreach (ServerTrackerInterface* tracker, trackers)
         tracker->fireCallback();
 
-    return false;
+    return true;
 }
 
-//////////////////////////////////////////////////////////////////////
-// ServerList - Private Methods
-//////////////////////////////////////////////////////////////////////
 /**
  * Add a new server to the ServerList along with some details.
  * All registered ServerTrackers will have the changes enqueued to them.

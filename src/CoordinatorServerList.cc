@@ -12,12 +12,15 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
+
 #include "Common.h"
+#include "ClientException.h"
 #include "CoordinatorServerList.h"
-#include "ServerListUpdater.h"
+#include "Cycles.h"
 #include "ServerTracker.h"
 #include "ShortMacros.h"
 #include "TransportManager.h"
+#include "Context.h"
 
 namespace RAMCloud {
 
@@ -31,14 +34,21 @@ namespace RAMCloud {
  */
 CoordinatorServerList::CoordinatorServerList(Context* context)
     : AbstractServerList(context)
-    , updater(context, *this)
     , serverList()
     , numberOfMasters(0)
     , numberOfBackups(0)
+    , concurrentRPCs(5)
+    , rpcTimeoutNs(10000UL * 1000)
+    , stopUpdater(true)
+    , lastScan()
+    , update()
     , updates()
+    , hasUpdatesOrStop()
+    , listUpToDate()
+    , thread()
 {
     context->coordinatorServerList = this;
-    updater.start();
+    startUpdater();
 }
 
 /**
@@ -46,6 +56,7 @@ CoordinatorServerList::CoordinatorServerList(Context* context)
  */
 CoordinatorServerList::~CoordinatorServerList()
 {
+    haltUpdater();
 }
 
 
@@ -87,7 +98,7 @@ CoordinatorServerList::isize() const
  * Add a new server to the CoordinatorServerList with a given ServerId.
  *
  * The result of this operation will be added in the class's update Protobuffer
- * intended for the cluster. To send out the update, call sendMembershipUpdate()
+ * intended for the cluster. To send out the update, call commitUpdate()
  * which will also increment the version number. Calls to remove()
  * and crashed() must proceed call to add() to ensure ordering guarantees
  * about notifications related to servers which re-enlist.
@@ -113,7 +124,7 @@ CoordinatorServerList::add(ServerId serverId,
 {
     Lock lock(mutex);
     add(lock, serverId, serviceLocator, serviceMask, readSpeed);
-    sendMembershipUpdate(serverId);
+    commitUpdate(lock);
 }
 
 /**
@@ -125,7 +136,7 @@ CoordinatorServerList::add(ServerId serverId,
  * the effect is undefined if the server's status is DOWN.
  *
  * The result of this operation will be added in the class's update Protobuffer
- * intended for the cluster. To send out the update, call sendMembershipUpdate()
+ * intended for the cluster. To send out the update, call commitUpdate()
  * which will also increment the version number. Calls to remove()
  * and crashed() must proceed call to add() to ensure ordering guarantees
  * about notifications related to servers which re-enlist.
@@ -142,7 +153,35 @@ CoordinatorServerList::crashed(ServerId serverId)
 {
     Lock lock(mutex);
     crashed(lock, serverId);
-    sendMembershipUpdate({});
+    commitUpdate(lock);
+}
+
+/**
+ * Remove a server from the list, typically when it is no longer part of
+ * the system and we don't care about it anymore (it crashed and has
+ * been properly recovered).
+ *
+ * This method may actually append two entries to \a update (see below).
+ *
+ * The result of this operation will be added in the class's update Protobuffer
+ * intended for the cluster. To send out the update, call commitUpdate()
+ * which will also increment the version number. Calls to remove()
+ * and crashed() must proceed call to add() to ensure ordering guarantees
+ * about notifications related to servers which re-enlist.
+ *
+ * The addition will be pushed to all registered trackers and those with
+ * callbacks will be notified.
+ *
+ * \param serverId
+ *      The ServerId of the server to remove from the CoordinatorServerList.
+ *      It must be in the list (either UP or CRASHED).
+ */
+void
+CoordinatorServerList::remove(ServerId serverId)
+{
+    Lock lock(mutex);
+    remove(lock, serverId);
+    commitUpdate(lock);
 }
 
 /**
@@ -165,33 +204,6 @@ CoordinatorServerList::generateUniqueId()
     return id;
 }
 
-/**
- * Remove a server from the list, typically when it is no longer part of
- * the system and we don't care about it anymore (it crashed and has
- * been properly recovered).
- *
- * This method may actually append two entries to \a update (see below).
- *
- * The result of this operation will be added in the class's update Protobuffer
- * intended for the cluster. To send out the update, call sendMembershipUpdate()
- * which will also increment the version number. Calls to remove()
- * and crashed() must proceed call to add() to ensure ordering guarantees
- * about notifications related to servers which re-enlist.
- *
- * The addition will be pushed to all registered trackers and those with
- * callbacks will be notified.
- *
- * \param serverId
- *      The ServerId of the server to remove from the CoordinatorServerList.
- *      It must be in the list (either UP or CRASHED).
- */
-void
-CoordinatorServerList::remove(ServerId serverId)
-{
-    Lock lock(mutex);
-    remove(lock, serverId);
-    sendMembershipUpdate({});
-}
 
 /**
  * Modify the min open segment id associated with a specific server.
@@ -406,43 +418,6 @@ CoordinatorServerList::serialize(ProtoBuf::ServerList& protoBuf,
 }
 
 /**
- * Push the entire server list to the specified server. This is used to both
- * push the initial list when a server enlists, as well as to push the list
- * again if a server misses any updates and has gone out of sync.
- *
- * \param serverId
- *      ServerId of the server to send the list to.
- */
-void
-CoordinatorServerList::sendServerList(ServerId& serverId) {
-    Lock lock(mutex);
-
-    if (iget(serverId) == NULL) {
-        LOG(WARNING, "Could not send list to unknown server %s",
-            serverId.toString().c_str());
-        return;
-    }
-
-    const Entry& entry = getReferenceFromServerId(serverId);
-    if (entry.status != ServerStatus::UP) {
-        LOG(WARNING, "Could not send list to crashed server %s",
-            serverId.toString().c_str());
-        return;
-    }
-
-    if (!entry.services.has(WireFormat::MEMBERSHIP_SERVICE)) {
-        LOG(WARNING, "Could not send list to server without membership "
-            "service: %s", serverId.toString().c_str());
-        return;
-    }
-
-    ProtoBuf::ServerList serializedServerList;
-    serialize(lock, serializedServerList, {WireFormat::MASTER_SERVICE,
-            WireFormat::BACKUP_SERVICE});
-    updater.sendFullList(serverId, serializedServerList);
-}
-
-/**
  * Add a LogCabin entry id corresponding to the intial information for a server.
  *
  * \param serverId
@@ -514,10 +489,6 @@ CoordinatorServerList::getServerUpdateLogId(ServerId serverId)
     return entry.serverUpdateLogId;
 }
 
-//////////////////////////////////////////////////////////////////////
-// CoordinatorServerList Private Methods
-//////////////////////////////////////////////////////////////////////
-
 // See docs on public version.
 // This version doesn't acquire locks and does not send out updates
 // since it is used internally.
@@ -552,7 +523,7 @@ CoordinatorServerList::add(Lock& lock,
         pair.entry->expectedReadMBytesPerSec = readSpeed;
     }
 
-    ProtoBuf::ServerList_Entry& protoBufEntry(*updates.add_server());
+    ProtoBuf::ServerList_Entry& protoBufEntry(*update.add_server());
     pair.entry->serialize(protoBufEntry);
 
     foreach (ServerTrackerInterface* tracker, trackers)
@@ -587,7 +558,7 @@ CoordinatorServerList::crashed(const Lock& lock,
 
     entry->status = ServerStatus::CRASHED;
 
-    ProtoBuf::ServerList_Entry& protoBufEntry(*updates.add_server());
+    ProtoBuf::ServerList_Entry& protoBufEntry(*update.add_server());
     entry->serialize(protoBufEntry);
 
     foreach (ServerTrackerInterface* tracker, trackers)
@@ -617,7 +588,7 @@ CoordinatorServerList::remove(Lock& lock,
     // gets the serialized update message's state field correct.
     entry->status = ServerStatus::DOWN;
 
-    ProtoBuf::ServerList_Entry& protoBufEntry(*updates.add_server());
+    ProtoBuf::ServerList_Entry& protoBufEntry(*update.add_server());
     entry->serialize(protoBufEntry);
 
     Entry removedEntry = *entry;
@@ -627,49 +598,6 @@ CoordinatorServerList::remove(Lock& lock,
         tracker->enqueueChange(removedEntry, ServerChangeEvent::SERVER_REMOVED);
     foreach (ServerTrackerInterface* tracker, trackers)
         tracker->fireCallback();
-}
-
-/**
- * Issue a cluster membership update (if there are any) to all enlisted servers
- * in the system that are running the MembershipService. This is an asynchronous
- * call. It will only update the version number if an update was sent.
- *
- *
- * \param excludeServerId
- *      ServerId of a server that is not to receive this update. This is
- *      used to avoid sending an update message to a server immediately
- *      following its enlistment (since we'll be sending the entire list
- *      instead).
- */
-void
-CoordinatorServerList::sendMembershipUpdate(ServerId excludeServerId)
-{
-    // If there are no updates, don't generate a send.
-    if (updates.server_size() == 0)
-        return;
-
-    std::vector<ServerId> recipients;
-
-    // Collect the servers that need this update.
-    for (size_t i = 0; i < serverList.size(); i++) {
-        Tub<Entry>& entry = serverList[i].entry;
-        if (!entry ||
-            entry->status != ServerStatus::UP ||
-            !entry->services.has(WireFormat::MEMBERSHIP_SERVICE))
-            continue;
-        if (entry->serverId == excludeServerId)
-            continue;
-
-        recipients.push_back(entry->serverId);
-    }
-
-    // Increment version and queue for a background update
-    version++;
-    updates.set_version_number(version);
-    updater.sendUpdate(recipients, updates);
-
-    // Clear list to collect next batch of updates.
-    updates.Clear();
 }
 
 /**
@@ -772,18 +700,386 @@ CoordinatorServerList::serialize(const Lock& lock,
     }
 
     protoBuf.set_version_number(version);
+    protoBuf.set_type(ProtoBuf::ServerList_Type_FULL_LIST);
 }
 
 
 /**
- * Blocks until all the queued updates in the BackgroundUpdater are sent out.
+ * Blocks until all of the cluster is up-to-date.
  */
 void
 CoordinatorServerList::sync()
 {
-    updater.flush();
+    startUpdater();
+    Lock lock(mutex);
+    while (!isClusterUpToDate(lock)) {
+        listUpToDate.wait(lock);
+    }
 }
 
+
+//////////////////////////////////////////////////////////////////////
+// CoordinatorServerList Private Methods
+//////////////////////////////////////////////////////////////////////
+
+/**
+ * Scans the server list to see if all entries eligible for server
+ * list updates are up-to-date.
+ *
+ * \param lock
+ *      explicity needs CoordinatorServerList lock
+ *
+ * \return
+ *      true if entire list is up-to-date
+ */
+bool
+CoordinatorServerList::isClusterUpToDate(const Lock& lock) {
+    for (size_t i = 0; i < serverList.size(); i++) {
+        if (!serverList[i].entry)
+            continue;
+
+        Entry& entry = *serverList[i].entry;
+        if (entry.services.has(WireFormat::MEMBERSHIP_SERVICE) &&
+                entry.status == ServerStatus::UP &&
+                (entry.serverListVersion != version ||
+                entry.isBeingUpdated == true) ) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/**
+ * Increments the server list version and notifies the async updater to
+ * propagate the buffered Protobuf::ServerList update. The buffered update
+ * will be Clear()ed and empty updates are silently ignored.
+ *
+ * \param lock
+ *      explicity needs CoordinatorServerList lock
+ */
+void
+CoordinatorServerList::commitUpdate(const Lock& lock)
+{
+    // If there are no updates, don't generate a send.
+    if (update.server_size() == 0)
+        return;
+
+    version++;
+    update.set_version_number(version);
+    update.set_type(ProtoBuf::ServerList_Type_UPDATE);
+    updates.push_back(update);
+    lastScan.noUpdatesFound = false;
+    hasUpdatesOrStop.notify_one();
+    update.Clear();
+}
+
+/**
+ * Deletes past updates up to and including the param version. This
+ * help maintain the updates list so that it does not get too large.
+ *
+  * \param lock
+ *      explicity needs CoordinatorServerList lock
+ *
+ *  \param version
+ *      the version to delete up to and including
+ */
+void
+CoordinatorServerList::pruneUpdates(const Lock& lock, uint64_t version)
+{
+    assert(version <= this->version);
+
+    while (!updates.empty() && updates.front().version_number() <= version)
+        updates.pop_front();
+
+    if (updates.empty())    // Empty list = no updates to send
+        listUpToDate.notify_all();
+
+    //TODO(syang0) ankitak -> This is where you detect oldest version.
+}
+
+/**
+ * Starts the background updater that keeps the cluster's
+ * server lists up-to-date.
+ */
+void
+CoordinatorServerList::startUpdater()
+{
+    Lock _(mutex);
+
+    // Start thread if not started
+    if (!thread) {
+        stopUpdater = false;
+        thread.construct(&CoordinatorServerList::updateLoop, this);
+    }
+
+    // Tell it to start work regardless
+    hasUpdatesOrStop.notify_one();
+}
+
+/**
+ * Stops the background updater. It cancel()'s all pending update rpcs
+ * and leaves the cluster out-of-date. To force a synchronization point
+ * before halting, call sync() first.
+ */
+void
+CoordinatorServerList::haltUpdater()
+{
+    // Signal stop
+    Lock lock(mutex);
+    stopUpdater = true;
+    hasUpdatesOrStop.notify_one();
+    lock.unlock();
+
+    // Wait for Thread stop
+    if (thread && thread->joinable()) {
+        thread->join();
+        thread.destroy();
+    }
+}
+
+/**
+ * Main loop that checks for outdated servers and sends out rpcs. This is
+ * intended to run thread separate from the master.
+ *
+ * Once called, this loop can be exited by calling haltUpdater().
+ */
+void
+CoordinatorServerList::updateLoop()
+{
+    try {
+        std::deque<UpdateSlot> updateSlots;
+
+        // Prefill RPC slots
+        for (uint64_t i = 0; i < concurrentRPCs; i++) {
+            updateSlots.emplace_back();
+        }
+
+        while (!stopUpdater) {
+            bool noActiveRpcs = true;
+
+            // Handle update/RPC logic
+            for (size_t i = 0; i < concurrentRPCs && !stopUpdater; i++) {
+                if (dispatchRpc(updateSlots[i]))
+                    noActiveRpcs = false;
+            }
+
+            // If there are no updates and no active rpcs, wait for more.
+            if (noActiveRpcs) {
+                Lock lock(mutex);
+
+                while (!hasUpdates(lock) && !stopUpdater) {
+                    assert(isClusterUpToDate(lock));// can be deleted
+                    listUpToDate.notify_all();
+                    hasUpdatesOrStop.wait(lock);
+                }
+            }
+        }
+
+        // if (stopUpdater) Stop all Rpcs
+        foreach (UpdateSlot& update, updateSlots) {
+            if (update.rpc) {
+                update.rpc->cancel();
+                updateEntryVersion(update.serverId, update.originalVersion);
+            }
+        }
+    } catch (const std::exception& e) {
+        LOG(ERROR, "Fatal error in CoordinatorServerList: %s", e.what());
+        throw;
+    } catch (...) {
+        LOG(ERROR, "Unknown fatal error in CoordinatorServerList.");
+        throw;
+    }
+
+}
+
+/**
+ * Core logic that handles starting rpcs, timeouts, and following up on them.
+ *
+ * \param update
+ *      The UpdateSlot that as an rpc to manage
+ *
+ * \return
+ *      true if the UpdateSlot contains an active rpc
+ */
+bool
+CoordinatorServerList::dispatchRpc(UpdateSlot& update) {
+    if (update.rpc) {
+        // Check completion/ error
+        if (update.rpc->isReady()) {
+            uint64_t newVersion;
+            try {
+                update.rpc->wait();
+                newVersion = update.protobuf.version_number();
+            } catch (const ServerNotUpException& e) {
+                newVersion = update.originalVersion;
+
+                LOG(NOTICE, "Async update to %s occurred during/after it was "
+                "crashed/downed in the CoordinatorServerList.",
+                update.serverId.toString().c_str());
+            }
+
+            update.rpc.destroy();
+            updateEntryVersion(update.serverId, newVersion);
+
+            // Check timeout event
+        } else if (Cycles::toNanoseconds(Cycles::rdtsc() - update.startCycle)
+                    > rpcTimeoutNs) {
+            update.rpc.destroy();
+            updateEntryVersion(update.serverId, update.originalVersion);
+        }
+    }
+
+    // Valid update still in progress
+    if (update.rpc)
+        return true;
+
+    // Else load new rpc and start if applicable
+    if (!loadNextUpdate(update))
+        return false;
+
+    update.rpc.construct(context, update.serverId, &(update.protobuf));
+    update.startCycle = Cycles::rdtsc();
+
+    return true;
+}
+
+/**
+ * Searches through the server list looking for servers that need
+ * to be sent updates/full lists. This search omits entries that are
+ * currently being updated which means false can be returned even if
+ * !clusterIsUpToDate().
+ *
+ * This is internally used to search for entries that need to be sent
+ * update rpcs that do not currently have an rpc attached to them.
+ *
+ * \param lock
+ *      Needs exclusive CoordinatorServerlist lock
+ *
+ * \return
+ *      true if there are server list entries that are out of date
+ *      AND do not have rpcs sent to them yet.
+ */
+bool
+CoordinatorServerList::hasUpdates(const Lock& lock)
+{
+    if (lastScan.noUpdatesFound || serverList.size() == 0)
+        return false;
+
+    size_t i = lastScan.searchIndex;
+    do {
+        if (i == 0) {
+            pruneUpdates(lock, lastScan.minVersion);
+            lastScan.minVersion = 0;
+        }
+
+        if (serverList[i].entry) {
+            Entry& entry = *serverList[i].entry;
+            if (entry.services.has(WireFormat::MEMBERSHIP_SERVICE) &&
+                    entry.status == ServerStatus::UP )
+            {
+                 // Check for new minVersion
+                if (lastScan.minVersion == 0 || (entry.serverListVersion > 0 &&
+                        entry.serverListVersion < lastScan.minVersion)) {
+                    lastScan.minVersion = entry.serverListVersion;
+                }
+
+                // Check for Update eligibility
+                if (entry.serverListVersion != version &&
+                        !entry.isBeingUpdated) {
+                    lastScan.searchIndex = i;
+                    lastScan.noUpdatesFound = false;
+                    return true;
+                }
+            }
+        }
+
+        i = (i+1)%serverList.size();
+    } while (i != lastScan.searchIndex);
+
+    lastScan.noUpdatesFound = true;
+    return false;
+}
+
+/**
+ * Loads the information needed to start an async update rpc to a server into
+ * an UpdateSlot. The entity managing the UpdateSlot is MUST call back with
+ * updateEntryVersion() regardless of rpc success or fail. Failure to do so
+ * will result internal mismanaged state.
+ *
+ * This will return false if there are no entries that need an update.
+ *
+ * \param updateSlot
+ *      the update slot to load the update info into
+ *
+ * \return bool
+ *      true if update has been loaded; false if no servers require an update.
+ *
+ */
+bool
+CoordinatorServerList::loadNextUpdate(UpdateSlot& updateSlot)
+{
+    Lock lock(mutex);
+
+    // Check for Updates
+    if (!hasUpdates(lock))
+        return false;
+
+    // Grab entry that needs update
+    // note: lastScan.searchIndex was set by hasUpdates(lock)
+    Entry& entry = *serverList[lastScan.searchIndex].entry;
+    lastScan.searchIndex = (lastScan.searchIndex + 1)%serverList.size();
+    entry.isBeingUpdated = true;
+
+    // Package info and return
+    updateSlot.originalVersion = entry.serverListVersion;
+    updateSlot.serverId = entry.serverId;
+
+    if (entry.serverListVersion == 0) {
+        updateSlot.protobuf.Clear();
+        serialize(lock, updateSlot.protobuf,
+                {WireFormat::MASTER_SERVICE, WireFormat::BACKUP_SERVICE});
+    } else {
+        assert(!updates.empty());
+        uint64_t head = updates.front().version_number();
+        uint64_t version = entry.serverListVersion + 1;
+        assert(head <= version);
+        assert(updates.back().version_number() >= version);
+        updateSlot.protobuf = updates.at(version - head);
+    }
+
+    return true;
+}
+
+/**
+ * Updates the server list version of an entry. Updates to non-existent
+ * serverIds will be ignored silently.
+ *
+ * \param serverId
+ *      ServerId of the entry that has just been updated.
+ * \param version
+ *      The version to update that entry to.
+ */
+void
+CoordinatorServerList::updateEntryVersion(ServerId serverId, uint64_t version)
+{
+    Lock lock(mutex);
+
+    try {
+        Entry& entry = const_cast<Entry&>(getReferenceFromServerId(serverId));
+        LOG(DEBUG, "server %s updated (%lu->%lu)", serverId.toString().c_str(),
+                entry.serverListVersion, version);
+
+        entry.serverListVersion = version;
+        entry.isBeingUpdated = false;
+
+        if (version < this->version)
+            lastScan.noUpdatesFound = false;
+
+    } catch(ServerListException& e) {
+        // Don't care if entry no longer exists.
+    }
+}
 
 //////////////////////////////////////////////////////////////////////
 // CoordinatorServerList::Entry Methods
@@ -796,6 +1092,8 @@ CoordinatorServerList::Entry::Entry()
     : ServerDetails()
     , minOpenSegmentId()
     , replicationId()
+    , serverListVersion(0)
+    , isBeingUpdated(false)
     , serverInfoLogId()
     , serverUpdateLogId()
 {
@@ -826,6 +1124,8 @@ CoordinatorServerList::Entry::Entry(ServerId serverId,
                     ServerStatus::UP)
     , minOpenSegmentId(0)
     , replicationId(0)
+    , serverListVersion(0)
+    , isBeingUpdated(false)
     , serverInfoLogId(LogCabin::Client::EntryId())
     , serverUpdateLogId(LogCabin::Client::EntryId())
 {

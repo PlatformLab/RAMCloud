@@ -35,7 +35,7 @@ namespace RAMCloud {
  * to date. Without it, we'd not know of new servers to ping.
  *
  * \param context
- *      Overall information about the RAMCloud server. 
+ *      Overall information about the RAMCloud server.
  * \param[in] ourServerId
  *      The ServerId of this server, as returned by enlistment with the
  *      coordinator. Used only to avoid pinging ourself.
@@ -46,10 +46,7 @@ FailureDetector::FailureDetector(Context* context,
       ourServerId(ourServerId),
       serverTracker(context),
       thread(),
-      threadShouldExit(false),
-      staleServerListSuspected(false),
-      staleServerListVersion(0),
-      staleServerListTimestamp(0)
+      threadShouldExit(false)
 {
 }
 
@@ -90,7 +87,7 @@ FailureDetector::halt()
 }
 
 /**
- * Main thread entry point for the failure detector. Spin forever, probing 
+ * Main thread entry point for the failure detector. Spin forever, probing
  * hosts, checkings for responses, and alerting the coordinator of any timeouts.
  *
  * \param detector
@@ -115,10 +112,6 @@ FailureDetector::detectorThreadEntry(FailureDetector* detector,
         ServerChangeEvent dummy2;
         while (detector->serverTracker.getChange(dummy1, dummy2)) {
         }
-
-        // See if our ServerList has gone stale (as compared to hosts we
-        // previously pinged), and request a new one if it has.
-        detector->checkForStaleServerList();
 
         // Ping a random server
         detector->pingRandomServer();
@@ -164,7 +157,6 @@ FailureDetector::pingRandomServer()
         LOG(DEBUG, "Ping succeeded to server %s (%s) in %.1f us",
             pingee.toString().c_str(), locator.c_str(),
             1e06*Cycles::toSeconds(Cycles::rdtsc() - start));
-        checkServerListVersion(serverListVersion);
     } catch (const ServerListException &sle) {
         // This isn't an error. It's just a race between this thread and
         // the membership service. It should be quite uncommon, so just
@@ -173,72 +165,4 @@ FailureDetector::pingRandomServer()
             locator.c_str(), pingee.toString().c_str());
     }
 }
-
-/**
- * When a ping response is received, it contains the responder's ServerList
- * version. This method checks to see how it compares with our ServerList,
- * and if appropriate, sets a timeout after which point we will assume that
- * our list is stale and request a new one.
- *
- * This method is used in conjunction with #checkForStaleServerList to
- * ensure that our ServerList is kept reasonably consistent with the
- * Coordinator.
- *
- * \param observedVersion
- *      A ServerList version observed on some other server in the cluster.
- */
-void
-FailureDetector::checkServerListVersion(uint64_t observedVersion)
-{
-    // If we're already suspicious, don't do anything here. Wait until we
-    // time out and handle it in #checkForStaleServerList, via the thread's
-    // main loop.
-    if (staleServerListSuspected)
-        return;
-
-    uint64_t currentVersion = context->serverList->getVersion();
-    if (observedVersion <= currentVersion)
-        return;
-
-    // We're behind. Either we lost an update, or the coordinator hasn't
-    // gotten an update to us yet. For hysteresis, we'll wait before taking
-    // any action. Mark the current ServerList version and time. If it doesn't
-    // advance within some timeout period, we'll request a new list.
-    staleServerListSuspected = true;
-    staleServerListVersion = currentVersion;
-    staleServerListTimestamp = Cycles::rdtsc();
-}
-
-/**
- * This method is used to poll for a stale ServerList. It is periodically
- * invoked as part of the FailureDetector's main loop. If our ServerList is
- * declared stale, a request to have a new one pushed is sent to the
- * Coordinator.
- */
-void
-FailureDetector::checkForStaleServerList()
-{
-    if (!staleServerListSuspected) {
-        TEST_LOG("Nothing to do.");
-        return;
-    }
-
-    uint64_t currentVersion = context->serverList->getVersion();
-    if (currentVersion > staleServerListVersion) {
-        staleServerListSuspected = false;
-        TEST_LOG("Version advanced. Suspicion suspended.");
-        return;
-    }
-
-    uint64_t deltaTicks = Cycles::rdtsc() - staleServerListTimestamp;
-    if (Cycles::toNanoseconds(deltaTicks) >= (STALE_SERVER_LIST_USECS * 1000)) {
-        LOG(WARNING, "Stale server list detected (have %lu, saw %lu). "
-            "Requesting new list push! Timeout after %lu us.",
-            currentVersion, staleServerListVersion,
-            Cycles::toNanoseconds(deltaTicks) / 1000);
-        CoordinatorClient::sendServerList(context, ourServerId);
-        staleServerListSuspected = false;
-    }
-}
-
 } // namespace

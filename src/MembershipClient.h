@@ -49,10 +49,8 @@ class MembershipClient {
   public:
     static ServerId getServerId(Context* context,
             Transport::SessionRef session);
-    static void setServerList(Context* context, ServerId serverId,
+    static void UpdateServerList(Context* context, ServerId serverId,
             ProtoBuf::ServerList* list);
-    static bool updateServerList(Context* context, ServerId serverId,
-            ProtoBuf::ServerList* changes);
 
   private:
     MembershipClient();
@@ -74,31 +72,16 @@ class GetServerIdRpc : public RpcWrapper {
 };
 
 /**
- * Encapsulates the state of a MembershipClient::setServerList
- * request, allowing it to execute asynchronously.
- */
-class SetServerListRpc : public ServerIdRpcWrapper {
-  public:
-    SetServerListRpc(Context* context, ServerId serverId,
-            ProtoBuf::ServerList* list);
-    ~SetServerListRpc() {}
-    /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
-    void wait() {waitAndCheckErrors();}
-
-  PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(SetServerListRpc);
-};
-
-/**
  * Encapsulates the state of a MembershipClient::updateServerList
  * request, allowing it to execute asynchronously.
  */
 class UpdateServerListRpc : public ServerIdRpcWrapper {
   public:
     UpdateServerListRpc(Context* context, ServerId serverId,
-            ProtoBuf::ServerList* update);
+            ProtoBuf::ServerList* list);
     ~UpdateServerListRpc() {}
-    bool wait();
+    /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
+    void wait() {waitAndCheckErrors();}
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(UpdateServerListRpc);

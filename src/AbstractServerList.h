@@ -273,7 +273,7 @@ class AbstractServerList {
 
     friend class TransportManager;       // (so it can set skipServerIdCheck)
 
-    typedef std::lock_guard<std::mutex> Lock;
+    typedef std::unique_lock<std::mutex> Lock;
     DISALLOW_COPY_AND_ASSIGN(AbstractServerList);
 };
 

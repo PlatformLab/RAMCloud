@@ -181,7 +181,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServer) {
     EXPECT_EQ("server { services: 2 server_id: 2 "
               "service_locator: \"mock:host=backup\" "
               "expected_read_mbytes_per_sec: 0 status: 0 } "
-              "version_number: 2",
+              "version_number: 2 type: FULL_LIST",
               backupList.ShortDebugString());
 }
 
@@ -313,7 +313,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServerRecover) {
     EXPECT_EQ("server { services: 2 server_id: 2 "
               "service_locator: \"mock:host=backup\" "
               "expected_read_mbytes_per_sec: 0 status: 0 } "
-              "version_number: 2",
+              "version_number: 2 type: FULL_LIST",
               backupList.ShortDebugString());
 }
 
@@ -350,7 +350,7 @@ TEST_F(CoordinatorServerManagerTest, enlistedServerRecover) {
     EXPECT_EQ("server { services: 2 server_id: 2 "
               "service_locator: \"mock:host=backup\" "
               "expected_read_mbytes_per_sec: 0 status: 0 } "
-              "version_number: 2",
+              "version_number: 2 type: FULL_LIST",
               backupList.ShortDebugString());
 }
 
@@ -373,58 +373,6 @@ namespace {
 bool statusFilter(string s) {
     return s != "checkStatus";
 }
-}
-
-TEST_F(CoordinatorServerManagerTest, sendServerList_checkLogs) {
-    TestLog::Enable _(statusFilter);
-
-    serverManager->sendServerList(ServerId(52, 0));
-    EXPECT_EQ(0U, TestLog::get().find(
-        "sendServerList: Could not send list to unknown server 52"));
-
-    ServerConfig config = ServerConfig::forTesting();
-    config.services = {WireFormat::MASTER_SERVICE, WireFormat::PING_SERVICE};
-    ServerId id = cluster.addServer(config)->serverId;
-
-    TestLog::reset();
-    serverManager->sendServerList(id);
-    cluster.syncCoordinatorServerList();
-    EXPECT_EQ(0U, TestLog::get().find(
-        "sendServerList: Could not send list to server without "
-        "membership service: 2"));
-
-    config = ServerConfig::forTesting();
-    config.services = {WireFormat::MEMBERSHIP_SERVICE};
-    id = cluster.addServer(config)->serverId;
-
-    TestLog::reset();
-    serverManager->sendServerList(id);
-    cluster.syncCoordinatorServerList();
-    EXPECT_EQ(0U, TestLog::get().find(
-        "handleRequest: Sending server list to server id"));
-    EXPECT_NE(string::npos, TestLog::get().find(
-        "applyFullList: Got complete list of servers"));
-
-    serverList->crashed(id);
-    cluster.syncCoordinatorServerList();    // clear crashed() messages
-    TestLog::reset();
-    serverManager->sendServerList(id);
-    cluster.syncCoordinatorServerList();
-    EXPECT_NE(std::string::npos, TestLog::get().find(
-            "sendServerList: Could not send list to crashed server 3"));
-}
-
-TEST_F(CoordinatorServerManagerTest, sendServerList_main) {
-    ServerConfig config = ServerConfig::forTesting();
-    config.services = {WireFormat::MEMBERSHIP_SERVICE};
-    ServerId id = cluster.addServer(config)->serverId;
-
-    TestLog::Enable _;
-    serverManager->sendServerList(id);
-    cluster.syncCoordinatorServerList();
-    EXPECT_NE(string::npos, TestLog::get().find(
-        "applyFullList: Got complete list of servers containing 1 "
-        "entries (version number 2)"));
 }
 
 TEST_F(CoordinatorServerManagerTest, serverDown_backup) {
