@@ -68,7 +68,7 @@ namespace TestLog {
         __attribute__((format(gnu_printf, 2, 3)));
     void setPredicate(bool (*pred)(string));
     string getUntil(const string searchPattern,
-                    const size_t fromPos, size_t& nextPos);
+                    const size_t fromPos, size_t* nextPos);
     /**
      * Reset and enable the test log on construction, reset and disable it
      * on destruction.

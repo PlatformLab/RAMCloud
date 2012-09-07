@@ -101,7 +101,7 @@ TEST_F(CoordinatorServiceTest, createTable) {
     EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
               "endKeyHash: 18446744073709551615 "
               "serverId: 1.0 status: NORMAL "
-              "ctime: 0, 50 } "
+              "ctime: 0, 64 } "
               "Tablet { tableId: 1 startKeyHash: 0 "
               "endKeyHash: 18446744073709551615 "
               "serverId: 2.0 status: NORMAL "
@@ -109,7 +109,7 @@ TEST_F(CoordinatorServiceTest, createTable) {
               "Tablet { tableId: 2 startKeyHash: 0 "
               "endKeyHash: 18446744073709551615 "
               "serverId: 1.0 status: NORMAL "
-              "ctime: 0, 50 }",
+              "ctime: 0, 64 }",
               service->tabletMap.debugString());
     EXPECT_EQ(2, master->tablets.tablet_size());
     EXPECT_EQ(1, master2.tablets.tablet_size());
@@ -128,7 +128,7 @@ TEST_F(CoordinatorServiceTest,
     EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
               "endKeyHash: 9223372036854775807 "
               "serverId: 1.0 status: NORMAL "
-              "ctime: 0, 48 } "
+              "ctime: 0, 62 } "
               "Tablet { tableId: 0 startKeyHash: 9223372036854775808 "
               "endKeyHash: 18446744073709551615 "
               "serverId: 2.0 status: NORMAL "
@@ -151,7 +151,7 @@ TEST_F(CoordinatorServiceTest,
     EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
               "endKeyHash: 6148914691236517205 "
               "serverId: 1.0 status: NORMAL "
-              "ctime: 0, 48 } "
+              "ctime: 0, 62 } "
               "Tablet { tableId: 0 startKeyHash: 6148914691236517206 "
               "endKeyHash: 12297829382473034410 "
               "serverId: 2.0 status: NORMAL "
@@ -159,7 +159,7 @@ TEST_F(CoordinatorServiceTest,
               "Tablet { tableId: 0 startKeyHash: 12297829382473034411 "
               "endKeyHash: 18446744073709551615 "
               "serverId: 1.0 status: NORMAL "
-              "ctime: 0, 48 }",
+              "ctime: 0, 62 }",
               service->tabletMap.debugString());
     EXPECT_EQ(2, master->tablets.tablet_size());
     EXPECT_EQ(1, master2.tablets.tablet_size());
@@ -172,29 +172,29 @@ TEST_F(CoordinatorServiceTest, splitTablet) {
     EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
               "endKeyHash: 9223372036854775806 "
               "serverId: 1.0 status: NORMAL "
-              "ctime: 0, 48 } "
+              "ctime: 0, 62 } "
               "Tablet { tableId: 0 "
               "startKeyHash: 9223372036854775807 "
               "endKeyHash: 18446744073709551615 "
               "serverId: 1.0 status: NORMAL "
-              "ctime: 0, 48 }",
+              "ctime: 0, 62 }",
               service->tabletMap.debugString());
 
     ramcloud->splitTablet("foo", 0, 9223372036854775806, 4611686018427387903);
     EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
               "endKeyHash: 4611686018427387902 "
               "serverId: 1.0 status: NORMAL "
-              "ctime: 0, 48 } "
+              "ctime: 0, 62 } "
               "Tablet { tableId: 0 "
               "startKeyHash: 9223372036854775807 "
               "endKeyHash: 18446744073709551615 "
               "serverId: 1.0 status: NORMAL "
-              "ctime: 0, 48 } "
+              "ctime: 0, 62 } "
               "Tablet { tableId: 0 "
               "startKeyHash: 4611686018427387903 "
               "endKeyHash: 9223372036854775806 "
               "serverId: 1.0 status: NORMAL "
-              "ctime: 0, 48 }",
+              "ctime: 0, 62 }",
               service->tabletMap.debugString());
 
     EXPECT_THROW(ramcloud->splitTablet("foo", 0, 16, 8),
@@ -222,7 +222,7 @@ TEST_F(CoordinatorServiceTest, dropTable) {
     EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
               "endKeyHash: 18446744073709551615 "
               "serverId: 1.0 status: NORMAL "
-              "ctime: 0, 48 }",
+              "ctime: 0, 62 }",
               service->tabletMap.debugString());
     EXPECT_EQ(0, master2.tablets.tablet_size());
 
@@ -234,7 +234,7 @@ TEST_F(CoordinatorServiceTest, dropTable) {
     EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
               "endKeyHash: 18446744073709551615 "
               "serverId: 1.0 status: NORMAL "
-              "ctime: 0, 48 }",
+              "ctime: 0, 62 }",
               service->tabletMap.debugString());
     EXPECT_EQ(1, master->tablets.tablet_size());
     EXPECT_EQ(0, master2.tablets.tablet_size());
@@ -316,7 +316,7 @@ TEST_F(CoordinatorServiceTest, getTabletMap) {
               "end_key_hash: 18446744073709551615 "
               "state: NORMAL server_id: 1 "
               "service_locator: \"mock:host=master\" "
-              "ctime_log_head_id: 0 ctime_log_head_offset: 48 }",
+              "ctime_log_head_id: 0 ctime_log_head_offset: 62 }",
               tabletMap.ShortDebugString());
 }
 
@@ -348,7 +348,7 @@ TEST_F(CoordinatorServiceTest, reassignTabletOwnership) {
     Tablet tablet = service->tabletMap.getTablet(0lu, 0lu, ~(0lu));
     EXPECT_EQ(masterServerId, tablet.serverId);
     EXPECT_EQ(0U, tablet.ctime.getSegmentId());
-    EXPECT_EQ(48U, tablet.ctime.getSegmentOffset());
+    EXPECT_EQ(62U, tablet.ctime.getSegmentOffset());
 
     TestLog::Enable _(reassignTabletOwnershipFilter);
 
@@ -380,7 +380,7 @@ TEST_F(CoordinatorServiceTest, reassignTabletOwnership) {
     tablet = service->tabletMap.getTablet(0lu, 0lu, ~(0lu));
     EXPECT_EQ(master2->serverId, tablet.serverId);
     EXPECT_EQ(0U, tablet.ctime.getSegmentId());
-    EXPECT_EQ(50U, tablet.ctime.getSegmentOffset());
+    EXPECT_EQ(64U, tablet.ctime.getSegmentOffset());
 }
 
 TEST_F(CoordinatorServiceTest, setRuntimeOption) {

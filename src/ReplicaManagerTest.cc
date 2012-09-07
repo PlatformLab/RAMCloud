@@ -361,7 +361,7 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
         "handleBackupFailure: Highest affected segmentId 1 | "
         // Ensure a new log head is allocated.
         "main: Allocating a new log head | "
-        , TestLog::getUntil("allocateSegment:", curPos, curPos));
+        , TestLog::getUntil("allocateSegment:", curPos, &curPos));
 
     EXPECT_EQ(
         // Which provides the required new log digest via open.
@@ -379,7 +379,7 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
             "on backup 4.0 | "
         "performWrite: Sending open to backup 4.0 | "
         "writeSegment: Opening <3.0,1> | "
-        , TestLog::getUntil("selectPrimary:", curPos, curPos));
+        , TestLog::getUntil("selectPrimary:", curPos, &curPos));
 
     EXPECT_EQ(
         // Re-replication of Segment 0's lost replica.
@@ -389,7 +389,7 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
             "on backup 4.0 | "
         "performWrite: Sending open to backup 4.0 | "
         "writeSegment: Opening <3.0,0> | "
-        , TestLog::getUntil("selectPrimary:", curPos, curPos));
+        , TestLog::getUntil("selectPrimary:", curPos, &curPos));
 
     EXPECT_EQ(
         // Starting replication of new log head Segment 2.
@@ -408,7 +408,7 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
         "performWrite: Cannot close segment 1 until following segment is "
             "durably open | "
         "performWrite: Sending open to backup 2.0 | "
-        , TestLog::getUntil("writeSegment:", curPos, curPos));
+        , TestLog::getUntil("writeSegment:", curPos, &curPos));
 
     EXPECT_EQ(
         // Starting replication of new log head Segment 2.
@@ -431,7 +431,7 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
         "performWrite: Sending write to backup 4.0 | "
         "performWrite: Sending write to backup 2.0 | "
         "performWrite: Sending write to backup 4.0 | "
-        , TestLog::getUntil("performTask:", curPos, curPos));
+        , TestLog::getUntil("performTask:", curPos, &curPos));
 
     EXPECT_EQ(
         // Update minOpenSegmentId on the coordinator to complete the lost
@@ -449,7 +449,7 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
         "performTask: coordinator minOpenSegmentId for 3.0 updated to 2 | "
         "performTask: minOpenSegmentId ok, lost open replica recovery "
             "complete on segment 1"
-        , TestLog::getUntil("", curPos, curPos));
+        , TestLog::getUntil("", curPos, &curPos));
 
     // Make sure it rolled over to a new log head.
     EXPECT_EQ(2u, log.head->id);

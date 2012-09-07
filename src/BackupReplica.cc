@@ -412,7 +412,7 @@ BackupReplica::buildRecoverySegments(const ProtoBuf::Tablets& partitions)
             Log::Position position(segmentId, it.getOffset());
 
             if (type == LOG_ENTRY_TYPE_SAFEVERSION) {
-                // duplicate the entry to all partitions 
+                // duplicate the entry to all partitions
                 // for safeVersion recovery
                 foreach (uint64_t partition, partitionSet) {
                     bool success =

@@ -1875,7 +1875,7 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
             // Copy SafeVerObject to the recovery segment.
             // Sync can be delayed, because recovery can be replayed
             // with the same backup data when the recovery crashes on the way.
-            log->append(LOG_ENTRY_TYPE_SAFEVERSION, buffer, 
+            log->append(LOG_ENTRY_TYPE_SAFEVERSION, buffer,
                         false, safeVerReference);
 
             // recover segmentManager.safeVersion (Master safeVersion)

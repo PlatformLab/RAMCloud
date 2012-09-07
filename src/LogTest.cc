@@ -159,16 +159,16 @@ TEST_F(LogTest, getHeadPosition) {
     EXPECT_EQ(Log::Position(0, 0), l2.getHeadPosition());
 
     // synced returns something else...
-    EXPECT_EQ(Log::Position(0, 48), l.getHeadPosition());
+    EXPECT_EQ(Log::Position(0, 62), l.getHeadPosition());
 
     char data[1000];
     l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true);
-    EXPECT_EQ(Log::Position(0, 1051), l.getHeadPosition());
+    EXPECT_EQ(Log::Position(0, 1065), l.getHeadPosition());
 
     while (l.getHeadPosition().getSegmentId() == 0)
         l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true);
 
-    EXPECT_EQ(Log::Position(1, 1051), l.getHeadPosition());
+    EXPECT_EQ(Log::Position(1, 1065), l.getHeadPosition());
 }
 
 TEST_F(LogTest, getSegmentId) {

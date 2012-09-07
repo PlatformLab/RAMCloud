@@ -25,6 +25,7 @@
 #include "MultiRead.h"
 #include "RamCloud.h"
 #include "ReplicaManager.h"
+#include "SegmentManager.h"
 #include "ShortMacros.h"
 #include "StringUtil.h"
 #include "Tablets.pb.h"
@@ -76,6 +77,7 @@ class MasterServiceTest : public ::testing::Test {
     ServerConfig masterConfig;
     MasterService* service;
     Server* masterServer;
+    //    SegmentManager segmentManager;
 
     // To make tests that don't need big segments faster, set a smaller default
     // segmentSize. Since we can't provide arguments to it in gtest, nor can we
@@ -91,6 +93,7 @@ class MasterServiceTest : public ::testing::Test {
         , masterConfig(ServerConfig::forTesting())
         , service()
         , masterServer()
+          //        , segmentManager()
     {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
 
@@ -110,6 +113,7 @@ class MasterServiceTest : public ::testing::Test {
         masterConfig.master.numReplicas = 1;
         masterServer = cluster.addServer(masterConfig);
         service = masterServer->master.get();
+        // service->log.segmentManager = segmentManager;
         service->log->sync();
 
         ramcloud.construct(&context, "mock:host=coordinator");
@@ -171,6 +175,31 @@ class MasterServiceTest : public ::testing::Test {
 
         return buffer.getTotalLength();
     }
+
+    /*
+    // Build a properly formatted segment containing a single safeVersion. This
+    // segment may be passed directly to the MasterService::recover() routine.
+    uint32_t
+    buildRecoverySegment(char *segmentBuf, uint64_t segmentCapacity,
+                         ObjectSafeVersion &safeVer,
+                         Segment::Certificate* outCertificate)
+    {
+        Segment s;
+        Buffer newSafeVerBuffer;
+        safeVer.serializeToBuffer(newSafeVerBuffer);
+        bool success = s.append(LOG_ENTRY_TYPE_SAFEVERSION, newSafeVerBuffer);
+        EXPECT_TRUE(success);
+        s.close();
+
+        Buffer buffer;
+        s.appendToBuffer(buffer);
+        EXPECT_GE(segmentCapacity, buffer.getTotalLength());
+        buffer.copy(0, buffer.getTotalLength(), segmentBuf);
+        s.getAppendedLength(*outCertificate);
+
+        return buffer.getTotalLength();
+    }
+    */
 
     // Write a segment containing nothing but a header to a backup. This is used
     // to test fetching of recovery segments in various tests.
@@ -496,10 +525,10 @@ TEST_F(MasterServiceTest, detectSegmentRecoveryFailure_failure) {
 }
 
 TEST_F(MasterServiceTest, getHeadOfLog) {
-    EXPECT_EQ(Log::Position(0, 48),
+    EXPECT_EQ(Log::Position(0, 62),
               MasterClient::getHeadOfLog(&context, masterServer->serverId));
     ramcloud->write(0, "0", 1, "abcdef", 6);
-    EXPECT_EQ(Log::Position(0, 83),
+    EXPECT_EQ(Log::Position(0, 97),
               MasterClient::getHeadOfLog(&context, masterServer->serverId));
 }
 
@@ -733,18 +762,25 @@ TEST_F(MasterServiceTest, recover_ctimeUpdateIssued) {
     MasterClient::recover(&context, masterServer->serverId, 10lu,
                           ServerId(123), 0, &tablets, replicas, 0);
 
-    EXPECT_TRUE(StringUtil::startsWith(TestLog::get(),
+    size_t curPos = 0; // Current Pos: given to getUntil() as 2nd arg, and
+    EXPECT_EQ(
         "recoveryMasterFinished: called by masterId 2.0 with 4 tablets | "
         "recoveryMasterFinished: Recovered tablets | "
         "recoveryMasterFinished: tablet { "
         "table_id: 123 start_key_hash: 0 end_key_hash: 9 state: RECOVERING "
         "server_id: 2 service_locator: \"mock:host=master\" user_data: 0 "
-        "ctime_log_head_id: 0 ctime_log_head_offset: 83 } tablet { table_id: "
+        , TestLog::getUntil("ctime_log_head_id:", curPos, &curPos));
+    EXPECT_EQ(
+        "ctime_log_head_id: 0 "
+        "ctime_log_head_offset: 97 } tablet { table_id: "
         "123 start_key_hash: 10 end_key_hash: 19 state: RECOVERING server_id: "
         "2 service_locator: \"mock:host=master\" user_data: 0 "
-        "ctime_log_head_id: 0 ctime_log_head_offset: 83 } tablet { table_id: "
+        , TestLog::getUntil("ctime_log_head_id", curPos, &curPos));
+    EXPECT_EQ(
+        "ctime_log_head_id: 0 ctime_log_head_offset: 97 } tablet { table_id: "
         "123 start_key_hash: 20 end_key_hash: 29 state: RECOVERING server_id: "
-        "2 service_locator: \"mock:host=master\" user_data: "));
+        "2 service_locator: \"mock:host=master\" user_data: 0 "
+        , TestLog::getUntil("ctime_log_head_id", curPos, &curPos));
 }
 
 namespace {
@@ -983,6 +1019,30 @@ TEST_F(MasterServiceTest, recoverSegment) {
     EXPECT_EQ(0, memcmp(t10Buffer.getRange(0, t10Buffer.getTotalLength()),
                         buffer.getRange(0, buffer.getTotalLength()),
                         buffer.getTotalLength()));
+    /*
+    ////////////////////////////////////////////////////////////////////
+    //
+    //  For safeVersion recovery from OBJECT_SAFEVERSION entry
+    //
+    ////////////////////////////////////////////////////////////////////
+    service->log.segmentManager.safeVersion = 1UL; // reset safeVersion to 1
+
+    ObjectSafeVersion safeVer(10UL);
+    len = buildRecoverySegment(seg, segLen, safeVer, &certificate);
+    EXPECT_EQ(48U, len);
+    TestLog::Enable _(recoverSegmentFilter);
+    service->recoverSegment(0, seg, len);
+    EXPECT_TRUE(TestUtil::matchesPosixRegex(
+        "SAFEVERSION 10 recovered |",
+        TestLog::get()));
+    TestLog::reset();
+    // two safeVer should be found.
+    // EXPECT_EQ(2, verifyCopiedSafeVer(&safeVer)); // TBD
+
+    // recovered from safeVer
+    EXPECT_EQ(10UL, service->log.segmentManager.safeVersion);
+    */
+
 }
 
 TEST_F(MasterServiceTest, remove_basics) {
@@ -1458,6 +1518,48 @@ TEST_F(MasterServiceTest, write_basics) {
     EXPECT_EQ("item0-v3", TestUtil::toString(&value));
     EXPECT_EQ(3U, version);
 }
+
+/*
+TEST_F(MasterServiceTest, safeVersionNumberUpdate) {
+    Buffer value;
+    uint64_t version;
+
+    service->log.segmentManager.safeVersion = 1UL; // reset safeVersion
+    // initial data to original table
+    //         Table, Key, KeyLen, Data, Len, rejectRule, Version
+    ramcloud->write(0, "k0", 2, "value0", 6, NULL, &version);
+    EXPECT_EQ(1U, version); // safeVersion is given
+    ramcloud->read(0,  "k0", 2, &value);
+    EXPECT_EQ("value0", TestUtil::toString(&value));
+    EXPECT_EQ(1U, version); // current object version returned
+    EXPECT_EQ(2U, service->log.segmentManager.safeVersion);
+
+    // original key to original table
+    ramcloud->write(0, "k0", 2, "value1", 6, NULL, &version);
+    EXPECT_EQ(2U, version); // object version incremented
+    ramcloud->read(0,  "k0", 2, &value);
+    EXPECT_EQ("value1", TestUtil::toString(&value));
+    EXPECT_EQ(2U, version); // current object version returned
+    EXPECT_EQ(2U, service->log.segmentManager.safeVersion);
+
+    service->log.segmentManager.safeVersion = 29UL; // increase safeVersion
+    // different key to original table
+    ramcloud->write(0, "k1", 2, "value3", 6, NULL, &version);
+    EXPECT_EQ(29U, version);  // safeVersion is given
+    ramcloud->read(0, "k1", 2, &value);
+    EXPECT_EQ("value3", TestUtil::toString(&value));
+    EXPECT_EQ(29U, version);  // current object version returned
+    EXPECT_EQ(30U, service->log.segmentManager.safeVersion); 
+
+    // original key to original table
+    ramcloud->write(0, "k0", 2, "value4", 6, NULL, &version);
+    EXPECT_EQ(3U, version); // object version incremented
+    ramcloud->read(0,  "k0", 2, &value);
+    EXPECT_EQ("value4", TestUtil::toString(&value));
+    EXPECT_EQ(3U, version); // current object version returned
+    EXPECT_EQ(30U, service->log.segmentManager.safeVersion); 
+}
+*/
 
 TEST_F(MasterServiceTest, write_rejectRules) {
     RejectRules rules;

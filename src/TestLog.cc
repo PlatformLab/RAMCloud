@@ -114,21 +114,21 @@ namespace TestLog {
     string
     getUntil(const string searchPattern,
                const size_t fromPos,
-               size_t& nextPos) {
+               size_t* nextPos) {
         Lock _(mutex);
         if (searchPattern.empty()) {
-            nextPos = message.length();
-            return message.substr(fromPos, nextPos - fromPos);
+            *nextPos = message.length();
+            return message.substr(fromPos, *nextPos - fromPos);
         }
         // skip the first charactor to avoid matching first word again.
-        nextPos = message.find(searchPattern, fromPos + 1);
+        *nextPos = message.find(searchPattern, fromPos + 1);
 
-        if (nextPos == string::npos) {
+        if (*nextPos == string::npos) {
             return "Log::getMatched(): Pattern '"
                     + searchPattern +
                     "' not found";
         };
-        return message.substr(fromPos, nextPos - fromPos);
+        return message.substr(fromPos, *nextPos - fromPos);
     }
 
     /**

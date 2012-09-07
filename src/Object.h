@@ -789,7 +789,7 @@ class ObjectTombstone {
  **/
 class ObjectSafeVersion {
   public:
-    ObjectSafeVersion(const uint64_t safeVer)
+    explicit ObjectSafeVersion(const uint64_t safeVer)
        :  serializedForm(safeVer)
     {
         serializedForm.checksum = computeChecksum();
@@ -870,7 +870,7 @@ class ObjectSafeVersion {
          * \param safeVersion
          *      The 64-bit identifier for the table the dead object was in.
          */
-        SerializedForm(uint64_t safeVersion)
+        explicit SerializedForm(uint64_t safeVersion)
                 : safeVersion(safeVersion),
                   checksum(0)
         {
@@ -903,7 +903,8 @@ class ObjectSafeVersion {
         return crc.getResult();
     }
 
-    /// Copy of the safeVersion header that is in, or will be written to, the log.
+    /// Copy of the safeVersion header that is in,
+    /// or will be written to, the log.
     SerializedForm serializedForm;
 
     /// No pointer to safeVersion body since no body exist.

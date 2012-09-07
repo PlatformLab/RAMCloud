@@ -133,6 +133,10 @@ TEST_F(LogIteratorTest, isDone_simple) {
         EXPECT_EQ(LOG_ENTRY_TYPE_LOGDIGEST, i.getType());
         i.next();
 
+        EXPECT_FALSE(i.isDone());
+        EXPECT_EQ(LOG_ENTRY_TYPE_SAFEVERSION, i.getType());
+        i.next();
+
         EXPECT_TRUE(i.isDone());
     }
 
@@ -143,7 +147,7 @@ TEST_F(LogIteratorTest, isDone_simple) {
     int count;
     for (count = 0; !i.isDone(); count++)
         i.next();
-    EXPECT_EQ(3, count);
+    EXPECT_EQ(4, count);
 }
 
 #if 0
@@ -200,6 +204,10 @@ TEST_F(LogIteratorTest, next) {
 
         i.next();
         EXPECT_EQ(LOG_ENTRY_TYPE_LOGDIGEST, i.getType());
+        EXPECT_EQ(lastSegment, i.currentIterator->segment);
+
+        i.next();
+        EXPECT_EQ(LOG_ENTRY_TYPE_SAFEVERSION, i.getType());
         EXPECT_EQ(lastSegment, i.currentIterator->segment);
 
         i.next();
